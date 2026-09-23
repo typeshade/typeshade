@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { licm } from './index.js'
+import { describe, it, expect } from 'vitest';
+import { licm } from './index.js';
 import {
   module,
   fn,
@@ -10,9 +10,9 @@ import {
   toF32,
   type Stmt,
   type ModuleDecl,
-} from '../../ir/index.js'
-import { emitModule } from '../../backends/wgsl.js'
-import { compileModule } from '../../oracle.js'
+} from '../../ir/index.js';
+import { emitModule } from '../../backends/wgsl.js';
+import { compileModule } from '../../oracle.js';
 
 // P2 — loop-invariant code motion (a.k.a. uniform hoisting): a compound, input-only
 // (params/consts/bindings, no local) expr computed inside a loop body is recomputed
@@ -23,71 +23,74 @@ describe('optimize — loop-invariant code motion (uniform hoisting)', () => {
     const m = module({
       funcs: [
         fn('k', { x: f32T }, f32T, ({ x }, b) => {
-          const acc = b.var('acc', f32T, f32(0))
+          const acc = b.var('acc', f32T, f32(0));
           b.forRange(
             'i',
             i32(0),
             (i) => i.lt(i32(4)),
             (cb) => {
-              cb.addAssign(acc, sin(x))
+              cb.addAssign(acc, sin(x));
             },
-          )
-          b.ret(acc)
+          );
+          b.ret(acc);
         }),
       ],
-    })
-    const wgsl = emitModule(licm(m))
-    expect(wgsl).toContain('_licm')
-    expect((wgsl.match(/sin\(x\)/g) ?? []).length).toBe(1) // computed once, hoisted out
-  })
+    });
+    const wgsl = emitModule(licm(m));
+    expect(wgsl).toContain('_licm');
+    expect((wgsl.match(/sin\(x\)/g) ?? []).length).toBe(1); // computed once, hoisted out
+  });
 
   it('does not hoist a loop-variant expr (depends on the counter)', () => {
     const m = module({
       funcs: [
         fn('k', {}, f32T, (_p, b) => {
-          const acc = b.var('acc', f32T, f32(0))
+          const acc = b.var('acc', f32T, f32(0));
           b.forRange(
             'i',
             i32(0),
             (i) => i.lt(i32(4)),
             (cb, i) => {
-              cb.addAssign(acc, sin(toF32(i)))
+              cb.addAssign(acc, sin(toF32(i)));
             },
-          )
-          b.ret(acc)
+          );
+          b.ret(acc);
         }),
       ],
-    })
-    expect(emitModule(licm(m))).not.toContain('_licm')
-  })
+    });
+    expect(emitModule(licm(m))).not.toContain('_licm');
+  });
 
   it('preserves oracle value-equality', () => {
     const m = module({
       funcs: [
         fn('k', { x: f32T }, f32T, ({ x }, b) => {
-          const acc = b.var('acc', f32T, f32(0))
+          const acc = b.var('acc', f32T, f32(0));
           b.forRange(
             'i',
             i32(0),
             (i) => i.lt(i32(4)),
             (cb) => {
-              cb.addAssign(acc, sin(x))
+              cb.addAssign(acc, sin(x));
             },
-          )
-          b.ret(acc)
+          );
+          b.ret(acc);
         }),
       ],
-    })
-    expect(compileModule(licm(m)).fns.k(0.5)).toBeCloseTo(compileModule(m).fns.k(0.5) as number, 10)
-  })
+    });
+    expect(compileModule(licm(m)).fns.k(0.5)).toBeCloseTo(
+      compileModule(m).fns.k(0.5) as number,
+      10,
+    );
+  });
 
   it('skips a fn containing a raw Stmt', () => {
     const m: ModuleDecl = module({
       funcs: [
         { name: 'rf', params: [], ret: f32T, body: [{ s: 'raw', wgsl: 'return 1.0;' } as Stmt] },
       ],
-    })
-    expect(() => emitModule(licm(m))).not.toThrow()
-    expect(emitModule(licm(m))).not.toContain('_licm')
-  })
-})
+    });
+    expect(() => emitModule(licm(m))).not.toThrow();
+    expect(emitModule(licm(m))).not.toContain('_licm');
+  });
+});

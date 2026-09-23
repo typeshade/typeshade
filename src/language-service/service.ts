@@ -1,30 +1,31 @@
 // === createTypeshadeLanguageService: the TypeshadeLanguageService of design doc §4 ===
 
-import ts from 'typescript'
-import { emitModule } from '../core/backends/wgsl.js'
-import { emitGlslModule } from '../core/backends/glsl.js'
-import { compileTsSource, type CompileTsSourceResult } from '../compiler/ts/source-file.js'
-import { TypeshadeHost, type TypeshadeLanguageServiceHost } from './host.js'
-import { TS_CODES } from '../compiler/ts/codes.js'
-import { makeDiagnostic } from '../compiler/ts/diagnostic.js'
-import { emittedStructDecls } from '../compiler/ts/structs.js'
+import ts from 'typescript';
+import { emitModule } from '../core/backends/wgsl.js';
+import { emitGlslModule } from '../core/backends/glsl.js';
+import { compileTsSource, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
+import { TypeshadeHost, type TypeshadeLanguageServiceHost } from './host.js';
+import { TS_CODES } from '../compiler/ts/codes.js';
+import { makeDiagnostic } from '../compiler/ts/diagnostic.js';
+import { emittedStructDecls } from '../compiler/ts/structs.js';
 import {
   fromCompilerDiagnostic,
   getTypeScriptDiagnostics,
   getTypeshadeDiagnostics,
-} from './diagnostics.js'
-import { getCompletions } from './completions.js'
-import { getHover } from './hover.js'
+} from './diagnostics.js';
+import { getCompletions } from './completions.js';
+import { getHover } from './hover.js';
 import {
   getDefinition,
   getDocumentSymbols,
   getReferences,
   prepareRename,
   rename,
-} from './navigation.js'
-import { getSignatureHelp } from './signature.js'
-import { getSemanticTokens } from './semantic-tokens.js'
-import { offsetAt, positionAt } from './positions.js'
+} from './navigation.js';
+import { getSignatureHelp } from './signature.js';
+import { getSemanticTokens } from './semantic-tokens.js';
+import { offsetAt, positionAt } from './positions.js';
+import { mapToOriginal, type ProjectionLookup } from './projection.js';
 import type {
   TypeshadeCompiledOutput,
   TypeshadeCompletionItem,
@@ -37,10 +38,10 @@ import type {
   TypeshadeSemanticToken,
   TypeshadeSignatureHelp,
   TypeshadeTextEdit,
-} from './types.js'
+} from './types.js';
 
-export type { TypeshadeLanguageServiceHost } from './host.js'
-export { AMBIENT_LIB_URI } from './host.js'
+export type { TypeshadeLanguageServiceHost } from './host.js';
+export { AMBIENT_LIB_URI } from './host.js';
 
 /**
  * The full editor-neutral, document-based Typeshade language service surface (design doc §4).
@@ -50,57 +51,57 @@ export { AMBIENT_LIB_URI } from './host.js'
  */
 export interface TypeshadeLanguageService {
   /** Opens a document, or replaces it if already open. */
-  openDocument(uri: string, text: string, version?: number): void
+  openDocument(uri: string, text: string, version?: number): void;
   /** Updates an open document's text. */
-  updateDocument(uri: string, text: string, version?: number): void
+  updateDocument(uri: string, text: string, version?: number): void;
   /** Closes a document; it is dropped from the underlying TypeScript program. */
-  closeDocument(uri: string): void
+  closeDocument(uri: string): void;
 
   /** TypeScript and TypeShade diagnostics for `uri`, merged (§5, §6) and in document order: by
    *  span start, then span length, then source. Empty when `uri` is not open. */
-  getDiagnostics(uri: string): readonly TypeshadeDiagnostic[]
+  getDiagnostics(uri: string): readonly TypeshadeDiagnostic[];
   /** Completion items at `position` in `uri` (§5). */
-  getCompletions(uri: string, position: TypeshadePosition): readonly TypeshadeCompletionItem[]
+  getCompletions(uri: string, position: TypeshadePosition): readonly TypeshadeCompletionItem[];
   /** Hover documentation at `position` in `uri`, or `undefined` when there is none (§5). */
-  getHover(uri: string, position: TypeshadePosition): TypeshadeHover | undefined
+  getHover(uri: string, position: TypeshadePosition): TypeshadeHover | undefined;
 
   /** Every location `position` in `uri` is defined at. */
-  getDefinition(uri: string, position: TypeshadePosition): readonly TypeshadeLocation[]
+  getDefinition(uri: string, position: TypeshadePosition): readonly TypeshadeLocation[];
   /** Every reference to the symbol at `position` in `uri`. */
   getReferences(
     uri: string,
     position: TypeshadePosition,
     options?: { includeDeclaration?: boolean },
-  ): readonly TypeshadeLocation[]
+  ): readonly TypeshadeLocation[];
   /** The outline of `uri`: its structs, entries, functions, resources and constants. */
-  getDocumentSymbols(uri: string): readonly TypeshadeDocumentSymbol[]
+  getDocumentSymbols(uri: string): readonly TypeshadeDocumentSymbol[];
   /** Signature help for the call expression at `position` in `uri`. */
-  getSignatureHelp(uri: string, position: TypeshadePosition): TypeshadeSignatureHelp | undefined
+  getSignatureHelp(uri: string, position: TypeshadePosition): TypeshadeSignatureHelp | undefined;
   /** Whether the symbol at `position` in `uri` can be renamed, and its current display range. */
   prepareRename(
     uri: string,
     position: TypeshadePosition,
-  ): { range: TypeshadeRange; placeholder: string } | undefined
+  ): { range: TypeshadeRange; placeholder: string } | undefined;
   /** Every edit, across every affected document, to rename the symbol at `position` to `newName`. */
   rename(
     uri: string,
     position: TypeshadePosition,
     newName: string,
-  ): Readonly<Record<string, readonly TypeshadeTextEdit[]>>
+  ): Readonly<Record<string, readonly TypeshadeTextEdit[]>>;
   /** Semantic tokens for `uri`, optionally restricted to `range`. */
-  getSemanticTokens(uri: string, range?: TypeshadeRange): readonly TypeshadeSemanticToken[]
+  getSemanticTokens(uri: string, range?: TypeshadeRange): readonly TypeshadeSemanticToken[];
 
   /** Compiles `uri` on demand for an output pane. Never called per keystroke by the service
    * itself (§7, §8). `undefined` when `uri` is not open. */
   getCompiledOutput(
     uri: string,
     target: TypeshadeCompiledOutput['target'],
-  ): TypeshadeCompiledOutput | undefined
+  ): TypeshadeCompiledOutput | undefined;
 
   /** Converts a UTF-16 offset into `uri`'s document into a zero-based editor position. */
-  positionAt(uri: string, offset: number): TypeshadePosition
+  positionAt(uri: string, offset: number): TypeshadePosition;
   /** Converts a zero-based editor position in `uri`'s document into a UTF-16 offset. */
-  offsetAt(uri: string, position: TypeshadePosition): number
+  offsetAt(uri: string, position: TypeshadePosition): number;
 }
 
 /**
@@ -110,20 +111,20 @@ export interface TypeshadeLanguageService {
  * that reads the front end (diagnostics, symbols, semantic tokens, hover, compiled output)
  * reads one cached result of this per document version instead of running it itself.
  */
-export type AnalyzeSourceFile = (sourceFile: ts.SourceFile) => CompileTsSourceResult
+export type AnalyzeSourceFile = (sourceFile: ts.SourceFile) => CompileTsSourceResult;
 
 /** The production `AnalyzeSourceFile`. */
 export const analyzeSourceFile: AnalyzeSourceFile = (sourceFile) =>
-  compileTsSource(sourceFile.text, { sourceFile, requireDirective: true, emit: false })
+  compileTsSource(sourceFile.text, { sourceFile, requireDirective: true, emit: false });
 
 /** Everything the service has computed about one document under one `dependencyKey`
  * (design doc §8): the front-end analysis, always, and the merged diagnostics once
  * `getDiagnostics` has asked for them. */
 interface DocumentCacheEntry {
   /** The `dependencyKey` the entry was computed under. */
-  readonly key: string
-  readonly analysis: CompileTsSourceResult
-  diagnostics?: readonly TypeshadeDiagnostic[]
+  readonly key: string;
+  readonly analysis: CompileTsSourceResult;
+  diagnostics?: readonly TypeshadeDiagnostic[];
 }
 
 /**
@@ -136,15 +137,15 @@ interface DocumentCacheEntry {
  * reached the file only through an `import(...)` type.
  */
 function importSpecifiersOf(sourceFile: ts.SourceFile): string[] {
-  const out: string[] = []
+  const out: string[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-      const specifier = node.moduleSpecifier
-      if (specifier !== undefined && ts.isStringLiteral(specifier)) out.push(specifier.text)
+      const specifier = node.moduleSpecifier;
+      if (specifier !== undefined && ts.isStringLiteral(specifier)) out.push(specifier.text);
     } else if (ts.isImportTypeNode(node)) {
-      const argument = node.argument
+      const argument = node.argument;
       if (ts.isLiteralTypeNode(argument) && ts.isStringLiteral(argument.literal)) {
-        out.push(argument.literal.text)
+        out.push(argument.literal.text);
       }
     } else if (
       ts.isCallExpression(node) &&
@@ -152,14 +153,14 @@ function importSpecifiersOf(sourceFile: ts.SourceFile): string[] {
       node.arguments[0] !== undefined &&
       ts.isStringLiteralLike(node.arguments[0])
     ) {
-      out.push(node.arguments[0].text)
+      out.push(node.arguments[0].text);
     } else if (ts.isExternalModuleReference(node) && ts.isStringLiteral(node.expression)) {
-      out.push(node.expression.text)
+      out.push(node.expression.text);
     }
-    ts.forEachChild(node, visit)
-  }
-  visit(sourceFile)
-  return out
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return out;
 }
 
 /** Document order for the merged list: span start, then span length (the enclosed row before
@@ -170,7 +171,7 @@ function byDocumentOrder(a: TypeshadeDiagnostic, b: TypeshadeDiagnostic): number
     a.span.start - b.span.start ||
     a.span.length - b.span.length ||
     (a.source < b.source ? -1 : a.source > b.source ? 1 : 0)
-  )
+  );
 }
 /**
  * Creates a Typeshade language service (design doc §4). `host` configures the ambient lib and
@@ -180,7 +181,7 @@ function byDocumentOrder(a: TypeshadeDiagnostic, b: TypeshadeDiagnostic): number
 export function createTypeshadeLanguageService(
   host: TypeshadeLanguageServiceHost = {},
 ): TypeshadeLanguageService {
-  return createTypeshadeLanguageServiceWith(host, analyzeSourceFile)
+  return createTypeshadeLanguageServiceWith(host, analyzeSourceFile);
 }
 
 /**
@@ -193,18 +194,18 @@ export function createTypeshadeLanguageServiceWith(
   host: TypeshadeLanguageServiceHost,
   analyze: AnalyzeSourceFile,
 ): TypeshadeLanguageService {
-  const tsHost = new TypeshadeHost(host)
-  const languageService = ts.createLanguageService(tsHost, ts.createDocumentRegistry())
-  const cache = new Map<string, DocumentCacheEntry>()
+  const tsHost = new TypeshadeHost(host);
+  const languageService = ts.createLanguageService(tsHost, ts.createDocumentRegistry());
+  const cache = new Map<string, DocumentCacheEntry>();
 
   function program(): ts.Program {
-    const p = languageService.getProgram()
-    if (!p) throw new Error('TypeshadeLanguageService: no active TypeScript program')
-    return p
+    const p = languageService.getProgram();
+    if (!p) throw new Error('TypeshadeLanguageService: no active TypeScript program');
+    return p;
   }
 
   function sourceFileOf(uri: string): ts.SourceFile | undefined {
-    return program().getSourceFile(uri)
+    return program().getSourceFile(uri);
   }
 
   /**
@@ -219,148 +220,148 @@ export function createTypeshadeLanguageServiceWith(
    * version the key already carries.
    */
   function dependencyKey(uri: string): string {
-    const current = program()
-    const parts: string[] = []
-    const seen = new Set<string>()
+    const current = program();
+    const parts: string[] = [];
+    const seen = new Set<string>();
     const visit = (u: string): void => {
-      if (seen.has(u)) return
-      seen.add(u)
-      parts.push(`${u}@${tsHost.getScriptVersion(u)}`)
-      const sf = current.getSourceFile(u)
-      if (!sf) return
+      if (seen.has(u)) return;
+      seen.add(u);
+      parts.push(`${u}@${tsHost.getScriptVersion(u)}`);
+      const sf = current.getSourceFile(u);
+      if (!sf) return;
       for (const specifier of importSpecifiersOf(sf)) {
-        const dep = tsHost.resolveImportUri(u, specifier)
-        if (dep !== undefined) visit(dep)
+        const dep = tsHost.resolveImportUri(u, specifier);
+        if (dep !== undefined) visit(dep);
       }
-    }
-    visit(uri)
-    return parts.join('|')
+    };
+    visit(uri);
+    return parts.join('|');
   }
 
   /** The cache entry for `uri` under its current `dependencyKey`, computing the front-end
    * analysis of `sourceFile` when there is none or the key has moved on. */
   function entryOf(uri: string, sourceFile: ts.SourceFile): DocumentCacheEntry {
-    const key = dependencyKey(uri)
-    const cached = cache.get(uri)
-    if (cached && cached.key === key) return cached
-    const entry: DocumentCacheEntry = { key, analysis: analyze(sourceFile) }
-    cache.set(uri, entry)
-    return entry
+    const key = dependencyKey(uri);
+    const cached = cache.get(uri);
+    if (cached && cached.key === key) return cached;
+    const entry: DocumentCacheEntry = { key, analysis: analyze(sourceFile) };
+    cache.set(uri, entry);
+    return entry;
   }
 
   /** `uri`'s merged TypeScript and TypeShade diagnostics, computed once per cache entry. */
   function diagnosticsOf(uri: string, sourceFile: ts.SourceFile): readonly TypeshadeDiagnostic[] {
-    const entry = entryOf(uri, sourceFile)
+    const entry = entryOf(uri, sourceFile);
     entry.diagnostics ??= [
       ...getTypeScriptDiagnostics(languageService, sourceFile, uri),
       ...getTypeshadeDiagnostics(entry.analysis, sourceFile, uri),
-    ].sort(byDocumentOrder)
-    return entry.diagnostics
+    ].sort(byDocumentOrder);
+    return entry.diagnostics;
   }
 
-  return {
+  const inner: TypeshadeLanguageService = {
     openDocument(uri, text, version) {
-      tsHost.openDocument(uri, text, version)
-      cache.delete(uri)
+      tsHost.openDocument(uri, text, version);
+      cache.delete(uri);
     },
 
     updateDocument(uri, text, version) {
-      tsHost.updateDocument(uri, text, version)
-      cache.delete(uri)
+      tsHost.updateDocument(uri, text, version);
+      cache.delete(uri);
     },
 
     closeDocument(uri) {
-      tsHost.closeDocument(uri)
+      tsHost.closeDocument(uri);
       // Symbols, tokens and hover answer for any file the program holds, a file pulled in
       // only through readDocument included, and such a uri is never closed itself; its entry
       // goes when a document closes, which is when the program's file set changes.
       for (const cached of cache.keys()) {
-        if (!tsHost.hasDocument(cached)) cache.delete(cached)
+        if (!tsHost.hasDocument(cached)) cache.delete(cached);
       }
     },
 
     getDiagnostics(uri) {
-      if (!tsHost.hasDocument(uri)) return []
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return []
-      return diagnosticsOf(uri, sourceFile)
+      if (!tsHost.hasDocument(uri)) return [];
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return [];
+      return diagnosticsOf(uri, sourceFile);
     },
 
     getCompletions(uri, position) {
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return []
-      const offset = offsetAt(sourceFile, position)
-      return getCompletions(languageService, sourceFile, uri, offset)
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return [];
+      const offset = offsetAt(sourceFile, position);
+      return getCompletions(languageService, sourceFile, uri, offset);
     },
 
     getHover(uri, position) {
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return undefined
-      const offset = offsetAt(sourceFile, position)
-      return getHover(languageService, sourceFile, uri, offset, entryOf(uri, sourceFile).analysis)
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return undefined;
+      const offset = offsetAt(sourceFile, position);
+      return getHover(languageService, sourceFile, uri, offset, entryOf(uri, sourceFile).analysis);
     },
 
     getDefinition(uri, position) {
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return []
-      const offset = offsetAt(sourceFile, position)
-      return getDefinition(languageService, program(), uri, offset)
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return [];
+      const offset = offsetAt(sourceFile, position);
+      return getDefinition(languageService, program(), uri, offset);
     },
 
     getReferences(uri, position, options) {
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return []
-      const offset = offsetAt(sourceFile, position)
-      return getReferences(languageService, program(), uri, offset, options)
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return [];
+      const offset = offsetAt(sourceFile, position);
+      return getReferences(languageService, program(), uri, offset, options);
     },
 
     getDocumentSymbols(uri) {
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return []
-      return getDocumentSymbols(sourceFile, entryOf(uri, sourceFile).analysis)
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return [];
+      return getDocumentSymbols(sourceFile, entryOf(uri, sourceFile).analysis);
     },
 
     getSignatureHelp(uri, position) {
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return undefined
-      const offset = offsetAt(sourceFile, position)
-      return getSignatureHelp(languageService, uri, offset)
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return undefined;
+      const offset = offsetAt(sourceFile, position);
+      return getSignatureHelp(languageService, uri, offset);
     },
 
     prepareRename(uri, position) {
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return undefined
-      const offset = offsetAt(sourceFile, position)
-      return prepareRename(languageService, sourceFile, uri, offset)
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return undefined;
+      const offset = offsetAt(sourceFile, position);
+      return prepareRename(languageService, sourceFile, uri, offset);
     },
 
     rename(uri, position, newName) {
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return {}
-      const offset = offsetAt(sourceFile, position)
-      return rename(languageService, program(), sourceFile, uri, offset, newName)
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return {};
+      const offset = offsetAt(sourceFile, position);
+      return rename(languageService, program(), sourceFile, uri, offset, newName);
     },
 
     getSemanticTokens(uri, range) {
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return []
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return [];
       return getSemanticTokens(
         languageService,
         sourceFile,
         uri,
         entryOf(uri, sourceFile).analysis,
         range,
-      )
+      );
     },
 
     getCompiledOutput(uri, target) {
-      if (!tsHost.hasDocument(uri)) return undefined
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return undefined
-      const { analysis } = entryOf(uri, sourceFile)
-      const diagnostics = [...diagnosticsOf(uri, sourceFile)]
-      const hasError = diagnostics.some((d) => d.severity === 'error')
-      let outputText = ''
+      if (!tsHost.hasDocument(uri)) return undefined;
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return undefined;
+      const { analysis } = entryOf(uri, sourceFile);
+      const diagnostics = [...diagnosticsOf(uri, sourceFile)];
+      const hasError = diagnostics.some((d) => d.severity === 'error');
+      let outputText = '';
       if (!hasError) {
         const moduleDecl = {
           consts: [...analysis.consts],
@@ -368,18 +369,18 @@ export function createTypeshadeLanguageServiceWith(
           bindings: [...analysis.bindings],
           funcs: [...analysis.funcs],
           vars: [...analysis.vars],
-        }
+        };
         try {
           outputText =
             target === 'wgsl'
               ? emitModule(moduleDecl)
-              : emitGlslModule(moduleDecl, target === 'glsl-vertex' ? 'vertex' : 'fragment')
+              : emitGlslModule(moduleDecl, target === 'glsl-vertex' ? 'vertex' : 'fragment');
         } catch (e) {
           // A backend refusing the module (a compute-only module asked for GLSL, a feature
           // GLSL ES 3.00 cannot express) is a fact about this document and target, so it is
           // reported the way compileTsSource reports its own emit failure: as a BACKEND
           // diagnostic on the first statement, with the empty text an output pane can show.
-          const message = e instanceof Error ? e.message : String(e)
+          const message = e instanceof Error ? e.message : String(e);
           diagnostics.push(
             fromCompilerDiagnostic(
               sourceFile,
@@ -391,22 +392,73 @@ export function createTypeshadeLanguageServiceWith(
                 TS_CODES.BACKEND,
               ),
             ),
-          )
+          );
         }
       }
-      return { target, text: outputText, diagnostics }
+      return { target, text: outputText, diagnostics };
     },
 
     positionAt(uri, offset) {
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return { line: 0, character: 0 }
-      return positionAt(sourceFile, offset)
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return { line: 0, character: 0 };
+      return positionAt(sourceFile, offset);
     },
 
     offsetAt(uri, position) {
-      const sourceFile = sourceFileOf(uri)
-      if (!sourceFile) return 0
-      return offsetAt(sourceFile, position)
+      const sourceFile = sourceFileOf(uri);
+      if (!sourceFile) return 0;
+      return offsetAt(sourceFile, position);
     },
-  }
+  };
+  return projected(inner, (uri) => tsHost.projectionOf(uri));
+}
+
+/**
+ * `inner`, answering in the documents as written while it computes on the program's projected
+ * text (`projection.ts`, #162). A position the caller passes in moves to the projected text, and
+ * every position, range and span in an answer moves back. `positionAt` and `offsetAt` convert
+ * against the document as written, which is the text the caller holds.
+ */
+function projected(
+  inner: TypeshadeLanguageService,
+  lookup: ProjectionLookup,
+): TypeshadeLanguageService {
+  const into = (uri: string, position: TypeshadePosition): TypeshadePosition =>
+    lookup(uri)?.toProjectedPosition(position) ?? position;
+  const back = <T>(uri: string, value: T): T => mapToOriginal(value, uri, lookup);
+  return {
+    openDocument: (uri, text, version) => inner.openDocument(uri, text, version),
+    updateDocument: (uri, text, version) => inner.updateDocument(uri, text, version),
+    closeDocument: (uri) => inner.closeDocument(uri),
+    getDiagnostics: (uri) => back(uri, inner.getDiagnostics(uri)),
+    getCompletions: (uri, position) => back(uri, inner.getCompletions(uri, into(uri, position))),
+    getHover: (uri, position) => back(uri, inner.getHover(uri, into(uri, position))),
+    getDefinition: (uri, position) => back(uri, inner.getDefinition(uri, into(uri, position))),
+    getReferences: (uri, position, options) =>
+      back(uri, inner.getReferences(uri, into(uri, position), options)),
+    getDocumentSymbols: (uri) => back(uri, inner.getDocumentSymbols(uri)),
+    getSignatureHelp: (uri, position) =>
+      back(uri, inner.getSignatureHelp(uri, into(uri, position))),
+    prepareRename: (uri, position) => back(uri, inner.prepareRename(uri, into(uri, position))),
+    rename: (uri, position, newName) => {
+      // Keyed by the uri each edit list belongs to, so each maps through its own document.
+      const edits = inner.rename(uri, into(uri, position), newName);
+      return Object.fromEntries(Object.entries(edits).map(([u, list]) => [u, back(u, list)]));
+    },
+    getSemanticTokens: (uri, range) => {
+      const tokens = inner.getSemanticTokens(
+        uri,
+        range && { start: into(uri, range.start), end: into(uri, range.end) },
+      );
+      // A token on an inserted annotation colours text the author never wrote.
+      const projection = lookup(uri);
+      const written = projection ? tokens.filter((t) => !projection.isInserted(t)) : tokens;
+      return back(uri, written);
+    },
+    getCompiledOutput: (uri, target) => back(uri, inner.getCompiledOutput(uri, target)),
+    positionAt: (uri, offset) =>
+      lookup(uri)?.originalPositionAt(offset) ?? inner.positionAt(uri, offset),
+    offsetAt: (uri, position) =>
+      lookup(uri)?.originalOffsetAt(position) ?? inner.offsetAt(uri, position),
+  };
 }

@@ -59,4 +59,4 @@ export const CURATED_ORDER: readonly string[] = [
   'texture-array-lod',
   // Compute, last.
   'compute-reduction',
-]
+];

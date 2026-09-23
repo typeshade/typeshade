@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -31,33 +31,33 @@
 // the emitted code has to satisfy, and it said no.
 
 class Palette {
-  lo: vec3
-  hi: vec3
+  lo: vec3;
+  hi: vec3;
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): vec4 {
-  const xs: array<f32, 3> = [-1., 3., -1.]
-  const ys: array<f32, 3> = [-1., -1., 3.]
-  const i = i32(vi)
-  return vec4(xs[i], ys[i], 0., 1.)
+  const xs: array<f32, 3> = [-1., 3., -1.];
+  const ys: array<f32, 3> = [-1., -1., 3.];
+  const i = i32(vi);
+  return vec4(xs[i], ys[i], 0., 1.);
 }
 
 @fragment
 export function fs(@builtin("position") frag: vec4): vec4 {
-  const uv: vec2 = fract(frag.xy * 0.008)
+  const uv: vec2 = fract(frag.xy * 0.008);
 
-  const warm: Palette = { lo: vec3(0.35, 0.1, 0.05), hi: vec3(1., 0.75, 0.35) }
-  const cool: Palette = { lo: vec3(0.04, 0.1, 0.3), hi: vec3(0.5, 0.85, 1.) }
+  const warm: Palette = { lo: vec3(0.35, 0.1, 0.05), hi: vec3(1., 0.75, 0.35) };
+  const cool: Palette = { lo: vec3(0.04, 0.1, 0.3), hi: vec3(0.5, 0.85, 1.) };
   // Two structs, chosen at run time: the shape WGSL has no `select` for.
-  const shade: Palette = uv.x > 0.5 ? warm : cool
+  const shade: Palette = uv.x > 0.5 ? warm : cool;
 
-  const rising: array<f32, 3> = [0.15, 0.5, 0.9]
-  const falling: array<f32, 3> = [0.9, 0.5, 0.15]
+  const rising: array<f32, 3> = [0.15, 0.5, 0.9];
+  const falling: array<f32, 3> = [0.9, 0.5, 0.15];
   // The same for two fixed-length arrays.
-  const steps: array<f32, 3> = uv.y > 0.5 ? rising : falling
+  const steps: array<f32, 3> = uv.y > 0.5 ? rising : falling;
 
-  const band = i32(floor(uv.y * 3.))
-  const t = smoothstep(0., 1., steps[band])
-  return vec4(mix(shade.lo, shade.hi, t), 1.)
+  const band = i32(floor(uv.y * 3.));
+  const t = smoothstep(0., 1., steps[band]);
+  return vec4(mix(shade.lo, shade.hi, t), 1.);
 }

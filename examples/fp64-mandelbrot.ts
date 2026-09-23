@@ -38,6 +38,7 @@ import {
   vec2f64T,
   If,
   Loop,
+  Break,
   Var,
   Let,
   u32,
@@ -45,8 +46,8 @@ import {
   builtin,
   location,
   uniformStruct,
-} from '../src/index.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import type { ShaderExample } from './_shared.js';
 
 // A filament point on the needle spike — a period-3 minibrot neighbourhood
 // that stays mid-frame at every zoom (centered on the real axis, y = 0). At
@@ -54,9 +55,9 @@ import type { ShaderExample } from './_shared.js'
 // the df64 floor grows them, so the iteration budget is a live uniform
 // (`max_iter`, wired to the slider) instead of a baked constant — crank it
 // past 96 to keep the deep filament structure resolved.
-const CENTER_X = -1.7490368500591793
-const CENTER_Y = 0
-const DEFAULT_ITER = 256
+const CENTER_X = -1.7490368500591793;
+const CENTER_Y = 0;
+const DEFAULT_ITER = 256;
 
 const U = uniformStruct(
   'Uniforms',
@@ -68,7 +69,7 @@ const U = uniformStruct(
     fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
     max_iter: f32T, // dynamic escape-time budget; loop bound = toU32(max_iter)
   },
-)
+);
 
 // ── Escape-time iterate — the f32 and f64 twins ────────────────────────────
 // Both run the IDENTICAL z ← z² + c recurrence; the ONLY difference is the
@@ -81,141 +82,159 @@ const U = uniformStruct(
 // The DSL types its arithmetic per CONCRETE scalar (`ArithArg<K>` is a
 // conditional type that doesn't reduce over an unresolved type param), so the
 // shared body can't collapse into one generic fn — the twins are spelled out
-// and kept line-for-line in sync, differing only in the scalar type, the zero
-// literal, and the final f32 narrow.
+// and kept in step. They run the same recurrence and differ in the scalar type,
+// the zero literal, and how |z|² is taken for the escape test: the f32 twin
+// carries its squares, the f64 twin squares its narrowed words in f32.
 const escapeF32 = fn(
   'escape_f32',
   { cx: f32T, cy: f32T, iters: u32T },
   vec2fT,
   ({ cx, cy, iters }) => {
-    const zx = Var(f32(0))
-    const zy = Var(f32(0))
-    const it = Var(f32(0))
+    // The escape loop is written as fp64-julia.ts's (which records why and what it saves):
+    // |z|² is carried in m2 beside z, the squares beside it so none is computed twice a
+    // trip, and the loop leaves at the first escaped z. z₀ = 0, so all three start at 0.
+    const zx = Var(f32(0));
+    const zy = Var(f32(0));
+    const x2 = Var(f32(0));
+    const y2 = Var(f32(0));
+    const m2 = Var(f32(0));
+    const it = Var(f32(0));
     Loop(
       u32(0),
       (j) => j.lt(iters),
       () => {
-        If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx))
-          zy.assign(zx.mul(zy).mul(2.0).add(cy))
-          zx.assign(nzx)
-          it.assign(it.add(1.0))
-        })
+        If(m2.gt(16.0), () => {
+          Break();
+        });
+        const nzx = Let(x2.sub(y2).add(cx));
+        zy.assign(zx.mul(zy).mul(2.0).add(cy));
+        zx.assign(nzx);
+        it.assign(it.add(1.0));
+        x2.assign(zx.mul(zx));
+        y2.assign(zy.mul(zy));
+        m2.assign(x2.add(y2));
       },
-    )
-    // |z|² is already f32 — no narrow needed.
-    return vec2(it, zx.mul(zx).add(zy.mul(zy)))
+    );
+    return vec2(it, m2);
   },
-)
+);
 const escapeF64 = fn(
   'escape_f64',
   { cx: f64T, cy: f64T, iters: u32T },
   vec2fT,
   ({ cx, cy, iters }) => {
-    const zx = Var(f64(0))
-    const zy = Var(f64(0))
-    const it = Var(f32(0))
+    // The escape test reads an f32 |z|² squared from the narrowed words, as in
+    // fp64-julia.ts: 48 bits move |z|² across 16 only from within an f32 rounding of it.
+    // So this helper carries no squares — the step squares z in df64, the test its
+    // narrowed words in f32 — and it hands the colouring the f32 |z|² it already has.
+    const zx = Var(f64(0));
+    const zy = Var(f64(0));
+    const m2 = Var(f32(0));
+    const it = Var(f32(0));
     Loop(
       u32(0),
       (j) => j.lt(iters),
       () => {
-        If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx))
-          zy.assign(zx.mul(zy).mul(2.0).add(cy))
-          zx.assign(nzx)
-          it.assign(it.add(1.0))
-        })
+        If(m2.gt(16.0), () => {
+          Break();
+        });
+        const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx));
+        zy.assign(zx.mul(zy).mul(2.0).add(cy));
+        zx.assign(nzx);
+        it.assign(it.add(1.0));
+        const hx = Let(toF32(zx));
+        const hy = Let(toF32(zy));
+        m2.assign(hx.mul(hx).add(hy.mul(hy)));
       },
-    )
-    // Narrow the f64 |z|² to f32 for the shared colouring.
-    return vec2(it, toF32(zx.mul(zx).add(zy.mul(zy))))
+    );
+    return vec2(it, m2);
   },
-)
+);
 
 const VsOut = ioStruct('VsOut', {
   pos: builtin('position', vec4fT),
   uv: location(0, vec2fT),
-})
+});
 
 const vsFull = fn(
   'vs_full',
   { idx: builtin('vertex_index', u32T) },
   (p) => {
-    const pos = vec2(-1, -1)
+    const pos = vec2(-1, -1);
     If(p.idx.eq(1), () => {
-      pos.assign(vec2(3, -1))
+      pos.assign(vec2(3, -1));
     }).elif(p.idx.eq(2), () => {
-      pos.assign(vec2(-1, 3))
-    })
+      pos.assign(vec2(-1, 3));
+    });
     return VsOut.construct({
       pos: vec4(pos, 0, 1),
       uv: vec2(pos.x.add(1).mul(0.5), pos.y.add(1).mul(0.5)),
-    })
+    });
   },
   { stage: 'vertex' },
-)
+);
 
 const fsMandel = fn(
   'fs_mandel',
   { vo: VsOut },
   (p) => {
-    const span = Let(pow(f32(10.0), U.field.zoom_exp.neg()))
+    const span = Let(pow(f32(10.0), U.field.zoom_exp.neg()));
     // Each half maps its own 0..1 sub-range onto the SAME complex window.
     // Panning lives on the HOST (the pan2d control drags `center` itself, in
     // full double precision) — the shader only ever sees per-pixel offsets,
     // which f32 carries fine at ~span magnitude; the extended-precision add
     // against `center` below is where f64 wins.
-    const half = Let(p.vo.uv.x.mul(2.0))
-    const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)))
-    const dx = Let(sx.sub(0.5).mul(span))
+    const half = Let(p.vo.uv.x.mul(2.0));
+    const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)));
+    const dx = Let(sx.sub(0.5).mul(span));
     const dy = Let(
       p.vo.uv.y.sub(0.5).mul(span).mul(U.field.resolution.y.div(U.field.resolution.x).mul(2.0)),
-    )
+    );
 
     // The live iteration budget, truncated once to the u32 loop bound both
     // twins share (the slider hands us an f32).
-    const iters = Let(toU32(U.field.max_iter))
-    const esc = Var(vec2(0, 0)) // (it, |z|²@escape) — filled by whichever twin runs
+    const iters = Let(toU32(U.field.max_iter));
+    const esc = Var(vec2(0, 0)); // (it, |z|²@escape) — filled by whichever twin runs
     // fp64 toggle off → BOTH halves take the f32 branch: the right half
     // collapses flat in place, making the emulation's contribution tangible.
     If(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)), () => {
       // f32 twin — the center narrowed to f32: at deep zoom cx/cy quantize to
       // f32 ulps and whole pixel columns collapse.
-      const cx = Let(toF32(U.field.center.x).add(dx))
-      const cy = Let(toF32(U.field.center.y).add(dy))
-      esc.assign(escapeF32({ cx, cy, iters }))
+      const cx = Let(toF32(U.field.center.x).add(dx));
+      const cy = Let(toF32(U.field.center.y).add(dy));
+      esc.assign(escapeF32({ cx, cy, iters }));
     }).else(() => {
       // f64 — the extended-precision add against the vec2<f64> center is where
       // the emulation earns its keep.
-      const cx = Let(U.field.center.x.add(toF64(dx)))
-      const cy = Let(U.field.center.y.add(toF64(dy)))
-      esc.assign(escapeF64({ cx, cy, iters }))
-    })
-    const it = Let(esc.x)
-    const m2 = Let(esc.y) // |z|² at escape (frozen once the guard fails)
+      const cx = Let(U.field.center.x.add(toF64(dx)));
+      const cy = Let(U.field.center.y.add(toF64(dy)));
+      esc.assign(escapeF64({ cx, cy, iters }));
+    });
+    const it = Let(esc.x);
+    const m2 = Let(esc.y); // |z|² of the last z the loop reached
 
     // Smooth escape-time colouring (log₂ log₂ |z|² kills the discrete bands —
     // same treatment as mandelbrot.ts) so zooming reads as a continuous dive
     // instead of strobing colour bands; a LOW-contrast cosine shimmer over the
     // smooth count keeps the iso-contour structure readable without the churn.
     // Interior (never escaped) stays black.
-    const sn = Let(it.sub(log2(max(log2(max(m2, 1.0001)), 0.0001))).add(1.0))
-    const inside = Let(step(U.field.max_iter.sub(0.5), it))
-    const s = Let(sn.div(U.field.max_iter))
-    const shade = Let(f32(0.82).add(cos(sn.mul(0.55)).mul(0.18)))
+    const sn = Let(it.sub(log2(max(log2(max(m2, 1.0001)), 0.0001))).add(1.0));
+    const inside = Let(step(U.field.max_iter.sub(0.5), it));
+    const s = Let(sn.div(U.field.max_iter));
+    const shade = Let(f32(0.82).add(cos(sn.mul(0.55)).mul(0.18)));
     const rgb = mix(vec3(0.03, 0.05, 0.12), vec3(1.0, 0.83, 0.36), s)
       .mul(shade)
-      .mul(f32(1).sub(inside))
-    return vec4(rgb, f32(1))
+      .mul(f32(1).sub(inside));
+    return vec4(rgb, f32(1));
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 // `_fp64` guard lands at (group 0, binding 1) automatically.
 const fp64MandelbrotModule = module({
   funcs: [escapeF32, escapeF64, vsFull, fsMandel],
   uses: [U, VsOut],
-})
+});
 
 // DF64Vec2 std140 buffer order is PLANE-major: [hi.x, hi.y, lo.x, lo.y]
 // (hi vec2 at offset 0, lo vec2 at offset 8) — NOT lane-major pairs. The
@@ -265,4 +284,4 @@ export const fp64Mandelbrot: ShaderExample = {
       value: DEFAULT_ITER,
     },
   },
-}
+};

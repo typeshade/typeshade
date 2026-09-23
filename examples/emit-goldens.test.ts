@@ -19,26 +19,26 @@
 // corpus into the same directory: two copies of it is how one suite comes to be baked and
 // the other left red against the files that bake just rewrote.
 
-import { describe, it, expect } from 'vitest'
-import { examples } from './index.js'
-import { checkGolden } from './_goldens.js'
-import { emitModule, emitGlslModule } from '../src/index.js'
+import { describe, it, expect } from 'vitest';
+import { examples } from './index.js';
+import { checkGolden } from './_goldens.js';
+import { emitModule, emitGlslModule } from '../src/index.js';
 
 describe('shader-dsl examples — emit goldens', () => {
   it('covers every registered example (registry growth forces a bake, not a skip)', () => {
-    expect(examples.length).toBeGreaterThanOrEqual(10)
-  })
+    expect(examples.length).toBeGreaterThanOrEqual(10);
+  });
 
   for (const ex of examples) {
     it(`${ex.id}: WGSL emit is byte-stable`, () => {
-      checkGolden(`${ex.id}.wgsl`, emitModule(ex.module))
-    })
+      checkGolden(`${ex.id}.wgsl`, emitModule(ex.module));
+    });
   }
 
   for (const ex of examples.filter((e) => e.renderable)) {
     it(`${ex.id}: GLSL ES 3.00 emits (vertex + fragment) are byte-stable`, () => {
-      checkGolden(`${ex.id}.vertex.glsl`, emitGlslModule(ex.module, 'vertex'))
-      checkGolden(`${ex.id}.fragment.glsl`, emitGlslModule(ex.module, 'fragment'))
-    })
+      checkGolden(`${ex.id}.vertex.glsl`, emitGlslModule(ex.module, 'vertex'));
+      checkGolden(`${ex.id}.fragment.glsl`, emitGlslModule(ex.module, 'fragment'));
+    });
   }
-})
+});

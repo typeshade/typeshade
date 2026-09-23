@@ -19,12 +19,12 @@ import type {
   ModuleDecl,
   Capability,
   RawStmt,
-} from './ir/index.js'
-import { ALL_CAPABILITIES } from './ir/nodes.js'
-import { DERIVED_CAPABILITIES } from './ir/derived-capabilities.js'
-import type { ModuleVarDecl, CmpOp } from './ir/nodes.js'
-import { TypeShadeError } from './diagnostics/error.js'
-import type { ParenMode } from './emit.js'
+} from './ir/index.js';
+import { ALL_CAPABILITIES } from './ir/nodes.js';
+import { DERIVED_CAPABILITIES } from './ir/derived-capabilities.js';
+import type { ModuleVarDecl, CmpOp } from './ir/nodes.js';
+import { TypeShadeError } from './diagnostics/error.js';
+import type { ParenMode } from './emit.js';
 
 // The `Capability` vocabulary lives with the IR data shapes (ir/nodes.ts) — a module
 // DECLARES the caps it needs there (surfaced publicly via the ir barrel). This file is
@@ -39,12 +39,12 @@ export interface CapSupport {
   /** The token the emitted source must carry for this target to accept the feature: WGSL
    *  `enable <directive>;`, GLSL ES 3.00 `#extension <directive> : require`. When absent,
    *  the feature adds nothing to the emitted source. */
-  readonly directive?: string
+  readonly directive?: string;
   /** What the host must activate before pipeline creation:
    *  `gl.getExtension('<hostFeature>')` on WebGL2, a `requiredFeatures: ['<hostFeature>']`
    *  entry on WebGPU. When absent, the feature is core on that target and there is nothing
    *  to request. */
-  readonly hostFeature?: string
+  readonly hostFeature?: string;
 }
 
 /** A backend's capability table, and the single authority for what its target supports.
@@ -54,7 +54,7 @@ export interface CapSupport {
  *  (`Capabilities.fromProfile`), the source directive header from each row's `directive`,
  *  and the host activation list from each row's `hostFeature` ({@link hostFeaturesFor}), so
  *  the three cannot disagree. */
-export type CapProfile = Readonly<Partial<Record<Capability, CapSupport>>>
+export type CapProfile = Readonly<Partial<Record<Capability, CapSupport>>>;
 
 /** The set of capabilities a backend supports, built from its `capProfile` with
  *  `Capabilities.fromProfile(backend.capProfile)`. Membership in the profile's keys is
@@ -85,20 +85,20 @@ export class Capabilities {
           .filter(([, v]) => v !== undefined)
           .map(([k]) => k) as Capability[],
       ),
-    )
+    );
   }
   has(c: Capability): boolean {
-    return this.set.has(c)
+    return this.set.has(c);
   }
   /** True iff this target supports everything `reqs` needs. */
   covers(reqs: Iterable<Capability>): boolean {
-    for (const c of reqs) if (!this.set.has(c)) return false
-    return true
+    for (const c of reqs) if (!this.set.has(c)) return false;
+    return true;
   }
   missing(reqs: Iterable<Capability>): Capability[] {
-    const m: Capability[] = []
-    for (const c of reqs) if (!this.set.has(c)) m.push(c)
-    return m
+    const m: Capability[] = [];
+    for (const c of reqs) if (!this.set.has(c)) m.push(c);
+    return m;
   }
 }
 
@@ -142,9 +142,9 @@ export class Capabilities {
  */
 export function hostFeaturesFor(be: Backend, caps: readonly Capability[]): readonly string[] {
   return caps.flatMap((c) => {
-    const h = be.capProfile[c]?.hostFeature
-    return h === undefined ? [] : [h]
-  })
+    const h = be.capProfile[c]?.hostFeature;
+    return h === undefined ? [] : [h];
+  });
 }
 
 /** The contract a target writer implements. The package ships two backends, WGSL and GLSL
@@ -168,32 +168,32 @@ export function hostFeaturesFor(be: Backend, caps: readonly Capability[]): reado
  *  Exported from `typeshade`.
  */
 export interface Backend {
-  readonly id: string
+  readonly id: string;
   /** The capability table for this target: neutral capability id to `{ directive?,
    *  hostFeature? }`, and the only capability authority a backend carries. Coverage is
    *  `Capabilities.fromProfile(capProfile)`, `modulePreamble` reads the `directive` fields
    *  off the same rows, and {@link hostFeaturesFor} reads the `hostFeature` fields, so a
    *  capability cannot be supported without its directive, or directed without being
    *  supported. A target gains support for a feature by gaining one row. */
-  readonly capProfile: CapProfile
+  readonly capProfile: CapProfile;
   /** Optional. The `@builtin(<id>)` ids this target lacks, each mapped to the message tail
    *  printed after `<backend id>: @builtin(<id>)`. A pre-pass that runs beside the
    *  capability gate throws {@link UnsupportedFeatureError} for any of them, so the problem
    *  is named at the author's module with the whole module as context. A backend whose own
    *  input/output translation already rejects every builtin it cannot map (GLSL ES 3.00
    *  does) omits this. */
-  readonly absentBuiltins?: ReadonlyMap<string, string>
+  readonly absentBuiltins?: ReadonlyMap<string, string>;
   /** Spell a type for this target (e.g. WGSL `vec3<f32>` vs GLSL `vec3`). */
-  typeName(t: ShaderType): string
+  typeName(t: ShaderType): string;
   /** Spell a scalar literal for this target (e.g. WGSL `1u` vs GLSL `1`). */
-  literal(value: number | boolean, t: ShaderType): string
+  literal(value: number | boolean, t: ShaderType): string;
   /** Spell an intrinsic or builtin call from already-emitted argument strings.
    *  `name` is the WGSL id of the function (the call node's `fn`, plus the reserved
    *  `'select'`). The WGSL writer emits `name(args)` as is; the GLSL writer remaps the
    *  names that differ (textureSample to texture, unpack4x8unorm to unpackUnorm4x8,
    *  bitcast<u32> to floatBitsToUint, select(f, t, c) to a ternary) and passes the rest
    *  through. Calls to user-defined functions also arrive here and pass through unchanged. */
-  intrinsic(name: string, args: string[]): string
+  intrinsic(name: string, args: string[]): string;
 
   // ── Divergent statement/declaration fragments ──
   // The control-flow walk (if/for/switch/return/assign/…) is shared in
@@ -201,22 +201,22 @@ export interface Backend {
   // fragment WITHOUT leading indentation or trailing `;` (the walk adds those),
   // except constDecl which is a full line.
   /** `let n = init` (WGSL, type inferred) vs `T n = init` (GLSL). */
-  localLet(name: string, type: ShaderType, init: string): string
+  localLet(name: string, type: ShaderType, init: string): string;
   /** `var n: T[= init]` (WGSL) vs `T n[= init]` (GLSL). */
-  localVar(name: string, type: ShaderType, init?: string): string
+  localVar(name: string, type: ShaderType, init?: string): string;
   /** A module-level const declaration line, incl. trailing `;`:
    *  `const n: T = v;` (WGSL) vs `const T n = v;` (GLSL). */
-  constDecl(name: string, type: ShaderType, value: string): string
+  constDecl(name: string, type: ShaderType, value: string): string;
   /** A `switch` case label: `${v}u` for a u32 scrutinee on WGSL; `${v}` on GLSL. */
-  caseLabel(value: number, scrutType: ShaderType): string
+  caseLabel(value: number, scrutType: ShaderType): string;
   /** The whole `case …:` prefix for a clause, given each selector already spelled by
    *  {@link Backend.caseLabel}. Only a target whose multi-selector form is not WGSL's
    *  `case a, b:` declares one: GLSL ES 3.00 stacks `case a: case b:` instead. Absent, the
    *  emitter writes `case ${'${labels.join(\', \')}'}:`, which is also the one-selector
    *  spelling every backend wrote before a clause could hold more than one. */
-  caseLabels?(labels: readonly string[]): string
+  caseLabels?(labels: readonly string[]): string;
   /** The `switch` head: `switch ${scrut} {` (WGSL) vs `switch (${scrut}) {` (GLSL). */
-  switchHead(scrut: string): string
+  switchHead(scrut: string): string;
   /** Optional. Spelling for `%` on float operands, for a target whose native `%` accepts
    *  integers only. GLSL ES 3.00 rejects float `%`, so the GLSL backend provides this. The
    *  operand texts arrive fully parenthesized (single atoms aside), and the returned
@@ -224,11 +224,11 @@ export interface Backend {
    *  semantics: truncated modulo, `a - b * trunc(a / b)`. GLSL `mod()` is floor modulo and
    *  gives a different answer for negative operands, so it is the wrong choice here. When
    *  absent, the native `%` is emitted. */
-  readonly floatMod?: (a: string, b: string) => string
+  readonly floatMod?: (a: string, b: string) => string;
   /** Optional. Spelling for a comparison of two vectors, which yields a vector of bools
    *  (roadmap 0.2 item 7). WGSL has the operator form and omits this; GLSL ES 3.00 has only
    *  the functions `lessThan`, `equal` and their siblings, so the GLSL backend provides it. */
-  readonly vectorCompare?: (cop: CmpOp, a: string, b: string) => string
+  readonly vectorCompare?: (cop: CmpOp, a: string, b: string) => string;
   /** Optional. Spelling for `select(f, t, c)` when `c` is a vector of bools and the pick is
    *  per component. WGSL's `select` takes it and omits this; GLSL ES 3.00's ternary does not,
    *  so the GLSL backend spells `mix(f, t, c)` for a float vector and a componentwise ternary
@@ -238,27 +238,27 @@ export interface Backend {
     ifTrue: string,
     cond: string,
     type: ShaderType,
-  ) => string
+  ) => string;
   /** Optional. A terminator written at the end of every `switch` case. WGSL cases do not
    *  fall through, so the WGSL backend omits this. GLSL follows C and does fall through, so
    *  the GLSL backend returns `break;`; without it every `match()` arm would run into the
    *  next and the function would return the last arm's value. */
-  readonly caseBreak?: string
+  readonly caseBreak?: string;
   /** A `raw` statement, the escape hatch that splices source text verbatim. It takes the
    *  whole node because the node carries one payload per target (`wgsl` and `glsl`); each
    *  backend picks its own side here, and the shared emit walk stays target-blind. A
    *  backend whose side is absent throws {@link UnsupportedFeatureError} (`SD0030`). */
-  rawStmt(s: RawStmt): string
+  rawStmt(s: RawStmt): string;
   /** A `placeholder` statement that no composition step replaced before emit. The WGSL
    *  backend emits a comment carrying the tag; the GLSL backend throws
    *  {@link UnsupportedFeatureError}. */
-  placeholderStmt(tag: string): string
+  placeholderStmt(tag: string): string;
   /** Optional. The prefix a value-dropping `call` statement takes when the callee is a
    *  value-returning builtin. WGSL treats every such builtin as `@must_use`, so a bare
    *  `max(a, b);` is rejected and the phony assignment `_ = max(a, b);` is required, while a
    *  user function's dropped result is accepted bare. GLSL ES 3.00 takes the bare call in
    *  every case, so the GLSL backend omits this. */
-  readonly phonyAssign?: string
+  readonly phonyAssign?: string;
 
   // ── Module-level declaration surface ──
   // The module assembly walk (validate → assertCaps → autoVars → lowerModule →
@@ -266,7 +266,7 @@ export interface Backend {
   // per-declaration spellings differ between targets. A backend that does not
   // support a declaration (e.g. GLSL ES bindings/structs) fails closed here.
   /** A module-level const declaration line, incl. trailing `;`. */
-  emitConst(c: ConstDecl): string
+  emitConst(c: ConstDecl): string;
   /** Optional. A module-level specialization constant declaration. The WGSL writer emits
    *  `override name: T = default;`, which the host can override at pipeline creation through
    *  `constants: {}`. The GLSL writer emits an `#ifndef` / `#define` / `#endif` block that
@@ -274,38 +274,38 @@ export interface Backend {
    *  `overrideValues`, which the emitter places after the `#version` line, since a `#define`
    *  ahead of `#version` is invalid GLSL. A backend with no such construct omits this, and
    *  module assembly skips overrides for that target. */
-  emitOverride?(o: OverrideDecl): string
+  emitOverride?(o: OverrideDecl): string;
   /** A struct declaration block. */
-  emitStruct(s: StructDecl): string
+  emitStruct(s: StructDecl): string;
   /** A resource binding declaration line. */
-  emitBinding(b: BindingDecl): string
+  emitBinding(b: BindingDecl): string;
   /** Optional. A module-scope variable that is not a resource ({@link ModuleVarDecl}). The
    *  WGSL writer spells `var<workgroup> x: T;` and `var<private> y: T = init;`; the GLSL
    *  writer spells a private variable as a plain global, which GLSL ES 3.00 gives every
    *  invocation its own copy of, and fails closed on a workgroup one, since WebGL2 has no
    *  workgroup memory. A backend that omits this cannot emit a module that declares one. */
-  emitModuleVar?(v: ModuleVarDecl): string
+  emitModuleVar?(v: ModuleVarDecl): string;
   /** A function declaration block: the signature and the emitted body. `parens` selects
    *  how many parentheses the shared expression walk writes, `'full'` or `'minimal'`;
    *  omitted means `'full'`. A backend forwards it to the body emitter. */
-  emitFunc(f: FuncDecl, parens?: ParenMode): string
+  emitFunc(f: FuncDecl, parens?: ParenMode): string;
   /** Optional. How this target spells a parameter the callee writes through
    *  (`FuncDecl.params[i].mode === 'inout'`): GLSL ES 3.00 `inout vec3 v`, WGSL
    *  `v: ptr<function, vec3<f32>>`. A backend that omits it takes such a parameter by value,
    *  which is what every backend did before the mode existed. */
-  paramDecl?(p: FuncDecl['params'][number]): string
+  paramDecl?(p: FuncDecl['params'][number]): string;
   /** Optional, and required alongside {@link paramDecl} when the spelling is a POINTER rather
    *  than a qualifier. `reference` is the argument a call passes for an `inout` parameter
    *  (WGSL `&x`), and `dereference` is how the callee's body reads the parameter itself
    *  (WGSL `(*x)`). GLSL needs neither: its `inout` argument and its uses are written plainly.
    */
-  reference?(lvalue: string): string
-  dereference?(name: string): string
+  reference?(lvalue: string): string;
+  dereference?(name: string): string;
   /** The backend's emit-time optimization of the lowered module. Both shipped backends
    *  run the same optimization pipeline; the hook is per backend so that a target can
    *  choose differently without a change to the shared driver. It runs after the
    *  lowering passes and before the module is assembled into source. */
-  optimize(lowered: ModuleDecl): ModuleDecl
+  optimize(lowered: ModuleDecl): ModuleDecl;
   /** Optional. The target's own LOWERINGS, run after the shared lowering passes and BEFORE
    *  either optimizer tier — the explicit-level one as well as {@link optimize}.
    *
@@ -321,12 +321,12 @@ export interface Backend {
    *  member types and the reads that reach through them, and an optimizer that has not seen
    *  it hoists the unlowered form. LICM lifted `U.weights` out of a loop as
    *  `let _licm0 = U.weights;` and the padding then had no `member` node left to rewrite. */
-  preOptimize?(lowered: ModuleDecl): ModuleDecl
+  preOptimize?(lowered: ModuleDecl): ModuleDecl;
   /** Optional. The last rewrite before the module is spelled, run after {@link optimize} and
    *  after every optimizer tier, for a target whose SPELLING needs a shape the IR does not
    *  carry. WGSL uses it to give a function with a pointer parameter one copy per address
    *  space its calls use, which is a fact about WGSL's pointer types and about nothing else. */
-  postLower?(lowered: ModuleDecl): ModuleDecl
+  postLower?(lowered: ModuleDecl): ModuleDecl;
   /** Optional. The module header carrying the source-level directives the module's
    *  declared capabilities need on this target: one line per `m.enables` entry whose
    *  `capProfile` row has a `directive` (WGSL `enable <d>;`, GLSL ES 3.00
@@ -343,7 +343,7 @@ export interface Backend {
    *  Both call it with the module as authored: `enables` is an authoring-level declaration,
    *  and reading it off the lowered module would make the header depend on every pass
    *  preserving it. */
-  modulePreamble?(m: ModuleDecl): string
+  modulePreamble?(m: ModuleDecl): string;
 }
 
 /** Thrown when a module needs a feature the target backend does not support, with code
@@ -352,8 +352,8 @@ export interface Backend {
  *  target cannot express. No source is produced in either case. */
 export class UnsupportedFeatureError extends TypeShadeError {
   constructor(message: string) {
-    super({ code: 'SD0030', message })
-    this.name = 'UnsupportedFeatureError'
+    super({ code: 'SD0030', message });
+    this.name = 'UnsupportedFeatureError';
   }
 }
 
@@ -370,18 +370,18 @@ export class UnsupportedFeatureError extends TypeShadeError {
  *
  *  A row can be both directive and host-feature; `'directive'` wins in that case, because
  *  it is the half a reader of the emitted source can see. */
-export type CapSupportKind = 'native' | 'directive' | 'host-feature' | 'unsupported'
+export type CapSupportKind = 'native' | 'directive' | 'host-feature' | 'unsupported';
 
 /** One row of the capability matrix: a capability and how each backend supports it. */
 export interface CapabilityRow {
-  readonly capability: Capability
+  readonly capability: Capability;
   /** Keyed by `Backend.id`, one entry per backend passed in. */
-  readonly support: Readonly<Record<string, CapSupportKind>>
+  readonly support: Readonly<Record<string, CapSupportKind>>;
   /** Whether a module may name this capability in `enables`. False for the nine
    *  capabilities derived from a module's shape (`storageBuffer` through `textureGather`,
    *  `bgra8unormStorage` and `packed4x8Dot`), which {@link DeclarableCapability} excludes
    *  from `enables`. */
-  readonly declarable: boolean
+  readonly declarable: boolean;
 }
 
 /** Report which backend can spell which capability, as one row per capability with a support
@@ -433,7 +433,7 @@ export function capabilityMatrix(backends: readonly Backend[]): readonly Capabil
     capability,
     support: Object.fromEntries(
       backends.map((be) => {
-        const row = be.capProfile[capability]
+        const row = be.capProfile[capability];
         return [
           be.id,
           row === undefined
@@ -443,14 +443,14 @@ export function capabilityMatrix(backends: readonly Backend[]): readonly Capabil
               : row.hostFeature
                 ? 'host-feature'
                 : 'native',
-        ]
+        ];
       }),
     ),
     declarable: !DERIVED_CAPABILITY_SET.has(capability),
-  }))
+  }));
 }
 
 /** The derived capabilities as a set, read from the one list `DeclarableCapability` is
  *  defined against (`ir/derived-capabilities.ts`), so the `declarable` column and the type
  *  `enables` takes cannot drift apart (X-GIS #1681 A2). */
-const DERIVED_CAPABILITY_SET: ReadonlySet<Capability> = new Set(DERIVED_CAPABILITIES)
+const DERIVED_CAPABILITY_SET: ReadonlySet<Capability> = new Set(DERIVED_CAPABILITIES);

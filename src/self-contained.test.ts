@@ -58,37 +58,37 @@
 // asking about a tree the mirror consumer never receives. Tracked is exactly the right set:
 // a submodule checkout contains the tracked files and nothing else.
 
-import { describe, it, expect } from 'vitest'
-import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-import { dirname, isAbsolute, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { describe, it, expect } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HERE = dirname(fileURLToPath(import.meta.url))
+const HERE = dirname(fileURLToPath(import.meta.url));
 /** The repository root, which is also the package root: this tree stands alone. It was a
  *  workspace of the X-GIS monorepo until the split, and these arms asked which of the two
  *  trees they were running in before deciding what to assert. There is one tree now, so the
  *  three values below are constants and every arm simply asserts. */
-const PKG_DIR = resolve(HERE, '..')
-const REPO_ROOT = PKG_DIR
-const PATHSPEC = '.'
-const PKG_PREFIX = ''
+const PKG_DIR = resolve(HERE, '..');
+const REPO_ROOT = PKG_DIR;
+const PATHSPEC = '.';
+const PKG_PREFIX = '';
 
 /** `git`, array-argv, output captured to a variable (CLAUDE.md §12 shell rules). Throws on a
  *  non-zero exit instead of returning `[]` — a silently empty list is precisely how a scan
  *  gate goes vacuous, and this helper feeds four of them. */
 function git(cwd: string, ...args: string[]): string[] {
-  const run = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
-  if (run.error !== undefined) throw run.error
+  const run = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+  if (run.error !== undefined) throw run.error;
   if (run.status !== 0)
-    throw new Error(`git ${args.join(' ')} exited ${String(run.status)}: ${run.stderr}`)
-  return run.stdout.split('\n').filter((line) => line.length > 0)
+    throw new Error(`git ${args.join(' ')} exited ${String(run.status)}: ${run.stderr}`);
+  return run.stdout.split('\n').filter((line) => line.length > 0);
 }
 
 /** True iff `target` is at or under the package root — i.e. exists in the mirror at all. */
 function insidePackage(target: string): boolean {
-  const rel = relative(PKG_DIR, target)
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+  const rel = relative(PKG_DIR, target);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
 /** Strip JSONC comments. String-aware by construction: a string literal is matched FIRST and
@@ -97,34 +97,34 @@ function insidePackage(target: string): boolean {
 const stripJsonc = (text: string): string =>
   text.replace(/"(?:\\.|[^"\\])*"|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) =>
     m.startsWith('"') ? m : '',
-  )
+  );
 
-const readJsonc = <T>(abs: string): T => JSON.parse(stripJsonc(readFileSync(abs, 'utf8'))) as T
+const readJsonc = <T>(abs: string): T => JSON.parse(stripJsonc(readFileSync(abs, 'utf8'))) as T;
 
 type Manifest = {
-  name?: string
-  version?: string
-  private?: boolean
-  main?: string
-  scripts?: Record<string, string>
-  publishConfig?: Record<string, unknown>
-  files?: string[]
-  sideEffects?: boolean | string[]
-}
+  name?: string;
+  version?: string;
+  private?: boolean;
+  main?: string;
+  scripts?: Record<string, string>;
+  publishConfig?: Record<string, unknown>;
+  files?: string[];
+  sideEffects?: boolean | string[];
+};
 
 /** Every tracked path under shader-dsl/, relative to REPO_ROOT and POSIX-separated. ONE git
  *  call feeds both the source scan (S1) and the tsconfig census (S2). */
-const TRACKED = git(REPO_ROOT, 'ls-files', '--', PATHSPEC)
+const TRACKED = git(REPO_ROOT, 'ls-files', '--', PATHSPEC);
 
-const PKG = readJsonc<Manifest>(resolve(PKG_DIR, 'package.json'))
-const SCRIPTS = PKG.scripts ?? {}
-const FILES = PKG.files ?? []
-const SIDE_EFFECTS: readonly string[] = Array.isArray(PKG.sideEffects) ? PKG.sideEffects : []
+const PKG = readJsonc<Manifest>(resolve(PKG_DIR, 'package.json'));
+const SCRIPTS = PKG.scripts ?? {};
+const FILES = PKG.files ?? [];
+const SIDE_EFFECTS: readonly string[] = Array.isArray(PKG.sideEffects) ? PKG.sideEffects : [];
 
 // ── S1: the source graph ────────────────────────────────────────────────────────────────
 
 /** A relative module specifier in `from '…'`, a bare `import '…'`, or `import('…')`. */
-const RELATIVE_SPEC = /(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.[^"'\n]+)["']/g
+const RELATIVE_SPEC = /(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.[^"'\n]+)["']/g;
 
 /** Coarse comment strip, the earth-literal-ratchet convention: this repo writes large banner
  *  comments that quote code, and a banner quoting an escaping import must not red the gate.
@@ -132,65 +132,65 @@ const RELATIVE_SPEC = /(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.[^"'\n]+)["']/g
  *  can HIDE a violation but never invent one, and the sanity floor below is what catches a
  *  stripper that started eating the file. */
 const stripComments = (text: string): string =>
-  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
-type RelImport = { readonly file: string; readonly spec: string; readonly target: string }
+type RelImport = { readonly file: string; readonly spec: string; readonly target: string };
 
-const TS_FILES = TRACKED.filter((f) => f.endsWith('.ts'))
+const TS_FILES = TRACKED.filter((f) => f.endsWith('.ts'));
 const RELATIVE_IMPORTS: RelImport[] = TS_FILES.flatMap((file) => {
-  const abs = resolve(REPO_ROOT, file)
-  const source = stripComments(readFileSync(abs, 'utf8'))
+  const abs = resolve(REPO_ROOT, file);
+  const source = stripComments(readFileSync(abs, 'utf8'));
   return [...source.matchAll(RELATIVE_SPEC)].map((m) => ({
     file,
     spec: m[1],
     target: resolve(dirname(abs), m[1]),
-  }))
-})
+  }));
+});
 
 // ── S2: the tsconfig chains ─────────────────────────────────────────────────────────────
 
 type Tsconfig = {
-  extends?: string
-  compilerOptions?: { paths?: Record<string, readonly string[]> } & Record<string, unknown>
-}
+  extends?: string;
+  compilerOptions?: { paths?: Record<string, readonly string[]> } & Record<string, unknown>;
+};
 
 /** Tracked tsconfigs at any depth in the package, by BASENAME — derived, not hand-listed, so
  *  a new or moved config joins the census automatically (X-GIS #996: a path-keyed list needs a
  *  companion "every key still resolves"; having no list is strictly better). */
 const CONFIGS = TRACKED.filter((f) =>
   /^tsconfig(\.[\w.-]+)?\.json$/.test(f.slice(f.lastIndexOf('/') + 1)),
-)
+);
 
-type ConfigRef = { readonly file: string; readonly what: string; readonly spec: string }
+type ConfigRef = { readonly file: string; readonly what: string; readonly spec: string };
 
 /** Every outward reference a tsconfig can make: its `extends`, plus every `paths` target.
  *  `paths` is resolved against the CONFIG's own directory — none of these configs sets
  *  `baseUrl`, and TS 5.x resolves pathless `paths` relative to the containing file. */
 function configRefs(file: string): ConfigRef[] {
-  const cfg = readJsonc<Tsconfig>(resolve(REPO_ROOT, file))
-  const refs: ConfigRef[] = []
-  if (cfg.extends !== undefined) refs.push({ file, what: 'extends', spec: cfg.extends })
+  const cfg = readJsonc<Tsconfig>(resolve(REPO_ROOT, file));
+  const refs: ConfigRef[] = [];
+  if (cfg.extends !== undefined) refs.push({ file, what: 'extends', spec: cfg.extends });
   for (const [alias, targets] of Object.entries(cfg.compilerOptions?.paths ?? {}))
-    for (const target of targets) refs.push({ file, what: `paths['${alias}']`, spec: target })
-  return refs
+    for (const target of targets) refs.push({ file, what: `paths['${alias}']`, spec: target });
+  return refs;
 }
 
-const CONFIG_REFS = CONFIGS.flatMap(configRefs)
+const CONFIG_REFS = CONFIGS.flatMap(configRefs);
 
 // ── S3/S4: scripts ──────────────────────────────────────────────────────────────────────
 
 /** A `..` PATH SEGMENT: `cd ..`, `bun ../scripts/x.ts`, `--dir ..`. Bounded on both sides so
  *  a `..` inside a word (`a..b`) is not a hit. */
-const PARENT_SEGMENT = /(?:^|[\s"'`=:;&|(])\.\.(?=[/\\]|$|[\s"'`;&|)])/
+const PARENT_SEGMENT = /(?:^|[\s"'`=:;&|(])\.\.(?=[/\\]|$|[\s"'`;&|)])/;
 
 /** The hooks npm fires around `pack` and `publish`. Forbidden in THIS manifest only. */
-const PACK_LIFECYCLE = ['prepack', 'prepare', 'prepublish', 'prepublishOnly'] as const
+const PACK_LIFECYCLE = ['prepack', 'prepare', 'prepublish', 'prepublishOnly'] as const;
 
 // ── S5: publishConfig ───────────────────────────────────────────────────────────────────
 
 /** The only `publishConfig` keys npm itself honours (F6). Everything else in there is a
  *  pnpm/yarn field override that the tools in use silently ignore. */
-const NPM_HONOURED_PUBLISH_CONFIG = new Set(['access', 'tag', 'registry', 'provenance'])
+const NPM_HONOURED_PUBLISH_CONFIG = new Set(['access', 'tag', 'registry', 'provenance']);
 
 // ── S6: files / sideEffects ─────────────────────────────────────────────────────────────
 
@@ -206,10 +206,10 @@ const NPM_HONOURED_PUBLISH_CONFIG = new Set(['access', 'tag', 'registry', 'prove
  *  additionally carries dist/, and the manifest npm publishes points at it. That manifest is
  *  DERIVED from `exports` by `scripts/publish-manifest.ts`, not written out a second time —
  *  see S5 below, which is why it is not a `publishConfig.exports` block. */
-const BUILT_ARTIFACTS: Readonly<Record<string, string>> = { dist: 'build' }
+const BUILT_ARTIFACTS: Readonly<Record<string, string>> = { dist: 'build' };
 
 /** How many tracked paths a `files`-style pathspec expands to, asked from the package dir. */
-const trackedBehind = (entry: string): number => git(PKG_DIR, 'ls-files', '--', entry).length
+const trackedBehind = (entry: string): number => git(PKG_DIR, 'ls-files', '--', entry).length;
 
 describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it rests on', () => {
   // ── S1 ────────────────────────────────────────────────────────────────────────────────
@@ -224,19 +224,19 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
       `\`git ls-files -- ${PATHSPEC}\` reported fewer than 200 tracked .ts files (223 today). ` +
         'The file list is empty or truncated, so the S1 scan below is vacuous — fix the ' +
         'reader, not the assertion.',
-    ).toBeGreaterThanOrEqual(200)
+    ).toBeGreaterThanOrEqual(200);
     expect(
       RELATIVE_IMPORTS.length,
       'The relative-import scan found fewer than 700 specifiers (771 today) across ' +
         `${String(TS_FILES.length)} files. RELATIVE_SPEC or stripComments stopped matching ` +
         'real imports; S1 would then be green on a package full of escaping imports.',
-    ).toBeGreaterThanOrEqual(700)
-  })
+    ).toBeGreaterThanOrEqual(700);
+  });
 
   it('S1 — every relative import in a tracked .ts file resolves INSIDE shader-dsl/', () => {
     const escaping = RELATIVE_IMPORTS.filter((i) => !insidePackage(i.target))
       .map((i) => `${i.file}: '${i.spec}' → ${relative(REPO_ROOT, i.target)}`)
-      .sort()
+      .sort();
     expect(
       escaping,
       'Relative import climbing OUT of shader-dsl/ (file: specifier → resolved path). The ' +
@@ -246,8 +246,8 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
         'at exit 0 / 82 emitted files then fails there with TS2307, in a repository nobody in ' +
         "this monorepo ever builds. Import through the package's own tree, or move the code " +
         'the import needs INTO shader-dsl/.',
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   // ── S2 ────────────────────────────────────────────────────────────────────────────────
 
@@ -256,34 +256,34 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
     // and lands ON the package-local baseline. A resolver that rejected it would be red for a
     // legitimate config; one that accepted its `../../` sibling would be green for a broken
     // one. Both directions are probed, so neither ratchet arm below can ride a stuck resolver.
-    const examplesDir = resolve(PKG_DIR, 'examples')
+    const examplesDir = resolve(PKG_DIR, 'examples');
     expect(
       readJsonc<Tsconfig>(resolve(examplesDir, 'tsconfig.json')).extends,
       'examples/tsconfig.json no longer extends `../tsconfig.base.json` — the accept case ' +
         'this arm probes is hypothetical now; re-derive it from the real config.',
-    ).toBe('../tsconfig.base.json')
+    ).toBe('../tsconfig.base.json');
     expect(resolve(examplesDir, '../tsconfig.base.json')).toBe(
       resolve(PKG_DIR, 'tsconfig.base.json'),
-    )
-    expect(insidePackage(resolve(examplesDir, '../tsconfig.base.json'))).toBe(true)
-    expect(insidePackage(resolve(examplesDir, '../../tsconfig.base.json'))).toBe(false)
+    );
+    expect(insidePackage(resolve(examplesDir, '../tsconfig.base.json'))).toBe(true);
+    expect(insidePackage(resolve(examplesDir, '../../tsconfig.base.json'))).toBe(false);
 
     // …and the JSONC reader really parsed these heavily-commented configs, rather than
     // returning `{}` and making the `paths` half of the census silently empty.
     expect(CONFIGS.length, `tracked tsconfigs found: ${CONFIGS.join(', ')}`).toBeGreaterThanOrEqual(
       4,
-    )
-    expect(CONFIGS).toContain(`${PKG_PREFIX}examples/tsconfig.json`)
+    );
+    expect(CONFIGS).toContain(`${PKG_PREFIX}examples/tsconfig.json`);
     expect(
       Object.keys(readJsonc<Tsconfig>(resolve(PKG_DIR, 'tsconfig.base.json')).compilerOptions ?? {})
         .length,
       'read 0 compilerOptions from shader-dsl/tsconfig.base.json — the JSONC reader is broken',
-    ).toBeGreaterThanOrEqual(10)
+    ).toBeGreaterThanOrEqual(10);
     expect(
       CONFIG_REFS.filter((r) => r.what === 'extends').length,
       'no `extends` was seen across the tracked tsconfigs — the census is empty and S2 is vacuous',
-    ).toBeGreaterThanOrEqual(3)
-  })
+    ).toBeGreaterThanOrEqual(3);
+  });
 
   it('S2 — every tsconfig `extends` and `paths` target terminates INSIDE shader-dsl/', () => {
     const escaping = CONFIG_REFS.filter(
@@ -296,7 +296,7 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
           ? `${r.file} ${r.what} '${r.spec}' → ${relative(REPO_ROOT, resolve(dirname(resolve(REPO_ROOT, r.file)), r.spec))}`
           : `${r.file} ${r.what} '${r.spec}' → a bare package specifier, resolved from node_modules`,
       )
-      .sort()
+      .sort();
     expect(
       escaping,
       'A tsconfig in this package reaches outside it (config, key, resolved target above). ' +
@@ -306,8 +306,8 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
         'the tree here and the monorepo above it is gone. A bare specifier fails the same way: ' +
         'F4 measured the consumer clone building with NO node_modules anywhere up the tree. ' +
         'Every chain must terminate at shader-dsl/tsconfig.base.json (X-GIS #1681 B1).',
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   // ── S3 – S6: the package manifest ─────────────────────────────────────────────────────
 
@@ -315,30 +315,30 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
     // Four gates below iterate this manifest. If the read returned `{}` — wrong path, parse
     // failure swallowed — all four pass on nothing. These witnesses are chosen to survive the
     // fix increment C lands, so this arm reds only when the READER is broken.
-    expect(PKG.name, 'package.json did not parse as this package').toBe('typeshade')
-    expect(typeof PKG.version).toBe('string')
+    expect(PKG.name, 'package.json did not parse as this package').toBe('typeshade');
+    expect(typeof PKG.version).toBe('string');
     expect(
       Object.keys(SCRIPTS).length,
       'no `scripts` read — S3/S4 are vacuous',
-    ).toBeGreaterThanOrEqual(1)
+    ).toBeGreaterThanOrEqual(1);
     expect(
       FILES.length,
       'no `files` entries read — the S6 files arm is vacuous',
-    ).toBeGreaterThanOrEqual(4)
+    ).toBeGreaterThanOrEqual(4);
     expect(
       SIDE_EFFECTS.length,
       '`sideEffects` is not a non-empty array of paths. Either the reader is broken, or the ' +
         'field was set to `false`/removed — which is itself the bug this gate exists to ' +
         'notice: src/core/ir/builder.ts calls installStmtSink() at module scope, so this ' +
         'package DOES have module-level state and cannot claim to be side-effect-free.',
-    ).toBeGreaterThanOrEqual(1)
-  })
+    ).toBeGreaterThanOrEqual(1);
+  });
 
   it('S3 — no package script reaches outside the package', () => {
     const offenders = Object.entries(SCRIPTS)
       .filter(([, value]) => PARENT_SEGMENT.test(value))
       .map(([name, value]) => `${name} = ${value}`)
-      .sort()
+      .sort();
     expect(
       offenders,
       'Package script containing a `..` path segment (every offender is listed above, not ' +
@@ -347,13 +347,13 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
         "either the consumer's own project or nothing at all. Every script in this manifest " +
         'must be runnable from the package directory alone. Scoped to THIS manifest by ' +
         "design (F9) — the root package.json's `prepare: husky` is not this gate's business.",
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('S4 — the package manifest declares no pack/publish lifecycle script', () => {
     const present = PACK_LIFECYCLE.filter((hook) => Object.hasOwn(SCRIPTS, hook))
       .map((hook) => `${hook} = ${SCRIPTS[hook]}`)
-      .sort()
+      .sort();
     expect(
       present,
       'Pack/publish lifecycle hook in shader-dsl/package.json. `prepack` runs inside BOTH ' +
@@ -363,13 +363,13 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
         'so. The changelog generator stays; it is invoked deliberately from the root ' +
         '`changelog` script, not as a side effect of packing. The mirror needs none of this ' +
         'either: it is a git submodule, never a tarball.',
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('S5 — publishConfig carries only keys npm honours', () => {
     const overrides = Object.keys(PKG.publishConfig ?? {})
       .filter((k) => !NPM_HONOURED_PUBLISH_CONFIG.has(k))
-      .sort()
+      .sort();
     expect(
       overrides,
       'publishConfig key that no tool in use applies. MEASURED (F6): neither npm 10.9.7 nor ' +
@@ -382,13 +382,13 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
         './src, so examples/ is never emitted to dist at all. The real `exports` map is the ' +
         'authority (F10: it resolves to SOURCE, ./src/*.ts, and stays that way); delete the ' +
         'overrides rather than teaching a second copy about a third subpath.',
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('S6 — every `files` entry expands to at least one TRACKED path', () => {
     const empty = FILES.filter((e) => !e.startsWith('!'))
       .filter((e) => !Object.hasOwn(BUILT_ARTIFACTS, e) && trackedBehind(e) === 0)
-      .sort()
+      .sort();
     expect(
       empty,
       '`files` entry that git tracks NOTHING behind. It is an empty promise: a fresh clone ' +
@@ -397,15 +397,15 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
         'has no dist/. Asked of git, never of the filesystem, so this answer is the same on a ' +
         'built machine and in CI. If a build step will genuinely produce the path before it is ' +
         'read, add it to BUILT_ARTIFACTS here with the script that produces it.',
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('S6 — every `sideEffects` entry names a TRACKED file', () => {
     const missing = SIDE_EFFECTS.map((e) => e.replace(/^\.\//, ''))
       .filter(
         (e) => !Object.hasOwn(BUILT_ARTIFACTS, e) && !git(PKG_DIR, 'ls-files', '--', e).includes(e),
       )
-      .sort()
+      .sort();
     expect(
       missing,
       '`sideEffects` entry naming a path git does not track. This is not cosmetic: a bundler ' +
@@ -416,8 +416,8 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
         'throws SD0012 at runtime. Naming a path that does not exist in the consumer tree ' +
         'means the registration is not actually protected there, which is the ONLY reason ' +
         'this field exists. Entries must name paths the mirror really contains.',
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('S6 — BUILT_ARTIFACTS entries name a real build script and only shrink', () => {
     expect(
@@ -428,13 +428,13 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
       "BUILT_ARTIFACTS entry whose value is not a real key of this manifest's `scripts`. The " +
         'value must name the build step that guarantees the artifact exists — an exemption ' +
         'whose promise nothing checks is prose, not a gate.',
-    ).toEqual([])
+    ).toEqual([]);
     expect(
       Object.keys(BUILT_ARTIFACTS)
         .filter((path) => trackedBehind(path) > 0)
         .sort(),
       'BUILT_ARTIFACTS entry that git now TRACKS — the exemption is stale. Delete it in the ' +
         'same commit that made the path tracked; this allowlist shrinks in both directions.',
-    ).toEqual([])
-  })
-})
+    ).toEqual([]);
+  });
+});

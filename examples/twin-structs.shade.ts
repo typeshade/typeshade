@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -18,41 +18,41 @@
 // them separately (for the attributes, or just for the reader) hits this on the first shader.
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 class FsIn {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 class Color {
-  @location(0) color: vec4
+  @location(0) color: vec4;
 }
 
 // The PARAMETER type says FsIn, so the literal built at the call site below is an FsIn.
 export function shade(o: FsIn): vec4 {
-  const d = o.uv - vec2(0.5, 0.5)
-  const r = length(d)
-  return vec4(o.uv.x, o.uv.y, 1. - r, 1.)
+  const d = o.uv - vec2(0.5, 0.5);
+  const r = length(d);
+  return vec4(o.uv.x, o.uv.y, 1. - r, 1.);
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.
-  const y = f32(vi >> u32(1)) * 4. - 1.
-  const uv = vec2(x, y) * 0.5 + vec2(0.5, 0.5)
+  const x = f32(vi & u32(1)) * 4. - 1.;
+  const y = f32(vi >> u32(1)) * 4. - 1.;
+  const uv = vec2(x, y) * 0.5 + vec2(0.5, 0.5);
   // The RETURN type says VsOut.
-  return { pos: vec4(x, y, 0., 1.), uv: uv }
+  return { pos: vec4(x, y, 0., 1.), uv: uv };
 }
 
 @fragment
 export function fs(v: VsOut): Color {
   // The ANNOTATION says FsIn, from a literal with the same field names as the VsOut above.
-  const asIn: FsIn = { pos: v.pos, uv: v.uv }
-  const a = shade(asIn)
+  const asIn: FsIn = { pos: v.pos, uv: v.uv };
+  const a = shade(asIn);
   // …and the parameter type says FsIn here, with no annotation to lean on.
-  const b = shade({ pos: v.pos, uv: v.uv * 0.5 })
-  return { color: (a + b) * 0.5 }
+  const b = shade({ pos: v.pos, uv: v.uv * 0.5 });
+  return { color: (a + b) * 0.5 };
 }

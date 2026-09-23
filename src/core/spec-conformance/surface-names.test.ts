@@ -49,37 +49,37 @@
 // below pins each of its constructors to the forms WGSL gives the type it stands in for
 // (docs/language-design.md Rule 9.2, Rule 2.2).
 
-import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import ts from 'typescript'
-import { SHADE_DTS } from '../../language-service/ambient.js'
-import { compile } from '../../compiler/ts/compile.js'
-import { isCanonicalMathFn, resolveMathFn } from '../../compiler/ts/math-alias.js'
-import { PRE_EMIT_INTRINSICS, isKnownIntrinsic } from '../intrinsics.js'
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
+import { SHADE_DTS } from '../../language-service/ambient.js';
+import { compile } from '../../compiler/ts/compile.js';
+import { isCanonicalMathFn, resolveMathFn } from '../../compiler/ts/math-alias.js';
+import { PRE_EMIT_INTRINSICS, isKnownIntrinsic } from '../intrinsics.js';
 
 // ── The WGSL vocabulary, as baked ──
 
 interface NameList {
-  section: string
-  count: number
-  names: string[]
+  section: string;
+  count: number;
+  names: string[];
 }
 interface WgslNames {
-  specRepository: string
-  specCommit: string
-  generator: string
-  builtinFunctions: NameList
-  predeclaredTypes: NameList
-  typeGenerators: NameList
-  builtinValues: { section: string; count: number; values: { name: string }[] }
-  attributes: NameList
-  keywords: NameList
-  reservedWords: NameList & { source: string }
+  specRepository: string;
+  specCommit: string;
+  generator: string;
+  builtinFunctions: NameList;
+  predeclaredTypes: NameList;
+  typeGenerators: NameList;
+  builtinValues: { section: string; count: number; values: { name: string }[] };
+  attributes: NameList;
+  keywords: NameList;
+  reservedWords: NameList & { source: string };
 }
 
-const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'wgsl-names.json')
+const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'wgsl-names.json');
 const DESIGN_DOC = join(
   dirname(fileURLToPath(import.meta.url)),
   '..',
@@ -87,8 +87,8 @@ const DESIGN_DOC = join(
   '..',
   'docs',
   'language-design.md',
-)
-const wgsl = JSON.parse(readFileSync(FIXTURE, 'utf8')) as WgslNames
+);
+const wgsl = JSON.parse(readFileSync(FIXTURE, 'utf8')) as WgslNames;
 
 /** The predeclared aliases (`vec2f`, `vec4i`, `mat4x4f`, …). The specification writes them out in
  *  two tables, one under Vector Types and one under Matrix Types, that the fixture does not carry
@@ -97,38 +97,38 @@ const wgsl = JSON.parse(readFileSync(FIXTURE, 'utf8')) as WgslNames
  *  from the two lists the fixture DOES carry rather than retyped. `aliases are exactly these`
  *  below pins the expansion against the spec's tables, including what is NOT in them: there is no
  *  `vec2b`, because WGSL has no predeclared alias for a vector of bool. */
-const ALIAS_SUFFIX: Record<string, string> = { f: 'f32', h: 'f16', i: 'i32', u: 'u32' }
-const wgslAliases = new Set<string>()
+const ALIAS_SUFFIX: Record<string, string> = { f: 'f32', h: 'f16', i: 'i32', u: 'u32' };
+const wgslAliases = new Set<string>();
 for (const generator of wgsl.typeGenerators.names) {
-  const vector = /^vec[234]$/.test(generator)
-  if (!vector && !/^mat[234]x[234]$/.test(generator)) continue
+  const vector = /^vec[234]$/.test(generator);
+  if (!vector && !/^mat[234]x[234]$/.test(generator)) continue;
   for (const [suffix, scalar] of Object.entries(ALIAS_SUFFIX)) {
     // A matrix element is floating-point; there is no `mat2x2i`.
-    if (!vector && (suffix === 'i' || suffix === 'u')) continue
-    if (!wgsl.predeclaredTypes.names.includes(scalar)) continue
-    wgslAliases.add(generator + suffix)
+    if (!vector && (suffix === 'i' || suffix === 'u')) continue;
+    if (!wgsl.predeclaredTypes.names.includes(scalar)) continue;
+    wgslAliases.add(generator + suffix);
   }
 }
 
-const wgslFunctions = new Set(wgsl.builtinFunctions.names)
-const wgslTypes = new Set([...wgsl.predeclaredTypes.names, ...wgsl.typeGenerators.names])
-const wgslAttributes = new Set(wgsl.attributes.names)
-const wgslBuiltinValues = new Set(wgsl.builtinValues.values.map((v) => v.name))
+const wgslFunctions = new Set(wgsl.builtinFunctions.names);
+const wgslTypes = new Set([...wgsl.predeclaredTypes.names, ...wgsl.typeGenerators.names]);
+const wgslAttributes = new Set(wgsl.attributes.names);
+const wgslBuiltinValues = new Set(wgsl.builtinValues.values.map((v) => v.name));
 
 /** Which WGSL list a name is in, or undefined. The order is the order a reader would check. */
 function wgslSource(name: string): string | undefined {
-  if (wgslFunctions.has(name)) return 'a WGSL built-in function'
-  if (wgslTypes.has(name)) return 'a WGSL predeclared type or type-generator'
-  if (wgslAliases.has(name)) return 'a WGSL predeclared alias'
-  if (wgslAttributes.has(name)) return 'a WGSL attribute'
-  if (wgslBuiltinValues.has(name)) return 'a WGSL built-in value'
-  return undefined
+  if (wgslFunctions.has(name)) return 'a WGSL built-in function';
+  if (wgslTypes.has(name)) return 'a WGSL predeclared type or type-generator';
+  if (wgslAliases.has(name)) return 'a WGSL predeclared alias';
+  if (wgslAttributes.has(name)) return 'a WGSL attribute';
+  if (wgslBuiltinValues.has(name)) return 'a WGSL built-in value';
+  return undefined;
 }
 
 // ── The ECMAScript vocabulary, read from the running engine rather than retyped ──
 
-const MATH_MEMBERS = new Set(Object.getOwnPropertyNames(Math))
-const CONSOLE_MEMBERS = new Set(Object.getOwnPropertyNames(console))
+const MATH_MEMBERS = new Set(Object.getOwnPropertyNames(Math));
+const CONSOLE_MEMBERS = new Set(Object.getOwnPropertyNames(console));
 
 /** The standard-library declarations the ambient file restates because the service compiles the
  *  program with `lib: []` (docs/language-design.md Rule 2.1(b)). Each is spelled exactly as
@@ -149,14 +149,19 @@ const ECMASCRIPT_LIB_STANDINS = new Set([
   'Pick',
   'RegExp',
   'String',
+  // lib.es2015.iterable.d.ts and lib.es2015.symbol.d.ts: what `[Symbol.iterator]` resolves
+  // through, so `for (const x of xs)` type-checks (Rule 7.5). The compiler refuses `Symbol` as a
+  // value (it is a host API), so an author still cannot write it.
+  'Symbol',
+  'SymbolConstructor',
   'console',
-])
+]);
 
 /** The two sites that are not a top-level declaration: a member read out of one of the two
  *  stand-in interfaces. `interfaceMembers` names the site, since a member has no declaration
  *  kind of its own to record. */
-const MATH_MEMBER = 'member of `Math`'
-const CONSOLE_METHOD = 'method of `console`'
+const MATH_MEMBER = 'member of `Math`';
+const CONSOLE_METHOD = 'method of `console`';
 
 /** The declaration kinds `declaredNames()` records. Every one of them is a TOP-LEVEL
  *  declaration — a FREE name — which is the whole of the rule below: `Math` and `console`
@@ -169,7 +174,7 @@ const FREE_KINDS: ReadonlySet<string> = new Set([
   'class',
   'enum',
   'namespace',
-])
+]);
 
 /**
  * Which ECMAScript vocabulary a name belongs to AT THE SITE IT IS DECLARED, or undefined.
@@ -189,13 +194,13 @@ function ecmascriptSource(name: string, kind: string): string | undefined {
   if (FREE_KINDS.has(kind)) {
     return ECMASCRIPT_LIB_STANDINS.has(name)
       ? 'a TypeScript standard-library declaration'
-      : undefined
+      : undefined;
   }
   if (kind === MATH_MEMBER)
-    return MATH_MEMBERS.has(name) ? 'a member of ECMAScript `Math`' : undefined
+    return MATH_MEMBERS.has(name) ? 'a member of ECMAScript `Math`' : undefined;
   if (kind === CONSOLE_METHOD)
-    return CONSOLE_MEMBERS.has(name) ? 'a method of ECMAScript `console`' : undefined
-  throw new Error(`surface-names: no site is defined for the declaration kind "${kind}"`)
+    return CONSOLE_MEMBERS.has(name) ? 'a method of ECMAScript `console`' : undefined;
+  throw new Error(`surface-names: no site is defined for the declaration kind "${kind}"`);
 }
 
 // ── The third source: what TypeShade adds, and why ──
@@ -261,6 +266,16 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   {
     name: 'random',
     reason: 'a hash of its seed, an `f32` in [0, 1); ECMAScript spells a draw `Math.random()`',
+  },
+  // The array folds WGSL has no builtin for, unrolled at the call (Rule 8.18).
+  { name: 'sum', reason: "the sum of an array's elements, unrolled; WGSL has no fold" },
+  {
+    name: 'none',
+    reason: 'whether no element passes a test, unrolled; the negation of the `any` fold',
+  },
+  {
+    name: 'zip',
+    reason: 'an array built from two, element by element, by a function the call hands over',
   },
 
   // Storage-texture vocabulary. WGSL writes these as predeclared enumerants inside
@@ -333,16 +348,16 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'LN10', reason: 'the natural logarithm of 10; ECMAScript spells it `Math.LN10`' },
   { name: 'LOG2E', reason: 'the base-2 logarithm of e; ECMAScript spells it `Math.LOG2E`' },
   { name: 'LOG10E', reason: 'the base-10 logarithm of e; ECMAScript spells it `Math.LOG10E`' },
-]
+];
 
-const extensionRows = new Map(TYPESHADE_EXTENSIONS.map((row) => [row.name, row]))
+const extensionRows = new Map(TYPESHADE_EXTENSIONS.map((row) => [row.name, row]));
 
 // ── Reading the names out of the generated library ──
 
 interface Declared {
-  name: string
-  kind: string
-  line: number
+  name: string;
+  kind: string;
+  line: number;
 }
 
 /** Every name the library declares at the top level, plus the members of any namespace it
@@ -354,32 +369,32 @@ function declaredNames(dts: string): Declared[] {
     ts.ScriptTarget.Latest,
     true,
     ts.ScriptKind.TS,
-  )
-  const found = new Map<string, Declared>()
+  );
+  const found = new Map<string, Declared>();
   const record = (name: string, kind: string, node: ts.Node): void => {
-    if (found.has(name)) return
-    const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
-    found.set(name, { name, kind, line })
-  }
+    if (found.has(name)) return;
+    const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+    found.set(name, { name, kind, line });
+  };
   const walk = (parent: ts.Node): void => {
     ts.forEachChild(parent, (node) => {
-      if (ts.isFunctionDeclaration(node) && node.name) record(node.name.text, 'function', node)
-      else if (ts.isInterfaceDeclaration(node)) record(node.name.text, 'interface', node)
-      else if (ts.isTypeAliasDeclaration(node)) record(node.name.text, 'type', node)
-      else if (ts.isClassDeclaration(node) && node.name) record(node.name.text, 'class', node)
-      else if (ts.isEnumDeclaration(node)) record(node.name.text, 'enum', node)
+      if (ts.isFunctionDeclaration(node) && node.name) record(node.name.text, 'function', node);
+      else if (ts.isInterfaceDeclaration(node)) record(node.name.text, 'interface', node);
+      else if (ts.isTypeAliasDeclaration(node)) record(node.name.text, 'type', node);
+      else if (ts.isClassDeclaration(node) && node.name) record(node.name.text, 'class', node);
+      else if (ts.isEnumDeclaration(node)) record(node.name.text, 'enum', node);
       else if (ts.isVariableStatement(node)) {
         for (const declaration of node.declarationList.declarations) {
-          if (ts.isIdentifier(declaration.name)) record(declaration.name.text, 'value', node)
+          if (ts.isIdentifier(declaration.name)) record(declaration.name.text, 'value', node);
         }
       } else if (ts.isModuleDeclaration(node)) {
-        record(node.name.getText(source), 'namespace', node)
-        if (node.body && ts.isModuleBlock(node.body)) walk(node.body)
+        record(node.name.getText(source), 'namespace', node);
+        if (node.body && ts.isModuleBlock(node.body)) walk(node.body);
       }
-    })
-  }
-  walk(source)
-  return [...found.values()]
+    });
+  };
+  walk(source);
+  return [...found.values()];
 }
 
 /** The members of one declared interface, by interface name: how `Math.fround` and
@@ -391,15 +406,15 @@ function interfaceMembers(dts: string, interfaceName: string): string[] {
     ts.ScriptTarget.Latest,
     true,
     ts.ScriptKind.TS,
-  )
-  const members: string[] = []
+  );
+  const members: string[] = [];
   ts.forEachChild(source, (node) => {
-    if (!ts.isInterfaceDeclaration(node) || node.name.text !== interfaceName) return
+    if (!ts.isInterfaceDeclaration(node) || node.name.text !== interfaceName) return;
     for (const member of node.members) {
-      if (member.name && ts.isIdentifier(member.name)) members.push(member.name.text)
+      if (member.name && ts.isIdentifier(member.name)) members.push(member.name.text);
     }
-  })
-  return members
+  });
+  return members;
 }
 
 /** Every `declare function` of one name, as the list of its parameters' type texts: the
@@ -411,13 +426,13 @@ function functionSignatures(dts: string, name: string): string[][] {
     ts.ScriptTarget.Latest,
     true,
     ts.ScriptKind.TS,
-  )
-  const signatures: string[][] = []
+  );
+  const signatures: string[][] = [];
   ts.forEachChild(source, (node) => {
-    if (!ts.isFunctionDeclaration(node) || node.name?.text !== name) return
-    signatures.push(node.parameters.map((p) => (p.type ? p.type.getText(source) : '')))
-  })
-  return signatures
+    if (!ts.isFunctionDeclaration(node) || node.name?.text !== name) return;
+    signatures.push(node.parameters.map((p) => (p.type ? p.type.getText(source) : '')));
+  });
+  return signatures;
 }
 
 // ── The f64 family's signatures: WGSL's constructor forms and no other ──
@@ -429,7 +444,7 @@ function signatureMessage(name: string, params: readonly string[], why: string):
     'takes the constructor forms WGSL gives the type it stands in for and no other signature ' +
     '(docs/language-design.md Rule 9.2); a bridge between an f64 and its f32 halves is a ' +
     'compiler-internal operation under any spelling, a second signature included (Rule 2.2).'
-  )
+  );
 }
 
 /** Every signature of `f64` and of the three `vecNf64` constructors that is not one of WGSL's
@@ -440,22 +455,22 @@ function signatureMessage(name: string, params: readonly string[], why: string):
  *  which the library types as a branded number); nothing of the family takes an `f32` vector,
  *  since the only thing an f32 vector could be to an f64 constructor is a hi or a lo plane. */
 function f64FamilySignatureStrays(dts: string): string[] {
-  const out: string[] = []
+  const out: string[] = [];
   for (const params of functionSignatures(dts, 'f64')) {
     if (params.length !== 1) {
-      out.push(signatureMessage('f64', params, 'a scalar constructor takes exactly one argument'))
+      out.push(signatureMessage('f64', params, 'a scalar constructor takes exactly one argument'));
     }
   }
   for (const n of [2, 3, 4] as const) {
-    const name = `vec${String(n)}f64`
+    const name = `vec${String(n)}f64`;
     for (const params of functionSignatures(dts, name)) {
       // How many of the N components each parameter supplies, or undefined for a type no
       // constructor form takes (`f32`, `vec2`, `vec2f`, a matrix, …).
       const widths = params.map((type) => {
-        if (type === 'number') return 1
-        const m = /^vec([234])f64$/.exec(type)
-        return m ? Number(m[1]) : undefined
-      })
+        if (type === 'number') return 1;
+        const m = /^vec([234])f64$/.exec(type);
+        return m ? Number(m[1]) : undefined;
+      });
       if (widths.some((w) => w === undefined)) {
         out.push(
           signatureMessage(
@@ -463,11 +478,11 @@ function f64FamilySignatureStrays(dts: string): string[] {
             params,
             'a parameter is neither a component nor a narrower f64 vector',
           ),
-        )
-        continue
+        );
+        continue;
       }
-      const total = widths.reduce<number>((sum, w) => sum + (w ?? 0), 0)
-      const splat = params.length === 1 && widths[0] === 1
+      const total = widths.reduce<number>((sum, w) => sum + (w ?? 0), 0);
+      const splat = params.length === 1 && widths[0] === 1;
       if (!splat && total !== n) {
         out.push(
           signatureMessage(
@@ -475,11 +490,11 @@ function f64FamilySignatureStrays(dts: string): string[] {
             params,
             `its parameters supply ${String(total)} components, not ${String(n)}`,
           ),
-        )
+        );
       }
     }
   }
-  return out
+  return out;
 }
 
 /** The sentence a stray name gets. One per name, saying what it is and what to do about it. */
@@ -490,13 +505,13 @@ function strayMessage(declared: Declared): string {
     'TYPESHADE_EXTENSIONS: remove it from the author-facing surface, or add a row with its reason ' +
     'once docs/language-design.md §9 (and Rule 4.4 for the f64 family) and the CHANGELOG say ' +
     'why it exists.'
-  )
+  );
 }
 
 function unaccounted(dts: string, rows: ReadonlyMap<string, unknown> = extensionRows): string[] {
   return declaredNames(dts)
     .filter((d) => !wgslSource(d.name) && !ecmascriptSource(d.name, d.kind) && !rows.has(d.name))
-    .map(strayMessage)
+    .map(strayMessage);
 }
 
 // ── The compiler-internal names, by the mechanical criterion ──
@@ -505,67 +520,67 @@ function unaccounted(dts: string, rows: ReadonlyMap<string, unknown> = extension
  *  type, spelled as WGSL spells `f32(x)`, and its TYPESHADE_EXTENSIONS row is the type's
  *  (docs/language-design.md §2.1, Rule 2.2). Every other id in PRE_EMIT_INTRINSICS is a bridge
  *  between two passes that no author's text spells. */
-const PRE_EMIT_TYPE_NAMES: ReadonlySet<string> = new Set(['f64'])
+const PRE_EMIT_TYPE_NAMES: ReadonlySet<string> = new Set(['f64']);
 
 /** Every pre-emit intrinsic id that has reached the author-facing surface, by either route: a
  *  declaration in the library, or a row of the allowlist. The `f64FromParts` case took the first
  *  route; a row would have been the second, and the first sentinel test below does not close it,
  *  since a row is exactly what makes a declared name pass. Rules 2.2 and 9.8. */
 function internalLeaks(dts: string, rows: ReadonlyMap<string, unknown>): string[] {
-  const declared = new Map(declaredNames(dts).map((d) => [d.name, d]))
+  const declared = new Map(declaredNames(dts).map((d) => [d.name, d]));
   return [...PRE_EMIT_INTRINSICS]
     .filter((id) => !PRE_EMIT_TYPE_NAMES.has(id))
     .flatMap((id) => {
-      const out: string[] = []
-      const d = declared.get(id)
+      const out: string[] = [];
+      const d = declared.get(id);
       if (d) {
         out.push(
           `${id} (${d.kind}, shade.d.ts line ${d.line}) is a pre-emit intrinsic id, one a pass rewrites ` +
             'away before any backend runs, and is declared in the ambient library: no author spelling of ' +
             'it exists, so remove the declaration (docs/language-design.md Rule 2.2).',
-        )
+        );
       }
       if (rows.has(id)) {
         out.push(
           `${id} is a pre-emit intrinsic id and has a TYPESHADE_EXTENSIONS row: a row records a reviewed ` +
             'extension and never an internal helper, so delete the row (docs/language-design.md Rule 9.8).',
-        )
+        );
       }
-      return out
-    })
+      return out;
+    });
 }
 
 /** The rows of the extension table in docs/language-design.md §9.3, in document order. The
  *  table sits between Rule 9.6 and the sentence that opens the family list, and every row of it
  *  is `| family | \`name\` | reason |`; no other table in the document is read. */
 function documentedExtensions(markdown: string): { name: string; reason: string }[] {
-  const start = markdown.indexOf('**Rule 9.6.**')
-  const stop = markdown.indexOf('Nine families', start)
-  if (start < 0 || stop < 0) throw new Error('docs/language-design.md has no §9.3 extension table')
-  const rows: { name: string; reason: string }[] = []
+  const start = markdown.indexOf('**Rule 9.6.**');
+  const stop = markdown.indexOf('Nine families', start);
+  if (start < 0 || stop < 0) throw new Error('docs/language-design.md has no §9.3 extension table');
+  const rows: { name: string; reason: string }[] = [];
   for (const line of markdown.slice(start, stop).split('\n')) {
-    const m = /^\| [^|]+ \| `([^`]+)`\s+\| (.*?)\s+\|$/.exec(line)
-    if (m) rows.push({ name: m[1]!, reason: m[2]! })
+    const m = /^\| [^|]+ \| `([^`]+)`\s+\| (.*?)\s+\|$/.exec(line);
+    if (m) rows.push({ name: m[1]!, reason: m[2]! });
   }
-  return rows
+  return rows;
 }
 
 describe('the author-facing surface has three sources and no fourth', () => {
   it('every name the ambient library declares is WGSL, ECMAScript, or a listed TypeShade row', () => {
-    expect(unaccounted(SHADE_DTS)).toEqual([])
-  })
+    expect(unaccounted(SHADE_DTS)).toEqual([]);
+  });
 
   it('reports an internal helper by name when one reaches the surface', () => {
     // The `f64FromParts` case itself, run against a copy of the library rather than the library,
     // so the check that would have caught it is pinned instead of remembered.
-    const withHelper = `${SHADE_DTS}\ndeclare function f64FromParts(hi: f32, lo: f32): f64\n`
-    const reported = unaccounted(withHelper)
-    expect(reported).toHaveLength(1)
-    expect(reported[0]).toContain('f64FromParts (function')
-    expect(reported[0]).toContain('is not a WGSL name')
-    expect(reported[0]).toContain('is not an ECMAScript name')
-    expect(reported[0]).toContain('is not a row of TYPESHADE_EXTENSIONS')
-  })
+    const withHelper = `${SHADE_DTS}\ndeclare function f64FromParts(hi: f32, lo: f32): f64\n`;
+    const reported = unaccounted(withHelper);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toContain('f64FromParts (function');
+    expect(reported[0]).toContain('is not a WGSL name');
+    expect(reported[0]).toContain('is not an ECMAScript name');
+    expect(reported[0]).toContain('is not a row of TYPESHADE_EXTENSIONS');
+  });
 
   it('the Math and console stand-ins declare only members the real ones have', () => {
     // The member site of the classifier above, and the only site at which `Math` and `console`
@@ -583,86 +598,86 @@ describe('the author-facing surface has three sources and no fourth', () => {
           (name) =>
             `console.${name} is declared in the ambient library but is not a method of ECMAScript console`,
         ),
-    ]
-    expect(strays).toEqual([])
-  })
+    ];
+    expect(strays).toEqual([]);
+  });
 
   it('a free declaration is never credited to the member of the same name', () => {
     // The `random` case, which is what tightened the classifier (#181): a free top-level
     // declaration named after a `Math` member used to be sourced to that member, so a name with
     // no §9.3 row passed. `clz32` stands in for it here, against a copy of the library rather
     // than the library — it is a `Math` member, it is not a WGSL name, and nothing declares it.
-    expect(MATH_MEMBERS.has('clz32')).toBe(true)
-    expect(wgslSource('clz32')).toBeUndefined()
-    const withFree = `${SHADE_DTS}\ndeclare function clz32(x: u32): u32\n`
-    const reported = unaccounted(withFree)
-    expect(reported).toHaveLength(1)
-    expect(reported[0]).toContain('clz32 (function')
-    expect(reported[0]).toContain('is not an ECMAScript name')
+    expect(MATH_MEMBERS.has('clz32')).toBe(true);
+    expect(wgslSource('clz32')).toBeUndefined();
+    const withFree = `${SHADE_DTS}\ndeclare function clz32(x: u32): u32\n`;
+    const reported = unaccounted(withFree);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toContain('clz32 (function');
+    expect(reported[0]).toContain('is not an ECMAScript name');
     // The same name AS A MEMBER is ECMAScript's, which is the distinction the kind carries.
-    expect(ecmascriptSource('clz32', MATH_MEMBER)).toBe('a member of ECMAScript `Math`')
-    expect(ecmascriptSource('clz32', 'function')).toBeUndefined()
-  })
-})
+    expect(ecmascriptSource('clz32', MATH_MEMBER)).toBe('a member of ECMAScript `Math`');
+    expect(ecmascriptSource('clz32', 'function')).toBeUndefined();
+  });
+});
 
 describe('the TypeShade allowlist shrinks', () => {
   it('every row names something the ambient library still declares', () => {
-    const declared = new Set(declaredNames(SHADE_DTS).map((d) => d.name))
+    const declared = new Set(declaredNames(SHADE_DTS).map((d) => d.name));
     const dead = TYPESHADE_EXTENSIONS.filter((row) => !declared.has(row.name)).map(
       (row) =>
         `${row.name} is a TYPESHADE_EXTENSIONS row but is no longer declared: delete the row.`,
-    )
-    expect(dead).toEqual([])
-  })
+    );
+    expect(dead).toEqual([]);
+  });
 
   it('no row keeps a name WGSL or ECMAScript now covers', () => {
     // At the site the row's name is declared, which is what decides whether ECMAScript covers
     // it: a row IS a free declaration (the case above pins that each one is still declared), and
     // a free name is not covered by the `Math` or `console` member of the same spelling.
-    const declared = new Map(declaredNames(SHADE_DTS).map((d) => [d.name, d.kind]))
+    const declared = new Map(declaredNames(SHADE_DTS).map((d) => [d.name, d.kind]));
     const redundant = TYPESHADE_EXTENSIONS.flatMap((row) => {
       const source =
-        wgslSource(row.name) ?? ecmascriptSource(row.name, declared.get(row.name) ?? 'function')
+        wgslSource(row.name) ?? ecmascriptSource(row.name, declared.get(row.name) ?? 'function');
       return source
         ? [`${row.name} is ${source}, so its TYPESHADE_EXTENSIONS row is stale: delete the row.`]
-        : []
-    })
-    expect(redundant).toEqual([])
-  })
+        : [];
+    });
+    expect(redundant).toEqual([]);
+  });
 
   it('the rows that are WGSL keywords or reserved words are exactly the three §9.3 records', () => {
     // `override` and `discard` are WGSL keywords given the same meaning here, and `mod` is a WGSL
     // reserved word, a token the specification reserves and gives no meaning. The document's §9.3
     // records the three; a new row that collides with either list is recorded there first, which
     // is what turning this case red asks for.
-    const keywords = new Set(wgsl.keywords.names)
-    const reserved = new Set(wgsl.reservedWords.names)
+    const keywords = new Set(wgsl.keywords.names);
+    const reserved = new Set(wgsl.reservedWords.names);
     const colliding = TYPESHADE_EXTENSIONS.filter(
       (row) => keywords.has(row.name) || reserved.has(row.name),
-    ).map((row) => `${row.name} (${keywords.has(row.name) ? 'keyword' : 'reserved word'})`)
-    expect(colliding).toEqual(['override (keyword)', 'mod (reserved word)', 'discard (keyword)'])
-  })
+    ).map((row) => `${row.name} (${keywords.has(row.name) ? 'keyword' : 'reserved word'})`);
+    expect(colliding).toEqual(['override (keyword)', 'mod (reserved word)', 'discard (keyword)']);
+  });
 
   it('every row is named once and carries a reason', () => {
-    expect(extensionRows.size).toBe(TYPESHADE_EXTENSIONS.length)
+    expect(extensionRows.size).toBe(TYPESHADE_EXTENSIONS.length);
     const silent = TYPESHADE_EXTENSIONS.filter((row) => row.reason.trim().length === 0).map(
       (row) => `${row.name} has an empty reason: say in one line why the language needs the name.`,
-    )
-    expect(silent).toEqual([])
-  })
-})
+    );
+    expect(silent).toEqual([]);
+  });
+});
 
 describe('a compiler-internal name is never authorable', () => {
   it('no pre-emit intrinsic id is declared or listed', () => {
-    expect(internalLeaks(SHADE_DTS, extensionRows)).toEqual([])
-  })
+    expect(internalLeaks(SHADE_DTS, extensionRows)).toEqual([]);
+  });
 
   it('the exception is exactly the pre-emit id that names a type, and that id has its row', () => {
     for (const id of PRE_EMIT_TYPE_NAMES) {
-      expect(PRE_EMIT_INTRINSICS.has(id)).toBe(true)
-      expect(extensionRows.has(id)).toBe(true)
+      expect(PRE_EMIT_INTRINSICS.has(id)).toBe(true);
+      expect(extensionRows.has(id)).toBe(true);
     }
-  })
+  });
 
   it('the front end resolves no pre-emit id as a builtin', () => {
     // The call route, beside the declaration and row routes above. `resolveMathFn` is how a
@@ -675,32 +690,32 @@ describe('a compiler-internal name is never authorable', () => {
     // new spelling. That is a name for an internal representation whatever its id, and review
     // applies docs/language-design.md §2.1 to it (Rule 9.8).
     for (const id of PRE_EMIT_INTRINSICS) {
-      expect(isKnownIntrinsic(id), `${id} must not be a spellable intrinsic`).toBe(false)
-      expect(isCanonicalMathFn(id), `${id} must not be a canonical builtin name`).toBe(false)
+      expect(isKnownIntrinsic(id), `${id} must not be a spellable intrinsic`).toBe(false);
+      expect(isCanonicalMathFn(id), `${id} must not be a canonical builtin name`).toBe(false);
       expect(resolveMathFn(id), `${id} must not resolve through the Math alias table`).toBe(
         undefined,
-      )
+      );
     }
-  })
+  });
 
   it('reports the row route as well as the declaration route', () => {
     // The `f64Parts` case by the route the first sentinel leaves open: the helper is declared AND
     // given a row, so the three-source check is satisfied. Run against copies, as the sentinel is.
-    const withHelper = `${SHADE_DTS}\ndeclare function f64Parts(x: f64): vec2f\n`
-    const withRow = new Map(extensionRows)
+    const withHelper = `${SHADE_DTS}\ndeclare function f64Parts(x: f64): vec2f\n`;
+    const withRow = new Map(extensionRows);
     withRow.set('f64Parts', {
       name: 'f64Parts',
       reason: 'an author spelling of the f64 lane bridge',
-    })
-    expect(unaccounted(withHelper, withRow)).toEqual([])
-    const reported = internalLeaks(withHelper, withRow)
-    expect(reported).toHaveLength(2)
-    expect(reported[0]).toContain('f64Parts (function')
-    expect(reported[0]).toContain('remove the declaration')
-    expect(reported[1]).toContain('has a TYPESHADE_EXTENSIONS row')
-    expect(reported[1]).toContain('delete the row')
-  })
-})
+    });
+    expect(unaccounted(withHelper, withRow)).toEqual([]);
+    const reported = internalLeaks(withHelper, withRow);
+    expect(reported).toHaveLength(2);
+    expect(reported[0]).toContain('f64Parts (function');
+    expect(reported[0]).toContain('remove the declaration');
+    expect(reported[1]).toContain('has a TYPESHADE_EXTENSIONS row');
+    expect(reported[1]).toContain('delete the row');
+  });
+});
 
 describe('the f64 family has the constructor signatures of the type it stands in for', () => {
   it('the f64 family declares only the constructor forms WGSL gives the type it stands in for', () => {
@@ -708,33 +723,33 @@ describe('the f64 family has the constructor signatures of the type it stands in
     // allowed id. Every `f64` overload takes one argument, as `f32(x)` does, and every
     // `vecNf64` overload is one of WGSL's vector constructor forms; the short spellings
     // `vec2d`/`vec3d`/`vec4d` are type names and never a call, as their rows say.
-    expect(f64FamilySignatureStrays(SHADE_DTS)).toEqual([])
-    expect(functionSignatures(SHADE_DTS, 'f64').length).toBeGreaterThan(0)
+    expect(f64FamilySignatureStrays(SHADE_DTS)).toEqual([]);
+    expect(functionSignatures(SHADE_DTS, 'f64').length).toBeGreaterThan(0);
     for (const n of [2, 3, 4]) {
-      expect(functionSignatures(SHADE_DTS, `vec${String(n)}f64`).length).toBeGreaterThan(0)
-      expect(functionSignatures(SHADE_DTS, `vec${String(n)}d`)).toEqual([])
+      expect(functionSignatures(SHADE_DTS, `vec${String(n)}f64`).length).toBeGreaterThan(0);
+      expect(functionSignatures(SHADE_DTS, `vec${String(n)}d`)).toEqual([]);
     }
-  })
+  });
 
   it('reports the bridge when it is a second signature of an allowed name', () => {
     // `f64FromParts` re-spelled as an overload of `f64`, and `f64Parts` reversed as a vector
     // constructor from two f32 planes. Neither is a stray, neither is a leak; both are caught
     // here, against copies of the library as the other sentinels are.
-    const asOverload = `${SHADE_DTS}\ndeclare function f64(hi: f32, lo: f32): f64\n`
-    expect(unaccounted(asOverload)).toEqual([])
-    expect(internalLeaks(asOverload, extensionRows)).toEqual([])
-    const overloadReport = f64FamilySignatureStrays(asOverload)
-    expect(overloadReport).toHaveLength(1)
-    expect(overloadReport[0]).toContain('f64(f32, f32)')
-    expect(overloadReport[0]).toContain('exactly one argument')
+    const asOverload = `${SHADE_DTS}\ndeclare function f64(hi: f32, lo: f32): f64\n`;
+    expect(unaccounted(asOverload)).toEqual([]);
+    expect(internalLeaks(asOverload, extensionRows)).toEqual([]);
+    const overloadReport = f64FamilySignatureStrays(asOverload);
+    expect(overloadReport).toHaveLength(1);
+    expect(overloadReport[0]).toContain('f64(f32, f32)');
+    expect(overloadReport[0]).toContain('exactly one argument');
 
-    const asPlanes = `${SHADE_DTS}\ndeclare function vec2f64(hi: vec2, lo: vec2): vec2f64\n`
-    expect(unaccounted(asPlanes)).toEqual([])
-    const planesReport = f64FamilySignatureStrays(asPlanes)
-    expect(planesReport).toHaveLength(1)
-    expect(planesReport[0]).toContain('vec2f64(vec2, vec2)')
-    expect(planesReport[0]).toContain('neither a component nor a narrower f64 vector')
-  })
+    const asPlanes = `${SHADE_DTS}\ndeclare function vec2f64(hi: vec2, lo: vec2): vec2f64\n`;
+    expect(unaccounted(asPlanes)).toEqual([]);
+    const planesReport = f64FamilySignatureStrays(asPlanes);
+    expect(planesReport).toHaveLength(1);
+    expect(planesReport[0]).toContain('vec2f64(vec2, vec2)');
+    expect(planesReport[0]).toContain('neither a component nor a narrower f64 vector');
+  });
 
   it('the compiler refuses a second argument to f64', () => {
     // The call route of the same overload: the library above says what an editor accepts, and
@@ -742,27 +757,27 @@ describe('the f64 family has the constructor signatures of the type it stands in
     // both, and this pins the lowering's arity so that the change turns this case red.
     const result = compile(
       '"use typeshade"\nexport function f(a: f32, b: f32): f64 { return f64(a, b) }\n',
-    )
-    const codes = result.diagnostics.map((d) => `${d.code} ${d.message}`)
-    expect(codes).toContain('TS8019 f64() expects 1 argument.')
-    expect(result.wgsl).toBeUndefined()
-  })
-})
+    );
+    const codes = result.diagnostics.map((d) => `${d.code} ${d.message}`);
+    expect(codes).toContain('TS8019 f64() expects 1 argument.');
+    expect(result.wgsl).toBeUndefined();
+  });
+});
 
 describe('the extension table of docs/language-design.md', () => {
   it('is TYPESHADE_EXTENSIONS, row for row', () => {
     // Rule 9.7: a row is added to the table and to the allowlist with the same reason. The name,
     // the order and the reason text are compared, so the document cannot drift from the test.
-    const documented = documentedExtensions(readFileSync(DESIGN_DOC, 'utf8'))
-    expect(documented).toEqual(TYPESHADE_EXTENSIONS.map(({ name, reason }) => ({ name, reason })))
-  })
-})
+    const documented = documentedExtensions(readFileSync(DESIGN_DOC, 'utf8'));
+    expect(documented).toEqual(TYPESHADE_EXTENSIONS.map(({ name, reason }) => ({ name, reason })));
+  });
+});
 
 describe('the WGSL fixture is a real bake', () => {
   it('names the specification commit it was read from', () => {
-    expect(wgsl.specRepository).toBe('https://github.com/gpuweb/gpuweb')
-    expect(wgsl.specCommit).toMatch(/^[0-9a-f]{40}$/)
-  })
+    expect(wgsl.specRepository).toBe('https://github.com/gpuweb/gpuweb');
+    expect(wgsl.specCommit).toMatch(/^[0-9a-f]{40}$/);
+  });
 
   it('carries the whole predeclared vocabulary, so a broken bake cannot pass this suite', () => {
     // At the baked commit the specification has 169 built-in functions and 220 distinct
@@ -770,28 +785,28 @@ describe('the WGSL fixture is a real bake', () => {
     // far above anything a truncated parse would produce: the failure this guards against is a
     // bake that writes a fixture holding a handful of names, which would make every check above
     // vacuous: an empty WGSL list accuses TypeShade of having invented `textureSample`.
-    expect(wgsl.builtinFunctions.names.length).toBeGreaterThanOrEqual(150)
+    expect(wgsl.builtinFunctions.names.length).toBeGreaterThanOrEqual(150);
     const predeclared = new Set([
       ...wgsl.builtinFunctions.names,
       ...wgsl.predeclaredTypes.names,
       ...wgsl.typeGenerators.names,
       ...wgslAliases,
-    ])
-    expect(predeclared.size).toBeGreaterThanOrEqual(200)
-    expect(wgsl.builtinFunctions.names.length).toBe(wgsl.builtinFunctions.count)
+    ]);
+    expect(predeclared.size).toBeGreaterThanOrEqual(200);
+    expect(wgsl.builtinFunctions.names.length).toBe(wgsl.builtinFunctions.count);
     for (const sentinel of ['textureSample', 'workgroupUniformLoad', 'quantizeToF16', 'bitcast']) {
-      expect(wgslFunctions.has(sentinel)).toBe(true)
+      expect(wgslFunctions.has(sentinel)).toBe(true);
     }
-  })
+  });
 
   it('the predeclared aliases are the ones the specification tabulates, and no others', () => {
     for (const alias of ['vec2f', 'vec3i', 'vec4u', 'vec2h', 'mat4x4f', 'mat2x3h']) {
-      expect(wgslAliases.has(alias)).toBe(true)
+      expect(wgslAliases.has(alias)).toBe(true);
     }
     // Not in either table: bool vectors, TypeShade's `d`/`f64` spellings, integer matrices, and
     // the bare square-matrix names. Each of these is a TYPESHADE_EXTENSIONS row instead.
     for (const absent of ['vec2b', 'vec2d', 'vec2f64', 'mat2x2i', 'mat4']) {
-      expect(wgslAliases.has(absent)).toBe(false)
+      expect(wgslAliases.has(absent)).toBe(false);
     }
-  })
-})
+  });
+});

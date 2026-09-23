@@ -1,10 +1,10 @@
 // === Completions: TypeScript user symbols/keywords merged with TypeShade context items (§5) ===
 
-import ts from 'typescript'
-import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js'
-import { ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js'
-import { nodeAtPosition } from './positions.js'
-import type { TypeshadeCompletionItem, TypeshadeCompletionKind } from './types.js'
+import ts from 'typescript';
+import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
+import { ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js';
+import { nodeAtPosition } from './positions.js';
+import type { TypeshadeCompletionItem, TypeshadeCompletionKind } from './types.js';
 
 /** The `@builtin(...)` names valid for a parameter of a function decorated with each stage.
  * `clip_distances` is a vertex OUTPUT (§50), so it has no parameter position in any of the
@@ -31,13 +31,13 @@ const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', read
     'subgroup_invocation_id',
     'subgroup_size',
   ],
-}
+};
 
 const VEC_SNIPPETS: readonly { readonly label: string; readonly insertText: string }[] = [
   { label: 'vec2', insertText: 'vec2(${1:x}, ${2:y})' },
   { label: 'vec3', insertText: 'vec3(${1:x}, ${2:y}, ${3:z})' },
   { label: 'vec4', insertText: 'vec4(${1:x}, ${2:y}, ${3:z}, ${4:w})' },
-]
+];
 
 /** `ts.canHaveDecorators` reflects the *syntactically valid* decorator targets, and a plain
  * function declaration is not one of them — but the parser still attaches `@vertex` etc. to
@@ -45,9 +45,9 @@ const VEC_SNIPPETS: readonly { readonly label: string; readonly insertText: stri
  * a decorator on a function or its parameters must be read straight off `modifiers` instead of
  * through the `canHaveDecorators`-gated helper. */
 function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
-  if (ts.canHaveDecorators(node)) return ts.getDecorators(node) ?? []
-  const modifiers = (node as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? []
-  return modifiers.filter(ts.isDecorator)
+  if (ts.canHaveDecorators(node)) return ts.getDecorators(node) ?? [];
+  const modifiers = (node as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? [];
+  return modifiers.filter(ts.isDecorator);
 }
 
 /** The pipeline stage of the function declaration enclosing `offset`, mirroring the compiler's
@@ -57,17 +57,17 @@ function enclosingStage(
   sourceFile: ts.SourceFile,
   offset: number,
 ): 'vertex' | 'fragment' | 'compute' | undefined {
-  let node: ts.Node | undefined = nodeAtPosition(sourceFile, offset)
-  while (node !== undefined && !ts.isParameter(node)) node = node.parent
-  const fn = node?.parent
-  if (fn === undefined || !ts.isFunctionDeclaration(fn)) return undefined
+  let node: ts.Node | undefined = nodeAtPosition(sourceFile, offset);
+  while (node !== undefined && !ts.isParameter(node)) node = node.parent;
+  const fn = node?.parent;
+  if (fn === undefined || !ts.isFunctionDeclaration(fn)) return undefined;
   for (const d of decoratorsOf(fn)) {
-    const text = d.getText(sourceFile)
-    if (/^@vertex\b/.test(text)) return 'vertex'
-    if (/^@fragment\b/.test(text)) return 'fragment'
-    if (/^@compute\b/.test(text)) return 'compute'
+    const text = d.getText(sourceFile);
+    if (/^@vertex\b/.test(text)) return 'vertex';
+    if (/^@fragment\b/.test(text)) return 'fragment';
+    if (/^@compute\b/.test(text)) return 'compute';
   }
-  return undefined
+  return undefined;
 }
 
 function attributeItem(name: string): TypeshadeCompletionItem {
@@ -76,7 +76,7 @@ function attributeItem(name: string): TypeshadeCompletionItem {
     kind: 'attribute',
     detail: `TypeShade attribute`,
     documentation: ATTRIBUTE_DOCS[name],
-  }
+  };
 }
 
 function builtinItem(name: string): TypeshadeCompletionItem {
@@ -85,12 +85,12 @@ function builtinItem(name: string): TypeshadeCompletionItem {
     kind: 'builtin',
     detail: 'WGSL builtin',
     documentation: BUILTIN_DOCS[name],
-  }
+  };
 }
 
 function vecSnippetItem(snippet: {
-  readonly label: string
-  readonly insertText: string
+  readonly label: string;
+  readonly insertText: string;
 }): TypeshadeCompletionItem {
   return {
     label: snippet.label,
@@ -98,17 +98,17 @@ function vecSnippetItem(snippet: {
     detail: `Construct a ${snippet.label} value`,
     insertText: snippet.insertText,
     insertTextFormat: 'snippet',
-  }
+  };
 }
 
 function kindOfTsCompletion(kind: ts.ScriptElementKind): TypeshadeCompletionKind {
-  const k = kind as string
-  if (k === 'keyword') return 'keyword'
-  if (k === 'method' || k.includes('function')) return 'function'
+  const k = kind as string;
+  if (k === 'keyword') return 'keyword';
+  if (k === 'method' || k.includes('function')) return 'function';
   if (k === 'class' || k === 'interface' || k === 'type' || k === 'alias' || k === 'enum')
-    return 'type'
-  if (k === 'property') return 'field'
-  return 'variable'
+    return 'type';
+  if (k === 'property') return 'field';
+  return 'variable';
 }
 
 function tsCompletions(
@@ -116,31 +116,31 @@ function tsCompletions(
   uri: string,
   offset: number,
 ): TypeshadeCompletionItem[] {
-  const result = languageService.getCompletionsAtPosition(uri, offset, {})
-  if (!result) return []
+  const result = languageService.getCompletionsAtPosition(uri, offset, {});
+  if (!result) return [];
   return result.entries.map((entry) => ({
     label: entry.name,
     kind: kindOfTsCompletion(entry.kind),
     sortText: entry.sortText,
-  }))
+  }));
 }
 
 /** What the syntax tree says about the position a completion was requested at. */
 type CompletionContext =
   | { readonly kind: 'comment' }
   | { readonly kind: 'string'; readonly literal: ts.LiteralLikeNode }
-  | { readonly kind: 'code'; readonly slot: ts.Node }
+  | { readonly kind: 'code'; readonly slot: ts.Node };
 
 /** The last node reached by following each node's last child (`forEachChild` order, which is
  * source order): the rightmost leaf of `node`. */
 function rightmostLeaf(node: ts.Node): ts.Node {
   for (;;) {
-    let last: ts.Node | undefined
+    let last: ts.Node | undefined;
     node.forEachChild((child) => {
-      last = child
-    })
-    if (last === undefined) return node
-    node = last
+      last = child;
+    });
+    if (last === undefined) return node;
+    node = last;
   }
 }
 
@@ -156,11 +156,11 @@ function isTriviaOnly(text: string, start: number, end: number): boolean {
     undefined,
     start,
     end - start,
-  )
+  );
   for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
-    if (kind < ts.SyntaxKind.FirstTriviaToken || kind > ts.SyntaxKind.LastTriviaToken) return false
+    if (kind < ts.SyntaxKind.FirstTriviaToken || kind > ts.SyntaxKind.LastTriviaToken) return false;
   }
-  return true
+  return true;
 }
 
 /**
@@ -170,11 +170,11 @@ function isTriviaOnly(text: string, start: number, end: number): boolean {
  * even when the parser has already attached the tokens after the cursor to the next sibling.
  */
 function endsInMissingNodeBefore(node: ts.Node, sourceFile: ts.SourceFile, pos: number): boolean {
-  const end = node.getEnd()
-  if (end > pos) return false
-  const leaf = rightmostLeaf(node)
-  if (leaf.getFullStart() !== leaf.getEnd() || leaf.getEnd() !== end) return false
-  return isTriviaOnly(sourceFile.text, end, pos)
+  const end = node.getEnd();
+  if (end > pos) return false;
+  const leaf = rightmostLeaf(node);
+  if (leaf.getFullStart() !== leaf.getEnd() || leaf.getEnd() !== end) return false;
+  return isTriviaOnly(sourceFile.text, end, pos);
 }
 
 /**
@@ -193,28 +193,28 @@ function endsInMissingNodeBefore(node: ts.Node, sourceFile: ts.SourceFile, pos: 
  * `contextAt`.
  */
 function slotAt(sourceFile: ts.SourceFile, pos: number): ts.Node {
-  let node: ts.Node = sourceFile
+  let node: ts.Node = sourceFile;
   for (;;) {
-    let inside: ts.Node | undefined
-    let prev: ts.Node | undefined
-    let before: ts.Node | undefined
-    let last: ts.Node | undefined
+    let inside: ts.Node | undefined;
+    let prev: ts.Node | undefined;
+    let before: ts.Node | undefined;
+    let last: ts.Node | undefined;
     node.forEachChild((child) => {
-      const fullStart = child.getFullStart()
-      const start = child.getStart(sourceFile)
-      const end = child.getEnd()
-      if (inside === undefined && start < pos && pos <= end) inside = child
-      if (start < pos && end <= pos) prev = child
-      if (before === undefined && fullStart <= pos && pos <= start) before = child
-      if (fullStart <= pos) last = child
-    })
+      const fullStart = child.getFullStart();
+      const start = child.getStart(sourceFile);
+      const end = child.getEnd();
+      if (inside === undefined && start < pos && pos <= end) inside = child;
+      if (start < pos && end <= pos) prev = child;
+      if (before === undefined && fullStart <= pos && pos <= start) before = child;
+      if (fullStart <= pos) last = child;
+    });
     const next =
       inside ??
       (prev !== undefined && endsInMissingNodeBefore(prev, sourceFile, pos) ? prev : undefined) ??
       before ??
-      (last !== undefined && last.getFullStart() === last.getEnd() ? last : undefined)
-    if (next === undefined) return node
-    node = next
+      (last !== undefined && last.getFullStart() === last.getEnd() ? last : undefined);
+    if (next === undefined) return node;
+    node = next;
   }
 }
 
@@ -225,13 +225,13 @@ function isInCommentAt(text: string, triviaStart: number, pos: number): boolean 
   const ranges = [
     ...(ts.getLeadingCommentRanges(text, triviaStart) ?? []),
     ...(ts.getTrailingCommentRanges(text, triviaStart) ?? []),
-  ]
+  ];
   return ranges.some((r) => {
-    if (pos <= r.pos) return false
-    if (r.kind === ts.SyntaxKind.SingleLineCommentTrivia) return pos <= r.end
-    const closed = text.startsWith('*/', r.end - 2)
-    return closed ? pos < r.end : pos <= r.end
-  })
+    if (pos <= r.pos) return false;
+    if (r.kind === ts.SyntaxKind.SingleLineCommentTrivia) return pos <= r.end;
+    const closed = text.startsWith('*/', r.end - 2);
+    return closed ? pos < r.end : pos <= r.end;
+  });
 }
 
 /**
@@ -244,22 +244,22 @@ function isInCommentAt(text: string, triviaStart: number, pos: number): boolean 
  * between two arguments, before a closing `)` or `}`, on the line of the token before it.
  */
 function triviaStartAt(slot: ts.Node, sourceFile: ts.SourceFile, pos: number): number {
-  let start = slot.getFullStart()
-  let node = slot
+  let start = slot.getFullStart();
+  let node = slot;
   for (;;) {
-    let holder: ts.Node | undefined
+    let holder: ts.Node | undefined;
     for (const child of node.getChildren(sourceFile)) {
       // A JSDoc comment is exposed as a child node of its declaration, but it is trivia: the
       // scan from the token before it must see it as a comment, not as tokens to walk into.
-      if (ts.isJSDoc(child)) continue
-      if (child.getEnd() <= pos) start = child.getEnd()
+      if (ts.isJSDoc(child)) continue;
+      if (child.getEnd() <= pos) start = child.getEnd();
       else if (child.getFullStart() <= pos) {
-        holder = child
-        break
+        holder = child;
+        break;
       }
     }
-    if (holder === undefined) return start
-    node = holder
+    if (holder === undefined) return start;
+    node = holder;
   }
 }
 
@@ -273,27 +273,27 @@ function triviaStartAt(slot: ts.Node, sourceFile: ts.SourceFile, pos: number): n
  * bracket, or on the line of the token before it.
  */
 function contextAt(sourceFile: ts.SourceFile, offset: number): CompletionContext {
-  const slot = slotAt(sourceFile, offset)
+  const slot = slotAt(sourceFile, offset);
   if (isInCommentAt(sourceFile.text, triviaStartAt(slot, sourceFile, offset), offset)) {
-    return { kind: 'comment' }
+    return { kind: 'comment' };
   }
-  const start = slot.getStart(sourceFile)
+  const start = slot.getStart(sourceFile);
   if (
     (ts.isStringLiteralLike(slot) ||
       ts.isTemplateLiteralToken(slot) ||
       ts.isRegularExpressionLiteral(slot)) &&
     start < offset
   ) {
-    const inside = offset < slot.getEnd() || slot.isUnterminated === true
-    if (inside) return { kind: 'string', literal: slot }
+    const inside = offset < slot.getEnd() || slot.isUnterminated === true;
+    if (inside) return { kind: 'string', literal: slot };
   }
-  return { kind: 'code', slot }
+  return { kind: 'code', slot };
 }
 
 /** Whether `literal` is the id argument of a `builtin(...)` call: the one string position where
  * completions are offered, since `WgslBuiltinName` is a closed vocabulary. */
 function isBuiltinIdLiteral(literal: ts.Node): boolean {
-  const call = literal.parent
+  const call = literal.parent;
   return (
     ts.isStringLiteralLike(literal) &&
     call !== undefined &&
@@ -301,17 +301,17 @@ function isBuiltinIdLiteral(literal: ts.Node): boolean {
     ts.isIdentifier(call.expression) &&
     call.expression.text === 'builtin' &&
     call.arguments[0] === literal
-  )
+  );
 }
 
 /** Whether `slot` is the name of a decorator being typed: `@ver|`, a bare `@|` (the parser
  * leaves a zero-width identifier there), or the callee of a decorator factory, `@buil|(...)`. */
 function isAttributeSlot(slot: ts.Node): boolean {
-  if (ts.isDecorator(slot)) return true
-  if (!ts.isIdentifier(slot)) return false
-  const parent = slot.parent
-  if (ts.isDecorator(parent) && parent.expression === slot) return true
-  return ts.isCallExpression(parent) && parent.expression === slot && ts.isDecorator(parent.parent)
+  if (ts.isDecorator(slot)) return true;
+  if (!ts.isIdentifier(slot)) return false;
+  const parent = slot.parent;
+  if (ts.isDecorator(parent) && parent.expression === slot) return true;
+  return ts.isCallExpression(parent) && parent.expression === slot && ts.isDecorator(parent.parent);
 }
 
 /**
@@ -322,20 +322,20 @@ function isAttributeSlot(slot: ts.Node): boolean {
  * `return` or at the start of a statement, is where a `vec4(...)` snippet makes sense.
  */
 function isExpressionSlot(slot: ts.Node): boolean {
-  if (ts.isLiteralExpression(slot) || ts.isTemplateLiteralToken(slot)) return false
+  if (ts.isLiteralExpression(slot) || ts.isTemplateLiteralToken(slot)) return false;
   if (ts.isClassLike(slot) || ts.isInterfaceDeclaration(slot) || ts.isTypeLiteralNode(slot))
-    return false
+    return false;
   for (let n: ts.Node | undefined = slot; n !== undefined && !ts.isSourceFile(n); n = n.parent) {
-    if (ts.isTypeNode(n) || ts.isDecorator(n)) return false
-    if (ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) return false
-    if (ts.isTypeAliasDeclaration(n) || ts.isInterfaceDeclaration(n)) return false
+    if (ts.isTypeNode(n) || ts.isDecorator(n)) return false;
+    if (ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) return false;
+    if (ts.isTypeAliasDeclaration(n) || ts.isInterfaceDeclaration(n)) return false;
   }
   if (ts.isIdentifier(slot) && slot.parent !== undefined) {
-    const parent = slot.parent
-    if (ts.isPropertyAccessExpression(parent) && parent.name === slot) return false
-    if (ts.getNameOfDeclaration(parent as ts.Declaration) === slot) return false
+    const parent = slot.parent;
+    if (ts.isPropertyAccessExpression(parent) && parent.name === slot) return false;
+    if (ts.getNameOfDeclaration(parent as ts.Declaration) === slot) return false;
   }
-  return true
+  return true;
 }
 
 /**
@@ -355,24 +355,24 @@ export function getCompletions(
   uri: string,
   offset: number,
 ): readonly TypeshadeCompletionItem[] {
-  const context = contextAt(sourceFile, offset)
+  const context = contextAt(sourceFile, offset);
 
-  if (context.kind === 'comment') return tsCompletions(languageService, uri, offset)
+  if (context.kind === 'comment') return tsCompletions(languageService, uri, offset);
 
   if (context.kind === 'string') {
-    if (!isBuiltinIdLiteral(context.literal)) return []
-    const stage = enclosingStage(sourceFile, offset)
-    const allowed = stage ? BUILTINS_BY_STAGE[stage] : WGSL_BUILTIN_NAMES
-    const prefix = sourceFile.text.slice(context.literal.getStart(sourceFile) + 1, offset)
-    return allowed.filter((name) => name.startsWith(prefix)).map(builtinItem)
+    if (!isBuiltinIdLiteral(context.literal)) return [];
+    const stage = enclosingStage(sourceFile, offset);
+    const allowed = stage ? BUILTINS_BY_STAGE[stage] : WGSL_BUILTIN_NAMES;
+    const prefix = sourceFile.text.slice(context.literal.getStart(sourceFile) + 1, offset);
+    return allowed.filter((name) => name.startsWith(prefix)).map(builtinItem);
   }
 
-  if (isAttributeSlot(context.slot)) return ATTRIBUTE_NAMES.map(attributeItem)
+  if (isAttributeSlot(context.slot)) return ATTRIBUTE_NAMES.map(attributeItem);
 
-  const merged = new Map<string, TypeshadeCompletionItem>()
-  for (const item of tsCompletions(languageService, uri, offset)) merged.set(item.label, item)
+  const merged = new Map<string, TypeshadeCompletionItem>();
+  for (const item of tsCompletions(languageService, uri, offset)) merged.set(item.label, item);
   if (isExpressionSlot(context.slot)) {
-    for (const snippet of VEC_SNIPPETS) merged.set(snippet.label, vecSnippetItem(snippet))
+    for (const snippet of VEC_SNIPPETS) merged.set(snippet.label, vecSnippetItem(snippet));
   }
-  return [...merged.values()]
+  return [...merged.values()];
 }

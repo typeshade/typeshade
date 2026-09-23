@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest';
 import {
   module,
   fn,
@@ -12,11 +12,11 @@ import {
   arrayLit,
   normalize,
   Var,
-} from '../../ir/index.js'
-import { emitModule } from '../../backends/wgsl.js'
-import { compileModule } from '../../oracle.js'
-import { structDecl, storageBuffer } from '../../sot.js'
-import { cseLocal } from './cse-local.js'
+} from '../../ir/index.js';
+import { emitModule } from '../../backends/wgsl.js';
+import { compileModule } from '../../oracle.js';
+import { structDecl, storageBuffer } from '../../sot.js';
+import { cseLocal } from './cse-local.js';
 
 // cse-local hoists a subexpr that repeats WITHIN ONE statement and touches a local/var —
 // the redundancy the fn-top `cse` (input-only, fn-top placement) cannot reach.
@@ -27,31 +27,31 @@ const repeatModule = () =>
   module({
     funcs: [
       fn('f', { x: f32T }, vec3fT, ({ x }, b) => {
-        const v = Var(vec3(x, x.mul(2), x.mul(3)))
-        v.assign(v.add(vec3(1, 1, 1))) // mutate → v is a var, not hoistable by fn-top cse
-        const n = normalize(v)
-        b.ret(vec3(n.x, n.y, n.z)) // 3× normalize(v) in one statement
+        const v = Var(vec3(x, x.mul(2), x.mul(3)));
+        v.assign(v.add(vec3(1, 1, 1))); // mutate → v is a var, not hoistable by fn-top cse
+        const n = normalize(v);
+        b.ret(vec3(n.x, n.y, n.z)); // 3× normalize(v) in one statement
       }),
     ],
-  })
+  });
 
 describe('cse-local — statement-local CSE', () => {
   it('collapses a var-touching repeat within one statement to a single temp', () => {
-    const wgsl = emitModule(repeatModule())
-    const body = wgsl.slice(wgsl.indexOf('fn f('))
-    const calls = (body.match(/normalize\(/g) ?? []).length
-    expect(calls, `normalize should emit once, got ${calls}:\n${body}`).toBe(1)
-    expect(body).toContain('_lc0') // the hoisted statement-local temp
-  })
+    const wgsl = emitModule(repeatModule());
+    const body = wgsl.slice(wgsl.indexOf('fn f('));
+    const calls = (body.match(/normalize\(/g) ?? []).length;
+    expect(calls, `normalize should emit once, got ${calls}:\n${body}`).toBe(1);
+    expect(body).toContain('_lc0'); // the hoisted statement-local temp
+  });
 
   it('preserves oracle values (bit-equal before/after the pass)', () => {
-    const m = repeatModule()
-    const before = compileModule(m).fns.f
-    const after = compileModule(cseLocal(m)).fns.f
+    const m = repeatModule();
+    const before = compileModule(m).fns.f;
+    const after = compileModule(cseLocal(m)).fns.f;
     for (const x of [1, 2, 3.5, -4, 0.25]) {
-      expect(after(x), `x=${x}`).toEqual(before(x))
+      expect(after(x), `x=${x}`).toEqual(before(x));
     }
-  })
+  });
 
   it('does NOT lift a repeat out of a short-circuit (||/&&) RHS', () => {
     // normalize(v) repeats only inside the short-circuited RHS of `||` — hoisting it
@@ -59,16 +59,16 @@ describe('cse-local — statement-local CSE', () => {
     const m = module({
       funcs: [
         fn('g', { x: f32T }, f32T, ({ x }, b) => {
-          const v = Var(vec3(x, x, x))
-          v.assign(v.add(vec3(1, 1, 1)))
-          const cond = x.gt(0).or(normalize(v).x.gt(0.5).and(normalize(v).x.lt(0.9)))
-          b.ret(cond.select(f32(1), f32(0)))
+          const v = Var(vec3(x, x, x));
+          v.assign(v.add(vec3(1, 1, 1)));
+          const cond = x.gt(0).or(normalize(v).x.gt(0.5).and(normalize(v).x.lt(0.9)));
+          b.ret(cond.select(f32(1), f32(0)));
         }),
       ],
-    })
-    expect(emitModule(m)).not.toMatch(/_lc\d+ = normalize/)
-  })
-})
+    });
+    expect(emitModule(m)).not.toMatch(/_lc\d+ = normalize/);
+  });
+});
 
 // ═══ Control-flow CONDITIONS (X-GIS #1886) ═══
 //
@@ -91,25 +91,25 @@ describe('cse-local — control-flow conditions (X-GIS #1886)', () => {
     const m = module({
       funcs: [
         fn('c', { x: f32T }, f32T, ({ x }, b) => {
-          const v = Var(vec3(x, x, x))
-          v.assign(v.add(vec3(1, 1, 1))) // a var → fn-top cse cannot reach it
-          const r = Var(f32(0))
+          const v = Var(vec3(x, x, x));
+          v.assign(v.add(vec3(1, 1, 1))); // a var → fn-top cse cannot reach it
+          const r = Var(f32(0));
           // normalize(v) twice in ONE condition, both unconditionally evaluated.
           b.if(normalize(v).x.gt(normalize(v).y), () => {
-            r.assign(f32(1))
-          })
-          b.ret(r)
+            r.assign(f32(1));
+          });
+          b.ret(r);
         }),
       ],
-    })
-    const wgsl = emitModule(cseLocal(m))
-    const fbody = wgsl.slice(wgsl.indexOf('fn c('))
-    const calls = (fbody.match(/normalize\(/g) ?? []).length
-    expect(calls, `normalize should emit once, got ${calls}:\n${fbody}`).toBe(1)
-    const before = compileModule(m).fns.c!
-    const after = compileModule(cseLocal(m)).fns.c!
-    for (const x of [1, 2, -3, 0.25]) expect(after(x), `x=${x}`).toEqual(before(x))
-  })
+    });
+    const wgsl = emitModule(cseLocal(m));
+    const fbody = wgsl.slice(wgsl.indexOf('fn c('));
+    const calls = (fbody.match(/normalize\(/g) ?? []).length;
+    expect(calls, `normalize should emit once, got ${calls}:\n${fbody}`).toBe(1);
+    const before = compileModule(m).fns.c!;
+    const after = compileModule(cseLocal(m)).fns.c!;
+    for (const x of [1, 2, -3, 0.25]) expect(after(x), `x=${x}`).toEqual(before(x));
+  });
 
   it('does NOT hoist out of an `else if` condition', () => {
     // Guarded by the arm before it — a temp placed before the `if` would run on the
@@ -117,20 +117,20 @@ describe('cse-local — control-flow conditions (X-GIS #1886)', () => {
     const m = module({
       funcs: [
         fn('e', { x: f32T }, f32T, ({ x }, b) => {
-          const v = Var(vec3(x, x, x))
-          v.assign(v.add(vec3(1, 1, 1)))
-          const r = Var(f32(0))
+          const v = Var(vec3(x, x, x));
+          v.assign(v.add(vec3(1, 1, 1)));
+          const r = Var(f32(0));
           b.if(x.gt(0), () => {
-            r.assign(f32(1))
+            r.assign(f32(1));
           }).elif(normalize(v).x.gt(normalize(v).y), () => {
-            r.assign(f32(2))
-          })
-          b.ret(r)
+            r.assign(f32(2));
+          });
+          b.ret(r);
         }),
       ],
-    })
-    expect(emitModule(cseLocal(m))).not.toMatch(/_lc\d+ = normalize/)
-  })
+    });
+    expect(emitModule(cseLocal(m))).not.toMatch(/_lc\d+ = normalize/);
+  });
 
   it('does NOT hoist out of a `for` condition', () => {
     // Re-evaluated per iteration; lifting it is loop invariance, which is licm's job.
@@ -140,9 +140,9 @@ describe('cse-local — control-flow conditions (X-GIS #1886)', () => {
     const m = module({
       funcs: [
         fn('l', { x: f32T }, f32T, ({ x }, b) => {
-          const v = Var(vec3(x, x, x))
-          v.assign(v.add(vec3(1, 1, 1)))
-          const acc = b.var('acc', f32T, f32(0))
+          const v = Var(vec3(x, x, x));
+          v.assign(v.add(vec3(1, 1, 1)));
+          const acc = b.var('acc', f32T, f32(0));
           b.forRange(
             'i',
             i32(0),
@@ -151,16 +151,16 @@ describe('cse-local — control-flow conditions (X-GIS #1886)', () => {
                 .x.gt(normalize(v).y.sub(9))
                 .and(i.lt(i32(2))),
             (cb) => {
-              cb.addAssign(acc, f32(1))
+              cb.addAssign(acc, f32(1));
             },
-          )
-          b.ret(acc)
+          );
+          b.ret(acc);
         }),
       ],
-    })
-    expect(emitModule(cseLocal(m))).not.toMatch(/_lc\d+ = normalize/)
-  })
-})
+    });
+    expect(emitModule(cseLocal(m))).not.toMatch(/_lc\d+ = normalize/);
+  });
+});
 
 // ═══ Indexing a BINDING is a memory load (X-GIS #1886) ═══
 //
@@ -176,24 +176,24 @@ describe('cse-local — control-flow conditions (X-GIS #1886)', () => {
 // says, because the two reads would sit in different statements and never be tallied
 // together at all. That is the vacuous shape, not a guard.
 describe('cse-local — indexing a binding (X-GIS #1886)', () => {
-  const Slot = structDecl('LcSlot', { id: u32T, size: f32T })
+  const Slot = structDecl('LcSlot', { id: u32T, size: f32T });
 
   it('collapses two `buf.at(i).field` reads inside one statement', () => {
-    const buf = storageBuffer('lc_buf', Slot, { group: 0, binding: 0, access: 'read' })
+    const buf = storageBuffer('lc_buf', Slot, { group: 0, binding: 0, access: 'read' });
     const m = module({
       uses: [buf],
       funcs: [
         fn('lbi', { x: f32T }, f32T, ({ x }, b) => {
-          const i = b.let('i', u32(2))
-          b.ret(buf.at(i).size.mul(x).add(buf.at(i).size))
+          const i = b.let('i', u32(2));
+          b.ret(buf.at(i).size.mul(x).add(buf.at(i).size));
         }),
       ],
-    })
-    const wgsl = emitModule(cseLocal(m))
-    const fbody = wgsl.slice(wgsl.indexOf('fn lbi('))
-    const loads = (fbody.match(/lc_buf\[/g) ?? []).length
-    expect(loads, `the buffer should be indexed once, got ${loads}:\n${fbody}`).toBe(1)
-  })
+    });
+    const wgsl = emitModule(cseLocal(m));
+    const fbody = wgsl.slice(wgsl.indexOf('fn lbi('));
+    const loads = (fbody.match(/lc_buf\[/g) ?? []).length;
+    expect(loads, `the buffer should be indexed once, got ${loads}:\n${fbody}`).toBe(1);
+  });
 
   it('does NOT collapse the same shape on a LOCAL array — only a binding is a load', () => {
     // The discriminating arm: identical statement, identical `index` op, identical
@@ -203,12 +203,12 @@ describe('cse-local — indexing a binding (X-GIS #1886)', () => {
     const m = module({
       funcs: [
         fn('lla', { x: f32T }, f32T, ({ x }, b) => {
-          const i = b.let('i', u32(1))
-          const arr = b.let('arr', arrayLit(f32T, f32(1), f32(2), f32(3)))
-          b.ret(arr.at(i, f32T).mul(x).add(arr.at(i, f32T)))
+          const i = b.let('i', u32(1));
+          const arr = b.let('arr', arrayLit(f32T, f32(1), f32(2), f32(3)));
+          b.ret(arr.at(i, f32T).mul(x).add(arr.at(i, f32T)));
         }),
       ],
-    })
-    expect(emitModule(cseLocal(m))).not.toMatch(/_lc\d+ = arr\[/)
-  })
-})
+    });
+    expect(emitModule(cseLocal(m))).not.toMatch(/_lc\d+ = arr\[/);
+  });
+});

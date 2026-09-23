@@ -33,11 +33,11 @@
 // Idempotent; no semantic change — the compile gates run the minified output on
 // real Tint + ANGLE (playground/e2e/_emit-obfuscate-gate.spec.ts).
 
-import { lexShader, needsSpace, type Token } from './shader-lex.js'
+import { lexShader, needsSpace, type Token } from './shader-lex.js';
 
 // ── Numeric literals ──
 
-const NUMBER_RE = /^(\d*)(?:\.(\d*))?(?:[eE]([+-]?)0*(\d+))?([fhiu]?)$/
+const NUMBER_RE = /^(\d*)(?:\.(\d*))?(?:[eE]([+-]?)0*(\d+))?([fhiu]?)$/;
 
 /** Canonicalise a numeric literal without changing its value or its type.
  *  Decimal only — a hex/binary literal, or anything the shape below does not
@@ -52,30 +52,35 @@ const NUMBER_RE = /^(\d*)(?:\.(\d*))?(?:[eE]([+-]?)0*(\d+))?([fhiu]?)$/
  *  keeps its `.`, so `1.0` → `1.` and never `1` (an integer in WGSL), and a
  *  literal with no `.`/exponent at all is left alone. */
 function shortenNumber(text: string): string {
-  const m = NUMBER_RE.exec(text)
-  if (m === null) return text
-  const [, rawInt = '', rawFrac, expSign, expDigits, suffix = ''] = m
-  const hasDot = rawFrac !== undefined
-  const hasExp = expDigits !== undefined
-  if (!hasDot && !hasExp) return text // plain integer (`0`, `7u`) — nothing to win
+  const m = NUMBER_RE.exec(text);
+  if (m === null) return text;
+  const [, rawInt = '', rawFrac, expSign, expDigits, suffix = ''] = m;
+  const hasDot = rawFrac !== undefined;
+  const hasExp = expDigits !== undefined;
+  if (!hasDot && !hasExp) return text; // plain integer (`0`, `7u`) — nothing to win
 
-  const int = rawInt.replace(/^0+(?=\d)/, '')
-  const frac = (rawFrac ?? '').replace(/0+$/, '')
-  const expNum = hasExp ? Number(expDigits) : 0
-  const exp = hasExp ? `e${expSign === '-' ? '-' : ''}${expDigits.replace(/^0+(?=\d)/, '')}` : ''
+  const int = rawInt.replace(/^0+(?=\d)/, '');
+  const frac = (rawFrac ?? '').replace(/0+$/, '');
+  const expNum = hasExp ? Number(expDigits) : 0;
+  const exp = hasExp ? `e${expSign === '-' ? '-' : ''}${expDigits.replace(/^0+(?=\d)/, '')}` : '';
 
   // Mantissa: drop a bare `0` integer part (`.5`) only when a fraction digit
   // survives to carry the literal, and drop the `.` only when an exponent
   // already marks it as a float.
-  let mantissa: string
-  if (frac !== '') mantissa = `${int === '0' ? '' : int}.${frac}`
-  else if (hasExp) mantissa = int === '' ? '0' : int
-  else mantissa = `${int === '' ? '0' : int}.`
+  let mantissa: string;
+  if (frac !== '') mantissa = `${int === '0' ? '' : int}.${frac}`;
+  else if (hasExp) mantissa = int === '' ? '0' : int;
+  else mantissa = `${int === '' ? '0' : int}.`;
 
-  const fixed = `${mantissa}${exp}${suffix}`
-  const scientific = exponentForm(rawInt, rawFrac ?? '', expSign === '-' ? -expNum : expNum, suffix)
-  const short = scientific !== null && scientific.length < fixed.length ? scientific : fixed
-  return short.length < text.length ? short : text
+  const fixed = `${mantissa}${exp}${suffix}`;
+  const scientific = exponentForm(
+    rawInt,
+    rawFrac ?? '',
+    expSign === '-' ? -expNum : expNum,
+    suffix,
+  );
+  const short = scientific !== null && scientific.length < fixed.length ? scientific : fixed;
+  return short.length < text.length ? short : text;
 }
 
 /** The same value written as `<digits>e<exp>`, or null when that spelling does
@@ -89,12 +94,12 @@ function shortenNumber(text: string): string {
  *  shader corpus). A zero exponent is refused: `1e0` is never shorter than `1.`,
  *  and bare `1` would retype the literal to an integer. */
 function exponentForm(rawInt: string, rawFrac: string, exp: number, suffix: string): string | null {
-  const all = `${rawInt}${rawFrac}`.replace(/^0+/, '')
-  if (all === '') return null // the value is zero — `0.` is already minimal
-  const digits = all.replace(/0+$/, '')
-  const trailing = all.length - digits.length
-  const e = exp - rawFrac.length + trailing
-  return e === 0 ? null : `${digits}e${e}${suffix}`
+  const all = `${rawInt}${rawFrac}`.replace(/^0+/, '');
+  if (all === '') return null; // the value is zero — `0.` is already minimal
+  const digits = all.replace(/0+$/, '');
+  const trailing = all.length - digits.length;
+  const e = exp - rawFrac.length + trailing;
+  return e === 0 ? null : `${digits}e${e}${suffix}`;
 }
 
 /** The shortest decimal that rounds to the SAME f32 as `text`.
@@ -109,21 +114,21 @@ function exponentForm(rawInt: string, rawFrac: string, exp: number, suffix: stri
  *  This is where the long literals go: `0.800000011920929` is nothing but the
  *  f64 PRINTOUT of `fround(0.8)`, and `.8` is the same number to the GPU. */
 function shortestF32(text: string): string {
-  if (!NUMBER_RE.test(text)) return text
-  const target = Math.fround(Number(text))
-  if (!Number.isFinite(target)) return text
-  const isFloat = /[.eE]/.test(text)
+  if (!NUMBER_RE.test(text)) return text;
+  const target = Math.fround(Number(text));
+  if (!Number.isFinite(target)) return text;
+  const isFloat = /[.eE]/.test(text);
   for (let digits = 1; digits <= 9; digits++) {
-    const candidate = Number(target.toPrecision(digits))
-    if (Math.fround(candidate) !== target) continue
-    const out = String(candidate)
+    const candidate = Number(target.toPrecision(digits));
+    if (Math.fround(candidate) !== target) continue;
+    const out = String(candidate);
     // Float-ness is part of the value here, not decoration: `1.` shortens to
     // `1`, which is an abstract INTEGER in WGSL and fails to resolve against
     // `operator -(vecN<f32>, f32)`. Caught by Tint, not by any local reasoning —
     // the lossless path had this rule and this one has to repeat it.
-    return isFloat && !/[.eE]/.test(out) ? `${out}.` : out
+    return isFloat && !/[.eE]/.test(out) ? `${out}.` : out;
   }
-  return text
+  return text;
 }
 
 // ── Public API ──
@@ -135,7 +140,7 @@ function shortestF32(text: string): string {
  *  a checked claim rather than a comment.
  *  See `examples/minify-safety.test.ts`. */
 export function shaderTokens(src: string): string[] {
-  return lexShader(src).map((t) => t.text)
+  return lexShader(src).map((t) => t.text);
 }
 
 /** Options for `minifyShaderText` (and the `minify()` emit plugin it backs). The
@@ -168,7 +173,7 @@ export interface MinifyOptions {
    *    mentioning `f16`. What `obfuscate()` uses.
    *  - `false` — leave literals exactly as emitted, for diffing against a
    *    hand-checked baseline. */
-  readonly numbers?: boolean | 'f32'
+  readonly numbers?: boolean | 'f32';
 }
 
 /** Closes a comma list — a `,` immediately before one of these is TRAILING, and
@@ -176,7 +181,7 @@ export interface MinifyOptions {
  *  (`struct S{a:f32,b:f32,}`); GLSL never produces the sequence at all, since
  *  its struct members end in `;` and its lists have no optional trailing form.
  *  The only token this pass removes — everything else is spelling. */
-const CLOSERS = new Set([')', '}', ']'])
+const CLOSERS = new Set([')', '}', ']']);
 
 /** Minify an emitted WGSL / GLSL shader string: strip comments and blank lines,
  *  keep `#` directive lines verbatim on their own line, canonicalise numeric
@@ -184,40 +189,40 @@ const CLOSERS = new Set([')', '}', ']'])
  *  into one compact line with a separator only where maximal munch would
  *  otherwise merge two tokens. */
 export function minifyShaderText(src: string, opts?: MinifyOptions): string {
-  const mode = opts?.numbers ?? true
-  const toks = lexShader(src)
+  const mode = opts?.numbers ?? true;
+  const toks = lexShader(src);
   // f32 re-spelling is exact only where every float literal is in an f32
   // context. `f16` anywhere in the text means it might not be, and the mode
   // falls back to the lossless canonicalisation rather than reasoning about it.
-  const f32 = mode === 'f32' && !toks.some((t) => t.kind === 'word' && t.text === 'f16')
+  const f32 = mode === 'f32' && !toks.some((t) => t.kind === 'word' && t.text === 'f16');
 
   // Spell every token, then drop the trailing commas — as a separate pass, so
   // the separator decision below always sees the token that really precedes it.
   // Offsets are dropped here: this pass RE-SPELLS the shader rather than
   // splicing it, so a token's position in the input stops meaning anything.
-  const kept: Array<Pick<Token, 'kind' | 'text'>> = []
+  const kept: Array<Pick<Token, 'kind' | 'text'>> = [];
   for (const tok of toks) {
-    let text = tok.text
+    let text = tok.text;
     if (tok.kind === 'number' && mode !== false) {
-      const candidates = f32 ? [tok.text, shortestF32(tok.text)] : [tok.text]
-      text = candidates.map(shortenNumber).reduce((a, b) => (b.length < a.length ? b : a))
+      const candidates = f32 ? [tok.text, shortestF32(tok.text)] : [tok.text];
+      text = candidates.map(shortenNumber).reduce((a, b) => (b.length < a.length ? b : a));
     }
-    if (CLOSERS.has(text) && kept[kept.length - 1]?.text === ',') kept.pop()
-    kept.push({ kind: tok.kind, text })
+    if (CLOSERS.has(text) && kept[kept.length - 1]?.text === ',') kept.pop();
+    kept.push({ kind: tok.kind, text });
   }
 
-  let out = ''
-  let prev: string | null = null
+  let out = '';
+  let prev: string | null = null;
   for (const tok of kept) {
     if (tok.kind === 'directive') {
-      if (out !== '' && !out.endsWith('\n')) out += '\n'
-      out += `${tok.text}\n`
-      prev = null
-      continue
+      if (out !== '' && !out.endsWith('\n')) out += '\n';
+      out += `${tok.text}\n`;
+      prev = null;
+      continue;
     }
-    if (prev !== null && needsSpace(prev, tok.text)) out += ' '
-    out += tok.text
-    prev = tok.text
+    if (prev !== null && needsSpace(prev, tok.text)) out += ' ';
+    out += tok.text;
+    prev = tok.text;
   }
-  return out.endsWith('\n') ? out : `${out}\n`
+  return out.endsWith('\n') ? out : `${out}\n`;
 }

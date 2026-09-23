@@ -78,25 +78,25 @@
 // while the GLSL ternary short-circuits, so a side-effecting arm already means something
 // different on the two targets. That asymmetry predates this pass and is untouched by it.
 
-import type { ModuleDecl, FuncDecl, Expr, Stmt } from '../ir/index.js'
-import { collectFnRefs } from '../ir/collect-refs.js'
-import { bodyHasRaw, collectLocals } from '../passes/opt/expr-utils.js'
+import type { ModuleDecl, FuncDecl, Expr, Stmt } from '../ir/index.js';
+import { collectFnRefs } from '../ir/collect-refs.js';
+import { bodyHasRaw, collectLocals } from '../passes/opt/expr-utils.js';
 
 /** True iff `body` — nested if/for/switch blocks included — contains a `discard`. */
 function bodyHasDiscard(body: readonly Stmt[]): boolean {
   for (const s of body) {
-    if (s.s === 'discard') return true
+    if (s.s === 'discard') return true;
     if (s.s === 'if') {
-      if (s.arms.some((a) => bodyHasDiscard(a.body))) return true
-      if (s.elseBody && bodyHasDiscard(s.elseBody)) return true
+      if (s.arms.some((a) => bodyHasDiscard(a.body))) return true;
+      if (s.elseBody && bodyHasDiscard(s.elseBody)) return true;
     } else if (s.s === 'for') {
-      if (bodyHasDiscard(s.body)) return true
+      if (bodyHasDiscard(s.body)) return true;
     } else if (s.s === 'switch') {
-      if (s.cases.some((c) => bodyHasDiscard(c.body))) return true
-      if (s.defaultBody && bodyHasDiscard(s.defaultBody)) return true
+      if (s.cases.some((c) => bodyHasDiscard(c.body))) return true;
+      if (s.defaultBody && bodyHasDiscard(s.defaultBody)) return true;
     }
   }
-  return false
+  return false;
 }
 
 /** The names of every module function that can execute a `discard` — directly or through
@@ -113,59 +113,59 @@ function bodyHasDiscard(body: readonly Stmt[]): boolean {
  *  `hoistDiscardingCtorArgs`): what raw text adds is invisible either way, and dropping the
  *  visible half too would only shrink the set. */
 export function transitivelyDiscardingFns(m: ModuleDecl): ReadonlySet<string> {
-  const byName = new Map(m.funcs.map((f) => [f.name, f]))
-  const callsOf = new Map(m.funcs.map((f) => [f.name, collectFnRefs(f).calls]))
-  const discarding = new Set<string>()
-  for (const f of m.funcs) if (bodyHasDiscard(f.body)) discarding.add(f.name)
-  let grew = true
+  const byName = new Map(m.funcs.map((f) => [f.name, f]));
+  const callsOf = new Map(m.funcs.map((f) => [f.name, collectFnRefs(f).calls]));
+  const discarding = new Set<string>();
+  for (const f of m.funcs) if (bodyHasDiscard(f.body)) discarding.add(f.name);
+  let grew = true;
   while (grew) {
-    grew = false
+    grew = false;
     for (const f of m.funcs) {
-      if (discarding.has(f.name)) continue
+      if (discarding.has(f.name)) continue;
       for (const callee of callsOf.get(f.name) ?? []) {
-        if (!byName.has(callee) || !discarding.has(callee)) continue
-        discarding.add(f.name)
-        grew = true
-        break
+        if (!byName.has(callee) || !discarding.has(callee)) continue;
+        discarding.add(f.name);
+        grew = true;
+        break;
       }
     }
   }
-  return discarding
+  return discarding;
 }
 
 /** True iff `e` calls a transitively-discarding function anywhere in its subtree. Walks
  *  guarded operands too: the QUESTION is whether the argument carries the offending call,
  *  and hoisting the whole argument moves its guard along with it. */
 function callsDiscarding(e: Expr, discarding: ReadonlySet<string>): boolean {
-  if (e.op === 'call' && discarding.has(e.fn)) return true
+  if (e.op === 'call' && discarding.has(e.fn)) return true;
   switch (e.op) {
     case 'binop':
     case 'compare':
     case 'logical':
-      return callsDiscarding(e.a, discarding) || callsDiscarding(e.b, discarding)
+      return callsDiscarding(e.a, discarding) || callsDiscarding(e.b, discarding);
     case 'unop':
-      return callsDiscarding(e.a, discarding)
+      return callsDiscarding(e.a, discarding);
     case 'call':
     case 'construct':
-      return e.args.some((a) => callsDiscarding(a, discarding))
+      return e.args.some((a) => callsDiscarding(a, discarding));
     case 'member':
-      return callsDiscarding(e.base, discarding)
+      return callsDiscarding(e.base, discarding);
     case 'index':
-      return callsDiscarding(e.base, discarding) || callsDiscarding(e.idx, discarding)
+      return callsDiscarding(e.base, discarding) || callsDiscarding(e.idx, discarding);
     case 'select':
       return (
         callsDiscarding(e.cond, discarding) ||
         callsDiscarding(e.ifTrue, discarding) ||
         callsDiscarding(e.ifFalse, discarding)
-      )
+      );
     case 'matchExpr':
       return (
         callsDiscarding(e.scrutinee, discarding) ||
         e.cases.some(([, v]) => callsDiscarding(v, discarding)) ||
         callsDiscarding(e.default, discarding)
-      )
+      );
     default:
-      return false // lit / constref / overrideref / externref / param / varref
+      return false; // lit / constref / overrideref / externref / param / varref
   }
 }
 
@@ -179,11 +179,11 @@ function callsDiscarding(e: Expr, discarding: ReadonlySet<string>): boolean {
 function mapTargetIndices(t: Expr, f: (e: Expr) => Expr): Expr {
   switch (t.op) {
     case 'member':
-      return { ...t, base: mapTargetIndices(t.base, f) }
+      return { ...t, base: mapTargetIndices(t.base, f) };
     case 'index':
-      return { ...t, base: mapTargetIndices(t.base, f), idx: f(t.idx) }
+      return { ...t, base: mapTargetIndices(t.base, f), idx: f(t.idx) };
     default:
-      return t // the chain's root — a varref or a param
+      return t; // the chain's root — a varref or a param
   }
 }
 
@@ -196,57 +196,57 @@ function mapTargetIndices(t: Expr, f: (e: Expr) => Expr): Expr {
 function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
   switch (s.s) {
     case 'let':
-      return { ...s, expr: f(s.expr) }
+      return { ...s, expr: f(s.expr) };
     case 'var':
-      return s.init !== undefined ? { ...s, init: f(s.init) } : s
+      return s.init !== undefined ? { ...s, init: f(s.init) } : s;
     case 'assign':
     case 'assignOp':
       // Target first, then the value — both hoist before the statement, and this is the
       // left-to-right reading order. Which fires first only matters when BOTH sides discard,
       // and GLSL leaves an assignment's operand order unspecified anyway.
-      return { ...s, target: mapTargetIndices(s.target, f), expr: f(s.expr) }
+      return { ...s, target: mapTargetIndices(s.target, f), expr: f(s.expr) };
     case 'call':
       // The call's arguments are evaluated whenever the statement runs, exactly once.
-      return { ...s, expr: f(s.expr) }
+      return { ...s, expr: f(s.expr) };
     case 'return':
-      return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
+      return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s;
     case 'if':
       // ONLY arm 0. Its condition is evaluated whenever the `if` executes. Every later arm
       // is an `else if`, reached only when all prior conditions were false — hoisting one
       // before the `if` would evaluate it unconditionally, so those are left inline.
       return s.arms.length === 0
         ? s
-        : { ...s, arms: s.arms.map((a, i) => (i === 0 ? { ...a, cond: f(a.cond) } : a)) }
+        : { ...s, arms: s.arms.map((a, i) => (i === 0 ? { ...a, cond: f(a.cond) } : a)) };
     case 'switch':
       // The scrutinee is evaluated whenever the `switch` executes.
-      return { ...s, scrut: f(s.scrut) }
+      return { ...s, scrut: f(s.scrut) };
     case 'for':
       // The INIT statement only: a var/assign executed exactly once, before the loop, so a
       // hoist before the `for` is evaluation-order-identical. `cond` and `update` run PER
       // ITERATION — hoisting out of either would collapse N evaluations into one before the
       // loop, which is wrong regardless of any discard, so both are left inline.
-      return { ...s, init: mapStmtValue(s.init, f) }
+      return { ...s, init: mapStmtValue(s.init, f) };
     default:
-      return s
+      return s;
   }
 }
 
 function hoistFn(f: FuncDecl, discarding: ReadonlySet<string>): FuncDecl {
-  if (bodyHasRaw(f.body)) return f
-  const refs = collectFnRefs(f)
-  if (![...refs.calls].some((c) => discarding.has(c))) return f
+  if (bodyHasRaw(f.body)) return f;
+  const refs = collectFnRefs(f);
+  if (![...refs.calls].some((c) => discarding.has(c))) return f;
 
   // Seed the temp index past any existing `_dhN` param/local so a re-run cannot redeclare
   // `_dh0` (same idiom as cse.ts / cse-local.ts). ONE leading underscore — GLSL ES reserves
   // the double one.
-  const names = new Set<string>(f.params.map((p) => p.name))
-  collectLocals(f.body, names)
-  let base = 0
+  const names = new Set<string>(f.params.map((p) => p.name));
+  collectLocals(f.body, names);
+  let base = 0;
   for (const n of names) {
-    const mm = /^_dh(\d+)$/.exec(n)
-    if (mm) base = Math.max(base, Number(mm[1]) + 1)
+    const mm = /^_dh(\d+)$/.exec(n);
+    if (mm) base = Math.max(base, Number(mm[1]) + 1);
   }
-  const next = { n: base }
+  const next = { n: base };
 
   // BOTTOM-UP: children are rewritten before their parent, so a nested `Out(Inner(g(x)))`
   // hoists only the INNERMOST offending argument and the outer ctor then holds a temp, not
@@ -259,53 +259,53 @@ function hoistFn(f: FuncDecl, discarding: ReadonlySet<string>): FuncDecl {
       switch (e.op) {
         case 'binop':
         case 'compare':
-          return { ...e, a: rewrite(e.a, pending), b: rewrite(e.b, pending) }
+          return { ...e, a: rewrite(e.a, pending), b: rewrite(e.b, pending) };
         case 'unop':
-          return { ...e, a: rewrite(e.a, pending) }
+          return { ...e, a: rewrite(e.a, pending) };
         case 'call':
-          return { ...e, args: e.args.map((a) => rewrite(a, pending)) }
+          return { ...e, args: e.args.map((a) => rewrite(a, pending)) };
         case 'construct':
-          return { ...e, args: e.args.map((a) => rewrite(a, pending)) }
+          return { ...e, args: e.args.map((a) => rewrite(a, pending)) };
         case 'member':
-          return { ...e, base: rewrite(e.base, pending) }
+          return { ...e, base: rewrite(e.base, pending) };
         case 'index':
-          return { ...e, base: rewrite(e.base, pending), idx: rewrite(e.idx, pending) }
+          return { ...e, base: rewrite(e.base, pending), idx: rewrite(e.idx, pending) };
         case 'logical':
           // `&&`/`||` are HALF unconditional: the LHS is evaluated whenever the node is, the
           // RHS only when the LHS did not short-circuit. Descend the LHS, leave the RHS whole.
-          return { ...e, a: rewrite(e.a, pending), b: e.b }
+          return { ...e, a: rewrite(e.a, pending), b: e.b };
         case 'select':
           // Same split, spelled as a GLSL ternary: the condition is evaluated whenever the
           // node is, each arm only when chosen. Descend the cond, leave both arms whole.
-          return { ...e, cond: rewrite(e.cond, pending), ifTrue: e.ifTrue, ifFalse: e.ifFalse }
+          return { ...e, cond: rewrite(e.cond, pending), ifTrue: e.ifTrue, ifFalse: e.ifFalse };
         default:
-          return e // leaf, or a matchExpr (never present post-`lowerModule`) left whole
+          return e; // leaf, or a matchExpr (never present post-`lowerModule`) left whole
       }
-    })()
-    if (r.op !== 'construct' || r.type.kind !== 'struct') return r
+    })();
+    if (r.op !== 'construct' || r.type.kind !== 'struct') return r;
     return {
       ...r,
       args: r.args.map((a) => {
-        if (!callsDiscarding(a, discarding)) return a
-        const name = `_dh${next.n++}`
-        pending.push({ s: 'let', name, expr: a })
-        return { op: 'varref', type: a.type, name }
+        if (!callsDiscarding(a, discarding)) return a;
+        const name = `_dh${next.n++}`;
+        pending.push({ s: 'let', name, expr: a });
+        return { op: 'varref', type: a.type, name };
       }),
-    }
-  }
+    };
+  };
 
   // Each block is its own splice context: a statement inside a branch is unconditional
   // WITHIN that branch, so its temp belongs in the branch, immediately before it.
   const processBody = (body: readonly Stmt[]): Stmt[] => {
-    const out: Stmt[] = []
+    const out: Stmt[] = [];
     for (const s of body) {
-      const rec = recurseBlocks(s)
-      const pending: Stmt[] = []
-      const stmt = mapStmtValue(rec, (e) => rewrite(e, pending))
-      out.push(...pending, stmt)
+      const rec = recurseBlocks(s);
+      const pending: Stmt[] = [];
+      const stmt = mapStmtValue(rec, (e) => rewrite(e, pending));
+      out.push(...pending, stmt);
     }
-    return out
-  }
+    return out;
+  };
 
   // The nested-BODY half of a control-flow statement. Composes with `mapStmtValue`, which
   // owns the HEADER half: `processBody` runs this first and then maps the value positions
@@ -319,21 +319,21 @@ function hoistFn(f: FuncDecl, discarding: ReadonlySet<string>): FuncDecl {
           ...s,
           arms: s.arms.map((a) => ({ cond: a.cond, body: processBody(a.body) })),
           elseBody: s.elseBody ? processBody(s.elseBody) : undefined,
-        }
+        };
       case 'for':
-        return { ...s, body: processBody(s.body) }
+        return { ...s, body: processBody(s.body) };
       case 'switch':
         return {
           ...s,
           cases: s.cases.map((c) => ({ values: c.values, body: processBody(c.body) })),
           defaultBody: s.defaultBody ? processBody(s.defaultBody) : undefined,
-        }
+        };
       default:
-        return s
+        return s;
     }
-  }
+  };
 
-  return { ...f, body: processBody(f.body) }
+  return { ...f, body: processBody(f.body) };
 }
 
 /** Bind every struct-constructor argument that carries a transitively-discarding call to a
@@ -341,7 +341,7 @@ function hoistFn(f: FuncDecl, discarding: ReadonlySet<string>): FuncDecl {
  *  constructor instead (X-GIS #1840). Pure (module → module); IDENTITY for a module in which
  *  nothing discards, so a discard-free module emits byte-for-byte what it always did. */
 export function hoistDiscardingCtorArgs(m: ModuleDecl): ModuleDecl {
-  const discarding = transitivelyDiscardingFns(m)
-  if (discarding.size === 0) return m
-  return { ...m, funcs: m.funcs.map((f) => hoistFn(f, discarding)) }
+  const discarding = transitivelyDiscardingFns(m);
+  if (discarding.size === 0) return m;
+  return { ...m, funcs: m.funcs.map((f) => hoistFn(f, discarding)) };
 }

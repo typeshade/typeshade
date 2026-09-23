@@ -1,8 +1,8 @@
-import type { LintRule } from '../engine.js'
-import { typeKey, type ShaderType } from '../../../ir/types.js'
+import type { LintRule } from '../engine.js';
+import { typeKey, type ShaderType } from '../../../ir/types.js';
 
 /** The longest `array<f32, N>` WGSL's built-in value table lets `@builtin(clip_distances)` be. */
-const MAX_CLIP_DISTANCES = 8
+const MAX_CLIP_DISTANCES = 8;
 
 /** Whether a declared type is what WGSL fixes for a `@builtin(<id>)`, or `undefined` when the
  *  id has no rule this walk knows. One id today: `clip_distances`, the one built-in value whose
@@ -17,7 +17,7 @@ function clipDistancesShape(type: ShaderType): boolean {
     type.size !== undefined &&
     type.size >= 1 &&
     type.size <= MAX_CLIP_DISTANCES
-  )
+  );
 }
 
 /** A `@builtin(...)` id declared with a type WGSL does not give it.
@@ -39,23 +39,23 @@ export const builtinValueType: LintRule = {
   category: 'correctness',
   create: (ctx) => {
     const check = (builtin: string | undefined, type: ShaderType, where: string): void => {
-      if (builtin !== 'clip_distances' || clipDistancesShape(type)) return
+      if (builtin !== 'clip_distances' || clipDistancesShape(type)) return;
       ctx.report(
         `@builtin(clip_distances) on ${where} is '${typeKey(type)}'; WGSL gives it ` +
           `array<f32, N> with N from 1 to ${String(MAX_CLIP_DISTANCES)}`,
         { code: 'SD0020' },
-      )
-    }
+      );
+    };
     return {
       Module(m) {
         for (const s of m.structs) {
-          for (const f of s.fields) check(f.builtin, f.type, `${s.name}.${f.name}`)
+          for (const f of s.fields) check(f.builtin, f.type, `${s.name}.${f.name}`);
         }
         for (const f of m.funcs) {
-          for (const p of f.params) check(p.builtin, p.type, `${f.name}'s parameter '${p.name}'`)
-          check(f.retBuiltin, f.ret, `${f.name}'s return`)
+          for (const p of f.params) check(p.builtin, p.type, `${f.name}'s parameter '${p.name}'`);
+          check(f.retBuiltin, f.ret, `${f.name}'s return`);
         }
       },
-    }
+    };
   },
-}
+};

@@ -1545,6 +1545,36 @@ cpu.setBinding('smp', 0)
 cpu.fns.shade([0.5, 0.5]) // → [0, 0, 0, 1]
 ```
 
+### Derivatives with grad
+
+`grad(m, fn, param)` differentiates a function of the module with respect to one of its
+parameters and returns `{ module, name }`: the module with a new function added, which takes
+the same arguments as `fn` and returns `d fn / d param` at them, with the type of `fn`'s
+result. The new function is ordinary IR, so the oracle runs it, and the WGSL and GLSL writers
+emit it for an entry that calls it.
+
+```ts
+import { module, fn, f32T, sin, compileModule, grad } from 'typeshade'
+
+const wave = fn('wave', { x: f32T, k: f32T }, ({ x, k }) => sin(k.mul(x)).mul(k))
+const d = grad(module({ funcs: [wave] }), 'wave', 'k')
+
+compileModule(d.module).fns[d.name](0.5, 2) // → cos(1) * 0.5 * 2 + sin(1) = 1.3817…
+```
+
+It works in forward mode: every `f32`, float vector and float matrix gets a derivative beside
+its value, and `if`, `switch` and `for` carry both through their bodies. A call to another
+function of the module goes through a helper, `g_jvp`, generated once per callee. The
+component-wise builtins have their textbook rules; `floor`, `ceil`, `round`, `trunc`, `sign`
+and `step` have a zero derivative, which is the derivative everywhere but at their jumps. For a
+vector parameter, pass `{ direction: [...] }` and the result is the derivative along it.
+
+A construct with no derivative rule is refused with `SD0118` naming it, a texture sample, a
+derivative builtin or a struct the parameter would flow into among them, and only when the
+parameter reaches it; the pass never returns a zero derivative it did not derive. The generated
+function is checked against a central finite difference on the oracle, which is how to check
+one of your own.
+
 ## Diagnostics
 
 After this page you can read a coded error, branch your own code on the code it carries,
@@ -1909,12 +1939,13 @@ The bottom five rows are the ones nothing declares by hand. Writing
 `@builtin("clip_distances")`, `@builtin("primitive_index")` or `@blend_src(n)` derives the
 capability, because WGSL refuses each of those without the matching `enable`; a
 `"bgra8unorm"` storage texture and a call into the packed 4x8 family derive theirs from the
-binding and from the call. In a `"use typeshade"` file the two that no use can derive are
-spelled as a string directive beside `"use typeshade"`:
+binding and from the call. `f16`, which no use can derive, and `subgroups`, for a file that
+reads neither subgroup built-in value, are spelled as a string directive beside
+`"use typeshade"`:
 
 ```ts
-'use typeshade'
-'enable subgroups'
+'use typeshade';
+'enable subgroups';
 ```
 
 A capability with a host half and no source half costs zero emitted bytes: declaring it
@@ -1973,7 +2004,7 @@ that is not core, and a device refuses the bind group layout unless it requested
 capability carries the requirement to the host). `enables` is typed to exclude every derived
 id, so naming one is a compile error.
 
-A capability is not the only thing a host may have to check. A WGSL *language* feature is a
+A capability is not the only thing a host may have to check. A WGSL _language_ feature is a
 property of the browser's shading-language implementation rather than of the device, so it is
 not requested at `requestDevice` at all. `reflect().requiredLanguageFeatures` lists the ones a
 module's source uses, for `navigator.gpu.wgslLanguageFeatures` to answer. The WGSL writer emits
@@ -2181,10 +2212,13 @@ const stripe = fn('stripe', { x: f64T }, (p) => {
 
 A shader compiler may reassociate float arithmetic, and reassociation deletes exactly the
 small correction terms this emulation is built on. Every emitted helper therefore threads a
-value the compiler cannot see through those terms: a 1 read from a texture. Any module that
-does f64 arithmetic gets a `texture_2d<f32>` binding named `_fp64` injected for it, at group
-0 and the first free binding, and it appears in `reflect()` as an ordinary 2D texture. The
-host binds a 1 by 1 texture whose texel reads exactly 1.0, white RGBA8 or R32F holding 1.0.
+value the compiler cannot see through those terms: a 1 read from a texture. Any module whose
+f64 arithmetic calls one of those helpers gets a `texture_2d<f32>` binding named `_fp64`
+injected for it, at group 0 and the first free binding, and it appears in `reflect()` as an
+ordinary 2D texture. A module that only compares, widens, narrows, negates or scales f64
+values by a power of two calls none of them and gets no binding, so a host reads `reflect()`
+rather than binding `_fp64` to every pipeline. The host binds a 1 by 1 texture whose texel
+reads exactly 1.0, white RGBA8 or R32F holding 1.0.
 The value lives in a texture because some drivers specialize a pipeline on the uniform
 values they observe and re-optimize it, which folds the correction terms away again; no
 compiler treats a texel as a constant.
@@ -2270,6 +2304,15 @@ const shade = fn('shade', { world: f64T, camera: f64T }, (p) =>
   toF32(p.world.sub(p.camera)).mul(0.5).add(0.5),
 )
 ```
+
+Two f64 multiplies cost less, with nothing to write differently. `x.mul(x)` is a square, about
+30% cheaper than a general multiply, as long as computing `x` has no side effect, such as a
+call that writes a storage binding. A multiply or a divide by a power-of-two literal, `2.0`,
+`0.5` or `-4.0`, scales the two f32 words and nothing else, which is exact barring overflow and
+underflow: two f32 operations, none for `1.0`, and a sign change for `-1.0`. A scale that can grow the value
+(by more than 1) applies to a value computed at run time; a constant keeps the general
+multiply, so that WGSL, which evaluates constants while it creates the shader and refuses one
+that overflows, never has to.
 
 One example in the gallery, `examples/fp64-deep-zoom.ts`, runs one formula on both types
 side by side, and shows the f32 half collapsing to a flat field while the f64 half keeps

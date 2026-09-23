@@ -1,6 +1,6 @@
-import ts from 'typescript'
-import type { Expr } from '../../../core/ir/nodes.js'
-import type { ShaderType } from '../../../core/ir/types.js'
+import ts from 'typescript';
+import type { Expr } from '../../../core/ir/nodes.js';
+import type { ShaderType } from '../../../core/ir/types.js';
 import {
   boolT,
   f32T,
@@ -17,9 +17,9 @@ import {
   vec4iT,
   vec4uT,
   voidT,
-} from '../../../core/ir/types.js'
-import type { TsCompilerDiagnostic } from '../source-file.js'
-import type { LoweringScope } from '../context.js'
+} from '../../../core/ir/types.js';
+import type { TsCompilerDiagnostic } from '../source-file.js';
+import type { LoweringScope } from '../context.js';
 import {
   USER_FIRST_BUILTINS,
   expectedArity,
@@ -27,36 +27,40 @@ import {
   resolveMathConst,
   resolveMathExpand,
   resolveMathFn,
-} from '../math-alias.js'
-import { SCALAR_CAST, literalPeerType } from '../numeric.js'
+} from '../math-alias.js';
+import { SCALAR_CAST, literalPeerType } from '../numeric.js';
 import {
   foldNumericLit,
   isIntegerLiteralTree,
   retargetIntLit,
   retargetIntLitCtx,
-} from '../lit-coerce.js'
-import { spanOf } from '../span.js'
-import { lowerExpression } from './expression.js'
-import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js'
-import { lowerAtomicCall } from './atomics.js'
-import { lowerWorkgroupUniformLoad } from './barriers.js'
-import { lowerClassCall } from './class-methods.js'
-import { isAtomicIntrinsic, isBarrierIntrinsic, PACKED_4X8_IDS } from '../../../core/intrinsics.js'
-import { divergentIntegerId } from '../../../core/ir/divergent-int.js'
-import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js'
+  reportIntLitRange,
+} from '../lit-coerce.js';
+import { spanOf } from '../span.js';
+import { lowerExpression } from './expression.js';
+import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js';
+import { lowerAtomicCall } from './atomics.js';
+import { lowerWorkgroupUniformLoad } from './barriers.js';
+import { lowerClassCall } from './class-methods.js';
+import { isAtomicIntrinsic, isBarrierIntrinsic, PACKED_4X8_IDS } from '../../../core/intrinsics.js';
+import { divergentIntegerId } from '../../../core/ir/divergent-int.js';
+import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js';
 import {
   lowerExpandCall,
   lowerRandomCall,
   lowerScalarCastCall,
   lowerSwizzleCall,
+  lowerGenericCall,
   lowerUserCall,
   mathResultType,
-} from './expression-misc.js'
-import { makeDiagnostic } from '../diagnostic.js'
-import { HOST_GLOBALS } from '../semantic.js'
-import { TS_CODES, type TsCode } from '../codes.js'
-import { checkMathArgs, mathTakesElem } from './math-args.js'
-import { isConsoleMethod } from '../../../core/console.js'
+} from './expression-misc.js';
+import { captureArguments, declaresFunction } from './local-functions.js';
+import { declarationOf, functionAround } from './closures.js';
+import { makeDiagnostic } from '../diagnostic.js';
+import { HOST_GLOBALS } from '../semantic.js';
+import { TS_CODES, type TsCode } from '../codes.js';
+import { checkMathArgs, mathTakesElem } from './math-args.js';
+import { isConsoleMethod } from '../../../core/console.js';
 
 const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = {
   vec2: { n: 2, elem: 'f32' },
@@ -78,11 +82,11 @@ const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = 
   vec2b: { n: 2, elem: 'bool' },
   vec3b: { n: 3, elem: 'bool' },
   vec4b: { n: 4, elem: 'bool' },
-}
+};
 
 /** The element kinds a vector constructor spells: the three native scalars, the emulated
  *  double the fp64 pass assembles, and bool (§27). */
-type VecCtorElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool'
+type VecCtorElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool';
 
 /** What a `vecN<T>(…)` type argument may name, by the text the author wrote (#150). `f64` is
  *  here because `vec3<f64>` is the long spelling of `vec3f64`, which the surface already has. */
@@ -92,7 +96,7 @@ const TYPE_ARG_ELEM: Readonly<Record<string, VecCtorElem>> = {
   u32: 'u32',
   f64: 'f64',
   bool: 'bool',
-}
+};
 
 /** The short suffix each element kind has, for the message that offers it. */
 const SHORT_SUFFIX: Readonly<Record<string, string>> = {
@@ -101,14 +105,14 @@ const SHORT_SUFFIX: Readonly<Record<string, string>> = {
   u32: 'u',
   f64: 'f64',
   bool: 'b',
-}
+};
 
 /** The zero of each element kind, for `vecN()`. The emulated double has none here: an `f64`
  *  zero is a pair the fp64 pass assembles, not a literal this path can write. */
 function ctorZero(elem: VecCtorElem): Expr | undefined {
-  const t = elem === 'f32' ? f32T : elem === 'i32' ? i32T : elem === 'u32' ? u32T : undefined
-  if (t) return { op: 'lit', type: t, value: 0 }
-  return elem === 'bool' ? { op: 'lit', type: boolT, value: false } : undefined
+  const t = elem === 'f32' ? f32T : elem === 'i32' ? i32T : elem === 'u32' ? u32T : undefined;
+  if (t) return { op: 'lit', type: t, value: 0 };
+  return elem === 'bool' ? { op: 'lit', type: boolT, value: false } : undefined;
 }
 /** Matrix constructor name -> its shape. Every `matCxR` of wgsl.txt:4621 plus the `matN`
  *  shorthand for a square one, matching the type names `type-map.ts` accepts, so a type an
@@ -121,7 +125,7 @@ const MAT_CTOR: Readonly<Record<string, { cols: 2 | 3 | 4; rows: 2 | 3 | 4 }>> =
         : [[`mat${cols}x${rows}`, { cols, rows }] as const],
     ),
   ),
-)
+);
 
 export function lowerCall(
   node: ts.CallExpression,
@@ -129,19 +133,19 @@ export function lowerCall(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const callee = node.expression
-  let intrinsicId: string | undefined
-  let viaMath = false
-  let ctor: { n: 2 | 3 | 4; elem: VecCtorElem } | undefined
+  const callee = node.expression;
+  let intrinsicId: string | undefined;
+  let viaMath = false;
+  let ctor: { n: 2 | 3 | 4; elem: VecCtorElem } | undefined;
   /** The name the constructor was written under, for the messages that offer a short form. */
-  let ctorName = ''
+  let ctorName = '';
 
   if (ts.isPropertyAccessExpression(callee)) {
-    const obj = callee.expression
+    const obj = callee.expression;
     // Keep the authoring surface on the JavaScript Console API spelling. The call remains a
     // normal IR call, so it is not a TypeShade-specific debug DSL.
     if (ts.isIdentifier(obj) && obj.text === 'console') {
-      const method = callee.name.text
+      const method = callee.name.text;
       if (!isConsoleMethod(method)) {
         pushDiag(
           diagnostics,
@@ -149,14 +153,14 @@ export function lowerCall(
           callee.name,
           `console.${method}() is not supported in TypeShade yet. Use log, info, debug, warn, or error.`,
           TS_CODES.UNSUPPORTED,
-        )
-        return undefined
+        );
+        return undefined;
       }
-      const args: Expr[] = []
+      const args: Expr[] = [];
       for (const arg of node.arguments) {
-        const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
-        if (!lowered) return undefined
-        args.push(lowered)
+        const lowered = lowerExpression(arg, sourceFile, scope, diagnostics);
+        if (!lowered) return undefined;
+        args.push(lowered);
       }
       return {
         op: 'call',
@@ -166,11 +170,11 @@ export function lowerCall(
         // The one span constructor every lowering uses: a `SourceSpan` carries line and character
         // as well as the offset, and a hand-built `{ file, start, length }` is not one.
         span: spanOf(sourceFile, node),
-      }
+      };
     }
     if (ts.isIdentifier(obj) && obj.text === 'Math') {
-      viaMath = true
-      const jsName = callee.name.text
+      viaMath = true;
+      const jsName = callee.name.text;
       if (resolveMathConst(jsName) !== undefined) {
         pushDiag(
           diagnostics,
@@ -178,13 +182,13 @@ export function lowerCall(
           node,
           `"Math.${jsName}" is a constant, not a function.`,
           TS_CODES.UNSUPPORTED,
-        )
-        return undefined
+        );
+        return undefined;
       }
-      if (jsName === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
+      if (jsName === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics);
       if (resolveMathExpand(jsName))
-        return lowerExpandCall(jsName, node, sourceFile, scope, diagnostics)
-      intrinsicId = resolveMathFn(jsName)
+        return lowerExpandCall(jsName, node, sourceFile, scope, diagnostics);
+      intrinsicId = resolveMathFn(jsName);
       if (!intrinsicId) {
         pushDiag(
           diagnostics,
@@ -192,16 +196,16 @@ export function lowerCall(
           node,
           `"Math.${jsName}(...)" is not a TypeShade Math alias.`,
           TS_CODES.UNKNOWN_NAME,
-        )
-        return undefined
+        );
+        return undefined;
       }
     } else if (callee.name.text === 'swizzle') {
-      return lowerSwizzleCall(node, callee.expression, sourceFile, scope, diagnostics)
+      return lowerSwizzleCall(node, callee.expression, sourceFile, scope, diagnostics);
     } else {
       // A method of a class the file declares, or a static function on the class (#86); a
       // receiver that is not a struct falls through to the refusals below.
-      const viaClass = lowerClassCall(node, callee, sourceFile, scope, diagnostics)
-      if (viaClass !== 'not-a-class-call') return viaClass
+      const viaClass = lowerClassCall(node, callee, sourceFile, scope, diagnostics);
+      if (viaClass !== 'not-a-class-call') return viaClass;
       if (JS_ARRAY_METHODS.has(callee.name.text)) {
         pushDiag(
           diagnostics,
@@ -209,8 +213,8 @@ export function lowerCall(
           node,
           `JS Array method ".${callee.name.text}" is not a shader op. Use sum/min/any/all/zip/fill.`,
           TS_CODES.UNSUPPORTED,
-        )
-        return undefined
+        );
+        return undefined;
       }
       pushDiag(
         diagnostics,
@@ -219,13 +223,40 @@ export function lowerCall(
         'Method calls are not supported here: a method belongs to a class the file declares ' +
           '(#86); anything else is a free function.',
         TS_CODES.UNSUPPORTED,
-      )
-      return undefined
+      );
+      return undefined;
     }
   } else if (ts.isIdentifier(callee)) {
-    const name = callee.text
-    if (name === 'array') return lowerArrayCtor(node, sourceFile, scope, diagnostics)
-    if (name === 'fill') return lowerFill(node, sourceFile, scope, diagnostics)
+    const name = callee.text;
+    // A local function, or a parameter that takes a function, is a name the body declares, and
+    // TypeScript's lookup finds it before any global: it wins over a builtin of its name (Rule
+    // 9.5). `step(i)` on a parameter `step` calls the function handed over, not WGSL's `step`.
+    const declared = declarationOf(callee);
+    const local =
+      declared !== undefined &&
+      functionAround(declared) !== undefined &&
+      declaresFunction(declared) &&
+      scope.localFunctions()?.has(name) === true
+        ? scope.resolveCallee(name)
+        : undefined;
+    // One refused where it is declared said why there.
+    if (local === undefined && declared !== undefined && scope.declarationRefused(name)) {
+      return undefined;
+    }
+    if (local !== undefined) {
+      const leading = captureArguments(local, name, node, sourceFile, scope, diagnostics);
+      if (leading === undefined) return undefined;
+      return lowerUserCall(
+        node,
+        local,
+        sourceFile,
+        scope,
+        diagnostics,
+        leading.length > 0 ? { leading, shown: name } : {},
+      );
+    }
+    if (name === 'array') return lowerArrayCtor(node, sourceFile, scope, diagnostics);
+    if (name === 'fill') return lowerFill(node, sourceFile, scope, diagnostics);
     if (
       name === 'sum' ||
       name === 'min' ||
@@ -238,19 +269,19 @@ export function lowerCall(
       // `any(m)` / `all(m)` over a vector of bools is the builtin (§27); over an array with a
       // predicate it is the fold below.
       if ((name === 'any' || name === 'all') && node.arguments.length === 1) {
-        const reduced = lowerBoolReduce(name, node, sourceFile, scope, diagnostics)
-        if (reduced !== 'not-a-bool-vector') return reduced
+        const reduced = lowerBoolReduce(name, node, sourceFile, scope, diagnostics);
+        if (reduced !== 'not-a-bool-vector') return reduced;
       }
-      const folded = lowerArrayFold(name, node, sourceFile, scope, diagnostics)
-      if (folded !== 'fallback') return folded
+      const folded = lowerArrayFold(name, node, sourceFile, scope, diagnostics);
+      if (folded !== 'fallback') return folded;
     }
     // A name #8 A6 added does not shadow a function the file declares: before it, the call
     // resolved to that function, and an addition may not change what a program means.
-    const shadowed = USER_FIRST_BUILTINS.has(name) ? scope.resolveCallee(name) : undefined
-    if (shadowed) return lowerUserCall(node, shadowed, sourceFile, scope, diagnostics)
-    if (name === 'select') return lowerSelectCall(node, sourceFile, scope, diagnostics)
-    if (name === 'arrayLength') return lowerArrayLengthCall(node, sourceFile, scope, diagnostics)
-    if (isAtomicIntrinsic(name)) return lowerAtomicCall(name, node, sourceFile, scope, diagnostics)
+    const shadowed = USER_FIRST_BUILTINS.has(name) ? scope.resolveCallee(name) : undefined;
+    if (shadowed) return lowerUserCall(node, shadowed, sourceFile, scope, diagnostics);
+    if (name === 'select') return lowerSelectCall(node, sourceFile, scope, diagnostics);
+    if (name === 'arrayLength') return lowerArrayLengthCall(node, sourceFile, scope, diagnostics);
+    if (isAtomicIntrinsic(name)) return lowerAtomicCall(name, node, sourceFile, scope, diagnostics);
     // In expression position only: a barrier standing alone is lowered by the statement path.
     if (isBarrierIntrinsic(name)) {
       pushDiag(
@@ -259,34 +290,34 @@ export function lowerCall(
         node,
         `${name}() is a statement with no value; write it on its own line.`,
         TS_CODES.BARRIER_PLACEMENT,
-      )
-      return undefined
+      );
+      return undefined;
     }
     // `workgroupUniformLoad` is a VALUE, unlike the barriers above, so it is lowered here
     // rather than by the statement path — but it carries a barrier's placement rules (#152).
     if (name === 'workgroupUniformLoad') {
-      const loaded: Expr[] = []
+      const loaded: Expr[] = [];
       for (const a of node.arguments) {
-        const lowered = lowerExpression(a, sourceFile, scope, diagnostics)
-        if (!lowered) return undefined
-        loaded.push(lowered)
+        const lowered = lowerExpression(a, sourceFile, scope, diagnostics);
+        if (!lowered) return undefined;
+        loaded.push(lowered);
       }
-      return lowerWorkgroupUniformLoad(loaded, node, sourceFile, scope, diagnostics)
+      return lowerWorkgroupUniformLoad(loaded, node, sourceFile, scope, diagnostics);
     }
-    if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
+    if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics);
     // A matrix constructor is its own function, deliberately NOT an arm of the vector one:
     // the two share only a name shape. A vector composes a flat component list; a matrix
     // composes COLUMNS, truncates another matrix, and has a zero form.
-    const matCtor = MAT_CTOR[name]
+    const matCtor = MAT_CTOR[name];
     if (matCtor !== undefined) {
-      return lowerMatrixCtor(matCtor, node, sourceFile, scope, diagnostics)
+      return lowerMatrixCtor(matCtor, node, sourceFile, scope, diagnostics);
     }
-    ctor = VEC_CTOR[name]
-    ctorName = name
+    ctor = VEC_CTOR[name];
+    ctorName = name;
     if (!ctor) {
-      if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
+      if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics);
       if (resolveMathExpand(name))
-        return lowerExpandCall(name, node, sourceFile, scope, diagnostics)
+        return lowerExpandCall(name, node, sourceFile, scope, diagnostics);
       // A texture read is a canonical intrinsic name too, but its arity and result type both
       // depend on the texture argument, so it is routed to lowerTextureCall below rather than
       // through MATH_FN_ARITY, which records neither (#8 A7).
@@ -296,16 +327,29 @@ export function lowerCall(
         BIT_CALLS.has(name) ||
         isCanonicalMathFn(name)
       )
-        intrinsicId = name
+        intrinsicId = name;
       else {
-        const decl = scope.resolveCallee(name)
-        if (decl) return lowerUserCall(node, decl, sourceFile, scope, diagnostics)
+        const decl = scope.resolveCallee(name);
+        if (decl) {
+          // A local function that captures variables of the function around it takes each
+          // ahead of its own parameters, as this body holds it (Rule 8.17).
+          const leading = captureArguments(decl, name, node, sourceFile, scope, diagnostics);
+          if (leading === undefined) return undefined;
+          return lowerUserCall(
+            node,
+            decl,
+            sourceFile,
+            scope,
+            diagnostics,
+            leading.length > 0 ? { leading, shown: name } : {},
+          );
+        }
         // A generic function is compiled once per set of argument types the file calls it
         // with (roadmap 0.3 item T9, #92). The instance does not exist until a call asks for
         // it, so the arguments are lowered here, the type arguments read off them, and the
         // instance made before `lowerUserCall` checks the call against it.
         if (scope.isGenericFunction(name)) {
-          return lowerGenericCall(node, name, sourceFile, scope, diagnostics)
+          return lowerGenericCall(node, name, name, sourceFile, scope, diagnostics);
         }
       }
     }
@@ -314,13 +358,13 @@ export function lowerCall(
   // `Symbol('k')`, `fetch(url)`: the semantic pass already said the callee is a host API, and
   // lowering the arguments adds a second complaint about the same line — one about a string
   // that is only there because the call is (roadmap 0.3 item T10, #92).
-  if (ts.isIdentifier(callee) && HOST_GLOBALS.has(callee.text)) return undefined
+  if (ts.isIdentifier(callee) && HOST_GLOBALS.has(callee.text)) return undefined;
 
-  const args: Expr[] = []
+  const args: Expr[] = [];
   for (const arg of node.arguments) {
-    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
-    if (!lowered) return undefined
-    args.push(lowered)
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics);
+    if (!lowered) return undefined;
+    args.push(lowered);
   }
 
   if (ctor !== undefined) {
@@ -328,9 +372,9 @@ export function lowerCall(
     // read by nobody: the call built a `vec3<f32>` and emitted `vec3<f32>(1.0, 2.0, 3.0)` with
     // zero diagnostics, so a program that asked for an unsigned vector silently got a float one
     // and a following `f32(v.x)` looked like a cast while casting nothing (#150).
-    const written = node.typeArguments?.[0]?.getText(sourceFile)
+    const written = node.typeArguments?.[0]?.getText(sourceFile);
     if (written !== undefined) {
-      const named = TYPE_ARG_ELEM[written]
+      const named = TYPE_ARG_ELEM[written];
       if (named === undefined) {
         pushDiag(
           diagnostics,
@@ -339,8 +383,8 @@ export function lowerCall(
           `vec${ctor.n}<${written}> is not a vector element type; write vec${ctor.n}<f32>, ` +
             `<i32>, <u32> or <bool>, or the short form vec${ctor.n}${SHORT_SUFFIX[ctor.elem] ?? ''}.`,
           TS_CODES.UNKNOWN_TYPE,
-        )
-        return undefined
+        );
+        return undefined;
       }
       // `vec3u<f32>(…)` names its element twice and disagrees with itself. Only the plain
       // `vecN` spelling, whose own element is the default f32, takes one.
@@ -358,8 +402,8 @@ export function lowerCall(
           `${ctorName}<${written}> names two element types; ${ctorName} is already ` +
             `${ctor.elem}. Write vec${ctor.n}<${written}> or ${ctorName}.`,
           TS_CODES.TYPE_MISMATCH,
-        )
-        return undefined
+        );
+        return undefined;
       }
       // The type-argument spelling takes SCALAR components (and none, for the zero value).
       // Composing from a shorter vector or converting a whole one keeps the short name, and
@@ -376,53 +420,56 @@ export function lowerCall(
           `vec${ctor.n}<${written}> takes scalar components; to build one from a vector, ` +
             `write the short name: vec${ctor.n}${SHORT_SUFFIX[named] ?? ''}(...).`,
           TS_CODES.TYPE_MISMATCH,
-        )
-        return undefined
+        );
+        return undefined;
       }
-      ctor = { n: ctor.n, elem: named }
+      ctor = { n: ctor.n, elem: named };
     }
-    const vc: { readonly n: 2 | 3 | 4; readonly elem: VecCtorElem } = ctor
+    const vc: { readonly n: 2 | 3 | 4; readonly elem: VecCtorElem } = ctor;
     // `vec3()` is the ZERO value (wgsl.txt:20015-20030): every component the element's zero.
     // It was "Vector constructor component count mismatch.", which is true of nothing the
     // author wrote — there are no components to count.
     if (node.arguments.length === 0) {
-      const zero = ctorZero(vc.elem)
+      const zero = ctorZero(vc.elem);
       if (!zero) {
         // Name the spelling the AUTHOR wrote. `vec4<f64>()` reaches here as much as `vec4f64()`
         // does, and a refusal that answers about `vec4f64()` is about a call that is not on the
         // line. The fix stays the short name, which is the one form that takes the f64 zero.
-        const spelled = written === undefined ? ctorName : `${ctorName}<${written}>`
+        const spelled = written === undefined ? ctorName : `${ctorName}<${written}>`;
         pushDiag(
           diagnostics,
           sourceFile,
           node,
           `${spelled}() has no zero-value form; write vec${vc.n}f64(f64(0.)).`,
           TS_CODES.ARITY_MISMATCH,
-        )
-        return undefined
+        );
+        return undefined;
       }
       return {
         op: 'construct',
         type: vectorCtorType(vc.n, vc.elem),
         args: Array.from({ length: vc.n }, () => zero),
-      }
+      };
     }
     // `vec3u(1, 2, 3)` types each bare integer literal as the constructor's element kind
     // (#8 A3); an f32 constructor changes nothing, since retargetIntLitCtx only acts on an
     // integer target.
-    const elem = ctorElemType(vc.elem)
+    const elem = ctorElemType(vc.elem);
     if (elem) {
       for (let i = 0; i < args.length; i++) {
-        args[i] = retargetIntLitCtx(args[i]!, node.arguments[i]!, elem)
+        args[i] = retargetIntLitCtx(args[i]!, node.arguments[i]!, elem);
+        args[i] =
+          reportIntLitRange(args[i]!, node.arguments[i]!, elem, sourceFile, diagnostics) ??
+          args[i]!;
       }
     }
     if (args.length === 1 && isVectorCtorScalar(args[0]!.type, vc.elem)) {
-      const splat = args[0]!
+      const splat = args[0]!;
       return {
         op: 'construct',
         type: vectorCtorType(vc.n, vc.elem),
         args: Array.from({ length: vc.n }, () => splat),
-      }
+      };
     }
     // vecN<T>(v: vecN<S>) — WGSL's element-converting constructor (`vec3f(v)`, `vec3u(v)`,
     // `vec2(gid.xy)`), which GLSL ES 3.00 spells the same way (`vec3(uv)`) and which the
@@ -431,7 +478,7 @@ export function lowerCall(
     // component-count and element rules below, which are about composing a vector out of
     // parts and would reject it as an element-type mismatch.
     if (args.length === 1 && isConvertibleVector(args[0]!.type, vc)) {
-      return { op: 'construct', type: vectorCtorType(vc.n, vc.elem), args }
+      return { op: 'construct', type: vectorCtorType(vc.n, vc.elem), args };
     }
     // vecN(v: vecN<f64>) — the per-lane NARROW, the one conversion an emulated-double vector
     // has. There is nothing to reinterpret componentwise: each lane is a (hi, lo) pair, and
@@ -440,7 +487,7 @@ export function lowerCall(
     // constructor and the pass has no new shape to learn (#151 F64-05). The integer and bool
     // constructors are not offered: the pass has no f64 → i32 body (SD0041) and saturating a
     // double through f32 first is not a conversion an author should get by accident.
-    const from = args[0]
+    const from = args[0];
     if (args.length === 1 && from !== undefined && from.type.kind === 'vec64') {
       if (ctor.elem === 'f32' && from.type.n === ctor.n) {
         return {
@@ -452,14 +499,14 @@ export function lowerCall(
             fn: 'f32',
             args: [{ op: 'member', type: f64T, base: from, field: 'xyzw'[i]! }],
           })),
-        }
+        };
       }
       if (ctor.elem !== 'f64') {
         // `written` and not a captured `name`: the constructor's identifier is bound in the
         // callee branch above, which has already closed here — and `lib.dom` declares a
         // global `name: string`, so reading it type-checked and threw a ReferenceError at
         // run time instead, taking the language service down with it.
-        const written = node.expression.getText(sourceFile)
+        const written = node.expression.getText(sourceFile);
         pushDiag(
           diagnostics,
           sourceFile,
@@ -470,8 +517,8 @@ export function lowerCall(
               ? ' of its own width.'
               : ` and cast that, e.g. ${written}(vec${from.type.n}(v)).`),
           TS_CODES.TYPE_MISMATCH,
-        )
-        return undefined
+        );
+        return undefined;
       }
     }
     // fp64 lowering represents vecN<f64> as DF64VecN, while the constructor
@@ -479,7 +526,7 @@ export function lowerCall(
     // only has to lower scalar f64 constructor components; it can then reassemble
     // the target DF64VecN from those scalar pairs without treating a whole vec64 as
     // an f64 operand.
-    const ctorArgs = vc.elem === 'f64' ? flattenF64VectorArgs(args) : args
+    const ctorArgs = vc.elem === 'f64' ? flattenF64VectorArgs(args) : args;
     if (vectorComponentCount(ctorArgs) !== vc.n) {
       pushDiag(
         diagnostics,
@@ -487,10 +534,10 @@ export function lowerCall(
         node,
         'Vector constructor component count mismatch.',
         TS_CODES.ARITY_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    const badArg = ctorArgs.find((arg) => !isVectorCtorArg(arg.type, vc.elem))
+    const badArg = ctorArgs.find((arg) => !isVectorCtorArg(arg.type, vc.elem));
     if (badArg) {
       pushDiag(
         diagnostics,
@@ -498,35 +545,35 @@ export function lowerCall(
         node,
         `Vector constructor element type mismatch: expected ${vc.elem}.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    return { op: 'construct', type: vectorCtorType(vc.n, vc.elem), args: ctorArgs }
+    return { op: 'construct', type: vectorCtorType(vc.n, vc.elem), args: ctorArgs };
   }
 
   if (intrinsicId !== undefined && TEXTURE_CALLS.has(intrinsicId)) {
-    return lowerTextureCall(intrinsicId, args, node, sourceFile, scope, diagnostics)
+    return lowerTextureCall(intrinsicId, args, node, sourceFile, scope, diagnostics);
   }
   if (intrinsicId !== undefined && BIT_CALLS.has(intrinsicId)) {
-    return lowerBitBuiltinCall(intrinsicId, args, node, sourceFile, diagnostics)
+    return lowerBitBuiltinCall(intrinsicId, args, node, sourceFile, diagnostics);
   }
   if (!intrinsicId) {
     // A call to a function this file declares and could not lower says nothing here: the
     // declaration already said why it names no callee, and "Unknown function" on top of that
     // is both a second complaint about one mistake and untrue (roadmap 0.3 item T10, #92).
-    if (ts.isIdentifier(callee) && scope.declarationRefused(callee.text)) return undefined
+    if (ts.isIdentifier(callee) && scope.declarationRefused(callee.text)) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,
       node,
       `Unknown function "${node.getText(sourceFile)}". Declare it in this file, or import it from another shader module.`,
       TS_CODES.UNKNOWN_FN,
-    )
-    return undefined
+    );
+    return undefined;
   }
   // atan(y, x) is WGSL's and GLSL's two-argument arctangent, which the IR carries under the
   // neutral id atan2 (`atan2(y, x)` in WGSL, `atan(y, x)` in GLSL). One argument stays atan.
-  if (intrinsicId === 'atan' && args.length === 2) intrinsicId = 'atan2'
+  if (intrinsicId === 'atan' && args.length === 2) intrinsicId = 'atan2';
   else if (intrinsicId === 'atan' && args.length !== 1) {
     pushDiag(
       diagnostics,
@@ -534,14 +581,14 @@ export function lowerCall(
       node,
       `${viaMath ? 'Math.' : ''}atan expects 1 argument, or 2 for atan(y, x), got ${args.length}.`,
       TS_CODES.ARITY_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   // `min(i, 4)` with `i` an i32 types the 4 as i32 (#8 A3). Before this the literal stayed
   // f32 and the call emitted `min(i, 4.0)`, which is not valid WGSL — the one place this
   // item changes the emitted text of source the front end already accepted.
-  retargetIntrinsicLiterals(args, node, intrinsicId)
-  const arity = expectedArity(intrinsicId) ?? (intrinsicId === 'mod' ? 2 : undefined)
+  retargetIntrinsicLiterals(args, node, intrinsicId);
+  const arity = expectedArity(intrinsicId) ?? (intrinsicId === 'mod' ? 2 : undefined);
   if (arity !== undefined && args.length !== arity) {
     pushDiag(
       diagnostics,
@@ -549,8 +596,8 @@ export function lowerCall(
       node,
       `${viaMath ? 'Math.' : ''}${intrinsicId} expects ${arity} argument(s), got ${args.length}.`,
       TS_CODES.ARITY_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (args.length === 0) {
     pushDiag(
@@ -559,15 +606,15 @@ export function lowerCall(
       node,
       `Call "${intrinsicId}" needs at least one argument.`,
       TS_CODES.ARITY_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   // The shapes the signature takes (roadmap 0.2 item 9, #57): one diagnostic on the argument
   // that does not fit, with the fix.
-  const display = `${viaMath ? 'Math.' : ''}${intrinsicId === 'atan2' ? 'atan' : intrinsicId}`
-  if (!checkMathArgs(intrinsicId, display, args, node, sourceFile, diagnostics)) return undefined
-  const type = mathResultType(intrinsicId, args)
-  return { op: 'call', type, fn: divergentIntegerId(intrinsicId, args[0]?.type, type), args }
+  const display = `${viaMath ? 'Math.' : ''}${intrinsicId === 'atan2' ? 'atan' : intrinsicId}`;
+  if (!checkMathArgs(intrinsicId, display, args, node, sourceFile, diagnostics)) return undefined;
+  const type = mathResultType(intrinsicId, args);
+  return { op: 'call', type, fn: divergentIntegerId(intrinsicId, args[0]?.type, type), args };
 }
 
 /** The scalar type a vector constructor's components must have, or undefined for the
@@ -595,21 +642,21 @@ function lowerMatrixCtor(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const { cols, rows } = shape
-  const type: ShaderType = { kind: 'mat', cols, rows, elem: 'f32' }
-  const shown = typeKey(type)
-  const colT: ShaderType = { kind: 'vec', n: rows, elem: 'f32' }
-  const args: Expr[] = []
+  const { cols, rows } = shape;
+  const type: ShaderType = { kind: 'mat', cols, rows, elem: 'f32' };
+  const shown = typeKey(type);
+  const colT: ShaderType = { kind: 'vec', n: rows, elem: 'f32' };
+  const args: Expr[] = [];
   for (const arg of node.arguments) {
-    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
-    if (!lowered) return undefined
-    args.push(lowered)
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics);
+    if (!lowered) return undefined;
+    args.push(lowered);
   }
 
   // `matCxR()` — the zero matrix (wgsl.txt:20015-20030, "T ()"). Written out as C zero
   // columns so every backend and the oracle see an ordinary constructor.
   if (args.length === 0) {
-    const zero: Expr = { op: 'lit', type: f32T, value: 0 }
+    const zero: Expr = { op: 'lit', type: f32T, value: 0 };
     return {
       op: 'construct',
       type,
@@ -618,13 +665,13 @@ function lowerMatrixCtor(
         type: colT,
         args: Array.from({ length: rows }, () => zero),
       })),
-    }
+    };
   }
 
   // `matCxR(m)` — from another matrix.
   if (args.length === 1 && args[0]!.type.kind === 'mat') {
-    const from = args[0]!
-    const src = from.type as Extract<ShaderType, { kind: 'mat' }>
+    const from = args[0]!;
+    const src = from.type as Extract<ShaderType, { kind: 'mat' }>;
     if (src.elem !== 'f32') {
       pushDiag(
         diagnostics,
@@ -633,8 +680,8 @@ function lowerMatrixCtor(
         `${shown} cannot be built from ${typeKey(src)}: the emulated-double matrices are ` +
           `their own square shapes and do not convert.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
     if (src.cols < cols || src.rows < rows) {
       pushDiag(
@@ -645,8 +692,8 @@ function lowerMatrixCtor(
           `matrix and does not grow one, since the components it would have to invent are a ` +
           `choice the author should make. Write the columns out.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
     // The upper-left block, column by column: `mat3(m4)` is the rotation a normal matrix
     // wants out of a model matrix, which is why the truncation is worth having at all.
@@ -659,12 +706,12 @@ function lowerMatrixCtor(
           type: { kind: 'vec', n: src.rows, elem: 'f32' },
           base: from,
           idx: { op: 'lit', type: i32T, value: c },
-        }
+        };
         return src.rows === rows
           ? column
-          : { op: 'member', type: colT, base: column, field: 'xyzw'.slice(0, rows) }
+          : { op: 'member', type: colT, base: column, field: 'xyzw'.slice(0, rows) };
       }),
-    }
+    };
   }
 
   // `matCxR(c0, …)` — one `vecR` per column.
@@ -672,13 +719,13 @@ function lowerMatrixCtor(
     args.length === cols &&
     args.every((a) => a.type.kind === 'vec' && a.type.n === rows && a.type.elem === 'f32')
   ) {
-    return { op: 'construct', type, args }
+    return { op: 'construct', type, args };
   }
 
   // `matCxR(e0, …)` — C*R scalars, column-major, gathered into columns here so the IR always
   // carries a matrix as a list of columns whichever way it was written.
   if (args.length === cols * rows) {
-    const bad = args.findIndex((a) => typeKey(a.type) !== 'f32')
+    const bad = args.findIndex((a) => typeKey(a.type) !== 'f32');
     if (bad >= 0) {
       pushDiag(
         diagnostics,
@@ -686,8 +733,8 @@ function lowerMatrixCtor(
         node.arguments[bad] ?? node,
         `${shown} takes f32 components; argument ${bad + 1} is ${typeKey(args[bad]!.type)}.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
     return {
       op: 'construct',
@@ -697,7 +744,7 @@ function lowerMatrixCtor(
         type: colT,
         args: args.slice(c * rows, c * rows + rows),
       })),
-    }
+    };
   }
 
   pushDiag(
@@ -708,8 +755,8 @@ function lowerMatrixCtor(
       `matrix to truncate, or nothing for the zero matrix; got ${args.length} argument(s)` +
       `${args.length > 0 ? ` (${args.map((a) => typeKey(a.type)).join(', ')})` : ''}.`,
     TS_CODES.ARITY_MISMATCH,
-  )
-  return undefined
+  );
+  return undefined;
 }
 
 /** `arrayLength(src)`: the explicit spelling of what `src.length` reads on a runtime-sized
@@ -728,20 +775,20 @@ function lowerArrayLengthCall(
       node,
       `arrayLength expects 1 argument, got ${node.arguments.length}.`,
       TS_CODES.ARITY_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
-  if (!arg) return undefined
-  return arrayLengthOf(arg, node, sourceFile, scope, diagnostics, 'arrayLength')
+  const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
+  if (!arg) return undefined;
+  return arrayLengthOf(arg, node, sourceFile, scope, diagnostics, 'arrayLength');
 }
 
 function ctorElemType(elem: VecCtorElem): ShaderType | undefined {
-  if (elem === 'f32') return f32T
-  if (elem === 'i32') return i32T
-  if (elem === 'u32') return u32T
-  if (elem === 'bool') return boolT
-  return undefined
+  if (elem === 'f32') return f32T;
+  if (elem === 'i32') return i32T;
+  if (elem === 'u32') return u32T;
+  if (elem === 'bool') return boolT;
+  return undefined;
 }
 
 /** A number written out, with no type of its own: `4`, `-2`, `0.5`. The peer of a builtin
@@ -749,11 +796,11 @@ function ctorElemType(elem: VecCtorElem): ShaderType | undefined {
  *  number is exactly what has no type to lend. `u32(1)` is a call, not one of these, even
  *  though it lowers to a literal. */
 function isBareNumericLiteral(node: ts.Expression): boolean {
-  if (ts.isParenthesizedExpression(node)) return isBareNumericLiteral(node.expression)
+  if (ts.isParenthesizedExpression(node)) return isBareNumericLiteral(node.expression);
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
-    return isBareNumericLiteral(node.operand)
+    return isBareNumericLiteral(node.operand);
   }
-  return ts.isNumericLiteral(node)
+  return ts.isNumericLiteral(node);
 }
 
 /** A bare integer literal argument of a builtin call takes the kind of the call's other
@@ -772,25 +819,25 @@ const FIXED_LITERAL_KINDS: Readonly<Record<string, Readonly<Record<number, Shade
   ldexp: { 1: i32T },
   extractBits: { 1: u32T, 2: u32T },
   insertBits: { 2: u32T, 3: u32T },
-}
+};
 
 function retargetIntrinsicLiterals(
   args: Expr[],
   node: ts.CallExpression,
   intrinsicId: string,
 ): void {
-  if (intrinsicId === 'length' || intrinsicId === 'distance' || intrinsicId === 'dot') return
+  if (intrinsicId === 'length' || intrinsicId === 'distance' || intrinsicId === 'dot') return;
   // A builtin whose later arguments are integers whatever the first one is (§10): the exponent
   // of `ldexp` is an i32, the offset and count of `extractBits` and `insertBits` are u32. A
   // bare literal there takes that kind, not the first argument's.
-  const fixed = FIXED_LITERAL_KINDS[intrinsicId] ?? {}
+  const fixed = FIXED_LITERAL_KINDS[intrinsicId] ?? {};
   for (const [index, kind] of Object.entries(fixed)) {
-    const i = Number(index)
-    const argNode = node.arguments[i]
-    if (argNode && args[i]) args[i] = retargetIntLitCtx(args[i]!, argNode, kind)
+    const i = Number(index);
+    const argNode = node.arguments[i];
+    if (argNode && args[i]) args[i] = retargetIntLitCtx(args[i]!, argNode, kind);
   }
-  const peerIndex = node.arguments.findIndex((a) => !isBareNumericLiteral(a))
-  const peer = peerIndex >= 0 ? args[peerIndex]?.type : undefined
+  const peerIndex = node.arguments.findIndex((a) => !isBareNumericLiteral(a));
+  const peer = peerIndex >= 0 ? args[peerIndex]?.type : undefined;
   // A builtin with NO float form takes an integer, and an integer-written literal is what the
   // author gave it: `countOneBits(5)` was typed f32 and refused as "takes an i32 or u32, or a
   // vector of them; got f32", about a program WGSL accepts — 5 is an AbstractInt there and
@@ -799,28 +846,28 @@ function retargetIntrinsicLiterals(
   // has no integer meaning and keeps its refusal.
   if (!peer && !mathTakesElem(intrinsicId, 'f32') && mathTakesElem(intrinsicId, 'i32')) {
     for (let i = 0; i < args.length; i++) {
-      if (fixed[i] !== undefined) continue
-      const argNode = node.arguments[i]
+      if (fixed[i] !== undefined) continue;
+      const argNode = node.arguments[i];
       if (argNode && args[i] && isIntegerLiteralTree(argNode)) {
-        args[i] = retargetIntLitCtx(args[i]!, argNode, i32T)
+        args[i] = retargetIntLitCtx(args[i]!, argNode, i32T);
       }
     }
   }
-  if (!peer) return
-  const target = literalPeerType(peer)
+  if (!peer) return;
+  const target = literalPeerType(peer);
   // The first position too, for an integer peer of a builtin that takes integers (roadmap 0.2
   // item 9, #57): `min(1, i)` with an i32 `i` is an i32 call, as `min(i, 1)` already was. The
   // result type follows the operand deciding the shape rather than a written number. A float
   // peer changes nothing, and a builtin with no integer form (`pow(2, i)`) keeps its f32 first
   // argument so the argument check names `i` as the odd one out.
   if (peerIndex > 0 && target.kind === 'scalar' && mathTakesElem(intrinsicId, target.scalar)) {
-    const argNode = node.arguments[0]
+    const argNode = node.arguments[0];
     if (argNode && args[0] && fixed[0] === undefined) {
-      args[0] = retargetIntLitCtx(args[0], argNode, target)
+      args[0] = retargetIntLitCtx(args[0], argNode, target);
     }
   }
   for (let i = 1; i < args.length; i++) {
-    if (fixed[i] !== undefined) continue
+    if (fixed[i] !== undefined) continue;
     // From 1, never 0: `mathResultType` is `args[0].type`, so retargeting a literal in the
     // FIRST position does not just retype that argument, it retypes the whole call. A sweep
     // over the intrinsics found 42 programs changed by that — 24 that compiled before and
@@ -832,18 +879,18 @@ function retargetIntrinsicLiterals(
     // still types the call f32 and emits `min(1.0, i)` — invalid WGSL, exactly as on main.
     // Fixing that means changing how an intrinsic call's result type is decided, which is a
     // change to every intrinsic rather than to this rule, and is not additive.
-    const argNode = node.arguments[i]
-    if (!argNode) continue
+    const argNode = node.arguments[i];
+    if (!argNode) continue;
     // `mix`'s interpolant stays a plain f32 beside a SCALAR emulated double: the df64 body
     // blends by a float, and the pass refuses an f64 `t` outright. Without this the literal
     // in `mix(a64, b64, 0.25)` would take the f64 peer like any other later argument and then
     // be refused at the argument check — a written 0.25 with no way to spell it (#151). A
     // `vec64` peer needs no arm: `literalPeerType` leaves a literal beside one f32 already.
     if (intrinsicId === 'mix' && i === 2 && isF64(target)) {
-      args[i] = retargetIntLitCtx(args[i]!, argNode, f32T)
-      continue
+      args[i] = retargetIntLitCtx(args[i]!, argNode, f32T);
+      continue;
     }
-    args[i] = retargetIntLitCtx(args[i]!, argNode, target)
+    args[i] = retargetIntLitCtx(args[i]!, argNode, target);
   }
 }
 
@@ -867,18 +914,18 @@ function lowerSelectCall(
       `select expects 3 argument(s), got ${node.arguments.length}. ` +
         "The order is WGSL's: select(falseValue, trueValue, cond).",
       TS_CODES.ARITY_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const lowered: Expr[] = []
+  const lowered: Expr[] = [];
   for (const arg of node.arguments) {
-    const one = lowerExpression(arg, sourceFile, scope, diagnostics)
-    if (!one) return undefined
-    lowered.push(one)
+    const one = lowerExpression(arg, sourceFile, scope, diagnostics);
+    if (!one) return undefined;
+    lowered.push(one);
   }
-  let [ifFalse, ifTrue] = lowered as [Expr, Expr]
-  const cond = lowered[2]!
-  const perComponent = cond.type.kind === 'vec' && cond.type.elem === 'bool'
+  let [ifFalse, ifTrue] = lowered as [Expr, Expr];
+  const cond = lowered[2]!;
+  const perComponent = cond.type.kind === 'vec' && cond.type.elem === 'bool';
   if (typeKey(cond.type) !== 'bool' && !perComponent) {
     pushDiag(
       diagnostics,
@@ -887,11 +934,11 @@ function lowerSelectCall(
       `select condition must be bool or a vector of bools, got ${typeKey(cond.type)}. ` +
         "The order is WGSL's: select(falseValue, trueValue, cond).",
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  ifFalse = retargetIntLit(ifFalse, node.arguments[0]!, ifTrue.type)
-  ifTrue = retargetIntLit(ifTrue, node.arguments[1]!, ifFalse.type)
+  ifFalse = retargetIntLit(ifFalse, node.arguments[0]!, ifTrue.type);
+  ifTrue = retargetIntLit(ifTrue, node.arguments[1]!, ifFalse.type);
   if (typeKey(ifTrue.type) !== typeKey(ifFalse.type)) {
     pushDiag(
       diagnostics,
@@ -899,8 +946,8 @@ function lowerSelectCall(
       node,
       `select arm type mismatch: ${typeKey(ifFalse.type)} vs ${typeKey(ifTrue.type)}.`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   // A vector of bools picks per component (§27), so the arms are vectors of its size.
   if (perComponent && cond.type.kind === 'vec') {
@@ -912,11 +959,11 @@ function lowerSelectCall(
         `select with a ${typeKey(cond.type)} condition picks per component and needs ` +
           `${cond.type.n}-component arms; got ${typeKey(ifTrue.type)}.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
   }
-  return { op: 'select', type: ifTrue.type, cond, ifTrue, ifFalse }
+  return { op: 'select', type: ifTrue.type, cond, ifTrue, ifFalse };
 }
 
 /** `any(m)` / `all(m)` over a vector of bools (§27): the builtin of both targets, reducing the
@@ -929,19 +976,19 @@ function lowerBoolReduce(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined | 'not-a-bool-vector' {
-  const peek = lowerExpression(node.arguments[0]!, sourceFile, scope, [])
-  if (!peek) return 'not-a-bool-vector'
+  const peek = lowerExpression(node.arguments[0]!, sourceFile, scope, []);
+  if (!peek) return 'not-a-bool-vector';
   // `all(e: bool) -> bool` and `any(e: bool) -> bool` are overloads of both builtins, and both
   // "Return e" (wgsl.txt:21294-21314). The ambient lib always admitted the scalar; the front
   // end refused it, so the editor and the compiler disagreed about a program WGSL defines.
   // Lowered to the ARGUMENT, not to a call: a one-component reduction is the value itself, and
   // GLSL ES 3.00 has no `all(bool)` overload at all, so emitting the call would fail there.
   if (peek.type.kind === 'scalar' && peek.type.scalar === 'bool') {
-    return lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
+    return lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
   }
   if (peek.type.kind !== 'vec' || peek.type.elem !== 'bool') {
     // An array takes the fold's turn and its own message; anything else is neither shape.
-    if (peek.type.kind === 'array') return 'not-a-bool-vector'
+    if (peek.type.kind === 'array') return 'not-a-bool-vector';
     pushDiag(
       diagnostics,
       sourceFile,
@@ -949,12 +996,12 @@ function lowerBoolReduce(
       `${name}(v) takes a vector of bools, which a comparison of two vectors gives (§27), or ` +
         `an array with a predicate, ${name}(xs, (x) => ...); got ${typeKey(peek.type)}.`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
-  if (!arg) return undefined
-  return { op: 'call', type: boolT, fn: name, args: [arg] }
+  const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
+  if (!arg) return undefined;
+  return { op: 'call', type: boolT, fn: name, args: [arg] };
 }
 
 /** The bit-level builtins of WGSL §17.10-§17.11 and §17.7.28 (#150). The IR and both backends
@@ -993,7 +1040,7 @@ const BIT_BUILTINS: Readonly<
   pack4xI8Clamp: { arg: vec4iT, result: u32T },
   unpack4xU8: { arg: u32T, result: vec4uT },
   unpack4xI8: { arg: u32T, result: vec4iT },
-}
+};
 
 /** The two packed 4x8 DOT products (#152). Their own table because they take two `u32`s, not
  *  one argument: `dot4U8Packed` sums four unsigned byte products into a `u32`, `dot4I8Packed`
@@ -1003,7 +1050,7 @@ const BIT_BUILTINS: Readonly<
 const PACKED_DOTS: Readonly<Record<string, ShaderType>> = {
   dot4U8Packed: u32T,
   dot4I8Packed: i32T,
-}
+};
 
 /** The names routed to {@link lowerBitBuiltinCall}: the ten above, plus the two whose id or
  *  result the call site decides — `quantizeToF16`, whose GLSL spelling is one id per width,
@@ -1013,7 +1060,7 @@ const BIT_CALLS: ReadonlySet<string> = new Set([
   ...Object.keys(PACKED_DOTS),
   'quantizeToF16',
   'bitcast',
-])
+]);
 
 /** The neutral id `quantizeToF16` takes at each width: GLSL has no such builtin and spells it
  *  as a half-precision round trip, which runs two components at a time. */
@@ -1022,7 +1069,7 @@ const QUANTIZE_ID: Readonly<Record<number, string>> = {
   2: 'quantizeToF16Vec2',
   3: 'quantizeToF16Vec3',
   4: 'quantizeToF16Vec4',
-}
+};
 
 /** `bitcast<T>(e)`: the same 32 bits read as another type (wgsl.txt:21147). The target type is
  *  a TYPE ARGUMENT, not an argument, because that is how WGSL spells it and how the two
@@ -1032,7 +1079,7 @@ const BITCAST_ID: Readonly<
 > = {
   u32: { id: 'bitcastU32', from: f32T, article: 'an' },
   f32: { id: 'bitcastF32', from: u32T, article: 'a' },
-}
+};
 
 function lowerBitBuiltinCall(
   id: string,
@@ -1043,11 +1090,11 @@ function lowerBitBuiltinCall(
 ): Expr | undefined {
   // The two packed dots take two `u32`s, so they are answered before the one-argument arity
   // check below rather than by it.
-  const dotResult = PACKED_DOTS[id]
+  const dotResult = PACKED_DOTS[id];
   if (dotResult) {
-    if (!arityPlain(id, args, 2, node, sourceFile, diagnostics)) return undefined
+    if (!arityPlain(id, args, 2, node, sourceFile, diagnostics)) return undefined;
     for (const [i, a] of args.entries()) {
-      const retyped = retargetIntLitCtx(a, node.arguments[i]!, u32T)
+      const retyped = retargetIntLitCtx(a, node.arguments[i]!, u32T);
       if (typeKey(retyped.type) !== 'u32') {
         pushDiag(
           diagnostics,
@@ -1056,18 +1103,18 @@ function lowerBitBuiltinCall(
           `${id} reads each argument as four packed bytes, so both are u32; ` +
             `argument ${String(i + 1)} is ${typeKey(a.type)}. Write u32(x).`,
           TS_CODES.TYPE_MISMATCH,
-        )
-        return undefined
+        );
+        return undefined;
       }
-      ;(args as Expr[])[i] = retyped
+      (args as Expr[])[i] = retyped;
     }
-    return { op: 'call', type: dotResult, fn: id, args: [...args] }
+    return { op: 'call', type: dotResult, fn: id, args: [...args] };
   }
-  if (!arityPlain(id, args, 1, node, sourceFile, diagnostics)) return undefined
-  const arg = args[0]!
+  if (!arityPlain(id, args, 1, node, sourceFile, diagnostics)) return undefined;
+  const arg = args[0]!;
   if (id === 'bitcast') {
-    const written = node.typeArguments?.[0]?.getText(sourceFile)
-    const target = written === undefined ? undefined : BITCAST_ID[written]
+    const written = node.typeArguments?.[0]?.getText(sourceFile);
+    const target = written === undefined ? undefined : BITCAST_ID[written];
     if (!target) {
       pushDiag(
         diagnostics,
@@ -1077,8 +1124,8 @@ function lowerBitBuiltinCall(
           `${written === undefined ? '' : `; got bitcast<${written}>`}. Those are the two the ` +
           `IR carries today; the signed pair is not here yet.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
     if (typeKey(arg.type) !== typeKey(target.from)) {
       pushDiag(
@@ -1089,10 +1136,10 @@ function lowerBitBuiltinCall(
           `${typeKey(arg.type)}. A bitcast reinterprets 32 bits, it does not convert: ` +
           `${written}(x) is the conversion.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    return { op: 'call', type: written === 'u32' ? u32T : f32T, fn: target.id, args: [arg] }
+    return { op: 'call', type: written === 'u32' ? u32T : f32T, fn: target.id, args: [arg] };
   }
   if (id === 'quantizeToF16') {
     const n =
@@ -1100,7 +1147,7 @@ function lowerBitBuiltinCall(
         ? 1
         : arg.type.kind === 'vec' && arg.type.elem === 'f32'
           ? arg.type.n
-          : 0
+          : 0;
     if (n === 0) {
       pushDiag(
         diagnostics,
@@ -1108,16 +1155,16 @@ function lowerBitBuiltinCall(
         node,
         `quantizeToF16 takes an f32 or a vector of them; got ${typeKey(arg.type)}.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    return { op: 'call', type: arg.type, fn: QUANTIZE_ID[n]!, args: [arg] }
+    return { op: 'call', type: arg.type, fn: QUANTIZE_ID[n]!, args: [arg] };
   }
-  const sig = BIT_BUILTINS[id]!
+  const sig = BIT_BUILTINS[id]!;
   // `unpack2x16float(65536)` writes the bit pattern as a bare number, which lowers to an f32
   // on this surface. Retargeted like every other integer literal in an integer position (#8
   // A3), so the author is not asked to write `u32(65536)` for a constant.
-  const fixed = typeKey(sig.arg) === 'u32' ? retargetIntLitCtx(arg, node.arguments[0]!, u32T) : arg
+  const fixed = typeKey(sig.arg) === 'u32' ? retargetIntLitCtx(arg, node.arguments[0]!, u32T) : arg;
   if (typeKey(fixed.type) !== typeKey(sig.arg)) {
     pushDiag(
       diagnostics,
@@ -1131,10 +1178,10 @@ function lowerBitBuiltinCall(
           ? `overload, and GLSL ES 3.00 has no form of it at all.`
           : `overload, and GLSL ES 3.00 the same.`),
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  return { op: 'call', type: sig.result, fn: id, args: [fixed] }
+  return { op: 'call', type: sig.result, fn: id, args: [fixed] };
 }
 
 /** The arity check of the bit builtins, which name themselves rather than the texture they
@@ -1147,15 +1194,15 @@ function arityPlain(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): boolean {
-  if (args.length === want) return true
+  if (args.length === want) return true;
   pushDiag(
     diagnostics,
     sourceFile,
     node,
     `${id} expects ${want} argument(s), got ${args.length}.`,
     TS_CODES.ARITY_MISMATCH,
-  )
-  return false
+  );
+  return false;
 }
 
 /** The texture reads this surface spells (#8 A7). They are kept out of the generic intrinsic
@@ -1176,7 +1223,7 @@ const TEXTURE_CALLS = new Set([
   'textureGather',
   'textureGatherCompare',
   'textureNumSamples',
-])
+]);
 
 /** `textureStore(dst, coord, value)`, `textureLoad(src, coord)` and `textureDimensions(t)` on a
  *  storage texture (roadmap 0.4 item 10).
@@ -1198,9 +1245,9 @@ function lowerStorageTextureCall(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const isArray = tex.dim === '2d-array'
-  const texel: ShaderType = { kind: 'vec', n: 4, elem: storageTexel(tex.format) }
-  const shown = typeKey(tex)
+  const isArray = tex.dim === '2d-array';
+  const texel: ShaderType = { kind: 'vec', n: 4, elem: storageTexel(tex.format) };
+  const shown = typeKey(tex);
   if (id === 'textureDimensions') {
     // NO mip level here, unlike every sampled and depth texture. A storage texture has exactly
     // one level, and WGSL gives its `textureDimensions` no level overload at all — measured on
@@ -1215,12 +1262,12 @@ function lowerStorageTextureCall(
         `textureDimensions on a ${shown} takes the texture alone: a storage texture has one ` +
           `mip level, so there is no level to ask for.`,
         TS_CODES.ARITY_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
     return arity(id, args, 1, node, sourceFile, diagnostics)
       ? { op: 'call', type: vec2uT, fn: id, args: [...args] }
-      : undefined
+      : undefined;
   }
   if (id === 'textureNumLayers') {
     // A storage ARRAY has layers, and answering "takes a sampled texture … has no sampler" was
@@ -1232,12 +1279,12 @@ function lowerStorageTextureCall(
         node,
         `textureNumLayers needs a texture_storage_2d_array; "${shown}" has no layers.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
     return arity(id, args, 1, node, sourceFile, diagnostics)
       ? { op: 'call', type: u32T, fn: 'textureNumLayersStorage', args: [...args] }
-      : undefined
+      : undefined;
   }
   if (id === 'textureLoad') {
     if (tex.access === 'write') {
@@ -1249,21 +1296,21 @@ function lowerStorageTextureCall(
           `it, or "read_write" to do both — which only "r32uint", "r32sint" and "r32float" ` +
           `allow, so a format outside those takes a second binding over the same texture.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    if (!arity(id, args, isArray ? 3 : 2, node, sourceFile, diagnostics)) return undefined
+    if (!arity(id, args, isArray ? 3 : 2, node, sourceFile, diagnostics)) return undefined;
     if (!vecArg(id, tex, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics))
-      return undefined
-    const out = [...args]
+      return undefined;
+    const out = [...args];
     // The layer of an array texture is an integer: a bare `0` would lower to `0.0`, which
     // Tint refuses ("no matching call"), so it is retyped like every other layer.
     if (isArray) {
-      const layer = intArg(id, out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
-      if (!layer) return undefined
-      out[2] = layer
+      const layer = intArg(id, out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics);
+      if (!layer) return undefined;
+      out[2] = layer;
     }
-    return { op: 'call', type: texel, fn: id, args: out }
+    return { op: 'call', type: texel, fn: id, args: out };
   }
   if (id === 'textureStore') {
     if (tex.access === 'read') {
@@ -1275,19 +1322,19 @@ function lowerStorageTextureCall(
           `write it, or "read_write" to do both — which only "r32uint", "r32sint" and ` +
           `"r32float" allow.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    if (!arity(id, args, isArray ? 4 : 3, node, sourceFile, diagnostics)) return undefined
+    if (!arity(id, args, isArray ? 4 : 3, node, sourceFile, diagnostics)) return undefined;
     if (!vecArg(id, tex, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics))
-      return undefined
-    const out = [...args]
+      return undefined;
+    const out = [...args];
     if (isArray) {
-      const layer = intArg(id, out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
-      if (!layer) return undefined
-      out[2] = layer
+      const layer = intArg(id, out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics);
+      if (!layer) return undefined;
+      out[2] = layer;
     }
-    const value = out[isArray ? 3 : 2]!
+    const value = out[isArray ? 3 : 2]!;
     if (typeKey(value.type) !== typeKey(texel)) {
       pushDiag(
         diagnostics,
@@ -1297,10 +1344,10 @@ function lowerStorageTextureCall(
           `the format's own: a "…uint" format stores a vec4u, a "…sint" one a vec4i, and ` +
           `every other one — unorm, snorm and float — a vec4.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    return { op: 'call', type: voidT, fn: id, args: out }
+    return { op: 'call', type: voidT, fn: id, args: out };
   }
   pushDiag(
     diagnostics,
@@ -1309,8 +1356,8 @@ function lowerStorageTextureCall(
     `${id} takes a sampled texture; "${shown}" is a storage texture, which is read and ` +
       `written by texel coordinate with textureLoad and textureStore and has no sampler.`,
     TS_CODES.TYPE_MISMATCH,
-  )
-  return undefined
+  );
+  return undefined;
 }
 
 /** `textureSampleCompare(tex, smp, uv, ref)` and `textureSampleCompareLevel(…)` on a depth
@@ -1340,14 +1387,14 @@ function lowerDepthTextureCall(
   // the msaaTextureLoad capability, so the fused-sampler reason that defers a plain read of the
   // other depth textures does not arise for it.
   if (tex.dim === '2d-ms')
-    return lowerMultisampledCall(id, tex, args, node, sourceFile, diagnostics)
-  const suffix = arraySuffix(tex.dim)
-  const isArray = suffix !== ''
-  const shown = typeKey(tex)
+    return lowerMultisampledCall(id, tex, args, node, sourceFile, diagnostics);
+  const suffix = arraySuffix(tex.dim);
+  const isArray = suffix !== '';
+  const shown = typeKey(tex);
   if (id === 'textureDimensions') {
     // A cube's size is the size of one face, two wide on both targets, so it keeps the 2d id.
-    const out = dimsArgs(id, args, node, sourceFile, diagnostics)
-    return out ? { op: 'call', type: vec2uT, fn: id, args: out } : undefined
+    const out = dimsArgs(id, args, node, sourceFile, diagnostics);
+    return out ? { op: 'call', type: vec2uT, fn: id, args: out } : undefined;
   }
   if (id === 'textureNumLayers') {
     if (!isArray) {
@@ -1360,15 +1407,15 @@ function lowerDepthTextureCall(
               `texture_depth_cube has six faces, not layers.`
           : `textureNumLayers needs a texture_depth_2d_array; a plain depth texture has no layers.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
     return arity(id, args, 1, node, sourceFile, diagnostics)
       ? { op: 'call', type: u32T, fn: id, args: [...args] }
-      : undefined
+      : undefined;
   }
   if (id === 'textureSampleCompare' || id === 'textureSampleCompareLevel') {
-    const smp = args[1]
+    const smp = args[1];
     if (smp === undefined || smp.type.kind !== 'sampler-comparison') {
       pushDiag(
         diagnostics,
@@ -1379,21 +1426,21 @@ function lowerDepthTextureCall(
           `texel and has no reference to compare against. Declare the sampler ` +
           `"declare const smp: sampler_comparison".`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    if (!arity(id, args, isArray ? 5 : 4, node, sourceFile, diagnostics)) return undefined
+    if (!arity(id, args, isArray ? 5 : 4, node, sourceFile, diagnostics)) return undefined;
     if (!vecArg(id, tex, args[2]!, node.arguments[2]!, 'coordinate', sourceFile, diagnostics))
-      return undefined
-    const out = [...args]
+      return undefined;
+    const out = [...args];
     if (isArray) {
       // The layer is an integer, as on a sampled array texture.
-      const layer = intArg(id, out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
-      if (!layer) return undefined
-      out[3] = layer
+      const layer = intArg(id, out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics);
+      if (!layer) return undefined;
+      out[3] = layer;
     }
     // …and the reference depth that follows it is an `f32` (wgsl.txt:24734).
-    const refIndex = isArray ? 4 : 3
+    const refIndex = isArray ? 4 : 3;
     const ref = floatArg(
       id,
       out[refIndex]!,
@@ -1401,13 +1448,13 @@ function lowerDepthTextureCall(
       'depth_ref',
       sourceFile,
       diagnostics,
-    )
-    if (!ref) return undefined
-    out[refIndex] = ref
+    );
+    if (!ref) return undefined;
+    out[refIndex] = ref;
     // The cube form is its own id (roadmap 0.4 item 12): on GLSL the reference folds into a
     // vec4 after the vec3 direction, where the 2d form folds it into a vec3.
-    const fn = isArray ? `${id}${suffix}` : tex.dim === 'cube' ? `${id}Cube` : id
-    return { op: 'call', type: f32T, fn, args: out }
+    const fn = isArray ? `${id}${suffix}` : tex.dim === 'cube' ? `${id}Cube` : id;
+    return { op: 'call', type: f32T, fn, args: out };
   }
   if (id === 'textureSample' || id === 'textureSampleLevel' || id === 'textureLoad') {
     pushDiag(
@@ -1420,8 +1467,8 @@ function lowerDepthTextureCall(
         `object whose type the read decides, so a depth texture read both ways needs separate ` +
         `samplers, which a later item adds.`,
       TS_CODES.UNSUPPORTED,
-    )
-    return undefined
+    );
+    return undefined;
   }
   pushDiag(
     diagnostics,
@@ -1429,8 +1476,8 @@ function lowerDepthTextureCall(
     node,
     `${id} does not take a depth texture; "${shown}" is read with textureSampleCompare.`,
     TS_CODES.TYPE_MISMATCH,
-  )
-  return undefined
+  );
+  return undefined;
 }
 
 /**
@@ -1455,19 +1502,19 @@ function lowerTextureCall(
   // A gather takes its texture SECOND on a colour texture, after the component (roadmap 0.4
   // item 12), so it is routed before anything below reads args[0] as the texture.
   if (id === 'textureGather' || id === 'textureGatherCompare') {
-    return lowerGatherCall(id, args, node, sourceFile, scope, diagnostics)
+    return lowerGatherCall(id, args, node, sourceFile, scope, diagnostics);
   }
-  const tex = args[0]
+  const tex = args[0];
   // A storage texture is read and written by texel coordinate (roadmap 0.4 item 10), so the
   // three calls that take one go down their own path: its access mode decides which of them
   // apply, and its FORMAT decides the texel type where a sampled texture's element would.
   if (tex && tex.type.kind === 'storage-texture') {
-    return lowerStorageTextureCall(id, tex.type, args, node, sourceFile, diagnostics)
+    return lowerStorageTextureCall(id, tex.type, args, node, sourceFile, diagnostics);
   }
   // A depth texture is read by COMPARISON (roadmap 0.4 item 11): its own path, since the reads
   // that apply, the sampler they take and the type they yield all differ from a sampled one.
   if (tex && tex.type.kind === 'depth-texture') {
-    return lowerDepthTextureCall(id, tex.type, args, node, sourceFile, diagnostics)
+    return lowerDepthTextureCall(id, tex.type, args, node, sourceFile, diagnostics);
   }
   if (!tex || tex.type.kind !== 'texture') {
     pushDiag(
@@ -1476,8 +1523,8 @@ function lowerTextureCall(
       node,
       `${id} takes a texture as its first argument.`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (id === 'textureStore') {
     pushDiag(
@@ -1488,20 +1535,20 @@ function lowerTextureCall(
         `which is read through a sampler and never written. Declare the binding as ` +
         `texture_storage_2d<"rgba8unorm", "write"> (or whichever format) to write to it.`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   // The array forms are their own ids: `Array` for a 2d array, `CubeArray` for a cube array
   // (roadmap 0.4 item 12), since the two restructure their GLSL arguments differently.
   // A multisampled texture is read one sample at a time and never sampled (roadmap 0.4 item
   // 13): its own path, since the third argument of its load is a sample index, not a level.
   if (tex.type.dim === '2d-ms') {
-    return lowerMultisampledCall(id, tex.type, args, node, sourceFile, diagnostics)
+    return lowerMultisampledCall(id, tex.type, args, node, sourceFile, diagnostics);
   }
-  const suffix = arraySuffix(tex.type.dim)
-  const isArray = suffix !== ''
-  const shown = typeKey(tex.type)
-  const texel: ShaderType = { kind: 'vec', n: 4, elem: tex.type.elem }
+  const suffix = arraySuffix(tex.type.dim);
+  const isArray = suffix !== '';
+  const shown = typeKey(tex.type);
+  const texel: ShaderType = { kind: 'vec', n: 4, elem: tex.type.elem };
   // The two sampler kinds are not interchangeable in either direction, and Tint says so ("no
   // matching call"); this says it first, in the author's own file (roadmap 0.4 item 11).
   if (id === 'textureSampleCompare' || id === 'textureSampleCompareLevel') {
@@ -1513,8 +1560,8 @@ function lowerTextureCall(
         `texture with no depth to compare. Declare the shadow map "texture_depth_2d" and read ` +
         `it with a "sampler_comparison".`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (
     (id === 'textureSample' || id === 'textureSampleLevel') &&
@@ -1528,21 +1575,21 @@ function lowerTextureCall(
         `reference depth against the texel instead, and reads a texture_depth_2d with ` +
         `textureSampleCompare. Declare this sampler "sampler" to sample with it.`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   switch (id) {
     case 'textureDimensions': {
-      const out = dimsArgs(id, args, node, sourceFile, diagnostics)
-      if (!out) return undefined
+      const out = dimsArgs(id, args, node, sourceFile, diagnostics);
+      if (!out) return undefined;
       // A 3d texture's size is three wide, and its own id on GLSL (`uvec3` where the 2d wrapper
       // is `uvec2`); a cube's is the size of one face, two wide on both targets (item 12).
       // A 1d texture's size is ONE wide, a u32, and its own id for the same reason (item 12).
       if (tex.type.dim === '1d')
-        return { op: 'call', type: u32T, fn: 'textureDimensions1d', args: out }
+        return { op: 'call', type: u32T, fn: 'textureDimensions1d', args: out };
       return tex.type.dim === '3d'
         ? { op: 'call', type: vec3uT, fn: 'textureDimensions3d', args: out }
-        : { op: 'call', type: vec2uT, fn: id, args: out }
+        : { op: 'call', type: vec2uT, fn: id, args: out };
     }
     case 'textureNumSamples':
       pushDiag(
@@ -1551,8 +1598,8 @@ function lowerTextureCall(
         node,
         `textureNumSamples takes a texture_multisampled_2d; a ${shown} has one sample per texel.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     case 'textureNumLayers':
       if (!isArray) {
         pushDiag(
@@ -1568,12 +1615,12 @@ function lowerTextureCall(
                   `textureDimensions(t).z is its slice count.`
                 : `textureNumLayers needs a texture_2d_array; a plain 2D texture has no layers.`,
           TS_CODES.TYPE_MISMATCH,
-        )
-        return undefined
+        );
+        return undefined;
       }
       return arity(id, args, 1, node, sourceFile, diagnostics)
         ? { op: 'call', type: u32T, fn: id, args: [...args] }
-        : undefined
+        : undefined;
     case 'textureSample':
     case 'textureSampleLevel':
     case 'textureSampleBias':
@@ -1588,8 +1635,8 @@ function lowerTextureCall(
           `${id} needs a float texture; ${shown} is read with ` +
             `${tex.type.dim === 'cube' || tex.type.dim === 'cube-array' ? 'textureGather' : 'textureLoad'}.`,
           TS_CODES.TYPE_MISMATCH,
-        )
-        return undefined
+        );
+        return undefined;
       }
       // WGSL gives a 1d texture textureSample and textureSampleLevel only (roadmap 0.4 item 12).
       if (tex.type.dim === '1d' && (id === 'textureSampleBias' || id === 'textureSampleGrad')) {
@@ -1600,23 +1647,23 @@ function lowerTextureCall(
           `${id} has no texture_1d form on WGSL; a ${shown} is read with textureSample, ` +
             `textureSampleLevel or textureLoad.`,
           TS_CODES.UNSUPPORTED,
-        )
-        return undefined
+        );
+        return undefined;
       }
       // (tex, smp, coord) plus a level or a bias, or two gradients (roadmap 0.4 item 12); the
       // array form adds its layer after the coordinate on every one of them.
-      const base = id === 'textureSample' ? 3 : id === 'textureSampleGrad' ? 5 : 4
-      const want = isArray ? base + 1 : base
-      if (!arity(id, args, want, node, sourceFile, diagnostics)) return undefined
+      const base = id === 'textureSample' ? 3 : id === 'textureSampleGrad' ? 5 : 4;
+      const want = isArray ? base + 1 : base;
+      if (!arity(id, args, want, node, sourceFile, diagnostics)) return undefined;
       if (
         !vecArg(id, tex.type, args[2]!, node.arguments[2]!, 'coordinate', sourceFile, diagnostics)
       )
-        return undefined
-      const fn = `${id}${suffix}`
+        return undefined;
+      const fn = `${id}${suffix}`;
       // The LAYER is an integer; the mip LEVEL of a sampled read, and a bias on it, are `f32`
       // (wgsl.txt:25081, 24615). (`textureSampleLevel`'s level argument sits where the layer
       // does on the non-array form, which is why the index is computed rather than fixed.)
-      const out = [...args]
+      const out = [...args];
       if (isArray) {
         const layer = intArg(
           id,
@@ -1626,12 +1673,12 @@ function lowerTextureCall(
           'layer',
           sourceFile,
           diagnostics,
-        )
-        if (!layer) return undefined
-        out[3] = layer
+        );
+        if (!layer) return undefined;
+        out[3] = layer;
       }
       if (id === 'textureSampleLevel' || id === 'textureSampleBias') {
-        const k = isArray ? 4 : 3
+        const k = isArray ? 4 : 3;
         const lod = floatArg(
           id,
           out[k]!,
@@ -1639,21 +1686,21 @@ function lowerTextureCall(
           id === 'textureSampleBias' ? 'bias' : 'level',
           sourceFile,
           diagnostics,
-        )
-        if (!lod) return undefined
-        out[k] = lod
+        );
+        if (!lod) return undefined;
+        out[k] = lod;
       }
       // The gradients have the coordinate's width, on both targets.
       if (id === 'textureSampleGrad') {
-        const first = isArray ? 4 : 3
+        const first = isArray ? 4 : 3;
         for (const k of [first, first + 1]) {
           if (
             !vecArg(id, tex.type, out[k]!, node.arguments[k]!, 'gradient', sourceFile, diagnostics)
           )
-            return undefined
+            return undefined;
         }
       }
-      return { op: 'call', type: texel, fn, args: out }
+      return { op: 'call', type: texel, fn, args: out };
     }
     case 'textureLoad': {
       // Neither target has a texel fetch for a cube: WGSL's `textureLoad` and GLSL's
@@ -1666,15 +1713,15 @@ function lowerTextureCall(
           `textureLoad has no cube form on either target: a ${shown} is looked up by ` +
             `direction, so read it with textureSample or textureSampleLevel.`,
           TS_CODES.UNSUPPORTED,
-        )
-        return undefined
+        );
+        return undefined;
       }
-      const want = isArray ? 4 : 3
-      if (!arity(id, args, want, node, sourceFile, diagnostics)) return undefined
+      const want = isArray ? 4 : 3;
+      if (!arity(id, args, want, node, sourceFile, diagnostics)) return undefined;
       if (
         !vecArg(id, tex.type, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics)
       )
-        return undefined
+        return undefined;
       // A 1d texture's coordinate is ONE integer (roadmap 0.4 item 12): a bare `3` lowers to an
       // f32 on this surface, so it is retargeted like a layer. An f32 EXPRESSION is refused by
       // `vecArg` above, in the same sentence this arm used to say it in, where Tint would
@@ -1688,14 +1735,14 @@ function lowerTextureCall(
           'coordinate',
           sourceFile,
           diagnostics,
-        )
-        if (!c) return undefined
-        args = [args[0]!, c, ...args.slice(2)]
+        );
+        if (!c) return undefined;
+        args = [args[0]!, c, ...args.slice(2)];
       }
       // Both the layer and the mip level are integers here. A bare number lowers to f32, and
       // `textureLoad(t, c, 0.0)` is not valid WGSL — the same bug the EDSL fixed in its own
       // layerArg/levelArg (#1703), fixed the same way and with the same types.
-      const out = [...args]
+      const out = [...args];
       if (isArray) {
         const layer = intArg(
           id,
@@ -1705,11 +1752,11 @@ function lowerTextureCall(
           'layer',
           sourceFile,
           diagnostics,
-        )
-        if (!layer) return undefined
-        out[2] = layer
+        );
+        if (!layer) return undefined;
+        out[2] = layer;
       }
-      const levelIndex = isArray ? 3 : 2
+      const levelIndex = isArray ? 3 : 2;
       const level = intArg(
         id,
         out[levelIndex]!,
@@ -1718,13 +1765,13 @@ function lowerTextureCall(
         'mip level',
         sourceFile,
         diagnostics,
-      )
-      if (!level) return undefined
-      out[levelIndex] = level
+      );
+      if (!level) return undefined;
+      out[levelIndex] = level;
       // An UNSIGNED coordinate takes a wrapping id: GLSL's `texelFetch` has no unsigned
       // overload (measured), so the coordinate is wrapped in the signed constructor of the
       // texture's own width. The signed ids are the ones every existing program already uses.
-      const unsignedCoord = out[1]!.type.kind === 'vec' && out[1]!.type.elem === 'u32'
+      const unsignedCoord = out[1]!.type.kind === 'vec' && out[1]!.type.elem === 'u32';
       const fn = isArray
         ? unsignedCoord
           ? 'textureLoadArrayU'
@@ -1733,11 +1780,11 @@ function lowerTextureCall(
           ? tex.type.dim === '3d'
             ? 'textureLoad3dU'
             : 'textureLoadU'
-          : id
-      return { op: 'call', type: texel, fn, args: out }
+          : id;
+      return { op: 'call', type: texel, fn, args: out };
     }
     default:
-      return undefined
+      return undefined;
   }
 }
 
@@ -1755,21 +1802,21 @@ function lowerMultisampledCall(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const shown = typeKey(tex)
-  const depth = tex.kind === 'depth-texture'
+  const shown = typeKey(tex);
+  const depth = tex.kind === 'depth-texture';
   switch (id) {
     case 'textureDimensions':
       return arity(id, args, 1, node, sourceFile, diagnostics)
         ? { op: 'call', type: vec2uT, fn: 'textureDimensionsMs', args: [...args] }
-        : undefined
+        : undefined;
     case 'textureNumSamples':
       return arity(id, args, 1, node, sourceFile, diagnostics)
         ? { op: 'call', type: u32T, fn: id, args: [...args] }
-        : undefined
+        : undefined;
     case 'textureLoad': {
-      if (!arity(id, args, 3, node, sourceFile, diagnostics)) return undefined
+      if (!arity(id, args, 3, node, sourceFile, diagnostics)) return undefined;
       if (!vecArg(id, tex, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics))
-        return undefined
+        return undefined;
       // The third argument is a SAMPLE INDEX, an integer like a level, retyped the same way.
       const sample = intArg(
         id,
@@ -1779,15 +1826,15 @@ function lowerMultisampledCall(
         'sample index',
         sourceFile,
         diagnostics,
-      )
-      if (!sample) return undefined
-      const type: ShaderType = depth ? f32T : { kind: 'vec', n: 4, elem: tex.elem }
+      );
+      if (!sample) return undefined;
+      const type: ShaderType = depth ? f32T : { kind: 'vec', n: 4, elem: tex.elem };
       return {
         op: 'call',
         type,
         fn: depth ? 'textureLoadDepthMs' : 'textureLoadMs',
         args: [args[0]!, args[1]!, sample],
-      }
+      };
     }
     case 'textureNumLayers':
       pushDiag(
@@ -1797,8 +1844,8 @@ function lowerMultisampledCall(
         `textureNumLayers needs an array texture; a ${shown} has samples, not layers, and ` +
           `textureNumSamples(t) is their count.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     default:
       pushDiag(
         diagnostics,
@@ -1808,8 +1855,8 @@ function lowerMultisampledCall(
           `Read one sample with textureLoad(t, coords, sampleIndex); textureNumSamples(t) is ` +
           `how many there are.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
   }
 }
 
@@ -1819,7 +1866,7 @@ function lowerMultisampledCall(
  *  all on a cube array, which GLSL ES 3.00 has no sampler for), and an id's text must never
  *  depend on the texture it is called on. */
 function arraySuffix(dim: string): '' | 'Array' | 'CubeArray' {
-  return dim === '2d-array' ? 'Array' : dim === 'cube-array' ? 'CubeArray' : ''
+  return dim === '2d-array' ? 'Array' : dim === 'cube-array' ? 'CubeArray' : '';
 }
 
 /** The gather component folded to a literal: a written number, or a module `const` whose value
@@ -1827,12 +1874,12 @@ function arraySuffix(dim: string): '' | 'Array' | 'CubeArray' {
  *  this surface can prove. */
 function foldConstComponent(arg: Expr, scope: LoweringScope): Expr {
   if (arg.op === 'constref') {
-    const binding = scope.resolve(arg.name)
+    const binding = scope.resolve(arg.name);
     if (binding?.kind === 'module' && typeof binding.constValue === 'number') {
-      return { op: 'lit', type: arg.type, value: binding.constValue }
+      return { op: 'lit', type: arg.type, value: binding.constValue };
     }
   }
-  return foldNumericLit(arg)
+  return foldNumericLit(arg);
 }
 
 /** `textureGather(component, tex, smp, coords[, layer])` on a colour texture,
@@ -1856,8 +1903,8 @@ function lowerGatherCall(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const at = args.findIndex((a) => a.type.kind === 'texture' || a.type.kind === 'depth-texture')
-  const tex = at === 0 || at === 1 ? args[at]! : undefined
+  const at = args.findIndex((a) => a.type.kind === 'texture' || a.type.kind === 'depth-texture');
+  const tex = at === 0 || at === 1 ? args[at]! : undefined;
   if (tex === undefined || (tex.type.kind !== 'texture' && tex.type.kind !== 'depth-texture')) {
     pushDiag(
       diagnostics,
@@ -1866,11 +1913,11 @@ function lowerGatherCall(
       `${id} takes a texture as its first argument, or as its second after the component on a ` +
         `colour texture: textureGather(0, tex, smp, uv).`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const shown = typeKey(tex.type)
-  const compare = id === 'textureGatherCompare'
+  const shown = typeKey(tex.type);
+  const compare = id === 'textureGatherCompare';
   if (tex.type.dim === '1d' || tex.type.dim === '3d' || tex.type.dim === '2d-ms') {
     pushDiag(
       diagnostics,
@@ -1879,8 +1926,8 @@ function lowerGatherCall(
       `${id} gathers a 2d, 2d-array, cube or cube-array texture; a ${shown} has no gather form ` +
         `on WGSL.`,
       TS_CODES.UNSUPPORTED,
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (compare && tex.type.kind !== 'depth-texture') {
     pushDiag(
@@ -1890,10 +1937,10 @@ function lowerGatherCall(
       `textureGatherCompare compares against a depth texture; "${shown}" is a sampled colour ` +
         `texture with no depth to compare. textureGather reads its channels.`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const out = [...args]
+  const out = [...args];
   if (tex.type.kind === 'texture') {
     if (at !== 1) {
       pushDiag(
@@ -1903,14 +1950,14 @@ function lowerGatherCall(
         `textureGather on a ${shown} takes the component first: textureGather(0, tex, smp, ` +
           `coords) reads the red channel of the four texels.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
     // WGSL asks for a const-EXPRESSION here, not a literal (wgsl.txt:23916-23925): a module
     // `const C = 1` used as the component is a program Tint accepts (measured), and this
     // refused it for being "not written in the call". A module const's scalar value is on its
     // binding, so folding one is a lookup.
-    const lit = foldConstComponent(args[0]!, scope)
+    const lit = foldConstComponent(args[0]!, scope);
     if (
       lit.op !== 'lit' ||
       typeof lit.value !== 'number' ||
@@ -1926,13 +1973,13 @@ function lowerGatherCall(
           `(0 is red, 3 is alpha): a literal, or a module const. WGSL requires a ` +
           `const-expression there and refuses any other value.`,
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
     out[0] =
       typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32'
         ? lit
-        : { op: 'lit', type: i32T, value: lit.value }
+        : { op: 'lit', type: i32T, value: lit.value };
   } else if (at !== 0) {
     pushDiag(
       diagnostics,
@@ -1941,11 +1988,11 @@ function lowerGatherCall(
       `${id} on a ${shown} takes no component: a depth texture has one channel. Write ` +
         `${id}(tex, smp, coords${compare ? ', ref' : ''}).`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const smp = args[at + 1]
-  const wantSmp = compare ? 'sampler-comparison' : 'sampler'
+  const smp = args[at + 1];
+  const wantSmp = compare ? 'sampler-comparison' : 'sampler';
   if (smp === undefined || smp.type.kind !== wantSmp) {
     pushDiag(
       diagnostics,
@@ -1958,13 +2005,13 @@ function lowerGatherCall(
             `${smp === undefined ? 'nothing' : typeKey(smp.type)}. A sampler_comparison ` +
             `compares instead, with textureGatherCompare.`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const suffix = arraySuffix(tex.type.dim)
-  const isArray = suffix !== ''
-  const want = at + 3 + (isArray ? 1 : 0) + (compare ? 1 : 0)
-  if (!arity(id, args, want, node, sourceFile, diagnostics)) return undefined
+  const suffix = arraySuffix(tex.type.dim);
+  const isArray = suffix !== '';
+  const want = at + 3 + (isArray ? 1 : 0) + (compare ? 1 : 0);
+  if (!arity(id, args, want, node, sourceFile, diagnostics)) return undefined;
   if (
     !vecArg(
       id,
@@ -1976,19 +2023,19 @@ function lowerGatherCall(
       diagnostics,
     )
   )
-    return undefined
+    return undefined;
   if (isArray) {
-    const k = at + 3
-    const layer = intArg(id, out[k]!, node.arguments[k]!, i32T, 'layer', sourceFile, diagnostics)
-    if (!layer) return undefined
-    out[k] = layer
+    const k = at + 3;
+    const layer = intArg(id, out[k]!, node.arguments[k]!, i32T, 'layer', sourceFile, diagnostics);
+    if (!layer) return undefined;
+    out[k] = layer;
   }
   // The reference depth of a gather-compare is an `f32`, like `textureSampleCompare`'s.
   if (compare) {
-    const k = want - 1
-    const ref = floatArg(id, out[k]!, node.arguments[k]!, 'depth_ref', sourceFile, diagnostics)
-    if (!ref) return undefined
-    out[k] = ref
+    const k = want - 1;
+    const ref = floatArg(id, out[k]!, node.arguments[k]!, 'depth_ref', sourceFile, diagnostics);
+    if (!ref) return undefined;
+    out[k] = ref;
   }
   // One id per WGSL argument structure; a cube gathers by direction with the 2d id, since the
   // coordinate's width rides on the type, and the depth forms differ only in taking no component.
@@ -2003,10 +2050,10 @@ function lowerGatherCall(
           : 'textureGatherCompare'
         : isArray
           ? 'textureGatherDepthArray'
-          : 'textureGatherDepth'
+          : 'textureGatherDepth';
   const type: ShaderType =
-    tex.type.kind === 'texture' ? { kind: 'vec', n: 4, elem: tex.type.elem } : vec4fT
-  return { op: 'call', type, fn, args: out }
+    tex.type.kind === 'texture' ? { kind: 'vec', n: 4, elem: tex.type.elem } : vec4fT;
+  return { op: 'call', type, fn, args: out };
 }
 
 /** The element a texture argument carries, by the one name the messages use: the scalar of a
@@ -2019,7 +2066,7 @@ function elemNameOf(t: ShaderType): string {
       ? t.elem
       : t.kind === 'f64' || t.kind === 'vec64'
         ? 'f64'
-        : typeKey(t)
+        : typeKey(t);
 }
 
 /** The coordinate a texture is addressed by has the width its `dim` decides — a `vec2` on a 2d
@@ -2046,7 +2093,11 @@ function vecArg(
   diagnostics: TsCompilerDiagnostic[],
 ): boolean {
   const want =
-    tex.dim === '1d' ? 1 : tex.dim === '2d' || tex.dim === '2d-array' || tex.dim === '2d-ms' ? 2 : 3
+    tex.dim === '1d'
+      ? 1
+      : tex.dim === '2d' || tex.dim === '2d-array' || tex.dim === '2d-ms'
+        ? 2
+        : 3;
   // A 1d texture (roadmap 0.4 item 12) is addressed by ONE number: an f32 to sample, an integer
   // to fetch. An emulated double counts as the width it has — `f64` is a scalar and `vec64` a
   // vector here — so a `vec2f64` coordinate on a 2d texture is answered by the ELEMENT check
@@ -2057,28 +2108,28 @@ function vecArg(
       ? arg.type.n
       : arg.type.kind === 'scalar' || arg.type.kind === 'f64'
         ? 1
-        : 0
+        : 0;
   if (n !== want) {
     const shape =
       want === 1
         ? `single ${id === 'textureLoad' ? 'integer' : 'f32'} ${what}`
         : (tex.dim === 'cube' || tex.dim === 'cube-array') && what === 'coordinate'
           ? 'vec3 direction'
-          : `vec${want} ${what}`
+          : `vec${want} ${what}`;
     pushDiag(
       diagnostics,
       sourceFile,
       node,
       `${id} on a ${typeKey(tex)} takes a ${shape}; got ${typeKey(arg.type)}.`,
       TS_CODES.TEXTURE_ARGUMENT,
-    )
-    return false
+    );
+    return false;
   }
   // A texel fetch is by whole texel, every other read by normalised coordinate; a gradient is
   // a rate of change of the latter, so it is float whatever the call.
-  const wantInt = what === 'coordinate' && (id === 'textureLoad' || id === 'textureStore')
-  const elem = elemNameOf(arg.type)
-  const ok = wantInt ? elem === 'i32' || elem === 'u32' : elem === 'f32'
+  const wantInt = what === 'coordinate' && (id === 'textureLoad' || id === 'textureStore');
+  const elem = elemNameOf(arg.type);
+  const ok = wantInt ? elem === 'i32' || elem === 'u32' : elem === 'f32';
   // A bare number in an INTEGER slot is retargeted, not refused: `textureLoad(t, 3, 0)` on a 1d
   // texture is the form the surface spells, and `intArg` below turns the f32 lit into the i32
   // the call takes. The exemption is only sound where that retarget follows. It used to test
@@ -2086,7 +2137,7 @@ function vecArg(
   // to a lit, skipped the check, and `textureSample(ramp, smp, u32(2))` emitted `2u` on a 1d
   // texture — "no matching call" on Tint, with no diagnostic here. (`i32(2)` survived only
   // because the writer spells an i32 lit bare, which WGSL reads as abstract-int.)
-  if (ok || (wantInt && isBareNumber(node))) return true
+  if (ok || (wantInt && isBareNumber(node))) return true;
   pushDiag(
     diagnostics,
     sourceFile,
@@ -2096,8 +2147,8 @@ function vecArg(
           `${typeKey(arg.type)}.`
       : `${id} on a ${typeKey(tex)} takes an f32 ${what}; got ${typeKey(arg.type)}.`,
     TS_CODES.TEXTURE_ARGUMENT,
-  )
-  return false
+  );
+  return false;
 }
 
 /** Whether the author wrote a bare number here: a numeric literal, or one behind a unary sign.
@@ -2109,16 +2160,16 @@ function vecArg(
  *  spelled `const l: i32 = 0`. A bare `0` has no type of its own on this surface and is the
  *  call's to type; `i32(0)` says what it is, and is answered like any other i32. */
 function isBareNumber(node: ts.Expression): boolean {
-  const inner = ts.isPrefixUnaryExpression(node) ? node.operand : node
-  return ts.isNumericLiteral(inner)
+  const inner = ts.isPrefixUnaryExpression(node) ? node.operand : node;
+  return ts.isNumericLiteral(inner);
 }
 
 /** The source the author wrote for an argument, for the "Write f32(l)." half of a refusal.
  *  Normalised to one line and cut short, so a long expression cannot smear the message across
  *  the terminal; the span already points at the argument itself. */
 function argText(node: ts.Expression, sourceFile: ts.SourceFile): string {
-  const text = node.getText(sourceFile).replace(/\s+/g, ' ').trim()
-  return text.length > 24 ? `${text.slice(0, 24).trimEnd()}…` : text
+  const text = node.getText(sourceFile).replace(/\s+/g, ' ').trim();
+  return text.length > 24 ? `${text.slice(0, 24).trimEnd()}…` : text;
 }
 
 /** A `level`, `bias` or `depth_ref`: the texture arguments WGSL types `f32` (wgsl.txt:25081,
@@ -2142,20 +2193,20 @@ function floatArg(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const lit = foldNumericLit(arg)
+  const lit = foldNumericLit(arg);
   // A literal already typed f32 is returned AS WRITTEN, not as the folded lit: folding a
   // negated literal would rewrite `-1.0` and move the emit for no reason.
   if (isBareNumber(node) && lit.op === 'lit' && typeof lit.value === 'number')
-    return typeKey(lit.type) === 'f32' ? arg : { op: 'lit', type: f32T, value: lit.value }
-  if (typeKey(arg.type) === 'f32') return arg
+    return typeKey(lit.type) === 'f32' ? arg : { op: 'lit', type: f32T, value: lit.value };
+  if (typeKey(arg.type) === 'f32') return arg;
   pushDiag(
     diagnostics,
     sourceFile,
     node,
     `${id} ${what} must be an f32; got ${typeKey(arg.type)}. Write f32(${argText(node, sourceFile)}).`,
     TS_CODES.TEXTURE_ARGUMENT,
-  )
-  return undefined
+  );
+  return undefined;
 }
 
 /** A layer or mip-level argument, retyped when it is a bare whole number and REPORTED when it
@@ -2198,15 +2249,15 @@ function intArg(
       `A texture ${what} must be an i32 or u32; got ${typeKey(arg.type)}. An emulated double ` +
         `narrows to f32 first, so write i32(f32(x)).`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   // A NEGATED literal is a unop, not a lit, and reached the backend as `-(1.0)`. Folded first
   // so the range check below sees the number the author wrote.
-  const lit = foldNumericLit(arg)
+  const lit = foldNumericLit(arg);
   if (!isBareNumber(node) || lit.op !== 'lit' || typeof lit.value !== 'number') {
-    const key = typeKey(arg.type)
-    if (key === 'i32' || key === 'u32') return arg
+    const key = typeKey(arg.type);
+    if (key === 'i32' || key === 'u32') return arg;
     pushDiag(
       diagnostics,
       sourceFile,
@@ -2214,10 +2265,10 @@ function intArg(
       `${id} ${what} must be an i32 or a u32; got ${key}. ` +
         `Write ${typeKey(want)}(${argText(node, sourceFile)}).`,
       TS_CODES.TEXTURE_ARGUMENT,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const v = lit.value
+  const v = lit.value;
   // Negative is refused whatever the target type. A layer is typed i32 because that is the
   // overload WGSL's array sampling takes, not because -1 means anything: both it and a mip
   // level are indices into memory that starts at 0.
@@ -2230,11 +2281,11 @@ function intArg(
         `WGSL rejects a fractional or negative one and GLSL ES 3.00 silently rounds it, ` +
         `so the two targets would disagree.`,
       TS_CODES.TEXTURE_ARGUMENT,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  if (typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32') return lit
-  return { op: 'lit', type: want, value: v }
+  if (typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32') return lit;
+  return { op: 'lit', type: want, value: v };
 }
 
 /** `textureDimensions(t)` or `textureDimensions(t, level)` (#147, wgsl.txt:23649). The level
@@ -2253,7 +2304,7 @@ function dimsArgs(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr[] | undefined {
-  if (args.length === 1) return [...args]
+  if (args.length === 1) return [...args];
   if (args.length !== 2) {
     pushDiag(
       diagnostics,
@@ -2262,11 +2313,19 @@ function dimsArgs(
       `${id} on a ${typeKey(args[0]!.type)} expects 1 argument(s), or 2 with an explicit mip ` +
         `level, got ${args.length}.`,
       TS_CODES.ARITY_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const level = intArg(id, args[1]!, node.arguments[1]!, u32T, 'mip level', sourceFile, diagnostics)
-  return level ? [args[0]!, level] : undefined
+  const level = intArg(
+    id,
+    args[1]!,
+    node.arguments[1]!,
+    u32T,
+    'mip level',
+    sourceFile,
+    diagnostics,
+  );
+  return level ? [args[0]!, level] : undefined;
 }
 
 /** One arity check, with the message naming what the texture's own shape requires — an array
@@ -2280,20 +2339,20 @@ function arity(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): boolean {
-  if (args.length === want) return true
+  if (args.length === want) return true;
   pushDiag(
     diagnostics,
     sourceFile,
     node,
     `${id} on a ${typeKey(args[0]!.type)} expects ${want} argument(s), got ${args.length}.`,
     TS_CODES.ARITY_MISMATCH,
-  )
-  return false
+  );
+  return false;
 }
 
 function vectorCtorType(n: 2 | 3 | 4, elem: VecCtorElem): ShaderType {
-  if (elem === 'f64') return { kind: 'vec64', n }
-  return { kind: 'vec', n, elem }
+  if (elem === 'f64') return { kind: 'vec64', n };
+  return { kind: 'vec', n, elem };
 }
 
 /** True for the one argument shape {@link lowerCall} converts rather than composes: a native
@@ -2301,39 +2360,39 @@ function vectorCtorType(n: 2 | 3 | 4, elem: VecCtorElem): ShaderType {
  *  (f32 / i32 / u32) — an emulated-double vector is not converted here, since a vec64 is a
  *  pair of f32 lanes the fp64 pass assembles, not a component list to reinterpret. */
 function isConvertibleVector(t: ShaderType, ctor: { n: 2 | 3 | 4; elem: VecCtorElem }): boolean {
-  if (ctor.elem === 'f64') return false
-  return t.kind === 'vec' && t.n === ctor.n && t.elem !== ctor.elem
+  if (ctor.elem === 'f64') return false;
+  return t.kind === 'vec' && t.n === ctor.n && t.elem !== ctor.elem;
 }
 
 function isVectorCtorScalar(t: ShaderType, elem: VecCtorElem): boolean {
-  if (elem === 'f64') return t.kind === 'f64'
-  return t.kind === 'scalar' && t.scalar === elem
+  if (elem === 'f64') return t.kind === 'f64';
+  return t.kind === 'scalar' && t.scalar === elem;
 }
 
 function isVectorCtorArg(t: ShaderType, elem: VecCtorElem): boolean {
-  if (elem === 'f64') return t.kind === 'f64' || t.kind === 'vec64'
-  return isVectorCtorScalar(t, elem) || (t.kind === 'vec' && t.elem === elem)
+  if (elem === 'f64') return t.kind === 'f64' || t.kind === 'vec64';
+  return isVectorCtorScalar(t, elem) || (t.kind === 'vec' && t.elem === elem);
 }
 
 function flattenF64VectorArgs(args: readonly Expr[]): Expr[] {
-  const flattened: Expr[] = []
+  const flattened: Expr[] = [];
   for (const arg of args) {
     if (arg.type.kind !== 'vec64') {
-      flattened.push(arg)
-      continue
+      flattened.push(arg);
+      continue;
     }
     for (const field of 'xyzw'.slice(0, arg.type.n)) {
-      flattened.push({ op: 'member', type: { kind: 'f64' }, base: arg, field })
+      flattened.push({ op: 'member', type: { kind: 'f64' }, base: arg, field });
     }
   }
-  return flattened
+  return flattened;
 }
 
 function vectorComponentCount(args: readonly Expr[]): number {
   return args.reduce((count, arg) => {
-    if (arg.type.kind === 'vec' || arg.type.kind === 'vec64') return count + arg.type.n
-    return count + 1
-  }, 0)
+    if (arg.type.kind === 'vec' || arg.type.kind === 'vec64') return count + arg.type.n;
+    return count + 1;
+  }, 0);
 }
 
 function pushDiag(
@@ -2343,36 +2402,5 @@ function pushDiag(
   message: string,
   code: TsCode,
 ): void {
-  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
-}
-
-/** Lower a call to a generic function: lower its arguments, ask the file's lowering for the
- *  instance those types name, then check the call against it the way any other call is checked
- *  (roadmap 0.3 item T9, #92). The arguments are lowered ONCE and handed on, since lowering
- *  them again inside `lowerUserCall` would report every diagnostic in them twice. */
-function lowerGenericCall(
-  node: ts.CallExpression,
-  name: string,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): Expr | undefined {
-  const lowered: Expr[] = []
-  for (const arg of node.arguments) {
-    // No contextual type: the parameter's is what the instantiation is about to decide. A bare
-    // integer literal therefore lowers as f32 and reads T as f32; `pick<i32>(…)` is how a call
-    // says otherwise.
-    const one = lowerExpression(arg, sourceFile, scope, diagnostics)
-    if (!one) return undefined
-    lowered.push(one)
-  }
-  const decl = scope.instantiateGeneric(
-    name,
-    node,
-    lowered.map((e) => e.type),
-    sourceFile,
-    diagnostics,
-  )
-  if (!decl) return undefined
-  return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { lowered, shown: name })
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }

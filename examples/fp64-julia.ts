@@ -34,26 +34,27 @@ import {
   vec2f64T,
   If,
   Loop,
+  Break,
   Var,
   Let,
   u32,
   uniformStruct,
-} from '../src/index.js'
-import { VsOut, vs } from './_fullscreen.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import { VsOut, vs } from './_fullscreen.js';
+import type { ShaderExample } from './_shared.js';
 
 // Seed of the Julia set; both components are exactly f32-representable, so the
 // f32 half degrades ONLY through the pixel coordinate — the cleanest A/B.
-const C_RE = -0.8
-const C_IM = 0.156
+const C_RE = -0.8;
+const C_IM = 0.156;
 // On the Julia set beside the repelling fixed point (|2z*| ≈ 3.06 > 1):
 // y is EXACTLY f32-representable (toF32(Im z*)), x is CPU-bisected onto the
 // escape boundary along that line — verified to keep 44+ distinct escape
 // bands per 40² window down to a 1e-12 span, with ~7 surviving row bands on
 // the narrowed f32 side.
-const CENTER_X = 1.5255044073468653
-const CENTER_Y = -0.07591217756271362
-const ITER = 128
+const CENTER_X = 1.5255044073468653;
+const CENTER_Y = -0.07591217756271362;
+const ITER = 128;
 
 const U = uniformStruct(
   'Uniforms',
@@ -64,81 +65,150 @@ const U = uniformStruct(
     zoom_exp: f32T, // view span = 10^-zoom_exp complex units
     fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
   },
-)
+);
 
 const fsJulia = fn(
   'fs_julia',
   { vo: VsOut },
   (p) => {
-    const span = Let(pow(f32(10.0), U.field.zoom_exp.neg()))
+    const span = Let(pow(f32(10.0), U.field.zoom_exp.neg()));
     // Each half maps its own 0..1 sub-range onto the SAME complex window
     // (pan lives on the HOST in full double precision — see fp64-mandelbrot.ts).
-    const half = Let(p.vo.uv.x.mul(2.0))
-    const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)))
-    const dx = Let(sx.sub(0.5).mul(span))
+    const half = Let(p.vo.uv.x.mul(2.0));
+    const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)));
+    const dx = Let(sx.sub(0.5).mul(span));
     const dy = Let(
       p.vo.uv.y.sub(0.5).mul(span).mul(U.field.resolution.y.div(U.field.resolution.x).mul(2.0)),
-    )
+    );
 
-    const it = Var(f32(0))
-    const m2 = Var(f32(0)) // |z|² at escape (frozen once the guard fails)
+    // |z|² of the last z the loop reached, CARRIED beside z: set from z₀ before the loop,
+    // refreshed after every step, read by the escape test, and after the loop already the
+    // |z|² the smooth colouring wants. The test is one compare. It used to recompute |z|² every
+    // trip, escaped or not, and on the right half in df64: two squares, a df64_add, a df64_le
+    // and three compares, a trip.
+    //
+    // The loop LEAVES at the first escaped z — `If(m2 > 16) Break()` at the top of the trip —
+    // instead of running to ITER and skipping its body. The natural spelling is the loop
+    // condition, `j < ITER && m2 <= 16`, and this file could write it; the twin cannot. The
+    // source language's `for` is counted (surface §17, Rule 7.5 of docs/language-design.md),
+    // its condition is ONE comparison of the counter against a constant, and the conjunction
+    // is TS8006. A `break` is the same program in the counted form, so both files spell that.
+    // It makes everything after the loop non-uniform in WGSL's analysis, and nothing after it
+    // needs uniform control flow (no sample, derivative or barrier), so Tint takes it.
+    //
+    // What it saves is bounded by the wave: a wave runs until its LAST lane leaves, so only a
+    // tile whose every lane has escaped drops its remaining trips. At 640×480, 831 of the right
+    // half's 2400 8×8 pixel tiles have every lane escape before trip 128 at the default zoom
+    // (1272 at a 1e-10 span), and each drops trips that cost a u32 increment, two compares and
+    // a branch. Measured on the GPU-like evaluator (the fp64-lowered module at f32 precision)
+    // over the full 640×480 frame, the exit gives the same colour bit for bit on both halves.
+    const it = Var(f32(0));
+    const m2 = Var(f32(0));
     If(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)), () => {
       // f32 twin — z₀ built from the narrowed center: at deep zoom the pixel
       // coordinate quantizes to f32 ulps and whole columns collapse.
-      const zx = Var(toF32(U.field.center.x).add(dx))
-      const zy = Var(toF32(U.field.center.y).add(dy))
+      //
+      // The squares are carried as well, beside m2. The step needs zx² and zy², and the m2
+      // refresh at the end of the trip before squared that same z. Squaring it again in the
+      // step puts the two on opposite sides of the loop's back edge, where neither dominates
+      // the other and no CSE can share them: 12 f32 operations a trip against 10, counted on
+      // the emitted WGSL. The shape before m2 was carried squared z twice in one trip as
+      // well, but there the test dominates the step and a dominator-based CSE shares the
+      // squares. `fp64-julia.test.ts` holds every loop here to one square of an operand a
+      // trip.
+      const zx = Var(toF32(U.field.center.x).add(dx));
+      const zy = Var(toF32(U.field.center.y).add(dy));
+      const x2 = Var(zx.mul(zx));
+      const y2 = Var(zy.mul(zy));
+      m2.assign(x2.add(y2));
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
-          If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-            const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE))
-            zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
-            zx.assign(nzx)
-            it.assign(it.add(1.0))
-          })
+          If(m2.gt(16.0), () => {
+            Break();
+          });
+          const nzx = Let(x2.sub(y2).add(C_RE));
+          zy.assign(zx.mul(zy).mul(2.0).add(C_IM));
+          zx.assign(nzx);
+          it.assign(it.add(1.0));
+          x2.assign(zx.mul(zx));
+          y2.assign(zy.mul(zy));
+          m2.assign(x2.add(y2));
         },
-      )
-      m2.assign(zx.mul(zx).add(zy.mul(zy)))
+      );
     }).else(() => {
-      // f64 — identical authoring; z₀ keeps its extended-precision position.
-      const zx = Var(U.field.center.x.add(toF64(dx)))
-      const zy = Var(U.field.center.y.add(toF64(dy)))
+      // f64 — the same loop, z₀ keeps its extended-precision position, and m2 is taken
+      // differently. The escape test asks only which side of 16 |z|² lies on, and 48 bits
+      // change that answer only within an f32 rounding of the threshold, so m2 is squared in
+      // f32 from the narrowed words instead of in df64: two df64_narrow, two multiplies and an
+      // add a trip, in place of two df64 squares, a df64_add, a df64_le and three compares.
+      // `toF32(zx)` rounds hi + lo, which is the high word itself up to a half-ulp tie; the
+      // high word alone is not an author's to name (the split is compiler-internal, Rule 2.2
+      // of docs/language-design.md).
+      //
+      // So this half has no squares to carry: the step squares z in df64 and the refresh
+      // squares its narrowed words in f32, two different values, neither computed twice a
+      // trip. Carrying the df64 squares in variables, with m2 narrowed from them, costs more
+      // than it saves: a df64 value read from a variable is renormalized (a df64_add with 0,
+      // `renormForCancel` in fp64-lower.ts) before it feeds the step's cancelling subtraction,
+      // and the two df64_add that adds a trip outweigh the two f32 multiplies it removes, 62
+      // f32 operations a trip more on the emitted WGSL.
+      //
+      // Near |z|² = 16 a pixel can escape one step earlier or later than the df64 test had
+      // it, and the smooth colouring absorbs the step: `sn` subtracts log₂ log₂ |z|², which
+      // rises by about one as |z|² squares past the threshold and cancels the extra count.
+      // Measured on the GPU-like evaluator over 256×256 samples a half at spans of 1e-4,
+      // 1e-7, 1e-10 and 1e-13, no pixel's count moved, `sn` moved by 7.6e-6 at most on an
+      // escaped pixel, and the colour by 1.2e-4 of an 8-bit step; the closest any test came
+      // to 16 was 6.3e-6 relative, about 50 f32 ulps. Bisecting 560 count boundaries at 1e-4
+      // down to adjacent f32 uv values finds the case: 3 of 10,080 samples there escape one
+      // step later, with `sn` moved by 0.027 and the colour by 0.11 of an 8-bit step. The
+      // double does not side with either test there: it counts with this one at the first
+      // (`fp64-twins.test.ts` samples it) and with the df64 test at the other two.
+      const zx = Var(U.field.center.x.add(toF64(dx)));
+      const zy = Var(U.field.center.y.add(toF64(dy)));
+      const hx0 = Let(toF32(zx));
+      const hy0 = Let(toF32(zy));
+      m2.assign(hx0.mul(hx0).add(hy0.mul(hy0)));
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
-          If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-            const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE))
-            zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
-            zx.assign(nzx)
-            it.assign(it.add(1.0))
-          })
+          If(m2.gt(16.0), () => {
+            Break();
+          });
+          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE));
+          zy.assign(zx.mul(zy).mul(2.0).add(C_IM));
+          zx.assign(nzx);
+          it.assign(it.add(1.0));
+          const hx = Let(toF32(zx));
+          const hy = Let(toF32(zy));
+          m2.assign(hx.mul(hx).add(hy.mul(hy)));
         },
-      )
-      m2.assign(toF32(zx.mul(zx).add(zy.mul(zy))))
-    })
+      );
+    });
 
     // Smooth escape time (same log₂ log₂ treatment as fp64-mandelbrot.ts)
     // through a cool cosine palette; interior stays black.
-    const sn = Let(it.sub(log2(max(log2(max(m2, 1.0001)), 0.0001))).add(1.0))
-    const inside = Let(step(f32(ITER).sub(0.5), it))
-    const s = Let(sn.div(ITER))
-    const ph = vec3(0.0, 0.25, 0.6)
+    const sn = Let(it.sub(log2(max(log2(max(m2, 1.0001)), 0.0001))).add(1.0));
+    const inside = Let(step(f32(ITER).sub(0.5), it));
+    const s = Let(sn.div(ITER));
+    const ph = vec3(0.0, 0.25, 0.6);
     const rgb = vec3(0.5)
       .add(cos(ph.add(s.mul(5.5)).add(2.2)).mul(0.5))
       .mul(mix(f32(0.35), f32(1.0), s))
-      .mul(f32(1).sub(inside))
-    return vec4(rgb, f32(1))
+      .mul(f32(1).sub(inside));
+    return vec4(rgb, f32(1));
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 // `_fp64` guard lands at (group 0, binding 1) automatically.
 const fp64JuliaModule = module({
   funcs: [vs, fsJulia],
   uses: [U, VsOut],
-})
+});
 
 export const fp64Julia: ShaderExample = {
   id: 'fp64-julia',
@@ -169,4 +239,4 @@ export const fp64Julia: ShaderExample = {
     },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },
-}
+};

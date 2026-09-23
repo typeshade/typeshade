@@ -29,7 +29,7 @@
 // declaration has no attrs spelling, so the fn HANDLE that `module()` puts into `funcs[]` is
 // the only place it can be dropped, and a hand-built-decl-only corpus cannot see that.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest';
 import {
   fn,
   module,
@@ -49,51 +49,51 @@ import {
   type ModuleDecl,
   type ShaderType,
   type Stmt,
-} from '../ir/index.js'
-import { builtin, resource, storageBuffer } from '../sot.js'
-import { emitModule } from '../backends/wgsl.js'
-import { emitGlslModule } from '../backends/glsl.js'
-import { reflect } from '../reflect.js'
-import { TypeShadeError } from '../diagnostics/error.js'
-import { ValidationError } from './validate.js'
+} from '../ir/index.js';
+import { builtin, resource, storageBuffer } from '../sot.js';
+import { emitModule } from '../backends/wgsl.js';
+import { emitGlslModule } from '../backends/glsl.js';
+import { reflect } from '../reflect.js';
+import { TypeShadeError } from '../diagnostics/error.js';
+import { ValidationError } from './validate.js';
 
-const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType
-const arrF32 = { kind: 'array', elem: f32T } as ShaderType
-const arrU32 = { kind: 'array', elem: u32T } as ShaderType
+const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType;
+const arrF32 = { kind: 'array', elem: f32T } as ShaderType;
+const arrU32 = { kind: 'array', elem: u32T } as ShaderType;
 
 // raw-IR node builders (matches backends/glsl-compute.test.ts fixture style)
-const lit = (value: number, type: ShaderType): Expr => ({ op: 'lit', type, value })
-const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name })
+const lit = (value: number, type: ShaderType): Expr => ({ op: 'lit', type, value });
+const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name });
 const member = (base: Expr, field: string, type: ShaderType): Expr => ({
   op: 'member',
   type,
   base,
   field,
-})
-const index = (base: Expr, idx: Expr, type: ShaderType): Expr => ({ op: 'index', type, base, idx })
+});
+const index = (base: Expr, idx: Expr, type: ShaderType): Expr => ({ op: 'index', type, base, idx });
 
 // The tier's gather-only shell: guard on gid.x < u_count.x, then ONE store at gid.x.
-const gidParam = { op: 'param', type: vec3uT, name: 'gid' } as Expr
-const fid = member(gidParam, 'x', u32T)
-const count = member(varref('u_count', vec4uT), 'x', u32T)
+const gidParam = { op: 'param', type: vec3uT, name: 'gid' } as Expr;
+const fid = member(gidParam, 'x', u32T);
+const count = member(varref('u_count', vec4uT), 'x', u32T);
 const color: Expr = {
   op: 'construct',
   type: vec4fT,
   args: [index(varref('feat_data', arrF32), fid, f32T), lit(0, f32T), lit(0, f32T), lit(1, f32T)],
-}
-const packed: Expr = { op: 'call', type: u32T, fn: 'pack4x8unorm', args: [color] }
+};
+const packed: Expr = { op: 'call', type: u32T, fn: 'pack4x8unorm', args: [color] };
 const guard: Stmt = {
   s: 'if',
   arms: [
     { cond: { op: 'compare', type: boolT, cop: '>=', a: fid, b: count }, body: [{ s: 'return' }] },
   ],
-}
+};
 const storeAt = (idx: Expr): Stmt => ({
   s: 'assign',
   target: index(varref('out_color', arrU32), idx, u32T),
   expr: packed,
-})
-const store = storeAt(fid)
+});
+const store = storeAt(fid);
 
 const FEAT: BindingDecl = {
   group: 0,
@@ -102,7 +102,7 @@ const FEAT: BindingDecl = {
   space: 'storage',
   access: 'read',
   type: arrF32,
-}
+};
 const OUT: BindingDecl = {
   group: 0,
   binding: 1,
@@ -110,15 +110,15 @@ const OUT: BindingDecl = {
   space: 'storage',
   access: 'read_write',
   type: arrU32,
-}
+};
 const UNIFORM: BindingDecl = {
   group: 0,
   binding: 2,
   name: 'u_count',
   space: 'uniform',
   type: vec4uT,
-}
-const BINDINGS: readonly BindingDecl[] = [FEAT, OUT, UNIFORM]
+};
+const BINDINGS: readonly BindingDecl[] = [FEAT, OUT, UNIFORM];
 
 /** The M2a fixture's UNDECLARED entry — attrs-only, exactly the shape whose
  *  `emulateCompute: true` bytes the auto path must reproduce. */
@@ -128,37 +128,37 @@ const PLAIN_ENTRY: FuncDecl = {
   params: [{ name: 'gid', type: vec3uT, builtin: 'global_invocation_id' }],
   ret: voidT,
   body: [guard, store],
-}
+};
 /** The same entry, DECLARED portable. */
 const PORTABLE_ENTRY: FuncDecl = {
   ...PLAIN_ENTRY,
   stage: 'compute',
   workgroupSize: 64,
   portable: true,
-}
+};
 
 const modOf = (entry: FuncDecl, bindings: readonly BindingDecl[] = BINDINGS): ModuleDecl => ({
   consts: [],
   structs: [],
   bindings,
   funcs: [entry],
-})
+});
 /** A portable kernel with `body` swapped in — the violation constructor for body-shaped cases. */
-const withBody = (body: readonly Stmt[]): ModuleDecl => modOf({ ...PORTABLE_ENTRY, body })
+const withBody = (body: readonly Stmt[]): ModuleDecl => modOf({ ...PORTABLE_ENTRY, body });
 
-const PLAIN_MOD = modOf(PLAIN_ENTRY)
-const PORTABLE_MOD = modOf(PORTABLE_ENTRY)
+const PLAIN_MOD = modOf(PLAIN_ENTRY);
+const PORTABLE_MOD = modOf(PORTABLE_ENTRY);
 
 /** Return what `emit` threw, or `undefined` when it did not throw — so an emit that silently
  *  ACCEPTS a kernel outside the tier fails the assertion instead of skipping every check. */
 const captureThrow = (emit: () => unknown): unknown => {
   try {
-    emit()
+    emit();
   } catch (e) {
-    return e
+    return e;
   }
-  return undefined
-}
+  return undefined;
+};
 
 describe('X-GIS #1812 SD0110 — portable is a COMPUTE declaration, rejected at authoring time', () => {
   // Not a tsc error: FnOpts is one flat bag (stage and portable are independent optionals),
@@ -166,24 +166,26 @@ describe('X-GIS #1812 SD0110 — portable is a COMPUTE declaration, rejected at 
   it('fn() throws SD0110 for portable on a vertex entry', () => {
     const err = captureThrow(() =>
       fn('bad_vs', {}, () => vec4(0, 0, 0, 1), { stage: 'vertex', portable: true }),
-    )
-    expect(err).toBeInstanceOf(TypeShadeError)
-    expect((err as TypeShadeError).code).toBe('SD0110')
-    expect((err as Error).message).toContain("stage: 'vertex'")
-  })
+    );
+    expect(err).toBeInstanceOf(TypeShadeError);
+    expect((err as TypeShadeError).code).toBe('SD0110');
+    expect((err as Error).message).toContain("stage: 'vertex'");
+  });
 
   it('fn() throws SD0110 for portable on a plain helper fn (no stage at all)', () => {
-    const err = captureThrow(() => fn('bad_helper', {}, () => vec4(0, 0, 0, 1), { portable: true }))
-    expect(err).toBeInstanceOf(TypeShadeError)
-    expect((err as TypeShadeError).code).toBe('SD0110')
-    expect((err as Error).message).toContain('no stage')
-  })
+    const err = captureThrow(() =>
+      fn('bad_helper', {}, () => vec4(0, 0, 0, 1), { portable: true }),
+    );
+    expect(err).toBeInstanceOf(TypeShadeError);
+    expect((err as TypeShadeError).code).toBe('SD0110');
+    expect((err as Error).message).toContain('no stage');
+  });
 
   it('fn() accepts it on a compute entry and records it structurally', () => {
-    const k = fn('ok_kernel', {}, voidT, () => undefined, { stage: 'compute', portable: true })
-    expect(k.decl.portable).toBe(true)
-  })
-})
+    const k = fn('ok_kernel', {}, voidT, () => undefined, { stage: 'compute', portable: true });
+    expect(k.decl.portable).toBe(true);
+  });
+});
 
 describe('X-GIS #1812 SD0111 — every tier violation fails on BOTH writers with the same sentence', () => {
   const CASES: ReadonlyArray<{ name: string; module: ModuleDecl; detail: string }> = [
@@ -247,94 +249,103 @@ describe('X-GIS #1812 SD0111 — every tier violation fails on BOTH writers with
       detail: "'u_count' is vec4<f32>, not vec4<u32>",
     },
     {
+      name: 'a two-dimensional workgroup (the tier is 1-D)',
+      module: modOf({ ...PORTABLE_ENTRY, workgroupSize: 8, workgroupShape: [8, 8, 1] }, [
+        FEAT,
+        OUT,
+        UNIFORM,
+      ]),
+      detail: 'has workgroup shape [8, 8, 1]',
+    },
+    {
       name: 'a raw statement in the entry body',
       module: withBody([guard, { s: 'raw', wgsl: '// spliced', glsl: '// spliced' }, store]),
       detail: 'contains a `raw` statement',
     },
-  ]
+  ];
 
   for (const c of CASES) {
     it(`WGSL + GLSL both reject: ${c.name}`, () => {
       // WGSL — validate() runs the CORE portable-kernel rule on the AUTHORED module and
       // aggregates every error diagnostic into one ValidationError.
-      const wgsl = captureThrow(() => emitModule(c.module))
+      const wgsl = captureThrow(() => emitModule(c.module));
       expect(wgsl, 'emitModule ACCEPTED a kernel outside the portable tier').toBeInstanceOf(
         ValidationError,
-      )
-      expect((wgsl as Error).message).toContain('SD0111')
-      expect((wgsl as Error).message).toContain(c.detail)
+      );
+      expect((wgsl as Error).message).toContain('SD0111');
+      expect((wgsl as Error).message).toContain(c.detail);
 
       // GLSL — the compute→fragment lowering gates the declared kernel through the SAME
       // analyzer, and throws before the lowered module ever reaches validate(); so the class
       // is the base TypeShadeError, carrying SD0111 as its own code.
-      const glsl = captureThrow(() => emitGlslModule(c.module, 'fragment'))
+      const glsl = captureThrow(() => emitGlslModule(c.module, 'fragment'));
       expect(glsl, 'emitGlslModule ACCEPTED a kernel outside the portable tier').toBeInstanceOf(
         TypeShadeError,
-      )
-      expect((glsl as TypeShadeError).code).toBe('SD0111')
-      expect((glsl as Error).message).toContain(c.detail)
-    })
+      );
+      expect((glsl as TypeShadeError).code).toBe('SD0111');
+      expect((glsl as Error).message).toContain(c.detail);
+    });
   }
 
   it('reports EVERY violation, not just the first (three broken clauses, three sentences)', () => {
-    const m = modOf({ ...PORTABLE_ENTRY, body: [guard, storeAt(lit(0, u32T))] }, [FEAT, OUT])
-    const wgsl = captureThrow(() => emitModule(m)) as ValidationError
-    expect(wgsl).toBeInstanceOf(ValidationError)
-    expect(wgsl.diagnostics.filter((d) => d.code === 'SD0111')).toHaveLength(2)
-    expect(wgsl.message).toContain('is not a plain store at the invocation index')
-    expect(wgsl.message).toContain('declares no uniform binding')
-  })
+    const m = modOf({ ...PORTABLE_ENTRY, body: [guard, storeAt(lit(0, u32T))] }, [FEAT, OUT]);
+    const wgsl = captureThrow(() => emitModule(m)) as ValidationError;
+    expect(wgsl).toBeInstanceOf(ValidationError);
+    expect(wgsl.diagnostics.filter((d) => d.code === 'SD0111')).toHaveLength(2);
+    expect(wgsl.message).toContain('is not a plain store at the invocation index');
+    expect(wgsl.message).toContain('declares no uniform binding');
+  });
 
   it('a module with NO portable declaration is silent — the tier is declared, never inferred', () => {
-    expect(() => emitModule(PLAIN_MOD)).not.toThrow()
-  })
-})
+    expect(() => emitModule(PLAIN_MOD)).not.toThrow();
+  });
+});
 
 describe('X-GIS #1812 byte pins — the declaration is free on WGSL and exact on GLSL', () => {
   it('WGSL: declaring portable changes zero bytes', () => {
-    expect(emitModule(PORTABLE_MOD)).toBe(emitModule(PLAIN_MOD))
-  })
+    expect(emitModule(PORTABLE_MOD)).toBe(emitModule(PLAIN_MOD));
+  });
 
   it('GLSL: the auto path emits the emulateCompute bytes, with no emit-site option', () => {
     // The contrast is the point: the SAME module shape without the declaration still
     // fail-closes on the missing compute capability, so the declaration — nothing else — is
     // what flipped the lowering on.
-    expect(() => emitGlslModule(PLAIN_MOD, 'fragment')).toThrow(/missing capabilities/)
+    expect(() => emitGlslModule(PLAIN_MOD, 'fragment')).toThrow(/missing capabilities/);
     expect(emitGlslModule(PORTABLE_MOD, 'fragment')).toBe(
       emitGlslModule(PLAIN_MOD, 'fragment', { emulateCompute: true }),
-    )
-  })
+    );
+  });
 
   it('GLSL: the auto path really lowered (a fragment GPGPU pass, no compute left)', () => {
-    const fs = emitGlslModule(PORTABLE_MOD, 'fragment')
-    expect(fs).toContain('void main()')
-    expect(fs).toMatch(/layout\(location = 0\) out uint \w+;/)
-    expect(fs).toContain('uniform uvec4 u_count;')
-    expect(fs).not.toContain('@compute')
-  })
-})
+    const fs = emitGlslModule(PORTABLE_MOD, 'fragment');
+    expect(fs).toContain('void main()');
+    expect(fs).toMatch(/layout\(location = 0\) out uint \w+;/);
+    expect(fs).toContain('uniform uvec4 u_count;');
+    expect(fs).not.toContain('@compute');
+  });
+});
 
 describe('X-GIS #1812 reflect() — the host-contract signal', () => {
   it('portable is true exactly when declared, and absent otherwise', () => {
-    const declared = reflect(PORTABLE_MOD).entries[0]!
-    expect(declared.stage).toBe('compute')
-    expect(declared.portable).toBe(true)
+    const declared = reflect(PORTABLE_MOD).entries[0]!;
+    expect(declared.stage).toBe('compute');
+    expect(declared.portable).toBe(true);
 
-    const undeclared = reflect(PLAIN_MOD).entries[0]!
-    expect(undeclared.stage).toBe('compute')
+    const undeclared = reflect(PLAIN_MOD).entries[0]!;
+    expect(undeclared.stage).toBe('compute');
     // Absent, never `false` — the host reads "WebGPU-only" as it reads any absent capability.
-    expect('portable' in undeclared).toBe(false)
-  })
-})
+    expect('portable' in undeclared).toBe(false);
+  });
+});
 
 describe('X-GIS #1812 the declaration survives module() assembly (fn-authored, not hand-built)', () => {
   // The ONE shape a hand-built-decl corpus cannot reach. `portable` has no attrs spelling by
   // design, and module() puts the fn HANDLE (not its decl) into funcs[] — so if the handle
   // does not mirror the field, every fn()-authored kernel loses the declaration on assembly
   // and the entire tier is silently dead on its only authoring path.
-  const featData = storageBuffer('feat_data', f32T, { group: 0, binding: 0, access: 'read' })
-  const outColor = storageBuffer('out_color', u32T, { group: 0, binding: 1, access: 'read_write' })
-  const uCount = resource('u_count', vec4uT, { group: 0, binding: 2 })
+  const featData = storageBuffer('feat_data', f32T, { group: 0, binding: 0, access: 'read' });
+  const outColor = storageBuffer('out_color', u32T, { group: 0, binding: 1, access: 'read_write' });
+  const uCount = resource('u_count', vec4uT, { group: 0, binding: 2 });
   const authored = module({
     uses: [featData, outColor, uCount],
     funcs: [
@@ -343,25 +354,25 @@ describe('X-GIS #1812 the declaration survives module() assembly (fn-authored, n
         { gid: builtin('global_invocation_id', vec3uT) },
         voidT,
         ({ gid }) => {
-          const i = gid.x
+          const i = gid.x;
           If(i.ge(uCount.node.x), () => {
-            Return()
-          })
-          outColor.at(i).assign(pack4x8unorm(vec4(featData.at(i), 0, 0, 1)))
+            Return();
+          });
+          outColor.at(i).assign(pack4x8unorm(vec4(featData.at(i), 0, 0, 1)));
         },
         { stage: 'compute', workgroupSize: 64, portable: true },
       ),
     ],
-  })
+  });
 
   it('reflect() sees it on the assembled module', () => {
-    expect(reflect(authored).entries[0]?.portable).toBe(true)
-  })
+    expect(reflect(authored).entries[0]?.portable).toBe(true);
+  });
 
   it('the GLSL auto path engages for it — same bytes as the emulateCompute opt-in', () => {
     expect(emitGlslModule(authored, 'fragment')).toBe(
       emitGlslModule(authored, 'fragment', { emulateCompute: true }),
-    )
-    expect(emitGlslModule(authored, 'fragment')).toContain('void main()')
-  })
-})
+    );
+    expect(emitGlslModule(authored, 'fragment')).toContain('void main()');
+  });
+});

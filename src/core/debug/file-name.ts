@@ -35,24 +35,24 @@
  *  @internal
  */
 export function normalizeFileName(name: string): string {
-  const slashed = name.replace(/\\/g, '/')
+  const slashed = name.replace(/\\/g, '/');
   // The root is kept whole and never walked: `file:///shaders/a.ts` has three slashes that
   // are part of the URI, not three empty segments, and a DAP client names files that way.
-  const root = /^(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/]*\/?|\/\/|\/)/.exec(slashed)?.[0] ?? ''
-  const out: string[] = []
+  const root = /^(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/]*\/?|\/\/|\/)/.exec(slashed)?.[0] ?? '';
+  const out: string[] = [];
   for (const part of slashed.slice(root.length).split('/')) {
-    if (part === '' || part === '.') continue
+    if (part === '' || part === '.') continue;
     // `..` after a real segment cancels it. After nothing, or after another `..` that itself
     // could not be cancelled, it has to stay: `../a.ts` names a sibling of the parent, and
     // dropping it would make it name a sibling of the file.
-    if (part === '..' && out.length > 0 && out[out.length - 1] !== '..') out.pop()
-    else out.push(part)
+    if (part === '..' && out.length > 0 && out[out.length - 1] !== '..') out.pop();
+    else out.push(part);
   }
   // A trailing separator survives, because TypeScript's does and the point of this function
   // is to land on the same string it does.
   const trailing =
-    out.length > 0 && slashed.length > root.length && slashed.endsWith('/') ? '/' : ''
-  return root + out.join('/') + trailing
+    out.length > 0 && slashed.length > root.length && slashed.endsWith('/') ? '/' : '';
+  return root + out.join('/') + trailing;
 }
 
 /** Whether two file names name one file, after {@link normalizeFileName}.
@@ -60,5 +60,5 @@ export function normalizeFileName(name: string): string {
  *  @internal
  */
 export function sameFileName(a: string, b: string): boolean {
-  return a === b || normalizeFileName(a) === normalizeFileName(b)
+  return a === b || normalizeFileName(a) === normalizeFileName(b);
 }

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { constFold, fixpoint } from './index.js'
+import { describe, it, expect } from 'vitest';
+import { constFold, fixpoint } from './index.js';
 import {
   module,
   fn,
@@ -17,9 +17,9 @@ import {
   min,
   clamp,
   sin,
-} from '../../ir/index.js'
-import { emitModule } from '../../backends/wgsl.js'
-import { compileModule } from '../../oracle.js'
+} from '../../ir/index.js';
+import { emitModule } from '../../backends/wgsl.js';
+import { compileModule } from '../../oracle.js';
 
 // P2 — constant folding of literal CONTROL predicates (the numeric +-*/ folding is
 // covered by runtime/.../dsl/optimize.test.ts). A literal compare folds to a bool
@@ -30,50 +30,50 @@ describe('optimize — constant folding (control predicates)', () => {
     const m = module({
       funcs: [
         fn('k', {}, boolT, (_p, b) => {
-          b.ret(f32(2).gt(1))
+          b.ret(f32(2).gt(1));
         }),
       ],
-    })
-    const wgsl = emitModule(constFold(m))
-    expect(wgsl).toContain('true')
-    expect(wgsl).not.toMatch(/2\.0\s*>\s*1\.0/)
-  })
+    });
+    const wgsl = emitModule(constFold(m));
+    expect(wgsl).toContain('true');
+    expect(wgsl).not.toMatch(/2\.0\s*>\s*1\.0/);
+  });
 
   it('folds a literal logical chain: (1>0) && (1<0) -> false', () => {
     const m = module({
       funcs: [
         fn('k', {}, boolT, (_p, b) => {
-          b.ret(f32(1).gt(0).and(f32(1).lt(0)))
+          b.ret(f32(1).gt(0).and(f32(1).lt(0)));
         }),
       ],
-    })
-    expect(emitModule(constFold(m))).toContain('false')
-  })
+    });
+    expect(emitModule(constFold(m))).toContain('false');
+  });
 
   it('folds select(lit cond): select(2>1, a, b) -> a', () => {
     const m = module({
       funcs: [
         fn('k', { a: f32T, b: f32T }, f32T, ({ a, b }, bd) => {
-          bd.ret(select(f32(2).gt(1), a, b))
+          bd.ret(select(f32(2).gt(1), a, b));
         }),
       ],
-    })
-    const wgsl = emitModule(constFold(m))
-    expect(wgsl).not.toContain('select')
-    expect(wgsl).toMatch(/return a/)
-  })
+    });
+    const wgsl = emitModule(constFold(m));
+    expect(wgsl).not.toContain('select');
+    expect(wgsl).toMatch(/return a/);
+  });
 
   it('preserves oracle value-equality', () => {
     const m = module({
       funcs: [
         fn('k', { a: f32T, b: f32T }, f32T, ({ a, b }, bd) => {
-          bd.ret(select(f32(2).gt(1), a, b))
+          bd.ret(select(f32(2).gt(1), a, b));
         }),
       ],
-    })
-    expect(compileModule(constFold(m)).fns.k(7, 9)).toBe(compileModule(m).fns.k(7, 9)) // 7
-  })
-})
+    });
+    expect(compileModule(constFold(m)).fns.k(7, 9)).toBe(compileModule(m).fns.k(7, 9)); // 7
+  });
+});
 
 // ── Integer literal folding, held to gcc 13.3 -O2 ──
 //
@@ -83,9 +83,9 @@ describe('optimize — constant folding (control predicates)', () => {
 // header records the full diagnosis; this is the executable half.
 describe('optimize — integer literal folding matches the target, not JS f64', () => {
   const emitI = (t: typeof i32T | typeof u32T, e: unknown): string => {
-    const m = module({ funcs: [fn('k', {}, t, (_p, b) => b.ret(e as never))] })
-    return (emitModule(fixpoint(m)).match(/return ([^;]+);/) ?? [])[1] ?? '?'
-  }
+    const m = module({ funcs: [fn('k', {}, t, (_p, b) => b.ret(e as never))] });
+    return (emitModule(fixpoint(m)).match(/return ([^;]+);/) ?? [])[1] ?? '?';
+  };
 
   // [name, expr, what gcc -O2 prints]
   const CASES: Array<[string, unknown, typeof i32T | typeof u32T, string]> = [
@@ -107,22 +107,22 @@ describe('optimize — integer literal folding matches the target, not JS f64', 
       i32T,
       '17',
     ],
-  ]
+  ];
   for (const [name, e, t, want] of CASES) {
-    it(`${name} -> ${want}`, () => expect(emitI(t, e)).toBe(want))
+    it(`${name} -> ${want}`, () => expect(emitI(t, e)).toBe(want));
   }
 
   // The float arm must be UNTOUCHED by the integer arm: 7.0 / 2.0 is still 3.5.
   it('leaves float literal division alone (3.5, not 3)', () => {
-    const m = module({ funcs: [fn('k', {}, f32T, (_p, b) => b.ret(f32(7).div(f32(2))))] })
-    expect(emitModule(fixpoint(m))).toMatch(/return 3\.5;/)
-  })
+    const m = module({ funcs: [fn('k', {}, f32T, (_p, b) => b.ret(f32(7).div(f32(2))))] });
+    expect(emitModule(fixpoint(m))).toMatch(/return 3\.5;/);
+  });
 
   it('does not fold a division by a literal zero', () => {
-    const m = module({ funcs: [fn('k', {}, i32T, (_p, b) => b.ret(i32(7).div(i32(0))))] })
-    expect(emitModule(fixpoint(m))).toMatch(/7 \/ 0/)
-  })
-})
+    const m = module({ funcs: [fn('k', {}, i32T, (_p, b) => b.ret(i32(7).div(i32(0))))] });
+    expect(emitModule(fixpoint(m))).toMatch(/7 \/ 0/);
+  });
+});
 
 // Issue #73 — a builtin with one correct answer folds over scalar literals; a transcendental
 // one does not, so the driver's own value is the one the shader carries.
@@ -137,50 +137,50 @@ describe('optimize — constant folding (exact builtins over literals)', () => {
               .add(fract(f32(2.5)))
               .add(min(f32(3), f32(5)))
               .add(clamp(f32(7), f32(0), f32(1))),
-          )
+          );
         }),
       ],
-    })
-    const wgsl = emitModule(constFold(m))
-    expect(wgsl).toContain('return 7.5;')
-    expect(wgsl).not.toMatch(/abs\(|floor\(|fract\(|min\(|clamp\(/)
+    });
+    const wgsl = emitModule(constFold(m));
+    expect(wgsl).toContain('return 7.5;');
+    expect(wgsl).not.toMatch(/abs\(|floor\(|fract\(|min\(|clamp\(/);
     // The oracle agrees, since both go through the same BUILTINS entry.
-    expect(compileModule(m).fns.k()).toBe(7.5)
-    expect(compileModule(constFold(m)).fns.k()).toBe(7.5)
-  })
+    expect(compileModule(m).fns.k()).toBe(7.5);
+    expect(compileModule(constFold(m)).fns.k()).toBe(7.5);
+  });
 
   it("folds an integer builtin in the type's own arithmetic", () => {
     const m = module({
       funcs: [
         fn('k', {}, i32T, (_p, b) => {
-          b.ret(min(i32(3), i32(5)).add(abs(i32(-4))))
+          b.ret(min(i32(3), i32(5)).add(abs(i32(-4))));
         }),
       ],
-    })
-    expect(emitModule(constFold(m))).toContain('return 7;')
-  })
+    });
+    expect(emitModule(constFold(m))).toContain('return 7;');
+  });
 
   it('leaves a transcendental call alone, even over literals', () => {
     const m = module({
       funcs: [
         fn('k', {}, f32T, (_p, b) => {
-          b.ret(sin(f32(1)))
+          b.ret(sin(f32(1)));
         }),
       ],
-    })
-    expect(emitModule(constFold(m))).toContain('sin(1.0)')
-  })
+    });
+    expect(emitModule(constFold(m))).toContain('sin(1.0)');
+  });
 
   it('leaves an exact builtin alone when an argument is not a literal', () => {
     const m = module({
       funcs: [
         fn('k', { x: f32T }, f32T, (p, b) => {
-          b.ret(floor(p.x).add(abs(f32(-1))))
+          b.ret(floor(p.x).add(abs(f32(-1))));
         }),
       ],
-    })
-    const wgsl = emitModule(constFold(m))
-    expect(wgsl).toContain('floor(x)')
-    expect(wgsl).not.toContain('abs(')
-  })
-})
+    });
+    const wgsl = emitModule(constFold(m));
+    expect(wgsl).toContain('floor(x)');
+    expect(wgsl).not.toContain('abs(');
+  });
+});

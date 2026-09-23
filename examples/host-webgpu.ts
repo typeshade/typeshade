@@ -3,7 +3,7 @@
 //   s.wgsl / s.glsl.vertex / s.glsl.fragment / s.module
 
 export function createRenderPipeline(device: GPUDevice, wgsl: string): GPURenderPipeline {
-  const module = device.createShaderModule({ code: wgsl })
+  const module = device.createShaderModule({ code: wgsl });
   return device.createRenderPipeline({
     layout: 'auto',
     vertex: { module, entryPoint: 'vs' },
@@ -13,10 +13,10 @@ export function createRenderPipeline(device: GPUDevice, wgsl: string): GPURender
       targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
     },
     primitive: { topology: 'triangle-list' },
-  })
+  });
 }
 
 export function drawTriangle(pass: GPURenderPassEncoder, pipeline: GPURenderPipeline): void {
-  pass.setPipeline(pipeline)
-  pass.draw(3)
+  pass.setPipeline(pipeline);
+  pass.draw(3);
 }

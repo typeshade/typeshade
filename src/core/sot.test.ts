@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest';
 import {
   ioStruct,
   builtin,
@@ -8,7 +8,7 @@ import {
   storageBuffer,
   structDecl,
   arrayOf,
-} from './sot.js'
+} from './sot.js';
 import {
   member,
   param,
@@ -24,8 +24,8 @@ import {
   fn,
   module,
   Var,
-} from './ir/index.js'
-import { emitExpr, emitModule } from './backends/wgsl.js'
+} from './ir/index.js';
+import { emitExpr, emitModule } from './backends/wgsl.js';
 
 // Single-source-of-truth for an IO struct. One declaration derives the StructDecl (with
 // the @builtin/@location/@interpolate attrs), the struct type, and typed field access —
@@ -37,7 +37,7 @@ const VsOut = ioStruct('VsOut', {
   opacity: location(1, f32T),
   tint: location(2, vec3fT),
   sdf: location(3, f32T, 'flat'),
-})
+});
 
 describe('sot — ioStruct (single source of truth for IO structs)', () => {
   it('derives the StructDecl exactly as the hand-written form (+ structured attrs, X-GIS #740 R3)', () => {
@@ -56,48 +56,48 @@ describe('sot — ioStruct (single source of truth for IO structs)', () => {
           interpolate: 'flat',
         },
       ],
-    })
-  })
+    });
+  });
 
   it('derives the struct type', () => {
-    expect(VsOut.type).toEqual(structT('VsOut'))
-  })
+    expect(VsOut.type).toEqual(structT('VsOut'));
+  });
 
   it('of(node) is typed field access identical to member(node, name, type)', () => {
-    const n = param('in', structT('VsOut'))
-    expect(emitExpr(VsOut.of(n).uv.expr)).toBe(emitExpr(member(n, 'uv', vec2fT).expr))
-    expect(emitExpr(VsOut.of(n).sdf.expr)).toBe(emitExpr(member(n, 'sdf', f32T).expr))
-  })
+    const n = param('in', structT('VsOut'));
+    expect(emitExpr(VsOut.of(n).uv.expr)).toBe(emitExpr(member(n, 'uv', vec2fT).expr));
+    expect(emitExpr(VsOut.of(n).sdf.expr)).toBe(emitExpr(member(n, 'sdf', f32T).expr));
+  });
 
   it('.var() fuses the Var(T.type) + .of(out) output stub — byte-identical emit (X-GIS #740 R6c)', () => {
-    const emitF = (f: ReturnType<typeof fn>): string => emitModule(module({ funcs: { f } }))
+    const emitF = (f: ReturnType<typeof fn>): string => emitModule(module({ funcs: { f } }));
     const viaVar = emitF(
       fn('f', {}, () => {
-        const o = VsOut.var('out')
-        o.opacity.assign(o.opacity.mul(0))
-        return o.$
+        const o = VsOut.var('out');
+        o.opacity.assign(o.opacity.mul(0));
+        return o.$;
       }),
-    )
+    );
     const viaStub = emitF(
       fn('f', {}, () => {
-        const out = Var('out', VsOut.type)
-        const o = VsOut.of(out)
-        o.opacity.assign(o.opacity.mul(0))
-        return out
+        const out = Var('out', VsOut.type);
+        const o = VsOut.of(out);
+        o.opacity.assign(o.opacity.mul(0));
+        return out;
       }),
-    )
-    expect(viaVar).toBe(viaStub)
+    );
+    expect(viaVar).toBe(viaStub);
     // Anonymous form still declares a var (auto-named).
-    expect(emitF(fn('f', {}, () => VsOut.var().$))).toContain('var ')
-  })
-})
+    expect(emitF(fn('f', {}, () => VsOut.var().$))).toContain('var ');
+  });
+});
 
 describe('sot — uniformStruct + resource (single source of truth for bindings)', () => {
   const U = uniformStruct(
     'Uniforms',
     { group: 0, binding: 0, as: 'u' },
     { viewport: vec2fT, _pad0: f32T },
-  )
+  );
 
   it('derives the StructDecl, the binding decl, and typed field access', () => {
     expect(U.struct).toEqual({
@@ -106,33 +106,33 @@ describe('sot — uniformStruct + resource (single source of truth for bindings)
         { name: 'viewport', type: vec2fT },
         { name: '_pad0', type: f32T },
       ],
-    })
+    });
     expect(U.binding).toEqual({
       group: 0,
       binding: 0,
       name: 'u',
       space: 'uniform',
       type: structT('Uniforms'),
-    })
+    });
     expect(emitExpr(U.field.viewport.expr)).toBe(
       emitExpr(member(bindingRef('u', structT('Uniforms')), 'viewport', vec2fT).expr),
-    )
-  })
+    );
+  });
 
   it('resource derives a non-struct binding decl + access node', () => {
-    const tex = resource('atlas_tex', texture2dfT, { group: 0, binding: 1 })
+    const tex = resource('atlas_tex', texture2dfT, { group: 0, binding: 1 });
     expect(tex.binding).toEqual({
       group: 0,
       binding: 1,
       name: 'atlas_tex',
       space: 'uniform',
       type: texture2dfT,
-    })
-    expect(emitExpr(tex.node.expr)).toBe(emitExpr(bindingRef('atlas_tex', texture2dfT).expr))
-  })
+    });
+    expect(emitExpr(tex.node.expr)).toBe(emitExpr(bindingRef('atlas_tex', texture2dfT).expr));
+  });
 
   it('storageBuffer derives an array<element> storage binding + .at(i) reads the scalar element', () => {
-    const buf = storageBuffer('feat_data', f32T, { group: 0, binding: 0, access: 'read' })
+    const buf = storageBuffer('feat_data', f32T, { group: 0, binding: 0, access: 'read' });
     expect(buf.binding).toEqual({
       group: 0,
       binding: 0,
@@ -140,27 +140,27 @@ describe('sot — uniformStruct + resource (single source of truth for bindings)
       space: 'storage',
       access: 'read',
       type: arrayT(f32T),
-    })
-    expect(emitExpr(buf.node.expr)).toBe(emitExpr(bindingRef('feat_data', arrayT(f32T)).expr))
+    });
+    expect(emitExpr(buf.node.expr)).toBe(emitExpr(bindingRef('feat_data', arrayT(f32T)).expr));
     expect(emitExpr(buf.at(3).expr)).toBe(
       emitExpr(bindingRef('feat_data', arrayT(f32T)).at(3, f32T).expr),
-    )
-  })
+    );
+  });
 
   it('storageBuffer .at(i) on a struct element gives the typed field proxy (no .of/.field)', () => {
-    const Seg = structDecl('Seg', { a: f32T, b: vec2fT })
-    const buf = storageBuffer('segs', Seg, { group: 0, binding: 1, access: 'read' })
-    expect(buf.binding.type).toEqual(arrayT(structT('Seg')))
+    const Seg = structDecl('Seg', { a: f32T, b: vec2fT });
+    const buf = storageBuffer('segs', Seg, { group: 0, binding: 1, access: 'read' });
+    expect(buf.binding.type).toEqual(arrayT(structT('Seg')));
     // buf.at(i).a  emits  segs[i].a  — same member Expr the old `Seg.of(segs.at(i)).a` produced.
     expect(emitExpr(buf.at(2).a.expr)).toBe(
       emitExpr(
         member(bindingRef('segs', arrayT(structT('Seg'))).at(2, structT('Seg')), 'a', f32T).expr,
       ),
-    )
-  })
+    );
+  });
 
   it('arrayOf(handle, n) uniform field declares array<T, n> and .at(i) gives the typed proxy (X-GIS #740 R6c)', () => {
-    const Slot = structDecl('Slot', { id: u32T, size: f32T })
+    const Slot = structDecl('Slot', { id: u32T, size: f32T });
     const L = uniformStruct(
       'Layer',
       { group: 1, binding: 0, as: 'layer' },
@@ -168,7 +168,7 @@ describe('sot — uniformStruct + resource (single source of truth for bindings)
         mpp: f32T,
         slots: arrayOf(Slot, 3),
       },
-    )
+    );
     // Declared WGSL type is the same array<Slot, 3> the plain arrayT spelling produced.
     expect(L.struct).toEqual({
       name: 'Layer',
@@ -176,16 +176,16 @@ describe('sot — uniformStruct + resource (single source of truth for bindings)
         { name: 'mpp', type: f32T },
         { name: 'slots', type: arrayT(structT('Slot'), 3) },
       ],
-    })
+    });
     // layer.slots[k].id — same Expr chain as the old Slot.of(L.field.slots.at(k, Slot.type)).id.
-    const node = bindingRef('layer', structT('Layer'))
+    const node = bindingRef('layer', structT('Layer'));
     const old = member(
       member(node, 'slots', arrayT(structT('Slot'), 3)).at(2, structT('Slot')),
       'id',
       u32T,
-    )
-    expect(emitExpr(L.field.slots.at(2).id.expr)).toBe(emitExpr(old.expr))
+    );
+    expect(emitExpr(L.field.slots.at(2).id.expr)).toBe(emitExpr(old.expr));
     // Unknown field still throws.
-    expect(() => (L.field as Record<string, unknown>).nope).toThrow(/no field/)
-  })
-})
+    expect(() => (L.field as Record<string, unknown>).nope).toThrow(/no field/);
+  });
+});

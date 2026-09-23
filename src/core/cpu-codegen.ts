@@ -36,12 +36,22 @@
 // `unsafe-eval` host) throws so the caller can fall the whole module back to the
 // interpreter.
 
-import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType, BinOp, CmpOp } from './ir/index.js'
-import { validate } from './passes/validate.js'
-import { autoVars } from './passes/opt/index.js'
-import { froundF32 } from './passes/precision.js'
-import type { CpuPrecision } from './oracle.js'
-import type { ConsoleSink } from './console.js'
+import type {
+  Expr,
+  Stmt,
+  ModuleDecl,
+  StructDecl,
+  ShaderType,
+  BinOp,
+  CmpOp,
+  FuncDecl,
+} from './ir/index.js';
+import { validate } from './passes/validate.js';
+import { autoVars } from './passes/opt/index.js';
+import { froundF32 } from './passes/precision.js';
+import type { CpuPrecision } from './oracle.js';
+import type { ConsoleMethod, ConsoleSink } from './console.js';
+import type { SourceSpan } from './ir/span.js';
 import {
   type CpuValue,
   FIELD_IDX,
@@ -63,6 +73,8 @@ import {
   intRem,
   type NumKind,
   cloneValue,
+  copiedParams,
+  inoutReturn,
   isAggregateType,
   convertComponent,
   convertComponents,
@@ -74,37 +86,38 @@ import {
   selectComponents,
   TYPED_BIT_BUILTINS,
   bitBuiltin,
-} from './cpu-runtime.js'
-import { compileModule, type CpuModule } from './oracle.js'
-import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
-import { dispatchCompute } from './debug/dispatch.js'
+} from './cpu-runtime.js';
+import { compileModule, type CpuModule } from './oracle.js';
+import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js';
+import { fnWrites } from './passes/effects.js';
+import { dispatchCompute } from './debug/dispatch.js';
 
 /** Sentinel: a per-fn body used an IR construct the codegen can't emit
  *  bit-identically. Caught by compileModuleJs → that fn falls back to the
  *  interpreter (hybrid module). Never escapes this module. */
 class CodegenUnsupported extends Error {}
 
-const q = (s: string): string => JSON.stringify(s)
+const q = (s: string): string => JSON.stringify(s);
 
 /** Emit a JS numeric/boolean literal that reads back to the EXACT same value.
  *  ECMAScript Number→string (radix 10) is the shortest round-trip form, so
  *  String(finite) parses back identically; -0 / NaN / ±Infinity are handled
  *  explicitly (String(-0) === "0" would lose the sign). */
 function jsNum(v: number | boolean): string {
-  if (typeof v === 'boolean') return v ? 'true' : 'false'
-  if (Number.isNaN(v)) return 'NaN'
-  if (v === Infinity) return 'Infinity'
-  if (v === -Infinity) return '-Infinity'
-  if (Object.is(v, -0)) return '-0'
-  return String(v)
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (Number.isNaN(v)) return 'NaN';
+  if (v === Infinity) return 'Infinity';
+  if (v === -Infinity) return '-Infinity';
+  if (Object.is(v, -0)) return '-0';
+  return String(v);
 }
 
 /** A value whose runtime shape is number[] (interpreter `isArr(v)` true):
  *  vec / vec64 / mat / array. Scalars, f64 (a native JS number here), bool are not. */
 function isArrayValued(t: ShaderType): boolean {
-  return t.kind === 'vec' || t.kind === 'vec64' || t.kind === 'mat' || t.kind === 'array'
+  return t.kind === 'vec' || t.kind === 'vec64' || t.kind === 'mat' || t.kind === 'array';
 }
-const isF32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32'
+const isF32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32';
 
 /** The zero value literal for a `var` with no initializer — mirrors
  *  cpu-runtime `zeroOf` (vec/vec64 → N zeros, mat → N² zeros, struct → every field zeroed
@@ -114,154 +127,186 @@ const isF32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f
  *  contract broken at the declaration. The array, bool and struct arms all arrived with #8
  *  A10, which gave the source language the init-less declaration that reaches them. */
 function zeroLit(t: ShaderType, structs: ReadonlyMap<string, StructDecl>): string {
-  if (t.kind === 'vec' || t.kind === 'vec64') return `new Array(${t.n}).fill(0)`
+  if (t.kind === 'vec' || t.kind === 'vec64') return `new Array(${t.n}).fill(0)`;
   // A matrix is a flat column-major component list: cols * rows, not n squared.
-  if (t.kind === 'mat') return `new Array(${t.cols * t.rows}).fill(0)`
+  if (t.kind === 'mat') return `new Array(${t.cols * t.rows}).fill(0)`;
   // Field by field, exactly as the interpreter's `zeroOf` builds it: the old `{}` left every
   // field absent, so `let s: S;` then `s.a` read `undefined` here and on the interpreter
   // alike, where WGSL's `var s: S;` reads 0. Recursion covers a nested struct and an array of
   // structs. An undeclared struct name keeps `{}`, the same fallback `zeroOf` takes.
   if (t.kind === 'struct') {
-    const decl = structs.get(t.name)
-    if (decl === undefined) return '{}'
-    const fields = decl.fields.map((f) => `${q(f.name)}: ${zeroLit(f.type, structs)}`)
-    return `{${fields.join(', ')}}`
+    const decl = structs.get(t.name);
+    if (decl === undefined) return '{}';
+    const fields = decl.fields.map((f) => `${q(f.name)}: ${zeroLit(f.type, structs)}`);
+    return `{${fields.join(', ')}}`;
   }
   if (t.kind === 'array') {
-    return `[${Array.from({ length: t.size ?? 0 }, () => zeroLit(t.elem, structs)).join(', ')}]`
+    return `[${Array.from({ length: t.size ?? 0 }, () => zeroLit(t.elem, structs)).join(', ')}]`;
   }
-  if (t.kind === 'scalar' && t.scalar === 'bool') return 'false'
-  return '0'
+  if (t.kind === 'scalar' && t.scalar === 'bool') return 'false';
+  return '0';
 }
 
 /** Module-scope codegen state shared by every fn. */
 interface ModCtx {
-  structs: Map<string, StructDecl>
+  structs: Map<string, StructDecl>;
   /** const name → its JS local id in the factory (`$C_<i>`). */
-  constId: Map<string, string>
+  constId: Map<string, string>;
   /** override name → its JS local id in the factory (`$O_<i>`). */
-  overrideId: Map<string, string>
+  overrideId: Map<string, string>;
   /** The names the module actually declares as functions, so a call the front end resolved
    *  to one (`declRef`) can be routed to it rather than to a builtin of the same name. */
-  fnNames: Set<string>
+  fnNames: Set<string>;
   /** The module variables (roadmap 0.2 item 5), read and written through `$.vars`. */
-  varNames: Set<string>
+  varNames: Set<string>;
   /** The resource bindings, so a write to one that no local shadows lands in `$.bindings`
    *  where the host reads it, the way the interpreter's `setLValue` writes it. */
-  bindingNames: Set<string>
+  bindingNames: Set<string>;
+  /** Each declared function's parameters, for a call to store back what its `inout`
+   *  parameters hold as it returns (`inoutReturn`, cpu-runtime.ts). */
+  params: Map<string, FuncDecl['params']>;
 }
 
 /** Per-fn codegen state: the flat env → JS locals mapping + the hoist list. */
 interface FnCtx {
-  mod: ModCtx
+  mod: ModCtx;
   /** IR name (param OR let/var) → JS identifier. Params pre-seeded to `$a<i>`;
    *  a `let`/`var` of a NEW name allocates `$v<n>` (hoisted). A repeat name maps
    *  to the SAME id — the interpreter's single flat Map has no shadowing, so
    *  same-name = same slot here too. */
-  varId: Map<string, string>
+  varId: Map<string, string>;
   /** `$v` locals to declare at the top of the fn body (function-scope, flat). */
-  hoisted: string[]
-  n: number
+  hoisted: string[];
+  n: number;
+  /** For a function with an `inout` parameter, the statement that publishes what its
+   *  parameters hold as it returns (`$.inout.values = [...]`), run at every return. */
+  inoutPublish?: string;
+}
+
+/** A fresh JS temporary for the function, declared with the others at its top. */
+function tempVar(S: FnCtx): string {
+  const id = `$t${S.n++}`;
+  S.hoisted.push(id);
+  return id;
+}
+
+/** A call's source, followed by storing what each of the callee's `inout` parameters holds as
+ *  it returned into the variable passed there, as the interpreter's `storeBack` does. Only a
+ *  variable: a field or an element reaches a struct the callee wrote in place. */
+function storeBackJs(call: Expr & { op: 'call' }, callSrc: string, S: FnCtx): string {
+  const params = S.mod.params.get(call.fn);
+  if (params === undefined || !params.some((p) => p.mode === 'inout')) return callSrc;
+  const stores: string[] = [];
+  params.forEach((p, i) => {
+    const arg = call.args[i];
+    if (p.mode !== 'inout' || arg === undefined) return;
+    if (arg.op === 'varref' || arg.op === 'param') {
+      stores.push(emitAssignExpr(arg, `$.inout.values[${i}]`, S));
+    }
+  });
+  if (stores.length === 0) return callSrc;
+  const t = tempVar(S);
+  return `(${t} = ${callSrc}, ${stores.join(', ')}, ${t})`;
 }
 
 function declareVar(name: string, S: FnCtx): string {
-  let id = S.varId.get(name)
+  let id = S.varId.get(name);
   if (id === undefined) {
-    id = `$v${S.n++}`
-    S.varId.set(name, id)
-    S.hoisted.push(id)
+    id = `$v${S.n++}`;
+    S.varId.set(name, id);
+    S.hoisted.push(id);
   }
-  return id
+  return id;
 }
 
 function readVar(name: string, S: FnCtx): string {
-  const id = S.varId.get(name)
-  if (id !== undefined) return id
-  if (S.mod.varNames.has(name)) return `$.vars[${q(name)}]`
+  const id = S.varId.get(name);
+  if (id !== undefined) return id;
+  if (S.mod.varNames.has(name)) return `$.vars[${q(name)}]`;
   // Not a param/local ⇒ a storage/uniform binding (setBinding). The interpreter
   // resolves env first, then ctx.bindings; a declared local always shadows.
-  return `$.bindings[${q(name)}]`
+  return `$.bindings[${q(name)}]`;
 }
 
 function emitExpr(e: Expr, S: FnCtx): string {
   switch (e.op) {
     case 'lit':
-      return jsNum(e.value)
+      return jsNum(e.value);
     case 'constref': {
-      const id = S.mod.constId.get(e.name)
-      if (id === undefined) throw new CodegenUnsupported(`unknown const ${e.name}`)
-      return id
+      const id = S.mod.constId.get(e.name);
+      if (id === undefined) throw new CodegenUnsupported(`unknown const ${e.name}`);
+      return id;
     }
     case 'overrideref': {
-      const id = S.mod.overrideId.get(e.name)
-      if (id === undefined) throw new CodegenUnsupported(`unknown override ${e.name}`)
-      return id
+      const id = S.mod.overrideId.get(e.name);
+      if (id === undefined) throw new CodegenUnsupported(`unknown override ${e.name}`);
+      return id;
     }
     // X-GIS #1713 — a HOST-provided global has no CPU value: there is no host here. Refusing is
     // the honest answer; substituting 0 would make the oracle silently disagree with the
     // GPU, which is the one thing a reference implementation must never do.
     case 'externref':
-      throw new CodegenUnsupported(`host-provided global '${e.name}' has no CPU value`)
+      throw new CodegenUnsupported(`host-provided global '${e.name}' has no CPU value`);
     case 'param':
     case 'varref':
-      return readVar(e.name, S)
+      return readVar(e.name, S);
     case 'binop':
-      return emitBinop(e, S)
+      return emitBinop(e, S);
     case 'unop': {
-      const a = emitExpr(e.a, S)
-      return isArrayValued(e.a.type) ? `$.negVec(${a})` : `(-${a})`
+      const a = emitExpr(e.a, S);
+      return isArrayValued(e.a.type) ? `$.negVec(${a})` : `(-${a})`;
     }
     case 'compare': {
-      const a = emitExpr(e.a, S)
-      const b = emitExpr(e.b, S)
-      const f32 = isF32(e.a.type)
+      const a = emitExpr(e.a, S);
+      const b = emitExpr(e.b, S);
+      const f32 = isF32(e.a.type);
       // Two vectors compare componentwise into a vector of bools (§27), through the runtime
       // helper the interpreter shares, so the twins cannot disagree.
       if (isArrayValued(e.a.type)) {
-        return `$.cmpVec(${q(e.cop)}, ${a}, ${b}, ${comparesAsF32(e.a.type)})`
+        return `$.cmpVec(${q(e.cop)}, ${a}, ${b}, ${comparesAsF32(e.a.type)})`;
       }
       switch (e.cop) {
         case '<':
-          return `(${a} < ${b})`
+          return `(${a} < ${b})`;
         case '>':
-          return `(${a} > ${b})`
+          return `(${a} > ${b})`;
         case '<=':
-          return `(${a} <= ${b})`
+          return `(${a} <= ${b})`;
         case '>=':
-          return `(${a} >= ${b})`
+          return `(${a} >= ${b})`;
         case '==':
-          return f32 ? `(Math.fround(${a}) === Math.fround(${b}))` : `(${a} === ${b})`
+          return f32 ? `(Math.fround(${a}) === Math.fround(${b}))` : `(${a} === ${b})`;
         case '!=':
-          return f32 ? `(Math.fround(${a}) !== Math.fround(${b}))` : `(${a} !== ${b})`
+          return f32 ? `(Math.fround(${a}) !== Math.fround(${b}))` : `(${a} !== ${b})`;
       }
-      throw new CodegenUnsupported(`compare ${e.cop}`)
+      throw new CodegenUnsupported(`compare ${e.cop}`);
     }
     case 'logical': {
-      const a = emitExpr(e.a, S)
-      const b = emitExpr(e.b, S)
+      const a = emitExpr(e.a, S);
+      const b = emitExpr(e.b, S);
       // Operands are bool-typed, so JS `&&`/`||` returns the same boolean the
       // interpreter does (`a ? evalB : false` / `a ? true : evalB`), lazily.
-      return e.lop === '&&' ? `(${a} && ${b})` : `(${a} || ${b})`
+      return e.lop === '&&' ? `(${a} && ${b})` : `(${a} || ${b})`;
     }
     case 'call': {
       // A barrier has no meaning for one compiled invocation; the runtime throws and names
       // `dispatch`, which runs the workgroup in lockstep on the interpreter (#82).
-      if (e.declRef === undefined && isBarrierIntrinsic(e.fn)) return `$.barrier(${q(e.fn)})`
+      if (e.declRef === undefined && isBarrierIntrinsic(e.fn)) return `$.barrier(${q(e.fn)})`;
       // An atomic builtin's first argument is a LOCATION (roadmap 0.2 item 4): the runtime
       // reads and writes it back in one step, mirroring the interpreter's `evalAtomic`.
-      if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return emitAtomic(e, S)
-      const args = e.args.map((a) => emitExpr(a, S))
+      if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return emitAtomic(e, S);
+      const args = e.args.map((a) => emitExpr(a, S));
       if (e.declRef === undefined && e.fn.startsWith('console.')) {
-        return `$.console(${q(e.fn.slice('console.'.length))}, [${args.join(', ')}], ${e.span ? q(JSON.stringify(e.span)) : 'undefined'})`
+        return `$.console(${q(e.fn.slice('console.'.length))}, [${args.join(', ')}], ${e.span ? q(JSON.stringify(e.span)) : 'undefined'})`;
       }
       // f32→u32/i32 SATURATES per WGSL — the SAME static-type branch the
       // interpreter takes (oracle.ts 'call'), baked at compile time so the
       // twins stay bit-identical. Integer sources fall through to the wrapping
       // BUILTINS forms.
       if (e.fn === 'u32' || e.fn === 'i32') {
-        const src = e.args[0]!.type
+        const src = e.args[0]!.type;
         if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
-          return `$.${e.fn === 'u32' ? 'u32Sat' : 'i32Sat'}(${args[0]})`
+          return `$.${e.fn === 'u32' ? 'u32Sat' : 'i32Sat'}(${args[0]})`;
         }
       }
       // `transpose` needs the matrix's SHAPE, baked in here from the static type: a flat
@@ -270,70 +315,70 @@ function emitExpr(e: Expr, S: FnCtx): string {
       // The interpreter and the stepper have the same arm — all three must agree, which is
       // the contract at the head of this file (#149).
       if (e.declRef === undefined && e.fn === 'transpose') {
-        const t = e.args[0]!.type
-        if (t.kind === 'mat') return `$.matTransposeShaped(${args[0]}, ${t.cols}, ${t.rows})`
+        const t = e.args[0]!.type;
+        if (t.kind === 'mat') return `$.matTransposeShaped(${args[0]}, ${t.cols}, ${t.rows})`;
       }
       // A bit builtin whose value depends on the argument's kind (§10) takes the static kind,
       // baked at compile time as the interpreter reads it at run time.
       if (e.declRef === undefined && TYPED_BIT_BUILTINS.has(e.fn)) {
-        const kind = elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32'
-        return `$.bit(${q(e.fn)}, ${q(kind)}, [${args.join(', ')}])`
+        const kind = elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32';
+        return `$.bit(${q(e.fn)}, ${q(kind)}, [${args.join(', ')}])`;
       }
       // A call the front end resolved to a declared function (`declRef`) goes to that
       // function, which is what the emitted shader calls; the interpreter makes the same
       // choice, so the two stay bit-identical. An intrinsic call has no declRef.
       if (e.declRef !== undefined && S.mod.fnNames.has(e.fn)) {
-        return `$.F[${q(e.fn)}](${args.join(', ')})`
+        return storeBackJs(e, `$.F[${q(e.fn)}](${args.join(', ')})`, S);
       }
-      if (BUILTINS[e.fn]) return `$.B[${q(e.fn)}](${args.join(', ')})`
-      if (GPU_STUBS[e.fn]) return `$.gpuStub(${[q(e.fn), ...args].join(', ')})`
+      if (BUILTINS[e.fn]) return `$.B[${q(e.fn)}](${args.join(', ')})`;
+      if (GPU_STUBS[e.fn]) return `$.gpuStub(${[q(e.fn), ...args].join(', ')})`;
       // User fn — dispatched through $.F so a compiled fn can call a fn that fell
       // back to the interpreter (and vice versa).
-      return `$.F[${q(e.fn)}](${args.join(', ')})`
+      return storeBackJs(e, `$.F[${q(e.fn)}](${args.join(', ')})`, S);
     }
     case 'member': {
-      const base = emitExpr(e.base, S)
+      const base = emitExpr(e.base, S);
       if (isArrayValued(e.base.type)) {
         if (e.field.length > 1) {
-          const idx = [...e.field].map((c) => FIELD_IDX[c])
-          if (idx.some((i) => i === undefined)) throw new CodegenUnsupported(`swizzle .${e.field}`)
-          return `$.swiz(${base}, [${idx.join(', ')}])`
+          const idx = [...e.field].map((c) => FIELD_IDX[c]);
+          if (idx.some((i) => i === undefined)) throw new CodegenUnsupported(`swizzle .${e.field}`);
+          return `$.swiz(${base}, [${idx.join(', ')}])`;
         }
-        const i = FIELD_IDX[e.field]
-        if (i === undefined) throw new CodegenUnsupported(`field .${e.field}`)
-        return `(${base})[${i}]`
+        const i = FIELD_IDX[e.field];
+        if (i === undefined) throw new CodegenUnsupported(`field .${e.field}`);
+        return `(${base})[${i}]`;
       }
-      return `(${base})[${q(e.field)}]`
+      return `(${base})[${q(e.field)}]`;
     }
     case 'construct':
-      return emitConstruct(e, S)
+      return emitConstruct(e, S);
     case 'select':
       // A vector-of-bools condition picks per component (§27), both arms evaluated.
       if (e.cond.type.kind === 'vec') {
-        return `$.selVec(${emitExpr(e.cond, S)}, ${emitExpr(e.ifTrue, S)}, ${emitExpr(e.ifFalse, S)})`
+        return `$.selVec(${emitExpr(e.cond, S)}, ${emitExpr(e.ifTrue, S)}, ${emitExpr(e.ifFalse, S)})`;
       }
-      return `(${emitExpr(e.cond, S)} ? ${emitExpr(e.ifTrue, S)} : ${emitExpr(e.ifFalse, S)})`
+      return `(${emitExpr(e.cond, S)} ? ${emitExpr(e.ifTrue, S)} : ${emitExpr(e.ifFalse, S)})`;
     case 'index':
       // `m[j]` is COLUMN j of a flat column-major list — see matColumn.
       if (e.base.type.kind === 'mat')
-        return `$.matColumn(${emitExpr(e.base, S)}, ${emitExpr(e.idx, S)}, ${e.base.type.rows})`
-      return `(${emitExpr(e.base, S)})[${emitExpr(e.idx, S)}]`
+        return `$.matColumn(${emitExpr(e.base, S)}, ${emitExpr(e.idx, S)}, ${e.base.type.rows})`;
+      return `(${emitExpr(e.base, S)})[${emitExpr(e.idx, S)}]`;
     case 'matchExpr': {
       // Evaluate the scrutinee once (IIFE arg), then a lazy nested ternary picks
       // the matching case's expr or the default — same no-fall-through, only the
       // matched arm evaluated. `$m` cannot collide with $a/$v/$C/$O ids.
-      let expr = emitExpr(e.default, S)
+      let expr = emitExpr(e.default, S);
       for (let i = e.cases.length - 1; i >= 0; i--) {
-        expr = `($m === ${jsNum(e.cases[i]![0])} ? ${emitExpr(e.cases[i]![1], S)} : ${expr})`
+        expr = `($m === ${jsNum(e.cases[i]![0])} ? ${emitExpr(e.cases[i]![1], S)} : ${expr})`;
       }
-      return `(($m) => ${expr})(${emitExpr(e.scrutinee, S)})`
+      return `(($m) => ${expr})(${emitExpr(e.scrutinee, S)})`;
     }
   }
 }
 
 function emitBinop(e: Extract<Expr, { op: 'binop' }>, S: FnCtx): string {
-  const a = emitExpr(e.a, S)
-  const b = emitExpr(e.b, S)
+  const a = emitExpr(e.a, S);
+  const b = emitExpr(e.b, S);
   // mat*vec / mat*mat / vec*mat dispatched by STATIC type, exactly as the
   // interpreter dispatches (values are type-blind number[] at runtime).
   // The SHAPE is baked in from the static type: a flat list cannot tell a mat2x3 from a
@@ -343,19 +388,19 @@ function emitBinop(e: Extract<Expr, { op: 'binop' }>, S: FnCtx): string {
     e.a.type.kind === 'mat' &&
     (e.b.type.kind === 'vec' || e.b.type.kind === 'vec64')
   )
-    return `$.matVecShaped(${a}, ${b}, ${e.a.type.cols}, ${e.a.type.rows})`
+    return `$.matVecShaped(${a}, ${b}, ${e.a.type.cols}, ${e.a.type.rows})`;
   if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'mat')
-    return `$.matMulShaped(${a}, ${b}, ${e.a.type.cols}, ${e.a.type.rows}, ${e.b.type.cols})`
+    return `$.matMulShaped(${a}, ${b}, ${e.a.type.cols}, ${e.a.type.rows}, ${e.b.type.cols})`;
   // vecR * matCxR — the row-vector product, `transpose(m) * v`.
   if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat')
-    return `$.vecMatShaped(${a}, ${b}, ${e.b.type.cols}, ${e.b.type.rows})`
-  const kind = numKindOf(e.type)
+    return `$.vecMatShaped(${a}, ${b}, ${e.b.type.cols}, ${e.b.type.rows})`;
+  const kind = numKindOf(e.type);
   // Either operand a vector ⇒ component-wise (with scalar broadcast) via the
   // shared applyBin — the SAME function the interpreter uses.
   if (isArrayValued(e.a.type) || isArrayValued(e.b.type))
-    return `$.applyBin(${q(e.bop)}, ${a}, ${b}, ${q(kind)})`
+    return `$.applyBin(${q(e.bop)}, ${a}, ${b}, ${q(kind)})`;
   // Both scalar — inline to scalarBin's exact JS ops.
-  return emitScalarBin(e.bop, a, b, kind)
+  return emitScalarBin(e.bop, a, b, kind);
 }
 
 /** scalarBin's spellings, token for token: the float kind is plain JS arithmetic; an
@@ -363,39 +408,39 @@ function emitBinop(e: Extract<Expr, { op: 'binop' }>, S: FnCtx): string {
  *  `Math.imul`, and divides / takes the remainder through the SAME `intDiv` / `intRem`
  *  helpers the interpreter calls (X-GIS #2274) — bit-identical by construction. */
 function emitScalarBin(bop: BinOp, a: string, b: string, kind: NumKind): string {
-  const int = kind !== 'f32'
-  const wrap = (s: string): string => (kind === 'i32' ? `(${s} | 0)` : `(${s} >>> 0)`)
+  const int = kind !== 'f32';
+  const wrap = (s: string): string => (kind === 'i32' ? `(${s} | 0)` : `(${s} >>> 0)`);
   switch (bop) {
     case '+':
-      return int ? wrap(`(${a} + ${b})`) : `(${a} + ${b})`
+      return int ? wrap(`(${a} + ${b})`) : `(${a} + ${b})`;
     case '-':
-      return int ? wrap(`(${a} - ${b})`) : `(${a} - ${b})`
+      return int ? wrap(`(${a} - ${b})`) : `(${a} - ${b})`;
     case '*':
-      return int ? wrap(`Math.imul(${a}, ${b})`) : `(${a} * ${b})`
+      return int ? wrap(`Math.imul(${a}, ${b})`) : `(${a} * ${b})`;
     case '/':
-      return int ? `$.intDiv(${a}, ${b}, ${q(kind)})` : `(${a} / ${b})`
+      return int ? `$.intDiv(${a}, ${b}, ${q(kind)})` : `(${a} / ${b})`;
     case '%':
-      return int ? `$.intRem(${a}, ${b}, ${q(kind)})` : `(${a} % ${b})`
+      return int ? `$.intRem(${a}, ${b}, ${q(kind)})` : `(${a} % ${b})`;
     case '&':
-      return kind === 'i32' ? `(${a} & ${b})` : `((${a} & ${b}) >>> 0)`
+      return kind === 'i32' ? `(${a} & ${b})` : `((${a} & ${b}) >>> 0)`;
     case '|':
-      return kind === 'i32' ? `(${a} | ${b})` : `((${a} | ${b}) >>> 0)`
+      return kind === 'i32' ? `(${a} | ${b})` : `((${a} | ${b}) >>> 0)`;
     case '^':
-      return kind === 'i32' ? `(${a} ^ ${b})` : `((${a} ^ ${b}) >>> 0)`
+      return kind === 'i32' ? `(${a} ^ ${b})` : `((${a} ^ ${b}) >>> 0)`;
     case '<<':
-      return kind === 'i32' ? `(${a} << ${b})` : `((${a} << ${b}) >>> 0)`
+      return kind === 'i32' ? `(${a} << ${b})` : `((${a} << ${b}) >>> 0)`;
     case '>>':
-      return kind === 'i32' ? `(${a} >> ${b})` : `(${a} >>> ${b})`
+      return kind === 'i32' ? `(${a} >> ${b})` : `(${a} >>> ${b})`;
   }
 }
 
 function emitConstruct(e: Extract<Expr, { op: 'construct' }>, S: FnCtx): string {
-  if (e.type.kind === 'array') return `[${e.args.map((a) => emitExpr(a, S)).join(', ')}]`
+  if (e.type.kind === 'array') return `[${e.args.map((a) => emitExpr(a, S)).join(', ')}]`;
   if (e.type.kind === 'struct') {
-    const decl = S.mod.structs.get(e.type.name)
-    if (decl === undefined) throw new CodegenUnsupported(`struct ${e.type.name} not declared`)
-    const fields = decl.fields.map((f, i) => `${q(f.name)}: ${emitExpr(e.args[i]!, S)}`)
-    return `{ ${fields.join(', ')} }`
+    const decl = S.mod.structs.get(e.type.name);
+    if (decl === undefined) throw new CodegenUnsupported(`struct ${e.type.name} not declared`);
+    const fields = decl.fields.map((f, i) => `${q(f.name)}: ${emitExpr(e.args[i]!, S)}`);
+    return `{ ${fields.join(', ')} }`;
   }
   // Vector: WGSL splat (single scalar arg fills all N) vs flatten (scalars +
   // spread vec args), matching the interpreter's out.length===1 check. A component whose
@@ -403,19 +448,19 @@ function emitConstruct(e: Extract<Expr, { op: 'construct' }>, S: FnCtx): string 
   // convertComponent(s) the interpreter calls — WGSL's element-CONVERTING constructor,
   // vecN<T>(v: vecN<S>). Where no kind differs, which is every composing constructor, the
   // emitted source is exactly what it was before.
-  const elem = e.type.kind === 'vec' ? e.type.elem : undefined
-  const n = e.type.kind === 'vec' || e.type.kind === 'vec64' ? e.type.n : 0
+  const elem = e.type.kind === 'vec' ? e.type.elem : undefined;
+  const n = e.type.kind === 'vec' || e.type.kind === 'vec64' ? e.type.n : 0;
   const cvt = (a: Expr): string => {
-    const src = emitExpr(a, S)
-    const from = elemKindOf(a.type)
-    if (elem === undefined || from === undefined || from === elem) return src
-    const call = isArrayValued(a.type) ? 'cvtVec' : 'cvt'
-    return `$.${call}(${src}, ${q(from)}, ${q(elem)})`
-  }
+    const src = emitExpr(a, S);
+    const from = elemKindOf(a.type);
+    if (elem === undefined || from === undefined || from === elem) return src;
+    const call = isArrayValued(a.type) ? 'cvtVec' : 'cvt';
+    return `$.${call}(${src}, ${q(from)}, ${q(elem)})`;
+  };
   if (e.args.length === 1 && !isArrayValued(e.args[0]!.type))
-    return `$.splat(${n}, ${cvt(e.args[0]!)})`
-  const parts = e.args.map((a) => (isArrayValued(a.type) ? `...(${cvt(a)})` : cvt(a)))
-  return `[${parts.join(', ')}]`
+    return `$.splat(${n}, ${cvt(e.args[0]!)})`;
+  const parts = e.args.map((a) => (isArrayValued(a.type) ? `...(${cvt(a)})` : cvt(a)));
+  return `[${parts.join(', ')}]`;
 }
 
 /** Assignment as an EXPRESSION (no trailing `;`) — used for for-loop updates
@@ -424,61 +469,61 @@ function emitConstruct(e: Extract<Expr, { op: 'construct' }>, S: FnCtx): string 
  *  and the key of the location, or a getter and a setter for a JS local, so the read and the
  *  write-back happen once, in one `atomicStep`, the way the interpreter's `refOf` does. */
 function emitAtomic(e: Extract<Expr, { op: 'call' }>, S: FnCtx): string {
-  const loc = e.args[0]
-  if (loc === undefined) throw new CodegenUnsupported(`${e.fn} without a location`)
-  const fn = q(e.fn)
-  const kind = q(numKindOf(loc.type))
-  const arg = e.args[1] === undefined ? '0' : emitExpr(e.args[1], S)
+  const loc = e.args[0];
+  if (loc === undefined) throw new CodegenUnsupported(`${e.fn} without a location`);
+  const fn = q(e.fn);
+  const kind = q(numKindOf(loc.type));
+  const arg = e.args[1] === undefined ? '0' : emitExpr(e.args[1], S);
   // `atomicCompareExchangeWeak`'s third argument is the value to store (#152); the other ten
   // builtins have none, and the runtime helpers take `undefined` for them.
-  const store = e.args[2] === undefined ? 'undefined' : emitExpr(e.args[2], S)
+  const store = e.args[2] === undefined ? 'undefined' : emitExpr(e.args[2], S);
   if (loc.op === 'index') {
-    return `$.atomicAt(${fn}, ${emitExpr(loc.base, S)}, ${emitExpr(loc.idx, S)}, ${arg}, ${kind}, ${store})`
+    return `$.atomicAt(${fn}, ${emitExpr(loc.base, S)}, ${emitExpr(loc.idx, S)}, ${arg}, ${kind}, ${store})`;
   }
   if (loc.op === 'member') {
-    const key = isArrayValued(loc.base.type) ? String(FIELD_IDX[loc.field] ?? -1) : q(loc.field)
-    return `$.atomicAt(${fn}, ${emitExpr(loc.base, S)}, ${key}, ${arg}, ${kind}, ${store})`
+    const key = isArrayValued(loc.base.type) ? String(FIELD_IDX[loc.field] ?? -1) : q(loc.field);
+    return `$.atomicAt(${fn}, ${emitExpr(loc.base, S)}, ${key}, ${arg}, ${kind}, ${store})`;
   }
   if (loc.op === 'varref' || loc.op === 'param') {
-    const id = S.varId.get(loc.name)
+    const id = S.varId.get(loc.name);
     if (id === undefined) {
-      const table = S.mod.varNames.has(loc.name) ? '$.vars' : '$.bindings'
-      return `$.atomicAt(${fn}, ${table}, ${q(loc.name)}, ${arg}, ${kind}, ${store})`
+      const table = S.mod.varNames.has(loc.name) ? '$.vars' : '$.bindings';
+      return `$.atomicAt(${fn}, ${table}, ${q(loc.name)}, ${arg}, ${kind}, ${store})`;
     }
-    return `$.atomicRef(${fn}, () => ${id}, ($v) => (${id} = $v), ${arg}, ${kind}, ${store})`
+    return `$.atomicRef(${fn}, () => ${id}, ($v) => (${id} = $v), ${arg}, ${kind}, ${store})`;
   }
-  throw new CodegenUnsupported(`atomic location ${loc.op}`)
+  throw new CodegenUnsupported(`atomic location ${loc.op}`);
 }
 
 function emitAssignExpr(target: Expr, valueStr: string, S: FnCtx): string {
   if (target.op === 'varref' || target.op === 'param') {
     // A module-level name no local shadows is written in the module's table, mirroring the
     // interpreter's `setLValue`; a local, or an unknown name, is a JS local.
-    const local = S.varId.get(target.name)
+    const local = S.varId.get(target.name);
     if (local === undefined && S.mod.varNames.has(target.name))
-      return `$.vars[${q(target.name)}] = ${valueStr}`
+      return `$.vars[${q(target.name)}] = ${valueStr}`;
     if (local === undefined && S.mod.bindingNames.has(target.name))
-      return `$.bindings[${q(target.name)}] = ${valueStr}`
-    const id = local ?? declareVar(target.name, S)
-    return `${id} = ${valueStr}`
+      return `$.bindings[${q(target.name)}] = ${valueStr}`;
+    const id = local ?? declareVar(target.name, S);
+    return `${id} = ${valueStr}`;
   }
   if (target.op === 'member') {
-    const base = emitExpr(target.base, S)
+    const base = emitExpr(target.base, S);
     if (isArrayValued(target.base.type)) {
-      const i = FIELD_IDX[target.field]
-      if (i === undefined) throw new CodegenUnsupported(`assign .${target.field}`)
-      return `(${base})[${i}] = ${valueStr}`
+      const i = FIELD_IDX[target.field];
+      if (i === undefined) throw new CodegenUnsupported(`assign .${target.field}`);
+      return `(${base})[${i}] = ${valueStr}`;
     }
-    return `(${base})[${q(target.field)}] = ${valueStr}`
+    return `(${base})[${q(target.field)}] = ${valueStr}`;
   }
   if (target.op === 'index') {
     // `m[j] = v` writes COLUMN j into the flat list — see setMatColumn.
     if (target.base.type.kind === 'mat') {
-      return `$.setMatColumn(${emitExpr(target.base, S)}, ${emitExpr(target.idx, S)}, ${target.base.type.rows}, ${valueStr})`
+      return `$.setMatColumn(${emitExpr(target.base, S)}, ${emitExpr(target.idx, S)}, ${target.base.type.rows}, ${valueStr})`;
     }
-    return `(${emitExpr(target.base, S)})[${emitExpr(target.idx, S)}] = ${valueStr}`
+    return `(${emitExpr(target.base, S)})[${emitExpr(target.idx, S)}] = ${valueStr}`;
   }
-  throw new CodegenUnsupported(`assignment target ${target.op}`)
+  throw new CodegenUnsupported(`assignment target ${target.op}`);
 }
 
 /** The right-hand side of any STORE — a `let`/`var` binding or an assignment to an existing
@@ -490,129 +535,134 @@ function emitAssignExpr(target: Expr, valueStr: string, S: FnCtx): string {
  *  so a later `w.x = 100.` reached through to `v` and the CPU said 100 where both GPU targets
  *  say 3. */
 function bindExpr(src: string, t: ShaderType): string {
-  return isAggregateType(t) ? `$.clone(${src})` : src
+  return isAggregateType(t) ? `$.clone(${src})` : src;
 }
 
 function emitStmt(s: Stmt, S: FnCtx): string {
   switch (s.s) {
     case 'let': {
-      const id = declareVar(s.name, S)
-      return `${id} = ${bindExpr(emitExpr(s.expr, S), s.expr.type)};`
+      const id = declareVar(s.name, S);
+      return `${id} = ${bindExpr(emitExpr(s.expr, S), s.expr.type)};`;
     }
     case 'var': {
-      const id = declareVar(s.name, S)
-      return `${id} = ${s.init ? bindExpr(emitExpr(s.init, S), s.type) : zeroLit(s.type, S.mod.structs)};`
+      const id = declareVar(s.name, S);
+      return `${id} = ${s.init ? bindExpr(emitExpr(s.init, S), s.type) : zeroLit(s.type, S.mod.structs)};`;
     }
     case 'assign':
-      return `${emitAssignExpr(s.target, bindExpr(emitExpr(s.expr, S), s.expr.type), S)};`
+      return `${emitAssignExpr(s.target, bindExpr(emitExpr(s.expr, S), s.expr.type), S)};`;
     case 'assignOp': {
-      const kind = numKindOf(s.target.type)
-      const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${q(kind)})`
-      return `${emitAssignExpr(s.target, val, S)};`
+      const kind = numKindOf(s.target.type);
+      const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${q(kind)})`;
+      return `${emitAssignExpr(s.target, val, S)};`;
     }
     case 'return':
-      return s.expr ? `return ${emitExpr(s.expr, S)};` : `return undefined;`
+      if (S.inoutPublish !== undefined) {
+        if (!s.expr) return `return void (${S.inoutPublish});`;
+        const t = tempVar(S);
+        return `return (${t} = ${emitExpr(s.expr, S)}, ${S.inoutPublish}, ${t});`;
+      }
+      return s.expr ? `return ${emitExpr(s.expr, S)};` : `return undefined;`;
     case 'break':
-      return `break;`
+      return `break;`;
     case 'continue':
-      return `continue;`
+      return `continue;`;
     case 'discard':
       // The interpreter's discard signal propagates out of the fn as `undefined`.
-      return `return undefined;`
+      return `return undefined;`;
     case 'call':
       // Evaluated for its effect; the value is dropped, as the GPU drops it.
-      return `${emitExpr(s.expr, S)};`
+      return `${emitExpr(s.expr, S)};`;
     case 'if': {
-      const parts: string[] = []
+      const parts: string[] = [];
       s.arms.forEach((arm, i) => {
         parts.push(
           `${i === 0 ? 'if' : 'else if'} (${emitExpr(arm.cond, S)}) {\n${emitBody(arm.body, S)}\n}`,
-        )
-      })
-      if (s.elseBody) parts.push(`else {\n${emitBody(s.elseBody, S)}\n}`)
-      return parts.join(' ')
+        );
+      });
+      if (s.elseBody) parts.push(`else {\n${emitBody(s.elseBody, S)}\n}`);
+      return parts.join(' ');
     }
     case 'for': {
-      const init = emitForInit(s.init, S)
-      const cond = emitExpr(s.cond, S)
-      const update = emitForUpdate(s.update, S)
-      return `for (${init}; ${cond}; ${update}) {\n${emitBody(s.body, S)}\n}`
+      const init = emitForInit(s.init, S);
+      const cond = emitExpr(s.cond, S);
+      const update = emitForUpdate(s.update, S);
+      return `for (${init}; ${cond}; ${update}) {\n${emitBody(s.body, S)}\n}`;
     }
     case 'switch': {
       // Native switch: strict-=== case match + no fall-through (explicit break),
       // which is exactly the interpreter's find-by-value + single-case-body. A
       // `break` inside a case body is consumed by this switch; a `continue` /
       // `return` / discard propagates, same as the interpreter's signals.
-      const scrut = emitExpr(s.scrut, S)
+      const scrut = emitExpr(s.scrut, S);
       const cases = s.cases.map(
         // JavaScript shares a body between labels by stacking them, which is what a
         // multi-selector clause is: `case 0: case 1: { … break; }`.
         (c) =>
           `${c.values.map((v) => `case ${jsNum(v)}:`).join(' ')} {\n${emitBody(c.body, S)}\nbreak;\n}`,
-      )
-      const dflt = s.defaultBody ? `default: {\n${emitBody(s.defaultBody, S)}\nbreak;\n}` : ''
-      return `switch (${scrut}) {\n${cases.join('\n')}\n${dflt}\n}`
+      );
+      const dflt = s.defaultBody ? `default: {\n${emitBody(s.defaultBody, S)}\nbreak;\n}` : '';
+      return `switch (${scrut}) {\n${cases.join('\n')}\n${dflt}\n}`;
     }
     case 'placeholder':
       // Composer must splice before emit; on the CPU path a leak is a bug — fall
       // this fn back to the interpreter (which throws loudly with the tag).
-      throw new CodegenUnsupported(`placeholder ${s.tag}`)
+      throw new CodegenUnsupported(`placeholder ${s.tag}`);
     case 'raw':
       // Raw passthrough is GPU-only — no CPU evaluation. Fall back.
-      throw new CodegenUnsupported('raw Stmt')
+      throw new CodegenUnsupported('raw Stmt');
   }
 }
 
 function emitForInit(s: Stmt, S: FnCtx): string {
-  if (s.s === 'let') return `${declareVar(s.name, S)} = ${emitExpr(s.expr, S)}`
+  if (s.s === 'let') return `${declareVar(s.name, S)} = ${emitExpr(s.expr, S)}`;
   if (s.s === 'var')
-    return `${declareVar(s.name, S)} = ${s.init ? emitExpr(s.init, S) : zeroLit(s.type, S.mod.structs)}`
-  throw new CodegenUnsupported(`for-init ${s.s}`)
+    return `${declareVar(s.name, S)} = ${s.init ? emitExpr(s.init, S) : zeroLit(s.type, S.mod.structs)}`;
+  throw new CodegenUnsupported(`for-init ${s.s}`);
 }
 
 function emitForUpdate(s: Stmt, S: FnCtx): string {
   if (s.s === 'assign')
-    return emitAssignExpr(s.target, bindExpr(emitExpr(s.expr, S), s.expr.type), S)
+    return emitAssignExpr(s.target, bindExpr(emitExpr(s.expr, S), s.expr.type), S);
   if (s.s === 'assignOp') {
-    const kind = numKindOf(s.target.type)
-    const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${q(kind)})`
-    return emitAssignExpr(s.target, val, S)
+    const kind = numKindOf(s.target.type);
+    const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${q(kind)})`;
+    return emitAssignExpr(s.target, val, S);
   }
-  throw new CodegenUnsupported(`for-update ${s.s}`)
+  throw new CodegenUnsupported(`for-update ${s.s}`);
 }
 
 function emitBody(body: readonly Stmt[], S: FnCtx): string {
-  return body.map((s) => emitStmt(s, S)).join('\n')
+  return body.map((s) => emitStmt(s, S)).join('\n');
 }
 
 /** The runtime object closed over by every generated fn (the factory's `$`). */
 interface CodegenRuntime {
-  applyBin: typeof applyBin
-  matVec: typeof matVec
-  matMul: typeof matMul
-  matVecShaped: typeof matVecShaped
-  matColumn: typeof matColumn
-  matTransposeShaped: typeof matTransposeShaped
-  setMatColumn: typeof setMatColumn
-  matMulShaped: typeof matMulShaped
-  vecMatShaped: typeof vecMatShaped
-  B: typeof BUILTINS
-  bindings: Record<string, CpuValue>
+  applyBin: typeof applyBin;
+  matVec: typeof matVec;
+  matMul: typeof matMul;
+  matVecShaped: typeof matVecShaped;
+  matColumn: typeof matColumn;
+  matTransposeShaped: typeof matTransposeShaped;
+  setMatColumn: typeof setMatColumn;
+  matMulShaped: typeof matMulShaped;
+  vecMatShaped: typeof vecMatShaped;
+  B: typeof BUILTINS;
+  bindings: Record<string, CpuValue>;
   /** The module variables by name (roadmap 0.2 item 5); see `ModCtx.varNames`. */
-  vars: Record<string, CpuValue>
+  vars: Record<string, CpuValue>;
   /** name → resolved impl (compiled fn or interpreter fallback). Populated after
    *  both halves are built so cross-fn calls see the final table. */
-  F: Record<string, (...a: CpuValue[]) => CpuValue>
-  splat: (n: number, v: number) => number[]
-  swiz: (a: number[], idx: number[]) => number[]
-  negVec: (a: number[]) => number[]
+  F: Record<string, (...a: CpuValue[]) => CpuValue>;
+  splat: (n: number, v: number) => number[];
+  swiz: (a: number[], idx: number[]) => number[];
+  negVec: (a: number[]) => number[];
   /** A componentwise comparison of two vectors, and a per-component select (§27). */
-  cmpVec: (cop: CmpOp, a: CpuValue, b: CpuValue, f32: boolean) => CpuValue
+  cmpVec: (cop: CmpOp, a: CpuValue, b: CpuValue, f32: boolean) => CpuValue;
   /** One of the kind-dependent bit builtins (§10) on already-evaluated arguments. */
-  bit: (fn: string, kind: 'u32' | 'i32', args: CpuValue[]) => CpuValue
-  selVec: (cond: readonly CpuValue[], ifTrue: CpuValue, ifFalse: CpuValue) => CpuValue
-  gpuStub: (name: string, ...args: CpuValue[]) => CpuValue
-  console: (method: string, args: CpuValue[], span?: unknown) => void
+  bit: (fn: string, kind: 'u32' | 'i32', args: CpuValue[]) => CpuValue;
+  selVec: (cond: readonly CpuValue[], ifTrue: CpuValue, ifFalse: CpuValue) => CpuValue;
+  gpuStub: (name: string, ...args: CpuValue[]) => CpuValue;
+  console: (method: string, args: CpuValue[], span?: unknown) => void;
   /** One atomic builtin on `base[key]` (roadmap 0.2 item 4): read, `atomicStep`, write back. */
   atomicAt: (
     fn: string,
@@ -621,9 +671,9 @@ interface CodegenRuntime {
     arg: number,
     kind: NumKind,
     store?: number,
-  ) => CpuValue
+  ) => CpuValue;
   /** A barrier reached by a directly called invocation: throws, naming `dispatch`. */
-  barrier: (fn: string) => never
+  barrier: (fn: string) => never;
   /** The same on a JS local, through the getter and setter the generated code closes over. */
   atomicRef: (
     fn: string,
@@ -632,19 +682,20 @@ interface CodegenRuntime {
     arg: number,
     kind: NumKind,
     store?: number,
-  ) => CpuValue
+  ) => CpuValue;
   /** WGSL saturating f32→u32/i32 (float sources only — see cpu-runtime). */
-  u32Sat: typeof f32ToU32Sat
-  i32Sat: typeof f32ToI32Sat
+  u32Sat: typeof f32ToU32Sat;
+  i32Sat: typeof f32ToI32Sat;
   /** WGSL integer `/` and `%` (X-GIS #2274) — the SAME helpers `scalarBin` calls. */
-  intDiv: typeof intDiv
-  intRem: typeof intRem
+  intDiv: typeof intDiv;
+  intRem: typeof intRem;
   /** Aggregate copy at a `let` / `var` binding — the SAME helper the interpreter calls. */
-  clone: typeof cloneValue
+  clone: typeof cloneValue;
+  inout: typeof inoutReturn;
   /** Element-converting vector constructor components — the SAME helpers the interpreter's
    *  `construct` case calls, so the two CPU backends convert identically. */
-  cvt: typeof convertComponent
-  cvtVec: typeof convertComponents
+  cvt: typeof convertComponent;
+  cvtVec: typeof convertComponents;
 }
 
 /** Compile a module for the CPU by generating JavaScript, returning the same
@@ -700,10 +751,10 @@ export function compileModuleJs(
   // materialises plain-const assignables into var bindings; froundF32 makes f32
   // arithmetic round like the target's — X-GIS #2426, and it must be the same rewrite in
   // the same place, or the two engines stop being differentials of each other).
-  validate(m)
-  const av = autoVars(m)
-  const mv = opts?.precision === 'f32' ? froundF32(av) : av
-  const gpuStubs = opts?.gpuStubs ?? false
+  validate(m);
+  const av = autoVars(m);
+  const mv = opts?.precision === 'f32' ? froundF32(av) : av;
+  const gpuStubs = opts?.gpuStubs ?? false;
 
   const mod: ModCtx = {
     structs: new Map(mv.structs.map((s) => [s.name, s])),
@@ -712,73 +763,89 @@ export function compileModuleJs(
     fnNames: new Set(mv.funcs.map((f) => f.name)),
     varNames: new Set((mv.vars ?? []).map((v) => v.name)),
     bindingNames: new Set(mv.bindings.map((b) => b.name)),
-  }
+    params: new Map(mv.funcs.map((f) => [f.name, f.params])),
+  };
 
   // ── Module-scope decls (consts + overrides) as factory-local `const`s ──
   // A scalar const embeds its full-precision cpuValue; a valueExpr const runs
   // the same op tree (may reference earlier consts). Overrides read as their
   // default (the un-specialized mirror), matching the interpreter.
-  const decls: string[] = []
+  const decls: string[] = [];
   {
     // A const valueExpr is a pure literal expression (no params / bindings), so a
     // throwaway FnCtx with empty varId is the right compile env; a later const may
     // reference an earlier one via constId.
-    const constEnv: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0 }
+    const constEnv: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0 };
     mv.consts.forEach((c, i) => {
-      const id = `$C_${i}`
-      mod.constId.set(c.name, id)
-      const rhs = c.valueExpr ? emitExpr(c.valueExpr, constEnv) : jsNum(c.cpuValue)
-      decls.push(`const ${id} = ${rhs};`)
-    })
-    ;(mv.overrides ?? []).forEach((o, i) => {
-      const id = `$O_${i}`
-      mod.overrideId.set(o.name, id)
-      decls.push(`const ${id} = ${jsNum(o.default)};`)
-    })
+      const id = `$C_${i}`;
+      mod.constId.set(c.name, id);
+      const rhs = c.valueExpr ? emitExpr(c.valueExpr, constEnv) : jsNum(c.cpuValue);
+      decls.push(`const ${id} = ${rhs};`);
+    });
+    (mv.overrides ?? []).forEach((o, i) => {
+      const id = `$O_${i}`;
+      mod.overrideId.set(o.name, id);
+      decls.push(`const ${id} = ${jsNum(o.default)};`);
+    });
   }
 
   // ── Per-fn codegen (hybrid: a body that can't be emitted falls back) ──
-  const fnSrcs: string[] = []
-  const fallbackNames: string[] = []
+  const fnSrcs: string[] = [];
+  const fallbackNames: string[] = [];
   // Module variables (roadmap 0.2 item 5). A `workgroup` one is allocated once, zero, as one
   // implicit workgroup's memory; the `private` ones are set from their initializers at every
   // host-facing call, which is one invocation, by the `$initPrivates` function the factory
   // returns beside the module's own. The initializer is emitted the way a const's is.
-  const privates = (mv.vars ?? []).filter((v) => v.space === 'private')
+  const privates = (mv.vars ?? []).filter((v) => v.space === 'private');
   if (privates.length > 0) {
-    const varEnv: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0 }
+    const varEnv: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0 };
     const lines = privates.map(
       (v) =>
         `$.vars[${q(v.name)}] = ${v.init ? bindExpr(emitExpr(v.init, varEnv), v.type) : zeroLit(v.type, mod.structs)};`,
-    )
-    fnSrcs.push(`"$initPrivates": function() {\n${lines.join('\n')}\n}`)
+    );
+    fnSrcs.push(`"$initPrivates": function() {\n${lines.join('\n')}\n}`);
   }
+  const writes = fnWrites(mv);
   for (const f of mv.funcs) {
     try {
-      const S: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0 }
+      const S: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0 };
       const params = f.params.map((p, i) => {
-        const id = `$a${i}`
-        S.varId.set(p.name, id)
-        return id
-      })
-      const bodySrc = emitBody(f.body, S)
-      const hoist = S.hoisted.length ? `let ${S.hoisted.join(', ')};\n` : ''
-      fnSrcs.push(`${q(f.name)}: function(${params.join(', ')}) {\n${hoist}${bodySrc}\n}`)
+        const id = `$a${i}`;
+        S.varId.set(p.name, id);
+        return id;
+      });
+      // The interpreter's entry, line for line: an aggregate by-value parameter of a function
+      // that writes anything is a copy, and a function with an `inout` parameter publishes
+      // what its parameters hold at every return (cpu-runtime.ts).
+      const copies = copiedParams(f.params, (writes.get(f.name)?.size ?? 0) > 0);
+      const entry = params
+        .filter((_, i) => copies[i])
+        .map((id) => `${id} = $.clone(${id});\n`)
+        .join('');
+      if (f.params.some((p) => p.mode === 'inout')) {
+        S.inoutPublish = `$.inout.values = [${params.join(', ')}]`;
+      }
+      const bodySrc = emitBody(f.body, S);
+      const exit = S.inoutPublish !== undefined ? `\n${S.inoutPublish};` : '';
+      const hoist = S.hoisted.length ? `let ${S.hoisted.join(', ')};\n` : '';
+      fnSrcs.push(
+        `${q(f.name)}: function(${params.join(', ')}) {\n${hoist}${entry}${bodySrc}${exit}\n}`,
+      );
     } catch (err) {
       if (err instanceof CodegenUnsupported) {
-        fallbackNames.push(f.name)
-        continue
+        fallbackNames.push(f.name);
+        continue;
       }
-      throw err
+      throw err;
     }
   }
 
-  const factorySrc = `${decls.join('\n')}\nreturn {\n${fnSrcs.join(',\n')}\n};`
+  const factorySrc = `${decls.join('\n')}\nreturn {\n${fnSrcs.join(',\n')}\n};`;
   // `new Function` construction is what a CSP `unsafe-eval` host blocks — let it
   // throw so the caller (cpu-projections) can fall the whole module back.
   const factory = new Function('$', factorySrc) as (
     $: CodegenRuntime,
-  ) => Record<string, (...a: CpuValue[]) => CpuValue>
+  ) => Record<string, (...a: CpuValue[]) => CpuValue>;
 
   const runtime: CodegenRuntime = {
     applyBin,
@@ -803,20 +870,21 @@ export function compileModuleJs(
     u32Sat: f32ToU32Sat,
     i32Sat: f32ToI32Sat,
     atomicAt: (fn, base, key, arg, kind, store) => {
-      const obj = base as unknown as Record<string | number, CpuValue>
-      const step = atomicStep(fn, obj[key] as number, arg, kind, store)
-      if (fn !== 'atomicLoad') obj[key] = step.next
-      return step.result
+      const obj = base as unknown as Record<string | number, CpuValue>;
+      const step = atomicStep(fn, obj[key] as number, arg, kind, store);
+      if (fn !== 'atomicLoad') obj[key] = step.next;
+      return step.result;
     },
     atomicRef: (fn, get, set, arg, kind, store) => {
-      const step = atomicStep(fn, get() as number, arg, kind, store)
-      if (fn !== 'atomicLoad') set(step.next)
-      return step.result
+      const step = atomicStep(fn, get() as number, arg, kind, store);
+      if (fn !== 'atomicLoad') set(step.next);
+      return step.result;
     },
     barrier: (fn) => {
-      throw barrierOutsideDispatch(fn)
+      throw barrierOutsideDispatch(fn);
     },
     clone: cloneValue,
+    inout: inoutReturn,
     cvt: convertComponent,
     cvtVec: convertComponents,
     intDiv,
@@ -825,56 +893,56 @@ export function compileModuleJs(
       if (!gpuStubs)
         throw new Error(
           `typeshade/cpu: '${name}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
-        )
-      return GPU_STUBS[name]!(...args)
+        );
+      return GPU_STUBS[name]!(...args);
     },
     console: (method, args, span) => {
       opts?.consoleSink?.({
-        method: method as any,
+        method: method as ConsoleMethod,
         args,
-        span: typeof span === 'string' ? JSON.parse(span) : (span as any),
-      })
+        span: typeof span === 'string' ? JSON.parse(span) : (span as SourceSpan | undefined),
+      });
     },
-  }
+  };
 
-  const jsFns = factory(runtime)
+  const jsFns = factory(runtime);
   for (const v of mv.vars ?? [])
-    if (v.space === 'workgroup') runtime.vars[v.name] = zeroOf(v.type, mod.structs)
-  const initPrivates = jsFns['$initPrivates'] as (() => void) | undefined
+    if (v.space === 'workgroup') runtime.vars[v.name] = zeroOf(v.type, mod.structs);
+  const initPrivates = jsFns['$initPrivates'] as (() => void) | undefined;
 
   // Only build the interpreter twin when a fn actually needs it — its fns supply
   // the fallback bodies AND its own consts/bindings so a fallback fn (and any fn
   // it transitively calls through ITS ctx) runs fully in the interpreter.
-  const interp: CpuModule | null = fallbackNames.length ? compileModule(m, opts) : null
+  const interp: CpuModule | null = fallbackNames.length ? compileModule(m, opts) : null;
 
-  const F: Record<string, (...a: CpuValue[]) => CpuValue> = {}
+  const F: Record<string, (...a: CpuValue[]) => CpuValue> = {};
   for (const f of mv.funcs) {
-    F[f.name] = jsFns[f.name] ?? interp!.fns[f.name]!
+    F[f.name] = jsFns[f.name] ?? interp!.fns[f.name]!;
   }
-  runtime.F = F
+  runtime.F = F;
 
   // A host-facing call is one invocation and starts its private variables over; a call from
   // inside the module (`$.F`) is the same invocation. Without private variables the two
   // tables are one object, as they always were.
-  let fns = F
+  let fns = F;
   if (initPrivates !== undefined) {
-    fns = {}
+    fns = {};
     for (const f of mv.funcs) {
-      const inner = F[f.name]!
+      const inner = F[f.name]!;
       fns[f.name] = (...a: CpuValue[]): CpuValue => {
-        initPrivates()
-        return inner(...a)
-      }
+        initPrivates();
+        return inner(...a);
+      };
     }
   }
   return {
     fns,
     setBinding: (name, value) => {
-      runtime.bindings[name] = value
-      interp?.setBinding(name, value)
+      runtime.bindings[name] = value;
+      interp?.setBinding(name, value);
     },
     // Lockstep needs the interpreter's generators; the compiled functions run one invocation
     // to completion. The bindings are the runtime's own table, so arrays are shared.
     dispatch: (entry, workgroups) => dispatchCompute(m, entry, workgroups, runtime.bindings, opts),
-  }
+  };
 }

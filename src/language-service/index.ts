@@ -18,16 +18,16 @@ export type {
   TypeshadeSemanticTokenType,
   TypeshadeSemanticTokenModifier,
   TypeshadeCompiledOutput,
-} from './types.js'
+} from './types.js';
 
 export {
   createTypeshadeLanguageService,
   AMBIENT_LIB_URI,
   type TypeshadeLanguageService,
   type TypeshadeLanguageServiceHost,
-} from './service.js'
+} from './service.js';
 
-export { SHADE_DTS, WGSL_BUILTIN_NAMES, ATTRIBUTE_NAMES } from './ambient.js'
+export { SHADE_DTS, WGSL_BUILTIN_NAMES, ATTRIBUTE_NAMES } from './ambient.js';
 export {
   TYPE_DOCS,
   ATTRIBUTE_DOCS,
@@ -35,5 +35,5 @@ export {
   FUNCTION_DOCS,
   CONSTANT_DOCS,
   MATH_MEMBER_DOCS,
-} from './docs.js'
-export { positionAt, offsetAt, rangeForSpan, spanForRange } from './positions.js'
+} from './docs.js';
+export { positionAt, offsetAt, rangeForSpan, spanForRange } from './positions.js';

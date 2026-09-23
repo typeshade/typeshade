@@ -1,41 +1,48 @@
-// Counted for/while: constant exit, integer induction, finite trips.
+// Counted `for`, open `while` (Rule 7.5): an integer induction variable, a constant step, a
+// bound the body does not move; exact trip counts when the whole header is constant.
 
-import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js'
-import { typeKey } from '../../core/ir/types.js'
-import type { LoweringScope } from './context.js'
-import { TS_CODES, type TsCode } from './codes.js'
-import { BUILTINS } from '../../core/cpu-runtime.js'
-import { isConstEvaluableMathFn } from './math-alias.js'
-import { foldIntLit, intElemOf, wrapInt } from '../../core/passes/opt/expr-utils.js'
-
-export const MAX_LOOP_TRIPS = 256
+import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js';
+import { typeKey } from '../../core/ir/types.js';
+import { eachExpr } from '../../core/ir/visit.js';
+import type { LoweringScope } from './context.js';
+import { TS_CODES, type TsCode } from './codes.js';
+import { BUILTINS } from '../../core/cpu-runtime.js';
+import { isConstEvaluableMathFn } from './math-alias.js';
+import {
+  collectMutatedRoots,
+  foldIntLit,
+  intElemOf,
+  wrapInt,
+} from '../../core/passes/opt/expr-utils.js';
 
 export function foldConstNumber(expr: Expr, scope: LoweringScope): number | undefined {
-  if (expr.op === 'lit' && typeof expr.value === 'number') return expr.value
+  if (expr.op === 'lit' && typeof expr.value === 'number') return expr.value;
   if (expr.op === 'unop') {
-    const x = foldConstNumber(expr.a, scope)
-    if (x === undefined) return undefined
+    const x = foldConstNumber(expr.a, scope);
+    if (x === undefined) return undefined;
     // Wrapped when the type is an integer, for the reason the binop arm below carries.
-    const int = intElemOf(expr.type)
-    return int === undefined ? -x : wrapInt(-x, int)
+    const int = intElemOf(expr.type);
+    return int === undefined ? -x : wrapInt(-x, int);
   }
   // `resolveIr`, not `resolve`: the node already carries the IR name, which for a local that
   // shadows or follows another of the same source name is `p_1`, a name `resolve` does not
   // know, or worse knows as some other declaration (#38).
   if (expr.op === 'constref') {
-    const b = scope.resolveIr(expr.name)
-    if (b && typeof b.constValue === 'number') return b.constValue
-    return undefined
+    const b = scope.resolveIr(expr.name);
+    if (b && typeof b.constValue === 'number') return b.constValue;
+    return undefined;
   }
-  if (expr.op === 'varref') {
-    const b = scope.resolveIr(expr.name)
-    if (b && !b.mutable && typeof b.constValue === 'number') return b.constValue
-    return undefined
+  // A `param` too: a local function's parameter for a `const` it captures carries the
+  // constant (Rule 8.17); a declared parameter is never one.
+  if (expr.op === 'varref' || expr.op === 'param') {
+    const b = scope.resolveIr(expr.name);
+    if (b && !b.mutable && typeof b.constValue === 'number') return b.constValue;
+    return undefined;
   }
   if (expr.op === 'binop') {
-    const a = foldConstNumber(expr.a, scope)
-    const b = foldConstNumber(expr.b, scope)
-    if (a === undefined || b === undefined) return undefined
+    const a = foldConstNumber(expr.a, scope);
+    const b = foldConstNumber(expr.b, scope);
+    if (a === undefined || b === undefined) return undefined;
     // An INTEGER-typed operation is folded the way the hardware performs it, through the same
     // helper the const-fold pass uses (#154). Folding it in doubles gave this function a
     // different answer from the one the emitted module carries — `i32 100000 * 100000` is
@@ -43,19 +50,19 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
     // here, and `i32 1 / 2` is 0 there and 0.5 here. Every caller compares this value against
     // something the GPU will compute (a loop's trip count, a divisor, a conversion's range), so
     // a second set of arithmetic rules was a second set of answers.
-    const int = intElemOf(expr.type)
-    if (int !== undefined) return foldIntLit(expr.bop, a, b, int)
+    const int = intElemOf(expr.type);
+    if (int !== undefined) return foldIntLit(expr.bop, a, b, int);
     switch (expr.bop) {
       case '+':
-        return a + b
+        return a + b;
       case '-':
-        return a - b
+        return a - b;
       case '*':
-        return a * b
+        return a * b;
       case '/':
-        return b === 0 ? undefined : a / b
+        return b === 0 ? undefined : a / b;
       case '%':
-        return b === 0 ? undefined : a % b
+        return b === 0 ? undefined : a % b;
       // The integer operators, on operands this has already proven are numbers. A bit flag
       // written `1 << 2` is a constant in TypeScript and in WGSL, and it is the shape a
       // numeric enum is most often given (roadmap 0.3 item T1, #92); folding it here is also
@@ -66,23 +73,23 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
       case '&':
       case '|':
       case '^': {
-        if (!Number.isInteger(a) || !Number.isInteger(b)) return undefined
-        if ((expr.bop === '<<' || expr.bop === '>>') && (b < 0 || b > 31)) return undefined
+        if (!Number.isInteger(a) || !Number.isInteger(b)) return undefined;
+        if ((expr.bop === '<<' || expr.bop === '>>') && (b < 0 || b > 31)) return undefined;
         switch (expr.bop) {
           case '<<':
-            return a << b
+            return a << b;
           case '>>':
-            return a >> b
+            return a >> b;
           case '&':
-            return a & b
+            return a & b;
           case '|':
-            return a | b
+            return a | b;
           default:
-            return a ^ b
+            return a ^ b;
         }
       }
       default:
-        return undefined
+        return undefined;
     }
   }
   if (
@@ -90,88 +97,101 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
     (expr.fn === 'i32' || expr.fn === 'u32' || expr.fn === 'f32') &&
     expr.args[0]
   ) {
-    const x = foldConstNumber(expr.args[0], scope)
-    if (x === undefined) return undefined
+    const x = foldConstNumber(expr.args[0], scope);
+    if (x === undefined) return undefined;
     // The conversion wraps into the target, which is what `foldIntConvert` emits and what both
     // targets compute: `u32(-1i)` is 4294967295, not -1.
-    return expr.fn === 'f32' ? x : wrapInt(Math.trunc(x), expr.fn)
+    return expr.fn === 'f32' ? x : wrapInt(Math.trunc(x), expr.fn);
   }
   // A math builtin over constant arguments (issue #73). Not a declared function of the same
   // name (`declRef`), whose body this does not run, and only the intrinsics the oracle's
   // BUILTINS table computes, which is the value the CPU backends give the same call.
   if (expr.op === 'call' && expr.declRef === undefined && isConstEvaluableMathFn(expr.fn)) {
-    const f = BUILTINS[expr.fn]
-    if (!f) return undefined
-    const args: number[] = []
+    const f = BUILTINS[expr.fn];
+    if (!f) return undefined;
+    const args: number[] = [];
     for (const a of expr.args) {
-      const x = foldConstNumber(a, scope)
-      if (x === undefined) return undefined
-      args.push(x)
+      const x = foldConstNumber(a, scope);
+      if (x === undefined) return undefined;
+      args.push(x);
     }
-    const v = f(...args)
-    return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+    const v = f(...args);
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
   }
-  return undefined
+  return undefined;
 }
 
 export function foldConstBool(expr: Expr, scope: LoweringScope): boolean | undefined {
-  if (expr.op === 'lit' && typeof expr.value === 'boolean') return expr.value
-  if (expr.op === 'varref') {
-    const b = scope.resolveIr(expr.name)
-    if (b && !b.mutable && typeof b.constValue === 'boolean') return b.constValue
+  if (expr.op === 'lit' && typeof expr.value === 'boolean') return expr.value;
+  if (expr.op === 'varref' || expr.op === 'param') {
+    const b = scope.resolveIr(expr.name);
+    if (b && !b.mutable && typeof b.constValue === 'boolean') return b.constValue;
   }
-  return undefined
+  return undefined;
 }
 
 export function foldConstValue(expr: Expr, scope: LoweringScope): number | boolean | undefined {
-  const n = foldConstNumber(expr, scope)
-  if (n !== undefined) return n
-  return foldConstBool(expr, scope)
+  const n = foldConstNumber(expr, scope);
+  if (n !== undefined) return n;
+  return foldConstBool(expr, scope);
 }
 
 function cmpHolds(cop: CmpOp, v: number, bound: number): boolean {
   switch (cop) {
     case '<':
-      return v < bound
+      return v < bound;
     case '>':
-      return v > bound
+      return v > bound;
     case '<=':
-      return v <= bound
+      return v <= bound;
     case '>=':
-      return v >= bound
+      return v >= bound;
     case '==':
-      return v === bound
+      return v === bound;
     case '!=':
-      return v !== bound
+      return v !== bound;
   }
 }
 
 function flipCmp(cop: CmpOp): CmpOp {
-  if (cop === '<') return '>'
-  if (cop === '>') return '<'
-  if (cop === '<=') return '>='
-  if (cop === '>=') return '<='
-  return cop
+  if (cop === '<') return '>';
+  if (cop === '>') return '<';
+  if (cop === '<=') return '>=';
+  if (cop === '>=') return '<=';
+  return cop;
 }
 
 const isInduct = (e: Expr, name: string): boolean =>
-  (e.op === 'varref' || e.op === 'param') && e.name === name
+  (e.op === 'varref' || e.op === 'param') && e.name === name;
 
-function readCond(
-  cond: Expr,
-  name: string,
-  scope: LoweringScope,
-): { cop: CmpOp; bound: number } | undefined {
-  if (cond.op !== 'compare') return undefined
-  if (isInduct(cond.a, name)) {
-    const bound = foldConstNumber(cond.b, scope)
-    return bound === undefined ? undefined : { cop: cond.cop, bound }
+/** The exit compare `i <cop> bound`, normalised so the induction variable is on the left.
+ *  `bound` is the expression as lowered, and `value` its folded number when it is a
+ *  compile-time constant; a bound that is not one is a runtime value (Rule 7.5). */
+interface ExitCompare {
+  readonly cop: CmpOp;
+  readonly bound: Expr;
+  readonly value: number | undefined;
+}
+
+function readCond(cond: Expr, name: string, scope: LoweringScope): ExitCompare | undefined {
+  if (cond.op !== 'compare') return undefined;
+  if (isInduct(cond.a, name) && !mentions(cond.b, name)) {
+    return { cop: cond.cop, bound: cond.b, value: foldConstNumber(cond.b, scope) };
   }
-  if (isInduct(cond.b, name)) {
-    const bound = foldConstNumber(cond.a, scope)
-    return bound === undefined ? undefined : { cop: flipCmp(cond.cop), bound }
+  if (isInduct(cond.b, name) && !mentions(cond.a, name)) {
+    return { cop: flipCmp(cond.cop), bound: cond.a, value: foldConstNumber(cond.a, scope) };
   }
-  return undefined
+  return undefined;
+}
+
+/** Whether `e` reads the IR name `name` anywhere. `i < i * 2` compares the induction variable
+ *  to itself, which is not a bound. */
+function mentions(e: Expr, name: string): boolean {
+  let hit = false;
+  eachExpr(e, (x) => {
+    if ((x.op === 'varref' || x.op === 'param') && x.name === name) hit = true;
+  });
+  return hit;
 }
 
 /** How a counted loop advances its induction variable: by ADDING a constant (`i++`,
@@ -182,39 +202,39 @@ function readCond(
 type Step =
   | { readonly op: 'add'; readonly by: number }
   | { readonly op: 'mul'; readonly by: number }
-  | { readonly op: 'div'; readonly by: number }
+  | { readonly op: 'div'; readonly by: number };
 
 function readStep(update: Stmt, name: string, scope: LoweringScope): Step | undefined {
   if (update.s === 'assignOp') {
-    if (!isInduct(update.target, name)) return undefined
-    const c = foldConstNumber(update.expr, scope)
-    if (c === undefined) return undefined
-    if (update.bop === '+') return { op: 'add', by: c }
-    if (update.bop === '-') return { op: 'add', by: -c }
-    if (update.bop === '*') return { op: 'mul', by: c }
-    if (update.bop === '/') return { op: 'div', by: c }
-    return undefined
+    if (!isInduct(update.target, name)) return undefined;
+    const c = foldConstNumber(update.expr, scope);
+    if (c === undefined) return undefined;
+    if (update.bop === '+') return { op: 'add', by: c };
+    if (update.bop === '-') return { op: 'add', by: -c };
+    if (update.bop === '*') return { op: 'mul', by: c };
+    if (update.bop === '/') return { op: 'div', by: c };
+    return undefined;
   }
   // The only `assign` update `lowerUpdate` builds is the `i++` / `i--` pair, which it writes
   // as `i = i + 1` / `i = i - 1`. A source-level `i = i * 2` is refused there as an unsupported
   // for-update and never reaches this function, so there is no `*` or `/` arm here: one would
   // read as support this surface does not have.
   if (update.s === 'assign' && isInduct(update.target, name) && update.expr.op === 'binop') {
-    const e = update.expr
+    const e = update.expr;
     if (e.bop === '+') {
       const c = isInduct(e.a, name)
         ? foldConstNumber(e.b, scope)
         : isInduct(e.b, name)
           ? foldConstNumber(e.a, scope)
-          : undefined
-      return c === undefined ? undefined : { op: 'add', by: c }
+          : undefined;
+      return c === undefined ? undefined : { op: 'add', by: c };
     }
     if (e.bop === '-' && isInduct(e.a, name)) {
-      const c = foldConstNumber(e.b, scope)
-      return c === undefined ? undefined : { op: 'add', by: -c }
+      const c = foldConstNumber(e.b, scope);
+      return c === undefined ? undefined : { op: 'add', by: -c };
     }
   }
-  return undefined
+  return undefined;
 }
 
 /** How the step reads back in a diagnostic. Not the source's own spelling: `i++` and `i--`
@@ -223,82 +243,88 @@ function readStep(update: Stmt, name: string, scope: LoweringScope): Step | unde
  *  what lets `for step "i += 0" never advances "i"` and `for step "i *= 1" never advances "i"`
  *  be the same sentence. */
 function stepText(name: string, step: Step): string {
-  if (step.op === 'add') return step.by < 0 ? `${name} -= ${-step.by}` : `${name} += ${step.by}`
-  return `${name} ${step.op === 'mul' ? '*' : '/'}= ${step.by}`
+  if (step.op === 'add') return step.by < 0 ? `${name} -= ${-step.by}` : `${name} += ${step.by}`;
+  return `${name} ${step.op === 'mul' ? '*' : '/'}= ${step.by}`;
 }
 
 /** What the analysis concluded about an accepted counted loop. Nothing reads it yet: the
  *  caller branches on `ok` and lowers the `for` it already has. So this carries the numbers a
  *  reader would want and no more, and in particular not the step's OPERATION: a field for it
  *  would be one more thing written and never read. `step` is the addend for an additive loop
- *  and the factor for a multiplicative one. */
+ *  and the factor for a multiplicative one. `start`, `bound` and `trips` are present when the
+ *  header folds to constants, and absent when the start or the bound is a runtime value
+ *  (Rule 7.5): such a loop is still counted, by a count known only when it runs. */
 export interface CountedLoop {
-  readonly name: string
-  readonly start: number
-  readonly bound: number
-  readonly step: number
-  readonly trips: number
+  readonly name: string;
+  readonly start?: number;
+  readonly bound?: number;
+  readonly step: number;
+  readonly trips?: number;
 }
+
+type Refusal = { ok: false; message: string; code: TsCode };
 
 export function analyzeCountedFor(
   init: Stmt,
   cond: Expr,
   update: Stmt,
   scope: LoweringScope,
-): { ok: true; loop: CountedLoop } | { ok: false; message: string; code: TsCode } {
+): { ok: true; loop: CountedLoop } | Refusal {
   if (init.s !== 'var' || !init.init) {
     return {
       ok: false,
-      message: 'for-init must be `let i: i32 = <const>` (or u32).',
+      message: 'for-init must be `let i: i32 = <start>` (or u32).',
       code: TS_CODES.LOOP_INDUCTION,
-    }
+    };
   }
-  const k = typeKey(init.type)
+  const k = typeKey(init.type);
   if (k !== 'i32' && k !== 'u32') {
     return {
       ok: false,
       message: `for induction must be i32 or u32, got ${k}.`,
       code: TS_CODES.LOOP_INDUCTION,
-    }
+    };
   }
   // Messages name the counter as the author spelled it; the IR name a second `i` carries is
   // `i_1` (#38), and `readCond`/`readStep` match on that one.
-  const shown = scope.resolveIr(init.name)?.name ?? init.name
-  const start = foldConstNumber(init.init, scope)
-  if (start === undefined) {
+  const shown = scope.resolveIr(init.name)?.name ?? init.name;
+  // The start runs once, before the first test, so any value of the counter's type will do:
+  // `for (let i = lid.x; i < n; i += 64u)` is the strided loop every compute kernel writes.
+  const start = foldConstNumber(init.init, scope);
+  const exit = readCond(cond, init.name, scope);
+  if (!exit) {
     return {
       ok: false,
-      message: `for-init "${shown}" must start at a compile-time constant.`,
+      message:
+        `for exit must compare "${shown}" to a bound (e.g. ${shown} < 16, or ${shown} < n). ` +
+        `A loop that ends some other way is a while loop.`,
       code: TS_CODES.LOOP_BOUND,
-    }
+    };
   }
-  const condInfo = readCond(cond, init.name, scope)
-  if (!condInfo) {
-    return {
-      ok: false,
-      message: `for exit must compare "${shown}" to a constant bound (e.g. ${shown} < 16).`,
-      code: TS_CODES.LOOP_BOUND,
-    }
-  }
-  const step = readStep(update, init.name, scope)
+  const step = readStep(update, init.name, scope);
   if (step === undefined) {
     return {
       ok: false,
       message: `for-update must be ${shown}++ / ${shown} += <const>, or ${shown} *= / /= <const>.`,
       code: TS_CODES.LOOP_INDUCTION,
-    }
+    };
   }
-  const stall = stalls(step)
+  const stall = stalls(step);
   if (stall) {
     return {
       ok: false,
       message: `for step "${stepText(shown, step)}" never advances "${shown}": ${stall}`,
       code: TS_CODES.LOOP_INFINITE,
-    }
+    };
   }
-  const trips = countTrips(start, condInfo.cop, condInfo.bound, step, k)
+  if (start === undefined || exit.value === undefined) {
+    const refused = runtimeHeader(shown, start, exit.cop, step);
+    return refused ?? { ok: true, loop: { name: init.name, start, step: step.by } };
+  }
+  const bound = exit.value;
+  const trips = countTrips(start, exit.cop, bound, step, k);
   if (!trips.ok) {
-    const header = `for (${shown} = ${start}; ${shown} ${condInfo.cop} ${condInfo.bound}; ${stepText(shown, step)})`
+    const header = `for (${shown} = ${start}; ${shown} ${exit.cop} ${bound}; ${stepText(shown, step)})`;
     // Two different mistakes, and they used to share the first sentence. A loop whose step
     // steps away from the bound never exits. A loop like `for (i = 1; i < 2147483647; i *= 3)`
     // does reach its bound, but only after `i` has left the range of `i32`, so what the
@@ -310,30 +336,121 @@ export function analyzeCountedFor(
           message: `${header} walks "${shown}" outside the range of ${k} before the condition fails.`,
           code: TS_CODES.LOOP_BOUND,
         }
-      : { ok: false, message: `${header} does not exit.`, code: TS_CODES.LOOP_INFINITE }
+      : { ok: false, message: `${header} does not exit.`, code: TS_CODES.LOOP_INFINITE };
   }
-  if (trips.n > MAX_LOOP_TRIPS) {
+  // No ceiling on the count (Rule 7.5, #203): a trip count is a fact about the program, and
+  // neither target limits it. The exact count is what the unroller and a reader get.
+  return { ok: true, loop: { name: init.name, start, bound, step: step.by, trips: trips.n } };
+}
+
+/**
+ * The name the loop's bound reads and its body writes, or undefined when the body leaves the
+ * bound alone (Rule 7.5). A bound that moves inside the loop does not bound it: the loop is
+ * open, and the remedy is a `while`, which says so. Only the body's own writes are seen here;
+ * a write made by a function the body calls is not, because the functions of the file are
+ * lowered one at a time (Appendix B).
+ */
+export function boundWrittenIn(
+  cond: Expr,
+  name: string,
+  scope: LoweringScope,
+  body: readonly Stmt[],
+): string | undefined {
+  const exit = readCond(cond, name, scope);
+  if (!exit || exit.value !== undefined) return undefined;
+  const written = new Set<string>();
+  collectMutatedRoots(body, written);
+  let hit: string | undefined;
+  eachExpr(exit.bound, (x) => {
+    if (hit !== undefined) return;
+    if ((x.op === 'varref' || x.op === 'param' || x.op === 'externref') && written.has(x.name)) {
+      hit = scope.resolveIr(x.name)?.name ?? x.name;
+    }
+  });
+  return hit;
+}
+
+/**
+ * What can still be proved about a header whose start or bound is a runtime value, or
+ * undefined when that is enough to count it by (Rule 7.5).
+ *
+ * The count is unknown, but the DIRECTION is not: the step is a constant, so whether it moves
+ * the counter toward the bound is a fact of the header. A step that moves away is the loop
+ * that does not exit, as it is with a constant bound. `==` and `!=` are refused because they
+ * exit only when the step lands on the bound exactly, which a runtime bound cannot promise. A
+ * multiplicative step moves toward a larger bound only from a positive start and toward a
+ * smaller one only while the counter is not yet 0, so its factor has to be a positive whole
+ * number, and a constant start of 0 is the loop that never moves.
+ *
+ * What this does not prove, because the value is not known before the loop runs: that the
+ * counter reaches the bound before it leaves its type. `i <= n` with `n` at the type's
+ * maximum never fails, `i += 4` wraps past a bound within 4 of it, and `i *= 2` from a runtime
+ * start of 0 never moves. Both targets and the
+ * CPU agree on what such a loop does; Appendix B of `docs/language-design.md` records it.
+ */
+function runtimeHeader(
+  shown: string,
+  start: number | undefined,
+  cop: CmpOp,
+  step: Step,
+): Refusal | undefined {
+  const text = stepText(shown, step);
+  if (cop === '==' || cop === '!=') {
     return {
       ok: false,
-      message: `for trip count ${trips.n} exceeds ${MAX_LOOP_TRIPS}.`,
+      message:
+        `for exit "${shown} ${cop} <bound>" with a runtime bound exits only if "${text}" lands ` +
+        `on it exactly. Compare with <, <=, > or >=.`,
       code: TS_CODES.LOOP_BOUND,
+    };
+  }
+  const goingUp = cop === '<' || cop === '<=';
+  if (step.op === 'add') {
+    if (goingUp !== step.by > 0) {
+      return {
+        ok: false,
+        message: `for step "${text}" moves "${shown}" away from a bound it compares with ${cop}, so the loop does not exit once it starts.`,
+        code: TS_CODES.LOOP_INFINITE,
+      };
     }
+    return undefined;
   }
-  return {
-    ok: true,
-    loop: { name: init.name, start, bound: condInfo.bound, step: step.by, trips: trips.n },
+  if (!Number.isInteger(step.by) || step.by < 2) {
+    return {
+      ok: false,
+      message: `for step "${text}" with a runtime start or bound needs a whole factor of 2 or more, so its direction is known.`,
+      code: TS_CODES.LOOP_BOUND,
+    };
   }
+  if (goingUp !== (step.op === 'mul')) {
+    return {
+      ok: false,
+      message: `for step "${text}" moves "${shown}" away from a bound it compares with ${cop}, so the loop does not exit once it starts.`,
+      code: TS_CODES.LOOP_INFINITE,
+    };
+  }
+  if (step.op === 'mul' && start !== undefined && start <= 0) {
+    return {
+      ok: false,
+      message:
+        start === 0
+          ? `for step "${text}" never advances "${shown}": multiplying pins it at 0.`
+          : `for step "${text}" from ${start} moves "${shown}" away from a bound it compares with ${cop}.`,
+      code: TS_CODES.LOOP_INFINITE,
+    };
+  }
+  return undefined;
 }
 
 /** Why a step cannot move the induction variable, or undefined when it can. All four cases
  *  used to share one message, "step of i is 0", which only ever fitted the first of them. */
 function stalls(step: Step): string | undefined {
-  if (step.op === 'add') return step.by === 0 ? 'a step of 0 leaves it where it is.' : undefined
-  if (step.by === 1) return 'multiplying or dividing by 1 leaves it where it is.'
+  if (step.op === 'add') return step.by === 0 ? 'a step of 0 leaves it where it is.' : undefined;
+  if (step.by === 1) return 'multiplying or dividing by 1 leaves it where it is.';
   if (step.by === 0) {
-    return step.op === 'mul' ? 'multiplying by 0 pins it at 0.' : 'dividing by 0 cannot move it.'
+    return step.op === 'mul' ? 'multiplying by 0 pins it at 0.' : 'dividing by 0 cannot move it.';
   }
-  return undefined
+  return undefined;
 }
 
 /** A trip count, or the reason there is not one. The two reasons were one `undefined` and
@@ -342,10 +459,10 @@ function stalls(step: Step): string | undefined {
  *  variable has left what its type can hold. */
 type Trips =
   | { readonly ok: true; readonly n: number }
-  | { readonly ok: false; readonly why: 'noexit' | 'range' }
+  | { readonly ok: false; readonly why: 'noexit' | 'range' };
 
-const NO_EXIT: Trips = { ok: false, why: 'noexit' }
-const OUT_OF_RANGE: Trips = { ok: false, why: 'range' }
+const NO_EXIT: Trips = { ok: false, why: 'noexit' };
+const OUT_OF_RANGE: Trips = { ok: false, why: 'range' };
 
 /**
  * How many times the body runs, or why it has no finite count.
@@ -366,22 +483,23 @@ const OUT_OF_RANGE: Trips = { ok: false, why: 'range' }
  * steps rather than a bounded guess.
  */
 function countTrips(start: number, cop: CmpOp, bound: number, step: Step, kind: string): Trips {
-  const lo = kind === 'u32' ? 0 : -0x80000000
-  const hi = kind === 'u32' ? 0xffffffff : 0x7fffffff
-  if (start < lo || start > hi) return OUT_OF_RANGE
-  if (!cmpHolds(cop, start, bound)) return { ok: true, n: 0 }
-  if (step.op === 'add') return addTrips(start, cop, bound, step.by, lo, hi)
+  const lo = kind === 'u32' ? 0 : -0x80000000;
+  const hi = kind === 'u32' ? 0xffffffff : 0x7fffffff;
+  if (start < lo || start > hi) return OUT_OF_RANGE;
+  if (!cmpHolds(cop, start, bound)) return { ok: true, n: 0 };
+  if (step.op === 'add') return addTrips(start, cop, bound, step.by, lo, hi);
   // A division on an integer induction variable truncates, exactly as both targets do.
-  const advance = (v: number): number => (step.op === 'mul' ? v * step.by : Math.trunc(v / step.by))
-  let v = start
+  const advance = (v: number): number =>
+    step.op === 'mul' ? v * step.by : Math.trunc(v / step.by);
+  let v = start;
   for (let n = 0; n <= 64; n++) {
-    if (v < lo || v > hi) return OUT_OF_RANGE
-    if (!cmpHolds(cop, v, bound)) return { ok: true, n }
-    const next = advance(v)
-    if (next === v) return NO_EXIT
-    v = next
+    if (v < lo || v > hi) return OUT_OF_RANGE;
+    if (!cmpHolds(cop, v, bound)) return { ok: true, n };
+    const next = advance(v);
+    if (next === v) return NO_EXIT;
+    v = next;
   }
-  return NO_EXIT
+  return NO_EXIT;
 }
 
 /** The trip count of an additive loop, in closed form. `lo`/`hi` are the induction type's
@@ -396,13 +514,13 @@ function addTrips(
 ): Trips {
   // `==` and `!=` are about hitting one value, not about crossing a threshold.
   if (cop === '==') {
-    if (start !== bound) return { ok: true, n: 0 }
-    return bound + step === bound ? NO_EXIT : { ok: true, n: 1 }
+    if (start !== bound) return { ok: true, n: 0 };
+    return bound + step === bound ? NO_EXIT : { ok: true, n: 1 };
   }
   if (cop === '!=') {
-    const gap = bound - start
-    if (gap === 0) return { ok: true, n: 0 }
-    if (step === 0 || gap % step !== 0 || gap / step < 0) return NO_EXIT
+    const gap = bound - start;
+    if (gap === 0) return { ok: true, n: 0 };
+    if (step === 0 || gap % step !== 0 || gap / step < 0) return NO_EXIT;
     // No range check here, unlike the four threshold arms below, and it is not an omission.
     // This arm only counts when the walk lands EXACTLY on the bound (`gap % step !== 0` is
     // refused above), so every value it visits lies between the start and the bound, and the
@@ -412,53 +530,47 @@ function addTrips(
     // not take the induction variable's type, so the comparison is a type mismatch). The four
     // arms below need their check because they stop at the last value that still SATISFIES
     // the condition and then take one more step past it, which is a value no literal names.
-    return { ok: true, n: gap / step }
+    return { ok: true, n: gap / step };
   }
   // The remaining four are `<`, `<=`, `>`, `>=`. Normalise to "how far is the last value that
   // still satisfies the condition", then divide by the step.
-  const inclusive = cop === '<=' || cop === '>='
-  const goingUp = cop === '<' || cop === '<='
-  if (step === 0) return NO_EXIT
-  if (goingUp !== step > 0) return NO_EXIT // stepping away from the bound
-  const last = goingUp ? (inclusive ? bound : bound - 1) : inclusive ? bound : bound + 1
-  const span = goingUp ? last - start : start - last
-  if (span < 0) return { ok: true, n: 0 }
-  const trips = Math.floor(span / Math.abs(step)) + 1
+  const inclusive = cop === '<=' || cop === '>=';
+  const goingUp = cop === '<' || cop === '<=';
+  if (step === 0) return NO_EXIT;
+  if (goingUp !== step > 0) return NO_EXIT; // stepping away from the bound
+  const last = goingUp ? (inclusive ? bound : bound - 1) : inclusive ? bound : bound + 1;
+  const span = goingUp ? last - start : start - last;
+  if (span < 0) return { ok: true, n: 0 };
+  const trips = Math.floor(span / Math.abs(step)) + 1;
   // The value AFTER the final iteration has to be representable, since the loop computes it
   // before the condition rejects it.
-  const end = start + trips * step
-  if (end < lo || end > hi) return OUT_OF_RANGE
-  return { ok: true, n: trips }
+  const end = start + trips * step;
+  if (end < lo || end > hi) return OUT_OF_RANGE;
+  return { ok: true, n: trips };
 }
 
-export function loopConditionError(
+/**
+ * Why a `while` cannot run as written, or undefined when it can (Rule 7.5).
+ *
+ * A `while` is an OPEN loop: it ends when its condition fails, or at a `break` or a `return`
+ * in its body, and nothing about it is counted. A BVH traversal (`while (sp > 0)`) and an
+ * iterative solver are written this way, and both targets accept it. What is refused is the
+ * one open loop that certainly never ends: a condition that is constantly true, with no
+ * `break` or `return` in the body to leave it by. `hasExit` answers the second half, since
+ * that is a question about the source body and not the condition.
+ */
+export function openLoopError(
   cond: Expr,
   scope: LoweringScope,
+  hasExit: boolean,
 ): { message: string; code: TsCode } | undefined {
-  const b = foldConstBool(cond, scope)
-  if (b === false) return undefined
-  if (b === true) {
-    return {
-      message:
-        'Infinite loop: condition is constantly true. Use a constant exit bound (e.g. i < 16).',
-      code: TS_CODES.LOOP_INFINITE,
-    }
-  }
-  if (cond.op === 'compare') {
-    if (
-      foldConstNumber(cond.a, scope) !== undefined ||
-      foldConstNumber(cond.b, scope) !== undefined
-    )
-      return undefined
-    return {
-      message: 'while/for exit bound must be a compile-time constant. `i < n` is not allowed.',
-      code: TS_CODES.LOOP_BOUND,
-    }
-  }
+  if (foldConstBool(cond, scope) !== true || hasExit) return undefined;
   return {
-    message: 'Loop condition must compare against a compile-time constant bound (e.g. i < 16).',
-    code: TS_CODES.LOOP_BOUND,
-  }
+    message:
+      'while (true) has no break or return in its body, so it never ends. Leave it with a ' +
+      'break, or write the exit into the condition.',
+    code: TS_CODES.LOOP_INFINITE,
+  };
 }
 
 /** The components of a constant vector or scalar expression, or undefined when any part does not
@@ -478,71 +590,71 @@ export function foldConstComponents(
   seen: ReadonlySet<string> = new Set(),
 ): number[] | undefined {
   const fold = (x: Expr, s: ReadonlySet<string> = seen): number[] | undefined =>
-    foldConstComponents(x, scope, valueExprs, s)
+    foldConstComponents(x, scope, valueExprs, s);
   switch (e.op) {
     case 'lit':
-      return typeof e.value === 'number' ? [e.value] : undefined
+      return typeof e.value === 'number' ? [e.value] : undefined;
     case 'unop': {
-      const a = fold(e.a)
-      return a === undefined ? undefined : a.map((v) => -v)
+      const a = fold(e.a);
+      return a === undefined ? undefined : a.map((v) => -v);
     }
     case 'construct': {
-      if (e.type.kind !== 'vec') return undefined
-      const parts: number[] = []
+      if (e.type.kind !== 'vec') return undefined;
+      const parts: number[] = [];
       for (const a of e.args) {
-        const c = fold(a)
-        if (c === undefined) return undefined
-        parts.push(...c)
+        const c = fold(a);
+        if (c === undefined) return undefined;
+        parts.push(...c);
       }
       if (parts.length === 1 && e.type.n > 1)
-        return Array.from({ length: e.type.n }, () => parts[0]!)
-      return parts.length === e.type.n ? parts : undefined
+        return Array.from({ length: e.type.n }, () => parts[0]!);
+      return parts.length === e.type.n ? parts : undefined;
     }
     case 'constref': {
-      if (seen.has(e.name)) return undefined
+      if (seen.has(e.name)) return undefined;
       // The collector hands the earlier consts' initializers in `valueExprs`; inside a function
       // body the binding itself carries the one a vector const was declared with.
-      const value = valueExprs?.get(e.name) ?? scope.resolveIr(e.name)?.valueExpr
-      if (value !== undefined) return fold(value, new Set([...seen, e.name]))
-      const n = foldConstNumber(e, scope)
-      return n === undefined ? undefined : [n]
+      const value = valueExprs?.get(e.name) ?? scope.resolveIr(e.name)?.valueExpr;
+      if (value !== undefined) return fold(value, new Set([...seen, e.name]));
+      const n = foldConstNumber(e, scope);
+      return n === undefined ? undefined : [n];
     }
     case 'varref': {
-      const n = foldConstNumber(e, scope)
-      return n === undefined ? undefined : [n]
+      const n = foldConstNumber(e, scope);
+      return n === undefined ? undefined : [n];
     }
     case 'binop': {
-      const a = fold(e.a)
-      const b = fold(e.b)
-      if (a === undefined || b === undefined) return undefined
-      if (a.length !== 1 && b.length !== 1 && a.length !== b.length) return undefined
-      const n = Math.max(a.length, b.length)
-      const at = (xs: number[], i: number): number => xs[xs.length === 1 ? 0 : i]!
-      const out: number[] = []
+      const a = fold(e.a);
+      const b = fold(e.b);
+      if (a === undefined || b === undefined) return undefined;
+      if (a.length !== 1 && b.length !== 1 && a.length !== b.length) return undefined;
+      const n = Math.max(a.length, b.length);
+      const at = (xs: number[], i: number): number => xs[xs.length === 1 ? 0 : i]!;
+      const out: number[] = [];
       for (let i = 0; i < n; i++) {
-        const x = at(a, i)
-        const y = at(b, i)
+        const x = at(a, i);
+        const y = at(b, i);
         switch (e.bop) {
           case '+':
-            out.push(x + y)
-            break
+            out.push(x + y);
+            break;
           case '-':
-            out.push(x - y)
-            break
+            out.push(x - y);
+            break;
           case '*':
-            out.push(x * y)
-            break
+            out.push(x * y);
+            break;
           case '/':
-            if (y === 0) return undefined
-            out.push(x / y)
-            break
+            if (y === 0) return undefined;
+            out.push(x / y);
+            break;
           default:
-            return undefined
+            return undefined;
         }
       }
-      return out
+      return out;
     }
     default:
-      return undefined
+      return undefined;
   }
 }

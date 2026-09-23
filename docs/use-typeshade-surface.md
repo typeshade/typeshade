@@ -32,11 +32,11 @@ Do not put an entry method on a class. Do not use a class as a bind group.
 Host-owned. No initializer. Slot index = source order of `declare` in the file.
 
 ```ts
-"use typeshade"
+"use typeshade";
 
-declare const camera: uniform<Camera>
-declare const src: storage<f32>
-declare let pixels: storage<f32>
+declare const camera: uniform<Camera>;
+declare const src: storage<f32>;
+declare let pixels: storage<f32>;
 ```
 
 | Declaration | Space | Access |
@@ -57,8 +57,8 @@ Duplicate `@group @binding` is an error.
 Sketch form still exists and occupies the same slot sequence:
 
 ```ts
-const scale = uniform<f32>()
-let xs = storage<f32>()
+const scale = uniform<f32>();
+let xs = storage<f32>();
 ```
 
 Product code should use `declare`. Mixing `declare` and call form in one file shares one slot counter; collisions still error.
@@ -77,9 +77,9 @@ Plain data without field metadata uses a type alias:
 
 ```ts
 type Camera = {
-  view: mat4
-  pos: vec3
-}
+  view: mat4;
+  pos: vec3;
+};
 ```
 
 `interface Camera { view: mat4; pos: vec3 }` is the same struct written a third way. A class,
@@ -90,10 +90,10 @@ A type alias over anything else is another name for its target, which is what it
 TypeScript (roadmap 0.3 item T2):
 
 ```ts
-type Meters = f32
-type Color = vec3
-type Grid = array<f32, 16>
-type Point = Camera
+type Meters = f32;
+type Color = vec3;
+type Grid = array<f32, 16>;
+type Point = Camera;
 ```
 
 The alias resolves wherever a type may stand: a parameter, a return, a class field, a local
@@ -116,13 +116,13 @@ Field metadata (`@location`, `@builtin`, `@interpolate`, `@invariant`, `@blend_s
 ```ts
 class Camera {
   @align(16)
-  view: mat4
-  pos: vec3
+  view: mat4;
+  pos: vec3;
 }
 
 class VsIn {
-  @location(0) position: vec3
-  @location(1) @interpolate("linear") uv: vec2 // WGSL only — GLSL ES 3.00 has no `linear`
+  @location(0) position: vec3;
+  @location(1) @interpolate("linear") uv: vec2; // WGSL only — GLSL ES 3.00 has no `linear`
 }
 ```
 
@@ -173,7 +173,7 @@ Shader-stage inputs are **explicit function parameters**. TypeShade does not inj
 export function paint(
   @builtin("global_invocation_id") gid: vec3u
 ) {
-  pixels[gid.x] += camera.pos.x
+  pixels[gid.x] += camera.pos.x;
 }
 
 @vertex
@@ -181,14 +181,14 @@ export function vs(
   @builtin("vertex_index") vid: u32,
   vin: VsIn
 ): vec4 {
-  return camera.view * vec4(vin.position, 1)
+  return camera.view * vec4(vin.position, 1);
 }
 
 @fragment
 export function fs(
   @builtin("position") pid: vec4
 ): vec4 {
-  return vec4(pid.x, 0, 0, 1)
+  return vec4(pid.x, 0, 0, 1);
 }
 ```
 
@@ -198,8 +198,20 @@ export function fs(
 - The builtin name must match the target backend's supported builtin set.
 - Workgroup size is the only payload on `@compute`, an array of one to three whole numbers; a bare
   `@compute` takes the default of 64, emitted as `@workgroup_size(64)`.
-- The `y` and `z` sizes must be 1; `@compute([8, 8])` is refused (`TS8026`):
-  `@compute workgroup shape [8, 8] must have y and z equal to 1: the backend only carries the x workgroup size today, and would silently drop the rest.`
+- `y` and `z` default to 1, and WGSL spells only the extents it needs: `@compute([8, 8])` emits
+  `@workgroup_size(8, 8)`, `@compute([4, 1, 2])` emits `@workgroup_size(4, 1, 2)`, and
+  `@compute([64, 1, 1])` emits `@workgroup_size(64)` as it always did. `reflect()` reports the
+  three extents as `workgroupShape`, `[8, 8, 1]`, beside `workgroupSize`, which stays the `x`
+  extent; a host sizes a dispatch as `ceil(n / extent)` workgroups per axis. The CPU `dispatch`
+  runs the same grid, with `global_invocation_id`, `local_invocation_id` and
+  `local_invocation_index` filled in per axis (§25). `examples/workgroup-tile-2d.shade.ts` is the
+  gate's evidence.
+- A shape over WebGPU's default compute limits (`x` and `y` 256, `z` 64, 256 invocations in all)
+  compiles with a warning (`TS8026`) naming the limit, since only a device requested with that
+  limit raised runs it:
+  `@compute workgroup shape [16, 16, 2] has 512 invocations, over maxComputeInvocationsPerWorkgroup (256). WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`
+- A `portable` kernel's workgroup stays one-dimensional (`SD0111`): the WebGL2 lowering draws one
+  texel per invocation and has no workgroup to give `y` and `z` to.
 - `@compute({ workgroup: [64, 1, 1] })` is refused (`TS8037`):
   `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or no argument for the default of 64; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
 
@@ -213,7 +225,7 @@ its own, so the smallest vertex shader needs no struct and no parameters:
 ```ts
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): vec4 {
-  return vec4(xs[i32(vi)], ys[i32(vi)], 0., 1.)
+  return vec4(xs[i32(vi)], ys[i32(vi)], 0., 1.);
 }
 ```
 
@@ -234,7 +246,7 @@ author reads it against the line they wrote instead of against generated text.
 ```ts
 @fragment
 export function fs(): f32 {
-  return 0.5
+  return 0.5;
 }
 ```
 
@@ -251,9 +263,10 @@ entry may also return nothing, which is what a program that only writes to stora
 | `class Scene { @compute paint() {} }` | `this` is not a GPU instance |
 | Static class as bind group | Extra ban list; emit `.d.ts` instead |
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
-| JS `Array` / lambdas / `filter` length change | IR + WGSL constraints |
+| JS `Array` / `filter` length change | IR + WGSL constraints |
+| A function held in a variable, returned, or chosen at run time | Neither target has a function value; a local function and a closure's variables are §14's, and every call of one is written where it is in scope (Rule 8.17), as every function a call hands to a parameter of function type is named there (Rule 8.18) |
 | Implicit `gid` / `vid` / `pid` globals | Hidden stage inputs make dependencies less explicit |
-| Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright. The check is SYNTACTIC, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
+| Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright. The check reads the calls as written, and a method call, an accessor and `new` as they lower, before the optimizer runs, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
 
 ---
 
@@ -310,7 +323,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare`, a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
-| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. An arrow-function field, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a method that changes its object called on a `const`, a parameter or a dropped value, one that returns nothing used as a value, or a write to `this` in a base's body called through `super` (§26) |
+| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
 | A call that writes in a `while` condition, anywhere but as one side of its comparison | `TS8006`. The condition runs on every iteration, so the call cannot move ahead of the loop to run in source order; compare the call alone, or call it into a `let` at the end of the body (§26, Rule 7.9) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 
@@ -322,22 +335,22 @@ Compiles today. `@align(16)` on `view` is part of the frozen grammar (§2) but t
 rejects it (`TS8010`, "`@align` on a field is not applied"), so it is left out here.
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 class Camera {
-  view: mat4
-  pos: vec3
+  view: mat4;
+  pos: vec3;
 }
 
-declare const camera: uniform<Camera>
-declare let pixels: storage<array<f32>>
+declare const camera: uniform<Camera>;
+declare let pixels: storage<array<f32>>;
 
 @compute([64, 1, 1])
 export function paint(
   @builtin("global_invocation_id") gid: vec3u
 ) {
-  const i = gid.x
-  pixels[i] = pixels[i] + camera.pos.x
+  const i = gid.x;
+  pixels[i] = pixels[i] + camera.pos.x;
 }
 ```
 
@@ -359,13 +372,13 @@ A write lands on a name, or on a field, component or element of one. The chain m
 deep as the types allow; what decides whether it is legal is the **root** of the chain.
 
 ```ts
-v = vec3(0., 1., 0.)      // a name
-v.x = 0.                  // a component
-v.x += 1.                 // and the compound and ++ / -- forms
-o.pos = vec4(p, 0., 1.)   // a field
-o.pos.x = 2.              // a component of a field
-ps[i].a = 1.              // a field of an element
-pixels[i] = 1.            // an element
+v = vec3(0., 1., 0.);      // a name
+v.x = 0.;                  // a component
+v.x += 1.;                 // and the compound and ++ / -- forms
+o.pos = vec4(p, 0., 1.);   // a field
+o.pos.x = 2.;              // a component of a field
+ps[i].a = 1.;              // a field of an element
+pixels[i] = 1.;            // an element
 ```
 
 | Root | Writable? |
@@ -396,7 +409,7 @@ literal of the target's type, and no vector literal has a spelling, so `v++` nev
 shader text on any target. Write the addition out instead:
 
 ```ts
-v = v + vec3(1., 1., 1.)   // instead of v++ on a vec3
+v = v + vec3(1., 1., 1.);   // instead of v++ on a vec3
 ```
 
 An `i32` or `u32` vector takes the same addition with bare literals, `v = v + vec2i(1, 1)`,
@@ -481,23 +494,27 @@ A function the file declares wins over any name in the table above, and over `bo
 `f64`: those names meant the author's function before they were builtins, and an addition
 does not change what a program means. The builtins that came earlier (`min`, `max`, `mix`,
 `clamp`, `pow`, `f32` …) keep their precedence, for the same reason pointing the other way:
-a program that resolves to one today must keep resolving to it.
+a program that resolves to one today must keep resolving to it. That precedence is a function
+of the module's: a name a body declares, a local function (§14) or a parameter that takes a
+function, wins over every builtin, as TypeScript's lookup finds it first. `step(i)` on a parameter
+`step` calls the function the call handed over, and a local `const mix = …` is the one `mix(…)`
+calls, where both reached WGSL's builtin before.
 
 `discard` kills the fragment:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 class Color {
-  @location(0) color: vec4
+  @location(0) color: vec4;
 }
 
 @fragment
 export function fs(@builtin("position") p: vec4): Color {
   if (p.x > 0.5) {
-    discard
+    discard;
   }
-  return { color: vec4(1., 0., 0., 1.) }
+  return { color: vec4(1., 0., 0., 1.) };
 }
 ```
 
@@ -543,13 +560,13 @@ A `vecN` constructor either **composes** a vector out of parts of its own elemen
 **converts** one whole vector of the same size:
 
 ```ts
-vec3(a, b, c)        // compose: three f32
-vec3(0.5)            // splat
-vec4(v3, 1.)         // compose from a vec3 and a scalar
-vec4(v2, v2)         // compose from two vec2
-vec3f(v)             // convert: v is a vec3u, every component becomes an f32
-vec3u(v)             // convert the other way
-vec2(gid.xy)         // convert a vec2<u32> swizzle to vec2<f32>
+vec3(a, b, c);        // compose: three f32
+vec3(0.5);            // splat
+vec4(v3, 1.);         // compose from a vec3 and a scalar
+vec4(v2, v2);         // compose from two vec2
+vec3f(v);             // convert: v is a vec3u, every component becomes an f32
+vec3u(v);             // convert the other way
+vec2(gid.xy);         // convert a vec2<u32> swizzle to vec2<f32>
 ```
 
 The converting form is WGSL's `vecN<T>(e: vecN<S>)` and GLSL ES 3.00's `vec3(uv)`, and the
@@ -580,18 +597,18 @@ at declaration; a **vector or array** one carries its value as an expression eve
 emits and evaluates:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
-const PI2: f32 = 6.28318 // scalar, as before
-const UP = vec3(0., 1., 0.) // → const UP: vec3<f32> = vec3<f32>(0.0, 1.0, 0.0);
-const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.)
-const XS: array<f32, 3> = array<f32, 3>(1., 2., 3.)
-const PAL = array<vec4, 2>(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.))
-const K: f32 = 2.
-const V = vec3(K, K, K) // an earlier const is a valid component
+const PI2: f32 = 6.28318; // scalar, as before
+const UP = vec3(0., 1., 0.); // → const UP: vec3<f32> = vec3<f32>(0.0, 1.0, 0.0);
+const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.);
+const XS: array<f32, 3> = array<f32, 3>(1., 2., 3.);
+const PAL = array<vec4, 2>(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.));
+const K: f32 = 2.;
+const V = vec3(K, K, K); // an earlier const is a valid component
 
 export function pick(i: i32): vec4 {
-  return PAL[i] * K + vec4(UP, PI2) + vec4(V, XS[0]) + SKY
+  return PAL[i] * K + vec4(UP, PI2) + vec4(V, XS[0]) + SKY;
 }
 ```
 
@@ -634,7 +651,7 @@ A module const of a struct type takes the struct its annotation names, the way a
 apart at module scope, where the field names alone cannot answer:
 
 ```ts
-const ORIGIN: P = { x: 0., y: 1. } // → const ORIGIN: P = P(0.0, 1.0);
+const ORIGIN: P = { x: 0., y: 1. }; // → const ORIGIN: P = P(0.0, 1.0);
 ```
 
 ### `enum`
@@ -679,36 +696,36 @@ A number written without a decimal point takes the type the position around it *
 It is WGSL's abstract-integer rule, narrowed to the places where a type is actually stated:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
-const N: u32 = 16 // the declared type — on the IR; see the note below
+const N: u32 = 16; // the declared type — on the IR; see the note below
 
 class Id {
-  id: u32
+  id: u32;
 }
 
 export function g(a: i32): i32 {
-  return a
+  return a;
 }
 
 export function positions(i: i32, c: bool, xs: array<f32, 4>): u32 {
-  let j: i32 = -1 // the declared type, sign and all
-  let x: u32 = N // the assignment target's type…
-  x = 2 // …here
-  const s: Id = { id: 0 } // the struct field's type
-  const v = vec3u(1, 2, 3) // the constructor's element type
-  const t: u32 = c ? 1 : 2 // through both arms, from the position around it
-  let acc = 0.
+  let j: i32 = -1; // the declared type, sign and all
+  let x: u32 = N; // the assignment target's type…
+  x = 2; // …here
+  const s: Id = { id: 0 }; // the struct field's type
+  const v = vec3u(1, 2, 3); // the constructor's element type
+  const t: u32 = c ? 1 : 2; // through both arms, from the position around it
+  let acc = 0.;
   for (let k = 0; k < 4; k++) {
     // i32, the type an induction variable must have
-    acc += xs[0] // an index is an i32
+    acc += xs[0]; // an index is an i32
   }
-  return u32(g(1) + j) + x + s.id + v.x + t + u32(acc) + u32(min(i, 4))
+  return u32(g(1) + j) + x + s.id + v.x + t + u32(acc) + u32(min(i, 4));
   //         ^ the parameter's type              ^ the kind of the call's other arguments
 }
 
 export function ret(): u32 {
-  return 0 // the declared return type
+  return 0; // the declared return type
 }
 ```
 
@@ -746,7 +763,11 @@ Three edges of the rule, each of which the diagnostics still cover:
   function is `return 5u;`, but `return 2.5 + 0.5` is a type mismatch — every leaf of the
   arithmetic has to be an integer literal.
 - **The value has to fit.** `return -1` in a `u32` function, or `2147483648` in an `i32` one,
-  is left exactly as written and reported as the mismatch it always was.
+  is not retyped, and is reported at the literal as TS8003 *The value has to fit: -1 is outside
+  u32, which holds 0 to 4294967295 (§13).* The same sentence covers every declared position
+  above: a declaration, an assignment, a `for` init, a return, an argument, a struct field, a
+  vector constructor's element and a conditional's arm. An array element keeps §18's element
+  message, and a module `const` its own range message.
 - **A written number in a builtin call's FIRST argument takes an integer peer's kind (#57).**
   An intrinsic's result type is its first argument's, and until roadmap 0.2 item 9 that position
   was never retargeted, so `min(1, i)` with an `i32` `i` typed the call `f32` and emitted
@@ -772,7 +793,7 @@ that wants to see which of its lines the flip will move asks for the warning, wh
 default and moves no emitted byte:
 
 ```ts
-compile(source, { deprecations: true })
+compile(source, { deprecations: true });
 // TS8053 (warning): "i" is written as an integer and types as f32 today; it will type as i32
 // (§13, #148). Write "i = 0." to keep f32, or leave it and take i32.
 ```
@@ -788,36 +809,36 @@ always taken any `BinOp`, `construct` does not record how a field was spelled, a
 was already lowered; only the source language refused them.
 
 ```ts
-"use typeshade"
+"use typeshade";
 
-const PALETTE_WARM = 1.
+const PALETTE_WARM = 1.;
 
 export function band(seed: i32, t: f32): vec3 {
-  let bits: i32 = seed
-  bits <<= 1
-  bits &= 3
-  bits |= 0
-  bits ^= 0
-  bits >>= 0
+  let bits: i32 = seed;
+  bits <<= 1;
+  bits &= 3;
+  bits |= 0;
+  bits ^= 0;
+  bits >>= 0;
 
-  let rgb: vec3
-  rgb = vec3(0., 0., 0.)
+  let rgb: vec3;
+  rgb = vec3(0., 0., 0.);
   switch (bits) {
     case 0:
-      rgb = vec3(0.1, 0.1, 0.12)
-      break
+      rgb = vec3(0.1, 0.1, 0.12);
+      break;
     case 1: {
       if (t > 0.5) {
-        rgb = vec3(PALETTE_WARM, 0.55, 0.2)
-        break
+        rgb = vec3(PALETTE_WARM, 0.55, 0.2);
+        break;
       }
-      rgb = vec3(0.5, 0.3, 0.1)
-      break
+      rgb = vec3(0.5, 0.3, 0.1);
+      break;
     }
     default:
-      rgb = vec3(0.85, 0.85, 0.9)
+      rgb = vec3(0.85, 0.85, 0.9);
   }
-  return rgb
+  return rgb;
 }
 ```
 
@@ -871,11 +892,11 @@ type, not conversions, so each emits exactly what its operand emits (roadmap 0.3
 [#92](https://github.com/typeshade/typeshade/issues/92)):
 
 ```ts
-const K = 3. as const
-const half = 0.5 as f32
-const v = <vec2>vec2(1., 2.)
-const p = { x: 1., y: 2. } satisfies P
-const x = u!.x
+const K = 3. as const;
+const half = 0.5 as f32;
+const v = <vec2>vec2(1., 2.);
+const p = { x: 1., y: 2. } satisfies P;
+const x = u!.x;
 ```
 
 The claimed type is the contextual type for what it wraps, so `satisfies P` names the struct an
@@ -900,11 +921,11 @@ in the order written (roadmap 0.3 item T7,
 be read this way: a struct, by field name, and a vector, by component name or by a swizzle.
 
 ```ts
-const { x, y: b } = uv          // let x = uv.x;  let b = uv.y;
-const { xy } = uv               // let xy = uv.xy;
-const { a, k } = u              // let a = u.a;   let k = u.k;
-const { i: { a } } = u          // let a = u.i.a;
-let { x } = uv                  // var x: f32 = uv.x;
+const { x, y: b } = uv;          // let x = uv.x;  let b = uv.y;
+const { xy } = uv;               // let xy = uv.xy;
+const { a, k } = u;              // let a = u.a;   let k = u.k;
+const { i: { a } } = u;          // let a = u.i.a;
+let { x } = uv;                  // var x: f32 = uv.x;
 ```
 
 The value on the right is evaluated once. A bare name is read again for each field, since
@@ -971,8 +992,8 @@ after the body that declares it:
 ```ts
 @fragment
 export function fs(): vec4 {
-  const f = (x: f32): f32 => x * 2.      // fn fs_f(x: f32) -> f32
-  return vec4(f(3.), 0., 0., 1.)         // fs_f(3.0)
+  const f = (x: f32): f32 => x * 2.;      // fn fs_f(x: f32) -> f32
+  return vec4(f(3.), 0., 0., 1.);         // fs_f(3.0)
 }
 ```
 
@@ -981,14 +1002,199 @@ function may declare one of its own (`fs_outer_inner`), and one written at the m
 is a module function already, under its own name; inside a `namespace` it takes the flattened
 one, `N_twice`.
 
-**A local function may not capture.** A shader function takes its arguments and reads the
-module; there is no environment for it to carry a name in, and no closure to allocate one. A
-name read from the body around it is refused where it is written, with the parameter to add
-instead. That is the one rule separating a local function from a function declaration.
+**A local function reads and writes the variables around it**, as a TypeScript closure does
+(Rule 8.17). Neither target has an environment to carry them in, and none is needed: a function
+is no value here, so every call of a local function is written where the variables it reads are
+in scope. Each variable it reads from a function around it is a parameter the emitted function
+takes ahead of its own, and every call passes it. One it writes, or that a local function it
+calls writes, is passed by reference, a pointer in WGSL and an `inout` parameter in GLSL ES
+3.00, so the write lands in the variable itself and the next call sees it:
 
-Three more shapes are refused: an expression body with no return type, since there is nothing to
-infer it from here; a `let`, which would let the name point at another function; and a type
-written on the const rather than on the function itself.
+```ts
+"use typeshade";
+
+export function accumulate(k: f32): f32 {
+  let total = 0.;
+  const add = (v: f32): void => {     // fn accumulate_add(total: ptr<function, f32>, k: f32, v: f32)
+    total += v * k;                   //   (*total) += (v * k);
+  };
+  add(1.);                            // accumulate_add(&total, k, 1.0);
+  add(2.);
+  return total;                       // 1.5 for k = 0.5
+}
+
+class Meter {
+  level: f32 = 0.;
+  gain: f32 = 2.;
+  feed(xs: array<f32, 3>): f32 {
+    // `this` in an arrow function is the method's object; `push` writes it, so `feed` takes it
+    // by reference (Rule 8.10) and hands it on: Meter_feed_push(self_, xs[0]).
+    const push = (x: f32): void => {
+      this.level += x * this.gain;
+    };
+    push(xs[0]);
+    push(xs[1]);
+    push(xs[2]);
+    return this.level;
+  }
+}
+
+export function hoisted(x: f32): f32 {
+  let steps = 0.;
+  bump();                             // a function declaration is hoisted, as TypeScript's is
+  bump();
+  return steps * x;
+  function bump(): void {
+    steps += 1.;
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  let m = new Meter();
+  return vec4(accumulate(0.5), m.feed(array<f32, 3>(1., 2., 3.)), hoisted(2.), 1.);
+}
+```
+
+A variable is read when the call runs, not when the function is declared, so a write between
+the two is seen. A write through a capture follows the variable's own declaration: a `let` may be
+written, a `const` only through the object it built (Rule 6.10), and a parameter not at all, as in
+the body around it. A function named as a fold's callback (`any(xs, near)`, `zip(xs, ys, f)`)
+passes what it captures to every call the fold makes. A local function inside a generic function
+is made once per instance, `pick_f32_swap`.
+
+Refused, each with the reason: a call at a point where a variable the function reads is not
+declared yet, since TypeScript throws there (`"f" reads "y", which is not declared yet where
+"f" is called`); and a function named as a value rather than called (`const g = f`, `return f`),
+since nothing at run time can hold a function.
+
+Two shapes of the declaration itself are refused too: a `let`, which would let the name point at
+another function, and a type written on the const rather than on the function itself. A return
+type it leaves off, its body says, as for any function (below).
+
+### A function that takes a function
+
+A parameter whose type is a function type, written out or through a type alias, takes a function
+(Rule 8.18). Neither target has a function value to take, and none is needed: every call names
+the function it hands over, so the function is compiled once for each function its calls hand
+it, as a generic function is once for each set of type arguments. In each copy a call of the
+parameter calls the function handed over:
+
+```ts
+"use typeshade";
+
+type Op = (a: f32, b: f32) => f32;
+
+function fold3(op: Op, a: f32, b: f32, c: f32): f32 {
+  return op(op(a, b), c);
+}
+
+function times(body: (i: i32) => void): void {
+  for (let i = 0; i < 4; i++) {
+    body(i);
+  }
+}
+
+function mul(a: f32, b: f32): f32 {
+  return a * b;
+}
+
+export function shade(k: f32): f32 {
+  let total = 0.;
+  times((i) => {                            // fn shade_body(total: ptr<function, f32>, k: f32, i: i32)
+    total += f32(i) * k;                    // times_shade_body(&total, k);
+  });
+  const xs = array<f32, 3>(1., 2., 3.);
+  const big = any(xs, (x) => x > k);        // shade_any(k, xs[0]) || …
+  return fold3(mul, 2., 3., 4.) +           // fold3_mul(2.0, 3.0, 4.0)
+    fold3((a, b) => a + b * k, 1., 2., 3.) + // fold3_shade_op(k, 1.0, 2.0, 3.0)
+    total + (big ? 1. : 0.);
+}
+
+@fragment
+export function fs(): vec4 {
+  return vec4(shade(0.5), 0., 0., 1.);
+}
+```
+
+A call hands a function over by its name, a local one included, or as an arrow function or a
+function expression written in the call. One written in the call is a local function of the body
+the call is in, so it reads and writes that body's variables as §14's local functions do, and the
+copy takes what it captures and passes it on: `total` above is written through a pointer from
+`shade_body`, by way of `times_shade_body`. It takes its parameters' types from the parameter's
+type, and its return type too, where it writes none; it may leave parameters off at the end, as
+TypeScript allows; and when the type returns `void`, an expression body runs as a statement, so
+`times(() => n += k)` adds. Inside the function that takes it, a parameter of function type is
+called, or handed on to another such parameter (`twice(f)` calling `apply(f, x)` makes
+`apply_…` for whatever `f` was).
+
+The folds take the same arguments: `any(xs, pred)`, `all`, `none` and `zip(xs, ys, f)` accept an
+arrow function, typed by the arrays, and one `zip` is handed returns what its body does.
+
+Refused, each with the reason: a function that does not fit the parameter's type (`"add" takes 2
+argument(s), and "(x: f32) => f32" passes 1`); an argument that would choose a function at run
+time (`c ? sq : cube`); a builtin or a generic function by its name, for which an arrow function
+that calls it is the fix; a parameter of function type on a method, a constructor, an accessor, a
+local function or an entry point, which have no copies to make; a function type anywhere else, a
+return, a field, a variable; and a function that hands itself a function it builds anew on every
+call, whose copies would never end.
+
+### A return type left off is the body's to say
+
+A function that writes no return type returns what its body does, as TypeScript infers it (Rule
+8.19): a function of the file or of a namespace, a local function, a generic function's instance,
+a method, a getter and a field that holds a function all take the type of their first `return`
+with a value, and one with none returns nothing. The `return`s after the first are typed against
+it as against a written type, so `return 0` after `return u32(7)` is a `u32`. A call that needs
+the type before the body's turn lowers that body first, so a function may be called above its
+declaration:
+
+```ts
+"use typeshade";
+
+class Rng {
+  seed: u32 = u32(1);
+  next() {
+    this.seed = this.seed * u32(1664525) + u32(1013904223);
+    return f32(this.seed >> u32(8)) / 16777216.;
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let rng = new Rng();
+  const jitter = (k: f32) => (rng.next() - 0.5) * k;
+  return vec4(glow(uv) + jitter(0.1), 0., 0., 1.);
+}
+
+function glow(p: vec2) {
+  return 0.1 / length(p);
+}
+```
+
+```wgsl
+fn Rng_next(self_: ptr<function, Rng>) -> f32 { … }
+fn glow(p: vec2<f32>) -> f32 { … }
+fn fs_jitter(rng: ptr<function, Rng>, k: f32) -> f32 { … }
+```
+
+An arrow function whose body is an expression returns its value, but an assignment, `++`, `--`
+or a call of a function that returns nothing runs as a statement and the function returns
+nothing: `const inc = () => n += k` adds, where TypeScript would also return the new `n` (Rule
+7.2). A method whose every `return` is `return this` returns its object, so a chain goes on from
+it (§26). `return g()`, where `g` returns nothing, calls `g` and returns nothing, in any function.
+
+In the editor, TypeScript types an operator on a vector as `number`, as it does for a `const` that
+holds one (`docs/language-service-api.md`, [#162](https://github.com/typeshade/typeshade/issues/162)), so a function whose return is `v * 2.` is `number`
+there and a caller that reads `.x` off it is underlined: write its return type, `: vec2`, which is
+the one the compiler infers anyway. A return of a call, a constructor or a field keeps its type.
+
+Refused, each with the reason: a function whose type waits on itself, which is a call cycle and
+refused as one (§4); `return`s of two types (`Function "f" returns f32 at its first "return" and
+vec2<f32> at another`); a bare `return` beside one with a value; a default parameter value that
+calls such a function, since every default is lowered before any body; and a setter's value with
+no type beside a getter with none, since no call says what it takes. An entry point writes its
+return type, which is its output (§3).
 
 ### Triple-slash directives
 
@@ -1002,9 +1208,9 @@ TypeScript writes a function's overloads as body-less declarations above the one
 body (roadmap 0.3 item T6, [#92](https://github.com/typeshade/typeshade/issues/92)):
 
 ```ts
-export function lum(c: vec3): f32
+export function lum(c: vec3): f32;
 export function lum(c: vec3): f32 {
-  return dot(c, vec3(0.2126, 0.7152, 0.0722))
+  return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 ```
 
@@ -1026,28 +1232,28 @@ Three declarations the surface had no spelling for. None of them is a new IR sha
 EDSL builds them with `resource(name, texture2dfT, …)` and `overrideConst(name, type, default)`.
 
 ```ts
-"use typeshade"
+"use typeshade";
 
-declare const tex: texture_2d<f32>
-declare const atlas: texture_2d_array<f32>
-declare const smp: sampler
-const tint: override<f32> = 0.85
-declare const bias: override<f32>
+declare const tex: texture_2d<f32>;
+declare const atlas: texture_2d_array<f32>;
+declare const smp: sampler;
+const tint: override<f32> = 0.85;
+declare const bias: override<f32>;
 
 class Color {
-  @location(0) color: vec4
+  @location(0) color: vec4;
 }
 
 @fragment
 export function fs(@location(0) uv: vec2): Color {
-  const a = textureSample(tex, smp, uv)
-  const b = textureSample(atlas, smp, uv, 1)
-  const c = textureSampleLevel(tex, smp, uv, 0.)
-  const d = textureLoad(tex, vec2i(0, 0), 0)
-  const size = textureDimensions(tex)
-  const layers = textureNumLayers(atlas)
-  const k = tint + bias + f32(size.x) + f32(layers)
-  return { color: (a + b + c + d) * k }
+  const a = textureSample(tex, smp, uv);
+  const b = textureSample(atlas, smp, uv, 1);
+  const c = textureSampleLevel(tex, smp, uv, 0.);
+  const d = textureLoad(tex, vec2i(0, 0), 0);
+  const size = textureDimensions(tex);
+  const layers = textureNumLayers(atlas);
+  const k = tint + bias + f32(size.x) + f32(layers);
+  return { color: (a + b + c + d) * k };
 }
 ```
 
@@ -1099,31 +1305,31 @@ Which struct `{ … }` builds comes from the type the position **declares**: a f
 return type, a `let`/`const` annotation, or a parameter type.
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 class FsIn {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 export function shade(o: FsIn): f32 {
-  return o.uv.x
+  return o.uv.x;
 }
 
 @vertex
 export function vs(@builtin("vertex_index") i: u32): VsOut {
-  const p = vec2(0., 0.)
-  return { pos: vec4(p, 0., 1.), uv: p } // the return type says VsOut
+  const p = vec2(0., 0.);
+  return { pos: vec4(p, 0., 1.), uv: p }; // the return type says VsOut
 }
 
 export function pick(): f32 {
-  const a: FsIn = { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } // the annotation says FsIn
-  return shade(a) + shade({ pos: a.pos, uv: a.uv }) // the parameter says FsIn
+  const a: FsIn = { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }; // the annotation says FsIn
+  return shade(a) + shade({ pos: a.pos, uv: a.uv }); // the parameter says FsIn
 }
 ```
 
@@ -1176,9 +1382,9 @@ read per field of `p`'s struct (roadmap 0.3 item T7,
 [#92](https://github.com/typeshade/typeshade/issues/92)):
 
 ```ts
-const q: P = { ...p, y: 9. }     // P(p.x, 9.0)
-const q: P = { y: 9., ...p }     // P(p.x, p.y)
-const q: Inner = { ...o.i, b: 9. } // Inner(o.i.a, 9.0)
+const q: P = { ...p, y: 9. };     // P(p.x, 9.0)
+const q: P = { y: 9., ...p };     // P(p.x, p.y)
+const q: Inner = { ...o.i, b: 9. }; // Inner(o.i.a, 9.0)
 ```
 
 Later wins, over a written field and over an earlier spread, which is TypeScript's own rule and
@@ -1196,26 +1402,137 @@ an argument count known only at run time, and `[...xs]` a list that grows.
 
 ## 17. What a `for` loop may say, and what it is told
 
-A `for` must be **counted**: an integer induction variable, a constant bound, a constant step,
-and at most 256 trips. That has not changed. Three things about it have.
+A `for` must be **counted**: an integer induction variable, a constant step, and an exit that
+compares the variable to a bound the body does not write (Rule 7.5). The start and the bound
+may be runtime values, and a trip count has no ceiling: #203 removed the 256-trip limit and the
+constant bound, and made `while` an open loop. The first part of this section says what that
+means; the rest is the counted loop's older detail, which still holds.
+
+**A bound may be a value the program learns at run time.** A count from a uniform, an array's
+length, a parameter, an `override`: any integer expression the body does not write.
+
+```ts
+"use typeshade";
+
+declare const verts: storage<array<vec3f>>;
+declare let hits: storage<array<u32>>;
+
+@compute([64])
+export function main(@builtin("global_invocation_id") gid: vec3u): void {
+  let count: u32 = 0;
+  for (let t = 0; t < verts.length / 3; t++) {
+    if (verts[t * 3].y > f32(gid.x)) {
+      count += 1;
+    }
+  }
+  hits[gid.x] = count;
+}
+```
+
+The counter needs no annotation. `verts.length` is a `u32`, and an unannotated counter whose
+start is a non-negative integer literal takes the type of a `u32` bound, so `t` is a `u32` here.
+Otherwise it is an `i32`, as it always was: with an annotation, a negative or computed start, or
+an `i32` bound. Before this, the loop above was `TS8003 cannot compare i32 and u32`, about a type
+the author never wrote.
+
+The start may be a runtime value too, which is how a kernel strides over data:
+`for (let i: u32 = lid; i < params.count; i += 64)`. Both targets accept the loop as written;
+#203 measured `for (…; i < arrayLength(&data); …)` and a uniform-bounded `for` and `while` on
+Tint and on ANGLE.
+
+The step is still a constant, so the compiler still knows which way the counter moves, and
+refuses the header that moves it away from its bound:
+
+| Header | Answer |
+| --- | --- |
+| `let i: i32 = 0; i < n; i -= 1` | `TS8007 for step "i -= 1" moves "i" away from a bound it compares with <, so the loop does not exit once it starts.` |
+| `let i: i32 = 0; i < n; i *= 2` | `TS8007 for step "i *= 2" never advances "i": multiplying pins it at 0.` |
+| `let i: i32 = 0; i !== n; i += 2` | `TS8006`: against a runtime bound, `!=` exits only if the step lands on it exactly, so the remedy is `<`. |
+| `let i: i32 = 1; i < n; i *= -2` | `TS8006`: with a runtime bound, a factor has to be a whole number of 2 or more, or its direction is unknown. |
+| a body that writes `n` | `TS8006 for bound reads "n", which the loop body writes, so it does not bound the loop.` Read it into a `const` first, or write a `while`. |
+
+What is not checked, because the value is not known before the loop runs: that the counter
+reaches a runtime bound before it leaves its type. `i <= n` with `n` at the type's maximum never
+fails, and `i += 4` wraps past a bound within 4 of it. All three engines run such a loop the same
+way; Appendix B of the language design records it.
+
+**No trip count is too many.** `for (let i: i32 = 0; i < 100000; i++)` compiles; it was
+`for trip count 100000 exceeds 256.` Neither target limits a trip count, and nothing downstream
+read the ceiling but the check itself, which is why #203 removed it. A constant header is still
+counted exactly, and a count that leaves its type or never ends is still refused, as below.
+
+**A `while` is an open loop.** It ends when its condition fails, or at a `break` or a `return`,
+and its condition may be anything of type `bool`: `while (sp > 0)` over a stack, which is how a
+BVH is traversed, or `while (true)` with a `break` once an iteration has converged. The one
+`while` refused is the one that certainly never ends, a constant `true` with nothing in its body
+that leaves it:
+`TS8007 while (true) has no break or return in its body, so it never ends.` A `break` inside a
+nested loop or a `switch` leaves that statement, not this loop, and is not counted as a way out.
+A `for` with no condition says to write this form: `for (;;)` is refused and points at
+`while (true) { … }`.
+
+The compiler does not check that a `while` body moves toward its exit. An open loop is the
+author's to end, as it is in WGSL, and one that spins on a GPU is ended by the device's watchdog,
+which loses the device. `examples/loops-over-data.shade.ts` holds all three loops, a
+uniform-bounded `for`, a stack walk and a converging `while (true)`, and the compile gate runs it
+on Tint and on WebGL2.
+
+**`for (const x of xs)` iterates an array.** It is the other loop a TypeScript author writes
+over data, and it was `TS8013 for-of / for-in iterate JS objects`. Over an `array<T, N>` or a
+runtime-sized storage array it is a counted loop over the indices: the trip count is the array's
+length, which the body cannot change, so there is nothing left to check.
+
+```ts
+"use typeshade";
+
+class Light {
+  pos: vec3;
+  power: f32;
+}
+class Scene {
+  lights: array<Light, 4>;
+}
+declare const scene: uniform<Scene>;
+
+export function lit(p: vec3): f32 {
+  let s = 0.;
+  for (const l of scene.lights) {
+    s += l.power / (1. + distance(p, l.pos));
+  }
+  return s;
+}
+```
+
+It lowers to `for (var _i: u32 = 0u; _i < 4u; _i = _i + 1u) { let l = scene.lights[_i]; … }`,
+with `arrayLength(&xs)` as the bound of a runtime-sized array. The element is read at the top
+of each trip, as TypeScript's array iterator reads it, and `for (let x of xs)` gives a copy the
+body may change without writing the array. `break` and `continue` do what they do in any loop.
+
+Three shapes are refused. A vector is not an array (`TS8003`): index it, or write it into an
+`array<T, N>`. The array has to be a name, or a member or index path to one (`TS8006`), because
+it is read on every trip: `const xs = make(); for (const x of xs)`. And `for…in` stays `TS8013`,
+since a shader value has no keys to enumerate. In the editor the ambient `array` and list types
+are iterable, so the loop type-checks there too.
+
+**Before #203**, three things about the counted loop changed, and they still hold.
 
 **The step may scale, not only add.** The four update forms are `+=`, `-=`, `*=` and `/=`:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 export function shrink(): f32 {
-  let a = 0.
+  let a = 0.;
   for (let i: i32 = 64; i > 1; i /= 2) {
-    a += 1. // 64 32 16 8 4 2, six trips
+    a += 1.; // 64 32 16 8 4 2, six trips
   }
   for (let j: i32 = 1; j < 64; j *= 2) {
-    a += 1.
+    a += 1.;
   }
   for (let k: i32 = 8; k > 0; k -= 2) {
-    a += 1.
+    a += 1.;
   }
-  return a
+  return a;
 }
 ```
 
@@ -1230,11 +1547,11 @@ computed rather than walked, so the answer is exact at any size:
 
 | | before | after |
 | --- | --- | --- |
-| `for (let i: i32 = 0; i < 1024; i++)` | `for (i = 0; i < 1024; step 1) does not exit.` | `for trip count 1024 exceeds 256.` |
+| `for (let i: i32 = 0; i < 1024; i++)` | `for (i = 0; i < 1024; step 1) does not exit.` | `for trip count 1024 exceeds 256.`, and since #203 no error |
 | `for (let i: i32 = 0; i < 16; i--)` | `for (i = 0; i < 16; step -1) does not exit.` | `for (i = 0; i < 16; i -= 1) does not exit.` |
 
 The old counter walked the sequence and could only look 258 steps ahead, so a policy violation
-and a non-terminating loop shared one message. They are different mistakes and the fix for each
+(the ceiling #203 later removed) and a non-terminating loop shared one message. They are different mistakes and the fix for each
 is different: the first wants a smaller bound, the second a step that moves toward it. The
 second row is the loop that really does not exit, so it keeps its sentence; what changes there
 is only how the step is spelled back, since `i--` and `i -= 1` reach the counter as one step.
@@ -1257,10 +1574,7 @@ the counter's type that only the backend could refuse, naming a number the sourc
 contain. A step **written** as a float but valued as a whole number (`i += 2.0`) is still
 accepted, exactly as §13 accepts `let y: i32 = 0.`
 
-**What this does not cover.** A `while` is not trip-counted. It needs a compile-time-constant
-bound in its condition, but nothing checks that its body moves toward that bound, so
-`let w: i32 = 0; while (w < 4) { a += 1. }` compiles today with no diagnostic and spins on the
-device. And the multiplicative step has no `fn()` EDSL spelling, so `ir-equality.test.ts` has
+**What this does not cover.** The multiplicative step has no `fn()` EDSL spelling, so `ir-equality.test.ts` has
 no twin to pin `i *= 2` against; the CPU trip count in `loop-shapes.test.ts` stands in for that
 until `forRange` takes a step operation.
 
@@ -1270,14 +1584,14 @@ An `array<T, N>` takes a list where its type is written, in a function body and 
 scope:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 export function ramp(i: i32): f32 {
-  const stops: array<f32, 3> = [0., 0.5, 1.]
-  const weights: array<i32, 3> = [1, 2, 1]
-  let scratch: array<f32, 2> = [0., 0.]
-  scratch[0] = stops[i] * f32(weights[i])
-  return scratch[0]
+  const stops: array<f32, 3> = [0., 0.5, 1.];
+  const weights: array<i32, 3> = [1, 2, 1];
+  let scratch: array<f32, 2> = [0., 0.];
+  scratch[0] = stops[i] * f32(weights[i]);
+  return scratch[0];
 }
 ```
 
@@ -1307,9 +1621,12 @@ means:
   `row * width + column`.
 - A spread and a hole are refused: `[...xs]` would need the size of `xs` at lowering time.
 
-The call form is not the same in one respect: `array<i32, 3>(1, 2, 3)` still lowers each
-argument on its own and emits `array<i32, 3>(1.0, 2.0, 3.0)`, which neither target accepts.
-That is a gap in the call site, not in the list, and #8's A3 did not close it.
+The call form types its arguments by the same rule and the same check, so
+`array<i32, 3>(1, 2, 3)` emits `array<i32, 3>(1, 2, 3)` (GLSL `int[3](1, 2, 3)`) and
+`array<u32, 2>(1, 2)` emits `array<u32, 2>(1u, 2u)`, exactly what the list form emits, and
+`array<u32, 2>(-1, 2)` is refused with the list's element message. `array(1, 2, 3)`, which
+states no element type, infers `array<f32, 3>`: nothing declares an integer there, so §13 gives
+each literal `f32`.
 
 
 ---
@@ -1322,16 +1639,16 @@ side effect in a shader takes: a helper that writes a storage binding today, and
 statement.
 
 ```ts
-"use typeshade"
-declare let dst: storage<array<f32>>
+"use typeshade";
+declare let dst: storage<array<f32>>;
 
 function store(i: u32): void {
-  dst[i] = 1.
+  dst[i] = 1.;
 }
 
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  store(gid.x)
+  store(gid.x);
 }
 ```
 
@@ -1383,16 +1700,16 @@ host binds. `xs.length` on such an array reads it at run time, and `arrayLength(
 the same read explicitly. Both are a `u32`, as the WGSL builtin is.
 
 ```ts
-"use typeshade"
-declare const src: storage<array<f32>>
-declare let dst: storage<array<f32>>
+"use typeshade";
+declare const src: storage<array<f32>>;
+declare let dst: storage<array<f32>>;
 
 @compute([64, 1, 1])
 export function scale_all(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= src.length) {
-    return
+    return;
   }
-  dst[gid.x] = src[gid.x] * 2.
+  dst[gid.x] = src[gid.x] * 2.;
 }
 ```
 
@@ -1422,9 +1739,10 @@ array (`.length()` on one is GLSL ES 3.10), so a module with a runtime-sized sto
 WGSL alone, as it did before this. The `array-length` example is registered WGSL-only for that
 reason, like `compute-reduction-twin`.
 
-**A loop over such an array is still not written as `for (…; i < src.length; …)`**: §17 asks a
-`for` to compare its counter to a constant bound, and a runtime length is not one. Guard the
-invocation with `if` and index by `gid.x`, as the example does.
+**A loop over such an array is written `for (…; i < src.length; …)`** since #203: §17 takes a
+runtime bound, and the length reaches the header as `arrayLength(&src)`. When this section was
+written §17 wanted a constant bound, and the remedy was to guard the invocation with `if` and
+index by `gid.x`, as the example still does.
 
 A function you declare with the name `arrayLength` keeps winning the call, the way the names
 §10 added do, so no program that compiled before this section compiles differently.
@@ -1447,18 +1765,18 @@ outer one again. The renamed binding is always the later one, so nothing emitted
 inner block moves.
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 @fragment
 export function fs(): vec4 {
-  let a = 0.
+  let a = 0.;
   for (let i: u32 = 0; i < 4; i++) {
-    a = a + f32(i)
+    a = a + f32(i);
   }
   for (let i: u32 = 0; i < 3; i++) {
-    a = a + f32(i) * 2.
+    a = a + f32(i) * 2.;
   }
-  return vec4(a, 0., 0., 1.)
+  return vec4(a, 0., 0., 1.);
 }
 ```
 
@@ -1508,16 +1826,16 @@ either. `examples/block-scope.shade.ts` carries a scalar and a vector `%=` and i
 evidence on both targets.
 
 ```ts
-"use typeshade"
-const K: f32 = 4.
+"use typeshade";
+const K: f32 = 4.;
 
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  let bits: u32 = u32(uv.x * 255.) >> 4
-  bits <<= 2
-  let x: f32 = uv.y / K
-  x %= 0.5
-  return vec4(f32(bits) / 255., x, 0., 1.)
+  let bits: u32 = u32(uv.x * 255.) >> 4;
+  bits <<= 2;
+  let x: f32 = uv.y / K;
+  x %= 0.5;
+  return vec4(f32(bits) / 255., x, 0., 1.);
 }
 ```
 
@@ -1534,24 +1852,24 @@ are declared inside a `storage<...>` binding with `let`: an array of them, a fie
 struct, or a bare binding.
 
 ```ts
-"use typeshade"
+"use typeshade";
 class Summary {
-  count: atomic<u32>
-  maxBin: atomic<i32>
+  count: atomic<u32>;
+  maxBin: atomic<i32>;
 }
-declare const src: storage<array<f32>>
-declare let bins: storage<array<atomic<u32>>>
-declare let summary: storage<Summary>
+declare const src: storage<array<f32>>;
+declare let bins: storage<array<atomic<u32>>>;
+declare let summary: storage<Summary>;
 
 @compute([64, 1, 1])
 export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= arrayLength(src)) {
-    return
+    return;
   }
-  const bin = u32(clamp(src[gid.x], 0., 0.999) * 8.)
-  atomicAdd(bins[bin], 1)
-  const before = atomicAdd(summary.count, 1)
-  atomicMax(summary.maxBin, i32(bin))
+  const bin = u32(clamp(src[gid.x], 0., 0.999) * 8.);
+  atomicAdd(bins[bin], 1);
+  const before = atomicAdd(summary.count, 1);
+  atomicMax(summary.maxBin, i32(bin));
 }
 ```
 
@@ -1602,16 +1920,16 @@ the annotation the way a resource is a `declare const|let` with `uniform<T>` or 
 provides, and a module variable is the module's own.
 
 ```ts
-"use typeshade"
-declare const src: storage<array<f32>>
-declare let dst: storage<array<f32>>
+"use typeshade";
+declare const src: storage<array<f32>>;
+declare let dst: storage<array<f32>>;
 
-let tile: workgroup<array<f32, 64>>
-let seed: u32 = 7
+let tile: workgroup<array<f32, 64>>;
+let seed: u32 = 7;
 
 function next(): u32 {
-  seed = seed * 1664525 + 1013904223
-  return seed
+  seed = seed * 1664525 + 1013904223;
+  return seed;
 }
 
 @compute([64, 1, 1])
@@ -1619,8 +1937,8 @@ export function k(
   @builtin("global_invocation_id") gid: vec3u,
   @builtin("local_invocation_id") lid: vec3u,
 ): void {
-  tile[lid.x] = src[gid.x]
-  dst[gid.x] = tile[lid.x] + f32(next() >> 24)
+  tile[lid.x] = src[gid.x];
+  dst[gid.x] = tile[lid.x] + f32(next() >> 24);
 }
 ```
 
@@ -1682,11 +2000,11 @@ every one runs on, and what each wrote before it is what every other reads after
 0.2 item 5, design [#82](https://github.com/typeshade/typeshade/issues/82), step 2.
 
 ```ts
-"use typeshade"
-declare const src: storage<array<f32>>
-declare let sums: storage<array<f32>>
+"use typeshade";
+declare const src: storage<array<f32>>;
+declare let sums: storage<array<f32>>;
 
-let tile: workgroup<array<f32, 64>>
+let tile: workgroup<array<f32, 64>>;
 
 @compute([64, 1, 1])
 export function reduce(
@@ -1694,16 +2012,16 @@ export function reduce(
   @builtin("local_invocation_id") lid: vec3u,
   @builtin("workgroup_id") wid: vec3u,
 ): void {
-  tile[lid.x] = src[gid.x]
-  workgroupBarrier()
+  tile[lid.x] = src[gid.x];
+  workgroupBarrier();
   for (let stride: u32 = 32; stride > 0; stride /= 2) {
     if (lid.x < stride) {
-      tile[lid.x] = tile[lid.x] + tile[lid.x + stride]
+      tile[lid.x] = tile[lid.x] + tile[lid.x + stride];
     }
-    workgroupBarrier()
+    workgroupBarrier();
   }
   if (lid.x === 0) {
-    sums[wid.x] = tile[0]
+    sums[wid.x] = tile[0];
   }
 }
 ```
@@ -1718,8 +2036,9 @@ never in a vertex or fragment entry, which has no workgroup (TS8034); and never 
 on a value the invocations do not share, which is how a workgroup waits forever (TS8052). The
 second rule used to refuse every `if` and `switch` body; it is the uniformity analysis of §54
 now, so a branch on a uniform buffer value or on `workgroup_id` is accepted, and the `if` above,
-on `local_invocation_id`, holds no barrier. A `for` with §17's constant bound is uniform and
-allowed, which is the shape the reduction above needs: the loop steps by `/= 2`, one of §17's four counted steps. The optimizer
+on `local_invocation_id`, holds no barrier. A `for` whose bound every invocation shares (a constant, a
+uniform, `workgroup_id`) is uniform and allowed; one bounded by `local_invocation_id` is not, and
+a barrier in it is TS8052, which is the shape the reduction above needs: the loop steps by `/= 2`, one of §17's four counted steps. The optimizer
 treats a barrier as an effect (§19), so it is never dropped, merged or moved, and no read of
 workgroup memory crosses it.
 
@@ -1759,27 +2078,27 @@ functions of the module: methods, a constructor and static functions. Design
 [#86](https://github.com/typeshade/typeshade/issues/86); this is its first step.
 
 ```ts
-"use typeshade"
+"use typeshade";
 class Ray {
-  origin: vec3
-  dir: vec3
-  hits: u32 = 0
+  origin: vec3;
+  dir: vec3;
+  hits: u32 = 0;
   constructor(origin: vec3, dir: vec3) {
-    this.origin = origin
-    this.dir = normalize(dir)
+    this.origin = origin;
+    this.dir = normalize(dir);
   }
   at(t: f32): vec3 {
-    return this.origin + this.dir * t
+    return this.origin + this.dir * t;
   }
   static up(): vec3 {
-    return vec3(0., 1., 0.)
+    return vec3(0., 1., 0.);
   }
 }
 
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  const r = new Ray(vec3(uv, 0.), vec3(0., 0., 2.))
-  return vec4(r.at(1.) + Ray.up(), f32(r.hits))
+  const r = new Ray(vec3(uv, 0.), vec3(0., 0., 2.));
+  return vec4(r.at(1.) + Ray.up(), f32(r.hits));
 }
 ```
 
@@ -1831,15 +2150,15 @@ qualifier and spells it as a pointer, `self_: ptr<function, Particle>`, read thr
 
 ```ts
 class Particle {
-  pos: vec2
-  vel: vec2
+  pos: vec2;
+  vel: vec2;
   step(dt: f32): void {
-    this.pos = this.pos + this.vel * dt
+    this.pos = this.pos + this.vel * dt;
   }
 }
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  ps[gid.x].step(0.5)
+  ps[gid.x].step(0.5);
 }
 ```
 
@@ -1859,10 +2178,13 @@ void Particle_step(inout Particle self_, float dt) {
 // Particle_step(ps[i], 0.5);
 ```
 
-The receiver has to be a place a function may write: a `let` local, a module variable, a storage
-element, or `this` inside a constructor or another changing method. Which methods change their
-object is read from their bodies, to a fixpoint: one that assigns to a field of `this` (or
-`++`/`--` on one), and one that calls such a method on `this`. The effect table (§19) counts a
+The receiver has to be a place a function may write: a `let` local, a `const` whose initializer
+built its value (below), a module variable, a storage element, or `this` inside a constructor or
+another changing method, or a field or an element of one of those. Which methods change their
+object is read from their bodies, to a fixpoint over every class of the file at once: one that
+assigns to a field of `this` (or `++`/`--` on one), one that calls such a method or reads such a
+getter on `this` or on a field or an element of it, whatever class that field is, and one that
+reaches such a body through `super`. The effect table (§19) counts a
 write through a reference as it counts any other, and names it as the CALLER knows it:
 `ps[gid.x].step(dt)` writes `ps`, because `step` writes its receiver and the receiver is reached
 through `ps`.
@@ -1875,21 +2197,21 @@ self_)`. On its own line the value is dropped and the write kept; anywhere a val
 one.
 
 ```ts
-"use typeshade"
+"use typeshade";
 class Rng {
-  state: u32
+  state: u32;
   next(): f32 {
-    this.state = this.state * 747796405 + 2891336453
-    return f32(this.state >> 8) / 16777216.
+    this.state = this.state * 747796405 + 2891336453;
+    return f32(this.state >> 8) / 16777216.;
   }
 }
 
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  let rng: Rng = { state: u32(uv.x * 1000.) }
-  const grain = vec2(rng.next(), rng.next())
-  const spark = uv.y > 0.5 ? rng.next() : 0.
-  return vec4(grain, spark, 1.)
+  let rng: Rng = { state: u32(uv.x * 1000.) };
+  const grain = vec2(rng.next(), rng.next());
+  const spark = uv.y > 0.5 ? rng.next() : 0.;
+  return vec4(grain, spark, 1.);
 }
 ```
 
@@ -1949,26 +2271,30 @@ on a real WebGL2 driver; `examples/particle-step.shade.ts` for the compute one.
 
 **`this`.** Inside a method that reads, `this` is the read-only first parameter; inside a method
 that changes its object it is that parameter, written through; inside a constructor it is the
-local being built. Inside a static member it is the class that declares the member (Rule 8.13),
-so `this.K`, `this.f()` and `this.count += 1.` name its statics; `this` as a value there, and
+local being built. Inside a static member it is the class the call names (Rule 8.13): the class
+that declares the member, or one that inherits it (below), so `this.K`, `this.f()` and
+`this.count += 1.` name its statics and `new this()` builds it; `this` as a value there, and
 `this` in a top-level function, is TS8035.
 
-**Access modifiers.** `public`, `private` and `protected` on a field or a method are accepted and
-mean nothing to the shader; TypeScript's checker enforces the last two in the editor. `readonly`
-is enforced here (Rule 8.14), and a private name, `#x`, is enforced here too (Rule 8.12): the
-front end does not run the checker, and without these a program TypeScript refuses would
-compile.
+**Access modifiers.** `public` is accepted and means nothing to the shader. `private` and
+`protected` are enforced here (Rule 8.15, below), as `readonly` is (Rule 8.14) and a private name,
+`#x`, is (Rule 8.12): the front end does not run the checker, and without these a program
+TypeScript refuses would compile. They were accepted and meant nothing until this.
 
 **Refused, with the fix (TS8035).** A static block (give each static field its value where it
-is declared), a field holding an arrow function (a method), a decorator on a method (an entry is
-a top-level function), an `async` or generator method, two constructors or two
+is declared), a static field holding a function (a static method), a decorator on a method (an
+entry is a top-level function), an `async` or generator method, two constructors or two
 methods of one name (no overloads), a call of a method on the class or of a static function on
 a value, a member the class does not have, a field called as a method and an accessor called as
-one, a method that changes its object called on a `const`, a parameter or a value that is
-dropped, one that returns nothing used as a value, a write to `this` in a base's body called
-through `super` (which reads its object only; move the write into a method no class overrides),
-and a parameter named `self_`. A class with only static functions and no fields is a namespace
-of functions (below). `abstract` and `extends` are a struct's base since roadmap item T5. A `new`
+one, a member a class that extends declares as another kind than its base does, a method that
+changes its object called on a `const` whose value something else may hold, a parameter or a
+value that is dropped, one that returns nothing used as a value, and a parameter named `self_`.
+A field holding an arrow function was on this list; it is the method it is written as now
+(below). A write to
+`this` in a base's body called through `super` was refused too, since that body read its object
+only; it takes the object by reference now, as any method that writes it does (below). A class
+with only static functions and no fields is a namespace of functions (below). `abstract` and
+`extends` are a struct's base since roadmap item T5. A `new`
 on anything but a class the file declares stays TS8013, and says which of the four reasons it
 is.
 
@@ -1998,10 +2324,8 @@ definition from `r.at` lands on the method. The TypeScript checker already knows
 members, so the language service adds nothing for them and the compiler's symbols record each
 method under its class name.
 
-**Not yet.** A cycle through method calls in the recursion check (Tint still refuses it, as a
-backend diagnostic), and a chain through a changing method, `v.setX(1.).setY(2.)`: `return this`
-returns a copy of the object, since a struct is a value, so the second call would change the
-copy; call each on `v` in turn.
+A cycle through method calls is TS8031 at the call that closes it (below). It reached Tint until
+then, as did a chain through a changing method, `v.setX(1.).setY(2.)`, until it compiled (below).
 
 ### Getters and setters
 
@@ -2013,34 +2337,34 @@ one through the setter. A setter that assigns a field changes its object, so it 
 reference, as a method that does (§26 above); so does a getter that fills a cache.
 
 ```ts
-"use typeshade"
+"use typeshade";
 class Temperature {
-  #celsius: f32 = 0.
+  #celsius: f32 = 0.;
   get celsius(): f32 {
-    return this.#celsius
+    return this.#celsius;
   }
   set celsius(v: f32) {
-    this.#celsius = max(v, -273.15)
+    this.#celsius = max(v, -273.15);
   }
   get fahrenheit(): f32 {
-    return this.#celsius * 1.8 + 32.
+    return this.#celsius * 1.8 + 32.;
   }
   set fahrenheit(v) {
-    this.celsius = (v - 32.) / 1.8
+    this.celsius = (v - 32.) / 1.8;
   }
   static get boiling(): Temperature {
-    let t = new Temperature()
-    t.celsius = 100.
-    return t
+    let t = new Temperature();
+    t.celsius = 100.;
+    return t;
   }
 }
 
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  let t = new Temperature()
-  t.fahrenheit = 212. * uv.x
-  t.celsius += 5.
-  return vec4(t.celsius / Temperature.boiling.celsius, t.fahrenheit / 212., 0., 1.)
+  let t = new Temperature();
+  t.fahrenheit = 212. * uv.x;
+  t.celsius += 5.;
+  return vec4(t.celsius / Temperature.boiling.celsius, t.fahrenheit / 212., 0., 1.);
 }
 ```
 
@@ -2080,27 +2404,27 @@ declares it, TypeScript's own rule. A private field and a public accessor of one
 ordinary pairing, and the two do not meet: `count` the member, `Counter_get_count` the getter.
 
 ```ts
-"use typeshade"
+"use typeshade";
 class Counter {
-  #count: u32 = 0
-  static #limit = 100
+  #count: u32 = 0;
+  static #limit = 100;
   get count(): u32 {
-    return this.#count
+    return this.#count;
   }
   increment(): void {
-    this.#count = this.#clamped(this.#count + 1)
+    this.#count = this.#clamped(this.#count + 1);
   }
   #clamped(n: u32): u32 {
-    return min(n, u32(Counter.#limit))
+    return min(n, u32(Counter.#limit));
   }
 }
 
 @fragment
 export function fs(): vec4 {
-  let c = new Counter()
-  c.increment()
-  c.increment()
-  return vec4(f32(c.count) / 2., 0., 0., 1.)
+  let c = new Counter();
+  c.increment();
+  c.increment();
+  return vec4(f32(c.count) / 2., 0., 0., 1.);
 }
 ```
 
@@ -2123,33 +2447,214 @@ it was dropped from the struct with nothing said where it was declared, and ever
 as an unknown field.
 
 ```ts
-"use typeshade"
+"use typeshade";
 class Particle {
-  age = 0.
-  alive = true
-  vel = vec2(0.)
+  age = 0.;
+  alive = true;
+  vel = vec2(0.);
   constructor(
     readonly id: u32,
     public pos: vec2,
   ) {}
   step(dt: f32): void {
-    this.age += dt
-    this.pos += this.vel * dt
+    this.age += dt;
+    this.pos += this.vel * dt;
   }
 }
 
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  let p = new Particle(7, uv)
-  p.vel = vec2(1., 0.)
-  p.step(0.5)
-  return vec4(p.pos, p.age, f32(p.id))
+  let p = new Particle(7, uv);
+  p.vel = vec2(1., 0.);
+  p.step(0.5);
+  return vec4(p.pos, p.age, f32(p.id));
 }
 ```
 
 A `readonly` field may be assigned in a constructor of the class that declares it and nowhere
 else (TS8005), which is TypeScript's rule; `readonly` is shallow, as TypeScript's is, so
 `p.pos.x = 1.` on a `readonly pos` writes into what the field holds and stands.
+
+Field initializers run in TypeScript's order (Rule 8.14): a base's in its constructor, then, when
+`super(...)` returns, the derived class's parameter properties and its own initializers, then the
+rest of its body. So `class B extends A { limit = 5. }` builds a `B` whose `limit` is 5 whatever
+`A` starts it at, and an initializer that reads `this.limit` reads what `A`'s constructor left.
+A class that inherits its constructor runs its own initializers when that body returns. Until
+this, every initializer ran before the constructor's body, and a derived class's one for an
+inherited field was dropped, so that `B`'s `limit` was `A`'s.
+
+### A chain of calls on one object
+
+A method whose every `return` is `return this` hands back its own object, so TypeScript runs the
+next call of a chain on the same one: `b.sized(2.).tinted(red)` sizes `b` and tints it (Rule
+8.10). A struct is a value here, and what such a method returns is a copy of it: the reference is
+how the method changed the object, and the return is a value like any other. So where a chain is
+the whole of a statement, of a declaration's initializer or of a `return`, each call but the last
+runs as a statement of its own, in source order, on the object the chain starts from, and the
+last runs in the statement, on that object too. The object is found once, before the first call,
+as TypeScript finds it: `slots[cursor].claim(1.).tag(2.)` reads `cursor` into a `let` first, so
+`tag` tags the slot `claim` claimed even when `claim` moves `cursor`. A chain that starts at `new`
+puts what `new` built in a temporary, `_chain`, and that temporary is the object the chain changes.
+
+```ts
+"use typeshade";
+class Brush {
+  size: f32 = 1.;
+  tint: vec3 = vec3(1.);
+  sized(s: f32): Brush {
+    this.size = s;
+    return this;
+  }
+  tinted(c: vec3): Brush {
+    this.tint = c;
+    return this;
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let b = new Brush();
+  b.sized(uv.x).tinted(vec3(uv, 0.5));
+  const c = new Brush().sized(2.).tinted(vec3(1., 0., 0.));
+  return vec4(b.tint * b.size + c.tint, 1.);
+}
+```
+
+```wgsl
+fn Brush_sized(self_: ptr<function, Brush>, s: f32) -> Brush {
+  (*self_).size = s;
+  return (*self_);
+}
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  var b: Brush = Brush_new();
+  Brush_sized(&b, uv.x);
+  Brush_tinted(&b, vec3<f32>(uv, 0.5));
+  var _chain: Brush = Brush_new();
+  Brush_sized(&_chain, 2.0);
+  let c = Brush_tinted(&_chain, vec3<f32>(1.0, 0.0, 0.0));
+  ...
+}
+```
+
+A method that returns `this`, inherited by a class that extends the one that wrote it, returns
+the derived object, as it does at run time in TypeScript, so a chain through inherited setters
+keeps its type. Inside a larger expression the copy is all there is. A call on it that only reads
+is right as it is, `1. + v.setX(1.).len()`; one that would change it is refused (TS8035), since the
+change would land on the copy and be dropped where TypeScript changes `v`: make the chain a
+statement of its own, or call each method on `v`.
+
+### `super` on an accessor, and on a method that changes its object
+
+`super.value` in an override reads through the base's getter, and `super.value = v` writes
+through its setter, on this body's object (Rule 8.11); a compound assignment, `++` and `--` go
+through both. The base's half is lowered once more for the derived class,
+`Clamped_super_Counter_set_value`, as the base's body of a method already was for `super.m()`
+(T5, [#92](https://github.com/typeshade/typeshade/issues/92)). A base's body that writes its object,
+called through `super`, takes it by reference as any method that writes it does (Rule 8.10), and
+the override hands on its own reference.
+
+```ts
+"use typeshade";
+class Counter {
+  n: f32 = 0.;
+  get value(): f32 {
+    return this.n;
+  }
+  set value(v: f32) {
+    this.n = v;
+  }
+  bump(): void {
+    this.n += 1.;
+  }
+}
+
+class Clamped extends Counter {
+  set value(v: f32) {
+    super.value = min(v, 10.);
+  }
+  get value(): f32 {
+    return super.value;
+  }
+  bump(): void {
+    super.bump();
+    this.value = this.value;
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let c = new Clamped();
+  c.value = 9.5 + uv.x;
+  c.bump();
+  return vec4(c.value / 10., 0., 0., 1.);
+}
+```
+
+```wgsl
+fn Clamped_set_value(self_: ptr<function, Clamped>, v: f32) {
+  Clamped_super_Counter_set_value(self_, min(v, 10.0));
+}
+fn Clamped_bump(self_: ptr<function, Clamped>) {
+  Clamped_super_Counter_bump(self_);
+  Clamped_set_value(self_, Clamped_get_value((*self_)));
+}
+fn Clamped_super_Counter_bump(self_: ptr<function, Clamped>) {
+  (*self_).n += 1.0;
+}
+```
+
+Refused, with the fix (TS8035): `super.x` where the class above declares only the other half of
+`x`, `super.x` naming a field (a field is the object's own, which `super` does not reach, as
+TypeScript's TS2855 says; write `this.x`), and a `super.x` nothing above declares.
+
+### `private` and `protected`
+
+`private` and `protected` are enforced (Rule 8.15), as TypeScript's checker enforces them in the
+editor and as `#x` is here (Rule 8.12). A `private` member may be named only in the body of the
+class that declares it; a `protected` one in that body and in the bodies of the classes that
+extend it, on an object of the naming body's own class or of one that extends it (TypeScript's
+TS2446). Neither changes what is emitted: `balance` is the struct member `balance`, and
+`deposit` the function `Account_deposit`.
+
+```ts
+"use typeshade";
+class Account {
+  private balance: f32 = 0.;
+  protected limit: f32 = 100.;
+  deposit(v: f32): void {
+    this.balance = min(this.balance + v, this.limit);
+  }
+  get total(): f32 {
+    return this.balance;
+  }
+}
+
+class Premium extends Account {
+  raise(): void {
+    this.limit *= 2.;
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let p = new Premium();
+  p.raise();
+  p.deposit(150. * uv.x);
+  return vec4(p.total / 200., 0., 0., 1.);
+}
+```
+
+A name is checked against the declaration the class whose body holds it sees, as TypeScript
+checks it: `this.weight()` in an `abstract` class that declares `protected abstract weight()` is
+that class's own call, even in the body a class that overrides `weight` inherits. A field a
+derived class declares again without a modifier is public, as TypeScript allows.
+
+Refused (TS8035), each with the member to reach it through: `p.balance` outside `Account`
+(`"Account.balance" is private, so only the body of "Account" may name it. Reach it through a
+public member of "Account".`), `p.limit` outside the chain, and, in a `Premium` body, `a.limit`
+on an `Account` that is not a `Premium`. An object literal cannot build such a class (TS8010;
+build it with `new`), and a spread and a destructuring pattern leave its `private` and
+`protected` fields out, as TypeScript's do.
 
 ---
 
@@ -2160,10 +2665,10 @@ and WGSL has no empty struct, so it carries none:
 ```ts
 class Util {
   static half(x: f32): f32 {
-    return x * 0.5
+    return x * 0.5;
   }
   static quarter(x: f32): f32 {
-    return Util.half(Util.half(x))
+    return Util.half(Util.half(x));
   }
 }
 ```
@@ -2186,22 +2691,299 @@ initializer is a constant by §24's measure. A `readonly` static is never writte
 one is TS8005.
 
 ```ts
-"use typeshade"
+"use typeshade";
 class Stats {
-  static hits = 0.
-  static readonly WEIGHT = 0.5
+  static hits = 0.;
+  static readonly WEIGHT = 0.5;
   static record(v: f32): void {
-    this.hits += v * this.WEIGHT
+    this.hits += v * this.WEIGHT;
   }
 }
 
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  Stats.record(uv.x)
-  Stats.record(uv.y)
-  return vec4(Stats.hits, 0., 0., 1.)
+  Stats.record(uv.x);
+  Stats.record(uv.y);
+  return vec4(Stats.hits, 0., 0., 1.);
 }
 ```
+
+### Statics through a class that extends, `new this()`, and `super` in a static member
+
+A class inherits its base's statics, as TypeScript's constructors do (Rule 8.13): `Big.SCALE` is
+`Big`'s own when `Big` declares one and `Shape`'s when it does not, and `Big.unit()` calls the
+`unit` that `Shape` declares. In TypeScript `this` in a static member is the class the call
+names, so `Big.unit()` runs `Shape`'s body with `this` as `Big`: `new this()` builds a `Big`, and
+`this.SCALE` reads `Big.SCALE`. Here that body is lowered once more for `Big`, as `Big_unit`, with
+`this` bound to `Big`, and a static declared to return the class that declares it that builds
+its value with `new this()` returns the class the call names, the object TypeScript returns at
+run time. `super.describe()` in a static member runs the static the class above declares, with
+`this` still the class the call names.
+
+```ts
+"use typeshade";
+class Shape {
+  size: f32 = 1.;
+  static SCALE = 1.;
+  static unit(): Shape {
+    let s = new this();
+    s.size = this.SCALE;
+    return s;
+  }
+  static describe(): f32 {
+    return this.SCALE;
+  }
+}
+
+class Big extends Shape {
+  static SCALE = 4.;
+  static describe(): f32 {
+    return super.describe() * 10.;
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  const a = Shape.unit();
+  const b = Big.unit();
+  return vec4(a.size, b.size, Big.describe(), 1.);
+}
+```
+
+```wgsl
+fn Big_describe() -> f32 {
+  return (Big_super_Shape_describe() * 10.0);
+}
+fn Big_unit() -> Big {
+  var s: Big = Big_new();
+  s.size = Big_SCALE;
+  return s;
+}
+fn Big_super_Shape_describe() -> f32 {
+  return Big_SCALE;
+}
+```
+
+`this` in a static member was the class that wrote the member until this, so `Big.unit()` built a
+`Shape` and read `Shape.SCALE`, which is not what TypeScript computes. A class of statics alone
+keeps its base too: over a class with fields it has those fields, so it is a struct and `new`
+builds one, and over another class of statics alone it is a namespace that inherits them.
+
+A write to a static through a class that does not declare it, `Big.count += 1.` for a `count`
+only `Shape` declares, would give `Big` a field of its own in TypeScript, which one module
+variable cannot be; it is TS8005 with the fix, `Shape.count += 1.`. The same write through
+`this`, in a `Shape` static that `Big.f()` runs, is refused where such a call is written and
+nowhere if nothing makes one; so is `this.#k` there, since a private static lives on `Shape` alone
+and TypeScript throws when `Big` reaches it (TS8035, with the fix `Shape.#k`). `super.K = v` in a
+static member writes `this.K` in TypeScript, not the field the class above declares, and is
+refused with both spellings to choose from. `new this()` outside a static member is TS8013:
+`this` there is an object, not a class.
+
+A write INTO a static a base declares is another matter: `Big.origin.y = 5.`, or a method that
+changes `Big.origin`, changes the one object `Shape` and `Big` both read, in TypeScript and here.
+The statics of a generic base are its class's, one for every instance, so `FPair.K` over
+`class FPair extends Pair<f32>` reads `Pair.K`. And what holds for a static holds for every body a
+class inherits (Rule 8.9): an instance method whose body calls `weigh(this)` with `weigh` taking
+the base fails for the derived class alone, since a derived value is not a base one here, and it
+is refused when something calls it on a derived object, and not at all while nothing does.
+
+### A method that changes an object its object holds, and a `const` object
+
+A field of `this` is part of `this`. So a method that calls a changing method on one,
+`this.hull.step(dt)`, changes its own object too, whichever class declares `step`, and takes it by
+reference as any changing method does (Rule 8.10). The same holds for an element,
+`this.parts[i].step(dt)`, for a getter that writes its object, and at any depth: which methods
+change their object is worked out for every class of the file at once, so a class may hold one
+declared after it. Until this, `drift` below was TS8035, `"Ship.drift" reads its object only, so
+it cannot write "this" (§26).`
+
+```ts
+"use typeshade";
+class Body {
+  pos: vec2 = vec2(0.);
+  vel: vec2 = vec2(1., 0.5);
+  step(dt: f32): void {
+    this.pos += this.vel * dt;
+  }
+}
+
+class Ship {
+  hull: Body = new Body();
+  drift(dt: f32): vec2 {
+    this.hull.step(dt);
+    return this.hull.pos;
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  const ship = new Ship();
+  const at = ship.drift(0.5);
+  return vec4(at, ship.hull.pos.x, 1.);
+}
+```
+
+```wgsl
+fn Ship_drift(self_: ptr<function, Ship>, dt: f32) -> vec2<f32> {
+  Body_step(&(*self_).hull, dt);
+  return (*self_).hull.pos;
+}
+fn fs() -> @location(0) vec4<f32> {
+  var ship: Ship = Ship_new();
+  let at = Ship_drift(&ship, 0.5);
+  return vec4<f32>(at, ship.hull.pos.x, 1.0);
+}
+```
+
+`const ship = new Ship()` is how TypeScript writes that: a `const` fixes the name and not the
+object, so a method may change what it holds (Rule 6.10). Nothing else holds the object `new`
+built, so the local is that object, and the declaration is a `var` from the first write through
+it; a `const` nothing writes through stays WGSL's `let`. An object literal, an array literal and a
+type's constructor build a value of their own too, so `const v = vec3(0.); v.x = 1.` is a write to
+`v`. A `const` that copies what another name holds is where TypeScript and a struct part: its write
+would reach the object both names hold, and a write here the copy alone. So it is refused, and the
+message asks which is meant, `let c = a` to write a copy or the write on `a` itself:
+
+```
+TS8035  "C.bump" changes its object, and "c" is a const whose value may be one something else
+        holds, which TypeScript would change with it and a copy here would not. Declare it with
+        let to change a copy, or call it on the value itself.
+```
+
+Until this, every write through a `const` was refused, with `let` as the fix: `"Ship.drift"
+changes its object, and "ship" is declared with const; declare it with let.`
+
+What holds for that refusal holds for every struct local, `let` as well as `const`: a struct is a
+value here, so `const w = v` and `let w = v` copy it, where TypeScript hands `w` the object `v`
+holds. A write through one name after the copy is not seen through the other:
+`const v = new V(); const w = v; v.bump(); w.x` is 0 here and 1 in TypeScript. Write through one
+name, or copy after the last write.
+
+### A field that holds a function
+
+`focus = (d: f32): f32 => d * this.gain` is how TypeScript code often writes a method, to keep
+`this` bound. A shader has no function value to hand anywhere, so such a field is the method it
+is written as (Rule 8.16): the function's parameters, return type and body are the method's, an
+expression body is what it returns, and `this` is the object, as in TypeScript. `lens.focus(x)`
+is `Lens_focus(lens, x)`. A `function` expression is taken the same way, its `this` parameter
+dropped.
+
+```ts
+"use typeshade";
+class Lens {
+  gain: f32 = 2.;
+  focus = (d: f32): f32 => d * this.gain;
+  blur = (d: f32): f32 => {
+    const k = this.focus(d);
+    return k / (1. + k);
+  };
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const lens = new Lens();
+  return vec4(lens.focus(uv.x), lens.blur(uv.y), 0., 1.);
+}
+```
+
+```wgsl
+fn Lens_focus(self_: Lens, d: f32) -> f32 {
+  return (d * self_.gain);
+}
+fn Lens_blur(self_: Lens, d: f32) -> f32 {
+  let k = Lens_focus(self_, d);
+  return (k / (1.0 + k));
+}
+```
+
+With no return type written, it returns what its body does (Rule 8.19, §14): `focus = (d: f32) =>
+d * this.gain` is the same method, and an expression body that is an assignment, `hit = (d: f32)
+=> this.hp -= d`, runs as a statement.
+
+Refused, with the fix: a static field that holds a function, since an arrow there binds `this` to
+the class that declares it where a static method binds the class a call names (Rule 8.13), so it
+is written as the static method; type parameters; and an `async` or generator function. Until
+this, every such field was `A field holding a function is a method: write "focus(...) { ... }".`
+
+A class that extends keeps the kind each member has above it, as TypeScript requires: a field
+that holds a function may stand where a method was, and a method may not stand where such a field
+was (TS2425); a method, an accessor and a field of a shader type may not stand in for one another
+either. Those that did not involve a function field compiled before, to the derived class's member
+where TypeScript's object holds the base's. Each is TS8035 now, naming both members. `super.f` on a
+field that holds a function is refused as TypeScript refuses it (TS2855), since a field is the
+object's own. An accessor over an abstract field is refused too, although TypeScript takes it: the
+abstract field is a member of every struct below the class that declares it, so a body that class
+wrote would read the member and never the accessor, 0 where TypeScript computes the getter's value.
+The fix is named, `abstract get f(): f32`, which means the same and reaches the accessor.
+
+### An interface with methods is a contract
+
+An interface that declares a method says what a class supplies. `implements Shape` and a type
+parameter's constraint, `<T extends Shape>`, are how TypeScript uses one, and both compile: a call
+on a `T` reaches the method of the class the call binds, one function for each class, which is
+the static dispatch of Rule 8.9. A value of type `Shape` itself would have to pick its body at run
+time, which no WGSL function can, so a parameter, a field or a local of that type is refused once,
+where the interface declares the method, with the type parameter to write instead (Rule 6.9). An
+interface of fields alone is a struct, as it was.
+
+```ts
+"use typeshade";
+interface Shape {
+  area(): f32;
+}
+
+class Square implements Shape {
+  side: f32 = 2.;
+  area(): f32 {
+    return this.side * this.side;
+  }
+}
+
+class Disc implements Shape {
+  r: f32 = 1.;
+  area(): f32 {
+    return 3.14159 * this.r * this.r;
+  }
+}
+
+function total<T extends Shape>(a: T, b: T): f32 {
+  return a.area() + b.area();
+}
+
+@fragment
+export function fs(): vec4 {
+  return vec4(total(new Square(), new Square()), total(new Disc(), new Disc()), 0., 1.);
+}
+```
+
+```wgsl
+fn total_Square(a: Square, b: Square) -> f32 {
+  return (Square_area(a) + Square_area(b));
+}
+fn total_Disc(a: Disc, b: Disc) -> f32 {
+  return (Disc_area(a) + Disc_area(b));
+}
+```
+
+Until this, the constraint was TS8010, `Data type "Shape" cannot have methods.`, and a value of the
+interface's type said so again at each use.
+
+### A call cycle through methods
+
+`this.g(n)` names no function in its text, so the recursion check (§4) could not follow a call on
+a value, and a cycle through methods reached Tint. The check reads the calls each body lowers to
+now, a method call, a getter, a setter and `new` included, and says TS8031 at the call that closes
+the cycle, naming it as written (Rule 8.4):
+
+```
+TS8031  Recursive call: "N.f" -> "N.g" -> "N.f". WGSL has no call stack, so a function must not
+        take part in a call cycle.
+```
+
+A body a class inherits is lowered once more for that class, and the cycle it closes there is said
+once, as is the one each instance of a generic function closes, under the name the function was
+written with. A static called through its class, `N.f()`, is named `"N.f"` too, where the check
+said `"N_f"` before.
 
 ### `namespace`
 
@@ -2211,9 +2993,9 @@ members flatten to `Ns_member`, the joining a method and a static field already 
 
 ```ts
 namespace Palette {
-  export const WARM: vec3 = vec3(0.9, 0.5, 0.1)
+  export const WARM: vec3 = vec3(0.9, 0.5, 0.1);
   export function tint(c: vec3): vec3 {
-    return c * WARM
+    return c * WARM;
   }
 }
 ```
@@ -2226,11 +3008,11 @@ A namespace holds a class too, under the same flattening (#107):
 ```ts
 namespace Scene {
   export class Camera {
-    pos: vec3
-    zoom: f32
+    pos: vec3;
+    zoom: f32;
   }
 }
-declare const cam: uniform<Scene.Camera>
+declare const cam: uniform<Scene.Camera>;
 ```
 
 emits `struct Scene_Camera`, and everything named after a struct follows: a method is
@@ -2270,17 +3052,17 @@ GLSL ES 3.00 (not a program) and read as one scalar on the oracle; the same sour
 what WGSL says it means on every target and on the CPU.
 
 ```ts
-"use typeshade"
+"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  const a = vec3(uv, 0.5)
-  const b = vec3(0.5, 0.5, 0.5)
-  const m = a < b                       // vec3b
-  const c = select(a, b, m)             // per component: b where m is true, a elsewhere
+  const a = vec3(uv, 0.5);
+  const b = vec3(0.5, 0.5, 0.5);
+  const m = a < b;                       // vec3b
+  const c = select(a, b, m);             // per component: b where m is true, a elsewhere
   if (all(m)) {
-    return vec4(1., 0., 0., 1.)
+    return vec4(1., 0., 0., 1.);
   }
-  return vec4(c, f32(any(!m)))
+  return vec4(c, f32(any(!m)));
 }
 ```
 
@@ -2306,8 +3088,9 @@ _ret = vec4(c, float(any(equal(m, bvec3(false, false, false)))));
   `>`, `>=`) on two bool vectors is TS8003 with the fix: `===`/`!==`, or `any`/`all`.
 - **`any(m)` and `all(m)`** reduce a vector of bools to one bool, the same builtins on both
   targets. Over an array they stay the folds, `any(xs, pred)` with `pred` a function the file
-  declares (an arrow function written in the call is `TS8099`); a scalar or a numeric vector is
-  TS8003 naming both shapes.
+  declares, a local one included, which hands each call what it captures (Rule 8.17), or an arrow
+  function written in the call (Rule 8.18, §14); a scalar or a numeric vector is TS8003 naming
+  both shapes.
 - **`select(f, t, m)`** with a vector-of-bools condition picks per component, and the arms are
   vectors of the mask's size (TS8003 otherwise). WGSL's `select` takes the mask as is; GLSL ES
   3.00 spells `mix(f, t, m)` for float vectors and a componentwise ternary through the vector's
@@ -2344,24 +3127,24 @@ dropped; write them out."
 
 ```ts
 abstract class Shape {
-  center: vec2
+  center: vec2;
   constructor(center: vec2) {
-    this.center = center
+    this.center = center;
   }
-  abstract sdf(p: vec2): f32
+  abstract sdf(p: vec2): f32;
   coverage(p: vec2): f32 {
-    return 1. - smoothstep(0., 0.02, this.sdf(p))
+    return 1. - smoothstep(0., 0.02, this.sdf(p));
   }
 }
 class Circle extends Shape {
-  radius: f32
+  radius: f32;
   constructor(center: vec2, radius: f32) {
-    super(center)
-    this.radius = radius
+    super(center);
+    this.radius = radius;
   }
   sdf(p: vec2): f32 {
-    const d: vec2 = p - this.center
-    return length(d) - this.radius
+    const d: vec2 = p - this.center;
+    return length(d) - this.radius;
   }
 }
 ```
@@ -2432,12 +3215,12 @@ and ESSL 100 did not. `examples/tuple-and-brand.shade.ts` is the gate's evidence
 
 ```ts
 function bounds(scale: f32): [near: f32, far: f32] {
-  return [0.05 * scale, 8. * scale]
+  return [0.05 * scale, 8. * scale];
 }
 function mid(span: [f32, f32]): f32 {
-  return (span[0] + span[1]) * 0.5
+  return (span[0] + span[1]) * 0.5;
 }
-const depth = mid([0.05, 8.])           // a list, in a position that declares the type
+const depth = mid([0.05, 8.]);           // a list, in a position that declares the type
 ```
 
 A list now takes its type from any position that declares one, not from a `const` alone: a
@@ -2496,21 +3279,21 @@ produces.
 
 ```ts
 class Disc {
-  center: vec2
-  radius: f32
+  center: vec2;
+  radius: f32;
 }
 
 function Tinted<TBase extends AnyClass>(Base: TBase) {
   return class extends Base {
-    tint: vec3
+    tint: vec3;
     lit(cover: f32): vec3 {
-      return this.tint * smoothstep(0., 1., cover)
+      return this.tint * smoothstep(0., 1., cover);
     }
-  }
+  };
 }
 
 class TintedDisc extends Tinted(Disc) {
-  softness: f32
+  softness: f32;
 }
 ```
 
@@ -2815,12 +3598,12 @@ float with no element type of its own. The read that applies to it is not a samp
 how much of the filter footprint passed. That number is the light factor.
 
 ```ts
-declare const shadowMap: texture_depth_2d
-declare const shadowSmp: sampler_comparison
-declare const cascades: texture_depth_2d_array
+declare const shadowMap: texture_depth_2d;
+declare const shadowSmp: sampler_comparison;
+declare const cascades: texture_depth_2d_array;
 
-const lit = textureSampleCompare(shadowMap, shadowSmp, uv, depthHere)
-const litFar = textureSampleCompareLevel(cascades, shadowSmp, uv, band, depthHere)
+const lit = textureSampleCompare(shadowMap, shadowSmp, uv, depthHere);
+const litFar = textureSampleCompareLevel(cascades, shadowSmp, uv, band, depthHere);
 ```
 
 ```wgsl
@@ -2906,16 +3689,16 @@ forms join them, `textureSampleBias` and `textureSampleGrad`, and the depth text
 gains its cube, `texture_depth_cube`, the shadow map of a point light.
 
 ```ts
-declare const env: texture_cube<f32>
-declare const lut: texture_3d<f32>
-declare const pointShadow: texture_depth_cube
+declare const env: texture_cube<f32>;
+declare const lut: texture_3d<f32>;
+declare const pointShadow: texture_depth_cube;
 
-const sky = textureSample(env, smp, dir) // by direction
-const glossy = textureSampleBias(env, smp, dir, 2.) // the implicit level, shifted coarser
-const graded = textureSampleLevel(lut, smp, sky.rgb, 0.) // the colour IS the coordinate
-const detail = textureSampleGrad(albedo, smp, uv, ddx, ddy) // explicit gradients, any stage
-const lit = textureSampleCompare(pointShadow, shadowSmp, normalize(toLight), length(toLight))
-const size = textureDimensions(lut) // vec3u: a volume's size is three wide
+const sky = textureSample(env, smp, dir); // by direction
+const glossy = textureSampleBias(env, smp, dir, 2.); // the implicit level, shifted coarser
+const graded = textureSampleLevel(lut, smp, sky.rgb, 0.); // the colour IS the coordinate
+const detail = textureSampleGrad(albedo, smp, uv, ddx, ddy); // explicit gradients, any stage
+const lit = textureSampleCompare(pointShadow, shadowSmp, normalize(toLight), length(toLight));
+const size = textureDimensions(lut); // vec3u: a volume's size is three wide
 ```
 
 ```wgsl
@@ -2999,16 +3782,16 @@ the same through a comparison sampler and returns four pass results. The design 
 off the spec (§17.7.2, §17.7.3) and Tint's `core.def`.
 
 ```ts
-declare const ramp: texture_1d<f32>
-declare const envs: texture_cube_array<f32>
-declare const pointShadows: texture_depth_cube_array
+declare const ramp: texture_1d<f32>;
+declare const envs: texture_cube_array<f32>;
+declare const pointShadows: texture_depth_cube_array;
 
-const heat = textureSample(ramp, smp, uv.x) // one number in
-const steps = textureDimensions(ramp) // u32: one wide
-const sky = textureSample(envs, smp, dir, layer) // the layer after the direction
-const reds = textureGather(0, albedo, smp, uv) // component FIRST: 0 is red, 3 is alpha
-const passes = textureGatherCompare(shadow, shadowSmp, uv, depthRef) // no component: one channel
-const lit = textureSampleCompare(pointShadows, shadowSmp, dir, layer, depthRef)
+const heat = textureSample(ramp, smp, uv.x); // one number in
+const steps = textureDimensions(ramp); // u32: one wide
+const sky = textureSample(envs, smp, dir, layer); // the layer after the direction
+const reds = textureGather(0, albedo, smp, uv); // component FIRST: 0 is red, 3 is alpha
+const passes = textureGatherCompare(shadow, shadowSmp, uv, depthRef); // no component: one channel
+const lit = textureSampleCompare(pointShadows, shadowSmp, dir, layer, depthRef);
 ```
 
 ```wgsl
@@ -3085,13 +3868,13 @@ The depth twin, `texture_depth_multisampled_2d`, is the depth attachment of an M
 loaded the same way and yielding an `f32`.
 
 ```ts
-declare const msaa: texture_multisampled_2d<f32>
-declare const depthMs: texture_depth_multisampled_2d
+declare const msaa: texture_multisampled_2d<f32>;
+declare const depthMs: texture_depth_multisampled_2d;
 
-const c: vec2i = vec2i(p.xy)
-const s0 = textureLoad(msaa, c, 0) // the third argument is a SAMPLE INDEX, not a level
-const n = f32(textureNumSamples(msaa))
-const depth = textureLoad(depthMs, c, 0) // f32
+const c: vec2i = vec2i(p.xy);
+const s0 = textureLoad(msaa, c, 0); // the third argument is a SAMPLE INDEX, not a level
+const n = f32(textureNumSamples(msaa));
+const depth = textureLoad(depthMs, c, 0); // f32
 ```
 
 **Nothing else applies.** WGSL §6.6.3: a multisampled texture "cannot be used with a sampler".
@@ -3151,9 +3934,9 @@ export function fs(@location(0) uv: vec2): Color {
 ```
 
 ```ts
-import { compile } from 'typeshade'
+import { compile } from 'typeshade';
 
-const { determinism } = compile(source)
+const { determinism } = compile(source);
 // [{ op: 'sin', elem: 'f32', kind: 'absolute',
 //    accuracy: '2^-11 absolute error for x in [-π, π]', count: 1, where: ['fs'] }]
 ```
@@ -3240,19 +4023,19 @@ the same expression on an `f64` keeps it. `examples/fp64-lane-stripes.shade.ts` 
 halves side by side.
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 class Uniforms {
-  origin: f64   // one vec2<f32> slot; the host writes the two words
-  span: f32
+  origin: f64;   // one vec2<f32> slot; the host writes the two words
+  span: f32;
 }
-declare const u: uniform<Uniforms>
+declare const u: uniform<Uniforms>;
 
 export function stripes(t: f32): f64 {
-  const stripe: f64 = 0.125       // a literal in a DECLARED f64 position keeps the double
-  const world = u.origin * 2.5    // a literal beside an f64 is lifted to an f64 literal
-  const swept = world + u.span * t // an f32 beside an f64 widens exactly, as vec2<f32>(x, 0.)
-  return fract(swept / stripe)
+  const stripe: f64 = 0.125;       // a literal in a DECLARED f64 position keeps the double
+  const world = u.origin * 2.5;    // a literal beside an f64 is lifted to an f64 literal
+  const swept = world + u.span * t; // an f32 beside an f64 widens exactly, as vec2<f32>(x, 0.)
+  return fract(swept / stripe);
 }
 ```
 
@@ -3269,10 +4052,10 @@ into — and `vecN(v)` narrows one per lane, which is `f32(lane)` N times.
 
 ```ts
 export function lanes(p: vec3f64): vec3 {
-  const x = p.x        // f64
-  const first = p[1]   // f64 — a CONSTANT lane; p[i] with a variable i has no lowering
-  const pair = p.xy    // vec2f64
-  return vec3(p)       // the per-lane narrow
+  const x = p.x;        // f64
+  const first = p[1];   // f64 — a CONSTANT lane; p[i] with a variable i has no lowering
+  const pair = p.xy;    // vec2f64
+  return vec3(p);       // the per-lane narrow
 }
 ```
 
@@ -3380,13 +4163,13 @@ All nine shapes of `C, R ∈ {2, 3, 4}` are types, spelled `matCxR`, and a squar
 answers to `matN`:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 export function shapes(a: mat3, b: mat2x3, c: mat4x3): vec3 {
   //  mat3   = mat3x3   3 columns of 3
   //  mat2x3           2 columns of 3
   //  mat4x3           4 columns of 3
-  return a[0] + b[1] + c[3]
+  return a[0] + b[1] + c[3];
 }
 ```
 
@@ -3396,10 +4179,10 @@ only on a square matrix, which is why it was worth saying once here.
 **Constructors.** Four forms, and a matrix takes whichever one fits:
 
 ```ts
-const fromColumns = mat3(vec3(1., 0., 0.), vec3(0., 1., 0.), vec3(0., 0., 1.))
-const fromParts   = mat2x3(1., 2., 3., 4., 5., 6.)   // column by column
-const zero        = mat2()
-const truncated   = mat3(model)                       // the upper-left 3×3 of a mat4
+const fromColumns = mat3(vec3(1., 0., 0.), vec3(0., 1., 0.), vec3(0., 0., 1.));
+const fromParts   = mat2x3(1., 2., 3., 4., 5., 6.);   // column by column
+const zero        = mat2();
+const truncated   = mat3(model);                       // the upper-left 3×3 of a mat4
 ```
 
 Truncation is offered and widening is not: `mat3(m4)` is the normal matrix a renderer wants,
@@ -3423,7 +4206,7 @@ the two look.
 
 ```ts
 export function bad(a: mat2x3, b: mat2x3): mat3 {
-  return a * b
+  return a * b;
   // Type mismatch: cannot * mat2x3<f32> and mat2x3<f32>. WGSL's matrix product is
   // matKxR * matCxK -> matCxR: the left operand's 2 columns must meet the right operand's
   // 3 rows. transpose(b) turns this pair into one that meets.
@@ -3446,11 +4229,15 @@ column stride is `AlignOf(vecR<f32>)` — 8 when the matrix has two rows and 16 
 and so would every field after it:
 
 ```
-wgslLayout: mat2x2 in std140 is not supported — WGSL gives a two-row matrix a column
-stride of 8 and GLSL std140 rounds every column to 16, so the two targets would disagree
-on this field and every field after it; carry it as mat2x4 (measured: both targets stride
-16) or as 2 vec2 fields
+TS8051 (error): "U.m" is in a uniform: mat2x2 in std140 is not supported — WGSL gives a
+two-row matrix a column stride of 8 and GLSL std140 rounds every column to 16, so the two
+targets would disagree on this field and every field after it; carry it as mat2x4
+(measured: both targets stride 16) or as 2 vec2 fields.
 ```
+
+The refusal is an error at the binding's declaration (Rule 4.8), so neither target is emitted,
+for a compute-only module as for a render one; `reflect()` and the fn() EDSL's `wgslLayout`
+throw the same sentence for a std140 layout.
 
 It is refused rather than silently padded because padding would make the WGSL a module emits
 disagree with the offsets `reflect()` reports for it, and keeping those two the same is the
@@ -3681,10 +4468,10 @@ leaves the other surface emitting the GLSL no driver takes. So the `fn()` builti
 function, and while they are there an integer `dot` gets the type its operands actually give:
 
 ```ts
-import { fn, dot, abs, vec3iT, vec3uT } from 'typeshade'
+import { fn, dot, abs, vec3iT, vec3uT } from 'typeshade';
 
-const sq = fn('sq', { v: vec3iT }, ({ v }) => dot(v, v)) //     -> i32, emits _idot on GLSL
-const mag = fn('mag', { v: vec3uT }, ({ v }) => abs(v)) //      -> the operand itself on GLSL
+const sq = fn('sq', { v: vec3iT }, ({ v }) => dot(v, v)); //     -> i32, emits _idot on GLSL
+const mag = fn('mag', { v: vec3uT }, ({ v }) => abs(v)); //      -> the operand itself on GLSL
 ```
 
 `dot` used to be typed `f32` for every operand that was not an emulated double, so the integer
@@ -4131,16 +4918,16 @@ neutral capability, and `hostFeaturesFor(wgslBackend, …)` turns it into what t
 at `requestDevice`.
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @builtin("clip_distances") cd: array<f32, 4> // vertex OUTPUT only, N from 1 to 8
+  @builtin("position") pos: vec4;
+  @builtin("clip_distances") cd: array<f32, 4>; // vertex OUTPUT only, N from 1 to 8
 }
 
 @fragment
 export function fs(@builtin("primitive_index") pi: u32): vec4 { // fragment INPUT only
-  return vec4(f32(pi), 0., 0., 1.)
+  return vec4(f32(pi), 0., 0., 1.);
 }
 ```
 
@@ -4162,13 +4949,16 @@ fragment program; both stages are accepted.
 capabilities, so `emitGlslModule` throws `SD0030` naming it rather than emitting a varying a
 WebGL2 driver would reinterpret.
 
-**The author spelling for the rest: a string directive beside `"use typeshade"`.** The two
-extensions no use can derive — the ones whose surface is not one built-in value — are turned on
-by the file itself:
+**The author spelling for the rest: a string directive beside `"use typeshade"`.** An
+extension no use in the file derives is turned on by the file itself. `f16` is the one no use can
+derive, since its type is not on this surface yet (Rule 4.7). `subgroups` is derived by
+`subgroup_invocation_id` and `subgroup_size` (the table above), and the directive turns it on for
+a file that reads neither; the subgroup built-in functions (`subgroupAdd` and the rest) are not
+on this surface, so those two values are the only use there is to derive it from:
 
 ```ts
-"use typeshade"
-"enable subgroups"
+"use typeshade";
+"enable subgroups";
 ```
 
 One extension per directive, WGSL's own name. The vocabulary is the WGSL backend's capability
@@ -4277,14 +5067,14 @@ The compiler emits the padding itself. A wrapper struct carries `@size(16)` and 
 rewritten one field deeper:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 class Palette {
-  count: f32               // a scalar BEFORE the list, which is where @align earns its keep
-  weights: array<f32, 4>   // four floats in the source
-  stops: array<vec4, 2>    // already 16 bytes an element — untouched
+  count: f32;               // a scalar BEFORE the list, which is where @align earns its keep
+  weights: array<f32, 4>;   // four floats in the source
+  stops: array<vec4, 2>;    // already 16 bytes an element — untouched
 }
-declare const U: uniform<Palette>
+declare const U: uniform<Palette>;
 ```
 
 ```wgsl
@@ -4400,13 +5190,13 @@ i32)'` on Tint — while `x << 1u`, the one spelling Tint accepts, was refused h
 equal-types rule. Both paths now agree:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 export function f(x: i32, n: i32, u: u32): i32 {
-  const a = x << n        // WGSL (x << u32(n))
-  const b = x >> u         // WGSL (x >> u), no cast needed
-  const c = x << 3         // WGSL (x << 3u), the literal retyped rather than wrapped
-  return a + b + c
+  const a = x << n;        // WGSL (x << u32(n))
+  const b = x >> u;         // WGSL (x >> u), no cast needed
+  const c = x << 3;         // WGSL (x << 3u), the literal retyped rather than wrapped
+  return a + b + c;
 }
 ```
 
@@ -4453,14 +5243,14 @@ clause above a full one, and that read as `switch case fall-through is not allow
 shape that is *not* fall-through, since an empty clause has nothing to fall through:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 export function tier(k: i32): i32 {
   switch (k) {
     case 0:
-    case 1: return 10   // WGSL `case 0, 1: {`   ·   GLSL `case 0: case 1: {`
-    case 2: return 20
-    default: return 99
+    case 1: return 10;   // WGSL `case 0, 1: {`   ·   GLSL `case 0: case 1: {`
+    case 2: return 20;
+    default: return 99;
   }
 }
 ```
@@ -4564,12 +5354,12 @@ user-defined fragment inputs must have a '@interpolate(flat)' attribute`. A VERT
 `@location` parameters are vertex ATTRIBUTES, not varyings, and are left alone.
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) id: u32       // WGSL @interpolate(flat) · GLSL `flat out uint id;`
-  @location(1) uv: vec2      // untouched: a float varying interpolates
+  @builtin("position") pos: vec4;
+  @location(0) id: u32;       // WGSL @interpolate(flat) · GLSL `flat out uint id;`
+  @location(1) uv: vec2;      // untouched: a float varying interpolates
 }
 ```
 
@@ -4722,12 +5512,12 @@ The environment is threaded in statement order and merged at each branch's join:
 <!-- doc-snippets: skip — the first half is REFUSED on purpose, so it cannot be a unit that compiles; both halves are pinned by src/core/passes/uniformity.test.ts. -->
 
 ```ts
-const edge = v.uv.x > 0.5
-if (edge) { return textureSample(t, s, v.uv) }   // refused, naming VsOut.uv — the root, not the name
+const edge = v.uv.x > 0.5;
+if (edge) { return textureSample(t, s, v.uv); }   // refused, naming VsOut.uv — the root, not the name
 
-let g: f32 = v.uv.x
-g = 0.25
-if (g > 0.5) { return textureSample(t, s, v.uv) }   // accepted: order decides, and so does Tint
+let g: f32 = v.uv.x;
+g = 0.25;
+if (g > 0.5) { return textureSample(t, s, v.uv); }   // accepted: order decides, and so does Tint
 ```
 
 An earlier version joined every write to a name regardless of order, and was wrong in both
@@ -4750,8 +5540,8 @@ The argument half is what makes the walk read a helper as its callers use it:
 
 ```ts
 export function shade(x: f32, uv: vec2): vec4 {
-  if (x > 0.5) { return textureSample(t, s, uv) }   // refused when x was handed v.uv.x
-  return vec4(0., 0., 0., 1.)
+  if (x > 0.5) { return textureSample(t, s, uv); }   // refused when x was handed v.uv.x
+  return vec4(0., 0., 0., 1.);
 }
 // shade(v.uv.x, v.uv)  → refused, naming VsOut.uv
 // shade(k, v.uv)       → accepted, and Tint accepts it too
@@ -4811,19 +5601,19 @@ keeps the old answer.
 analysis and emits WGSL's module-scope directive:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
-declare const t: texture_2d<f32>
-declare const s: sampler
+declare const t: texture_2d<f32>;
+declare const s: sampler;
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 @diagnostic("off", "derivative_uniformity")
 @fragment export function fs(v: VsOut): vec4 {
-  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv) }   // taken as written
-  return vec4(0., 0., 0., 1.)
+  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv); }   // taken as written
+  return vec4(0., 0., 0., 1.);
 }
 ```
 
@@ -4863,13 +5653,13 @@ rules' 2.1(b), and it carries its own §9.3 row in the extension table with `mod
 takes an `f32`, a `vec2` or a `vec3` and answers an `f32` in the range [0, 1).
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 export function noise(t: f32, uv: vec2, p: vec3): vec4 {
-  const a = random(t)    // an f32 seed
-  const b = random(uv)   // a vec2 seed
-  const c = random(p)    // a vec3 seed
-  return vec4(a, b, c, 1.)
+  const a = random(t);    // an f32 seed
+  const b = random(uv);   // a vec2 seed
+  const c = random(p);    // a vec3 seed
+  return vec4(a, b, c, 1.);
 }
 ```
 
@@ -4879,10 +5669,10 @@ that stays put while the camera moves — and it is also, today, the property it
 a GPU. The two paragraphs below say why.
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 export function cell(uv: vec2): f32 {
-  return random(floor(uv * 8.))   // one value per 8x8 cell
+  return random(floor(uv * 8.));   // one value per 8x8 cell
 }
 ```
 
@@ -4967,11 +5757,11 @@ A declared name is now checked against the reserved words of the targets the mod
 <!-- doc-snippets: skip — the block IS the refusal: a field named `half` is what TS8068 reports -->
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 class Vertex {
-  @builtin("position") pos: vec4
-  @location(0) half: vec2 // TS8068 "half" is reserved in GLSL ES 3.00, so a field of that
+  @builtin("position") pos: vec4;
+  @location(0) half: vec2; // TS8068 "half" is reserved in GLSL ES 3.00, so a field of that
 } //                         name cannot be emitted for the WebGL2 target. Rename it.
 ```
 

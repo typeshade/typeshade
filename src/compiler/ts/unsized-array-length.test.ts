@@ -16,50 +16,51 @@
 // `examples/PORTING.md` predicted this under "Hazards a twin will hit that are not blockers"
 // before anyone hit it, which is why it is worth a test that states the emitted text.
 
-import { describe, expect, it } from 'vitest'
-import { compileTsSource } from './source-file.js'
-import { TS_CODES } from './codes.js'
+import { describe, expect, it } from 'vitest';
+import { compileTsSource } from './source-file.js';
+import { TS_CODES } from './codes.js';
 
 const KERNEL = `"use typeshade";
 declare const src: storage<array<f32>>;
 declare let dst: storage<array<f32>>;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= u32(src.length)) { return }
-  dst[gid.x] = src[gid.x] * 2.
+  if (gid.x >= u32(src.length)) { return; }
+  dst[gid.x] = src[gid.x] * 2.;
 }
-`
+`;
 
 describe('#46 — a runtime-sized storage array reads its length from the buffer', () => {
   it('emits arrayLength(&src), never a folded 0', () => {
-    const r = compileTsSource(KERNEL)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.wgsl).toContain('arrayLength(&src)')
-    expect(r.wgsl).not.toContain('>= 0u')
-  })
+    const r = compileTsSource(KERNEL);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('arrayLength(&src)');
+    expect(r.wgsl).not.toContain('>= 0u');
+  });
 
   it('is a u32, so the guard needs no cast', () => {
-    const r = compileTsSource(KERNEL.replace('u32(src.length)', 'src.length'))
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.wgsl).toContain('if ((gid.x >= arrayLength(&src))) {')
-  })
+    const r = compileTsSource(KERNEL.replace('u32(src.length)', 'src.length'));
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('if ((gid.x >= arrayLength(&src))) {');
+  });
 
-  it('a for loop still cannot take it as its bound: §17 wants a constant', () => {
+  it('bounds a for loop, emitted as arrayLength (Rule 7.5, #203)', () => {
     // Before #50 this emitted `(i < 0)`, a loop body that never ran, with zero diagnostics.
-    // The length is a runtime value now, and the `for` rule refuses a runtime bound by name.
+    // Then the length was a runtime value and the `for` rule refused it; a runtime bound is
+    // now a counted loop, and the length reaches the header as the buffer's own.
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32>>;
 declare let dst: storage<array<f32>>;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  for (let i: u32 = 0; i < src.length; i++) { dst[gid.x] = src[gid.x] }
+  for (let i: u32 = 0; i < src.length; i++) { dst[gid.x] = dst[gid.x] + src[i]; }
 }
-`)
-    const errors = r.diagnostics.filter((d) => d.category === 'error')
-    expect(errors).toHaveLength(1)
-    expect(errors[0]?.code).toBe(TS_CODES.LOOP_BOUND)
-    expect(r.wgsl).toBeUndefined()
-  })
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    // licm reads the length once, ahead of the loop, since nothing in the body resizes it.
+    expect(r.wgsl).toContain('let _licm0 = arrayLength(&src);');
+    expect(r.wgsl).toContain('for (var i: u32 = 0u; (i < _licm0); i = (i + 1u)) {');
+  });
 
   it('a storage array read WITHOUT .length still compiles and emits', () => {
     const r = compileTsSource(`"use typeshade";
@@ -67,13 +68,13 @@ declare const src: storage<array<f32>>;
 declare let dst: storage<array<f32>>;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  dst[gid.x] = src[gid.x] * 2.
+  dst[gid.x] = src[gid.x] * 2.;
 }
-`)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.wgsl).toContain('dst[gid.x]')
-  })
-})
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('dst[gid.x]');
+  });
+});
 
 describe('#46 — the message tells each shape the truth about its own fix', () => {
   // The guard is `base.type.size === undefined`, which is four shapes, not one. `arrayLength`
@@ -85,25 +86,25 @@ describe('#46 — the message tells each shape the truth about its own fix', () 
   // uniform address space, which WGSL refuses outright (`TS8051`, §51) — so the helper picks
   // the code under test rather than demanding the program have exactly one problem.
   const messageFor = (src: string): string => {
-    const errors = compileTsSource(src).diagnostics.filter((d) => d.category === 'error')
-    const mine = errors.filter((d) => d.code === TS_CODES.UNSIZED_ARRAY_LENGTH)
+    const errors = compileTsSource(src).diagnostics.filter((d) => d.category === 'error');
+    const mine = errors.filter((d) => d.code === TS_CODES.UNSIZED_ARRAY_LENGTH);
     expect(
       mine,
       `expected one ${TS_CODES.UNSIZED_ARRAY_LENGTH}, got: ${errors.map((d) => `${d.code ?? '—'} ${d.message}`).join(' | ')}`,
-    ).toHaveLength(1)
-    return mine[0]!.message
-  }
+    ).toHaveLength(1);
+    return mine[0]!.message;
+  };
 
   it('a field of a storage binding reads its length too — the root is what decides', () => {
     const r = compileTsSource(`"use typeshade";
-class Buf { n: u32; xs: array<f32> }
+class Buf { n: u32; xs: array<f32>; }
 declare const b: storage<Buf>;
 @fragment
-export function fs(): vec4 { return vec4(f32(b.xs.length), 0., 0., 1.) }
-`)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.wgsl).toContain('arrayLength(&b.xs)')
-  })
+export function fs(): vec4 { return vec4(f32(b.xs.length), 0., 0., 1.); }
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('arrayLength(&b.xs)');
+  });
 
   it('a local that copies the binding denotes the binding', () => {
     // `storageRooted` once stopped at the local and told the author to size an array they could
@@ -112,63 +113,65 @@ export function fs(): vec4 { return vec4(f32(b.xs.length), 0., 0., 1.) }
 declare const src: storage<array<f32>>;
 @fragment
 export function fs(): vec4 {
-  const a = src
-  const c = a
-  return vec4(f32(c.length), 0., 0., 1.)
+  const a = src;
+  const c = a;
+  return vec4(f32(c.length), 0., 0., 1.);
 }
-`)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.wgsl).toContain('arrayLength(&src)')
-  })
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('arrayLength(&src)');
+  });
 
   it('a local array with no N is told to give it a size', () => {
     const m = messageFor(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const xs = array<f32>(1., 2., 3.)
-  return vec4(f32(xs.length), 0., 0., 1.)
+  const xs = array<f32>(1., 2., 3.);
+  return vec4(f32(xs.length), 0., 0., 1.);
 }
-`)
-    expect(m).toContain('array<f32, 3>')
-    expect(m).not.toContain('arrayLength')
-  })
+`);
+    expect(m).toContain('array<f32, 3>');
+    expect(m).not.toContain('arrayLength');
+  });
 
   it('a uniform array is told to give it a size, NOT about arrayLength', () => {
     const src = `"use typeshade";
 declare const u: uniform<array<f32>>;
 @fragment
-export function fs(): vec4 { return vec4(f32(u.length), 0., 0., 1.) }
-`
-    const m = messageFor(src)
-    expect(m).toContain('array<f32, 3>')
-    expect(m).not.toContain('arrayLength')
+export function fs(): vec4 { return vec4(f32(u.length), 0., 0., 1.); }
+`;
+    const m = messageFor(src);
+    expect(m).toContain('array<f32, 3>');
+    expect(m).not.toContain('arrayLength');
     // The diagnostic underlines the `.length` read, not the whole statement.
-    const d = compileTsSource(src).diagnostics.find((x) => x.code === TS_CODES.UNSIZED_ARRAY_LENGTH)
-    expect(d).toBeDefined()
-    expect(src.slice(d!.start, d!.start + d!.length)).toBe('u.length')
-  })
+    const d = compileTsSource(src).diagnostics.find(
+      (x) => x.code === TS_CODES.UNSIZED_ARRAY_LENGTH,
+    );
+    expect(d).toBeDefined();
+    expect(src.slice(d!.start, d!.start + d!.length)).toBe('u.length');
+  });
 
   it('a parameter is told to give it a size', () => {
     const m = messageFor(`"use typeshade";
-export function n(xs: array<f32>): i32 { return xs.length }
-`)
-    expect(m).toContain('array<f32, 3>')
-    expect(m).not.toContain('arrayLength')
-  })
-})
+export function n(xs: array<f32>): i32 { return xs.length; }
+`);
+    expect(m).toContain('array<f32, 3>');
+    expect(m).not.toContain('arrayLength');
+  });
+});
 
 describe('#46 — a sized array keeps the compile-time length it always had', () => {
   it('a fixed-size array literal', () => {
     const r = compileTsSource(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const xs: array<f32, 4> = [1., 2., 3., 4.]
-  return vec4(f32(xs.length), 0., 0., 1.)
+  const xs: array<f32, 4> = [1., 2., 3., 4.];
+  return vec4(f32(xs.length), 0., 0., 1.);
 }
-`)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.wgsl).toContain('vec4<f32>(4.0, 0.0, 0.0, 1.0)')
-  })
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('vec4<f32>(4.0, 0.0, 0.0, 1.0)');
+  });
 
   it('a sized storage binding keeps its length', () => {
     const r = compileTsSource(`"use typeshade";
@@ -176,13 +179,13 @@ declare const src: storage<array<f32, 8>>;
 declare let dst: storage<array<f32, 8>>;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= u32(src.length)) { return }
-  dst[gid.x] = src[gid.x] * 2.
+  if (gid.x >= u32(src.length)) { return; }
+  dst[gid.x] = src[gid.x] * 2.;
 }
-`)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // The guard is real here: 8 is the declared length, not a stand-in for a missing one.
-    expect(r.wgsl).toContain('>= 8u')
-    expect(r.wgsl).not.toContain('arrayLength')
-  })
-})
+    expect(r.wgsl).toContain('>= 8u');
+    expect(r.wgsl).not.toContain('arrayLength');
+  });
+});

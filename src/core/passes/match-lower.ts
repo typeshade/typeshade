@@ -32,11 +32,11 @@
 //      the ralplan AC2 (linear-scaling lookup for the variant-heavy
 //      land-cover match chains).
 
-import type { Expr, Stmt, FuncDecl, ModuleDecl } from '../ir/nodes.js'
-import { i32T, type ShaderType } from '../ir/types.js'
+import type { Expr, Stmt, FuncDecl, ModuleDecl } from '../ir/nodes.js';
+import { i32T, type ShaderType } from '../ir/types.js';
 
 interface Counter {
-  n: number
+  n: number;
 }
 
 /** Rewrites every `matchExpr` in a module into a form the backends can emit: a hoisted
@@ -63,60 +63,60 @@ export function lowerModule(m: ModuleDecl): ModuleDecl {
   return {
     ...m,
     funcs: m.funcs.map(lowerFunc),
-  }
+  };
 }
 
 function lowerFunc(f: FuncDecl): FuncDecl {
   // Per-fn counter so slot names stay readable (`_mr_0`, `_mr_1`, …) and
   // the diff-test snapshots remain stable across re-emits.
-  const counter: Counter = { n: 0 }
-  return { ...f, body: lowerStmtList(f.body, counter) }
+  const counter: Counter = { n: 0 };
+  return { ...f, body: lowerStmtList(f.body, counter) };
 }
 
 function lowerStmtList(stmts: readonly Stmt[], counter: Counter): Stmt[] {
-  const out: Stmt[] = []
+  const out: Stmt[] = [];
   for (const s of stmts) {
-    const nested = lowerSubStmts(s, counter)
-    const { hoisted, rewritten } = hoistMatchExprs(nested, counter)
-    out.push(...hoisted, rewritten)
+    const nested = lowerSubStmts(s, counter);
+    const { hoisted, rewritten } = hoistMatchExprs(nested, counter);
+    out.push(...hoisted, rewritten);
   }
-  return out
+  return out;
 }
 
 function lowerSubStmts(s: Stmt, counter: Counter): Stmt {
   switch (s.s) {
     case 'for':
-      return { ...s, body: lowerStmtList(s.body, counter) }
+      return { ...s, body: lowerStmtList(s.body, counter) };
     case 'if':
       return {
         ...s,
         arms: s.arms.map((arm) => ({ ...arm, body: lowerStmtList(arm.body, counter) })),
         elseBody: s.elseBody ? lowerStmtList(s.elseBody, counter) : undefined,
-      }
+      };
     case 'switch':
       return {
         ...s,
         cases: s.cases.map((c) => ({ ...c, body: lowerStmtList(c.body, counter) })),
         defaultBody: s.defaultBody ? lowerStmtList(s.defaultBody, counter) : undefined,
-      }
+      };
     default:
-      return s
+      return s;
   }
 }
 
 function hoistMatchExprs(s: Stmt, counter: Counter): { hoisted: Stmt[]; rewritten: Stmt } {
-  const hoisted: Stmt[] = []
+  const hoisted: Stmt[] = [];
 
   const visit = (e: Expr): Expr => {
     // Bottom-up: rewrite children first so nested matchExprs lower deepest-first.
-    const walked = walkExprChildren(e, visit)
-    if (walked.op !== 'matchExpr') return walked
+    const walked = walkExprChildren(e, visit);
+    if (walked.op !== 'matchExpr') return walked;
 
-    const armCount = walked.cases.length
-    const slotName = `_mr_${counter.n++}`
-    const slotType: ShaderType = walked.type
-    const slotRef: Expr = { op: 'varref', type: slotType, name: slotName }
-    const assignSlot = (value: Expr): Stmt => ({ s: 'assign', target: slotRef, expr: value })
+    const armCount = walked.cases.length;
+    const slotName = `_mr_${counter.n++}`;
+    const slotType: ShaderType = walked.type;
+    const slotRef: Expr = { op: 'varref', type: slotType, name: slotName };
+    const assignSlot = (value: Expr): Stmt => ({ s: 'assign', target: slotRef, expr: value });
 
     // WGSL switch is integer-only. For >=10-arm matches we always emit a
     // Stmt.switch (the matchExpr perf gate); cast non-integer scrutinees
@@ -126,31 +126,31 @@ function hoistMatchExprs(s: Stmt, counter: Counter): { hoisted: Stmt[]; rewritte
     // because the IR has no module-scope pure-expression context that
     // would need a nested select() chain (every matchExpr in this
     // codebase appears inside an fn body Stmt via the compiler retarget).
-    const scrutType = walked.scrutinee.type
+    const scrutType = walked.scrutinee.type;
     const isIntegerScrut =
-      scrutType.kind === 'scalar' && (scrutType.scalar === 'i32' || scrutType.scalar === 'u32')
+      scrutType.kind === 'scalar' && (scrutType.scalar === 'i32' || scrutType.scalar === 'u32');
     const scrut: Expr = isIntegerScrut
       ? walked.scrutinee
-      : { op: 'call', type: i32T, fn: 'i32', args: [walked.scrutinee] }
+      : { op: 'call', type: i32T, fn: 'i32', args: [walked.scrutinee] };
 
     const switchStmt: Stmt = {
       s: 'switch',
       scrut,
       cases: walked.cases.map(([v, ve]) => ({ values: [v], body: [assignSlot(ve)] })),
       defaultBody: [assignSlot(walked.default)],
-    }
-    hoisted.push({ s: 'var', name: slotName, type: slotType }, switchStmt)
+    };
+    hoisted.push({ s: 'var', name: slotName, type: slotType }, switchStmt);
 
     // The matchExpr Expr is replaced with a read of the slot var.
-    return slotRef
+    return slotRef;
 
     // Mark armCount as intentionally read (kept for future use such as a
     // <=9-arm nested select() lowering path).
-    void armCount
-  }
+    void armCount;
+  };
 
-  const rewritten = walkStmtExprs(s, visit)
-  return { hoisted, rewritten }
+  const rewritten = walkStmtExprs(s, visit);
+  return { hoisted, rewritten };
 }
 
 // ── Expr walker — bottom-up ──
@@ -162,13 +162,13 @@ function hoistMatchExprs(s: Stmt, counter: Counter): { hoisted: Stmt[]; rewritte
 
 /** Does this Expr tree contain a matchExpr anywhere? (X-GIS #763 P3 — for-header guard.) */
 function exprContainsMatch(e: Expr): boolean {
-  if (e.op === 'matchExpr') return true
-  let found = false
+  if (e.op === 'matchExpr') return true;
+  let found = false;
   walkExprChildren(e, (child) => {
-    if (found || exprContainsMatch(child)) found = true
-    return child
-  })
-  return found
+    if (found || exprContainsMatch(child)) found = true;
+    return child;
+  });
+  return found;
 }
 
 function walkExprChildren(e: Expr, visit: (e: Expr) => Expr): Expr {
@@ -179,30 +179,30 @@ function walkExprChildren(e: Expr, visit: (e: Expr) => Expr): Expr {
     case 'overrideref':
     case 'param':
     case 'varref':
-      return e
+      return e;
     case 'binop':
     case 'compare':
     case 'logical':
-      return { ...e, a: visit(e.a), b: visit(e.b) }
+      return { ...e, a: visit(e.a), b: visit(e.b) };
     case 'unop':
-      return { ...e, a: visit(e.a) }
+      return { ...e, a: visit(e.a) };
     case 'call':
-      return { ...e, args: e.args.map(visit) }
+      return { ...e, args: e.args.map(visit) };
     case 'member':
-      return { ...e, base: visit(e.base) }
+      return { ...e, base: visit(e.base) };
     case 'construct':
-      return { ...e, args: e.args.map(visit) }
+      return { ...e, args: e.args.map(visit) };
     case 'select':
-      return { ...e, cond: visit(e.cond), ifTrue: visit(e.ifTrue), ifFalse: visit(e.ifFalse) }
+      return { ...e, cond: visit(e.cond), ifTrue: visit(e.ifTrue), ifFalse: visit(e.ifFalse) };
     case 'index':
-      return { ...e, base: visit(e.base), idx: visit(e.idx) }
+      return { ...e, base: visit(e.base), idx: visit(e.idx) };
     case 'matchExpr':
       return {
         ...e,
         scrutinee: visit(e.scrutinee),
         cases: e.cases.map(([n, v]) => [n, visit(v)] as const),
         default: visit(e.default),
-      }
+      };
   }
 }
 
@@ -221,22 +221,22 @@ function walkExprChildren(e: Expr, visit: (e: Expr) => Expr): Expr {
 function walkStmtExprs(s: Stmt, visit: (e: Expr) => Expr): Stmt {
   switch (s.s) {
     case 'let':
-      return { ...s, expr: visit(s.expr) }
+      return { ...s, expr: visit(s.expr) };
     case 'var':
-      return s.init !== undefined ? { ...s, init: visit(s.init) } : s
+      return s.init !== undefined ? { ...s, init: visit(s.init) } : s;
     case 'assign':
-      return { ...s, target: visit(s.target), expr: visit(s.expr) }
+      return { ...s, target: visit(s.target), expr: visit(s.expr) };
     case 'assignOp':
-      return { ...s, target: visit(s.target), expr: visit(s.expr) }
+      return { ...s, target: visit(s.target), expr: visit(s.expr) };
     case 'call':
-      return { ...s, expr: visit(s.expr) }
+      return { ...s, expr: visit(s.expr) };
     case 'return':
-      return s.expr !== undefined ? { ...s, expr: visit(s.expr) } : s
+      return s.expr !== undefined ? { ...s, expr: visit(s.expr) } : s;
     case 'if':
       return {
         ...s,
         arms: s.arms.map((arm) => ({ ...arm, cond: visit(arm.cond), body: arm.body })),
-      }
+      };
     case 'for': {
       // X-GIS #763 P3 — the throw this file's header comment PROMISED but never had.
       // Hoisting a matchExpr out of a for-COND evaluates it ONCE where the loop
@@ -251,17 +251,17 @@ function walkStmtExprs(s: Stmt, visit: (e: Expr) => Expr): Stmt {
       ) {
         throw new Error(
           'typeshade: matchExpr in a for-loop header (init/cond/update) is not lowerable — hoisting evaluates it once instead of per-iteration. Compute it into a var inside the loop body (or before the loop if truly invariant).',
-        )
+        );
       }
-      return s
+      return s;
     }
     case 'switch':
-      return { ...s, scrut: visit(s.scrut) }
+      return { ...s, scrut: visit(s.scrut) };
     case 'break':
     case 'continue':
     case 'discard':
     case 'raw': // Phase 2 PR 2e.B.2 — raw WGSL leaf, no sub-Expr to lower.
     case 'placeholder':
-      return s // Phase 2.5 US-007 — leaf, no sub-Expr to lower.
+      return s; // Phase 2.5 US-007 — leaf, no sub-Expr to lower.
   }
 }

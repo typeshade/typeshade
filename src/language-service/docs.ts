@@ -3,13 +3,12 @@
 // Shared by `hover.ts` (a documentation lookup) and `completions.ts` (an item's
 // `documentation` field), so the two never describe the same name two different ways.
 
-import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
-import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js'
-import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js'
+import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
+import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
 
 // Re-export these tables so `ambient.ts` can import from `docs.ts` without an import cycle.
-export const ATTRIBUTE_NAMES = COMPILER_ATTRIBUTE_NAMES
-export const WGSL_BUILTIN_NAMES = SOT_WGSL_BUILTIN_NAMES
+export const ATTRIBUTE_NAMES = COMPILER_ATTRIBUTE_NAMES;
+export const WGSL_BUILTIN_NAMES = SOT_WGSL_BUILTIN_NAMES;
 
 /** One Markdown sentence per GPU type name in `SUPPORTED_TYPE_NAMES`. */
 export const TYPE_DOCS: Readonly<Record<string, string>> = {
@@ -58,7 +57,39 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   mat4x3: '4x3 matrix of `f32`, column-major: 4 columns of `vec3`.',
   mat4x4: '4x4 matrix of `f32` (or `f64` as `mat4x4<f64>`), column-major.',
   mat4: '4x4 matrix of `f32`, column-major, same type as `mat4x4`.',
-}
+  sampler:
+    'A sampler: how a sampled texture is filtered and addressed when `textureSample` reads it. A resource with no type argument, declared bare as `declare const smp: sampler`.',
+  sampler_comparison:
+    'A comparison sampler: compares a reference depth against a depth texture in `textureSampleCompare`, the read a shadow map takes. Declared bare as `declare const shadowSmp: sampler_comparison`.',
+  texture_2d:
+    'A sampled 2D texture of `f32`, `i32` or `u32` texels, read with `textureLoad`, or filtered with `textureSample` when its texels are `f32`. A resource, declared as `declare const t: texture_2d<f32>`.',
+  texture_2d_array:
+    'An array of sampled 2D textures in one binding, picked by an integer layer after the coordinate. Declared as `declare const t: texture_2d_array<f32>`.',
+  texture_cube:
+    'A sampled cube texture, looked up by a `vec3` direction, as an environment map is. Declared as `declare const t: texture_cube<f32>`.',
+  texture_3d:
+    'A sampled 3D texture, looked up by a `vec3` coordinate, as a volume is. Declared as `declare const t: texture_3d<f32>`.',
+  texture_1d:
+    'A sampled 1D texture, looked up by one `f32` coordinate, as a colour ramp is. Declared as `declare const t: texture_1d<f32>`; GLSL ES 3.00 has no form for it, so it derives the `texture1d` capability and runs on WGSL only.',
+  texture_cube_array:
+    'An array of sampled cube textures in one binding, looked up by a direction and a layer. Declared as `declare const t: texture_cube_array<f32>`; GLSL ES 3.00 has no form for it, so it derives the `textureCubeArray` capability and runs on WGSL only.',
+  texture_multisampled_2d:
+    'A multisampled 2D texture, read one sample at a time with `textureLoad(t, coords, sampleIndex)` and never filtered. Declared as `declare const t: texture_multisampled_2d<f32>`; it derives the `msaaTextureLoad` capability, which GLSL ES 3.00 does not have.',
+  texture_depth_2d:
+    'A 2D depth texture, single-channel float, read with `textureSampleCompare` through a `sampler_comparison` or with `textureLoad`. Declared bare as `declare const shadowMap: texture_depth_2d`.',
+  texture_depth_2d_array:
+    'An array of 2D depth textures in one binding, picked by an integer layer, as shadow cascades are. Declared bare as `declare const t: texture_depth_2d_array`.',
+  texture_depth_cube:
+    'A cube depth texture, looked up by a `vec3` direction, the shadow map of a point light. Declared bare as `declare const t: texture_depth_cube`.',
+  texture_depth_cube_array:
+    'An array of cube depth textures in one binding, looked up by a direction and a layer. Declared bare as `declare const t: texture_depth_cube_array`; it derives the `textureCubeArray` capability, which GLSL ES 3.00 does not have.',
+  texture_depth_multisampled_2d:
+    'The depth attachment of a multisampled target, read one sample at a time with `textureLoad`. Declared bare as `declare const t: texture_depth_multisampled_2d`; it derives the `msaaTextureLoad` capability, which GLSL ES 3.00 does not have.',
+  texture_storage_2d:
+    'A 2D storage texture, read and written by texel coordinate with `textureLoad` and `textureStore`, with no sampler. Its format and access mode are its type arguments, as in `declare const dst: texture_storage_2d<"rgba8unorm", "write">`; GLSL ES 3.00 has no form for it.',
+  texture_storage_2d_array:
+    'An array of 2D storage textures in one binding, read and written by texel coordinate and an integer layer. Declared with a format and an access mode, as in `declare const dst: texture_storage_2d_array<"rgba8unorm", "write">`; GLSL ES 3.00 has no form for it.',
+};
 
 /** One Markdown sentence per attribute name in `ATTRIBUTE_NAMES`. */
 export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
@@ -77,7 +108,7 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
     'Which of the two colours a dual-source blend mixes this fragment output is: `@blend_src(0)` and `@blend_src(1)`, both at `@location(0)`. Derives the `dualSourceBlending` capability; GLSL ES 3.00 has no second source, so a module using it fails closed there.',
   diagnostic:
     'Sets the severity of a WGSL diagnostic rule for the whole module, as in `@diagnostic("off", "derivative_uniformity")` on an entry. Written on the entry, emitted as the module-scope `diagnostic(off, derivative_uniformity);`, because WGSL\'s function attribute does not reach the functions the entry calls. One rule is analysed here: `derivative_uniformity`.',
-}
+};
 
 /** One Markdown sentence per `@builtin(...)` id in `WGSL_BUILTIN_NAMES`. */
 export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
@@ -100,7 +131,7 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
   subgroup_size: 'The number of invocations in the current subgroup.',
   clip_distances:
     "Per-vertex clip distances against the pipeline's enabled user clip planes: a vertex output of `array<f32, N>` with N from 1 to 8. Needs `enable clip_distances;`, which the use derives.",
-}
+};
 
 /** One Markdown sentence per builtin function: free math functions, expansions, casts, vector
  * constructors, array, fill, uniform, storage, and random. Shared by `hover.ts` and `completions.ts`. */
@@ -199,6 +230,9 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   fma: 'Returns `a * b + c`, componentwise over vectors. GLSL ES 3.00 has no `fma`, so the product and sum are inlined there.',
   any: 'Whether any component of a vector of bools is true: `any(a < b)`. A scalar bool passes through. Over an array, `any(xs, (x) => ...)` is the fold.',
   all: 'Whether every component of a vector of bools is true: `all(a === b)`. A scalar bool passes through. Over an array, `all(xs, (x) => ...)` is the fold.',
+  none: 'Whether no element of a fixed-size array passes the test: `none(xs, (x) => x < 0.)`, the negation of `any(xs, pred)`. Unrolled into one call per element, stopping at the first that passes.',
+  sum: 'The sum of the elements of a fixed-size array of numbers or vectors, `sum(xs)`, unrolled into one addition per element.',
+  zip: 'A fixed-size array built from two of one length, element by element: `zip(xs, ys, (a, b) => a * b)`. Unrolled into one call per element; the function may read the variables around it.',
   select:
     "Returns `trueValue` where `cond` is true and `falseValue` where it is false, in WGSL's argument order: the condition comes last. Compiles to the same code as a ternary over `cond`.",
   bool: 'Converts a numeric scalar to `bool`: true where `x` is not zero, spelled as the compare `x != 0`. A `bool` argument is returned as it is.',
@@ -378,7 +412,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Declares a storage binding of type T; use `declare const name: storage<T>` for read-only or `declare let name: storage<T>` for read-write access.',
   random:
     'Returns an `f32` in the range [0, 1) hashed from an `f32`, `vec2` or `vec3` seed, emitted as `fract(sin(dot(seed, k)) * 43758.5453123)`. One seed is one value in the IR and NOT on a GPU: WGSL bounds `sin` to 2^-11 absolute error on [-PI, PI] and not at all outside it, which is where this hash lives, so the driver decides the answer (surface section 55 has the measurements; #181 replaces the hash with an exact integer one). There is no unseeded form: `Math.random()` without a seed does not compile.',
-}
+};
 
 /** One Markdown sentence per language constant: the mathematical constants PI, TAU, E, LN2, LN10,
  * LOG2E, and LOG10E. Shared by `hover.ts` and `completions.ts`. */
@@ -394,7 +428,7 @@ export const CONSTANT_DOCS: Readonly<Record<string, string>> = {
     "The base-2 logarithm of e, inlined as a compile-time `f32` literal (approximately 1.44270). The value matches JavaScript's `Math.LOG2E`.",
   LOG10E:
     "The base-10 logarithm of e, inlined as a compile-time `f32` literal (approximately 0.43429). The value matches JavaScript's `Math.LOG10E`.",
-}
+};
 
 /** Documentation for `Math` object members: functions aliasing free functions (fround, random)
  * and readonly constants (E, LN10, LN2, LOG10E, LOG2E, PI, SQRT1_2, SQRT2). */
@@ -438,17 +472,18 @@ export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
     "The square root of 1/2, inlined as a compile-time `f32` literal (approximately 0.70711). The value matches JavaScript's `Math.SQRT1_2`.",
   SQRT2:
     "The square root of 2, inlined as a compile-time `f32` literal (approximately 1.41421). The value matches JavaScript's `Math.SQRT2`.",
-}
+};
 
-/** Every documented type name, asserted in `docs.test.ts` to equal `SUPPORTED_TYPE_NAMES`. */
-export const DOCUMENTED_TYPE_NAMES: readonly string[] = SUPPORTED_TYPE_NAMES
+/** Every documented type name: the rows of `TYPE_DOCS`, asserted in `docs.test.ts` to cover
+ *  every name in the compiler's `SUPPORTED_TYPE_NAMES`. */
+export const DOCUMENTED_TYPE_NAMES: readonly string[] = Object.keys(TYPE_DOCS);
 /** Every documented attribute name, asserted in `docs.test.ts` to equal `ATTRIBUTE_NAMES`. */
-export const DOCUMENTED_ATTRIBUTE_NAMES: readonly string[] = ATTRIBUTE_NAMES
+export const DOCUMENTED_ATTRIBUTE_NAMES: readonly string[] = ATTRIBUTE_NAMES;
 /** Every documented builtin name, asserted in `docs.test.ts` to equal `WGSL_BUILTIN_NAMES`. */
-export const DOCUMENTED_BUILTIN_NAMES: readonly string[] = WGSL_BUILTIN_NAMES
+export const DOCUMENTED_BUILTIN_NAMES: readonly string[] = WGSL_BUILTIN_NAMES;
 /** Every documented function name, asserted in `docs.test.ts` to equal the declared function names in `SHADE_DTS`. */
-export const DOCUMENTED_FUNCTION_NAMES = Object.keys(FUNCTION_DOCS)
+export const DOCUMENTED_FUNCTION_NAMES = Object.keys(FUNCTION_DOCS);
 /** Every documented constant name, asserted in `docs.test.ts` to equal the language constant names. */
-export const DOCUMENTED_CONSTANT_NAMES = Object.keys(CONSTANT_DOCS)
+export const DOCUMENTED_CONSTANT_NAMES = Object.keys(CONSTANT_DOCS);
 /** Every documented Math member name, asserted in `docs.test.ts` to match the MathObject members in `SHADE_DTS`. */
-export const DOCUMENTED_MATH_MEMBER_NAMES = Object.keys(MATH_MEMBER_DOCS)
+export const DOCUMENTED_MATH_MEMBER_NAMES = Object.keys(MATH_MEMBER_DOCS);

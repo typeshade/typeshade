@@ -1,22 +1,22 @@
-import { describe, expect, it } from 'vitest'
-import { readdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import ts from 'typescript'
-import { createTypeshadeLanguageService } from './service.js'
-import { TypeshadeHost, AMBIENT_LIB_URI } from './host.js'
-import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js'
-import { compile } from '../compiler/ts/compile.js'
+import { describe, expect, it } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
+import { createTypeshadeLanguageService } from './service.js';
+import { TypeshadeHost, AMBIENT_LIB_URI } from './host.js';
+import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
+import { compile } from '../compiler/ts/compile.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-const EXAMPLES_DIR = join(HERE, '..', '..', 'examples')
-const SOT_FILE = join(HERE, '..', 'core', 'sot.ts')
-const FUNCTION_FILE = join(HERE, '..', 'compiler', 'ts', 'lower', 'function.ts')
-const STRUCTS_FILE = join(HERE, '..', 'compiler', 'ts', 'structs.ts')
+const HERE = dirname(fileURLToPath(import.meta.url));
+const EXAMPLES_DIR = join(HERE, '..', '..', 'examples');
+const SOT_FILE = join(HERE, '..', 'core', 'sot.ts');
+const FUNCTION_FILE = join(HERE, '..', 'compiler', 'ts', 'lower', 'function.ts');
+const STRUCTS_FILE = join(HERE, '..', 'compiler', 'ts', 'structs.ts');
 // `'builtin'` itself is matched in builtin-check.ts now (shared by function.ts's parameter
 // decorator and structs.ts's field decorator, so the allow-list/stage checks live in one
 // place) — included here so this test still covers where `@builtin(...)` is actually parsed.
-const BUILTIN_CHECK_FILE = join(HERE, '..', 'compiler', 'ts', 'builtin-check.ts')
+const BUILTIN_CHECK_FILE = join(HERE, '..', 'compiler', 'ts', 'builtin-check.ts');
 
 /** Every `"use typeshade"` example, read from the directory rather than listed by hand so a new
  * one joins this corpus by existing. The corpus was the five `hello*` files, which are all
@@ -25,7 +25,7 @@ const BUILTIN_CHECK_FILE = join(HERE, '..', 'compiler', 'ts', 'builtin-check.ts'
  * to a storage binding. */
 const SHADE_EXAMPLES = readdirSync(EXAMPLES_DIR)
   .filter((name) => name.endsWith('.shade.ts'))
-  .sort()
+  .sort();
 
 /** The names this corpus must contain: a `readdirSync` that resolved nothing, or an examples
  * directory that lost its compute kernel, would otherwise leave the suite below green over
@@ -40,31 +40,31 @@ const REQUIRED_EXAMPLES = [
   'hello-vsin.shade.ts',
   'hello-vsout.shade.ts',
   'hello.shade.ts',
-]
+];
 
 describe('SHADE_DTS: every .shade.ts example produces zero diagnostics', () => {
   it('reads a corpus that still holds every example this suite was built on', () => {
     for (const name of REQUIRED_EXAMPLES) {
-      expect(SHADE_EXAMPLES, `${name} is missing from the examples corpus`).toContain(name)
+      expect(SHADE_EXAMPLES, `${name} is missing from the examples corpus`).toContain(name);
     }
-  })
+  });
 
   for (const name of SHADE_EXAMPLES) {
     it(`${name}: zero TypeScript diagnostics and zero TypeShade diagnostics`, () => {
-      const text = readFileSync(join(EXAMPLES_DIR, name), 'utf8')
-      const service = createTypeshadeLanguageService()
-      service.openDocument(name, text)
-      const diagnostics = service.getDiagnostics(name)
+      const text = readFileSync(join(EXAMPLES_DIR, name), 'utf8');
+      const service = createTypeshadeLanguageService();
+      service.openDocument(name, text);
+      const diagnostics = service.getDiagnostics(name);
       // Zero, not "zero but for TS1206": `@vertex`/`@compute` on a top-level function and
       // `@builtin(...)` on its parameters are the one grammar no ambient lib can declare away,
       // and `diagnostics.ts` already filters exactly that shape (design doc §6).
       expect(
         diagnostics.map((d) => `${d.source} ${d.code}: ${d.message}`),
         `${name} should compile clean under the ambient lib`,
-      ).toEqual([])
-    })
+      ).toEqual([]);
+    });
   }
-})
+});
 
 // Regression for the false positive PR #31's tarball measurement surfaced and the Playground
 // reported as "compute reduction: output[idx] = sum shows an error": the ambient `array`'s index
@@ -79,23 +79,23 @@ describe('a storage array is writable in the editor, as it is in the compiler', 
     '@compute([64, 1, 1])\n' +
     'export function k(@builtin("global_invocation_id") gid: vec3u): void {\n' +
     `  ${body}\n` +
-    '}\n'
+    '}\n';
 
   it('out[gid.x] = value reports no TS2542, and nothing else either', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', kernel('out[gid.x] = 1.'))
-    const diagnostics = service.getDiagnostics('a.ts')
-    expect(diagnostics.filter((d) => d.source === 'typescript' && d.code === 2542)).toEqual([])
-    expect(diagnostics.map((d) => `${d.source} ${d.code}: ${d.message}`)).toEqual([])
-  })
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', kernel('out[gid.x] = 1.'));
+    const diagnostics = service.getDiagnostics('a.ts');
+    expect(diagnostics.filter((d) => d.source === 'typescript' && d.code === 2542)).toEqual([]);
+    expect(diagnostics.map((d) => `${d.source} ${d.code}: ${d.message}`)).toEqual([]);
+  });
 
   it('keeps length read-only, so the change reaches the index signature only', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', kernel('out.length = 2'))
-    const diagnostics = service.getDiagnostics('a.ts')
-    expect(diagnostics.some((d) => d.source === 'typescript' && d.code === 2540)).toBe(true)
-  })
-})
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', kernel('out.length = 2'));
+    const diagnostics = service.getDiagnostics('a.ts');
+    expect(diagnostics.some((d) => d.source === 'typescript' && d.code === 2540)).toBe(true);
+  });
+});
 
 // #8 A16 made `const xs: array<f32, 3> = [1., 2., 3.]` compile, and the ambient `array`'s tag
 // was REQUIRED, so the editor answered a program the compiler accepts with TS2322 ("Property
@@ -105,24 +105,24 @@ describe('a storage array is writable in the editor, as it is in the compiler', 
 // sizes stay apart.
 describe('a list initializes an array in the editor, as it does in the compiler', () => {
   const helper = (body: string): string =>
-    '"use typeshade"\n' + 'export function f(): f32 {\n' + `  ${body}\n` + '  return xs[0]\n}\n'
+    '"use typeshade"\n' + 'export function f(): f32 {\n' + `  ${body}\n` + '  return xs[0]\n}\n';
 
   it('reports nothing on a list of the declared size', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', helper('const xs: array<f32, 3> = [1., 2., 3.]'))
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', helper('const xs: array<f32, 3> = [1., 2., 3.]'));
     expect(
       service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`),
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('still reports a list of the wrong size, which is what `length: N` buys', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', helper('const xs: array<f32, 3> = [1., 2.]'))
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', helper('const xs: array<f32, 3> = [1., 2.]'));
     expect(
       service.getDiagnostics('a.ts').some((d) => d.source === 'typescript' && d.code === 2322),
-    ).toBe(true)
-  })
-})
+    ).toBe(true);
+  });
+});
 
 // Issue #43: `v * s` is typed `number`, so using the product AS a vector was rejected at every
 // call. The gate above was already green on this corpus before that rule landed, because #18 paid
@@ -147,16 +147,16 @@ describe('a vector product used as a vector is clean in the editor (issue #43)',
     '@fragment\n' +
     'export function fs(vo: VsOut): vec4 {\n' +
     '  return vec4(u.tint.rgb * (vo.uv.y * u.gain), u.tint.a)\n' +
-    '}\n'
+    '}\n';
 
   it('hello-uniform-struct.shade.ts (#18) without its annotated local has zero diagnostics', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', uniformStructFragment)
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', uniformStructFragment);
     expect(
       service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`),
-    ).toEqual([])
-  })
-})
+    ).toEqual([]);
+  });
+});
 
 // Regression for the blocker where `VecOf`'s use of the standard-lib `Pick` helper resolved to
 // an error type under `lib: []` (`Pick` is declared by `lib.es5.d.ts`, never loaded here), which
@@ -166,38 +166,40 @@ describe('a vector product used as a vector is clean in the editor (issue #43)',
 // real §6 guard.
 describe('AMBIENT_LIB_URI: the bundled shade.d.ts itself must type-check cleanly', () => {
   it('produces zero TypeScript diagnostics against its own compiler options', () => {
-    const host = new TypeshadeHost()
-    host.openDocument('a.ts', '"use typeshade"\nexport function f(): void {}\n')
-    const ls = ts.createLanguageService(host, ts.createDocumentRegistry())
+    const host = new TypeshadeHost();
+    host.openDocument('a.ts', '"use typeshade"\nexport function f(): void {}\n');
+    const ls = ts.createLanguageService(host, ts.createDocumentRegistry());
     const diagnostics = [
       ...ls.getSyntacticDiagnostics(AMBIENT_LIB_URI),
       ...ls.getSemanticDiagnostics(AMBIENT_LIB_URI),
-    ]
-    expect(diagnostics.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'))).toEqual([])
-  })
+    ];
+    expect(diagnostics.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'))).toEqual(
+      [],
+    );
+  });
 
   it('actually type-checks vector arguments (a vec2 does not satisfy a vec4 parameter)', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
       '"use typeshade"\n' +
       'function g(a: vec4): void {}\n' +
       'export function f(): void {\n' +
       '  g(vec2(1, 2))\n' +
-      '}\n'
-    service.openDocument('a.ts', source)
-    const diagnostics = service.getDiagnostics('a.ts')
-    expect(diagnostics.some((d) => d.source === 'typescript' && d.code === 2345)).toBe(true)
-  })
+      '}\n';
+    service.openDocument('a.ts', source);
+    const diagnostics = service.getDiagnostics('a.ts');
+    expect(diagnostics.some((d) => d.source === 'typescript' && d.code === 2345)).toBe(true);
+  });
 
   it('actually type-checks member access on a vector (no member named "nope")', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
-      '"use typeshade"\n' + 'export function f(a: vec4): f32 {\n' + '  return a.nope\n' + '}\n'
-    service.openDocument('a.ts', source)
-    const diagnostics = service.getDiagnostics('a.ts')
-    expect(diagnostics.some((d) => d.source === 'typescript' && d.code === 2339)).toBe(true)
-  })
-})
+      '"use typeshade"\n' + 'export function f(a: vec4): f32 {\n' + '  return a.nope\n' + '}\n';
+    service.openDocument('a.ts', source);
+    const diagnostics = service.getDiagnostics('a.ts');
+    expect(diagnostics.some((d) => d.source === 'typescript' && d.code === 2339)).toBe(true);
+  });
+});
 
 // Regression for the major finding where a REQUIRED unique-symbol brand on f32/i32/u32/f64 made
 // an ordinary valid "use typeshade" program report TS2322, because nothing in the authoring
@@ -206,39 +208,39 @@ describe('AMBIENT_LIB_URI: the bundled shade.d.ts itself must type-check cleanly
 // local), since that narrower corpus is exactly what let the bug through originally.
 describe('scalar brands: an f32/u32/... annotation never false-positives on a plain number', () => {
   it('an f32 helper function with an f32 parameter and return has zero diagnostics', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
       '"use typeshade"\n' +
       'export function h(a: f32, b: f32): f32 {\n' +
       '  return a * b\n' +
-      '}\n'
-    service.openDocument('a.ts', source)
-    expect(service.getDiagnostics('a.ts')).toEqual([])
-  })
+      '}\n';
+    service.openDocument('a.ts', source);
+    expect(service.getDiagnostics('a.ts')).toEqual([]);
+  });
 
   it('a bare float literal returned from an f32-annotated function has zero diagnostics', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade"\nexport function h(a: f32): f32 {\n  return a + 1.\n}\n'
-    service.openDocument('a.ts', source)
-    expect(service.getDiagnostics('a.ts')).toEqual([])
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade"\nexport function h(a: f32): f32 {\n  return a + 1.\n}\n';
+    service.openDocument('a.ts', source);
+    expect(service.getDiagnostics('a.ts')).toEqual([]);
+  });
 
   it('an f32-typed local initialized from a float literal has zero diagnostics', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
-      '"use typeshade"\nexport function h(): f32 {\n  let t: f32 = 1.0\n  return t\n}\n'
-    service.openDocument('a.ts', source)
-    expect(service.getDiagnostics('a.ts')).toEqual([])
-  })
+      '"use typeshade"\nexport function h(): f32 {\n  let t: f32 = 1.0\n  return t\n}\n';
+    service.openDocument('a.ts', source);
+    expect(service.getDiagnostics('a.ts')).toEqual([]);
+  });
 
   it('dot(...), typed number in the ambient lib, satisfies an f32 return with zero diagnostics', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
-      '"use typeshade"\nexport function h(a: vec4, b: vec4): f32 {\n  return dot(a, b)\n}\n'
-    service.openDocument('a.ts', source)
-    expect(service.getDiagnostics('a.ts')).toEqual([])
-  })
-})
+      '"use typeshade"\nexport function h(a: vec4, b: vec4): f32 {\n  return dot(a, b)\n}\n';
+    service.openDocument('a.ts', source);
+    expect(service.getDiagnostics('a.ts')).toEqual([]);
+  });
+});
 
 // The generic math signatures' own shape, which is what the twins corpus failed on rather than
 // any diagnostic worth filtering. Two arms, and the second is the load-bearing one:
@@ -255,14 +257,14 @@ describe('scalar brands: an f32/u32/... annotation never false-positives on a pl
 //      thing reporting them and this lib must not declare them away.
 describe('vector-with-scalar math shapes: exactly the ones both backends accept', () => {
   const diagnosticsOf = (body: string): string[] => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
-    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
-  }
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`);
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`);
+  };
   const reports = (body: string): boolean =>
     diagnosticsOf(body).some(
       (d) => d.startsWith('typescript 2345') || d.startsWith('typescript 2769'),
-    )
+    );
 
   describe('mix(vecN, vecN, scalar) is clean, for every f32 arity', () => {
     for (const [type, ctor] of [
@@ -275,22 +277,22 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
           diagnosticsOf(
             `export function f(a: ${type}, b: ${type}, t: f32): ${type} {\n  return mix(a, b, t)\n}`,
           ),
-        ).toEqual([])
-      })
+        ).toEqual([]);
+      });
       it(`${type} endpoints with a literal blend factor`, () => {
         expect(
           diagnosticsOf(
             `export function f(a: ${type}, b: ${type}): ${type} {\n  return mix(a, b, 0.5)\n}`,
           ),
-        ).toEqual([])
-      })
+        ).toEqual([]);
+      });
       it(`${type} constructors with a computed blend factor`, () => {
         expect(
           diagnosticsOf(
             `export function f(t: f32): ${type} {\n  return mix(${ctor}, ${ctor}, t * 0.5 + 0.5)\n}`,
           ),
-        ).toEqual([])
-      })
+        ).toEqual([]);
+      });
     }
 
     // The line PR #42's gradient twin is written in, which is where this started.
@@ -304,18 +306,18 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
             '  return vec4(mix(u.bottom.rgb, u.top.rgb, t), 1.)\n' +
             '}',
         ),
-      ).toEqual([])
-    })
+      ).toEqual([]);
+    });
 
     it('keeps the same-shape form: mix(vecN, vecN, vecN) and mix(f32, f32, f32)', () => {
       expect(
         diagnosticsOf(
           'export function f(a: vec3, b: vec3, t: vec3): vec3 {\n  return mix(a, b, t)\n}',
         ),
-      ).toEqual([])
+      ).toEqual([]);
       expect(
         diagnosticsOf('export function f(a: f32, b: f32, t: f32): f32 {\n  return mix(a, b, t)\n}'),
-      ).toEqual([])
+      ).toEqual([]);
       // An integer `mix` is a shape the ambient lib takes and both GPU compilers refuse (Tint:
       // no matching call to 'mix(vec3<i32>, vec3<i32>, vec3<i32>)'); the front end's argument
       // check says so (#57, TS8036), and the service reports it like any compiler diagnostic.
@@ -323,34 +325,36 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
         diagnosticsOf(
           'export function f(a: vec3i, b: vec3i, t: vec3i): vec3i {\n  return mix(a, b, t)\n}',
         ),
-      ).toEqual(['typeshade TS8036: mix takes an f32, or a vector of them; got vec3<i32>.'])
-    })
-  })
+      ).toEqual(['typeshade TS8036: mix takes an f32, or a vector of them; got vec3<i32>.']);
+    });
+  });
 
   describe('a literal beside an f32 no longer settles T to the literal type', () => {
     it('smoothstep(0.3, 0.55, h) on an f32 h', () => {
       expect(
         diagnosticsOf('export function f(h: f32): f32 {\n  return smoothstep(0.3, 0.55, h)\n}'),
-      ).toEqual([])
-    })
+      ).toEqual([]);
+    });
     it('step(horizon, y) on a literal-typed const', () => {
       expect(
         diagnosticsOf(
           'export function f(y: f32): f32 {\n  const horizon = 0.58\n  return step(horizon, y)\n}',
         ),
-      ).toEqual([])
-    })
+      ).toEqual([]);
+    });
     it('max(0.3, h) on an f32 h', () => {
-      expect(diagnosticsOf('export function f(h: f32): f32 {\n  return max(0.3, h)\n}')).toEqual([])
-    })
+      expect(diagnosticsOf('export function f(h: f32): f32 {\n  return max(0.3, h)\n}')).toEqual(
+        [],
+      );
+    });
     it('the same call nested in mix, which is how the twins write it', () => {
       expect(
         diagnosticsOf(
           'export function f(a: vec3, b: vec3, h: f32): vec3 {\n  return mix(a, b, smoothstep(0.3, 0.55, h))\n}',
         ),
-      ).toEqual([])
-    })
-  })
+      ).toEqual([]);
+    });
+  });
 
   describe('every shape a GPU compiler rejects still reports', () => {
     // Each of these emits WGSL the front end is happy with and Tint refuses: measured through
@@ -366,11 +370,11 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
         'export function f(a: vec3i, b: vec3i, t: i32): vec3i {\n  return mix(a, b, t)\n}',
       'mix(vec3u, vec3u, u32)':
         'export function f(a: vec3u, b: vec3u, t: u32): vec3u {\n  return mix(a, b, t)\n}',
-    }
+    };
     for (const [name, body] of Object.entries(rejectedByTint)) {
       it(`${name}: reported, because Tint reports it too`, () => {
-        expect(reports(body), body).toBe(true)
-      })
+        expect(reports(body), body).toBe(true);
+      });
     }
 
     const wrongShape: Readonly<Record<string, string>> = {
@@ -385,14 +389,14 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
         'export function f(a: f32, b: vec3, t: f32): vec3 {\n  return mix(a, b, t)\n}',
       'mix(vec3, vec3i, f32): same arity, different element kind':
         'export function f(a: vec3, b: vec3i, t: f32): vec3 {\n  return mix(a, b, t)\n}',
-    }
+    };
     for (const [name, body] of Object.entries(wrongShape)) {
       it(`${name}: reported`, () => {
-        expect(reports(body), body).toBe(true)
-      })
+        expect(reports(body), body).toBe(true);
+      });
     }
-  })
-})
+  });
+});
 
 // The editor says what the compiler says about a texture (#147). Each of these was a program
 // one layer accepted and the other refused, which is the gap the ambient library exists to
@@ -400,12 +404,12 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
 // describe exactly that — no wider, no narrower.
 describe('the ambient texture declarations match what the compiler lowers', () => {
   const diagnosticsOf = (body: string): string[] => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
-    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
-  }
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`);
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`);
+  };
   const FS = (decls: string, body: string): string =>
-    `${decls}\n@fragment\nexport function fs(): vec4 {\n${body}\n}`
+    `${decls}\n@fragment\nexport function fs(): vec4 {\n${body}\n}`;
 
   it('accepts an unsigned coordinate on textureLoad and textureStore', () => {
     // WGSL's texel coordinate is "i32, or u32" (wgsl.txt:24129) and Tint accepts the unsigned
@@ -415,7 +419,7 @@ describe('the ambient texture declarations match what the compiler lowers', () =
       diagnosticsOf(
         FS('declare const t: texture_2d<f32>', '  return textureLoad(t, vec2u(u32(0), u32(0)), 0)'),
       ),
-    ).toEqual([])
+    ).toEqual([]);
     expect(
       diagnosticsOf(
         FS(
@@ -423,14 +427,14 @@ describe('the ambient texture declarations match what the compiler lowers', () =
           '  textureStore(d, vec2u(u32(0), u32(0)), vec4(1., 0., 0., 1.))\n  return vec4(1.)',
         ),
       ),
-    ).toEqual([])
+    ).toEqual([]);
     // The signed form is untouched.
     expect(
       diagnosticsOf(
         FS('declare const t: texture_2d<f32>', '  return textureLoad(t, vec2i(0, 0), 0)'),
       ),
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('constrains the element of every sampled texture type', () => {
     // "T must be f32, i32, or u32" (wgsl.txt:7047-7048). `E` was unconstrained, so
@@ -439,7 +443,7 @@ describe('the ambient texture declarations match what the compiler lowers', () =
       diagnosticsOf(FS('declare const t: texture_2d<bool>', '  return vec4(0., 0., 0., 1.)')).some(
         (d) => d.startsWith('typescript 2344'),
       ),
-    ).toBe(true)
+    ).toBe(true);
     for (const elem of ['f32', 'i32', 'u32']) {
       expect(
         diagnosticsOf(
@@ -449,9 +453,9 @@ describe('the ambient texture declarations match what the compiler lowers', () =
           ),
         ),
         elem,
-      ).toEqual([])
+      ).toEqual([]);
     }
-  })
+  });
 
   it('types textureLoad by the element, as the compiler does', () => {
     // Every overload returned `vec4`, so a fetch from a `texture_2d<u32>` read as a float
@@ -463,7 +467,7 @@ describe('the ambient texture declarations match what the compiler lowers', () =
           '  const v: vec4u = textureLoad(t, vec2i(0, 0), 0)\n  return vec4(f32(v.x), 0., 0., 1.)',
         ),
       ),
-    ).toEqual([])
+    ).toEqual([]);
     expect(
       diagnosticsOf(
         FS(
@@ -471,7 +475,7 @@ describe('the ambient texture declarations match what the compiler lowers', () =
           '  const v: vec4i = textureLoad(t, vec2i(0, 0), 0)\n  return vec4(f32(v.x), 0., 0., 1.)',
         ),
       ),
-    ).toEqual([])
+    ).toEqual([]);
     // And the wrong element is reported, by SOMEBODY: an f32 vector is not what a u32
     // texture fetches.
     expect(
@@ -481,8 +485,8 @@ describe('the ambient texture declarations match what the compiler lowers', () =
           '  const v: vec4 = textureLoad(t, vec2i(0, 0), 0)\n  return v',
         ),
       ),
-    ).not.toEqual([])
-  })
+    ).not.toEqual([]);
+  });
 
   it('declares the level query and the storage layer count the compiler now takes', () => {
     expect(
@@ -492,7 +496,7 @@ describe('the ambient texture declarations match what the compiler lowers', () =
           '  const d = textureDimensions(t, 0)\n  return vec4(f32(d.x), 0., 0., 1.)',
         ),
       ),
-    ).toEqual([])
+    ).toEqual([]);
     expect(
       diagnosticsOf(
         FS(
@@ -500,8 +504,8 @@ describe('the ambient texture declarations match what the compiler lowers', () =
           '  return vec4(f32(textureNumLayers(a)), 0., 0., 1.)',
         ),
       ),
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('admits bgra8unorm at write and refuses it at the other two, as a device does', () => {
     // The seventeenth storage format, and the only one that is not core. Measured on two
@@ -517,7 +521,7 @@ describe('the ambient texture declarations match what the compiler lowers', () =
           '  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))\n  return vec4(0.)',
         ),
       ),
-    ).toEqual([])
+    ).toEqual([]);
     for (const access of ['read', 'read_write']) {
       expect(
         diagnosticsOf(
@@ -526,7 +530,7 @@ describe('the ambient texture declarations match what the compiler lowers', () =
             '  const v: vec4 = textureLoad(dst, vec2i(0, 0))\n  return v',
           ),
         ),
-      ).not.toEqual([])
+      ).not.toEqual([]);
     }
     // An ordinary format is unaffected at every access mode it already had.
     expect(
@@ -536,9 +540,9 @@ describe('the ambient texture declarations match what the compiler lowers', () =
           '  const v: vec4 = textureLoad(src, vec2i(0, 0))\n  return v',
         ),
       ),
-    ).toEqual([])
-  })
-})
+    ).toEqual([]);
+  });
+});
 
 // The texture half of the same claim (#145, tests-critique P0-7). These six programs were the
 // classes the front end passed and Tint refused, measured on SwiftShader through the compile
@@ -561,11 +565,11 @@ describe('the ambient texture declarations match what the compiler lowers', () =
 //     `vec2i` parameter. It now carries both.
 describe('every texture shape a GPU compiler rejects is reported in the editor', () => {
   const diagnosticsOf = (body: string): string[] => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
-    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
-  }
-  const VS_HEAD = 'class Clip { @builtin("position") pos: vec4 }\n@vertex\n'
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`);
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`);
+  };
+  const VS_HEAD = 'class Clip { @builtin("position") pos: vec4 }\n@vertex\n';
 
   /** program → the diagnostic sources that must answer it, by `source code` prefix. */
   const rejectedByTint: Readonly<
@@ -635,17 +639,17 @@ ${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
   return { pos: vec4(f32(n), 0., 0., 1.) }
 }`,
     },
-  }
+  };
   for (const [name, row] of Object.entries(rejectedByTint)) {
     it(`${name}: reported, because Tint reports it too`, () => {
-      const got = diagnosticsOf(row.src)
+      const got = diagnosticsOf(row.src);
       for (const prefix of row.from) {
         expect(
           got.some((d) => d.startsWith(prefix)),
           `${prefix} should answer:\n${row.src}\ngot: ${JSON.stringify(got)}`,
-        ).toBe(true)
+        ).toBe(true);
       }
-    })
+    });
   }
 
   // The seventh program of that measurement is the one #143 closed by RETARGETING rather than
@@ -659,9 +663,9 @@ ${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   textureStore(dstArr, vec2i(0, 0), 0, vec4(1., 0., 0., 1.))
 }`),
-    ).toEqual([])
-  })
-})
+    ).toEqual([]);
+  });
+});
 
 // WHERE THE DIAGNOSTIC LANDS, which is the other half of the TS2769 rule. TypeScript puts an
 // overload failure on the ARGUMENT span only when the first argument is the one that failed; as
@@ -673,40 +677,40 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
 // which is why neither the twins corpus nor `examples/` caught it.
 describe('vector arithmetic in a later argument stays clean (the callee-span TS2769)', () => {
   const diagnosticsOf = (body: string): string[] => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
-    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
-  }
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`);
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`);
+  };
 
   it('max(a, b * 2.) with two vec3, the shape that measured this', () => {
     expect(
       diagnosticsOf('export function f(a: vec3, b: vec3): vec3 {\n  return max(a, b * 2.)\n}'),
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('clamp(a, b * 2., c): arithmetic in the middle of three arguments', () => {
     expect(
       diagnosticsOf(
         'export function f(a: vec3, b: vec3, c: vec3): vec3 {\n  return clamp(a, b * 2., c)\n}',
       ),
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('smoothstep(a, b, c * 2.): arithmetic in the last argument', () => {
     expect(
       diagnosticsOf(
         'export function f(a: vec3, b: vec3, c: vec3): vec3 {\n  return smoothstep(a, b, c * 2.)\n}',
       ),
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('max(a, b * 2.) with a vec2 b still reports, so the span is not a licence', () => {
     // The callee-span path drops the per-argument guard, so the whole-signature question is the
     // only thing holding the rule: no overload takes a vec3 first and a vec2 second.
     expect(
       diagnosticsOf('export function f(a: vec3, b: vec2): vec3 {\n  return max(a, b * 2.)\n}'),
-    ).not.toEqual([])
-  })
+    ).not.toEqual([]);
+  });
 
   // The vocabulary swept rather than sampled: every free math name whose parameters are all one
   // shape, at every arity it has, with the arithmetic moved through each argument position in
@@ -731,33 +735,33 @@ describe('vector arithmetic in a later argument stays clean (the callee-span TS2
     sqrt: 1,
     floor: 1,
     fract: 1,
-  }
+  };
   /** The two names that reduce a vector to a scalar, so the sweep annotates the return type. */
-  const SCALAR_RESULT: ReadonlySet<string> = new Set(['dot', 'distance'])
+  const SCALAR_RESULT: ReadonlySet<string> = new Set(['dot', 'distance']);
 
   it('every same-shape all-vector call is clean with arithmetic in any argument', () => {
-    const reported: string[] = []
-    let calls = 0
+    const reported: string[] = [];
+    let calls = 0;
     for (const [name, arity] of Object.entries(SAME_SHAPE_ARITY)) {
       // `cross` is vec3-only in GLSL and in WGSL, and the ambient lib declares it that way.
       for (const vec of name === 'cross' ? ['vec3'] : ['vec2', 'vec3', 'vec4']) {
         for (let k = 0; k < arity; k++) {
-          const params = Array.from({ length: arity }, (_, i) => `p${i}: ${vec}`).join(', ')
+          const params = Array.from({ length: arity }, (_, i) => `p${i}: ${vec}`).join(', ');
           const args = Array.from({ length: arity }, (_, i) =>
             i === k ? `p${i} * 2.` : `p${i}`,
-          ).join(', ')
-          const result = SCALAR_RESULT.has(name) ? 'f32' : vec
-          const body = `export function f(${params}): ${result} {\n  return ${name}(${args})\n}`
-          calls++
-          const diagnostics = diagnosticsOf(body)
-          if (diagnostics.length > 0) reported.push(`${name}(${vec}) at ${k}: ${diagnostics[0]}`)
+          ).join(', ');
+          const result = SCALAR_RESULT.has(name) ? 'f32' : vec;
+          const body = `export function f(${params}): ${result} {\n  return ${name}(${args})\n}`;
+          calls++;
+          const diagnostics = diagnosticsOf(body);
+          if (diagnostics.length > 0) reported.push(`${name}(${vec}) at ${k}: ${diagnostics[0]}`);
         }
       }
     }
-    expect(calls).toBe(92)
-    expect(reported).toEqual([])
-  })
-})
+    expect(calls).toBe(92);
+    expect(reported).toEqual([]);
+  });
+});
 
 // The four `mix` blend factors both GPU compilers refuse that the ambient lib takes. `mix`'s
 // blend factor is declared `t: number`, which is wider than the `f32` WGSL and GLSL ES 3.00
@@ -771,13 +775,13 @@ describe('vector arithmetic in a later argument stays clean (the callee-span TS2
 // vectors.
 describe('mix blend factors the GPU compilers refuse (#57)', () => {
   const diagnosticsOf = (body: string): string[] => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
-    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
-  }
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`);
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`);
+  };
 
   const factor = (t: string): string =>
-    `typeshade TS8036: mix takes this argument as vec3<f32>, the first argument's type, or as a scalar f32; got ${t}.`
+    `typeshade TS8036: mix takes this argument as vec3<f32>, the first argument's type, or as a scalar f32; got ${t}.`;
   const reported: Readonly<Record<string, readonly [string, readonly string[]]>> = {
     // Tint: no matching call to 'mix(vec3<f32>, vec3<f32>, i32)'
     'mix(vec3, vec3, i32)': [
@@ -804,13 +808,13 @@ describe('mix blend factors the GPU compilers refuse (#57)', () => {
       'export function f(a: vec3, b: vec3, c: vec2): vec3 {\n  return mix(a, b, c * 2.)\n}',
       [factor('vec2<f32>')],
     ],
-  }
+  };
   for (const [name, [body, expected]] of Object.entries(reported)) {
     it(`${name}: TS8036 on the factor`, () => {
-      expect(diagnosticsOf(body)).toEqual(expected)
-    })
+      expect(diagnosticsOf(body)).toEqual(expected);
+    });
   }
-})
+});
 
 // The `f64` vectors are the second family `mix` declares a vector-with-scalar overload for.
 // `Numeric` does not include them at all, so before the overload existed the editor reported the
@@ -824,76 +828,76 @@ describe('mix on f64 vectors: declared, and it emits', () => {
     ['vec4f64', 'df64_v4_mix'],
   ]) {
     it(`mix(${type}, ${type}, f32) is clean and emits ${ctor}`, () => {
-      const service = createTypeshadeLanguageService()
+      const service = createTypeshadeLanguageService();
       service.openDocument(
         'a.ts',
         '"use typeshade"\n' +
           `export function blend(a: ${type}, b: ${type}, t: f32): ${type} {\n` +
           '  return mix(a, b, t)\n' +
           '}\n',
-      )
+      );
       expect(
         service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`),
-      ).toEqual([])
-      const output = service.getCompiledOutput('a.ts', 'wgsl')
-      expect(output?.diagnostics).toEqual([])
-      expect(output?.text ?? '').toContain(ctor)
-    })
+      ).toEqual([]);
+      const output = service.getCompiledOutput('a.ts', 'wgsl');
+      expect(output?.diagnostics).toEqual([]);
+      expect(output?.text ?? '').toContain(ctor);
+    });
   }
-})
+});
 
 describe('WGSL_BUILTIN_NAMES stays in sync with core/sot.ts#WgslBuiltinName', () => {
   it('matches the type alias exactly', () => {
-    const text = readFileSync(SOT_FILE, 'utf8')
-    const sf = ts.createSourceFile(SOT_FILE, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-    let names: string[] | undefined
+    const text = readFileSync(SOT_FILE, 'utf8');
+    const sf = ts.createSourceFile(SOT_FILE, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    let names: string[] | undefined;
     sf.forEachChild((node) => {
       if (ts.isTypeAliasDeclaration(node) && node.name.text === 'WgslBuiltinName') {
-        const type = node.type
+        const type = node.type;
         if (ts.isUnionTypeNode(type)) {
           names = type.types.map((member) => {
             if (ts.isLiteralTypeNode(member) && ts.isStringLiteral(member.literal)) {
-              return member.literal.text
+              return member.literal.text;
             }
-            throw new Error('WgslBuiltinName member is not a string literal')
-          })
+            throw new Error('WgslBuiltinName member is not a string literal');
+          });
         }
       }
-    })
-    expect(names, 'WgslBuiltinName type alias not found in core/sot.ts').toBeDefined()
-    expect([...WGSL_BUILTIN_NAMES].sort()).toEqual([...names!].sort())
-  })
-})
+    });
+    expect(names, 'WgslBuiltinName type alias not found in core/sot.ts').toBeDefined();
+    expect([...WGSL_BUILTIN_NAMES].sort()).toEqual([...names!].sort());
+  });
+});
 
 describe('ATTRIBUTE_NAMES matches what lower/function.ts and structs.ts actually parse', () => {
   it('every listed name is checked for by the two decorator readers', () => {
-    const fn = readFileSync(FUNCTION_FILE, 'utf8')
-    const structs = readFileSync(STRUCTS_FILE, 'utf8')
-    const builtinCheck = readFileSync(BUILTIN_CHECK_FILE, 'utf8')
-    const combined = fn + structs + builtinCheck
+    const fn = readFileSync(FUNCTION_FILE, 'utf8');
+    const structs = readFileSync(STRUCTS_FILE, 'utf8');
+    const builtinCheck = readFileSync(BUILTIN_CHECK_FILE, 'utf8');
+    const combined = fn + structs + builtinCheck;
     for (const name of ATTRIBUTE_NAMES) {
       expect(combined, `${name} should be a literal this pipeline checks for`).toContain(
         `'${name}'`,
-      )
+      );
     }
-  })
+  });
 
   it('does not list a name the compiler does not implement (align/size/ignore)', () => {
-    const fn = readFileSync(FUNCTION_FILE, 'utf8')
-    const structs = readFileSync(STRUCTS_FILE, 'utf8')
+    const fn = readFileSync(FUNCTION_FILE, 'utf8');
+    const structs = readFileSync(STRUCTS_FILE, 'utf8');
     // structs.ts only ever *rejects* @align ("on a field is not applied") — it never reads one
     // as a real decorator the way builtinDecoratorArg/numberDecorator read builtin/location.
     // `@interpolate` left this list in §53, along with `@invariant` and `@blend_src`: the
     // struct collector reads all three now, so listing them is the truth.
     for (const name of ['align', 'size', 'ignore']) {
-      expect(ATTRIBUTE_NAMES, `${name} is not implemented by the compiler`).not.toContain(name)
+      expect(ATTRIBUTE_NAMES, `${name} is not implemented by the compiler`).not.toContain(name);
     }
     expect(structs, '@interpolate is read by the struct collector now').toContain(
       'interpolateDecoratorArg',
-    )
-    expect(fn + structs).not.toContain("'ignore'")
-  })
-})
+    );
+    expect(fn + structs).not.toContain("'ignore'");
+  });
+});
 
 // ═══ The six Tint-invalid texture programs, seen from the editor (P0-7 of #155) ═══
 //
@@ -910,15 +914,15 @@ describe('ATTRIBUTE_NAMES matches what lower/function.ts and structs.ts actually
 // on 2026-09-21 and both are refused there.
 describe('every texture program a GPU compiler rejects reaches the editor', () => {
   const diagnosticsOf = (body: string): string[] => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
-    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
-  }
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`);
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`);
+  };
 
   const FRAGMENT_TAIL = `class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
-}`
+}`;
 
   const reported: Readonly<Record<string, string>> = {
     // T1b — `textureSample` on a cube array in a vertex entry (core.def:1143-1210 stages every
@@ -953,12 +957,12 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   const v = textureLoad(acc, vec3i(0, 0, 0))
   textureStore(acc, vec2i(0, 0), v)
 }`,
-  }
+  };
 
   for (const [name, body] of Object.entries(reported)) {
     it(`${name}: reported, because Tint reports it too`, () => {
-      expect(diagnosticsOf(body), body).not.toEqual([])
-    })
+      expect(diagnosticsOf(body), body).not.toEqual([]);
+    });
   }
 
   // `dref`, not `ref`: the field name reaches the emitted WGSL verbatim and `ref` is a WGSL
@@ -972,7 +976,7 @@ declare const atlas: texture_2d<f32>
 declare const shadowMap: texture_depth_2d
 declare const cmp: sampler_comparison
 declare const smp: sampler
-${FRAGMENT_TAIL}`
+${FRAGMENT_TAIL}`;
 
   // WAS `unreported`, and the rename is the record: both programs were reported by NEITHER
   // half — not by the front end, not by `tsc` against the ambient library — and each was an
@@ -993,17 +997,17 @@ export function fs(v: V): vec4 {
 export function fs(v: V): vec4 {
   return vec4(textureSampleCompare(shadowMap, cmp, v.uv, u.dref), 0., 0., 1.)
 }`,
-  }
+  };
 
   for (const [name, body] of Object.entries(nowReported)) {
     it(`${name}: reported, since #164 types the argument`, () => {
-      const diagnostics = diagnosticsOf(body)
-      expect(diagnostics, body).not.toEqual([])
+      const diagnostics = diagnosticsOf(body);
+      expect(diagnostics, body).not.toEqual([]);
       // The editor has to name the f32 the slot wants, or the underline is not actionable.
-      expect(diagnostics.join(' / ')).toContain('must be an f32')
-    })
+      expect(diagnostics.join(' / ')).toContain('must be an f32');
+    });
   }
-})
+});
 
 // P1-20 of #155. `wgsl.txt:24129` and `:24155` say the texture COORDINATE is "i32, or u32", and
 // this compiler accepts `vec2u` and emits `textureLoad(t, vec2<u32>(0u, 0u), 0u)` — which Tint
@@ -1011,13 +1015,13 @@ export function fs(v: V): vec4 {
 // program the compiler and the spec both accept: the opposite polarity to the rows above.
 describe('the editor accepts an unsigned texture coordinate, as the compiler and the spec do', () => {
   const tscErrors = (body: string): string[] => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`);
     return service
       .getDiagnostics('a.ts')
       .filter((d) => d.source === 'typescript')
-      .map((d) => `${d.code}: ${d.message}`)
-  }
+      .map((d) => `${d.code}: ${d.message}`);
+  };
 
   const LOAD = `declare const t: texture_2d<f32>
 class V {
@@ -1027,31 +1031,31 @@ class V {
 @fragment
 export function fs(v: V): vec4 {
   return textureLoad(t, vec2u(0, 0), 0)
-}`
+}`;
 
   const STORE = `declare const dst: texture_storage_2d<"rgba8unorm", "write">
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   textureStore(dst, vec2u(0, 0), vec4(1., 0., 0., 1.))
-}`
+}`;
 
   it('the COMPILER takes both, which is what makes the editor the odd one out', () => {
-    const load = compile(`"use typeshade"\n${LOAD}\n`)
-    expect(load.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(load.wgsl ?? '').toContain('textureLoad(t, vec2<u32>(0u, 0u), 0u)')
-    const store = compile(`"use typeshade"\n${STORE}\n`)
-    expect(store.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-  })
+    const load = compile(`"use typeshade"\n${LOAD}\n`);
+    expect(load.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(load.wgsl ?? '').toContain('textureLoad(t, vec2<u32>(0u, 0u), 0u)');
+    const store = compile(`"use typeshade"\n${STORE}\n`);
+    expect(store.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+  });
 
   // Both were `it.fails` waiting on #147: the ambient library typed the coordinate `vec2i`
   // alone, so the editor underlined a program the compiler and the spec both accept — the
   // opposite polarity to the rows above. #164 widened the declaration, so they are plain
   // assertions now, and they keep the editor from narrowing back.
   it('tsc takes an unsigned coordinate on textureLoad', () => {
-    expect(tscErrors(LOAD)).toEqual([])
-  })
+    expect(tscErrors(LOAD)).toEqual([]);
+  });
 
   it('tsc takes an unsigned coordinate on textureStore', () => {
-    expect(tscErrors(STORE)).toEqual([])
-  })
-})
+    expect(tscErrors(STORE)).toEqual([]);
+  });
+});

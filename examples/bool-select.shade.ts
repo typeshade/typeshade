@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -16,33 +16,33 @@
 // pick; both go through the compile gate, so the two spellings agree about the picture.
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): VsOut {
-  const xs: array<f32, 3> = [-1., 3., -1.]
-  const ys: array<f32, 3> = [-1., -1., 3.]
-  const i = i32(vi)
-  const p: vec2 = vec2(xs[i], ys[i])
-  return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) }
+  const xs: array<f32, 3> = [-1., 3., -1.];
+  const ys: array<f32, 3> = [-1., -1., 3.];
+  const i = i32(vi);
+  const p: vec2 = vec2(xs[i], ys[i]);
+  return { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
 }
 
 @fragment
 export function fs(v: VsOut): vec4 {
-  const past = v.uv > vec2(0.5, 0.5)
-  const cool = vec3(0.1, 0.3, 0.8)
-  const warm = vec3(0.9, 0.5, 0.1)
+  const past = v.uv > vec2(0.5, 0.5);
+  const cool = vec3(0.1, 0.3, 0.8);
+  const warm = vec3(0.9, 0.5, 0.1);
   // Per channel: x past the middle picks red and green, y past it picks blue. Built with the
   // constructor from scalar comparisons, since the editor types `past` as one boolean and
   // cannot follow `past.x`; the compiler takes either spelling.
-  const mask = vec3b(v.uv.x > 0.5, v.uv.x > 0.5, v.uv.y > 0.5)
-  let color = select(cool, warm, mask)
+  const mask = vec3b(v.uv.x > 0.5, v.uv.x > 0.5, v.uv.y > 0.5);
+  let color = select(cool, warm, mask);
   if (all(past)) {
-    color = color * 1.2
+    color = color * 1.2;
   } else if (!any(past)) {
-    color = color * 0.6
+    color = color * 0.6;
   }
-  return vec4(color, 1.)
+  return vec4(color, 1.);
 }

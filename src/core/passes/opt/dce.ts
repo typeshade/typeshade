@@ -2,14 +2,16 @@
 //
 // Drops a function-local `let`/`var` whose name is never read, and a `call` statement
 // whose call has no effect. Conservative + safe: exprs are pure EXCEPT for a call to a
-// function that writes a binding or its caller's value (passes/effects.ts), so an unread
-// binding whose initializer writes nothing has no observable effect, and a `call` statement is
-// kept exactly when its call has one (issue #47). An unread binding whose initializer DOES
-// write keeps the write: `const r = rng.next()` with `r` never read still advances `rng`, so
-// the binding becomes the call statement it amounts to. It used to be dropped whole, write
-// and all: `const unused = next()` on a helper that bumps a module variable vanished from
-// both emits while the CPU oracle, which runs no optimizer, still ran it, and a method that
-// changes its object and returns a value (§26) made that the common case.
+// function that writes a binding or its caller's value, or to an effectful intrinsic
+// (passes/effects.ts), so an unread binding whose initializer has no effect has no observable
+// effect, and a `call` statement is kept exactly when its call has one (issue #47). An unread
+// binding whose initializer DOES have an effect keeps it: `const r = rng.next()` with `r`
+// never read still advances `rng`, so the binding becomes the call statement it amounts to.
+// It used to be dropped whole, write and all: `const unused = next()` on a helper that bumps a
+// module variable vanished from both emits while the CPU oracle, which runs no optimizer,
+// still ran it, and a method that changes its object and returns a value (§26) made that the
+// common case. An unread `let w = workgroupUniformLoad(flag)` still synchronises, and keeps
+// its declaration rather than becoming a call statement (see dropDead).
 //   • "used" = any varref/param occurrence ANYWHERE in the fn (incl. an assign
 //     target — so an assigned-but-unread var is kept, not dropped). One pass; a
 //     binding dead only via another dead binding survives (iterate later).
@@ -19,155 +21,158 @@
 //   • module bindings / varyings are NOT touched — they are IO/layout contracts
 //     (deferred to the resource model, P4).
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
-import { exprHasEffect, exprWrites, fnWrites, type FnWrites } from '../effects.js'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js';
+import { exprHasEffect, exprWrites, fnWrites, type FnWrites } from '../effects.js';
 
 function collectExprNames(e: Expr, out: Set<string>): void {
   switch (e.op) {
     case 'varref':
     case 'param':
-      out.add(e.name)
-      break
+      out.add(e.name);
+      break;
     case 'binop':
     case 'compare':
     case 'logical':
-      collectExprNames(e.a, out)
-      collectExprNames(e.b, out)
-      break
+      collectExprNames(e.a, out);
+      collectExprNames(e.b, out);
+      break;
     case 'unop':
-      collectExprNames(e.a, out)
-      break
+      collectExprNames(e.a, out);
+      break;
     case 'call':
     case 'construct':
-      for (const a of e.args) collectExprNames(a, out)
-      break
+      for (const a of e.args) collectExprNames(a, out);
+      break;
     case 'member':
-      collectExprNames(e.base, out)
-      break
+      collectExprNames(e.base, out);
+      break;
     case 'index':
-      collectExprNames(e.base, out)
-      collectExprNames(e.idx, out)
-      break
+      collectExprNames(e.base, out);
+      collectExprNames(e.idx, out);
+      break;
     case 'select':
-      collectExprNames(e.cond, out)
-      collectExprNames(e.ifTrue, out)
-      collectExprNames(e.ifFalse, out)
-      break
+      collectExprNames(e.cond, out);
+      collectExprNames(e.ifTrue, out);
+      collectExprNames(e.ifFalse, out);
+      break;
     case 'matchExpr':
-      collectExprNames(e.scrutinee, out)
-      for (const [, v] of e.cases) collectExprNames(v, out)
-      collectExprNames(e.default, out)
-      break
+      collectExprNames(e.scrutinee, out);
+      for (const [, v] of e.cases) collectExprNames(v, out);
+      collectExprNames(e.default, out);
+      break;
     default:
-      break // lit / constref
+      break; // lit / constref
   }
 }
 
 function collectStmtNames(s: Stmt, out: Set<string>): void {
   switch (s.s) {
     case 'let':
-      collectExprNames(s.expr, out)
-      break
+      collectExprNames(s.expr, out);
+      break;
     case 'var':
-      if (s.init !== undefined) collectExprNames(s.init, out)
-      break
+      if (s.init !== undefined) collectExprNames(s.init, out);
+      break;
     case 'assign':
     case 'assignOp':
-      collectExprNames(s.target, out)
-      collectExprNames(s.expr, out)
-      break
+      collectExprNames(s.target, out);
+      collectExprNames(s.expr, out);
+      break;
     case 'return':
-      if (s.expr !== undefined) collectExprNames(s.expr, out)
-      break
+      if (s.expr !== undefined) collectExprNames(s.expr, out);
+      break;
     case 'call':
-      collectExprNames(s.expr, out)
-      break
+      collectExprNames(s.expr, out);
+      break;
     case 'if':
       for (const arm of s.arms) {
-        collectExprNames(arm.cond, out)
-        for (const b of arm.body) collectStmtNames(b, out)
+        collectExprNames(arm.cond, out);
+        for (const b of arm.body) collectStmtNames(b, out);
       }
-      if (s.elseBody) for (const b of s.elseBody) collectStmtNames(b, out)
-      break
+      if (s.elseBody) for (const b of s.elseBody) collectStmtNames(b, out);
+      break;
     case 'for':
-      collectStmtNames(s.init, out)
-      collectExprNames(s.cond, out)
-      collectStmtNames(s.update, out)
-      for (const b of s.body) collectStmtNames(b, out)
-      break
+      collectStmtNames(s.init, out);
+      collectExprNames(s.cond, out);
+      collectStmtNames(s.update, out);
+      for (const b of s.body) collectStmtNames(b, out);
+      break;
     case 'switch':
-      collectExprNames(s.scrut, out)
-      for (const c of s.cases) for (const b of c.body) collectStmtNames(b, out)
-      if (s.defaultBody) for (const b of s.defaultBody) collectStmtNames(b, out)
-      break
+      collectExprNames(s.scrut, out);
+      for (const c of s.cases) for (const b of c.body) collectStmtNames(b, out);
+      if (s.defaultBody) for (const b of s.defaultBody) collectStmtNames(b, out);
+      break;
     default:
-      break
+      break;
   }
 }
 
 export function bodyHasRaw(body: readonly Stmt[]): boolean {
   for (const s of body) {
-    if (s.s === 'raw') return true
+    if (s.s === 'raw') return true;
     if (s.s === 'if') {
-      if (s.arms.some((a) => bodyHasRaw(a.body))) return true
-      if (s.elseBody && bodyHasRaw(s.elseBody)) return true
+      if (s.arms.some((a) => bodyHasRaw(a.body))) return true;
+      if (s.elseBody && bodyHasRaw(s.elseBody)) return true;
     } else if (s.s === 'for') {
-      if (bodyHasRaw(s.body)) return true
+      if (bodyHasRaw(s.body)) return true;
     } else if (s.s === 'switch') {
-      if (s.cases.some((c) => bodyHasRaw(c.body))) return true
-      if (s.defaultBody && bodyHasRaw(s.defaultBody)) return true
+      if (s.cases.some((c) => bodyHasRaw(c.body))) return true;
+      if (s.defaultBody && bodyHasRaw(s.defaultBody)) return true;
     }
   }
-  return false
+  return false;
 }
 
 function dropDead(body: readonly Stmt[], used: ReadonlySet<string>, writes: FnWrites): Stmt[] {
-  const out: Stmt[] = []
+  const out: Stmt[] = [];
   for (const s of body) {
     if ((s.s === 'let' || s.s === 'var') && !used.has(s.name)) {
-      // A dead local, unless its initializer writes: then the write stays, as the call
-      // statement a bare call amounts to, or as the declaration when the call sits deeper.
-      const init = s.s === 'let' ? s.expr : s.init
-      if (init === undefined || !exprWrites(init, writes)) continue
-      if (init.op === 'call') {
-        out.push({ s: 'call', expr: init, ...(s.span !== undefined ? { span: s.span } : {}) })
-        continue
+      // A dead local, unless its initializer does something besides produce the value. A
+      // write stays as the call statement a bare call amounts to, or as the declaration when
+      // the call sits deeper. An effect that writes nothing — `workgroupUniformLoad`
+      // synchronises — keeps the declaration: WGSL's @must_use builtins cannot stand alone as
+      // a call statement, and an unread `let old = atomicAdd(cnt, 1u)` still counts either way.
+      const init = s.s === 'let' ? s.expr : s.init;
+      if (init === undefined || !exprHasEffect(init, writes)) continue;
+      if (init.op === 'call' && exprWrites(init, writes)) {
+        out.push({ s: 'call', expr: init, ...(s.span !== undefined ? { span: s.span } : {}) });
+        continue;
       }
     }
     // A call kept for its effect stays; one with none (`max(a, b);`, or a call a pass folded
     // to a value) computes and drops, which is nothing.
-    if (s.s === 'call' && !exprHasEffect(s.expr, writes)) continue
+    if (s.s === 'call' && !exprHasEffect(s.expr, writes)) continue;
     if (s.s === 'if') {
       out.push({
         ...s,
         arms: s.arms.map((a) => ({ cond: a.cond, body: dropDead(a.body, used, writes) })),
         elseBody: s.elseBody ? dropDead(s.elseBody, used, writes) : undefined,
-      })
+      });
     } else if (s.s === 'for') {
-      out.push({ ...s, body: dropDead(s.body, used, writes) })
+      out.push({ ...s, body: dropDead(s.body, used, writes) });
     } else if (s.s === 'switch') {
       out.push({
         ...s,
         cases: s.cases.map((c) => ({ values: c.values, body: dropDead(c.body, used, writes) })),
         defaultBody: s.defaultBody ? dropDead(s.defaultBody, used, writes) : undefined,
-      })
+      });
     } else {
-      out.push(s)
+      out.push(s);
     }
   }
-  return out
+  return out;
 }
 
 function dceFn(f: FuncDecl, writes: FnWrites): FuncDecl {
-  if (bodyHasRaw(f.body)) return f
-  const used = new Set<string>()
-  for (const s of f.body) collectStmtNames(s, used)
-  return { ...f, body: dropDead(f.body, used, writes) }
+  if (bodyHasRaw(f.body)) return f;
+  const used = new Set<string>();
+  for (const s of f.body) collectStmtNames(s, used);
+  return { ...f, body: dropDead(f.body, used, writes) };
 }
 
 /** Remove dead function-local bindings, and effect-free `call` statements, throughout a
  *  module. Pure (module -> module). */
 export function dce(m: ModuleDecl): ModuleDecl {
-  const writes = fnWrites(m)
-  return { ...m, funcs: m.funcs.map((f) => dceFn(f, writes)) }
+  const writes = fnWrites(m);
+  return { ...m, funcs: m.funcs.map((f) => dceFn(f, writes)) };
 }
