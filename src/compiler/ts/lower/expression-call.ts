@@ -34,6 +34,7 @@ import {
   isIntegerLiteralTree,
   retargetIntLit,
   retargetIntLitCtx,
+  reportIntLitRange,
 } from '../lit-coerce.js'
 import { spanOf } from '../span.js'
 import { lowerExpression } from './expression.js'
@@ -414,6 +415,8 @@ export function lowerCall(
     if (elem) {
       for (let i = 0; i < args.length; i++) {
         args[i] = retargetIntLitCtx(args[i]!, node.arguments[i]!, elem)
+        args[i] =
+          reportIntLitRange(args[i]!, node.arguments[i]!, elem, sourceFile, diagnostics) ?? args[i]!
       }
     }
     if (args.length === 1 && isVectorCtorScalar(args[0]!.type, vc.elem)) {
@@ -519,7 +522,7 @@ export function lowerCall(
       diagnostics,
       sourceFile,
       node,
-      `Unknown function "${node.getText(sourceFile)}". Function calls (Phase 6) need a visible callee.`,
+      `Unknown function "${node.getText(sourceFile)}". Declare it in this file, or import it from another shader module.`,
       TS_CODES.UNKNOWN_FN,
     )
     return undefined

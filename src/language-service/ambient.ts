@@ -81,11 +81,12 @@ export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES
 /**
  * The attribute names the compiler parses as decorators, per `lower/function.ts`'s
  * `parseStage`/`builtinDecoratorArg`/`numberDecorator` and `structs.ts`'s field decorators.
- * `interpolate`/`align`/`size`/`ignore` are NOT included: `structs.ts` only ever *rejects*
- * `@align` (`"@align on a field is not applied"`) and neither the struct nor the function
- * lowering recognizes `interpolate`, `size`, or `ignore` at all — grepping the lowering
- * confirms only these five are load-bearing today. See the phase report for this deviation
- * from the design doc's speculative list. Re-exported from `compiler/ts/builtin-check.ts`
+ * `align`/`size`/`ignore` are NOT included: `structs.ts` only ever *rejects* `@align`
+ * (`"@align on a field is not applied"`) and neither the struct nor the function lowering
+ * recognizes `size` or `ignore` at all. `interpolate`, `invariant` and `blend_src` joined
+ * the list in §53, where the struct collector gained real readers for all three. See the
+ * phase report for the original deviation from the design doc's speculative list.
+ * Re-exported from `compiler/ts/builtin-check.ts`
  * rather than retyped here, the same way `WGSL_BUILTIN_NAMES` below re-exports `core/sot.ts`'s
  * array: that module also uses this exact list to flag a misspelled attribute (`checkAttributeName`),
  * so the language service and the compiler's own diagnostics can never name two different
@@ -502,8 +503,8 @@ const expandFns = EXPAND_NAMES.map((name) => {
 
 // Add the random function declaration with JSDoc
 const randomDeclaration = FUNCTION_DOCS.random
-  ? `${renderJSDoc(FUNCTION_DOCS.random)}\ndeclare function random(seed: number | vec2 | vec3): f32`
-  : 'declare function random(seed: number | vec2 | vec3): f32'
+  ? `${renderJSDoc(FUNCTION_DOCS.random)}\ndeclare function random(seed: f32 | vec2 | vec3): f32`
+  : 'declare function random(seed: f32 | vec2 | vec3): f32'
 
 const langConsts = LANG_CONST_NAMES.map((name) => {
   const line = `declare const ${name}: number`
@@ -1534,6 +1535,14 @@ ${renderJSDoc(ATTRIBUTE_DOCS.builtin)}
 declare function builtin(name: string): (target: unknown, context?: unknown) => void
 ${renderJSDoc(ATTRIBUTE_DOCS.location)}
 declare function location(n: number): (target: unknown, context?: unknown) => void
+${renderJSDoc(ATTRIBUTE_DOCS.interpolate)}
+declare function interpolate(type: string, sampling?: string): (target: unknown, context?: unknown) => void
+${renderJSDoc(ATTRIBUTE_DOCS.invariant)}
+declare function invariant(target: unknown, context?: unknown): void
+${renderJSDoc(ATTRIBUTE_DOCS.blend_src)}
+declare function blend_src(n: number): (target: unknown, context?: unknown) => void
+${renderJSDoc(ATTRIBUTE_DOCS.diagnostic)}
+declare function diagnostic(severity: string, rule: string): (target: Function, context?: unknown) => void
 ${renderJSDoc(ATTRIBUTE_DOCS.vertex)}
 declare function vertex(target: Function, context?: unknown): void
 ${renderJSDoc(ATTRIBUTE_DOCS.fragment)}

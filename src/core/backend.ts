@@ -21,6 +21,7 @@ import type {
   RawStmt,
 } from './ir/index.js'
 import { ALL_CAPABILITIES } from './ir/nodes.js'
+import { DERIVED_CAPABILITIES } from './ir/derived-capabilities.js'
 import type { ModuleVarDecl, CmpOp } from './ir/nodes.js'
 import { TypeShadeError } from './diagnostics/error.js'
 import type { ParenMode } from './emit.js'
@@ -208,6 +209,12 @@ export interface Backend {
   constDecl(name: string, type: ShaderType, value: string): string
   /** A `switch` case label: `${v}u` for a u32 scrutinee on WGSL; `${v}` on GLSL. */
   caseLabel(value: number, scrutType: ShaderType): string
+  /** The whole `case …:` prefix for a clause, given each selector already spelled by
+   *  {@link Backend.caseLabel}. Only a target whose multi-selector form is not WGSL's
+   *  `case a, b:` declares one: GLSL ES 3.00 stacks `case a: case b:` instead. Absent, the
+   *  emitter writes `case ${'${labels.join(\', \')}'}:`, which is also the one-selector
+   *  spelling every backend wrote before a clause could hold more than one. */
+  caseLabels?(labels: readonly string[]): string
   /** The `switch` head: `switch ${scrut} {` (WGSL) vs `switch (${scrut}) {` (GLSL). */
   switchHead(scrut: string): string
   /** Optional. Spelling for `%` on float operands, for a target whose native `%` accepts
@@ -299,6 +306,22 @@ export interface Backend {
    *  choose differently without a change to the shared driver. It runs after the
    *  lowering passes and before the module is assembled into source. */
   optimize(lowered: ModuleDecl): ModuleDecl
+  /** Optional. The target's own LOWERINGS, run after the shared lowering passes and BEFORE
+   *  either optimizer tier — the explicit-level one as well as {@link optimize}.
+   *
+   *  The distinction is what a pass IS, not when it happens to be convenient. An optimizer
+   *  makes a module faster and may be skipped; a lowering makes it the module the target
+   *  accepts and may not. WGSL's uniform 16-byte array padding (§51) and its
+   *  `@interpolate(flat)` derivation (§53) are lowerings, and while they lived inside
+   *  `optimize` the public `emitModuleAt(m, level)` and `lowerWgsl(m, level)` skipped both
+   *  and wrote the exact two programs the default path was fixed to stop writing — a bare
+   *  `@location(0) id: u32` Tint refuses, and an unpadded uniform array.
+   *
+   *  Before the optimizer, not after it in {@link postLower}: the padding changes a struct's
+   *  member types and the reads that reach through them, and an optimizer that has not seen
+   *  it hoists the unlowered form. LICM lifted `U.weights` out of a loop as
+   *  `let _licm0 = U.weights;` and the padding then had no `member` node left to rewrite. */
+  preOptimize?(lowered: ModuleDecl): ModuleDecl
   /** Optional. The last rewrite before the module is spelled, run after {@link optimize} and
    *  after every optimizer tier, for a target whose SPELLING needs a shape the IR does not
    *  carry. WGSL uses it to give a function with a pointer parameter one copy per address
@@ -354,9 +377,10 @@ export interface CapabilityRow {
   readonly capability: Capability
   /** Keyed by `Backend.id`, one entry per backend passed in. */
   readonly support: Readonly<Record<string, CapSupportKind>>
-  /** Whether a module may name this capability in `enables`. False for the three
-   *  capabilities derived from a module's shape (`storageBuffer`, `compute` and
-   *  `msaaTextureLoad`), which {@link DeclarableCapability} excludes from `enables`. */
+  /** Whether a module may name this capability in `enables`. False for the nine
+   *  capabilities derived from a module's shape (`storageBuffer` through `textureGather`,
+   *  `bgra8unormStorage` and `packed4x8Dot`), which {@link DeclarableCapability} excludes
+   *  from `enables`. */
   readonly declarable: boolean
 }
 
@@ -379,8 +403,10 @@ export interface CapabilityRow {
  *  `UnsupportedFeatureError` with `SD0030` naming the capability, and no source the driver
  *  would reject is produced.
  *
- *  `declarable` is false for the three capabilities derived from a module's shape,
- *  `storageBuffer`, `compute` and `msaaTextureLoad`, which `enables` cannot name.
+ *  `declarable` is false for the nine capabilities derived from a module's shape, which
+ *  `enables` cannot name: `storageBuffer`, `compute`, `msaaTextureLoad`, `storageTexture`,
+ *  `texture1d`, `textureCubeArray`, `textureGather`, `bgra8unormStorage` and
+ *  `packed4x8Dot`. It reads the same list {@link DeclarableCapability} is defined against.
  *
  *  Exported from `typeshade`.
  *
@@ -420,21 +446,11 @@ export function capabilityMatrix(backends: readonly Backend[]): readonly Capabil
         ]
       }),
     ),
-    declarable: !DERIVED_CAPABILITIES.has(capability),
+    declarable: !DERIVED_CAPABILITY_SET.has(capability),
   }))
 }
 
-/** The four caps `requiredCaps` derives from a module's SHAPE — a storage binding, a
- *  `@compute` entry, an MSAA texture load, a storage-texture binding — and which
- *  `DeclarableCapability` therefore makes unrepresentable in `enables` (X-GIS #1681 A2). */
-const DERIVED_CAPABILITIES: ReadonlySet<Capability> = new Set([
-  'storageBuffer',
-  'compute',
-  'msaaTextureLoad',
-  'storageTexture',
-  // Roadmap 0.4 item 12: a 1d or cube-array texture binding, and a textureGather call. Each is
-  // core WebGPU and absent from GLSL ES 3.00, so the WGSL row is empty and GLSL has none.
-  'texture1d',
-  'textureCubeArray',
-  'textureGather',
-])
+/** The derived capabilities as a set, read from the one list `DeclarableCapability` is
+ *  defined against (`ir/derived-capabilities.ts`), so the `declarable` column and the type
+ *  `enables` takes cannot drift apart (X-GIS #1681 A2). */
+const DERIVED_CAPABILITY_SET: ReadonlySet<Capability> = new Set(DERIVED_CAPABILITIES)

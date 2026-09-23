@@ -10,3 +10,7 @@ package-lock.json
 docs/use-typeshade-surface.md
 # Shader source, not TypeScript: prettier cannot parse a decorated top-level function.
 *.shade.ts
+
+# Generated: the checked-in slice of Tint's core.def (scripts/bake-coredef-textures.ts), one
+# row per line so a re-bake diffs by row. Same rule as the emit goldens above.
+src/core/spec-conformance/fixtures

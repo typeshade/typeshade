@@ -13,7 +13,13 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import type { SourceSpan } from '../../../core/ir/span.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import { LoweringScope, fileFunctionsOf } from '../context.js'
+import {
+  LoweringScope,
+  fileFunctionsOf,
+  privateFieldTableOf,
+  readonlyFieldTableOf,
+  withheldTableOf,
+} from '../context.js'
 import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
@@ -34,7 +40,7 @@ import {
 } from './param-defaults.js'
 import { lowerStatements } from './statement.js'
 import { lowerExpression } from './expression.js'
-import { retargetIntLitCtx } from '../lit-coerce.js'
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js'
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
 import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -52,6 +58,9 @@ import {
   checkAttributeName,
   checkBuiltinName,
   checkBuiltinStage,
+  checkBuiltinType,
+  checkLocationType,
+  interpolateDecoratorArg,
   type BuiltinStage,
 } from '../builtin-check.js'
 
@@ -358,6 +367,9 @@ export function lowerSourceFunctions(
         vars,
         cf.receiver,
         cf.shown,
+        undefined,
+        undefined,
+        cf.staticOwner,
       )
       nodeByName.set(cf.stub.name, cf.node)
     } else if (cf.receiver !== undefined) {
@@ -671,6 +683,8 @@ export function lowerFunctionDeclaration(
 export type FunctionNode =
   | ts.FunctionDeclaration
   | ts.MethodDeclaration
+  /** A getter or a setter, which is a method of its class once lowered (Rule 8.11). */
+  | ts.AccessorDeclaration
   | ts.ConstructorDeclaration
   /** A local function: `const f = (x: f32): f32 => ...` and the `function (x) { ... }` spelling
    *  of it (roadmap 0.3 item T7, #92). Both carry `parameters`, an optional `type` and a
@@ -689,9 +703,12 @@ export function parseParams(
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
   stage: FuncDecl['stage'] | undefined,
-  opts: { readonly owner?: string; readonly forbidSelf?: boolean } = {},
+  opts: { readonly owner?: string; readonly forbidSelf?: boolean; readonly fnName?: string } = {},
 ): FuncDecl['params'][number][] | undefined {
   const params: FuncDecl['params'][number][] = []
+  // `@location` slot → the parameter already holding it, for the collision rule below.
+  const paramLocations = new Map<number, string>()
+  const fnName = opts.fnName ?? opts.owner ?? 'this entry'
   for (const p of parameters) {
     for (const d of decoratorsOf(p)) checkAttributeName(diagnostics, sourceFile, d)
     if (!ts.isIdentifier(p.name)) {
@@ -784,6 +801,7 @@ export function parseParams(
       )
       if (validName) {
         builtin = builtinArg.name
+        checkBuiltinType(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name, pType)
         if (stage) {
           checkBuiltinStage(
             diagnostics,
@@ -817,11 +835,64 @@ export function parseParams(
     ) {
       return undefined
     }
+    // `@interpolate` on a BARE parameter, the spelling a fragment entry uses when it takes one
+    // varying and declares no struct. It was read on a struct field and nowhere else, so the
+    // attribute an author wrote here was dropped with no diagnostic and reached neither
+    // target (§53). The whole argument list is kept, as the struct path keeps it: the GLSL
+    // writer needs the sampling as well as the type.
+    const interpolateAttr = interpolateDecoratorArg(diagnostics, sourceFile, decoratorsOf(p))
+    if (interpolateAttr !== undefined && location === undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        p,
+        `@interpolate belongs on a @location parameter: it says how a VARYING is interpolated, ` +
+          `and a @builtin carries its own rule.`,
+        TS_CODES.ATTRIBUTE_NAME,
+      )
+    }
+    const interpolate =
+      interpolateAttr !== undefined && location !== undefined
+        ? interpolateAttr.slice('@interpolate('.length, -1)
+        : undefined
+    if (location !== undefined) {
+      // WGSL: a compute entry point has no user-defined IO at all — its inputs are the
+      // builtin invocation ids and its resources. `@location(0) x: f32` on one was emitted
+      // and refused at the driver (§53).
+      if (stage === 'compute') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          p,
+          `"${p.name.text}" is at a @location on a compute entry, which has no user IO: a ` +
+            `compute shader reads its work from resources and the @builtin invocation ids.`,
+          TS_CODES.STRUCT_FIELD_MISSING_ATTR,
+        )
+      }
+      checkLocationType(diagnostics, sourceFile, p, p.name.text, pType, interpolate)
+      // The slot rule the struct path has, for the parameter list: two parameters at one
+      // `@location` is `'@location(0)' appears multiple times` on Tint, and was emitted here
+      // with no diagnostic.
+      const prior = paramLocations.get(location)
+      if (prior !== undefined) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          p,
+          `"${fnName}" puts "${prior}" and "${p.name.text}" both at @location(` +
+            `${String(location)}); each slot carries one value.`,
+          TS_CODES.STRUCT_FIELD,
+        )
+      } else paramLocations.set(location, p.name.text)
+    }
     params.push({
       name: p.name.text,
       type: pType,
       ...(builtin ? { builtin } : {}),
       ...(location !== undefined ? { location } : {}),
+      ...(interpolate !== undefined
+        ? { interpolate, attr: `@location(${String(location)}) ${interpolateAttr!}` }
+        : {}),
     })
   }
   return params
@@ -993,7 +1064,9 @@ export function parseSignature(
   // checks below, for both a direct parameter builtin and a struct-typed parameter's fields,
   // know the entry stage they are validating against.
   const stageInfo = parseStage(node, sourceFile, diagnostics)
-  const params = parseParams(node.parameters, sourceFile, diagnostics, structs, stageInfo.stage)
+  const params = parseParams(node.parameters, sourceFile, diagnostics, structs, stageInfo.stage, {
+    fnName: name,
+  })
   if (!params) return undefined
   const ret = parseReturnType(
     node.type,
@@ -1201,6 +1274,9 @@ export function functionScope(
   const scope = new LoweringScope(callees, symbols)
   scope.setNamespacePrefix(nsPrefix)
   scope.setStructs(structs.map((s) => s.decl))
+  scope.setPrivateFields(privateFieldTableOf(structs))
+  scope.setWithheldFields(withheldTableOf(structs))
+  scope.setReadonlyFields(readonlyFieldTableOf(structs))
   scope.setBases(new Map(structs.filter((s) => s.bases).map((s) => [s.decl.name, s.bases!])))
   scope.setAbstractStructs(new Set(structs.filter((s) => s.abstract).map((s) => s.decl.name)))
   // The enum names, so a mistyped member reads as one rather than as an unknown identifier
@@ -1268,9 +1344,9 @@ function lowerArrowValue(
 ): Stmt[] {
   const lowered = lowerExpression(expr, sourceFile, scope, diagnostics, stub.ret)
   if (!lowered) return []
-  return [
-    withSpan({ s: 'return', expr: retargetIntLitCtx(lowered, expr, stub.ret) }, sourceFile, expr),
-  ]
+  const retargeted = retargetIntLitCtx(lowered, expr, stub.ret)
+  const ret = reportIntLitRange(retargeted, expr, stub.ret, sourceFile, diagnostics) ?? retargeted
+  return [withSpan({ s: 'return', expr: ret }, sourceFile, expr)]
 }
 
 /** Lower every default `stub`'s signature writes, in the module's scope (roadmap 0.3 item T7,
@@ -1370,6 +1446,8 @@ export function fillFunctionBody(
   /** The local functions this body declares, from the written name to the emitted one
    *  (roadmap 0.3 item T7, #92). */
   localFunctions?: ReadonlyMap<string, string>,
+  /** For a static member, the class that declares it: what `this` names (Rule 8.13). */
+  staticOwner?: string,
 ): void {
   const scope = functionScope(
     stub,
@@ -1389,6 +1467,7 @@ export function fillFunctionBody(
   // What `super.m(...)` names in this body (roadmap 0.3 item T5, #92).
   scope.setSuperMethods(receiver?.superMethods)
   scope.setLocalFunctions(localFunctions)
+  scope.setStaticClass(staticOwner)
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
   // and the receiver read the same name. A user parameter called `self_` was refused at the
   // signature (TS8035), and a local called `self_` is renamed as any shadowing local is.
@@ -1618,7 +1697,27 @@ function checkStructBuiltinFields(
       : `WGSL requires every entry ${direction} struct member to declare one, and ` +
         `${collected.spelling === 'interface' ? 'an interface' : 'a type alias'} member cannot ` +
         `carry a decorator — declare "${structName}" as a class.`
+  // The slot-collision and varying-type rules read the struct alone and live in `structs.ts`,
+  // which sees each declaration once: raised here they printed one mistake twice, because a
+  // vertex output and a fragment input are the SAME struct. What is left below reads the
+  // stage, which is genuinely different between the two uses.
   for (const field of collected.decl.fields) {
+    // A `@location` on a COMPUTE entry, reached through a struct parameter. The bare-parameter
+    // spelling was refused where it is parsed, and this one walked past it: Tint answers
+    // `'@location' cannot be used by compute shaders`. Stage-dependent, so it belongs here
+    // rather than in the struct collector, which sees no stage.
+    if (stage === 'compute' && field.location !== undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Struct "${structName}" field "${field.name}" is at a @location and "${structName}" is ` +
+          `a compute entry ${direction}, which has no user IO: a compute shader reads its work ` +
+          `from resources and the @builtin invocation ids.`,
+        TS_CODES.STRUCT_FIELD_MISSING_ATTR,
+      )
+      continue
+    }
     if (!field.builtin && field.location === undefined) {
       pushDiag(
         diagnostics,
@@ -1645,6 +1744,7 @@ function checkStructBuiltinFields(
     }
     if (!field.builtin) continue
     checkBuiltinStage(diagnostics, sourceFile, node, field.builtin, stage, direction)
+    checkBuiltinType(diagnostics, sourceFile, node, field.builtin, field.type)
   }
 }
 

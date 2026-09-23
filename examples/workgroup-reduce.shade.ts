@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Workgroup reduction",
+  "blurb": "64 invocations sum 64 values into one through workgroup memory, with `workgroupBarrier()` ordering the rounds (§25). On the CPU it runs through `dispatch`, which holds every invocation of a workgroup at each barrier; a workgroup whose invocations disagree about a barrier is refused with the line and the counts. WGSL-only: WebGL2 has no compute stage.",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}
+*/
+
 // The workgroup reduction (roadmap 0.2 item 5, #82, §25): 64 invocations sum 64 values into
 // one, sharing partial sums through workgroup memory and ordering the rounds with
 // `workgroupBarrier()`. Each round halves the live half of the tile; the barrier after it is

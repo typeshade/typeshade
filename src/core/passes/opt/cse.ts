@@ -43,7 +43,7 @@ import {
   refsLocal,
   isWorthHoisting,
 } from './expr-utils.js'
-import { bodyHasEffectfulCall, fnWrites, type FnWrites } from '../effects.js'
+import { bodyHasEffectfulCall, fnReads, fnWrites, type FnReads, type FnWrites } from '../effects.js'
 
 /** Where one occurrence of a subexpression lives: the placement BLOCK (a path of
  *  `${stmtIndex}#${childBlockId}` steps from the fn body) and the index, within that
@@ -106,13 +106,15 @@ function placementOf(list: readonly Occurrence[]): { bp: readonly string[]; idx:
   return { bp, idx }
 }
 
-function cseFn(f: FuncDecl, writes: FnWrites): FuncDecl {
+function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
   if (bodyHasRaw(f.body)) return f
   // A call that writes a binding is not shareable: hoisting `store(i)` to one temp would
   // make two writes one (issue #47).
   if (bodyHasEffectfulCall(f.body, writes)) return f
   // Non-invariant names: function locals AND any mutated name (incl. a read_write
-  // binding written in this fn). A read of a mutated name is not safely shareable.
+  // binding written in this fn). A read of a mutated name is not safely shareable, and
+  // neither is a call to a helper that reads one (`reads`): `h(x)` is not input-only when
+  // `h` reads a `var<private>` this function writes.
   const noHoist = new Set<string>()
   collectLocals(f.body, noHoist)
   collectMutatedRoots(f.body, noHoist, writes)
@@ -123,7 +125,7 @@ function cseFn(f: FuncDecl, writes: FnWrites): FuncDecl {
   const exemplar = new Map<string, Expr>()
   const sites = new Map<string, Occurrence[]>()
   eachOccurrence(f.body, [], (e, bp, idx) => {
-    if (!isCompound(e) || !isWorthHoisting(e) || refsLocal(e, noHoist)) return
+    if (!isCompound(e) || !isWorthHoisting(e) || refsLocal(e, noHoist, reads)) return
     const k = keyOf(e)
     counts.set(k, (counts.get(k) ?? 0) + 1)
     if (!exemplar.has(k)) exemplar.set(k, e)
@@ -215,7 +217,7 @@ function cseFn(f: FuncDecl, writes: FnWrites): FuncDecl {
           ...s,
           scrut: replace(s.scrut),
           cases: s.cases.map((c, ci) => ({
-            value: c.value,
+            values: c.values,
             body: rewriteBlock(c.body, [...bp, `${idx}#c${ci}`]),
           })),
           defaultBody: s.defaultBody ? rewriteBlock(s.defaultBody, [...bp, `${idx}#d`]) : undefined,
@@ -246,5 +248,6 @@ function cseFn(f: FuncDecl, writes: FnWrites): FuncDecl {
  */
 export function cse(m: ModuleDecl): ModuleDecl {
   const writes = fnWrites(m)
-  return { ...m, funcs: m.funcs.map((f) => cseFn(f, writes)) }
+  const reads = fnReads(m)
+  return { ...m, funcs: m.funcs.map((f) => cseFn(f, writes, reads)) }
 }

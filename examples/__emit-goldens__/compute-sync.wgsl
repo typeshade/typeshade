@@ -1,3 +1,5 @@
+requires readonly_and_readwrite_storage_textures;
+
 var<workgroup> leader: u32;
 var<workgroup> tile: array<u32, 64>;
 

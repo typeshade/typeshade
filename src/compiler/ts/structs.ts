@@ -1,18 +1,34 @@
 import ts from 'typescript'
 import type { StructDecl, StructField } from '../../core/ir/nodes.js'
 import type { ShaderType } from '../../core/ir/types.js'
-import { structT, typeKey as typeKeyOf } from '../../core/ir/types.js'
+import { boolT, f32T, structT, typeKey as typeKeyOf } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
-import { mapTsTypeToShaderType } from './type-map.js'
+import { lookupTypeName, mapTsTypeToShaderType } from './type-map.js'
+import {
+  emittedMemberName,
+  isPrivateName,
+  isReadonlyMember,
+  isStaticMember,
+  writtenMemberName,
+} from './class-names.js'
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
-import { builtinDecoratorArg, checkAttributeName, checkBuiltinName } from './builtin-check.js'
+import {
+  builtinDecoratorArg,
+  checkAttributeName,
+  checkBuiltinName,
+  checkBuiltinType,
+  checkLocationType,
+  hasInvariantDecorator,
+  interpolateDecoratorArg,
+} from './builtin-check.js'
 import { applyMixins, isMixinHeritage, mixedMembers, type MixinApplication } from './mixins.js'
 import { pushTypeArguments } from './generics.js'
 import {
   genericClasses,
   genericStructName,
+  newInstanceName,
   writtenInstances,
   type StructInstance,
 } from './generic-structs.js'
@@ -53,6 +69,31 @@ export type CollectedStruct = {
    *  each concrete class that inherits them rather than into a function of its own — an
    *  abstract method has no body for such a function to call. */
   readonly abstract?: true
+  /** The class declaration this struct was collected from; absent on an interface and a type
+   *  alias. A private name (`#x`) is checked against it, since what may name one is decided by
+   *  which class body the access is written in (Rule 8.12). */
+  readonly classNode?: ts.ClassDeclaration
+  /** Each field under its emitted name, with the name it was written under when that differs:
+   *  a private field `#count` is the member `count` (Rule 8.12). Base fields included once the
+   *  chain is spliced in, so a lookup of `#count` on a derived struct finds its base's. */
+  readonly privateFields?: ReadonlyMap<string, PrivateField>
+  /** Fields the class writes and the struct does not carry, by the member they would be: one
+   *  refused where it is declared (no type, `?`, a name another field already takes). A read of
+   *  one says nothing more, since its declaration already said why (Rule 12.4). */
+  readonly withheld?: ReadonlySet<string>
+  /** The functions the class declared that lost their emitted name to another member, by what
+   *  follows `Cls_` in it (`step` for a refused `#step` beside `step`): the pair was reported,
+   *  and a call that would have reached the one refused says nothing more (Rule 12.4). */
+  readonly withheldFunctions?: ReadonlySet<string>
+  /** The `readonly` fields, by emitted name, with the class that declares each: only that
+   *  class's constructor may assign one (Rule 8.14), which is TypeScript's rule. */
+  readonly readonlyFields?: ReadonlyMap<string, ts.ClassLikeDeclaration>
+}
+
+/** A field written under a private name, and the class whose body may name it (Rule 8.12). */
+export interface PrivateField {
+  readonly written: string
+  readonly owner: ts.ClassLikeDeclaration
 }
 
 /** The structs a module emits: every collected one but the static-only classes, which are
@@ -75,8 +116,13 @@ export interface FieldInit {
 export interface ClassMembers {
   readonly node: ts.ClassDeclaration
   readonly methods: readonly ts.MethodDeclaration[]
+  /** Getters and setters, each half a function of the module (Rule 8.11). */
+  readonly accessors: readonly ts.AccessorDeclaration[]
   readonly ctor: ts.ConstructorDeclaration | undefined
   readonly fieldInits: readonly FieldInit[]
+  /** The constructor's parameter properties, `constructor(public x: f32)`, in order: each is a
+   *  field, assigned from its parameter as the constructor starts (Rule 8.14). */
+  readonly paramProps: readonly string[]
 }
 
 /** An `interface X { … }` or a `type X = { … }` — the two spellings that are collected only
@@ -140,7 +186,26 @@ export function collectStructs(
     bases: readonly string[] = [],
     isAbstract?: true,
     binding?: ReadonlyMap<string, ShaderType>,
+    klass?: {
+      node: ts.ClassDeclaration
+      privateFields: ReadonlyMap<string, PrivateField>
+      withheld: ReadonlySet<string>
+      withheldFunctions: ReadonlySet<string>
+      readonlyFields: ReadonlyMap<string, ts.ClassLikeDeclaration>
+    },
   ): void => {
+    const fromClass =
+      klass === undefined
+        ? {}
+        : {
+            classNode: klass.node,
+            ...(klass.privateFields.size > 0 ? { privateFields: klass.privateFields } : {}),
+            ...(klass.withheld.size > 0 ? { withheld: klass.withheld } : {}),
+            ...(klass.withheldFunctions.size > 0
+              ? { withheldFunctions: klass.withheldFunctions }
+              : {}),
+            ...(klass.readonlyFields.size > 0 ? { readonlyFields: klass.readonlyFields } : {}),
+          }
     if (declared.has(name)) {
       diagnostics.push(
         makeDiagnostic(
@@ -168,6 +233,7 @@ export function collectStructs(
         namespace: true,
         ...(members !== undefined ? { members } : {}),
         ...(binding !== undefined ? { binding } : {}),
+        ...fromClass,
       })
       return
     }
@@ -181,7 +247,7 @@ export function collectStructs(
             node,
             `Struct "${name}" has no fields. WGSL requires a struct to declare at least one ` +
               `member, so an empty one cannot be emitted.` +
-              (members !== undefined && members.methods.length > 0
+              (members !== undefined && (members.methods.length > 0 || members.accessors.length > 0)
                 ? ` A class holding only functions is not a struct; write them as functions.`
                 : ''),
           ),
@@ -199,6 +265,7 @@ export function collectStructs(
       ...(bases.length > 0 ? { bases } : {}),
       ...(isAbstract ? { abstract: isAbstract } : {}),
       ...(binding !== undefined ? { binding } : {}),
+      ...fromClass,
     })
   }
 
@@ -304,12 +371,97 @@ export function collectStructs(
         const fields: StructField[] = []
         // Static members seen, which is what decides whether a fieldless class is a namespace of
         // functions (T3) or the empty struct WGSL has no form for.
-        let staticMethods = 0
+        let staticFunctions = 0
         let staticFields = 0
         const methods: ts.MethodDeclaration[] = []
+        const accessors: ts.AccessorDeclaration[] = []
         const fieldInits: FieldInit[] = []
+        const paramProps: string[] = []
+        const privateFields = new Map<string, PrivateField>()
+        const withheld = new Set<string>()
+        const readonlyFields = new Map<string, ts.ClassLikeDeclaration>()
         let ctor: ts.ConstructorDeclaration | undefined
-        const methodNames = new Set<string>()
+        // Every function the class emits, by what follows `Cls_` in its name, with the member it
+        // was written as. Two members can reach one name in ways TypeScript keeps apart: `#step`
+        // and `step` are both `Cls_step` once the `#` is gone, and the getter `x` is `Cls_get_x`,
+        // which a method `get_x` would be too (Rule 8.11, Rule 8.12).
+        const functionNames = new Map<string, string>()
+        const withheldFunctions = new Set<string>()
+        const claimFunction = (
+          suffix: string,
+          shownAs: string,
+          at: ts.Node,
+          twice: string,
+        ): boolean => {
+          const prior = functionNames.get(suffix)
+          if (prior === undefined) {
+            functionNames.set(suffix, shownAs)
+            return true
+          }
+          withheldFunctions.add(suffix)
+          diagnostics.push(
+            classDiag(
+              sourceFile,
+              at,
+              prior === shownAs
+                ? twice
+                : `"${structName}.${prior}" and "${structName}.${shownAs}" would both be the ` +
+                    `function "${structName}_${suffix}". Rename one of them.`,
+            ),
+          )
+          return false
+        }
+        // Every field by the member it is emitted as, with the name it was written under: `#n`
+        // and `n` are one struct member `n`, which TypeScript counts as two (Rule 8.12).
+        const fieldNames = new Map<string, string>()
+        const staticFieldNames = new Map<string, string>()
+        const claimField = (written: string, at: ts.Node): boolean => {
+          const emitted = emittedMemberName(written)
+          const prior = fieldNames.get(emitted)
+          if (prior === undefined) {
+            fieldNames.set(emitted, written)
+            return true
+          }
+          withheld.add(emitted)
+          diagnostics.push(
+            diag(
+              sourceFile,
+              at,
+              prior === written
+                ? `Field "${written}" is declared twice on "${structName}"; a struct has one ` +
+                    `member of a name.`
+                : `"${structName}" declares "${prior}" and "${written}", which would both be the ` +
+                    `struct member "${emitted}": a private name is emitted without its "#". ` +
+                    `Rename one of them.`,
+            ),
+          )
+          return false
+        }
+        // What each written name is on this class, `static ` ahead of a static one: a field, a
+        // method or an accessor. TypeScript refuses one name as two kinds (TS2300), and here the
+        // lowering of `o.x` would have to guess which the author meant.
+        const kinds = new Map<string, 'field' | 'method' | 'accessor'>()
+        const claimKind = (
+          key: string,
+          kind: 'field' | 'method' | 'accessor',
+          at: ts.Node,
+          written: string,
+        ): boolean => {
+          const prior = kinds.get(key)
+          if (prior === undefined || prior === kind) {
+            kinds.set(key, kind)
+            return true
+          }
+          diagnostics.push(
+            classDiag(
+              sourceFile,
+              at,
+              `"${structName}.${written}" is declared as ${a(prior)} and as ${a(kind)}; a class ` +
+                `member has one kind. Rename one of them.`,
+            ),
+          )
+          return false
+        }
         // A mixin's members are this class's, ahead of its own and behind its base's, which is the
         // order TypeScript's own mixin produces (T8, #92). A member this class declares under the
         // same name is an override and wins, silently, the way a subclass member does.
@@ -335,39 +487,99 @@ export function collectStructs(
               continue
             }
             ctor = member
+            // A parameter property is a field, declared where the constructor stands, and the
+            // constructor assigns it from its parameter before anything else (Rule 8.14).
+            for (const p of member.parameters) {
+              if (!ts.isParameterPropertyDeclaration(p, member)) continue
+              const field = parameterPropertyField(p, structName, sourceFile, diagnostics)
+              if (field === undefined) {
+                if (ts.isIdentifier(p.name)) withheld.add(p.name.text)
+                continue
+              }
+              if (!claimField(field.name, p.name)) continue
+              if (!claimKind(field.name, 'field', p.name, field.name)) continue
+              fields.push(field)
+              paramProps.push(field.name)
+              if (isReadonlyMember(p)) readonlyFields.set(field.name, member.parent)
+              recordDeclaration(symbols, sourceFile, p.name, {
+                name: field.name,
+                kind: 'field',
+                type: field.type,
+                struct: structName,
+              })
+            }
             continue
           }
           if (ts.isMethodDeclaration(member)) {
             if (!member.body) continue // an overload signature
-            if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword))
-              staticMethods++
-            if (!ts.isIdentifier(member.name)) {
+            const isStatic = isStaticMember(member)
+            if (isStatic) staticFunctions++
+            const memberName = writtenMemberName(member.name)
+            if (memberName === undefined) {
               diagnostics.push(memberNameDiag(sourceFile, member, structName))
               continue
             }
-            if (methodNames.has(member.name.text)) {
-              diagnostics.push(
-                classDiag(
-                  sourceFile,
-                  member.name,
-                  `"${structName}.${member.name.text}" is declared twice; a method has one body ` +
-                    `and no overloads.`,
-                ),
-              )
+            const twice =
+              `"${structName}.${memberName}" is declared twice; a method has one body ` +
+              `and no overloads.`
+            if (!claimFunction(emittedMemberName(memberName), memberName, member.name, twice))
               continue
-            }
-            methodNames.add(member.name.text)
+            if (
+              !claimKind(
+                `${isStatic ? 'static ' : ''}${memberName}`,
+                'method',
+                member.name,
+                memberName,
+              )
+            )
+              continue
             methods.push(member)
             continue
           }
+          // A getter and a setter are two functions of the module, `Cls_get_x` and `Cls_set_x`
+          // (Rule 8.11); `o.x` calls the one and `o.x = v` the other.
           if (ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
-            const what = ts.isGetAccessorDeclaration(member) ? 'getter' : 'setter'
-            const shown = ts.isIdentifier(member.name) ? member.name.text : 'this member'
+            if (!member.body) continue // an abstract accessor: the class that implements it has the body
+            const isStatic = isStaticMember(member)
+            if (isStatic) staticFunctions++
+            const memberName = writtenMemberName(member.name)
+            if (memberName === undefined) {
+              diagnostics.push(memberNameDiag(sourceFile, member, structName))
+              continue
+            }
+            const half = ts.isGetAccessorDeclaration(member) ? 'get' : 'set'
+            const shownAs = `${isStatic ? 'static ' : ''}${half} ${memberName}`
+            const twice = `"${structName}.${memberName}" has two ${half}ters; an accessor has one body.`
+            if (
+              !claimFunction(
+                `${half}_${emittedMemberName(memberName)}`,
+                shownAs,
+                member.name,
+                twice,
+              )
+            )
+              continue
+            if (
+              !claimKind(
+                `${isStatic ? 'static ' : ''}${memberName}`,
+                'accessor',
+                member.name,
+                memberName,
+              )
+            )
+              continue
+            accessors.push(member)
+            continue
+          }
+          // A static block runs once, when the class is evaluated. It was passed over in silence,
+          // so a static field it assigned kept the value its declaration wrote.
+          if (ts.isClassStaticBlockDeclaration(member)) {
             diagnostics.push(
               classDiag(
                 sourceFile,
                 member,
-                `A ${what} has no shader form; write "${shown}" as a method and call it.`,
+                `A static block runs when the class is defined, and a shader has no such moment. ` +
+                  `Give each static field its value where it is declared.`,
               ),
             )
             continue
@@ -383,7 +595,8 @@ export function collectStructs(
             continue
           }
           if (!ts.isPropertyDeclaration(member)) continue
-          if (!ts.isIdentifier(member.name)) {
+          const memberName = writtenMemberName(member.name)
+          if (memberName === undefined) {
             diagnostics.push(memberNameDiag(sourceFile, member, stmt.name.text))
             continue
           }
@@ -392,11 +605,12 @@ export function collectStructs(
           // Measured before this: a class took the `?` and emitted the field as required, with no
           // diagnostic, so the three spellings of one struct disagreed about it silently.
           if (member.questionToken) {
+            withheld.add(emittedMemberName(memberName))
             diagnostics.push(
               diag(
                 sourceFile,
                 member,
-                `Optional field "${member.name.text}?" on "${structName}" is not supported: a ` +
+                `Optional field "${memberName}?" on "${structName}" is not supported: a ` +
                   `struct field is always present in the buffer the host fills.`,
               ),
             )
@@ -404,8 +618,26 @@ export function collectStructs(
           }
           // A static field is a module constant named `Cls_Field` (T3, #92); `module-const.ts`
           // collects and folds it, exactly as it does a top-level `const`. Before this it was
-          // refused, and the fix it named was to write the const by hand.
-          if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) {
+          // refused, and the fix it named was to write the const by hand. One the file writes is
+          // a module variable instead, which `module-vars.ts` collects (Rule 8.13).
+          if (isStaticMember(member)) {
+            if (!claimKind(`static ${memberName}`, 'field', member.name, memberName)) continue
+            // `static #n` and `static n` would be one module constant, `Cls_n` (Rule 8.12).
+            const emitted = emittedMemberName(memberName)
+            const prior = staticFieldNames.get(emitted)
+            if (prior !== undefined && prior !== memberName) {
+              diagnostics.push(
+                classDiag(
+                  sourceFile,
+                  member.name,
+                  `"${structName}.${prior}" and "${structName}.${memberName}" would both be the ` +
+                    `module constant "${structName}_${emitted}": a private name is emitted ` +
+                    `without its "#". Rename one of them.`,
+                ),
+              )
+              continue
+            }
+            staticFieldNames.set(emitted, memberName)
             staticFields++
             continue
           }
@@ -417,7 +649,7 @@ export function collectStructs(
               classDiag(
                 sourceFile,
                 member,
-                `A field holding a function is a method: write "${member.name.text}(...) { ... }".`,
+                `A field holding a function is a method: write "${memberName}(...) { ... }".`,
               ),
             )
             continue
@@ -430,12 +662,45 @@ export function collectStructs(
               diagnostics.push(diag(sourceFile, d, `@align on a field is not applied.`))
             }
           }
+          // A field written without a type takes the one its initializer names (Rule 8.14):
+          // `hits = 0` is an f32 by Rule 5.1's reading of a bare number, `on = false` a bool,
+          // `v = vec3(0.)` and `p = new P()` the type they build. Before this such a field was
+          // dropped from the struct with no diagnostic, and every read of it said it did not
+          // exist.
           const type = member.type
             ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
               structT(member.type.getText(sourceFile)))
-            : undefined
-          if (!type) continue
-          const field: StructField = { name: member.name.text, type }
+            : member.initializer !== undefined
+              ? initializerType(member.initializer, sourceFile)
+              : undefined
+          if (!type) {
+            withheld.add(emittedMemberName(memberName))
+            if (member.type === undefined) {
+              diagnostics.push(
+                diag(
+                  sourceFile,
+                  member.name,
+                  member.initializer === undefined
+                    ? `Field "${memberName}" on "${structName}" needs a type: write "${memberName}: T".`
+                    : `Field "${memberName}" on "${structName}" needs a type, which ` +
+                        `"${member.initializer.getText(sourceFile)}" does not name. Write ` +
+                        `"${memberName}: T = ...".`,
+                ),
+              )
+            }
+            continue
+          }
+          if (!claimField(memberName, member.name)) continue
+          if (!claimKind(memberName, 'field', member.name, memberName)) continue
+          if (isPrivateName(memberName)) {
+            privateFields.set(emittedMemberName(memberName), {
+              written: memberName,
+              owner: member.parent,
+            })
+          }
+          if (isReadonlyMember(member))
+            readonlyFields.set(emittedMemberName(memberName), member.parent)
+          const field: StructField = { name: emittedMemberName(memberName), type }
           const loc = numberDecorator(member, 'location')
           const decos = ts.canHaveDecorators(member) ? (ts.getDecorators(member) ?? []) : []
           const builtinArg = builtinDecoratorArg(decos)
@@ -444,10 +709,71 @@ export function collectStructs(
             checkBuiltinName(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name)
               ? builtinArg.name
               : undefined
+          // The TYPE rule is checked here, at the declaration, and not only where the struct
+          // is used as entry IO (`lower/function.ts`): the capability a `@builtin(...)` id
+          // derives is read off `m.structs` whatever the struct is used for, so a struct that
+          // declares `@builtin("clip_distances")` and is never an entry parameter emitted the
+          // directive and the field with no diagnostic at all.
+          if (builtin) {
+            checkBuiltinType(diagnostics, sourceFile, builtinArg!.argNode, builtin, type)
+          }
+          // The entry-IO attributes (§53). `@interpolate` rides a `@location`; `@invariant`
+          // rides `@builtin("position")`, the one output WGSL lets it steady; `@blend_src`
+          // rides a `@location(0)` fragment output and derives a capability. Each is checked
+          // where it is written, so the message names the line rather than the emitted text.
+          const interpolate = interpolateDecoratorArg(diagnostics, sourceFile, decos)
+          const invariant = hasInvariantDecorator(decos)
+          const blendSrc = numberDecorator(member, 'blend_src')
+          if (interpolate !== undefined && loc === undefined) {
+            diagnostics.push(
+              diag(
+                sourceFile,
+                member,
+                `@interpolate belongs on a @location field: it says how a VARYING is ` +
+                  `interpolated, and a @builtin carries its own rule.`,
+              ),
+            )
+          }
+          if (invariant && builtin !== 'position') {
+            diagnostics.push(
+              diag(
+                sourceFile,
+                member,
+                `@invariant belongs on @builtin("position"): it is WGSL's promise that this ` +
+                  `position is computed the same way in two pipelines, and no other output ` +
+                  `has that meaning.`,
+              ),
+            )
+          }
+          if (blendSrc !== undefined && blendSrc !== 0 && blendSrc !== 1) {
+            diagnostics.push(
+              diag(
+                sourceFile,
+                member,
+                `@blend_src takes 0 or 1 — the two sources a dual-source blend mixes — ` +
+                  `not ${String(blendSrc)}.`,
+              ),
+            )
+          }
           if (loc !== undefined) (field as { location?: number }).location = loc
           if (builtin) (field as { builtin?: string }).builtin = builtin
-          if (builtin) (field as { attr?: string }).attr = `@builtin(${builtin})`
-          else if (loc !== undefined) (field as { attr?: string }).attr = `@location(${loc})`
+          if (interpolate !== undefined && loc !== undefined) {
+            // The WHOLE argument list, `flat` or `linear, centroid` — the GLSL writer needs
+            // the sampling as well as the type, and storing only the type silently dropped
+            // the `centroid` half.
+            ;(field as { interpolate?: string }).interpolate = interpolate.slice(
+              '@interpolate('.length,
+              -1,
+            )
+          }
+          const extra =
+            (invariant && builtin === 'position' ? '@invariant ' : '') +
+            (blendSrc !== undefined ? `@blend_src(${String(blendSrc)}) ` : '') +
+            (interpolate !== undefined && loc !== undefined ? `${interpolate} ` : '')
+          if (builtin) (field as { attr?: string }).attr = `${extra}@builtin(${builtin})`.trim()
+          else if (loc !== undefined)
+            (field as { attr?: string }).attr = `@location(${loc}) ${extra}`.trim()
+          if (blendSrc !== undefined) (field as { blendSrc?: number }).blendSrc = blendSrc
           fields.push(field)
           if (member.initializer !== undefined) {
             fieldInits.push({ name: field.name, type: field.type, init: member.initializer })
@@ -460,16 +786,16 @@ export function collectStructs(
           })
         }
         const members: ClassMembers | undefined =
-          methods.length > 0 || ctor !== undefined || fieldInits.length > 0
-            ? { node: stmt, methods, ctor, fieldInits }
+          methods.length > 0 || accessors.length > 0 || ctor !== undefined || fieldInits.length > 0
+            ? { node: stmt, methods, accessors, ctor, fieldInits, paramProps }
             : undefined
         // Every member static and no field: a namespace (T3). An instance method or a constructor
         // needs a receiver, so a class that declares one keeps the empty-struct refusal and its
         // "write them as functions" fix.
         const isNamespace =
           fields.length === 0 &&
-          staticMethods + staticFields > 0 &&
-          methods.length === staticMethods &&
+          staticFunctions + staticFields > 0 &&
+          methods.length + accessors.length === staticFunctions &&
           ctor === undefined
             ? (true as const)
             : undefined
@@ -484,6 +810,7 @@ export function collectStructs(
           bases,
           isAbstract,
           instance.binding,
+          { node: stmt, privateFields, withheld, withheldFunctions, readonlyFields },
         )
         // A static of a generic class cannot mention the class's type parameters — TypeScript
         // refuses that outright (TS2302) — so it is ONE function, not one per instance. It is
@@ -491,7 +818,7 @@ export function collectStructs(
         // class of only statics already takes (T3, #92); that is what makes `Op.unit()` resolve
         // while `Op` itself names no layout. Emitted from the first instance, so a class the
         // file writes at three types still contributes each static once.
-        if (instance === cases[0] && genericParams.has(written) && staticMethods > 0) {
+        if (instance === cases[0] && genericParams.has(written) && staticFunctions > 0) {
           add(
             written,
             declared,
@@ -500,13 +827,23 @@ export function collectStructs(
             diagnostics.length,
             members && {
               node: members.node,
-              methods: members.methods.filter((m) =>
-                m.modifiers?.some((x) => x.kind === ts.SyntaxKind.StaticKeyword),
-              ),
+              methods: members.methods.filter(isStaticMember),
+              accessors: members.accessors.filter(isStaticMember),
               ctor: undefined,
               fieldInits: [],
+              paramProps: [],
             },
             true,
+            [],
+            undefined,
+            undefined,
+            {
+              node: stmt,
+              privateFields: new Map(),
+              withheld: new Set(),
+              withheldFunctions: new Set(),
+              readonlyFields: new Map(),
+            },
           )
         }
       } finally {
@@ -514,11 +851,93 @@ export function collectStructs(
       }
     }
   }
-  return applyInheritance(out, sourceFile, nodeOf, diagnostics)
+  const inherited = applyInheritance(out, sourceFile, nodeOf, diagnostics)
+  // Struct-WIDE, so it belongs here and not in the per-entry walk: the same struct is a
+  // vertex output and a fragment input, and raising a slot collision or a bool varying from
+  // there printed one mistake twice, word for word (§53). `function.ts` keeps the checks that
+  // read the STAGE, which genuinely differ between the two uses.
+  //
+  // AFTER `applyInheritance`, because a base's fields are spliced in there: `class VsOut
+  // extends Base` with `@location(0)` on each side is one struct with two members at one slot,
+  // and checking the class's own fields alone walked straight past it (Tint:
+  // `'@location(0)' appears multiple times`).
+  for (const s of inherited) {
+    checkLocationSlots(diagnostics, sourceFile, nodeOf.get(s.decl.name), s.decl.name, s.decl.fields)
+  }
+  return inherited
 }
 
 function classDiag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
   return makeDiagnostic(sf, node, message, TS_CODES.CLASS_MEMBER)
+}
+
+/** `a field`, `a method`, `an accessor`. */
+const a = (kind: string): string => (/^[aeiou]/.test(kind) ? `an ${kind}` : `a ${kind}`)
+
+/** The type a field written without one takes from its initializer, or `undefined` when the
+ *  initializer does not name one (Rule 8.14). Read off the syntax, since no scope exists yet to
+ *  lower it in: a bare number is an `f32` (Rule 5.1, the reading `let n = 0` gets), `true` and
+ *  `false` a `bool`, `new P()` the struct it builds, and a type's own constructor, `vec3(0.)` or
+ *  `u32(1)`, that type. A call to anything else could return anything, so it is not guessed at. */
+function initializerType(init: ts.Expression, sourceFile: ts.SourceFile): ShaderType | undefined {
+  let e = init
+  while (ts.isParenthesizedExpression(e)) e = e.expression
+  if (
+    ts.isPrefixUnaryExpression(e) &&
+    (e.operator === ts.SyntaxKind.MinusToken || e.operator === ts.SyntaxKind.PlusToken)
+  ) {
+    e = e.operand
+  }
+  if (ts.isNumericLiteral(e)) return f32T
+  if (e.kind === ts.SyntaxKind.TrueKeyword || e.kind === ts.SyntaxKind.FalseKeyword) return boolT
+  if (ts.isNewExpression(e) && ts.isIdentifier(e.expression)) {
+    return structT(newInstanceName(e, e.expression.text, sourceFile) ?? e.expression.text)
+  }
+  if (ts.isCallExpression(e) && ts.isIdentifier(e.expression) && e.typeArguments === undefined) {
+    return lookupTypeName(e.expression.text)
+  }
+  return undefined
+}
+
+/** The field a constructor's parameter property declares (Rule 8.14), or `undefined` when it
+ *  declares none this surface can lay out. A parameter whose annotation does not map says so at
+ *  the parameter, where the constructor's signature is read; saying it here as well would be
+ *  the one mistake twice (Rule 12.4). */
+function parameterPropertyField(
+  p: ts.ParameterDeclaration,
+  owner: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): StructField | undefined {
+  if (!ts.isIdentifier(p.name)) return undefined // TypeScript's own TS1187
+  const name = p.name.text
+  const decorated = ts.canHaveDecorators(p) ? (ts.getDecorators(p) ?? []) : []
+  if (decorated.length > 0) {
+    diagnostics.push(
+      classDiag(
+        sourceFile,
+        decorated[0]!,
+        `A decorator on the parameter property "${name}" decorates the parameter, not the ` +
+          `field. Declare "${name}" as a field of "${owner}" to give it one.`,
+      ),
+    )
+    return undefined
+  }
+  if (p.questionToken) {
+    diagnostics.push(
+      diag(
+        sourceFile,
+        p,
+        `Optional field "${name}?" on "${owner}" is not supported: a struct field is always ` +
+          `present in the buffer the host fills.`,
+      ),
+    )
+    return undefined
+  }
+  if (p.type === undefined) return undefined
+  const type = mapTsTypeToShaderType(p.type, sourceFile, undefined)
+  if (type === undefined) return undefined
+  return { name, type }
 }
 
 /** The interface / object-type-alias declaration a statement is, or undefined. Generic ones
@@ -708,15 +1127,30 @@ function applyInheritance(
   diagnostics: TsCompilerDiagnostic[],
 ): CollectedStruct[] {
   const byName = new Map(structs.map((s) => [s.decl.name, s]))
-  const done = new Map<string, readonly StructField[]>()
+  /** A struct's fields once its chain is spliced in, and which of them are private (Rule 8.12). */
+  interface Resolved {
+    readonly fields: readonly StructField[]
+    readonly privates: ReadonlyMap<string, PrivateField>
+    readonly withheld: ReadonlySet<string>
+    readonly readonlyFields: ReadonlyMap<string, ts.ClassLikeDeclaration>
+  }
+  const done = new Map<string, Resolved>()
   const onStack: string[] = []
   const at = (n: string): ts.Node => nodeOf.get(n) ?? sourceFile
+  const ownOf = (s: CollectedStruct): Resolved => ({
+    fields: s.decl.fields,
+    privates: s.privateFields ?? new Map(),
+    withheld: s.withheld ?? new Set(),
+    readonlyFields: s.readonlyFields ?? new Map(),
+  })
 
-  const resolve = (name: string): readonly StructField[] => {
+  const resolve = (name: string): Resolved => {
     const cached = done.get(name)
     if (cached) return cached
     const struct = byName.get(name)
-    if (!struct) return []
+    if (!struct) {
+      return { fields: [], privates: new Map(), withheld: new Set(), readonlyFields: new Map() }
+    }
     if (onStack.includes(name)) {
       diagnostics.push(
         diag(
@@ -727,17 +1161,40 @@ function applyInheritance(
             .join(' -> ')}. A struct cannot contain its own fields.`,
         ),
       )
-      done.set(name, struct.decl.fields)
-      return struct.decl.fields
+      done.set(name, ownOf(struct))
+      return ownOf(struct)
     }
     onStack.push(name)
     const fields: StructField[] = []
-    const seen = new Map<string, { field: StructField; from: string }>()
-    const put = (f: StructField, from: string): void => {
+    const privates = new Map<string, PrivateField>()
+    const withheld = new Set<string>(struct.withheld ?? [])
+    const readonlyFields = new Map<string, ts.ClassLikeDeclaration>()
+    const seen = new Map<
+      string,
+      { field: StructField; from: string; private: PrivateField | undefined }
+    >()
+    const put = (f: StructField, from: string, priv: PrivateField | undefined): void => {
       const prior = seen.get(f.name)
       if (prior === undefined) {
-        seen.set(f.name, { field: f, from })
+        seen.set(f.name, { field: f, from, private: priv })
         fields.push(f)
+        if (priv !== undefined) privates.set(f.name, priv)
+        return
+      }
+      // A private field is its class's own: a derived class may declare the same `#n` again,
+      // or a plain `n`, and TypeScript keeps the two apart. Here both would be the member `n`.
+      if (prior.private !== undefined || priv !== undefined) {
+        if (prior.private?.owner === priv?.owner) return
+        withheld.add(f.name)
+        diagnostics.push(
+          diag(
+            sourceFile,
+            at(name),
+            `"${prior.from}" declares "${prior.private?.written ?? f.name}" and "${from}" ` +
+              `declares "${priv?.written ?? f.name}", which would both be the struct member ` +
+              `"${f.name}": a private name is emitted without its "#". Rename one of them.`,
+          ),
+        )
         return
       }
       if (typeKeyOf(prior.field.type) === typeKeyOf(f.type)) return
@@ -763,18 +1220,29 @@ function applyInheritance(
         )
         continue
       }
-      for (const f of resolve(base)) put(f, base)
+      const above = resolve(base)
+      for (const w of above.withheld) withheld.add(w)
+      for (const [f, cls] of above.readonlyFields) readonlyFields.set(f, cls)
+      for (const f of above.fields) put(f, base, above.privates.get(f.name))
     }
-    for (const f of struct.decl.fields) put(f, name)
+    for (const f of struct.decl.fields) put(f, name, struct.privateFields?.get(f.name))
+    for (const [f, cls] of struct.readonlyFields ?? []) readonlyFields.set(f, cls)
     onStack.pop()
-    done.set(name, fields)
-    return fields
+    const resolved = { fields, privates, withheld, readonlyFields }
+    done.set(name, resolved)
+    return resolved
   }
 
   const out = structs.map((s) => {
-    const fields = resolve(s.decl.name)
+    const { fields, privates, withheld, readonlyFields } = resolve(s.decl.name)
     if (fields === s.decl.fields) return s
-    return { ...s, decl: { ...s.decl, fields } }
+    return {
+      ...s,
+      decl: { ...s.decl, fields },
+      ...(privates.size > 0 ? { privateFields: privates } : {}),
+      ...(withheld.size > 0 ? { withheld } : {}),
+      ...(readonlyFields.size > 0 ? { readonlyFields } : {}),
+    }
   })
   // The empty-struct rule is checked here for a declaration with a base, since what it
   // inherits is only known now.
@@ -889,4 +1357,72 @@ function numberDecorator(node: ts.Node, name: string): number | undefined {
 
 function diag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
   return makeDiagnostic(sf, node, message, TS_CODES.STRUCT_FIELD)
+}
+
+/** Two entry-IO rules that read the struct alone, checked once per declaration.
+ *
+ *  A slot collision — two members at one `@location` — is refused by WGSL outright ("must not
+ *  contain two entries with the same location value") and was emitted here with no diagnostic.
+ *  The one shape that puts two members at one location on purpose is a DUAL-SOURCE pair,
+ *  `@location(0) @blend_src(0)` beside `@location(0) @blend_src(1)`, so the slot is the
+ *  location AND the blend source.
+ *
+ *  A `@location` carries a value between stages, which WGSL restricts to a numeric scalar or a
+ *  numeric vector; {@link checkLocationType} owns that wording. */
+function checkLocationSlots(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
+  node: ts.Node | undefined,
+  structName: string,
+  fields: readonly StructField[],
+): void {
+  const at = node ?? sourceFile
+  const atLocation = new Map<string, string>()
+  const blendSources = new Set<number>()
+  for (const field of fields) {
+    if (field.location === undefined) continue
+    if (field.blendSrc !== undefined) blendSources.add(field.blendSrc)
+    const slot = `${String(field.location)}:${String(field.blendSrc ?? -1)}`
+    const prev = atLocation.get(slot)
+    if (prev !== undefined) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          at,
+          `Struct "${structName}" puts "${prev}" and "${field.name}" both at ` +
+            `@location(${String(field.location)})` +
+            `${field.blendSrc !== undefined ? ` @blend_src(${String(field.blendSrc)})` : ''}; ` +
+            `each slot carries one value.`,
+          TS_CODES.STRUCT_FIELD,
+        ),
+      )
+    } else atLocation.set(slot, field.name)
+    checkLocationType(
+      diagnostics,
+      sourceFile,
+      at,
+      `${structName}.${field.name}`,
+      field.type,
+      field.interpolate,
+    )
+  }
+  // A dual-source blend mixes TWO colours, so `@blend_src` comes as a pair: WGSL requires
+  // that a struct declaring one declares both, at the same `@location`. One alone emitted
+  // `enable dual_source_blending;` and a single source, which is not a shape the pipeline
+  // has. Stated from the spec rather than measured: the gate's adapter has no
+  // `dual-source-blending` feature, so Tint answers `extension 'dual_source_blending' is not
+  // allowed in the current environment` before it reaches the rule.
+  if (blendSources.size === 1) {
+    const only = [...blendSources][0]!
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        at,
+        `Struct "${structName}" declares @blend_src(${String(only)}) and not ` +
+          `@blend_src(${String(1 - only)}); a dual-source blend mixes two colours, so both sit ` +
+          `at the same @location.`,
+        TS_CODES.STRUCT_FIELD,
+      ),
+    )
+  }
 }

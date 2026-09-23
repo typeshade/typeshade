@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "A vertex that returns only the position",
+  "blurb": "The smallest render pair: a vertex entry whose return is typed `vec4`, which carries `@builtin(position)` on its own, and a fragment entry that reads `@builtin(position)` and returns one colour. Nothing travels between the stages, so no I/O struct is needed. On GLSL ES 3.00 the return is `gl_Position`, which is not a varying and links nothing.",
+  "renderable": true
+}
+*/
+
 // The smallest render pair there is: a vertex entry that returns the clip position and nothing
 // else, and a fragment entry that returns one colour. A vertex return typed `vec4` carries
 // `@builtin(position)` on its own, so no struct is needed to say so, and nothing travels

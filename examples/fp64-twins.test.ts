@@ -401,6 +401,23 @@ const SAMPLES: Readonly<Record<string, SampleSet>> = {
         uniforms: { center: [1.5, -0.07591217756271362], zoom_exp: 11 },
         tracks: true,
       },
+      {
+        // The one sample here where the PRECISION OF THE ESCAPE TEST shows. The example takes
+        // |z|² in f32 from the narrowed words, not in df64, and near |z|² = 16 the two can
+        // disagree by a step. Every other sample in this set escapes (or stays) the same way
+        // under both tests, so a twin whose escape test drifted back to df64 while its
+        // original stayed in f32 (or the reverse) passed every numeric check here and was
+        // caught only by the byte goldens, which a re-bake overwrites. This pixel is one of
+        // three that bisecting count boundaries to adjacent f32 uv values found: a df64 test
+        // escapes at step 49 (its |z|² narrows to exactly 16) and the f32 test at step 50, a
+        // colour 4.1e-4 apart on the emulated row. Tracking MEASURED: the double row counts 50
+        // here too, and the emulated row lands 7.3e-8 from it. At the other two pixels the
+        // double counts with the df64 test instead; within an f32 rounding of 16 neither test
+        // is the double's.
+        label: 'f64 half, 1e-4 span, |z|² within an f32 rounding of 16 at step 49',
+        uv: [0.6000940799713135, 0.220703125],
+        tracks: true,
+      },
     ],
   },
   'fp64-burning-ship': {

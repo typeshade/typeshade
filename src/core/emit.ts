@@ -16,7 +16,7 @@ import { validate } from './passes/validate.js'
 import { assertCaps, assertBuiltins } from './passes/required-caps.js'
 import { lowerModule } from './passes/match-lower.js'
 import { selectComposite } from './passes/select-composite.js'
-import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
+import { fp64Lower, hoistGuardFetch, type Fp64Flavor } from './passes/fp64-lower.js'
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js'
 import { mapExpr, mapStmt } from './passes/opt/ir-transform.js'
 import { reflect, type Reflection } from './reflect.js'
@@ -293,7 +293,14 @@ export function emitStmt(s: Stmt, depth: number, be: Backend, parens: ParenMode 
     case 'switch': {
       const lines: string[] = [`${p}${be.switchHead(r(s.scrut))}`]
       for (const c of s.cases) {
-        lines.push(`${pad(depth + 1)}case ${be.caseLabel(c.value, s.scrut.type)}: {`)
+        // A clause may carry SEVERAL selectors, and the two targets spell that differently:
+        // WGSL joins them into one label list (`case 0, 1:`), GLSL ES 3.00 stacks empty
+        // labels (`case 0: case 1:`). `caseLabels` is the backend's spelling of the whole
+        // `case …:` prefix; a backend that declares none gets WGSL's form, which is also the
+        // single-selector spelling every backend used before.
+        const labels = c.values.map((v) => be.caseLabel(v, s.scrut.type))
+        const prefix = be.caseLabels?.(labels) ?? `case ${labels.join(', ')}:`
+        lines.push(`${pad(depth + 1)}${prefix} {`)
         lines.push(emitBody(c.body, depth + 2, be, parens))
         // C-style backends (GLSL) fall through without a terminator — append the
         // backend's case break unless the body already ends in return/discard (which
@@ -379,7 +386,15 @@ export function lowerForBackend(
     ),
     be,
   )
-  const optimized = level === undefined ? be.optimize(pre) : optimizeAt(pre, level)
+  // The target's own LOWERINGS, before EITHER optimizer tier: a lowering makes the module
+  // the target accepts and cannot be skipped by asking for a different optimization level.
+  const lowered = be.preOptimize === undefined ? pre : be.preOptimize(pre)
+  // The fp64 guard is read once per function AFTER the optimizer (fp64-lower's "The guard"),
+  // so a df64 call over loop-invariant operands stays input-only while the optimizer runs.
+  // Identity for a module that never fetches the guard.
+  const optimized = hoistGuardFetch(
+    level === undefined ? be.optimize(lowered) : optimizeAt(lowered, level),
+  )
   // After every tier, so a target whose spelling needs a shape the IR does not carry gets it
   // whichever optimizer ran. Identity for a backend that declares none.
   return be.postLower === undefined ? optimized : be.postLower(optimized)
@@ -421,7 +436,10 @@ function lowerTimed(
     fp64Lower(lm, fp64Flavor ? { flavor: fp64Flavor } : undefined),
   )
   const pre = step('spellExterns', () => spellExterns(f64, be))
-  return step('optimize', () => (level === undefined ? be.optimize(pre) : optimizeAt(pre, level)))
+  const optimized = step('optimize', () =>
+    level === undefined ? be.optimize(pre) : optimizeAt(pre, level),
+  )
+  return step('hoistGuardFetch', () => hoistGuardFetch(optimized))
 }
 
 /** Resolve each `externref` to the spelling THIS target's host uses (X-GIS #1713).

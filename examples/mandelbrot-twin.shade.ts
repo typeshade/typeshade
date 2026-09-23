@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Mandelbrot set (source twin)",
+  "blurb": "`mandelbrot.ts` written in the source language: the same smooth escape-time colouring, with the EDSL's `.neg()` spelled as the unary minus it always was.",
+  "renderable": true,
+  "twinOf": "mandelbrot"
+}
+*/
+
 // The `"use typeshade"` twin of `mandelbrot.ts`. `screenCoords` is a helper
 // function here rather than an import — see `plasma-twin.shade.ts` on the
 // repeated head.

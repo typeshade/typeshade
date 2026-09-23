@@ -7,7 +7,62 @@ import { authorTypeName } from './type-map.js'
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js'
 import type { FuncDecl, StructDecl, StructField } from '../../core/ir/nodes.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
+import type { PrivateField } from './structs.js'
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js'
+
+/** Which fields of each struct are private, by struct and then by the member they are emitted
+ *  as (Rule 8.12). */
+export type PrivateFieldTable = ReadonlyMap<string, ReadonlyMap<string, PrivateField>>
+
+/** The members each struct's class declared and the struct does not carry, by struct: a read
+ *  of one was already explained where it was declared (Rule 12.4). */
+export type WithheldTable = ReadonlyMap<string, ReadonlySet<string>>
+
+/** The {@link WithheldTable} `structs` carry. */
+export function withheldTableOf(
+  structs: readonly { readonly decl: StructDecl; readonly withheld?: ReadonlySet<string> }[],
+): WithheldTable {
+  const out = new Map<string, ReadonlySet<string>>()
+  for (const s of structs) {
+    if (s.withheld !== undefined && s.withheld.size > 0) out.set(s.decl.name, s.withheld)
+  }
+  return out
+}
+
+/** The `readonly` fields of each struct, with the class whose constructor may assign each. */
+export type ReadonlyFieldTable = ReadonlyMap<string, ReadonlyMap<string, ts.ClassLikeDeclaration>>
+
+/** The {@link ReadonlyFieldTable} `structs` carry. */
+export function readonlyFieldTableOf(
+  structs: readonly {
+    readonly decl: StructDecl
+    readonly readonlyFields?: ReadonlyMap<string, ts.ClassLikeDeclaration>
+  }[],
+): ReadonlyFieldTable {
+  const out = new Map<string, ReadonlyMap<string, ts.ClassLikeDeclaration>>()
+  for (const s of structs) {
+    if (s.readonlyFields !== undefined && s.readonlyFields.size > 0) {
+      out.set(s.decl.name, s.readonlyFields)
+    }
+  }
+  return out
+}
+
+/** The table `structs` carry, for a scope that is handed the collected list. */
+export function privateFieldTableOf(
+  structs: readonly {
+    readonly decl: StructDecl
+    readonly privateFields?: ReadonlyMap<string, PrivateField>
+  }[],
+): PrivateFieldTable {
+  const out = new Map<string, ReadonlyMap<string, PrivateField>>()
+  for (const s of structs) {
+    if (s.privateFields !== undefined && s.privateFields.size > 0) {
+      out.set(s.decl.name, s.privateFields)
+    }
+  }
+  return out
+}
 
 /** The names a file declares as functions and could not lower, one set per callee table
  *  (roadmap 0.3 item T10, #92). It hangs off the table instead of being threaded through every
@@ -272,6 +327,12 @@ export class LoweringScope {
   /** The names the file declares as a `namespace` (roadmap 0.3 item T4, #92). */
   private readonly namespaces = new Set<string>()
   private namespacePrefix: string | undefined
+  /** The class whose static member's body is being lowered, which is what `this` names there
+   *  (Rule 8.13); undefined everywhere else. */
+  private staticOwner: string | undefined
+  private privates: PrivateFieldTable = new Map()
+  private withheldMembers: WithheldTable = new Map()
+  private readonlyMembers: ReadonlyFieldTable = new Map()
   private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
   private atomicOperandDepth = 0
@@ -467,6 +528,54 @@ export class LoweringScope {
     return this.structs.get(structName)?.fields.find((f) => f.name === field)?.type
   }
 
+  /** Which fields of each struct are private (Rule 8.12). */
+  setPrivateFields(table: PrivateFieldTable): void {
+    this.privates = table
+  }
+
+  /** The private field `field` of `structName` is, by the member it is emitted as, or undefined
+   *  for a field every body may name. */
+  privateField(structName: string, field: string): PrivateField | undefined {
+    return this.privates.get(structName)?.get(field)
+  }
+
+  /** Whether `structName` has a field only its class may name, which an object literal cannot
+   *  write and a spread does not copy (Rule 8.12). */
+  hasPrivateFields(structName: string): boolean {
+    return (this.privates.get(structName)?.size ?? 0) > 0
+  }
+
+  /** The members each class declared that its struct does not carry (Rule 12.4). */
+  setWithheldFields(table: WithheldTable): void {
+    this.withheldMembers = table
+  }
+
+  /** Whether `field` is a member `structName`'s class declared and was refused, whose every
+   *  read is already explained. */
+  isWithheld(structName: string, field: string): boolean {
+    return this.withheldMembers.get(structName)?.has(field) ?? false
+  }
+
+  /** The `readonly` fields of each struct (Rule 8.14). */
+  setReadonlyFields(table: ReadonlyFieldTable): void {
+    this.readonlyMembers = table
+  }
+
+  /** The class whose constructor alone may assign `field` of `structName`, when it is
+   *  `readonly`; undefined for a field any body may assign. */
+  readonlyField(structName: string, field: string): ts.ClassLikeDeclaration | undefined {
+    return this.readonlyMembers.get(structName)?.get(field)
+  }
+
+  /** The class whose static member's body is being lowered: `this.K` there is `Cls.K`. */
+  setStaticClass(name: string | undefined): void {
+    this.staticOwner = name
+  }
+
+  staticClass(): string | undefined {
+    return this.staticOwner
+  }
+
   /** The collected struct with this name, or undefined. The lookup a CONTEXTUAL type needs:
    *  a declared `vec4`-shaped `VsOut` names its struct outright, where {@link matchStruct} can
    *  only guess from the field names and cannot answer at all when two structs share a shape
@@ -479,6 +588,9 @@ export class LoweringScope {
     const set = new Set(fieldNames)
     let hit: StructDecl | undefined
     for (const s of this.structs.values()) {
+      // A struct with a private field is never the one a bare literal means: its literal would
+      // have to name the `#` field, which no literal can (Rule 8.12).
+      if (this.hasPrivateFields(s.name)) continue
       if (s.fields.length !== set.size) continue
       if (!s.fields.every((f) => set.has(f.name))) continue
       if (hit) return undefined

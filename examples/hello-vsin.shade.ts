@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Hello vertex attributes",
+  "blurb": "Vertex input from a buffer rather than from `vertex_index`: a `VsIn` class of `@location`-tagged attributes becomes GLSL `in` declarations and WGSL struct parameters from the one declaration.",
+  "renderable": true
+}
+*/
+
 class VsIn {
   @location(0) position: vec3
   @location(1) uv: vec2

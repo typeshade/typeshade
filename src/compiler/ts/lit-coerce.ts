@@ -2,6 +2,9 @@ import ts from 'typescript'
 import type { Expr } from '../../core/ir/nodes.js'
 import type { ShaderType } from '../../core/ir/types.js'
 import { f64T, isF64, typeKey } from '../../core/ir/types.js'
+import type { TsCompilerDiagnostic } from './source-file.js'
+import { makeDiagnostic } from './diagnostic.js'
+import { TS_CODES } from './codes.js'
 
 export function isIntegerLiteralNode(node: ts.Expression): boolean {
   if (ts.isParenthesizedExpression(node)) return isIntegerLiteralNode(node.expression)
@@ -181,4 +184,90 @@ export function retargetDeclaredIntLit(expr: Expr, node: ts.Expression, target: 
   if (expr.op !== 'lit' || typeof expr.value !== 'number') return expr
   if (!fitsTarget(expr.value, target)) return expr
   return { op: 'lit', type: target, value: expr.value }
+}
+
+/** §13's sentence for an integer literal that does not fit the integer type its position
+ *  declares: "The value has to fit." One wording for every declared position, so
+ *  `const a: u32 = 4294967296` is not told it mixed a u32 with an f32 when it wrote no f32. */
+export function intLiteralRangeMessage(value: number, target: ShaderType): string {
+  const k = typeKey(target)
+  const range = k === 'u32' ? '0 to 4294967295' : '-2147483648 to 2147483647'
+  return `The value has to fit: ${String(value)} is outside ${k}, which holds ${range} (§13).`
+}
+
+/** The literal {@link retargetIntLitCtx} declined for its RANGE alone: written as an integer
+ *  ({@link isIntegerLiteralTree}), folded to a whole number, in a position declaring `i32` or
+ *  `u32`, and outside that type. A conditional is looked through arm by arm, as the retarget
+ *  does. Anything else (a float written as a float, a call, a value that fits) is `undefined`
+ *  and keeps whatever diagnostic it had. */
+export function outOfRangeIntLit(
+  expr: Expr,
+  node: ts.Expression,
+  target: ShaderType,
+): { readonly value: number; readonly node: ts.Expression } | undefined {
+  if (!isIntScalar(target)) return undefined
+  const inner = stripParens(node)
+  if (expr.op === 'select' && ts.isConditionalExpression(inner)) {
+    return (
+      outOfRangeIntLit(expr.ifTrue, inner.whenTrue, target) ??
+      outOfRangeIntLit(expr.ifFalse, inner.whenFalse, target)
+    )
+  }
+  if (!isIntegerLiteralTree(inner)) return undefined
+  const folded = foldNumericLit(expr)
+  if (folded.op !== 'lit' || typeof folded.value !== 'number') return undefined
+  if (!Number.isInteger(folded.value) || fitsTarget(folded.value, target)) return undefined
+  return { value: folded.value, node: inner }
+}
+
+/** Reports {@link outOfRangeIntLit} with {@link intLiteralRangeMessage} (TS8003, the code the
+ *  scalar casts' and the module constants' range checks already use) and returns the
+ *  expression retyped to `target`, so the position's own type check does not add the
+ *  int/float mismatch the author did not write. `undefined` when there is nothing to report.
+ *  Call it right after the retarget, with the same three arguments. */
+export function reportIntLitRange(
+  expr: Expr,
+  node: ts.Expression,
+  target: ShaderType,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const bad = outOfRangeIntLit(expr, node, target)
+  if (!bad) return undefined
+  diagnostics.push(
+    makeDiagnostic(
+      sourceFile,
+      bad.node,
+      intLiteralRangeMessage(bad.value, target),
+      TS_CODES.TYPE_MISMATCH,
+    ),
+  )
+  return expr.op === 'select'
+    ? { ...expr, type: target }
+    : { op: 'lit', type: target, value: bad.value }
+}
+
+/** The width a shift amount has to fit under, on both targets: WGSL's `i32`/`u32` and GLSL ES
+ *  3.00's `int`/`uint` are all 32 bits. */
+const SHIFT_BITS = 32
+
+/** The ONE sentence both shift paths raise for an amount outside `0 .. 31` (#71).
+ *
+ *  Both had their own wording, which said the same thing in different words and let the two
+ *  drift; a rule stated twice is a rule that will be changed once. The binary path lowers
+ *  `x << 32` and the compound path `y <<= 32`, and what they refuse is the same number for the
+ *  same reason: WGSL makes a constant amount that is not smaller than the bit width a
+ *  shader-creation error, and GLSL ES 3.00 leaves the result undefined — so `x << 32` is
+ *  `x << 0` on one target and anything at all on the other. A RUNTIME amount is not this: WGSL
+ *  masks it to the low five bits, so neither path says anything about one. */
+export function shiftAmountMessage(amount: number): string {
+  return (
+    `A shift amount must be between 0 and ${String(SHIFT_BITS - 1)}, got ${String(amount)}: ` +
+    `a ${String(SHIFT_BITS)}-bit integer has no bit to shift into.`
+  )
+}
+
+/** Whether `amount` is outside the range {@link shiftAmountMessage} describes. */
+export function shiftAmountOutOfRange(amount: number): boolean {
+  return amount < 0 || amount >= SHIFT_BITS
 }

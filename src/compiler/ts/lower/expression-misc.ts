@@ -1,4 +1,5 @@
 import ts from 'typescript'
+import { stageOf } from '../../../core/ir/nodes.js'
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import { boolT, f32T, f64T, i32T, typeKey, u32T } from '../../../core/ir/types.js'
@@ -10,7 +11,7 @@ import { parseSwizzle } from '../swizzle.js'
 import { lowerRandomHash } from '../random-hash.js'
 import { lowerScalarCast } from '../numeric.js'
 import { foldConstNumber } from '../loop-bound.js'
-import { retargetIntLitCtx } from '../lit-coerce.js'
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -181,6 +182,22 @@ export function lowerUserCall(
 ): Expr | undefined {
   const leading = opts.leading ?? []
   const shown = opts.shown ?? decl.name
+  // An entry point may not be called (§52). WGSL says so outright, and the emitted call was
+  // accepted here with zero diagnostics — the pipeline invokes an entry, nothing else may.
+  // Named on the call, since that is the line to change: the body goes in a helper both the
+  // entry and this caller use.
+  const stage = stageOf(decl)
+  if (stage !== undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${shown}" is a ${stage} entry point and cannot be called; the pipeline invokes it. ` +
+        `Move the body into a plain function and call that from both.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
   const written = node.arguments ?? []
   const args: Expr[] = [...leading]
   if (opts.lowered !== undefined) args.push(...opts.lowered)
@@ -243,7 +260,10 @@ export function lowerUserCall(
   }
   for (let i = leading.length; i < supplied; i++) {
     // `g(1)` takes the parameter's type when it is i32 or u32 (#8 A3).
-    args[i] = retargetIntLitCtx(args[i]!, written[i - leading.length]!, decl.params[i]!.type)
+    const argNode = written[i - leading.length]!
+    const want = decl.params[i]!.type
+    args[i] = retargetIntLitCtx(args[i]!, argNode, want)
+    args[i] = reportIntLitRange(args[i]!, argNode, want, sourceFile, diagnostics) ?? args[i]!
     if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {
       pushDiag(
         diagnostics,

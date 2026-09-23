@@ -10,6 +10,8 @@ import { describe, expect, it } from 'vitest'
 import { compile } from './compile.js'
 import { compileTsSource } from './source-file.js'
 import { TS_CODES } from './codes.js'
+import { MATH_ARG_SPECS } from './lower/math-args.js'
+import { MATH_FN_ARITY } from './math-alias.js'
 
 const M = TS_CODES.MATH_ARGUMENT
 const fn = (params: string, ret: string, body: string) => `"use typeshade"
@@ -199,5 +201,145 @@ describe('math arguments: the result follows the operand deciding the shape', ()
     expect(errorsOf(fn('a: vec3u, b: vec3u', 'f32', 'dot(a, b)'))).toEqual([
       expect.stringContaining('TS8003'),
     ])
+  })
+})
+
+// ═══ P1-36 of #155 — the rule table IS the contract, so the suite iterates it ═══
+//
+// The cases above are hand-written, about twenty of the sixty-four rules. `MATH_ARG_SPECS` is
+// what the compiler actually consults, so a row added to it with a typo'd element list, or a
+// row whose check silently stops firing, is invisible to a suite written beside it. These
+// three arms are driven BY the table: every rule must refuse a wrong element KIND, every rule
+// must count its arguments, and every rule whose later argument is the first one's type again
+// must refuse a wrong SHAPE.
+//
+// The programs are derived from the rule, not written down: the first argument takes an
+// element kind the rule excludes, or a later one a different width. That is what makes a new
+// row covered the moment it is added — which is the property twenty hand-written cases cannot
+// have.
+describe('every rule in MATH_ARG_SPECS refuses a wrong kind, a wrong count and a wrong shape', () => {
+  const NAMES = ['a', 'b', 'c', 'd'] as const
+
+  /** A spelling of `elem` at the given width: `f32`/`i32`/`u32`/`bool`, or `vec3i` and friends. */
+  const spell = (width: 'scalar' | 'vec2' | 'vec3', elem: string): string => {
+    const scalar: Readonly<Record<string, string>> = {
+      f32: 'f32',
+      i32: 'i32',
+      u32: 'u32',
+      bool: 'bool',
+    }
+    const suffix: Readonly<Record<string, string>> = { f32: '', i32: 'i', u32: 'u', bool: 'b' }
+    return width === 'scalar' ? (scalar[elem] ?? 'f32') : `${width}${suffix[elem] ?? ''}`
+  }
+
+  /** An element kind the rule does NOT admit. Every rule excludes at least one of these three:
+   *  `elems` is a subset of {f32, f64, i32, u32} and never holds `bool`. */
+  const excludedElem = (elems: readonly string[]): string =>
+    !elems.includes('i32') ? 'i32' : !elems.includes('f32') ? 'f32' : 'bool'
+
+  /** An element kind the rule DOES admit, skipping `f64` — an emulated double is left to the
+   *  fp64 pass, which has its own lifting rules (`math-args.ts` says so). */
+  const admittedElem = (elems: readonly string[]): string => elems.find((e) => e !== 'f64') ?? 'f32'
+
+  const probe = (params: readonly string[], call: string): string => `"use typeshade"
+export function probe(${params.join(', ')}): f32 {
+  const r = ${call}
+  return 0.
+}
+`
+
+  const ids = Object.keys(MATH_ARG_SPECS).sort()
+
+  it('covers every rule the compiler consults, and no id that has none', () => {
+    // Non-vacuity for the three arms below: if the table came back empty they would pass.
+    expect(ids.length).toBeGreaterThan(50)
+    for (const id of ids) expect(MATH_FN_ARITY[id], id).toBeGreaterThan(0)
+  })
+
+  /** Rules whose SECOND argument has a role of its own, so a call with every parameter at the
+   *  first one's type is refused whatever the element kind is — `extractBits(x, offset, count)`
+   *  wants a `u32` offset, `ldexp(x, e)` an `i32` exponent, `refract(i, n, eta)` a scalar eta.
+   *  For these the wrong-kind probe cannot tell the element rule firing from the own-role rule
+   *  firing (both report TS8036), so the positive control is skipped and the arm is only a
+   *  "something refuses this" check. Measured 2026-09-21; shrink-only by the arm after it. */
+  const OWN_ROLE_MASKS_THE_KIND = new Set(['extractBits', 'insertBits', 'ldexp', 'refract'])
+
+  it.each(ids)('refuses a wrong element kind for `%s`, with TS8036', (id) => {
+    const spec = MATH_ARG_SPECS[id]!
+    const arity = MATH_FN_ARITY[id]!
+    const width = spec.vector === true || spec.vec3 === true ? 'vec3' : 'scalar'
+    const call = `${id}(${NAMES.slice(0, arity).join(', ')})`
+
+    // THE POSITIVE CONTROL FIRST. Without it the arm says nothing: a rule that refused EVERY
+    // call of its shape — because a later argument has its own role, or because the check
+    // broke into always-refuse — would pass the wrong-kind probe just as happily.
+    if (!OWN_ROLE_MASKS_THE_KIND.has(id)) {
+      const admitted = spell(width, admittedElem(spec.elems))
+      const clean = errorsOf(
+        probe(
+          NAMES.slice(0, arity).map((n) => `${n}: ${admitted}`),
+          call,
+        ),
+      )
+      expect(clean, `${id} refuses its OWN admitted element kind`).toEqual([])
+    }
+
+    const type = spell(width, excludedElem(spec.elems))
+    const params = NAMES.slice(0, arity).map((n) => `${n}: ${type}`)
+    const errors = errorsOf(probe(params, call))
+    expect(
+      errors.some((e) => e.startsWith(M)),
+      errors.join(' | '),
+    ).toBe(true)
+  })
+
+  it('loses the OWN_ROLE_MASKS_THE_KIND entry of a rule whose admitted shape now compiles', () => {
+    const clean: string[] = []
+    for (const id of OWN_ROLE_MASKS_THE_KIND) {
+      const spec = MATH_ARG_SPECS[id]!
+      const arity = MATH_FN_ARITY[id]!
+      const width = spec.vector === true || spec.vec3 === true ? 'vec3' : 'scalar'
+      const admitted = spell(width, admittedElem(spec.elems))
+      const call = `${id}(${NAMES.slice(0, arity).join(', ')})`
+      const params = NAMES.slice(0, arity).map((n) => `${n}: ${admitted}`)
+      if (errorsOf(probe(params, call)).length === 0) clean.push(id)
+    }
+    expect(clean).toEqual([])
+  })
+
+  it.each(ids)('counts the arguments of `%s`, with TS8019', (id) => {
+    const errors = errorsOf(probe([], `${id}()`))
+    expect(
+      errors.some((e) => e.startsWith(TS_CODES.ARITY_MISMATCH)),
+      errors.join(' | '),
+    ).toBe(true)
+  })
+
+  it('refuses a wrong shape wherever a later argument repeats the first one type', () => {
+    // A rule whose second argument has its OWN role — `mod`'s scalar divisor, `ldexp`'s
+    // integer exponent, `extractBits`' u32 offset — is not a shape case, and saying so here
+    // keeps the three of them visible rather than silently skipped.
+    const ownRole: string[] = []
+    const missed: string[] = []
+    for (const id of ids) {
+      const spec = MATH_ARG_SPECS[id]!
+      const arity = MATH_FN_ARITY[id]!
+      if (arity < 2) continue
+      if ((spec.roles?.[1] ?? 'same') !== 'same') {
+        ownRole.push(id)
+        continue
+      }
+      const elem = admittedElem(spec.elems)
+      const params = NAMES.slice(0, arity).map(
+        (n, i) => `${n}: ${spell(i === 1 ? 'vec2' : 'vec3', elem)}`,
+      )
+      const errors = errorsOf(probe(params, `${id}(${NAMES.slice(0, arity).join(', ')})`))
+      if (!errors.some((e) => e.startsWith(M))) missed.push(`${id}: ${errors.join(' | ')}`)
+    }
+    expect(missed).toEqual([])
+    // `extractBits(x, offset, count)` takes a u32 offset, `ldexp(x, e)` an integer exponent
+    // of x's shape, `mod(x, y)` a scalar divisor. `mix` and `insertBits` are NOT here: their
+    // own roles sit at index 2, so their second argument is still the first one's type.
+    expect(ownRole).toEqual(['extractBits', 'ldexp', 'mod'])
   })
 })

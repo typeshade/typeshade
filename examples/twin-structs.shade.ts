@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Twin IO structs",
+  "blurb": "Two IO structs with identical fields, a vertex output and a fragment input, with object literals in all three positions that declare which one they build: a return type, an annotation and a parameter type. The case matching field names alone cannot decide.",
+  "renderable": true
+}
+*/
+
 // The gated example for object-literal contextual typing (#8 A11). The point it carries into
 // the compile gate is the case name matching cannot decide: `VsOut` and `FsIn` have exactly
 // the same fields, so `{ pos, uv }` is ambiguous by its names alone — and every literal below

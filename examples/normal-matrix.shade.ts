@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Matrices beyond mat4",
+  "blurb": "Every `matCxR` is a type (§40): the normal matrix is the model matrix truncated with `mat3(m)` rather than padded to a `mat4`, `determinant` on the 3×3 gives the handedness, a `mat2x3` transposes into a `mat3x2`, and `v * m` and `transpose(m) * v` are checked against each other. A `mat3` rides the std140 block unchanged — a TWO-ROW matrix is the one shape whose column stride the two targets disagree on, measured, and that one is refused.",
+  "renderable": true
+}
+*/
+
 // Matrices beyond `mat4` (§40). Every `matCxR` is a type here, so the shape a renderer
 // actually wants can be said rather than padded: a NORMAL matrix is 3×3, and carrying it as a
 // `mat4` costs a column and a row of zeroes per draw and invites the wrong multiply.

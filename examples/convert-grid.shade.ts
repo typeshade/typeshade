@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Converting constructors",
+  "blurb": "A fullscreen triangle whose corner comes from `vec2(vec2u(...))` and whose colour comes from an `f32`→`u32`→`f32` round trip — the element-converting constructor in both directions and at both ends of the pipeline.",
+  "renderable": true
+}
+*/
+
 // The gated example for element-converting vector constructors (#8 A8). Before it, nothing
 // the compile gate emits used the feature, so the gate's verdict said exactly as much about
 // A8 as it did before A8 existed. Every constructor below is the CONVERTING form — one whole

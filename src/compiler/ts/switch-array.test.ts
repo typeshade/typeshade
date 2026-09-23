@@ -4,7 +4,13 @@ import { compileTsSource } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 
 function map(src: string) {
-  const sf = ts.createSourceFile('t.ts', `type X = ${src}`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const sf = ts.createSourceFile(
+    't.ts',
+    `type X = ${src}`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  )
   const alias = sf.statements[0] as ts.TypeAliasDeclaration
   const diagnostics: { message: string }[] = []
   return { type: mapTsTypeToShaderType(alias.type, sf, diagnostics as never), diagnostics }
@@ -37,18 +43,40 @@ describe('switch', () => {
     expect(r.diagnostics.some((d) => /i32 or u32/.test(d.message))).toBe(true)
   })
 
-  it('rejects case fall-through', () => {
+  it('shares one body between two selectors, on both targets', () => {
+    // This used to be `switch case fall-through is not allowed` — the one shape that is NOT
+    // fall-through, since an empty clause has nothing to fall through (§52). WGSL spells it
+    // `case 0, 1:`, GLSL ES 3.00 stacks the labels, and the IR carries the selector LIST.
     const r = compileTsSource(`
       "use typeshade";
       export function pick(x: i32, a: f32): f32 {
         switch (x) {
           case 0:
           case 1: return a;
-          default: return a;
+          default: return a * 2.;
         }
       }
     `)
-    expect(r.diagnostics.some((d) => /fall-through/.test(d.message))).toBe(true)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('case 0, 1: {')
+    const sw = r.funcs[0]!.body.find((s) => s.s === 'switch')!
+    expect(sw.s === 'switch' && sw.cases.map((c) => c.values)).toEqual([[0, 1]])
+  })
+
+  it("rejects an empty selector that would share the default's body", () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function pick(x: i32, a: f32): f32 {
+        switch (x) {
+          case 0: return a;
+          case 1:
+          default: return a * 2.;
+        }
+      }
+    `)
+    // Not "has no body": the clause below it IS a body, it is just `default:`, and carrying
+    // the selector past it is what made `case 1` run the case AFTER the default (§52).
+    expect(r.diagnostics.some((d) => /sits above "default:"/.test(d.message))).toBe(true)
   })
 })
 

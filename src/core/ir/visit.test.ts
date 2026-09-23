@@ -50,7 +50,7 @@ const FIXTURE: Record<Stmt['s'], { stmt: Stmt; slots: number }> = {
     stmt: {
       s: 'switch',
       scrut: lit(0),
-      cases: [{ value: 1, body: [inner] }],
+      cases: [{ values: [1], body: [inner] }],
       defaultBody: [inner],
     },
     slots: 3,

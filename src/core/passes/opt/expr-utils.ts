@@ -7,7 +7,7 @@
 import type { Expr, Stmt, ShaderType, BinOp } from '../../ir/index.js'
 import { typeKey } from '../../ir/index.js'
 import { eachExpr, eachStmtExpr, mapStmtExpr } from '../../ir/visit.js'
-import { calleeWritesOf, type FnWrites } from '../effects.js'
+import { callReadsAny, calleeWritesOf, type FnReads, type FnWrites } from '../effects.js'
 
 // The IR walkers moved to `core/ir/visit.ts` — `core/ir` cannot import from
 // `passes/opt`, and the builder / fp64 / GLSL backends need them too (ADR-0013:
@@ -167,14 +167,22 @@ function keyOfUncached(e: Expr): string {
   }
 }
 
-/** Compound = a non-leaf expr (worth hoisting / counting). */
+/** Compound = a non-leaf expr (worth hoisting / counting).
+ *
+ *  The fp64 guard fetch (`f64Guard()`, zero arguments) is a LEAF here although it is a call.
+ *  It names one runtime input, the guard texel, which fp64-lower passes to every guarded
+ *  df64 helper call as its trailing argument and `hoistGuardFetch` reads once per function
+ *  AFTER the optimizer. Were it compound, CSE would bind a repeated fetch to a temp, every
+ *  df64 call carrying it would then reference a LOCAL, and LICM, which hoists only what
+ *  references no local, would leave a loop-invariant `df64_mul(k, k, G)` inside its loop. */
 export const isCompound = (e: Expr): boolean =>
   e.op !== 'lit' &&
   e.op !== 'constref' &&
   e.op !== 'overrideref' &&
   e.op !== 'externref' &&
   e.op !== 'param' &&
-  e.op !== 'varref'
+  e.op !== 'varref' &&
+  !(e.op === 'call' && e.fn === 'f64Guard' && e.args.length === 0)
 
 /** The unconditionally-evaluated VALUE positions of a statement, rewritten through `f`
  *  (the lvalue TARGET is not one, and the nested block bodies are their own blocks).
@@ -295,12 +303,22 @@ function rootName(e: Expr): string | undefined {
  *  front end spells that binding read as a `constref`, so neither the root nor the read was
  *  seen, and CSE hoisted `ps[i]` into an immutable `let` ACROSS its own store —
  *  `let _cse1 = ps[i]; _cse1.b = …`, which Tint rejects with "cannot assign to value of type
- *  'f32'". The same hole existed for a parameter root. */
-export function refsLocal(e: Expr, locals: ReadonlySet<string>): boolean {
+ *  'f32'". The same hole existed for a parameter root.
+ *
+ *  With `reads` (the module's {@link FnReads}), a CALL counts as reading every module name its
+ *  callee reads. Without it, `h(q)` returning `q * gp` read only `q`: cse took `h(x * 2.)` for
+ *  input-only and bound it once across a `gp = 5.` between its two uses, and licm lifted it out
+ *  of a loop that writes `gp`. At O1, the tier documented as value-identical to O0,
+ *  `let a = h(x * 2.); gp = 5.; let c = h(x * 2.); return a + c` returned 12 for x = 3 where O0
+ *  returns 36. cse, cse-local, gvn and licm pass it; member-fold forwards no call-bearing
+ *  argument at all, so it has nothing to ask. */
+export function refsLocal(e: Expr, locals: ReadonlySet<string>, reads?: FnReads): boolean {
   let yes = false
   eachExpr(e, (x) => {
+    if (yes) return
     const name = rootName(x)
     if (name !== undefined && locals.has(name)) yes = true
+    else if (callReadsAny(x, locals, reads)) yes = true
   })
   return yes
 }

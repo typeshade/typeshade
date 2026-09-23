@@ -29,11 +29,19 @@ import { makeDiagnostic } from './diagnostic.js'
 import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js'
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { foldConstComponents } from './loop-bound.js'
-import { retargetDeclaredIntLit } from './lit-coerce.js'
+import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js'
 import { lowerExpression } from './lower/expression.js'
 import { lowerArrayLiteral } from './lower/expression-array.js'
 import { isOverrideType } from './overrides.js'
-import { isFoldableConstExpr } from './module-const.js'
+import { isFoldableConstExpr, staticConstName } from './module-const.js'
+import { eachNamespaceStatement } from './namespaces.js'
+import {
+  emittedMemberName,
+  isStaticMember,
+  shadowedStaticFields,
+  writtenMemberName,
+  writtenStaticFields,
+} from './class-names.js'
 import type { ScopedConst } from './lower/function.js'
 
 // One row, and still a table: the private space has no spelling on this surface (see the
@@ -147,6 +155,49 @@ export function collectModuleVars(
       ...(c.type.kind !== 'scalar' && c.valueExpr !== undefined ? { valueExpr: c.valueExpr } : {}),
     })
   }
+  // A static field the file writes is a per-invocation module variable named `Cls_field`, the
+  // same variable a top-level `let` is (Rule 8.13); every other static field is a module
+  // constant, module-const.ts's. Walked through the namespaces as module-const.ts walks them, so
+  // a class inside one loses no static to the split. `this` in an initializer is the class.
+  const writtenStatics = writtenStaticFields(sourceFile)
+  const classes: ts.ClassDeclaration[] = []
+  eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt) => {
+    if (ts.isClassDeclaration(stmt) && stmt.name !== undefined) classes.push(stmt)
+  })
+  for (const cls of classes) {
+    const owner = cls.name!.text
+    const shadowed = shadowedStaticFields(cls)
+    for (const member of cls.members) {
+      if (!ts.isPropertyDeclaration(member) || !isStaticMember(member)) continue
+      if (shadowed.has(member)) continue
+      const written = writtenMemberName(member.name)
+      if (written === undefined || !writtenStatics.has(`${owner}.${written}`)) continue
+      const name = staticConstName(owner, emittedMemberName(written))
+      scope.setStaticClass(owner)
+      const one = lowerPlain(member, name, sourceFile, scope, diagnostics)
+      scope.setStaticClass(undefined)
+      if (!one) continue
+      if (seen.has(one.name)) {
+        diagnostics.push(
+          makeDiagnostic(
+            sourceFile,
+            member.name,
+            `Duplicate module variable "${one.name}".`,
+            TS_CODES.DUPLICATE_SYMBOL,
+          ),
+        )
+        continue
+      }
+      seen.add(one.name)
+      out.push(one)
+      recordDeclaration(symbols, sourceFile, member.name, {
+        name: one.name,
+        kind: 'binding',
+        type: one.type,
+        mutable: true,
+      })
+    }
+  }
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue
     if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue
@@ -214,6 +265,11 @@ export function collectModuleVars(
   }
   return out
 }
+
+/** A declaration this collector makes a module variable of: a top-level `let`, or a class's
+ *  `static` field the file writes (Rule 8.13). Both carry a name, an optional annotation and an
+ *  optional initializer. */
+type VarSite = ts.VariableDeclaration | ts.PropertyDeclaration
 
 /** `let x: workgroup<T>`: the space is the wrapper's, and workgroup memory is the only space
  *  this surface writes out. */
@@ -290,7 +346,7 @@ function declaredResourceText(type: ts.TypeNode, sourceFile: ts.SourceFile): str
 /** `let seed: u32 = 7`, `let hits: u32`, `let v = 1.5`: the per-invocation variable, its type
  *  from the annotation or, without one, from the initializer by §12's rule for a `const`. */
 function lowerPlain(
-  decl: ts.VariableDeclaration,
+  decl: VarSite,
   name: string,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
@@ -388,7 +444,7 @@ function lowerPlain(
  *  a type the private space cannot hold has nowhere to go); `lowered` is an initializer already
  *  lowered, when the type came from it. */
 function finish(
-  decl: ts.VariableDeclaration,
+  decl: VarSite,
   typeNode: ts.Node,
   name: string,
   space: ModuleVarDecl['space'],
@@ -426,6 +482,7 @@ function finish(
       : lowerExpression(decl.initializer, sourceFile, scope, diagnostics, type))
   if (!init) return undefined
   init = retargetDeclaredIntLit(init, decl.initializer, type)
+  init = reportIntLitRange(init, decl.initializer, type, sourceFile, diagnostics) ?? init
   if (typeKey(init.type) !== typeKey(type)) {
     diagnostics.push(
       diag(

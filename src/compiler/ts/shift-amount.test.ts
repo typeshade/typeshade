@@ -26,12 +26,20 @@ export function fs(@location(0) uv: vec2): vec4 {
 const RANGE = 'a 32-bit integer has no bit to shift into.'
 
 describe('a shift amount of 32 or more (#71)', () => {
-  it('refuses a compound shift by 32', () => {
+  it('refuses a compound shift by 32, in the words the binary path uses', () => {
+    // ONE sentence for both paths: the two had their own wording for the same rule, which is
+    // a rule that will be changed once. `shiftAmountMessage` is the authority now.
     expect(errorsOf(fs('x <<= 32'))).toEqual([
-      `${TS_CODES.TYPE_MISMATCH} Bitwise "<<=" needs a shift amount less than 32, got 32: ${RANGE}`,
+      `${TS_CODES.TYPE_MISMATCH} A shift amount must be between 0 and 31, got 32: ${RANGE}`,
     ])
     expect(errorsOf(fs('x >>= 40', 'i32'))).toEqual([
-      `${TS_CODES.TYPE_MISMATCH} Bitwise ">>=" needs a shift amount less than 32, got 40: ${RANGE}`,
+      `${TS_CODES.TYPE_MISMATCH} A shift amount must be between 0 and 31, got 40: ${RANGE}`,
+    ])
+    // The negative end of the same range, which the compound path also used to word its own
+    // way. A non-shift compound on a u32 target keeps its own message: that is a different
+    // rule about the TARGET, not about a shift amount.
+    expect(errorsOf(fs('x <<= -1'))).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} A shift amount must be between 0 and 31, got -1: ${RANGE}`,
     ])
   })
 

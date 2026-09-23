@@ -4,6 +4,7 @@ import ts from 'typescript'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { TS_CODES, type TsCode } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
+import { isEnableDirective } from './enables.js'
 
 export const HOST_GLOBALS: ReadonlySet<string> = new Set([
   'window',
@@ -310,6 +311,10 @@ export function analyzeSemantics(
     if (ts.isExpressionStatement(stmt)) {
       const e = stmt.expression
       if (ts.isStringLiteral(e) && (e.text === 'use typeshade' || e.text === 'use strict')) continue
+      // `"enable subgroups"` is a directive, not stray work (§50). `enables.ts` owns whether
+      // the name is one WGSL has; saying "put work inside a function" here as well would be
+      // two contradictory diagnostics on the one statement.
+      if (isEnableDirective(stmt)) continue
       push(
         diagnostics,
         sourceFile,

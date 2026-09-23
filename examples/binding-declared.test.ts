@@ -120,6 +120,12 @@ const EXPECTED_REFUSALS: readonly { id: string; stage: string; match: RegExp }[]
   // `dot4U8Packed` and throwing from inside the emit.
   { id: 'packed-bytes', stage: 'vertex', match: /packed4x8Dot/ },
   { id: 'packed-bytes', stage: 'fragment', match: /packed4x8Dot/ },
+  // User clip planes (§50): `@builtin("clip_distances")` derives `clipDistances`, which GLSL
+  // ES 3.00 has no row for — `gl_ClipDistance` is `EXT_clip_cull_distance`, which WebGL2 does
+  // not expose. Both stages are refused by the capability gate before any emit, which is the
+  // point: the alternative is a linked shader whose clip planes silently do nothing.
+  { id: 'clip-planes', stage: 'vertex', match: /clipDistances/ },
+  { id: 'clip-planes', stage: 'fragment', match: /clipDistances/ },
 ]
 
 // `compute-sync` (§48, #152) is compute-only and so has no GLSL stage for this sweep to

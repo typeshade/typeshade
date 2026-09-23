@@ -34,6 +34,15 @@ describe('getHover', () => {
     expect(hover?.contents).toContain('four-component')
   })
 
+  it('documents every matrix type name, not only mat4', () => {
+    // Regression: TYPE_DOCS had only `mat4` and `mat4x4`, so hovering `mat3x2` said nothing.
+    const service = createTypeshadeLanguageService()
+    const source = '"use typeshade";\nexport function f(m: mat3x2): f32 {\n  return m[0].x\n}\n'
+    service.openDocument('m.ts', source)
+    const position = service.positionAt('m.ts', source.indexOf('mat3x2') + 2)
+    expect(service.getHover('m.ts', position)?.contents).toContain('3x2 matrix')
+  })
+
   it('documents an attribute name', () => {
     const service = createTypeshadeLanguageService()
     const source = '"use typeshade";\n@vertex\nexport function vs(): f32 {\n  return 1\n}\n'

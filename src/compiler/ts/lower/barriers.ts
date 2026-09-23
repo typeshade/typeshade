@@ -3,18 +3,25 @@
 //
 // A barrier is a statement with no value: every invocation of the workgroup runs the
 // statements before it, then every one runs on. WGSL requires it in uniform control flow, in a
-// compute stage. This surface keeps the same two rules and states them at the call: a barrier
-// stands in a compute entry or a helper (a vertex or fragment entry has no workgroup), and
-// never inside an `if` or `switch` body, where a branch on a value the invocations do not share
-// is how a workgroup waits forever. A `for` with §17's constant bound is uniform and allowed,
-// which is the shape a reduction needs.
+// compute stage.
+//
+// ONE of those two rules is stated here, at the call: a barrier stands in a compute entry or a
+// helper, because a vertex or fragment entry has no workgroup, and that is a fact about the
+// call's own stage. The UNIFORM CONTROL FLOW rule is not: it is a fact about every condition
+// between the entry and the call, which no single call site can see, so §54's walk answers it
+// on the assembled module. This file used to refuse every `if` and `switch` outright, which is
+// stricter than the spec and than Tint — see the note at the return below for what was
+// measured.
 //
 // `textureBarrier` (#152) is the same statement over the TEXTURE address space, and it takes
 // the same two rules: measured on Tint, it is "'textureBarrier' must only be called from
-// uniform control flow" inside an `if` and "built-in cannot be used by vertex pipeline stage"
-// outside a compute entry. It belongs to the `readonly_and_readwrite_storage_textures` WGSL
-// language feature, which `reflect().requiredLanguageFeatures` reports for a host to check —
-// Tint has that feature and compiles the call bare, so nothing else would say so.
+// uniform control flow" inside a non-uniform `if` and "built-in cannot be used by vertex
+// pipeline stage" outside a compute entry. The stage rule is stated here with the others; the
+// uniform-control-flow one needs no arm of its own, because `textureBarrier` is one of
+// `BARRIER_INTRINSICS` and §54's walk reads that set. It belongs to the
+// `readonly_and_readwrite_storage_textures` WGSL language feature, which
+// `reflect().requiredLanguageFeatures` reports for a host to check — Tint has that feature and
+// compiles the call bare, so nothing else would say so.
 
 import ts from 'typescript'
 import type { Expr } from '../../../core/ir/nodes.js'
@@ -23,6 +30,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { makeDiagnostic } from '../diagnostic.js'
+import { withSpan } from '../span.js'
 import { rootedIn } from './expression-prop.js'
 
 function pushDiag(
@@ -66,19 +74,21 @@ export function lowerBarrierStatement(
     )
     return undefined
   }
-  if (scope.inBranch()) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `${name}() must be reached by every invocation of the workgroup: move it out of the if or ` +
-        `switch. A barrier inside a branch on a value the invocations do not share is how a ` +
-        `workgroup waits forever; a for loop with a constant bound is fine.`,
-      TS_CODES.BARRIER_PLACEMENT,
-    )
-    return undefined
-  }
-  return { op: 'call', type: voidT, fn: name, args: [] }
+  // NOT `scope.inBranch()` any more (§54). That rule refused EVERY `if` and `switch`, which
+  // is stricter than both the spec and Tint: a barrier under `if (k > 0.5)` on a uniform
+  // buffer value is accepted, measured on Chromium 141 and 153 alike, because every
+  // invocation of the workgroup takes the same side of it. What the two refuse is a branch on
+  // a value the invocations do NOT share — measured, `if (id.x > 4u)` on
+  // `local_invocation_id` is `'workgroupBarrier' must only be called from uniform control
+  // flow`. The uniformity walk answers exactly that question, on the assembled module where
+  // it can follow a condition through the locals it came from, and it reports a barrier
+  // whenever the control flow is not PROVABLY uniform — so a shape this compiler cannot read
+  // keeps the refusal it had, and the relaxation only ever admits what has been proven.
+  // With the span the author wrote. Without it the §54 diagnostic fell back to the enclosing
+  // declaration and underlined the entry's `@compute` decorator, pointing at the function
+  // rather than at the barrier inside it.
+  const call: Expr = { op: 'call', type: voidT, fn: name, args: [] }
+  return withSpan(call, sourceFile, node)
 }
 
 /** `workgroupUniformLoad(w)` (#152, wgsl.txt:26057): ONE value read out of workgroup memory,

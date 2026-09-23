@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Workgroup scratch memory",
+  "blurb": "`let tile: workgroup<array<f32, 64>>` is WGSL's `var<workgroup>`, one copy per workgroup its invocations share, here as scratch each invocation owns a slot of, beside a workgroup array of atomics and a per-invocation counter (§24). WGSL-only: WebGL2 has no compute stage and no workgroup memory.",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}
+*/
+
 // Workgroup memory (roadmap 0.2 item 5, §24): `let tile: workgroup<array<f32, 64>>` is WGSL's
 // `var<workgroup>`, one copy per workgroup that its 64 invocations share, zero when the
 // workgroup starts. This kernel uses it as scratch each invocation owns a slot of, and a

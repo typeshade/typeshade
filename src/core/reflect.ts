@@ -30,9 +30,12 @@ import {
   workgroupSizeOf,
 } from './ir/index.js'
 import { entryIo, type IoField } from './ir/entry-io.js'
-import { requiredCaps, usesPacked4x8 } from './passes/required-caps.js'
-import { PACKED_4X8_LANGUAGE_FEATURE } from './intrinsics.js'
-import { collectFnRefs } from './ir/collect-refs.js'
+import { twoRowStd140Reason } from './std140.js'
+import {
+  requiredCaps,
+  requiredLanguageFeatures,
+  type LanguageFeature,
+} from './passes/required-caps.js'
 import { bindingStages } from './passes/stage-bindings.js'
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
 
@@ -61,8 +64,19 @@ const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
 export type LayoutKind = 'std140' | 'std430'
 
 /** Size + alignment (bytes) of a host-shareable type under a layout. Throws on a
- *  non-host-shareable type (texture/sampler/void are bind resources, not struct fields). */
-function typeLayout(
+ *  non-host-shareable type (texture/sampler/void are bind resources, not struct fields).
+ *
+ *  EXPORTED for `passes/uniform-layout.ts` (§51), which computes the layout of a struct AS
+ *  EMITTED — after it has inserted the wrapper structs a uniform array's 16-byte element
+ *  stride needs — and so owns its own struct and array recursion. Its leaves are these: the
+ *  scalar, vector and matrix numbers are the same rule read from the same place, and a second
+ *  copy of the matrix arm is exactly what #149's measurement would have drifted against.
+ *  `'std430'` is WGSL's own layout; the uniform address space's extra element rule is what
+ *  that pass adds on top.
+ *
+ *  @internal Exported for that one caller. The published entry is {@link wgslLayout},
+ *  which answers the question a consumer has: the layout of a whole struct. */
+export function typeLayout(
   t: ShaderType,
   layout: LayoutKind,
   structs: ReadonlyMap<string, StructDecl>,
@@ -156,12 +170,7 @@ function typeLayout(
       // to prevent. (The earlier note here said "mat2", on the recorded ground that a 2×2 or
       // 3×3 both diverge; the measurement says a 3×3 does not — X-GIS #763 P7.)
       if (layout === 'std140' && t.rows === 2) {
-        throw new Error(
-          `wgslLayout: mat${t.cols}x2 in std140 is not supported — WGSL gives a two-row ` +
-            `matrix a column stride of 8 and GLSL std140 rounds every column to 16, so the ` +
-            `two targets would disagree on this field and every field after it; carry it as ` +
-            `mat${t.cols}x4 (measured: both targets stride 16) or as ${t.cols} vec2 fields`,
-        )
+        throw new Error(`wgslLayout: ${twoRowStd140Reason(t.cols)}`)
       }
       // matCxR<f32>: C columns of vecR; column stride = round(size, align) of the column vec.
       const col =
@@ -579,28 +588,33 @@ export interface Reflection {
    *  `hostFeaturesFor` skips every capability the backend has no host feature for, so the
    *  loop above is correct either way. */
   readonly requiredFeatures: readonly Capability[]
-  /** The WGSL LANGUAGE features this module's source uses, as
-   *  `navigator.gpu.wgslLanguageFeatures` names them. A language feature is a property of the
-   *  shading language rather than of the device: it is not requested at `requestDevice`, it is
-   *  either present in the browser's WGSL implementation or not, and a host checks for one
-   *  before it creates the shader module.
+  /** Every WGSL *language* extension this module needs (§50), sorted and deduplicated. Always
+   *  present; empty for a module that needs none, which is most.
    *
-   *  Today the list holds `readonly_and_readwrite_storage_textures` and nothing else, reported
-   *  when the module binds a storage texture at `"read"` or `"read_write"` access (a `"write"`
-   *  one is core WGSL and needs no feature). Measured: Chromium reports the feature, compiles
-   *  such a module with and without a `requires` directive, and rejects a `requires` naming a
-   *  feature it does not have — so the check belongs at the host, before the module is built,
-   *  and the emitted source carries no directive.
+   *  This is the `requires` axis of WGSL, not the `enable` axis {@link requiredFeatures}
+   *  reports: a language extension changes what the WGSL text may SAY, and it is not requested
+   *  at `requestDevice` — it is either present in the browser's WGSL implementation or not, so
+   *  a host checks it against `navigator.gpu.wgslLanguageFeatures` before it builds the
+   *  module. GLSL ES 3.00 has no such axis, and the resource capability carrying each row is
+   *  what fails a module closed on that target.
    *
-   *  Always present, and empty for a module that uses none.
+   *  Two rows today, and the writer DIRECTS only one of them — reporting a feature and writing
+   *  `requires` for it are separate decisions, each measured. A storage texture bound `read` or
+   *  `read_write` (or a `textureBarrier` call) needs
+   *  `readonly_and_readwrite_storage_textures` to be a program at all, since core WGSL gives a
+   *  storage texture `write` only, and the directive is accepted by the Tint the gate runs, so
+   *  it is emitted. The packed 4x8 integer family (#152) reports
+   *  `packed_4x8_integer_dot_product` and emits nothing: all eight builtins compile bare on the
+   *  same Tint and the directive "changes nothing", so writing it could only fail a module
+   *  closed on a browser that lacks the name.
    *
    *  ```ts
    *  for (const f of reflect(m).requiredLanguageFeatures) {
-   *    if (!navigator.gpu.wgslLanguageFeatures.has(f)) throw new Error(`WGSL lacks ${f}`)
+   *    if (!navigator.gpu.wgslLanguageFeatures.has(f)) throw new Error(`no WGSL ${f}`)
    *  }
    *  ```
    */
-  readonly requiredLanguageFeatures: readonly string[]
+  readonly requiredLanguageFeatures: readonly LanguageFeature[]
   /** The host-provided globals this module references but does not declare: one entry per
    *  {@link externVar} declarator, reported so a composer can check them against what the
    *  host's prelude actually supplies. Always present; empty for a module that expects
@@ -886,23 +900,10 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   // `overrides` model, so a consumer never distinguishes "needs nothing" from "old
   // reflection shape".
   const requiredFeatures = requiredCaps(m).sort()
-  // The WGSL language features the SOURCE uses, which are not device features and are not
-  // requested anywhere (#147, wgsl.txt:3229-3233). A `"write"` storage texture is core; a
-  // `"read"` or `"read_write"` one is the language feature below, so the binding's access mode
-  // is the whole derivation.
-  const languageFeatures: string[] = []
-  // `textureBarrier` belongs to the same language feature as the readable storage textures
-  // (#152, wgsl.txt:26030-26042 and 3229-3232), so either reaches for it. Tint has the feature
-  // and compiles the call bare, which is exactly why nothing else in the pipeline says so.
-  if (
-    m.bindings.some((b) => b.type.kind === 'storage-texture' && b.type.access !== 'write') ||
-    m.funcs.some((f) => collectFnRefs(f).calls.has('textureBarrier'))
-  )
-    languageFeatures.push('readonly_and_readwrite_storage_textures')
-  // The packed 4x8 family is a feature of the CALLS (#152), the same derivation requiredCaps
-  // performs for `packed4x8Dot`.
-  if (usesPacked4x8(m)) languageFeatures.push(PACKED_4X8_LANGUAGE_FEATURE)
-  const requiredLanguageFeatures = languageFeatures.sort()
+  // The `requires` axis (#147, #152, §50) lives in `required-caps.ts`, which both this and the
+  // WGSL writer's preamble read: two lanes each grew a derivation of it — the storage-texture
+  // row here and the packed-4x8 row in the emit — and two copies of one answer is how
+  // reflection and emit come to disagree about what a module needs.
 
   return {
     bindGroups,
@@ -912,7 +913,10 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
     entries,
     overrides,
     requiredFeatures,
-    requiredLanguageFeatures,
+    // The `requires` axis (§50). Same derivation the WGSL writer's preamble uses, for the
+    // reason requiredFeatures shares one with assertCaps: reflection and emit must not be
+    // able to disagree about what a module needs.
+    requiredLanguageFeatures: requiredLanguageFeatures(m),
     requires: (m.externs ?? []).map((e) => ({
       name: e.name,
       type: typeKey(e.type),

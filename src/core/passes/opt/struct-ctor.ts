@@ -17,10 +17,13 @@
 // entry writer scatters a CONSTRUCTOR exit field-by-field (X-GIS #1867) and the type then
 // has no spelling left for the decl to be needed by.
 //
-// VALUE-SAFE by construction: the field expressions are carried over verbatim and in
-// order, and a constructor evaluates its arguments in the same order the assignments
-// ran. No expression moves across anything — see the contiguity rule below, which is
-// what makes that claim hold rather than merely be likely.
+// VALUE-SAFE by construction: the field expressions are carried over verbatim, and no
+// expression moves across anything — see the contiguity rule below, which is what makes
+// that claim hold rather than merely be likely. What does move is ORDER: a constructor
+// evaluates its arguments in FIELD order, and the assignments ran in whatever order they
+// were written. For pure expressions that is invisible. For one with an effect it is not
+// (`o.b = rng.next(); o.a = rng.next()` would swap the two draws), so a run holding a call
+// that has an effect is left as written.
 //
 // CONSERVATIVE EXCLUSIONS (each is a real shape in this repo, not a hypothetical):
 //   • a MUTATED aggregate — `out.color.w = out.color.w * …` reads the field back, so
@@ -30,6 +33,7 @@
 //   • a `raw` body, whose text can touch the local invisibly, as in every other pass.
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl, StructDecl } from '../../ir/index.js'
+import { exprHasEffect, fnWrites, type FnWrites } from '../effects.js'
 import { bodyHasRaw } from './expr-utils.js'
 import { mapExpr } from './ir-transform.js'
 
@@ -97,7 +101,11 @@ function directField(e: Expr, name: string): string | undefined {
 }
 
 /** Rewrite one fn, or return it unchanged. */
-function collapseFn(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): FuncDecl {
+function collapseFn(
+  f: FuncDecl,
+  structs: ReadonlyMap<string, StructDecl>,
+  writes: FnWrites,
+): FuncDecl {
   if (bodyHasRaw(f.body)) return f
   const body = f.body
   const last = body[body.length - 1]
@@ -125,6 +133,9 @@ function collapseFn(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): Func
   }
   if (byField.size !== decl.fields.length) return f // partial — a ctor needs every field
   if (!decl.fields.every((sf) => byField.has(sf.name))) return f
+  // Field order is not assignment order, and a call with an effect keeps the order it was
+  // written in (see the header).
+  if ([...byField.values()].some((e) => exprHasEffect(e, writes))) return f
 
   // The declaration must be an uninitialised `var` of that struct, and nothing outside
   // the run may mention the local — a single read would make this a real variable.
@@ -150,5 +161,6 @@ function collapseFn(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): Func
 export function structCtor(m: ModuleDecl): ModuleDecl {
   const structs = new Map(m.structs.map((s) => [s.name, s]))
   if (structs.size === 0) return m
-  return { ...m, funcs: m.funcs.map((f) => collapseFn(f, structs)) }
+  const writes = fnWrites(m)
+  return { ...m, funcs: m.funcs.map((f) => collapseFn(f, structs, writes)) }
 }

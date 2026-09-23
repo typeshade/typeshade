@@ -18,7 +18,8 @@ and the #14 fix in place. Where a row's verdict changed, the correction note bel
 > 36**, not the 14 this document measured. (4) The **`f64` surface** (§39 of
 > `docs/use-typeshade-surface.md`, [#166] closing [#151]) landed **N1** and **N2**, the two
 > blockers no issue #8 item covered, and eleven of the thirteen `fp64-*` examples became twins
-> in one change: the headline figure is **24 of 36**.
+> in one change: the headline figure is **24 of 36**. Since then #40 was fixed and
+> `voronoi-twin` landed as its gate in [#168](https://github.com/typeshade/typeshade/pull/168), which makes it **25 of 36**.
 >
 > What has **not** changed is the lesson those five taught, and #40 sharpened it: everything
 > here measures whether the compiler **accepts the source**, which is not the same as whether
@@ -59,8 +60,8 @@ way from what reading the feature list suggested: **A2** (member assignment), wh
 second in issue #8, blocks nothing here; f64 **arithmetic** already works, so the fp64
 family is held up by the cast and the literal rather than by the emulation; and `.length`
 on an unsized storage array **was** accepted and emitted `0u`, which is worse than the
-rejection it was assumed to be — see the hazards entry below, which records that it is a
-diagnostic now.
+rejection it was assumed to be — see the hazards entry below, which records how it was
+fixed.
 
 The classification is then "does every feature this example demands have a probe that
 passes". For seven examples the whole shader was additionally written out as a `.shade.ts`
@@ -85,7 +86,7 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 8   | `color-ramp`          | cartographic | blocked      | **A6-deriv**   | 4 / 36         |
 | 9   | `discard-cutout`      | generic      | blocked      | **A6-discard** | 1 / 36         |
 | 10  | `plasma`              | generic      | **portable** | —              | —              |
-| 11  | `voronoi`             | generic      | blocked      | **B-negint**   | 1 / 36         |
+| 11  | `voronoi`             | generic      | **portable** | —              | —              |
 | 12  | `julia`               | generic      | **portable** | —              | —              |
 | 13  | `mandelbrot`          | generic      | **portable** | —              | —              |
 | 14  | `fbm-clouds`          | generic      | blocked      | **L-loop**     | 4 / 36         |
@@ -112,8 +113,9 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 35  | `texture-array-lod`   | generic      | **portable** | —              | —              |
 | 36  | `compute-reduction`   | compute      | **portable** | —              | —              |
 
-**Portable today: 24 of 36.** That is the 13 this document last measured plus the eleven
-`fp64-*` rows the `f64` surface opened. The 13 were the eleven twins that had shipped, plus
+**Portable today: 25 of 36.** That is the 13 this document last measured plus the eleven
+`fp64-*` rows the `f64` surface opened, plus `voronoi`, whose twin landed in [#168](https://github.com/typeshade/typeshade/pull/168) once
+#40 was fixed. The 13 were the eleven twins that had shipped, plus
 `override-quality`, whose source form compiles with `override<T>` (A7), plus
 `texture-array-lod`, whose `vec2i(0, 0)` was the last thing holding it after A7 (A3). The
 eleven are every `fp64-*` example except `fp64-mercator-tiles` and `fp64-mandelbrot`:
@@ -132,14 +134,14 @@ budget in `fp64-mandelbrot`, where §17 requires a counted `for` over a constant
 
 The earlier figures were 14, up from 2 once
 [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the single largest
-blocker, and then 13 once all twelve unwritten twins were written out. Three of those do not
-compile, and rows 11, 16 and 17 above carry the blockers that stopped them (**B-negint**,
-**B-scope**). Twenty-two twins have shipped: `compute-reduction` in
+blocker, and then 13 once all twelve unwritten twins were written out. Three of those did not
+compile: rows 16 and 17 above still carry **B-scope**, and the third, `voronoi`, was held by
+**B-negint** until #40 was fixed. Twenty-three twins have shipped: `compute-reduction` in
 [#16](https://github.com/typeshade/typeshade/pull/16), `gradient` once
 [#14](https://github.com/typeshade/typeshade/issues/14), fixed in
 [#18](https://github.com/typeshade/typeshade/pull/18), unblocked its GLSL, nine fullscreen
-twins in [#42](https://github.com/typeshade/typeshade/pull/42), and the eleven fp64 twins
-here.
+twins in [#42](https://github.com/typeshade/typeshade/pull/42), the eleven fp64 twins
+here, and `voronoi` in [#168](https://github.com/typeshade/typeshade/pull/168).
 
 The three that fell out are the point, not a footnote: _accepts the source_ is not _emits a
 correct shader_, and one of the three passed every gate in this repository except Tint — see
@@ -159,7 +161,7 @@ correct shader_, and one of the three passed every gate in this repository excep
 | **A7-tex**      | ~~`texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad`~~ — **landed** (#8 A7) | A7              | 0      | — (`texture-array-lod` compiles)                                                                                                                                                     |
 | **A7-override** | ~~`override<T>` specialization constants~~ — **landed** (#8 A7)                               | A7              | 0      | — (`override-quality` compiles)                                                                                                                                                      |
 | **B-scope**     | a local name bound in two block scopes of one function ([#38])                                | **a bug**       | 2      | `raymarch-sphere`, `raymarch-boxes`                                                                                                                                                  |
-| **B-negint**    | a negative integer literal in a local or `for` declaration ([#40])                            | **a bug**       | 1      | `voronoi`                                                                                                                                                                            |
+| **B-negint**    | ~~a negative integer literal in a local or `for` declaration~~ — **fixed** ([#40])            | **a bug**       | 0      | — (was 1: `voronoi`; `voronoi-twin` compiles and is gated)                                                                                                                           |
 
 The last two rows are not missing features. They are compiler defects found by writing the
 twins, which is why they carry an issue number where the others carry an issue #8 item — and
@@ -224,17 +226,16 @@ and the remaining two are **L-loop** and nothing else.
 
 | After landing                                 | Portable |
 | --------------------------------------------- | -------- |
-| (today: A1, A3, A6, A7 and §39's f64 surface) | 24 / 36  |
-| + re-measuring the four **A6-deriv** rows     | 28 / 36  |
-| + re-measuring the one **A6-discard** row     | 29 / 36  |
-| + **L-loop**                                  | 33 / 36  |
-| + **B-scope** ([#38])                         | 35 / 36  |
-| + **B-negint** ([#40])                        | 36 / 36  |
+| (today: A1, A3, A6, A7 and §39's f64 surface) | 25 / 36  |
+| + re-measuring the four **A6-deriv** rows     | 29 / 36  |
+| + re-measuring the one **A6-discard** row     | 30 / 36  |
+| + **L-loop**                                  | 34 / 36  |
+| + **B-scope** ([#38])                         | 36 / 36  |
 
 The rows are the ones the table above still marks blocked, in weight order, and the arithmetic
-is just that table: 24 portable, 12 blocked, four of them on **A6-deriv**, one on
-**A6-discard**, four on **L-loop**, two on **B-scope** and one on **B-negint**. Two of those
-six rows are named "re-measuring" rather than "landing" on purpose: the feature landed in #8
+is just that table: 25 portable, 11 blocked, four of them on **A6-deriv**, one on
+**A6-discard**, four on **L-loop** and two on **B-scope**. Two of those
+five rows are named "re-measuring" rather than "landing" on purpose: the feature landed in #8
 A6, but a row moves in this document only when its twin has been written and gated, which is
 what the eleven fp64 rows in this change did and what `graticule`, `color-ramp`, `truchet`,
 `heart` and `discard-cutout` have not. `override-quality` and `texture-array-lod` are the
@@ -374,6 +375,9 @@ glsl: '=' : cannot convert from 'const float' to 'highp int'
 A twin can be accepted, structurally equal to its original, byte-stable against its goldens,
 and still not be a shader.
 
+It is fixed: both declaration sites now take the negative literal, `voronoi-twin` emits
+`var j: i32 = -1;`, and it is registered as the gate for #40.
+
 ### What this says about the method
 
 An IR walk plus an acceptance probe is the right instrument for "which language features are
@@ -449,19 +453,23 @@ The cascade counts are worth noting on their own: one rejected `const` turns int
 These do not stop a port. They will silently produce a _wrong_ twin, so step 2 has to watch
 for them and the language session should weigh them accordingly.
 
-- **`@interpolate("flat")` is accepted and dropped.** `class VsOut { @location(0) @interpolate("flat") id: u32 }`
-  compiles, and the emitted WGSL is `@location(0) id: u32` with no `@interpolate`. An
-  integer varying is then invalid on the GPU, and nothing before the driver says so.
-  (Issue #8 A5 predicts this; confirmed here.) No current example uses it — but any twin
-  that needs a flat varying would be silently broken.
+- **`@interpolate("flat")` was accepted and dropped.** `class VsOut { @location(0) @interpolate("flat") id: u32 }`
+  compiled, and the emitted WGSL was `@location(0) id: u32` with no `@interpolate`. An
+  integer varying is then invalid on the GPU, and nothing before the driver said so.
+  (Issue #8 A5 predicted this; confirmed here.) **Fixed** (§53,
+  [#158](https://github.com/typeshade/typeshade/issues/158)): the attribute is emitted as
+  written, and an integer varying gets `@interpolate(flat)` from its type without one.
 - **`xs.length` on an unsized storage array emitted `0u`.** Probed: the guard
   `if (gid.x >= u32(src.length))` compiled and emitted `if ((gid.x >= 0u))` — true for every
   unsigned invocation, so the kernel returned at once and wrote nothing. Wrong output, no
   diagnostic, valid WGSL, accepted by Tint. (Issue #8 S5, filed as
-  [#46](https://github.com/typeshade/typeshade/issues/46).) **It is a diagnostic now**
-  (`TS8032`); the `arrayLength` spelling that would let it work is #46's second half.
-- **Assignment to a parameter is accepted.** `function fs(x: f32) { x = x + 1. }` compiles.
-  WGSL parameters are immutable. (Issue #8 "later", M13·S32.)
+  [#46](https://github.com/typeshade/typeshade/issues/46).) **It works now**: #46's second
+  half reads the buffer, so `src.length` emits `arrayLength(&src)`, and `arrayLength(src)` is
+  the same read. An array with no size and no buffer behind it (in a uniform, a local or a
+  parameter) is still `TS8032`, which asks for a size.
+- **Assignment to a parameter was accepted.** `function fs(x: f32) { x = x + 1. }` compiled.
+  WGSL parameters are immutable. (Issue #8 "later", M13·S32.) **It is a diagnostic now**
+  (`TS8018`), which names the local copy to write instead.
 - **A `.shade.ts` file cannot import.** `import { VsOut } from './_fullscreen.js'` parses
   and is then ignored, so the type resolves to nothing and the failure surfaces as
   `Unknown field "uv" on struct:VsOut`. Every twin has to be self-contained, which means
@@ -474,23 +482,25 @@ for them and the language session should weigh them accordingly.
 Step 2 is [#16](https://github.com/typeshade/typeshade/pull/16), stacked on
 [#11](https://github.com/typeshade/typeshade/pull/11) — which is what gives a `.shade.ts`
 file a registry entry, goldens and a compile-gate slot. A twin lands as: write
-`<id>-twin.shade.ts`, add the id to `SHADE_ORDER` with `twinOf` naming the EDSL example, bake.
+`<id>-twin.shade.ts` with an `@example` block whose `twinOf` names the EDSL example, bake.
 The `-twin` suffix is what keeps the golden stems disjoint; `shade-examples.test.ts` asserts
 that disjointness, because both corpora bake into one `__emit-goldens__/` directory.
 
-Twenty-two twins have landed: `compute-reduction-twin` in #16, `gradient-twin` once
+Twenty-three twins have landed: `compute-reduction-twin` in #16, `gradient-twin` once
 [#14](https://github.com/typeshade/typeshade/issues/14) was fixed, nine fullscreen twins —
 `hillshade`, `plasma`, `julia`, `mandelbrot`, `domain-warp`, `tunnel`, `ocean`, `starfield`,
 `kaleidoscope` — in [#42](https://github.com/typeshade/typeshade/pull/42), and eleven fp64
 twins once §39 landed: `fp64-deep-zoom`, `fp64-checker-plane`, `fp64-loran`, `fp64-rtc`,
 `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`, `fp64-clock`,
-`fp64-cancellation`, `fp64-sine-sweep`. Every one is in the compile gate: WGSL through Tint,
+`fp64-cancellation`, `fp64-sine-sweep`, and `voronoi-twin` in [#168](https://github.com/typeshade/typeshade/pull/168) as the gate for #40.
+Every one is in the compile gate: WGSL through Tint,
 GLSL ES 3.00 compiled and linked on a real WebGL2 context, 98 examples and 0 failures with the
 eleven counted.
 
-The three that were written and could not land are `voronoi`, `raymarch-sphere` and
-`raymarch-boxes`; `fp64-mercator-tiles` and `fp64-mandelbrot` join them, each written out in
-full and each stopped at one line, the `for` whose bound is a uniform. All five are absent
+The two that were written and could not land are `raymarch-sphere` and `raymarch-boxes`
+(`voronoi` was the third until #40 was fixed); `fp64-mercator-tiles` and `fp64-mandelbrot`
+join them, each written out in full and each stopped at one line, the `for` whose bound is a
+uniform. All four are absent
 rather than renamed: a twin that spells the shader differently from its original to dodge a
 compiler bug or a refusal is not an oracle, it is a second program that happens to compile.
 Freezing `fp64-mercator-tiles`'s bound to the literal 21 was measured, in a scratch file that
@@ -571,7 +581,7 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `type Camera = { view: mat4; pos: vec3 }`, `interface Camera { … }`                                             | ✓ since #8 A4                                                                                         |
 | `class Camera { @align(16) view: mat4 }`                                                                        | ✗ `TS8010 @align on a field is not applied`                                                           |
 | ~~`m: mat3`~~                                                                                                   | ✓ since §40 — every `matCxR` is a type                                                                |
-| `arrayLength(src)`                                                                                              | ✗ `Unknown function`                                                                                  |
+| `arrayLength(src)`                                                                                              | ✓ — the read `src.length` emits too: `arrayLength(&src)`                                              |
 | `let x: f32;` then `x = 1.`                                                                                     | ✓ since #8 A10; the annotation carries the type, so it is required                                    |
 | `v.x = 1.` / `o.pos = …` / `ps[i].a = 1.` / `v.x += 1.`                                                         | ✓ since #8 A2 (`v.xy = …` is still rejected, as WGSL rejects it)                                      |
 | `dst[gid.x] = 1.` / `dst[gid.x] += 2.`                                                                          | ✓                                                                                                     |

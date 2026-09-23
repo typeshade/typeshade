@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Builtin breadth",
+  "blurb": "`reflect`, `refract` and `faceForward` light a bump, `transpose` and `determinant` read the host matrix, and the bit builtins (`firstLeadingBit`, `reverseBits`, `countOneBits`, `extractBits`, `insertBits`) band the screen, with `fwidthCoarse` marking where a band starts (§10). GLSL ES 3.00 spells several of them differently and casts `findMSB` back to `uint`; the gate runs both.",
+  "renderable": true
+}
+*/
+
 // Builtin breadth (roadmap 0.2 item 8, §10): `reflect`, `refract` and `faceForward` light a
 // bump, `transpose` and `determinant` read the host's matrix, `ldexp` halves the diffuse term,
 // the bit builtins band the screen by the column's index, and `fwidthCoarse` draws a line where
@@ -53,9 +61,31 @@ export function fs(v: VsOut): vec4 {
   const nibble: u32 = extractBits(reverseBits(col), 28, 4)
   const word: u32 = insertBits(col, countOneBits(col), 8, 4)
   const bands: vec3 = vec3(f32(lead) / 8., f32(nibble) / 16., f32(extractBits(word, 8, 4)) / 8.)
+  // §52, on both targets. The shift amount is an i32 the compiler casts to u32 on WGSL
+  // (`x << u32(n)`) and carries as `uint(n)` on GLSL, and `~` is the bitwise complement both
+  // spell the same way; the mask keeps the result inside the byte the band reads.
+  const shift: i32 = i32(lead)
+  const rolled: u32 = (col << shift) & u32(255)
+  const inverted: u32 = ~rolled & u32(255)
+  // …and one switch clause under two selectors, which WGSL writes `case 0, 1:` and GLSL ES
+  // 3.00 as two stacked labels. Both are one clause with a list of selectors in the IR.
+  // `stepGain`, not `step`: GLSL ES 3.00 has a `step` builtin, and a local of that name
+  // shadows it for the rest of the function.
+  let stepGain: f32 = 0.
+  switch (i32(nibble) & 3) {
+    case 0:
+    case 1:
+      stepGain = 0.25
+      break
+    case 2:
+      stepGain = 0.5
+      break
+    default:
+      stepGain = 1.
+  }
   // The coarse derivative of the leading bit is nonzero only where a band starts.
   const edge: f32 = min(fwidthCoarse(f32(lead)), 1.)
-  const lit: vec3 = bands * diffuse
+  const lit: vec3 = bands * diffuse * stepGain + vec3(f32(inverted) / 512., 0., 0.)
   const tint: vec3 = bent * 0.1
   const base: vec3 = lit + tint
   const shine: vec3 = vec3(highlight * gain, highlight * gain, highlight * gain)

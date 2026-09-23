@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Hillshade (source twin)",
+  "blurb": "`hillshade.ts` written in the source language: the Horn 3x3 gradient over a procedural height field, lit by a sun azimuth. The cartographic twin — the shading maths reads the same on both surfaces because it is all plain arithmetic.",
+  "renderable": true,
+  "twinOf": "hillshade"
+}
+*/
+
 // The `"use typeshade"` twin of `hillshade.ts`.
 
 class Uniforms {

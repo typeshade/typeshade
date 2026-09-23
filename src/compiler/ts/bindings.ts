@@ -3,8 +3,8 @@
 //   declare const camera: uniform<Camera>
 
 import ts from 'typescript'
-import type { BindingDecl } from '../../core/ir/nodes.js'
-import { structT } from '../../core/ir/types.js'
+import type { BindingDecl, StructDecl } from '../../core/ir/nodes.js'
+import { structT, type ShaderType } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES } from './type-map.js'
 import { atomicWithin } from './lower/atomics.js'
@@ -13,6 +13,7 @@ import { recordCallFormBinding, recordRecoveredBinding } from './context.js'
 import { isOverrideType } from './overrides.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
+import { twoRowStd140Reason } from '../../core/std140.js'
 
 /** The two access modes a storage BUFFER may take, WGSL's own words for
  *  `var<storage, read>` and `var<storage, read_write>`. A storage buffer has no write-only
@@ -48,8 +49,13 @@ export function collectBindings(
    *  the earlier files' last, so the bindings of one module are numbered in file order rather
    *  than every file starting at 0 and colliding. */
   firstBinding = 0,
+  /** The structs already collected from this file, so a buffer binding's HOST-SHAREABLE rules
+   *  can be read through its struct type (§51). Omitted, the struct-shaped rules are skipped;
+   *  a caller that has the structs passes them. */
+  structs: readonly StructDecl[] = [],
 ): BindingDecl[] {
   const out: BindingDecl[] = []
+  const byName = new Map(structs.map((s) => [s.name, s]))
   let next = firstBinding
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue
@@ -62,6 +68,7 @@ export function collectBindings(
       if (decl.initializer && isResourceCall(decl.initializer)) {
         const b = fromCall(decl.name.text, decl.initializer, isConst, sourceFile, diagnostics, next)
         if (b) {
+          checkHostShareable(b, byName, sourceFile, decl, diagnostics)
           out.push(b)
           recordDeclaration(symbols, sourceFile, decl.name, {
             name: b.name,
@@ -91,6 +98,7 @@ export function collectBindings(
       if (declared && decl.type) {
         const b = fromType(decl.name.text, decl.type, isConst, sourceFile, diagnostics, next)
         if (b) {
+          checkHostShareable(b, byName, sourceFile, decl.type, diagnostics)
           out.push(b)
           recordDeclaration(symbols, sourceFile, decl.name, {
             name: b.name,
@@ -528,6 +536,103 @@ function readStorageAccess(
  *  while this parser still rejected it. */
 function isStorageBufferAccess(word: string): word is StorageBufferAccess {
   return (STORAGE_BUFFER_ACCESS as readonly string[]).includes(word)
+}
+
+/** The WGSL rules a BUFFER binding's store type must satisfy (§51) — the ones a struct hides,
+ *  which is why the type map cannot see them and the backend finds out too late.
+ *
+ *  Three rules, each measured against the Tint the compile gate runs:
+ *
+ *  - `bool` is not host-shareable in any address space: `type 'bool' cannot be used in address
+ *    space 'uniform' as it is non-host-shareable`. The GLSL writer happily emits `out bool`
+ *    into a std140 block, so this is a silent target divergence, not a shared failure.
+ *  - A runtime-sized `array<T>` must be the LAST member of its struct; anything after it has
+ *    no offset.
+ *  - A runtime-sized array may not sit in the uniform address space at all: a uniform buffer's
+ *    type must be constructible, and a runtime array is not.
+ *
+ *  Nested structs are walked, with a `seen` set so a cycle terminates. A cycle is NOT reported
+ *  here: nothing in the front end reports one today (`interface A { b: B }` / `interface B { a:
+ *  A }` compiles clean and Tint answers `cyclic dependency found: 'A' -> 'B' -> 'A'`), and that
+ *  gap is older and wider than these rules. A binding whose struct this file did not collect is
+ *  skipped rather than guessed at. */
+function checkHostShareable(
+  binding: BindingDecl,
+  structs: ReadonlyMap<string, StructDecl>,
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const space = binding.space === 'storage' ? 'storage' : 'uniform'
+  const seen = new Set<string>()
+  const walk = (t: ShaderType, path: string): void => {
+    if (t.kind === 'scalar' && t.scalar === 'bool') {
+      diagnostics.push(
+        layoutDiag(
+          sourceFile,
+          node,
+          `"${path}" is a bool; a ${space} struct holds numeric scalars only (WGSL's ` +
+            `host-shareable rule). Use u32.`,
+        ),
+      )
+      return
+    }
+    if (t.kind === 'mat' && t.elem === 'f32' && t.rows === 2 && space === 'uniform') {
+      // Rule 4.8: a two-row matrix in a uniform block is refused with the remedy. It reached
+      // the author as a TS8015 WARNING from the GLSL writer's layout, with the WGSL kept, so a
+      // render module shipped a uniform the two targets lay out at different offsets.
+      diagnostics.push(
+        layoutDiag(sourceFile, node, `"${path}" is in a uniform: ${twoRowStd140Reason(t.cols)}.`),
+      )
+      return
+    }
+    if (t.kind === 'array') {
+      if (t.size === undefined && space === 'uniform') {
+        diagnostics.push(
+          layoutDiag(
+            sourceFile,
+            node,
+            `"${path}" is a list of no fixed length, which a uniform cannot hold: a uniform ` +
+              `buffer has one size. Give it a length, array<T, N>, or declare "${binding.name}" ` +
+              `as storage<T>.`,
+          ),
+        )
+        return
+      }
+      walk(t.elem, `${path}[]`)
+      return
+    }
+    if (t.kind !== 'struct') return
+    if (seen.has(t.name)) return
+    seen.add(t.name)
+    const decl = structs.get(t.name)
+    if (decl === undefined) return
+    for (const [i, f] of decl.fields.entries()) {
+      if (f.type.kind === 'array' && f.type.size === undefined && i !== decl.fields.length - 1) {
+        diagnostics.push(
+          layoutDiag(
+            sourceFile,
+            node,
+            `"${t.name}.${f.name}" is a list of no fixed length and is not the last field of ` +
+              `"${t.name}": nothing after it has an offset. Move it last, or give it a length.`,
+          ),
+        )
+        continue
+      }
+      walk(f.type, `${t.name}.${f.name}`)
+    }
+  }
+  walk(binding.type, binding.name)
+}
+
+/** A `TS8051 LAYOUT` diagnostic: the host-shareable rules above, which are about the BYTES a
+ *  binding lays out and not about whether the surface has the type. */
+function layoutDiag(
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  message: string,
+): TsCompilerDiagnostic {
+  return makeDiagnostic(sourceFile, node, message, TS_CODES.LAYOUT)
 }
 
 function diag(sourceFile: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {

@@ -114,9 +114,17 @@ export interface FieldSpec<T extends ShaderType = ShaderType> {
  *  backend spells the id for its target: a fragment-input `position` reads as `gl_FragCoord`
  *  on GLSL. {@link builtin} takes its `name` from this union, so a misspelled name or a GLSL
  *  spelling (`'vertex_idx'`, `'frag_coord'`, `'point_size'`) is a `tsc` error at the
- *  authoring line. Ids that need a feature (`subgroup_*`, `clip_distances`) and ids with no
- *  GLSL mapping (`sample_index`, the compute family on WebGL2) are included: the type says
- *  which names are WGSL builtins, and whether a target supports one is checked at emit.
+ *  authoring line. Ids that need a feature (`subgroup_*`, `clip_distances`, `primitive_index`)
+ *  and ids with no GLSL mapping (`sample_index`, the compute family on WebGL2) are included:
+ *  the type says which names are WGSL builtins, and whether a target supports one is checked
+ *  at emit — an id behind an extension derives its `enable` and its host feature from use
+ *  (§50), so naming one here is not a claim that every adapter has it.
+ *
+ *  `global_invocation_index` and `workgroup_index` are deliberately NOT here. Both are in the
+ *  WGSL text, and neither is in the builtin vocabulary the Tint the compile gate runs accepts:
+ *  a module naming one dies with `expected builtin value name` at `createShaderModule`
+ *  (measured 2026-09-21), so admitting them would only move the failure further from the
+ *  author.
  *
  *  Exported from `typeshade`.
  */
@@ -128,6 +136,7 @@ export type WgslBuiltinName =
   | 'frag_depth'
   | 'sample_index'
   | 'sample_mask'
+  | 'primitive_index'
   | 'local_invocation_id'
   | 'local_invocation_index'
   | 'global_invocation_id'
@@ -154,6 +163,7 @@ export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
   'frag_depth',
   'sample_index',
   'sample_mask',
+  'primitive_index',
   'local_invocation_id',
   'local_invocation_index',
   'global_invocation_id',
@@ -268,6 +278,7 @@ export const WGSL_BUILTIN_TYPES = {
   frag_depth: f32T,
   sample_index: u32T,
   sample_mask: u32T,
+  primitive_index: u32T,
   local_invocation_id: vec3uT,
   local_invocation_index: u32T,
   global_invocation_id: vec3uT,

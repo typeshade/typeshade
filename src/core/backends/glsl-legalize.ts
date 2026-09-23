@@ -325,7 +325,7 @@ function hoistFn(f: FuncDecl, discarding: ReadonlySet<string>): FuncDecl {
       case 'switch':
         return {
           ...s,
-          cases: s.cases.map((c) => ({ value: c.value, body: processBody(c.body) })),
+          cases: s.cases.map((c) => ({ values: c.values, body: processBody(c.body) })),
           defaultBody: s.defaultBody ? processBody(s.defaultBody) : undefined,
         }
       default:

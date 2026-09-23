@@ -129,7 +129,13 @@ export function k(
       '  if (lid.x > 60) {\n    return\n  }\n  tile[lid.x] = src[gid.x]\n',
     )
     const r = compile(src)
-    expect(r.diagnostics).toEqual([])
+    // The front end catches this one at the line now (§54): a `return` under a condition the
+    // invocations do not share leaves a subset of them to reach the barrier, and Tint says so
+    // too — measured, `if (id.x > 4u) { return }` above a barrier is `'workgroupBarrier' must
+    // only be called from uniform control flow`. The runtime check below is what still stands
+    // behind a module that reaches it anyway, assembled by the EDSL or composed at run time,
+    // and it is the one that can count the invocations.
+    expect(new Set(r.diagnostics.map((d) => d.code))).toEqual(new Set([TS_CODES.UNIFORMITY]))
     const cm = compileModule(r.module)
     cm.setBinding(
       'src',
@@ -185,12 +191,19 @@ export function fs(): vec4 { return vec4(1.) }
 })
 
 describe('barriers: where one may stand', () => {
-  const BRANCH = (name: string) =>
-    `${TS_CODES.BARRIER_PLACEMENT} ${name}() must be reached by every invocation of the workgroup: move it out of the if or switch. A barrier inside a branch on a value the invocations do not share is how a workgroup waits forever; a for loop with a constant bound is fine.`
+  // The rule is the UNIFORMITY of the branch, not the presence of one (§54). It used to be
+  // "no `if`, no `switch`", which is stricter than both the spec and Tint: measured on
+  // Chromium 141 and 153 alike, `if (k > 0.5)` on a uniform buffer value is ACCEPTED, and
+  // `if (id.x > 4u)` on `local_invocation_id` is `'workgroupBarrier' must only be called from
+  // uniform control flow`. What it means is unchanged — every invocation of the workgroup has
+  // to reach the barrier — and the walk reports one whenever the control flow is not PROVABLY
+  // uniform, so a shape it cannot read keeps the refusal it had.
+  const branchedOn = (name: string, cause: string) =>
+    `${TS_CODES.UNIFORMITY} ${name}() is reached under ${cause}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the branch, or branch on a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`
 
-  it('not inside an if or a switch body', () => {
+  it('not inside a branch on a value the invocations do not share', () => {
     expect(errorsOf(kernel('  if (gid.x > 1) {\n    workgroupBarrier()\n  }'))).toEqual([
-      BRANCH('workgroupBarrier'),
+      branchedOn('workgroupBarrier', '"gid" (@builtin(global_invocation_id))'),
     ])
     expect(
       errorsOf(
@@ -198,7 +211,35 @@ describe('barriers: where one may stand', () => {
           '  switch (gid.x) {\n    case 1: { storageBarrier(); break }\n    default: { break }\n  }',
         ),
       ),
-    ).toEqual([BRANCH('storageBarrier')])
+    ).toEqual([branchedOn('storageBarrier', '"gid" (@builtin(global_invocation_id))')])
+  })
+
+  it('inside a branch on a value the whole workgroup shares, it may', () => {
+    const uniform = `"use typeshade"
+declare let out: storage<array<f32>>
+declare const k: uniform<f32>
+@compute([64, 1, 1])
+export function g(@builtin("global_invocation_id") gid: vec3u): void {
+  if (k > 0.5) {
+    workgroupBarrier()
+  }
+  out[gid.x] = 1.
+}
+`
+    expect(errorsOf(uniform)).toEqual([])
+    // `@builtin("workgroup_id")` is one of the four WGSL declares uniform, so a branch on it
+    // is the same answer for every invocation of the group.
+    const byGroup = `"use typeshade"
+declare let out: storage<array<f32>>
+@compute([64, 1, 1])
+export function g(@builtin("workgroup_id") wg: vec3u, @builtin("local_invocation_id") id: vec3u): void {
+  if (wg.x > u32(1)) {
+    workgroupBarrier()
+  }
+  out[id.x] = 1.
+}
+`
+    expect(errorsOf(byGroup)).toEqual([])
   })
 
   it('inside a for loop, and inside a helper, it may', () => {
@@ -312,9 +353,15 @@ export function fs(): vec4 {
       'textureBarrier() belongs in a compute entry or a function it calls; a fragment entry ' +
         'has no workgroup whose texture writes it could order.',
     )
-    expect(errorsOf(CS('', '  if (o[0] === 1) {\n    textureBarrier()\n  }'))[0]).toContain(
-      'textureBarrier() must be reached by every invocation of the workgroup',
-    )
+    // Still refused inside a branch, and now by §54's walk rather than by this file's own
+    // `inBranch()` arm: `textureBarrier` is one of `BARRIER_INTRINSICS`, and the uniformity
+    // analysis reads that set, so it inherited the same relaxation the other two barriers got
+    // — a branch on a value the invocations do NOT share is what WGSL refuses, not a branch.
+    // `o[0]` is a storage read, which the walk cannot prove uniform, so the refusal stands and
+    // the code moved from `BARRIER_PLACEMENT` to `UNIFORMITY`.
+    const branched = errorsOf(CS('', '  if (o[0] === 1) {\n    textureBarrier()\n  }'))[0]
+    expect(branched).toContain('textureBarrier() is reached under')
+    expect(branched).toContain('every invocation of the workgroup has to reach it')
   })
 
   it('spells workgroupUniformLoad as the pointer WGSL takes, on any shape', () => {

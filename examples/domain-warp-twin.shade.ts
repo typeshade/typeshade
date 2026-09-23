@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Domain warping (source twin)",
+  "blurb": "`domain-warp.ts` written in the source language: hash, value noise and a 4-octave fbm as three plain helper functions, then fed their own output twice over. The twin with the deepest call graph.",
+  "renderable": true,
+  "twinOf": "domain-warp"
+}
+*/
+
 // The `"use typeshade"` twin of `domain-warp.ts`. `screenCoords` is a helper
 // function here rather than an import — see `plasma-twin.shade.ts` on the
 // repeated head.

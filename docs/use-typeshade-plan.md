@@ -87,7 +87,8 @@ Define what is TypeShade vs TypeScript:
 - TypeShade-only types
 - JS runtime meaning vs TypeShade meaning
 - Allowed side effects (almost none in pure shader helpers)
-- Forbidden APIs (`fetch`, `console`, `Date`, …)
+- Forbidden APIs (`fetch`, `Date`, `Promise`, …; `console.*` was on this list and is now
+  lowered, see Phase 12)
 - Compilation unit + module semantics (sketch)
 
 **Deliverable:** Language Spec draft (this doc + later `docs/use-typeshade-spec.md`).
@@ -110,13 +111,15 @@ SourceFile
 ### Phase 2 — Type System ✅ (minimal)
 
 First: `f32` `i32` `u32` `bool` (+ `void` return keyword)  
-Then: `vec2` `vec3` `vec4` (currently **f32** vectors only)
+Then: `vec2` `vec3` `vec4` (**f32** vectors only at first; integer and bool vectors have landed since)
 
 Later (this phase expands over time): `f64`, `mat*`, struct, array, pointer, buffer, texture, sampler, Tensor/Buffer generics…
 
 **Rule:** map onto **existing** `ShaderType`, do not invent a second system.
 
-**Status:** minimum surface done (`type-map.ts`)
+**Status:** minimum surface done (`type-map.ts`), and grown since: matrices, structs, arrays,
+textures, samplers, atomics and the emulated `f64` are all types today —
+`docs/use-typeshade-surface.md` is the list. Pointers and Tensor/Buffer generics are not.
 
 ### Phase 3 — Expression Compiler ✅ (core arithmetic)
 
@@ -169,15 +172,14 @@ export function foo(x: f32): f32 { return square(x) + 1; }
 Module graph + call graph via existing `declRef` / transitive collection.  
 *(Former “Phase 6b call” is the single-file subset of this.)*
 
-**Status:** done (`sources.ts` `compileTsSources(files, { entry })`, `module.ts`;
-`sources.test.ts`, `module.test.ts`). Relative named imports only; the resolver rejects
+**Status:** done (`module.ts` `compileTsSources(files, entry)`; `module.test.ts`). Relative named imports only; the resolver rejects
 default / namespace / bare-specifier imports and unexported names. Not yet on the package
 entry surface — deep import only.
 
 ### Phase 7 — Intrinsic / Builtin ✅
 
 `sin` `cos` `normalize` `dot` `mix` `mod` …  
-Constructors: `vec3f(...)`, `mat4x4f(...)`  
+Constructors: `vec3f(...)`, `mat4x4(...)` (the `matCxRf` aliases are not spelled; `docs/language-design.md` Appendix A)  
 TS call → neutral intrinsic → existing WGSL/GLSL spelling registry.  
 *(Former “Phase 6a construct/member” overlaps here + Phase 8.)*
 
@@ -197,9 +199,10 @@ obj.position; v.x; v.xyz; a[i];
 
 **Status:** done (`structs.ts`, `lower/expression-prop.ts`, `lower/index-select.ts`,
 `vertex-layout.ts`; `structs.test.ts`, `camera-uniform.test.ts`, `vsout.test.ts`).
-Class fields carry `@location` / `@builtin`; field `@align` is a deliberate error
-(`TS8010`) rather than a silent no-op, and `@size` / `@offset` / `@interpolate` /
-`@ignore` are parsed but not yet applied — see `docs/use-typeshade-surface.md` §2.
+Class fields carry `@location` / `@builtin` / `@interpolate` / `@invariant` / `@blend_src`;
+field `@align` is a deliberate error (`TS8010`) rather than a silent no-op, and `@size` /
+`@offset` / `@ignore` are `TS8028` ("Unknown attribute") — see `docs/use-typeshade-surface.md`
+§2 and §53.
 
 ### Phase 9 — Control Flow ✅
 
@@ -216,9 +219,10 @@ Coded errors (e.g. `TS8001`), spans, IR ↔ source ↔ WGSL maps
 
 **Status:** coded errors and source spans done (`codes.ts` `TS8001`–`TS8099`; every
 diagnostic carries `fileName` / `line` / `character` / `category`; `diagnostics.test.ts`).
-**Source maps are not implemented** — there is no IR ↔ source ↔ WGSL mapping anywhere in
-the compiler, so a WGSL line cannot be traced back to its TypeScript line. That is what
-keeps this phase, and with it Milestone B, from closing.
+IR ↔ source is done too: every statement and function the front end lowers carries the span
+it came from (`sourceSpanOf`), which the debugger (`typeshade/debug`, `docs/debugging.md`)
+steps by. **The WGSL half is not implemented** — nothing maps an emitted WGSL line back to
+its TypeScript line. That is what keeps this phase, and with it Milestone B, from closing.
 
 ### Phase 11 — Existing Backend Integration ✅ **usability gate**
 
@@ -237,8 +241,10 @@ adds bindings, entry list and vertex layout. Tests: `compile.test.ts` (WGSL + GL
 
 Address space, stage compatibility, illegal mutation, ban host APIs, vector/matrix rules — compiler, not pure translator.
 
-**Status:** done (`semantic.ts` bans `console` / `fetch` / `Date` / `Promise` / `async` /
-`await` / `try` / `throw` / `new` / spread / template strings as `TS8012`–`TS8014`;
+**Status:** done (`semantic.ts` bans `fetch` / `Date` / `Promise` / `async` / `await` /
+`try` / `throw`, `new` on anything but a class the file declares, and spread outside an object
+literal as `TS8012`–`TS8014`; a string is `TS8099`; `console.*` is lowered, to a host sink on
+the CPU and to nothing on the GPU;
 `bindings.ts` enforces address space and read-only resources; `stage.test.ts` covers
 stage / builtin compatibility). Tests: `semantic.test.ts`, `bindings.test.ts`,
 `declare-bind.test.ts`, `param-attr.test.ts`.
@@ -247,8 +253,12 @@ stage / builtin compatibility). Tests: `semantic.test.ts`, `bindings.test.ts`,
 
 ## Milestone C — “Compiler understands computation” (13–15)
 
-### Phase 13 — Static Analysis ⬜
+### Phase 13 — Static Analysis 🟨 partial
 type, shape, constancy, uniformity, R/W, side effects, ranges
+
+Three pieces have landed: derivative and barrier uniformity
+(`passes/uniformity.ts`, surface §54), the effect table that tracks which function writes
+which binding (`passes/effects.ts`), and the determinism report (surface §38).
 
 ### Phase 14 — Compile-time Evaluation ⬜
 Fold what is static; bake static matrices/transforms
@@ -280,8 +290,12 @@ ownership and sync stay entirely with the host application.
 
 ## Milestone E — “Compiler decides how/where” (19–20)
 
-### Phase 19 — Optimization ⬜
+### Phase 19 — Optimization 🟨 partial
 fusion, DCE, buffer reuse, layout, scheduling hints
+
+The IR optimizer (`src/core/passes/opt/`: constant folding and propagation, CSE, GVN, LICM,
+DCE, unrolling) runs in every emit; fusion, buffer reuse and scheduling do not
+exist.
 
 ### Phase 20 — Runtime ⬜
 CPU executor + GPU dispatch + residency / pipeline cache
@@ -290,15 +304,19 @@ CPU executor + GPU dispatch + residency / pipeline cache
 
 ## Milestone F — “Verifiable system” (21–22)
 
-### Phase 21 — Verification / Debugging ⬜
+### Phase 21 — Verification / Debugging 🟨 partial
 CPU oracle vs GPU; source → IR → kernel → run trace
+
+The f64 CPU oracle and a source-level stepper over it (`typeshade/debug`, `docs/debugging.md`)
+exist; a caller-facing GPU-versus-oracle comparison does not (roadmap 0.7 item 19).
 
 ### Phase 22 — Tooling 🟨 partial
 `typeshade build | check | inspect | profile | explain`
 
 `typeshadeVite()` (`vite.ts`, `vite.test.ts`) compiles `*.shade.ts` at build time and
-fails the build on an error diagnostic. There is no `typeshade` CLI — `build`, `check`,
-`inspect`, `profile` and `explain` are all unimplemented.
+fails the build on an error diagnostic, and the language service
+(`typeshade/language-service`, `docs/language-service-api.md`) serves the editor. There is no
+`typeshade` CLI — `build`, `check`, `inspect`, `profile` and `explain` are all unimplemented.
 
 ---
 
@@ -311,11 +329,11 @@ fails the build on an error diagnostic. There is no `typeshade` CLI — `build`,
 
 ```
 Milestone A  (0–5)   <- done
-Milestone B  (6–12)  <- current focus: only Phase 10 source maps left
+Milestone B  (6–12)  <- current focus: only Phase 10's WGSL source map left
 Milestone C  (13–15) <- next horizon
 Milestone D  (16–18)
 Milestone E  (19–20)
-Milestone F  (21–22) <- Phase 22 partial (Vite plugin only)
+Milestone F  (21–22) <- Phase 21 partial (oracle + stepper), Phase 22 partial (Vite plugin, language service)
 ```
 
 ---
@@ -330,21 +348,23 @@ Milestone F  (21–22) <- Phase 22 partial (Vite plugin only)
 | 3 Expr | ✅ | `lower/expression*.ts`; member/index/call landed with 7–8 |
 | 4 Stmt | ✅ | `lower/statement.ts` |
 | 5 Func | ✅ | + 5.1 IR equality (`ir-equality.test.ts`) |
-| 6 Module/Import | ✅ | `sources.ts`, `module.ts`; relative named imports, deep import only |
+| 6 Module/Import | ✅ | `module.ts`; relative named imports, deep import only |
 | 7 Intrinsic | ✅ | `math-alias.ts`, `math-expand.ts`, `lower/expression-call.ts` (+ constructors) |
 | 8 Structured | ✅ | `structs.ts`, `lower/expression-prop.ts`, `lower/index-select.ts` |
 | 9 Control flow | ✅ | `lower/control.ts`, `loop-bound.ts`; `control-flow.test.ts` |
-| 10 Diagnostics | 🟨 partial | `codes.ts` `TS8001`–`TS8099` + spans; **no source maps** |
+| 10 Diagnostics | 🟨 partial | `codes.ts` `TS8001`–`TS8099` + spans on the IR; **no WGSL source map** |
 | 11 Backend | ✅ | `compile.ts`, `pack.ts` → WGSL / GLSL / CPU; usability gate passed |
 | 12 Semantic val | ✅ | `semantic.ts`, `bindings.ts`; host APIs, address space, stages |
-| 13 Static analysis | ⬜ | after B |
-| 14 Const eval | ⬜ | `lit-coerce.ts` folds numeric-literal arithmetic only |
+| 13 Static analysis | 🟨 partial | uniformity (§54), effect table, determinism report |
+| 14 Const eval | ⬜ | `lit-coerce.ts` folds numeric-literal arithmetic; the IR optimizer folds and propagates constants |
 | 15 Specialization | ⬜ | |
 | 16 Kernel | ⬜ | `@compute` exists; no `@kernel`, no Kernel IR |
 | 17 Host boundary | ⬜ | `pack.ts` gives the slot table; no upload/download/sync |
 | 18 Execution graph | ⬜ | blocked on Phase 10 closing Milestone B |
-| 19–21 | ⬜ | |
-| 22 Tooling | 🟨 partial | `vite.ts` Vite plugin; no `typeshade` CLI |
+| 19 Optimization | 🟨 partial | IR optimizer (`passes/opt/`); no fusion or buffer reuse |
+| 20 Runtime | ⬜ | |
+| 21 Verification | 🟨 partial | oracle + stepper (`typeshade/debug`); no GPU divergence report |
+| 22 Tooling | 🟨 partial | `vite.ts` Vite plugin, language service; no `typeshade` CLI |
 
 Docs follow the same rule as code: every `"use typeshade"` block in `README.md` and
 `docs/*.md` is compiled by `src/compiler/ts/doc-snippets.test.ts` and must produce zero
@@ -371,7 +391,8 @@ a % b                 // truncated mod
 mod(a, b)             // floor mod (intrinsic, Phase 7)
 ```
 
-Errors → `diagnostics[]`, partial emit allowed until Phase 10 tightens policy.
+Errors → `diagnostics[]`. `compile()` hands back no `wgsl` or `glsl` when any diagnostic is an
+error (`docs/use-typeshade.md`, Compiling).
 
 ---
 
@@ -401,7 +422,7 @@ export function transform(v: vec3f): vec3f {
 `length` / `normalize` are language builtins, so no import is needed; a cross-file call is
 covered by the Phase 6 example above.
 
-**Remaining for Milestone B:** Phase 10 source maps (IR ↔ source ↔ WGSL). Everything else
+**Remaining for Milestone B:** Phase 10's WGSL source map (WGSL ↔ source; IR ↔ source is done). Everything else
 in 6–12 is green.
 
-Last updated: 2026-09-14 (long-term 0–22 plan)
+Last updated: 2026-09-23 (long-term 0–22 plan)

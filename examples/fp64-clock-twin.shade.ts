@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "fp64 long-uptime clock (source twin)",
+  "blurb": "`fp64-clock.ts` written in the source language: the mission-time epoch read from the uniform as an `f64`, the live `time` widened with `f64(x)` and added in extended precision, the f32 `speed` lifted beside the double, and only the sub-unit `fract()` phase narrowed with `f32(x)` to drive the dial (§39). The left dial narrows the epoch first and freezes once one f32 ulp is wider than a second, past about 10⁷·² s; the right one keeps sweeping to 10⁹ s. Nothing crosses the entry boundary as a double: the fragment stage reads the uniform itself, which is the remedy the varying refusal names.",
+  "renderable": true,
+  "twinOf": "fp64-clock"
+}
+*/
 // The `"use typeshade"` twin of `fp64-clock.ts`.
 //
 // The "shader time" bug every long-running app ships eventually: animate with `fract(t)` once

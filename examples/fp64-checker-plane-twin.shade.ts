@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "fp64 checker plane (source twin)",
+  "blurb": "`fp64-checker-plane.ts` written in the source language: a 1-unit checkerboard on a world plane seen from 10⁸ units out, where one f32 ulp is eight whole cells wide. The tile grid comes back from `floor` and `fract` on the `f64` type (§39), with `u.center.x` a lane read of a `vec2f64`, `f64(dx)` widening the f32 screen offset and the literal in `* 0.5` lifted to a full double, so cell parity stays exact where narrowing first would already have lost it. The left half runs the same formulas on the narrowed coordinate and collapses flat, which is the bug the emulation exists for; the `f64` half keeps its anti-aliased cell borders.",
+  "renderable": true,
+  "twinOf": "fp64-checker-plane"
+}
+*/
 // The `"use typeshade"` twin of `fp64-checker-plane.ts`.
 //
 // The map-engine failure mode in its purest form: a 1x1-unit checkerboard on a world plane,

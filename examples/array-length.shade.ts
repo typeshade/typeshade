@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Runtime array length",
+  "blurb": "The bounds guard every kernel over a runtime-sized storage array needs: `src.length` reads the bound buffer's length as WGSL `arrayLength(&src)`, a `u32`, so the guard is real where it once folded to `gid.x >= 0u` and returned every invocation (#46). WGSL-only: GLSL ES 3.00 has no storage buffers.",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}
+*/
+
 // The bounds guard every kernel over a runtime-sized storage array needs. The length of
 // `src` is not in its type; it is the length of the buffer the host binds, so `src.length`
 // reads it at run time as WGSL's `arrayLength(&src)`, a `u32` (#46). Before that spelling

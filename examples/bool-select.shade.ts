@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Boolean vectors",
+  "blurb": "A comparison of two vectors is a vector of bools (§27): `v.uv > vec2(0.5)` masks the screen, `select` picks a colour per channel from two palettes through it, and `all`/`any` of the mask tint the corners. WGSL spells the comparison as an operator, GLSL ES 3.00 as `lessThan`/`greaterThan` with `mix`; the gate runs both.",
+  "renderable": true
+}
+*/
+
 // Boolean vectors (roadmap 0.2 item 7, §27): a comparison of two vectors is componentwise and
 // yields a vector of bools, which `select` takes per component and `any`/`all` reduce. The
 // mask below picks a colour per channel from two palettes wherever the screen point is past

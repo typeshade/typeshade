@@ -16,7 +16,7 @@
 // (map/src/shaders/dsl/optimize.test.ts), and the examples emit-goldens byte gate.
 
 import type { ModuleDecl, FuncDecl } from '../../ir/index.js'
-import { fnWrites, inheritEffects } from '../effects.js'
+import { fnReads, fnWrites, inheritEffects } from '../effects.js'
 import { constProp } from './const-prop.js'
 import { copyProp } from './copy-prop.js'
 import { constFold } from './const-fold.js'
@@ -261,7 +261,10 @@ export function fixpoint(
   onPass?: PassSink,
 ): ModuleDecl {
   for (const fn of m.funcs) assertUniqueLocalNames(fn)
-  fnWrites(m) // computed once for the whole module; every per-function view inherits it
+  // Computed once for the whole module; every per-function view inherits both. A view holds one
+  // function, so a table computed from it could not see what a helper writes or reads.
+  fnWrites(m)
+  fnReads(m)
   return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters, onPass)) }
 }
 

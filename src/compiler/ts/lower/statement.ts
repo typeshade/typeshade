@@ -16,7 +16,21 @@ import { mapTsTypeToShaderType } from '../type-map.js'
 import { parseSwizzle } from '../swizzle.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import { lowerBarrierStatement } from './barriers.js'
-import { lowerMutatingCall } from './class-methods.js'
+import { classFunctionOf, lowerMutatingCall } from './class-methods.js'
+import {
+  destructuredGetter,
+  finishAccessorWrite,
+  getterInChain,
+  lowerAccessorTarget,
+  lowerStaticFieldTarget,
+  refuseReadonlyWrite,
+  refuseWriteThroughGetter,
+  staticConstantWrite,
+  staticFieldBinding,
+  staticOwnerOf,
+  visibleField,
+  type AccessorTarget,
+} from './class-access.js'
 import { lowerUserCall } from './expression-misc.js'
 import { localFunctionOf } from './local-functions.js'
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js'
@@ -26,7 +40,13 @@ import {
   numericMismatch,
   retargetLit,
 } from '../numeric.js'
-import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
+import {
+  retargetDeclaredIntLit,
+  retargetIntLitCtx,
+  reportIntLitRange,
+  shiftAmountMessage,
+  shiftAmountOutOfRange,
+} from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerCall } from './expression-call.js'
 import { lowerArrayLiteral } from './expression-array.js'
@@ -124,7 +144,13 @@ function lowerStatementNode(
     if (!expr) return undefined
     // `return 0` takes the declared return type when that type is i32 or u32 (#8 A3).
     const ret = scope.returnType()
-    return { s: 'return', expr: ret ? retargetIntLitCtx(expr, node.expression, ret) : expr }
+    if (!ret) return { s: 'return', expr }
+    const retargeted = retargetIntLitCtx(expr, node.expression, ret)
+    return {
+      s: 'return',
+      expr:
+        reportIntLitRange(retargeted, node.expression, ret, sourceFile, diagnostics) ?? retargeted,
+    }
   }
   if (ts.isIfStatement(node)) return lowerIf(node, sourceFile, scope, diagnostics)
   if (ts.isForStatement(node)) return lowerFor(node, sourceFile, scope, diagnostics)
@@ -165,6 +191,41 @@ function lowerStatementNode(
     return lowerVariableStatement(node, sourceFile, scope, diagnostics)
   if (ts.isExpressionStatement(node))
     return lowerExpressionStatement(node, sourceFile, scope, diagnostics)
+  // Two shapes that deserve their own sentence rather than the catch-all below (§52). Both
+  // are recorded deferrals, not oversights: the reason is in the message and in the docs.
+  // `while (c)` is accepted and reads its bound from the CONDITION, not from a header
+  // (`lowerWhile` lowers it into the one loop node the IR has, with a synthetic counter), so
+  // "a do…while has no header" would not be the reason. The reason is the loop node itself:
+  // the IR has a single top-tested `for`, and a do…while runs its body once BEFORE the test,
+  // which that shape cannot express. WGSL spells it `loop { body; break if !(c); }`
+  // (wgsl.txt:11554, 11872-11878) and GLSL ES 3.00 has `do…while` outright — so both targets
+  // could carry it; what is missing is an IR node for a bottom-tested loop, and adding one
+  // means a new `Stmt` kind through all three backends and the trip-count analysis. A
+  // recorded deferral, not a target constraint.
+  if (ts.isDoStatement(node)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `do…while is not supported: the IR has one loop shape, a top-tested "for", and a ` +
+        `do…while runs its body before the first test. Write "while (c) { … }" with the ` +
+        `body's first pass unrolled above it, or a counted "for".`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
+  if (ts.isLabeledStatement(node)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `A labelled statement is not supported: neither WGSL nor GLSL ES 3.00 has a label, so ` +
+        `"${node.label.text}:" has nothing to name it for. Restructure with a flag, or hoist ` +
+        `the inner loop into a function and return from it.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
   pushDiag(
     diagnostics,
     sourceFile,
@@ -374,6 +435,7 @@ function lowerVariableDeclaration(
       // before this item and still do — while `let j: i32 = 1.5` stays refused, since the
       // fallback takes an integral value only and the type check below catches the rest.
       init = retargetDeclaredIntLit(init, decl.initializer, annotated)
+      init = reportIntLitRange(init, decl.initializer, annotated, sourceFile, diagnostics) ?? init
     }
   }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
@@ -678,8 +740,21 @@ function readField(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   if (base.type.kind === 'struct') {
-    const type = scope.fieldType(base.type.name, field)
+    // A pattern names public members only: `#x` is not a property to destructure, and `x` does
+    // not reach it (Rule 8.12). A getter is read by calling it, as TypeScript's pattern does
+    // (Rule 8.11).
+    const type = visibleField(base.type.name, field, at, scope)
     if (!type) {
+      const read = destructuredGetter(
+        base.type.name,
+        field,
+        base,
+        at,
+        sourceFile,
+        scope,
+        diagnostics,
+      )
+      if (read !== 'none') return read
       pushDiag(
         diagnostics,
         sourceFile,
@@ -782,8 +857,9 @@ function lowerExpressionStatement(
       )
       return barrier ? { s: 'call', expr: barrier } : undefined
     }
-    // A method that changes its object, `r.advance(2.)`, is a statement that writes the
-    // receiver back (§26); anything else takes the ordinary call path.
+    // A method that changes its object, `r.advance(2.)`, is a call that writes through its
+    // receiver, and a value it returns is dropped here (§26); anything else takes the ordinary
+    // call path.
     const mutating = lowerMutatingCall(expr, sourceFile, scope, diagnostics)
     if (mutating !== 'not-a-mutating-call') return mutating
     const call = lowerCall(expr, sourceFile, scope, diagnostics)
@@ -804,6 +880,29 @@ function lowerExpressionStatement(
     return lowerUpdate(expr, sourceFile, scope, diagnostics)
   }
   if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    // `_ = f()`, WGSL's phony assignment (§52): call it and drop the result, explicitly. It
+    // is what an author reaches for when a `@must_use` builtin's value is not wanted, and it
+    // read as `Cannot assign to unknown name "_"` before. `_` is only phony when nothing
+    // declares it, so a program with its own `_` keeps assigning to that.
+    if (ts.isIdentifier(expr.left) && expr.left.text === '_' && scope.resolve('_') === undefined) {
+      const dropped = lowerExpression(expr.right, sourceFile, scope, diagnostics)
+      if (!dropped) return undefined
+      if (dropped.op !== 'call') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          expr.right,
+          `"_ = ..." drops the result of a call. "${truncate(expr.right.getText(sourceFile))}" ` +
+            `is not one, so there is nothing to drop; remove the line.`,
+          TS_CODES.UNSUPPORTED,
+        )
+        return undefined
+      }
+      // The same IR a bare `f();` makes. The BACKEND decides whether the target needs the
+      // `_ = ` spelling — WGSL writes it for a builtin whose result is `@must_use`, GLSL
+      // never — so the author's `_` is a statement of intent, not a token to carry through.
+      return { s: 'call', expr: dropped }
+    }
     return lowerAssign(expr.left, expr.right, sourceFile, scope, diagnostics)
   }
   if (ts.isBinaryExpression(expr)) {
@@ -843,29 +942,36 @@ function lowerAssign(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
-  const target = lowerLValue(left, sourceFile, scope, diagnostics)
-  if (!target) return undefined
+  // `o.x = v` where `x` is an accessor is a call of its setter (Rule 8.11).
+  const accessor = lowerAccessorTarget(left, false, sourceFile, scope, diagnostics)
+  if (accessor === undefined) return undefined
+  const target =
+    accessor === 'not-an-accessor' ? lowerLValue(left, sourceFile, scope, diagnostics) : undefined
+  if (accessor === 'not-an-accessor' && !target) return undefined
+  if (target && refuseReadonlyWrite(target, left, sourceFile, scope, diagnostics)) return undefined
+  const want = target?.type ?? (accessor as AccessorTarget).type
   // The target's type is the context for the right-hand side, so `o = { x: 1., y: 2. }` knows
   // which struct it builds the same way `const o: A = { … }` does (#8 A11). An assignment
   // target is a DECLARED position: the name was annotated where it was declared, and the
   // lvalue carries that type here. Without this the literal fell through to the
   // unique-struct fallback and a second struct of the same shape refused it.
-  let value = lowerExpression(right, sourceFile, scope, diagnostics, target.type)
+  let value = lowerExpression(right, sourceFile, scope, diagnostics, want)
   if (!value) return undefined
   // `x = 2` takes the target's type when it is i32 or u32 (#8 A3); the compound form already
   // did through lowerAssignOp.
-  value = retargetIntLitCtx(value, right, target.type)
-  if (typeKey(target.type) !== typeKey(value.type)) {
+  value = retargetIntLitCtx(value, right, want)
+  value = reportIntLitRange(value, right, want, sourceFile, diagnostics) ?? value
+  if (typeKey(want) !== typeKey(value.type)) {
     pushDiag(
       diagnostics,
       sourceFile,
       right,
-      numericMismatch(`assign to ${typeKey(target.type)}`, target.type, value.type),
+      numericMismatch(`assign to ${typeKey(want)}`, want, value.type),
       TS_CODES.TYPE_MISMATCH,
     )
     return undefined
   }
-  return { s: 'assign', target, expr: value }
+  return target ? { s: 'assign', target, expr: value } : (accessor as AccessorTarget).write(value)
 }
 
 /**
@@ -887,8 +993,36 @@ function lowerBitwiseAssignOp(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
-  const target = lowerLValue(left, sourceFile, scope, diagnostics)
+  const accessor = lowerAccessorTarget(left, true, sourceFile, scope, diagnostics)
+  if (accessor === undefined) return undefined
+  return finishAccessorWrite(
+    lowerBitwiseAssignOpTo(accessor, left, bop, right, sourceFile, scope, diagnostics),
+    accessor,
+  )
+}
+
+/** {@link lowerBitwiseAssignOp} once the target is known: a place, or an accessor whose getter
+ *  stands in for the read (Rule 8.11). */
+function lowerBitwiseAssignOpTo(
+  accessor: AccessorTarget | 'not-an-accessor',
+  left: ts.Expression,
+  bop: BinOp,
+  right: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  const target =
+    accessor === 'not-an-accessor'
+      ? lowerLValue(left, sourceFile, scope, diagnostics)
+      : accessor.read
   if (!target) return undefined
+  if (
+    accessor === 'not-an-accessor' &&
+    refuseReadonlyWrite(target, left, sourceFile, scope, diagnostics)
+  ) {
+    return undefined
+  }
   const k = typeKey(target.type)
   if (k !== 'i32' && k !== 'u32') {
     pushDiag(
@@ -922,7 +1056,7 @@ function lowerBitwiseAssignOp(
         sourceFile,
         right,
         isShift
-          ? `Bitwise "${bop}=" needs a non-negative shift amount, got ${String(folded.value)}.`
+          ? shiftAmountMessage(folded.value)
           : `Bitwise "${bop}=" on a u32 target needs a non-negative value, got ${String(folded.value)}.`,
         TS_CODES.TYPE_MISMATCH,
       )
@@ -930,19 +1064,14 @@ function lowerBitwiseAssignOp(
     }
     value = { op: 'lit', type: want, value: folded.value }
   }
-  // A constant amount of 32 or more has no bit to shift into: WGSL makes it a shader-creation
-  // error and GLSL ES 3.00 leaves the result undefined, so it is refused here, as the negative
-  // amount above is. The fold is the one the loop bound uses, so `16 + 16` and a module const
-  // are caught with the literal; a runtime amount is left alone, since WGSL masks it (#71).
+  // A constant amount outside 0..31 has no bit to shift into: WGSL makes it a shader-creation
+  // error and GLSL ES 3.00 leaves the result undefined, so it is refused here (#71). The fold
+  // is the one the loop bound uses, so `16 + 16` and a module const are caught with the
+  // literal; a runtime amount is left alone, since WGSL masks it. `shiftAmountMessage` is the
+  // same sentence the binary path raises — one rule, one wording.
   const amount = isShift ? foldConstNumber(value, scope) : undefined
-  if (amount !== undefined && amount >= 32) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      right,
-      `Bitwise "${bop}=" needs a shift amount less than 32, got ${String(amount)}: a 32-bit integer has no bit to shift into.`,
-      TS_CODES.TYPE_MISMATCH,
-    )
+  if (amount !== undefined && shiftAmountOutOfRange(amount)) {
+    pushDiag(diagnostics, sourceFile, right, shiftAmountMessage(amount), TS_CODES.TYPE_MISMATCH)
     return undefined
   }
   if (isShift && typeKey(value.type) === 'i32') {
@@ -971,8 +1100,38 @@ function lowerAssignOp(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
-  const target = lowerLValue(left, sourceFile, scope, diagnostics)
+  // `o.x += v` where `x` is an accessor reads through its getter and writes through its setter
+  // (Rule 8.11): the checks below run on the getter's call as they would on a field.
+  const accessor = lowerAccessorTarget(left, true, sourceFile, scope, diagnostics)
+  if (accessor === undefined) return undefined
+  return finishAccessorWrite(
+    lowerAssignOpTo(accessor, left, bop, right, sourceFile, scope, diagnostics),
+    accessor,
+  )
+}
+
+/** {@link lowerAssignOp} once the target is known: a place, or an accessor whose getter stands
+ *  in for the read (Rule 8.11). */
+function lowerAssignOpTo(
+  accessor: AccessorTarget | 'not-an-accessor',
+  left: ts.Expression,
+  bop: BinOp,
+  right: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  const target =
+    accessor === 'not-an-accessor'
+      ? lowerLValue(left, sourceFile, scope, diagnostics)
+      : accessor.read
   if (!target) return undefined
+  if (
+    accessor === 'not-an-accessor' &&
+    refuseReadonlyWrite(target, left, sourceFile, scope, diagnostics)
+  ) {
+    return undefined
+  }
   let value = lowerExpression(right, sourceFile, scope, diagnostics)
   if (!value) return undefined
   // The same refusal `a / b` gets in lowerBinary (#68): a divisor proven zero is undefined on
@@ -1090,6 +1249,11 @@ export function lowerLValue(
   // walk looked through them, and the fallback message then denied its own input).
   const node = ts.isParenthesizedExpression(expression) ? unwrapParens(expression) : expression
   if (ts.isPropertyAccessExpression(node)) {
+    // `C.count = 1`, and `this.count += 1` in a static member: a static field the file writes
+    // is a module variable, and it is the place (Rule 8.13).
+    const statik = lowerStaticFieldTarget(node, sourceFile, scope, diagnostics)
+    if (statik === 'refused') return undefined
+    if (statik !== undefined) return statik
     return lowerMemberLValue(node, sourceFile, scope, diagnostics)
   }
   // `this` as a whole is a place inside a constructor or a method that changes its object,
@@ -1134,6 +1298,11 @@ export function lowerLValue(
         `Cannot assign to "${truncate(node.getText(sourceFile))}" — it is not a place.`,
         TS_CODES.ASSIGN_TARGET,
       )
+      return undefined
+    }
+    const getter = getterInChain(idx)
+    if (getter !== undefined) {
+      refuseWriteThroughGetter(node, getter, sourceFile, diagnostics)
       return undefined
     }
     if (!checkRootMutable(node, sourceFile, scope, diagnostics)) return undefined
@@ -1181,12 +1350,10 @@ export function lowerLValue(
     )
     return undefined
   }
-  if (binding.kind === 'param')
-    return withSpan(
-      { op: 'param', type: binding.type, name: irNameOf(binding) } as Expr,
-      sourceFile,
-      node,
-    )
+  if (binding.kind === 'param') {
+    refuseParamWrite(node, node.text, sourceFile, diagnostics)
+    return undefined
+  }
   return withSpan(
     { op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr,
     sourceFile,
@@ -1207,6 +1374,32 @@ function rootLValueName(node: ts.Expression): ts.Identifier | ts.ThisExpression 
     return rootLValueName(node.expression)
   }
   return undefined
+}
+
+/** The static field at the root of a member or element chain, `C.v` in `C.v.x = 1.` or `this.v`
+ *  in a static member, with how a message names it; undefined for a chain rooted in a value. */
+function staticRootOf(
+  node: ts.Expression,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): { binding: Binding; owner: string; written: string } | undefined {
+  let at = unwrapParens(node)
+  for (;;) {
+    if (ts.isPropertyAccessExpression(at)) {
+      const owner = staticOwnerOf(at.expression, scope)
+      if (owner !== undefined) {
+        const binding = staticFieldBinding(owner, at.name.text, scope, sourceFile)
+        return binding === undefined ? undefined : { binding, owner, written: at.name.text }
+      }
+      at = unwrapParens(at.expression)
+      continue
+    }
+    if (ts.isElementAccessExpression(at)) {
+      at = unwrapParens(at.expression)
+      continue
+    }
+    return undefined
+  }
 }
 
 /** Lowers `v.x`, `o.pos`, `ps[i].a` and `o.pos.x` as an assignment target. The IR `assign`
@@ -1261,6 +1454,20 @@ function checkRootNamed(
     return false
   }
   const rootName = ts.isIdentifier(root) ? root.text : 'this'
+  // A chain rooted in a static field, `C.v.x` or `this.v.x` in a static member: the static is
+  // the root that has to take the write (Rule 8.13).
+  const statik = staticRootOf(node, scope, sourceFile)
+  if (statik !== undefined) {
+    if (statik.binding.kind === 'modvar') return true
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      staticConstantWrite(statik.owner, statik.written, sourceFile),
+      TS_CODES.CONST_ASSIGN,
+    )
+    return false
+  }
   const binding = scope.resolve(rootName)
   if (!binding) {
     pushDiag(
@@ -1277,14 +1484,24 @@ function checkRootNamed(
     return false
   }
   if (binding.kind === 'param' && rootName === 'this') {
-    // A method that changes its object returns nothing, so its caller can write the object
-    // back (§26); in a method that returns a value the object is its read-only parameter.
+    // Every method that writes `this` takes it by reference (§26), whatever it returns, so
+    // the object is a read-only parameter only in a body reached through `super`: the base's
+    // body lowered once more against this class, with no receiver of its own to write
+    // through. The write is inside the BASE's method, so the message names the `super` call
+    // that brought it here. This read "A method that changes its object returns nothing"
+    // until a method that changes its object could return a value.
+    const owner = scope.owner()
+    const shown = owner === undefined ? undefined : classFunctionOf(owner)?.shown
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `A method that changes its object returns nothing (§26): declare this method void and ` +
-        `call it on its own line, or keep this one reading and return the new value.`,
+      shown?.startsWith('super.')
+        ? `"${shown}" runs the base's body on an object it can only read, so the body cannot ` +
+            `write "this" (§26). Move the write into a method no class overrides and call that ` +
+            `on "this" instead.`
+        : `${shown === undefined ? 'This body' : `"${shown}"`} reads its object only, so it ` +
+            `cannot write "this" (§26).`,
       TS_CODES.CLASS_MEMBER,
     )
     return false
@@ -1384,6 +1601,13 @@ function lowerMemberLValue(
   if (!checkRootNamed(node.expression, sourceFile, scope, diagnostics)) return undefined
   const target = lowerExpression(node, sourceFile, scope, diagnostics)
   if (!target) return undefined
+  // A write through what a getter returns lands on a copy (Rule 8.11): `o.pos.x = 1.` with
+  // `pos` an accessor, and `o.pos` itself as the receiver of a method that writes.
+  const getter = getterInChain(target)
+  if (getter !== undefined) {
+    refuseWriteThroughGetter(node, getter, sourceFile, diagnostics)
+    return undefined
+  }
   if (target.op !== 'member') {
     pushDiag(
       diagnostics,
@@ -1494,4 +1718,35 @@ function pushDiag(
 function truncate(s: string, n = 60): string {
   const t = s.replace(/\s+/g, ' ').trim()
   return t.length <= n ? t : t.slice(0, n) + '…'
+}
+
+/** A WHOLE-parameter write, refused for every spelling that reaches one: `a = v`, `a += v`,
+ *  `a++`. WGSL formal parameters are values, not references, and Tint says so outright:
+ *  `cannot assign to parameter 'a'` / `parameters are immutable`. The compiler emitted
+ *  `a = 1.0;` with zero diagnostics (§52), and the docs called it a bug it did not catch.
+ *
+ *  NOT shadowed by `var a = a;`, which is what the issue proposed: that is `redeclaration of
+ *  'a'` on the same Tint, because a WGSL function's parameters and its top-level locals share
+ *  one scope. A shadow would therefore have to RENAME the local, changing the identifier the
+ *  author wrote and a debugger shows, to save one line. So the line is asked for instead. A
+ *  write THROUGH a parameter (`p.x = 1.`) keeps its own message, which `checkRootWritable`
+ *  raises before this.
+ *
+ *  ONE function because the three spellings lower in two different files: `lowerAssign` here
+ *  and `lowerUpdate` in control.ts, which built its own `{ op: 'param' }` target and so
+ *  emitted `a = (a + 1);` past this rule until it called this. */
+export function refuseParamWrite(
+  node: ts.Node,
+  name: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `Cannot assign to "${name}" — a parameter is a value, not a variable. Copy it ` +
+      `into a local first: "let ${name}_ = ${name};", then write that.`,
+    TS_CODES.ASSIGN_TARGET,
+  )
 }

@@ -2,8 +2,16 @@
 //
 // Drops a function-local `let`/`var` whose name is never read, and a `call` statement
 // whose call has no effect. Conservative + safe: exprs are pure EXCEPT for a call to a
-// function that writes a binding (passes/effects.ts), so an unread binding has no observable
-// effect, and a `call` statement is kept exactly when its call has one (issue #47):
+// function that writes a binding or its caller's value, or to an effectful intrinsic
+// (passes/effects.ts), so an unread binding whose initializer has no effect has no observable
+// effect, and a `call` statement is kept exactly when its call has one (issue #47). An unread
+// binding whose initializer DOES have an effect keeps it: `const r = rng.next()` with `r`
+// never read still advances `rng`, so the binding becomes the call statement it amounts to.
+// It used to be dropped whole, write and all: `const unused = next()` on a helper that bumps a
+// module variable vanished from both emits while the CPU oracle, which runs no optimizer,
+// still ran it, and a method that changes its object and returns a value (§26) made that the
+// common case. An unread `let w = workgroupUniformLoad(flag)` still synchronises, and keeps
+// its declaration rather than becoming a call statement (see dropDead).
 //   • "used" = any varref/param occurrence ANYWHERE in the fn (incl. an assign
 //     target — so an assigned-but-unread var is kept, not dropped). One pass; a
 //     binding dead only via another dead binding survives (iterate later).
@@ -14,7 +22,7 @@
 //     (deferred to the resource model, P4).
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
-import { exprHasEffect, fnWrites, type FnWrites } from '../effects.js'
+import { exprHasEffect, exprWrites, fnWrites, type FnWrites } from '../effects.js'
 
 function collectExprNames(e: Expr, out: Set<string>): void {
   switch (e.op) {
@@ -118,7 +126,19 @@ export function bodyHasRaw(body: readonly Stmt[]): boolean {
 function dropDead(body: readonly Stmt[], used: ReadonlySet<string>, writes: FnWrites): Stmt[] {
   const out: Stmt[] = []
   for (const s of body) {
-    if ((s.s === 'let' || s.s === 'var') && !used.has(s.name)) continue // dead local
+    if ((s.s === 'let' || s.s === 'var') && !used.has(s.name)) {
+      // A dead local, unless its initializer does something besides produce the value. A
+      // write stays as the call statement a bare call amounts to, or as the declaration when
+      // the call sits deeper. An effect that writes nothing — `workgroupUniformLoad`
+      // synchronises — keeps the declaration: WGSL's @must_use builtins cannot stand alone as
+      // a call statement, and an unread `let old = atomicAdd(cnt, 1u)` still counts either way.
+      const init = s.s === 'let' ? s.expr : s.init
+      if (init === undefined || !exprHasEffect(init, writes)) continue
+      if (init.op === 'call' && exprWrites(init, writes)) {
+        out.push({ s: 'call', expr: init, ...(s.span !== undefined ? { span: s.span } : {}) })
+        continue
+      }
+    }
     // A call kept for its effect stays; one with none (`max(a, b);`, or a call a pass folded
     // to a value) computes and drops, which is nothing.
     if (s.s === 'call' && !exprHasEffect(s.expr, writes)) continue
@@ -133,7 +153,7 @@ function dropDead(body: readonly Stmt[], used: ReadonlySet<string>, writes: FnWr
     } else if (s.s === 'switch') {
       out.push({
         ...s,
-        cases: s.cases.map((c) => ({ value: c.value, body: dropDead(c.body, used, writes) })),
+        cases: s.cases.map((c) => ({ values: c.values, body: dropDead(c.body, used, writes) })),
         defaultBody: s.defaultBody ? dropDead(s.defaultBody, used, writes) : undefined,
       })
     } else {

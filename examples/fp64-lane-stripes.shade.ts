@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Emulated doubles",
+  "blurb": "The `f64` surface as source (§39): an `f64` uniform field lifted against a literal and an f32, a lane of a `vec3f64` read as `p.x` and `p[1]`, `vec3(p)` narrowing per lane, `length`/`dot` typed `f64`, `round` through the ties-to-even df64 body, and nothing crossing the entry boundary: a double cannot be a varying, so the fragment stage reads the uniform itself, which is the remedy the refusal names. A world coordinate near 10⁷ stripes on the emulated half and goes flat on the plain-f32 half; the gate runs both targets and the oracle checks the numeric core against the double.",
+  "renderable": true
+}
+*/
+
 // The emulated-double surface as an author writes it (§39). Every construct this file uses
 // was a diagnostic, a type lie or an emit-time SD0041 before #151, so it doubles as the
 // gated proof that the front end now admits exactly what the fp64 pass can lower:

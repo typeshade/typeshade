@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Array literals",
+  "blurb": "A fullscreen triangle whose corners come from two `array<f32, 3>` lists and whose colour comes from an `array<vec3, 3>` of stops weighted by an `array<i32, 3>` — a list at every element type the initializer form takes, through Tint and a real WebGL2 context.",
+  "renderable": true
+}
+*/
+
 // The gated example for a list as a local array's initializer (#8 A16). Before it, nothing the
 // compile gate emits wrote `[...]`, so the gate said as much about A16 as it did before A16
 // existed. Both stages go to a real compiler: WGSL to Tint, GLSL ES 3.00 to a WebGL2 context

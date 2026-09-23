@@ -28,7 +28,7 @@ export const TS_CODES = {
   TOP_LEVEL: 'TS8014',
   BACKEND: 'TS8015',
   INDEX_OOB: 'TS8016',
-  /** Invalid `switch` case: a label that is not an integer constant, does not fit the selector, or repeats another; a fall-through case body; or `continue` in a switch no loop encloses. */
+  /** Invalid `switch` case: a label that is not an integer constant, does not fit the selector, or repeats another; an empty clause with no body below it to share (a trailing one, or one above `default:`); or `continue` in a switch no loop encloses. */
   SWITCH_CASE: 'TS8017',
   /** An assignment or `++`/`--` target that is not a writable name (not an identifier, unknown, or a non-writable parameter). Assigning to a known immutable binding is `CONST_ASSIGN` instead. */
   ASSIGN_TARGET: 'TS8018',
@@ -81,11 +81,23 @@ export const TS_CODES = {
    *  a branch on a value the invocations do not share is how a workgroup waits forever; or as
    *  a value, since a barrier is a statement (roadmap 0.2 item 5, #82). */
   BARRIER_PLACEMENT: 'TS8034',
-  /** A class member shape the surface does not take, or a method call the class rules refuse
-   *  (#86): a getter or setter, an overload, an arrow-function field, a static field, a
-   *  decorator on a method, `this` outside a method or inside a static one, a method that
-   *  assigns to `this` (the next step), a parameter named `self`, a call of an instance
-   *  method on the class or of a static one on a value, or a name the class does not have. */
+  /** A class member shape the surface does not take, or a use of a member the class rules
+   *  refuse (#86). Getters and setters, static fields and methods, overload signatures,
+   *  abstract members, `#` private names and methods that change their object all compile
+   *  (#190). What is refused, in the declaration: a field holding a function (an arrow
+   *  function), a static block, an index signature, a second constructor, a decorator on a
+   *  method or on a parameter property, an `async` or generator method, one name declared as
+   *  two kinds of member, two members that would emit one function or constant name (a
+   *  private name loses its `#`), and a parameter named `self_`, the name the emitted function
+   *  gives its object. In a use: `this` outside a method, or naming an instance field in a
+   *  static one; `super.m` with no body above to name; an instance method called on the class
+   *  or a static one on a value; a member the class does not have; a `#` member reached
+   *  outside its class body; a getter with no setter assigned, or a setter with no getter
+   *  read; a compound assignment through a getter and setter whose object would run twice; a
+   *  method that changes its object called on something it cannot write (a parameter, a
+   *  `const`, a dropped value) or used as a value when it returns nothing; and `new` on a
+   *  class that declares only statics. A getter or setter missing its type is `UNKNOWN_TYPE`,
+   *  a `readonly` field written outside the constructor `CONST_ASSIGN`. */
   CLASS_MEMBER: 'TS8035',
   /** A math builtin called with arguments its signature does not take (#57, §10): two shapes
    *  that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` with a vector `v`), an element
@@ -128,6 +140,29 @@ export const TS_CODES = {
    *  an access mode that forbids the call — stays `TYPE_MISMATCH`: that is the binding's
    *  declaration, not the call's argument. */
   TEXTURE_ARGUMENT: 'TS8041',
+  /** A file-level `"enable <extension>";` directive (§50) naming an extension outside the
+   *  vocabulary the WGSL backend's capability profile carries a directive for
+   *  (`clip_distances`, `dual_source_blending`, `f16`, `primitive_index`, `subgroups`). A
+   *  misspelled name would otherwise be an ordinary string expression statement and silently
+   *  enable nothing. */
+  ENABLE_NAME: 'TS8050',
+  /** A buffer binding's store type breaks one of WGSL's host-shareable rules (§51), which a
+   *  struct hides from the type map and the backend only meets as emitted text: a `bool`
+   *  field in a `uniform` or `storage` struct (`type 'bool' cannot be used in address space
+   *  'uniform' as it is non-host-shareable`), a runtime-sized `array<T>` that is not its
+   *  struct's last member, or a runtime-sized array in a uniform, whose type must be
+   *  constructible. Also a two-row matrix (`mat2x2`, `mat3x2`, `mat4x2`) in a uniform, which
+   *  WGSL and std140 lay out at different offsets (Rule 4.8, surface §40). */
+  LAYOUT: 'TS8051',
+  /** A call that needs uniform control flow — `textureSample` and the other implicit-LOD
+   *  forms, the derivatives, or a barrier — reached under a condition that is not uniform
+   *  across the invocations that run together (§54). */
+  UNIFORMITY: 'TS8052',
+  /** A DEPRECATION warning, not an error: an integer-written literal in a declaration that
+   *  declares no type still becomes `f32` and will become `i32` (§13, #148).
+   *  Reported only when the caller asks for it with `deprecations: true`; the compiler's
+   *  behaviour has not changed. */
+  INT_LITERAL_DEPRECATION: 'TS8053',
   /** A declared name that a target reserves, checked on the name the emit actually carries
    *  (#103): `half` as a struct field, which ANGLE answers with "Illegal use of reserved
    *  word" in generated text the author never wrote, or `as` as a local, which Tint refuses.

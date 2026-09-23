@@ -48,7 +48,15 @@ import type { AddressInfo } from 'node:net'
 import { chromium } from 'playwright'
 import { examples } from '../examples/index.js'
 import { shadeExamples } from '../examples/_shade.js'
-import { emitGlslModule, emitModule } from '../src/index.js'
+import {
+  emitGlslModule,
+  emitModule,
+  hostFeaturesFor,
+  reflect,
+  wgslBackend,
+  type Capability,
+} from '../src/index.js'
+import type { FuncDecl, ModuleDecl, ShaderType } from '../src/index.js'
 
 /** The four flags that make WebGPU exist on SwiftShader. `--enable-unsafe-webgpu` alone
  *  leaves `'gpu' in navigator === false` without `--enable-unsafe-swiftshader`. */
@@ -60,11 +68,29 @@ const CHROMIUM_ARGS = [
   '--enable-features=Vulkan',
 ]
 
+/** Everything `createRenderPipeline` needs beyond the module, derived from the IR entries.
+ *  `null` when this example is not a render pair, or when one of its IO types has no WebGPU
+ *  format here — `skipped` then says which, so a silent `—` is never a silent hole. */
+interface PipelineSpec {
+  readonly vertexEntry: string
+  readonly fragmentEntry: string
+  /** One buffer per `@location` vertex input, each its own array: the gate only validates the
+   *  layout, and one attribute per buffer is the layout that needs no packing rules. */
+  readonly buffers: {
+    arrayStride: number
+    attributes: { shaderLocation: number; offset: number; format: string }[]
+  }[]
+  readonly targets: { format: string }[]
+}
+
 interface Job {
   readonly id: string
   readonly wgsl: string
   /** Both stages, or `null` for an example with no GLSL ES 3.00 form (compute-only). */
   readonly glsl: { readonly vertex: string; readonly fragment: string } | null
+  /** The render pipeline to create from `wgsl`, or `null` with the reason in `pipelineSkip`. */
+  readonly pipeline: PipelineSpec | null
+  readonly pipelineSkip: string
 }
 
 interface Verdict {
@@ -73,13 +99,22 @@ interface Verdict {
   readonly wgslErrors: readonly string[]
   /** `null` when the example has no GLSL form; else the compile + link errors. */
   readonly glslErrors: readonly string[] | null
+  /** `null` when there is no render pair to build; else the pipeline-creation errors. */
+  readonly pipelineErrors: readonly string[] | null
 }
 
 interface PageReport {
   readonly adapter: string
+  /** The optional device features the corpus asked for and this adapter granted. */
+  readonly granted: readonly string[]
+  /** The ones it asked for and this adapter does not have — printed, never silently dropped. */
+  readonly missing: readonly string[]
   /** The instrument check: did each compiler REPORT the deliberately broken shader? */
   readonly brokenWgslReported: boolean
   readonly brokenGlslReported: boolean
+  /** The pipeline leg's own instrument: a pipeline that is invalid for a reason
+   *  `createShaderModule` cannot see must be REPORTED, or the leg is blind. */
+  readonly brokenPipelineReported: boolean
   readonly verdicts: readonly Verdict[]
 }
 
@@ -93,6 +128,138 @@ const corrupt = (text: string): string => `${text}\n/* cut */ fn broken( {`
 /** Everything the gate compiles: the EDSL registry, then the `"use typeshade"` corpus. */
 const ALL_EXAMPLES = [...examples, ...shadeExamples]
 
+// ── The render-pipeline leg (#155) ──
+//
+// WHAT IT ADDS, measured rather than assumed. The audit expected the stage rules to surface
+// only at `createRenderPipeline`; on THIS SwiftShader build (2026-09-21) they do not — a vertex
+// entry calling `textureSample` is reported by `createShaderModule` itself ("built-in cannot be
+// used by vertex pipeline stage"), and so are all eight of the storage-texture stage gaps. The
+// existing WGSL leg already sees that class, and the note is left here because the opposite
+// claim is easy to re-derive from the spec and wrong.
+//
+// What the pipeline leg demonstrably adds is everything validated ABOUT a module rather than
+// INSIDE it: the vertex state against the entry's `@location` inputs, and the colour targets
+// against its outputs. That is a real class — a shader whose attributes no buffer supplies
+// compiles and cannot draw — and it is the class the instrument check below exercises. A
+// future driver that does defer the stage or uniformity errors to pipeline creation is then
+// already covered, at no extra cost.
+//
+// WHAT IT NEEDS. A pipeline is more than a module: WebGPU validates the vertex state against
+// the entry's `@location` inputs and the fragment targets against its outputs. Both are
+// derived from the IR below rather than authored, so an example gains its pipeline arm by
+// existing. An IO type with no format here yields `null` and a printed reason — never a
+// silent skip, which would make the leg look bigger than it is.
+
+/** The `GPUVertexFormat` for a vertex attribute of this type, or `''` when there is none. */
+function vertexFormat(t: ShaderType): string {
+  if (t.kind === 'scalar') {
+    return t.scalar === 'f32'
+      ? 'float32'
+      : t.scalar === 'i32'
+        ? 'sint32'
+        : t.scalar === 'u32'
+          ? 'uint32'
+          : ''
+  }
+  if (t.kind === 'vec' && t.n >= 2 && t.n <= 4) {
+    const base =
+      t.elem === 'f32' ? 'float32' : t.elem === 'i32' ? 'sint32' : t.elem === 'u32' ? 'uint32' : ''
+    return base === '' ? '' : `${base}x${String(t.n)}`
+  }
+  return ''
+}
+
+/** Bytes an attribute of this type occupies — every format above is four bytes per component. */
+const vertexStride = (t: ShaderType): number => (t.kind === 'vec' ? t.n * 4 : 4)
+
+/** A colour target whose format accepts this fragment output, or `''` when none does. */
+function targetFormat(t: ShaderType): string {
+  if (t.kind === 'scalar' && t.scalar === 'f32') return 'r32float'
+  if (t.kind !== 'vec' || t.n !== 4) return ''
+  return t.elem === 'f32'
+    ? 'rgba8unorm'
+    : t.elem === 'u32'
+      ? 'rgba8uint'
+      : t.elem === 'i32'
+        ? 'rgba8sint'
+        : ''
+}
+
+const stageOfFn = (f: FuncDecl): string =>
+  f.stage ??
+  (f.attrs?.some((a) => a.startsWith('@vertex')) === true
+    ? 'vertex'
+    : f.attrs?.some((a) => a.startsWith('@fragment')) === true
+      ? 'fragment'
+      : '')
+
+/** The `@location` fields of an entry's IO, flattened: a bare parameter that carries one, or
+ *  the located fields of the struct it takes (or returns). A `@builtin` carries no location
+ *  and is supplied by the pipeline, so it is not listed. */
+function locatedIo(
+  m: ModuleDecl,
+  type: ShaderType,
+  location: number | undefined,
+): { location: number; type: ShaderType }[] | null {
+  if (location !== undefined) return [{ location, type }]
+  if (type.kind !== 'struct') return []
+  const decl = m.structs.find((s) => s.name === type.name)
+  if (decl === undefined) return null
+  return decl.fields.flatMap((f) =>
+    f.location === undefined ? [] : [{ location: f.location, type: f.type }],
+  )
+}
+
+/** The pipeline for a render pair, or `[null, reason]`. */
+function pipelineOf(m: ModuleDecl): [PipelineSpec | null, string] {
+  const vs = m.funcs.find((f) => stageOfFn(f) === 'vertex')
+  const fs = m.funcs.find((f) => stageOfFn(f) === 'fragment')
+  if (vs === undefined || fs === undefined) return [null, 'no vertex + fragment pair']
+
+  const inputs: { location: number; type: ShaderType }[] = []
+  for (const p of vs.params) {
+    if (p.builtin !== undefined) continue
+    const located = locatedIo(m, p.type, p.location)
+    if (located === null)
+      return [null, `vertex input struct ${JSON.stringify(p.type)} is not declared`]
+    inputs.push(...located)
+  }
+  const buffers = []
+  for (const input of inputs) {
+    const format = vertexFormat(input.type)
+    if (format === '')
+      return [null, `no GPUVertexFormat for a @location(${String(input.location)}) input`]
+    buffers.push({
+      arrayStride: vertexStride(input.type),
+      attributes: [{ shaderLocation: input.location, offset: 0, format }],
+    })
+  }
+
+  const ret = fs.ret
+  const outputs = locatedIo(m, ret, ret.kind === 'struct' ? undefined : 0)
+  if (outputs === null) return [null, 'fragment output struct is not declared']
+  if (outputs.length === 0) return [null, 'the fragment entry writes no @location output']
+  // A `@builtin(frag_depth)` output needs a depth attachment the gate does not describe.
+  const retStruct = ret.kind === 'struct' ? m.structs.find((st) => st.name === ret.name) : undefined
+  if (retStruct?.fields.some((f) => f.builtin === 'frag_depth') === true) {
+    return [null, 'the fragment entry writes @builtin(frag_depth), which needs a depth attachment']
+  }
+  // Targets are POSITIONAL in WebGPU, so a gap in the `@location` numbering (0 and 2) would put
+  // location 2's format at index 1 and validate the wrong thing. Refuse the module instead.
+  const sorted = [...outputs].sort((a, b) => a.location - b.location)
+  if (sorted.some((out, i) => out.location !== i)) {
+    return [null, 'the fragment @location numbers have a gap, which a target list cannot express']
+  }
+  const targets: { format: string }[] = []
+  for (const out of sorted) {
+    const format = targetFormat(out.type)
+    if (format === '')
+      return [null, `no colour-target format for a @location(${String(out.location)}) output`]
+    targets.push({ format })
+  }
+  return [{ vertexEntry: vs.name, fragmentEntry: fs.name, buffers, targets }, '']
+}
+
 function jobs(): Job[] {
   return ALL_EXAMPLES.map((ex) => {
     const cut = ex.id === CUT
@@ -103,12 +270,25 @@ function jobs(): Job[] {
           fragment: emitGlslModule(ex.module, 'fragment'),
         }
       : null
+    const [pipeline, pipelineSkip] = pipelineOf(ex.module)
     return {
       id: ex.id,
       wgsl: cut ? corrupt(wgsl) : wgsl,
       glsl: glsl && cut ? { vertex: corrupt(glsl.vertex), fragment: corrupt(glsl.fragment) } : glsl,
+      pipeline,
+      pipelineSkip,
     }
   })
+}
+
+/** The optional WebGPU features the corpus needs, derived from the modules themselves rather
+ *  than listed by hand: a capability an example requires translates into the `requiredFeatures`
+ *  string the WGSL target wants, which is exactly what a host would pass `requestDevice`. An
+ *  example that opts into nothing contributes nothing, so this is empty for most corpora. */
+function wantedFeatures(): string[] {
+  const caps = new Set<Capability>()
+  for (const ex of ALL_EXAMPLES) for (const c of reflect(ex.module).requiredFeatures) caps.add(c)
+  return [...new Set(hostFeaturesFor(wgslBackend, [...caps]))].sort()
 }
 
 /** A page on loopback — a secure context, so `navigator.gpu` exists. Serves one empty document. */
@@ -123,13 +303,26 @@ function serve(): Promise<Server> {
 }
 
 /** Runs INSIDE the browser. Plain DOM + WebGPU + WebGL2 — nothing from this package. */
-async function compileInPage(input: { jobs: Job[]; broken: string }): Promise<PageReport> {
+async function compileInPage(input: {
+  jobs: Job[]
+  broken: string
+  brokenPipeline: { code: string; vertexEntry: string; fragmentEntry: string }
+  wanted: string[]
+}): Promise<PageReport> {
   if (!('gpu' in navigator) || navigator.gpu === undefined) {
     throw new Error('navigator.gpu is absent — WebGPU is not reachable in this browser')
   }
   const adapter = await navigator.gpu.requestAdapter()
   if (adapter === null) throw new Error('requestAdapter() returned null — no WebGPU adapter')
-  const device = await adapter.requestDevice()
+  // The OPTIONAL features the corpus asks for, intersected with what this adapter has.
+  // `requestDevice()` with no list gives a device with none of them, and Tint then refuses
+  // `enable clip_distances;` with `extension 'clip_distances' is not allowed in the current
+  // environment` — which reads like a bad emit and is not one. An example that needs a
+  // feature the adapter genuinely lacks is reported below rather than silently compiled
+  // against a device that cannot honour it.
+  const granted = input.wanted.filter((f) => adapter.features.has(f as GPUFeatureName))
+  const missing = input.wanted.filter((f) => !adapter.features.has(f as GPUFeatureName))
+  const device = await adapter.requestDevice({ requiredFeatures: granted as GPUFeatureName[] })
   const info = adapter.info
   const adapterLabel = `${info.vendor || '?'} / ${info.architecture || '?'} / ${info.description || info.device || '?'}`
 
@@ -142,6 +335,37 @@ async function compileInPage(input: { jobs: Job[]; broken: string }): Promise<Pa
       .filter((m) => m.type === 'error')
       .map((m) => `${String(m.lineNum)}:${String(m.linePos)} ${m.message}`)
     if (scope !== null) errors.push(`validation: ${scope.message}`)
+    return errors
+  }
+
+  /** Create the render pipeline and return the validation errors. A stage rule and the
+   *  uniformity analysis are reported HERE, not at `createShaderModule`. */
+  async function pipelineErrors(
+    code: string,
+    spec: { vertexEntry: string; fragmentEntry: string; buffers: unknown[]; targets: unknown[] },
+  ): Promise<string[]> {
+    device.pushErrorScope('validation')
+    const errors: string[] = []
+    try {
+      const module = device.createShaderModule({ code })
+      device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+          module,
+          entryPoint: spec.vertexEntry,
+          buffers: spec.buffers as GPUVertexBufferLayout[],
+        },
+        fragment: {
+          module,
+          entryPoint: spec.fragmentEntry,
+          targets: spec.targets as GPUColorTargetState[],
+        },
+      })
+    } catch (e) {
+      errors.push(`threw: ${e instanceof Error ? e.message : String(e)}`)
+    }
+    const scope = await device.popErrorScope()
+    if (scope !== null) errors.push(scope.message)
     return errors
   }
 
@@ -191,6 +415,20 @@ async function compileInPage(input: { jobs: Job[]; broken: string }): Promise<Pa
   // The instrument check, FIRST: each compiler must report a non-program.
   const brokenWgslReported = (await wgslErrors(input.broken)).length > 0
   const brokenGlslReported = glslErrors(input.broken, input.broken).length > 0
+  // The pipeline leg's own instrument, and it must be a shader `createShaderModule` ACCEPTS:
+  // a module-level error would be caught by the WGSL leg above and would say nothing about
+  // whether pipeline creation is watched. A `@location` vertex input with no vertex buffer
+  // is invalid for the pipeline alone.
+  const brokenPipelineReported =
+    (await wgslErrors(input.brokenPipeline.code)).length === 0 &&
+    (
+      await pipelineErrors(input.brokenPipeline.code, {
+        vertexEntry: input.brokenPipeline.vertexEntry,
+        fragmentEntry: input.brokenPipeline.fragmentEntry,
+        buffers: [],
+        targets: [{ format: 'rgba8unorm' }],
+      })
+    ).length > 0
 
   const verdicts: Verdict[] = []
   for (const job of input.jobs) {
@@ -198,9 +436,18 @@ async function compileInPage(input: { jobs: Job[]; broken: string }): Promise<Pa
       id: job.id,
       wgslErrors: await wgslErrors(job.wgsl),
       glslErrors: job.glsl === null ? null : glslErrors(job.glsl.vertex, job.glsl.fragment),
+      pipelineErrors: job.pipeline === null ? null : await pipelineErrors(job.wgsl, job.pipeline),
     })
   }
-  return { adapter: adapterLabel, brokenWgslReported, brokenGlslReported, verdicts }
+  return {
+    adapter: adapterLabel,
+    granted,
+    missing,
+    brokenWgslReported,
+    brokenGlslReported,
+    brokenPipelineReported,
+    verdicts,
+  }
 }
 
 async function main(): Promise<number> {
@@ -226,7 +473,21 @@ async function main(): Promise<number> {
   try {
     const page = await browser.newPage()
     await page.goto(`http://127.0.0.1:${String(port)}/`)
-    report = await page.evaluate(compileInPage, { jobs: all, broken: 'fn broken( {' })
+    report = await page.evaluate(compileInPage, {
+      jobs: all,
+      broken: 'fn broken( {',
+      brokenPipeline: {
+        // A program Tint COMPILES and a pipeline must reject: the vertex entry reads
+        // `@location(0)`, and the pipeline below supplies no vertex buffer for it.
+        code: `struct In { @location(0) p: vec3<f32> }
+struct Out { @builtin(position) pos: vec4<f32> }
+@vertex fn vs_probe(i: In) -> Out { return Out(vec4<f32>(i.p, 1.0)); }
+@fragment fn fs_probe() -> @location(0) vec4<f32> { return vec4<f32>(1.0); }`,
+        vertexEntry: 'vs_probe',
+        fragmentEntry: 'fs_probe',
+      },
+      wanted: wantedFeatures(),
+    })
   } finally {
     await browser.close()
     server.close()
@@ -234,6 +495,12 @@ async function main(): Promise<number> {
 
   let failures = 0
   console.log(`compile gate — WebGPU adapter: ${report.adapter}`)
+  if (report.granted.length > 0 || report.missing.length > 0) {
+    console.log(
+      `features: requested ${report.granted.join(', ') || '(none)'}` +
+        (report.missing.length > 0 ? ` · NOT on this adapter: ${report.missing.join(', ')}` : ''),
+    )
+  }
   // The instrument verdict is printed on BOTH paths. A check whose success is silent cannot be
   // told apart, in a CI log, from a check that was deleted — and this one is the only reason to
   // believe the greens below (CLAUDE.md §12: validate the instrument before believing a zero).
@@ -246,22 +513,45 @@ async function main(): Promise<number> {
     )
     failures += 1
   }
+  // The pipeline leg has its own instrument, because its failure mode is different: a leg
+  // that silently created nothing would print `ok` for every example.
+  if (report.brokenPipelineReported) {
+    console.log(
+      'instrument: a module Tint COMPILES was REJECTED at createRenderPipeline — the pipeline leg can fail',
+    )
+  } else {
+    console.error(
+      'FAIL instrument: createRenderPipeline accepted a pipeline with an unsupplied vertex ' +
+        'attribute — the pipeline verdicts below would be blind',
+    )
+    failures += 1
+  }
   const width = Math.max(...report.verdicts.map((v) => v.id.length))
+  const skipReason = new Map(all.map((j) => [j.id, j.pipelineSkip]))
   for (const v of report.verdicts) {
     const wgsl = v.wgslErrors.length === 0 ? 'ok' : 'FAIL'
     const glsl = v.glslErrors === null ? '—' : v.glslErrors.length === 0 ? 'ok' : 'FAIL'
-    const bad = wgsl === 'FAIL' || glsl === 'FAIL'
+    const pipe = v.pipelineErrors === null ? '—' : v.pipelineErrors.length === 0 ? 'ok' : 'FAIL'
+    const bad = wgsl === 'FAIL' || glsl === 'FAIL' || pipe === 'FAIL'
     if (bad) failures += 1
     console.log(
-      `${bad ? 'FAIL' : 'ok  '}  ${v.id.padEnd(width)}  wgsl→Tint ${wgsl.padEnd(4)}  glsl→WebGL2 ${glsl}`,
+      `${bad ? 'FAIL' : 'ok  '}  ${v.id.padEnd(width)}  wgsl→Tint ${wgsl.padEnd(4)}  ` +
+        `glsl→WebGL2 ${glsl.padEnd(4)}  pipeline ${pipe}`,
     )
     for (const e of v.wgslErrors) console.log(`        wgsl: ${e}`)
     for (const e of v.glslErrors ?? []) console.log(`        glsl: ${e}`)
+    for (const e of v.pipelineErrors ?? []) console.log(`        pipeline: ${e}`)
+    // A `—` in the pipeline column is a decision, so it says which one.
+    if (v.pipelineErrors === null) {
+      console.log(`        pipeline: not built — ${skipReason.get(v.id) ?? 'unknown'}`)
+    }
   }
   const withGlsl = report.verdicts.filter((v) => v.glslErrors !== null).length
+  const withPipeline = report.verdicts.filter((v) => v.pipelineErrors !== null).length
   console.log(
     `${String(report.verdicts.length)} examples · WGSL on Tint: ${String(report.verdicts.length)} · ` +
-      `GLSL ES 3.00 on WebGL2: ${String(withGlsl)} (vertex + fragment + link) · failures: ${String(failures)}`,
+      `GLSL ES 3.00 on WebGL2: ${String(withGlsl)} (vertex + fragment + link) · ` +
+      `render pipelines on Tint: ${String(withPipeline)} · failures: ${String(failures)}`,
   )
   return failures === 0 ? 0 : 1
 }

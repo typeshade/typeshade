@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Default parameter values",
+  "blurb": "Three helpers with default parameters, each called with a different argument omitted (§14). Neither target has default arguments, so the emitted function keeps every parameter and the call site carries the value: `vignette(v.uv)` emits `vignette(v.uv, 0.8, 1.35)`. A default may read a module const and call a helper, since it is lowered once in the module's scope.",
+  "renderable": true
+}
+*/
+
 // Default parameter values (roadmap 0.3 item T7, §14): `function vignette(uv: vec2, strength:
 // f32 = 0.8)` is ordinary TypeScript, and `vignette(uv)` is how it is then called. Neither WGSL
 // nor GLSL has default arguments, so the emitted function keeps every parameter and the missing

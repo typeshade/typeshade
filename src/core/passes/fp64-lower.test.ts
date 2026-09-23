@@ -4,21 +4,46 @@ import { describe, it, expect } from 'vitest'
 import {
   fn,
   module,
+  f64,
   f64T,
+  f32,
   f32T,
+  i32,
   vec4fT,
   vec3f64T,
+  mat3f64T,
   toF32,
   toF64,
   sqrt,
   sin,
   cos,
   exp,
+  abs,
+  min,
+  max,
+  mix,
+  floor,
+  fract,
+  dot,
+  length,
+  distance,
+  normalize,
+  mulMat64,
+  transformMat64,
+  transpose64,
+  constRef,
+  type Expr,
+  type FuncDecl,
+  type ModuleDecl,
+  type ReadonlyNode,
 } from '../ir/index.js'
-import { fp64Guard, FP64_GUARD_NAME } from '../fp64/df64-lib.js'
+import { eachExpr, eachStmtExpr } from '../ir/visit.js'
+import { fp64Guard, FP64_GUARD_NAME, DF64_ORDER } from '../fp64/df64-lib.js'
 import { ioStruct, location, builtin, uniformStruct, resource } from '../sot.js'
-import { fp64Lower } from './fp64-lower.js'
-import { emitModule } from '../backends/wgsl.js'
+import { fp64Lower, foldGuardChain, hoistGuardFetch } from './fp64-lower.js'
+import { emitModule, emitModuleAt } from '../backends/wgsl.js'
+import { emitGlslModule } from '../backends/glsl.js'
+import { compile } from '../../compiler/ts/compile.js'
 
 describe('identity for non-f64 modules', () => {
   it('returns the SAME module object when no f64 appears anywhere', () => {
@@ -56,7 +81,7 @@ describe('rewrite shapes', () => {
   it('a mixed f64∘f32 operand widens as vec2<f32>(x, 0.0) — the pass is the widen authority', () => {
     const k = fn('k', { a: f64T, s: f32T }, (p) => p.a.mul(p.s))
     const wgsl = emitModule(module({ funcs: [k] }))
-    expect(wgsl).toContain('df64_mul(a, vec2<f32>(s, 0.0))')
+    expect(wgsl).toContain('df64_mul(a, vec2<f32>(s, 0.0), _fp64_g)')
   })
 
   it('comparisons lower to the lexicographic df64 comparators', () => {
@@ -68,7 +93,9 @@ describe('rewrite shapes', () => {
   it('sqrt on f64 lowers to df64_sqrt; toF64/toF32 lower to widen/narrow', () => {
     const k = fn('k', { a: f64T, s: f32T }, (p) => toF32(sqrt(p.a.add(toF64(p.s)))))
     const wgsl = emitModule(module({ funcs: [k] }))
-    expect(wgsl).toContain('df64_narrow(df64_sqrt(df64_add(a, vec2<f32>(s, 0.0))))')
+    expect(wgsl).toContain(
+      'df64_narrow(df64_sqrt(df64_add(a, vec2<f32>(s, 0.0), _fp64_g), _fp64_g))',
+    )
   })
 
   it('sin / cos on f64 lower to df64_sin / df64_cos with the transcendental helpers injected', () => {
@@ -93,7 +120,7 @@ describe('rewrite shapes', () => {
     const wgsl = emitModule(module({ funcs: [k] }))
     expect(wgsl).toMatch(/let (\w+) = bitcast<f32>\(bitcast<u32>\(0\.0\)\);/)
     const zero = /let (\w+) = bitcast<f32>\(bitcast<u32>\(0\.0\)\);/.exec(wgsl)![1]!
-    expect(wgsl).toContain(`df64_add(a, vec2<f32>(${zero}, ${zero}))`)
+    expect(wgsl).toContain(`df64_add(a, vec2<f32>(${zero}, ${zero}), _fp64_g)`)
     expect(wgsl).toMatch(/\bdf64_sin\(/)
     expect(wgsl).toMatch(/\bdf64_cos\(/)
   })
@@ -130,6 +157,335 @@ describe('rewrite shapes', () => {
   })
 })
 
+// ── Cheaper multiplies (fp64-lower's "Cheaper multiplies"): the Julia / Mandelbrot escape loop
+// squared both coordinates with the general df64_mul and doubled `zx * zy` with a full
+// df64_mul by (2, 0). The square takes df64_sqr, the power-of-two scale two f32 multiplies.
+describe('cheaper multiplies: the square and exact power-of-two scaling', () => {
+  type F64 = ReadonlyNode<'f64'>
+  type V64 = ReadonlyNode<'vec3<f64>'>
+  /** The emitted text of `k` alone, the helper library cut off. */
+  const kText = (m: ModuleDecl): string => {
+    const wgsl = emitModule(m)
+    return wgsl.slice(wgsl.indexOf('fn k('), wgsl.indexOf('\n}\n', wgsl.indexOf('fn k(')))
+  }
+  /** `k(a, b: f64) -> f64` built from `body`, emitted. */
+  const kBody = (body: (p: { a: F64; b: F64 }) => F64): string =>
+    kText(module({ funcs: [fn('k', { a: f64T, b: f64T }, (p) => body(p))] }))
+
+  it('x * x lowers to df64_sqr, which brings twoSqr and not df64_mul', () => {
+    expect(kBody((p) => p.a.mul(p.a))).toContain('return df64_sqr(a, _fp64_g);')
+    const names = fp64Lower(
+      module({ funcs: [fn('k', { a: f64T }, (p) => p.a.mul(p.a))] }),
+    ).funcs.map((f) => f.name)
+    expect(names).toContain('df64_sqr')
+    expect(names).not.toContain('df64_mul')
+    expect(names).not.toContain('df64_twoProd')
+    // Dependency-first, so GLSL's define-before-use holds.
+    expect(names.indexOf('df64_twoSqr')).toBeLessThan(names.indexOf('df64_sqr'))
+    expect(names.indexOf('df64_quickTwoSum')).toBeLessThan(names.indexOf('df64_sqr'))
+    // A compound expression squares once too: `(a + b) * (a + b)`.
+    expect(kBody((p) => p.a.add(p.b).mul(p.a.add(p.b)))).toContain(
+      'df64_sqr(df64_add(a, b, _fp64_g), _fp64_g)',
+    )
+  })
+
+  it('two different operands still take df64_mul', () => {
+    expect(kBody((p) => p.a.mul(p.b))).toContain('df64_mul(a, b, _fp64_g)')
+    expect(kBody((p) => p.a.add(p.b).mul(p.a.sub(p.b)))).toMatch(/df64_mul\(/)
+  })
+
+  it('only an operand without an effect is squared: f() * f() over a writing f stays df64_mul', () => {
+    const { module: m } = compile(`"use typeshade"
+declare let dst: storage<array<f32>>
+function bump(i: u32): f64 {
+  dst[i] = dst[i] + 1.
+  return f64(dst[i])
+}
+function half(x: f64): f64 {
+  return x * 0.5
+}
+@compute([64, 1, 1])
+export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
+  const x = f64(dst[gid.x])
+  dst[gid.x] = f32(bump(gid.x) * bump(gid.x)) + f32(half(x) * half(x))
+}
+`)
+    const wgsl = emitModule(m)
+    // bump writes `dst`: two calls as written, two increments (the front end sequences each
+    // effectful call into its own `let`), and the product of the two stays a general
+    // df64_mul. half is pure: one call, squared.
+    expect(wgsl.match(/= bump\(gid\.x\);/g)).toHaveLength(2)
+    const mul = /df64_mul\((\w+), (\w+), _fp64_g\)/.exec(wgsl)
+    expect(mul).not.toBeNull()
+    expect(mul![1]).not.toBe(mul![2])
+    expect(wgsl).toContain('df64_sqr(half(x), _fp64_g)')
+  })
+
+  it('a power-of-two literal scales the pair: 2*x, x*2, x*0.5, x/4, x*-2', () => {
+    expect(kBody((p) => p.a.mul(2.0))).toContain('return (a * 2.0);')
+    expect(kBody((p) => f64(2.0).mul(p.a))).toContain('return (a * 2.0);')
+    expect(kBody((p) => p.a.mul(0.5))).toContain('return (a * 0.5);')
+    expect(kBody((p) => p.a.div(4.0))).toContain('return (a * 0.25);')
+    expect(kBody((p) => p.a.mul(-2.0))).toContain('return (a * -2.0);')
+    // The `f64(lit)` widen and an f32 literal a mixed operand widens are the same literal.
+    expect(kBody((p) => p.a.mul(f64(f32(2.0))))).toContain('return (a * 2.0);')
+    expect(kBody((p) => p.a.mul(f32(0.125)))).toContain('return (a * 0.125);')
+    // ±1 are the identity and the negation; neither multiplies.
+    expect(kBody((p) => p.a.mul(1.0))).toContain('return a;')
+    expect(kBody((p) => p.a.mul(-1.0))).toContain('return (-a);')
+    // A scaling reads no helper, so a module that only scales declares no guard binding.
+    const onlyScales = fp64Lower(module({ funcs: [fn('k', { a: f64T }, (p) => p.a.mul(2.0))] }))
+    expect(onlyScales.funcs.map((f) => f.name)).toEqual(['k'])
+    expect(onlyScales.bindings).toEqual([])
+  })
+
+  it('anything that is not an exact power of two keeps df64_mul / df64_div', () => {
+    for (const c of [3.0, 0.1, 0.0, 2.5])
+      expect(
+        kBody((p) => p.a.mul(c)),
+        `x * ${c}`,
+      ).toMatch(/df64_mul\(a, /)
+    expect(kBody((p) => p.a.div(3.0))).toMatch(/df64_div\(/)
+    // Out of the normal f32 range: 2^-127 is subnormal as an f32, and so is 1 / 2^127.
+    expect(kBody((p) => p.a.mul(2 ** -127))).toMatch(/df64_mul\(a, /)
+    expect(kBody((p) => p.a.div(2 ** 127))).toMatch(/df64_div\(/)
+    // The edges of the range scale.
+    expect(kBody((p) => p.a.mul(2 ** -126))).not.toMatch(/df64_mul\(/)
+    expect(kBody((p) => p.a.div(2 ** 126))).not.toMatch(/df64_div\(/)
+    // A literal divided BY x is a reciprocal, not a scale.
+    expect(kBody((p) => f64(2.0).div(p.a))).toMatch(/df64_div\(/)
+  })
+
+  it('compound assignment lowers alike: x *= x, x *= 2, x /= 4', () => {
+    const k = fn('k', { a: f64T }, f64T, (p, bb) => {
+      const x = bb.var('x', f64T, p.a)
+      bb.assignOp(x, '*', x)
+      bb.assignOp(x, '*', f64(2.0))
+      bb.assignOp(x, '/', f64(4.0))
+      bb.ret(x)
+    })
+    const wgsl = emitModule(module({ funcs: [k] }))
+    expect(wgsl).toContain('x = df64_sqr(x, _fp64_g);')
+    expect(wgsl).toContain('x = (x * 2.0);')
+    expect(wgsl).toContain('x = (x * 0.25);')
+    expect(wgsl).not.toMatch(/\bdf64_(mul|div)\(/)
+  })
+
+  it('length / distance / dot(v, v) square each lane with df64_sqr', () => {
+    /** `k(u, w: vec3<f64>) -> f32`, the narrow of `body`, emitted. */
+    const emitV = (body: (p: { u: V64; w: V64 }) => F64): string =>
+      kText(
+        module({
+          funcs: [fn('k', { u: vec3f64T, w: vec3f64T }, f32T, (p, bb) => bb.ret(toF32(body(p))))],
+        }),
+      )
+    for (const body of [
+      (p: { u: V64; w: V64 }) => length(p.u),
+      (p: { u: V64; w: V64 }) => distance(p.u, p.w),
+      (p: { u: V64; w: V64 }) => dot(p.u, p.u),
+    ]) {
+      const k = emitV(body)
+      expect(k.match(/df64_sqr\(/g)).toHaveLength(3)
+      expect(k).not.toMatch(/df64_mul\(/)
+    }
+    // dot of two different vectors is still a sum of products.
+    expect(emitV((p) => dot(p.u, p.w))).toMatch(/df64_mul\(/)
+  })
+
+  it('a vec64 times a power-of-two literal scales both planes; any other factor keeps df64_vN_mul', () => {
+    const emitV = (body: (v: V64) => V64): string =>
+      kText(module({ funcs: [fn('k', { v: vec3f64T }, (p) => body(p.v))] }))
+    expect(emitV((v) => v.mul(2.0))).toContain('return DF64Vec3((v.hi * 2.0), (v.lo * 2.0));')
+    expect(emitV((v) => v.div(4.0))).toContain('return DF64Vec3((v.hi * 0.25), (v.lo * 0.25));')
+    expect(emitV((v) => v.mul(3.0))).toMatch(/df64_v3_mul\(/)
+  })
+
+  /** For each `dst[i] = …` store in `fnName` of the LOWERED module, keyed by the literal `i`:
+   *  the df64 helpers the stored value calls, and how many native pair scalings it holds. */
+  const storeShapes = (
+    m: ModuleDecl,
+    fnName: string,
+  ): Map<number, { calls: string[]; scales: number }> => {
+    const f = fp64Lower(m).funcs.find((g) => g.name === fnName)!
+    const out = new Map<number, { calls: string[]; scales: number }>()
+    for (const s of f.body) {
+      if (s.s !== 'assign' || s.target.op !== 'index' || s.target.idx.op !== 'lit') continue
+      const calls: string[] = []
+      let scales = 0
+      eachExpr(s.expr, (x) => {
+        if (x.op === 'call' && x.fn.startsWith('df64_')) calls.push(x.fn)
+        if (x.op === 'binop' && x.bop === '*' && x.type.kind === 'vec' && x.b.op === 'lit') scales++
+      })
+      out.set(Number(s.target.idx.value), { calls, scales })
+    }
+    return out
+  }
+
+  it('a scale that can grow a word needs a run-time operand: WGSL refuses a constant that overflows', () => {
+    // Tint evaluates a const-expression at createShaderModule and an override-expression at
+    // createRenderPipeline, and refuses a word outside the f32 range with "cannot be represented
+    // as 'f32'". `vec2<f32>(1e+38, 0.0) * 4.0` is such an expression; df64_mul over the same
+    // pair is a call, evaluated at run time, where the overflow is an infinity.
+    const { module: m, diagnostics } = compile(`"use typeshade"
+const K = 1e38
+const scale: override<f32> = 3e30
+class U { c: f64; pad: vec2 }
+declare const u: uniform<U>
+declare let dst: storage<array<f32>>
+@compute([64, 1, 1])
+export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
+  const k = 1e38
+  const t: f64 = u.c + f64(dst[gid.x])
+  dst[1] = f32(f64(k) * 4. + u.c)
+  dst[2] = f32(f64(K) * 4. + u.c)
+  dst[3] = f32(f64(scale) * 2. + u.c)
+  dst[4] = f32(vec3<f64>(f64(1e38), f64(1.), f64(2.)).x * 4. + u.c)
+  dst[6] = f32(f64(k) / 2. + u.c)
+  dst[7] = f32(u.c * 4. + u.c)
+  dst[8] = f32(t * 4. + u.c)
+  dst[9] = f32((t + u.c) * 4. + u.c)
+  dst[10] = f32(f64(dst[gid.x]) * 4. + u.c)
+}
+`)
+    expect(diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    const shape = storeShapes(m, 'main_k')
+    const scaled = (i: number): boolean =>
+      shape.get(i)!.scales === 1 && !shape.get(i)!.calls.includes('df64_mul')
+    const multiplied = (i: number): boolean =>
+      shape.get(i)!.scales === 0 && shape.get(i)!.calls.includes('df64_mul')
+    // Not proven to be computed at run time: a local const-prop turns INTO the literal, a module
+    // const, an override, a lane of a constant vector. Each keeps df64_mul.
+    for (const i of [1, 2, 3, 4]) expect(multiplied(i), `dst[${i}]`).toBe(true)
+    // |s| ≤ 1 cannot grow a word, so a constant scales (`k / 2`). Run-time operands scale: a
+    // binding, an f64 local, a helper output, a widened storage read.
+    for (const i of [6, 7, 8, 9, 10]) expect(scaled(i), `dst[${i}]`).toBe(true)
+    // The optimizer really does make dst[1] the constant the lowering could not see, and the
+    // module spells no product of it that Tint would evaluate.
+    const wgsl = emitModule(m)
+    expect(wgsl).toContain('vec2<f32>(1e+38, 0.0)')
+    expect(wgsl).not.toMatch(/vec2<f32>\(1e\+38, 0\.0\) \* 4\.0/)
+    // A literal operand: the front end folds literal f64 arithmetic, so the IR builder spells it.
+    expect(kBody(() => f64(1e38).mul(4.0))).toMatch(/df64_mul\(vec2<f32>\(9\.99/)
+    expect(kBody(() => f64(3e38).mul(0.5))).toContain('(vec2<f32>(3.0000000054977558e+38, ')
+  })
+
+  it('an f64 module const, and a local copy-prop turns into it, keep df64_mul under a growing scale', () => {
+    // The front end refuses an f64 module const; the IR builder declares one. `let y = KD` is a
+    // bare copy, which copy-prop replaces with `KD` after this pass, so `y * 4` would become the
+    // const-expression `KD * 4.0` that Tint refuses for KD = 1e38.
+    const KD = { name: 'KD', type: f64T, wgslValue: 0, cpuValue: 1e38 }
+    const kd = constRef('KD', f64T)
+    const emitK = (f: FuncDecl): string => {
+      const wgsl = emitModule(module({ consts: [KD], funcs: [f] }))
+      return wgsl.slice(wgsl.indexOf('fn k('), wgsl.indexOf('\n}\n', wgsl.indexOf('fn k(')))
+    }
+    const direct = fn('k', { a: f64T }, f32T, (p, bb) => bb.ret(toF32(kd.mul(4.0).add(p.a))))
+    const copied = fn('k', { a: f64T }, f32T, (p, bb) => {
+      const y = bb.let('y', kd)
+      bb.ret(toF32(y.mul(4.0).add(p.a)))
+    })
+    for (const f of [direct, copied])
+      expect(emitK(f)).toContain('df64_mul(KD, vec2<f32>(4.0, 0.0), _fp64_g)')
+    // A pair the const could have been copied into is not proven either: in this module a
+    // vec2<f32> parameter keeps df64_mul too. That is the whole cost, and only where an f64
+    // const exists; `* 0.5` cannot grow a word and still scales.
+    expect(emitK(fn('k', { a: f64T }, f32T, (p, bb) => bb.ret(toF32(p.a.mul(4.0)))))).toContain(
+      'df64_mul(a, ',
+    )
+    expect(emitK(fn('k', { a: f64T }, f32T, (_p, bb) => bb.ret(toF32(kd.mul(0.5)))))).toContain(
+      '(KD * 0.5)',
+    )
+  })
+
+  it('a vec64 scale names the vector twice only where that computes nothing twice', () => {
+    // `bump` writes, so cse / gvn / licm skip main_k, and O0 runs none of them: a vector the
+    // scale spelled in both planes would be computed twice.
+    const { module: m, diagnostics } = compile(`"use typeshade"
+declare let dst: storage<array<f32>>
+function bump(i: u32): f32 {
+  dst[i] = dst[i] + 1.
+  return dst[i]
+}
+function nextv(i: u32): vec3<f64> {
+  dst[i] = dst[i] + 1.
+  return vec3<f64>(f64(dst[i]), f64(1.0), f64(2.0))
+}
+function purev(x: f32): vec3<f64> {
+  return vec3<f64>(f64(x), f64(x * 2.), f64(3.))
+}
+@compute([64, 1, 1])
+export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
+  const u = vec3<f64>(f64(dst[gid.x]), f64(dst[gid.y]), f64(dst[gid.z]))
+  const w = vec3<f64>(f64(dst[gid.y]), f64(1.0), f64(2.0))
+  const a = normalize(u * w) * f64(2.0)
+  const b = nextv(gid.x) * f64(2.0)
+  const c = purev(dst[gid.x]) * f64(2.0)
+  const d = u * f64(2.0)
+  const e = (u + w) * f64(0.5)
+  dst[gid.x] = f32(a.x) + f32(b.y) + f32(c.z) + f32(d.x) + f32(e.y) + bump(gid.x)
+}
+`)
+    expect(diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    for (const wgsl of [emitModule(m), emitModuleAt(m, 'O0')]) {
+      const start = wgsl.indexOf('fn main_k(')
+      const body = wgsl.slice(start, wgsl.indexOf('\n}\n', start))
+      const count = (needle: string): number => body.split(needle).length - 1
+      // A helper output, a writing call and a pure call are each computed once: df64_v3_mul.
+      expect(count('df64_v3_normalize('), 'normalize').toBe(1)
+      expect(count('nextv(gid.x)'), 'nextv').toBe(1)
+      expect(count('purev('), 'purev').toBe(1)
+      expect(count('df64_v3_add(u, w'), 'u + w').toBe(1)
+      // A named vector is read twice and computed never: it scales.
+      expect(body).toContain('DF64Vec3((u.hi * 2.0), (u.lo * 2.0))')
+    }
+  })
+
+  it('dot(v, v) squares only a v whose evaluation has no effect', () => {
+    const { module: m, diagnostics } = compile(`"use typeshade"
+declare let dst: storage<array<f32>>
+function nextv(i: u32): vec3<f64> {
+  dst[i] = dst[i] + 1.
+  return vec3<f64>(f64(dst[i]), f64(1.0), f64(2.0))
+}
+function purev(x: f32): vec3<f64> {
+  return vec3<f64>(f64(x), f64(x * 2.), f64(3.))
+}
+@compute([64, 1, 1])
+export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
+  dst[0] = f32(dot(nextv(gid.x), nextv(gid.x)))
+  dst[1] = f32(dot(purev(dst[2]), purev(dst[2])))
+}
+`)
+    expect(diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    const shape = storeShapes(m, 'main_k')
+    // Two writing calls are two values: a sum of products, as written.
+    expect(shape.get(0)!.calls.filter((c) => c === 'df64_mul')).toHaveLength(3)
+    expect(shape.get(0)!.calls).not.toContain('df64_sqr')
+    // Two pure calls are one value: a sum of squares.
+    expect(shape.get(1)!.calls.filter((c) => c === 'df64_sqr')).toHaveLength(3)
+    expect(shape.get(1)!.calls).not.toContain('df64_mul')
+  })
+
+  it('a scaled helper output is still a helper output; a scaled LOADED pair is renormed', () => {
+    // (a * b) * 2 - b: the scaled product's lo word was computed by df64_mul's quickTwoSum, so
+    // the cancelling sub renorms only the raw param `b`, exactly as it did before the scaling.
+    const k = kBody((p) => p.a.mul(p.b).mul(2.0).sub(p.b))
+    expect(k).toMatch(/df64_sub\(\(df64_mul\(a, b, _fp64_g\) \* 2\.0\), df64_add\(b, /)
+    // a * 2 - b: `a` is a raw param, and so is the pair it scales.
+    expect(kBody((p) => p.a.mul(2.0).sub(p.b))).toMatch(/df64_sub\(df64_add\(\(a \* 2\.0\), /)
+  })
+
+  it('the integer flavor squares with the same composition, and stays guard-free', () => {
+    const m = module({ funcs: [fn('k', { a: f64T }, (p) => p.a.mul(p.a).mul(0.5))] })
+    const lowered = fp64Lower(m, { flavor: 'integer' })
+    expect(lowered.funcs.map((f) => f.name)).toContain('df64_sqr')
+    expect(lowered.bindings).toEqual([])
+    const wgsl = emitModule(m, { fp64Flavor: 'integer' })
+    expect(wgsl).toContain('(df64_sqr(a) * 0.5)')
+    expect(wgsl).not.toContain(FP64_GUARD_NAME)
+  })
+})
+
 describe('guard auto-injection', () => {
   it('injects the _fp64 guard TEXTURE at (0, 0) when the module declares no bindings', () => {
     const k = fn('k', { a: f64T, b: f64T }, (p) => p.a.add(p.b))
@@ -141,6 +497,7 @@ describe('guard auto-injection', () => {
         name: FP64_GUARD_NAME,
         space: 'uniform',
         type: { kind: 'texture', dim: '2d', elem: 'f32' },
+        precision: 'highp',
       },
     ])
     // The guard value is a texel fetch — opaque to every downstream compiler
@@ -282,12 +639,13 @@ describe('optimizer invariants (the guard survives O2)', () => {
     expect(wgsl).toMatch(/df64_sqrt\(/)
     expect(wgsl).toMatch(/df64_div\(/)
     // Every EFT-bearing helper body still multiplies through the opaque one —
-    // the algebraic pass must never treat the guard fetch as `* 1.0`. (The
-    // fetch may be CSE-hoisted, so assert the texture ref survives per body.)
+    // the algebraic pass must never treat the guard as `* 1.0`. The helpers take it
+    // as the `_fp64_g` parameter; the caller reads the texel.
     for (const name of ['df64_twoSum', 'df64_quickTwoSum', 'df64_split']) {
       const body = wgsl.split(`fn ${name}(`)[1]!.split('\nfn ')[0]!
-      expect(body).toContain('_fp64')
+      expect(body).toMatch(/\* _fp64_g\b/)
     }
+    expect(wgsl).toContain('let _fp64_g = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;')
   })
 
   it('df64_sin / df64_cos stay opaque (not inlined / algebraically folded) after O2', () => {
@@ -306,5 +664,206 @@ describe('optimizer invariants (the guard survives O2)', () => {
       const body = wgsl.split(`fn ${name}(`)[1]!.split('\nfn ')[0]!
       expect(body).toMatch(/df64_mul\(/)
     }
+  })
+})
+
+// ── The guard: chains folded, threaded as a parameter, read once per function ──
+//
+// fp64-lower's "The guard" section. The helpers used to fetch the guard texel themselves, so
+// every helper CALL fetched it: eight fetches per `acc * k + c`, all inside the loop that
+// called it, and twoSum's error term multiplied by the guard three times in a row.
+describe('the guard: folded, threaded, read once per function', () => {
+  const G: Expr = { op: 'call', type: f32T, fn: 'f64Guard', args: [] }
+  const x: Expr = { op: 'param', type: f32T, name: 'x' }
+  const y: Expr = { op: 'param', type: f32T, name: 'y' }
+  const mul = (a: Expr, b: Expr): Expr => ({ op: 'binop', type: f32T, bop: '*', a, b })
+  const div = (a: Expr, b: Expr): Expr => ({ op: 'binop', type: f32T, bop: '/', a, b })
+
+  it('guard(guard(x)) folds to guard(x), and only a chain folds', () => {
+    expect(foldGuardChain(mul(mul(x, G), G))).toEqual(mul(x, G))
+    // luma.gl's twoSum tail, `(…) * ONE * ONE * ONE`, is ONE guard.
+    expect(foldGuardChain(mul(mul(mul(x, G), G), G))).toEqual(mul(x, G))
+    expect(foldGuardChain(mul(G, mul(x, G)))).toEqual(mul(x, G))
+    expect(foldGuardChain(mul(G, G))).toEqual(G)
+    // Not chains: two guarded values, a guarded value times an unguarded one, a quotient.
+    for (const e of [mul(mul(x, G), mul(y, G)), mul(mul(x, G), y), mul(div(x, G), G), mul(x, G)])
+      expect(foldGuardChain(e)).toEqual(e)
+  })
+
+  /** Every product with the guard `isG` recognises whose other factor ALREADY rides it. */
+  const doubledGuards = (decls: readonly FuncDecl[], isG: (e: Expr) => boolean): string[] => {
+    const rides = (e: Expr): boolean =>
+      isG(e) || (e.op === 'binop' && e.bop === '*' && (isG(e.a) || isG(e.b)))
+    const out: string[] = []
+    for (const d of decls)
+      for (const s of d.body)
+        eachStmtExpr(s, (e) =>
+          eachExpr(e, (n) => {
+            if (n.op !== 'binop' || n.bop !== '*') return
+            const other = isG(n.b) ? n.a : isG(n.a) ? n.b : undefined
+            if (other !== undefined && rides(other)) out.push(d.name)
+          }),
+        )
+    return out
+  }
+
+  // Pulls in the scalar, vec3 and mat3 helpers: every EFT leaf and most compositions.
+  const wide = (): ModuleDecl =>
+    module({
+      funcs: [
+        fn('k', { a: f64T, b: f64T, u: vec3f64T, w: vec3f64T, m: mat3f64T }, f32T, (p, bb) => {
+          const s = bb.let(
+            sqrt(abs(p.a.sub(p.b).div(p.a.mul(p.b))))
+              .add(sin(p.a))
+              .add(cos(p.b))
+              .add(floor(p.a))
+              .add(fract(p.b))
+              .add(min(p.a, max(p.a, p.b)))
+              .add(mix(p.a, p.b, 0.5)),
+          )
+          const v = bb.let(normalize(p.u.add(p.w).mul(p.u).div(p.w)))
+          const t = bb.let(transformMat64(transpose64(mulMat64(p.m, p.m)), v))
+          bb.ret(toF32(s.add(dot(t, p.u)).add(length(v)).add(distance(p.u, p.w))))
+        }),
+      ],
+    })
+
+  it('no helper multiplies by the guard twice in a row — in the registry or in a lowered module', () => {
+    // The registry as written: the chain luma.gl's twoSum and twoSqr carried is gone at the source…
+    expect(doubledGuards(DF64_ORDER, (e) => e.op === 'call' && e.fn === 'f64Guard')).toEqual([])
+    // …and the lowered helpers, where the guard is the `_fp64_g` parameter.
+    const helpers = fp64Lower(wide()).funcs.filter((f) => f.name.startsWith('df64_'))
+    expect(helpers.length).toBeGreaterThan(30)
+    expect(doubledGuards(helpers, (e) => e.op === 'param' && e.name === '_fp64_g')).toEqual([])
+  })
+
+  it('a helper that needs the guard takes it as its last parameter and never fetches it', () => {
+    const lowered = fp64Lower(wide())
+    const fetches = (f: FuncDecl): number => {
+      let n = 0
+      for (const s of f.body)
+        eachStmtExpr(s, (e) =>
+          eachExpr(e, (x) => {
+            if (x.op === 'call' && x.fn === 'f64Guard') n++
+          }),
+        )
+      return n
+    }
+    const helpers = lowered.funcs.filter((f) => f.name.startsWith('df64_'))
+    for (const h of helpers) expect(fetches(h), h.name).toBe(0)
+    const guarded = helpers.filter((h) => h.params.at(-1)?.name === '_fp64_g')
+    for (const h of guarded) expect(h.params.at(-1)!.type).toEqual(f32T)
+    // The EFT leaves and the compositions over them take it; the comparisons and the narrow
+    // carry no error term and do not.
+    for (const name of ['df64_twoSum', 'df64_quickTwoSum', 'df64_split', 'df64_add', 'df64_mul'])
+      expect(guarded.map((h) => h.name)).toContain(name)
+    for (const h of helpers.filter((h) => /^df64_(lt|le|gt|ge|eq|ne|narrow)$/.test(h.name)))
+      expect(
+        h.params.some((q) => q.name === '_fp64_g'),
+        h.name,
+      ).toBe(false)
+  })
+
+  // `acc = acc * k + c`, eight times: the loop the complaint was measured on.
+  const loop = (): ModuleDecl =>
+    module({
+      funcs: [
+        fn('k', { k: f64T, c: f64T }, f32T, (p, bb) => {
+          const acc = bb.var('acc', f64T, f64(0))
+          bb.forRange(
+            'i',
+            i32(0),
+            (i) => i.lt(i32(8)),
+            (cb) => {
+              cb.assign(acc, acc.mul(p.k).add(p.c))
+            },
+          )
+          bb.ret(toF32(acc))
+        }),
+      ],
+    })
+
+  it('each function reads the texel once, at its top, before any loop — WGSL and GLSL', () => {
+    const wgsl = emitModule(loop())
+    expect(wgsl.match(/textureLoad\(_fp64/g)).toHaveLength(1)
+    const k = wgsl.slice(wgsl.indexOf('fn k('), wgsl.indexOf('\n}\n', wgsl.indexOf('fn k(')))
+    expect(k.indexOf('let _fp64_g = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;')).toBeGreaterThan(0)
+    expect(k.indexOf('let _fp64_g')).toBeLessThan(k.indexOf('for ('))
+    expect(k).toContain('df64_add(df64_mul(acc, k, _fp64_g), c, _fp64_g)')
+    // Every helper declares the parameter rather than reading the texture.
+    for (const f of wgsl
+      .split('\nfn ')
+      .filter((f) => f.startsWith('df64_twoSum') || f.startsWith('df64_add')))
+      expect(f.slice(0, f.indexOf('{'))).toContain('_fp64_g: f32')
+
+    const glsl = emitGlslModule(loop(), 'fragment')
+    expect(glsl.match(/texelFetch\(_fp64/g)).toHaveLength(1)
+    expect(glsl.indexOf('float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;')).toBeLessThan(
+      glsl.indexOf('for ('),
+    )
+  })
+
+  it('the single read does not depend on the optimizer: O0 reads once per function too', () => {
+    const wgsl = emitModuleAt(loop(), 'O0')
+    expect(wgsl.match(/textureLoad\(_fp64/g)).toHaveLength(1)
+  })
+
+  it('the guard value stays a runtime read — never a constant a compiler could infer', () => {
+    const wgsl = emitModule(loop())
+    expect(wgsl).toContain('let _fp64_g = textureLoad(')
+    expect(wgsl).not.toMatch(/\b(const|override)\s+_fp64_g\b/)
+    // Inside a helper it is the parameter, multiplied through as written: no `* 1.0` stands
+    // in for it, and nothing folded the multiply away.
+    const twoSum = wgsl.split('fn df64_twoSum(')[1]!.split('\nfn ')[0]!
+    expect(twoSum.match(/\* _fp64_g\b/g)).toHaveLength(4)
+    expect(twoSum).not.toMatch(/\* 1\.0\b/)
+    const glsl = emitGlslModule(loop(), 'fragment')
+    expect(glsl).not.toMatch(/const\s+float\s+_fp64_g\b/)
+    // GLSL ES 3.00 defaults sampler2D to lowp in both stages; the guard declares highp.
+    expect(glsl).toContain('uniform highp sampler2D _fp64;')
+  })
+
+  it('a loop-invariant df64 call is still hoisted out of its loop', () => {
+    // Were the guard bound to a local BEFORE the optimizer, every df64 call would reference
+    // a local and LICM, which hoists only what references none, would leave this one inside.
+    const m = module({
+      funcs: [
+        fn('k', { a: f64T, b: f64T }, f32T, (p, bb) => {
+          const acc = bb.var('acc', f64T, f64(0))
+          bb.forRange(
+            'i',
+            i32(0),
+            (i) => i.lt(i32(8)),
+            (cb) => {
+              cb.assign(acc, acc.add(p.a.mul(p.b)))
+            },
+          )
+          bb.ret(toF32(acc))
+        }),
+      ],
+    })
+    const wgsl = emitModule(m)
+    const hoisted = /let (_\w+) = df64_mul\(a, b, _fp64_g\);/.exec(wgsl)
+    expect(hoisted).not.toBeNull()
+    expect(wgsl.indexOf(hoisted![0])).toBeLessThan(wgsl.indexOf('for ('))
+    expect(wgsl).toContain(`acc = df64_add(acc, ${hoisted![1]}, _fp64_g);`)
+  })
+
+  it('hoistGuardFetch picks a fresh name when _fp64_g is taken, and is the identity without a fetch', () => {
+    const m = module({
+      funcs: [
+        fn('k', { a: f64T, b: f64T }, f32T, (p, bb) => {
+          const taken = bb.let('_fp64_g', p.a.mul(p.b))
+          bb.ret(toF32(taken.add(p.b)))
+        }),
+      ],
+    })
+    const out = hoistGuardFetch(fp64Lower(m))
+    const k = out.funcs.find((f) => f.name === 'k')!
+    expect(k.body[0]).toMatchObject({ s: 'let', name: '_fp64_g1' })
+    const plain = module({ funcs: [fn('p', { x: f32T }, (q) => q.x.add(1))] })
+    expect(hoistGuardFetch(plain)).toBe(plain)
+    // Idempotent: a second run finds each function already reading the guard once.
+    expect(hoistGuardFetch(out)).toBe(out)
   })
 })

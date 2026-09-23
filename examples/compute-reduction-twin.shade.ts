@@ -1,5 +1,15 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Compute reduction (source twin)",
+  "blurb": "`compute-reduction.ts` written in the source language: the EDSL's `reduce()` combinator spelled as the `for` loop it expands into. WGSL-only like its original — GLSL ES 3.00 has no compute stage.",
+  "renderable": false,
+  "twinOf": "compute-reduction",
+  "reason": "missing capabilities: storageBuffer, compute"
+}
+*/
+
 // The `"use typeshade"` twin of `compute-reduction.ts`. Same kernel, written in the source
 // language. Two things in the original have no source-language spelling, and both are
 // deliberate rather than gaps:

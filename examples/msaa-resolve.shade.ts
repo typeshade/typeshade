@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "A multisampled texture, resolved by hand",
+  "blurb": "An MSAA render target as a `texture_multisampled_2d<f32>` read one sample at a time with `textureLoad(t, coords, sampleIndex)` and averaged over `textureNumSamples`, and its depth attachment as a `texture_depth_multisampled_2d` (§37). A multisampled texture cannot be used with a sampler, so every sampling form is refused with the load named instead. WGSL-only: GLSL ES 3.00 has no `sampler2DMS`, so the binding derives `msaaTextureLoad` and the Tint half of the gate alone runs it.",
+  "renderable": false,
+  "reason": "missing capabilities: msaaTextureLoad"
+}
+*/
+
 // A multisampled texture, read one sample at a time (§37). An MSAA render target stores several
 // samples per texel; a shader that resolves it reads each with `textureLoad(t, coords,
 // sampleIndex)` and averages them, and `textureNumSamples(t)` is how many there are. The type
