@@ -11,8 +11,15 @@ struct VsOut {
 
 @group(0) @binding(0) var<uniform> U: Uniforms;
 
+fn hash32(x: u32) -> u32 {
+  let _v0 = ((x ^ (x >> 16u)) * 2246822519u);
+  let _v1 = ((_v0 ^ (_v0 >> 13u)) * 3266489917u);
+  return (_v1 ^ (_v1 >> 16u));
+}
+
 fn hash(p: vec2<f32>) -> f32 {
-  return fract((sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453));
+  let _v0 = hash32((u32(i32(p.x)) ^ hash32(u32(i32(p.y)))));
+  return (f32((_v0 >> 8u)) * 5.960464477539063e-8);
 }
 
 fn noise(p: vec2<f32>) -> f32 {
