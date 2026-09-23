@@ -1177,8 +1177,9 @@ function emitGlslEntry(
  *  is produced, since neither has a row in GLSL_CAP_PROFILE; a storage binding is lowered
  *  to a data texture BEFORE that gate runs (see lowerStorageToDataTexture).
  *
- *  Assembly order: version/precision header → consts → plain structs (every struct
- *  EXCEPT a uniform/storage binding's type — those become UBO/SSBO blocks) → uniform UBO
+ *  Assembly order: version/precision header → plain structs (every struct EXCEPT a
+ *  uniform/storage binding's type — those become UBO/SSBO blocks) → consts and module
+ *  variables, which may be of a struct type → uniform UBO
  *  blocks + texture/sampler uniforms → helper funcs → entry funcs (each lowered to in/out
  *  varyings + a `_impl` fn over the IO structs + a `main()` that gathers/scatters them).
  *
@@ -1717,7 +1718,8 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
 //                f64Guard's zero-arg fetch from `_fp64`)
 //   • structs  — spelled by a reachable fn (signature / var-decl / expr
 //                types), plus every kept binding's block struct and every
-//                module const's type (consts are NOT stage-filtered), closed
+//                module const's and module variable's type (neither is
+//                stage-filtered), closed
 //                over nested field types
 // Returns null → no filtering (the historical emit-everything behavior) when
 // the scope is not computable: a `raw` stmt (textual references the IR walk
@@ -1737,6 +1739,10 @@ function stageScope(
   const structs = new Set(refs.structs);
   for (const b of m.bindings) if (bindings.has(b.name)) typeStructNames(b.type, structs);
   for (const c of m.consts) typeStructNames(c.type, structs);
+  // Module variables are not stage-filtered either, so their struct types are in every stage's
+  // scope, as a constant's are. Without this a struct-typed top-level `let` read only by the
+  // fragment entry named an undeclared type in the vertex shader (#179).
+  for (const v of m.vars ?? []) typeStructNames(v.type, structs);
   const structByNameMap = new Map(m.structs.map((s) => [s.name, s]));
   const work = [...structs];
   while (work.length > 0) {
@@ -2050,19 +2056,23 @@ function assembleGlslParts(
         .join('\n'),
     );
 
-  if (lowered.consts.length)
-    parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'));
-  if (lowered.vars?.length)
-    parts.push(lowered.vars.map((v) => glslEs300Backend.emitModuleVar!(v)).join('\n'));
-
   // The struct section is RESERVED here and filled at the end (X-GIS #1867). Its membership
   // depends on what the rest of the unit actually spells: since the entry writer can
   // substitute an IO struct away completely — the gather becomes direct varying reads, a
   // constructor exit scatters field-wise — "reachable in the stage scope" stopped being
   // the same thing as "spelled", and a decl nothing spells is dead bytes. Its POSITION is
-  // still here, ahead of the UBO blocks that embed nested structs.
+  // still here: ahead of the module constants and variables, which may be of a struct type
+  // (`const SPHERES: array<Sphere, 4>`, a struct-typed top-level `let`, #179), and ahead of
+  // the UBO blocks that embed nested structs. GLSL ES 3.00 needs a type declared before its
+  // first use; ANGLE refuses the other order with `'[' : syntax error` or `'Cursor' : syntax
+  // error`. WGSL has no such rule, which is why only this writer had the bug.
   const structSlot = parts.length;
   parts.push('');
+
+  if (lowered.consts.length)
+    parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'));
+  if (lowered.vars?.length)
+    parts.push(lowered.vars.map((v) => glslEs300Backend.emitModuleVar!(v)).join('\n'));
 
   const structCandidates = lowered.structs.filter(
     (s) => !bindingStructNames.has(s.name) && (scope === null || scope.structs.has(s.name)),
@@ -2286,8 +2296,8 @@ function withPortableLowering<T extends GlslEmitOptions>(m: ModuleDecl, opts?: T
  *  whole-module form is for modules without entries and for inspecting output.
  *
  *  The source is assembled in this order: `#version 300 es`, any `#extension` directive a
- *  declared capability needs, the precision lines, a `#define` per override, consts, plain
- *  structs, `layout(std140) uniform` blocks and sampler uniforms, helper functions, then the
+ *  declared capability needs, the precision lines, a `#define` per override, plain structs,
+ *  consts and module variables, `layout(std140) uniform` blocks and sampler uniforms, helper functions, then the
  *  entry: its `in`/`out` varyings, a `<name>_impl` function where the body cannot be
  *  inlined into `main()`, and `main()` itself. A `uniform` struct binding becomes a std140
  *  block whose byte offsets are the ones {@link wgslLayout} reports, so a host packs one

@@ -2,13 +2,13 @@
 precision highp float;
 precision highp int;
 
-const float Ring_MIN_WIDTH = 0.01;
-float Ring_drawn = 0.0;
 struct Ring {
   float width;
   vec2 center;
   float radius;
 };
+const float Ring_MIN_WIDTH = 0.01;
+float Ring_drawn = 0.0;
 float Ring_get_width(Ring self_) {
   return self_.width;
 }
