@@ -40,6 +40,7 @@ import { fileURLToPath } from 'node:url';
 import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js';
 import { compileTsSources } from './module.js';
 import { USE_TYPESHADE } from './directive.js';
+import { checkDocuments } from '../../language-service/check.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -184,6 +185,23 @@ describe('documentation snippets compile', () => {
         requireDirective: true,
       });
       expect(errorsOf(r.diagnostics)).toEqual([]);
+    });
+    // What the editor and `typeshade check` show for it too: a snippet is what an author, and a
+    // coding agent, copies, and an error the editor raises on a program the compiler takes is a
+    // second surface (Rule 12.7).
+    it(`${u.fence.file}:${u.fence.line} draws no error in the editor`, () => {
+      const report = checkDocuments([
+        {
+          path: `${u.fence.file}:${u.fence.line}.ts`,
+          uri: `/docs/${u.fence.line}.ts`,
+          text: u.fence.code,
+        },
+      ]);
+      expect(
+        report.diagnostics
+          .filter((d) => d.severity === 'error')
+          .map((d) => `${d.line}:${d.column} ${d.source} ${d.code} ${d.message}`),
+      ).toEqual([]);
     });
   }
 
