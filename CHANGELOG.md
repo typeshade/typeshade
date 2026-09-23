@@ -932,6 +932,17 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **The editor types a local built by vector arithmetic as the vector it is** (#162).
+  `const uv = p.xy * frame.scale` gave `uv` the type `number` in the language service, because
+  TypeScript has no operator overloading. So on a program the compiler accepts, `uv.x` was
+  TS2339, `tint(uv)` was TS2345, completion after `uv.` offered nothing, and hover said
+  `number`. The TypeScript program now reads each open document with the front end's type
+  written in (`const uv: vec2 = …`), and every answer maps back to the text as written:
+  diagnostics, hover, completion, references, rename, semantic tokens and `positionAt`. Only
+  an unannotated `const` or `let` whose initializer does arithmetic and whose type is a vector
+  or an `f32` matrix is written into. Plain `tsc` is unchanged, and the README's annotation
+  advice still holds there.
+
 - **The optimizer no longer shares a value across a write to what its callee reads.** A call's
   value depends on its arguments and on every module name its callee reads, and cse, licm and
   gvn saw only the arguments: `let a = h(x * 2.); gp = 5.; let c = h(x * 2.)`, with `h`

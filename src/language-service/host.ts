@@ -8,6 +8,7 @@
 
 import ts from 'typescript';
 import { SHADE_DTS } from './ambient.js';
+import { Projection, planInsertions } from './projection.js';
 
 /**
  * Configuration for a `TypeshadeHost` / `createTypeshadeLanguageService` instance (design doc §4).
@@ -98,6 +99,8 @@ interface StoredDocument {
   text: string;
   version: number;
   revision: number;
+  /** The text TypeScript reads for this document (`projection.ts`), computed on first use. */
+  projection?: Projection;
 }
 
 /** A file pulled in through `readDocument` because an open document imports it: its text as
@@ -217,8 +220,23 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
   getScriptSnapshot(uri: string): ts.IScriptSnapshot | undefined {
     if (uri === AMBIENT_LIB_URI) return ts.ScriptSnapshot.fromString(this.ambientLib);
     if (uri === NO_LIB_URI) return ts.ScriptSnapshot.fromString('');
-    const text = this.getDocumentText(uri);
+    const text = this.programText(uri);
     return text === undefined ? undefined : ts.ScriptSnapshot.fromString(text);
+  }
+
+  /** An open document as TypeScript reads it: with the types TypeScript cannot infer written
+   * in (`projection.ts`, #162). `undefined` for a uri that is not an open document, whose text
+   * the program reads as written. */
+  projectionOf(uri: string): Projection | undefined {
+    const doc = this.docs.get(uri);
+    if (!doc) return undefined;
+    doc.projection ??= new Projection(doc.text, planInsertions(doc.text, uri));
+    return doc.projection;
+  }
+
+  /** The text the TypeScript program holds for `uri`. */
+  private programText(uri: string): string | undefined {
+    return this.projectionOf(uri)?.projected ?? this.imported.get(uri)?.text;
   }
 
   getCurrentDirectory(): string {
@@ -246,7 +264,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
   readFile(uri: string): string | undefined {
     if (uri === AMBIENT_LIB_URI) return this.ambientLib;
     if (uri === NO_LIB_URI) return '';
-    return this.getDocumentText(uri);
+    return this.programText(uri);
   }
 
   directoryExists(): boolean {
