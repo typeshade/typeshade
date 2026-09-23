@@ -139,6 +139,14 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A path tracer example** (`examples/path-tracer.shade.ts`). Four spheres with diffuse and
+  emissive materials, eight bounces as an iterative loop with an early `break`, cosine-weighted
+  sampling from `random(seed)`, a constant array of structs as the scene, and sixteen paths per
+  pixel, tone-mapped. It compiles with no diagnostic on both targets and in the editor, passes
+  the compile gate's Tint, WebGL2 and render-pipeline legs, and renders on WebGPU (measured on
+  Tint with SwiftShader). Writing it found what #203 (loop bounds) and #204 (multi-pass
+  rendering) now ask to decide.
+
 - **Hover documents every matrix type, not only `mat4`** (Rule 12.7, surface §40). The language
   service's type table, which hover, completions and the reference pages read, had rows for
   `mat4` and `mat4x4` alone, while the compiler takes all nine `matCxR` and the three square
@@ -873,6 +881,17 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   surface on both targets.
 
 ### Fixed
+
+- **GLSL declares a struct before a module constant or variable of its type** (#179). The GLSL
+  ES 3.00 writer emitted the constants and the top-level `let`s above the struct section, so a
+  `const SPHERES: array<Sphere, 4>` or a struct-typed top-level `let` named a type that was not
+  declared yet. ANGLE refused it with `'[' : syntax error` or `'Cursor' : syntax error`, on both
+  stages, while Tint accepted the WGSL. The struct section now comes first. A module variable's
+  struct type is also in every stage's scope, as a constant's already was, because a module
+  variable is emitted into every stage: the #179 reproducer failed in the vertex shader for that
+  reason alone, although only the fragment entry reads the variable. Measured on the compile
+  gate's WebGL2: both stages compile and link. One golden moves, `class-syntax.fragment.glsl`,
+  by the order of three lines.
 
 - **`capabilityMatrix` says `declarable: false` for all nine derived capabilities** (Rule 10.1,
   §50). `bgra8unormStorage` (#147, derived from a storage texture's format) and `packed4x8Dot`
