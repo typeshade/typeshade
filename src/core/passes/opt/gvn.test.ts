@@ -534,9 +534,9 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     ])
   })
 
-  it('binds the two df64 products once, through the lowered df64_mul calls (fp64)', () => {
-    // The same loop over f64, lowered as every emit lowers it. The products are
-    // `df64_mul(zx, zx, f64Guard())` here; the guard fetch is a leaf to the key, so the two
+  it('binds the two df64 squares once, through the lowered df64_sqr calls (fp64)', () => {
+    // The same loop over f64, lowered as every emit lowers it. The squares are
+    // `df64_sqr(zx, f64Guard())` here; the guard fetch is a leaf to the key, so the two
     // occurrences are one value.
     const jd = fn('jd', { cx: f64T, cy: f64T }, f32T, ({ cx, cy }, b) => {
       const zx = Var(cx)
@@ -553,10 +553,13 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
       b.ret(it)
     })
     const m = fp64Lower(module({ funcs: [jd] }))
-    // zx², zy² in the test; zx², zy², zx*zy and (zx*zy)*2 in the arm.
-    expect(callsTo(m, 'jd', 'df64_mul')).toBe(6)
+    // zx², zy² in the test and again in the arm; zx*zy once in the arm, its doubling an
+    // exact scale rather than a second multiply.
+    expect(callsTo(m, 'jd', 'df64_sqr')).toBe(4)
+    expect(callsTo(m, 'jd', 'df64_mul')).toBe(1)
     const out = gvn(m)
-    expect(callsTo(out, 'jd', 'df64_mul')).toBe(4)
+    expect(callsTo(out, 'jd', 'df64_sqr')).toBe(2)
+    expect(callsTo(out, 'jd', 'df64_mul')).toBe(1)
     expect(gvTempCount(out)).toBe(2)
     expectEveryTempReadTwice(out)
     const df = (x: number): number[] => [x, 0]

@@ -211,8 +211,13 @@ export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
 }
 `)
     const wgsl = emitModule(m)
-    // bump writes `dst`: two calls as written, two increments. half is pure: one call.
-    expect(wgsl).toContain('df64_mul(bump(gid.x), bump(gid.x), _fp64_g)')
+    // bump writes `dst`: two calls as written, two increments (the front end sequences each
+    // effectful call into its own `let`), and the product of the two stays a general
+    // df64_mul. half is pure: one call, squared.
+    expect(wgsl.match(/= bump\(gid\.x\);/g)).toHaveLength(2)
+    const mul = /df64_mul\((\w+), (\w+), _fp64_g\)/.exec(wgsl)
+    expect(mul).not.toBeNull()
+    expect(mul![1]).not.toBe(mul![2])
     expect(wgsl).toContain('df64_sqr(half(x), _fp64_g)')
   })
 
