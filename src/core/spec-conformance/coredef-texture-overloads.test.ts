@@ -187,7 +187,7 @@ function witnessFor(row: CoreDefRow, stage: Stage): string | null {
   const head = `"use typeshade"\n${decls.join('\n')}\n`;
 
   if (stage === 'compute') {
-    const sinkDecl = sink === null ? '' : 'declare let out: storage<array<f32>>\n';
+    const sinkDecl = sink === null ? '' : 'declare const out: storage<array<f32>, "read_write">\n';
     const body = sink === null ? `  ${call}` : `  const r = ${call}\n  out[gid.x] = ${sink}`;
     return `${head}${sinkDecl}@compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {

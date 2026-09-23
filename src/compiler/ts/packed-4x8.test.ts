@@ -67,7 +67,7 @@ describe('the packed 4x8 integer builtins are authorable, and WGSL-only', () => 
     // `u32` storage array, which only type-checks if the result IS a u32, and the same
     // program written against an `i32` array must be refused.
     const intoU32 = compile(`"use typeshade";
-declare let out: storage<array<u32>>;
+declare const out: storage<array<u32>, "read_write">;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[0] = pack4xU8(vec4u(1, 2, 3, 4));
@@ -86,7 +86,7 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     // signed dot, which is the one signed result of the family. Without this arm the test
     // above would still pass if every result were widened to something assignable to both.
     const signedSlots = compile(`"use typeshade";
-declare let out: storage<array<i32>>;
+declare const out: storage<array<i32>, "read_write">;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[0] = pack4xI8(vec4i(1, 2, 3, 4));
@@ -98,7 +98,7 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
 
     // `dot4I8Packed` IS an i32, and the unpacks carry their own signedness.
     const signed = compile(`"use typeshade";
-declare let out: storage<array<i32>>;
+declare const out: storage<array<i32>, "read_write">;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[0] = dot4I8Packed(u32(out[1]), u32(out[2]));
@@ -110,7 +110,7 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     expect(signed.wgsl).toContain('unpack4xI8(');
 
     const unsignedUnpack = compile(`"use typeshade";
-declare let out: storage<array<u32>>;
+declare const out: storage<array<u32>, "read_write">;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[0] = unpack4xU8(out[1]).z;
@@ -205,7 +205,7 @@ export function fs(@location(0) uv: vec2): vec4 {
 
   it('agrees between the tree-walk oracle and the generated one', () => {
     const r = compile(`"use typeshade";
-declare let o: storage<array<u32>>;
+declare const o: storage<array<u32>, "read_write">;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   o[0] = dot4U8Packed(o[1], o[2]);

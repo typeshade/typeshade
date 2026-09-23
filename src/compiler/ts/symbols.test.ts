@@ -165,26 +165,41 @@ describe('DeclaredSymbol table', () => {
   });
 });
 
-describe('DeclaredSymbol table: a binding declared let', () => {
-  // `collectBindings` accepts `let` as well as `const`, and the keyword is not decoration: a
-  // `let` storage buffer is the `read_write` one. A reader of the table has to be able to tell
-  // the two apart, so `mutable` follows the declaration the same way it does for a local.
+describe('DeclaredSymbol table: a binding, and what mutable means for one', () => {
+  // `mutable` on a BINDING follows the ACCESS MODE, not the keyword. Every binding is declared
+  // `const` (design rule 6.1), so the keyword tells a reader of the table nothing; what it has
+  // to be able to tell apart is a `storage<T>` from a `storage<T, "read_write">`, because that
+  // is what decides whether the buffer may be written. For a LOCAL `mutable` is still the
+  // keyword, which is the case the arms above this one cover.
   const source = [
     '"use typeshade";',
     'declare const ro: storage<array<f32>>',
-    'declare let rw: storage<array<f32>>',
+    'declare const rw: storage<array<f32>, "read_write">',
     '@compute([64, 1, 1])',
     'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
     '  rw[gid.x] = ro[gid.x];',
     '}',
   ].join('\n');
 
-  it('records the declaration keyword of each binding', () => {
+  it('records the access mode of each binding, and the keyword of neither', () => {
     const r = compileTsSource(source);
     expect(errorsOf(r.diagnostics)).toEqual([]);
     expect(only(r.symbols, 'ro').mutable).toBe(false);
     expect(only(r.symbols, 'rw').mutable).toBe(true);
     expect(r.bindings.find((b) => b.name === 'rw')?.access).toBe('read_write');
+    expect(r.bindings.find((b) => b.name === 'ro')?.access).toBe('read');
+  });
+
+  it('a uniform binding is never mutable, whatever it is declared with', () => {
+    const r = compileTsSource(
+      [
+        '"use typeshade";',
+        'declare const u: uniform<f32>',
+        'export function f(): f32 { return u }',
+      ].join('\n'),
+    );
+    expect(errorsOf(r.diagnostics)).toEqual([]);
+    expect(only(r.symbols, 'u').mutable).toBe(false);
   });
 });
 

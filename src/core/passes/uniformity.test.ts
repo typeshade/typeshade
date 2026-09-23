@@ -242,7 +242,7 @@ describe('@diagnostic("off", "derivative_uniformity")', () => {
     // only be called from uniform control flow` on Tint WITH `diagnostic(off,
     // derivative_uniformity);` in the module. Silencing it here would hand the author a
     // module that fails at createShaderModule instead of at the line.
-    const errors = errorsOf(`declare let out: storage<array<f32>>
+    const errors = errorsOf(`declare const out: storage<array<f32>, "read_write">
 let tile: workgroup<array<f32, 64>>
 @diagnostic("off", "derivative_uniformity")
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
@@ -437,7 +437,7 @@ describe('the walk claims only what it has proven', () => {
     ).toContain('textureSample(t, s,');
     // The BARRIER threshold is untouched by that: `unknown` is still not `uniform`.
     expect(
-      errorsOf(`declare let out: storage<array<f32>>
+      errorsOf(`declare const out: storage<array<f32>, "read_write">
 export function opaque(): f32 { return 0.5 }
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
   if (opaque() > 0.5) { return }
@@ -452,7 +452,7 @@ export function opaque(): f32 { return 0.5 }
     // condition below read `uniform` and the barrier was ADMITTED — where Tint answers
     // `'workgroupBarrier' must only be called from uniform control flow`. A false PROOF, which
     // is the one thing the barrier threshold cannot tolerate.
-    const member = errorsOf(`declare let out: storage<array<f32>>
+    const member = errorsOf(`declare const out: storage<array<f32>, "read_write">
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
   let g: vec2 = vec2(0., 0.)
   g.x = f32(lid.x)
@@ -462,7 +462,7 @@ export function opaque(): f32 { return 0.5 }
     expect(member[0]).toContain('workgroupBarrier() is reached under');
     expect(member[0]).toContain('local_invocation_id');
     // The same through an index, which reaches the root the same way.
-    const index = errorsOf(`declare let out: storage<array<f32>>
+    const index = errorsOf(`declare const out: storage<array<f32>, "read_write">
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
   let g: array<f32, 2> = [0., 0.]
   g[0] = f32(lid.x)
@@ -479,7 +479,7 @@ export function opaque(): f32 { return 0.5 }
     // A copy chain three deep is what makes the body walk settle only on the third pass —
     // `a = b; b = c` carries `c`'s class round the loop one name per iteration — so the
     // barrier under it was reported three times over. Measured: 3 without the filter, 1 with.
-    const errors = errorsOf(`declare let out: storage<array<f32>>
+    const errors = errorsOf(`declare const out: storage<array<f32>, "read_write">
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
   let a: f32 = 0.
   let b: f32 = 0.
@@ -733,7 +733,7 @@ export function outer(p: f32, q: f32): f32 { return inner(q, p) }
     // condition keeps the refusal whatever the arguments are — the relaxation may only ever
     // admit what is proven, and a user call is never proven.
     for (const cond of ['edge(f32(lid.x))', 'edge(k)']) {
-      const errors = errorsOf(`declare let out: storage<array<f32>>
+      const errors = errorsOf(`declare const out: storage<array<f32>, "read_write">
 declare const k: uniform<f32>
 export function edge(x: f32): bool { return x > 0.5 }
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
@@ -752,7 +752,7 @@ describe('where the diagnostic points', () => {
     // three lines above the statement an author has to move. An editor squiggle over a whole
     // function is a squiggle that says nothing.
     const source = `"use typeshade";
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
   if (lid.x > u32(4)) { workgroupBarrier(); }
   out[lid.x] = 1.;
@@ -869,7 +869,7 @@ describe('the call graph, walked to a fixpoint that does not read declaration or
 // the compile gate's own mechanics, with the broken-shader instrument reporting `fn broken( {`
 // first, front end and Tint on the same emitted module.
 describe("a write's target, and the address space a read comes from", () => {
-  const CS = (decls: string, body: string) => `declare let out: storage<array<f32>>
+  const CS = (decls: string, body: string) => `declare const out: storage<array<f32>, "read_write">
 ${decls}@compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
 ${body}
   out[lid.x] = 1.
@@ -962,7 +962,7 @@ export function peek(): f32 { return stash }
     ],
     [
       'through a writable storage binding rather than a module var',
-      `${HEAD}declare let scratch: storage<array<f32>>
+      `${HEAD}declare const scratch: storage<array<f32>, "read_write">
 export function stow2(x: f32): void { scratch[0] = x }
 @fragment export function fs(v: VsOut): vec4 {
   stow2(v.uv.x)
@@ -1055,7 +1055,7 @@ export function peek(): f32 { return stash }
     ],
     [
       'a read_write storage element',
-      `${HEAD}declare let scratch: storage<array<f32>>
+      `${HEAD}declare const scratch: storage<array<f32>, "read_write">
 export function peek2(): f32 { return scratch[0] }
 @fragment export function fs(v: VsOut): vec4 {
   if (peek2() > 0.25) { return textureSample(t, s, v.uv) }

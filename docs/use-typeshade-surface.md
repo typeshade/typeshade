@@ -7,19 +7,19 @@ Does not replace `docs/use-typeshade-plan.md` (IR phases 0–22). This document 
 North star: TypeScript syntax only where the TS parser already accepts it. No preprocessor. No second IR.
 
 ```
-type Camera = { … }                 value struct (or class + field attrs)
-class VsIn { @location(0) … }       value struct + per-field metadata
-declare const camera: uniform<T>    resource slot (host fills)
-declare let pixels: storage<T>      resource slot, writable
-@compute([64]) export function      entry
-@vertex / @fragment export function entry
+type Camera = { … }                             value struct (or class + field attrs)
+class VsIn { @location(0) … }                   value struct + per-field metadata
+declare const camera: uniform<T>                resource slot (host fills)
+declare const pixels: storage<T, "read_write">  resource slot, writable
+@compute([64]) export function                  entry
+@vertex / @fragment export function             entry
 ```
 
 GPU has three things. The grammar has three places.
 
 | GPU              | TypeShade                                      | `@` allowed?                          |
 |------------------|------------------------------------------------|---------------------------------------|
-| Buffer / UBO     | `declare const/let` + `uniform<T>` / `storage<T>` | No (const cannot take decorators)     |
+| Buffer / UBO     | `declare const` + `uniform<T>` / `storage<T, A>` | No (const cannot take decorators)     |
 | Value layout     | `class` fields or `type` alias                 | Yes, on **class fields only**         |
 | Shader stage     | top-level `export function`                    | `@compute` `@vertex` `@fragment`      |
 
@@ -29,43 +29,120 @@ Do not put an entry method on a class. Do not use a class as a bind group.
 
 ## 1. Resources — `declare`
 
-Host-owned. No initializer. Slot index = source order of `declare` in the file.
+Host-owned. No initializer. Slot index = source order of `declare` in the file. Every resource
+is declared `const`, and a storage binding says in its TYPE how the shader may touch it.
+
+**The two forms.** `storage<T>` is WGSL's `var<storage, read>` and `storage<T, "read_write">` is
+`var<storage, read_write>`. The access mode is the second type argument, and the only two words
+it takes are `"read"` and `"read_write"` — WGSL's own enumerants, written as string literal
+types the way a storage texture already writes its own (§33). `"read"` is the default, so
+`storage<T>` and `storage<T, "read">` are the same binding. A uniform buffer is read-only in
+WGSL, so `uniform<T>` takes one type argument and has no mode to ask for.
 
 ```ts
 "use typeshade";
 
+interface Camera {
+  view: vec4;
+  fov: f32;
+}
+
 declare const camera: uniform<Camera>;
-declare const src: storage<f32>;
-declare let pixels: storage<f32>;
+declare const src: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
+
+@compute([64, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  dst[gid.x] = src[gid.x] * camera.fov;
+}
 ```
 
-| Declaration | Space | Access |
-|-------------|-------|--------|
-| `declare const x: uniform<T>` | uniform | read |
-| `declare const x: storage<T>` | storage | read |
-| `declare let x: storage<T>` | storage | read_write |
-| `declare const x: T` | illegal | space required |
-| `declare let x: uniform<T>` | illegal | uniform is const |
+**What it emits.** The three declarations are the three WGSL `var`s, in source order:
 
-Writes to a read-only resource are a compile error.
+```wgsl
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<storage, read> src: array<f32>;
+@group(0) @binding(2) var<storage, read_write> dst: array<f32>;
+```
 
-The last row is not enforced yet: `declare let x: uniform<T>` compiles as a read-only uniform
-binding with no diagnostic (the language design rules' Appendix B, Rule 6.1).
+`module.bindings` and `reflect()` carry the same mode: `{ space: "storage", access: "read" }`
+for `src` and `{ space: "storage", access: "read_write" }` for `dst`, and a uniform binding has
+no `access` field at all.
+
+| Declaration | Space | Access | Emitted |
+|-------------|-------|--------|---------|
+| `declare const x: uniform<T>` | uniform | read | `var<uniform> x: T;` |
+| `declare const x: storage<T>` | storage | read | `var<storage, read> x: T;` |
+| `declare const x: storage<T, "read">` | storage | read | the same; the default written out |
+| `declare const x: storage<T, "read_write">` | storage | read_write | `var<storage, read_write> x: T;` |
+| `declare const x: T` | illegal | space required | `TS8099` |
+| `declare let x: storage<T>` | illegal | the mode is a type argument | `TS8099` |
+| `declare let x: uniform<T>` | illegal | a uniform is read-only | `TS8099` |
+| `declare const x: storage<T, "write">` | illegal | a buffer has no write-only mode | `TS8002` |
+| `declare const x: uniform<T, A>` | illegal | a uniform has no mode | `TS8002` |
+
+**What each refusal says.** Every sentence below names the line to write instead, and the
+refused declaration is still COLLECTED, so the one sentence is not buried under an
+`Unknown identifier` at every use of the name.
+
+- `declare let counts: storage<array<u32>>` — `TS8099`,
+  `"counts" is a storage binding, and a binding is declared const: write "declare const counts: storage<array<u32>, "read_write">". A storage binding's access mode is its second type argument, not the declaration keyword.`
+  The binding recovers as `read_write`, because a `let` author wanted to write.
+- `declare let gain: uniform<f32>` — `TS8099`,
+  `"gain" is a uniform binding, and a binding is declared const: write "declare const gain: uniform<f32>". A uniform buffer is read-only, so there is no writable form of it to ask for.`
+- `declare const dst: storage<array<f32>, "write">` — `TS8002`,
+  `storage<T, Access> Access is "read" or "read_write"; got "write". A storage BUFFER has no write-only mode; that is a storage texture's, texture_storage_2d<Format, "write">.`
+  The binding recovers as `read_write`, because recovering as `read` would make the author's own
+  write a second refusal on the same program.
+- `declare const cam: uniform<Camera, "read">` — `TS8002`,
+  `uniform<T> takes one type argument. A uniform buffer is read-only, so it has no access mode to write.`
+- A write to a read binding — `TS8005`,
+  `Cannot assign to "src" — it is a read-only resource. Write "declare const src: storage<array<f32>, "read_write">" to write to it.`
+  A `uniform` gets the same first clause and no remedy: there is no writable uniform.
+  The remedy names the form the file uses and the type as an AUTHOR spells it: a call-form
+  binding is answered with `Write "const src = storage<array<f32>, "read_write">()" to write to
+  it.`, and a vector, a matrix or an emulated double is named `vec4`, `mat2x3`, `vec2f64` and
+  not by the compiler's internal key (`vec4<f32>`, which the editor answers with
+  `TS2315 Type 'vec4' is not generic`). `src.length = 2` gets no remedy at all, because it is
+  `TS8018` under either mode.
+
+**The editor says the same thing.** The ambient library resolves `storage<T>` and `uniform<T>`
+to `ReadView<T>`, one mapped type that makes every field, lane and index signature `readonly`
+all the way down, and resolves `storage<T, "read_write">` to `T` itself. So `src[0] = 1.` is
+TS2542 and `camera.fov = 1.` is TS2540 as they are typed, before `compile()` is called, while
+`dst[0] = 1.` stays clean. A bad access word is TS2344 and a second type argument on a
+`uniform` is TS2314, from the declaration's own constraint. Reading is untouched: a struct
+copied out of a read array, `length(p.offset)`, `.length` on a read array and a method on a
+class-typed read binding all behave exactly as before. §49 has the row for row.
 
 Duplicate `@group @binding` is an error.
 
-Sketch form still exists and occupies the same slot sequence:
+Sketch form still exists and occupies the same slot sequence, and takes the access mode in the
+same place:
 
 ```ts
 const scale = uniform<f32>();
-let xs = storage<f32>();
+const xs = storage<f32, "read_write">();
 ```
+
+The `{ access: "read_write" }` option it once took is gone: writing it is `TS8099`,
+`The { access } option is gone: a storage binding's access mode is its second type argument. Write "const ys = storage<array<f32, 4>, "read_write">({ binding: 3 })".`
+The word it names is the author's own only when the author's own is one of the two: an option
+that asked for something else is answered with `"read_write"`, never echoed back into a line
+the next compile would refuse. On a `uniform`, which has no access mode to move anywhere, the
+sentence is its own:
+`The { access } option is gone, and a uniform buffer is read-only: it has no access mode to ask for. Write "const cam = uniform<f32>({ binding: 3 })".`
+The editor refuses the option too, `TS2353 Object literal may only specify known properties, and 'access' does not exist in type '{ group?: number; binding?: number; }'`:
+`uniform` and `storage` declare the slot they take (a binding number, a group and a binding, or
+`{ group, binding }`), which they did not before — every call form that named its slot was
+`TS2554 Expected 0 arguments, but got 1` in the editor on a program the compiler accepts, the
+line this very refusal quotes included.
 
 Product code should use `declare`. Mixing `declare` and call form in one file shares one slot counter; collisions still error.
 
 Only the `const` half of the sketch form still compiles. Since a top-level `let` became a module
 variable (§24), `let xs = storage<f32>()` is read as one as well and draws `TS8004 Unknown
-function "storage<f32>()"`; write `declare let xs: storage<f32>`.
+function "storage<f32>()"`; write `declare const xs: storage<f32, "read_write">`.
 
 `var` is not a resource declaration.
 
@@ -277,7 +354,7 @@ entry may also return nothing, which is what a program that only writes to stora
 declare const camera: uniform<Camera>
         → BindingDecl { name, space: "uniform", binding: N, type: Camera }
 
-declare let pixels: storage<f32>
+declare const pixels: storage<f32, "read_write">
         → BindingDecl { space: "storage", access: "read_write", … }
 
 camera / pixels in a function
@@ -315,14 +392,18 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | Situation | Error |
 |-----------|-------|
 | `declare const x: f32` | need `uniform<T>` or `storage<T>` |
-| `declare let x: uniform<T>` | uniform must be `declare const` |
-| assign to `declare const` resource | read-only |
+| `declare let x: storage<T>` | `TS8099`. `"x" is a storage binding, and a binding is declared const: write "declare const x: storage<T, "read_write">". A storage binding's access mode is its second type argument, not the declaration keyword.` The binding is collected as `read_write` anyway, so the sentence is not buried (§1) |
+| `declare let x: uniform<T>` | `TS8099`. `"x" is a uniform binding, and a binding is declared const: write "declare const x: uniform<T>". A uniform buffer is read-only, so there is no writable form of it to ask for.` |
+| an access word outside `"read"` and `"read_write"` | `TS8002`. `storage<T, Access> Access is "read" or "read_write"; got "write". A storage BUFFER has no write-only mode; that is a storage texture's, texture_storage_2d<Format, "write">.` Collected as `read_write` (§1); TS2344 in the editor |
+| a second type argument on a `uniform<T>` | `TS8002`. `uniform<T> takes one type argument. A uniform buffer is read-only, so it has no access mode to write.` TS2314 in the editor |
+| the retired `{ access }` option on the call form | `TS8099`, naming the type-argument spelling to write (§1). Reported and ignored: the mode comes from the type argument |
+| assign to a read resource: a `uniform<T>`, or a `storage<T>` with no `"read_write"` | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a multi-component swizzle `v.xy` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
 | two resources share `@binding` | name both |
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
-| A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare`, a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
+| A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare` (`"dst" is a storage binding the host provides, and needs declare: write "declare const dst: storage<array<f32>, "read_write">".` — the mode is the one the `let` asked for, and a resource with no type argument names the shape `storage<...>`), a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
 | A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
 | A call that writes in a `while` condition, anywhere but as one side of its comparison | `TS8006`. The condition runs on every iteration, so the call cannot move ahead of the loop to run in source order; compare the call alone, or call it into a `let` at the end of the body (§26, Rule 7.9) |
@@ -344,7 +425,7 @@ class Camera {
 }
 
 declare const camera: uniform<Camera>;
-declare let pixels: storage<array<f32>>;
+declare const pixels: storage<array<f32>, "read_write">;
 
 @compute([64, 1, 1])
 export function paint(
@@ -385,7 +466,7 @@ pixels[i] = 1.;            // an element
 | Root | Writable? |
 |------|-----------|
 | `let` local | yes |
-| `declare let x: storage<T>` | yes |
+| `declare const x: storage<T, "read_write">` | yes |
 | `const` local | no: `TS8005` |
 | `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
 | a function parameter | no: `TS8018` |
@@ -1416,7 +1497,7 @@ length, a parameter, an `override`: any integer expression the body does not wri
 "use typeshade";
 
 declare const verts: storage<array<vec3f>>;
-declare let hits: storage<array<u32>>;
+declare const hits: storage<array<u32>, "read_write">;
 
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u): void {
@@ -1641,7 +1722,7 @@ statement.
 
 ```ts
 "use typeshade";
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 
 function store(i: u32): void {
   dst[i] = 1.;
@@ -1703,7 +1784,7 @@ the same read explicitly. Both are a `u32`, as the WGSL builtin is.
 ```ts
 "use typeshade";
 declare const src: storage<array<f32>>;
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 
 @compute([64, 1, 1])
 export function scale_all(@builtin("global_invocation_id") gid: vec3u): void {
@@ -1849,8 +1930,8 @@ Many invocations write one location at once in a histogram, a counter, a reducti
 answer is the atomic type and its builtins, and this surface carries them (roadmap 0.2 item 4).
 
 **The type.** `atomic<u32>` and `atomic<i32>` are locations in storage memory, never values. They
-are declared inside a `storage<...>` binding with `let`: an array of them, a field of a storage
-struct, or a bare binding.
+are declared inside a `storage<...>` binding whose access mode is `"read_write"`: an array of them,
+a field of a storage struct, or a bare binding.
 
 ```ts
 "use typeshade";
@@ -1859,8 +1940,8 @@ class Summary {
   maxBin: atomic<i32>;
 }
 declare const src: storage<array<f32>>;
-declare let bins: storage<array<atomic<u32>>>;
-declare let summary: storage<Summary>;
+declare const bins: storage<array<atomic<u32>>, "read_write">;
+declare const summary: storage<Summary, "read_write">;
 
 @compute([64, 1, 1])
 export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
@@ -1886,10 +1967,10 @@ arithmetic wraps at 32 bits. A result nobody binds is dropped behind WGSL's phon
 **What is refused, and told the fix.** An atomic is never read or assigned directly: `bins[i]`
 outside an atomic builtin, as a value or as an assignment target, is TS8003 naming
 `atomicLoad`, `atomicStore` and `atomicAdd`. Every atomic builtin needs read_write access, so a
-`declare const` binding is TS8005 with "declare it with let". A value of another type
-(`atomicAdd(bins[i], 1.5)`) is TS8003, a location that is not atomic is TS8003, the wrong number
-of arguments is TS8019. An atomic declared as a local, a parameter or a return type, or inside a
-`uniform<...>`, is TS8099 with where it may live; `atomic<f32>` is TS8002.
+binding whose type does not say `"read_write"` is TS8005 naming the line to write. A value of
+another type (`atomicAdd(bins[i], 1.5)`) is TS8003, a location that is not atomic is TS8003, the
+wrong number of arguments is TS8019. An atomic declared as a local, a parameter or a return
+type, or inside a `uniform<...>`, is TS8099 with where it may live; `atomic<f32>` is TS8002.
 
 **The optimizer** treats every atomic builtin as an effect: two `atomicAdd` calls on one
 location are both kept, an `atomicLoad` is never shared across a store to the same binding, and
@@ -1916,14 +1997,14 @@ design [#82](https://github.com/typeshade/typeshade/issues/82).
 that is its only spelling: `let seed: u32 = 7` is what a module-level `let` means to a TypeScript
 reader, a value this run of the program owns, and in a shader the run is the invocation.
 Workgroup memory has no TypeScript counterpart, so it is always written out, as a wrapper type on
-the annotation the way a resource is a `declare const|let` with `uniform<T>` or `storage<T>`:
+the annotation the way a resource is a `declare const` with `uniform<T>` or `storage<T>`:
 `let tile: workgroup<array<f32, 64>>`. No `declare`: `declare` stays the mark of a value the host
 provides, and a module variable is the module's own.
 
 ```ts
 "use typeshade";
 declare const src: storage<array<f32>>;
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 
 let tile: workgroup<array<f32, 64>>;
 let seed: u32 = 7;
@@ -1966,7 +2047,7 @@ memory every invocation shares is a `storage` binding.
 
 **What is refused.** A `let` with neither a type nor an initializer, a list without an array
 type, a resource type without `declare` (`let x: storage<array<f32>>` is a binding that lost
-its `declare let`), a non-constant initializer, an initializer of another type, and a type the
+its `declare`), a non-constant initializer, an initializer of another type, and a type the
 space cannot hold are TS8033 with the fix. A `const` with a wrapper type is TS8033: a `const` is
 a module constant (§12). A repeated name, or a name a const or a binding already has, is
 TS8023. A top-level `var` stays TS8014. `perInvocation<T>`, a wrapper this section once offered
@@ -2003,7 +2084,7 @@ every one runs on, and what each wrote before it is what every other reads after
 ```ts
 "use typeshade";
 declare const src: storage<array<f32>>;
-declare let sums: storage<array<f32>>;
+declare const sums: storage<array<f32>, "read_write">;
 
 let tile: workgroup<array<f32, 64>>;
 
@@ -4328,7 +4409,7 @@ so.)
 
 ```ts
 "use typeshade";
-declare let total: storage<atomic<u32>>;
+declare const total: storage<atomic<u32>, "read_write">;
 
 class Clip {
   @builtin("position") pos: vec4;
@@ -4878,6 +4959,96 @@ WIDENS an `f32` and takes nothing else.
 with rows on both sides: a row where both refuse is as much the subject as one where both
 accept, and a test that only checked the accepting rows would be green on an ambient lib that
 had stopped saying anything at all.
+
+### A write the editor used to allow
+
+Drift runs the other way too, and it is quieter: a rule the ambient lib states more WIDELY than
+the compiler is a program that types clean in the editor and is refused by `compile()`. A write
+to a read-only resource was one. `src[0] = 1.` on a `declare const src: storage<array<f32>>`
+reported nothing from TypeScript; only the compiler's `TS8005` said so, and an author reading
+the editor saw a green file.
+
+The access mode reaches the library now (§1): `storage<T>` and `uniform<T>` resolve to
+`ReadView<T>`, which makes every field, lane and index signature `readonly` all the way down,
+and `storage<T, "read_write">` resolves to `T` itself. So the write is TS2542 on an index and
+TS2540 on a field as it is typed, and the read_write binding beside it stays clean — which is
+the point, because a readonly index signature that was not per binding is exactly the false
+positive this surface removed once already, when every compute kernel reported TS2542 on the
+store it exists to make.
+
+| spelling | the editor used to say | now |
+| --- | --- | --- |
+| `src[0] = 1.` on `storage<array<f32>>` | nothing | TS2542 |
+| `camera.fov = 1.` on `uniform<Camera>` | nothing | TS2540 |
+| `b.w[0] = 1.`, `xs[0].q = 1.` (one level down) | nothing | TS2542, TS2540 |
+| `dst[0] = 1.` on `storage<array<f32>, "read_write">` | clean | clean |
+| `storage<T, "write">` | TS2314, "requires 1 type argument" | TS2344, against the two words |
+
+A read is untouched, which is what the view must not cost: a struct copied out of a read array,
+`length(p.offset)`, `.length` on a read array, a method called on a class-typed read binding and
+`array<f32, 3>` still not being an `array<f32, 2>` are all measured in
+`src/language-service/ambient.test.ts`, which pins both directions. `uniform<T, "read">` is
+TS2314 as it always was, because `uniform<T>` still takes one type argument; what changed there
+is the compiler's own sentence beside it (§1).
+
+### Two writes only the compiler refuses
+
+The read view is a TYPE, so it sees writes that are typed as writes. Two are not, and the
+editor is silent about both while `compile()` refuses them:
+
+```ts
+declare const bins: storage<array<atomic<u32>>>;
+atomicAdd(bins[0], 1); // TS8005 from the compiler, nothing from TypeScript
+
+class Acc { total: f32 = 0. as f32; add(x: f32): void { this.total = this.total + x; } }
+declare const acc: storage<Acc>;
+acc.add(1.); // TS8035 from the compiler, nothing from TypeScript
+```
+
+An `atomic<T>` is one symbol-keyed brand, and `ReadView` passes a symbol key through as it
+stands: there is no property to mark `readonly`, because an atomic is written through a CALL
+and not through an assignment. A method is a call signature, which no mapped type preserves,
+so the view stops at the method boundary — and it has to, since `Acc.add` is declared once and
+shared by a read binding and a read_write one alike. Both sentences name the declaration to
+write (`Write "declare const bins: storage<array<atomic<u32>>, "read_write">" to write to
+it.`), so the remedy is the same one the indexed write gets; only the layer that says it
+differs. Recorded as the Appendix B row for design rule 6.2 in `docs/language-design.md`.
+
+### Two writes the editor refuses and the compiler takes
+
+Drift the other way, which §49 calls the worse failure: red on a program that runs.
+
+| spelling | the compiler | the editor |
+| --- | --- | --- |
+| `s = 1.` on `declare const s: storage<f32, "read_write">` | `var<storage, read_write> s: f32;` then `s = 1.0` | TS2588, "Cannot assign to 's' because it is a constant" |
+| `m[0] = vec4(1.)` on `declare const m: storage<mat4, "read_write">` | the column is assigned | TS2322, "Type 'vec4' is not assignable to type 'never'" |
+
+The first is the price of the keyword. A binding is `declare const` (§1), and TypeScript will
+not assign to a `const` whatever its value type is: no ambient declaration can close it,
+because `const` is the keyword's meaning and not the type's. It reaches only a WHOLE-binding
+write — a scalar, a vector, a struct or an emulated double assigned as one — and a compute
+kernel's `out[gid.x] = …` or `p.scale = …` is untouched, which is why no example and no test in
+the tree met it before `remedy-lines.test.ts` pasted a remedy in and measured what was left.
+The remedy it names is still the right line; the editor simply says one more thing about it.
+
+The second is older than the read view and unchanged by it. Only the SQUARE matrix aliases take
+their element as a type parameter (`mat4<T extends f32 | f64 = f32>`) and resolve through a
+conditional, which is what loses the column's type; `mat2x3[0] = vec3(1.)` is clean in both
+layers, and so is every read of a column. Appendix B's row for design rule 12.7 carries both.
+
+### The second type argument, where the two layers still part
+
+| spelling | the compiler | the editor |
+| --- | --- | --- |
+| `type A = "read_write"` then `storage<array<f32>, A>` | TS8002, `got A`: the mode is read off the literal type and an alias is not one, so it is recovered as read_write | clean, since `A` satisfies `StorageBufferAccess` |
+| `storage<array<f32>, "read_write", "x">` | clean; a third type argument is not read | TS2707, "requires between 1 and 2 type arguments" |
+| `declare let counts: storage<array<u32>>` beside `counts[gid.x] = 1` | TS8099 on the declaration alone: the binding is recovered as read_write, so the write is not a second sentence | TS8099 and TS2542 on the write, because the library reads the type as DECLARED and the recovery is the compiler's |
+
+Each is one mistake answered twice or once too few, never a program that runs differently. The
+first two follow from where the mode is read: the compiler reads a string literal type out of
+the declaration, TypeScript checks an assignable constraint. The third is the cost of recovery
+— a refusal that keeps the binding alive so the rest of the file still resolves cannot also
+reach back into the ambient library and change the type it was declared with.
 
 ### Two compositions the editor still does not take
 

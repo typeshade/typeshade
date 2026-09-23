@@ -250,7 +250,7 @@ describe('cheaper multiplies: the square and exact power-of-two scaling', () => 
 
   it('only an operand without an effect is squared: f() * f() over a writing f stays df64_mul', () => {
     const { module: m } = compile(`"use typeshade";
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 function bump(i: u32): f64 {
   dst[i] = dst[i] + 1.;
   return f64(dst[i]);
@@ -386,7 +386,7 @@ const K = 1e38;
 const scale: override<f32> = 3e30;
 class U { c: f64; pad: vec2; }
 declare const u: uniform<U>;
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
   const k = 1e38;
@@ -456,7 +456,7 @@ export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
     // `bump` writes, so cse / gvn / licm skip main_k, and O0 runs none of them: a vector the
     // scale spelled in both planes would be computed twice.
     const { module: m, diagnostics } = compile(`"use typeshade";
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 function bump(i: u32): f32 {
   dst[i] = dst[i] + 1.;
   return dst[i];
@@ -497,7 +497,7 @@ export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
 
   it('dot(v, v) squares only a v whose evaluation has no effect', () => {
     const { module: m, diagnostics } = compile(`"use typeshade";
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 function nextv(i: u32): vec3<f64> {
   dst[i] = dst[i] + 1.;
   return vec3<f64>(f64(dst[i]), f64(1.0), f64(2.0));

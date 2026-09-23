@@ -22,7 +22,7 @@
 // all reach it. WGSL-only: WebGL2 has no compute stage.
 
 declare const src: storage<array<f32>>;
-declare let sums: storage<array<f32>>;
+declare const sums: storage<array<f32>, "read_write">;
 
 let tile: workgroup<array<f32, 64>>;
 
