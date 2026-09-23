@@ -76,8 +76,14 @@ export function fs(): vec4 {
     expect(errorsOf(file('', `  const k = 0.5 as i32\n  return vec4(f32(k), 0., 0., 1.)`))[0]).toBe(
       `${TS_CODES.TYPE_MISMATCH} "as" states a type, it does not convert: "0.5 as i32" is f32, not i32. Write i32(...) to convert, or drop the "as".`,
     );
+    // A struct the file declares; a name it declares nowhere is an unknown type (Rule 12.1).
     expect(
-      errorsOf(file('', `  const k = 0.5 as Nope\n  return vec4(k, 0., 0., 1.)`))[0],
+      errorsOf(
+        file(
+          'class Nope {\n  a: f32;\n}\n',
+          `  const k = 0.5 as Nope\n  return vec4(k, 0., 0., 1.)`,
+        ),
+      )[0],
     ).toContain('is f32, not Nope');
   });
 });

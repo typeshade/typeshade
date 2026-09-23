@@ -545,6 +545,7 @@ describe('switch, with the break TypeScript requires', () => {
           case 0: {
             if (x === 0) { r = 9.; break; }
             r = 1.;
+            break;
           }
           default: r = 3.;
         }
@@ -597,6 +598,7 @@ describe('switch, with the break TypeScript requires', () => {
           case 1: {
             if (x === 1) { r = 5.; break; }
             r = 2.;
+            break;
           }
           default: r = 3.;
         }

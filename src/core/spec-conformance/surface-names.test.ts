@@ -227,8 +227,7 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'vec2d', reason: 'the short spelling of `vec2f64`, a type name and never a call' },
   { name: 'vec3d', reason: 'the short spelling of `vec3f64`, a type name and never a call' },
   { name: 'vec4d', reason: 'the short spelling of `vec4f64`, a type name and never a call' },
-  { name: 'Vec64', reason: 'the brand shape the three `f64` vector types share' },
-  { name: 'vec64Tag', reason: 'the brand symbol of `Vec64`' },
+  { name: 'vec64Tag', reason: 'the brand symbol of the three `f64` vector types' },
 
   // Bindings and module variables. WGSL declares these with `var<uniform>`, `var<storage>`,
   // `var<workgroup>` and `override`, which TypeScript has no syntax to borrow. `var<private>` has
@@ -291,9 +290,6 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   // The type-level machinery the branded types are built from. None is a shader value; each is
   // named because TypeScript needs a name to refer to it by.
   { name: 'Numeric', reason: 'the scalar-and-vector union the arithmetic overloads use' },
-  { name: 'VecOf', reason: 'the vector shape, which gives a vector its `.x` and `.rgb` members' },
-  { name: 'ScalarOf', reason: "a vector's element type, per its element kind" },
-  { name: 'ComponentKeys', reason: 'which component members exist at each arity' },
   { name: 'Mat', reason: 'the matrix brand shape' },
   { name: 'MatColumn', reason: "a matrix column's vector type, per its element" },
   { name: 'LaneKeys', reason: 'which constant indices a vector or a matrix takes at each arity' },

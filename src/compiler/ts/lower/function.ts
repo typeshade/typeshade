@@ -68,7 +68,7 @@ import { lowerExpression } from './expression.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
 import { ATOMIC_INTRINSICS, isBarrierIntrinsic } from '../../../core/intrinsics.js';
-import { makeDiagnostic } from '../diagnostic.js';
+import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import {
@@ -2928,14 +2928,21 @@ export function fillFunctionBody(
     }
     return;
   }
+  // Each report sits on the `return` it is about (Rule 12.1: the offending thing), which is the
+  // span `lowerStatement` stamped on it; with two returns, the name of the function would not
+  // say which. It is also where TypeScript reports the same mistake (TS2322 and the codes it
+  // reads as TS2322), so the editor's merged list reads it once (Rule 12.4). A return a pass
+  // synthesised has no span, and falls back to the function's name.
   for (const r of collectReturns(body)) {
     if (!r.expr) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node.name ?? node,
-        `Function "${stub.name}" returns ${typeKey(stub.ret)} but has a bare "return".`,
-        TS_CODES.RETURN_SHAPE,
+      diagnostics.push(
+        diagnosticAtSpan(
+          sourceFile,
+          r.span,
+          node.name ?? node,
+          `Function "${stub.name}" returns ${typeKey(stub.ret)} but has a bare "return".`,
+          TS_CODES.RETURN_SHAPE,
+        ),
       );
       continue;
     }
@@ -2948,16 +2955,18 @@ export function fillFunctionBody(
         (r.expr as { type: ShaderType }).type = stub.ret;
         continue;
       }
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node.name ?? node,
-        inferRet === true
-          ? `Function "${shown ?? stub.name}" returns ${typeKey(stub.ret)} at its first ` +
-              `"return" and ${typeKey(r.expr.type)} at another; a function returns one type ` +
-              `(Rule 8.19): make them agree, or write the return type.`
-          : `Function "${shown ?? stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`,
-        TS_CODES.TYPE_MISMATCH,
+      diagnostics.push(
+        diagnosticAtSpan(
+          sourceFile,
+          r.span,
+          node.name ?? node,
+          inferRet === true
+            ? `Function "${shown ?? stub.name}" returns ${typeKey(stub.ret)} at its first ` +
+                `"return" and ${typeKey(r.expr.type)} at another; a function returns one type ` +
+                `(Rule 8.19): make them agree, or write the return type.`
+            : `Function "${shown ?? stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`,
+          TS_CODES.TYPE_MISMATCH,
+        ),
       );
     }
   }
@@ -3157,8 +3166,8 @@ function numberDecorator(node: ts.Node, _sf: ts.SourceFile, name: string): numbe
   return undefined;
 }
 
-function collectReturns(stmts: readonly Stmt[]): { expr?: Expr }[] {
-  const out: { expr?: Expr }[] = [];
+function collectReturns(stmts: readonly Stmt[]): { expr?: Expr; span?: SourceSpan }[] {
+  const out: { expr?: Expr; span?: SourceSpan }[] = [];
   const walk = (list: readonly Stmt[]) => {
     for (const s of list) {
       if (s.s === 'return') out.push(s);

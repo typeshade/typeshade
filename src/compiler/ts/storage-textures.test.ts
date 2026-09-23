@@ -604,11 +604,11 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
   // exactly as `textureStore`. #164 closed both, so each now asserts the sentence the front end
   // says instead of the WGSL it used to emit.
   it('refuses a coordinate of the wrong width, as on a sampled texture', () => {
-    // The wrong-width call is also why `v` never binds, so the cascade is asserted too rather
-    // than filtered out: a reader should see that one mistake yields exactly these two.
+    // The wrong-width call is also why `v` never binds. Its later use used to add an "Unknown
+    // identifier" to the refusal; asserted exactly, so a reader sees that one mistake now
+    // yields exactly one diagnostic (Rule 12.4, #171).
     expect(errorsOf(WRONG_WIDTH)).toEqual([
       'textureLoad on a texture_storage_2d<r32float, read_write> takes a vec2 coordinate; got vec3<i32>.',
-      'Unknown identifier "v".',
     ]);
     expect(compile(WRONG_WIDTH).wgsl).toBeUndefined();
   });

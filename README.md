@@ -89,6 +89,35 @@ The same authoring model is used by the documentation and the compiler's officia
 
 Every `"use typeshade"` block in this README, `AUTHORING.md`, `docs/` and `examples/*.md` compiles with the current compiler; `src/compiler/ts/doc-snippets.test.ts` extracts them and fails the build on any error diagnostic. Grammar that the compiler does not accept yet stays in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md), marked as a target, and is not copied here.
 
+## Checking shaders from the command line
+
+`typeshade check` reports what the editor reports for a `"use typeshade"` file, plus what the WGSL and GLSL backends report when `compile()` runs them, and exits non-zero on an error. It is the check to run in CI and the one to hand a coding agent: plain `tsc` over the same files reports errors the compiler does not have (next section), and a tool that reports errors on correct code gets correct code rewritten.
+
+```sh
+npx typeshade check src/                          # from the npm package
+bun vendor/typeshade/src/cli/bin.ts check src/    # from a submodule, which resolves to source
+```
+
+A directory is searched for `*.shade.ts` files, skipping `node_modules`, `dist` and `.git`; a file named on the command line is checked whatever its name. Each diagnostic prints with the line it points at:
+
+```text
+src/light.shade.ts:4:10 - error TS8003: Type mismatch: cannot + vec3<f32> and vec2<f32>. Vectors must have the same size.
+
+4   return base + glow * k
+           ~~~~~~~~~~~~~~~
+
+Found 1 error in 1 file (1 file checked).
+```
+
+`--format short` prints one line per diagnostic, and `--format json` prints the report as data: one-based lines and columns, the UTF-16 span, and `source`, `"typeshade"` or `"typescript"`, for the half that raised it. `--deprecations` adds the warnings `compile(source, { deprecations: true })` reports. The exit status is 0 when no error was found, 1 when one was, and 2 when the command could not run. Over the 73 `.shade.ts` examples it reports no error and 5 warnings, each a GLSL ES 3.00 shortfall `compile()` also reports as `TS8015`.
+
+The same check is exported from `typeshade/language-service`, as `checkDocuments` and, for a tool that keeps its own language service open, `checkOpenDocument`, so a tool that reports on shader files gives the command's answer rather than one of its own.
+
+What it inherits from the language service, it inherits whole:
+
+- **Each file is analysed on its own**, so a function imported from another shader file is `TS8004` ([#187](https://github.com/typeshade/typeshade/issues/187)).
+- **A mistake both halves see is reported once**, in the compiler's sentence, as the editor shows it: a write to a `const` is the compiler's `TS8005`, not that and TypeScript's `TS2588` beside it. A misspelled name is the compiler's too, which names the fix itself: `Unknown function "clmap". Did you mean "clamp"?`.
+
 ## Type-checking `.shade.ts` with tsc
 
 The editor experience TypeShade supports is the language service (`typeshade/language-service`), which builds its own TypeScript program and knows which diagnostics to drop. For a project that wants plain `tsc` over its `.shade.ts` files as well, such as a Vite plugin build or a CI type-check, the package also ships the ambient declarations as a file:
@@ -128,8 +157,8 @@ There are 214 of those across the 71 files. The second is arithmetic on a vector
 
 TS1206 fires on `@vertex` / `@fragment` / `@compute` and on `@builtin(...)` parameters, because TypeScript does not allow decorators on function declarations or their parameters at all. No `.d.ts` can turn that off, because it is a grammar rule rather than a resolution failure. The language service drops it for exactly those positions, since the TypeShade grammar defines them; `tsc` on its own cannot. So the practical shape of this subpath is:
 
-- **Covered.** Every type, resource and builtin name resolves: `f32`, `vec4`, `mat4`, `array<T>`, `uniform<T>`, `storage<T>`, `storage<T, "read_write">`, the `Math` aliases, `@builtin(...)` ids. Wrong types, misspelled fields and wrong arities are caught, and so is a write to a resource that is read-only: `src[i] = x` on a `declare const src: storage<array<f32>>` is TS2542 and `camera.fov = 1.` on a `uniform<Camera>` is TS2540, which is the write `compile()` refuses with `TS8005`. A `storage<T, "read_write">` binding is writable in the editor exactly as it is in the compiler. A vector lane and an `f32` matrix column take a runtime index (`v[i]`, `m[i]`) as they do in the compiler, and a `mat4<f64>` takes no runtime index in either.
-- **Not covered.** TS1206 on stage and `@builtin` decorators. Expect it on every entry point, and filter it in your build if the noise matters. Arithmetic operators on vector and matrix values: the compiler accepts `a + b` on two `vec3`s, and `tsc` reports it, because the ambient types cannot overload an operator. The language service does better: it reads the local, and a function that writes no return type, with the type the compiler gave it, so the editor shows no error there and completes `uv.` and `glow(uv).` (#162). A WHOLE-binding write — `s = 1.` on a `declare const s: storage<f32, "read_write">`, as opposed to the `out[i] = x` and `p.field = x` a kernel actually writes — is TS2588 in the editor, because a binding is `declare const` and TypeScript will not assign to a const whatever its value type is; the compiler emits it, and `"use typeshade"` surface §49 has the row. A swizzle outside the `x`/`y`/`z`/`w`, `r`/`g`/`b`/`a` and `xy`/`xyz`/`xyzw`/`rg`/`rgb`/`rgba` set (`v.yx`, `p.xz`, `v.zw`, `c.bgr`) is TS2339 in the editor and in `tsc`, although the compiler accepts it; surface §49 has that row too, and #210 declares every swizzle. Building the vector instead (`vec2(v.y, v.x)`) is clean in both. An index past the end (`m[4]` on a `mat4`, `v[4]` on a `vec4`) or an `f32` index is the compiler's to refuse, as it is on an `array`: the language service shows its `TS8016` or `TS8003`, and `tsc` says nothing.
+- **Covered.** Every type, resource and builtin name resolves: `f32`, `vec4`, `mat4`, `array<T>`, `uniform<T>`, `storage<T>`, `storage<T, "read_write">`, the `Math` aliases, `@builtin(...)` ids. Wrong types, misspelled fields and wrong arities are caught, and so is a write to a resource that is read-only: `src[i] = x` on a `declare const src: storage<array<f32>>` is TS2542 and `camera.fov = 1.` on a `uniform<Camera>` is TS2540, which is the write `compile()` refuses with `TS8005`. A `storage<T, "read_write">` binding is writable in the editor exactly as it is in the compiler. A vector lane and an `f32` matrix column take a runtime index (`v[i]`, `m[i]`) as they do in the compiler, and a `mat4<f64>` takes no runtime index in either. Every swizzle the compiler takes type-checks, `v.yx`, `p.xz` and `c.bgra` included.
+- **Not covered.** TS1206 on stage and `@builtin` decorators. Expect it on every entry point, and filter it in your build if the noise matters. Arithmetic operators on vector and matrix values: the compiler accepts `a + b` on two `vec3`s, and `tsc` reports it, because the ambient types cannot overload an operator. The language service does better: it reads the local, and a function that writes no return type, with the type the compiler gave it, so the editor shows no error there and completes `uv.` and `glow(uv).` (#162). A WHOLE-binding write — `s = 1.` on a `declare const s: storage<f32, "read_write">`, as opposed to the `out[i] = x` and `p.field = x` a kernel actually writes — is TS2588 in the editor, because a binding is `declare const` and TypeScript will not assign to a const whatever its value type is; the compiler emits it, and `"use typeshade"` surface §49 has the row. An index past the end (`m[4]` on a `mat4`, `v[4]` on a `vec4`) or an `f32` index is the compiler's to refuse, as it is on an `array`: the language service shows its `TS8016` or `TS8003`, and `tsc` says nothing.
 - **The authority is still the compiler.** `compile()` reports what TypeShade actually accepts, and the compile gate gives the emitted WGSL and GLSL to real drivers. `typeshade/shade` is an editor and CI convenience layered on top, never a second definition of the language.
 
 The file is generated from `SHADE_DTS` in `src/language-service/ambient.ts` at build time, so the declarations the service loads and the ones `tsc` reads are the same bytes.
