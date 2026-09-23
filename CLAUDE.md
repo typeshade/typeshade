@@ -79,6 +79,12 @@ rules first, in the same pull request, and only then moves the surface. A name a
 write comes from WGSL, from ECMAScript as TypeScript spells it, or from the enumerated
 extension table in that document's §9; a compiler-internal helper never becomes one.
 
+## Before pushing
+
+Run the gates `AGENTS.md#tests` lists that the change can reach. CI runs the same ones, and a
+red check costs a round trip. `.claude/settings.json` holds each commit to the documentation
+checks above; the build, the lint, the format check and the tests are yours to run.
+
 ## Merging
 
 `main` is protected by a GitHub ruleset: a pull request, a Code Owner review (`.github/CODEOWNERS`)
@@ -92,6 +98,13 @@ through the owner's account can too, so the rule is written here:
   merge that pull request. The owner cannot approve their own pull request, so their go-ahead
   is the review.
 - Never push to `main` directly, and never force-push it.
+- The ruleset, the secrets and every other repository setting are the owner's to change: an
+  agent has no admin access to them. When one must change, write the owner a script for the
+  GitHub CLI (`gh auth login`, then `gh api`), in PowerShell, since the owner works on Windows.
+  Never ask for a token in the conversation: a token pasted there is a leaked token.
+- Each required check is a job's `name:` in `.github/workflows/ci.yml`. Renaming or removing
+  that job leaves every pull request waiting on a check that never reports, so the ruleset
+  (Settings > Rules > Rulesets > `main`) changes in the same step.
 
 ## Everything else
 
