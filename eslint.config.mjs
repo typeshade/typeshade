@@ -19,6 +19,7 @@ export default tseslint.config(
       'coverage/**',
       '.codebase-memory/**',
       'examples/**/*.shade.ts',
+      'journeys/**/*.shade.ts',
     ],
   },
   ...tseslint.configs.recommended,

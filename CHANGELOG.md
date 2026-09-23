@@ -210,10 +210,22 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   tarball runs `dist/src/cli/bin.js` under Node (`scripts/publish-manifest.ts` derives the `bin`
   by the rule it applies to `exports`); this tree and a submodule run
   `bun src/cli/bin.ts check <paths>`. What it inherits from the service it inherits whole: an
-  import from another shader file is `TS8004` (#187), a mistake both halves see is reported by
-  both, and a local holding vector arithmetic declared without a type is `TS2345` where it is
-  passed as a vector. The README's `tsc` configuration also gains the `module` and
-  `moduleResolution` it needed: without them `typeshade/shade` does not resolve (`TS2688`).
+  import from another shader file is `TS8004` (#187).
+
+- **A user-journey gate, `bun run gate:journeys`, in CI as `user-journeys`.** It packs the
+  tarball the way the publish workflow does and installs it into a fresh project, with the
+  README's `tsconfig.shade.json` copied verbatim. Then it checks each program in `journeys/`
+  as its author would meet it. The installed `compile()` must report nothing, and so must the
+  language service. Plain `tsc` may report only the error classes the README documents. Every
+  run must match the journey's own plain-JavaScript reference on WebGPU (headless Chromium,
+  SwiftShader) and on the CPU oracle. Two journeys to start, both written as a TypeScript
+  developer writes them: a fullscreen fragment effect, read back per pixel (16,384 channels,
+  worst error 2.1e-3 of a 5.9e-3 tolerance), and a particle system stepped once per frame for
+  20 frames (1,600 floats, exact on WebGPU). A deliberately wrong reference, the README's
+  previous tsconfig and a shader the compiler refuses each fail it. Its first run found an
+  editor error on correct code: `const uv = p.xy * frame.scale` is a `number` to the editor,
+  so `uv.x` is TS2339 (#162). The journey carries the annotation and names the issue, and
+  `journeys/README.md` requires that of every workaround.
 
 - **Hover documents every type name the compiler takes.** `TYPE_DOCS` has rows for
   `sampler`, `sampler_comparison` and every `texture_*` name, each with its `declare const` form
@@ -1466,6 +1478,13 @@ structures in ESSL 1.0 and webgl`, and the same for arrays. That second half cor
   so the gate compiles the shape on both targets from now on — nothing in it did before, and the
   constant folder hides the easy case, so it takes a runtime condition AND two distinguishable
   arms to reach.
+- **The README's `tsconfig.shade.json` loads `typeshade/shade`.** Copied as written into a
+  fresh project with `typeshade` installed, it failed with TS2688 (no type definition file for
+  `typeshade/shade`) and TS2318 for `Array` and nine more global types, so no shader was
+  type-checked at all. `typeshade/shade` is a subpath export, and TypeScript 5.x falls back to
+  `node10` resolution, which does not read `exports`. The snippet now sets `"module": "esnext"`
+  and `"moduleResolution": "bundler"`, and the README says why. Copied again, it leaves exactly
+  the two error classes the README documents: TS1206 on decorators, and operators on vectors.
 
 ### Changed
 

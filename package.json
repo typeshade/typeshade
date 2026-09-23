@@ -68,6 +68,7 @@
     "typeshade": "bun src/cli/bin.ts",
     "bench:stepping": "bun scripts/bench-stepping.ts",
     "gate:compile": "bun scripts/compile-gate.ts",
+    "gate:journeys": "bun scripts/user-journey.ts",
     "bake:api-surface": "bun scripts/bake-api-surface.ts",
     "bake:coredef": "bun scripts/bake-coredef-textures.ts",
     "bake:wgsl-names": "bun scripts/bake-wgsl-names.ts",
