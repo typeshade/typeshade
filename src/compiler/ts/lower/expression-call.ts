@@ -1031,6 +1031,26 @@ function lowerSelectCall(
   }
   // A vector of bools picks per component (§27), so the arms are vectors of its size.
   if (perComponent && cond.type.kind === 'vec') {
+    // Arms that are vectors of doubles of the mask's size fit that shape, and the fp64 pass
+    // cannot lower it: it picks a DF64VecN whole, by one bool (an `if` with a temporary,
+    // `select-composite.ts`), and has no per-component pick over the hi/lo planes. The count
+    // refusal below answered this with "needs 3-component arms" to arms that had three. This
+    // sentence names the spellings that lower instead: the narrowed pick, and min and max,
+    // which the pass lowers on a vec64 (§39).
+    if (ifTrue.type.kind === 'vec64' && ifTrue.type.n === cond.type.n) {
+      const n = cond.type.n;
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `select with a ${typeKey(cond.type)} condition has no emulated-double form; got ` +
+          `${typeKey(ifTrue.type)} arms. The fp64 pass picks a vector of doubles whole, by one ` +
+          `bool — narrow the arms, select(vec${n}(a), vec${n}(b), m), or keep the doubles with ` +
+          `min(a, b) or max(a, b) where the pick is a componentwise minimum or maximum.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
     if (ifTrue.type.kind !== 'vec' || ifTrue.type.n !== cond.type.n) {
       pushDiag(
         diagnostics,
