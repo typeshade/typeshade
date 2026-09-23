@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { fn, module, vec4, vec2, f32, u32T, vec4fT, vec2fT, f32T, voidT } from './ir/index.js'
-import { ioStruct, location, builtin } from './sot.js'
-import { reflect, type EntryIoField } from './reflect.js'
-import { emitGlslModule } from './backends/glsl.js'
+import { describe, it, expect } from 'vitest';
+import { fn, module, vec4, vec2, f32, u32T, vec4fT, vec2fT, f32T, voidT } from './ir/index.js';
+import { ioStruct, location, builtin } from './sot.js';
+import { reflect, type EntryIoField } from './reflect.js';
+import { emitGlslModule } from './backends/glsl.js';
 
 // ═══ X-GIS #1905 — `EntryInfo.io`: the entry's @location/@builtin INTERFACE ═══
 //
@@ -20,27 +20,27 @@ const VOut = ioStruct('VOut', {
   position: builtin('position', vec4fT),
   uv: location(0, vec2fT),
   tint: location(1, vec4fT, 'flat'),
-})
+});
 
 const vs = fn(
   'vs',
   { pos: location(0, vec4fT), vi: builtin('vertex_index', u32T) },
   ({ pos }) => {
-    const o = VOut.var()
-    o.position.assign(pos)
-    o.uv.assign(vec2(pos.x, pos.y))
-    o.tint.assign(vec4(1, 1, 1, 1))
-    return o.$
+    const o = VOut.var();
+    o.position.assign(pos);
+    o.uv.assign(vec2(pos.x, pos.y));
+    o.tint.assign(vec4(1, 1, 1, 1));
+    return o.$;
   },
   { stage: 'vertex' },
-)
+);
 const fs = fn('fs', { in: VOut }, (p) => p.in.tint.mul(p.in.uv.x), {
   stage: 'fragment',
   retAttr: '@location(0)',
-})
-const pair = () => module({ structs: [VOut.decl], funcs: [vs, fs] })
+});
+const pair = () => module({ structs: [VOut.decl], funcs: [vs, fs] });
 
-const ioOf = (name: string) => reflect(pair()).entries.find((e) => e.name === name)!.io
+const ioOf = (name: string) => reflect(pair()).entries.find((e) => e.name === name)!.io;
 
 describe('X-GIS #1905 — EntryInfo.io', () => {
   it('reports each entry param with its own location/builtin', () => {
@@ -48,8 +48,8 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
     expect(ioOf('vs').inputs).toEqual<EntryIoField[]>([
       { name: 'pos', type: 'vec4<f32>', location: 0 },
       { name: 'vi', type: 'u32', builtin: 'vertex_index' },
-    ])
-  })
+    ]);
+  });
 
   it('FLATTENS a struct return to its fields, keeping builtins', () => {
     // Builtins are reported, not filtered: a varying-parity diagnostic has to be able to
@@ -58,8 +58,8 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
       { name: 'position', type: 'vec4<f32>', builtin: 'position' },
       { name: 'uv', type: 'vec2<f32>', location: 0 },
       { name: 'tint', type: 'vec4<f32>', location: 1 },
-    ])
-  })
+    ]);
+  });
 
   it('FLATTENS a struct param too — the stage interface does not care which form it took', () => {
     // The case that decides the feature. Every fragment entry in this repo takes its
@@ -70,8 +70,8 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
       { name: 'position', type: 'vec4<f32>', builtin: 'position' },
       { name: 'uv', type: 'vec2<f32>', location: 0 },
       { name: 'tint', type: 'vec4<f32>', location: 1 },
-    ])
-  })
+    ]);
+  });
 
   it("reports a BARE return's @location, the case that forced the consumer's regex", () => {
     // `retAttr` is a raw attribute STRING with no structured location twin in the IR, so
@@ -79,8 +79,8 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
     // backend gives that same output.
     expect(ioOf('fs').outputs).toEqual<EntryIoField[]>([
       { name: '_ret', type: 'vec4<f32>', location: 0 },
-    ])
-  })
+    ]);
+  });
 
   it("reports a bare return's @builtin from the STRUCTURED field (X-GIS #1672)", () => {
     // The FieldSpec authoring form: `retBuiltin` carries the semantic id, `retAttr` the
@@ -88,44 +88,44 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
     const depth = fn('fs_depth', {}, () => f32(0.5), {
       stage: 'fragment',
       retAttr: builtin('frag_depth', f32T),
-    })
-    const io = reflect(module({ funcs: [depth] })).entries[0]!.io
+    });
+    const io = reflect(module({ funcs: [depth] })).entries[0]!.io;
     expect(io.outputs).toEqual<EntryIoField[]>([
       { name: '_ret', type: 'f32', builtin: 'frag_depth' },
-    ])
-  })
+    ]);
+  });
 
   it('reports NO outputs for a void return', () => {
     const k = fn('cs', { gid: builtin('global_invocation_id', u32T) }, voidT, () => {}, {
       stage: 'compute',
       workgroupSize: 32,
-    })
-    const io = reflect(module({ funcs: [k] })).entries[0]!.io
+    });
+    const io = reflect(module({ funcs: [k] })).entries[0]!.io;
     expect(io.inputs).toEqual<EntryIoField[]>([
       { name: 'gid', type: 'u32', builtin: 'global_invocation_id' },
-    ])
-    expect(io.outputs).toEqual([])
-  })
+    ]);
+    expect(io.outputs).toEqual([]);
+  });
 
   it('leaves `inputs`/`output` exactly as they were — semanticDiff reads those', () => {
-    const e = reflect(pair()).entries.find((x) => x.name === 'vs')!
-    expect(e.inputs).toEqual(['vec4<f32>', 'u32'])
-    expect(e.output).toEqual('struct:VOut')
-  })
+    const e = reflect(pair()).entries.find((x) => x.name === 'vs')!;
+    expect(e.inputs).toEqual(['vec4<f32>', 'u32']);
+    expect(e.output).toEqual('struct:VOut');
+  });
 
   // ── The use case, end to end ──
   it('supports the varying-parity check it exists for', () => {
-    const r = reflect(pair())
+    const r = reflect(pair());
     const locs = (fields: readonly EntryIoField[]) =>
-      new Set(fields.filter((f) => f.builtin === undefined).map((f) => f.location))
-    const produced = locs(r.entries.find((e) => e.stage === 'vertex')!.io.outputs)
-    const consumed = locs(r.entries.find((e) => e.stage === 'fragment')!.io.inputs)
+      new Set(fields.filter((f) => f.builtin === undefined).map((f) => f.location));
+    const produced = locs(r.entries.find((e) => e.stage === 'vertex')!.io.outputs);
+    const consumed = locs(r.entries.find((e) => e.stage === 'fragment')!.io.inputs);
     // Pin the consumed set to REAL location numbers first. Without this the check is
     // §12's assertion that passes either way: un-flattened, both sides collapse to the
     // one-element set {undefined} and the parity filter is empty for the wrong reason.
-    expect([...consumed].sort()).toEqual([0, 1])
-    expect([...consumed].filter((l) => !produced.has(l))).toEqual([])
-  })
+    expect([...consumed].sort()).toEqual([0, 1]);
+    expect([...consumed].filter((l) => !produced.has(l))).toEqual([]);
+  });
 
   // ── The agreement gate ──
   //
@@ -133,8 +133,8 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
   // and this is what holds them to it: a published interface that disagreed with the
   // emitted one would greenlight a pair GLSL then refuses to link.
   it('agrees with the varyings the GLSL backend actually emits', () => {
-    const m = pair()
-    const r = reflect(m)
+    const m = pair();
+    const r = reflect(m);
     const emitted = (stage: 'vertex' | 'fragment', dir: 'in' | 'out') =>
       [
         ...emitGlslModule(m, stage).matchAll(
@@ -143,16 +143,16 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
       ]
         .filter(([, d]) => d === dir)
         .map(([, , name]) => name)
-        .sort()
+        .sort();
     const varyings = (fields: readonly EntryIoField[]) =>
       fields
         .filter((f) => f.builtin === undefined)
         .map((f) => f.name)
-        .sort()
-    const vsIo = r.entries.find((e) => e.stage === 'vertex')!.io
-    const fsIo = r.entries.find((e) => e.stage === 'fragment')!.io
-    expect(emitted('vertex', 'out')).toEqual(varyings(vsIo.outputs))
-    expect(emitted('fragment', 'in')).toEqual(varyings(fsIo.inputs))
-    expect(emitted('fragment', 'out')).toEqual(varyings(fsIo.outputs))
-  })
-})
+        .sort();
+    const vsIo = r.entries.find((e) => e.stage === 'vertex')!.io;
+    const fsIo = r.entries.find((e) => e.stage === 'fragment')!.io;
+    expect(emitted('vertex', 'out')).toEqual(varyings(vsIo.outputs));
+    expect(emitted('fragment', 'in')).toEqual(varyings(fsIo.inputs));
+    expect(emitted('fragment', 'out')).toEqual(varyings(fsIo.outputs));
+  });
+});

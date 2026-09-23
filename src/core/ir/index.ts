@@ -5,8 +5,8 @@
 // node ← builder). Import the IR via this barrel (`core/ir`), never the
 // individual files.
 
-export * from './types.js'
-export * from './span.js'
-export * from './nodes.js'
-export * from './node.js'
-export * from './builder.js'
+export * from './types.js';
+export * from './span.js';
+export * from './nodes.js';
+export * from './node.js';
+export * from './builder.js';

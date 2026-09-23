@@ -4,7 +4,7 @@
 // let/var/assign/if/for/switch/ret/…), the IfChain helper, and the fn /
 // computeFn / entryFn / module assemblers. Imports types + nodes + node.
 
-import { type ShaderType, type KeyOf, type ScalarKey, voidT, typeKey } from './types.js'
+import { type ShaderType, type KeyOf, type ScalarKey, voidT, typeKey } from './types.js';
 import {
   type Stmt,
   type Expr,
@@ -19,8 +19,8 @@ import {
   type RawStmt,
   type RawPayload,
   ASSEMBLED_AS,
-} from './nodes.js'
-import { toWorkgroupShape, workgroupSizeAttr } from './workgroup.js'
+} from './nodes.js';
+import { toWorkgroupShape, workgroupSizeAttr } from './workgroup.js';
 import {
   Node,
   ReadonlyNode,
@@ -35,11 +35,11 @@ import {
   overrideRef,
   externRef,
   installStmtSink,
-} from './node.js'
-import { callFn } from './call-fn.js'
-import { eachExpr, eachStmtExpr } from './visit.js'
-import { dslError } from '../diagnostics/error.js'
-import { captureLoc, recordLoc } from '../diagnostics/loc.js'
+} from './node.js';
+import { callFn } from './call-fn.js';
+import { eachExpr, eachStmtExpr } from './visit.js';
+import { dslError } from '../diagnostics/error.js';
+import { captureLoc, recordLoc } from '../diagnostics/loc.js';
 
 /** The parameter record {@link externFn} takes: a plain map from parameter name to
  *  {@link ShaderType}, in declaration order. An extern function is only ever called, never
@@ -56,25 +56,25 @@ import { captureLoc, recordLoc } from '../diagnostics/loc.js'
  *  export const warp = externFn('warp', WARP_PARAMS, vec2fT)
  *  ```
  */
-export type ParamSpec = Record<string, ShaderType>
+export type ParamSpec = Record<string, ShaderType>;
 /** An entry-point param carrying a stage attribute — `builtin('vertex_index', u32T)` /
  *  `location(0, vec4fT)` (the SAME FieldSpec the ioStruct fields use). A plain ShaderType value is
  *  an ordinary param. Lets one `fn()` author both helpers and `@vertex`/`@fragment`/`@compute`
  *  entries from a single param record. */
 type ParamAttr = {
-  readonly type: ShaderType
-  readonly attr: string
+  readonly type: ShaderType;
+  readonly attr: string;
   // Structured IO fields (X-GIS #740 R3 / X-GIS #763 S5) — sot's builtin()/location() set these;
   // fn() threads them into FuncDecl.params so reflect() sees vertex attributes
   // WITHOUT re-parsing the attr string.
-  readonly location?: number
-  readonly builtin?: string
-  readonly interpolate?: string
-}
+  readonly location?: number;
+  readonly builtin?: string;
+  readonly interpolate?: string;
+};
 /** A structDecl / ioStruct HANDLE used directly as a param spec value (X-GIS #740 R6):
  *  `fn({ in: PointOut }, ({ in }) => in.uv…)` — the body receives the TYPED field
  *  proxy, retiring the `PointOut.of(p.in)` re-assertion at every consumer. */
-type StructParamHandle = { readonly type: ShaderType; of(node: ReadonlyNode): object }
+type StructParamHandle = { readonly type: ShaderType; of(node: ReadonlyNode): object };
 /** The parameter record `fn()` accepts. Each key is a parameter name and each value is one
  *  of three things: a plain {@link ShaderType} for an ordinary parameter; a {@link builtin}
  *  or {@link location} spec for an entry-point parameter that carries a stage attribute; or
@@ -97,14 +97,14 @@ type StructParamHandle = { readonly type: ShaderType; of(node: ReadonlyNode): ob
  *  )
  *  ```
  */
-export type FnParamSpec = Record<string, ShaderType | ParamAttr | StructParamHandle>
+export type FnParamSpec = Record<string, ShaderType | ParamAttr | StructParamHandle>;
 type ParamTypeOf<E> = E extends ParamAttr
   ? E['type']
   : E extends StructParamHandle
     ? E['type']
     : E extends ShaderType
       ? E
-      : never
+      : never;
 /** Body-side param values. Params are READ-ONLY in WGSL — the node type is
  *  `ReadonlyNode`, so `p.a.assign(…)` is a tsc error (X-GIS #763 G3; the runtime
  *  never guarded this: auto-vars skips param roots and the emitted assign
@@ -112,8 +112,8 @@ type ParamTypeOf<E> = E extends ParamAttr
 type ParamNodes<P extends FnParamSpec> = {
   [K in keyof P]: P[K] extends StructParamHandle
     ? ReturnType<P[K]['of']>
-    : ReadonlyNode<KeyOf<ParamTypeOf<P[K]>>>
-}
+    : ReadonlyNode<KeyOf<ParamTypeOf<P[K]>>>;
+};
 
 /** The statement collector every `fn()` body writes into. `let`, `var`, `assign`, `if`,
  *  `forRange`, `switch`, `ret`, `break`, `continue`, `discard` and `raw` each push one
@@ -137,7 +137,7 @@ type ParamNodes<P extends FnParamSpec> = {
  *  ```
  */
 export class Builder {
-  readonly stmts: Stmt[] = []
+  readonly stmts: Stmt[] = [];
 
   // The auto-name counter is SHARED across a function's nested sub-builders (see
   // child()), so an omitted binding name gets a function-unique `_v{n}`. A per-block
@@ -152,50 +152,50 @@ export class Builder {
    *  builder's auto-name counter, so generated `_v{n}` names stay unique across the whole
    *  function. */
   child(): Builder {
-    return new Builder(this.autoNames)
+    return new Builder(this.autoNames);
   }
 
   private autoName(): string {
-    return `_v${this.autoNames.n++}`
+    return `_v${this.autoNames.n++}`;
   }
 
   private push(s: Stmt): void {
-    recordLoc(s, captureLoc())
-    this.stmts.push(s)
+    recordLoc(s, captureLoc());
+    this.stmts.push(s);
   }
 
   /** Immutable binding, `let name = expr;`. The name is optional: omit it and the binding
    *  takes a function-unique generated name (`_v0`, `_v1`, and so on), which suits a value
    *  whose JavaScript `const` already carries the meaning, at the cost of an opaque name in
    *  the emitted source. Returns a read-only node of the bound value's type. */
-  let<K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>
-  let<K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>
+  let<K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>;
+  let<K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>;
   let<K extends string>(
     nameOrValue: string | ReadonlyNode<K>,
     maybeValue?: ReadonlyNode<K>,
   ): ReadonlyNode<K> {
-    const named = typeof nameOrValue === 'string'
-    const name = named ? nameOrValue : this.autoName()
-    const value = (named ? maybeValue : nameOrValue) as ReadonlyNode<K>
-    this.push({ s: 'let', name, expr: value.expr })
-    return new Node<K>({ op: 'varref', type: value.type, name })
+    const named = typeof nameOrValue === 'string';
+    const name = named ? nameOrValue : this.autoName();
+    const value = (named ? maybeValue : nameOrValue) as ReadonlyNode<K>;
+    this.push({ s: 'let', name, expr: value.expr });
+    return new Node<K>({ op: 'varref', type: value.type, name });
   }
 
   /** Mutable binding, `var name: T = init;`. The name is optional, as for `let`. Returns a
    *  mutable node whose `.assign` writes the variable. */
-  var<T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>
-  var<T extends ShaderType>(name: string, type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>
+  var<T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>;
+  var<T extends ShaderType>(name: string, type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>;
   var<T extends ShaderType>(
     nameOrType: string | T,
     typeOrInit?: T | ReadonlyNode<KeyOf<T>>,
     maybeInit?: ReadonlyNode<KeyOf<T>>,
   ): Node<KeyOf<T>> {
-    const named = typeof nameOrType === 'string'
-    const name = named ? nameOrType : this.autoName()
-    const type = (named ? typeOrInit : nameOrType) as T
-    const init = (named ? maybeInit : typeOrInit) as ReadonlyNode<KeyOf<T>> | undefined
-    this.push({ s: 'var', name, type, init: init?.expr })
-    return new Node<KeyOf<T>>({ op: 'varref', type, name })
+    const named = typeof nameOrType === 'string';
+    const name = named ? nameOrType : this.autoName();
+    const type = (named ? typeOrInit : nameOrType) as T;
+    const init = (named ? maybeInit : typeOrInit) as ReadonlyNode<KeyOf<T>> | undefined;
+    this.push({ s: 'var', name, type, init: init?.expr });
+    return new Node<KeyOf<T>>({ op: 'varref', type, name });
   }
 
   /** A `var` whose type is filled in after its branch assignments are authored, for a value
@@ -205,65 +205,65 @@ export class Builder {
    *  when no branch assigned a value. The build completes synchronously, so the emitter
    *  always sees a fully typed declaration. */
   inferredVar(): {
-    ref: (type: ShaderType) => Node
-    commit: (type: ShaderType) => void
-    cancel: () => void
+    ref: (type: ShaderType) => Node;
+    commit: (type: ShaderType) => void;
+    cancel: () => void;
   } {
-    const name = this.autoName()
+    const name = this.autoName();
     const stmt = {
       s: 'var' as const,
       name,
       type: undefined as unknown as ShaderType,
       init: undefined,
-    }
-    this.push(stmt as Stmt)
+    };
+    this.push(stmt as Stmt);
     return {
       ref: (type) => new Node({ op: 'varref', type, name }),
       commit: (type) => {
-        stmt.type = type
+        stmt.type = type;
       },
       // Drop the pushed decl — for a Switch used as a STATEMENT (no case returned a value), the
       // reserved var is unused; removing it keeps the emit free of a stray typeless `var`.
       cancel: () => {
-        const i = this.stmts.indexOf(stmt as Stmt)
-        if (i >= 0) this.stmts.splice(i, 1)
+        const i = this.stmts.indexOf(stmt as Stmt);
+        if (i >= 0) this.stmts.splice(i, 1);
       },
-    }
+    };
   }
 
   assign<K extends string>(target: ReadonlyNode<K>, value: ReadonlyNode<K>): void {
-    this.push({ s: 'assign', target: target.expr, expr: value.expr })
+    this.push({ s: 'assign', target: target.expr, expr: value.expr });
   }
   assignOp<K extends string>(target: ReadonlyNode<K>, bop: BinOp, value: ArithArg<K>): void {
-    this.push({ s: 'assignOp', target: target.expr, bop, expr: lift(value).expr })
+    this.push({ s: 'assignOp', target: target.expr, bop, expr: lift(value).expr });
   }
   addAssign<K extends string>(target: Node<K>, value: ArithArg<K>): void {
-    this.assignOp(target, '+', value)
+    this.assignOp(target, '+', value);
   }
 
   ret(value?: ReadonlyNode): void {
-    this.push({ s: 'return', expr: value?.expr })
+    this.push({ s: 'return', expr: value?.expr });
   }
   break(): void {
-    this.push({ s: 'break' })
+    this.push({ s: 'break' });
   }
   continue(): void {
-    this.push({ s: 'continue' })
+    this.push({ s: 'continue' });
   }
   discard(): void {
-    this.push({ s: 'discard' })
+    this.push({ s: 'discard' });
   }
   /** Push a call as a statement, kept for its effect and nothing else: `b.call(store(i))`.
    *  The value is dropped; a user `fn`'s result is emitted bare, a value-returning builtin's
    *  behind WGSL's `_ = ` phony assignment. */
   call(node: ReadonlyNode): void {
-    this.push({ s: 'call', expr: node.expr })
+    this.push({ s: 'call', expr: node.expr });
   }
   /** Push a placeholder statement carrying `tag`. A host that post-processes the module
    *  can walk the body and replace each tagged placeholder with statements of its own. A
    *  placeholder left in place emits as the comment `// __placeholder: <tag>`. */
   placeholder(tag: string): void {
-    this.push({ s: 'placeholder', tag })
+    this.push({ s: 'placeholder', tag });
   }
 
   /** Push a raw statement, one verbatim spelling per target; the builder form of the free
@@ -272,7 +272,7 @@ export class Builder {
    *  nothing is emitted. Use `rawStmt()` when assembling a `Stmt[]` body array by hand. The
    *  statement records its source location like every other statement. */
   raw(payload: RawPayload): void {
-    this.push(rawStmt(payload))
+    this.push(rawStmt(payload));
   }
 
   /** if / else-if / else chain. Returns a chainer so `.elif().else()` reads
@@ -285,14 +285,14 @@ export class Builder {
   if(cond: ReadonlyNode<'bool'>, body: (b: Builder) => ReadonlyNode | void): IfChain {
     const arms: Array<{ cond: Expr; body: Stmt[] }> = [
       { cond: cond.expr, body: subBody(this, body, 'If body', 'If') },
-    ]
-    const stmt = { s: 'if' as const, arms, elseBody: undefined as Stmt[] | undefined }
+    ];
+    const stmt = { s: 'if' as const, arms, elseBody: undefined as Stmt[] | undefined };
     // Push a mutable-shaped object; the readonly Stmt typing is a compile-time
     // view only — the builder owns construction.
-    this.push(stmt)
+    this.push(stmt);
     return new IfChain(this, arms, (e) => {
-      stmt.elseBody = e
-    })
+      stmt.elseBody = e;
+    });
   }
 
   /** C-style `for` loop: `for (var name = init; cond; name = name + step)`. A numeric or
@@ -304,14 +304,14 @@ export class Builder {
     cond: (i: Node<K>) => ReadonlyNode<'bool'>,
     body: (b: Builder, i: Node<K>) => ReadonlyNode | void,
     step?: ReadonlyNode<ScalarKey> | number,
-  ): void
+  ): void;
   forRange<K extends string>(
     name: string,
     init: ReadonlyNode<K>,
     cond: (i: Node<K>) => ReadonlyNode<'bool'>,
     body: (b: Builder, i: Node<K>) => ReadonlyNode | void,
     step?: ReadonlyNode<ScalarKey> | number,
-  ): void
+  ): void;
   forRange<K extends string>(
     a: string | ReadonlyNode<K>,
     b: ReadonlyNode<K> | ((i: Node<K>) => ReadonlyNode<'bool'>),
@@ -319,34 +319,34 @@ export class Builder {
     d?: ((b: Builder, i: Node<K>) => ReadonlyNode | void) | ReadonlyNode<ScalarKey> | number,
     e?: ReadonlyNode<ScalarKey> | number,
   ): void {
-    const named = typeof a === 'string'
-    const name = named ? a : this.autoName()
-    const init = (named ? b : a) as ReadonlyNode<K>
-    const cond = (named ? c : b) as (i: Node<K>) => ReadonlyNode<'bool'>
-    const body = (named ? d : c) as (b: Builder, i: Node<K>) => ReadonlyNode | void
-    const step = (named ? e : d) as ReadonlyNode<ScalarKey> | number | undefined
-    const i = new Node<K>({ op: 'varref', type: init.type, name })
+    const named = typeof a === 'string';
+    const name = named ? a : this.autoName();
+    const init = (named ? b : a) as ReadonlyNode<K>;
+    const cond = (named ? c : b) as (i: Node<K>) => ReadonlyNode<'bool'>;
+    const body = (named ? d : c) as (b: Builder, i: Node<K>) => ReadonlyNode | void;
+    const step = (named ? e : d) as ReadonlyNode<ScalarKey> | number | undefined;
+    const i = new Node<K>({ op: 'varref', type: init.type, name });
     const litOf = (v: number): Node => {
-      if (init.type.kind === 'scalar' && init.type.scalar === 'u32') return u32(v)
-      if (init.type.kind === 'scalar' && init.type.scalar === 'i32') return i32(v)
-      return f32(v)
-    }
-    const stepNode = step === undefined ? litOf(1) : typeof step === 'number' ? litOf(step) : step
-    const initStmt: Stmt = { s: 'var', name, type: init.type, init: init.expr }
+      if (init.type.kind === 'scalar' && init.type.scalar === 'u32') return u32(v);
+      if (init.type.kind === 'scalar' && init.type.scalar === 'i32') return i32(v);
+      return f32(v);
+    };
+    const stepNode = step === undefined ? litOf(1) : typeof step === 'number' ? litOf(step) : step;
+    const initStmt: Stmt = { s: 'var', name, type: init.type, init: init.expr };
     const updateStmt: Stmt = {
       s: 'assign',
       target: i.expr,
       // stepNode's exact scalar-vs-K match is enforced at AUTHOR-RUN time (SD0004
       // from binResultType), not by tsc — K is abstract at this generic call site.
       expr: i.add(stepNode as unknown as ArithArg<K>).expr,
-    }
+    };
     this.push({
       s: 'for',
       init: initStmt,
       cond: cond(i).expr,
       update: updateStmt,
       body: subBody(this, (b) => body(b, i), 'Loop body'),
-    })
+    });
   }
 
   switch(
@@ -364,7 +364,7 @@ export class Builder {
         body: subBody(this, fn, 'Switch case body'),
       })),
       defaultBody: defaultBody ? subBody(this, defaultBody, 'Switch default body') : undefined,
-    })
+    });
   }
 }
 
@@ -394,13 +394,13 @@ export class IfChain {
   /** Add an `else if (cond) { body }` arm. Returns the chain. A body that returns a value is
    *  rejected with `SD0115`, as for {@link Builder.if}. */
   elif(cond: ReadonlyNode<'bool'>, body: (b: Builder) => ReadonlyNode | void): IfChain {
-    this.arms.push({ cond: cond.expr, body: subBody(this.parent, body, 'elif body', 'elif') })
-    return this
+    this.arms.push({ cond: cond.expr, body: subBody(this.parent, body, 'elif body', 'elif') });
+    return this;
   }
   /** Add the `else { body }` block and end the chain. A body that returns a value is rejected
    *  with `SD0115`, as for {@link Builder.if}. */
   else(body: (b: Builder) => ReadonlyNode | void): void {
-    this.setElse(subBody(this.parent, body, 'else body', 'else'))
+    this.setElse(subBody(this.parent, body, 'else body', 'else'));
   }
 }
 
@@ -417,35 +417,35 @@ export class IfChain {
 // makes the duplication harmless.
 const scopeStack: Builder[] = ((globalThis as Record<symbol, unknown>)[
   Symbol.for('typeshade.scopeStack')
-] ??= []) as Builder[]
+] ??= []) as Builder[];
 
 // Loud (once) when a second copy loads — the state above makes it SAFE, but a
 // duplicated package still doubles load cost and usually means a bundler
 // dedupe/config problem worth seeing.
 {
-  const g = globalThis as Record<symbol, unknown>
-  const key = Symbol.for('typeshade.instanceLoaded')
+  const g = globalThis as Record<symbol, unknown>;
+  const key = Symbol.for('typeshade.instanceLoaded');
   if (g[key])
     console.warn(
       '[shader-dsl] a second copy of typeshade was loaded (dual-instance). Ambient state is globalThis-backed so this is safe, but check the bundler/dedupe config — see X-GIS #763 D2.',
-    )
-  else g[key] = true
+    );
+  else g[key] = true;
 }
 
 function currentBuilder(): Builder {
-  const b = scopeStack[scopeStack.length - 1]
+  const b = scopeStack[scopeStack.length - 1];
   if (b === undefined) {
-    throw dslError('SD0013')
+    throw dslError('SD0013');
   }
-  return b
+  return b;
 }
 
 function withScope<T>(b: Builder, run: () => T): T {
-  scopeStack.push(b)
+  scopeStack.push(b);
   try {
-    return run()
+    return run();
   } finally {
-    scopeStack.pop()
+    scopeStack.pop();
   }
 }
 
@@ -454,7 +454,7 @@ function withScope<T>(b: Builder, run: () => T): T {
 installStmtSink({
   assign: (target, value) => currentBuilder().assign(target, value),
   assignOp: (target, bop, value) => currentBuilder().assignOp(target, bop, value),
-})
+});
 
 // ═══ X-GIS #843 — authoring-error context ═══
 // When an author's callback throws (a JS ReferenceError, a sot field typo, …) the
@@ -462,13 +462,13 @@ installStmtSink({
 // Each callback boundary prefixes the SAME error object's message once — symbol-
 // tagged so nested scopes don't stack a prefix per level — preserving the error's
 // class (instanceof, coded SD#### diagnostics, substring-matching tests all hold).
-const AUTHOR_KIND_TAGGED = Symbol('shader-dsl authoring kind tagged')
-const AUTHOR_FN_TAGGED = Symbol('shader-dsl authoring fn tagged')
+const AUTHOR_KIND_TAGGED = Symbol('shader-dsl authoring kind tagged');
+const AUTHOR_FN_TAGGED = Symbol('shader-dsl authoring fn tagged');
 
 function tagAuthoringError(e: unknown, tag: symbol, prefix: string): void {
   if (e instanceof Error && !(tag in e)) {
-    ;(e as unknown as Record<symbol, boolean>)[tag] = true
-    e.message = `${prefix}: ${e.message}`
+    (e as unknown as Record<symbol, boolean>)[tag] = true;
+    e.message = `${prefix}: ${e.message}`;
   }
 }
 
@@ -482,19 +482,19 @@ function subBody(
 ): Stmt[] {
   // child() shares the parent's auto-name counter, so an omitted binding name inside this
   // nested scope keeps incrementing the same `_v{n}` sequence (no inner-shadows-outer).
-  const b = parent.child()
+  const b = parent.child();
   // A control-flow body does NOT capture a native `return value`: `If(c, () => x)` would
   // then be an INVISIBLE early return that reads as fall-through. Early returns are
   // explicit — `ReturnIf(cond, value)` (a guard clause) or `Return()` inside the branch.
   const result = withScope(b, () => {
     try {
-      return fn(b)
+      return fn(b);
     } catch (e) {
       // innermost statement kind wins (the tag blocks outer scopes' re-prefixing)
-      if (kind !== undefined) tagAuthoringError(e, AUTHOR_KIND_TAGGED, `in ${kind}`)
-      throw e
+      if (kind !== undefined) tagAuthoringError(e, AUTHOR_KIND_TAGGED, `in ${kind}`);
+      throw e;
     }
-  })
+  });
   // #8 B4 — dropping that value SILENTLY is the part worth fixing. `If(c, () => Return(f32(1)))`
   // and `If(c, () => f32(1))` differ by three characters and by everything else: the second
   // computes a value nothing reads, and emits an empty `if` block. Nothing downstream can
@@ -504,9 +504,9 @@ function subBody(
     throw dslError(
       'SD0115',
       `the ${branch} body returned a ${typeKey(result.type)} value, which is dropped — a branch is a statement block, not an expression`,
-    )
+    );
   }
-  return b.stmts
+  return b.stmts;
 }
 
 /** A function authored with fn() is a typed callable that also carries the FuncDecl shape
@@ -525,7 +525,7 @@ function subBody(
 // X-GIS #2456 — keyed: a sot field proxy's `$` now carries `struct:${Name}`, so a body that
 // returns the proxy (`return o`) infers the fn's return key instead of collapsing to
 // `string`. Defaulted, so the loose ARGUMENT positions below stay unchanged.
-type StructArg<R extends string = string> = { readonly $: ReadonlyNode<R> }
+type StructArg<R extends string = string> = { readonly $: ReadonlyNode<R> };
 
 /** The type `fn()` returns: a typed, callable handle that is also a `FuncDecl`. The same
  *  value makes calls (`foo({ a, b })`), drops into `module({ funcs: [foo] })`, and exposes
@@ -551,14 +551,14 @@ export type FnHandle<P extends FnParamSpec, R extends string> = FuncDecl & {
     readonly [K in keyof P]:
       | ReadonlyNode<KeyOf<ParamTypeOf<P[K]>>>
       | number
-      | (P[K] extends StructParamHandle ? StructArg : never)
-  }): Node<R>
+      | (P[K] extends StructParamHandle ? StructArg : never);
+  }): Node<R>;
   /** @deprecated Use the object-param call `foo({ a, b })`. The positional form checks
    *  neither arity nor argument types nor order at the TypeScript level, so two arguments
    *  of the same type can be swapped without an error; the object form catches all of
    *  that. A struct field proxy is accepted and unwraps to its struct-value node. */
-  (...args: (NodeLike | StructArg)[]): Node<R>
-} & { readonly decl: FuncDecl }
+  (...args: (NodeLike | StructArg)[]): Node<R>;
+} & { readonly decl: FuncDecl };
 
 /** The call-node factory shared by fn()'s handle and externFn(): maps the typed
  *  object-param form `f({ a, b })` to positional arguments (names → declared order), else
@@ -578,10 +578,10 @@ function makeCallFactory<R extends ShaderType>(
   declRef?: FuncDecl,
 ): (...args: NodeLike[]) => Node<KeyOf<R>> {
   const mk = (args: NodeLike[]): Node<KeyOf<R>> => {
-    const n = callFn(declRef?.name ?? name, ret, ...args)
-    if (declRef) (n.expr as { declRef?: FuncDecl }).declRef = declRef
-    return n
-  }
+    const n = callFn(declRef?.name ?? name, ret, ...args);
+    if (declRef) (n.expr as { declRef?: FuncDecl }).declRef = declRef;
+    return n;
+  };
   // A struct FIELD PROXY (a handle param / a `.of()` view) forwards as its raw
   // struct-value Node via its `$` accessor (X-GIS #740 R6) — so `helper(p.input)` just
   // works when p.input arrived as a typed handle param.
@@ -592,13 +592,13 @@ function makeCallFactory<R extends ShaderType>(
   const unwrap = (v: unknown): unknown =>
     v !== null && typeof v === 'object' && !isNodeValue(v) && '$' in (v as object)
       ? (v as { $: ReadonlyNode }).$
-      : v
+      : v;
   return (...rawArgs: NodeLike[]): Node<KeyOf<R>> => {
-    const args = rawArgs.map(unwrap) as NodeLike[]
+    const args = rawArgs.map(unwrap) as NodeLike[];
     // Typed object-param call `f({ lon, lat })` — map the named args to positional order.
     // Distinguished from a single positional Node arg: a params object is a plain object, a
     // Node is a class instance, and a struct field proxy unwraps to one above.
-    const a0 = args[0]
+    const a0 = args[0];
     if (
       args.length === 1 &&
       a0 != null &&
@@ -609,34 +609,34 @@ function makeCallFactory<R extends ShaderType>(
       // Principled cast: the preceding typeof / isNodeValue / Array.isArray guards prove
       // a0 is a plain named-args record here; TS can't recover that through the `unwrap`
       // map (args is pinned to NodeLike[]) without widening the public call signature.
-      const obj = a0 as unknown as Record<string, NodeLike>
+      const obj = a0 as unknown as Record<string, NodeLike>;
       // A raw number in the object form lifts to the DECLARED param type — the
       // caller named the parameter, so its type is known (unlike the positional
       // form, whose bare numbers can only default-lift). Struct proxies unwrap.
       return mk(
         paramList.map((p) => {
-          const v = unwrap(obj[p.name]) as NodeLike
-          return typeof v === 'number' ? new Node({ op: 'lit', type: p.type, value: v }) : v
+          const v = unwrap(obj[p.name]) as NodeLike;
+          return typeof v === 'number' ? new Node({ op: 'lit', type: p.type, value: v }) : v;
         }),
-      )
+      );
     }
-    return mk(args)
-  }
+    return mk(args);
+  };
 }
 
 type FnOpts = {
   /** Record a deliberate deviation from the `single-exit` lint rule, for a body whose early
    *  {@link Return} skips work. */
-  allowEarlyReturn?: boolean
+  allowEarlyReturn?: boolean;
   /** Rule ids whose diagnostics are dropped for this function; the general form of
    *  `allowEarlyReturn`. */
-  lintDisable?: readonly string[]
+  lintDisable?: readonly string[];
   /** Stage: makes this a pipeline entry point (`@vertex`, `@fragment` or
    *  `@compute @workgroup_size(...)`). Omit it for an ordinary helper. */
-  stage?: 'vertex' | 'fragment' | 'compute'
+  stage?: 'vertex' | 'fragment' | 'compute';
   /** Workgroup size for a `stage: 'compute'` entry (defaults to 64): the `x` extent, or one to
    *  three extents `[x, y, z]`, a missing `y` or `z` being 1. */
-  workgroupSize?: number | readonly [number, number?, number?]
+  workgroupSize?: number | readonly [number, number?, number?];
   /** Declare this compute entry a portable kernel; compute-only, `SD0110` otherwise.
    *
    *  A portable kernel emits on both backends: natively as `@compute` on WGSL, where
@@ -650,19 +650,19 @@ type FnOpts = {
    *  entry can reach. Anything outside that shape fails validation at every emit on both
    *  writers with `SD0111` and a per-violation remedy. Omit it to keep a compute kernel
    *  WebGPU-only. */
-  portable?: boolean
+  portable?: boolean;
   /** Return-value attribute for a bare (non-struct) stage output, giving
    *  `-> @location(0) vec4<f32>`. A typed `location(0, T)` spec is accepted and its `.attr`
    *  is used. A bare non-struct fragment return defaults to `@location(0)`. */
-  retAttr?: string | { readonly attr: string; readonly builtin?: string }
-}
+  retAttr?: string | { readonly attr: string; readonly builtin?: string };
+};
 // A body may return the raw node OR a struct field proxy (`return o` — X-GIS #763 X14):
 // the proxy forwards `.expr`/`.type` to its base var, so `bld.ret` reads it like
 // a node. StructArg is the `{ $: ReadonlyNode }` shape every sot proxy carries.
 type FnBody<P extends FnParamSpec, R extends string> = (
   p: ParamNodes<P>,
   b: Builder,
-) => ReadonlyNode<R> | StructArg<R> | void
+) => ReadonlyNode<R> | StructArg<R> | void;
 // X-GIS #2458 — the body shape the RET-INFERRING overloads accept. A body that returns nothing at
 // the TS level cannot tell tsc what it returns: `inferReturnType` walks the recorded
 // statements and finds `f32` for a guard-style body, but TS sees `void` and falls back to
@@ -671,13 +671,13 @@ type FnBody<P extends FnParamSpec, R extends string> = (
 type FnBodyValue<P extends FnParamSpec, R extends string> = (
   p: ParamNodes<P>,
   b: Builder,
-) => ReadonlyNode<R> | StructArg<R>
+) => ReadonlyNode<R> | StructArg<R>;
 // #8 B1 — the body shape the VOID-INFERRING overloads accept. It is the same `void` TS sees
 // for the guard-style body X-GIS #2458 turned away, so the separation cannot be made at the type
 // level; it is made at run time instead, by `assertInferredVoid` below. The declared
 // parameter type is `undefined` rather than `void` so a body that DOES return a node keeps
 // matching the value overloads first — `void` as a return type accepts any value.
-type FnBodyVoid<P extends FnParamSpec> = (p: ParamNodes<P>, b: Builder) => undefined | void
+type FnBodyVoid<P extends FnParamSpec> = (p: ParamNodes<P>, b: Builder) => undefined | void;
 
 // #8 B1 — the runtime half of the void-inferring overloads. Those overloads pin the handle's
 // key to `'void'` without a `voidT` token, and X-GIS #2458 is right that a key which LIES is worse
@@ -687,47 +687,47 @@ type FnBodyVoid<P extends FnParamSpec> = (p: ParamNodes<P>, b: Builder) => undef
 // returns a value through an ambient Return() is turned away here, naming the token to pass,
 // instead of being handed a false key.
 function assertInferredVoid(name: string, ret: ShaderType): void {
-  if (ret.kind === 'void') return
+  if (ret.kind === 'void') return;
   throw dslError(
     'SD0113',
     `fn '${name}' was authored without a return type, but its body returns ${typeKey(ret)} through an ambient Return() — write fn('${name}', params, <the type token>, body)`,
-  )
+  );
 }
 
 /** Infer a fn's WGSL return type from its body — the type of the value it returns. Used when the author
  *  omits the explicit return-type token. Walks into nested if/for/switch for a body that returns only via
  *  an early `Return(value)` (a guard). voidT when nothing is returned (statement / compute entry). */
 function inferReturnType(result: ReadonlyNode | void, stmts: readonly Stmt[]): ShaderType {
-  if (result !== undefined) return result.type
+  if (result !== undefined) return result.type;
   const scan = (ss: readonly Stmt[]): ShaderType | undefined => {
     for (const s of ss) {
-      if (s.s === 'return' && s.expr) return s.expr.type
+      if (s.s === 'return' && s.expr) return s.expr.type;
       if (s.s === 'if') {
         for (const arm of s.arms) {
-          const t = scan(arm.body)
-          if (t) return t
+          const t = scan(arm.body);
+          if (t) return t;
         }
         if (s.elseBody) {
-          const t = scan(s.elseBody)
-          if (t) return t
+          const t = scan(s.elseBody);
+          if (t) return t;
         }
       } else if (s.s === 'for') {
-        const t = scan(s.body)
-        if (t) return t
+        const t = scan(s.body);
+        if (t) return t;
       } else if (s.s === 'switch') {
         for (const c of s.cases) {
-          const t = scan(c.body)
-          if (t) return t
+          const t = scan(c.body);
+          if (t) return t;
         }
         if (s.defaultBody) {
-          const t = scan(s.defaultBody)
-          if (t) return t
+          const t = scan(s.defaultBody);
+          if (t) return t;
         }
       }
     }
-    return undefined
-  }
-  return scan(stmts) ?? voidT
+    return undefined;
+  };
+  return scan(stmts) ?? voidT;
 }
 
 // Auto-name counter for fn() calls that omit the name. Advanced ONLY on omission (explicit
@@ -745,7 +745,7 @@ function inferReturnType(result: ReadonlyNode | void, stmts: readonly Stmt[]): S
 // DIFFERENT anonymous fns as one.
 const fnAutoState = ((globalThis as Record<symbol, unknown>)[Symbol.for('typeshade.fnAutoId')] ??= {
   n: 0,
-}) as { n: number }
+}) as { n: number };
 
 /** Author a function. One call covers a plain helper and a `@vertex`, `@fragment` or
  *  `@compute` entry point. The returned {@link FnHandle} is both the callable and the
@@ -849,13 +849,13 @@ export function fn<P extends FnParamSpec, R extends string>(
   params: P,
   body: FnBodyValue<P, R>,
   opts?: FnOpts,
-): FnHandle<P, R>
+): FnHandle<P, R>;
 export function fn<P extends FnParamSpec, R extends string>(
   name: string,
   params: P,
   body: FnBodyValue<P, R>,
   opts?: FnOpts,
-): FnHandle<P, R>
+): FnHandle<P, R>;
 // #8 B1 — the void-body overloads. They sit AFTER the value overloads, so a body that returns
 // a value still matches those first and only a body TypeScript reads as returning nothing
 // falls through to here, where the handle lands on `'void'` with no `voidT` token written. The
@@ -867,26 +867,26 @@ export function fn<P extends FnParamSpec>(
   params: P,
   body: FnBodyVoid<P>,
   opts?: FnOpts,
-): FnHandle<P, 'void'>
+): FnHandle<P, 'void'>;
 export function fn<P extends FnParamSpec>(
   name: string,
   params: P,
   body: FnBodyVoid<P>,
   opts?: FnOpts,
-): FnHandle<P, 'void'>
+): FnHandle<P, 'void'>;
 export function fn<P extends FnParamSpec, T extends ShaderType>(
   params: P,
   ret: T,
   body: FnBody<P, KeyOf<T>>,
   opts?: FnOpts,
-): FnHandle<P, KeyOf<T>>
+): FnHandle<P, KeyOf<T>>;
 export function fn<P extends FnParamSpec, T extends ShaderType>(
   name: string,
   params: P,
   ret: T,
   body: FnBody<P, KeyOf<T>>,
   opts?: FnOpts,
-): FnHandle<P, KeyOf<T>>
+): FnHandle<P, KeyOf<T>>;
 export function fn(
   a: string | FnParamSpec,
   b: FnParamSpec | ShaderType | FnBody<FnParamSpec, string>,
@@ -894,16 +894,16 @@ export function fn(
   d?: FnBody<FnParamSpec, string> | FnOpts,
   e?: FnOpts,
 ): FnHandle<FnParamSpec, string> {
-  const named = typeof a === 'string'
-  const name = named ? (a as string) : `_fn${fnAutoState.n++}`
-  const params = (named ? b : a) as FnParamSpec
+  const named = typeof a === 'string';
+  const name = named ? (a as string) : `_fn${fnAutoState.n++}`;
+  const params = (named ? b : a) as FnParamSpec;
   // The slot after params is either the EXPLICIT return type (a ShaderType) or the BODY (a function) when
   // the return type is inferred. A ShaderType is a plain object; the body is a function — that tells them apart.
-  const retOrBody = named ? c : b
-  const explicitRet = typeof retOrBody === 'function' ? undefined : (retOrBody as ShaderType)
-  const inferred = explicitRet === undefined
-  const body = (inferred ? retOrBody : named ? d : c) as FnBody<FnParamSpec, string>
-  const opts = (named ? (inferred ? d : e) : inferred ? c : d) as FnOpts | undefined
+  const retOrBody = named ? c : b;
+  const explicitRet = typeof retOrBody === 'function' ? undefined : (retOrBody as ShaderType);
+  const inferred = explicitRet === undefined;
+  const body = (inferred ? retOrBody : named ? d : c) as FnBody<FnParamSpec, string>;
+  const opts = (named ? (inferred ? d : e) : inferred ? c : d) as FnOpts | undefined;
   // The portable kernel tier is a COMPUTE declaration (X-GIS #1812) — the two-layer pattern's
   // runtime half, checked here (before the body runs) because `FnOpts` is one flat bag and
   // TS cannot make the pairing unrepresentable without splitting the overload set.
@@ -911,14 +911,14 @@ export function fn(
     throw dslError(
       'SD0110',
       `fn '${name}' declares portable with ${opts.stage ? `stage: '${opts.stage}'` : 'no stage (an ordinary helper fn)'}`,
-    )
+    );
   // A param value is a plain ShaderType, a FieldSpec `{ type, attr }` (builtin/location)
   // for an entry-point param — the `attr` flows straight to the emitted `@builtin(…)`/
   // `@location(…)` — or a structDecl/ioStruct HANDLE (X-GIS #740 R6), whose param arrives in
   // the body as the TYPED field proxy (no `X.of(p.in)` re-assertion).
   const entries = Object.entries(params).map(([n, spec]) => {
-    const isHandle = 'of' in spec && typeof (spec as StructParamHandle).of === 'function'
-    const fieldSpec = !isHandle && 'attr' in spec ? (spec as ParamAttr) : undefined
+    const isHandle = 'of' in spec && typeof (spec as StructParamHandle).of === 'function';
+    const fieldSpec = !isHandle && 'attr' in spec ? (spec as ParamAttr) : undefined;
     return {
       name: n,
       type: (isHandle || 'attr' in spec
@@ -932,8 +932,8 @@ export function fn(
       builtin: fieldSpec?.builtin,
       interpolate: fieldSpec?.interpolate,
       handle: isHandle ? (spec as StructParamHandle) : undefined,
-    }
-  })
+    };
+  });
   const paramList = entries.map((p) => ({
     name: p.name,
     type: p.type,
@@ -941,54 +941,54 @@ export function fn(
     ...(p.location !== undefined ? { location: p.location } : {}),
     ...(p.builtin !== undefined ? { builtin: p.builtin } : {}),
     ...(p.interpolate !== undefined ? { interpolate: p.interpolate } : {}),
-  }))
+  }));
   const paramNodes = Object.fromEntries(
     entries.map((p) => {
-      const node = new Node({ op: 'param', type: p.type, name: p.name })
-      return [p.name, p.handle ? p.handle.of(node) : node]
+      const node = new Node({ op: 'param', type: p.type, name: p.name });
+      return [p.name, p.handle ? p.handle.of(node) : node];
     }),
-  ) as ParamNodes<FnParamSpec>
-  const bld = new Builder()
+  ) as ParamNodes<FnParamSpec>;
+  const bld = new Builder();
   // A body may `return value` (native TS) for its FINAL return — fn appends the
   // ret Stmt, so authoring reads like a normal function. Early returns inside
   // control flow still use Return() (a native return there only exits the closure).
   const rawResult = withScope(bld, () => {
     try {
-      return body(paramNodes, bld)
+      return body(paramNodes, bld);
     } catch (e) {
       // X-GIS #843 — outermost authoring context: name the fn whose body threw, once
       // (a nested subBody has already tagged the statement kind by this point).
-      tagAuthoringError(e, AUTHOR_FN_TAGGED, `while building fn '${name}'`)
-      throw e
+      tagAuthoringError(e, AUTHOR_FN_TAGGED, `while building fn '${name}'`);
+      throw e;
     }
-  })
+  });
   // A struct field proxy returned directly (`return o` — X-GIS #763 X14) forwards
   // `.expr`/`.type` to its base var, so it reads like a node from here on.
-  const result = rawResult as ReadonlyNode | void
-  if (result !== undefined) bld.ret(result)
+  const result = rawResult as ReadonlyNode | void;
+  if (result !== undefined) bld.ret(result);
   // Return type: explicit token if given, else inferred from what the body returns.
-  const ret = explicitRet ?? inferReturnType(result, bld.stmts)
+  const ret = explicitRet ?? inferReturnType(result, bld.stmts);
   // #8 B1 — a body that produced no TS-level value took one of the void-inferring overloads,
   // whose handle says `'void'`. Hold it to that, or say which token to write.
-  if (inferred && result === undefined) assertInferredVoid(name, ret)
+  if (inferred && result === undefined) assertInferredVoid(name, ret);
   // stage → pipeline attrs (@vertex / @fragment / @compute @workgroup_size(N)).
-  const shape = opts?.stage === 'compute' ? toWorkgroupShape(opts.workgroupSize ?? 64) : undefined
+  const shape = opts?.stage === 'compute' ? toWorkgroupShape(opts.workgroupSize ?? 64) : undefined;
   const attrs = shape
     ? ['@compute', workgroupSizeAttr(shape)]
     : opts?.stage
       ? [`@${opts.stage}`]
-      : undefined
+      : undefined;
   // retAttr: string | FieldSpec, with the fragment default (X-GIS #763 X3).
-  const retAttrRaw = opts?.retAttr
+  const retAttrRaw = opts?.retAttr;
   const retAttr =
     (typeof retAttrRaw === 'string' ? retAttrRaw : retAttrRaw?.attr) ??
     (opts?.stage === 'fragment' && ret.kind !== 'struct' && ret.kind !== 'void'
       ? '@location(0)'
-      : undefined)
+      : undefined);
   // The FieldSpec form carries the STRUCTURED builtin id — preserve it (X-GIS #1672): dropping
   // it here made `retAttr: builtin('point_size', …)` invisible to assertBuiltins, the
   // one authoring path where an absent builtin could still reach WGSL text silently.
-  const retBuiltin = typeof retAttrRaw === 'string' ? undefined : retAttrRaw?.builtin
+  const retBuiltin = typeof retAttrRaw === 'string' ? undefined : retAttrRaw?.builtin;
   const decl: FuncDecl = {
     name,
     params: paramList,
@@ -1007,14 +1007,14 @@ export function fn(
     retBuiltin,
     allowEarlyReturn: opts?.allowEarlyReturn,
     lintDisable: opts?.lintDisable,
-  }
+  };
   // The handle IS the call node factory (shared with externFn); the FuncDecl fields are mixed
   // onto it so it still duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable
   // function prop, so it is set via defineProperty (Object.assign would throw on it under strict).
-  const handle = makeCallFactory(name, ret, paramList, decl) as FnHandle<FnParamSpec, string>
+  const handle = makeCallFactory(name, ret, paramList, decl) as FnHandle<FnParamSpec, string>;
   // enumerable so `{ ...handle }` (e.g. the projection-fn spread) carries the name; a
   // function's own `name` is non-enumerable by default, which would drop it from a spread.
-  Object.defineProperty(handle, 'name', { value: name, configurable: true, enumerable: true })
+  Object.defineProperty(handle, 'name', { value: name, configurable: true, enumerable: true });
   Object.assign(handle, {
     params: paramList,
     ret,
@@ -1030,12 +1030,12 @@ export function fn(
     allowEarlyReturn: decl.allowEarlyReturn,
     lintDisable: decl.lintDisable,
     decl,
-  })
+  });
   // Stamp the handle (the object that lands in a module's funcs[] and that the lint
   // engine iterates) with its authored location, so Func-level diagnostics can resolve
   // a file:line:col. No-op unless source tracing is on.
-  recordLoc(handle, captureLoc())
-  return handle
+  recordLoc(handle, captureLoc());
+  return handle;
 }
 
 /** A typed call-only handle for a function whose definition is provided elsewhere: the
@@ -1049,10 +1049,10 @@ export type ExternFn<P extends ParamSpec, R extends ShaderType> = {
   /** Typed object-param call, with the same argument union as {@link FnHandle}: arguments
    *  are read, so read-only nodes (`Let` results, parameters) and raw numbers, lifted to the
    *  declared parameter type, are accepted. */
-  (args: { readonly [K in keyof P]: ReadonlyNode<KeyOf<P[K]>> | number }): Node<KeyOf<R>>
+  (args: { readonly [K in keyof P]: ReadonlyNode<KeyOf<P[K]>> | number }): Node<KeyOf<R>>;
   /** Positional call. Arguments are matched to the parameters in declaration order. */
-  (...args: NodeLike[]): Node<KeyOf<R>>
-}
+  (...args: NodeLike[]): Node<KeyOf<R>>;
+};
 /** Forward-declare a callable whose real definition (`fn(...)`) is authored somewhere else,
  *  or built later than the caller's own module-load time (see {@link ExternFn}). Prefer a
  *  real `fn()` and its {@link FnHandle} whenever the callee is importable at the call site.
@@ -1080,8 +1080,8 @@ export function externFn<P extends ParamSpec, R extends ShaderType>(
   params: P,
   ret: R,
 ): ExternFn<P, R> {
-  const paramList = Object.entries(params).map(([n, type]) => ({ name: n, type }))
-  return makeCallFactory(name, ret, paramList) as ExternFn<P, R>
+  const paramList = Object.entries(params).map(([n, type]) => ({ name: n, type }));
+  return makeCallFactory(name, ret, paramList) as ExternFn<P, R>;
 }
 
 // ── module assembly: transitive fn collection + key-naming (X-GIS #740 R1) ──
@@ -1094,7 +1094,7 @@ export function externFn<P extends ParamSpec, R extends ShaderType>(
 export type UsesHandle =
   | { readonly struct: StructDecl; readonly binding: BindingDecl }
   | { readonly decl: StructDecl | ConstDecl }
-  | { readonly binding: BindingDecl; readonly elementDecl?: StructDecl }
+  | { readonly binding: BindingDecl; readonly elementDecl?: StructDecl };
 
 /** The input shape {@link module} accepts: a `Partial<ModuleDecl>` whose `funcs` also takes a
  *  key-named record (`{ vs, fs }`) as an alternative to the array, and whose `uses` derives
@@ -1116,13 +1116,13 @@ export type UsesHandle =
  */
 export interface ModuleParts extends Omit<Partial<ModuleDecl>, 'funcs'> {
   /** The functions, as an array in emit order or as a record whose keys name them. */
-  readonly funcs?: readonly FuncDecl[] | Readonly<Record<string, FuncDecl>>
+  readonly funcs?: readonly FuncDecl[] | Readonly<Record<string, FuncDecl>>;
   /** Declarator handles; the module's structs, bindings and consts are derived from them. */
-  readonly uses?: readonly UsesHandle[]
+  readonly uses?: readonly UsesHandle[];
 }
 
 /** The decl behind a funcs[] item — FnHandle carries `.decl`; a plain FuncDecl is itself. */
-const declOf = (f: FuncDecl): FuncDecl => (f as { decl?: FuncDecl }).decl ?? f
+const declOf = (f: FuncDecl): FuncDecl => (f as { decl?: FuncDecl }).decl ?? f;
 
 /** Visit every call Expr in a body (the collector's only interest — full walk). */
 function walkCalls(
@@ -1131,9 +1131,9 @@ function walkCalls(
 ): void {
   const onExpr = (e: Expr): void =>
     eachExpr(e, (x) => {
-      if (x.op === 'call') onCall(x)
-    })
-  for (const s of stmts) eachStmtExpr(s, onExpr)
+      if (x.op === 'call') onCall(x);
+    });
+  for (const s of stmts) eachStmtExpr(s, onExpr);
 }
 
 /** Normalize `funcs` (array or key-named record) into the ModuleDecl array:
@@ -1146,40 +1146,40 @@ function walkCalls(
  *     define-before-use. A call made by name through externFn carries no declRef and
  *     is linked at emit. */
 function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
-  const record = input !== undefined && !Array.isArray(input)
-  let renamed = false
+  const record = input !== undefined && !Array.isArray(input);
+  let renamed = false;
   const authored: FuncDecl[] = record
     ? Object.entries(input as Readonly<Record<string, FuncDecl>>).map(([key, f]) => {
-        const d = declOf(f)
+        const d = declOf(f);
         // X-GIS #763 D4 — a record-form rename mutates the SHARED FuncDecl in place.
         // If this decl already participated in another assembly under a
         // DIFFERENT name, renaming it now silently corrupts that module's
         // re-emit (`fn old` definition vs `new(...)` calls). Fail loud.
-        const prev = d[ASSEMBLED_AS]
+        const prev = d[ASSEMBLED_AS];
         if (prev !== undefined && prev !== key) {
           throw new Error(
             `typeshade: fn was already assembled as '${prev}' — renaming the shared decl to '${key}' would corrupt the earlier module's re-emit (X-GIS #763 D4). Author a separate fn (or reuse the key '${prev}').`,
-          )
+          );
         }
         if (d.name !== key) {
-          ;(d as { name: string }).name = key
+          (d as { name: string }).name = key;
           // Keep the handle's own (defineProperty'd, enumerable) name in step for spreads.
           if (d !== f)
-            Object.defineProperty(f, 'name', { value: key, configurable: true, enumerable: true })
-          renamed = true
+            Object.defineProperty(f, 'name', { value: key, configurable: true, enumerable: true });
+          renamed = true;
         }
         // Non-enumerable — the optimizer's fixpoint compares modules via JSON;
         // an enumerable marker would perturb it.
-        Object.defineProperty(d, ASSEMBLED_AS, { value: key, configurable: true })
-        return f
+        Object.defineProperty(d, ASSEMBLED_AS, { value: key, configurable: true });
+        return f;
       })
     : (input ?? []).map((f) => {
         // Array-form assembly pins the CURRENT name for the same reason — a later
         // record-form rename of this decl would corrupt THIS module's re-emit.
-        const d = declOf(f)
-        Object.defineProperty(d, ASSEMBLED_AS, { value: d.name, configurable: true })
-        return f
-      })
+        const d = declOf(f);
+        Object.defineProperty(d, ASSEMBLED_AS, { value: d.name, configurable: true });
+        return f;
+      });
 
   // Transitive collection (post-order DFS over declRef edges), skipping listed decls.
   // Dedup is by IDENTITY **and NAME**: module semantics are name-keyed (dup-func is a
@@ -1187,31 +1187,31 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
   // placeholder-swapped copies) is a NEW object whose body still carries declRefs to
   // the ORIGINALS — identity alone would re-collect a fn the module already lists
   // under the same name.
-  const listed = new Set(authored.map(declOf))
-  const listedNames = new Set(authored.map((f) => declOf(f).name))
-  const collected: FuncDecl[] = []
+  const listed = new Set(authored.map(declOf));
+  const listedNames = new Set(authored.map((f) => declOf(f).name));
+  const collected: FuncDecl[] = [];
   const visit = (d: FuncDecl): void => {
     walkCalls(d.body, (e) => {
-      const callee = e.declRef
-      if (!callee || listed.has(callee) || listedNames.has(callee.name)) return
-      listed.add(callee)
-      listedNames.add(callee.name)
-      visit(callee) // callee's own callees first…
-      collected.push(callee) // …then the callee (post-order = define-before-use)
-    })
-  }
-  authored.forEach((f) => visit(declOf(f)))
-  const funcs = collected.length ? [...collected, ...authored] : authored
+      const callee = e.declRef;
+      if (!callee || listed.has(callee) || listedNames.has(callee.name)) return;
+      listed.add(callee);
+      listedNames.add(callee.name);
+      visit(callee); // callee's own callees first…
+      collected.push(callee); // …then the callee (post-order = define-before-use)
+    });
+  };
+  authored.forEach((f) => visit(declOf(f)));
+  const funcs = collected.length ? [...collected, ...authored] : authored;
 
   // A rename can postdate call nodes authored in OTHER fn bodies — re-spell them.
   if (renamed) {
     for (const f of funcs) {
       walkCalls(declOf(f).body, (e) => {
-        if (e.declRef && e.fn !== e.declRef.name) (e as { fn: string }).fn = e.declRef.name
-      })
+        if (e.declRef && e.fn !== e.declRef.name) (e as { fn: string }).fn = e.declRef.name;
+      });
     }
   }
-  return funcs
+  return funcs;
 }
 
 /** Assemble a module from its declarations. `consts`, `structs`, `bindings` and `funcs` are
@@ -1271,39 +1271,39 @@ export function module(parts: ModuleParts): ModuleDecl {
   // rules must still see an author's accidental duplicates. Only the
   // uses-DERIVED decls dedupe against what is already present (an explicit
   // entry + the same handle in `uses` is the legal merge case).
-  const consts: ConstDecl[] = [...(parts.consts ?? [])]
-  const structs: StructDecl[] = [...(parts.structs ?? [])]
-  const bindings: BindingDecl[] = [...(parts.bindings ?? [])]
-  const structNames = new Set(structs.map((s) => s.name))
-  const constNames = new Set(consts.map((c) => c.name))
-  const bindingKeys = new Set(bindings.map((b) => `${b.group}:${b.binding}:${b.name}`))
+  const consts: ConstDecl[] = [...(parts.consts ?? [])];
+  const structs: StructDecl[] = [...(parts.structs ?? [])];
+  const bindings: BindingDecl[] = [...(parts.bindings ?? [])];
+  const structNames = new Set(structs.map((s) => s.name));
+  const constNames = new Set(consts.map((c) => c.name));
+  const bindingKeys = new Set(bindings.map((b) => `${b.group}:${b.binding}:${b.name}`));
   const addStruct = (s: StructDecl): void => {
     if (!structNames.has(s.name)) {
-      structNames.add(s.name)
-      structs.push(s)
+      structNames.add(s.name);
+      structs.push(s);
     }
-  }
+  };
   const addConst = (c: ConstDecl): void => {
     if (!constNames.has(c.name)) {
-      constNames.add(c.name)
-      consts.push(c)
+      constNames.add(c.name);
+      consts.push(c);
     }
-  }
+  };
   const addBinding = (b: BindingDecl): void => {
-    const k = `${b.group}:${b.binding}:${b.name}`
+    const k = `${b.group}:${b.binding}:${b.name}`;
     if (!bindingKeys.has(k)) {
-      bindingKeys.add(k)
-      bindings.push(b)
+      bindingKeys.add(k);
+      bindings.push(b);
     }
-  }
+  };
   for (const h of parts.uses ?? []) {
     if ('struct' in h && h.struct)
-      addStruct(h.struct) // uniformStruct
+      addStruct(h.struct); // uniformStruct
     else if ('decl' in h && h.decl && 'fields' in h.decl)
-      addStruct(h.decl) // ioStruct / structDecl
-    else if ('decl' in h && h.decl) addConst(h.decl as ConstDecl) // constDecl handle
-    if ('elementDecl' in h && h.elementDecl) addStruct(h.elementDecl) // storageBuffer's struct element
-    if ('binding' in h && h.binding) addBinding(h.binding) // uniformStruct / storageBuffer / resource
+      addStruct(h.decl); // ioStruct / structDecl
+    else if ('decl' in h && h.decl) addConst(h.decl as ConstDecl); // constDecl handle
+    if ('elementDecl' in h && h.elementDecl) addStruct(h.elementDecl); // storageBuffer's struct element
+    if ('binding' in h && h.binding) addBinding(h.binding); // uniformStruct / storageBuffer / resource
   }
   const decl: ModuleDecl = {
     consts,
@@ -1317,10 +1317,10 @@ export function module(parts: ModuleParts): ModuleDecl {
     // through `uses:`: an ExternVarHandle is `{ node, decl }`, which the `uses` dispatch's
     // `'decl' in h` branch would route to addConst and silently emit as a module constant.
     ...(parts.externs ? { externs: parts.externs } : {}),
-  }
+  };
   // X-GIS #628 — carry the opt-in language-feature caps through (absent ⇒ omit the key, so an
   // enables-free module object stays byte-identical to before).
-  return parts.enables ? { ...decl, enables: parts.enables } : decl
+  return parts.enables ? { ...decl, enables: parts.enables } : decl;
 }
 
 /** What {@link constExpr} returns: the `ConstDecl` itself, so it drops straight into
@@ -1337,7 +1337,7 @@ export function module(parts: ModuleParts): ModuleDecl {
  */
 export interface ConstExprDecl<T extends ShaderType> extends ConstDecl {
   /** The typed reference to read the constant through at call sites. */
-  readonly node: ReadonlyNode<KeyOf<T>>
+  readonly node: ReadonlyNode<KeyOf<T>>;
 }
 
 /** Author a module-level constant from an IR value expression: the form for a constant that
@@ -1385,7 +1385,7 @@ export function constExpr<T extends ShaderType>(
   type: T,
   value: Node,
 ): ConstExprDecl<T> {
-  const decl = { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr }
+  const decl = { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr };
   // #8 B6 — `node` is NON-ENUMERABLE on purpose. The returned object IS the ConstDecl that
   // goes into `module({ consts })` and from there into the emitted module, where it is spread,
   // compared and serialized; an enumerable extra field carrying a whole Expr would show up in
@@ -1395,8 +1395,8 @@ export function constExpr<T extends ShaderType>(
     value: constRef(name, type),
     enumerable: false,
     configurable: true,
-  })
-  return decl as unknown as ConstExprDecl<T>
+  });
+  return decl as unknown as ConstExprDecl<T>;
 }
 
 /** Author a raw statement, the escape hatch that splices verbatim text into a function body.
@@ -1449,15 +1449,15 @@ export function constExpr<T extends ShaderType>(
  *  @see {@link mangle} for what a raw statement costs a production emit.
  */
 export function rawStmt(payload: RawPayload): RawStmt {
-  return { s: 'raw', ...payload }
+  return { s: 'raw', ...payload };
 }
 
 /** The pair {@link overrideConst} returns for a pipeline specialization constant: `.node`
  *  reads the value, opaque to the optimizer, in any expression or branch condition, and
  *  `.decl` goes into `module({ overrides: [...] })`. */
 export interface OverrideHandle<K extends string> {
-  readonly node: ReadonlyNode<K>
-  readonly decl: OverrideDecl
+  readonly node: ReadonlyNode<K>;
+  readonly decl: OverrideDecl;
 }
 
 /** Declare a pipeline specialization constant: one value that is fixed when a pipeline is
@@ -1504,15 +1504,15 @@ export function overrideConst<T extends ShaderType>(
   defaultValue: number | boolean,
 ): OverrideHandle<KeyOf<T>> {
   if (type.kind !== 'scalar') {
-    throw dslError('SD0014', `override '${name}': ${type.kind}`)
+    throw dslError('SD0014', `override '${name}': ${type.kind}`);
   }
-  return { node: overrideRef(name, type), decl: { name, type, default: defaultValue } }
+  return { node: overrideRef(name, type), decl: { name, type, default: defaultValue } };
 }
 
 /** The pair `externVar` returns: the read node, and the declaration to hand `module()`. */
 export interface ExternVarHandle<K extends string> {
-  readonly node: ReadonlyNode<K>
-  readonly decl: ExternVarDecl
+  readonly node: ReadonlyNode<K>;
+  readonly decl: ExternVarDecl;
 }
 
 /** Declare a host-provided global: the variable counterpart of {@link externFn}.
@@ -1557,7 +1557,7 @@ export function externVar<T extends ShaderType>(
       ...(opts?.spelling ? { spelling: opts.spelling } : {}),
       ...(opts?.stage ? { stage: opts.stage } : {}),
     },
-  }
+  };
 }
 
 // ── Ambient free-function authoring surface (C2) ──
@@ -1608,15 +1608,15 @@ export function externVar<T extends ShaderType>(
  *
  *  @see {@link Var} for a binding you can assign to.
  */
-export function Let<K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>
-export function Let<K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>
+export function Let<K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>;
+export function Let<K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>;
 export function Let<K extends string>(
   nameOrValue: string | ReadonlyNode<K>,
   maybeValue?: ReadonlyNode<K>,
 ): ReadonlyNode<K> {
   return typeof nameOrValue === 'string'
     ? currentBuilder().let(nameOrValue, maybeValue!)
-    : currentBuilder().let(nameOrValue)
+    : currentBuilder().let(nameOrValue);
 }
 /** Declare a mutable local and return the node that reads and writes it. `Var` is the one
  *  declarator whose result carries `.assign`, so it is what a body reaches for when a value
@@ -1655,16 +1655,16 @@ export function Let<K extends string>(
  *
  *  @see {@link Let} for an immutable binding.
  */
-export function Var<K extends string>(init: ReadonlyNode<K>): Node<K>
-export function Var<T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>
+export function Var<K extends string>(init: ReadonlyNode<K>): Node<K>;
+export function Var<T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>;
 export function Var<T extends ShaderType>(
   name: string,
   type: T,
   init?: ReadonlyNode<KeyOf<T>>,
-): Node<KeyOf<T>>
+): Node<KeyOf<T>>;
 /** Named and type-inferred: `Var('n', init)` mirrors `Let('n', init)`, taking the type from
  *  the initialiser. */
-export function Var<K extends string>(name: string, init: ReadonlyNode<K>): Node<K>
+export function Var<K extends string>(name: string, init: ReadonlyNode<K>): Node<K>;
 export function Var<T extends ShaderType>(
   nameOrTypeOrInit: string | T | ReadonlyNode,
   typeOrInit?: T | ReadonlyNode<KeyOf<T>>,
@@ -1674,14 +1674,14 @@ export function Var<T extends ShaderType>(
   // Brand probe, not instanceof (X-GIS #763 D1) — a cross-instance init node must not
   // fall through to the ShaderType arm and declare a garbage-typed var.
   if (isNodeValue(nameOrTypeOrInit))
-    return currentBuilder().var(nameOrTypeOrInit.type, nameOrTypeOrInit) as Node<KeyOf<T>>
+    return currentBuilder().var(nameOrTypeOrInit.type, nameOrTypeOrInit) as Node<KeyOf<T>>;
   if (typeof nameOrTypeOrInit === 'string') {
     // Var(name, init) — the second slot is a NODE, not a ShaderType (X-GIS #763 X9).
     if (isNodeValue(typeOrInit))
-      return currentBuilder().var(nameOrTypeOrInit, typeOrInit.type, typeOrInit) as Node<KeyOf<T>>
-    return currentBuilder().var(nameOrTypeOrInit, typeOrInit as T, maybeInit)
+      return currentBuilder().var(nameOrTypeOrInit, typeOrInit.type, typeOrInit) as Node<KeyOf<T>>;
+    return currentBuilder().var(nameOrTypeOrInit, typeOrInit as T, maybeInit);
   }
-  return currentBuilder().var(nameOrTypeOrInit, typeOrInit as Node<KeyOf<T>> | undefined)
+  return currentBuilder().var(nameOrTypeOrInit, typeOrInit as Node<KeyOf<T>> | undefined);
 }
 /** Push an explicit `return value;` (or a bare `return;`) onto the innermost scope. Use it
  *  for any return from inside `If`, `Loop` or `Switch` control flow: a native JavaScript
@@ -1701,7 +1701,7 @@ export function Var<T extends ShaderType>(
  *  Return(f32(1).add(min_dist))
  *  ```
  */
-export const Return = (value?: ReadonlyNode): void => currentBuilder().ret(value)
+export const Return = (value?: ReadonlyNode): void => currentBuilder().ret(value);
 /** Guard clause: `if (cond) { return value; }`, the explicit early return that reads as
  *  "return value if cond". It emits the same statements as `If(cond, () => Return(value))`.
  *  A native `return` inside an `If` body emits nothing, so an early return from a branch is
@@ -1719,8 +1719,8 @@ export const Return = (value?: ReadonlyNode): void => currentBuilder().ret(value
  *  ```
  */
 export const ReturnIf = (cond: ReadonlyNode<'bool'>, value?: ReadonlyNode): void => {
-  currentBuilder().if(cond, (b) => b.ret(value))
-}
+  currentBuilder().if(cond, (b) => b.ret(value));
+};
 /** Push a `continue;` onto the innermost scope, skipping to the next iteration of the nearest
  *  enclosing loop. An `If` or `Switch` body nested inside a `Loop` is not itself a loop
  *  boundary, so `Continue()` written inside a guard in a loop still targets that loop.
@@ -1732,7 +1732,7 @@ export const ReturnIf = (cond: ReadonlyNode<'bool'>, value?: ReadonlyNode): void
  *  If(outsideRange(arcOnSeg, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
  *  ```
  */
-export const Continue = (): void => currentBuilder().continue()
+export const Continue = (): void => currentBuilder().continue();
 /** Push a `break;` onto the innermost scope, exiting the nearest enclosing `Loop` (or the
  *  current `Switch` case) outright, under the same nesting rule as {@link Continue}: an `If`
  *  nested inside the loop is not itself a break boundary.
@@ -1747,7 +1747,7 @@ export const Continue = (): void => currentBuilder().continue()
  *  })
  *  ```
  */
-export const Break = (): void => currentBuilder().break()
+export const Break = (): void => currentBuilder().break();
 /** Push a `discard;` onto the innermost scope. It ends the current fragment invocation with
  *  no color or depth write, the fragment-only terminator of both WGSL and GLSL. It is
  *  typically guarded by an `If` for a cull test: a backface, an alpha clip, an out-of-bounds
@@ -1762,7 +1762,7 @@ export const Break = (): void => currentBuilder().break()
  *  })
  *  ```
  */
-export const Discard = (): void => currentBuilder().discard()
+export const Discard = (): void => currentBuilder().discard();
 /** Push a call as a statement onto the innermost scope, kept for its effect and nothing else.
  *  A `fn` whose body writes a storage binding is called this way when its result is not
  *  wanted; without it the returned node is a discarded expression and nothing is emitted.
@@ -1774,7 +1774,7 @@ export const Discard = (): void => currentBuilder().discard()
  *  Call(store(gid.x))
  *  ```
  */
-export const Call = (node: ReadonlyNode): void => currentBuilder().call(node)
+export const Call = (node: ReadonlyNode): void => currentBuilder().call(node);
 
 /** Author `if (cond) { body }` over the innermost active scope. Chain `.elif(c, () => …)` and
  *  `.else(() => …)` on the returned {@link IfChain}. A native `return` inside the body
@@ -1803,7 +1803,7 @@ export const Call = (node: ReadonlyNode): void => currentBuilder().call(node)
  *  ```
  */
 export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void): IfChain =>
-  currentBuilder().if(cond, () => body())
+  currentBuilder().if(cond, () => body());
 
 /** Author a C-style `for` loop over the innermost active scope. The counter starts at `init`,
  *  runs while `cond` holds, and advances by `step` after each iteration.
@@ -1861,25 +1861,25 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  */
 // #8 B1/B2 — the TRIP-COUNT overloads come first: a `number` in the init slot is a count,
 // never an init node, so there is nothing for them to steal from the three-part form below.
-export function Loop(count: number, body: (i: Node<'u32'>) => ReadonlyNode | void): void
+export function Loop(count: number, body: (i: Node<'u32'>) => ReadonlyNode | void): void;
 export function Loop(
   name: string,
   count: number,
   body: (i: Node<'u32'>) => ReadonlyNode | void,
-): void
+): void;
 export function Loop<K extends string>(
   init: ReadonlyNode<K>,
   cond: (i: Node<K>) => ReadonlyNode<'bool'>,
   body: (i: Node<K>) => ReadonlyNode | void,
   step?: ReadonlyNode<ScalarKey> | number,
-): void
+): void;
 export function Loop<K extends string>(
   name: string,
   init: ReadonlyNode<K>,
   cond: (i: Node<K>) => ReadonlyNode<'bool'>,
   body: (i: Node<K>) => ReadonlyNode | void,
   step?: ReadonlyNode<ScalarKey> | number,
-): void
+): void;
 export function Loop<K extends string>(
   a: string | number | ReadonlyNode<K>,
   b:
@@ -1894,26 +1894,26 @@ export function Loop<K extends string>(
   d?: ((i: Node<K>) => ReadonlyNode | void) | ReadonlyNode<ScalarKey> | number,
   e?: ReadonlyNode<ScalarKey> | number,
 ): void {
-  const named = typeof a === 'string'
+  const named = typeof a === 'string';
   // #8 B2 — the trip-count form. `Loop(96, body)` is `Loop(u32(0), (i) => i.lt(u32(96)), body)`
   // built here rather than at the call site, so it goes down the same `forRange` path and
   // reaches the same `for` statement. The counter is u32 because `u32(0)` is what 19 of the
   // corpus's 21 loops already start from, and because a WGSL index wants to be unsigned.
-  const countSlot = named ? b : a
+  const countSlot = named ? b : a;
   if (typeof countSlot === 'number') {
-    const count = countSlot
-    const body = (named ? c : b) as (i: Node<'u32'>) => ReadonlyNode | void
-    const cond = (i: Node<'u32'>): ReadonlyNode<'bool'> => i.lt(u32(count))
-    if (named) currentBuilder().forRange(a as string, u32(0), cond, (_b, i) => body(i))
-    else currentBuilder().forRange(u32(0), cond, (_b, i) => body(i))
-    return
+    const count = countSlot;
+    const body = (named ? c : b) as (i: Node<'u32'>) => ReadonlyNode | void;
+    const cond = (i: Node<'u32'>): ReadonlyNode<'bool'> => i.lt(u32(count));
+    if (named) currentBuilder().forRange(a as string, u32(0), cond, (_b, i) => body(i));
+    else currentBuilder().forRange(u32(0), cond, (_b, i) => body(i));
+    return;
   }
-  const init = (named ? b : a) as ReadonlyNode<K>
-  const cond = (named ? c : b) as (i: Node<K>) => ReadonlyNode<'bool'>
-  const body = (named ? d : c) as (i: Node<K>) => ReadonlyNode | void
-  const step = (named ? e : d) as ReadonlyNode<ScalarKey> | number | undefined
-  if (named) currentBuilder().forRange(a as string, init, cond, (_b, i) => body(i), step)
-  else currentBuilder().forRange(init, cond, (_b, i) => body(i), step)
+  const init = (named ? b : a) as ReadonlyNode<K>;
+  const cond = (named ? c : b) as (i: Node<K>) => ReadonlyNode<'bool'>;
+  const body = (named ? d : c) as (i: Node<K>) => ReadonlyNode | void;
+  const step = (named ? e : d) as ReadonlyNode<ScalarKey> | number | undefined;
+  if (named) currentBuilder().forRange(a as string, init, cond, (_b, i) => body(i), step);
+  else currentBuilder().forRange(init, cond, (_b, i) => body(i), step);
 }
 
 /** Fold a value over a C-style loop: the value-returning spelling of the `var acc = init;
@@ -1947,16 +1947,16 @@ export function reduce<K extends string, J extends string>(
   body: (acc: Node<K>, i: Node<J>) => ReadonlyNode<K>,
   step?: ReadonlyNode<ScalarKey> | number,
 ): Node<K> {
-  const acc = currentBuilder().var(init.type, init) as Node<K>
+  const acc = currentBuilder().var(init.type, init) as Node<K>;
   currentBuilder().forRange(
     loopInit,
     cond,
     (_b, i) => {
-      currentBuilder().assign(acc, body(acc, i))
+      currentBuilder().assign(acc, body(acc, i));
     },
     step,
-  )
-  return acc
+  );
+  return acc;
 }
 
 /** Dispatch a value on a condition, returning the value instead of mutating a var. Two shapes
@@ -2013,11 +2013,11 @@ export function when<K extends string>(
   cond: ReadonlyNode<'bool'>,
   thenVal: () => ReadonlyNode<K>,
   elseVal: () => ReadonlyNode<K>,
-): Node<K>
+): Node<K>;
 export function when<K extends string>(
   arms: ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => ReadonlyNode<K>]>,
   elseVal: () => ReadonlyNode<K>,
-): Node<K>
+): Node<K>;
 export function when<K extends string>(
   a: ReadonlyNode<'bool'> | ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => ReadonlyNode<K>]>,
   b: () => ReadonlyNode<K>,
@@ -2027,21 +2027,21 @@ export function when<K extends string>(
     a,
   )
     ? a
-    : [[a as ReadonlyNode<'bool'>, b]]
-  const elseVal = (Array.isArray(a) ? b : c) as () => ReadonlyNode<K>
-  const bld = currentBuilder()
-  const iv = bld.inferredVar()
-  let vt: ShaderType | undefined
+    : [[a as ReadonlyNode<'bool'>, b]];
+  const elseVal = (Array.isArray(a) ? b : c) as () => ReadonlyNode<K>;
+  const bld = currentBuilder();
+  const iv = bld.inferredVar();
+  let vt: ShaderType | undefined;
   const arm = (v: () => ReadonlyNode<K>) => () => {
-    const val = v()
-    vt ??= val.type
-    currentBuilder().assign(iv.ref(val.type) as Node<K>, val)
-  }
-  let chain = bld.if(arms[0][0], arm(arms[0][1]))
-  for (let k = 1; k < arms.length; k++) chain = chain.elif(arms[k][0], arm(arms[k][1]))
-  chain.else(arm(elseVal))
-  iv.commit(vt!)
-  return iv.ref(vt!) as Node<K>
+    const val = v();
+    vt ??= val.type;
+    currentBuilder().assign(iv.ref(val.type) as Node<K>, val);
+  };
+  let chain = bld.if(arms[0][0], arm(arms[0][1]));
+  for (let k = 1; k < arms.length; k++) chain = chain.elif(arms[k][0], arm(arms[k][1]));
+  chain.else(arm(elseVal));
+  iv.commit(vt!);
+  return iv.ref(vt!) as Node<K>;
 }
 
 /** Two-arm value dispatch on a condition: `ifExpr(cond, () => a, () => b)`.
@@ -2054,7 +2054,7 @@ export function ifExpr<K extends string>(
   thenVal: () => ReadonlyNode<K>,
   elseVal: () => ReadonlyNode<K>,
 ): Node<K> {
-  return when(cond, thenVal, elseVal)
+  return when(cond, thenVal, elseVal);
 }
 
 /** N-arm value dispatch on conditions, the first true condition winning:
@@ -2067,7 +2067,7 @@ export function condExpr<K extends string>(
   arms: ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => ReadonlyNode<K>]>,
   elseVal: () => ReadonlyNode<K>,
 ): Node<K> {
-  return when(arms, elseVal)
+  return when(arms, elseVal);
 }
 
 /** `switch (scrut) { case n: …; default: … }` as a chainable statement builder, mirroring the
@@ -2088,12 +2088,12 @@ export function condExpr<K extends string>(
  *  ```
  */
 export class SwitchChain {
-  private readonly cases: Array<[number, () => void]> = []
+  private readonly cases: Array<[number, () => void]> = [];
   constructor(private readonly scrut: ReadonlyNode<'i32' | 'u32'>) {}
   /** Add a `case value:` arm. Returns the chain. */
   case(value: number, body: () => void): SwitchChain {
-    this.cases.push([value, body])
-    return this
+    this.cases.push([value, body]);
+    return this;
   }
   /** Add the optional `default:` arm and end the chain. The `switch` statement is pushed
    *  onto the innermost scope here, so a chain without `.default()` emits nothing. */
@@ -2104,7 +2104,7 @@ export class SwitchChain {
         ([v, f]) => [v, (_b: Builder) => f()] as [number, (bb: Builder) => ReadonlyNode | void],
       ),
       body ? (_b: Builder) => body() : undefined,
-    )
+    );
   }
 }
 
@@ -2121,5 +2121,5 @@ export class SwitchChain {
  *  @see {@link when} for dispatch on conditions.
  */
 export function Switch(scrut: ReadonlyNode<'i32' | 'u32'>): SwitchChain {
-  return new SwitchChain(scrut)
+  return new SwitchChain(scrut);
 }

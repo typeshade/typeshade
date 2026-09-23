@@ -45,7 +45,7 @@ import type {
   FuncDecl,
   Expr,
   Stmt,
-} from '../ir/index.js'
+} from '../ir/index.js';
 import {
   texture2dfT,
   texture2duT,
@@ -56,23 +56,23 @@ import {
   vec4fT,
   stageOf,
   typeKey,
-} from '../ir/index.js'
-import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs.js'
-import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js'
-import { ioAttrOf, retIoAttrOf } from '../ir/entry-io.js'
-import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend.js'
-import { spellIntrinsic, INTRINSIC_HELPERS } from '../intrinsics.js'
-import { BIT_HELPER_OF, bitHelperDefs } from './glsl-bits.js'
-import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment.js'
-import { bodyHasRaw } from '../passes/opt/dce.js'
-import { collectLocals, collectMutatedRoots } from '../passes/opt/expr-utils.js'
-import { singleExitBody } from '../passes/single-exit.js'
-import { isIntegerVarying } from '../passes/varying-interpolate.js'
-import { mapExpr, mapStmt } from '../passes/opt/ir-transform.js'
-import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js'
-import { reachFrom } from '../passes/stage-bindings.js'
-import { dslError } from '../diagnostics/error.js'
-import { f32Lit, intLit } from './wgsl.js'
+} from '../ir/index.js';
+import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs.js';
+import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js';
+import { ioAttrOf, retIoAttrOf } from '../ir/entry-io.js';
+import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend.js';
+import { spellIntrinsic, INTRINSIC_HELPERS } from '../intrinsics.js';
+import { BIT_HELPER_OF, bitHelperDefs } from './glsl-bits.js';
+import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment.js';
+import { bodyHasRaw } from '../passes/opt/dce.js';
+import { collectLocals, collectMutatedRoots } from '../passes/opt/expr-utils.js';
+import { singleExitBody } from '../passes/single-exit.js';
+import { isIntegerVarying } from '../passes/varying-interpolate.js';
+import { mapExpr, mapStmt } from '../passes/opt/ir-transform.js';
+import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js';
+import { reachFrom } from '../passes/stage-bindings.js';
+import { dslError } from '../diagnostics/error.js';
+import { f32Lit, intLit } from './wgsl.js';
 import {
   emitBody,
   emitExpr as emitExprNeutral,
@@ -82,17 +82,17 @@ import {
   withDeclaredFns,
   type EmitOptions,
   type ParenMode,
-} from '../emit.js'
-import { autoVars } from '../passes/opt/index.js'
-import { requiredCaps } from '../passes/required-caps.js'
-import { wgslLayout } from '../reflect.js'
-import { sanitizeReservedIdents } from './glsl-sanitize.js'
-import { hoistDiscardingCtorArgs } from './glsl-legalize.js'
-import { fixpoint } from '../passes/opt/index.js'
+} from '../emit.js';
+import { autoVars } from '../passes/opt/index.js';
+import { requiredCaps } from '../passes/required-caps.js';
+import { wgslLayout } from '../reflect.js';
+import { sanitizeReservedIdents } from './glsl-sanitize.js';
+import { hoistDiscardingCtorArgs } from './glsl-legalize.js';
+import { fixpoint } from '../passes/opt/index.js';
 
 // UnsupportedFeatureError now lives in the backend contract; re-exported here so
 // existing importers (`from './glsl'`) keep working.
-export { UnsupportedFeatureError } from '../backend.js'
+export { UnsupportedFeatureError } from '../backend.js';
 
 /** The combined sampler GLSL ES 3.00 fuses a depth texture and its comparison sampler into
  *  (roadmap 0.4 item 11). One spelling per dim and no pairing walk, because every read of a
@@ -103,57 +103,57 @@ export { UnsupportedFeatureError } from '../backend.js'
 const glslDepthSampler = (t: Extract<ShaderType, { kind: 'depth-texture' }>): string => {
   switch (t.dim) {
     case '2d':
-      return 'sampler2DShadow'
+      return 'sampler2DShadow';
     case '2d-array':
-      return 'sampler2DArrayShadow'
+      return 'sampler2DArrayShadow';
     case 'cube':
-      return 'samplerCubeShadow'
+      return 'samplerCubeShadow';
     case 'cube-array':
       throw new UnsupportedFeatureError(
         'glsl-es300: texture_depth_cube_array has no GLSL ES 3.00 spelling (no cube-array samplers)',
-      )
+      );
     case '2d-ms':
       throw new UnsupportedFeatureError(
         'glsl-es300: texture_depth_multisampled_2d has no GLSL ES 3.00 spelling (sampler2DMS is ES 3.10)',
-      )
+      );
   }
-}
+};
 
 /** A binding's own precision qualifier and its trailing space, or nothing. A declaration that
  *  names one keeps it whatever default precision is in scope: the stage default (GLSL ES 3.00
  *  §4.5.4 gives `sampler2D` and `samplerCube` `lowp` in BOTH stages), a preamble line, or a
  *  host program's preamble when the module is composed into one. The fp64 guard texture
  *  declares `highp`, so its read never depends on the value it holds fitting in `lowp`. */
-const qualified = (b: BindingDecl): string => (b.precision ? `${b.precision} ` : '')
+const qualified = (b: BindingDecl): string => (b.precision ? `${b.precision} ` : '');
 
 function glslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
-      return ({ f32: 'float', i32: 'int', u32: 'uint', bool: 'bool' } as const)[t.scalar]
+      return ({ f32: 'float', i32: 'int', u32: 'uint', bool: 'bool' } as const)[t.scalar];
     // Pre-lowering types only — fp64Lower rewrites f64/vec64 before emit (see
     // wgslType's twin arms). Reaching here = the pass was bypassed.
     case 'f64':
-      throw dslError('SD0040', 'glslType(f64)')
+      throw dslError('SD0040', 'glslType(f64)');
     case 'vec64':
-      throw dslError('SD0040', `glslType(vec${t.n}<f64>)`)
+      throw dslError('SD0040', `glslType(vec${t.n}<f64>)`);
     case 'vec':
-      return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec', bool: 'bvec' } as const)[t.elem]}${t.n}`
+      return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec', bool: 'bvec' } as const)[t.elem]}${t.n}`;
     case 'mat':
       // matCxR<f64> → DF64MatN before emit; reaching here = fp64Lower bypassed.
-      if (t.elem === 'f64') throw dslError('SD0040', `glslType(mat${t.cols}x${t.rows}<f64>)`)
+      if (t.elem === 'f64') throw dslError('SD0040', `glslType(mat${t.cols}x${t.rows}<f64>)`);
       // GLSL ES 3.00 spells a SQUARE matrix `matN` and every other shape `matCxR`, with the
       // same column-major C×R meaning WGSL's `matCxR<f32>` has (glsl-es-300.txt:955-967).
       // `mat3x3` is legal GLSL too, but `mat3` is the spelling every driver's error messages
       // and every shader in the wild use, so the square arm keeps it.
-      return t.cols === t.rows ? `mat${t.cols}` : `mat${t.cols}x${t.rows}`
+      return t.cols === t.rows ? `mat${t.cols}` : `mat${t.cols}x${t.rows}`;
     case 'struct':
-      return t.name
+      return t.name;
     case 'array': {
       if (t.size === undefined)
         throw new UnsupportedFeatureError(
           'glsl-es300: runtime-sized array (storage buffer) — needs a data-texture (later step)',
-        )
-      return `${glslType(t.elem)}[${t.size}]`
+        );
+      return `${glslType(t.elem)}[${t.size}]`;
     }
     // GLSL ES 3.00 has no storage buffers and no atomic memory functions (those are ES 3.10);
     // a module carrying one is refused by the storageBuffer capability first, and this arm
@@ -161,7 +161,7 @@ function glslType(t: ShaderType): string {
     case 'atomic':
       throw new UnsupportedFeatureError(
         `glsl-es300: atomic<${t.elem}> has no GLSL ES 3.00 spelling (no storage buffers, no atomics)`,
-      )
+      );
     // A storage texture is image load/store, which arrived in GLSL ES 3.10; ES 3.00 has neither
     // the `image2D` type nor a format layout qualifier for one. Measured on a WebGL2 driver, not
     // read off the spec: `layout(rgba8) uniform writeonly image2D` is "invalid layout qualifier:
@@ -171,7 +171,7 @@ function glslType(t: ShaderType): string {
     case 'storage-texture':
       throw new UnsupportedFeatureError(
         `glsl-es300: ${typeKey(t)} has no GLSL ES 3.00 spelling (image load/store is ES 3.10)`,
-      )
+      );
     case 'texture': {
       // GLSL fuses texture+sampler into one combined sampler. '2d-array' (X-GIS #1651) is
       // CORE GLSL ES 3.00 — sampler2DArray, no extension, no Capability. So are the
@@ -180,21 +180,21 @@ function glslType(t: ShaderType): string {
       // error and an unlisted dim hits `satisfies never`, so a new texture shape must
       // fail compilation here rather than fall open to the FLOAT sampler2D (which
       // would compile and then read garbage through the wrong sampler type).
-      const p = ({ f32: '', u32: 'u', i32: 'i' } as const)[t.elem]
+      const p = ({ f32: '', u32: 'u', i32: 'i' } as const)[t.elem];
       switch (t.dim) {
         case '2d-ms':
           throw new UnsupportedFeatureError(
             'glsl-es300: multisampled texture load — sampler2DMS is ES 3.10 (msaaTextureLoad fails the module closed first)',
-          )
+          );
         case '2d-array':
-          return `${p}sampler2DArray`
+          return `${p}sampler2DArray`;
         case '2d':
-          return `${p}sampler2D`
+          return `${p}sampler2D`;
         // Cube and 3d (roadmap 0.4 item 12) are core GLSL ES 3.00 too, integer prefixes and all.
         case 'cube':
-          return `${p}samplerCube`
+          return `${p}samplerCube`;
         case '3d':
-          return `${p}sampler3D`
+          return `${p}sampler3D`;
         // GLSL ES 3.00 has neither: `sampler1D` is a reserved word and `samplerCubeArray` needs
         // an extension a WebGL2 driver refuses (measured). The `texture1d` / `textureCubeArray`
         // capabilities fail the module closed before emit; this arm is for a hand-built module.
@@ -202,21 +202,21 @@ function glslType(t: ShaderType): string {
         case 'cube-array':
           throw new UnsupportedFeatureError(
             `glsl-es300: ${typeKey(t)} has no GLSL ES 3.00 spelling (no 1d or cube-array samplers)`,
-          )
+          );
         default:
           // Exhaustiveness on the ARM (X-GIS #1703) — see typeKey's twin: with the texture
           // type a two-arm union, `t` is `never` here and has no `.dim` to check.
-          return t satisfies never
+          return t satisfies never;
       }
     }
     case 'sampler':
       throw new UnsupportedFeatureError(
         'glsl-es300: standalone sampler — fused into the combined sampler2D',
-      )
+      );
     case 'sampler-comparison':
       throw new UnsupportedFeatureError(
         'glsl-es300: standalone comparison sampler — fused into the combined sampler2DShadow',
-      )
+      );
     // A depth texture has no ONE combined type here (roadmap 0.4 item 11): GLSL fuses the
     // texture with its sampler, and which object that is depends on how the module USES it —
     // `sampler2DShadow` where it is compared, `sampler2D` where it is plainly sampled. That is
@@ -226,37 +226,37 @@ function glslType(t: ShaderType): string {
       throw new UnsupportedFeatureError(
         `glsl-es300: ${typeKey(t)}'s combined sampler depends on how the module uses it; ` +
           `the binding emit resolves it`,
-      )
+      );
     case 'void':
-      return 'void'
+      return 'void';
   }
 }
 
 // An integer scalar/vector — GLSL ES requires `flat` interpolation on such inter-stage
 // varyings, and so does WGSL. ONE predicate for both writers and for the interstage rule
 // (§53): the spelling differs per target, the question does not.
-const isIntType = isIntegerVarying
+const isIntType = isIntegerVarying;
 
 function glslLit(value: number | boolean, t: ShaderType): string {
-  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
   // A `bool` whose value arrived as a NUMBER: `ConstDecl.wgslValue` is typed `number`, so a
   // module-scope `const FLAG: bool = true` reaches here as 1, and without this arm it would
   // fall through to the float spelling and emit `const FLAG: bool = 1.0;` — which neither
   // target accepts. Same class as the integer arms below (#13). Fail-closed like its
   // neighbours: only 0 and 1 mean anything here, and NaN must not read as `true`.
   if (t.kind === 'scalar' && t.scalar === 'bool') {
-    if (value !== 0 && value !== 1) throw dslError('SD0017', `bool literal ${value}`)
-    return value === 0 ? 'false' : 'true'
+    if (value !== 0 && value !== 1) throw dslError('SD0017', `bool literal ${value}`);
+    return value === 0 ? 'false' : 'true';
   }
-  if (t.kind === 'scalar' && t.scalar === 'u32') return `${intLit(value, 'u32')}u`
-  if (t.kind === 'scalar' && t.scalar === 'i32') return intLit(value, 'i32')
+  if (t.kind === 'scalar' && t.scalar === 'u32') return `${intLit(value, 'u32')}u`;
+  if (t.kind === 'scalar' && t.scalar === 'i32') return intLit(value, 'i32');
   // The last declared type this line used to ignore: a non-scalar `ConstDecl` with no
   // `valueExpr` (`{ type: vec3fT, wgslValue: 1 }`) fell through and emitted
   // `const K: vec3<f32> = 1.0;`, which both compilers reject. A vector, matrix, array or
   // struct constant carries its value in `valueExpr`; reaching here without one is a
   // malformed declaration, not a spelling this function can guess.
-  if (t.kind !== 'scalar') throw dslError('SD0017', `${t.kind} constant with no valueExpr`)
-  return f32Lit(value)
+  if (t.kind !== 'scalar') throw dslError('SD0017', `${t.kind} constant with no valueExpr`);
+  return f32Lit(value);
 }
 
 // ── entry-IO attribute parsing ──
@@ -269,31 +269,31 @@ function glslLit(value: number | boolean, t: ShaderType): string {
 // GLSL has no compute stage; compute entries are handled by the emulation
 // lowering (or rejected by the capability gate) before this predicate runs.
 const isEntry = (f: FuncDecl): boolean => {
-  const s = stageOf(f)
-  return s === 'vertex' || s === 'fragment'
-}
+  const s = stageOf(f);
+  return s === 'vertex' || s === 'fragment';
+};
 
 /** Define-before-use order for GLSL struct decls (X-GIS #763 P5): DFS post-order over
  *  field-type references (struct fields + array-of-struct elements), restricted
  *  to the given set. WGSL accepts any order; GLSL has no forward declaration. */
 function topoSortStructs(structs: readonly StructDecl[]): StructDecl[] {
-  const byName = new Map(structs.map((s) => [s.name, s]))
-  const out: StructDecl[] = []
-  const done = new Set<string>()
+  const byName = new Map(structs.map((s) => [s.name, s]));
+  const out: StructDecl[] = [];
+  const done = new Set<string>();
   const visit = (s: StructDecl): void => {
-    if (done.has(s.name)) return
-    done.add(s.name)
+    if (done.has(s.name)) return;
+    done.add(s.name);
     for (const f of s.fields) {
-      const t = f.type.kind === 'array' ? f.type.elem : f.type
+      const t = f.type.kind === 'array' ? f.type.elem : f.type;
       if (t.kind === 'struct') {
-        const dep = byName.get(t.name)
-        if (dep) visit(dep)
+        const dep = byName.get(t.name);
+        if (dep) visit(dep);
       }
     }
-    out.push(s)
-  }
-  for (const s of structs) visit(s)
-  return out
+    out.push(s);
+  };
+  for (const s of structs) visit(s);
+  return out;
 }
 
 /** Define-before-use order for GLSL helper FN decls, the counterpart of
@@ -314,40 +314,40 @@ function topoSortStructs(structs: readonly StructDecl[]): StructDecl[] {
 function topoSortFuncs(
   funcs: readonly FuncDecl[],
 ): { ordered: FuncDecl[]; needsProto: Set<string> } | null {
-  if (funcs.some((f) => bodyHasRaw(f.body))) return null
+  if (funcs.some((f) => bodyHasRaw(f.body))) return null;
 
-  const byName = new Map(funcs.map((f) => [f.name, f]))
-  const callees = new Map<string, string[]>()
+  const byName = new Map(funcs.map((f) => [f.name, f]));
+  const callees = new Map<string, string[]>();
   for (const f of funcs) {
-    const refs = emptyRefSet()
-    collectFnRefs(f, refs)
+    const refs = emptyRefSet();
+    collectFnRefs(f, refs);
     callees.set(
       f.name,
       [...refs.calls].filter((n) => n !== f.name && byName.has(n)),
-    )
+    );
   }
 
-  const ordered: FuncDecl[] = []
-  const needsProto = new Set<string>()
-  const done = new Set<string>()
-  const onStack = new Set<string>()
+  const ordered: FuncDecl[] = [];
+  const needsProto = new Set<string>();
+  const done = new Set<string>();
+  const onStack = new Set<string>();
   const visit = (f: FuncDecl): void => {
-    if (done.has(f.name)) return
+    if (done.has(f.name)) return;
     if (onStack.has(f.name)) {
-      needsProto.add(f.name) // back edge — recursion; keep its prototype
-      return
+      needsProto.add(f.name); // back edge — recursion; keep its prototype
+      return;
     }
-    onStack.add(f.name)
+    onStack.add(f.name);
     for (const n of callees.get(f.name) ?? []) {
-      const dep = byName.get(n)
-      if (dep) visit(dep)
+      const dep = byName.get(n);
+      if (dep) visit(dep);
     }
-    onStack.delete(f.name)
-    done.add(f.name)
-    ordered.push(f)
-  }
-  for (const f of funcs) visit(f)
-  return { ordered, needsProto }
+    onStack.delete(f.name);
+    done.add(f.name);
+    ordered.push(f);
+  };
+  for (const f of funcs) visit(f);
+  return { ordered, needsProto };
 }
 
 // The stage-IO attribute read (`ioAttrOf` / `retIoAttrOf`) moved to ir/entry-io.ts
@@ -369,7 +369,7 @@ const BUILTIN_IN: Readonly<Record<string, string>> = {
   vertex_index: 'gl_VertexID',
   instance_index: 'gl_InstanceID',
   front_facing: 'gl_FrontFacing',
-}
+};
 // One name per semantic: `frag_coord` was a GLSL-only ALIAS of the fragment-input
 // `position` row above, so a module authored against it emitted fine here and died
 // only when the WGSL writer ran (works-on-WebGL2, fails-on-WebGPU — the asymmetry
@@ -378,31 +378,31 @@ const BUILTIN_IN: Readonly<Record<string, string>> = {
 const BUILTIN_IN_REMEDY: Readonly<Record<string, string>> = {
   frag_coord:
     "spell it @builtin(position) on the fragment input — the builtin vocabulary is WGSL's, and this writer reads that as gl_FragCoord",
-}
+};
 const BUILTIN_OUT: Readonly<Record<string, string>> = {
   position: 'gl_Position',
   frag_depth: 'gl_FragDepth',
-}
+};
 
 function builtinIn(b: string): string {
-  const g = BUILTIN_IN[b]
+  const g = BUILTIN_IN[b];
   if (!g) {
-    const remedy = BUILTIN_IN_REMEDY[b]
+    const remedy = BUILTIN_IN_REMEDY[b];
     throw new UnsupportedFeatureError(
       remedy !== undefined
         ? `glsl-es300: @builtin(${b}) ${remedy}`
         : `glsl-es300: unsupported input @builtin(${b}) — no readable gl_* mapping`,
-    )
+    );
   }
-  return g
+  return g;
 }
 function builtinOut(b: string): string {
-  const g = BUILTIN_OUT[b]
+  const g = BUILTIN_OUT[b];
   if (!g)
     throw new UnsupportedFeatureError(
       `glsl-es300: unsupported output @builtin(${b}) — no writable gl_* mapping`,
-    )
-  return g
+    );
+  return g;
 }
 
 // gl_VertexID / gl_InstanceID are `int` in GLSL ES 3.00, but the DSL types
@@ -410,19 +410,19 @@ function builtinOut(b: string): string {
 // `uint` param/field against an `int` arg (overload resolution applies no implicit
 // int→uint here), so the read is wrapped in the declared scalar's ctor — `uint(gl_VertexID)`.
 // (Declared as i32 → no cast; vec/bool builtins like gl_FragCoord/gl_FrontFacing already match.)
-const INT_INPUT_BUILTINS: ReadonlySet<string> = new Set(['vertex_index', 'instance_index'])
+const INT_INPUT_BUILTINS: ReadonlySet<string> = new Set(['vertex_index', 'instance_index']);
 function builtinInRead(b: string, target: ShaderType): string {
-  const g = builtinIn(b)
+  const g = builtinIn(b);
   if (INT_INPUT_BUILTINS.has(b) && target.kind === 'scalar' && target.scalar !== 'i32') {
-    return `${glslType(target)}(${g})` // uint(gl_VertexID) / float(gl_VertexID)
+    return `${glslType(target)}(${g})`; // uint(gl_VertexID) / float(gl_VertexID)
   }
-  return g
+  return g;
 }
 
 function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): StructDecl {
-  const s = structs.get(name)
-  if (!s) throw new UnsupportedFeatureError(`glsl-es300: struct '${name}' not found in module`)
-  return s
+  const s = structs.get(name);
+  if (!s) throw new UnsupportedFeatureError(`glsl-es300: struct '${name}' not found in module`);
+  return s;
 }
 
 // Intrinsic spelling is owned by the neutral registry (core/intrinsics.ts) now —
@@ -469,7 +469,7 @@ const GLSL_CAP_PROFILE: CapProfile = {
   // exists to prove the directive path end to end; real multiview authoring is a
   // follow-up, and no consumer should read this row as "the DSL can do multiview".
   multiview: { directive: 'GL_OVR_multiview2', hostFeature: 'OVR_multiview2' },
-}
+};
 
 /** The GLSL ES 3.00 (WebGL2) {@link Backend}. It supplies the GLSL spelling of types,
  *  literals, intrinsics and declarations to the shared emitter, which walks a module's
@@ -511,12 +511,12 @@ export const glslEs300Backend: Backend = {
       )[cop]
     }(${a}, ${b})`,
   vectorSelect: (ifFalse, ifTrue, cond, type) => {
-    if (type.kind === 'vec' && type.elem === 'f32') return `mix(${ifFalse}, ${ifTrue}, ${cond})`
-    const n = type.kind === 'vec' ? type.n : 1
+    if (type.kind === 'vec' && type.elem === 'f32') return `mix(${ifFalse}, ${ifTrue}, ${cond})`;
+    const n = type.kind === 'vec' ? type.n : 1;
     const comps = ['x', 'y', 'z', 'w']
       .slice(0, n)
-      .map((k) => `((${cond}).${k} ? (${ifTrue}).${k} : (${ifFalse}).${k})`)
-    return `${glslType(type)}(${comps.join(', ')})`
+      .map((k) => `((${cond}).${k} ? (${ifTrue}).${k} : (${ifFalse}).${k})`);
+    return `${glslType(type)}(${comps.join(', ')})`;
   },
   localLet: (name, type, init) => `${glslType(type)} ${name} = ${init}`,
   localVar: (name, type, init) =>
@@ -543,21 +543,21 @@ export const glslEs300Backend: Backend = {
   // still cannot lower (raw text is opaque to the IR, so there is nothing to
   // translate) — it fails closed, but the message now names the fix.
   rawStmt: (s) => {
-    if (s.glsl !== undefined) return s.glsl
+    if (s.glsl !== undefined) return s.glsl;
     // The at-least-one union guarantees a `wgsl` side here (a raw with NO payload
     // is unrepresentable), so the snippet always has something to quote. tsc
     // cannot see that — a union is not discriminable on a property whose type is
     // not a unit type — so narrow the PROPERTY with a local read rather than
     // asserting the union away; the `''` arm is unreachable by construction.
-    const wgsl = s.wgsl ?? ''
+    const wgsl = s.wgsl ?? '';
     throw new UnsupportedFeatureError(
       `glsl-es300: raw Stmt carries no glsl payload (wgsl-only raw: '${wgsl.slice(0, 40)}') — supply a glsl spelling for this statement`,
-    )
+    );
   },
   placeholderStmt: () => {
     throw new UnsupportedFeatureError(
       'glsl-es300: un-swapped placeholder Stmt — composer must run first',
-    )
+    );
   },
   // ── Module-decl surface ──
   emitConst: (c) =>
@@ -570,8 +570,8 @@ export const glslEs300Backend: Backend = {
   // plain GLSL struct; the `@location`/`@builtin` field attrs are stripped here — they
   // become `in`/`out` varyings at entry-IO lowering, not struct members.
   emitStruct: (s) => {
-    const fields = s.fields.map((f) => `  ${glslType(f.type)} ${f.name};`).join('\n')
-    return `struct ${s.name} {\n${fields}\n};`
+    const fields = s.fields.map((f) => `  ${glslType(f.type)} ${f.name};`).join('\n');
+    return `struct ${s.name} {\n${fields}\n};`;
   },
   // A binding line that needs only the binding itself (texture/sampler → a combined
   // sampler2D uniform). A `uniform` STRUCT binding is a std140 UBO block, which needs the
@@ -586,20 +586,20 @@ export const glslEs300Backend: Backend = {
     if (v.space === 'workgroup')
       throw new UnsupportedFeatureError(
         `glsl-es300: var<workgroup> ${v.name} has no GLSL ES 3.00 form (WebGL2 has no workgroup memory); the module is WebGPU-only`,
-      )
-    const init = v.init ? ` = ${emitExprNeutral(v.init, glslEs300Backend)}` : ''
-    return `${glslType(v.type)} ${v.name}${init};`
+      );
+    const init = v.init ? ` = ${emitExprNeutral(v.init, glslEs300Backend)}` : '';
+    return `${glslType(v.type)} ${v.name}${init};`;
   },
   emitBinding: (b) => {
     if (b.type.kind === 'texture' || b.type.kind === 'sampler')
-      return `uniform ${qualified(b)}${glslType(b.type)} ${b.name};`
+      return `uniform ${qualified(b)}${glslType(b.type)} ${b.name};`;
     if (b.space === 'storage')
       throw new UnsupportedFeatureError(
         'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',
-      )
+      );
     throw new UnsupportedFeatureError(
       `glsl-es300: uniform struct binding '${b.name}' — std140 UBO is assembled by emitGlslModule (needs the struct map)`,
-    )
+    );
   },
   // GLSL ES 3.00 has the qualifier the IR's mode names: `inout T name`, copy-in/copy-out, and
   // it takes any l-value argument — an array element included, measured on ANGLE. No pointer,
@@ -612,13 +612,13 @@ export const glslEs300Backend: Backend = {
     if (isEntry(f))
       throw new UnsupportedFeatureError(
         `glsl-es300: entry func '${f.name}' must lower via emitGlslModule's entry path`,
-      )
+      );
     if (f.attrs?.length)
       throw new UnsupportedFeatureError(
         `glsl-es300: non-entry func '${f.name}' carries stage attrs (${f.attrs.join(' ')})`,
-      )
-    const params = f.params.map((p) => glslEs300Backend.paramDecl!(p)).join(', ')
-    return `${glslType(f.ret)} ${f.name}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend, parens)}\n}`
+      );
+    const params = f.params.map((p) => glslEs300Backend.paramDecl!(p)).join(', ');
+    return `${glslType(f.ret)} ${f.name}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend, parens)}\n}`;
   },
   // Same emit-time optimizer the WGSL backend runs (fixpoint: const/copy-prop,
   // const-fold, cse auto-cache, licm, dce). The pass is IR-level + backend-neutral,
@@ -656,14 +656,14 @@ export const glslEs300Backend: Backend = {
   modulePreamble: (m) => {
     const dirs = requiredCaps(m)
       .map((c) => GLSL_CAP_PROFILE[c]?.directive)
-      .filter((d): d is string => d !== undefined)
-    if (dirs.length === 0) return ''
+      .filter((d): d is string => d !== undefined);
+    if (dirs.length === 0) return '';
     return [...new Set(dirs)]
       .sort()
       .map((d) => `#extension ${d} : require`)
-      .join('\n')
+      .join('\n');
   },
-}
+};
 
 /** The GLSL ES 3.00 interpolation qualifier for a WGSL `@interpolate(type, sampling)` on a
  *  varying, or `''` when the default is right (§53).
@@ -674,24 +674,24 @@ export const glslEs300Backend: Backend = {
  *  not ask for — which is the exact silent divergence this writer exists to prevent. An
  *  integer varying takes `flat` whatever it says, since there is no interpolating it. */
 function glslInterpolation(interpolate: string | undefined, isInt: boolean): string {
-  if (isInt) return 'flat '
-  if (interpolate === undefined) return ''
-  const [type, sampling] = interpolate.split(/\s*,\s*/)
+  if (isInt) return 'flat ';
+  if (interpolate === undefined) return '';
+  const [type, sampling] = interpolate.split(/\s*,\s*/);
   if (type === 'linear') {
     throw new UnsupportedFeatureError(
       'glsl-es300: @interpolate("linear") has no GLSL ES 3.00 form — that spec has smooth, ' +
         'flat and centroid, and linear (desktop `noperspective`) is none of them. Use ' +
         '"perspective", or keep the shader WGSL-only.',
-    )
+    );
   }
   if (sampling === 'sample') {
     throw new UnsupportedFeatureError(
       'glsl-es300: @interpolate(..., "sample") has no GLSL ES 3.00 form — per-sample ' +
         'interpolation is ES 3.2. Use "center" or "centroid".',
-    )
+    );
   }
-  const head = type === 'flat' ? 'flat ' : 'smooth '
-  return sampling === 'centroid' ? `${head}centroid ` : head
+  const head = type === 'flat' ? 'flat ' : 'smooth ';
+  return sampling === 'centroid' ? `${head}centroid ` : head;
 }
 
 /** Emit a std140 UBO block for a uniform struct binding. The block tag is the STRUCT
@@ -712,9 +712,9 @@ function emitGlslUbo(
   // module's struct map resolves NESTED struct fields (fp64's DF64VecN;
   // LineLayer's array<PatternSlot, 3>) — their GLSL decls are emitted by the
   // topo-sorted plain-struct pass above the UBO block.
-  wgslLayout(struct, 'std140', structs)
-  const fields = struct.fields.map((f) => `  ${glslType(f.type)} ${f.name};`).join('\n')
-  return `layout(std140) uniform ${struct.name} {\n${fields}\n} ${b.name};`
+  wgslLayout(struct, 'std140', structs);
+  const fields = struct.fields.map((f) => `  ${glslType(f.type)} ${f.name};`).join('\n');
+  return `layout(std140) uniform ${struct.name} {\n${fields}\n} ${b.name};`;
 }
 
 /** Every name `main()`'s output scatter WRITES for this entry: the `gl_*` builtin
@@ -722,18 +722,18 @@ function emitGlslUbo(
  *  feeds. Read only to keep an inlined body from shadowing one of them — see the
  *  `direct` guard in emitGlslEntry. */
 function scatterTargets(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): Set<string> {
-  const out = new Set<string>()
+  const out = new Set<string>();
   if (f.ret.kind === 'struct') {
     for (const sf of structByName(structs, f.ret.name).fields) {
-      const { builtin, location } = ioAttrOf(sf)
-      if (builtin) out.add(builtinOut(builtin))
-      else if (location !== undefined) out.add(sf.name)
+      const { builtin, location } = ioAttrOf(sf);
+      if (builtin) out.add(builtinOut(builtin));
+      else if (location !== undefined) out.add(sf.name);
     }
   } else if (f.ret.kind !== 'void') {
-    const { builtin } = retIoAttrOf(f)
-    out.add(builtin ? builtinOut(builtin) : '_ret')
+    const { builtin } = retIoAttrOf(f);
+    out.add(builtin ? builtinOut(builtin) : '_ret');
   }
-  return out
+  return out;
 }
 
 /** What the wrapper form would have PASSED for a bare (non-struct) entry param: the
@@ -742,8 +742,8 @@ function scatterTargets(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): 
  *  its field name) it binds nothing, because `float uv = uv;` would bind the local to
  *  itself: a GLSL declarator is in scope inside its own initializer. */
 function bareParamSource(p: FuncDecl['params'][number], inName: (n: string) => string): string {
-  const bi = ioAttrOf(p).builtin
-  return bi ? builtinInRead(bi, p.type) : inName(p.name)
+  const bi = ioAttrOf(p).builtin;
+  return bi ? builtinInRead(bi, p.type) : inName(p.name);
 }
 
 /** What the gather would COPY into each field of a struct entry param: the input varying,
@@ -754,13 +754,13 @@ function structFieldSources(
   structs: ReadonlyMap<string, StructDecl>,
   inName: (n: string) => string,
 ): Map<string, string> {
-  const out = new Map<string, string>()
-  if (p.type.kind !== 'struct') return out
+  const out = new Map<string, string>();
+  if (p.type.kind !== 'struct') return out;
   for (const sf of structByName(structs, p.type.name).fields) {
-    const { builtin } = ioAttrOf(sf)
-    out.set(sf.name, builtin ? builtinInRead(builtin, sf.type) : inName(sf.name))
+    const { builtin } = ioAttrOf(sf);
+    out.set(sf.name, builtin ? builtinInRead(builtin, sf.type) : inName(sf.name));
   }
-  return out
+  return out;
 }
 
 /** Is EVERY use of entry param `name` a read of one of its fields? Then the aggregate is
@@ -772,24 +772,24 @@ function structFieldSources(
  *  land on an `in` varying. The count is what decides: a bare occurrence raises `refs`
  *  without raising `asBase`, so the two stay equal only when nothing touches the whole. */
 function onlyFieldReads(shape: { prelude: readonly Stmt[]; ret?: Expr }, name: string): boolean {
-  const mutated = new Set<string>()
-  collectMutatedRoots(shape.prelude, mutated)
-  if (mutated.has(name)) return false
-  let refs = 0
-  let asBase = 0
+  const mutated = new Set<string>();
+  collectMutatedRoots(shape.prelude, mutated);
+  if (mutated.has(name)) return false;
+  let refs = 0;
+  let asBase = 0;
   const count = (e: Expr): Expr => {
-    if ((e.op === 'param' || e.op === 'varref') && e.name === name) refs++
+    if ((e.op === 'param' || e.op === 'varref') && e.name === name) refs++;
     if (
       e.op === 'member' &&
       (e.base.op === 'param' || e.base.op === 'varref') &&
       e.base.name === name
     )
-      asBase++
-    return e
-  }
-  for (const st of shape.prelude) mapStmt(st, count)
-  if (shape.ret !== undefined) mapExpr(shape.ret, count)
-  return refs > 0 && refs === asBase
+      asBase++;
+    return e;
+  };
+  for (const st of shape.prelude) mapStmt(st, count);
+  if (shape.ret !== undefined) mapExpr(shape.ret, count);
+  return refs > 0 && refs === asBase;
 }
 
 /** The entry shape with each inlined param's FIELD READS replaced by the varying / `gl_*`
@@ -801,18 +801,18 @@ function substituteFields(
   shape: { prelude: readonly Stmt[]; ret?: Expr },
   inlined: ReadonlyMap<string, ReadonlyMap<string, string>>,
 ): { prelude: readonly Stmt[]; ret?: Expr } {
-  if (inlined.size === 0) return shape
+  if (inlined.size === 0) return shape;
   const rx = (e: Expr): Expr => {
-    if (e.op !== 'member') return e
-    const base = e.base
-    if (base.op !== 'param' && base.op !== 'varref') return e
-    const src = inlined.get(base.name)?.get(e.field)
-    return src === undefined ? e : { op: 'varref', name: src, type: e.type }
-  }
+    if (e.op !== 'member') return e;
+    const base = e.base;
+    if (base.op !== 'param' && base.op !== 'varref') return e;
+    const src = inlined.get(base.name)?.get(e.field);
+    return src === undefined ? e : { op: 'varref', name: src, type: e.type };
+  };
   return {
     prelude: shape.prelude.map((st) => mapStmt(st, rx)),
     ...(shape.ret !== undefined ? { ret: mapExpr(shape.ret, rx) } : {}),
-  }
+  };
 }
 
 /** The exit's constructor arguments when the scatter can read them DIRECTLY — one per
@@ -830,16 +830,16 @@ function directCtorArgs(
   fields: readonly StructDecl['fields'][number][],
   outNames: ReadonlySet<string>,
 ): readonly Expr[] | undefined {
-  if (ret?.op !== 'construct') return undefined
-  if (ret.type.kind !== 'struct' || ret.type.name !== retName) return undefined
-  if (ret.args.length !== fields.length) return undefined
-  let touchesTarget = false
+  if (ret?.op !== 'construct') return undefined;
+  if (ret.type.kind !== 'struct' || ret.type.name !== retName) return undefined;
+  if (ret.args.length !== fields.length) return undefined;
+  let touchesTarget = false;
   for (const a of ret.args)
     mapExpr(a, (e) => {
-      if ((e.op === 'param' || e.op === 'varref') && outNames.has(e.name)) touchesTarget = true
-      return e
-    })
-  return touchesTarget ? undefined : ret.args
+      if ((e.op === 'param' || e.op === 'varref') && outNames.has(e.name)) touchesTarget = true;
+      return e;
+    });
+  return touchesTarget ? undefined : ret.args;
 }
 
 /** The entry shape with its PARAM references renamed, for the gather locals the merged
@@ -854,32 +854,32 @@ function renameParams(
   shape: { prelude: readonly Stmt[]; ret?: Expr },
   renames: ReadonlyMap<string, string>,
 ): { prelude: readonly Stmt[]; ret?: Expr } {
-  const active = [...renames].filter(([from, to]) => from !== to)
-  if (active.length === 0) return shape
-  const map = new Map(active)
+  const active = [...renames].filter(([from, to]) => from !== to);
+  if (active.length === 0) return shape;
+  const map = new Map(active);
   const rx = (e: Expr): Expr =>
     (e.op === 'param' || e.op === 'varref') && map.has(e.name)
       ? { ...e, name: map.get(e.name)! }
-      : e
+      : e;
   return {
     prelude: shape.prelude.map((st) => mapStmt(st, rx)),
     ...(shape.ret !== undefined ? { ret: mapExpr(shape.ret, rx) } : {}),
-  }
+  };
 }
 
 /** Names a body declares in its OWN top-level scope — the only ones still live where
  *  `main()`'s scatter runs. A nested-block `let` is out of scope by then, and a `for`
  *  init belongs to its loop, so neither can collide. */
 function topLevelLocals(body: readonly Stmt[]): string[] {
-  const out: string[] = []
-  for (const s of body) if (s.s === 'let' || s.s === 'var') out.push(s.name)
-  return out
+  const out: string[] = [];
+  for (const s of body) if (s.s === 'let' || s.s === 'var') out.push(s.name);
+  return out;
 }
 
 /** `base`, or the first `base<N>` no name in `taken` owns. */
 function freshLocal(base: string, taken: readonly string[]): string {
-  if (!taken.includes(base)) return base
-  for (let i = 0; ; i++) if (!taken.includes(`${base}${i}`)) return `${base}${i}`
+  if (!taken.includes(base)) return base;
+  for (let i = 0; ; i++) if (!taken.includes(`${base}${i}`)) return `${base}${i}`;
 }
 
 /** Lower a `@vertex`/`@fragment` entry to GLSL: flatten its IO struct/params into
@@ -907,19 +907,19 @@ function emitGlslEntry(
 ): string {
   // Structured-first (X-GIS #763 S3): a `{ stage: 'fragment' }` decl without attrs used
   // to classify as VERTEX here (wrong varying direction / dropped entry).
-  const stage: 'vertex' | 'fragment' = stageOf(f) === 'fragment' ? 'fragment' : 'vertex'
-  const lines: string[] = []
+  const stage: 'vertex' | 'fragment' = stageOf(f) === 'fragment' ? 'fragment' : 'vertex';
+  const lines: string[] = [];
 
   // input-varying GLSL name: a vertex attribute is `a_`-prefixed (so it can't collide with
   // a same-named vertex OUT varying); a fragment input keeps the field name (it links by
   // name to the vertex OUT of the same name).
-  const inName = (n: string) => (stage === 'vertex' ? `a_${n}` : n)
+  const inName = (n: string) => (stage === 'vertex' ? `a_${n}` : n);
 
   // `in` varyings: each entry param that is a struct contributes its @location fields;
   // a bare @location param contributes itself. @builtin fields read from gl_* globals.
   // Their names are kept: the merged `main()` must not mint a local that shadows one
   // before the gather has read it (see the merge note below).
-  const inNames = new Set<string>()
+  const inNames = new Set<string>();
   for (const p of f.params) {
     const fields =
       p.type.kind === 'struct'
@@ -930,21 +930,21 @@ function emitGlslEntry(
           }))
         : // A bare entry param carries its stage attr as `attr` (the `@location(n)`/`@builtin(...)`
           // string the location()/builtin() helpers emit) OR as direct location/builtin fields (raw IR).
-          [{ name: p.name, type: p.type, ...ioAttrOf(p) }]
+          [{ name: p.name, type: p.type, ...ioAttrOf(p) }];
     for (const s of fields) {
-      if (s.builtin) continue
+      if (s.builtin) continue;
       if (s.location === undefined)
         throw new UnsupportedFeatureError(
           `glsl-es300: entry '${f.name}' input '${s.name}' has neither @location nor @builtin`,
-        )
+        );
       // location qualifier ONLY on a vertex attribute; a fragment input varying drops it.
-      const qual = stage === 'vertex' ? `layout(location = ${s.location}) ` : ''
+      const qual = stage === 'vertex' ? `layout(location = ${s.location}) ` : '';
       // GLSL ES requires `flat` on an integer inter-stage varying (a fragment-IN that carries
       // an int/uint can't be interpolated). @interpolate(flat) float varyings match it (X-GIS #763 P4).
       // Vertex attributes (vertex-IN) are not varyings → no flat.
-      const flat = stage === 'fragment' ? glslInterpolation(s.interpolate, isIntType(s.type)) : ''
-      lines.push(`${qual}${flat}in ${glslType(s.type)} ${inName(s.name)};`)
-      inNames.add(inName(s.name))
+      const flat = stage === 'fragment' ? glslInterpolation(s.interpolate, isIntType(s.type)) : '';
+      lines.push(`${qual}${flat}in ${glslType(s.type)} ${inName(s.name)};`);
+      inNames.add(inName(s.name));
     }
   }
   // `@invariant` on `@builtin("position")` (§53): WGSL writes it as a member attribute, GLSL
@@ -952,11 +952,11 @@ function emitGlslEntry(
   // `invariant gl_Position;`). Vertex stage only — it is a promise about the position this
   // stage COMPUTES, and the fragment stage reads `gl_FragCoord`, which is not it.
   if (stage === 'vertex') {
-    const io = f.ret.kind === 'struct' ? structs.get(f.ret.name)?.fields : undefined
+    const io = f.ret.kind === 'struct' ? structs.get(f.ret.name)?.fields : undefined;
     const steady =
       io?.some((x) => x.builtin === 'position' && /@invariant\b/.test(x.attr ?? '')) ??
-      /@invariant\b/.test(f.retAttr ?? '')
-    if (steady) lines.push('invariant gl_Position;')
+      /@invariant\b/.test(f.retAttr ?? '');
+    if (steady) lines.push('invariant gl_Position;');
   }
   // `out` varyings: the return struct's @location fields (or a bare @location return).
   if (
@@ -976,7 +976,7 @@ function emitGlslEntry(
     // program Tint accepts.
     throw new UnsupportedFeatureError(
       `glsl-es300: entry '${f.name}' returns a bare non-struct vertex output — GLSL links varyings by NAME; use an ioStruct so both stages share the field name`,
-    )
+    );
   }
   const retFields =
     f.ret.kind === 'struct'
@@ -987,21 +987,21 @@ function emitGlslEntry(
         }))
       : f.ret.kind === 'void'
         ? []
-        : [{ name: '_ret', type: f.ret, ...retIoAttrOf(f) }]
+        : [{ name: '_ret', type: f.ret, ...retIoAttrOf(f) }];
   for (const s of retFields) {
-    if (s.builtin) continue
+    if (s.builtin) continue;
     if (s.location === undefined)
       throw new UnsupportedFeatureError(
         `glsl-es300: entry '${f.name}' output '${s.name}' has neither @location nor @builtin`,
-      )
+      );
     // location qualifier ONLY on a fragment draw buffer; a vertex output varying drops it.
-    const qual = stage === 'fragment' ? `layout(location = ${s.location}) ` : ''
+    const qual = stage === 'fragment' ? `layout(location = ${s.location}) ` : '';
     // `flat` on an integer VERTEX-OUT varying (matches the fragment-IN above), and on
     // @interpolate(flat) float varyings (X-GIS #763 P4) — both sides derive from the same
     // structured field, so the qualifier stays link-matched. A fragment draw buffer
     // (fragment-OUT) is not interpolated → no flat.
-    const flat = stage === 'vertex' ? glslInterpolation(s.interpolate, isIntType(s.type)) : ''
-    lines.push(`${qual}${flat}out ${glslType(s.type)} ${s.name};`)
+    const flat = stage === 'vertex' ? glslInterpolation(s.interpolate, isIntType(s.type)) : '';
+    lines.push(`${qual}${flat}out ${glslType(s.type)} ${s.name};`);
   }
 
   // ── The body: straight into main() where it fits, else the `_impl` wrapper ──
@@ -1023,22 +1023,22 @@ function emitGlslEntry(
   // shader still compiles and links. `renameCollisions` is what forbids that: the
   // gather's locals are minted around every global the merged scope touches, and the
   // body is rewritten to read them.
-  const outNames = scatterTargets(f, structs)
-  const shape = singleExitBody(f.body)
+  const outNames = scatterTargets(f, structs);
+  const shape = singleExitBody(f.body);
   const usable =
     shape !== undefined &&
     // the exit must MATCH the signature, or the scatter has nothing to read
     (shape.ret !== undefined) === (f.ret.kind !== 'void') &&
     // A body's OWN top-level local named like a scatter target is not renameable from
     // here (it is the author's name, used across the body); keep the wrapper for it.
-    !topLevelLocals(f.body).some((n) => outNames.has(n))
+    !topLevelLocals(f.body).some((n) => outNames.has(n));
   // The names a gather local may not TAKE OVER: the varyings the gather reads and the
   // ones the scatter writes, plus the body's own top-level locals. Module-scope globals
   // are deliberately NOT in this set — a param that already shadows one is authored that
   // way and shadows it in the wrapper too — but they ARE unavailable to a MINTED name,
   // which is a name this emitter invents and must not land on anything.
-  const taken = new Set([...outNames, ...inNames, ...topLevelLocals(f.body)])
-  const unavailable = [...taken, ...globals]
+  const taken = new Set([...outNames, ...inNames, ...topLevelLocals(f.body)]);
+  const unavailable = [...taken, ...globals];
 
   // A struct param read only field-wise needs no aggregate at all (X-GIS #1867): substitute the
   // varying / `gl_*` the gather would have copied in, and the gather goes — usually taking
@@ -1046,72 +1046,74 @@ function emitGlslEntry(
   // it. The bail-outs are the two ways that is wrong: a body local of the same name would
   // capture the substituted read (the X-GIS #1858 `seg_id` hazard in its second form, and just
   // as silent), and a param handed to a helper whole is genuinely an aggregate.
-  const bodyLocals = new Set<string>()
-  collectLocals(f.body, bodyLocals)
-  const inlinedFields = new Map<string, ReadonlyMap<string, string>>()
+  const bodyLocals = new Set<string>();
+  collectLocals(f.body, bodyLocals);
+  const inlinedFields = new Map<string, ReadonlyMap<string, string>>();
   if (usable && shape !== undefined)
     for (const prm of f.params) {
-      if (prm.type.kind !== 'struct') continue
-      const src = structFieldSources(prm, structs, inName)
-      if ([...src.values()].some((t) => bodyLocals.has(t))) continue
-      if (!onlyFieldReads(shape, prm.name)) continue
-      inlinedFields.set(prm.name, src)
+      if (prm.type.kind !== 'struct') continue;
+      const src = structFieldSources(prm, structs, inName);
+      if ([...src.values()].some((t) => bodyLocals.has(t))) continue;
+      if (!onlyFieldReads(shape, prm.name)) continue;
+      inlinedFields.set(prm.name, src);
     }
 
-  const gatherLocal = new Map<string, string>()
+  const gatherLocal = new Map<string, string>();
   if (usable)
     for (const prm of f.params) {
-      if (inlinedFields.has(prm.name)) continue // substituted away — no local to mint
-      if (prm.type.kind !== 'struct' && bareParamSource(prm, inName) === prm.name) continue
-      const local = taken.has(prm.name) ? freshLocal(`${prm.name}_in`, unavailable) : prm.name
-      taken.add(local)
-      unavailable.push(local)
-      gatherLocal.set(prm.name, local)
+      if (inlinedFields.has(prm.name)) continue; // substituted away — no local to mint
+      if (prm.type.kind !== 'struct' && bareParamSource(prm, inName) === prm.name) continue;
+      const local = taken.has(prm.name) ? freshLocal(`${prm.name}_in`, unavailable) : prm.name;
+      taken.add(local);
+      unavailable.push(local);
+      gatherLocal.set(prm.name, local);
     }
   const direct = usable
     ? substituteFields(renameParams(shape, gatherLocal), inlinedFields)
-    : undefined
+    : undefined;
 
-  const impl = `${f.name}_impl`
+  const impl = `${f.name}_impl`;
   if (direct === undefined) {
-    const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')
-    const retTy = f.ret.kind === 'void' ? 'void' : glslType(f.ret)
-    lines.push('')
-    lines.push(`${retTy} ${impl}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend, parens)}\n}`)
+    const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ');
+    const retTy = f.ret.kind === 'void' ? 'void' : glslType(f.ret);
+    lines.push('');
+    lines.push(
+      `${retTy} ${impl}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend, parens)}\n}`,
+    );
   }
 
   // main(): gather inputs → run the body (or call the wrapper) → scatter outputs.
-  const body: string[] = []
-  const args: string[] = []
+  const body: string[] = [];
+  const args: string[] = [];
   for (const p of f.params) {
     // The name the gather DECLARES — `p.name` unless it would shadow a global the
     // merged scope needs (see renameCollisions above); the wrapper form never renames.
-    const local = gatherLocal.get(p.name) ?? p.name
-    if (inlinedFields.has(p.name)) continue // X-GIS #1867 — its fields were substituted in place
+    const local = gatherLocal.get(p.name) ?? p.name;
+    if (inlinedFields.has(p.name)) continue; // X-GIS #1867 — its fields were substituted in place
     if (p.type.kind === 'struct') {
-      const s = structByName(structs, p.type.name)
-      body.push(`  ${glslType(p.type)} ${local};`)
+      const s = structByName(structs, p.type.name);
+      body.push(`  ${glslType(p.type)} ${local};`);
       for (const sf of s.fields) {
-        const { builtin } = ioAttrOf(sf)
+        const { builtin } = ioAttrOf(sf);
         body.push(
           `  ${local}.${sf.name} = ${builtin ? builtinInRead(builtin, sf.type) : inName(sf.name)};`,
-        )
+        );
       }
-      args.push(local)
+      args.push(local);
     } else {
-      const src = bareParamSource(p, inName)
-      args.push(src)
+      const src = bareParamSource(p, inName);
+      args.push(src);
       // Inlined, the body reads the param BY NAME, so a bare param needs a local bound
       // to what the wrapper would have been passed — except where that name already IS
       // the global it would read (a fragment input keeps the field name). `float uv =
       // uv;` is not a copy: a GLSL declarator is in scope inside its own initializer,
       // so the local would bind to itself.
       if (direct !== undefined && src !== p.name)
-        body.push(`  ${glslType(p.type)} ${local} = ${src};`)
+        body.push(`  ${glslType(p.type)} ${local} = ${src};`);
     }
   }
   if (direct !== undefined && direct.prelude.length)
-    body.push(emitBody(direct.prelude, 1, glslEs300Backend, parens))
+    body.push(emitBody(direct.prelude, 1, glslEs300Backend, parens));
 
   // What the scatter reads: the wrapper's return value, or the body's own exit expr.
   const value =
@@ -1119,53 +1121,53 @@ function emitGlslEntry(
       ? `${impl}(${args.join(', ')})`
       : direct.ret !== undefined
         ? emitExprNeutral(direct.ret, glslEs300Backend, parens)
-        : undefined
+        : undefined;
   if (f.ret.kind === 'struct') {
-    const s = structByName(structs, f.ret.name)
+    const s = structByName(structs, f.ret.name);
     // A CONSTRUCTOR exit needs no named place at all (X-GIS #1867): its arguments already stand
     // one per field, in field order, so each goes straight to its varying and the struct
     // is never built. A field carrying neither `@builtin` nor `@location` scatters
     // nowhere, and dropping its argument is safe because shader expressions are pure —
     // the temp form computed it into a struct nothing then read.
-    const ctor = directCtorArgs(direct?.ret, f.ret.name, s.fields, outNames)
+    const ctor = directCtorArgs(direct?.ret, f.ret.name, s.fields, outNames);
     if (ctor !== undefined) {
       s.fields.forEach((sf, i) => {
-        const { builtin, location } = ioAttrOf(sf)
-        const arg = emitExprNeutral(ctor[i]!, glslEs300Backend, parens)
-        if (builtin) body.push(`  ${builtinOut(builtin)} = ${arg};`)
-        else if (location !== undefined) body.push(`  ${sf.name} = ${arg};`)
-      })
-      lines.push('')
-      lines.push(`void main() {\n${body.join('\n')}\n}`)
-      return lines.join('\n')
+        const { builtin, location } = ioAttrOf(sf);
+        const arg = emitExprNeutral(ctor[i]!, glslEs300Backend, parens);
+        if (builtin) body.push(`  ${builtinOut(builtin)} = ${arg};`);
+        else if (location !== undefined) body.push(`  ${sf.name} = ${arg};`);
+      });
+      lines.push('');
+      lines.push(`void main() {\n${body.join('\n')}\n}`);
+      return lines.join('\n');
     }
     // The scatter needs the value in a NAMED place so each field can be read once. When
     // the exit is already a plain variable — `…; return o;`, what an ioStruct body builds —
     // that place exists, and `Out _out = o;` would be a copy of a struct nothing else
     // reads. Take the variable itself, unless it is named like one of the varyings the
     // scatter is about to overwrite (then the reads would see the written value).
-    const exit = direct?.ret
-    const alias = exit?.op === 'varref' && !outNames.has(exit.name) ? exit.name : undefined
+    const exit = direct?.ret;
+    const alias = exit?.op === 'varref' && !outNames.has(exit.name) ? exit.name : undefined;
     // `_out` is what this shim has always spelled, and the merged scope is the only place
     // a body local could already own the name — so only the merged form looks.
-    const tmp = alias ?? (direct === undefined ? '_out' : freshLocal('_out', unavailable))
-    if (alias === undefined) body.push(`  ${glslType(f.ret)} ${tmp} = ${value};`)
+    const tmp = alias ?? (direct === undefined ? '_out' : freshLocal('_out', unavailable));
+    if (alias === undefined) body.push(`  ${glslType(f.ret)} ${tmp} = ${value};`);
     for (const sf of s.fields) {
-      const { builtin, location } = ioAttrOf(sf)
-      if (builtin) body.push(`  ${builtinOut(builtin)} = ${tmp}.${sf.name};`)
-      else if (location !== undefined) body.push(`  ${sf.name} = ${tmp}.${sf.name};`)
+      const { builtin, location } = ioAttrOf(sf);
+      if (builtin) body.push(`  ${builtinOut(builtin)} = ${tmp}.${sf.name};`);
+      else if (location !== undefined) body.push(`  ${sf.name} = ${tmp}.${sf.name};`);
     }
   } else if (f.ret.kind === 'void') {
     // Inlined, the body IS main's body — there is nothing left to call.
-    if (value !== undefined) body.push(`  ${value};`)
+    if (value !== undefined) body.push(`  ${value};`);
   } else {
-    const { builtin } = retIoAttrOf(f)
-    body.push(builtin ? `  ${builtinOut(builtin)} = ${value};` : `  _ret = ${value};`)
+    const { builtin } = retIoAttrOf(f);
+    body.push(builtin ? `  ${builtinOut(builtin)} = ${value};` : `  _ret = ${value};`);
   }
-  lines.push('')
-  lines.push(`void main() {\n${body.join('\n')}\n}`)
+  lines.push('');
+  lines.push(`void main() {\n${body.join('\n')}\n}`);
 
-  return lines.join('\n')
+  return lines.join('\n');
 }
 
 /** Emit a ModuleDecl as GLSL ES 3.00 (version + precision header). FED by the Phase-0
@@ -1213,16 +1215,16 @@ function emitGlslEntry(
 // consecutive lanes recombined with a vec ctor. mat / vec<u32> fields are excluded (throw on
 // access). The CPU packs the struct in std430, so lane = byteOffset/4 reads the same field.
 type StructField =
-  { lane: number; kind: 'scalar'; isU32: boolean } | { lane: number; kind: 'vec'; n: number }
+  { lane: number; kind: 'scalar'; isU32: boolean } | { lane: number; kind: 'vec'; n: number };
 interface StructStorage {
-  stride: number
-  fields: Map<string, StructField>
+  stride: number;
+  fields: Map<string, StructField>;
 }
 
 // Every residual throw below is now on the DEFAULT emit path, so each message names the
 // offending binding/field AND the shapes that do lower.
 const SUPPORTED_STORAGE_SHAPES =
-  'supported: array<f32>, array<u32>, array<i32>, array<vecN<f32>>, array<Struct of f32 / u32 (bitcast) / vecN<f32> fields>'
+  'supported: array<f32>, array<u32>, array<i32>, array<vecN<f32>>, array<Struct of f32 / u32 (bitcast) / vecN<f32> fields>';
 
 /** Flatten every `glsl: 'loose'` HOST-owned uniform block into one default-block uniform per
  *  member, rewriting `block.field` reads to bare `field` (X-GIS #1710).
@@ -1239,32 +1241,32 @@ const SUPPORTED_STORAGE_SHAPES =
 function lowerHostLooseBlocks(m: ModuleDecl): ModuleDecl {
   const loose = m.bindings.filter(
     (b) => b.type.kind === 'struct' && b.owner === 'host' && b.glsl === 'loose',
-  )
-  if (loose.length === 0) return m
+  );
+  if (loose.length === 0) return m;
 
-  const structsMap = new Map(m.structs.map((s) => [s.name, s]))
+  const structsMap = new Map(m.structs.map((s) => [s.name, s]));
   // block var name → (field name → the flattened uniform's type)
-  const flat = new Map<string, Map<string, ShaderType>>()
-  const flatBindings: BindingDecl[] = []
-  const claimed = new Map<string, string>() // field name → the block that claimed it
+  const flat = new Map<string, Map<string, ShaderType>>();
+  const flatBindings: BindingDecl[] = [];
+  const claimed = new Map<string, string>(); // field name → the block that claimed it
 
   for (const b of loose) {
-    const decl = structsMap.get((b.type as { name: string }).name)
+    const decl = structsMap.get((b.type as { name: string }).name);
     if (!decl)
       throw new UnsupportedFeatureError(
         `glsl-es300: hostBlock '${b.name}' declares struct '${(b.type as { name: string }).name}', which the module does not carry — pass it in \`structs\``,
-      )
-    const fields = new Map<string, ShaderType>()
+      );
+    const fields = new Map<string, ShaderType>();
     for (const f of decl.fields) {
       // Flattening puts every member into ONE namespace, so a collision here would emit two
       // `uniform` lines with the same name — a link error whose message names neither block.
-      const prior = claimed.get(f.name)
+      const prior = claimed.get(f.name);
       if (prior !== undefined)
         throw new UnsupportedFeatureError(
           `glsl-es300: loose hostBlock member '${f.name}' is declared by both '${prior}' and '${b.name}' — flattened members share the default block, so their names must be unique`,
-        )
-      claimed.set(f.name, b.name)
-      fields.set(f.name, f.type)
+        );
+      claimed.set(f.name, b.name);
+      fields.set(f.name, f.type);
       flatBindings.push({
         // The block's slot, carried unchanged and INERT: a GLSL default-block uniform has
         // no @group/@binding — it is set by name through glUniform*. Kept rather than
@@ -1278,24 +1280,24 @@ function lowerHostLooseBlocks(m: ModuleDecl): ModuleDecl {
         type: f.type,
         owner: 'host',
         ...(b.precision ? { precision: b.precision } : {}),
-      })
+      });
     }
-    flat.set(b.name, fields)
+    flat.set(b.name, fields);
   }
 
-  const looseNames = new Set(loose.map((b) => b.name))
+  const looseNames = new Set(loose.map((b) => b.name));
   const rewrite = (e: Expr): Expr =>
     mapExpr(e, (x) => {
-      if (x.op !== 'member') return x
-      const base = x.base
-      if (base.op !== 'varref' || !looseNames.has(base.name)) return x
-      const t = flat.get(base.name)!.get(x.field)
+      if (x.op !== 'member') return x;
+      const base = x.base;
+      if (base.op !== 'varref' || !looseNames.has(base.name)) return x;
+      const t = flat.get(base.name)!.get(x.field);
       if (t === undefined)
         throw new UnsupportedFeatureError(
           `glsl-es300: loose hostBlock '${base.name}' has no member '${x.field}'`,
-        )
-      return { op: 'varref', type: t, name: x.field }
-    })
+        );
+      return { op: 'varref', type: t, name: x.field };
+    });
 
   return {
     ...m,
@@ -1306,19 +1308,19 @@ function lowerHostLooseBlocks(m: ModuleDecl): ModuleDecl {
     ),
     bindings: [...m.bindings.filter((b) => !looseNames.has(b.name)), ...flatBindings],
     funcs: m.funcs.map((f) => ({ ...f, body: f.body.map((s) => mapStmt(s, rewrite)) })),
-  }
+  };
 }
 
 function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
-  const structsMap = new Map(m.structs.map((s) => [s.name, s]))
-  const f32Names = new Set<string>() // array<f32> storage
+  const structsMap = new Map(m.structs.map((s) => [s.name, s]));
+  const f32Names = new Set<string>(); // array<f32> storage
   // array<vecN<f32>> storage — element i = `stride` consecutive f32 lanes (std430:
   // vec2 stride 2, vec3/vec4 stride 4), the first `n` recombined with a vec ctor.
-  const vecStorage = new Map<string, { n: number; stride: number }>()
-  const structStorage = new Map<string, StructStorage>() // array<Struct> storage
-  const intStorage = new Map<string, 'u32' | 'i32'>() // array<u32> / array<i32> storage (X-GIS #1703)
+  const vecStorage = new Map<string, { n: number; stride: number }>();
+  const structStorage = new Map<string, StructStorage>(); // array<Struct> storage
+  const intStorage = new Map<string, 'u32' | 'i32'>(); // array<u32> / array<i32> storage (X-GIS #1703)
   for (const b of m.bindings) {
-    if (b.space !== 'storage') continue
+    if (b.space !== 'storage') continue;
     // The emulation is GATHER-ONLY: it rewrites READS into texelFetch and has no write
     // form. Without this declaration-time gate a storage WRITE would not even fail at
     // the driver — autoVars materialises the assigned element into a local var, so the
@@ -1328,15 +1330,15 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     if (b.access === 'read_write')
       throw new UnsupportedFeatureError(
         `glsl-es300 storage-emul: storage binding '${b.name}' is read_write — the data-texture emulation is read-only (gather); a compute kernel's output lowers via the compute→fragment path instead (declare the kernel { stage: 'compute', portable: true } — X-GIS #1812 — or pass the legacy emitGlslModule({ emulateCompute: true }) opt-in), and WebGL2 has no storage-write form`,
-      )
+      );
     if (b.type.kind !== 'array')
       throw new UnsupportedFeatureError(
         `glsl-es300 storage-emul: storage binding '${b.name}' is not an array — ${SUPPORTED_STORAGE_SHAPES}`,
-      )
-    const elem = b.type.elem
+      );
+    const elem = b.type.elem;
     if (elem.kind === 'scalar' && elem.scalar === 'f32') {
-      f32Names.add(b.name)
-      continue
+      f32Names.add(b.name);
+      continue;
     }
     // X-GIS #1703 — the residual this pass used to fail closed on. A top-level array<u32> /
     // array<i32> becomes a TYPED data texture (R32UI / R32I read through usampler2D /
@@ -1350,43 +1352,43 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     // exact-integer array. (The struct-FIELD u32 lane further down still bitcasts
     // through R32F — pre-existing and deliberately untouched here.)
     if (elem.kind === 'scalar' && (elem.scalar === 'u32' || elem.scalar === 'i32')) {
-      intStorage.set(b.name, elem.scalar)
-      continue
+      intStorage.set(b.name, elem.scalar);
+      continue;
     }
     if (elem.kind === 'vec' && elem.elem === 'f32') {
       // std430 array stride: vec2 = 8 B (2 lanes); vec3/vec4 = 16 B (4 lanes — vec3
       // rounds up to its 16 B alignment). The CPU packs against the same std430.
-      vecStorage.set(b.name, { n: elem.n, stride: elem.n === 2 ? 2 : 4 })
-      continue
+      vecStorage.set(b.name, { n: elem.n, stride: elem.n === 2 ? 2 : 4 });
+      continue;
     }
     if (elem.kind === 'struct') {
-      const sd = structsMap.get(elem.name)
+      const sd = structsMap.get(elem.name);
       if (!sd)
         throw new UnsupportedFeatureError(
           `glsl-es300 storage-emul: struct '${elem.name}' for binding '${b.name}' not in module`,
-        )
-      const layout = wgslLayout(sd, 'std430', structsMap) // the same std430 the host packs against
-      const fields = new Map<string, StructField>()
+        );
+      const layout = wgslLayout(sd, 'std430', structsMap); // the same std430 the host packs against
+      const fields = new Map<string, StructField>();
       for (const f of sd.fields) {
-        const fl = layout.fields.find((x) => x.name === f.name)!
-        if (fl.offset % 4 !== 0) continue // not f32-lane-aligned → unreadable (throws on access)
-        const lane = fl.offset / 4
+        const fl = layout.fields.find((x) => x.name === f.name)!;
+        if (fl.offset % 4 !== 0) continue; // not f32-lane-aligned → unreadable (throws on access)
+        const lane = fl.offset / 4;
         if (f.type.kind === 'scalar') {
           if (f.type.scalar === 'i32')
             throw new UnsupportedFeatureError(
               `glsl-es300 storage-emul: i32 field '${f.name}' of struct '${elem.name}' (binding '${b.name}') — only f32/u32 lanes supported; ${SUPPORTED_STORAGE_SHAPES}`,
-            )
-          fields.set(f.name, { lane, kind: 'scalar', isU32: f.type.scalar === 'u32' })
+            );
+          fields.set(f.name, { lane, kind: 'scalar', isU32: f.type.scalar === 'u32' });
         } else if (f.type.kind === 'vec' && f.type.elem === 'f32') {
-          fields.set(f.name, { lane, kind: 'vec', n: f.type.n })
+          fields.set(f.name, { lane, kind: 'vec', n: f.type.n });
         } // else mat / vec<u32> → not in map → throws on access
       }
-      structStorage.set(b.name, { stride: layout.size / 4, fields })
-      continue
+      structStorage.set(b.name, { stride: layout.size / 4, fields });
+      continue;
     }
     throw new UnsupportedFeatureError(
       `glsl-es300 storage-emul: storage binding '${b.name}' has an unsupported element type — ${SUPPORTED_STORAGE_SHAPES}`,
-    )
+    );
   }
   if (
     f32Names.size === 0 &&
@@ -1394,13 +1396,13 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     structStorage.size === 0 &&
     intStorage.size === 0
   )
-    return m
+    return m;
   const allNames = new Set<string>([
     ...f32Names,
     ...vecStorage.keys(),
     ...structStorage.keys(),
     ...intStorage.keys(),
-  ])
+  ]);
   // The data texture BACKING each lowered binding. The f32 shapes keep the R32F
   // sampler2D they have always had (their emitted bytes do not move); an integer array
   // takes the matching typed texture (X-GIS #1703).
@@ -1411,45 +1413,45 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   // raise; the texture is merely INCOMPLETE and every texelFetch silently returns 0.
   // reflect()'s textureElem reports which one is owed.
   const dataTexT = (name: string): ShaderType => {
-    const e = intStorage.get(name)
-    return e === 'u32' ? texture2duT : e === 'i32' ? texture2diT : texture2dfT
-  }
+    const e = intStorage.get(name);
+    return e === 'u32' ? texture2duT : e === 'i32' ? texture2diT : texture2dfT;
+  };
   // every storage binding → a data-texture uniform; same name/group/binding.
   const bindings = m.bindings.map((b): BindingDecl =>
     allNames.has(b.name) ? { ...b, space: 'uniform', type: dataTexT(b.name) } : b,
-  )
-  const u32lit = (value: number): Expr => ({ op: 'lit', type: u32T, value })
+  );
+  const u32lit = (value: number): Expr => ({ op: 'lit', type: u32T, value });
   const fetch = (name: string, lane: Expr): Expr => ({
     op: 'call',
     type: f32T,
     fn: 'storageFetchF32',
     args: [{ op: 'varref', type: texture2dfT, name }, lane],
-  })
+  });
   // The integer twin (X-GIS #1703). Result type and varref type are both derived from the
   // SAME intStorage entry that chose the binding's sampler, so the fetched type cannot
   // disagree with the type declared — a `float` result off a usampler2D would not
   // compile, and the reverse would compile and read garbage.
   const fetchInt = (name: string, lane: Expr): Expr => {
-    const u = intStorage.get(name) === 'u32'
+    const u = intStorage.get(name) === 'u32';
     return {
       op: 'call',
       type: u ? u32T : i32T,
       fn: u ? 'storageFetchU32' : 'storageFetchI32',
       args: [{ op: 'varref', type: u ? texture2duT : texture2diT, name }, lane],
-    }
-  }
+    };
+  };
   const rE = (e: Expr): Expr => {
     switch (e.op) {
       case 'member': {
         // shapes[i].field → storageFetchF32(shapes, i*STRIDE + laneOf(field)) [+ bitcast for u32].
-        const b = e.base
+        const b = e.base;
         if (b.op === 'index' && b.base.op === 'varref' && structStorage.has(b.base.name)) {
-          const ss = structStorage.get(b.base.name)!
-          const fl = ss.fields.get(e.field)
+          const ss = structStorage.get(b.base.name)!;
+          const fl = ss.fields.get(e.field);
           if (!fl)
             throw new UnsupportedFeatureError(
               `glsl-es300 storage-emul: field '${e.field}' of storage binding '${b.base.name}' — mat / vec<u32> / nested-struct fields not supported (only scalar + vecN<f32> lanes); ${SUPPORTED_STORAGE_SHAPES}`,
-            )
+            );
           // baseLane = i*STRIDE + field-lane; a scalar reads it, a vecN reads N consecutive lanes.
           const baseLane: Expr = {
             op: 'binop',
@@ -1457,59 +1459,59 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
             bop: '+',
             a: { op: 'binop', type: u32T, bop: '*', a: rE(b.idx), b: u32lit(ss.stride) },
             b: u32lit(fl.lane),
-          }
+          };
           if (fl.kind === 'scalar') {
-            const f = fetch(b.base.name, baseLane)
-            return fl.isU32 ? { op: 'call', type: e.type, fn: 'bitcastU32', args: [f] } : f
+            const f = fetch(b.base.name, baseLane);
+            return fl.isU32 ? { op: 'call', type: e.type, fn: 'bitcastU32', args: [f] } : f;
           }
           // vecN<f32> field → vecN(fetch(base), fetch(base+1), …, fetch(base+N-1))
-          const comps: Expr[] = []
+          const comps: Expr[] = [];
           for (let k = 0; k < fl.n; k++) {
             const lane: Expr =
-              k === 0 ? baseLane : { op: 'binop', type: u32T, bop: '+', a: baseLane, b: u32lit(k) }
-            comps.push(fetch(b.base.name, lane))
+              k === 0 ? baseLane : { op: 'binop', type: u32T, bop: '+', a: baseLane, b: u32lit(k) };
+            comps.push(fetch(b.base.name, lane));
           }
-          return { op: 'construct', type: e.type, args: comps }
+          return { op: 'construct', type: e.type, args: comps };
         }
-        break
+        break;
       }
       case 'index':
         if (e.base.op === 'varref' && f32Names.has(e.base.name))
-          return fetch(e.base.name, rE(e.idx))
+          return fetch(e.base.name, rE(e.idx));
         // ids[i] → storageFetchU32(ids, i) — one texel, one element, no lane math (X-GIS #1703).
         if (e.base.op === 'varref' && intStorage.has(e.base.name))
-          return fetchInt(e.base.name, rE(e.idx))
+          return fetchInt(e.base.name, rE(e.idx));
         if (e.base.op === 'varref' && vecStorage.has(e.base.name)) {
           // tint[i] → vecN(fetch(i*stride), …, fetch(i*stride+n-1)).
-          const vs = vecStorage.get(e.base.name)!
+          const vs = vecStorage.get(e.base.name)!;
           const baseLane: Expr = {
             op: 'binop',
             type: u32T,
             bop: '*',
             a: rE(e.idx),
             b: u32lit(vs.stride),
-          }
-          const comps: Expr[] = []
+          };
+          const comps: Expr[] = [];
           for (let k = 0; k < vs.n; k++) {
             const lane: Expr =
-              k === 0 ? baseLane : { op: 'binop', type: u32T, bop: '+', a: baseLane, b: u32lit(k) }
-            comps.push(fetch(e.base.name, lane))
+              k === 0 ? baseLane : { op: 'binop', type: u32T, bop: '+', a: baseLane, b: u32lit(k) };
+            comps.push(fetch(e.base.name, lane));
           }
-          return { op: 'construct', type: e.type, args: comps }
+          return { op: 'construct', type: e.type, args: comps };
         }
         if (e.base.op === 'varref' && structStorage.has(e.base.name))
           throw new UnsupportedFeatureError(
             `glsl-es300 storage-emul: storage struct element '${e.base.name}[i]' used without a .field access — a whole-struct element read has no lane; read one field at a time (e.g. ${e.base.name}[i].someField)`,
-          )
-        break
+          );
+        break;
       default:
-        break
+        break;
     }
     // Everything the specials above did not claim is a plain structural rebuild.
-    return mapChildren(e, rE)
-  }
-  const rS = (s: Stmt): Stmt => mapStmtExpr(s, rE)
-  return { ...m, bindings, funcs: m.funcs.map((f) => ({ ...f, body: f.body.map(rS) })) }
+    return mapChildren(e, rE);
+  };
+  const rS = (s: Stmt): Stmt => mapStmtExpr(s, rE);
+  return { ...m, bindings, funcs: m.funcs.map((f) => ({ ...f, body: f.body.map(rS) })) };
 }
 
 // ── compute → fragment-GPGPU lowering (WebGL2 ES 3.00 has no compute) ──
@@ -1568,38 +1570,38 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
 export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
   const entry = m.funcs.find(
     (f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')),
-  )
+  );
   if (!entry)
-    throw new UnsupportedFeatureError('glsl-es300 compute-emul: no @compute entry in module')
+    throw new UnsupportedFeatureError('glsl-es300 compute-emul: no @compute entry in module');
   // A portable-declared kernel is gated by the tier analyzer FIRST — the single authority for
   // the shape, shared with the `portable-kernel` lint rule so both writers report the same
   // sentences. The ad-hoc throws below stay as they are for the undeclared path (their exact
   // messages are pinned by the M2a tests).
   if (isPortableComputeEntry(entry)) {
-    const tier = analyzePortableKernel(m, entry)
-    if (!tier.ok) throw dslError('SD0111', tier.violations.join('; '))
+    const tier = analyzePortableKernel(m, entry);
+    if (!tier.ok) throw dslError('SD0111', tier.violations.join('; '));
   }
-  const gid = entry.params.find((p) => ioAttrOf(p).builtin === 'global_invocation_id')
+  const gid = entry.params.find((p) => ioAttrOf(p).builtin === 'global_invocation_id');
   if (!gid)
     throw new UnsupportedFeatureError(
       'glsl-es300 compute-emul: @compute entry has no @builtin(global_invocation_id) param',
-    )
-  const outBinding = m.bindings.find((b) => b.space === 'storage' && b.access === 'read_write')
+    );
+  const outBinding = m.bindings.find((b) => b.space === 'storage' && b.access === 'read_write');
   if (!outBinding)
     throw new UnsupportedFeatureError(
       'glsl-es300 compute-emul: no read_write storage output binding to map to the fragment colour output',
-    )
-  const uCount = m.bindings.find((b) => b.space === 'uniform')
+    );
+  const uCount = m.bindings.find((b) => b.space === 'uniform');
   if (!uCount)
     throw new UnsupportedFeatureError(
       'glsl-es300 compute-emul: no uniform binding (u_count) to source the output-row width from',
-    )
+    );
 
   const isGidX = (e: Expr): boolean =>
-    e.op === 'member' && e.field === 'x' && e.base.op === 'param' && e.base.name === gid.name
+    e.op === 'member' && e.field === 'x' && e.base.op === 'param' && e.base.name === gid.name;
 
   // the linear texel index from gl_FragCoord (pixel-center → floor is exact in range).
-  const fragPos: Expr = { op: 'param', type: vec4fT, name: 'typeshade_frag_pos' }
+  const fragPos: Expr = { op: 'param', type: vec4fT, name: 'typeshade_frag_pos' };
   const u32floor = (f: 'x' | 'y'): Expr => ({
     op: 'call',
     type: u32T,
@@ -1612,34 +1614,34 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
         args: [{ op: 'member', type: f32T, base: fragPos, field: f }],
       },
     ],
-  })
+  });
   const width: Expr = {
     op: 'member',
     type: u32T,
     base: { op: 'varref', type: uCount.type, name: uCount.name },
     field: 'y',
-  }
+  };
   const fidExpr: Expr = {
     op: 'binop',
     type: u32T,
     bop: '+',
     a: u32floor('x'),
     b: { op: 'binop', type: u32T, bop: '*', a: u32floor('y'), b: width },
-  }
+  };
 
   // Expr rewrite: gid.x → fidExpr; a bare gid param ref (gid.y/.z or whole vec) is a
   // non-gather use → fail-closed; everything else recurses (exhaustive, mirrors rE in
   // lowerStorageToDataTexture).
   const rE = (e: Expr): Expr => {
-    if (isGidX(e)) return fidExpr
+    if (isGidX(e)) return fidExpr;
     if (e.op === 'param' && e.name === gid.name)
       throw new UnsupportedFeatureError(
         `glsl-es300 compute-emul: global_invocation_id used other than '.x' — only a 1-D linear invocation index is supported`,
-      )
-    return mapChildren(e, rE)
-  }
+      );
+    return mapChildren(e, rE);
+  };
 
-  let writes = 0
+  let writes = 0;
   // Two statement-level rewrites the shared Expr walk cannot express: the SOLE
   // read_write-storage write becomes the fragment `return`, and the bounds-guard's
   // exprless `return;` becomes `discard;`. Everything else keeps the shape.
@@ -1651,23 +1653,23 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
       s.target.base.op === 'varref' &&
       s.target.base.name === outBinding.name
     ) {
-      writes++
+      writes++;
       if (!isGidX(s.target.idx))
         throw new UnsupportedFeatureError(
           `glsl-es300 compute-emul: output write '${outBinding.name}[…]' is not at the invocation index (scatter / non-gather kernel unsupported)`,
-        )
-      return { s: 'return', expr: rE(s.expr) }
+        );
+      return { s: 'return', expr: rE(s.expr) };
     }
     // bounds-guard early-out → discard
-    if (s.s === 'return' && s.expr === undefined) return { s: 'discard' }
-    return mapStmtExpr(s, rE, rS)
-  }
+    if (s.s === 'return' && s.expr === undefined) return { s: 'discard' };
+    return mapStmtExpr(s, rE, rS);
+  };
 
-  const newBody = entry.body.map(rS)
+  const newBody = entry.body.map(rS);
   if (writes !== 1)
     throw new UnsupportedFeatureError(
       `glsl-es300 compute-emul: expected exactly ONE output write to '${outBinding.name}', found ${writes} (only a gather-only single-output kernel maps to fragment-GPGPU)`,
-    )
+    );
 
   const rewritten: FuncDecl = {
     ...entry,
@@ -1691,12 +1693,12 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
     ret: u32T,
     retAttr: '@location(0)',
     body: newBody,
-  }
+  };
   return {
     ...m,
     bindings: m.bindings.filter((b) => b !== outBinding),
     funcs: m.funcs.map((f) => (f === entry ? rewritten : f)),
-  }
+  };
 }
 
 // ── Per-stage emit scope (stage reachability) ──
@@ -1724,32 +1726,32 @@ function stageScope(
   m: ModuleDecl,
   entries: readonly FuncDecl[],
 ): { fns: Set<string>; bindings: Set<string>; structs: Set<string> } | null {
-  if (entries.length === 0) return null
-  if (m.funcs.some((f) => bodyHasRaw(f.body))) return null
+  if (entries.length === 0) return null;
+  if (m.funcs.some((f) => bodyHasRaw(f.body))) return null;
 
   // The fn-closure + binding rule is shared with reflect()'s `BindEntry.stages` (X-GIS #1906)
   // — one walk, so a host's stage mask cannot describe a narrower program than this
   // emit declares. The struct closure below stays here: only GLSL needs it.
-  const { fns, bindings, refs } = reachFrom(m, entries)
+  const { fns, bindings, refs } = reachFrom(m, entries);
 
-  const structs = new Set(refs.structs)
-  for (const b of m.bindings) if (bindings.has(b.name)) typeStructNames(b.type, structs)
-  for (const c of m.consts) typeStructNames(c.type, structs)
-  const structByNameMap = new Map(m.structs.map((s) => [s.name, s]))
-  const work = [...structs]
+  const structs = new Set(refs.structs);
+  for (const b of m.bindings) if (bindings.has(b.name)) typeStructNames(b.type, structs);
+  for (const c of m.consts) typeStructNames(c.type, structs);
+  const structByNameMap = new Map(m.structs.map((s) => [s.name, s]));
+  const work = [...structs];
   while (work.length > 0) {
-    const s = structByNameMap.get(work.pop()!)
-    if (!s) continue
-    const fieldStructs = new Set<string>()
-    for (const f of s.fields) typeStructNames(f.type, fieldStructs)
+    const s = structByNameMap.get(work.pop()!);
+    if (!s) continue;
+    const fieldStructs = new Set<string>();
+    for (const f of s.fields) typeStructNames(f.type, fieldStructs);
     for (const n of fieldStructs)
       if (!structs.has(n)) {
-        structs.add(n)
-        work.push(n)
+        structs.add(n);
+        work.push(n);
       }
   }
 
-  return { fns, bindings, structs }
+  return { fns, bindings, structs };
 }
 
 /** The options accepted by {@link emitGlslModule}, {@link emitGlslStages} and
@@ -1771,14 +1773,14 @@ export interface GlslEmitOptions extends EmitOptions {
    *  check the kernel's gather-only shape (`SD0111`) at every emit, at the place where the
    *  kernel is written. This option remains as the equivalent for an undeclared kernel, on
    *  the same code path with the same output. */
-  emulateCompute?: boolean
+  emulateCompute?: boolean;
   /** Pin `override` values for this emit. GLSL ES 3.00 has no pipeline-time specialization
    *  constants, so each specialization is its own emit: every override named here becomes a
    *  hard `#define NAME <value>` after the `#version` and precision lines, spelled as a GLSL
    *  literal (a `u` suffix for `u32`, a `.0` for `f32`). An override not named here keeps
    *  its `#ifndef` default. {@link reflect} lists the module's overrides under `overrides`;
    *  the WGSL equivalent is `createRenderPipeline({ constants })`. */
-  overrideValues?: Readonly<Record<string, number | boolean>>
+  overrideValues?: Readonly<Record<string, number | boolean>>;
   /** The default float precision qualifier for the emitted stage, the
    *  `precision <p> float;` line. `'highp'` is the default and leaves the emitted bytes
    *  unchanged.
@@ -1805,7 +1807,7 @@ export interface GlslEmitOptions extends EmitOptions {
    *  Whether a device actually computes mediump at reduced precision is up to its driver; a
    *  software rasterizer that advertises 10-bit mediump commonly computes it at f32, so the
    *  numeric effect shows only on real mobile hardware. */
-  floatPrecision?: 'highp' | 'mediump'
+  floatPrecision?: 'highp' | 'mediump';
 }
 
 /** The IR half of a GLSL emit: the pre-lowerings, the shared backend pipeline
@@ -1838,7 +1840,7 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // emitted GLSL then reads the CSE'd INITIALIZER forever; the X-GIS #834 M5 line
   // twin returned position = vec4(0) this way). autoVars is a no-op on an
   // already-materialised module, so lowerForBackend's own autoVars stays.
-  const hasStorage = m.bindings.some((b) => b.space === 'storage')
+  const hasStorage = m.bindings.some((b) => b.space === 'storage');
   // An UNDECLARED @compute module without {emulateCompute} keeps the old fail-close
   // (assertCaps naming 'compute') — default-lowering its storage first would replace that
   // diagnosis with a storage-shape error pointing away from the actual fix (declare the
@@ -1846,13 +1848,13 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // no option: that is the tier's whole contract (X-GIS #1812).
   const hasComputeEntry = m.funcs.some(
     (f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')),
-  )
+  );
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- this IS the deprecated flag's implementation; reading it here is what keeps it working as the undeclared-kernel synonym.
   const src = opts?.emulateCompute
     ? lowerStorageToDataTexture(lowerComputeToFragment(autoVars(m)))
     : hasStorage && !hasComputeEntry
       ? lowerStorageToDataTexture(autoVars(m))
-      : m
+      : m;
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
   // (e.g. an entry param `input` / `in`) — does NOT affect the WGSL backend.
   // The transformIR plugins (production tooling — emit-prod's mangle) run LAST in
@@ -1881,7 +1883,7 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
       ),
       opts,
     ),
-  )
+  );
 }
 
 /** The SPELLING half: turn an already-lowered module into one stage's GLSL text.
@@ -1919,7 +1921,7 @@ function assembleGlsl(
   // of those names must call ITS function, not the rewrite (emit.ts, withDeclaredFns).
   return withDeclaredFns(lowered, () =>
     assembleGlslParts(extHeader, lowered, stage, opts, keepEntry, omitEntries),
-  )
+  );
 }
 
 function assembleGlslParts(
@@ -1930,7 +1932,7 @@ function assembleGlslParts(
   keepEntry?: string,
   omitEntries?: boolean,
 ): GlslAssembly {
-  const structs = new Map(lowered.structs.map((s) => [s.name, s]))
+  const structs = new Map(lowered.structs.map((s) => [s.name, s]));
 
   // Stage filter through the shared predicate (X-GIS #763 S3) — the old attr-string
   // match silently DROPPED a structured-only entry from its own stage's emit.
@@ -1939,14 +1941,14 @@ function assembleGlslParts(
       isEntry(f) &&
       (stage === undefined || stageOf(f) === stage) &&
       (keepEntry === undefined || f.name === keepEntry),
-  )
+  );
   // Stage-scoped emit (see stageScope) — only when compiling ONE stage; the
   // whole-module form (stage === undefined, a string-shape artifact used by
   // tests) keeps the emit-everything contract. null = scope not computable.
-  const scope = stage === undefined ? null : stageScope(lowered, entries)
+  const scope = stage === undefined ? null : stageScope(lowered, entries);
   const helpers = lowered.funcs.filter(
     (f) => !isEntry(f) && (scope === null || scope.fns.has(f.name)),
-  )
+  );
 
   // A struct consumed as a uniform/storage BINDING type becomes a UBO/SSBO block, NOT a
   // GLSL `struct` decl — reusing its name for both a `struct` and a `uniform <Name> {…}`
@@ -1954,9 +1956,9 @@ function assembleGlslParts(
   // nested + helper-fn arg) IS emitted as a plain GLSL struct: the entry's `_impl` fn
   // signature references the IO struct types, and storage-element structs are read field-
   // wise — both need a real `struct` decl.
-  const bindingStructNames = new Set<string>()
+  const bindingStructNames = new Set<string>();
   for (const b of lowered.bindings)
-    if (b.type.kind === 'struct') bindingStructNames.add(b.type.name)
+    if (b.type.kind === 'struct') bindingStructNames.add(b.type.name);
 
   // The FLOAT line is the only one `opts.floatPrecision` (X-GIS #1673) spells; absent, it is
   // 'highp' and the header is byte-identical to every pre-#1673 emit.
@@ -1997,7 +1999,7 @@ function assembleGlslParts(
     ),
   ]
     .filter((s) => s !== 'sampler2D' && s !== 'samplerCube')
-    .sort()
+    .sort();
   // X-GIS #1670 — the `#extension … : require` directives this module's declared caps need
   // (computed by the caller from the AUTHORED module), SPLICED between `#version` and the
   // first precision line. That slot is not a style choice: GLSL ES 3.00 §3.4 requires an
@@ -2019,8 +2021,8 @@ function assembleGlslParts(
     `precision ${opts?.floatPrecision ?? 'highp'} float;`,
     'precision highp int;',
     ...samplerPrecisions.map((s) => `precision highp ${s};`),
-  ]
-  const parts: string[] = []
+  ];
+  const parts: string[] = [];
 
   // X-GIS #923 — specialization constants. GLSL ES 3.00 has no `override`, so the portable
   // equivalent is the PREPROCESSOR, emitted HERE (after the `#version`/precision
@@ -2040,18 +2042,18 @@ function assembleGlslParts(
     parts.push(
       lowered.overrides
         .map((o) => {
-          const pinned = opts?.overrideValues?.[o.name]
+          const pinned = opts?.overrideValues?.[o.name];
           return pinned !== undefined
             ? `#define ${o.name} ${glslEs300Backend.literal(pinned, o.type)}`
-            : `#ifndef ${o.name}\n#define ${o.name} ${glslEs300Backend.literal(o.default, o.type)}\n#endif`
+            : `#ifndef ${o.name}\n#define ${o.name} ${glslEs300Backend.literal(o.default, o.type)}\n#endif`;
         })
         .join('\n'),
-    )
+    );
 
   if (lowered.consts.length)
-    parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'))
+    parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'));
   if (lowered.vars?.length)
-    parts.push(lowered.vars.map((v) => glslEs300Backend.emitModuleVar!(v)).join('\n'))
+    parts.push(lowered.vars.map((v) => glslEs300Backend.emitModuleVar!(v)).join('\n'));
 
   // The struct section is RESERVED here and filled at the end (X-GIS #1867). Its membership
   // depends on what the rest of the unit actually spells: since the entry writer can
@@ -2059,25 +2061,25 @@ function assembleGlslParts(
   // constructor exit scatters field-wise — "reachable in the stage scope" stopped being
   // the same thing as "spelled", and a decl nothing spells is dead bytes. Its POSITION is
   // still here, ahead of the UBO blocks that embed nested structs.
-  const structSlot = parts.length
-  parts.push('')
+  const structSlot = parts.length;
+  parts.push('');
 
   const structCandidates = lowered.structs.filter(
     (s) => !bindingStructNames.has(s.name) && (scope === null || scope.structs.has(s.name)),
-  )
+  );
 
   // Uniform UBO blocks (std140, reflection-fed) + texture/sampler uniforms.
-  const bindingLines: string[] = []
+  const bindingLines: string[] = [];
   for (const b of lowered.bindings) {
     // Stage-scoped: a binding no reachable fn references emits nothing in this
     // stage (the other stage still declares it; GL uniform lookups link by name
     // across the program, so hosts bind unchanged).
-    if (scope !== null && !scope.bindings.has(b.name)) continue
+    if (scope !== null && !scope.bindings.has(b.name)) continue;
     if (b.type.kind === 'texture')
-      bindingLines.push(`uniform ${qualified(b)}${glslType(b.type)} ${b.name};`)
+      bindingLines.push(`uniform ${qualified(b)}${glslType(b.type)} ${b.name};`);
     // A depth texture is the shadow sampler its comparison sampler fuses into (item 11).
     else if (b.type.kind === 'depth-texture')
-      bindingLines.push(`uniform ${qualified(b)}${glslDepthSampler(b.type)} ${b.name};`)
+      bindingLines.push(`uniform ${qualified(b)}${glslDepthSampler(b.type)} ${b.name};`);
     // A standalone WGSL sampler binding is FUSED into the texture's combined
     // sampler2D (textureSample(tex,samp,uv) → texture(tex,uv)), so it emits no
     // separate GLSL uniform. The host reflection maps the texture binding to a
@@ -2088,9 +2090,9 @@ function assembleGlslParts(
     } else if (b.space === 'storage')
       throw new UnsupportedFeatureError(
         'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',
-      )
+      );
     else if (b.type.kind === 'struct')
-      bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name), structs))
+      bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name), structs));
     // A LOOSE default-block uniform (set via glUniform*), rather than a std140 block.
     // Two ways in, and they are the same lowering reached for different reasons:
     //
@@ -2111,13 +2113,13 @@ function assembleGlslParts(
       (b.owner === 'host' || opts?.emulateCompute) &&
       (b.type.kind === 'scalar' || b.type.kind === 'vec' || b.type.kind === 'mat')
     )
-      bindingLines.push(`uniform ${qualified(b)}${glslType(b.type)} ${b.name};`)
+      bindingLines.push(`uniform ${qualified(b)}${glslType(b.type)} ${b.name};`);
     else
       throw new UnsupportedFeatureError(
         `glsl-es300: uniform binding '${b.name}' must be a struct (a std140 UBO block)`,
-      )
+      );
   }
-  if (bindingLines.length) parts.push(bindingLines.join('\n\n'))
+  if (bindingLines.length) parts.push(bindingLines.join('\n\n'));
 
   // The definitions the INTRINSIC SPELLINGS call (X-GIS #1878), ahead of the fn section proper.
   // A storage read spells `_sfetch(t, i)` rather than expanding the tiled-index math at
@@ -2130,27 +2132,27 @@ function assembleGlslParts(
   // Entry calls count even when `omitEntries` withholds the entry TEXT, for the same reason
   // the struct slot keeps its whole reachable set there: a host splices its own entry back
   // in, and that text calls what the entry called.
-  const helperRefs = emptyRefSet()
-  for (const f of [...helpers, ...entries]) collectFnRefs(f, helperRefs)
+  const helperRefs = emptyRefSet();
+  for (const f of [...helpers, ...entries]) collectFnRefs(f, helperRefs);
   const helperDefs = Object.entries(INTRINSIC_HELPERS)
     .filter(([id]) => helperRefs.calls.has(id))
-    .map(([, h]) => h.def)
-  if (helperDefs.length) parts.push(helperDefs.join('\n\n'))
+    .map(([, h]) => h.def);
+  if (helperDefs.length) parts.push(helperDefs.join('\n\n'));
   // The bit builtins (§10) are helpers too, but overloaded by the argument's type, so the
   // walk keeps each call's first argument type and glsl-bits.ts writes the overloads it
   // needs, in its own fixed order.
-  const declared = new Set(lowered.funcs.map((f) => f.name))
-  const bitCalls: { fn: string; argType: ShaderType }[] = []
+  const declared = new Set(lowered.funcs.map((f) => f.name));
+  const bitCalls: { fn: string; argType: ShaderType }[] = [];
   const seeBitCall = (e: Expr): void => {
     // A function the module declares under one of the names is its own, not the builtin.
-    if (e.op !== 'call' || !(e.fn in BIT_HELPER_OF) || declared.has(e.fn)) return
-    if (e.args[0] !== undefined) bitCalls.push({ fn: e.fn, argType: e.args[0].type })
-  }
+    if (e.op !== 'call' || !(e.fn in BIT_HELPER_OF) || declared.has(e.fn)) return;
+    if (e.args[0] !== undefined) bitCalls.push({ fn: e.fn, argType: e.args[0].type });
+  };
   for (const f of [...helpers, ...entries]) {
-    for (const st of f.body) eachStmtExpr(st, (e) => eachExpr(e, seeBitCall))
+    for (const st of f.body) eachStmtExpr(st, (e) => eachExpr(e, seeBitCall));
   }
-  const bitDefs = bitHelperDefs(bitCalls)
-  if (bitDefs.length) parts.push(bitDefs.join('\n\n'))
+  const bitDefs = bitHelperDefs(bitCalls);
+  if (bitDefs.length) parts.push(bitDefs.join('\n\n'));
 
   // The fn section, in DEFINE-BEFORE-USE order (X-GIS #1858). GLSL ES 3.00 has no hoisting,
   // so a call that precedes its definition needs a prototype — and a prototype buys
@@ -2163,9 +2165,9 @@ function assembleGlslParts(
   //
   // `null` = the order is not decidable (a `raw` helper body hides its calls from the
   // IR walk) → the historical unconditional block, unchanged.
-  const topo = topoSortFuncs(helpers)
-  const ordered = topo?.ordered ?? helpers
-  const protos = helpers.filter((f) => topo === null || topo.needsProto.has(f.name))
+  const topo = topoSortFuncs(helpers);
+  const ordered = topo?.ordered ?? helpers;
+  const protos = helpers.filter((f) => topo === null || topo.needsProto.has(f.name));
   if (protos.length) {
     parts.push(
       protos
@@ -2174,10 +2176,10 @@ function assembleGlslParts(
             `${glslType(f.ret)} ${f.name}(${f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')});`,
         )
         .join('\n'),
-    )
+    );
   }
   if (ordered.length)
-    parts.push(ordered.map((f) => glslEs300Backend.emitFunc(f, opts?.parens)).join('\n\n'))
+    parts.push(ordered.map((f) => glslEs300Backend.emitFunc(f, opts?.parens)).join('\n\n'));
   if (entries.length && omitEntries !== true) {
     // Module-scope names an entry's minted gather local must steer clear of.
     const globals = new Set<string>([
@@ -2186,8 +2188,8 @@ function assembleGlslParts(
       ...(lowered.overrides ?? []).map((o) => o.name),
       ...(lowered.vars ?? []).map((v) => v.name),
       ...lowered.funcs.map((fn) => fn.name),
-    ])
-    parts.push(entries.map((f) => emitGlslEntry(f, structs, opts?.parens, globals)).join('\n\n'))
+    ]);
+    parts.push(entries.map((f) => emitGlslEntry(f, structs, opts?.parens, globals)).join('\n\n'));
   }
 
   // Fill the reserved struct slot. A decl is kept when the emitted text spells its name —
@@ -2197,29 +2199,29 @@ function assembleGlslParts(
   // `omitEntries` is the one case that keeps the whole reachable set: the entry text is
   // withheld from THIS string for a host to splice its own in, so what it would have
   // spelled must still be declared (and is reported through `declares.structs`).
-  const spelled = parts.join('\n')
+  const spelled = parts.join('\n');
   const wanted = new Set<string>(
     omitEntries === true
       ? structCandidates.map((s) => s.name)
       : structCandidates
           .filter((s) => new RegExp(`\\b${s.name}\\b`).test(spelled))
           .map((s) => s.name),
-  )
-  const byName = new Map(structCandidates.map((s) => [s.name, s]))
-  const work = [...wanted]
+  );
+  const byName = new Map(structCandidates.map((s) => [s.name, s]));
+  const work = [...wanted];
   while (work.length > 0) {
-    const st = byName.get(work.pop()!)
-    if (!st) continue
-    const nested = new Set<string>()
-    for (const fld of st.fields) typeStructNames(fld.type, nested)
+    const st = byName.get(work.pop()!);
+    if (!st) continue;
+    const nested = new Set<string>();
+    for (const fld of st.fields) typeStructNames(fld.type, nested);
     for (const n of nested)
       if (!wanted.has(n)) {
-        wanted.add(n)
-        work.push(n)
+        wanted.add(n);
+        work.push(n);
       }
   }
-  const plainStructs = topoSortStructs(structCandidates.filter((s) => wanted.has(s.name)))
-  parts[structSlot] = plainStructs.map((s) => glslEs300Backend.emitStruct(s)).join('\n\n')
+  const plainStructs = topoSortStructs(structCandidates.filter((s) => wanted.has(s.name)));
+  parts[structSlot] = plainStructs.map((s) => glslEs300Backend.emitStruct(s)).join('\n\n');
 
   return {
     preamble,
@@ -2235,7 +2237,7 @@ function assembleGlslParts(
       entryPoints: entries.map((f) => f.name),
     },
     requires: fragmentRequires(lowered, helpers.concat(entries), 'glsl'),
-  }
+  };
 }
 
 /** The preamble / body split of one GLSL assembly (X-GIS #1711). `emitGlslModule` joins them
@@ -2247,16 +2249,16 @@ function assembleGlslParts(
  *  newline that the empty-body case (a module of nothing but entries, emitted with
  *  `omitEntries`) then double-counts. */
 interface GlslAssembly {
-  readonly preamble: readonly string[]
-  readonly sections: readonly string[]
-  readonly declares: FragmentDeclares
-  readonly requires: readonly string[]
+  readonly preamble: readonly string[];
+  readonly sections: readonly string[];
+  readonly declares: FragmentDeclares;
+  readonly requires: readonly string[];
 }
 
 /** Join a split assembly into a whole stage source — byte-identical to the pre-#1711
  *  emitter, whose `parts` array was `[...preamble, '', ...sections]`. */
 const joinGlsl = (a: GlslAssembly, opts?: GlslEmitOptions): string =>
-  applyTextPlugins([...a.preamble, '', ...a.sections].join('\n') + '\n', opts)
+  applyTextPlugins([...a.preamble, '', ...a.sections].join('\n') + '\n', opts);
 
 /** Resolve the PORTABLE KERNEL declaration (X-GIS #1812) into this emit's options, ONCE, at the
  *  entry points — a portable-declared compute entry asks for exactly what `emulateCompute`
@@ -2270,10 +2272,10 @@ const joinGlsl = (a: GlslAssembly, opts?: GlslEmitOptions): string =>
  *  options, instead of by two conditions that must be kept in step. */
 function withPortableLowering<T extends GlslEmitOptions>(m: ModuleDecl, opts?: T): T | undefined {
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- normalizing INTO the deprecated flag is the point: one code path, not two.
-  if (opts?.emulateCompute === true || !m.funcs.some(isPortableComputeEntry)) return opts
+  if (opts?.emulateCompute === true || !m.funcs.some(isPortableComputeEntry)) return opts;
   // Principled cast: T's own members all ride along through the spread; only the
   // GlslEmitOptions half is being set, and `emulateCompute` is optional in every T.
-  return { ...opts, emulateCompute: true } as T
+  return { ...opts, emulateCompute: true } as T;
 }
 
 /** Emit a module as GLSL ES 3.00 source. Pass `'vertex'` or `'fragment'` to get one
@@ -2334,13 +2336,13 @@ export function emitGlslModule(
   opts?: GlslEmitOptions,
 ): string {
   // The portable declaration resolves into the options FIRST (see withPortableLowering).
-  const o = withPortableLowering(m, opts)
+  const o = withPortableLowering(m, opts);
   // The `#extension` header comes from the AUTHORED module (X-GIS #1670) — see assembleGlsl's
   // `extHeader` param.
   return joinGlsl(
     assembleGlsl(glslEs300Backend.modulePreamble?.(m) ?? '', lowerForGlsl(m, o), stage, o),
     o,
-  )
+  );
 }
 
 /** Emit a module as a GLSL ES 3.00 fragment for a host that owns the program: the
@@ -2381,7 +2383,7 @@ export function emitGlslFragment(
   opts?: GlslEmitOptions & { entryPoints?: boolean },
 ): EmitFragment {
   // The portable declaration resolves into the options FIRST (see withPortableLowering).
-  const o = withPortableLowering(m, opts)
+  const o = withPortableLowering(m, opts);
   const a = assembleGlsl(
     glslEs300Backend.modulePreamble?.(m) ?? '',
     lowerForGlsl(m, o),
@@ -2389,13 +2391,13 @@ export function emitGlslFragment(
     o,
     undefined,
     o?.entryPoints !== true,
-  )
+  );
   return {
     source: applyTextPlugins(a.sections.join('\n') + '\n', o),
     preamble: a.preamble,
     declares: a.declares,
     requires: a.requires,
-  }
+  };
 }
 
 /** Emit both stages of one module, lowering and optimizing it once. The result is
@@ -2429,13 +2431,13 @@ export function emitGlslStages(
   opts?: GlslEmitOptions & { vertexEntry?: string; fragmentEntry?: string },
 ): { vertex: string; fragment: string } {
   // The portable declaration resolves into the options FIRST (see withPortableLowering).
-  const o = withPortableLowering(m, opts)
-  const lowered = lowerForGlsl(m, o)
+  const o = withPortableLowering(m, opts);
+  const lowered = lowerForGlsl(m, o);
   // Computed ONCE from the AUTHORED module, then shared by both stages — the header is a
   // module-level fact, not a per-stage one (X-GIS #1670).
-  const extHeader = glslEs300Backend.modulePreamble?.(m) ?? ''
+  const extHeader = glslEs300Backend.modulePreamble?.(m) ?? '';
   return {
     vertex: joinGlsl(assembleGlsl(extHeader, lowered, 'vertex', o, o?.vertexEntry), o),
     fragment: joinGlsl(assembleGlsl(extHeader, lowered, 'fragment', o, o?.fragmentEntry), o),
-  }
+  };
 }

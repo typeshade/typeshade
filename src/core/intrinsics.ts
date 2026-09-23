@@ -18,11 +18,11 @@
  *
  *  Exported from `typeshade`.
  */
-export type IntrinsicTarget = 'wgsl' | 'glsl'
+export type IntrinsicTarget = 'wgsl' | 'glsl';
 
 type Spelling = {
-  readonly wgsl: (args: readonly string[]) => string
-  readonly glsl: (args: readonly string[]) => string
+  readonly wgsl: (args: readonly string[]) => string;
+  readonly glsl: (args: readonly string[]) => string;
   /** Set when the spelling RE-EMBEDS an argument in a position that binds TIGHTER than a
    *  plain argument slot — an operand of an inlined operator, or the base of a `.field`
    *  postfix (X-GIS #2350). The emit walk renders a normal argument at the loosest precedence
@@ -34,10 +34,10 @@ type Spelling = {
    *  neutral walk knows no target, and over-parenthesizing the column that does not
    *  re-embed costs bytes, never meaning. A new template that splices an argument
    *  anywhere but a plain argument slot MUST set this. */
-  readonly atomArgs?: true
-}
+  readonly atomArgs?: true;
+};
 
-const join = (args: readonly string[]): string => args.join(', ')
+const join = (args: readonly string[]): string => args.join(', ');
 
 // The storage-emulation fetch, shared by the f32/u32/i32 ids below (X-GIS #1703). The 2D-tiled
 // index math is element-INDEPENDENT — only the sampler type the binding declares and the
@@ -66,12 +66,12 @@ const join = (args: readonly string[]): string => args.join(', ')
 // site is both the old semantics exactly (`int(-1.5)` is -1, where `uint(-1.5)` is
 // undefined) and still one cast instead of the template's two.
 const storageFetchDef = (ret: string, samp: string, fn: string): string =>
-  `${ret} ${fn}(${samp} t, int i) {\n  int w = textureSize(t, 0).x;\n  return texelFetch(t, ivec2(i % w, i / w), 0).r;\n}`
+  `${ret} ${fn}(${samp} t, int i) {\n  int w = textureSize(t, 0).x;\n  return texelFetch(t, ivec2(i % w, i / w), 0).r;\n}`;
 
 const storageFetchGlsl =
   (fn: string) =>
   (a: readonly string[]): string =>
-    `${fn}(${a[0]}, int(${a[1]}))`
+    `${fn}(${a[0]}, int(${a[1]}))`;
 
 /** The atomic builtins (roadmap 0.2 item 4), with the arity and result of each: `atomicLoad`
  *  takes the location alone and returns its value; `atomicStore` takes a value and returns
@@ -109,7 +109,7 @@ export const ATOMIC_INTRINSICS: Readonly<
   // `'u32' | 'i32'` (`src/core/ir/types.ts`), so a vector atomic would widen the IR's atomic
   // type for a builtin nothing can compile yet. `src/compiler/ts/atomics.test.ts` carries the
   // matching `it.todo`.
-}
+};
 
 /** The barriers (roadmap 0.2 item 5, #82): `workgroupBarrier()` and `storageBarrier()`,
  *  statements with no value that every invocation of a workgroup reaches before any runs on.
@@ -128,13 +128,13 @@ export const BARRIER_INTRINSICS: ReadonlySet<string> = new Set([
   // "'textureBarrier' must only be called from uniform control flow" inside an `if`, and is
   // "built-in cannot be used by vertex pipeline stage" outside a compute entry.
   'textureBarrier',
-])
+]);
 
 /** Whether `name` is one of the {@link BARRIER_INTRINSICS}.
  *
  *  Exported from `typeshade`.
  */
-export const isBarrierIntrinsic = (name: string): boolean => BARRIER_INTRINSICS.has(name)
+export const isBarrierIntrinsic = (name: string): boolean => BARRIER_INTRINSICS.has(name);
 
 /** The error every CPU path throws when a barrier runs outside a `dispatch`: a barrier waits
  *  for the other invocations of the workgroup, and one invocation run alone, by a direct
@@ -146,14 +146,14 @@ export const isBarrierIntrinsic = (name: string): boolean => BARRIER_INTRINSICS.
 export const barrierOutsideDispatch = (fn: string): Error =>
   new Error(
     `typeshade/cpu: ${fn}() waits for the other invocations of the workgroup, which a direct call has none of; run the entry with dispatch(name, workgroups)`,
-  )
+  );
 
 /** Whether `name` is one of the {@link ATOMIC_INTRINSICS}.
  *
  *  Exported from `typeshade`.
  */
 export const isAtomicIntrinsic = (name: string): boolean =>
-  Object.prototype.hasOwnProperty.call(ATOMIC_INTRINSICS, name)
+  Object.prototype.hasOwnProperty.call(ATOMIC_INTRINSICS, name);
 
 const atomicSpellings = (): Record<string, Spelling> =>
   Object.fromEntries(
@@ -169,16 +169,16 @@ const atomicSpellings = (): Record<string, Spelling> =>
         glsl: () => {
           throw new Error(
             `glsl-es300: ${name} has no GLSL ES 3.00 spelling (no storage buffers, no atomics)`,
-          )
+          );
         },
       },
     ]),
-  )
+  );
 
 /** The cube-array sampling ids (roadmap 0.4 item 12): WGSL spells each as the base builtin; GLSL
  *  ES 3.00 has no cube-array sampler, so every column throws. */
 function cubeArraySpellings(): Record<string, Spelling> {
-  const out: Record<string, Spelling> = {}
+  const out: Record<string, Spelling> = {};
   for (const base of [
     'textureSample',
     'textureSampleLevel',
@@ -192,11 +192,11 @@ function cubeArraySpellings(): Record<string, Spelling> {
       glsl: () => {
         throw new Error(
           `glsl-es300: ${base} on a cube array has no GLSL ES 3.00 spelling (no samplerCubeArray)`,
-        )
+        );
       },
-    }
+    };
   }
-  return out
+  return out;
 }
 
 /** The neutral ids a `textureGather` / `textureGatherCompare` call lowers to, one per WGSL
@@ -209,7 +209,7 @@ export const TEXTURE_GATHER_IDS: ReadonlySet<string> = new Set([
   'textureGatherDepthArray',
   'textureGatherCompare',
   'textureGatherCompareArray',
-])
+]);
 
 /** The eight packed 4x8 integer builtins (#152, wgsl.txt:21906/21920). Exported so the
  *  capability pass derives `packed4x8Dot` from a call without a second list, and so
@@ -226,7 +226,7 @@ export const PACKED_4X8_IDS: ReadonlySet<string> = new Set([
   'pack4xI8Clamp',
   'unpack4xU8',
   'unpack4xI8',
-])
+]);
 
 /** The WGSL LANGUAGE feature a module using {@link PACKED_4X8_IDS} depends on, as
  *  `navigator.gpu.wgslLanguageFeatures` names it. Not an extension: measured on Tint,
@@ -235,24 +235,24 @@ export const PACKED_4X8_IDS: ReadonlySet<string> = new Set([
  *
  *  Exported from `typeshade`.
  */
-export const PACKED_4X8_LANGUAGE_FEATURE = 'packed_4x8_integer_dot_product'
+export const PACKED_4X8_LANGUAGE_FEATURE = 'packed_4x8_integer_dot_product';
 
 function gatherSpellings(): Record<string, Spelling> {
-  const out: Record<string, Spelling> = {}
+  const out: Record<string, Spelling> = {};
   for (const id of TEXTURE_GATHER_IDS) {
     const wgslName = id.startsWith('textureGatherCompare')
       ? 'textureGatherCompare'
-      : 'textureGather'
+      : 'textureGather';
     out[id] = {
       wgsl: (a) => `${wgslName}(${join(a)})`,
       glsl: () => {
         throw new Error(
           `glsl-es300: ${wgslName} has no GLSL ES 3.00 spelling (textureGather is ES 3.10)`,
-        )
+        );
       },
-    }
+    };
   }
-  return out
+  return out;
 }
 
 /** A builtin WGSL spells natively and GLSL ES 3.00 has no form of at all. The GLSL column
@@ -262,9 +262,9 @@ function gatherSpellings(): Record<string, Spelling> {
 const wgslOnly = (name: string): Spelling => ({
   wgsl: (a) => `${name}(${join(a)})`,
   glsl: () => {
-    throw new Error(`glsl-es300: ${name} has no GLSL ES 3.00 form`)
+    throw new Error(`glsl-es300: ${name} has no GLSL ES 3.00 form`);
   },
-})
+});
 
 /** The spelling of each builtin id on each target, keyed by id. Only builtins whose spelling
  *  differs between WGSL and GLSL ES 3.00 have an entry; a builtin with no entry is spelled the
@@ -699,7 +699,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: () => {
       throw new Error(
         'glsl-es300: arrayLength has no GLSL ES 3.00 spelling (no storage buffers, no runtime-sized arrays)',
-      )
+      );
     },
   },
   // atomicLoad(&x), atomicAdd(&x, v), ... — the location argument is a pointer on WGSL, and
@@ -764,7 +764,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: () => {
       throw new Error(
         'glsl-es300: textureStore has no GLSL ES 3.00 spelling (image load/store is ES 3.10)',
-      )
+      );
     },
   },
   // The barriers take no argument and return nothing; GLSL ES 3.00 has no compute stage.
@@ -773,19 +773,19 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: () => {
       throw new Error(
         'glsl-es300: workgroupBarrier has no GLSL ES 3.00 spelling (no compute stage)',
-      )
+      );
     },
   },
   storageBarrier: {
     wgsl: () => 'storageBarrier()',
     glsl: () => {
-      throw new Error('glsl-es300: storageBarrier has no GLSL ES 3.00 spelling (no compute stage)')
+      throw new Error('glsl-es300: storageBarrier has no GLSL ES 3.00 spelling (no compute stage)');
     },
   },
   textureBarrier: {
     wgsl: () => 'textureBarrier()',
     glsl: () => {
-      throw new Error('glsl-es300: textureBarrier has no GLSL ES 3.00 spelling (no compute stage)')
+      throw new Error('glsl-es300: textureBarrier has no GLSL ES 3.00 spelling (no compute stage)');
     },
   },
   // `workgroupUniformLoad(&w)` (#152, wgsl.txt:26057): one value read from workgroup memory,
@@ -797,7 +797,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: () => {
       throw new Error(
         'glsl-es300: workgroupUniformLoad has no GLSL ES 3.00 spelling (no compute stage)',
-      )
+      );
     },
   },
   textureDimensions: {
@@ -828,7 +828,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: () => {
       throw new Error(
         'glsl-es300: a multisampled load has no GLSL ES 3.00 spelling (sampler2DMS is ES 3.10)',
-      )
+      );
     },
   },
   textureLoadDepthMs: {
@@ -836,7 +836,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: () => {
       throw new Error(
         'glsl-es300: a multisampled depth load has no GLSL ES 3.00 spelling (sampler2DMS is ES 3.10)',
-      )
+      );
     },
   },
   textureDimensionsMs: {
@@ -844,7 +844,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: () => {
       throw new Error(
         'glsl-es300: textureDimensions on a multisampled texture has no GLSL ES 3.00 spelling',
-      )
+      );
     },
   },
   textureNumSamples: {
@@ -852,7 +852,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: () => {
       throw new Error(
         'glsl-es300: textureNumSamples has no GLSL ES 3.00 spelling (textureSamples is ES 3.10)',
-      )
+      );
     },
   },
   // textureDimensions1d(t) — ONE wide, a `u32` (roadmap 0.4 item 12); its own id for the reason
@@ -860,7 +860,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   textureDimensions1d: {
     wgsl: (a) => `textureDimensions(${join(a)})`,
     glsl: () => {
-      throw new Error('glsl-es300: textureDimensions on a texture_1d has no GLSL ES 3.00 spelling')
+      throw new Error('glsl-es300: textureDimensions on a texture_1d has no GLSL ES 3.00 spelling');
     },
   },
   // textureNumLayers(t) — the layer COUNT of a 2d-array texture (X-GIS #1658), i.e. the
@@ -885,7 +885,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: () => {
       throw new Error(
         'glsl-es300: a storage texture has no GLSL ES 3.00 spelling (image load/store is ES 3.10)',
-      )
+      );
     },
   },
   // ── The packed 4x8 integer family (#152, wgsl.txt:21906/21920) ──
@@ -951,7 +951,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `storageFetchI32(${join(a)})`,
     glsl: storageFetchGlsl('_sfetchI'),
   },
-}
+};
 
 // ── Spelling-embedded binding references ──
 //
@@ -976,7 +976,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
  */
 export const INTRINSIC_BINDING_REFS: Readonly<Record<string, readonly string[]>> = {
   f64Guard: ['_fp64'],
-}
+};
 
 // ── Spelling-provided helper functions ──
 //
@@ -1005,7 +1005,7 @@ export const INTRINSIC_HELPERS: Readonly<
   storageFetchF32: { fn: '_sfetch', def: storageFetchDef('float', 'sampler2D', '_sfetch') },
   storageFetchU32: { fn: '_sfetchU', def: storageFetchDef('uint', 'usampler2D', '_sfetchU') },
   storageFetchI32: { fn: '_sfetchI', def: storageFetchDef('int', 'isampler2D', '_sfetchI') },
-}
+};
 
 /** Spells a call for one target. When `name` has an {@link INTRINSICS} entry, returns that
  *  entry's spelling for `target` applied to `args`; otherwise returns `name(args)` with the
@@ -1025,9 +1025,9 @@ export function spellIntrinsic(
   name: string,
   args: readonly string[],
 ): string {
-  const entry = INTRINSICS[name]
-  if (entry) return entry[target](args)
-  return `${name}(${join(args)})`
+  const entry = INTRINSICS[name];
+  if (entry) return entry[target](args);
+  return `${name}(${join(args)})`;
 }
 
 /** Returns true when `name`'s spelling splices an argument into a position that binds tighter
@@ -1038,7 +1038,8 @@ export function spellIntrinsic(
  *
  *  @param name The builtin id.
  */
-export const intrinsicNeedsAtomArgs = (name: string): boolean => INTRINSICS[name]?.atomArgs === true
+export const intrinsicNeedsAtomArgs = (name: string): boolean =>
+  INTRINSICS[name]?.atomArgs === true;
 
 // ── Portable builtins (the EXPLICIT identity-spelled set) ──
 //
@@ -1113,7 +1114,7 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
   'dot',
   'distance',
   'cross',
-])
+]);
 
 // ── Pre-emit-consumed builtins (the THIRD classification) ──
 //
@@ -1134,7 +1135,11 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
  *
  *  Exported from `typeshade`.
  */
-export const PRE_EMIT_INTRINSICS: ReadonlySet<string> = new Set(['f64', 'f64FromParts', 'f64Parts'])
+export const PRE_EMIT_INTRINSICS: ReadonlySet<string> = new Set([
+  'f64',
+  'f64FromParts',
+  'f64Parts',
+]);
 
 /** Returns true when `name` is a builtin the registry can spell on every target: either an id
  *  with an {@link INTRINSICS} entry or a member of {@link PORTABLE_INTRINSICS}. An id that is
@@ -1145,7 +1150,7 @@ export const PRE_EMIT_INTRINSICS: ReadonlySet<string> = new Set(['f64', 'f64From
  *  @param name The `call` id to test.
  */
 export const isKnownIntrinsic = (name: string): boolean =>
-  Object.prototype.hasOwnProperty.call(INTRINSICS, name) || PORTABLE_INTRINSICS.has(name)
+  Object.prototype.hasOwnProperty.call(INTRINSICS, name) || PORTABLE_INTRINSICS.has(name);
 
 /** The intrinsics whose value is a difference between neighbouring invocations, so WGSL
  *  requires uniform control flow at the call (wgsl.txt:17477-17482, §54): the derivatives
@@ -1170,4 +1175,4 @@ export const DERIVATIVE_INTRINSICS: ReadonlySet<string> = new Set(
       (id.startsWith('textureSample') && !id.includes('Level') && !id.includes('Grad')) ||
       /^(dpdx|dpdy|fwidth)/.test(id),
   ),
-)
+);

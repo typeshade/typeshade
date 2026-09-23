@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { wgslLayout, reflect } from './reflect.js'
+import { describe, it, expect } from 'vitest';
+import { wgslLayout, reflect } from './reflect.js';
 import {
   mat4x4fT,
   matT,
@@ -24,13 +24,13 @@ import {
   type ModuleDecl,
   type ShaderType,
   workgroupShapeOf,
-} from './ir/index.js'
-import { uniformStruct } from './sot.js'
+} from './ir/index.js';
+import { uniformStruct } from './sot.js';
 
 const struct = (
   name: string,
   fields: [string, StructDecl['fields'][number]['type']][],
-): StructDecl => ({ name, fields: fields.map(([n, t]) => ({ name: n, type: t })) })
+): StructDecl => ({ name, fields: fields.map(([n, t]) => ({ name: n, type: t })) });
 
 describe('wgslLayout — std140 / std430 offset engine', () => {
   it('anchors to the shipping point Uniforms offsets (mat4x4 + 5×vec4 = 144 bytes)', () => {
@@ -43,8 +43,8 @@ describe('wgslLayout — std140 / std430 offset engine', () => {
       ['cam_ecef_h', vec4fT],
       ['cam_ecef_l', vec4fT],
       ['circle_params', vec4fT],
-    ])
-    const L = wgslLayout(U, 'std140')
+    ]);
+    const L = wgslLayout(U, 'std140');
     expect(Object.fromEntries(L.fields.map((f) => [f.name, f.offset]))).toEqual({
       mvp: 0,
       proj_params: 64,
@@ -52,43 +52,43 @@ describe('wgslLayout — std140 / std430 offset engine', () => {
       cam_ecef_h: 96,
       cam_ecef_l: 112,
       circle_params: 128,
-    })
-    expect(L.size).toBe(144)
-    expect(L.align).toBe(16)
-  })
+    });
+    expect(L.size).toBe(144);
+    expect(L.align).toBe(16);
+  });
 
   it('vec3 has align 16 / size 12 (the classic std140 trap)', () => {
     const S = struct('S', [
       ['a', f32T],
       ['b', vec3fT],
       ['c', f32T],
-    ])
-    const L = wgslLayout(S, 'std140')
-    expect(L.fields.map((f) => f.offset)).toEqual([0, 16, 28]) // a@0, b aligns to 16, c@28
-    expect(L.size).toBe(32)
-  })
+    ]);
+    const L = wgslLayout(S, 'std140');
+    expect(L.fields.map((f) => f.offset)).toEqual([0, 16, 28]); // a@0, b aligns to 16, c@28
+    expect(L.size).toBe(32);
+  });
 
   it('std140 rounds struct base alignment up to 16; std430 uses natural alignment', () => {
     const Inner = struct('Inner', [
       ['x', f32T],
       ['y', f32T],
-    ])
-    expect(wgslLayout(Inner, 'std140')).toMatchObject({ align: 16, size: 16 })
-    expect(wgslLayout(Inner, 'std430')).toMatchObject({ align: 4, size: 8 })
-  })
+    ]);
+    expect(wgslLayout(Inner, 'std140')).toMatchObject({ align: 16, size: 16 });
+    expect(wgslLayout(Inner, 'std430')).toMatchObject({ align: 4, size: 8 });
+  });
 
   it('f64 occupies its lowered vec2<f32> slot (8/8) — authored and lowered layouts agree', () => {
     const S = struct('S', [
       ['a', f32T], // @0
       ['origin', f64T], // aligns to 8 → @8, size 8 (hi, lo)
       ['b', f32T], // @16
-    ])
-    const L = wgslLayout(S, 'std140')
-    expect(L.fields.map((f) => f.offset)).toEqual([0, 8, 16])
+    ]);
+    const L = wgslLayout(S, 'std140');
+    expect(L.fields.map((f) => f.offset)).toEqual([0, 8, 16]);
     // Hosts pack the pair with splitF64: hi at offset, lo at offset+4.
-    expect(L.fields[1]).toMatchObject({ size: 8, align: 8 })
-  })
-})
+    expect(L.fields[1]).toMatchObject({ size: 8, align: 8 });
+  });
+});
 
 describe('reflect — f64 vertex attribute', () => {
   it('an f64 @location param reflects as one 8-byte (vec2<f32>) attribute slot', () => {
@@ -110,22 +110,22 @@ describe('reflect — f64 vertex attribute', () => {
           body: [],
         },
       ],
-    }
-    const v = reflect(m).vertex!
+    };
+    const v = reflect(m).vertex!;
     expect(v.attributes).toEqual([
       { name: 'pos_x', location: 0, type: 'f64', offset: 0 },
       { name: 'weight', location: 1, type: 'f32', offset: 8 },
-    ])
-    expect(v.arrayStride).toBe(12)
-  })
-})
+    ]);
+    expect(v.arrayStride).toBe(12);
+  });
+});
 
 describe('reflect — module metadata walker', () => {
   it('recovers bind groups, std140 uniform layout, and entry signatures', () => {
     const U = struct('Uniforms', [
       ['mvp', mat4x4fT],
       ['viewport', vec4fT],
-    ])
+    ]);
     const m: ModuleDecl = {
       consts: [],
       structs: [U],
@@ -148,8 +148,8 @@ describe('reflect — module metadata walker', () => {
           body: [],
         },
       ],
-    }
-    const r = reflect(m)
+    };
+    const r = reflect(m);
     expect(r.bindGroups).toEqual([
       {
         group: 0,
@@ -168,12 +168,12 @@ describe('reflect — module metadata walker', () => {
           },
         ],
       },
-    ])
-    expect(r.uniforms[0]?.size).toBe(80) // mat4x4(64) + vec4(16)
-    expect(r.entries.map((e) => e.stage)).toEqual(['vertex', 'compute'])
-    expect(r.entries.find((e) => e.stage === 'compute')?.workgroupSize).toBe(64)
-    expect(r.entries.find((e) => e.stage === 'compute')?.workgroupShape).toEqual([64, 1, 1])
-  })
+    ]);
+    expect(r.uniforms[0]?.size).toBe(80); // mat4x4(64) + vec4(16)
+    expect(r.entries.map((e) => e.stage)).toEqual(['vertex', 'compute']);
+    expect(r.entries.find((e) => e.stage === 'compute')?.workgroupSize).toBe(64);
+    expect(r.entries.find((e) => e.stage === 'compute')?.workgroupShape).toEqual([64, 1, 1]);
+  });
 
   it('reports the workgroup shape fn() declares, and emits only the extents WGSL needs', () => {
     const cases = [
@@ -181,14 +181,14 @@ describe('reflect — module metadata walker', () => {
       [[4, 1, 2], [4, 1, 2], '@workgroup_size(4, 1, 2)'],
       [[32, 1, 1], [32, 1, 1], '@workgroup_size(32)'],
       [32, [32, 1, 1], '@workgroup_size(32)'],
-    ] as const
+    ] as const;
     for (const [size, shape, attr] of cases) {
-      const cs = fn('cs', {}, () => {}, { stage: 'compute', workgroupSize: size })
-      const m = module({ funcs: [cs] })
-      const entry = reflect(m).entries[0]
-      expect(entry?.workgroupShape, String(size)).toEqual(shape)
-      expect(entry?.workgroupSize, String(size)).toBe(shape[0])
-      expect(cs.attrs, String(size)).toEqual(['@compute', attr])
+      const cs = fn('cs', {}, () => {}, { stage: 'compute', workgroupSize: size });
+      const m = module({ funcs: [cs] });
+      const entry = reflect(m).entries[0];
+      expect(entry?.workgroupShape, String(size)).toEqual(shape);
+      expect(entry?.workgroupSize, String(size)).toBe(shape[0]);
+      expect(cs.attrs, String(size)).toEqual(['@compute', attr]);
       // A hand-built decl carrying only the attribute string reads the same shape.
       const bare = {
         name: 'cs',
@@ -196,11 +196,11 @@ describe('reflect — module metadata walker', () => {
         params: [],
         ret: { kind: 'void' as const },
         body: [],
-      }
-      expect(workgroupShapeOf(bare), String(size)).toEqual(shape)
+      };
+      expect(workgroupShapeOf(bare), String(size)).toEqual(shape);
     }
-  })
-})
+  });
+});
 
 // X-GIS #1651 — `resourceKind: 'texture'` alone under-describes a texture binding: a host
 // creating the bind group needs the DIM to pick a 2d / 2d-array / multisampled view.
@@ -225,7 +225,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651) and ele
         { group: 0, binding: 6, name: 'id_atlas', space: 'uniform', type: texture2dArrayuT },
       ],
       funcs: [],
-    }
+    };
     // `stages: []` on every row: the fixture declares no entry point, so no stage
     // reaches any of these bindings (X-GIS #1906).
     expect(reflect(m).bindGroups[0]?.entries).toEqual([
@@ -307,9 +307,9 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651) and ele
         textureDim: '2d-array',
         textureElem: 'u32',
       },
-    ])
-  })
-})
+    ]);
+  });
+});
 
 describe('reflect() reports the bindings a LOWERING injects, not just the declared ones (X-GIS #1724)', () => {
   // The `_fp64` anti-fast-math guard is auto-injected by fp64Lower, inside emit. Before this,
@@ -318,7 +318,7 @@ describe('reflect() reports the bindings a LOWERING injects, not just the declar
   // is a validation error; on WebGL2 there is no error at all — the sampler stays on its
   // default unit and the guard silently reads a value that is not 1.0.
   const f64Module = () => {
-    const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, { epoch: f64T })
+    const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, { epoch: f64T });
     return module({
       uses: [U],
       funcs: [
@@ -328,23 +328,23 @@ describe('reflect() reports the bindings a LOWERING injects, not just the declar
           stage: 'fragment',
         }),
       ],
-    })
-  }
+    });
+  };
 
   it('reports `_fp64` for a module that uses f64 arithmetic', () => {
-    const names = reflect(f64Module()).bindGroups.flatMap((g) => g.entries.map((e) => e.name))
-    expect(names).toContain('_fp64')
-  })
+    const names = reflect(f64Module()).bindGroups.flatMap((g) => g.entries.map((e) => e.name));
+    expect(names).toContain('_fp64');
+  });
 
   it('describes it completely enough to actually bind', () => {
     // A name alone is not bindable. `resourceKind` + `textureDim` + `textureElem` are what a
     // host needs to create the 1x1 texture the guard requires.
     const e = reflect(f64Module())
       .bindGroups.flatMap((g) => g.entries)
-      .find((x) => x.name === '_fp64')!
-    expect(e).toMatchObject({ resourceKind: 'texture', textureDim: '2d', textureElem: 'f32' })
-    expect(e.owner).toBe('module') // ours to create, not the host's to supply
-  })
+      .find((x) => x.name === '_fp64')!;
+    expect(e).toMatchObject({ resourceKind: 'texture', textureDim: '2d', textureElem: 'f32' });
+    expect(e.owner).toBe('module'); // ours to create, not the host's to supply
+  });
 
   it("reports NO guard for the 'integer' flavor, which never reads one", () => {
     // The arm that makes the two above mean something: if reflect() simply appended `_fp64`
@@ -353,19 +353,19 @@ describe('reflect() reports the bindings a LOWERING injects, not just the declar
     // 'integer') is told to bind exactly what that emit declares.
     const names = reflect(f64Module(), { fp64Flavor: 'integer' }).bindGroups.flatMap((g) =>
       g.entries.map((e) => e.name),
-    )
-    expect(names).not.toContain('_fp64')
-    expect(names).toContain('u') // …and the module's own bindings are still all there
-  })
+    );
+    expect(names).not.toContain('_fp64');
+    expect(names).toContain('u'); // …and the module's own bindings are still all there
+  });
 
   it('leaves a module without f64 completely untouched', () => {
-    const U = uniformStruct('P', { group: 0, binding: 0, as: 'p' }, { k: f32T })
+    const U = uniformStruct('P', { group: 0, binding: 0, as: 'p' }, { k: f32T });
     const plain = module({
       uses: [U],
       funcs: [fn('fs', {}, () => vec4(U.field.k, 0.0, 0.0, 1.0), { stage: 'fragment' })],
-    })
-    expect(reflect(plain).bindGroups.flatMap((g) => g.entries.map((e) => e.name))).toEqual(['p'])
-  })
+    });
+    expect(reflect(plain).bindGroups.flatMap((g) => g.entries.map((e) => e.name))).toEqual(['p']);
+  });
 
   // §50 — the `requires` axis, the WGSL LANGUAGE extensions, which is a different list from
   // `requiredFeatures` (the device features `enable` names) and answered against
@@ -393,15 +393,15 @@ describe('reflect() reports the bindings a LOWERING injects, not just the declar
           body: [],
         },
       ],
-    })
+    });
     expect(reflect(rw('read_write')).requiredLanguageFeatures).toEqual([
       'readonly_and_readwrite_storage_textures',
-    ])
+    ]);
     // Write-only is core WGSL, so the list stays empty — which is what keeps this from
     // being a rubber stamp that reports the feature for every storage texture.
-    expect(reflect(rw('write')).requiredLanguageFeatures).toEqual([])
-  })
-})
+    expect(reflect(rw('write')).requiredLanguageFeatures).toEqual([]);
+  });
+});
 
 // ═══ P1-23 of #155 — every handle kind the IR can hold, reflected ═══
 //
@@ -422,45 +422,45 @@ describe('reflect — every handle kind the IR can hold', () => {
       structs: [],
       bindings: [{ group: 0, binding: 0, name: 'h', space: 'uniform', type }],
       funcs: [],
-    } as unknown as ModuleDecl
-    const entry = reflect(m).bindGroups[0]?.entries[0] as unknown as Record<string, unknown>
-    const { group, binding, name, space, owner, stages, ...rest } = entry
+    } as unknown as ModuleDecl;
+    const entry = reflect(m).bindGroups[0]?.entries[0] as unknown as Record<string, unknown>;
+    const { group, binding, name, space, owner, stages, ...rest } = entry;
     // The six `void`s satisfy `noUnusedLocals`: the destructure exists to REMOVE those keys
     // from `rest`, not to read them, and the rest element is the only part used.
-    void group
-    void binding
-    void name
-    void space
-    void owner
-    void stages
-    return rest
-  }
+    void group;
+    void binding;
+    void name;
+    void space;
+    void owner;
+    void stages;
+    return rest;
+  };
 
   const sampled = (dim: string, elem: string): ShaderType =>
-    ({ kind: 'texture', dim, elem }) as unknown as ShaderType
+    ({ kind: 'texture', dim, elem }) as unknown as ShaderType;
   const depth = (dim: string): ShaderType =>
-    ({ kind: 'depth-texture', dim }) as unknown as ShaderType
+    ({ kind: 'depth-texture', dim }) as unknown as ShaderType;
   const storage = (dim: string, format: string, access: string): ShaderType =>
-    ({ kind: 'storage-texture', dim, format, access }) as unknown as ShaderType
+    ({ kind: 'storage-texture', dim, format, access }) as unknown as ShaderType;
 
-  const DIMS = ['1d', '2d', '2d-array', '3d', 'cube', 'cube-array', '2d-ms'] as const
-  const ELEMS = ['f32', 'i32', 'u32'] as const
+  const DIMS = ['1d', '2d', '2d-array', '3d', 'cube', 'cube-array', '2d-ms'] as const;
+  const ELEMS = ['f32', 'i32', 'u32'] as const;
 
   it('carries the dim and the element of every sampled texture, for every pair', () => {
-    const wrong: string[] = []
+    const wrong: string[] = [];
     for (const elem of ELEMS) {
       for (const dim of DIMS) {
-        const got = entryFor(sampled(dim, elem))
-        const want = { resourceKind: 'texture', textureDim: dim, textureElem: elem }
+        const got = entryFor(sampled(dim, elem));
+        const want = { resourceKind: 'texture', textureDim: dim, textureElem: elem };
         if (JSON.stringify(got) !== JSON.stringify(want)) {
-          wrong.push(`${dim}<${elem}>: ${JSON.stringify(got)}`)
+          wrong.push(`${dim}<${elem}>: ${JSON.stringify(got)}`);
         }
       }
     }
-    expect(wrong).toEqual([])
+    expect(wrong).toEqual([]);
     // The floor: 21 pairs, so a `DIMS` or `ELEMS` that shrank to nothing cannot green the arm.
-    expect(DIMS.length * ELEMS.length).toBe(21)
-  })
+    expect(DIMS.length * ELEMS.length).toBe(21);
+  });
 
   it('marks a depth texture by textureDepth and gives it NO element, on every dim', () => {
     // Deliberate, and the shape a host needs: WebGPU's `sampleType` for a depth binding is
@@ -470,9 +470,9 @@ describe('reflect — every handle kind the IR can hold', () => {
         resourceKind: 'texture',
         textureDim: dim,
         textureDepth: true,
-      })
+      });
     }
-  })
+  });
 
   it('spells the storage access the way WebGPU does, at every access mode and dim', () => {
     // `read-only` appears in no other suite; the compiler tests reach write-only and
@@ -484,55 +484,58 @@ describe('reflect — every handle kind the IR can hold', () => {
         textureDim: dim,
         storageFormat: 'rgba8unorm',
         storageAccess: 'write-only',
-      })
+      });
       expect(entryFor(storage(dim, 'rgba8unorm', 'read')), dim).toEqual({
         resourceKind: 'storage-texture',
         textureDim: dim,
         storageFormat: 'rgba8unorm',
         storageAccess: 'read-only',
-      })
+      });
       expect(entryFor(storage(dim, 'r32float', 'read_write')), dim).toEqual({
         resourceKind: 'storage-texture',
         textureDim: dim,
         storageFormat: 'r32float',
         storageAccess: 'read-write',
-      })
+      });
     }
-  })
+  });
 
   it('tells a comparison sampler from a filtering one, which is a different bind-group type', () => {
-    expect(entryFor(samplerT)).toEqual({ resourceKind: 'sampler' })
+    expect(entryFor(samplerT)).toEqual({ resourceKind: 'sampler' });
     expect(entryFor(samplerComparisonT)).toEqual({
       resourceKind: 'sampler',
       samplerComparison: true,
-    })
-  })
-})
+    });
+  });
+});
 
 // The matrix layout rows of wgsl.txt:15528-15640, and the one place the two targets part.
 // Measured on real ANGLE and Tint (#149): std140 rounds every matrix column up to 16 bytes,
 // while WGSL's column stride is AlignOf(vecR<f32>) — 8 when the matrix has two ROWS and 16
 // otherwise. So `matCx2` is the divergent family and every other shape agrees byte for byte.
 describe('wgslLayout — matCxR (#149)', () => {
-  const SHAPES = [2, 3, 4] as const
+  const SHAPES = [2, 3, 4] as const;
   /** WGSL: a column is a vecR, so the stride is roundUp(SizeOf(vecR), AlignOf(vecR)). */
   const COLUMN = {
     2: { size: 8, align: 8 },
     3: { size: 16, align: 16 },
     4: { size: 16, align: 16 },
-  }
+  };
 
   it.each(SHAPES.flatMap((c) => SHAPES.map((r) => [c, r] as const)))(
     'lays out mat%ix%i as columns of a vecR, per wgsl.txt:15528-15640',
     (cols, rows) => {
-      const col = COLUMN[rows]
-      const l = wgslLayout({ name: 'M', fields: [{ name: 'm', type: matT(cols, rows) }] }, 'std430')
+      const col = COLUMN[rows];
+      const l = wgslLayout(
+        { name: 'M', fields: [{ name: 'm', type: matT(cols, rows) }] },
+        'std430',
+      );
       // SizeOf(matCxR) = C * SizeOf(vecR) rounded to the column's alignment; AlignOf is the
       // column's. A struct of one field is that field plus the struct's own rounding.
-      expect(l.fields[0]!.size, `mat${cols}x${rows} size`).toBe(col.size * cols)
-      expect(l.fields[0]!.align, `mat${cols}x${rows} align`).toBe(col.align)
+      expect(l.fields[0]!.size, `mat${cols}x${rows} size`).toBe(col.size * cols);
+      expect(l.fields[0]!.align, `mat${cols}x${rows} align`).toBe(col.align);
     },
-  )
+  );
 
   it('agrees with the measured GLSL std140 stride on every shape it admits', () => {
     // ANGLE reports UNIFORM_MATRIX_STRIDE 16 for all nine. The shapes std140 admits here are
@@ -543,11 +546,11 @@ describe('wgslLayout — matCxR (#149)', () => {
         const l = wgslLayout(
           { name: 'M', fields: [{ name: 'm', type: matT(cols, rows) }] },
           'std140',
-        )
-        expect(l.fields[0]!.size, `mat${cols}x${rows}`).toBe(16 * cols)
+        );
+        expect(l.fields[0]!.size, `mat${cols}x${rows}`).toBe(16 * cols);
       }
     }
-  })
+  });
 
   it('places a matrix field at the offset its column alignment asks for', () => {
     // A scalar, then a mat3x3: the matrix's align is 16, so it starts at 16 and not at 4.
@@ -561,20 +564,20 @@ describe('wgslLayout — matCxR (#149)', () => {
         ],
       },
       'std140',
-    )
-    expect(l.fields.map((f) => f.offset)).toEqual([0, 16, 64])
-    expect(l.size).toBe(80)
-  })
+    );
+    expect(l.fields.map((f) => f.offset)).toEqual([0, 16, 64]);
+    expect(l.size).toBe(80);
+  });
 
   it('refuses every two-row matrix in std140 and no other shape', () => {
     for (const cols of SHAPES) {
       expect(() =>
         wgslLayout({ name: 'M', fields: [{ name: 'm', type: matT(cols, 2) }] }, 'std140'),
-      ).toThrow(/two-row matrix a column stride of 8/)
+      ).toThrow(/two-row matrix a column stride of 8/);
       // std430 has no such rule — the divergence is the uniform layout's alone.
       expect(() =>
         wgslLayout({ name: 'M', fields: [{ name: 'm', type: matT(cols, 2) }] }, 'std430'),
-      ).not.toThrow()
+      ).not.toThrow();
     }
-  })
-})
+  });
+});

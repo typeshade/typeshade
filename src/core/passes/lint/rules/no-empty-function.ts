@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine.js'
+import type { LintRule } from '../engine.js';
 
 /** A function with an empty body is almost always a stub or an accidental no-op. */
 export const noEmptyFunction: LintRule = {
@@ -8,7 +8,7 @@ export const noEmptyFunction: LintRule = {
   category: 'correctness',
   create: (ctx) => ({
     Func(f) {
-      if (f.body.length === 0) ctx.report(`fn '${f.name}' has an empty body`, { fn: f.name })
+      if (f.body.length === 0) ctx.report(`fn '${f.name}' has an empty body`, { fn: f.name });
     },
   }),
-}
+};

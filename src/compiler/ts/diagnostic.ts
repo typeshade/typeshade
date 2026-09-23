@@ -1,9 +1,9 @@
 // === One place that builds a TsCompilerDiagnostic, so every site agrees on its span ===
 
-import ts from 'typescript'
-import type { TsCompilerDiagnostic } from './source-file.js'
-import { TS_CODES, type TsCode } from './codes.js'
-import type { SourceSpan } from '../../core/ir/span.js'
+import ts from 'typescript';
+import type { TsCompilerDiagnostic } from './source-file.js';
+import { TS_CODES, type TsCode } from './codes.js';
+import type { SourceSpan } from '../../core/ir/span.js';
 
 /**
  * Builds the diagnostic from a raw `[start, end)` UTF-16 span, converting it into the
@@ -17,8 +17,8 @@ function diagnosticForSpan(
   code: TsCode,
   category: TsCompilerDiagnostic['category'],
 ): TsCompilerDiagnostic {
-  const startPos = sourceFile.getLineAndCharacterOfPosition(start)
-  const endPos = sourceFile.getLineAndCharacterOfPosition(end)
+  const startPos = sourceFile.getLineAndCharacterOfPosition(start);
+  const endPos = sourceFile.getLineAndCharacterOfPosition(end);
   return {
     message,
     fileName: sourceFile.fileName,
@@ -30,7 +30,7 @@ function diagnosticForSpan(
     code,
     start,
     length: end - start,
-  }
+  };
 }
 
 /**
@@ -50,10 +50,10 @@ export function makeDiagnostic(
   code: TsCode,
   category: TsCompilerDiagnostic['category'] = 'error',
 ): TsCompilerDiagnostic {
-  const fallback = sourceFile.statements[0]
-  const start = node ? node.getStart(sourceFile) : (fallback?.getStart(sourceFile) ?? 0)
-  const end = node ? node.getEnd() : (fallback?.getEnd() ?? start)
-  return diagnosticForSpan(sourceFile, start, end, message, code, category)
+  const fallback = sourceFile.statements[0];
+  const start = node ? node.getStart(sourceFile) : (fallback?.getStart(sourceFile) ?? 0);
+  const end = node ? node.getEnd() : (fallback?.getEnd() ?? start);
+  return diagnosticForSpan(sourceFile, start, end, message, code, category);
 }
 
 /**
@@ -70,7 +70,7 @@ export function diagnosticAtSpan(
   code: TsCode,
   category: TsCompilerDiagnostic['category'] = 'error',
 ): TsCompilerDiagnostic {
-  if (span === undefined) return makeDiagnostic(sourceFile, fallback, message, code, category)
+  if (span === undefined) return makeDiagnostic(sourceFile, fallback, message, code, category);
   return diagnosticForSpan(
     sourceFile,
     span.start,
@@ -78,7 +78,7 @@ export function diagnosticAtSpan(
     message,
     code,
     category,
-  )
+  );
 }
 
 /**
@@ -96,7 +96,7 @@ export function makeSpanDiagnostic(
   code: TsCode,
   category: TsCompilerDiagnostic['category'] = 'error',
 ): TsCompilerDiagnostic {
-  return diagnosticForSpan(sourceFile, start, start + length, message, code, category)
+  return diagnosticForSpan(sourceFile, start, start + length, message, code, category);
 }
 
 /**
@@ -120,7 +120,7 @@ export function backendDiagnostic(
     `Backend emit failed: ${error instanceof Error ? error.message : String(error)}`,
     TS_CODES.BACKEND,
     category,
-  )
+  );
 }
 
 /**
@@ -132,8 +132,8 @@ export function backendDiagnostic(
  */
 export function syntaxDiagnostics(sourceFile: ts.SourceFile): TsCompilerDiagnostic[] {
   return parseDiagnosticsOf(sourceFile).map((d) => {
-    const start = Math.min(d.start ?? 0, sourceFile.text.length)
-    const end = Math.min(start + (d.length ?? 0), sourceFile.text.length)
+    const start = Math.min(d.start ?? 0, sourceFile.text.length);
+    const end = Math.min(start + (d.length ?? 0), sourceFile.text.length);
     return diagnosticForSpan(
       sourceFile,
       start,
@@ -141,18 +141,18 @@ export function syntaxDiagnostics(sourceFile: ts.SourceFile): TsCompilerDiagnost
       ts.flattenDiagnosticMessageText(d.messageText, ' '),
       TS_CODES.SYNTAX,
       categoryOf(d.category),
-    )
-  })
+    );
+  });
 }
 
 function categoryOf(category: ts.DiagnosticCategory): TsCompilerDiagnostic['category'] {
   switch (category) {
     case ts.DiagnosticCategory.Error:
-      return 'error'
+      return 'error';
     case ts.DiagnosticCategory.Warning:
-      return 'warning'
+      return 'warning';
     default:
-      return 'message'
+      return 'message';
   }
 }
 
@@ -165,8 +165,8 @@ function categoryOf(category: ts.DiagnosticCategory): TsCompilerDiagnostic['cate
  */
 function parseDiagnosticsOf(sourceFile: ts.SourceFile): readonly ts.Diagnostic[] {
   const recorded = (sourceFile as unknown as { parseDiagnostics?: readonly ts.Diagnostic[] })
-    .parseDiagnostics
-  if (recorded) return recorded
+    .parseDiagnostics;
+  if (recorded) return recorded;
   const host: ts.CompilerHost = {
     getSourceFile: (name) => (name === sourceFile.fileName ? sourceFile : undefined),
     getDefaultLibFileName: () => 'lib.d.ts',
@@ -177,8 +177,8 @@ function parseDiagnosticsOf(sourceFile: ts.SourceFile): readonly ts.Diagnostic[]
     getNewLine: () => '\n',
     fileExists: (name) => name === sourceFile.fileName,
     readFile: () => undefined,
-  }
+  };
   return ts
     .createProgram([sourceFile.fileName], { noResolve: true, noLib: true, types: [] }, host)
-    .getSyntacticDiagnostics(sourceFile)
+    .getSyntacticDiagnostics(sourceFile);
 }

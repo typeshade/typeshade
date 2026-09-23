@@ -1,38 +1,38 @@
 // === Hover: TypeScript quick info for user symbols, TypeShade docs for the vocabulary (§5) ===
 
-import ts from 'typescript'
-import type { CompileTsSourceResult } from '../compiler/ts/source-file.js'
-import type { DeclaredSymbol } from '../compiler/ts/symbols.js'
-import type { ShaderType } from '../core/ir/types.js'
-import { wgslType } from '../core/backends/wgsl.js'
-import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js'
-import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js'
-import { rangeForSpan, touchingNodeAtPosition, wordSpan } from './positions.js'
-import type { TypeshadeHover } from './types.js'
+import ts from 'typescript';
+import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
+import type { DeclaredSymbol } from '../compiler/ts/symbols.js';
+import type { ShaderType } from '../core/ir/types.js';
+import { wgslType } from '../core/backends/wgsl.js';
+import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
+import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js';
+import { rangeForSpan, touchingNodeAtPosition, wordSpan } from './positions.js';
+import type { TypeshadeHover } from './types.js';
 
 function isBuiltinStringLiteral(node: ts.Node): node is ts.StringLiteralLike {
-  if (!ts.isStringLiteralLike(node)) return false
-  const call = node.parent
+  if (!ts.isStringLiteralLike(node)) return false;
+  const call = node.parent;
   return (
     ts.isCallExpression(call) &&
     ts.isIdentifier(call.expression) &&
     call.expression.text === 'builtin' &&
     call.arguments[0] === node
-  )
+  );
 }
 
 function isAttributeName(node: ts.Node): node is ts.Identifier {
-  if (!ts.isIdentifier(node)) return false
-  const parent = node.parent
+  if (!ts.isIdentifier(node)) return false;
+  const parent = node.parent;
   // `@vertex` (a bare decorator) or `@builtin(...)`/`@location(...)` (a decorator factory call).
-  if (ts.isDecorator(parent) && parent.expression === node) return true
-  return ts.isCallExpression(parent) && parent.expression === node && ts.isDecorator(parent.parent)
+  if (ts.isDecorator(parent) && parent.expression === node) return true;
+  return ts.isCallExpression(parent) && parent.expression === node && ts.isDecorator(parent.parent);
 }
 
 function isTypeName(node: ts.Node): node is ts.Identifier {
   return (
     ts.isIdentifier(node) && ts.isTypeReferenceNode(node.parent) && node.parent.typeName === node
-  )
+  );
 }
 
 /** The top-level variable declaration named `name` in `sourceFile`, if there is one. */
@@ -41,12 +41,12 @@ function topLevelVariableNamed(
   name: string,
 ): ts.VariableDeclaration | undefined {
   for (const stmt of sourceFile.statements) {
-    if (!ts.isVariableStatement(stmt)) continue
+    if (!ts.isVariableStatement(stmt)) continue;
     for (const decl of stmt.declarationList.declarations) {
-      if (ts.isIdentifier(decl.name) && decl.name.text === name) return decl
+      if (ts.isIdentifier(decl.name) && decl.name.text === name) return decl;
     }
   }
-  return undefined
+  return undefined;
 }
 
 /**
@@ -64,14 +64,14 @@ function resourceBindingLine(
   defs: readonly ts.DefinitionInfo[],
   node: ts.Node,
 ): string | undefined {
-  if (!ts.isIdentifier(node)) return undefined
-  const binding = analysis.bindings.find((b) => b.name === node.text)
-  if (binding === undefined) return undefined
-  const decl = topLevelVariableNamed(sourceFile, node.text)
-  if (decl === undefined) return undefined
-  const declStart = decl.name.getStart(sourceFile)
-  if (!defs.some((d) => d.fileName === uri && d.textSpan.start === declStart)) return undefined
-  return `${binding.space} resource at @group(${binding.group}) @binding(${binding.binding})`
+  if (!ts.isIdentifier(node)) return undefined;
+  const binding = analysis.bindings.find((b) => b.name === node.text);
+  if (binding === undefined) return undefined;
+  const decl = topLevelVariableNamed(sourceFile, node.text);
+  if (decl === undefined) return undefined;
+  const declStart = decl.name.getStart(sourceFile);
+  if (!defs.some((d) => d.fileName === uri && d.textSpan.start === declStart)) return undefined;
+  return `${binding.space} resource at @group(${binding.group}) @binding(${binding.binding})`;
 }
 
 /**
@@ -91,17 +91,17 @@ function resourceBindingLine(
 export function spellShaderType(t: ShaderType): string {
   switch (t.kind) {
     case 'f64':
-      return 'f64'
+      return 'f64';
     case 'vec64':
-      return `vec${t.n}<f64>`
+      return `vec${t.n}<f64>`;
     case 'mat':
-      return t.elem === 'f64' ? `mat${t.cols}x${t.rows}<f64>` : wgslType(t)
+      return t.elem === 'f64' ? `mat${t.cols}x${t.rows}<f64>` : wgslType(t);
     case 'array':
       return t.size !== undefined
         ? `array<${spellShaderType(t.elem)}, ${t.size}>`
-        : `array<${spellShaderType(t.elem)}>`
+        : `array<${spellShaderType(t.elem)}>`;
     default:
-      return wgslType(t)
+      return wgslType(t);
   }
 }
 
@@ -122,11 +122,11 @@ function declaredSymbolAt(
   defs: readonly ts.DefinitionInfo[],
 ): DeclaredSymbol | undefined {
   for (const def of defs) {
-    if (def.fileName !== uri) continue
-    const hit = analysis.symbols.find((s) => s.start === def.textSpan.start)
-    if (hit !== undefined) return hit
+    if (def.fileName !== uri) continue;
+    const hit = analysis.symbols.find((s) => s.start === def.textSpan.start);
+    if (hit !== undefined) return hit;
   }
-  return undefined
+  return undefined;
 }
 
 /**
@@ -136,31 +136,31 @@ function declaredSymbolAt(
  * compiler's `struct:Vertex` would only be noise.
  */
 function declarationLine(symbol: DeclaredSymbol): string | undefined {
-  const type = spellShaderType(symbol.type)
+  const type = spellShaderType(symbol.type);
   switch (symbol.kind) {
     case 'local':
-      return `${symbol.mutable === false ? 'const' : 'let'} ${symbol.name}: ${type}`
+      return `${symbol.mutable === false ? 'const' : 'let'} ${symbol.name}: ${type}`;
     case 'param':
-      return `(parameter) ${symbol.name}: ${type}`
+      return `(parameter) ${symbol.name}: ${type}`;
     case 'const':
-      return `const ${symbol.name}: ${type}`
+      return `const ${symbol.name}: ${type}`;
     // A binding keeps `const name: T` / `let name: T`, the shape TypeScript already uses for it:
     // the address space is on the resource line below, so spelling it `uniform<T>` here would
     // say it twice. The keyword is the declaration's own, since `declare let buf: storage<T>` is
     // what makes the buffer `read_write` and writing `const` over it would contradict both the
     // source and the write two lines down.
     case 'binding':
-      return `${symbol.mutable === true ? 'let' : 'const'} ${symbol.name}: ${type}`
+      return `${symbol.mutable === true ? 'let' : 'const'} ${symbol.name}: ${type}`;
     case 'function': {
       const params = (symbol.params ?? [])
         .map((p) => `${p.name}: ${spellShaderType(p.type)}`)
-        .join(', ')
-      return `function ${symbol.name}(${params}): ${type}`
+        .join(', ');
+      return `function ${symbol.name}(${params}): ${type}`;
     }
     case 'field':
-      return `(property) ${symbol.struct}.${symbol.name}: ${type}`
+      return `(property) ${symbol.struct}.${symbol.name}: ${type}`;
     case 'struct':
-      return undefined
+      return undefined;
   }
 }
 
@@ -189,40 +189,40 @@ export function getHover(
   // The touching rule: a caret at the end of a name answers for that name (#56). TypeScript's
   // own quick info already works that way, which is why the fall-through below looked right at
   // such a position while quietly being TypeScript's answer instead of the compiler's.
-  const node = touchingNodeAtPosition(sourceFile, offset)
+  const node = touchingNodeAtPosition(sourceFile, offset);
 
   if (isBuiltinStringLiteral(node) && WGSL_BUILTIN_NAMES.includes(node.text)) {
-    const doc = BUILTIN_DOCS[node.text]
+    const doc = BUILTIN_DOCS[node.text];
     if (doc) {
-      const span = { start: node.getStart() + 1, length: node.text.length }
-      return { contents: `\`${node.text}\` — ${doc}`, range: rangeForSpan(sourceFile, span) }
+      const span = { start: node.getStart() + 1, length: node.text.length };
+      return { contents: `\`${node.text}\` — ${doc}`, range: rangeForSpan(sourceFile, span) };
     }
   }
 
   if (isAttributeName(node) && ATTRIBUTE_NAMES.includes(node.text)) {
-    const doc = ATTRIBUTE_DOCS[node.text]
+    const doc = ATTRIBUTE_DOCS[node.text];
     if (doc) {
-      const span = { start: node.getStart(), length: node.getWidth() }
-      return { contents: `\`@${node.text}\` — ${doc}`, range: rangeForSpan(sourceFile, span) }
+      const span = { start: node.getStart(), length: node.getWidth() };
+      return { contents: `\`@${node.text}\` — ${doc}`, range: rangeForSpan(sourceFile, span) };
     }
   }
 
   if (isTypeName(node) && TYPE_DOCS[node.text]) {
-    const span = { start: node.getStart(), length: node.getWidth() }
+    const span = { start: node.getStart(), length: node.getWidth() };
     return {
       contents: `\`${node.text}\` — ${TYPE_DOCS[node.text]}`,
       range: rangeForSpan(sourceFile, span),
-    }
+    };
   }
 
-  const wSpan = wordSpan(sourceFile.text, offset)
-  const word = sourceFile.text.slice(wSpan.start, wSpan.start + wSpan.length)
+  const wSpan = wordSpan(sourceFile.text, offset);
+  const word = sourceFile.text.slice(wSpan.start, wSpan.start + wSpan.length);
   if (TYPE_DOCS[word] !== undefined && !ts.isIdentifier(node)) {
-    return { contents: `\`${word}\` — ${TYPE_DOCS[word]}`, range: rangeForSpan(sourceFile, wSpan) }
+    return { contents: `\`${word}\` — ${TYPE_DOCS[word]}`, range: rangeForSpan(sourceFile, wSpan) };
   }
 
-  const quickInfo = languageService.getQuickInfoAtPosition(uri, offset)
-  if (!quickInfo) return undefined
+  const quickInfo = languageService.getQuickInfoAtPosition(uri, offset);
+  if (!quickInfo) return undefined;
   // At most one definition query per hover, shared by the two answers that need it, and only
   // when one of them could use the result. Both key off the identifier's text: a recorded
   // symbol's span covers the declared name, so a definition that lands on one necessarily has
@@ -232,16 +232,16 @@ export function getHover(
   const mayResolve =
     ts.isIdentifier(node) &&
     (analysis.symbols.some((s) => s.name === node.text) ||
-      analysis.bindings.some((b) => b.name === node.text))
-  const defs = mayResolve ? (languageService.getDefinitionAtPosition(uri, offset) ?? []) : []
-  const declared = declaredSymbolAt(analysis, uri, defs)
+      analysis.bindings.some((b) => b.name === node.text));
+  const defs = mayResolve ? (languageService.getDefinitionAtPosition(uri, offset) ?? []) : [];
+  const declared = declaredSymbolAt(analysis, uri, defs);
   const display =
     (declared !== undefined ? declarationLine(declared) : undefined) ??
-    ts.displayPartsToString(quickInfo.displayParts)
-  const documentation = ts.displayPartsToString(quickInfo.documentation)
-  const resource = resourceBindingLine(analysis, sourceFile, uri, defs, node)
-  const sections = [`\`\`\`ts\n${display}\n\`\`\``]
-  if (resource !== undefined) sections.push(resource)
-  if (documentation) sections.push(documentation)
-  return { contents: sections.join('\n\n'), range: rangeForSpan(sourceFile, quickInfo.textSpan) }
+    ts.displayPartsToString(quickInfo.displayParts);
+  const documentation = ts.displayPartsToString(quickInfo.documentation);
+  const resource = resourceBindingLine(analysis, sourceFile, uri, defs, node);
+  const sections = [`\`\`\`ts\n${display}\n\`\`\``];
+  if (resource !== undefined) sections.push(resource);
+  if (documentation) sections.push(documentation);
+  return { contents: sections.join('\n\n'), range: rangeForSpan(sourceFile, quickInfo.textSpan) };
 }

@@ -38,8 +38,8 @@
 // Bails to identity when a fn body carries a `raw` Stmt (textual references
 // this walk cannot see).
 
-import { stageOf } from '../ir/index.js'
-import type { ModuleVarDecl } from '../ir/nodes.js'
+import { stageOf } from '../ir/index.js';
+import type { ModuleVarDecl } from '../ir/nodes.js';
 import type {
   ModuleDecl,
   FuncDecl,
@@ -48,13 +48,13 @@ import type {
   BindingDecl,
   Expr,
   Stmt,
-} from '../ir/index.js'
-import type { ShaderType } from '../ir/index.js'
-import { collectFnRefs, emptyRefSet } from '../ir/collect-refs.js'
-import { mapStmtExpr } from '../ir/visit.js'
-import { mapExpr } from './opt/ir-transform.js'
-import { bodyHasRaw } from './opt/dce.js'
-import { RESERVED_WORDS } from '../reserved-words.js'
+} from '../ir/index.js';
+import type { ShaderType } from '../ir/index.js';
+import { collectFnRefs, emptyRefSet } from '../ir/collect-refs.js';
+import { mapStmtExpr } from '../ir/visit.js';
+import { mapExpr } from './opt/ir-transform.js';
+import { bodyHasRaw } from './opt/dce.js';
+import { RESERVED_WORDS } from '../reserved-words.js';
 
 /** What {@link mangleModule} returns: the renamed module, and the map to read it back with.
  *
@@ -67,37 +67,37 @@ import { RESERVED_WORDS } from '../reserved-words.js'
  *  Exported from `typeshade/emit-prod`, `typeshade/dev`.
  */
 export interface MangleResult {
-  readonly module: ModuleDecl
+  readonly module: ModuleDecl;
   /** authored name → emitted name, for every renamed decl (the shader "source
    *  map": decode production driver logs / captures back to authored names).
    *  A function-scoped name (param / local) is keyed `authoredFn.authoredName`,
    *  since the same spelling is renamed independently in each function. */
-  readonly renames: ReadonlyMap<string, string>
+  readonly renames: ReadonlyMap<string, string>;
 }
 
-const ALPHA = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+const ALPHA = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 /** The i-th short name in bijective base-52: a, b, … Z, aa, ab, … */
 function nthName(i: number): string {
-  let out = ''
-  let n = i
+  let out = '';
+  let n = i;
   do {
-    out = ALPHA[n % 52]! + out
-    n = Math.floor(n / 52) - 1
-  } while (n >= 0)
-  return out
+    out = ALPHA[n % 52]! + out;
+    n = Math.floor(n / 52) - 1;
+  } while (n >= 0);
+  return out;
 }
 
 /** Hands out the shortest names not in `blocked`, in order. One pool names the
  *  module scope; a FRESH pool per function names that function's scope, so the
  *  short end of the alphabet is reused across functions. */
 function pool(blocked: ReadonlySet<string>): () => string {
-  let i = 0
+  let i = 0;
   return () => {
-    let n = nthName(i++)
-    while (blocked.has(n)) n = nthName(i++)
-    return n
-  }
+    let n = nthName(i++);
+    while (blocked.has(n)) n = nthName(i++);
+    return n;
+  };
 }
 
 /** Local decl names (let/var), recursively — collectFnRefs sees only
@@ -105,16 +105,16 @@ function pool(blocked: ReadonlySet<string>): () => string {
  *  name a generated name must not collide with. */
 function collectDeclNames(body: readonly Stmt[], acc: Set<string>): void {
   for (const s of body) {
-    if (s.s === 'let' || s.s === 'var') acc.add(s.name)
+    if (s.s === 'let' || s.s === 'var') acc.add(s.name);
     else if (s.s === 'if') {
-      for (const a of s.arms) collectDeclNames(a.body, acc)
-      if (s.elseBody) collectDeclNames(s.elseBody, acc)
+      for (const a of s.arms) collectDeclNames(a.body, acc);
+      if (s.elseBody) collectDeclNames(s.elseBody, acc);
     } else if (s.s === 'for') {
-      collectDeclNames([s.init], acc)
-      collectDeclNames(s.body, acc)
+      collectDeclNames([s.init], acc);
+      collectDeclNames(s.body, acc);
     } else if (s.s === 'switch') {
-      for (const c of s.cases) collectDeclNames(c.body, acc)
-      if (s.defaultBody) collectDeclNames(s.defaultBody, acc)
+      for (const c of s.cases) collectDeclNames(c.body, acc);
+      if (s.defaultBody) collectDeclNames(s.defaultBody, acc);
     }
   }
 }
@@ -146,49 +146,49 @@ function collectDeclNames(body: readonly Stmt[], acc: Set<string>): void {
 export function mangleModule(m: ModuleDecl): MangleResult {
   // A raw WGSL fragment can reference any name textually — renaming around it
   // would desync the verbatim splice. Identity, like dce-fns / stageScope.
-  if (m.funcs.some((f) => bodyHasRaw(f.body))) return { module: m, renames: new Map() }
+  if (m.funcs.some((f) => bodyHasRaw(f.body))) return { module: m, renames: new Map() };
 
-  const bindingStructNames = new Set<string>()
-  for (const b of m.bindings) if (b.type.kind === 'struct') bindingStructNames.add(b.type.name)
+  const bindingStructNames = new Set<string>();
+  for (const b of m.bindings) if (b.type.kind === 'struct') bindingStructNames.add(b.type.name);
 
   // ── every spelling that SURVIVES the rename (the collision guard) ──
   // A generated name may not take any of these. Entry-fn names and entry PARAM
   // names are here because they are ABI (see the header); everything else that
   // is renamed below is deliberately absent, so its old spelling is free to be
   // handed back out as a short name.
-  const survivors = new Set<string>(RESERVED_WORDS)
-  const refs = emptyRefSet()
+  const survivors = new Set<string>(RESERVED_WORDS);
+  const refs = emptyRefSet();
   for (const f of m.funcs) {
-    collectFnRefs(f, refs)
-    if (stageOf(f) === undefined) continue
-    survivors.add(f.name)
-    for (const p of f.params) survivors.add(p.name)
+    collectFnRefs(f, refs);
+    if (stageOf(f) === undefined) continue;
+    survivors.add(f.name);
+    for (const p of f.params) survivors.add(p.name);
   }
-  for (const n of refs.calls) survivors.add(n) // intrinsics + helper calls
-  for (const s of m.structs) for (const f of s.fields) survivors.add(f.name)
-  for (const b of m.bindings) survivors.add(b.name)
-  for (const o of m.overrides ?? []) survivors.add(o.name)
+  for (const n of refs.calls) survivors.add(n); // intrinsics + helper calls
+  for (const s of m.structs) for (const f of s.fields) survivors.add(f.name);
+  for (const b of m.bindings) survivors.add(b.name);
+  for (const o of m.overrides ?? []) survivors.add(o.name);
   // X-GIS #1713 — a host-provided global is spelled by the HOST's prelude, so renaming it (or
   // handing its spelling out as a generated short name) would desync the two. Same
   // treatment as an override name, and `rE` below likewise never rewrites an `externref`.
   for (const e of m.externs ?? []) {
-    survivors.add(e.name)
-    if (e.spelling?.wgsl) survivors.add(e.spelling.wgsl)
-    if (e.spelling?.glsl) survivors.add(e.spelling.glsl)
+    survivors.add(e.name);
+    if (e.spelling?.wgsl) survivors.add(e.spelling.wgsl);
+    if (e.spelling?.glsl) survivors.add(e.spelling.glsl);
   }
-  for (const n of bindingStructNames) survivors.add(n)
+  for (const n of bindingStructNames) survivors.add(n);
 
   // ── rename maps, in declaration order (deterministic across emit calls) ──
-  const fresh = pool(survivors)
+  const fresh = pool(survivors);
 
-  const fnMap = new Map<string, string>()
-  for (const f of m.funcs) if (stageOf(f) === undefined) fnMap.set(f.name, fresh())
+  const fnMap = new Map<string, string>();
+  for (const f of m.funcs) if (stageOf(f) === undefined) fnMap.set(f.name, fresh());
 
-  const structMap = new Map<string, string>()
-  for (const s of m.structs) if (!bindingStructNames.has(s.name)) structMap.set(s.name, fresh())
+  const structMap = new Map<string, string>();
+  for (const s of m.structs) if (!bindingStructNames.has(s.name)) structMap.set(s.name, fresh());
 
-  const constMap = new Map<string, string>()
-  for (const c of m.consts) constMap.set(c.name, fresh())
+  const constMap = new Map<string, string>();
+  for (const c of m.consts) constMap.set(c.name, fresh());
 
   // Function-scoped names restart from a pool that only has to dodge the module
   // scope, so `a`/`b`/`c` are reused in every function.
@@ -197,34 +197,34 @@ export function mangleModule(m: ModuleDecl): MangleResult {
     ...fnMap.values(),
     ...structMap.values(),
     ...constMap.values(),
-  ])
-  const localMaps = new Map<string, ReadonlyMap<string, string>>()
+  ]);
+  const localMaps = new Map<string, ReadonlyMap<string, string>>();
   for (const f of m.funcs) {
-    const scoped = new Map<string, string>()
-    const next = pool(moduleScope)
+    const scoped = new Map<string, string>();
+    const next = pool(moduleScope);
     // A helper's params share the scope with its locals; an entry's do not move.
-    const declared = new Set<string>()
-    if (stageOf(f) === undefined) for (const p of f.params) declared.add(p.name)
-    collectDeclNames(f.body, declared)
-    for (const name of declared) scoped.set(name, next())
-    localMaps.set(f.name, scoped)
+    const declared = new Set<string>();
+    if (stageOf(f) === undefined) for (const p of f.params) declared.add(p.name);
+    collectDeclNames(f.body, declared);
+    for (const name of declared) scoped.set(name, next());
+    localMaps.set(f.name, scoped);
   }
 
-  const anyLocal = [...localMaps.values()].some((s) => s.size > 0)
+  const anyLocal = [...localMaps.values()].some((s) => s.size > 0);
   if (fnMap.size === 0 && structMap.size === 0 && constMap.size === 0 && !anyLocal)
-    return { module: m, renames: new Map() }
+    return { module: m, renames: new Map() };
 
   const renameType = (t: ShaderType): ShaderType => {
     if (t.kind === 'struct') {
-      const to = structMap.get(t.name)
-      return to === undefined ? t : { ...t, name: to }
+      const to = structMap.get(t.name);
+      return to === undefined ? t : { ...t, name: to };
     }
     if (t.kind === 'array') {
-      const elem = renameType(t.elem)
-      return elem === t.elem ? t : { ...t, elem }
+      const elem = renameType(t.elem);
+      return elem === t.elem ? t : { ...t, elem };
     }
-    return t
-  }
+    return t;
+  };
 
   // `locals` is the enclosing function's scope map — `varref`/`param` are the
   // only reads of a function-scoped name, and both carry it in `.name`.
@@ -232,62 +232,62 @@ export function mangleModule(m: ModuleDecl): MangleResult {
     (locals: ReadonlyMap<string, string>) =>
     (e: Expr): Expr =>
       mapExpr(e, (x) => {
-        let y: Expr = x
-        if (y.op === 'call' && fnMap.has(y.fn)) y = { ...y, fn: fnMap.get(y.fn)! }
+        let y: Expr = x;
+        if (y.op === 'call' && fnMap.has(y.fn)) y = { ...y, fn: fnMap.get(y.fn)! };
         else if (y.op === 'constref' && constMap.has(y.name))
-          y = { ...y, name: constMap.get(y.name)! }
+          y = { ...y, name: constMap.get(y.name)! };
         else if ((y.op === 'varref' || y.op === 'param') && locals.has(y.name))
-          y = { ...y, name: locals.get(y.name)! }
-        const t = renameType(y.type)
-        return t === y.type ? y : { ...y, type: t }
-      })
+          y = { ...y, name: locals.get(y.name)! };
+        const t = renameType(y.type);
+        return t === y.type ? y : { ...y, type: t };
+      });
 
   // mapStmtExpr covers exprs but not the `var` stmt's DECLARED type — a struct-typed
   // local (`VsOut _out;`) spells the struct name, so rename it here. `let`/`var`
   // also carry the DECLARATION of a function-scoped name in `.name`.
   const mkRS = (locals: ReadonlyMap<string, string>): ((s: Stmt) => Stmt) => {
-    const rX = rE(locals)
-    const decl = (name: string): string => locals.get(name) ?? name
+    const rX = rE(locals);
+    const decl = (name: string): string => locals.get(name) ?? name;
     const rS = (s: Stmt): Stmt => {
       switch (s.s) {
         case 'let':
-          return { ...s, name: decl(s.name), expr: rX(s.expr) }
+          return { ...s, name: decl(s.name), expr: rX(s.expr) };
         case 'var':
           return {
             ...s,
             name: decl(s.name),
             type: renameType(s.type),
             ...(s.init !== undefined ? { init: rX(s.init) } : {}),
-          }
+          };
         default:
-          return mapStmtExpr(s, rX, rS)
+          return mapStmtExpr(s, rX, rS);
       }
-    }
-    return rS
-  }
+    };
+    return rS;
+  };
 
   const rFn = (f: FuncDecl): FuncDecl => {
-    const locals = localMaps.get(f.name) ?? new Map<string, string>()
+    const locals = localMaps.get(f.name) ?? new Map<string, string>();
     return {
       ...f,
       name: fnMap.get(f.name) ?? f.name,
       params: f.params.map((p) => {
-        const t = renameType(p.type)
-        const name = locals.get(p.name) ?? p.name
-        return t === p.type && name === p.name ? p : { ...p, type: t, name }
+        const t = renameType(p.type);
+        const name = locals.get(p.name) ?? p.name;
+        return t === p.type && name === p.name ? p : { ...p, type: t, name };
       }),
       ret: renameType(f.ret),
       body: f.body.map(mkRS(locals)),
-    }
-  }
+    };
+  };
   const rStruct = (s: StructDecl): StructDecl => ({
     ...s,
     name: structMap.get(s.name) ?? s.name,
     fields: s.fields.map((f) => {
-      const t = renameType(f.type)
-      return t === f.type ? f : { ...f, type: t }
+      const t = renameType(f.type);
+      return t === f.type ? f : { ...f, type: t };
     }),
-  })
+  });
   const rConst = (c: ConstDecl): ConstDecl => ({
     ...c,
     name: constMap.get(c.name)!,
@@ -295,7 +295,7 @@ export function mangleModule(m: ModuleDecl): MangleResult {
     // A module const's initializer is in module scope — no function-scoped
     // names are visible to it, so it renames under an empty local map.
     ...(c.valueExpr !== undefined ? { valueExpr: rE(new Map())(c.valueExpr) } : {}),
-  })
+  });
   // A module variable keeps its name too: a host never binds one, but the emitted
   // `var<workgroup> tile` reads as the author spelled it, and the varrefs to it in the bodies
   // are module-level names `rE` leaves alone, like a binding's. Its type and its initializer
@@ -304,20 +304,20 @@ export function mangleModule(m: ModuleDecl): MangleResult {
     ...v,
     type: renameType(v.type),
     ...(v.init !== undefined ? { init: rE(new Map())(v.init) } : {}),
-  })
+  });
   // Binding names AND top-level binding-struct names are the host ABI — only
   // nested types (array elements) are renamed.
   const rBinding = (b: BindingDecl): BindingDecl => {
-    if (b.type.kind === 'struct') return b
-    const t = renameType(b.type)
-    return t === b.type ? b : { ...b, type: t }
-  }
+    if (b.type.kind === 'struct') return b;
+    const t = renameType(b.type);
+    return t === b.type ? b : { ...b, type: t };
+  };
 
   // Function-scoped entries are keyed `authoredFn.authoredName` — the same
   // spelling is renamed independently per function, so a flat key would collide.
-  const renames = new Map<string, string>([...fnMap, ...structMap, ...constMap])
+  const renames = new Map<string, string>([...fnMap, ...structMap, ...constMap]);
   for (const [fnName, scoped] of localMaps)
-    for (const [from, to] of scoped) renames.set(`${fnName}.${from}`, to)
+    for (const [from, to] of scoped) renames.set(`${fnName}.${from}`, to);
   return {
     // `...m` preserves every module field this pass does NOT rewrite — the X-GIS #923
     // `overrides` (whose names, like binding names above, are the host ABI and must
@@ -335,5 +335,5 @@ export function mangleModule(m: ModuleDecl): MangleResult {
       funcs: m.funcs.map(rFn),
     },
     renames,
-  }
+  };
 }

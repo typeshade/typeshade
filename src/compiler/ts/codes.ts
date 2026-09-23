@@ -171,6 +171,6 @@ export const TS_CODES = {
    *  with no GLSL form is not held to GLSL ES 3.00's list. */
   RESERVED_NAME: 'TS8068',
   UNSUPPORTED: 'TS8099',
-} as const
+} as const;
 
-export type TsCode = (typeof TS_CODES)[keyof typeof TS_CODES]
+export type TsCode = (typeof TS_CODES)[keyof typeof TS_CODES];

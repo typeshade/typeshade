@@ -14,16 +14,16 @@
 // error naming the builtins the entry actually declares, and a new builtin needs no change
 // here.
 
-import type { CpuValue } from '../cpu-runtime.js'
-import type { FuncDecl, ModuleDecl, StructDecl } from '../ir/nodes.js'
-import { stageOf, workgroupShapeOf } from '../ir/nodes.js'
-import { eachExpr, eachStmtExpr } from '../ir/visit.js'
-import type { ShaderType } from '../ir/types.js'
-import { typeKey } from '../ir/types.js'
-import type { CpuPrecision } from '../oracle.js'
-import type { DebugBreakpoint, DebugSession } from './session.js'
-import { startDebugSession } from './session.js'
-import { coerceValue, isUnsized, shapeError, zeroValueOf } from './value.js'
+import type { CpuValue } from '../cpu-runtime.js';
+import type { FuncDecl, ModuleDecl, StructDecl } from '../ir/nodes.js';
+import { stageOf, workgroupShapeOf } from '../ir/nodes.js';
+import { eachExpr, eachStmtExpr } from '../ir/visit.js';
+import type { ShaderType } from '../ir/types.js';
+import { typeKey } from '../ir/types.js';
+import type { CpuPrecision } from '../oracle.js';
+import type { DebugBreakpoint, DebugSession } from './session.js';
+import { startDebugSession } from './session.js';
+import { coerceValue, isUnsized, shapeError, zeroValueOf } from './value.js';
 
 /** One invocation's inputs, keyed the way the shader declares them.
  *
@@ -48,9 +48,9 @@ import { coerceValue, isUnsized, shapeError, zeroValueOf } from './value.js'
  */
 export interface DebugInvocation {
   /** Builtin inputs by WGSL id. A `vecN` builtin is a flat array, a scalar one a number. */
-  readonly [builtin: string]: CpuValue | DebugInputs | readonly number[] | undefined
+  readonly [builtin: string]: CpuValue | DebugInputs | readonly number[] | undefined;
   /** Non-builtin stage inputs, by parameter name or entry-IO struct field name. */
-  readonly inputs?: DebugInputs
+  readonly inputs?: DebugInputs;
   /** How many workgroups the dispatch has, as `[x, y, z]`. Default `[1, 1, 1]`.
    *
    *  This is what `num_workgroups` reads, and it is a separate field rather than a builtin id
@@ -63,7 +63,7 @@ export interface DebugInvocation {
    *  every invocation and look like a shader that does nothing. Supplying `num_workgroups`
    *  directly overrides this; supplying one that contradicts it is an error, the same rule the
    *  derived ids follow. */
-  readonly dispatch?: readonly [number, number, number]
+  readonly dispatch?: readonly [number, number, number];
 }
 
 /** `@location(n)` stage inputs by name: a vertex attribute, an interpolated varying.
@@ -71,7 +71,7 @@ export interface DebugInvocation {
  *  Exported from `typeshade/debug`.
  */
 export interface DebugInputs {
-  readonly [name: string]: CpuValue
+  readonly [name: string]: CpuValue;
 }
 
 /** A debug run, as an IDE's `launch.json` entry, a Playground form, or a test's argument.
@@ -88,11 +88,11 @@ export interface DebugInputs {
  */
 export interface DebugLaunchConfig {
   /** The debug type an IDE dispatches on. Always `'typeshade'`; ignored by the engine. */
-  readonly type?: 'typeshade'
+  readonly type?: 'typeshade';
   /** `'launch'`, since attaching to a running shader is not a thing that exists. Ignored. */
-  readonly request?: 'launch'
+  readonly request?: 'launch';
   /** The configuration's display name in the IDE. Ignored here. */
-  readonly name?: string
+  readonly name?: string;
   /** The `.shade.ts` file. Optional: the engine is handed a compiled module, so it ignores
    *  this, and `entry` is the only key it requires. An adapter reads it to know what to
    *  compile.
@@ -101,28 +101,28 @@ export interface DebugLaunchConfig {
    *  what makes the module's spans name this file, and a {@link DebugBreakpoint} carrying a
    *  path is matched against those spans: compiled without it, every span says
    *  `typeshade-input.ts` and a file-qualified breakpoint arms nothing. */
-  readonly program?: string
+  readonly program?: string;
   /** The entry point to invoke, by name. Required. */
-  readonly entry: string
+  readonly entry: string;
   /** Stop before the entry's first statement. Default `true`; `false` runs to the first
    *  breakpoint instead. */
-  readonly stopOnEntry?: boolean
+  readonly stopOnEntry?: boolean;
   /** What the arithmetic means. Default `'f32'`; see {@link DebugSessionOptions.precision}. */
-  readonly precision?: CpuPrecision
+  readonly precision?: CpuPrecision;
   /** What a screen-space derivative reads as. `'zero'` accepts the stub value and marks it
    *  as a stand-in ({@link DebugSession.stubbedIntrinsics}); `'quad'` is the 2×2 evaluation
    *  `docs/debugging.md` decision 4 defers, and asking for it is an error naming that
    *  decision rather than a silent fallback to zero. Omitted, a derivative throws. */
-  readonly derivatives?: 'zero' | 'quad'
+  readonly derivatives?: 'zero' | 'quad';
   /** This invocation's inputs. */
-  readonly invocation?: DebugInvocation
+  readonly invocation?: DebugInvocation;
   /** Uniform and storage values by declared name, in the CPU value model: a number for a
    *  scalar, a flat array for a vector or matrix (column-major), an object keyed by field
    *  name for a struct, an array for an array. An omitted binding reads as its zero, except a
    *  runtime-sized array, which has none. */
-  readonly bindings?: Readonly<Record<string, CpuValue>>
+  readonly bindings?: Readonly<Record<string, CpuValue>>;
   /** Breakpoints to arm before the run starts. */
-  readonly breakpoints?: readonly DebugBreakpoint[]
+  readonly breakpoints?: readonly DebugBreakpoint[];
 }
 
 /** Everything wrong with a configuration, as sentences, before anything runs.
@@ -131,16 +131,16 @@ export interface DebugLaunchConfig {
  */
 export class DebugConfigError extends Error {
   /** One sentence per problem, in the order they were found. */
-  readonly problems: readonly string[]
+  readonly problems: readonly string[];
   constructor(problems: readonly string[]) {
-    super(`typeshade/debug: ${problems.join('; ')}`)
-    this.name = 'DebugConfigError'
-    this.problems = problems
+    super(`typeshade/debug: ${problems.join('; ')}`);
+    this.name = 'DebugConfigError';
+    this.problems = problems;
   }
 }
 
 /** The WGSL compute builtins this resolver derives from `global_invocation_id`. */
-const DERIVED = ['workgroup_id', 'local_invocation_id', 'local_invocation_index'] as const
+const DERIVED = ['workgroup_id', 'local_invocation_id', 'local_invocation_index'] as const;
 
 /** Every key {@link DebugLaunchConfig} has. Kept beside the interface on purpose: a field
  *  added there without a line here is refused at runtime, which is a loud failure rather than
@@ -157,7 +157,7 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'invocation',
   'bindings',
   'breakpoints',
-])
+]);
 
 /** Start a stepped run from a launch configuration.
  *
@@ -203,7 +203,7 @@ export function startDebugSessionFromConfig(
   m: ModuleDecl,
   config: DebugLaunchConfig,
 ): DebugSession {
-  const problems: string[] = []
+  const problems: string[] = [];
   // A misspelled top-level key used to be ignored in silence, so `stopOnentry: false` or
   // `breakPoints: [...]` read as the default and the session behaved in a way the file did not
   // describe. The schema refuses one too; this is the half that runs.
@@ -212,27 +212,27 @@ export function startDebugSessionFromConfig(
       problems.push(
         `"${key}" is not a launch configuration key; it takes ` +
           `${[...CONFIG_KEYS].sort().join(', ')}`,
-      )
+      );
     }
   }
-  const structs = new Map(m.structs.map((s) => [s.name, s]))
-  const decl = m.funcs.find((f) => f.name === config.entry)
+  const structs = new Map(m.structs.map((s) => [s.name, s]));
+  const decl = m.funcs.find((f) => f.name === config.entry);
   if (!decl) {
-    const names = m.funcs.map((f) => f.name).join(', ')
+    const names = m.funcs.map((f) => f.name).join(', ');
     throw new DebugConfigError([
       `no function "${config.entry}" in module; it declares ${names || 'none'}`,
-    ])
+    ]);
   }
   if (config.derivatives === 'quad') {
     problems.push(
       "derivatives: 'quad' is not implemented; docs/debugging.md decision 4 defers the 2x2 " +
         "quad evaluation, so 'zero' is the only mode that exists today",
-    )
+    );
   }
 
-  const args = resolveInvocation(decl, config.invocation ?? {}, structs, problems)
-  const bindings = resolveBindings(m, config.bindings ?? {}, structs, problems, decl)
-  if (problems.length > 0) throw new DebugConfigError(problems)
+  const args = resolveInvocation(decl, config.invocation ?? {}, structs, problems);
+  const bindings = resolveBindings(m, config.bindings ?? {}, structs, problems, decl);
+  if (problems.length > 0) throw new DebugConfigError(problems);
 
   return startDebugSession(m, config.entry, args, {
     precision: config.precision,
@@ -240,7 +240,7 @@ export function startDebugSessionFromConfig(
     bindings,
     breakpoints: config.breakpoints,
     stopOnEntry: config.stopOnEntry,
-  })
+  });
 }
 
 /** The entry's parameters, positionally, from an invocation keyed by builtin id and name.
@@ -260,91 +260,91 @@ export function resolveInvocation(
   structs: ReadonlyMap<string, StructDecl>,
   problems: string[],
 ): CpuValue[] {
-  const declared = declaredBuiltins(decl, structs)
-  const supplied = { ...invocation }
+  const declared = declaredBuiltins(decl, structs);
+  const supplied = { ...invocation };
   // Neither is a builtin id, so neither belongs in the scan below. `inputs` carries the
   // `@location` values; `dispatch` says how many workgroups there are, which is a property of
   // the dispatch rather than of this invocation.
-  delete (supplied as Record<string, unknown>).inputs
-  const dispatch = invocation.dispatch
-  delete (supplied as Record<string, unknown>).dispatch
+  delete (supplied as Record<string, unknown>).inputs;
+  const dispatch = invocation.dispatch;
+  delete (supplied as Record<string, unknown>).dispatch;
   if (dispatch !== undefined) {
     const bad =
       !Array.isArray(dispatch) || dispatch.length !== 3 || dispatch.some((n) => !Number.isFinite(n))
         ? 'must be three finite numbers, [x, y, z]'
         : dispatch.some((n) => n <= 0)
           ? 'must be positive; a dispatch of zero workgroups runs nothing'
-          : undefined
-    if (bad) problems.push(`"dispatch" ${bad}`)
+          : undefined;
+    if (bad) problems.push(`"dispatch" ${bad}`);
   }
 
   // A misspelled builtin is the failure this catches: `globalInvocationId` would otherwise
   // sit in the object doing nothing while the shader read zeros.
   for (const key of Object.keys(supplied)) {
     if (!declared.has(key)) {
-      const list = [...declared.keys()].sort().join(', ')
+      const list = [...declared.keys()].sort().join(', ');
       problems.push(
         `"${key}" is not a builtin this entry declares; ${decl.name} declares ${list || 'none'}` +
           ` (a @location input goes under "inputs")`,
-      )
+      );
     }
   }
 
-  const resolved = new Map<string, CpuValue>()
+  const resolved = new Map<string, CpuValue>();
   for (const [id, type] of declared) {
-    const given = supplied[id] as CpuValue | undefined
-    if (given === undefined) continue
-    const bad = shapeError(given, type, structs)
-    if (bad) problems.push(`builtin "${id}": ${bad}`)
-    else resolved.set(id, coerceValue(given, type, structs))
+    const given = supplied[id] as CpuValue | undefined;
+    if (given === undefined) continue;
+    const bad = shapeError(given, type, structs);
+    if (bad) problems.push(`builtin "${id}": ${bad}`);
+    else resolved.set(id, coerceValue(given, type, structs));
   }
-  deriveComputeIds(decl, declared, resolved, dispatch, problems)
+  deriveComputeIds(decl, declared, resolved, dispatch, problems);
 
-  const inputs = invocation.inputs ?? {}
-  const spellings = declaredInputs(decl, structs)
+  const inputs = invocation.inputs ?? {};
+  const spellings = declaredInputs(decl, structs);
   for (const name of Object.keys(inputs)) {
-    if (!Object.hasOwn(inputs, name)) continue
-    const slot = spellings.get(name)
+    if (!Object.hasOwn(inputs, name)) continue;
+    const slot = spellings.get(name);
     if (!slot) {
-      const list = [...spellings.keys()].sort().join(', ')
+      const list = [...spellings.keys()].sort().join(', ');
       problems.push(
         `"${name}" is not an input this entry declares; ${decl.name} takes ${list || 'none'}`,
-      )
-      continue
+      );
+      continue;
     }
     if (slot.ambiguous) {
       problems.push(
         `"${name}" is declared by more than one parameter of ${decl.name} ` +
           `(${slot.ambiguous.join(', ')}); name it as one of ` +
           `${slot.ambiguous.map((o) => `"${o}.${name}"`).join(' or ')}`,
-      )
-      continue
+      );
+      continue;
     }
-    const given = inputs[name]
-    if (given === undefined) continue
-    const bad = shapeError(given, slot.type, structs)
-    if (bad) problems.push(`input "${name}": ${bad}`)
-    else resolved.set(slot.key, coerceValue(given, slot.type, structs))
+    const given = inputs[name];
+    if (given === undefined) continue;
+    const bad = shapeError(given, slot.type, structs);
+    if (bad) problems.push(`input "${name}": ${bad}`);
+    else resolved.set(slot.key, coerceValue(given, slot.type, structs));
   }
 
   return decl.params.map((p) => {
-    if (p.builtin) return resolved.get(p.builtin) ?? builtinDefault(p.builtin, p.type, structs)
+    if (p.builtin) return resolved.get(p.builtin) ?? builtinDefault(p.builtin, p.type, structs);
     if (p.type.kind === 'struct') {
-      const sd = structs.get(p.type.name)
-      if (!sd) return zeroValueOf(p.type, structs)
-      const out: Record<string, CpuValue> = {}
+      const sd = structs.get(p.type.name);
+      if (!sd) return zeroValueOf(p.type, structs);
+      const out: Record<string, CpuValue> = {};
       for (const f of sd.fields) {
         const hit = f.builtin
           ? resolved.get(f.builtin)
-          : resolved.get(inputKey(`${p.name}.${f.name}`))
+          : resolved.get(inputKey(`${p.name}.${f.name}`));
         out[f.name] =
           hit ??
-          (f.builtin ? builtinDefault(f.builtin, f.type, structs) : zeroValueOf(f.type, structs))
+          (f.builtin ? builtinDefault(f.builtin, f.type, structs) : zeroValueOf(f.type, structs));
       }
-      return out
+      return out;
     }
-    return resolved.get(inputKey(p.name)) ?? zeroValueOf(p.type, structs)
-  })
+    return resolved.get(inputKey(p.name)) ?? zeroValueOf(p.type, structs);
+  });
 }
 
 /** What an omitted builtin reads as, which is the zero of its type except where zero is a
@@ -368,9 +368,9 @@ function builtinDefault(
   type: ShaderType,
   structs: ReadonlyMap<string, StructDecl>,
 ): CpuValue {
-  if (id === 'position' && type.kind === 'vec' && type.n === 4) return [0, 0, 0, 1]
-  if (id === 'front_facing' && type.kind === 'scalar' && type.scalar === 'bool') return true
-  return zeroValueOf(type, structs)
+  if (id === 'position' && type.kind === 'vec' && type.n === 4) return [0, 0, 0, 1];
+  if (id === 'front_facing' && type.kind === 'scalar' && type.scalar === 'bool') return true;
+  return zeroValueOf(type, structs);
 }
 
 /** The compute builtins that are not supplied directly: the three derived from
@@ -389,24 +389,24 @@ function deriveComputeIds(
   dispatch: readonly number[] | undefined,
   problems: string[],
 ): void {
-  if (stageOf(decl) !== 'compute') return
+  if (stageOf(decl) !== 'compute') return;
 
   // `num_workgroups` first, since it does not need `global_invocation_id` and must be seeded
   // even for a kernel that reads only it.
   if (declared.has('num_workgroups')) {
-    const fromDispatch = [...(dispatch ?? [1, 1, 1])]
-    const given = resolved.get('num_workgroups')
-    if (given === undefined) resolved.set('num_workgroups', fromDispatch as CpuValue)
+    const fromDispatch = [...(dispatch ?? [1, 1, 1])];
+    const given = resolved.get('num_workgroups');
+    if (given === undefined) resolved.set('num_workgroups', fromDispatch as CpuValue);
     else if (dispatch !== undefined && !sameValue(given, fromDispatch as CpuValue)) {
       problems.push(
         `"num_workgroups" is ${JSON.stringify(given)}, but dispatch is ` +
           `${JSON.stringify(fromDispatch)}; supply one or the other, not a pair that disagrees`,
-      )
+      );
     }
   }
 
-  const gid = resolved.get('global_invocation_id')
-  if (gid === undefined) return
+  const gid = resolved.get('global_invocation_id');
+  if (gid === undefined) return;
   // The front end accepts `@builtin("global_invocation_id") gid: u32` as well as a `vec3u`, and
   // a scalar has no `.map`. Guarding here rather than letting it throw is the difference
   // between a problem naming the declaration and a raw TypeError out of the resolver.
@@ -415,43 +415,43 @@ function deriveComputeIds(
       `"global_invocation_id" is declared ` +
         `${typeKey(declared.get('global_invocation_id')!)} on ${decl.name}, so the compute ids ` +
         `cannot be derived from it; declare it as a vec3u or supply each id explicitly`,
-    )
-    return
+    );
+    return;
   }
-  const ids = gid as number[]
+  const ids = gid as number[];
 
-  const size = workgroupShapeOf(decl) ?? [64, 1, 1]
+  const size = workgroupShapeOf(decl) ?? [64, 1, 1];
   // A hand-built `@workgroup_size(0)` has no invocations, and dividing by it gives NaN ids
   // that no one would read as wrong. Naming it is the only honest answer: a workgroup of no
   // invocations has no invocation to debug.
   if (size.some((n) => n <= 0)) {
     problems.push(
       `${decl.name} is @compute([${size.join(', ')}]), which has no invocations to derive an id from`,
-    )
-    return
+    );
+    return;
   }
-  const local = ids.map((v, i) => ((v % size[i]!) + size[i]!) % size[i]!)
-  const group = ids.map((v, i) => Math.floor(v / size[i]!))
+  const local = ids.map((v, i) => ((v % size[i]!) + size[i]!) % size[i]!);
+  const group = ids.map((v, i) => Math.floor(v / size[i]!));
   // WGSL's own formula, `x + y*wx + z*wx*wy`.
-  const index = local[0]! + local[1]! * size[0]! + local[2]! * size[0]! * size[1]!
+  const index = local[0]! + local[1]! * size[0]! + local[2]! * size[0]! * size[1]!;
   const derivation: Record<(typeof DERIVED)[number], CpuValue> = {
     workgroup_id: group,
     local_invocation_id: local,
     local_invocation_index: index,
-  }
+  };
   for (const id of DERIVED) {
-    if (!declared.has(id)) continue
-    const given = resolved.get(id)
+    if (!declared.has(id)) continue;
+    const given = resolved.get(id);
     if (given === undefined) {
-      resolved.set(id, derivation[id])
-      continue
+      resolved.set(id, derivation[id]);
+      continue;
     }
     if (!sameValue(given, derivation[id])) {
       problems.push(
         `"${id}" is ${JSON.stringify(given)}, but global_invocation_id ` +
           `${JSON.stringify(ids)} with @compute([${size.join(', ')}]) derives ` +
           `${JSON.stringify(derivation[id])}; supply one or the other, not a pair that disagrees`,
-      )
+      );
     }
   }
 }
@@ -459,33 +459,33 @@ function deriveComputeIds(
 const sameValue = (a: CpuValue, b: CpuValue): boolean =>
   Array.isArray(a) && Array.isArray(b)
     ? a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
-    : Object.is(a, b)
+    : Object.is(a, b);
 
 /** Namespaced so a `@location` input named `position` cannot collide with the builtin.
  *
  *  `@` because it cannot appear in a WGSL builtin id, which is what makes the namespace real.
  *  It was a literal NUL byte until a review pointed out that one NUL makes `grep` and
  *  `ripgrep` treat the whole file as binary and skip it silently. */
-const inputKey = (name: string): string => `@in:${name}`
+const inputKey = (name: string): string => `@in:${name}`;
 
 /** Every `@builtin(...)` this entry reads, by WGSL id, with the type it is declared at. */
 function declaredBuiltins(
   decl: FuncDecl,
   structs: ReadonlyMap<string, StructDecl>,
 ): ReadonlyMap<string, ShaderType> {
-  const out = new Map<string, ShaderType>()
+  const out = new Map<string, ShaderType>();
   for (const p of decl.params) {
     if (p.builtin) {
-      out.set(p.builtin, p.type)
-      continue
+      out.set(p.builtin, p.type);
+      continue;
     }
     if (p.type.kind === 'struct') {
       for (const f of structs.get(p.type.name)?.fields ?? []) {
-        if (f.builtin) out.set(f.builtin, f.type)
+        if (f.builtin) out.set(f.builtin, f.type);
       }
     }
   }
-  return out
+  return out;
 }
 
 /** Every non-builtin stage input, by the name an invocation spells it under.
@@ -506,40 +506,40 @@ function declaredInputs(
   // and no parameter already has that name: two entry structs each with a `v` used to share
   // the bare key, so one supplied `v` was checked against whichever type won the map and then
   // written into BOTH parameters.
-  const out = new Map<string, InputSlot>()
-  const fields: { owner: string; field: string; type: ShaderType }[] = []
+  const out = new Map<string, InputSlot>();
+  const fields: { owner: string; field: string; type: ShaderType }[] = [];
   for (const p of decl.params) {
-    if (p.builtin) continue
+    if (p.builtin) continue;
     if (p.type.kind === 'struct') {
       for (const f of structs.get(p.type.name)?.fields ?? []) {
-        if (!f.builtin) fields.push({ owner: p.name, field: f.name, type: f.type })
+        if (!f.builtin) fields.push({ owner: p.name, field: f.name, type: f.type });
       }
-      continue
+      continue;
     }
-    out.set(p.name, { key: inputKey(p.name), type: p.type })
+    out.set(p.name, { key: inputKey(p.name), type: p.type });
   }
-  const owners = new Map<string, string[]>()
-  for (const f of fields) owners.set(f.field, [...(owners.get(f.field) ?? []), f.owner])
+  const owners = new Map<string, string[]>();
+  for (const f of fields) owners.set(f.field, [...(owners.get(f.field) ?? []), f.owner]);
 
   for (const f of fields) {
-    const key = inputKey(`${f.owner}.${f.field}`)
-    out.set(`${f.owner}.${f.field}`, { key, type: f.type })
+    const key = inputKey(`${f.owner}.${f.field}`);
+    out.set(`${f.owner}.${f.field}`, { key, type: f.type });
     if (decl.params.some((p) => !p.builtin && p.type.kind !== 'struct' && p.name === f.field))
-      continue // the bare name is that parameter's own spelling
-    const sharing = owners.get(f.field)!
-    if (sharing.length === 1) out.set(f.field, { key, type: f.type })
-    else out.set(f.field, { key, type: f.type, ambiguous: sharing })
+      continue; // the bare name is that parameter's own spelling
+    const sharing = owners.get(f.field)!;
+    if (sharing.length === 1) out.set(f.field, { key, type: f.type });
+    else out.set(f.field, { key, type: f.type, ambiguous: sharing });
   }
-  return out
+  return out;
 }
 
 /** One writable input position, and the spellings that reach it. `ambiguous` is set when the
  *  bare field name is declared by more than one parameter, which makes that spelling a
  *  question rather than an answer. */
 interface InputSlot {
-  readonly key: string
-  readonly type: ShaderType
-  readonly ambiguous?: readonly string[]
+  readonly key: string;
+  readonly type: ShaderType;
+  readonly ambiguous?: readonly string[];
 }
 
 /** The module's bindings by declared name, checked against their declared types.
@@ -576,20 +576,20 @@ export function resolveBindings(
   problems: string[],
   entry?: FuncDecl,
 ): Record<string, CpuValue> {
-  const declared = new Map(m.bindings.map((b) => [b.name, b.type]))
-  const reached = entry ? bindingsReachedBy(m, entry, new Set(declared.keys())) : undefined
+  const declared = new Map(m.bindings.map((b) => [b.name, b.type]));
+  const reached = entry ? bindingsReachedBy(m, entry, new Set(declared.keys())) : undefined;
   for (const name of Object.keys(given)) {
-    if (!Object.hasOwn(given, name)) continue
+    if (!Object.hasOwn(given, name)) continue;
     if (!declared.has(name)) {
-      const list = [...declared.keys()].sort().join(', ')
+      const list = [...declared.keys()].sort().join(', ');
       problems.push(
         `"${name}" is not a binding this module declares; it declares ${list || 'none'}`,
-      )
+      );
     }
   }
-  const out: Record<string, CpuValue> = {}
+  const out: Record<string, CpuValue> = {};
   for (const [name, type] of declared) {
-    if (reached && !reached.has(name)) continue
+    if (reached && !reached.has(name)) continue;
     if (
       type.kind === 'texture' ||
       type.kind === 'sampler' ||
@@ -599,26 +599,26 @@ export function resolveBindings(
       problems.push(
         `binding "${name}" is a ${typeKey(type)}, which a CPU run cannot supply: texture and ` +
           'sampler values are unsupported in this milestone (docs/debugging.md §4.4)',
-      )
-      continue
+      );
+      continue;
     }
-    const value = Object.hasOwn(given, name) ? given[name] : undefined
+    const value = Object.hasOwn(given, name) ? given[name] : undefined;
     if (value === undefined) {
       if (isUnsized(type)) {
         problems.push(
           `binding "${name}" is ${typeKey(type)}, whose length only the host's buffer knows, ` +
             'so it has no zero to stand in; supply a value for it',
-        )
-        continue
+        );
+        continue;
       }
-      out[name] = zeroValueOf(type, structs)
-      continue
+      out[name] = zeroValueOf(type, structs);
+      continue;
     }
-    const bad = shapeError(value, type, structs)
-    if (bad) problems.push(`binding "${name}": ${bad}`)
-    else out[name] = coerceValue(value, type, structs)
+    const bad = shapeError(value, type, structs);
+    if (bad) problems.push(`binding "${name}": ${bad}`);
+    else out[name] = coerceValue(value, type, structs);
   }
-  return out
+  return out;
 }
 
 /** Which of `names` the entry reads, following the calls it makes.
@@ -634,26 +634,26 @@ function bindingsReachedBy(
   entry: FuncDecl,
   names: ReadonlySet<string>,
 ): Set<string> {
-  const byName = new Map(m.funcs.map((f) => [f.name, f]))
-  const hit = new Set<string>()
-  const seen = new Set<string>()
+  const byName = new Map(m.funcs.map((f) => [f.name, f]));
+  const hit = new Set<string>();
+  const seen = new Set<string>();
   const walk = (fn: FuncDecl): void => {
-    if (seen.has(fn.name)) return
-    seen.add(fn.name)
+    if (seen.has(fn.name)) return;
+    seen.add(fn.name);
     for (const stmt of fn.body) {
       eachStmtExpr(stmt, (e) => {
         eachExpr(e, (x) => {
-          if ((x.op === 'varref' || x.op === 'param') && names.has(x.name)) hit.add(x.name)
+          if ((x.op === 'varref' || x.op === 'param') && names.has(x.name)) hit.add(x.name);
           if (x.op === 'call') {
-            const callee = x.declRef ?? byName.get(x.fn)
-            if (callee) walk(callee)
+            const callee = x.declRef ?? byName.get(x.fn);
+            if (callee) walk(callee);
           }
-        })
-      })
+        });
+      });
     }
-  }
-  walk(entry)
-  return hit
+  };
+  walk(entry);
+  return hit;
 }
 
 /** {@link DebugLaunchConfig} as JSON Schema, for an IDE extension to contribute as its
@@ -731,4 +731,4 @@ export const DEBUG_LAUNCH_SCHEMA: Readonly<Record<string, unknown>> = Object.fre
       },
     },
   },
-})
+});

@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { copyProp } from './index.js'
-import { module, fn, f32T } from '../../ir/index.js'
-import { emitModule } from '../../backends/wgsl.js'
-import { compileModule } from '../../oracle.js'
+import { describe, it, expect } from 'vitest';
+import { copyProp } from './index.js';
+import { module, fn, f32T } from '../../ir/index.js';
+import { emitModule } from '../../backends/wgsl.js';
+import { compileModule } from '../../oracle.js';
 
 // P2 — copy propagation: substitute a bare copy binding (let y = x, no
 // computation) into its uses when neither side is reassigned. Pure reference
@@ -12,24 +12,24 @@ describe('optimize — copy propagation', () => {
     const m = module({
       funcs: [
         fn('k', { x: f32T }, f32T, ({ x }, b) => {
-          const y = b.let('y', x)
-          b.ret(y.add(1))
+          const y = b.let('y', x);
+          b.ret(y.add(1));
         }),
       ],
-    })
-    const wgsl = emitModule(copyProp(m))
-    expect(wgsl).toMatch(/x\s*\+\s*1\.0/) // y replaced by x
-  })
+    });
+    const wgsl = emitModule(copyProp(m));
+    expect(wgsl).toMatch(/x\s*\+\s*1\.0/); // y replaced by x
+  });
 
   it('preserves oracle value-equality', () => {
     const m = module({
       funcs: [
         fn('k', { x: f32T }, f32T, ({ x }, b) => {
-          const y = b.let('y', x)
-          b.ret(y.add(1))
+          const y = b.let('y', x);
+          b.ret(y.add(1));
         }),
       ],
-    })
-    expect(compileModule(copyProp(m)).fns.k(4)).toBe(compileModule(m).fns.k(4)) // 5
-  })
-})
+    });
+    expect(compileModule(copyProp(m)).fns.k(4)).toBe(compileModule(m).fns.k(4)); // 5
+  });
+});

@@ -35,41 +35,43 @@
 // this repository. They are kept verbatim so a row here can be matched against the issue
 // that filed it; `core.def:N` is Tint's intrinsic table, of which
 // `src/core/spec-conformance/fixtures/` holds the checked-in texture and stage slices.
-import { describe, expect, it } from 'vitest'
-import { compile } from './compile.js'
+import { describe, expect, it } from 'vitest';
+import { compile } from './compile.js';
 
 const errorsOf = (src: string): string[] =>
   compile(src)
     .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => d.message)
+    .map((d) => d.message);
 
 /** Compiles clean AND emits WGSL — the precondition every row below shares, and the reason
  *  none of them is caught by anything: there is nothing for a reader to look at. */
 const compilesClean = (src: string): string => {
-  const result = compile(src)
-  expect(result.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual([])
-  return result.wgsl ?? ''
-}
+  const result = compile(src);
+  expect(result.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual(
+    [],
+  );
+  return result.wgsl ?? '';
+};
 
 describe('a uniform holding an array of a type narrower than 16 bytes (L15)', () => {
   // Tint: "'uniform' storage requires that array elements are aligned to 16 bytes, but array
   // element of type 'f32' has a stride of 4 bytes. Consider using a vector or struct as the
   // element type instead." (wgsl.txt:16028-16041)
-  const src = `"use typeshade"
+  const src = `"use typeshade";
 interface U {
   xs: array<f32, 4>;
   k: f32;
 }
-declare const u: uniform<U>
+declare const u: uniform<U>;
 class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @fragment
 export function fs(v: V): vec4 {
-  return vec4(u.xs[0] + u.k, 0., 0., 1.)
+  return vec4(u.xs[0] + u.k, 0., 0., 1.);
 }
-`
+`;
 
   // CLOSED by #156, which chose the second of the two answers this row admitted: the array is
   // PADDED rather than refused, so a uniform array of a narrow type is authorable and the
@@ -81,93 +83,93 @@ export function fs(v: V): vec4 {
   // `xs: array<f32, 4>` is no longer what comes out. A row whose body admits two outcomes
   // needs the companion to be the emit, not the diagnostic.
   it('pads the element to a 16-byte stride and aligns the array, so Tint takes it', () => {
-    const wgsl = compilesClean(src)
-    expect(wgsl).toContain('@align(16) xs: array<_Pad16_f32, 4>')
-    expect(wgsl).not.toContain('xs: array<f32, 4>')
-  })
-})
+    const wgsl = compilesClean(src);
+    expect(wgsl).toContain('@align(16) xs: array<_Pad16_f32, 4>');
+    expect(wgsl).not.toContain('xs: array<f32, 4>');
+  });
+});
 
 describe('a shift whose right-hand side is not u32 (L38)', () => {
   // Tint: "no matching overload for 'operator << (i32, i32)' … 'operator << (T, u32) -> T'"
   // (wgsl.txt:10163-10173). The compound path already wraps the right-hand side in `u32(...)`
   // (`lower/statement.ts`); the binary path does not.
-  const src = `"use typeshade"
+  const src = `"use typeshade";
 interface U {
   x: i32;
   n: i32;
 }
-declare const u: uniform<U>
+declare const u: uniform<U>;
 class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @fragment
 export function fs(v: V): vec4 {
-  return vec4(f32(u.x << u.n), 0., 0., 1.)
+  return vec4(f32(u.x << u.n), 0., 0., 1.);
 }
-`
+`;
 
   // CLOSED by #160: the binary path now wraps the right-hand side the way the compound path
   // always did, so both spell the operand `u32(...)` and neither reaches Tint as `(i32, i32)`.
   it('wraps the right-hand side as u32, the overload WGSL declares', () => {
-    const wgsl = compilesClean(src)
-    expect(wgsl).toContain('u.x << u32(u.n)')
-    expect(wgsl).not.toMatch(/u\.x << u\.n/)
-  })
-})
+    const wgsl = compilesClean(src);
+    expect(wgsl).toContain('u.x << u32(u.n)');
+    expect(wgsl).not.toMatch(/u\.x << u\.n/);
+  });
+});
 
 describe('an integer varying emitted without @interpolate(flat) (L53)', () => {
   // Tint: "integral user-defined vertex outputs must have a '@interpolate(flat)' attribute"
   // (wgsl.txt:14932-14933). The GLSL writer already adds `flat` (`backends/glsl.ts`), so the
   // two targets disagree: the WebGL2 leg links and the WebGPU one does not.
-  const src = `"use typeshade"
+  const src = `"use typeshade";
 class VsOut {
   @builtin("position") pos: vec4;
   @location(0) id: u32;
 }
 @vertex
 export function vs(@builtin("vertex_index") i: u32): VsOut {
-  return { pos: vec4(0., 0., 0., 1.), id: i }
+  return { pos: vec4(0., 0., 0., 1.), id: i };
 }
 @fragment
 export function fs(o: VsOut): vec4 {
-  return vec4(f32(o.id), 0., 0., 1.)
+  return vec4(f32(o.id), 0., 0., 1.);
 }
-`
+`;
 
   // CLOSED by #158: `flat` is derived for every integer varying, so the two targets agree —
   // the GLSL writer had always added `flat`, and it was the WGSL side that was silent.
   it('derives @interpolate(flat) for an integer varying, so both targets agree', () => {
-    const wgsl = compilesClean(src)
-    expect(wgsl).toContain('@location(0) @interpolate(flat) id: u32,')
+    const wgsl = compilesClean(src);
+    expect(wgsl).toContain('@location(0) @interpolate(flat) id: u32,');
     // A FLOAT varying must not pick it up: the rule is about integers, not about locations.
-    const float = compilesClean(`"use typeshade"
+    const float = compilesClean(`"use typeshade";
 class VsOut {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @vertex
 export function vs(@builtin("vertex_index") i: u32): VsOut {
-  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
 }
 @fragment
 export function fs(o: VsOut): vec4 {
-  return vec4(o.uv, 0., 1.)
+  return vec4(o.uv, 0., 1.);
 }
-`)
-    expect(float).toContain('@location(0) uv: vec2<f32>,')
-    expect(float).not.toContain('@interpolate(flat)')
-  })
-})
+`);
+    expect(float).toContain('@location(0) uv: vec2<f32>,');
+    expect(float).not.toContain('@interpolate(flat)');
+  });
+});
 
 describe('a helper that assigns to its whole parameter (L25)', () => {
   // Tint: "cannot assign to parameter 'a'" (wgsl.txt:7469, 10896-10899). The surface document
   // admits the bug in its own text; a `var` shadowing the parameter on first write is the fix
   // the audit proposes.
-  const src = `"use typeshade"
+  const src = `"use typeshade";
 export function h(a: f32): f32 {
-  a = 1.
-  return a
+  a = 1.;
+  return a;
 }
 class V {
   @builtin("position") pos: vec4;
@@ -175,29 +177,29 @@ class V {
 }
 @fragment
 export function fs(v: V): vec4 {
-  return vec4(h(v.uv.x), 0., 0., 1.)
+  return vec4(h(v.uv.x), 0., 0., 1.);
 }
-`
+`;
 
   // CLOSED by #160, which took the REFUSAL of the two answers this row admitted rather than
   // shadowing silently: the write is reported where the author wrote it, with the copy to make.
   it('refuses the write as TS8018, naming the parameter and the copy to make', () => {
-    const errors = compile(src).diagnostics.filter((d) => d.category === 'error')
-    expect(errors).toHaveLength(1)
-    expect(errors[0]?.code).toBe('TS8018')
-    expect(errors[0]?.message).toContain('Cannot assign to "a"')
-    expect(errors[0]?.message).toContain('a parameter is a value, not a variable')
-    expect(errors[0]?.message).toContain('let a_ = a;')
-    expect(compile(src).wgsl).toBeUndefined()
-  })
+    const errors = compile(src).diagnostics.filter((d) => d.category === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.code).toBe('TS8018');
+    expect(errors[0]?.message).toContain('Cannot assign to "a"');
+    expect(errors[0]?.message).toContain('a parameter is a value, not a variable');
+    expect(errors[0]?.message).toContain('let a_ = a;');
+    expect(compile(src).wgsl).toBeUndefined();
+  });
 
   // The remedy the message spells has to compile, or the refusal sends the author in a circle.
   it('takes the copy the message asks for, and emits it as a var', () => {
-    const fixed = `"use typeshade"
+    const fixed = `"use typeshade";
 export function h(a: f32): f32 {
-  let a_ = a
-  a_ = 1.
-  return a_
+  let a_ = a;
+  a_ = 1.;
+  return a_;
 }
 class V {
   @builtin("position") pos: vec4;
@@ -205,12 +207,12 @@ class V {
 }
 @fragment
 export function fs(v: V): vec4 {
-  return vec4(h(v.uv.x), 0., 0., 1.)
+  return vec4(h(v.uv.x), 0., 0., 1.);
 }
-`
-    expect(compilesClean(fixed)).toContain('var a_: f32 = a;')
-  })
-})
+`;
+    expect(compilesClean(fixed)).toContain('var a_: f32 = a;');
+  });
+});
 
 describe('a struct field named with a WGSL reserved keyword', () => {
   // THIS ROW HAS BEEN CLOSED, and the history is the point of keeping it. It was found by
@@ -236,7 +238,7 @@ describe('a struct field named with a WGSL reserved keyword', () => {
     'inline',
     'static',
     'var',
-  ]
+  ];
 
   const withField = (name: string): string => `"use typeshade"
 interface U {
@@ -251,7 +253,7 @@ class V {
 export function fs(v: V): vec4 {
   return vec4(u.${name}, 0., 0., 1.)
 }
-`
+`;
 
   // The code as well as the message: a caller that suppresses or routes this refusal keys on
   // TS8068, so a rename of the code is a breaking change the message check alone would miss.
@@ -260,28 +262,28 @@ export function fs(v: V): vec4 {
       .diagnostics.filter((d) => d.category === 'error')
       // An uncoded diagnostic reads as '' and fails the check below, which is the point: what
       // this row pins is a CODED refusal, not merely a refusal that happens to say the words.
-      .map((d) => ({ code: d.code ?? '', message: d.message }))
+      .map((d) => ({ code: d.code ?? '', message: d.message }));
 
   it('refuses every name WGSL reserves as TS8068, naming the target and the remedy', () => {
-    const wrong: string[] = []
+    const wrong: string[] = [];
     for (const name of RESERVED) {
-      const errors = refusalsOf(withField(name))
+      const errors = refusalsOf(withField(name));
       if (errors.length !== 1) {
-        wrong.push(`${name}: ${String(errors.length)} diagnostics`)
-        continue
+        wrong.push(`${name}: ${String(errors.length)} diagnostics`);
+        continue;
       }
-      const { code, message } = errors[0] ?? { code: '', message: '' }
-      if (code !== 'TS8068') wrong.push(`${name}: ${code}, not TS8068`)
+      const { code, message } = errors[0] ?? { code: '', message: '' };
+      if (code !== 'TS8068') wrong.push(`${name}: ${code}, not TS8068`);
       // The message has to say WHICH name, that WGSL is what reserves it, and what to do —
       // a bare "reserved word" would leave an author guessing which field and which target.
       if (!message.includes(`"${name}"`) || !message.includes('reserved in WGSL'))
-        wrong.push(`${name}: ${message}`)
-      if (!/Rename it\.?/.test(message)) wrong.push(`${name}: no remedy — ${message}`)
+        wrong.push(`${name}: ${message}`);
+      if (!/Rename it\.?/.test(message)) wrong.push(`${name}: no remedy — ${message}`);
     }
-    expect(wrong).toEqual([])
-  })
+    expect(wrong).toEqual([]);
+  });
 
   it('leaves an ordinary field name alone, so the check is a rule and not a blanket', () => {
-    expect(errorsOf(withField('weight'))).toEqual([])
-  })
-})
+    expect(errorsOf(withField('weight'))).toEqual([]);
+  });
+});

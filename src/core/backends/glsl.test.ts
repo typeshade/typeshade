@@ -12,7 +12,7 @@
 // REAL-WebGL2 `gl.compileShader` gate is the sibling Playwright spec
 // (playground/e2e/_glsl-compile-gate.spec.ts), which compiles these same strings.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest';
 import {
   emitGlslModule,
   emitModule,
@@ -20,7 +20,7 @@ import {
   UnsupportedFeatureError,
   INTRINSIC_HELPERS,
   spellIntrinsic,
-} from 'typeshade'
+} from 'typeshade';
 import {
   mat4x4fT,
   vec4fT,
@@ -43,7 +43,7 @@ import {
   type ModuleDecl,
   type StructDecl,
   type FuncDecl,
-} from 'typeshade'
+} from 'typeshade';
 import {
   fn,
   module as dslModule,
@@ -65,7 +65,7 @@ import {
   vec2i,
   u32,
   uniformStruct,
-} from 'typeshade'
+} from 'typeshade';
 
 // ── a synthetic vertex+fragment module with a std140 uniform struct ──
 const Uniforms: StructDecl = {
@@ -76,37 +76,37 @@ const Uniforms: StructDecl = {
     { name: 'fade', type: f32T }, // 80
     { name: 'origin', type: vec3fT }, // 96 (vec3 aligns to 16 — the classic trap)
   ],
-}
+};
 const VsIn: StructDecl = {
   name: 'VsIn',
   fields: [
     { name: 'pos', type: vec2fT, attr: '@location(0)' },
     { name: 'uv', type: vec2fT, attr: '@location(1)' },
   ],
-}
+};
 const VsOut: StructDecl = {
   name: 'VsOut',
   fields: [
     { name: 'position', type: vec4fT, attr: '@builtin(position)' },
     { name: 'uv', type: vec2fT, attr: '@location(0)' },
   ],
-}
+};
 const FsOut: StructDecl = {
   name: 'FsOut',
   fields: [{ name: 'color', type: vec4fT, attr: '@location(0)' }],
-}
+};
 
 // minimal typed IR-node builders for the synthetic bodies (no authoring layer needed)
-const param = (name: string, type: ShaderType): Expr => ({ op: 'param', type, name })
-const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name })
+const param = (name: string, type: ShaderType): Expr => ({ op: 'param', type, name });
+const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name });
 const fld = (base: Expr, field: string, type: ShaderType): Expr => ({
   op: 'member',
   type,
   base,
   field,
-})
-const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value })
-const v4 = (...args: Expr[]): Expr => ({ op: 'construct', type: vec4fT, args })
+});
+const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value });
+const v4 = (...args: Expr[]): Expr => ({ op: 'construct', type: vec4fT, args });
 
 const module: ModuleDecl = {
   consts: [],
@@ -165,66 +165,66 @@ const module: ModuleDecl = {
       ],
     },
   ],
-}
+};
 
 describe('glsl-es300 — std140 UBO from the reflection engine', () => {
   it('emits a layout(std140) uniform block whose field order matches wgslLayout offsets', () => {
-    const glsl = emitGlslModule(module, 'vertex')
-    expect(glsl.startsWith('#version 300 es')).toBe(true)
-    expect(glsl).toContain('precision highp float;')
+    const glsl = emitGlslModule(module, 'vertex');
+    expect(glsl.startsWith('#version 300 es')).toBe(true);
+    expect(glsl).toContain('precision highp float;');
 
     // The std140 block: tag = struct name, instance = binding name.
-    expect(glsl).toMatch(/layout\(std140\) uniform Uniforms \{[\s\S]*\} u;/)
+    expect(glsl).toMatch(/layout\(std140\) uniform Uniforms \{[\s\S]*\} u;/);
     // Fields declared in order — std140 default packing reproduces these offsets.
-    const block = glsl.slice(glsl.indexOf('layout(std140)'), glsl.indexOf('} u;'))
-    expect(block.indexOf('mat4 mvp;')).toBeGreaterThan(-1)
-    expect(block.indexOf('vec4 viewport;')).toBeGreaterThan(block.indexOf('mat4 mvp;'))
-    expect(block.indexOf('float fade;')).toBeGreaterThan(block.indexOf('vec4 viewport;'))
-    expect(block.indexOf('vec3 origin;')).toBeGreaterThan(block.indexOf('float fade;'))
+    const block = glsl.slice(glsl.indexOf('layout(std140)'), glsl.indexOf('} u;'));
+    expect(block.indexOf('mat4 mvp;')).toBeGreaterThan(-1);
+    expect(block.indexOf('vec4 viewport;')).toBeGreaterThan(block.indexOf('mat4 mvp;'));
+    expect(block.indexOf('float fade;')).toBeGreaterThan(block.indexOf('vec4 viewport;'));
+    expect(block.indexOf('vec3 origin;')).toBeGreaterThan(block.indexOf('float fade;'));
 
     // The contract the GLSL block's std140 default packing reproduces (the engine is the
     // offset SoT the host packs against): mvp@0 viewport@64 fade@80 origin@96.
-    const L = wgslLayout(Uniforms, 'std140')
+    const L = wgslLayout(Uniforms, 'std140');
     expect(Object.fromEntries(L.fields.map((f) => [f.name, f.offset]))).toEqual({
       mvp: 0,
       viewport: 64,
       fade: 80,
       origin: 96,
-    })
-    expect(L.size).toBe(112) // origin (vec3 @96, size 12) → padded to 16-multiple = 112
-  })
+    });
+    expect(L.size).toBe(112); // origin (vec3 @96, size 12) → padded to 16-multiple = 112
+  });
 
   it('does NOT re-declare a uniform struct as a plain GLSL struct (name collision)', () => {
-    const glsl = emitGlslModule(module, 'vertex')
+    const glsl = emitGlslModule(module, 'vertex');
     // `Uniforms` must appear ONLY as the UBO block tag, never as `struct Uniforms {`.
-    expect(glsl).not.toContain('struct Uniforms {')
-  })
-})
+    expect(glsl).not.toContain('struct Uniforms {');
+  });
+});
 
 describe('glsl-es300 — @vertex / @fragment entry-IO lowering', () => {
   it('flattens vertex @location inputs to `layout(location) in` attributes and the return to plain `out` varyings', () => {
-    const vs = emitGlslModule(module, 'vertex')
+    const vs = emitGlslModule(module, 'vertex');
     // vertex attributes carry a location qualifier (valid for vertex INPUTS in ES 3.00).
-    expect(vs).toMatch(/layout\(location = 0\) in vec2 a_pos;/)
-    expect(vs).toMatch(/layout\(location = 1\) in vec2 a_uv;/)
+    expect(vs).toMatch(/layout\(location = 0\) in vec2 a_pos;/);
+    expect(vs).toMatch(/layout\(location = 1\) in vec2 a_uv;/);
     // an inter-stage OUT varying must NOT carry layout(location) in ES 3.00 (links by name).
-    expect(vs).toMatch(/^out vec2 uv;$/m)
-    expect(vs).not.toMatch(/layout\(location = \d+\) out/)
+    expect(vs).toMatch(/^out vec2 uv;$/m);
+    expect(vs).not.toMatch(/layout\(location = \d+\) out/);
     // @builtin(position) → gl_Position (vertex output), not a varying. The body assembles
     // its output with `var o` + field assigns, which X-GIS #1867's structCtor collapses to the
     // constructor the scatter then reads field-by-field — so the builtin is written from
     // the field's own expression, with no aggregate in between.
     // …and the input struct is substituted away too, so the whole entry is two lines.
-    expect(vs).toMatch(/^ {2}gl_Position = vec4\(a_pos\.x, a_pos\.y, u\.fade, 1\.0\);$/m)
-    expect(vs).toMatch(/^ {2}uv = a_uv;$/m)
-    expect(vs).not.toMatch(/out vec4 position;/)
+    expect(vs).toMatch(/^ {2}gl_Position = vec4\(a_pos\.x, a_pos\.y, u\.fade, 1\.0\);$/m);
+    expect(vs).toMatch(/^ {2}uv = a_uv;$/m);
+    expect(vs).not.toMatch(/out vec4 position;/);
     // A single-exit entry body is spelled INSIDE main() (X-GIS #1858) — no `_impl` fn and no
     // call to one, and since this body's exit is a plain variable the scatter reads it
     // where it already is, rather than copying it into an `_out` nothing else reads.
-    expect(vs).not.toContain('_impl')
-    expect((vs.match(/void main\(\) \{/g) ?? []).length).toBe(1)
-    expect(vs).not.toContain('_out')
-  })
+    expect(vs).not.toContain('_impl');
+    expect((vs.match(/void main\(\) \{/g) ?? []).length).toBe(1);
+    expect(vs).not.toContain('_out');
+  });
 
   it('maps a readable @builtin(position) fragment input to gl_FragCoord (not gl_Position)', () => {
     // The shared fixture's fragment never READS the position field, and since X-GIS #1867 the
@@ -249,40 +249,40 @@ describe('glsl-es300 — @vertex / @fragment entry-IO lowering', () => {
               ],
             },
       ),
-    }
-    const fs = emitGlslModule(readsPos, 'fragment')
+    };
+    const fs = emitGlslModule(readsPos, 'fragment');
     // Read where it is used (X-GIS #1867 substitutes a field-read-only param away) rather than
     // copied into a gather struct. The claim is unchanged: a readable @builtin(position)
     // FRAGMENT input is gl_FragCoord, never gl_Position.
-    expect(fs).toContain('color = gl_FragCoord;')
-    expect(fs).not.toContain('gl_Position')
-    const fsShared = emitGlslModule(module, 'fragment')
+    expect(fs).toContain('color = gl_FragCoord;');
+    expect(fs).not.toContain('gl_Position');
+    const fsShared = emitGlslModule(module, 'fragment');
     // a fragment INPUT varying must NOT carry layout(location) (links by name to the vertex out `uv`).
-    expect(fsShared).toMatch(/^in vec2 uv;$/m)
+    expect(fsShared).toMatch(/^in vec2 uv;$/m);
     // a fragment OUTPUT (draw buffer) DOES carry a location qualifier in ES 3.00.
-    expect(fsShared).toMatch(/layout\(location = 0\) out vec4 color;/)
+    expect(fsShared).toMatch(/layout\(location = 0\) out vec4 color;/);
     // …and the draw buffer is written from the exit's ctor argument directly (X-GIS #1867).
-    expect(fsShared).toContain('color = vec4(uv.x, uv.y, 0.0, 1.0);')
-    expect((fsShared.match(/void main\(\) \{/g) ?? []).length).toBe(1)
-  })
+    expect(fsShared).toContain('color = vec4(uv.x, uv.y, 0.0, 1.0);');
+    expect((fsShared.match(/void main\(\) \{/g) ?? []).length).toBe(1);
+  });
 
   it('no WGSL lexemes leak (no `fn`, no `@`, no `let`, no `<f32>`)', () => {
     for (const stage of ['vertex', 'fragment'] as const) {
-      const glsl = emitGlslModule(module, stage)
-      expect(glsl).not.toMatch(/\bfn\b/)
-      expect(glsl).not.toContain('@')
-      expect(glsl).not.toContain('let ')
-      expect(glsl).not.toContain('<f32>')
+      const glsl = emitGlslModule(module, stage);
+      expect(glsl).not.toMatch(/\bfn\b/);
+      expect(glsl).not.toContain('@');
+      expect(glsl).not.toContain('let ');
+      expect(glsl).not.toContain('<f32>');
     }
-  })
+  });
 
   it('emits exactly one main() per stage (GLSL ES is single-entry per compilation unit)', () => {
-    expect((emitGlslModule(module, 'vertex').match(/void main\(\)/g) ?? []).length).toBe(1)
-    expect((emitGlslModule(module, 'fragment').match(/void main\(\)/g) ?? []).length).toBe(1)
+    expect((emitGlslModule(module, 'vertex').match(/void main\(\)/g) ?? []).length).toBe(1);
+    expect((emitGlslModule(module, 'fragment').match(/void main\(\)/g) ?? []).length).toBe(1);
     // whole-module (no stage) emits BOTH main()s — a string-shape artifact, not a unit.
-    expect((emitGlslModule(module).match(/void main\(\)/g) ?? []).length).toBe(2)
-  })
-})
+    expect((emitGlslModule(module).match(/void main\(\)/g) ?? []).length).toBe(2);
+  });
+});
 
 describe('glsl-es300 — reserved-word identifier sanitisation', () => {
   // A GLSL ES reserved word (`input`, `in`, `out`, …) is a legal WGSL identifier but a
@@ -292,7 +292,7 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
   const ReservedIn: StructDecl = {
     name: 'ReservedIn',
     fields: [{ name: 'uv', type: vec2fT, attr: '@location(0)' }],
-  }
+  };
   // A helper that takes the IO struct WHOLE. Load-bearing for this whole suite since
   // X-GIS #1867: an entry param read only field-wise is substituted away entirely — its
   // identifier never reaches the emit — so a rename gate on it would pass vacuously and
@@ -309,7 +309,7 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
         expr: fld(fld(param('v', structT('ReservedIn')), 'uv', vec2fT), 'x', f32T),
       },
     ],
-  })
+  });
   const reservedMod: ModuleDecl = {
     consts: [],
     structs: [ReservedIn, FsOut],
@@ -344,28 +344,28 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
         ],
       },
     ],
-  }
+  };
 
   it('renames a reserved-word entry param + every reference consistently', () => {
-    const fs = emitGlslModule(reservedMod, 'fragment')
+    const fs = emitGlslModule(reservedMod, 'fragment');
     // the reserved param `input` is renamed (to `input_`) at the decl AND every reference.
-    expect(fs).toMatch(/\binput_\b/)
-    expect(fs).not.toMatch(/\binput\b(?!_)/) // no bare reserved `input` left
+    expect(fs).toMatch(/\binput_\b/);
+    expect(fs).not.toMatch(/\binput\b(?!_)/); // no bare reserved `input` left
     // the renamed param survives into main()'s gather AND the call site that reads it
-    expect(fs).toContain('ReservedIn input_;')
-    expect(fs).toContain('keep_whole(input_)')
-  })
+    expect(fs).toContain('ReservedIn input_;');
+    expect(fs).toContain('keep_whole(input_)');
+  });
 
   it('renames a reserved-word local var (`sample`) consistently', () => {
-    const fs = emitGlslModule(reservedMod, 'fragment')
-    expect(fs).toMatch(/\bsample_\b/)
-    expect(fs).not.toMatch(/\bsample\b(?!_)/)
-  })
+    const fs = emitGlslModule(reservedMod, 'fragment');
+    expect(fs).toMatch(/\bsample_\b/);
+    expect(fs).not.toMatch(/\bsample\b(?!_)/);
+  });
 
   it('does NOT touch struct field names (the std140 / varying-linkage contract)', () => {
-    const fs = emitGlslModule(reservedMod, 'fragment')
-    expect(fs).toMatch(/\.uv\b/) // the `uv` field is still accessed as `.uv`, not renamed
-  })
+    const fs = emitGlslModule(reservedMod, 'fragment');
+    expect(fs).toMatch(/\.uv\b/); // the `uv` field is still accessed as `.uv`, not renamed
+  });
 
   // X-GIS #1703 — the reserved set and glslType() are two lists of the SAME language's type
   // spellings, and nothing tied them together. The set carried only the ES-1.00-era
@@ -387,7 +387,7 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
         structs: [],
         bindings: [{ group: 0, binding: 0, name: 'probe_tex', space: 'uniform', type }],
         funcs: [],
-      }).match(/uniform (\w+) probe_tex;/)?.[1]
+      }).match(/uniform (\w+) probe_tex;/)?.[1];
     // A fragment whose entry PARAM is named `name` — the sanitiser must rename it iff
     // `name` is reserved. A param, not a local: a single-use `let` is copy-propagated
     // away by the optimizer, so the identifier would vanish rather than be renamed and
@@ -430,7 +430,7 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
           ],
         },
       ],
-    })
+    });
 
     for (const type of [
       texture2dfT,
@@ -440,16 +440,16 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
       texture2dArrayuT,
       texture2dArrayiT,
     ] as const) {
-      const spelling = spellingOf(type)
-      expect(spelling, `no 'uniform <type> probe_tex;' declaration emitted`).toBeTruthy()
-      const collide = emitGlslModule(paramNamed(spelling!), 'fragment')
+      const spelling = spellingOf(type);
+      expect(spelling, `no 'uniform <type> probe_tex;' declaration emitted`).toBeTruthy();
+      const collide = emitGlslModule(paramNamed(spelling!), 'fragment');
       expect(collide, `'${spelling}' is declarable as a type but is not in GLSL_RESERVED`).toMatch(
         new RegExp(`\\b${spelling}_\\b`),
-      )
-      expect(collide).not.toMatch(new RegExp(`\\b${spelling}\\b(?!_)`))
+      );
+      expect(collide).not.toMatch(new RegExp(`\\b${spelling}\\b(?!_)`));
     }
-  })
-})
+  });
+});
 
 describe('glsl-es300 — GLSL ES integer rules (u32 switch labels, flat varyings)', () => {
   it('a u32 switch emits u-suffixed case labels (label type must match the scrutinee)', () => {
@@ -481,25 +481,25 @@ describe('glsl-es300 — GLSL ES integer rules (u32 switch labels, flat varyings
           ],
         },
       ],
-    }
-    const glsl = emitGlslModule(mod)
-    expect(glsl).toMatch(/switch \(k\)/)
-    expect(glsl).toMatch(/case 1u:/) // u32 scrutinee → u-suffixed label
-    expect(glsl).not.toMatch(/case 1:/) // a bare int label is a GLSL ES type-mismatch error
-  })
+    };
+    const glsl = emitGlslModule(mod);
+    expect(glsl).toMatch(/switch \(k\)/);
+    expect(glsl).toMatch(/case 1u:/); // u32 scrutinee → u-suffixed label
+    expect(glsl).not.toMatch(/case 1:/); // a bare int label is a GLSL ES type-mismatch error
+  });
 
   it('an integer inter-stage varying is `flat` (vertex-OUT + fragment-IN), an int vertex attribute is NOT', () => {
     const IntIn: StructDecl = {
       name: 'IntIn',
       fields: [{ name: 'idx', type: u32T, attr: '@location(0)' }],
-    }
+    };
     const IntOut: StructDecl = {
       name: 'IntOut',
       fields: [
         { name: 'position', type: vec4fT, attr: '@builtin(position)' },
         { name: 'tag', type: u32T, attr: '@location(0)' },
       ],
-    }
+    };
     const vmod: ModuleDecl = {
       consts: [],
       structs: [IntIn, IntOut],
@@ -526,16 +526,16 @@ describe('glsl-es300 — GLSL ES integer rules (u32 switch labels, flat varyings
           ],
         },
       ],
-    }
-    const vs = emitGlslModule(vmod, 'vertex')
-    expect(vs).toMatch(/flat out uint tag;/) // integer vertex-OUT varying → flat
-    expect(vs).toMatch(/layout\(location = 0\) in uint a_idx;/) // integer vertex attribute → NOT flat
-    expect(vs).not.toMatch(/flat (?:layout|in)/) // no flat on the attribute
-  })
-})
+    };
+    const vs = emitGlslModule(vmod, 'vertex');
+    expect(vs).toMatch(/flat out uint tag;/); // integer vertex-OUT varying → flat
+    expect(vs).toMatch(/layout\(location = 0\) in uint a_idx;/); // integer vertex attribute → NOT flat
+    expect(vs).not.toMatch(/flat (?:layout|in)/); // no flat on the attribute
+  });
+});
 
 describe('glsl-es300 — storage → data-texture emulation (default-on)', () => {
-  const arrF32 = { kind: 'array', elem: f32T } as ShaderType // runtime-sized storage array<f32>
+  const arrF32 = { kind: 'array', elem: f32T } as ShaderType; // runtime-sized storage array<f32>
   const storageMod: ModuleDecl = {
     consts: [],
     structs: [FsOut],
@@ -573,20 +573,20 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
         ],
       },
     ],
-  }
+  };
 
   it('the storage lowering turns a storage array<f32> into a sampler2D + texelFetch (no SSBO)', () => {
-    const fs = emitGlslModule(storageMod, 'fragment')
-    expect(fs).toContain('uniform sampler2D data;') // storage binding → data texture
+    const fs = emitGlslModule(storageMod, 'fragment');
+    expect(fs).toContain('uniform sampler2D data;'); // storage binding → data texture
     // data[i] → 2D-tiled fetch. Since X-GIS #1878 the tiling lives in a HELPER the writer emits
     // rather than inline at each site, so the claim needs both halves — the math, and the
     // call that reaches it. Asserting only the call would pass on a helper doing anything.
     expect(fs).toContain(
       'float _sfetch(sampler2D t, int i) {\n  int w = textureSize(t, 0).x;\n  return texelFetch(t, ivec2(i % w, i / w), 0).r;\n}',
-    )
-    expect(fs).toMatch(/_sfetch\(data, /)
-    expect(fs).not.toContain('data[') // no raw array indexing survives
-  })
+    );
+    expect(fs).toMatch(/_sfetch\(data, /);
+    expect(fs).not.toContain('data['); // no raw array indexing survives
+  });
 
   // X-GIS #1647/#1649/#1681 — WebGL2 having no SSBO is a PLATFORM fact, not a caller choice, so
   // the lowering is default-on for any module carrying a storage binding. The
@@ -594,16 +594,16 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
   // the byte-identity test that pinned "setting it changes nothing" died with the flag,
   // and this default-on pin is the surviving half of that contract.
   it('a storage module emits by DEFAULT (no opts) and spells the data-texture fetch', () => {
-    expect(() => emitGlslModule(storageMod, 'fragment')).not.toThrow()
-    const fs = emitGlslModule(storageMod, 'fragment')
-    expect(fs).toContain('uniform sampler2D data;')
-    expect(fs).toContain('_sfetch(data,')
-  })
+    expect(() => emitGlslModule(storageMod, 'fragment')).not.toThrow();
+    const fs = emitGlslModule(storageMod, 'fragment');
+    expect(fs).toContain('uniform sampler2D data;');
+    expect(fs).toContain('_sfetch(data,');
+  });
 
   // X-GIS #823 — the retained-icon tint buffer shape: a top-level array<vec4<f32>> element
   // reads its 4 consecutive std430 lanes (i*4 .. i*4+3) recombined with a vec4 ctor.
   it('the storage lowering turns a storage array<vec4f> into 4 texelFetch lanes + a vec4 ctor', () => {
-    const arrVec4 = { kind: 'array', elem: vec4fT } as ShaderType
+    const arrVec4 = { kind: 'array', elem: vec4fT } as ShaderType;
     const vecMod: ModuleDecl = {
       consts: [],
       structs: [FsOut],
@@ -635,15 +635,15 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
           ],
         },
       ],
-    }
-    const fs = emitGlslModule(vecMod, 'fragment')
-    expect(fs).toContain('uniform sampler2D tint;') // storage binding → data texture
+    };
+    const fs = emitGlslModule(vecMod, 'fragment');
+    expect(fs).toContain('uniform sampler2D tint;'); // storage binding → data texture
     // element 3 → base lane 3u*4u, lanes +1/+2/+3, recombined into a vec4.
-    expect(fs).toMatch(/vec4\(/)
-    const fetches = fs.match(/_sfetch\(tint,/g) ?? []
-    expect(fetches.length).toBe(4)
-    expect(fs).not.toContain('tint[') // no raw array indexing survives
-  })
+    expect(fs).toMatch(/vec4\(/);
+    const fetches = fs.match(/_sfetch\(tint,/g) ?? [];
+    expect(fetches.length).toBe(4);
+    expect(fs).not.toContain('tint['); // no raw array indexing survives
+  });
 
   // ── the RESIDUAL shapes: still fail closed, now on the DEFAULT path (X-GIS #1647) ──
   // Each message must NAME the offending binding/field — these throws are user-facing
@@ -675,7 +675,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
         ],
       },
     ],
-  })
+  });
   const storageOf = (name: string, type: ShaderType): ModuleDecl['bindings'][number] => ({
     group: 0,
     binding: 0,
@@ -683,14 +683,14 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     space: 'storage',
     access: 'read',
     type,
-  })
+  });
 
   it('a NON-ARRAY storage binding still fails closed (named, with the supported shapes)', () => {
-    const Blob: StructDecl = { name: 'Blob', fields: [{ name: 'a', type: vec2fT }] }
-    const m = residualMod(storageOf('blob', structT('Blob')), [Blob])
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'blob'[\s\S]*array<f32>/)
-  })
+    const Blob: StructDecl = { name: 'Blob', fields: [{ name: 'a', type: vec2fT }] };
+    const m = residualMod(storageOf('blob', structT('Blob')), [Blob]);
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError);
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'blob'[\s\S]*array<f32>/);
+  });
 
   // ── X-GIS #1703 — the two shapes that USED to be the residual now lower, typed ──
   //
@@ -704,13 +704,13 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
   // `let` — an unread element would be dead code, and DCE would delete the very
   // texelFetch these tests assert on (an assertion that passes because nothing ran).
   const intStorageMod = (name: string, elem: ShaderType): ModuleDecl => {
-    const arrT = { kind: 'array', elem } as ShaderType
+    const arrT = { kind: 'array', elem } as ShaderType;
     const read: Expr = {
       op: 'index',
       type: elem,
       base: { op: 'varref', type: arrT, name },
       idx: { op: 'lit', type: u32T, value: 3 },
-    }
+    };
     return {
       consts: [],
       structs: [FsOut],
@@ -735,48 +735,48 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
           ],
         },
       ],
-    }
-  }
+    };
+  };
 
   it('a top-level array<u32> lowers to a usampler2D data texture (X-GIS #1703)', () => {
-    const fs = emitGlslModule(intStorageMod('idx_data', u32T), 'fragment')
-    expect(fs).toContain('uniform usampler2D idx_data;')
+    const fs = emitGlslModule(intStorageMod('idx_data', u32T), 'fragment');
+    expect(fs).toContain('uniform usampler2D idx_data;');
     // …and the §4.5.4 precision line without which it would not compile at all
-    expect(fs).toContain('precision highp usampler2D;')
+    expect(fs).toContain('precision highp usampler2D;');
     // same 2D-tiled index math as the f32 path — the element moved, the tiling did not.
     // The sampler type now rides the HELPER SIGNATURE (X-GIS #1878), which is where a wrong
     // element would show: a usampler2D array fetched through the f32 helper would not
     // compile, so this pins the typed helper AND the call that reaches it.
-    expect(fs).toContain('uint _sfetchU(usampler2D t, int i) {')
-    expect(fs).toContain('return texelFetch(t, ivec2(i % w, i / w), 0).r;')
-    expect(fs).toMatch(/_sfetchU\(idx_data, /)
-    expect(fs).not.toContain('float _sfetch(sampler2D') // the f32 helper is not emitted
-    expect(fs).not.toContain('idx_data[') // no raw array indexing survives
+    expect(fs).toContain('uint _sfetchU(usampler2D t, int i) {');
+    expect(fs).toContain('return texelFetch(t, ivec2(i % w, i / w), 0).r;');
+    expect(fs).toMatch(/_sfetchU\(idx_data, /);
+    expect(fs).not.toContain('float _sfetch(sampler2D'); // the f32 helper is not emitted
+    expect(fs).not.toContain('idx_data['); // no raw array indexing survives
     // the negative that makes this test mean something: NO float sampler, and no
     // bitcast recovering the value through one
-    expect(fs).not.toContain('uniform sampler2D idx_data;')
-    expect(fs).not.toContain('floatBitsToUint')
-  })
+    expect(fs).not.toContain('uniform sampler2D idx_data;');
+    expect(fs).not.toContain('floatBitsToUint');
+  });
 
   it('a top-level array<i32> lowers to an isampler2D data texture (X-GIS #1703)', () => {
-    const fs = emitGlslModule(intStorageMod('sign_data', i32T), 'fragment')
-    expect(fs).toContain('uniform isampler2D sign_data;')
-    expect(fs).toContain('precision highp isampler2D;')
-    expect(fs).toContain('int _sfetchI(isampler2D t, int i) {')
-    expect(fs).toContain('_sfetchI(sign_data,')
-    expect(fs).not.toContain('uniform sampler2D sign_data;')
-  })
+    const fs = emitGlslModule(intStorageMod('sign_data', i32T), 'fragment');
+    expect(fs).toContain('uniform isampler2D sign_data;');
+    expect(fs).toContain('precision highp isampler2D;');
+    expect(fs).toContain('int _sfetchI(isampler2D t, int i) {');
+    expect(fs).toContain('_sfetchI(sign_data,');
+    expect(fs).not.toContain('uniform sampler2D sign_data;');
+  });
 
   it('an UNSUPPORTED element still fails closed, and the message now lists the integer shapes', () => {
     // The residual did not disappear — it shrank. A shape outside the supported set
     // must still throw by NAME, and the listing a caller is pointed at has to mention
     // the two shapes that just became legal, or it sends them to a workaround they no
     // longer need.
-    const arrBool = { kind: 'array', elem: { kind: 'scalar', scalar: 'bool' } } as ShaderType
-    const m = residualMod(storageOf('flag_data', arrBool))
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'flag_data'[\s\S]*array<u32>, array<i32>/)
-  })
+    const arrBool = { kind: 'array', elem: { kind: 'scalar', scalar: 'bool' } } as ShaderType;
+    const m = residualMod(storageOf('flag_data', arrBool));
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError);
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'flag_data'[\s\S]*array<u32>, array<i32>/);
+  });
 
   it('an i32 struct field still fails closed, naming the field and its struct', () => {
     const Flagged: StructDecl = {
@@ -785,8 +785,8 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
         { name: 'w', type: f32T },
         { name: 'flag', type: i32T },
       ],
-    }
-    const arrFlagged = { kind: 'array', elem: structT('Flagged') } as ShaderType
+    };
+    const arrFlagged = { kind: 'array', elem: structT('Flagged') } as ShaderType;
     const m = residualMod(
       storageOf('flags', arrFlagged),
       [Flagged],
@@ -807,14 +807,14 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
           },
         },
       ],
-    )
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'flag'[\s\S]*'Flagged'/)
-  })
+    );
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError);
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'flag'[\s\S]*'Flagged'/);
+  });
 
   it('a whole-struct element read (no .field) still fails closed, naming the binding', () => {
-    const Seg: StructDecl = { name: 'Seg', fields: [{ name: 'a', type: vec2fT }] }
-    const arrSeg = { kind: 'array', elem: structT('Seg') } as ShaderType
+    const Seg: StructDecl = { name: 'Seg', fields: [{ name: 'a', type: vec2fT }] };
+    const arrSeg = { kind: 'array', elem: structT('Seg') } as ShaderType;
     const m = residualMod(
       storageOf('segs', arrSeg),
       [Seg],
@@ -830,10 +830,10 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
           },
         },
       ],
-    )
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'segs\[i\]'/)
-  })
+    );
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError);
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'segs\[i\]'/);
+  });
 
   it('a mat / vec<u32> struct field fails closed ON ACCESS, naming the field', () => {
     // Pins the doc claim (glsl.ts header / AGENTS.md): these lanes throw LAZILY at the
@@ -844,8 +844,8 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
         { name: 'w', type: f32T },
         { name: 'vel', type: { kind: 'vec', elem: 'u32', n: 2 } as ShaderType },
       ],
-    }
-    const arrMotion = { kind: 'array', elem: structT('Motion') } as ShaderType
+    };
+    const arrMotion = { kind: 'array', elem: structT('Motion') } as ShaderType;
     const m = residualMod(
       storageOf('motions', arrMotion),
       [Motion],
@@ -866,17 +866,17 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
           },
         },
       ],
-    )
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'vel'[\s\S]*not supported/)
-  })
+    );
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError);
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'vel'[\s\S]*not supported/);
+  });
 
   it('a read_write storage binding fails closed at declaration (the emulation is gather-only)', () => {
     // Without this gate a storage WRITE would not even fail at the driver: autoVars
     // materialises the assigned element into a local var, so the store silently becomes
     // a dead local write while the WGSL twin performs a real SSBO store — a silent
     // cross-backend divergence, both green (X-GIS #1648 review).
-    const arr = { kind: 'array', elem: f32T } as ShaderType
+    const arr = { kind: 'array', elem: f32T } as ShaderType;
     const m = residualMod(
       { ...storageOf('accum', arr), access: 'read_write' },
       [],
@@ -892,10 +892,10 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
           expr: { op: 'lit', type: f32T, value: 1 },
         },
       ],
-    )
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError)
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'accum'[\s\S]*read-only \(gather\)/)
-  })
+    );
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError);
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'accum'[\s\S]*read-only \(gather\)/);
+  });
 
   it('a @compute module without {emulateCompute} keeps the compute caps error (not a storage-shape one)', () => {
     // The default storage lowering must NOT run first here — it would replace the
@@ -925,10 +925,10 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
           body: [{ s: 'return' }],
         },
       ],
-    }
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(/missing capabilities:[\s\S]*compute/)
-  })
-})
+    };
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/missing capabilities:[\s\S]*compute/);
+  });
+});
 
 // ── X-GIS #1878 — the fetch is a CALL, and the writer owes its definition ──
 //
@@ -946,7 +946,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
 //     any storage fetch exists" reddens `only the sampler types actually fetched`, and
 //     nothing else, because the f32-only fixtures above stay green either way.
 describe('glsl-es300 — storage fetch spells a helper call (X-GIS #1878)', () => {
-  const arrOf = (elem: ShaderType): ShaderType => ({ kind: 'array', elem }) as ShaderType
+  const arrOf = (elem: ShaderType): ShaderType => ({ kind: 'array', elem }) as ShaderType;
   const storageOf = (name: string, type: ShaderType): ModuleDecl['bindings'][number] => ({
     group: 0,
     binding: 0,
@@ -954,7 +954,7 @@ describe('glsl-es300 — storage fetch spells a helper call (X-GIS #1878)', () =
     space: 'storage',
     access: 'read',
     type,
-  })
+  });
   /** A fragment module reading `<name>[idx]` from each listed storage array into the red
    *  channel — consumed, never left in a dangling `let`, so DCE cannot delete the fetch
    *  the assertion is about. */
@@ -1003,8 +1003,8 @@ describe('glsl-es300 — storage fetch spells a helper call (X-GIS #1878)', () =
         ],
       },
     ],
-  })
-  const u32lit = (value: number): Expr => ({ op: 'lit', type: u32T, value })
+  });
+  const u32lit = (value: number): Expr => ({ op: 'lit', type: u32T, value });
 
   it('emits NO helper when nothing fetches — the definition follows the CALLS, not the target', () => {
     // The storage-free module is the whole point of keying off collected calls: every GLSL
@@ -1035,10 +1035,10 @@ describe('glsl-es300 — storage fetch spells a helper call (X-GIS #1878)', () =
         ],
       },
       'fragment',
-    )
-    expect(fs).not.toContain('_sfetch')
-    expect(fs).not.toContain('textureSize')
-  })
+    );
+    expect(fs).not.toContain('_sfetch');
+    expect(fs).not.toContain('textureSize');
+  });
 
   it('emits only the sampler types actually fetched', () => {
     // f32 + u32 in one module: two helpers, and the i32 one must NOT ride along. Asserting
@@ -1049,11 +1049,11 @@ describe('glsl-es300 — storage fetch spells a helper call (X-GIS #1878)', () =
         { name: 'idx_data', elem: u32T, idx: u32lit(3) },
       ]),
       'fragment',
-    )
-    expect(fs).toContain('float _sfetch(sampler2D t, int i) {')
-    expect(fs).toContain('uint _sfetchU(usampler2D t, int i) {')
-    expect(fs).not.toContain('_sfetchI')
-  })
+    );
+    expect(fs).toContain('float _sfetch(sampler2D t, int i) {');
+    expect(fs).toContain('uint _sfetchU(usampler2D t, int i) {');
+    expect(fs).not.toContain('_sfetchI');
+  });
 
   it('defines every helper it calls', () => {
     // The compile-error class this replaces: a spelling that names a function the unit never
@@ -1066,12 +1066,12 @@ describe('glsl-es300 — storage fetch spells a helper call (X-GIS #1878)', () =
         { name: 'sign_data', elem: i32T, idx: u32lit(4) },
       ]),
       'fragment',
-    )
-    const called = new Set([...fs.matchAll(/(?<![\w])(_sfetch[A-Z]?)\(/g)].map((m) => m[1]!))
-    const defined = new Set([...fs.matchAll(/^\w+ (_sfetch[A-Z]?)\(/gm)].map((m) => m[1]!))
-    expect(called.size).toBe(3)
-    expect([...called].sort()).toEqual([...defined].sort())
-  })
+    );
+    const called = new Set([...fs.matchAll(/(?<![\w])(_sfetch[A-Z]?)\(/g)].map((m) => m[1]!));
+    const defined = new Set([...fs.matchAll(/^\w+ (_sfetch[A-Z]?)\(/gm)].map((m) => m[1]!));
+    expect(called.size).toBe(3);
+    expect([...called].sort()).toEqual([...defined].sort());
+  });
 
   it('binds the texture width ONCE per helper, not twice per fetch site', () => {
     // The regression this exists to catch: reinstating the inline template. Three fetch
@@ -1083,7 +1083,7 @@ describe('glsl-es300 — storage fetch spells a helper call (X-GIS #1878)', () =
       bop: '*',
       a: u32lit(7),
       b: u32lit(11),
-    }
+    };
     const fs = emitGlslModule(
       readMod([
         { name: 'data', elem: f32T, idx },
@@ -1091,10 +1091,10 @@ describe('glsl-es300 — storage fetch spells a helper call (X-GIS #1878)', () =
         { name: 'yet', elem: f32T, idx },
       ]),
       'fragment',
-    )
-    expect([...fs.matchAll(/textureSize/g)]).toHaveLength(1)
-    expect([...fs.matchAll(/_sfetch\(/g)]).toHaveLength(4) // 1 definition + 3 call sites
-  })
+    );
+    expect([...fs.matchAll(/textureSize/g)]).toHaveLength(1);
+    expect([...fs.matchAll(/_sfetch\(/g)]).toHaveLength(4); // 1 definition + 3 call sites
+  });
 
   it('casts the index AT THE CALL, so a non-integer index still compiles', () => {
     // Paid for by a real WebGL2 run (_webgl2-render-gate): the first cut of X-GIS #1878 gave the
@@ -1117,20 +1117,20 @@ describe('glsl-es300 — storage fetch spells a helper call (X-GIS #1878)', () =
         },
       ]),
       'fragment',
-    )
-    expect(fs).toContain('float _sfetch(sampler2D t, int i) {')
-    expect(fs).toMatch(/_sfetch\(data, int\(/)
-  })
+    );
+    expect(fs).toContain('float _sfetch(sampler2D t, int i) {');
+    expect(fs).toMatch(/_sfetch\(data, int\(/);
+  });
 
   it('the table\u2019s `fn` is the name the spelling actually calls', () => {
     // INTRINSIC_HELPERS exposes `fn` so a consumer can assert the pairing instead of
     // re-deriving it from the definition text; that is only true if the two agree.
     for (const [id, h] of Object.entries(INTRINSIC_HELPERS)) {
-      expect(spellIntrinsic('glsl', id, ['t', 'i'])).toBe(`${h.fn}(t, int(i))`)
-      expect(h.def).toContain(`${h.fn}(`)
+      expect(spellIntrinsic('glsl', id, ['t', 'i'])).toBe(`${h.fn}(t, int(i))`);
+      expect(h.def).toContain(`${h.fn}(`);
     }
-  })
-})
+  });
+});
 
 describe('glsl-es300 — fail-closed on out-of-scope features', () => {
   // A storage binding is NOT in this list any more (X-GIS #1647): it lowers to a data texture
@@ -1140,7 +1140,7 @@ describe('glsl-es300 — fail-closed on out-of-scope features', () => {
     const badOut: StructDecl = {
       name: 'BadOut',
       fields: [{ name: 'p', type: vec4fT, attr: '@builtin(sample_index)' }],
-    }
+    };
     const badMod: ModuleDecl = {
       consts: [],
       structs: [badOut],
@@ -1163,9 +1163,9 @@ describe('glsl-es300 — fail-closed on out-of-scope features', () => {
           ],
         },
       ],
-    }
-    expect(() => emitGlslModule(badMod, 'vertex')).toThrow(UnsupportedFeatureError)
-  })
+    };
+    expect(() => emitGlslModule(badMod, 'vertex')).toThrow(UnsupportedFeatureError);
+  });
 
   // X-GIS #1672 — the point_size SYMMETRY pin. This writer already rejected it (no
   // gl_PointSize entry in BUILTIN_OUT); the WGSL writer used to spell it verbatim and
@@ -1179,7 +1179,7 @@ describe('glsl-es300 — fail-closed on out-of-scope features', () => {
       // @ts-expect-error — 'point_size' is not a WGSL builtin (WgslBuiltinName);
       // kept deliberately so the GLSL writer's emit-time rejection stays pinned.
       psize: builtin('point_size', f32T),
-    })
+    });
     const pointMod = dslModule({
       funcs: [
         fn(
@@ -1190,13 +1190,13 @@ describe('glsl-es300 — fail-closed on out-of-scope features', () => {
         ),
       ],
       uses: [PointOut],
-    })
-    expect(() => emitGlslModule(pointMod, 'vertex')).toThrow(UnsupportedFeatureError)
+    });
+    expect(() => emitGlslModule(pointMod, 'vertex')).toThrow(UnsupportedFeatureError);
     expect(() => emitGlslModule(pointMod, 'vertex')).toThrow(
       /unsupported output @builtin\(point_size\)/,
-    )
-  })
-})
+    );
+  });
+});
 
 describe('glsl-es300 — per-stage emit scope (stage reachability)', () => {
   // The user-visible bug this pins: f64 used ONLY in the fragment stage left
@@ -1211,66 +1211,66 @@ describe('glsl-es300 — per-stage emit scope (stage reachability)', () => {
       origin: f64T,
       span: f32T,
     },
-  )
+  );
   const SvOut = ioStruct('ScopeVsOut', {
     pos: builtin('position', vec4fT),
     uv: location(0, vec2fT),
-  })
+  });
   const vsScope = fn(
     'vs_scope',
     {},
     () => SvOut.construct({ pos: vec4(0.0, 0.0, 0.0, 1.0), uv: vec2(0.0, 0.0) }),
     { stage: 'vertex' },
-  )
+  );
   const fsScope = fn(
     'fs_scope',
     { vo: SvOut },
     (p) => {
-      const v = toF32(fract(U.field.origin.add(toF64(p.vo.uv.x.mul(U.field.span)))))
-      return vec4(v, v, v, 1.0)
+      const v = toF32(fract(U.field.origin.add(toF64(p.vo.uv.x.mul(U.field.span)))));
+      return vec4(v, v, v, 1.0);
     },
     { stage: 'fragment', retAttr: '@location(0)' },
-  )
-  const scopeMod = dslModule({ funcs: [vsScope, fsScope], uses: [U, SvOut] })
+  );
+  const scopeMod = dslModule({ funcs: [vsScope, fsScope], uses: [U, SvOut] });
 
   it('vertex GLSL carries NO fragment-only machinery (df64 helpers, _fp64 guard, UBO)', () => {
-    const vs = emitGlslModule(scopeMod, 'vertex')
-    expect(vs).not.toContain('df64_')
-    expect(vs).not.toContain('_fp64')
-    expect(vs).not.toContain('ScopeU') // the UBO is referenced only by the fragment
-  })
+    const vs = emitGlslModule(scopeMod, 'vertex');
+    expect(vs).not.toContain('df64_');
+    expect(vs).not.toContain('_fp64');
+    expect(vs).not.toContain('ScopeU'); // the UBO is referenced only by the fragment
+  });
 
   it('fragment GLSL still carries the df64 helpers, the _fp64 guard, and the UBO', () => {
-    const fs = emitGlslModule(scopeMod, 'fragment')
-    expect(fs).toContain('df64_add(')
-    expect(fs).toContain('uniform highp sampler2D _fp64;')
-    expect(fs).toMatch(/layout\(std140\) uniform ScopeU \{[\s\S]*\} su;/)
-  })
+    const fs = emitGlslModule(scopeMod, 'fragment');
+    expect(fs).toContain('df64_add(');
+    expect(fs).toContain('uniform highp sampler2D _fp64;');
+    expect(fs).toMatch(/layout\(std140\) uniform ScopeU \{[\s\S]*\} su;/);
+  });
 
   it('a helper reached by BOTH stages stays in both; a fragment-only helper stays out of vertex', () => {
-    const half = fn('scope_half', { x: f32T }, (p) => p.x.mul(0.5))
-    const fragOnly = fn('scope_frag_only', { x: f32T }, (p) => p.x.add(1.0))
+    const half = fn('scope_half', { x: f32T }, (p) => p.x.mul(0.5));
+    const fragOnly = fn('scope_frag_only', { x: f32T }, (p) => p.x.add(1.0));
     const vs = fn(
       'vs_shared',
       {},
       () => SvOut.construct({ pos: vec4(0.0, 0.0, 0.0, 1.0), uv: vec2(half(1.0), 0.0) }),
       { stage: 'vertex' },
-    )
+    );
     const fs = fn(
       'fs_shared',
       { vo: SvOut },
       (p) => vec4(half(p.vo.uv.x), fragOnly(p.vo.uv.y), 0.0, 1.0),
       { stage: 'fragment', retAttr: '@location(0)' },
-    )
-    const m = dslModule({ funcs: [vs, fs], uses: [SvOut] })
-    const vsG = emitGlslModule(m, 'vertex')
-    const fsG = emitGlslModule(m, 'fragment')
-    expect(vsG).toContain('scope_half')
-    expect(vsG).not.toContain('scope_frag_only')
-    expect(fsG).toContain('scope_half')
-    expect(fsG).toContain('scope_frag_only')
-  })
-})
+    );
+    const m = dslModule({ funcs: [vs, fs], uses: [SvOut] });
+    const vsG = emitGlslModule(m, 'vertex');
+    const fsG = emitGlslModule(m, 'fragment');
+    expect(vsG).toContain('scope_half');
+    expect(vsG).not.toContain('scope_frag_only');
+    expect(fsG).toContain('scope_half');
+    expect(fsG).toContain('scope_frag_only');
+  });
+});
 
 // ── textureSampleLevel (X-GIS #1650) — the explicit-LOD sample, pinned on BOTH backends ──
 //
@@ -1281,53 +1281,53 @@ describe('glsl-es300 — per-stage emit scope (stage reachability)', () => {
 // stage too — an explicit LOD needs no derivatives, which is the whole point of the
 // intrinsic (textureSample is fragment-only).
 describe('glsl-es300 / wgsl — textureSampleLevel explicit-LOD sample', () => {
-  const LodOut = ioStruct('LodOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
-  const lodTex = resource('lod_tex', texture2dfT, { group: 0, binding: 0 })
-  const lodSmp = resource('lod_smp', samplerT, { group: 0, binding: 1 })
+  const LodOut = ioStruct('LodOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) });
+  const lodTex = resource('lod_tex', texture2dfT, { group: 0, binding: 0 });
+  const lodSmp = resource('lod_smp', samplerT, { group: 0, binding: 1 });
   const lodVs = fn(
     'lod_vs',
     { uv: location(0, vec2fT) },
     ({ uv }) => {
-      const o = LodOut.var('out')
+      const o = LodOut.var('out');
       // displace the vertex along z by a texel read at an explicit LOD
-      o.pos.assign(vec4(uv.x, uv.y, textureSampleLevel(lodTex.node, lodSmp.node, uv, 1).x, 1))
-      o.uv.assign(uv)
-      return o
+      o.pos.assign(vec4(uv.x, uv.y, textureSampleLevel(lodTex.node, lodSmp.node, uv, 1).x, 1));
+      o.uv.assign(uv);
+      return o;
     },
     { stage: 'vertex' },
-  )
+  );
   const lodFs = fn(
     'lod_fs',
     { inp: LodOut },
     ({ inp }) => textureSampleLevel(lodTex.node, lodSmp.node, inp.uv, 1),
     { stage: 'fragment', retAttr: location(0, vec4fT) },
-  )
-  const lodMod = dslModule({ uses: [LodOut, lodTex, lodSmp], funcs: [lodVs, lodFs] })
+  );
+  const lodMod = dslModule({ uses: [LodOut, lodTex, lodSmp], funcs: [lodVs, lodFs] });
 
   it('WGSL keeps the sampler argument and the sampler binding', () => {
-    const w = emitModule(lodMod)
-    expect(w).toContain('textureSampleLevel(lod_tex, lod_smp, uv, 1.0)')
-    expect(w).toContain('textureSampleLevel(lod_tex, lod_smp, inp.uv, 1.0)')
-    expect(w).toContain('var lod_smp: sampler;')
-  })
+    const w = emitModule(lodMod);
+    expect(w).toContain('textureSampleLevel(lod_tex, lod_smp, uv, 1.0)');
+    expect(w).toContain('textureSampleLevel(lod_tex, lod_smp, inp.uv, 1.0)');
+    expect(w).toContain('var lod_smp: sampler;');
+  });
 
   it('GLSL spells textureLod with NO sampler arg and drops the standalone sampler binding', () => {
-    const fsG = emitGlslModule(lodMod, 'fragment')
-    expect(fsG).toContain('textureLod(lod_tex, uv, 1.0)')
-    expect(fsG).toContain('uniform sampler2D lod_tex;')
-    expect(fsG).not.toContain('lod_smp') // fused into the combined sampler2D
-  })
+    const fsG = emitGlslModule(lodMod, 'fragment');
+    expect(fsG).toContain('textureLod(lod_tex, uv, 1.0)');
+    expect(fsG).toContain('uniform sampler2D lod_tex;');
+    expect(fsG).not.toContain('lod_smp'); // fused into the combined sampler2D
+  });
 
   it('the VERTEX stage emits the same explicit-LOD sample (no derivatives needed)', () => {
-    const vsG = emitGlslModule(lodMod, 'vertex')
+    const vsG = emitGlslModule(lodMod, 'vertex');
     // The coordinate is the entry's `uv` PARAM. In the vertex stage the out varying is
     // `uv` too, so the merged main() reads it through a renamed gather local (X-GIS #1858) —
     // match the LOD call's shape, which is what this gate is about, not that name.
-    expect(vsG).toMatch(/textureLod\(lod_tex, \w+, 1\.0\)/)
-    expect(vsG).toContain('uniform sampler2D lod_tex;')
-    expect(vsG).not.toContain('lod_smp')
-  })
-})
+    expect(vsG).toMatch(/textureLod\(lod_tex, \w+, 1\.0\)/);
+    expect(vsG).toContain('uniform sampler2D lod_tex;');
+    expect(vsG).not.toContain('lod_smp');
+  });
+});
 
 // ── 2d-array textures (X-GIS #1651) — sampler2DArray on BOTH backends ──
 //
@@ -1337,28 +1337,28 @@ describe('glsl-es300 / wgsl — textureSampleLevel explicit-LOD sample', () => {
 // GLSL folds it into the coordinate's third component. Both spellings of the SAME
 // module are asserted side by side so a divergence shows up in one diff.
 describe('glsl-es300 / wgsl — 2d-array texture reads (X-GIS #1651)', () => {
-  const ArrOut = ioStruct('ArrOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
-  const arrTex = resource('arr_tex', texture2dArrayfT, { group: 0, binding: 0 })
-  const arrSmp = resource('arr_smp', samplerT, { group: 0, binding: 1 })
+  const ArrOut = ioStruct('ArrOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) });
+  const arrTex = resource('arr_tex', texture2dArrayfT, { group: 0, binding: 0 });
+  const arrSmp = resource('arr_smp', samplerT, { group: 0, binding: 1 });
   const arrVs = fn(
     'arr_vs',
     { uv: location(0, vec2fT) },
     ({ uv }) => {
-      const o = ArrOut.var('out')
+      const o = ArrOut.var('out');
       // vertex-stage ARRAY read — legal only with an explicit LOD (no derivatives).
-      o.pos.assign(vec4(uv.x, uv.y, textureSampleLevel(arrTex.node, arrSmp.node, uv, 1, 0).x, 1))
-      o.uv.assign(uv)
-      return o
+      o.pos.assign(vec4(uv.x, uv.y, textureSampleLevel(arrTex.node, arrSmp.node, uv, 1, 0).x, 1));
+      o.uv.assign(uv);
+      return o;
     },
     { stage: 'vertex' },
-  )
+  );
   const arrFs = fn(
     'arr_fs',
     { inp: ArrOut },
     ({ inp }) => textureSample(arrTex.node, arrSmp.node, inp.uv, 1),
     { stage: 'fragment', retAttr: location(0, vec4fT) },
-  )
-  const arrMod = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, arrFs] })
+  );
+  const arrMod = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, arrFs] });
 
   // Fixtures for the two precision-header negatives below: a vertex stage that
   // touches NO texture, and a fragment stage sampling a PLAIN 2d texture.
@@ -1366,67 +1366,67 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (X-GIS #1651)', () => {
     'arr_plain_vs',
     { uv: location(0, vec2fT) },
     ({ uv }) => {
-      const o = ArrOut.var('out')
-      o.pos.assign(vec4(uv.x, uv.y, 0, 1))
-      o.uv.assign(uv)
-      return o
+      const o = ArrOut.var('out');
+      o.pos.assign(vec4(uv.x, uv.y, 0, 1));
+      o.uv.assign(uv);
+      return o;
     },
     { stage: 'vertex' },
-  )
-  const tex2d = resource('prec_tex', texture2dfT, { group: 0, binding: 0 })
-  const smp2d = resource('prec_smp', samplerT, { group: 0, binding: 1 })
+  );
+  const tex2d = resource('prec_tex', texture2dfT, { group: 0, binding: 0 });
+  const smp2d = resource('prec_smp', samplerT, { group: 0, binding: 1 });
   const fs2d = fn(
     'prec_fs',
     { inp: ArrOut },
     ({ inp }) => textureSample(tex2d.node, smp2d.node, inp.uv),
     { stage: 'fragment', retAttr: location(0, vec4fT) },
-  )
+  );
 
   it('WGSL spells the array type + keeps the layer as its own argument', () => {
-    const w = emitModule(arrMod)
-    expect(w).toContain('var arr_tex: texture_2d_array<f32>;')
-    expect(w).toContain('textureSample(arr_tex, arr_smp, inp.uv, 1)')
-    expect(w).toContain('textureSampleLevel(arr_tex, arr_smp, uv, 1, 0.0)')
-  })
+    const w = emitModule(arrMod);
+    expect(w).toContain('var arr_tex: texture_2d_array<f32>;');
+    expect(w).toContain('textureSample(arr_tex, arr_smp, inp.uv, 1)');
+    expect(w).toContain('textureSampleLevel(arr_tex, arr_smp, uv, 1, 0.0)');
+  });
 
   it('declares `precision highp sampler2DArray;` — and ONLY when the stage has one', () => {
     // GLSL ES 3.00 §4.5.4 predeclares default precisions for sampler2D / samplerCube
     // ONLY: an unqualified `uniform sampler2DArray` is a COMPILE error, and
     // `precision highp float;` does not cover it. Both stages declare the atlas here.
-    expect(emitGlslModule(arrMod, 'fragment')).toContain('precision highp sampler2DArray;')
-    expect(emitGlslModule(arrMod, 'vertex')).toContain('precision highp sampler2DArray;')
+    expect(emitGlslModule(arrMod, 'fragment')).toContain('precision highp sampler2DArray;');
+    expect(emitGlslModule(arrMod, 'vertex')).toContain('precision highp sampler2DArray;');
     // The negative holds a PLAIN 2d texture — so a dim check degenerating to
     // `kind === 'texture'` goes red here, which a textureless module (or the emit
     // goldens, none of which bind a texture) could never catch. The stray line
     // would even be legal GLSL, so no driver gate catches it either.
-    const plainMod = dslModule({ uses: [ArrOut, tex2d, smp2d], funcs: [plainVs, fs2d] })
-    const plainFsG = emitGlslModule(plainMod, 'fragment')
-    expect(plainFsG).toContain('uniform sampler2D prec_tex;')
-    expect(plainFsG).not.toContain('sampler2DArray')
-  })
+    const plainMod = dslModule({ uses: [ArrOut, tex2d, smp2d], funcs: [plainVs, fs2d] });
+    const plainFsG = emitGlslModule(plainMod, 'fragment');
+    expect(plainFsG).toContain('uniform sampler2D prec_tex;');
+    expect(plainFsG).not.toContain('sampler2DArray');
+  });
 
   it('the precision line is PER-STAGE: array reaching only the fragment stage keeps the vertex header clean', () => {
     // Keyed on the STAGE's binding scope, not the module's: the vertex stage of
     // this module never touches arr_tex, so its header (and its uniforms) must
     // stay byte-identical to the no-array baseline — stage-scoped emit invariant.
-    const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [plainVs, arrFs] })
-    expect(emitGlslModule(m, 'fragment')).toContain('precision highp sampler2DArray;')
-    const vsG = emitGlslModule(m, 'vertex')
-    expect(vsG).not.toContain('sampler2DArray')
-    expect(vsG).not.toContain('arr_tex') // the binding itself is stage-scoped out too
-  })
+    const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [plainVs, arrFs] });
+    expect(emitGlslModule(m, 'fragment')).toContain('precision highp sampler2DArray;');
+    const vsG = emitGlslModule(m, 'vertex');
+    expect(vsG).not.toContain('sampler2DArray');
+    expect(vsG).not.toContain('arr_tex'); // the binding itself is stage-scoped out too
+  });
 
   it('GLSL declares a sampler2DArray and folds the layer into a vec3 coordinate', () => {
-    const fsG = emitGlslModule(arrMod, 'fragment')
-    expect(fsG).toContain('uniform sampler2DArray arr_tex;')
-    expect(fsG).toContain('texture(arr_tex, vec3(uv, float(1)))')
-    expect(fsG).not.toContain('arr_smp') // fused into the combined sampler
-    const vsG = emitGlslModule(arrMod, 'vertex')
+    const fsG = emitGlslModule(arrMod, 'fragment');
+    expect(fsG).toContain('uniform sampler2DArray arr_tex;');
+    expect(fsG).toContain('texture(arr_tex, vec3(uv, float(1)))');
+    expect(fsG).not.toContain('arr_smp'); // fused into the combined sampler
+    const vsG = emitGlslModule(arrMod, 'vertex');
     // …the coordinate identifier is the renamed gather local (X-GIS #1858 — the vertex out
     // varying is `uv` as well); the vec3 FOLD is what this asserts.
-    expect(vsG).toMatch(/textureLod\(arr_tex, vec3\(\w+, float\(1\)\), 0\.0\)/)
-    expect(vsG).toContain('uniform sampler2DArray arr_tex;')
-  })
+    expect(vsG).toMatch(/textureLod\(arr_tex, vec3\(\w+, float\(1\)\), 0\.0\)/);
+    expect(vsG).toContain('uniform sampler2DArray arr_tex;');
+  });
 
   it('textureLoad folds the layer into an ivec3 fetch; textureDimensions is unchanged', () => {
     const loadFs = fn(
@@ -1437,16 +1437,16 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (X-GIS #1651)', () => {
           toF32(textureDimensions(arrTex.node).x),
         ),
       { stage: 'fragment', retAttr: location(0, vec4fT) },
-    )
-    const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, loadFs] })
-    const fsG = emitGlslModule(m, 'fragment')
-    expect(fsG).toContain('texelFetch(arr_tex, ivec3(ivec2(0, 0), int(1)), int(0u))')
+    );
+    const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, loadFs] });
+    const fsG = emitGlslModule(m, 'fragment');
+    expect(fsG).toContain('texelFetch(arr_tex, ivec3(ivec2(0, 0), int(1)), int(0u))');
     // WGSL textureDimensions returns vec2<u32> for arrays too — GLSL's ivec3
     // textureSize truncates into the uvec2() constructor (GLSL ES 3.00 §5.4.2).
-    expect(fsG).toContain('uvec2(textureSize(arr_tex, 0))')
-    const w = emitModule(m)
-    expect(w).toContain('textureLoad(arr_tex, vec2<i32>(0, 0), 1, 0u)')
-  })
+    expect(fsG).toContain('uvec2(textureSize(arr_tex, 0))');
+    const w = emitModule(m);
+    expect(w).toContain('textureLoad(arr_tex, vec2<i32>(0, 0), 1, 0u)');
+  });
 
   it('textureNumLayers (X-GIS #1658) reads the .z textureDimensions drops', () => {
     // The two targets are structurally different here — WGSL has a dedicated builtin,
@@ -1457,12 +1457,12 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (X-GIS #1651)', () => {
       { inp: ArrOut },
       () => vec4(toF32(textureNumLayers(arrTex.node)), 0, 0, 1),
       { stage: 'fragment', retAttr: location(0, vec4fT) },
-    )
-    const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, layersFs] })
-    expect(emitGlslModule(m, 'fragment')).toContain('uint(textureSize(arr_tex, 0).z)')
-    expect(emitModule(m)).toContain('textureNumLayers(arr_tex)')
-  })
-})
+    );
+    const m = dslModule({ uses: [ArrOut, arrTex, arrSmp], funcs: [arrVs, layersFs] });
+    expect(emitGlslModule(m, 'fragment')).toContain('uint(textureSize(arr_tex, 0).z)');
+    expect(emitModule(m)).toContain('textureNumLayers(arr_tex)');
+  });
+});
 
 // ── integer sampled textures (X-GIS #1703) — u/isampler on GLSL, texture_2d<u32> on WGSL ──
 //
@@ -1471,21 +1471,21 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (X-GIS #1651)', () => {
 // RESULT type move. Both spellings of the same module are asserted side by side, same
 // as the X-GIS #1651 block above, so a divergence lands in one diff.
 describe('glsl-es300 / wgsl — integer texture reads (X-GIS #1703)', () => {
-  const IntOut = ioStruct('IntOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
-  const uTex = resource('u_ids', texture2duT, { group: 0, binding: 0 })
-  const iTex = resource('i_deltas', texture2diT, { group: 0, binding: 1 })
-  const uArr = resource('u_atlas', texture2dArrayuT, { group: 0, binding: 2 })
+  const IntOut = ioStruct('IntOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) });
+  const uTex = resource('u_ids', texture2duT, { group: 0, binding: 0 });
+  const iTex = resource('i_deltas', texture2diT, { group: 0, binding: 1 });
+  const uArr = resource('u_atlas', texture2dArrayuT, { group: 0, binding: 2 });
   const intVs = fn(
     'int_vs',
     { uv: location(0, vec2fT) },
     ({ uv }) => {
-      const o = IntOut.var('out')
-      o.pos.assign(vec4(uv.x, uv.y, 0, 1))
-      o.uv.assign(uv)
-      return o
+      const o = IntOut.var('out');
+      o.pos.assign(vec4(uv.x, uv.y, 0, 1));
+      o.uv.assign(uv);
+      return o;
     },
     { stage: 'vertex' },
-  )
+  );
   const intFs = fn(
     'int_fs',
     { inp: IntOut },
@@ -1497,28 +1497,28 @@ describe('glsl-es300 / wgsl — integer texture reads (X-GIS #1703)', () => {
         1,
       ),
     { stage: 'fragment', retAttr: location(0, vec4fT) },
-  )
-  const intMod = dslModule({ uses: [IntOut, uTex, iTex, uArr], funcs: [intVs, intFs] })
+  );
+  const intMod = dslModule({ uses: [IntOut, uTex, iTex, uArr], funcs: [intVs, intFs] });
 
   it('WGSL parameterizes the texture type on its element', () => {
-    const w = emitModule(intMod)
-    expect(w).toContain('var u_ids: texture_2d<u32>;')
-    expect(w).toContain('var i_deltas: texture_2d<i32>;')
-    expect(w).toContain('var u_atlas: texture_2d_array<u32>;')
+    const w = emitModule(intMod);
+    expect(w).toContain('var u_ids: texture_2d<u32>;');
+    expect(w).toContain('var i_deltas: texture_2d<i32>;');
+    expect(w).toContain('var u_atlas: texture_2d_array<u32>;');
     // The read spelling is the SAME builtin as the f32 one — only the type moved.
-    expect(w).toContain('textureLoad(u_ids, vec2<i32>(0, 0), 0u)')
-    expect(w).toContain('textureLoad(u_atlas, vec2<i32>(2, 0), 1, 0u)')
-  })
+    expect(w).toContain('textureLoad(u_ids, vec2<i32>(0, 0), 0u)');
+    expect(w).toContain('textureLoad(u_atlas, vec2<i32>(2, 0), 1, 0u)');
+  });
 
   it('GLSL prefixes the sampler type per element, and fetches through the same texelFetch', () => {
-    const fsG = emitGlslModule(intMod, 'fragment')
-    expect(fsG).toContain('uniform usampler2D u_ids;')
-    expect(fsG).toContain('uniform isampler2D i_deltas;')
-    expect(fsG).toContain('uniform usampler2DArray u_atlas;')
-    expect(fsG).toContain('texelFetch(u_ids, ivec2(0, 0), int(0u))')
+    const fsG = emitGlslModule(intMod, 'fragment');
+    expect(fsG).toContain('uniform usampler2D u_ids;');
+    expect(fsG).toContain('uniform isampler2D i_deltas;');
+    expect(fsG).toContain('uniform usampler2DArray u_atlas;');
+    expect(fsG).toContain('texelFetch(u_ids, ivec2(0, 0), int(0u))');
     // the array form still folds the layer into the ivec3 coordinate (X-GIS #1651)
-    expect(fsG).toContain('texelFetch(u_atlas, ivec3(ivec2(2, 0), int(1)), int(0u))')
-  })
+    expect(fsG).toContain('texelFetch(u_atlas, ivec3(ivec2(2, 0), int(1)), int(0u))');
+  });
 
   it('every non-sampler2D type gets its own precision line, deduped and sorted', () => {
     // GLSL ES 3.00 §4.5.4 predeclares defaults for sampler2D / samplerCube ONLY, so each
@@ -1532,29 +1532,29 @@ describe('glsl-es300 / wgsl — integer texture reads (X-GIS #1703)', () => {
         'precision highp isampler2D;\n' +
         'precision highp usampler2D;\n' +
         'precision highp usampler2DArray;\n',
-    )
-  })
+    );
+  });
 
   it('the precision lines stay keyed to the STAGE, and a float-only module emits none', () => {
     // Same negative shape as X-GIS #1651's: the vertex stage here touches no texture, so a
     // check that degenerated to `kind === 'texture'` (module-wide instead of
     // stage-scoped) goes red. A stray precision line is legal GLSL, so no driver
     // catches this — only the assertion does.
-    const vsG = emitGlslModule(intMod, 'vertex')
-    expect(vsG).not.toContain('sampler') // neither the types nor the bindings
-    expect(vsG).toContain('precision highp int;\n\n')
-  })
+    const vsG = emitGlslModule(intMod, 'vertex');
+    expect(vsG).not.toContain('sampler'); // neither the types nor the bindings
+    expect(vsG).toContain('precision highp int;\n\n');
+  });
 
   it('an integer texture is a LOAD-ONLY resource — no sampler binding is emitted for it', () => {
     // The type system already refuses textureSample on these keys (dx-sweep pins it);
     // this is the emit-side witness that nothing synthesises a companion sampler, which
     // on WebGPU would be an invalid bind-group layout (a filtering sampler cannot pair
     // with a uint-sampleType texture).
-    const fsG = emitGlslModule(intMod, 'fragment')
-    expect(fsG).not.toContain('texture(u_ids')
-    expect(emitModule(intMod)).not.toContain(': sampler;')
-  })
-})
+    const fsG = emitGlslModule(intMod, 'fragment');
+    expect(fsG).not.toContain('texture(u_ids');
+    expect(emitModule(intMod)).not.toContain(': sampler;');
+  });
+});
 
 // ── X-GIS #1673 default FLOAT precision — a build-time emit knob, float line ONLY ──
 //
@@ -1581,18 +1581,18 @@ describe('glsl-es300 / wgsl — integer texture reads (X-GIS #1703)', () => {
 // two emits — an assertion that fails identically either way (§12). Header shape here,
 // compile validity in the Playwright gate, real-device behavior an explicit skip.
 describe('glsl-es300 — GlslEmitOptions.floatPrecision (X-GIS #1673)', () => {
-  const HIGHP_HEADER = '#version 300 es\nprecision highp float;\nprecision highp int;\n\n'
-  const MEDIUMP_HEADER = '#version 300 es\nprecision mediump float;\nprecision highp int;\n\n'
+  const HIGHP_HEADER = '#version 300 es\nprecision highp float;\nprecision highp int;\n\n';
+  const MEDIUMP_HEADER = '#version 300 es\nprecision mediump float;\nprecision highp int;\n\n';
 
   // `.slice(0, n)` + toBe, never `.startsWith(...)` + toBe(true): a boolean assertion
   // reports only "expected false to be true" and leaves the reader to find WHICH header
   // line moved, which is the one thing this suite exists to say out loud.
-  const header = (glsl: string, expected: string): string => glsl.slice(0, expected.length)
+  const header = (glsl: string, expected: string): string => glsl.slice(0, expected.length);
 
   it('DEFAULT (option absent) emits the pre-#1673 header byte-for-byte, in BOTH stages', () => {
-    expect(header(emitGlslModule(module, 'vertex'), HIGHP_HEADER)).toBe(HIGHP_HEADER)
-    expect(header(emitGlslModule(module, 'fragment'), HIGHP_HEADER)).toBe(HIGHP_HEADER)
-  })
+    expect(header(emitGlslModule(module, 'vertex'), HIGHP_HEADER)).toBe(HIGHP_HEADER);
+    expect(header(emitGlslModule(module, 'fragment'), HIGHP_HEADER)).toBe(HIGHP_HEADER);
+  });
 
   it("explicit {floatPrecision:'highp'} is byte-identical to omitting it entirely", () => {
     // WHOLE-STRING equality, not just the header: an option leaking into any other part
@@ -1600,24 +1600,24 @@ describe('glsl-es300 — GlslEmitOptions.floatPrecision (X-GIS #1673)', () => {
     for (const stage of ['vertex', 'fragment'] as const)
       expect(emitGlslModule(module, stage, { floatPrecision: 'highp' })).toBe(
         emitGlslModule(module, stage),
-      )
-  })
+      );
+  });
 
   it("{floatPrecision:'mediump'} flips EXACTLY the float line, in BOTH stages", () => {
     for (const stage of ['vertex', 'fragment'] as const) {
-      const base = emitGlslModule(module, stage)
-      const med = emitGlslModule(module, stage, { floatPrecision: 'mediump' })
+      const base = emitGlslModule(module, stage);
+      const med = emitGlslModule(module, stage, { floatPrecision: 'mediump' });
       // The LOAD-BEARING int line first, and by name: a knob that over-reached into it
       // must produce a message that says `int`, not a bare header-block diff.
-      expect(med).toContain('\nprecision highp int;\n')
-      expect(med).not.toContain('precision mediump int;')
-      expect(header(med, MEDIUMP_HEADER)).toBe(MEDIUMP_HEADER)
+      expect(med).toContain('\nprecision highp int;\n');
+      expect(med).not.toContain('precision mediump int;');
+      expect(header(med, MEDIUMP_HEADER)).toBe(MEDIUMP_HEADER);
       // ...and that ONE line is the only difference in the entire emit: putting the
       // token back reproduces the default bytes. A knob that also touched a body
       // qualifier or a literal would fail here even with the header pin green.
-      expect(med.replace('precision mediump float;', 'precision highp float;')).toBe(base)
+      expect(med.replace('precision mediump float;', 'precision highp float;')).toBe(base);
     }
-  })
+  });
 
   // The X-GIS #1651 line is a DIFFERENT requirement from the float default: GLSL ES 3.00
   // §4.5.4 predeclares a default precision for sampler2D / samplerCube only, so a
@@ -1626,42 +1626,42 @@ describe('glsl-es300 — GlslEmitOptions.floatPrecision (X-GIS #1673)', () => {
   const PArrOut = ioStruct('PrecArrOut', {
     pos: builtin('position', vec4fT),
     uv: location(0, vec2fT),
-  })
-  const pArrTex = resource('prec_arr_tex', texture2dArrayfT, { group: 0, binding: 0 })
-  const pArrSmp = resource('prec_arr_smp', samplerT, { group: 0, binding: 1 })
+  });
+  const pArrTex = resource('prec_arr_tex', texture2dArrayfT, { group: 0, binding: 0 });
+  const pArrSmp = resource('prec_arr_smp', samplerT, { group: 0, binding: 1 });
   const pArrVs = fn(
     'prec_arr_vs',
     { uv: location(0, vec2fT) },
     ({ uv }) => {
-      const o = PArrOut.var('out')
-      o.pos.assign(vec4(uv.x, uv.y, 0, 1))
-      o.uv.assign(uv)
-      return o
+      const o = PArrOut.var('out');
+      o.pos.assign(vec4(uv.x, uv.y, 0, 1));
+      o.uv.assign(uv);
+      return o;
     },
     { stage: 'vertex' },
-  )
+  );
   const pArrFs = fn(
     'prec_arr_fs',
     { inp: PArrOut },
     ({ inp }) => textureSample(pArrTex.node, pArrSmp.node, inp.uv, 1),
     { stage: 'fragment', retAttr: location(0, vec4fT) },
-  )
-  const pArrMod = dslModule({ uses: [PArrOut, pArrTex, pArrSmp], funcs: [pArrVs, pArrFs] })
+  );
+  const pArrMod = dslModule({ uses: [PArrOut, pArrTex, pArrSmp], funcs: [pArrVs, pArrFs] });
 
   it('the X-GIS #1651 sampler2DArray line stays highp under mediump (it is not part of the knob)', () => {
     const HIGHP_ARR =
       '#version 300 es\nprecision highp float;\nprecision highp int;\n' +
-      'precision highp sampler2DArray;\n\n'
+      'precision highp sampler2DArray;\n\n';
     const MEDIUMP_ARR =
       '#version 300 es\nprecision mediump float;\nprecision highp int;\n' +
-      'precision highp sampler2DArray;\n\n'
-    expect(header(emitGlslModule(pArrMod, 'fragment'), HIGHP_ARR)).toBe(HIGHP_ARR)
-    const med = emitGlslModule(pArrMod, 'fragment', { floatPrecision: 'mediump' })
-    expect(med).toContain('precision highp sampler2DArray;')
-    expect(med).not.toContain('precision mediump sampler2DArray;')
-    expect(header(med, MEDIUMP_ARR)).toBe(MEDIUMP_ARR)
-  })
-})
+      'precision highp sampler2DArray;\n\n';
+    expect(header(emitGlslModule(pArrMod, 'fragment'), HIGHP_ARR)).toBe(HIGHP_ARR);
+    const med = emitGlslModule(pArrMod, 'fragment', { floatPrecision: 'mediump' });
+    expect(med).toContain('precision highp sampler2DArray;');
+    expect(med).not.toContain('precision mediump sampler2DArray;');
+    expect(header(med, MEDIUMP_ARR)).toBe(MEDIUMP_ARR);
+  });
+});
 
 // ═══ P1-21 of #155 — one precision line per sampler type GLSL ES 3.00 does not predeclare ═══
 //
@@ -1678,7 +1678,7 @@ describe('glsl-es300 — GlslEmitOptions.floatPrecision (X-GIS #1673)', () => {
 describe('every spellable sampler type gets exactly the precision line GLSL ES 3.00 lacks', () => {
   /** GLSL ES 3.00 predeclares a default precision for exactly these two, so a line for either
    *  is a redeclaration the emitter must not write. */
-  const PREDECLARED = new Set(['sampler2D', 'samplerCube'])
+  const PREDECLARED = new Set(['sampler2D', 'samplerCube']);
 
   const bindingOnly = (type: ShaderType, count = 1): ModuleDecl =>
     ({
@@ -1692,7 +1692,7 @@ describe('every spellable sampler type gets exactly the precision line GLSL ES 3
         type,
       })),
       funcs: [],
-    }) as unknown as ModuleDecl
+    }) as unknown as ModuleDecl;
 
   const SAMPLER_TYPES: readonly ShaderType[] = [
     ...(['f32', 'i32', 'u32'] as const).flatMap((elem) =>
@@ -1703,37 +1703,37 @@ describe('every spellable sampler type gets exactly the precision line GLSL ES 3
     ...(['2d', '2d-array', 'cube'] as const).map(
       (dim) => ({ kind: 'depth-texture', dim }) as unknown as ShaderType,
     ),
-  ]
+  ];
 
   it('declares fifteen distinct sampler spellings, of which thirteen need a line', () => {
     // The floor: if `SAMPLER_TYPES` or the spelling reader came back empty the arms below
     // would pass over nothing.
     const spellings = SAMPLER_TYPES.map(
       (t) => /uniform (\w+) probe_tex0;/.exec(emitGlslModule(bindingOnly(t), 'fragment'))?.[1],
-    )
-    expect(spellings.filter((s) => s !== undefined)).toHaveLength(15)
-    expect(new Set(spellings).size).toBe(15)
-    expect(spellings.filter((s) => s !== undefined && !PREDECLARED.has(s))).toHaveLength(13)
-  })
+    );
+    expect(spellings.filter((s) => s !== undefined)).toHaveLength(15);
+    expect(new Set(spellings).size).toBe(15);
+    expect(spellings.filter((s) => s !== undefined && !PREDECLARED.has(s))).toHaveLength(13);
+  });
 
   it('emits the line exactly once for a type GLSL ES 3.00 does not predeclare, and never for one it does', () => {
-    const wrong: string[] = []
+    const wrong: string[] = [];
     for (const type of SAMPLER_TYPES) {
-      const text = emitGlslModule(bindingOnly(type), 'fragment')
-      const spelling = /uniform (\w+) probe_tex0;/.exec(text)?.[1] ?? '<not declared>'
-      const lines = [...text.matchAll(/precision highp (\w+);/g)].map((m) => m[1])
-      const seen = lines.filter((l) => l === spelling).length
-      const want = PREDECLARED.has(spelling) ? 0 : 1
-      if (seen !== want) wrong.push(`${spelling}: ${String(seen)} lines, expected ${String(want)}`)
+      const text = emitGlslModule(bindingOnly(type), 'fragment');
+      const spelling = /uniform (\w+) probe_tex0;/.exec(text)?.[1] ?? '<not declared>';
+      const lines = [...text.matchAll(/precision highp (\w+);/g)].map((m) => m[1]);
+      const seen = lines.filter((l) => l === spelling).length;
+      const want = PREDECLARED.has(spelling) ? 0 : 1;
+      if (seen !== want) wrong.push(`${spelling}: ${String(seen)} lines, expected ${String(want)}`);
     }
-    expect(wrong).toEqual([])
-  })
+    expect(wrong).toEqual([]);
+  });
 
   it('emits one line for two bindings of the same sampler type, not two', () => {
     const text = emitGlslModule(
       bindingOnly({ kind: 'texture', dim: '2d', elem: 'u32' } as unknown as ShaderType, 2),
       'fragment',
-    )
-    expect([...text.matchAll(/precision highp usampler2D;/g)]).toHaveLength(1)
-  })
-})
+    );
+    expect([...text.matchAll(/precision highp usampler2D;/g)]).toHaveLength(1);
+  });
+});

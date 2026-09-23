@@ -10,8 +10,8 @@
 // setBinding and has no storageFetchF32/texelFetch builtin. Storage→data-texture is covered
 // by the M2a emit-shape test and the M2c real-GPU gate.
 
-import { describe, it, expect } from 'vitest'
-import { compileModule, lowerComputeToFragment } from 'typeshade'
+import { describe, it, expect } from 'vitest';
+import { compileModule, lowerComputeToFragment } from 'typeshade';
 import {
   f32T,
   u32T,
@@ -22,33 +22,33 @@ import {
   type ShaderType,
   type Expr,
   type ModuleDecl,
-} from 'typeshade'
+} from 'typeshade';
 
-const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType
-const arrF32 = { kind: 'array', elem: f32T } as ShaderType
-const arrU32 = { kind: 'array', elem: u32T } as ShaderType
-const lit = (value: number, type: ShaderType): Expr => ({ op: 'lit', type, value })
-const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name })
+const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType;
+const arrF32 = { kind: 'array', elem: f32T } as ShaderType;
+const arrU32 = { kind: 'array', elem: u32T } as ShaderType;
+const lit = (value: number, type: ShaderType): Expr => ({ op: 'lit', type, value });
+const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name });
 const member = (base: Expr, field: string, type: ShaderType): Expr => ({
   op: 'member',
   type,
   base,
   field,
-})
-const index = (base: Expr, idx: Expr, type: ShaderType): Expr => ({ op: 'index', type, base, idx })
+});
+const index = (base: Expr, idx: Expr, type: ShaderType): Expr => ({ op: 'index', type, base, idx });
 
 // The per-feature paint kernel shell (compute-gen.ts shape): out_color[fid] = pack4x8unorm(
 // vec4(feat_data[fid], 0, 0, 1)), guarded by fid < u_count.x.
-const gid = { op: 'param', type: vec3uT, name: 'gid' } as Expr
-const fid = member(gid, 'x', u32T)
-const count = member(varref('u_count', vec4uT), 'x', u32T)
-const feat = index(varref('feat_data', arrF32), fid, f32T)
+const gid = { op: 'param', type: vec3uT, name: 'gid' } as Expr;
+const fid = member(gid, 'x', u32T);
+const count = member(varref('u_count', vec4uT), 'x', u32T);
+const feat = index(varref('feat_data', arrF32), fid, f32T);
 const color: Expr = {
   op: 'construct',
   type: vec4fT,
   args: [feat, lit(0, f32T), lit(0, f32T), lit(1, f32T)],
-}
-const packed: Expr = { op: 'call', type: u32T, fn: 'pack4x8unorm', args: [color] }
+};
+const packed: Expr = { op: 'call', type: u32T, fn: 'pack4x8unorm', args: [color] };
 const computeMod: ModuleDecl = {
   consts: [],
   structs: [],
@@ -84,17 +84,17 @@ const computeMod: ModuleDecl = {
       ],
     },
   ],
-}
+};
 
 // Run the original VOID @compute kernel: gid=[fid,0,0], in-place writes into out_color[].
 function runCompute(featData: number[], n: number): number[] {
-  const cm = compileModule(computeMod)
-  cm.setBinding('feat_data', featData)
-  cm.setBinding('u_count', [n, 0, 0, 0])
-  const out = new Array(n).fill(0)
-  cm.setBinding('out_color', out)
-  for (let f = 0; f < n; f++) cm.fns.paint([f, 0, 0])
-  return out
+  const cm = compileModule(computeMod);
+  cm.setBinding('feat_data', featData);
+  cm.setBinding('u_count', [n, 0, 0, 0]);
+  const out = new Array(n).fill(0);
+  cm.setBinding('out_color', out);
+  for (let f = 0; f < n; f++) cm.fns.paint([f, 0, 0]);
+  return out;
 }
 
 // The SAME fixture DECLARED a portable kernel (X-GIS #1812). `portable` is compute-only and has no
@@ -105,7 +105,7 @@ function runCompute(featData: number[], n: number): number[] {
 const portableMod: ModuleDecl = {
   ...computeMod,
   funcs: [{ ...computeMod.funcs[0]!, stage: 'compute', workgroupSize: 64, portable: true }],
-}
+};
 
 // Run the LOWERED @fragment form per-texel over a W×H grid; collect the returned u32 at
 // fid = x + y*W for fid < n. u_count.y carries the row width W (the GLSL-only contract).
@@ -115,56 +115,56 @@ function runFragment(
   w: number,
   mod: ModuleDecl = computeMod,
 ): number[] {
-  const fm = compileModule(lowerComputeToFragment(mod))
-  fm.setBinding('feat_data', featData)
-  const h = Math.ceil(n / w)
-  fm.setBinding('u_count', [n, w, 0, 0])
-  const out = new Array(n).fill(0)
+  const fm = compileModule(lowerComputeToFragment(mod));
+  fm.setBinding('feat_data', featData);
+  const h = Math.ceil(n / w);
+  fm.setBinding('u_count', [n, w, 0, 0]);
+  const out = new Array(n).fill(0);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const f = x + y * w
-      if (f >= n) continue // over-grid padding texel → discard path
-      out[f] = fm.fns.paint([x + 0.5, y + 0.5, 0, 1]) as number
+      const f = x + y * w;
+      if (f >= n) continue; // over-grid padding texel → discard path
+      out[f] = fm.fns.paint([x + 0.5, y + 0.5, 0, 1]) as number;
     }
   }
-  return out
+  return out;
 }
 
 describe('M2b — compute→fragment lowering preserves out_color byte-for-byte (oracle)', () => {
   const inputs: Array<{ name: string; data: number[] }> = [
     { name: 'ramp', data: Array.from({ length: 10 }, (_, i) => i / 10) },
     { name: 'edges', data: [0, 1, 0.5, 0.25, 0.999, 0.001, 0.5, 0.5] },
-  ]
+  ];
   for (const { name, data } of inputs) {
     it(`single-row grid (W=count) — ${name}`, () => {
-      const n = data.length
-      expect(runFragment(data, n, n)).toEqual(runCompute(data, n))
-    })
+      const n = data.length;
+      expect(runFragment(data, n, n)).toEqual(runCompute(data, n));
+    });
   }
 
   it('multi-row grid (H_out>1) — exercises the u_count.y width contract (critique #4)', () => {
     const n = 10,
-      w = 4 // H = ceil(10/4) = 3 rows; last row partial
-    const data = Array.from({ length: n }, (_, i) => ((i * 7) % 11) / 11)
-    expect(runFragment(data, n, w)).toEqual(runCompute(data, n))
-  })
+      w = 4; // H = ceil(10/4) = 3 rows; last row partial
+    const data = Array.from({ length: n }, (_, i) => ((i * 7) % 11) / 11);
+    expect(runFragment(data, n, w)).toEqual(runCompute(data, n));
+  });
 
   it('X-GIS #1812 — the same kernel DECLARED portable lowers through the tier gate, oracle-identical', () => {
     const n = 10,
-      w = 4 // the multi-row shape: the widest arm, so the tier gate is proven on it
-    const data = Array.from({ length: n }, (_, i) => ((i * 7) % 11) / 11)
+      w = 4; // the multi-row shape: the widest arm, so the tier gate is proven on it
+    const data = Array.from({ length: n }, (_, i) => ((i * 7) % 11) / 11);
     // Byte-identical to BOTH the undeclared lowering and the original @compute kernel: the
     // declaration changes which checks run, never what the lowered kernel computes.
-    expect(runFragment(data, n, w, portableMod)).toEqual(runFragment(data, n, w))
-    expect(runFragment(data, n, w, portableMod)).toEqual(runCompute(data, n))
-  })
+    expect(runFragment(data, n, w, portableMod)).toEqual(runFragment(data, n, w));
+    expect(runFragment(data, n, w, portableMod)).toEqual(runCompute(data, n));
+  });
 
   it('boundary fid==count-1 is written; an over-grid texel (fid>=count) writes nothing', () => {
     const n = 5,
-      w = 4 // grid 4×2=8 texels; texels 5,6,7 are over-grid
-    const data = Array.from({ length: n }, (_, i) => (i + 1) / 6)
-    const out = runFragment(data, n, w)
-    expect(out.length).toBe(n)
-    expect(out[n - 1]).toBe(runCompute(data, n)[n - 1]) // last in-range fid written
-  })
-})
+      w = 4; // grid 4×2=8 texels; texels 5,6,7 are over-grid
+    const data = Array.from({ length: n }, (_, i) => (i + 1) / 6);
+    const out = runFragment(data, n, w);
+    expect(out.length).toBe(n);
+    expect(out[n - 1]).toBe(runCompute(data, n)[n - 1]); // last in-range fid written
+  });
+});

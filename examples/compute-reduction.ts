@@ -24,28 +24,28 @@ import {
   storageBuffer,
   resource,
   builtin,
-} from '../src/index.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import type { ShaderExample } from './_shared.js';
 
 // Each invocation sums WINDOW consecutive input elements.
-const WINDOW = u32(8)
+const WINDOW = u32(8);
 
-const inputB = storageBuffer('input', f32T, { group: 0, binding: 0, access: 'read' })
-const outputB = storageBuffer('output', f32T, { group: 0, binding: 1, access: 'read_write' })
+const inputB = storageBuffer('input', f32T, { group: 0, binding: 0, access: 'read' });
+const outputB = storageBuffer('output', f32T, { group: 0, binding: 1, access: 'read_write' });
 // .x = number of output elements (one reduced window each).
-const params = resource('params', vec4uT, { group: 0, binding: 2 })
+const params = resource('params', vec4uT, { group: 0, binding: 2 });
 
 const reduceKernel = fn(
   'reduce_windows',
   { gid: builtin('global_invocation_id', vec3uT) },
   voidT,
   ({ gid }) => {
-    const idx = gid.x
+    const idx = gid.x;
     If(idx.ge(params.node.x), () => {
-      Return()
-    })
+      Return();
+    });
 
-    const base = idx.mul(WINDOW)
+    const base = idx.mul(WINDOW);
     // Fold WINDOW elements: acc starts at 0, loop j in [0, WINDOW), accumulate.
     const sum = reduce(
       f32(0),
@@ -53,17 +53,17 @@ const reduceKernel = fn(
       (j) => j.lt(WINDOW),
       (acc, j) => acc.add(inputB.at(base.add(j))),
       u32(1),
-    )
+    );
 
-    outputB.at(idx).assign(sum)
+    outputB.at(idx).assign(sum);
   },
   { stage: 'compute', workgroupSize: 64 },
-)
+);
 
 const reductionModule = module({
   bindings: [inputB.binding, outputB.binding, params.binding],
   funcs: [reduceKernel],
-})
+});
 
 export const computeReduction: ShaderExample = {
   id: 'compute-reduction',
@@ -74,4 +74,4 @@ export const computeReduction: ShaderExample = {
   file: 'compute-reduction.ts',
   module: reductionModule,
   renderable: false,
-}
+};

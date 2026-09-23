@@ -1,11 +1,11 @@
 // === TypeScript + TypeShade diagnostics, merged into one TypeshadeDiagnostic list (§5, §6) ===
 
-import ts from 'typescript'
-import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js'
-import { TS_CODES } from '../compiler/ts/codes.js'
-import { GPU_BRAND_TAGS } from './ambient.js'
-import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js'
-import type { TypeshadeDiagnostic, TypeshadeSeverity } from './types.js'
+import ts from 'typescript';
+import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
+import { TS_CODES } from '../compiler/ts/codes.js';
+import { GPU_BRAND_TAGS } from './ambient.js';
+import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
+import type { TypeshadeDiagnostic, TypeshadeSeverity } from './types.js';
 
 /**
  * One TypeScript diagnostic code the ambient lib cannot silence, and the rule that decides
@@ -15,12 +15,12 @@ import type { TypeshadeDiagnostic, TypeshadeSeverity } from './types.js'
  */
 interface DiagnosticFilterRule {
   /** The numeric TypeScript diagnostic code this rule may drop. */
-  readonly code: number
+  readonly code: number;
   /** Why this code is filtered here instead of by the ambient lib. */
-  readonly reason: string
+  readonly reason: string;
   /** Returns `true` when this specific occurrence is the known false positive and should be
    * dropped; `false` lets it through as a real diagnostic. */
-  readonly when: (context: DiagnosticFilterContext, diagnostic: ts.Diagnostic) => boolean
+  readonly when: (context: DiagnosticFilterContext, diagnostic: ts.Diagnostic) => boolean;
 }
 
 /**
@@ -32,8 +32,8 @@ interface DiagnosticFilterRule {
  * checker can only ever show more diagnostics, never hide one.
  */
 interface DiagnosticFilterContext {
-  readonly sourceFile: ts.SourceFile
-  readonly checker: ts.TypeChecker | undefined
+  readonly sourceFile: ts.SourceFile;
+  readonly checker: ts.TypeChecker | undefined;
 }
 
 /**
@@ -45,7 +45,9 @@ interface DiagnosticFilterContext {
  * TS1206 red on a program the compiler accepts outright.
  */
 function isTopLevelFunctionDeclaration(node: ts.Node): node is ts.FunctionDeclaration {
-  return ts.isFunctionDeclaration(node) && node.parent !== undefined && ts.isSourceFile(node.parent)
+  return (
+    ts.isFunctionDeclaration(node) && node.parent !== undefined && ts.isSourceFile(node.parent)
+  );
 }
 
 /**
@@ -63,17 +65,17 @@ function isDecoratorOnTopLevelFunction(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): boolean {
-  const pos = diagnostic.start ?? 0
-  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos)
-  while (node !== undefined && !ts.isDecorator(node)) node = node.parent
-  if (node === undefined) return false
-  const decorated = node.parent
-  if (decorated === undefined) return false
-  if (isTopLevelFunctionDeclaration(decorated)) return true
+  const pos = diagnostic.start ?? 0;
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos);
+  while (node !== undefined && !ts.isDecorator(node)) node = node.parent;
+  if (node === undefined) return false;
+  const decorated = node.parent;
+  if (decorated === undefined) return false;
+  if (isTopLevelFunctionDeclaration(decorated)) return true;
   if (ts.isParameter(decorated) && decorated.parent !== undefined) {
-    return isTopLevelFunctionDeclaration(decorated.parent)
+    return isTopLevelFunctionDeclaration(decorated.parent);
   }
-  return false
+  return false;
 }
 
 /**
@@ -82,10 +84,10 @@ function isDecoratorOnTopLevelFunction(
  * TypeScript version (`api-surface.test.ts` records the same hazard about its own snapshot),
  * so only the tag name between the two `@` is ever matched.
  */
-const UNIQUE_SYMBOL_PROPERTY = /^__@(.+)@\d+$/
+const UNIQUE_SYMBOL_PROPERTY = /^__@(.+)@\d+$/;
 
 /** `GPU_BRAND_TAGS` as a set, for the per-property lookup in `isGpuBrandedType`. */
-const GPU_BRAND_TAG_NAMES: ReadonlySet<string> = new Set(GPU_BRAND_TAGS)
+const GPU_BRAND_TAG_NAMES: ReadonlySet<string> = new Set(GPU_BRAND_TAGS);
 
 /**
  * Whether `type` is one of the ambient lib's vector or matrix types, decided structurally: it
@@ -96,11 +98,11 @@ const GPU_BRAND_TAG_NAMES: ReadonlySet<string> = new Set(GPU_BRAND_TAGS)
  * no second list to keep in step. A union or intersection counts when any constituent does.
  */
 function isGpuBrandedType(type: ts.Type): boolean {
-  if (type.isUnionOrIntersection()) return type.types.some(isGpuBrandedType)
+  if (type.isUnionOrIntersection()) return type.types.some(isGpuBrandedType);
   return type.getProperties().some((property) => {
-    const tag = UNIQUE_SYMBOL_PROPERTY.exec(property.getName())?.[1]
-    return tag !== undefined && GPU_BRAND_TAG_NAMES.has(tag)
-  })
+    const tag = UNIQUE_SYMBOL_PROPERTY.exec(property.getName())?.[1];
+    return tag !== undefined && GPU_BRAND_TAG_NAMES.has(tag);
+  });
 }
 
 /**
@@ -108,8 +110,8 @@ function isGpuBrandedType(type: ts.Type): boolean {
  * decides from a type answers `false` and the diagnostic survives, per `DiagnosticFilterContext`.
  */
 function isGpuExpression(context: DiagnosticFilterContext, expression: ts.Expression): boolean {
-  if (context.checker === undefined) return false
-  return isGpuBrandedType(context.checker.getTypeAtLocation(expression))
+  if (context.checker === undefined) return false;
+  return isGpuBrandedType(context.checker.getTypeAtLocation(expression));
 }
 
 /**
@@ -122,12 +124,12 @@ function binaryExpressionAt(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): ts.BinaryExpression | undefined {
-  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0)
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
   while (node !== undefined) {
-    if (ts.isBinaryExpression(node)) return node
-    node = node.parent
+    if (ts.isBinaryExpression(node)) return node;
+    node = node.parent;
   }
-  return undefined
+  return undefined;
 }
 
 /**
@@ -143,14 +145,15 @@ function binaryExpressionSpanning(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): ts.BinaryExpression | undefined {
-  const pos = diagnostic.start ?? 0
-  const end = pos + (diagnostic.length ?? 0)
-  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos)
+  const pos = diagnostic.start ?? 0;
+  const end = pos + (diagnostic.length ?? 0);
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos);
   while (node !== undefined) {
-    if (ts.isBinaryExpression(node) && node.getStart() === pos && node.getEnd() === end) return node
-    node = node.parent
+    if (ts.isBinaryExpression(node) && node.getStart() === pos && node.getEnd() === end)
+      return node;
+    node = node.parent;
   }
-  return undefined
+  return undefined;
 }
 
 /** `+ - * / %` and their compound-assignment forms: the operators a vector or matrix operand
@@ -167,7 +170,7 @@ const ARITHMETIC_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.AsteriskEqualsToken,
   ts.SyntaxKind.SlashEqualsToken,
   ts.SyntaxKind.PercentEqualsToken,
-])
+]);
 
 /** The unary forms of the same arithmetic: `-v`, `+v`, `v++`, `v--`. */
 const ARITHMETIC_UNARY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
@@ -175,7 +178,7 @@ const ARITHMETIC_UNARY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.MinusToken,
   ts.SyntaxKind.PlusPlusToken,
   ts.SyntaxKind.MinusMinusToken,
-])
+]);
 
 /**
  * TS2362 points at the LEFT operand of an arithmetic operation whose type is not numeric, so
@@ -187,21 +190,21 @@ const ARITHMETIC_UNARY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
  * `v * "x"` red, through the TS2363 on the string.
  */
 function isGpuLeftOperand(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
-  const binary = binaryExpressionAt(context, diagnostic)
-  if (binary === undefined) return false
-  const pos = diagnostic.start ?? 0
-  if (pos < binary.left.getStart() || pos >= binary.operatorToken.getStart()) return false
-  return isGpuExpression(context, binary.left)
+  const binary = binaryExpressionAt(context, diagnostic);
+  if (binary === undefined) return false;
+  const pos = diagnostic.start ?? 0;
+  if (pos < binary.left.getStart() || pos >= binary.operatorToken.getStart()) return false;
+  return isGpuExpression(context, binary.left);
 }
 
 /** TS2363 is TS2362 for the RIGHT operand (`m * v`'s vector, `2. * v`), and filtered the same
  * way: only when the operand the code points at is itself an ambient vector or matrix. */
 function isGpuRightOperand(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
-  const binary = binaryExpressionAt(context, diagnostic)
-  if (binary === undefined) return false
-  const pos = diagnostic.start ?? 0
-  if (pos < binary.right.getStart() || pos >= binary.right.getEnd()) return false
-  return isGpuExpression(context, binary.right)
+  const binary = binaryExpressionAt(context, diagnostic);
+  if (binary === undefined) return false;
+  const pos = diagnostic.start ?? 0;
+  if (pos < binary.right.getStart() || pos >= binary.right.getEnd()) return false;
+  return isGpuExpression(context, binary.right);
 }
 
 /**
@@ -217,10 +220,10 @@ function isGpuRightOperand(context: DiagnosticFilterContext, diagnostic: ts.Diag
  * which for a left-nested product is a different operation entirely.
  */
 function isGpuBinaryOperand(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
-  const binary = binaryExpressionSpanning(context, diagnostic)
-  if (binary === undefined) return false
-  if (!ARITHMETIC_OPERATORS.has(binary.operatorToken.kind)) return false
-  return isGpuExpression(context, binary.left) || isGpuExpression(context, binary.right)
+  const binary = binaryExpressionSpanning(context, diagnostic);
+  if (binary === undefined) return false;
+  if (!ARITHMETIC_OPERATORS.has(binary.operatorToken.kind)) return false;
+  return isGpuExpression(context, binary.left) || isGpuExpression(context, binary.right);
 }
 
 /**
@@ -236,18 +239,18 @@ function hasGpuArithmetic(context: DiagnosticFilterContext, node: ts.Node): bool
     ARITHMETIC_OPERATORS.has(node.operatorToken.kind) &&
     (isGpuExpression(context, node.left) || isGpuExpression(context, node.right))
   ) {
-    return true
+    return true;
   }
   if (
     (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
     ARITHMETIC_UNARY_OPERATORS.has(node.operator) &&
     isGpuExpression(context, node.operand)
   ) {
-    return true
+    return true;
   }
   return (
     ts.forEachChild(node, (child) => (hasGpuArithmetic(context, child) ? true : undefined)) ?? false
-  )
+  );
 }
 
 /**
@@ -261,23 +264,23 @@ function assignedExpressionAt(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): ts.Expression | undefined {
-  const pos = diagnostic.start ?? 0
-  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos)
+  const pos = diagnostic.start ?? 0;
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos);
   while (node !== undefined) {
-    if (ts.isReturnStatement(node)) return node.expression
+    if (ts.isReturnStatement(node)) return node.expression;
     if (ts.isVariableDeclaration(node)) {
-      const initializer = node.initializer
-      return initializer !== undefined && pos < initializer.getStart() ? initializer : undefined
+      const initializer = node.initializer;
+      return initializer !== undefined && pos < initializer.getStart() ? initializer : undefined;
     }
     if (ts.isPropertyAssignment(node)) {
-      return pos < node.initializer.getStart() ? node.initializer : undefined
+      return pos < node.initializer.getStart() ? node.initializer : undefined;
     }
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-      return pos < node.operatorToken.getStart() ? node.right : undefined
+      return pos < node.operatorToken.getStart() ? node.right : undefined;
     }
-    node = node.parent
+    node = node.parent;
   }
-  return undefined
+  return undefined;
 }
 
 /**
@@ -295,13 +298,13 @@ function isGpuArithmeticAssignment(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): boolean {
-  const checker = context.checker
-  if (checker === undefined) return false
-  const value = assignedExpressionAt(context, diagnostic)
-  if (value === undefined) return false
-  const target = checker.getContextualType(value)
-  if (target === undefined || !isGpuBrandedType(target)) return false
-  return isGpuExpression(context, value) || hasGpuArithmetic(context, value)
+  const checker = context.checker;
+  if (checker === undefined) return false;
+  const value = assignedExpressionAt(context, diagnostic);
+  if (value === undefined) return false;
+  const target = checker.getContextualType(value);
+  if (target === undefined || !isGpuBrandedType(target)) return false;
+  return isGpuExpression(context, value) || hasGpuArithmetic(context, value);
 }
 
 /**
@@ -309,9 +312,9 @@ function isGpuArithmeticAssignment(
  * argument's index, so a rule can ask what the callee wanted in that position.
  */
 interface ArgumentPosition {
-  readonly call: ts.CallExpression
-  readonly index: number
-  readonly argument: ts.Expression
+  readonly call: ts.CallExpression;
+  readonly index: number;
+  readonly argument: ts.Expression;
 }
 
 /**
@@ -325,31 +328,31 @@ function argumentAt(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): ArgumentPosition | undefined {
-  const pos = diagnostic.start ?? 0
-  const end = pos + (diagnostic.length ?? 0)
-  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos)
+  const pos = diagnostic.start ?? 0;
+  const end = pos + (diagnostic.length ?? 0);
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos);
   while (node !== undefined) {
-    const parent: ts.Node | undefined = node.parent
+    const parent: ts.Node | undefined = node.parent;
     if (parent !== undefined && ts.isCallExpression(parent) && node.getStart() === pos) {
-      const index = parent.arguments.indexOf(node as ts.Expression)
+      const index = parent.arguments.indexOf(node as ts.Expression);
       if (index >= 0 && node.getEnd() === end) {
-        return { call: parent, index, argument: node as ts.Expression }
+        return { call: parent, index, argument: node as ts.Expression };
       }
     }
-    node = parent
+    node = parent;
   }
-  return undefined
+  return undefined;
 }
 
 /** Whether `symbol` is a signature's rest parameter (`...args: T[]`), read from its own
  * declaration rather than from the parameter's position in the list. */
 function isRestParameter(symbol: ts.Symbol): boolean {
-  const declaration = symbol.valueDeclaration
+  const declaration = symbol.valueDeclaration;
   return (
     declaration !== undefined &&
     ts.isParameter(declaration) &&
     declaration.dotDotDotToken !== undefined
-  )
+  );
 }
 
 /**
@@ -364,14 +367,14 @@ function parameterTypeOfSignature(
   index: number,
   location: ts.Node,
 ): ts.Type | undefined {
-  const parameters = signature.getParameters()
-  const last = parameters[parameters.length - 1]
+  const parameters = signature.getParameters();
+  const last = parameters[parameters.length - 1];
   const symbol =
-    parameters[index] ?? (last !== undefined && isRestParameter(last) ? last : undefined)
-  if (symbol === undefined) return undefined
-  const type = checker.getTypeOfSymbolAtLocation(symbol, location)
-  if (!isRestParameter(symbol)) return type
-  return checker.getIndexTypeOfType(type, ts.IndexKind.Number) ?? type
+    parameters[index] ?? (last !== undefined && isRestParameter(last) ? last : undefined);
+  if (symbol === undefined) return undefined;
+  const type = checker.getTypeOfSymbolAtLocation(symbol, location);
+  if (!isRestParameter(symbol)) return type;
+  return checker.getIndexTypeOfType(type, ts.IndexKind.Number) ?? type;
 }
 
 /**
@@ -388,20 +391,20 @@ function parameterTypesAt(
   position: ArgumentPosition,
   resolved: ts.Signature | undefined,
 ): ts.Type[] {
-  const { call, index } = position
-  const types: ts.Type[] = []
+  const { call, index } = position;
+  const types: ts.Type[] = [];
   if (resolved !== undefined) {
-    const type = parameterTypeOfSignature(checker, resolved, index, call)
-    if (type !== undefined) types.push(type)
+    const type = parameterTypeOfSignature(checker, resolved, index, call);
+    if (type !== undefined) types.push(type);
   }
-  const overloads = checker.getTypeAtLocation(call.expression).getCallSignatures()
+  const overloads = checker.getTypeAtLocation(call.expression).getCallSignatures();
   if (overloads.length > 1 && (resolved === undefined || !overloads.includes(resolved))) {
     for (const overload of overloads) {
-      const type = parameterTypeOfSignature(checker, overload, index, call)
-      if (type !== undefined) types.push(type)
+      const type = parameterTypeOfSignature(checker, overload, index, call);
+      if (type !== undefined) types.push(type);
     }
   }
-  return types
+  return types;
 }
 
 /**
@@ -416,20 +419,20 @@ function isInferredParameter(
   position: ArgumentPosition,
   signature: ts.Signature,
 ): boolean {
-  const declaration = signature.getDeclaration() as ts.SignatureDeclaration | undefined
-  if (declaration === undefined) return false
-  const parameters = declaration.parameters
-  const last = parameters[parameters.length - 1]
+  const declaration = signature.getDeclaration() as ts.SignatureDeclaration | undefined;
+  if (declaration === undefined) return false;
+  const parameters = declaration.parameters;
+  const last = parameters[parameters.length - 1];
   const parameter =
     parameters[position.index] ??
-    (last !== undefined && last.dotDotDotToken !== undefined ? last : undefined)
-  const declared = parameter?.type
-  if (declared === undefined) return false
+    (last !== undefined && last.dotDotDotToken !== undefined ? last : undefined);
+  const declared = parameter?.type;
+  if (declared === undefined) return false;
   const node =
     parameter.dotDotDotToken !== undefined && ts.isArrayTypeNode(declared)
       ? declared.elementType
-      : declared
-  return (checker.getTypeAtLocation(node).flags & ts.TypeFlags.TypeParameter) !== 0
+      : declared;
+  return (checker.getTypeAtLocation(node).flags & ts.TypeFlags.TypeParameter) !== 0;
 }
 
 /**
@@ -446,21 +449,21 @@ function gpuShapeKeysOfType(
   type: ts.Type,
   location: ts.Node,
 ): ReadonlySet<string> {
-  const keys = new Set<string>()
+  const keys = new Set<string>();
   const collect = (candidate: ts.Type): void => {
     if (candidate.isUnion()) {
-      for (const constituent of candidate.types) collect(constituent)
-      return
+      for (const constituent of candidate.types) collect(constituent);
+      return;
     }
     for (const property of candidate.getProperties()) {
-      const tag = UNIQUE_SYMBOL_PROPERTY.exec(property.getName())?.[1]
-      if (tag === undefined || !GPU_BRAND_TAG_NAMES.has(tag)) continue
-      const brand = checker.getTypeOfSymbolAtLocation(property, location)
-      keys.add(`${tag}:${checker.typeToString(brand)}`)
+      const tag = UNIQUE_SYMBOL_PROPERTY.exec(property.getName())?.[1];
+      if (tag === undefined || !GPU_BRAND_TAG_NAMES.has(tag)) continue;
+      const brand = checker.getTypeOfSymbolAtLocation(property, location);
+      keys.add(`${tag}:${checker.typeToString(brand)}`);
     }
-  }
-  collect(type)
-  return keys
+  };
+  collect(type);
+  return keys;
 }
 
 /** The one brand shape `expression`'s own type carries, or `undefined` when it carries none (a
@@ -469,14 +472,14 @@ function gpuShapeOfExpression(
   context: DiagnosticFilterContext,
   expression: ts.Expression,
 ): string | undefined {
-  const checker = context.checker
-  if (checker === undefined) return undefined
-  const keys = gpuShapeKeysOfType(checker, checker.getTypeAtLocation(expression), expression)
-  return keys.size === 1 ? [...keys][0] : undefined
+  const checker = context.checker;
+  if (checker === undefined) return undefined;
+  const keys = gpuShapeKeysOfType(checker, checker.getTypeAtLocation(expression), expression);
+  return keys.size === 1 ? [...keys][0] : undefined;
 }
 
 /** `matTag:` keys, so `gpuArithmeticShape` can tell a matrix operand from a vector one. */
-const MATRIX_SHAPE_PREFIX = 'matTag:'
+const MATRIX_SHAPE_PREFIX = 'matTag:';
 
 /** The shape an arithmetic operation produces from its operands' shapes. A matrix times a
  * vector is a VECTOR (`m * c` is the `vec4` every camera example ends with), so the vector
@@ -485,9 +488,9 @@ function gpuOperationShape(
   left: string | undefined,
   right: string | undefined,
 ): string | undefined {
-  if (left === undefined || right === undefined) return left ?? right
-  if (left.startsWith(MATRIX_SHAPE_PREFIX) && !right.startsWith(MATRIX_SHAPE_PREFIX)) return right
-  return left
+  if (left === undefined || right === undefined) return left ?? right;
+  if (left.startsWith(MATRIX_SHAPE_PREFIX) && !right.startsWith(MATRIX_SHAPE_PREFIX)) return right;
+  return left;
 }
 
 /**
@@ -502,17 +505,17 @@ function gpuArithmeticShape(context: DiagnosticFilterContext, node: ts.Node): st
     const shape = gpuOperationShape(
       gpuShapeOfExpression(context, node.left),
       gpuShapeOfExpression(context, node.right),
-    )
-    if (shape !== undefined) return shape
+    );
+    if (shape !== undefined) return shape;
   }
   if (
     (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
     ARITHMETIC_UNARY_OPERATORS.has(node.operator)
   ) {
-    const shape = gpuShapeOfExpression(context, node.operand)
-    if (shape !== undefined) return shape
+    const shape = gpuShapeOfExpression(context, node.operand);
+    if (shape !== undefined) return shape;
   }
-  return ts.forEachChild(node, (child) => gpuArithmeticShape(context, child))
+  return ts.forEachChild(node, (child) => gpuArithmeticShape(context, child));
 }
 
 /** The shape a value would have if arithmetic kept the brand: its own, or the one the
@@ -521,7 +524,7 @@ function gpuValueShape(
   context: DiagnosticFilterContext,
   expression: ts.Expression,
 ): string | undefined {
-  return gpuShapeOfExpression(context, expression) ?? gpuArithmeticShape(context, expression)
+  return gpuShapeOfExpression(context, expression) ?? gpuArithmeticShape(context, expression);
 }
 
 /** Every brand shape the parameter at `position` accepts, across the signatures
@@ -532,11 +535,11 @@ function parameterShapesAt(
   position: ArgumentPosition,
   resolved: ts.Signature | undefined,
 ): ReadonlySet<string> {
-  const keys = new Set<string>()
+  const keys = new Set<string>();
   for (const type of parameterTypesAt(checker, position, resolved)) {
-    for (const key of gpuShapeKeysOfType(checker, type, position.call)) keys.add(key)
+    for (const key of gpuShapeKeysOfType(checker, type, position.call)) keys.add(key);
   }
-  return keys
+  return keys;
 }
 
 /**
@@ -560,14 +563,15 @@ function otherArgumentsFit(
   shape: string,
 ): boolean {
   return position.call.arguments.every((argument, index) => {
-    if (index === position.index) return true
-    const other = gpuValueShape(context, argument)
-    if (other === undefined) return true
-    const at: ArgumentPosition = { call: position.call, index, argument }
-    if (resolved !== undefined && isInferredParameter(checker, at, resolved)) return other === shape
-    const declared = parameterShapesAt(checker, at, resolved)
-    return declared.size === 0 || declared.has(other)
-  })
+    if (index === position.index) return true;
+    const other = gpuValueShape(context, argument);
+    if (other === undefined) return true;
+    const at: ArgumentPosition = { call: position.call, index, argument };
+    if (resolved !== undefined && isInferredParameter(checker, at, resolved))
+      return other === shape;
+    const declared = parameterShapesAt(checker, at, resolved);
+    return declared.size === 0 || declared.has(other);
+  });
 }
 
 /**
@@ -601,28 +605,28 @@ function isGpuArithmeticArgument(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): boolean {
-  const checker = context.checker
-  if (checker === undefined) return false
-  const position = argumentAt(context, diagnostic)
-  if (position === undefined) return false
-  const shape = gpuValueShape(context, position.argument)
-  if (shape === undefined) return false
-  const resolved = checker.getResolvedSignature(position.call)
+  const checker = context.checker;
+  if (checker === undefined) return false;
+  const position = argumentAt(context, diagnostic);
+  if (position === undefined) return false;
+  const shape = gpuValueShape(context, position.argument);
+  if (shape === undefined) return false;
+  const resolved = checker.getResolvedSignature(position.call);
   if (
     hasGpuArithmetic(context, position.argument) &&
     parameterShapesAt(checker, position, resolved).has(shape)
   ) {
-    return otherArgumentsFit(context, checker, position, resolved, shape)
+    return otherArgumentsFit(context, checker, position, resolved, shape);
   }
-  if (!isGpuExpression(context, position.argument)) return false
-  if (resolved === undefined || !isInferredParameter(checker, position, resolved)) return false
+  if (!isGpuExpression(context, position.argument)) return false;
+  if (resolved === undefined || !isInferredParameter(checker, position, resolved)) return false;
   const poisoned = position.call.arguments.some(
     (argument, index) =>
       index !== position.index &&
       hasGpuArithmetic(context, argument) &&
       gpuArithmeticShape(context, argument) === shape,
-  )
-  return poisoned && otherArgumentsFit(context, checker, position, resolved, shape)
+  );
+  return poisoned && otherArgumentsFit(context, checker, position, resolved, shape);
 }
 
 /** The shape key an INFERRED parameter position carries for an argument with no vector or
@@ -630,7 +634,7 @@ function isGpuArithmeticArgument(
  * whole call, so "scalar" has to be a shape of its own here: without it `mix(vec3i, vec3i, i32)`
  * would look like a call the generic `mix<T>(a: T, b: T, t: T)` accepts, and that is a program
  * Tint rejects ("no matching call to mix(vec3<i32>, vec3<i32>, i32)"). */
-const SCALAR_SHAPE = 'scalar'
+const SCALAR_SHAPE = 'scalar';
 
 /**
  * Whether `overload` accepts every argument of `call` once the brand vector arithmetic erased is
@@ -649,32 +653,32 @@ function overloadFitsRestoredShapes(
   call: ts.CallExpression,
   overload: ts.Signature,
 ): boolean {
-  const parameters = overload.getParameters()
-  const last = parameters[parameters.length - 1]
-  const rest = last !== undefined && isRestParameter(last)
+  const parameters = overload.getParameters();
+  const last = parameters[parameters.length - 1];
+  const rest = last !== undefined && isRestParameter(last);
   if (
     rest
       ? call.arguments.length < parameters.length - 1
       : parameters.length !== call.arguments.length
   ) {
-    return false
+    return false;
   }
-  let inferred: string | undefined
+  let inferred: string | undefined;
   for (let index = 0; index < call.arguments.length; index++) {
-    const argument = call.arguments[index]!
-    const parameter = parameterTypeOfSignature(checker, overload, index, call)
-    if (parameter === undefined) return false
-    const shape = gpuValueShape(context, argument) ?? SCALAR_SHAPE
-    const position: ArgumentPosition = { call, index, argument }
+    const argument = call.arguments[index]!;
+    const parameter = parameterTypeOfSignature(checker, overload, index, call);
+    if (parameter === undefined) return false;
+    const shape = gpuValueShape(context, argument) ?? SCALAR_SHAPE;
+    const position: ArgumentPosition = { call, index, argument };
     if (isInferredParameter(checker, position, overload)) {
-      if (inferred !== undefined && inferred !== shape) return false
-      inferred = shape
-      continue
+      if (inferred !== undefined && inferred !== shape) return false;
+      inferred = shape;
+      continue;
     }
-    const declared = gpuShapeKeysOfType(checker, parameter, call)
-    if (shape === SCALAR_SHAPE ? declared.size !== 0 : !declared.has(shape)) return false
+    const declared = gpuShapeKeysOfType(checker, parameter, call);
+    if (shape === SCALAR_SHAPE ? declared.size !== 0 : !declared.has(shape)) return false;
   }
-  return true
+  return true;
 }
 
 /**
@@ -696,20 +700,20 @@ function calleeCallAt(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): ts.CallExpression | undefined {
-  const pos = diagnostic.start ?? 0
-  const end = pos + (diagnostic.length ?? 0)
-  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos)
+  const pos = diagnostic.start ?? 0;
+  const end = pos + (diagnostic.length ?? 0);
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos);
   while (node !== undefined) {
     if (node.getStart() === pos && node.getEnd() === end) {
-      if (ts.isCallExpression(node)) return node
-      const parent: ts.Node | undefined = node.parent
+      if (ts.isCallExpression(node)) return node;
+      const parent: ts.Node | undefined = node.parent;
       if (parent !== undefined && ts.isCallExpression(parent) && parent.expression === node) {
-        return parent
+        return parent;
       }
     }
-    node = node.parent
+    node = node.parent;
   }
-  return undefined
+  return undefined;
 }
 
 /**
@@ -742,19 +746,19 @@ function isGpuArithmeticOverloadCall(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): boolean {
-  const checker = context.checker
-  if (checker === undefined) return false
-  const position = argumentAt(context, diagnostic)
+  const checker = context.checker;
+  if (checker === undefined) return false;
+  const position = argumentAt(context, diagnostic);
   if (position !== undefined && gpuValueShape(context, position.argument) === undefined) {
-    return false
+    return false;
   }
-  const call = position?.call ?? calleeCallAt(context, diagnostic)
-  if (call === undefined) return false
-  if (!call.arguments.some((argument) => hasGpuArithmetic(context, argument))) return false
+  const call = position?.call ?? calleeCallAt(context, diagnostic);
+  if (call === undefined) return false;
+  if (!call.arguments.some((argument) => hasGpuArithmetic(context, argument))) return false;
   return checker
     .getTypeAtLocation(call.expression)
     .getCallSignatures()
-    .some((overload) => overloadFitsRestoredShapes(context, checker, call, overload))
+    .some((overload) => overloadFitsRestoredShapes(context, checker, call, overload));
 }
 
 const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
@@ -836,29 +840,29 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       '`max`). Issue #43, and the twins corpus measurement in design doc §6.',
     when: isGpuArithmeticOverloadCall,
   },
-]
+];
 
 function isFiltered(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
   return TS_DIAGNOSTIC_FILTERS.some(
     (rule) => rule.code === diagnostic.code && rule.when(context, diagnostic),
-  )
+  );
 }
 
 function severityOfTs(category: ts.DiagnosticCategory): TypeshadeSeverity {
   switch (category) {
     case ts.DiagnosticCategory.Error:
-      return 'error'
+      return 'error';
     case ts.DiagnosticCategory.Warning:
-      return 'warning'
+      return 'warning';
     case ts.DiagnosticCategory.Suggestion:
-      return 'hint'
+      return 'hint';
     default:
-      return 'information'
+      return 'information';
   }
 }
 
 function severityOfTypeshade(category: 'error' | 'warning' | 'message'): TypeshadeSeverity {
-  return category === 'message' ? 'information' : category
+  return category === 'message' ? 'information' : category;
 }
 
 function toTypeshadeDiagnostic(
@@ -866,7 +870,7 @@ function toTypeshadeDiagnostic(
   sourceFile: ts.SourceFile,
   diagnostic: ts.Diagnostic,
 ): TypeshadeDiagnostic {
-  const span = clampSpan(sourceFile, diagnostic.start ?? 0, diagnostic.length ?? 0)
+  const span = clampSpan(sourceFile, diagnostic.start ?? 0, diagnostic.length ?? 0);
   return {
     uri,
     span,
@@ -875,7 +879,7 @@ function toTypeshadeDiagnostic(
     message: ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
     code: diagnostic.code,
     source: 'typescript',
-  }
+  };
 }
 
 /**
@@ -893,14 +897,14 @@ export function getTypeScriptDiagnostics(
   const raw = [
     ...languageService.getSyntacticDiagnostics(uri),
     ...languageService.getSemanticDiagnostics(uri),
-  ]
+  ];
   const context: DiagnosticFilterContext = {
     sourceFile,
     checker: languageService.getProgram()?.getTypeChecker(),
-  }
+  };
   return raw
     .filter((d) => !isFiltered(context, d))
-    .map((d) => toTypeshadeDiagnostic(uri, sourceFile, d))
+    .map((d) => toTypeshadeDiagnostic(uri, sourceFile, d));
 }
 
 /**
@@ -915,7 +919,7 @@ export function fromCompilerDiagnostic(
   uri: string,
   diagnostic: TsCompilerDiagnostic,
 ): TypeshadeDiagnostic {
-  const span = spanForDiagnostic(sourceFile, diagnostic)
+  const span = spanForDiagnostic(sourceFile, diagnostic);
   return {
     uri,
     span,
@@ -924,7 +928,7 @@ export function fromCompilerDiagnostic(
     message: diagnostic.message,
     code: diagnostic.code ?? 'TS8099',
     source: 'typeshade',
-  }
+  };
 }
 
 /**
@@ -947,5 +951,5 @@ export function getTypeshadeDiagnostics(
       // caller sees them without `tsc`; here they would underline the same token twice.
       .filter((d) => d.code !== TS_CODES.SYNTAX)
       .map((d) => fromCompilerDiagnostic(sourceFile, uri, d))
-  )
+  );
 }

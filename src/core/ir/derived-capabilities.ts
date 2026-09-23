@@ -7,7 +7,7 @@
 // so the type an author meets in `enables` and the table a doc renders cannot disagree.
 // Appending a derived id here removes it from `enables` and flips its matrix row together.
 
-import type { Capability } from './nodes.js'
+import type { Capability } from './nodes.js';
 
 /** The capabilities `requiredCaps` derives from a module's SHAPE, which a module therefore
  *  never names in `enables`. Nine ids, in `ALL_CAPABILITIES` order:
@@ -37,7 +37,7 @@ export const DERIVED_CAPABILITIES = [
   'textureGather',
   'bgra8unormStorage',
   'packed4x8Dot',
-] as const satisfies readonly Capability[]
+] as const satisfies readonly Capability[];
 
 /** One of the {@link DERIVED_CAPABILITIES}. */
-export type DerivedCapability = (typeof DERIVED_CAPABILITIES)[number]
+export type DerivedCapability = (typeof DERIVED_CAPABILITIES)[number];

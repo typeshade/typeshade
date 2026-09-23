@@ -16,28 +16,28 @@
 // register it, and it is simply absent — no error, no test, just missing from the site and
 // from every emit sweep that iterates `examples`.
 
-import { describe, it, expect } from 'vitest'
-import { dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { examples } from './index.js'
-import { buildRegistry } from '../src/core/registry.js'
-import { discoverExamples } from './_scan.js'
+import { describe, it, expect } from 'vitest';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { examples } from './index.js';
+import { buildRegistry } from '../src/core/registry.js';
+import { discoverExamples } from './_scan.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url))
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 // The scan moved to `_scan.ts` when X-GIS #1716's generator landed, and is SHARED with it. Two
 // copies of the export-convention regex is how a generator and the gate that checks it come
 // to disagree — and the disagreement is invisible, because both keep passing on different
 // sets.
-const discovered = discoverExamples(HERE)
+const discovered = discoverExamples(HERE);
 
 describe('examples registry — the directory and the curated list agree', () => {
   it('the scan actually found the corpus (it is not vacuously empty)', () => {
     // Every arm below is a set comparison, and two empty sets are equal. This is the
     // reader-is-broken floor that stops a regex change from greening the whole file.
-    expect(discovered.length).toBeGreaterThanOrEqual(30)
-    expect(examples.length).toBeGreaterThanOrEqual(30)
-  })
+    expect(discovered.length).toBeGreaterThanOrEqual(30);
+    expect(examples.length).toBeGreaterThanOrEqual(30);
+  });
 
   it('every example file is registered, and every registration has a file', () => {
     // buildRegistry reports BOTH directions in one failure, so a diff shows the added
@@ -47,18 +47,18 @@ describe('examples registry — the directory and the curated list agree', () =>
         order: examples.map((e) => e.id),
         regenerateWith: 'add the new example to `examples` in shader-dsl/examples/index.ts',
       }),
-    ).not.toThrow()
-  })
+    ).not.toThrow();
+  });
 
   it('no example id is declared twice', () => {
-    const ids = examples.map((e) => e.id)
-    expect(new Set(ids).size).toBe(ids.length)
-  })
+    const ids = examples.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 
   it('the curated ORDER is real editorial content, not the scan order', () => {
     // Pins the finding this gate is built around: if these ever coincide, the curation has
     // been lost (or alphabetised by accident) and X-GIS #1716's generator could own the file
     // outright. Failing here is a prompt to re-read that decision, not a bug.
-    expect(examples.map((e) => e.id)).not.toEqual(discovered.map((d) => d.id))
-  })
-})
+    expect(examples.map((e) => e.id)).not.toEqual(discovered.map((d) => d.id));
+  });
+});

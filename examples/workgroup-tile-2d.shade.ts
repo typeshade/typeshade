@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -23,11 +23,11 @@
 // GLSL ES 3.00 has no compute stage and no workgroup memory, so like `workgroup-scratch` this
 // module is WGSL-only.
 
-declare const size: uniform<vec2u>
-declare const src: storage<array<f32>>
-declare let dst: storage<array<f32>>
+declare const size: uniform<vec2u>;
+declare const src: storage<array<f32>>;
+declare let dst: storage<array<f32>>;
 
-let tile: workgroup<array<f32, 64>>
+let tile: workgroup<array<f32, 64>>;
 
 @compute([8, 8])
 export function blur(
@@ -35,22 +35,22 @@ export function blur(
   @builtin("local_invocation_id") lid: vec3u,
   @builtin("local_invocation_index") li: u32,
 ): void {
-  const x: u32 = min(gid.x, size.x - 1)
-  const y: u32 = min(gid.y, size.y - 1)
-  tile[li] = src[y * size.x + x]
-  workgroupBarrier()
+  const x: u32 = min(gid.x, size.x - 1);
+  const y: u32 = min(gid.y, size.y - 1);
+  tile[li] = src[y * size.x + x];
+  workgroupBarrier();
 
-  const left: u32 = max(lid.x, 1) - 1
-  const right: u32 = min(lid.x + 1, 7)
-  const up: u32 = max(lid.y, 1) - 1
-  const down: u32 = min(lid.y + 1, 7)
+  const left: u32 = max(lid.x, 1) - 1;
+  const right: u32 = min(lid.x + 1, 7);
+  const up: u32 = max(lid.y, 1) - 1;
+  const down: u32 = min(lid.y + 1, 7);
   const sum =
     tile[li] +
     tile[lid.y * 8 + left] +
     tile[lid.y * 8 + right] +
     tile[up * 8 + lid.x] +
-    tile[down * 8 + lid.x]
+    tile[down * 8 + lid.x];
   if (gid.x < size.x && gid.y < size.y) {
-    dst[gid.y * size.x + gid.x] = sum / 5.
+    dst[gid.y * size.x + gid.x] = sum / 5.;
   }
 }

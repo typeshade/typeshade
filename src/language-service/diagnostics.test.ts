@@ -1,17 +1,17 @@
-import { describe, expect, it } from 'vitest'
-import ts from 'typescript'
-import { createTypeshadeLanguageService } from './service.js'
-import { TypeshadeHost } from './host.js'
-import { GPU_BRAND_TAGS } from './ambient.js'
-import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
-import type { TypeshadeDiagnostic } from './types.js'
+import { describe, expect, it } from 'vitest';
+import ts from 'typescript';
+import { createTypeshadeLanguageService } from './service.js';
+import { TypeshadeHost } from './host.js';
+import { GPU_BRAND_TAGS } from './ambient.js';
+import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
+import type { TypeshadeDiagnostic } from './types.js';
 
-const URI = 'a.ts'
+const URI = 'a.ts';
 
 function diagnosticsOf(source: string): readonly TypeshadeDiagnostic[] {
-  const service = createTypeshadeLanguageService()
-  service.openDocument(URI, source)
-  return service.getDiagnostics(URI)
+  const service = createTypeshadeLanguageService();
+  service.openDocument(URI, source);
+  return service.getDiagnostics(URI);
 }
 
 /** The diagnostics an editor would attribute to TypeScript itself, which is what §6's "zero
@@ -20,13 +20,13 @@ function diagnosticsOf(source: string): readonly TypeshadeDiagnostic[] {
 function typeScriptDiagnosticsOf(source: string): string[] {
   return diagnosticsOf(source)
     .filter((d) => d.source === 'typescript')
-    .map((d) => `TS${d.code}: ${d.message}`)
+    .map((d) => `TS${d.code}: ${d.message}`);
 }
 
 const entry = (
   body: string,
   signature = 'v: vec3, s: f32, a: vec3, b: vec3, c: vec4, m: mat4',
-): string => `"use typeshade"\nexport function f(${signature}): void {\n${body}\n}\n`
+): string => `"use typeshade"\nexport function f(${signature}): void {\n${body}\n}\n`;
 
 // Issue #21: every vector expression in a `"use typeshade"` program drew TS2362/TS2363/TS2365,
 // and the TS2322 that follows from arithmetic being typed `number`, because the ambient lib
@@ -55,13 +55,13 @@ describe('vector and matrix arithmetic draws no TypeScript diagnostic (issue #21
       '"use typeshade"\nexport function f(n: f32, v: vec2): vec2 {\n  return v + n * 3.\n}\n',
     'a parenthesized scalar product added to a vector':
       '"use typeshade"\nexport function f(n: f32, v: vec2): vec2 {\n  return (n * 3.) + v\n}\n',
-  }
+  };
   for (const [name, source] of Object.entries(cases)) {
     it(`${name}: no TypeScript-sourced diagnostic`, () => {
-      expect(typeScriptDiagnosticsOf(source), source).toEqual([])
-    })
+      expect(typeScriptDiagnosticsOf(source), source).toEqual([]);
+    });
   }
-})
+});
 
 // Issue #43: the knock-on of #21 at a CALL. `v * s` is typed `number`, so every vector
 // position a product reaches rejects it. `vec4(u.tint.rgb * k, u.tint.a)` is close to the most
@@ -94,14 +94,14 @@ describe('vector arithmetic reaching a call draws no TypeScript diagnostic (issu
       '"use typeshade"\nfunction g(p: vec4): vec4 {\n  return p\n}\nexport function f(m: mat4, c: vec4): vec4 {\n  return g(m * c)\n}\n',
     'dot of a matrix-vector product, reported on the other argument':
       '"use typeshade"\nexport function f(m: mat4, c: vec4, b: vec4): f32 {\n  return dot(m * c, b)\n}\n',
-  }
+  };
   for (const [name, source] of Object.entries(cases)) {
     it(`${name}: no diagnostic at all, from TypeScript or the compiler`, () => {
       // Every one of these is a valid program, so "exactly the compiler's diagnostics" is the
       // empty list: the filter must not be covering for a front end that disagrees.
-      expect(typeScriptDiagnosticsOf(source), source).toEqual([])
-      expect(diagnosticsOf(source), source).toEqual([])
-    })
+      expect(typeScriptDiagnosticsOf(source), source).toEqual([]);
+      expect(diagnosticsOf(source), source).toEqual([]);
+    });
   }
 
   it('a rest parameter is measured by its element type, and the compiler still speaks', () => {
@@ -112,40 +112,40 @@ describe('vector arithmetic reaching a call draws no TypeScript diagnostic (issu
     // product inferred), so it goes, and what is left is the compiler saying the thing that is
     // actually wrong.
     const source =
-      '"use typeshade"\nexport function f(v: vec3, w: vec3, s: f32): vec3 {\n  return hypot(v * s, w)\n}\n'
-    expect(typeScriptDiagnosticsOf(source)).toEqual([])
-    expect(diagnosticsOf(source).map((d) => `${d.source} ${d.code}`)).toEqual(['typeshade TS8003'])
-  })
-})
+      '"use typeshade"\nexport function f(v: vec3, w: vec3, s: f32): vec3 {\n  return hypot(v * s, w)\n}\n';
+    expect(typeScriptDiagnosticsOf(source)).toEqual([]);
+    expect(diagnosticsOf(source).map((d) => `${d.source} ${d.code}`)).toEqual(['typeshade TS8003']);
+  });
+});
 
 describe('an argument that is not vector arithmetic still reports (issue #43)', () => {
   const stillReports = (source: string, code: number): void => {
     expect(
       diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === code),
       source,
-    ).toBe(true)
-  }
+    ).toBe(true);
+  };
 
   it('vec4(1., c.a) keeps TS2345: two scalars are not a vec3 and a scalar', () => {
     stillReports(
       '"use typeshade"\nexport function f(c: vec4): vec4 {\n  return vec4(1., c.a)\n}\n',
       2345,
-    )
-  })
+    );
+  });
 
   it('a float literal handed a vector parameter keeps TS2345', () => {
     stillReports(
       '"use typeshade"\nfunction g(p: vec3): vec3 {\n  return p\n}\nexport function f(): vec3 {\n  return g(1.)\n}\n',
       2345,
-    )
-  })
+    );
+  });
 
   it('an f32 handed a vector parameter keeps TS2345', () => {
     stillReports(
       '"use typeshade"\nfunction g(p: vec3): vec3 {\n  return p\n}\nexport function f(x: f32): vec3 {\n  return g(x)\n}\n',
       2345,
-    )
-  })
+    );
+  });
 
   it('a vector of the wrong size keeps TS2345, since nothing else reports it', () => {
     // The narrowing this rule makes against the TS2322 rule it mirrors: a branded argument that
@@ -155,15 +155,15 @@ describe('an argument that is not vector arithmetic still reports (issue #43)', 
     stillReports(
       '"use typeshade"\nexport function f(a: vec3, b: vec2): f32 {\n  return dot(a, b)\n}\n',
       2345,
-    )
-  })
+    );
+  });
 
   it('a wrong-arity call still reports its own TS2554, not a filtered TS2345', () => {
     const source =
-      '"use typeshade"\nfunction g(p: vec3): vec3 {\n  return p\n}\nexport function f(a: vec3, b: vec3): vec3 {\n  return g(a, b)\n}\n'
-    stillReports(source, 2554)
-    expect(typeScriptDiagnosticsOf(source).map((d) => d.split(':')[0])).toEqual(['TS2554'])
-  })
+      '"use typeshade"\nfunction g(p: vec3): vec3 {\n  return p\n}\nexport function f(a: vec3, b: vec3): vec3 {\n  return g(a, b)\n}\n';
+    stillReports(source, 2554);
+    expect(typeScriptDiagnosticsOf(source).map((d) => d.split(':')[0])).toEqual(['TS2554']);
+  });
 
   it('a vector handed a scalar parameter reports, even when another argument is a product', () => {
     // The inferred-parameter arm must not reach a signature whose parameter type is FIXED:
@@ -171,9 +171,9 @@ describe('an argument that is not vector arithmetic still reports (issue #43)', 
     stillReports(
       '"use typeshade"\nfunction h(a: f32, b: f32): f32 {\n  return a + b\n}\nexport function f(v: vec3, w: vec3, s: f32): f32 {\n  return h(v * s, w)\n}\n',
       2345,
-    )
-  })
-})
+    );
+  });
+});
 
 // The arithmetic in a call is not a licence to stop checking the OTHER arguments. Every case
 // here is a real size or element mismatch in a call that also does vector arithmetic, and the
@@ -188,15 +188,15 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
   // single candidate to name and reports the overload code on the same span instead. Which of
   // the two codes arrives is TypeScript's business; that the mistake is still reported is this
   // suite's.
-  const ARGUMENT_MISMATCH_CODES: ReadonlySet<string | number> = new Set([2345, 2769])
+  const ARGUMENT_MISMATCH_CODES: ReadonlySet<string | number> = new Set([2345, 2769]);
   const keepsReporting = (source: string): void => {
     expect(
       diagnosticsOf(source).some(
         (d) => d.source === 'typescript' && ARGUMENT_MISMATCH_CODES.has(d.code),
       ),
       source,
-    ).toBe(true)
-  }
+    ).toBe(true);
+  };
 
   const cases: Readonly<Record<string, string>> = {
     // `T` infers `number` from the product, so TypeScript reports the OTHER argument, and that
@@ -226,11 +226,11 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
       '"use typeshade"\nexport function f(a: vec2, s: f32, b: vec3): vec3 {\n  return cross(a * s, b)\n}\n',
     'cross of a scaled vec3 and a vec2':
       '"use typeshade"\nexport function f(a: vec3, b: vec2): vec3 {\n  return cross(a * 2., b)\n}\n',
-  }
+  };
   for (const [name, source] of Object.entries(cases)) {
     it(`${name}: keeps reporting the argument mismatch`, () => {
-      keepsReporting(source)
-    })
+      keepsReporting(source);
+    });
   }
 
   it('a fragment that mixes a vec3 with a vec2 is not clean in the editor', () => {
@@ -248,8 +248,8 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
         '  const c: vec3 = vec3(1., 0., 0.)\n' +
         '  return vec4(mix(c * 0.5, vo.uv, 0.5), 1.)\n' +
         '}\n',
-    )
-  })
+    );
+  });
 
   it('the same fragment with two vec3 is clean, so the guard is about the shape', () => {
     const source =
@@ -263,50 +263,51 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
       '  const c: vec3 = vec3(1., 0., 0.)\n' +
       '  const d: vec3 = vec3(0., 1., 0.)\n' +
       '  return vec4(mix(c * 0.5, d, 0.5), 1.)\n' +
-      '}\n'
-    expect(diagnosticsOf(source).map((d) => `${d.source} ${d.code}: ${d.message}`)).toEqual([])
-  })
-})
+      '}\n';
+    expect(diagnosticsOf(source).map((d) => `${d.source} ${d.code}: ${d.message}`)).toEqual([]);
+  });
+});
 
 describe('a program that is genuinely wrong still reports', () => {
   it('v * "x" keeps the TypeScript diagnostic about the string operand', () => {
-    const source = '"use typeshade"\nexport function f(v: vec3): vec3 {\n  return v * "x"\n}\n'
+    const source = '"use typeshade"\nexport function f(v: vec3): vec3 {\n  return v * "x"\n}\n';
     // TS2363 is the right-hand operand's, so filtering per operand (rather than dropping the
     // whole expression because ONE operand is a vector) is what leaves this visible.
     expect(diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === 2363)).toBe(
       true,
-    )
-  })
+    );
+  });
 
   it('1 * "x", with no vector anywhere, is untouched', () => {
-    const source = '"use typeshade"\nexport function f(): f32 {\n  return 1 * "x"\n}\n'
+    const source = '"use typeshade"\nexport function f(): f32 {\n  return 1 * "x"\n}\n';
     expect(diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === 2363)).toBe(
       true,
-    )
-  })
+    );
+  });
 
   it('a vector assigned into a scalar keeps TS2322', () => {
     const source =
-      '"use typeshade"\nexport function f(v: vec3): f32 {\n  let n: f32 = v\n  return n\n}\n'
+      '"use typeshade"\nexport function f(v: vec3): f32 {\n  let n: f32 = v\n  return n\n}\n';
     // The target is `f32`, which IS a `number` to TypeScript, so the mismatch is not the
     // brand's doing and the TS2322 rule must not reach it.
     expect(diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === 2322)).toBe(
       true,
-    )
-  })
-})
+    );
+  });
+});
 
 describe('the compiler front end stays the authority on what combines with what', () => {
   it('vec3(1.) + vec2(1.) is reported once, by the compiler', () => {
-    const source = '"use typeshade"\nexport function f(): vec3 {\n  return vec3(1.) + vec2(1.)\n}\n'
-    const diagnostics = diagnosticsOf(source)
-    expect(typeScriptDiagnosticsOf(source), 'TypeScript would say this twice over').toEqual([])
+    const source =
+      '"use typeshade"\nexport function f(): vec3 {\n  return vec3(1.) + vec2(1.)\n}\n';
+    const diagnostics = diagnosticsOf(source);
+    expect(typeScriptDiagnosticsOf(source), 'TypeScript would say this twice over').toEqual([]);
     expect(
       diagnostics.map((d) => `${d.source} ${d.code}`),
       'the editor should show exactly the compiler TYPE_MISMATCH',
-    ).toEqual(['typeshade TS8003'])
-  })
-})
+    ).toEqual(['typeshade TS8003']);
+  });
+});
 
 /** Every unique-symbol brand `SHADE_DTS` puts on the named types, read back through the checker
  * the same way `diagnostics.ts` reads it: a property whose escaped name is `__@<tag>@<id>`. */
@@ -314,27 +315,27 @@ function brandTagsOf(typeNames: readonly string[]): string[] {
   const source =
     '"use typeshade"\n' +
     typeNames.map((name, i) => `declare const value${i}: ${name}`).join('\n') +
-    '\n'
-  const host = new TypeshadeHost()
-  host.openDocument(URI, source)
-  const service = ts.createLanguageService(host, ts.createDocumentRegistry())
-  const program = service.getProgram()!
-  const checker = program.getTypeChecker()
-  const tags = new Set<string>()
+    '\n';
+  const host = new TypeshadeHost();
+  host.openDocument(URI, source);
+  const service = ts.createLanguageService(host, ts.createDocumentRegistry());
+  const program = service.getProgram()!;
+  const checker = program.getTypeChecker();
+  const tags = new Set<string>();
   program.getSourceFile(URI)!.forEachChild((node) => {
-    if (!ts.isVariableStatement(node)) return
+    if (!ts.isVariableStatement(node)) return;
     for (const declaration of node.declarationList.declarations) {
       for (const property of checker.getTypeAtLocation(declaration.name).getProperties()) {
-        const tag = /^__@(.+)@\d+$/.exec(property.getName())?.[1]
-        if (tag !== undefined) tags.add(tag)
+        const tag = /^__@(.+)@\d+$/.exec(property.getName())?.[1];
+        if (tag !== undefined) tags.add(tag);
       }
     }
-  })
-  return [...tags].sort()
+  });
+  return [...tags].sort();
 }
 
-const VECTOR_AND_MATRIX_NAMES = SUPPORTED_TYPE_NAMES.filter((name) => /^(vec|mat)/.test(name))
-const SCALAR_NAMES = SUPPORTED_TYPE_NAMES.filter((name) => !/^(vec|mat)/.test(name))
+const VECTOR_AND_MATRIX_NAMES = SUPPORTED_TYPE_NAMES.filter((name) => /^(vec|mat)/.test(name));
+const SCALAR_NAMES = SUPPORTED_TYPE_NAMES.filter((name) => !/^(vec|mat)/.test(name));
 
 // The list in `ambient.ts` is what `diagnostics.ts` matches a type against, so a brand added to
 // SHADE_DTS without a decision about its arithmetic must fail here rather than quietly widen or
@@ -344,15 +345,15 @@ describe('GPU_BRAND_TAGS is exactly what SHADE_DTS brands vectors and matrices w
     expect(
       VECTOR_AND_MATRIX_NAMES.length,
       'no vector names resolved from type-map.ts',
-    ).toBeGreaterThan(0)
-    expect(brandTagsOf(VECTOR_AND_MATRIX_NAMES)).toEqual([...GPU_BRAND_TAGS].sort())
-  })
+    ).toBeGreaterThan(0);
+    expect(brandTagsOf(VECTOR_AND_MATRIX_NAMES)).toEqual([...GPU_BRAND_TAGS].sort());
+  });
 
   it('excludes the scalar and array brands, whose arithmetic TypeScript already accepts', () => {
     // A scalar IS a `number` to TypeScript and indexing an `array` is not arithmetic, so
     // neither needs, or should get, the vector treatment.
-    const other = brandTagsOf([...SCALAR_NAMES, 'array<f32>'])
-    expect(other.length, 'the scalar and array brands should be readable').toBeGreaterThan(0)
-    expect(other.filter((tag) => GPU_BRAND_TAGS.includes(tag))).toEqual([])
-  })
-})
+    const other = brandTagsOf([...SCALAR_NAMES, 'array<f32>']);
+    expect(other.length, 'the scalar and array brands should be readable').toBeGreaterThan(0);
+    expect(other.filter((tag) => GPU_BRAND_TAGS.includes(tag))).toEqual([]);
+  });
+});

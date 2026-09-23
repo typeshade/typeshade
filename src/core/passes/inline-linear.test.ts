@@ -7,7 +7,7 @@
 // exclusions (control flow, for-header call sites, df64, entry, recursion) are
 // asserted to leave the function untouched.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest';
 import {
   module,
   fn,
@@ -25,24 +25,24 @@ import {
   Discard,
   type ModuleDecl,
   type FuncDecl,
-} from '../ir/index.js'
-import { emitModule } from '../backends/wgsl.js'
-import { emitGlslModule } from '../backends/glsl.js'
-import { compileModule } from '../oracle.js'
-import { inlineLinearAll } from './inline-linear.js'
-import { mangleModule } from './mangle.js'
+} from '../ir/index.js';
+import { emitModule } from '../backends/wgsl.js';
+import { emitGlslModule } from '../backends/glsl.js';
+import { compileModule } from '../oracle.js';
+import { inlineLinearAll } from './inline-linear.js';
+import { mangleModule } from './mangle.js';
 
 // A linear multi-statement helper: two `let`s then a return (the noise shape).
 const vnoise = fn('vnoise', { p: f32T }, f32T, ({ p }, b) => {
-  const a = b.let('a', floor(p))
-  const c = b.let('c', fract(p))
-  b.ret(a.add(c).mul(2))
-})
+  const a = b.let('a', floor(p));
+  const c = b.let('c', fract(p));
+  b.ret(a.add(c).mul(2));
+});
 // A fragment entry that calls the linear helper (for the GLSL `__` check).
 const vnoiseFrag = fn('vnoiseFrag', {}, f32T, (_a, b) => b.ret(vnoise({ p: f32(0.5) })), {
   stage: 'fragment',
   retAttr: '@location(0)',
-})
+});
 
 describe('inlineLinearAll — linear multi-statement inlining', () => {
   it('inlines a linear helper at a single call site and drops it (value preserved)', () => {
@@ -50,40 +50,40 @@ describe('inlineLinearAll — linear multi-statement inlining', () => {
       funcs: [
         vnoise,
         fn('caller', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(vnoise({ p: x }).mul(3))
+          b.ret(vnoise({ p: x }).mul(3));
         }),
       ],
-    })
-    const out = inlineLinearAll(m)
-    const wgsl = emitModule(out)
-    expect(wgsl).not.toContain('fn vnoise')
-    expect(wgsl).not.toMatch(/\bvnoise\(/)
+    });
+    const out = inlineLinearAll(m);
+    const wgsl = emitModule(out);
+    expect(wgsl).not.toContain('fn vnoise');
+    expect(wgsl).not.toMatch(/\bvnoise\(/);
     expect(compileModule(out).fns.caller(2.5) as number).toBeCloseTo(
       compileModule(m).fns.caller(2.5) as number,
       6,
-    )
-  })
+    );
+  });
 
   it('inlines a linear helper at MULTIPLE + nested call sites with unique temps', () => {
     const m = module({
       funcs: [
         vnoise,
         fn('caller', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(vnoise({ p: x }).add(vnoise({ p: x.mul(2) })))
+          b.ret(vnoise({ p: x }).add(vnoise({ p: x.mul(2) })));
         }),
       ],
-    })
-    const out = inlineLinearAll(m)
-    const wgsl = emitModule(out)
-    expect(wgsl).not.toContain('fn vnoise')
+    });
+    const out = inlineLinearAll(m);
+    const wgsl = emitModule(out);
+    expect(wgsl).not.toContain('fn vnoise');
     // two independent inline instances → two distinct temp prefixes, no re-decl.
-    expect(wgsl).toMatch(/_inl0_/)
-    expect(wgsl).toMatch(/_inl1_/)
+    expect(wgsl).toMatch(/_inl0_/);
+    expect(wgsl).toMatch(/_inl1_/);
     expect(compileModule(out).fns.caller(1.3) as number).toBeCloseTo(
       compileModule(m).fns.caller(1.3) as number,
       6,
-    )
-  })
+    );
+  });
 
   it('spliced local names never form GLSL-reserved double underscores', () => {
     // The lift renames a helper local (the optimizer names them `_cse0`/`_v0`)
@@ -91,40 +91,40 @@ describe('inlineLinearAll — linear multi-statement inlining', () => {
     // WGSL tolerates `__`, so this must be checked on the GLSL emit.
     const glsl = emitGlslModule(module({ funcs: [vnoise, vnoiseFrag] }), 'fragment', {
       plugins: [{ name: 'inline', transformIR: inlineLinearAll }],
-    })
-    expect(glsl).not.toContain('__')
-    expect(glsl).not.toContain('vnoise(')
-  })
+    });
+    expect(glsl).not.toContain('__');
+    expect(glsl).not.toContain('vnoise(');
+  });
 
   it('still inlines single-return helpers by plain substitution (no temps)', () => {
     const sq = fn('sq', { x: f32T }, f32T, ({ x }, b) => {
-      b.ret(x.mul(x))
-    })
+      b.ret(x.mul(x));
+    });
     const m = module({
       funcs: [
         sq,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(sq({ x: y }).add(sq({ x: y })))
+          b.ret(sq({ x: y }).add(sq({ x: y })));
         }),
       ],
-    })
-    const wgsl = emitModule(inlineLinearAll(m))
-    expect(wgsl).not.toContain('fn sq')
-    expect(wgsl).not.toMatch(/_inl\d+_/) // single-return path introduces no lift temps
-  })
+    });
+    const wgsl = emitModule(inlineLinearAll(m));
+    expect(wgsl).not.toContain('fn sq');
+    expect(wgsl).not.toMatch(/_inl\d+_/); // single-return path introduces no lift temps
+  });
 
   it('is deterministic — identical bytes across runs (GLSL two-stage link needs it)', () => {
     const m = module({
       funcs: [
         vnoise,
         fn('caller', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(vnoise({ p: x }).add(vnoise({ p: x.add(1) })))
+          b.ret(vnoise({ p: x }).add(vnoise({ p: x.add(1) })));
         }),
       ],
-    })
-    expect(emitModule(inlineLinearAll(m))).toBe(emitModule(inlineLinearAll(m)))
-  })
-})
+    });
+    expect(emitModule(inlineLinearAll(m))).toBe(emitModule(inlineLinearAll(m)));
+  });
+});
 
 describe('inlineLinearAll — conservative exclusions', () => {
   // Control flow in the prelude is ADMITTED (it used to be the headline
@@ -135,31 +135,31 @@ describe('inlineLinearAll — conservative exclusions', () => {
   // one by exactly the statement under test.
   it('inlines a control-flow (if) helper and preserves its value', () => {
     const branchy = fn('branchy', { x: f32T }, f32T, ({ x }, b) => {
-      const r = b.var('r', f32T, f32(0))
+      const r = b.var('r', f32T, f32(0));
       If(x.gt(0), () => {
-        r.assign(x)
+        r.assign(x);
       }).else(() => {
-        r.assign(x.neg())
-      })
-      b.ret(r)
-    })
+        r.assign(x.neg());
+      });
+      b.ret(r);
+    });
     const m = module({
       funcs: [
         branchy,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(branchy({ x: y }))
+          b.ret(branchy({ x: y }));
         }),
       ],
-    })
-    const out = inlineLinearAll(m)
-    expect(emitModule(out)).not.toContain('fn branchy')
+    });
+    const out = inlineLinearAll(m);
+    expect(emitModule(out)).not.toContain('fn branchy');
     // BOTH arms — a fold that kept only one would still pass a single-input check.
     for (const v of [2.5, -2.5, 0]) {
       expect(compileModule(out).fns.caller(v) as number).toBe(
         compileModule(m).fns.caller(v) as number,
-      )
+      );
     }
-  })
+  });
 
   it('inlines a LOOP helper — the escape-iteration shape — and preserves its value', () => {
     // `fp64-mandelbrot`'s escape_f32 in miniature: vars, a bounded loop that
@@ -167,39 +167,39 @@ describe('inlineLinearAll — conservative exclusions', () => {
     // (`c` in the body, `n` in the CONDITION), which is what makes the arg-temp
     // probe's depth load-bearing rather than cosmetic.
     const escape = fn('escape', { c: f32T, n: f32T }, f32T, ({ c, n }, b) => {
-      const z = b.var('z', f32T, f32(0))
-      const it = b.var('it', f32T, f32(0))
+      const z = b.var('z', f32T, f32(0));
+      const it = b.var('it', f32T, f32(0));
       Loop(
         f32(0),
         (j) => j.lt(n),
         () => {
           If(z.lt(4), () => {
-            z.assign(z.mul(z).add(c))
-            it.assign(it.add(1))
-          })
+            z.assign(z.mul(z).add(c));
+            it.assign(it.add(1));
+          });
         },
         1,
-      )
-      b.ret(it.add(z))
-    })
+      );
+      b.ret(it.add(z));
+    });
     const m = module({
       funcs: [
         escape,
         fn('caller', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(escape({ c: x, n: f32(5) }))
+          b.ret(escape({ c: x, n: f32(5) }));
         }),
       ],
-    })
-    const out = inlineLinearAll(m)
-    const wgsl = emitModule(out)
-    expect(wgsl).not.toContain('fn escape')
-    expect(wgsl).not.toMatch(/\bescape\(/)
+    });
+    const out = inlineLinearAll(m);
+    const wgsl = emitModule(out);
+    expect(wgsl).not.toContain('fn escape');
+    expect(wgsl).not.toMatch(/\bescape\(/);
     for (const v of [-1, -0.5, 0, 0.25, 1]) {
       expect(compileModule(out).fns.caller(v) as number).toBe(
         compileModule(m).fns.caller(v) as number,
-      )
+      );
     }
-  })
+  });
 
   it('gives every declaration a lift copies its own instance prefix', () => {
     // Uniformity, NOT a miscompile guard — severing the nested collection still
@@ -208,46 +208,46 @@ describe('inlineLinearAll — conservative exclusions', () => {
     // collide. What it does pin is that two inline instances of a LOOP helper
     // produce no repeated declaration and the same values as the un-inlined call.
     const h = fn('h', { x: f32T }, f32T, ({ x }, b) => {
-      const r = b.var('r', f32T, f32(0))
+      const r = b.var('r', f32T, f32(0));
       Loop(
         f32(0),
         (j) => j.lt(3),
         () => {
-          const t = b.var('t', f32T, x)
-          t.assign(t.mul(2).add(1))
-          r.assign(r.add(t))
+          const t = b.var('t', f32T, x);
+          t.assign(t.mul(2).add(1));
+          r.assign(r.add(t));
         },
         1,
-      )
-      b.ret(r)
-    })
+      );
+      b.ret(r);
+    });
     const m = module({
       funcs: [
         h,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(h({ x: y }).add(h({ x: y.add(10) })))
+          b.ret(h({ x: y }).add(h({ x: y.add(10) })));
         }),
       ],
-    })
-    const out = inlineLinearAll(m)
-    const wgsl = emitModule(out)
-    expect(wgsl).not.toContain('fn h')
-    const declared = [...wgsl.matchAll(/^\s*(?:let|var)\s+([A-Za-z0-9_]+)/gm)].map((d) => d[1])
-    expect(new Set(declared).size, `duplicate declaration in\n${wgsl}`).toBe(declared.length)
+    });
+    const out = inlineLinearAll(m);
+    const wgsl = emitModule(out);
+    expect(wgsl).not.toContain('fn h');
+    const declared = [...wgsl.matchAll(/^\s*(?:let|var)\s+([A-Za-z0-9_]+)/gm)].map((d) => d[1]);
+    expect(new Set(declared).size, `duplicate declaration in\n${wgsl}`).toBe(declared.length);
     for (const v of [-3, 1, 4]) {
       expect(compileModule(out).fns.caller(v) as number).toBe(
         compileModule(m).fns.caller(v) as number,
-      )
+      );
     }
-  })
+  });
 
   it('leaves a helper containing `discard` intact — purity is what licenses the lift', () => {
     const cut = fn('cut', { x: f32T }, f32T, ({ x }, b) => {
       If(x.lt(0), () => {
-        Discard()
-      })
-      b.ret(x)
-    })
+        Discard();
+      });
+      b.ret(x);
+    });
     const m = module({
       funcs: [
         cut,
@@ -256,9 +256,9 @@ describe('inlineLinearAll — conservative exclusions', () => {
           retAttr: '@location(0)',
         }),
       ],
-    })
-    expect(emitModule(inlineLinearAll(m))).toContain('fn cut')
-  })
+    });
+    expect(emitModule(inlineLinearAll(m))).toContain('fn cut');
+  });
 
   it('leaves a helper whose `break` escapes its own loop intact', () => {
     // A free `break` would bind to whatever loop the CALLER sits in — the one way a
@@ -273,7 +273,7 @@ describe('inlineLinearAll — conservative exclusions', () => {
         { s: 'break' },
         { s: 'return', expr: { op: 'varref', type: f32T, name: 'r' } },
       ],
-    }
+    };
     const caller: FuncDecl = {
       name: 'caller',
       params: [{ name: 'y', type: f32T }],
@@ -289,29 +289,29 @@ describe('inlineLinearAll — conservative exclusions', () => {
           },
         },
       ],
-    }
+    };
     expect(
       emitModule(inlineLinearAll({ ...module({ funcs: [] }), funcs: [free, caller] })),
-    ).toContain('fn freeBreak')
-  })
+    ).toContain('fn freeBreak');
+  });
 
   it('leaves a helper with an EARLY return intact — a second exit needs a result var', () => {
     const early = fn('early', { x: f32T }, f32T, ({ x }, b) => {
       If(x.gt(0), () => {
-        b.ret(x)
-      })
-      b.ret(x.neg())
-    })
+        b.ret(x);
+      });
+      b.ret(x.neg());
+    });
     const m = module({
       funcs: [
         early,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(early({ x: y }))
+          b.ret(early({ x: y }));
         }),
       ],
-    })
-    expect(emitModule(inlineLinearAll(m))).toContain('fn early')
-  })
+    });
+    expect(emitModule(inlineLinearAll(m))).toContain('fn early');
+  });
 
   it('leaves a helper called in a for-header intact (unsound to lift)', () => {
     // Hand-built: `for (var i=0.0; i < vnoise(x); i=i+1) { acc = i }` — the call
@@ -366,23 +366,23 @@ describe('inlineLinearAll — conservative exclusions', () => {
           ],
         },
       ],
-    }
-    expect(emitModule(inlineLinearAll(forMod))).toContain('fn vnoise')
-  })
+    };
+    expect(emitModule(inlineLinearAll(forMod))).toContain('fn vnoise');
+  });
 
   it('never inlines the df64 emulation library (opacity invariant holds)', () => {
     const mf = module({
       funcs: [
         fn('kf', { a: f32T }, f32T, ({ a }, b) => {
-          b.ret(toF32(toF64(a).add(toF64(a))))
+          b.ret(toF32(toF64(a).add(toF64(a))));
         }),
       ],
-    })
-    const wgsl = emitModule(mf, { plugins: [{ name: 'inline', transformIR: inlineLinearAll }] })
-    expect(wgsl).toContain('df64_add(')
-    expect(wgsl).toContain('fn df64_add')
-    expect(wgsl).toContain('fn df64_twoSum')
-  })
+    });
+    const wgsl = emitModule(mf, { plugins: [{ name: 'inline', transformIR: inlineLinearAll }] });
+    expect(wgsl).toContain('df64_add(');
+    expect(wgsl).toContain('fn df64_add');
+    expect(wgsl).toContain('fn df64_twoSum');
+  });
 
   // CONTROL ARM. The assertion above passes if the df64 fns survive — including in
   // the world where `inlineLinearAll` inlines NOTHING at all, which is the "failed
@@ -392,27 +392,27 @@ describe('inlineLinearAll — conservative exclusions', () => {
   it('… and that opacity is the RULE talking, not an un-inlinable body', () => {
     const linear = (name: string) =>
       fn(name, { p: f32T }, f32T, ({ p }, b) => {
-        const a = b.let('a', floor(p))
-        const c = b.let('c', fract(p))
-        b.ret(a.add(c).mul(2))
-      })
-    const plain = linear('probe_sum')
+        const a = b.let('a', floor(p));
+        const c = b.let('c', fract(p));
+        b.ret(a.add(c).mul(2));
+      });
+    const plain = linear('probe_sum');
     // `module()` puts the HANDLE in funcs[], so the flag goes on the handle — the
     // same reason `fn()` mirrors `portable` onto it (builder.ts).
-    const opaque = Object.assign(linear('opaque_sum'), { opaque: true })
+    const opaque = Object.assign(linear('opaque_sum'), { opaque: true });
     const mf = module({
       funcs: [
         plain,
         opaque,
         fn('caller', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(plain({ p: x }).add(opaque({ p: x })))
+          b.ret(plain({ p: x }).add(opaque({ p: x })));
         }),
       ],
-    })
-    const wgsl = emitModule(mf, { plugins: [{ name: 'inline', transformIR: inlineLinearAll }] })
-    expect(wgsl).not.toContain('fn probe_sum')
-    expect(wgsl).toContain('fn opaque_sum')
-  })
+    });
+    const wgsl = emitModule(mf, { plugins: [{ name: 'inline', transformIR: inlineLinearAll }] });
+    expect(wgsl).not.toContain('fn probe_sum');
+    expect(wgsl).toContain('fn opaque_sum');
+  });
 
   // The invariant is a PROPERTY of the injected decl, not of its emitted NAME. It
   // used to be `f.name.startsWith('df64_')`, and `mangle()` renames the df64 library
@@ -425,18 +425,18 @@ describe('inlineLinearAll — conservative exclusions', () => {
     const mf = module({
       funcs: [
         fn('kf', { a: f32T }, f32T, ({ a }, b) => {
-          b.ret(toF32(toF64(a).add(toF64(a))))
+          b.ret(toF32(toF64(a).add(toF64(a))));
         }),
       ],
-    })
-    const inlineP = { name: 'inline', transformIR: inlineLinearAll }
-    const mangleP = { name: 'mangle', transformIR: (x: ModuleDecl) => mangleModule(x).module }
-    const countFns = (src: string): number => (src.match(/^fn /gm) ?? []).length
+    });
+    const inlineP = { name: 'inline', transformIR: inlineLinearAll };
+    const mangleP = { name: 'mangle', transformIR: (x: ModuleDecl) => mangleModule(x).module };
+    const countFns = (src: string): number => (src.match(/^fn /gm) ?? []).length;
     // The df64 closure for one add is twoSum / quickTwoSum / add / narrow, + `kf`.
-    expect(countFns(emitModule(mf, { plugins: [inlineP, mangleP] }))).toBe(5)
-    expect(countFns(emitModule(mf, { plugins: [mangleP, inlineP] }))).toBe(5)
-  })
-})
+    expect(countFns(emitModule(mf, { plugins: [inlineP, mangleP] }))).toBe(5);
+    expect(countFns(emitModule(mf, { plugins: [mangleP, inlineP] }))).toBe(5);
+  });
+});
 
 // ═══ post-inline cleanup (X-GIS #1860) ═══
 //
@@ -460,43 +460,43 @@ describe('inlineLinearAll — post-inline cleanup', () => {
         .mul(0.5)
         .add(vnoise({ p: p.mul(2) }).mul(0.25))
         .add(vnoise({ p: p.mul(4) }).mul(0.125)),
-    )
-  })
+    );
+  });
   const shared = module({
     funcs: [
       vnoise,
       fbm3,
       fn('caller', { x: f32T }, f32T, ({ x }, b) => {
-        const t = b.let('t', x.mul(2)) // a LOCAL — puts the repeat out of cse's reach
-        b.ret(fbm3({ p: sin(t).mul(cos(t)) }))
+        const t = b.let('t', x.mul(2)); // a LOCAL — puts the repeat out of cse's reach
+        b.ret(fbm3({ p: sin(t).mul(cos(t)) }));
       }),
     ],
-  })
+  });
 
   it('computes a value shared by N inlined copies ONCE, not N times', () => {
-    const wgsl = emitModule(inlineLinearAll(shared))
-    expect(wgsl).not.toContain('fn vnoise')
-    expect(wgsl).not.toContain('fn fbm3')
-    expect(wgsl.match(/sin\(/g)).toHaveLength(1)
-    expect(wgsl.match(/cos\(/g)).toHaveLength(1)
-  })
+    const wgsl = emitModule(inlineLinearAll(shared));
+    expect(wgsl).not.toContain('fn vnoise');
+    expect(wgsl).not.toContain('fn fbm3');
+    expect(wgsl.match(/sin\(/g)).toHaveLength(1);
+    expect(wgsl.match(/cos\(/g)).toHaveLength(1);
+  });
 
   it('emits the same single computation on the GLSL side', () => {
     const glsl = emitGlslModule(shared, 'vertex', {
       plugins: [{ name: 'inline', transformIR: inlineLinearAll }],
-    })
-    expect(glsl.match(/sin\(/g)).toHaveLength(1)
-    expect(glsl.match(/cos\(/g)).toHaveLength(1)
-  })
+    });
+    expect(glsl.match(/sin\(/g)).toHaveLength(1);
+    expect(glsl.match(/cos\(/g)).toHaveLength(1);
+  });
 
   it('preserves the value it dedups (CPU oracle) and stays deterministic', () => {
-    const out = inlineLinearAll(shared)
+    const out = inlineLinearAll(shared);
     expect(compileModule(out).fns.caller(0.7) as number).toBeCloseTo(
       compileModule(shared).fns.caller(0.7) as number,
       6,
-    )
-    expect(emitModule(inlineLinearAll(shared))).toBe(emitModule(out))
-  })
+    );
+    expect(emitModule(inlineLinearAll(shared))).toBe(emitModule(out));
+  });
 
   it('is a NO-OP on a module with nothing to inline', () => {
     // The cleanup is inlining's debt, not a second optimizer tier: a module the
@@ -504,14 +504,14 @@ describe('inlineLinearAll — post-inline cleanup', () => {
     const none = module({
       funcs: [
         fn('solo', { x: f32T }, f32T, ({ x }, b) => {
-          const t = b.let('t', x.mul(2))
-          b.ret(sin(t).mul(cos(t)).add(sin(t)))
+          const t = b.let('t', x.mul(2));
+          b.ret(sin(t).mul(cos(t)).add(sin(t)));
         }),
       ],
-    })
-    expect(inlineLinearAll(none)).toBe(none)
+    });
+    expect(inlineLinearAll(none)).toBe(none);
     expect(emitModule(none, { plugins: [{ name: 'inline', transformIR: inlineLinearAll }] })).toBe(
       emitModule(none),
-    )
-  })
-})
+    );
+  });
+});

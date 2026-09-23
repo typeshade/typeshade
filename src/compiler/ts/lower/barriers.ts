@@ -23,15 +23,15 @@
 // `reflect().requiredLanguageFeatures` reports for a host to check — Tint has that feature and
 // compiles the call bare, so nothing else would say so.
 
-import ts from 'typescript'
-import type { Expr } from '../../../core/ir/nodes.js'
-import { voidT } from '../../../core/ir/types.js'
-import type { TsCompilerDiagnostic } from '../source-file.js'
-import type { LoweringScope } from '../context.js'
-import { TS_CODES, type TsCode } from '../codes.js'
-import { makeDiagnostic } from '../diagnostic.js'
-import { withSpan } from '../span.js'
-import { rootedIn } from './expression-prop.js'
+import ts from 'typescript';
+import type { Expr } from '../../../core/ir/nodes.js';
+import { voidT } from '../../../core/ir/types.js';
+import type { TsCompilerDiagnostic } from '../source-file.js';
+import type { LoweringScope } from '../context.js';
+import { TS_CODES, type TsCode } from '../codes.js';
+import { makeDiagnostic } from '../diagnostic.js';
+import { withSpan } from '../span.js';
+import { rootedIn } from './expression-prop.js';
 
 function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
@@ -40,7 +40,7 @@ function pushDiag(
   message: string,
   code: TsCode,
 ): void {
-  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }
 
 /** `workgroupBarrier()` / `storageBarrier()` as a statement: the placement rules, then the
@@ -59,10 +59,10 @@ export function lowerBarrierStatement(
       node,
       `${name} expects 0 arguments, got ${node.arguments.length}.`,
       TS_CODES.ARITY_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const stage = scope.currentStage()
+  const stage = scope.currentStage();
   if (stage === 'vertex' || stage === 'fragment') {
     pushDiag(
       diagnostics,
@@ -71,8 +71,8 @@ export function lowerBarrierStatement(
       `${name}() belongs in a compute entry or a function it calls; a ${stage} entry has ` +
         `${name === 'textureBarrier' ? 'no workgroup whose texture writes it could order' : 'no workgroup to wait for'}.`,
       TS_CODES.BARRIER_PLACEMENT,
-    )
-    return undefined
+    );
+    return undefined;
   }
   // NOT `scope.inBranch()` any more (§54). That rule refused EVERY `if` and `switch`, which
   // is stricter than both the spec and Tint: a barrier under `if (k > 0.5)` on a uniform
@@ -87,8 +87,8 @@ export function lowerBarrierStatement(
   // With the span the author wrote. Without it the §54 diagnostic fell back to the enclosing
   // declaration and underlined the entry's `@compute` decorator, pointing at the function
   // rather than at the barrier inside it.
-  const call: Expr = { op: 'call', type: voidT, fn: name, args: [] }
-  return withSpan(call, sourceFile, node)
+  const call: Expr = { op: 'call', type: voidT, fn: name, args: [] };
+  return withSpan(call, sourceFile, node);
 }
 
 /** `workgroupUniformLoad(w)` (#152, wgsl.txt:26057): ONE value read out of workgroup memory,
@@ -109,7 +109,7 @@ export function lowerWorkgroupUniformLoad(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const name = 'workgroupUniformLoad'
+  const name = 'workgroupUniformLoad';
   if (args.length !== 1) {
     pushDiag(
       diagnostics,
@@ -117,8 +117,8 @@ export function lowerWorkgroupUniformLoad(
       node,
       `${name} expects 1 argument, got ${String(args.length)}.`,
       TS_CODES.ARITY_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   // NO stage check here, unlike the barriers above, and the absence is deliberate. The
   // argument has to be rooted in workgroup memory (below), and a workgroup VARIABLE read from a
@@ -136,10 +136,10 @@ export function lowerWorkgroupUniformLoad(
         `or switch. It is a read between two barriers, so a branch on a value the invocations ` +
         `do not share is how a workgroup waits forever; a for loop with a constant bound is fine.`,
       TS_CODES.BARRIER_PLACEMENT,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const arg = args[0]!
+  const arg = args[0]!;
   if (!rootedIn(arg, scope, ['workgroup'])) {
     pushDiag(
       diagnostics,
@@ -148,8 +148,8 @@ export function lowerWorkgroupUniformLoad(
       `${name} reads WORKGROUP memory; this value is not in it. Declare the variable ` +
         `"let w: workgroup<T>" and read it as ${name}(w).`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  return { op: 'call', type: arg.type, fn: name, args: [arg] }
+  return { op: 'call', type: arg.type, fn: name, args: [arg] };
 }

@@ -6,9 +6,9 @@
 // the backends consume. Imports only types.ts, span.ts and derived-capabilities.ts (all
 // type-only).
 
-import type { ShaderType } from './types.js'
-import type { SourceSpan } from './span.js'
-import type { DerivedCapability } from './derived-capabilities.js'
+import type { ShaderType } from './types.js';
+import type { SourceSpan } from './span.js';
+import type { DerivedCapability } from './derived-capabilities.js';
 
 // ── Expression nodes ──
 
@@ -25,14 +25,14 @@ import type { DerivedCapability } from './derived-capabilities.js'
  *
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
-export type BinOp = '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>'
+export type BinOp = '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>';
 /** The operator tag on `Expr.compare`: the six relational operators. A comparison
  *  produces a `bool`, or a `vecN<bool>` when the operands are vectors. The WGSL, GLSL
  *  and CPU backends spell or evaluate it identically.
  *
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
-export type CmpOp = '<' | '>' | '<=' | '>=' | '==' | '!='
+export type CmpOp = '<' | '>' | '<=' | '>=' | '==' | '!=';
 /** The operator tag on `Expr.logical`: the short-circuiting boolean operators `&&` and
  *  `||`. Both operands and the result are `bool`. It is a separate `Expr.op` from
  *  `binop` because WGSL and GLSL give `&&` and `||` short-circuit evaluation, which a
@@ -40,7 +40,7 @@ export type CmpOp = '<' | '>' | '<=' | '>=' | '==' | '!='
  *
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
-export type LogOp = '&&' | '||'
+export type LogOp = '&&' | '||';
 
 /** Every expression shape the IR can hold: the closed set that {@link Node} and
  *  {@link ReadonlyNode} build and that the WGSL, GLSL and CPU backends walk to emit or
@@ -79,46 +79,46 @@ export type Expr =
   // the per-target spelling when the host spells it differently on each backend.
   | { readonly op: 'externref'; readonly type: ShaderType; readonly name: string }
   | {
-      readonly op: 'param'
-      readonly type: ShaderType
-      readonly name: string
+      readonly op: 'param';
+      readonly type: ShaderType;
+      readonly name: string;
       /** Where this was written, when it is the TARGET of an assignment — the lvalue a
        *  statement is about to write, so a debugger can highlight what changes rather than the
        *  whole line. A read of the same name carries none in this increment. Read it with
        *  {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   | {
-      readonly op: 'varref'
-      readonly type: ShaderType
-      readonly name: string
+      readonly op: 'varref';
+      readonly type: ShaderType;
+      readonly name: string;
       /** Where this was written, when it is the TARGET of an assignment — the lvalue a
        *  statement is about to write, so a debugger can highlight what changes rather than the
        *  whole line. A read of the same name carries none in this increment. Read it with
        *  {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   | {
-      readonly op: 'binop'
-      readonly type: ShaderType
-      readonly bop: BinOp
-      readonly a: Expr
-      readonly b: Expr
+      readonly op: 'binop';
+      readonly type: ShaderType;
+      readonly bop: BinOp;
+      readonly a: Expr;
+      readonly b: Expr;
     }
   | { readonly op: 'unop'; readonly type: ShaderType; readonly a: Expr }
   | {
-      readonly op: 'compare'
-      readonly type: ShaderType
-      readonly cop: CmpOp
-      readonly a: Expr
-      readonly b: Expr
+      readonly op: 'compare';
+      readonly type: ShaderType;
+      readonly cop: CmpOp;
+      readonly a: Expr;
+      readonly b: Expr;
     }
   | {
-      readonly op: 'logical'
-      readonly type: ShaderType
-      readonly lop: LogOp
-      readonly a: Expr
-      readonly b: Expr
+      readonly op: 'logical';
+      readonly type: ShaderType;
+      readonly lop: LogOp;
+      readonly a: Expr;
+      readonly b: Expr;
     }
   // `declRef` (present only on calls made through a real FnHandle — absent on externFn /
   // raw callFn string calls) points at the callee's FuncDecl so module() can auto-collect
@@ -126,43 +126,43 @@ export type Expr =
   // emit path (the spelling stays `fn`), never serialized, dropped freely by pass rewrites
   // (collection runs at assembly time, before any pass).
   | {
-      readonly op: 'call'
-      readonly type: ShaderType
-      readonly fn: string
-      readonly args: readonly Expr[]
-      readonly declRef?: FuncDecl
+      readonly op: 'call';
+      readonly type: ShaderType;
+      readonly fn: string;
+      readonly args: readonly Expr[];
+      readonly declRef?: FuncDecl;
       /** Where this call was written, when it is the outermost call node lowered from a
        *  `ts.CallExpression`. Stepping into a helper has to tell two calls in one statement
        *  apart, which is why this expression kind carries a span at all. A call the front end
        *  synthesises while expanding one (the `random` hash, an array higher-order function,
        *  a `Math.*` expansion, a numeric cast) carries none, because it was written nowhere.
        *  Read it with {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   | {
-      readonly op: 'member'
-      readonly type: ShaderType
-      readonly base: Expr
-      readonly field: string
+      readonly op: 'member';
+      readonly type: ShaderType;
+      readonly base: Expr;
+      readonly field: string;
     }
   | { readonly op: 'construct'; readonly type: ShaderType; readonly args: readonly Expr[] }
   | {
-      readonly op: 'select'
-      readonly type: ShaderType
-      readonly cond: Expr
-      readonly ifTrue: Expr
-      readonly ifFalse: Expr
+      readonly op: 'select';
+      readonly type: ShaderType;
+      readonly cond: Expr;
+      readonly ifTrue: Expr;
+      readonly ifFalse: Expr;
     }
   | {
-      readonly op: 'index'
-      readonly type: ShaderType
-      readonly base: Expr
-      readonly idx: Expr
+      readonly op: 'index';
+      readonly type: ShaderType;
+      readonly base: Expr;
+      readonly idx: Expr;
       /** Where this was written, when it is the TARGET of an assignment — the lvalue a
        *  statement is about to write, so a debugger can highlight what changes rather than the
        *  whole line. A read of the same name carries none in this increment. Read it with
        *  {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   // `match (scrutinee) { case v0: e0; ...; default: dflt }`. The WGSL backend
   // pre-emit pass (core/passes/match-lower.ts) lowers every matchExpr inside
@@ -171,12 +171,12 @@ export type Expr =
   // The CPU backend evaluates the scrutinee then returns the matched case's
   // value or the default. Phase 2.5 (US-001).
   | {
-      readonly op: 'matchExpr'
-      readonly type: ShaderType
-      readonly scrutinee: Expr
-      readonly cases: ReadonlyArray<readonly [number, Expr]>
-      readonly default: Expr
-    }
+      readonly op: 'matchExpr';
+      readonly type: ShaderType;
+      readonly scrutinee: Expr;
+      readonly cases: ReadonlyArray<readonly [number, Expr]>;
+      readonly default: Expr;
+    };
 
 // ── Statement nodes ──
 
@@ -192,79 +192,79 @@ export type Expr =
  */
 export type Stmt =
   | {
-      readonly s: 'let'
-      readonly name: string
-      readonly expr: Expr
+      readonly s: 'let';
+      readonly name: string;
+      readonly expr: Expr;
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   | {
-      readonly s: 'var'
-      readonly name: string
-      readonly type: ShaderType
-      readonly init?: Expr
+      readonly s: 'var';
+      readonly name: string;
+      readonly type: ShaderType;
+      readonly init?: Expr;
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   | {
-      readonly s: 'assign'
-      readonly target: Expr
-      readonly expr: Expr
+      readonly s: 'assign';
+      readonly target: Expr;
+      readonly expr: Expr;
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   | {
-      readonly s: 'assignOp'
-      readonly target: Expr
-      readonly bop: BinOp
-      readonly expr: Expr
+      readonly s: 'assignOp';
+      readonly target: Expr;
+      readonly bop: BinOp;
+      readonly expr: Expr;
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   | {
-      readonly s: 'if'
-      readonly arms: ReadonlyArray<{ readonly cond: Expr; readonly body: readonly Stmt[] }>
-      readonly elseBody?: readonly Stmt[]
+      readonly s: 'if';
+      readonly arms: ReadonlyArray<{ readonly cond: Expr; readonly body: readonly Stmt[] }>;
+      readonly elseBody?: readonly Stmt[];
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   | {
-      readonly s: 'return'
-      readonly expr?: Expr
+      readonly s: 'return';
+      readonly expr?: Expr;
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   | {
-      readonly s: 'for'
-      readonly init: Stmt
-      readonly cond: Expr
-      readonly update: Stmt
-      readonly body: readonly Stmt[]
+      readonly s: 'for';
+      readonly init: Stmt;
+      readonly cond: Expr;
+      readonly update: Stmt;
+      readonly body: readonly Stmt[];
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   | {
-      readonly s: 'switch'
-      readonly scrut: Expr
+      readonly s: 'switch';
+      readonly scrut: Expr;
       /** One clause per entry. `values` is the SELECTORS that share the clause's body, in
        *  source order: WGSL spells them `case 0, 1: { … }` and GLSL ES 3.00
        *  `case 0: case 1: { … }`, which is why the IR carries the list rather than one
        *  number and a fall-through. Never empty. */
       readonly cases: ReadonlyArray<{
-        readonly values: readonly number[]
-        readonly body: readonly Stmt[]
-      }>
-      readonly defaultBody?: readonly Stmt[]
+        readonly values: readonly number[];
+        readonly body: readonly Stmt[];
+      }>;
+      readonly defaultBody?: readonly Stmt[];
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   | { readonly s: 'break'; readonly span?: SourceSpan }
   | { readonly s: 'continue'; readonly span?: SourceSpan }
@@ -278,11 +278,11 @@ export type Stmt =
        *  GLSL ES 3.00 takes the bare call in every case; the CPU backends evaluate it for its
        *  effect. A pass that assumes expressions are pure must treat this statement as the
        *  one place an effect is kept on purpose (see `passes/effects.ts`). */
-      readonly s: 'call'
-      readonly expr: Expr
+      readonly s: 'call';
+      readonly expr: Expr;
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
-      readonly span?: SourceSpan
+      readonly span?: SourceSpan;
     }
   // Phase 2.5 US-007 — composer-swap marker. The polygon DSL module
   // (shaders/polygon.ts) lays down a placeholder Stmt at each
@@ -318,7 +318,12 @@ export type Stmt =
   // a hard "this module does not build for that target", never a silent
   // mis-emit.
   | { readonly s: 'raw'; readonly wgsl: string; readonly glsl?: string; readonly span?: SourceSpan }
-  | { readonly s: 'raw'; readonly wgsl?: string; readonly glsl: string; readonly span?: SourceSpan }
+  | {
+      readonly s: 'raw';
+      readonly wgsl?: string;
+      readonly glsl: string;
+      readonly span?: SourceSpan;
+    };
 
 /** The `raw` statement node: a fragment of target source spliced verbatim into a
  *  function body, spelled per target. It carries a `wgsl` side, a `glsl` side, or both,
@@ -327,13 +332,13 @@ export type Stmt =
  *  so a one-sided raw statement means "this module does not build for that target" and
  *  never emits the wrong text. The CPU backend throws on every raw statement, since raw
  *  text has no CPU evaluation. Build one with {@link rawStmt}. */
-export type RawStmt = Extract<Stmt, { s: 'raw' }>
+export type RawStmt = Extract<Stmt, { s: 'raw' }>;
 
 /** The argument to {@link rawStmt}: the `wgsl` and `glsl` source text of a raw
  *  statement. At least one side is required, so `rawStmt({})` does not compile. */
 export type RawPayload =
   | { readonly wgsl: string; readonly glsl?: string }
-  | { readonly wgsl?: string; readonly glsl: string }
+  | { readonly wgsl?: string; readonly glsl: string };
 
 // ── Module-level declarations ──
 
@@ -348,14 +353,14 @@ export type RawPayload =
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface ConstDecl {
-  readonly name: string
-  readonly type: ShaderType
+  readonly name: string;
+  readonly type: ShaderType;
   /** Scalar value emitted by the WGSL/GLSL backends (the truncated shader
    *  constant). Used when `valueExpr` is absent; ignored otherwise. */
-  readonly wgslValue: number
+  readonly wgslValue: number;
   /** Scalar value used by the CPU backend, at full double precision. Used when
    *  `valueExpr` is absent; ignored otherwise. */
-  readonly cpuValue: number
+  readonly cpuValue: number;
   /** Optional constant value as an IR literal expression, for example a `vec4<f32>(…)`
    *  colour, an `array<vec4<f32>, N>(…)` palette, or a struct literal. When present it
    *  replaces `wgslValue` and `cpuValue` on every backend: WGSL and GLSL emit it and the
@@ -363,7 +368,7 @@ export interface ConstDecl {
    *  `construct`, `unop` or `binop` over those, or a `constref` to an earlier constant);
    *  it may not read a binding, a parameter, or a runtime input. Ordinary `f32` scalars
    *  keep using the `wgslValue`/`cpuValue` pair. */
-  readonly valueExpr?: Expr
+  readonly valueExpr?: Expr;
 }
 
 /** A pipeline specialization constant, the declaration behind {@link overrideConst}.
@@ -377,11 +382,11 @@ export interface ConstDecl {
  *  `f32`); a vector, matrix, array or struct type is rejected at authoring with
  *  `SD0014`. */
 export interface OverrideDecl {
-  readonly name: string
-  readonly type: ShaderType
+  readonly name: string;
+  readonly type: ShaderType;
   /** The default value emitted into the `override` declaration or `#define`: the
    *  value a pipeline gets when the host supplies nothing for this constant. */
-  readonly default: number | boolean
+  readonly default: number | boolean;
 }
 
 /** One entry of {@link ModuleDecl.vars}: a module-scope variable that is not a resource
@@ -394,12 +399,12 @@ export interface OverrideDecl {
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface ModuleVarDecl {
-  readonly name: string
-  readonly space: 'workgroup' | 'private'
-  readonly type: ShaderType
+  readonly name: string;
+  readonly space: 'workgroup' | 'private';
+  readonly type: ShaderType;
   /** The initial value, a constant expression over literals and module consts. Only a
    *  `private` variable carries one; WGSL forbids an initializer on `workgroup` memory. */
-  readonly init?: Expr
+  readonly init?: Expr;
 }
 
 /** One field of a {@link StructDecl}: a plain data member of a uniform or storage struct,
@@ -413,25 +418,25 @@ export interface ModuleVarDecl {
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface StructField {
-  readonly name: string
-  readonly type: ShaderType
+  readonly name: string;
+  readonly type: ShaderType;
   /** Optional WGSL field attribute(s) for I/O structs, e.g.
    *  `@builtin(position)`, `@location(0)`, `@location(0) @interpolate(flat)`.
    *  This is the emitted spelling; the structured fields below (`location`,
    *  `builtin`, `interpolate`) are what the backends read. They never re-parse
    *  this string. */
-  readonly attr?: string
+  readonly attr?: string;
   /** Structured `@location(n)`. Set by {@link location}. */
-  readonly location?: number
+  readonly location?: number;
   /** Structured `@builtin(name)`. Set by {@link builtin}. */
-  readonly builtin?: string
+  readonly builtin?: string;
   /** Structured `@interpolate(mode)` (set alongside `location`). */
-  readonly interpolate?: string
+  readonly interpolate?: string;
   /** Structured `@blend_src(0|1)` on a fragment output (§53): the two colours a dual-source
    *  blend mixes, which both sit at `@location(0)`. It derives the `dualSourceBlending`
    *  capability, and GLSL ES 3.00 has no second source, so a module carrying one fails
    *  closed there. */
-  readonly blendSrc?: number
+  readonly blendSrc?: number;
   /** The byte size WGSL's `@size(n)` gives this field, when the field's own type is smaller.
    *  Set by the uniform-layout pass (§51) and by nothing else: it is how the wrapper struct
    *  that gives a uniform array its 16-byte element stride is spelled,
@@ -441,7 +446,7 @@ export interface StructField {
    *  emit-versus-reflection disagreement §51 exists to close. The WGSL writer emits it; GLSL
    *  ES 3.00 has no equivalent, and no module reaches that writer carrying one (the pass runs
    *  on the WGSL side alone). */
-  readonly size?: number
+  readonly size?: number;
   /** The byte alignment WGSL's `@align(n)` gives this field. Set by the uniform-layout pass
    *  (§51) and by nothing else, for the same reason `size` is, and it is the other half of the
    *  same fix: `@size(16)` on a wrapper's field gives the ARRAY ELEMENT its 16-byte stride,
@@ -452,7 +457,7 @@ export interface StructField {
    *  multiple of 16 bytes, but 'xs' is currently at offset 4`), and an implementation with
    *  `uniform_buffer_standard_layout` accepts the same text while laying it out differently
    *  from what reflection reports. */
-  readonly align?: number
+  readonly align?: number;
 }
 /** A `ModuleDecl.structs` entry: a WGSL `struct` declaration. On GLSL it becomes a
  *  plain struct, or a flattened set of `in`/`out` globals when its fields carry
@@ -463,8 +468,8 @@ export interface StructField {
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface StructDecl {
-  readonly name: string
-  readonly fields: readonly StructField[]
+  readonly name: string;
+  readonly fields: readonly StructField[];
 }
 
 /** The `BindingDecl.space` a resource binding lives in: WGSL's `var<uniform>` or
@@ -475,7 +480,7 @@ export interface StructDecl {
  *
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
-export type AddressSpace = 'uniform' | 'storage'
+export type AddressSpace = 'uniform' | 'storage';
 /** A `ModuleDecl.bindings` entry: a resource bound at a `(group, binding)` slot. It is a
  *  uniform buffer, a storage buffer, a texture, or a sampler, keyed by `type` (a struct,
  *  scalar or array type means a buffer; a `texture` or `sampler` `ShaderType.kind` means
@@ -488,13 +493,13 @@ export type AddressSpace = 'uniform' | 'storage'
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface BindingDecl {
-  readonly group: number
-  readonly binding: number
-  readonly name: string
-  readonly space: AddressSpace
+  readonly group: number;
+  readonly binding: number;
+  readonly name: string;
+  readonly space: AddressSpace;
   /** Storage access, `read` or `read_write`. Ignored for `uniform`. */
-  readonly access?: 'read' | 'read_write'
-  readonly type: ShaderType
+  readonly access?: 'read' | 'read_write';
+  readonly type: ShaderType;
   /** Who owns this resource. `'module'` (the default) means the module declares it and
    *  describes its layout, and a host builds its bind group from {@link reflect}.
    *  `'host'` means the resource belongs to the surrounding host, such as a bind group a
@@ -504,13 +509,13 @@ export interface BindingDecl {
    *  which is what makes it type-checkable; it is just not the module's to allocate. For
    *  a symbol the host's prelude already declares, use {@link externVar}, which emits
    *  nothing. */
-  readonly owner?: 'module' | 'host'
+  readonly owner?: 'module' | 'host';
   /** GLSL ES 3.00 precision qualifier for this declaration. GLSL only; WGSL has no such
    *  concept and ignores it. Without it the declaration takes the stage default from the
    *  precision preamble, which is right for a module that owns its own header and wrong
    *  for a fragment composed into a host program whose preamble the module does not
    *  control. */
-  readonly precision?: 'highp' | 'mediump' | 'lowp'
+  readonly precision?: 'highp' | 'mediump' | 'lowp';
   /** How a struct-typed uniform binding is spelled on GLSL ES 3.00. Ignored on WGSL, which
    *  has exactly one spelling, and ignored for non-struct types.
    *
@@ -521,7 +526,7 @@ export interface BindingDecl {
    *  choose `'loose'`: for a module-owned block the two spellings are not interchangeable
    *  (std140 is the only one with a defined layout for a host to write into), so the
    *  choice would be a silent ABI change. */
-  readonly glsl?: 'std140-block' | 'loose'
+  readonly glsl?: 'std140-block' | 'loose';
 }
 
 /** A host-provided global, the declaration behind {@link externVar}. It is the variable
@@ -536,19 +541,19 @@ export interface BindingDecl {
  *  place of a GLSL prelude global) is a change to the spelling map and leaves the shader
  *  source alone. */
 export interface ExternVarDecl {
-  readonly name: string
-  readonly type: ShaderType
+  readonly name: string;
+  readonly type: ShaderType;
   /** Per-target spelling. A missing side falls back to `name`. */
-  readonly spelling?: { readonly wgsl?: string; readonly glsl?: string }
+  readonly spelling?: { readonly wgsl?: string; readonly glsl?: string };
   /** Restrict the symbol to one stage, for a host global only that stage's prelude
    *  provides. Advisory metadata for `reflect().requires`; nothing gates on it. */
-  readonly stage?: 'vertex' | 'fragment' | 'compute'
+  readonly stage?: 'vertex' | 'fragment' | 'compute';
 }
 
 /** Non-enumerable marker key on a {@link FuncDecl}: the name the declaration was last
  *  assembled under by {@link module}. It is a `Symbol.for` symbol, so it survives two
  *  copies of the package loaded side by side. */
-export const ASSEMBLED_AS = Symbol.for('typeshade.assembledAs')
+export const ASSEMBLED_AS = Symbol.for('typeshade.assembledAs');
 
 /** A `ModuleDecl.funcs` entry: a WGSL/GLSL function, either an ordinary helper or a
  *  pipeline entry point (`stage` set). This is the object {@link fn} builds: the
@@ -559,14 +564,14 @@ export const ASSEMBLED_AS = Symbol.for('typeshade.assembledAs')
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface FuncDecl {
-  readonly name: string
+  readonly name: string;
   readonly params: readonly {
-    name: string
-    type: ShaderType
-    builtin?: string
-    location?: number
-    interpolate?: string
-    attr?: string
+    name: string;
+    type: ShaderType;
+    builtin?: string;
+    location?: number;
+    interpolate?: string;
+    attr?: string;
     /** How the function takes this parameter. Absent is by value, which is every parameter
      *  but one that the callee writes through to the caller's own value. `'inout'` says it
      *  does: GLSL ES 3.00 spells that `inout T name`, WGSL a pointer.
@@ -577,23 +582,23 @@ export interface FuncDecl {
      *  function taking `ptr<function, T>` cannot be handed `&buf[i]`. The WGSL backend's own
      *  pass makes one copy of the function per address space its calls use; nothing about
      *  that reaches here, and GLSL emits the one function. */
-    mode?: 'inout'
-  }[]
-  readonly ret: ShaderType
-  readonly body: readonly Stmt[]
+    mode?: 'inout';
+  }[];
+  readonly ret: ShaderType;
+  readonly body: readonly Stmt[];
   /** Stage and pipeline attributes emitted before `fn`, such as `@compute` or
    *  `@workgroup_size(64)`. Empty for ordinary helper functions. This is the emitted
    *  spelling; `stage` and `workgroupSize` below are what {@link reflect} and the
    *  backends read first, with these strings as the fallback for a hand-built
    *  `FuncDecl` literal. */
-  readonly attrs?: readonly string[]
+  readonly attrs?: readonly string[];
   /** Structured pipeline stage. Set by `fn()`'s `opts.stage`. */
-  readonly stage?: 'vertex' | 'fragment' | 'compute'
+  readonly stage?: 'vertex' | 'fragment' | 'compute';
   /** Structured workgroup size for a compute stage: the `x` extent. */
-  readonly workgroupSize?: number
+  readonly workgroupSize?: number;
   /** The three workgroup extents of a compute stage, present when `y` or `z` is not 1. An
    *  absent shape is `[workgroupSize, 1, 1]`; read it through {@link workgroupShapeOf}. */
-  readonly workgroupShape?: WorkgroupShape
+  readonly workgroupShape?: WorkgroupShape;
   /** Marks a compute entry as a portable kernel. Set by `fn()`'s `opts.portable`, which
    *  rejects it on any other stage with `SD0110`. A portable kernel emits on both
    *  backends: as a native `@compute` entry on WGSL, and through the
@@ -604,15 +609,15 @@ export interface FuncDecl {
    *
    *  Structured only, with no `attrs` spelling: `portable` is not a WGSL attribute, so
    *  declaring it changes nothing in the emitted source. */
-  readonly portable?: boolean
+  readonly portable?: boolean;
   /** Return-value attribute for a bare (non-struct) stage output, e.g. a
    *  fragment `-> @location(0) vec4<f32>`. */
-  readonly retAttr?: string
+  readonly retAttr?: string;
   /** Structured builtin id when `retAttr` came from a `builtin(name, type)`
    *  {@link FieldSpec}. The spelling stays in `retAttr`; the id lives here so a backend
    *  can check it against its builtin vocabulary without re-parsing the attribute
    *  string. */
-  readonly retBuiltin?: string
+  readonly retBuiltin?: string;
   /** Keep this function's body out of its call sites: the emit optimizer never inlines a
    *  call to it. {@link fp64Lower} sets it on every double-float helper it injects,
    *  because those bodies are error-free transformations that are algebraically trivial
@@ -624,27 +629,27 @@ export interface FuncDecl {
    *
    *  Structured only, with no `attrs` spelling (like `portable` above): it is not a WGSL
    *  attribute and changes nothing in the emitted source. */
-  readonly opaque?: boolean
+  readonly opaque?: boolean;
   /** Where this function was declared in its authored `"use typeshade"` source: the whole
    *  declaration, from the first decorator or the `export` keyword through the closing brace.
    *  Absent on an EDSL-authored or pass-synthesised function. Read it with
    *  {@link sourceSpanOf}. */
-  readonly span?: SourceSpan
+  readonly span?: SourceSpan;
   /** The span of just this function's name in its authored source, so a stack frame can
    *  highlight the identifier rather than the whole body. Absent whenever `span` is. */
-  readonly nameSpan?: SourceSpan
+  readonly nameSpan?: SourceSpan;
   /** Documented deviation from the single-exit lint rule: when true, the rule skips this
    *  function because it has an intentional early return, such as a guard that skips an
    *  expensive loop. Use sparingly, with a comment stating why. */
-  readonly allowEarlyReturn?: boolean
+  readonly allowEarlyReturn?: boolean;
   /** Documented lint deviations: rule ids whose diagnostics are suppressed for this
    *  function (the general form of `allowEarlyReturn`). Use sparingly, with a comment
    *  stating why. */
-  readonly lintDisable?: readonly string[]
+  readonly lintDisable?: readonly string[];
   /** The name this declaration was last assembled under by {@link module}, installed at
    *  assembly as a non-enumerable property. Declared at the type level only, so a read
    *  typechecks without a cast; it is never part of an authored `FuncDecl` literal. */
-  readonly [ASSEMBLED_AS]?: string
+  readonly [ASSEMBLED_AS]?: string;
 }
 
 /** A GPU or language feature a target backend may or may not support. Emitting a module
@@ -705,7 +710,7 @@ export type Capability =
   | 'float32Filterable'
   | 'multiview'
   | 'bgra8unormStorage'
-  | 'packed4x8Dot'
+  | 'packed4x8Dot';
 
 /** Every {@link Capability}, as a runtime value: the list a capability matrix, a doc
  *  generator or a coverage check iterates. A union type has no runtime form, so the list
@@ -729,7 +734,7 @@ export const ALL_CAPABILITIES = [
   'multiview',
   'bgra8unormStorage',
   'packed4x8Dot',
-] as const satisfies readonly Capability[]
+] as const satisfies readonly Capability[];
 
 /** The capabilities a module may name in `ModuleDecl.enables`: {@link Capability} minus
  *  the nine capabilities DERIVED from the module's shape. `requiredCaps` infers each of
@@ -749,7 +754,7 @@ export const ALL_CAPABILITIES = [
  *  Only the authoring surface narrows: `requiredCaps`, {@link Capabilities} and
  *  {@link CapProfile} keep reading the full `Capability`, because the derived ids are
  *  exactly what they must express. */
-export type DeclarableCapability = Exclude<Capability, DerivedCapability>
+export type DeclarableCapability = Exclude<Capability, DerivedCapability>;
 
 /** The whole-shader unit: everything a backend needs to emit a complete WGSL or GLSL ES 3.00
  *  module, or to evaluate one on the CPU oracle. It holds the four declaration arrays,
@@ -788,27 +793,27 @@ export type DeclarableCapability = Exclude<Capability, DerivedCapability>
  *  @see {@link capabilityMatrix} for which target can spell which capability.
  */
 export interface ModuleDecl {
-  readonly consts: readonly ConstDecl[]
-  readonly structs: readonly StructDecl[]
-  readonly bindings: readonly BindingDecl[]
-  readonly funcs: readonly FuncDecl[]
+  readonly consts: readonly ConstDecl[];
+  readonly structs: readonly StructDecl[];
+  readonly bindings: readonly BindingDecl[];
+  readonly funcs: readonly FuncDecl[];
   /** Module-scope variables that are not resources (roadmap 0.2 item 5, #82): the
    *  `var<workgroup>` and `var<private>` declarations. WGSL emits each between the structs and
    *  the bindings; GLSL ES 3.00 spells a private one as a plain global and has no form for
    *  workgroup memory. Absent or empty leaves the emitted source unchanged. */
-  readonly vars?: readonly ModuleVarDecl[]
+  readonly vars?: readonly ModuleVarDecl[];
   /** Host-provided globals, the declarations {@link externVar} returns. Each emits
    *  nothing and appears in `reflect().requires`, so a host can check the module's
    *  expectations against what its prelude supplies. Absent or empty leaves the emitted
    *  source unchanged. */
-  readonly externs?: readonly ExternVarDecl[]
+  readonly externs?: readonly ExternVarDecl[];
   /** Pipeline specialization constants, the declarations {@link overrideConst} returns.
    *  Each emits a WGSL module-scope `override` and a GLSL `#define`, is reported by
    *  {@link reflect} so the host knows the WGSL `constants` dictionary and the GLSL
    *  define header, and reads as an opaque value in function bodies so the optimizer
    *  preserves the branches it guards for the driver to eliminate. Absent or empty means
    *  no override declaration and unchanged emitted source. */
-  readonly overrides?: readonly OverrideDecl[]
+  readonly overrides?: readonly OverrideDecl[];
   /** The opt-in capabilities this module turns on, by neutral id, such as
    *  `['floatRenderTarget']` or `['f16']`. Each folds into the module's required caps, so a
    *  backend whose `capProfile` lacks a row fails closed with `SD0030` naming the cap, and a
@@ -824,7 +829,7 @@ export interface ModuleDecl {
    *  derived from a `@builtin(...)` id instead (`clipDistances`, `primitiveIndex`,
    *  `subgroups`, §50) are NOT excluded: deriving and declaring fold into one set, so naming
    *  one is harmless. */
-  readonly enables?: readonly DeclarableCapability[]
+  readonly enables?: readonly DeclarableCapability[];
   /** The WGSL `diagnostic(<severity>, <rule>);` directives this module carries (§54). One
    *  rule today: `derivative_uniformity`, whose default severity is `error`, so switching it
    *  off is how an author says "I know this sample is under a non-uniform branch and I want it
@@ -836,13 +841,13 @@ export interface ModuleDecl {
    *  equivalent and needs none — implicit derivatives in non-uniform control flow are
    *  undefined there rather than refused (glsl-es-300.txt:3751-3752) — so the GLSL text does
    *  not move. Absent or empty leaves the emitted source unchanged. */
-  readonly diagnostics?: readonly DiagnosticDirective[]
+  readonly diagnostics?: readonly DiagnosticDirective[];
 }
 
 /** One WGSL `diagnostic(severity, rule);` directive. */
 export interface DiagnosticDirective {
-  readonly severity: 'off' | 'info' | 'warning' | 'error'
-  readonly rule: string
+  readonly severity: 'off' | 'info' | 'warning' | 'error';
+  readonly rule: string;
 }
 
 /** The stage of a function declaration: `'vertex'`, `'fragment'` or `'compute'` for an
@@ -861,12 +866,12 @@ export const stageOf = (
       ? 'fragment'
       : f.attrs?.some((a) => a.startsWith('@compute'))
         ? 'compute'
-        : undefined)
+        : undefined);
 
 /** The `x`, `y` and `z` extents of a compute entry's workgroup, WGSL's `@workgroup_size(x, y, z)`.
  *
  *  Exported from `typeshade`. */
-export type WorkgroupShape = readonly [number, number, number]
+export type WorkgroupShape = readonly [number, number, number];
 
 /** The `x` workgroup size of a compute entry: the structured `workgroupSize` field first,
  *  then the `@workgroup_size(n)` attribute string; `undefined` when neither is present. A
@@ -875,10 +880,10 @@ export type WorkgroupShape = readonly [number, number, number]
 export const workgroupSizeOf = (
   f: Pick<FuncDecl, 'workgroupSize' | 'attrs'>,
 ): number | undefined => {
-  if (f.workgroupSize !== undefined) return f.workgroupSize
-  const m = f.attrs?.map((a) => a.match(/@workgroup_size\((\d+)/)).find(Boolean)
-  return m ? Number(m[1]) : undefined
-}
+  if (f.workgroupSize !== undefined) return f.workgroupSize;
+  const m = f.attrs?.map((a) => a.match(/@workgroup_size\((\d+)/)).find(Boolean);
+  return m ? Number(m[1]) : undefined;
+};
 
 /** The workgroup shape of a compute entry: the structured `workgroupShape` field first, then
  *  `[workgroupSize, 1, 1]`, then the extents of the `@workgroup_size(x, y, z)` attribute
@@ -887,18 +892,18 @@ export const workgroupSizeOf = (
 export const workgroupShapeOf = (
   f: Pick<FuncDecl, 'workgroupSize' | 'workgroupShape' | 'attrs'>,
 ): WorkgroupShape | undefined => {
-  if (f.workgroupShape !== undefined) return f.workgroupShape
-  if (f.workgroupSize !== undefined) return [f.workgroupSize, 1, 1]
+  if (f.workgroupShape !== undefined) return f.workgroupShape;
+  if (f.workgroupSize !== undefined) return [f.workgroupSize, 1, 1];
   const m = f.attrs
     ?.map((a) => a.match(/@workgroup_size\((\d+)(?:\s*,\s*(\d+))?(?:\s*,\s*(\d+))?\s*,?\s*\)/))
-    .find(Boolean)
-  return m ? [Number(m[1]), Number(m[2] ?? 1), Number(m[3] ?? 1)] : undefined
-}
+    .find(Boolean);
+  return m ? [Number(m[1]), Number(m[2] ?? 1), Number(m[3] ?? 1)] : undefined;
+};
 
 /** An entry-point parameter: it carries a `@builtin(...)` or a `@location(n)`. */
 export interface EntryParam {
-  readonly name: string
-  readonly type: ShaderType
-  readonly builtin?: string
-  readonly location?: number
+  readonly name: string;
+  readonly type: ShaderType;
+  readonly builtin?: string;
+  readonly location?: number;
 }
