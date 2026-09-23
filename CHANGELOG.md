@@ -1363,6 +1363,17 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   a top-level `let` annotated `workgroup<T>`. A per-invocation module `let` that nothing
   assigns, and a local read before its first assignment, still report it. Measured over the
   Playground's 82 examples under TypeScript 5.9.3: 4 with an error before, 0 after.
+- **The editor indexes a vector and an `f32` matrix by a runtime value** (Rule 12.7, surface
+  §49). `m[i]` on a `mat4` or a `mat2x3` with an `i: u32`, a `for` counter as the index, `v[i]`
+  and `v[0]` on a vector, and `m[0][1]` were `TS7053` in the language service on programs the
+  compiler lowers, because the ambient library gave both types numeric literal keys only, the
+  rule of an emulated double's constant lane. Both take an index signature now, as
+  `array<T, N>` does. A `mat4<f64>` still takes no runtime index in either layer. An index past
+  the end (`m[4]`) and an `f32` index are the compiler's to refuse (`TS8016`, `TS8003`), as on
+  an array, and no longer draw a `TS7053` beside its sentence. A swizzle outside the components
+  and the prefix swizzles (`v.yx`, `v.zyx`) is still `TS2339` in the editor. The README and the
+  ambient library called that a false negative; it is a false positive, recorded in surface §49
+  and Appendix B until #210 declares every swizzle.
 - **Two refusals around a vector of doubles name the reason and a remedy that compiles**
   (Rule 12.1, Rule 12.5, §27, §39). `select(a, b, m)` with `vec3f64` arms and a `vec3b` mask,
   which a comparison of two `vec3f64` now gives, read

@@ -10,15 +10,16 @@
 // type it mirrors; `ambient.test.ts` additionally cross-checks that array against the type
 // itself by parsing `core/sot.ts` with the TypeScript compiler API.
 //
-// GPU scalar types are branded nominal types: `type f32 = number & { readonly [tag]: true }`,
-// with a REQUIRED (not optional) unique-symbol property, so `f32` and `u32` are not assignable
-// to each other while a plain numeric literal — which every "use typeshade" program passes to
-// `vec4(...)`, an `if`, or a `let` with no annotation — still widens to `number` and flows
-// anywhere a `number` is accepted. Vector types are branded the same way, keyed by a
+// GPU scalar types are branded nominal types: `type f32 = number & { readonly [tag]?: true }`,
+// with an OPTIONAL unique-symbol property (the note above `scalarBrands` says why), so a plain
+// numeric literal — which every "use typeshade" program passes to `vec4(...)`, an `if`, or a
+// `let` with no annotation — still widens to `number` and flows anywhere a `number` is
+// accepted. Vector types are branded with a required tag, keyed by an
 // `[elementKind, arity]` tuple so `vec2`/`vec3`/`vec4` and their `i`/`u`/`f64` variants are all
 // distinct, and additionally carry real `x`/`y`/`z`/`w`/`r`/`g`/`b`/`a` component fields (plus
-// the `xy`/`xyz`/`xyzw` and `rg`/`rgb`/`rgba` prefix swizzles) so member access type-checks;
-// see the "Known limitation" note below `VecOf` for what this does not cover.
+// the `xy`/`xyz`/`xyzw` and `rg`/`rgb`/`rgba` prefix swizzles) so member access type-checks, and
+// an index signature so `v[i]` does; see the KNOWN LIMITATION note on `SHADE_DTS` for the
+// swizzles this does not cover.
 
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
 import { F64_VEC_TWIN_KIND } from '../core/fp64/twins.js';
@@ -438,10 +439,10 @@ const SCALAR_CAST_NAMES = Object.keys(SCALAR_CAST);
 // number literal (returned from an `f32`-annotated function, assigned to an `f32`-typed local,
 // passed to a `dot`/`length` result typed `number`) a TS2322 false positive on ordinary valid
 // "use typeshade" programs, because nothing in the authoring surface ever produces a literal
-// value already carrying the brand. An optional brand keeps `f32`/`u32`/... mutually
-// unassignable (the tradeoff §6 already makes for swizzles: false negatives over false
-// positives) while letting a plain `number` widen into any scalar type, matching how these
-// values actually flow through a real program.
+// value already carrying the brand. An optional brand gives up keeping `f32`/`u32`/... apart
+// from one another (they are mutually assignable, a false negative the compiler's own type
+// checks catch) and lets a plain `number` widen into any scalar type, matching how these values
+// actually flow through a real program: a false negative chosen over a false positive.
 const scalarBrands = ['f32', 'i32', 'u32', 'f64']
   .map(
     (name) =>
@@ -601,12 +602,14 @@ export const GPU_BRAND_TAGS: readonly string[] = ['vecTag', 'vec64Tag', 'matTag'
  *
  * KNOWN LIMITATION (swizzles): the compiler accepts any 1-4-letter combination from one
  * component family (`.xyzw` or `.rgba`), including repeats and non-prefix orders (`.yx`,
- * `.xx`). Typing that fully needs a template-literal-generated key domain; this file instead
- * declares the components individually (`x`/`y`/`z`/`w`/`r`/`g`/`b`/`a`) plus the common
- * prefix swizzles (`xy`/`xyz`/`xyzw`, `rg`/`rgb`/`rgba`), which covers ordinary authoring and
- * every span this phase's examples and tests exercise. A swizzle outside that set is still
- * compiled correctly — it is only unseen by the *editor's* type-checking, which stays a false
- * negative (no red squiggle on invalid input) rather than the false positive §6 forbids.
+ * `.xx`), which is `parseSwizzle` in `compiler/ts/swizzle.ts`. This file declares the
+ * components individually (`x`/`y`/`z`/`w`/`r`/`g`/`b`/`a`) plus the prefix swizzles
+ * (`xy`/`xyz`/`xyzw`, `rg`/`rgb`/`rgba`), and every other pick (`.yx`, `.zw`, `.xz`, `.zyx`,
+ * `.bgra`) is `TS2339 Property 'yx' does not exist on type 'vec2'` in the editor and in plain
+ * `tsc` on a program the compiler accepts. That is the FALSE POSITIVE §6 forbids, not a false
+ * negative: surface §49 and Appendix B's row for Rule 12.7 record it, and #210 closes it by
+ * declaring every pick. Until then, building the vector (`vec2(v.y, v.x)`) is clean in both
+ * layers.
  */
 export const SHADE_DTS = `// Generated ambient declarations for TypeShade authoring — see ambient.ts.
 
@@ -645,8 +648,14 @@ type ComponentKeys<N extends 2 | 3 | 4> = N extends 2
 // and is refused, and \`v[2]\` on a \`vec2f64\` is out of range. An index signature would admit
 // all three; leaving them out would admit none.
 type LaneKeys<N extends 2 | 3 | 4> = N extends 2 ? 0 | 1 : N extends 3 ? 0 | 1 | 2 : 0 | 1 | 2 | 3
+// A native vector is indexed by any integer, a runtime one included, as WGSL indexes one, so it
+// takes an INDEX SIGNATURE where an emulated double takes the \`LaneKeys\` above: \`v[i]\` with an
+// \`i: u32\`, and \`m[0][1]\` on any matrix, are programs the compiler lowers, and each was TS7053
+// here. The signature also admits what an array's does, which the compiler alone refuses: a
+// constant index past the last lane (\`v[4]\`, TS8016) and an \`f32\` index (TS8003).
 type VecOf<S extends 'f32' | 'i32' | 'u32' | 'bool', N extends 2 | 3 | 4> = {
   readonly [vecTag]: readonly [S, N]
+  [index: number]: ScalarOf<S>
 } & Pick<
   {
     x: ScalarOf<S>
@@ -764,14 +773,23 @@ declare const matTag: unique symbol
 /** A matrix of \`C\` columns and \`R\` rows (§40), column-major as both targets are: \`m[j]\` is
  * column j, a \`vecR\`. The tag carries the element and BOTH dimensions, so \`mat2x3\` and
  * \`mat3x2\` are not interchangeable — they transpose into each other rather than being the
- * same type. The lane keys are numeric literals for the reason \`Vec64\`'s are: they accept
- * \`m[1]\` and refuse \`m[7]\`. */
+ * same type.
+ *
+ * An f32 matrix takes any integer column index, a runtime one included (\`m[i]\` with an
+ * \`i: u32\`), which WGSL allows and the compiler lowers, so it carries an index signature the
+ * way a native vector does, and admits what that one admits (\`m[4]\` is the compiler's TS8016
+ * alone). An emulated-double matrix takes none, because the compiler refuses to index one at
+ * all (\`TS8003 Cannot index mat4x4<f64>.\`), so \`m[i]\` stays TS7053 on it. The literal lane
+ * keys stay on both: a constant index reads through them as it always has, and they keep the
+ * intersection two types wide, which is what keeps \`mat4<f64>\` its name in a message rather
+ * than the bare tag it prints as without them. */
 type Mat<E extends string, C extends 2 | 3 | 4, R extends 2 | 3 | 4> = {
   readonly [matTag]: readonly [E, C, R]
 } & Pick<
   { 0: MatColumn<E, R>; 1: MatColumn<E, R>; 2: MatColumn<E, R>; 3: MatColumn<E, R> },
   LaneKeys<C>
->
+> &
+  (E extends 'f32' ? { [column: number]: MatColumn<E, R> } : {})
 /** A column of a matrix: a \`vecR\` of its element. An emulated-double matrix has no column
  * type an author can hold — the compiler refuses indexing one — so it resolves to \`never\`
  * rather than quietly reading as a vector of f32. */

@@ -418,10 +418,11 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   `f64` distinct from vector and struct types and from a bare `number` in the parameter
   positions the compiler cares about, while still letting a plain `number` widen into any of
   them; what it does not do is keep the scalar types distinct from each other, so a `u32` value
-  is structurally assignable where an `f32` is expected. That mirrors the tradeoff this section
-  already makes for swizzles, a false negative in the editor over a false positive on valid
-  code, and the compiler's own type checks still catch the scalar mixing that TypeScript's
-  structural check lets through.
+  is structurally assignable where an `f32` is expected. That is a false negative in the editor
+  chosen over a false positive on valid code, and the compiler's own type checks still catch
+  the scalar mixing that TypeScript's structural check lets through. (Swizzles went the other
+  way: a pick outside the declared components and prefix swizzles, `v.yx`, is TS2339 on a
+  program the compiler accepts, which surface doc §49 records and #210 closes.)
 - A storage array is writable in the editor exactly as it is in the compiler: `ambient.ts`'s
   `array<T, N>` declares a plain `[index: number]: T`, not a `readonly` one. `out[idx] = value`
   is the shape every compute kernel ends with (`examples/compute-reduction-twin.shade.ts`), and
