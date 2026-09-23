@@ -1181,6 +1181,23 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   digits, and emits the decimal it spells. A literal type in a union had the opposite defect:
   it read TypeScript's normalized text, in which `1.0` is `1`, so `type L = 1.0 | 2.0` was an
   `i32`. It is an `f32` now. Both read the source text through one helper, `isIntegerWritten`.
+- **The editor types a function whose return is vector arithmetic as the vector it returns**
+  (#162, surface §14, proposal 0004). A function that writes no return type returns what its
+  body does (Rule 8.19), and TypeScript typed `return p * 0.5` on a `vec2` as a `number`: on a
+  program the compiler accepts, `glow(uv).x` was TS2339, `tint(glow(uv))` TS2345, completion
+  after `glow(uv).` offered nothing, and an arrow function handed to a call whose parameter
+  returns a `vec2`, `apply((x) => x * k, uv)`, was TS2322 on its body beside a global
+  `Cannot find global type 'Promise'`. The language service now writes the return type the front
+  end gave the function into the text TypeScript reads, `: vec2` after the parameter list of a
+  function, a method, a getter, an arrow function or a function expression whose return does
+  arithmetic, with parentheses around an arrow function's bare parameter, and reads an arrow
+  function's expression body as the value its TS2322 rule is about. The front end records each
+  such type in a side table keyed by the function's node, so `CompileTsSourceResult` keeps its
+  shape. Plain `tsc` is unchanged, and the README lists its TS2339 on such a call. The plasma
+  journey's `toUv` returns a product with no type written, and the gate's editor check passes on
+  it; `examples/inferred-returns.shade.ts` returns one from `Orbit.at`, and the path tracer drops
+  the annotations it carried for the editor's sake.
+
 - **The editor types a local built by vector arithmetic as the vector it is** (#162).
   `const uv = p.xy * frame.scale` gave `uv` the type `number` in the language service, because
   TypeScript has no operator overloading. So on a program the compiler accepts, `uv.x` was

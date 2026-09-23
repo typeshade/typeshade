@@ -29,7 +29,7 @@ import {
   withheldTableOf,
 } from '../context.js';
 import type { CollectedStruct } from '../structs.js';
-import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js';
+import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { isMixinDeclaration } from '../mixins.js';
 import {
@@ -2420,6 +2420,11 @@ export function fillFunctionBody(
     body = [...prologue, ...body];
   }
   (stub as { body: readonly Stmt[] }).body = body;
+  // The type a function that writes none returns, which the language service writes into the
+  // text TypeScript reads when its return does vector arithmetic (#162, `projection.ts`).
+  if (node.type === undefined && stub.stage === undefined) {
+    recordInferredReturn(sourceFile, node, stub.ret);
+  }
   if (typeKey(stub.ret) === 'void') {
     // An entry function (`stub.stage` set) with no return type annotation was left at the
     // tentative `void` from `parseSignature` above; now that the body is lowered, a `return`

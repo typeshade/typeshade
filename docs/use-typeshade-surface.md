@@ -1185,10 +1185,15 @@ nothing: `const inc = () => n += k` adds, where TypeScript would also return the
 7.2). A method whose every `return` is `return this` returns its object, so a chain goes on from
 it (§26). `return g()`, where `g` returns nothing, calls `g` and returns nothing, in any function.
 
-In the editor, TypeScript types an operator on a vector as `number`, as it does for a `const` that
-holds one (`docs/language-service-api.md`, [#162](https://github.com/typeshade/typeshade/issues/162)), so a function whose return is `v * 2.` is `number`
-there and a caller that reads `.x` off it is underlined: write its return type, `: vec2`, which is
-the one the compiler infers anyway. A return of a call, a constructor or a field keeps its type.
+TypeScript types an operator on a vector as `number`, so on its own it would type a function
+whose return is `v * 2.` a `number` and underline a caller that reads `.x` off it. The language
+service writes the type the compiler infers into the text TypeScript reads, as it does for a
+`const` that holds such a product (`docs/language-service-api.md`,
+[#162](https://github.com/typeshade/typeshade/issues/162)): `: vec2` after the parameter list of
+a function, a method, a getter or an arrow function that writes no return type, handed to a call
+or not, so the editor completes `glow(uv).` and reports nothing. Plain `tsc` has no service in
+front of it and still types the function `number`; there the return type, written, is the fix. A
+return of a call, a constructor or a field keeps its type either way.
 
 Refused, each with the reason: a function whose type waits on itself, which is a call cycle and
 refused as one (§4); `return`s of two types (`Function "f" returns f32 at its first "return" and

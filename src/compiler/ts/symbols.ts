@@ -85,3 +85,43 @@ export function recordDeclaration(
   const start = nameNode.getStart(sourceFile);
   sink.push({ ...symbol, start, length: nameNode.getEnd() - start });
 }
+
+// ─── the return type a declaration that writes none was given (Rule 8.19) ───────────────────
+//
+// TypeScript types an arithmetic result `number`, so a function whose `return` is `p * 0.5` on a
+// `vec2` returns a `number` to the editor and a `vec2` to the compiler (#162). The language
+// service writes the compiler's type into the text TypeScript reads (`projection.ts`), and this
+// is where it reads it: by the offset the function's node starts at. A side table rather than a
+// field of `CompileTsSourceResult`, whose shape is public API; keyed by the source file, so a
+// result's table lives exactly as long as its file.
+
+/** Per source file: the return type each function-like node that writes none was given, or
+ *  `null` for one lowered twice to two types (a generic function's instances, the copies of a
+ *  function that takes a function), which no one written type describes. */
+const inferredReturns = new WeakMap<ts.SourceFile, Map<number, ShaderType | null>>();
+
+/** Record that `node`, a function that writes no return type, returns `type`. */
+export function recordInferredReturn(
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  type: ShaderType,
+): void {
+  let table = inferredReturns.get(sourceFile);
+  if (table === undefined) {
+    table = new Map();
+    inferredReturns.set(sourceFile, table);
+  }
+  const at = node.getStart(sourceFile);
+  const seen = table.get(at);
+  if (seen === undefined) table.set(at, type);
+  else if (seen !== null && JSON.stringify(seen) !== JSON.stringify(type)) table.set(at, null);
+}
+
+/** The return type the front end gave the function whose node starts at `offset` in
+ *  `sourceFile` and writes none; undefined when it recorded none, or two. */
+export function inferredReturnAt(
+  sourceFile: ts.SourceFile,
+  offset: number,
+): ShaderType | undefined {
+  return inferredReturns.get(sourceFile)?.get(offset) ?? undefined;
+}

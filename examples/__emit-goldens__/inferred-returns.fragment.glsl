@@ -31,7 +31,7 @@ void Orbit_set_span(inout Orbit self_, float d) {
 
 vec2 Orbit_at(Orbit self_, float t) {
   float a = (t * self_.speed);
-  return vec2((cos(a) * self_.radius), (sin(a) * self_.radius));
+  return (vec2(cos(a), sin(a)) * self_.radius);
 }
 
 Orbit Orbit_new() {

@@ -41,7 +41,7 @@ fn Orbit_set_span(self_: ptr<function, Orbit>, d: f32) {
 
 fn Orbit_at(self_: Orbit, t: f32) -> vec2<f32> {
   let a = (t * self_.speed);
-  return vec2<f32>((cos(a) * self_.radius), (sin(a) * self_.radius));
+  return (vec2<f32>(cos(a), sin(a)) * self_.radius);
 }
 
 fn Orbit_new() -> Orbit {

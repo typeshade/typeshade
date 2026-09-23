@@ -17,8 +17,9 @@
 // - a method, a getter and each instance of a generic function say theirs the same way;
 // - a setter whose value writes no type takes the one its getter returns.
 //
-// Each returns a constructor or a scalar, which the editor's TypeScript types as the compiler
-// does; it types a product of vectors `number` (surface §14, #162).
+// `Orbit.at` returns a product of vectors, which TypeScript on its own types `number`; the
+// language service writes the `vec2` the compiler infers into what TypeScript reads, so the
+// editor reads `orbit.at(t)` as the vector it is (surface §14, #162).
 
 class VsOut {
   @builtin("position") pos: vec4;
@@ -62,7 +63,7 @@ class Orbit {
   }
   at(t: f32) {
     const a = t * this.speed;
-    return vec2(cos(a) * this.radius, sin(a) * this.radius);
+    return vec2(cos(a), sin(a)) * this.radius;
   }
 }
 

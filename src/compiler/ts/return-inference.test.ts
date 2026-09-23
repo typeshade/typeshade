@@ -663,11 +663,16 @@ class Rng {
 function twice(x: f32) {
   return x * 2.;
 }
+// A product of vectors, which TypeScript types \`number\`: the service writes the compiler's
+// \`vec2\` into what TypeScript reads (#162), so \`.y\` on it is no TS2339.
+function spin(p: vec2) {
+  return p * mat2x2(0., 1., -1., 0.) * 0.5;
+}
 export function run(k: f32) {
   let r = new Rng();
   const next = () => r.next();
   const f = (x: f32) => twice(x) + k;
-  return f(next()) + r.unit;
+  return f(next()) + r.unit + spin(vec2(k)).y;
 }
 @fragment
 export function fs(): vec4 {
