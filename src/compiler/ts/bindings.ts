@@ -12,6 +12,7 @@ import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { isOverrideType } from './overrides.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
+import { twoRowStd140Reason } from '../../core/std140.js'
 
 /** The type names that are a resource HANDLE rather than a buffer: written bare in a
  *  `declare const`, with no address-space wrapper. `sampler` and the texture names are the
@@ -333,6 +334,15 @@ function checkHostShareable(
           `"${path}" is a bool; a ${space} struct holds numeric scalars only (WGSL's ` +
             `host-shareable rule). Use u32.`,
         ),
+      )
+      return
+    }
+    if (t.kind === 'mat' && t.elem === 'f32' && t.rows === 2 && space === 'uniform') {
+      // Rule 4.8: a two-row matrix in a uniform block is refused with the remedy. It reached
+      // the author as a TS8015 WARNING from the GLSL writer's layout, with the WGSL kept, so a
+      // render module shipped a uniform the two targets lay out at different offsets.
+      diagnostics.push(
+        layoutDiag(sourceFile, node, `"${path}" is in a uniform: ${twoRowStd140Reason(t.cols)}.`),
       )
       return
     }

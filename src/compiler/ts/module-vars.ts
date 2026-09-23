@@ -29,7 +29,7 @@ import { makeDiagnostic } from './diagnostic.js'
 import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js'
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { foldConstComponents } from './loop-bound.js'
-import { retargetDeclaredIntLit } from './lit-coerce.js'
+import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js'
 import { lowerExpression } from './lower/expression.js'
 import { lowerArrayLiteral } from './lower/expression-array.js'
 import { isOverrideType } from './overrides.js'
@@ -449,6 +449,7 @@ function finish(
       : lowerExpression(decl.initializer, sourceFile, scope, diagnostics, type))
   if (!init) return undefined
   init = retargetDeclaredIntLit(init, decl.initializer, type)
+  init = reportIntLitRange(init, decl.initializer, type, sourceFile, diagnostics) ?? init
   if (typeKey(init.type) !== typeKey(type)) {
     diagnostics.push(
       diag(

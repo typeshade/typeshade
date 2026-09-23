@@ -1939,8 +1939,9 @@ The bottom five rows are the ones nothing declares by hand. Writing
 `@builtin("clip_distances")`, `@builtin("primitive_index")` or `@blend_src(n)` derives the
 capability, because WGSL refuses each of those without the matching `enable`; a
 `"bgra8unorm"` storage texture and a call into the packed 4x8 family derive theirs from the
-binding and from the call. In a `"use typeshade"` file the two that no use can derive are
-spelled as a string directive beside `"use typeshade"`:
+binding and from the call. `f16`, which no use can derive, and `subgroups`, for a file that
+reads neither subgroup built-in value, are spelled as a string directive beside
+`"use typeshade"`:
 
 ```ts
 'use typeshade'
@@ -1965,9 +1966,9 @@ capabilityMatrix([wgslBackend, glslEs300Backend])
 //      declarable: true }]
 ```
 
-The result has one row per capability, in a fixed order, including the seven a module's
-shape derives and never declares (`storageBuffer` through `textureGather`), which come back
-with `declarable: false`.
+The result has one row per capability, eighteen in a fixed order, including the nine a
+module's shape derives and never declares (`storageBuffer` through `textureGather`, then
+`bgra8unormStorage` and `packed4x8Dot`), which come back with `declarable: false`.
 
 Two notes before you trust a row.
 
