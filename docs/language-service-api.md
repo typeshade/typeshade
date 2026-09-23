@@ -378,10 +378,10 @@ four rules, and only ever an error that another error already covers:
 - **A decorator the compiler refuses.** A decorator nothing reads is the compiler's `TS8028`
   (Rule 6.7), with a sentence that says what the attribute is and where its intent goes: on a
   declaration that takes none (`@group(2) declare const u: uniform<U>`, a `const` at any depth,
-  an enum, an interface, a type alias, a namespace), on a function that is not an entry, and a
-  WGSL attribute written another way here (`@size`, `@group`). Whatever TypeScript says inside
-  that decorator goes: TS1206 ("Decorators are not valid here") and TS2304 or TS2552 on a name
-  the ambient library does not declare.
+  an enum, an interface, a type alias, a namespace, a local function, a `static` field), and a
+  WGSL attribute written another way here (`@size`, `@group`), and `TS8035` on a method's.
+  Whatever TypeScript says inside that decorator goes: TS1206 ("Decorators are not valid here")
+  and TS2304 or TS2552 on a name the ambient library does not declare.
 
 `typeshade check` reads the same merged list, and adds from `compile()` only what the service
 cannot compute: the backends' `TS8015` and the opt-in `TS8053`. That check is exported from this

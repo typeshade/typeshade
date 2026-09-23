@@ -214,6 +214,67 @@ describe('getDiagnostics: a broken program', () => {
       ['typeshade', 'TS8003', 'p * q'],
     ]);
   });
+
+  // TypeScript types an operation from the operator alone, a `number` whatever the operands,
+  // so where the compiler refuses the operation, every report about its value is that guess
+  // again: TS2339 on a member of it, TS7053 on an element, TS2322 where it is returned, in
+  // place or through a local declared from it, and TS2769 where it is an argument. Each was a
+  // second diagnostic for the one refused operator (Rule 12.4).
+  it("says a refused operator once, without TypeScript's report about its value", () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class A { x: f32 = 0.; }\n' +
+      'declare const t: texture_2d<f32>;\n' +
+      'export function f(a: A, b: A): f32 { return (a & b).x; }\n' +
+      'export function g(a: A): f32 { return (-a).x; }\n' +
+      'export function h(a: array<f32, 2>): f32 { const b = -a; return b[0]; }\n' +
+      'export function i(p: bool, q: bool): bool { const c = p * q; return c; }\n' +
+      'export function j(a: A): f32 { let v = a; v += new A(); return v.x; }\n' +
+      'export function l(a: A): f32 { const b = +a; return b.x; }\n' +
+      'export function m(): vec4f { return textureLoad(+t, vec2i(0, 0), 0); }\n';
+    service.openDocument('knock-on.ts', text);
+    expect(
+      service
+        .getDiagnostics('knock-on.ts')
+        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+    ).toEqual([
+      ['typeshade', 'TS8003', 'a & b'],
+      ['typeshade', 'TS8003', '-a'],
+      ['typeshade', 'TS8003', '-a'],
+      ['typeshade', 'TS8003', 'p * q'],
+      ['typeshade', 'TS8003', 'v'],
+      ['typeshade', 'TS8003', '+a'],
+      ['typeshade', 'TS8003', '+t'],
+    ]);
+  });
+
+  // A decorator nothing reads is the compiler's TS8028 in every position (Rule 6.7), and its
+  // TS8035 on a method: on a function declared in another function's body TypeScript also says
+  // TS1206, and on a static field or a method, which it lets a decorator name, TS2304 for a
+  // name the ambient library does not declare. Either would be the one mistake said twice
+  // (Rule 12.4).
+  it('says a decorator on a local function, a static field or a method once', () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class A { @bogus static K: f32 = 2.; x: f32 = 0.; @bogus m(): f32 { return 1.; } }\n' +
+      'namespace N { @bogus export function f(): f32 { return 1.; } }\n' +
+      '@fragment\n' +
+      'export function fs(): vec4 { @bogus function g(): f32 { return 1.; } ' +
+      'return vec4(A.K + N.f() + g()); }\n';
+    service.openDocument('unread.ts', text);
+    expect(
+      service
+        .getDiagnostics('unread.ts')
+        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+    ).toEqual([
+      ['typeshade', 'TS8028', '@bogus'],
+      ['typeshade', 'TS8035', '@bogus'],
+      ['typeshade', 'TS8028', '@bogus'],
+      ['typeshade', 'TS8028', '@bogus'],
+    ]);
+  });
 });
 
 describe('getCompiledOutput', () => {

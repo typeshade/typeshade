@@ -32,7 +32,7 @@ import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
-import { refuseNegationKind, refuseOperatorKind } from './operator-kinds.js';
+import { refuseIdentityKind, refuseNegationKind, refuseOperatorKind } from './operator-kinds.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 
@@ -444,6 +444,9 @@ function lowerPrefixUnary(
       );
       return undefined;
     }
+    // A struct, an array or a texture is not a number either: TypeScript's `+x` on one is `NaN`,
+    // and the identity would hand the shader the value itself (Rule 7.1).
+    if (refuseIdentityKind(operand.type, node, sourceFile, diagnostics)) return undefined;
     return operand;
   }
   // `~x`, the bitwise complement (§52). Both targets spell it `~x`; it is an INTRINSIC rather

@@ -6,7 +6,7 @@
 // under `&` or two matrices under `===` each have one type, so they passed, and the module
 // reached Tint as `no matching overload for 'operator + (A, A)'` with no diagnostic on the line
 // (Rule 12.6). WGSL's operator table is by KIND as well, and this file is that table for a pair
-// of one type and for unary `-`, measured against Tint:
+// of one type and for unary `-` and `+`, measured against Tint:
 //
 //   `+ - * / %`       a numeric scalar, vector or matrix (a matrix has no `/` or `%`)
 //   `< <= > >=`       a numeric scalar or vector
@@ -14,6 +14,7 @@
 //   `& |`             an integer or a bool, scalar or vector
 //   `^`               an integer, scalar or vector
 //   unary `-`         a signed integer or a float, scalar or vector
+//   unary `+`         a numeric scalar, vector or matrix, which it lowers to (WGSL has no `+x`)
 //
 // An emulated double follows the fp64 pass (surface §39): `f64` and `vecN<f64>` are numbers
 // here, and a matrix of doubles takes `*` alone, whose compound form the pass does not lower
@@ -190,6 +191,22 @@ function negationKindRefusal(t: ShaderType): string | undefined {
   return `Unary "-" is not defined on ${authorTypeText(t)}; WGSL has no negation for ${kind}.${remedy}`;
 }
 
+/**
+ * The refusal for unary `+x` on a value of type `t` that is not a number, a vector of numbers or
+ * a matrix, or `undefined` when it is one. `+x` lowers to `x`, the identity it is on a number;
+ * on a struct, an array or a texture TypeScript's `+x` is `NaN`, so the program would silently
+ * not be the one written. A bool and a vector of bools are left to `lowerPrefixUnary`, whose
+ * sentence says the operand has to be numeric.
+ */
+function identityKindRefusal(t: ShaderType): string | undefined {
+  const kind = kindOf(t);
+  if (kind === undefined || t.kind === 'mat') return undefined;
+  return (
+    `Unary "+" is not defined on ${authorTypeText(t)}; it takes a number, a vector or a ` +
+    `matrix, not ${kind}. Remove it.`
+  );
+}
+
 /** Refuses `op` on operands of type `t` with {@link operatorKindRefusal}'s sentence, as a
  *  `TS8003` on `node`, and answers whether it did. */
 export function refuseOperatorKind(
@@ -215,6 +232,20 @@ export function refuseNegationKind(
   diagnostics: TsCompilerDiagnostic[],
 ): boolean {
   const refusal = negationKindRefusal(t);
+  if (refusal === undefined) return false;
+  diagnostics.push(makeDiagnostic(sourceFile, node, refusal, TS_CODES.TYPE_MISMATCH));
+  return true;
+}
+
+/** Refuses unary `+` on a value of type `t` with {@link identityKindRefusal}'s sentence, as a
+ *  `TS8003` on `node`, and answers whether it did. */
+export function refuseIdentityKind(
+  t: ShaderType,
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const refusal = identityKindRefusal(t);
   if (refusal === undefined) return false;
   diagnostics.push(makeDiagnostic(sourceFile, node, refusal, TS_CODES.TYPE_MISMATCH));
   return true;

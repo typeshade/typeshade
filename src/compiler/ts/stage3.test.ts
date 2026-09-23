@@ -36,6 +36,11 @@ const SLOT =
   "is WGSL's attribute, and is not applied: reflect() reports the group and slot each binding " +
   'gets. Remove it, and read the slot from reflect() on the host.';
 
+/** Why `@std140` is not applied anywhere but on a class, which has its own sentence. */
+const STD140 =
+  '"@std140" is not applied: WGSL lays out a struct by its own rules, which reflect() reports. ' +
+  'Remove it.';
+
 describe('builtin name allow-list (BUILTIN_NAME)', () => {
   it('rejects a typo\'d builtin with a "Did you mean" suggestion', () => {
     const r = diag(`
@@ -585,10 +590,12 @@ function f(): f32 { return 1. }
 });
 
 // Rule 6.7: a decorator outside the list is refused. On a declaration that takes none (a
-// variable statement at any depth, an enum, an interface, a type alias, a namespace) TypeScript
-// parses one and its own checker refuses it (TS1206), which compile() never runs, so the
-// decorator vanished: `@group(2) @binding(5)` was emitted at group 0, binding 0, and `@id(7)`
-// and `@bogus` were dropped without a word. The editor shows the compiler's sentence alone.
+// variable statement at any depth, an enum, an interface, a type alias, a namespace, a local
+// function) TypeScript parses one and its own checker refuses it (TS1206), which compile() never
+// runs, and on a static field it resolves the name, so the decorator vanished: `@group(2)
+// @binding(5)` was emitted at group 0, binding 0, and `@id(7)` and `@bogus` were dropped without
+// a word. `@std140` vanished everywhere but on a class. The editor shows the compiler's sentence
+// alone.
 describe('a decorator on a declaration (Rule 6.7)', () => {
   it.each([
     [
@@ -654,7 +661,26 @@ declare const s: sampler
       '@std140 on a module constant',
       `@std140 const K: f32 = 1.
 @fragment export function fs(): vec4 { return vec4(K) }`,
-      ['"@std140" is not applied: a declaration takes no decorator. Remove it.'],
+      [STD140],
+    ],
+    // `structs.ts` says `@std140 on a class is not applied.`; anywhere else it vanished.
+    [
+      '@std140 on a function',
+      `@std140 function f(): f32 { return 1. }
+@fragment export function fs(): vec4 { return vec4(f()) }`,
+      [STD140],
+    ],
+    [
+      '@std140 on a parameter',
+      `@fragment export function fs(@std140 @location(0) c: f32): vec4 { return vec4(c) }`,
+      [STD140],
+    ],
+    [
+      '@std140 on a field',
+      `class S { @std140 x: f32 }
+declare const u: uniform<S>
+@fragment export function fs(): vec4 { return vec4(u.x) }`,
+      [STD140],
     ],
     [
       '@align and @size on module constants',
@@ -717,6 +743,46 @@ declare const u: uniform<T>
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
           '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+      ],
+    ],
+    [
+      "an unknown name on a namespace's function",
+      `namespace N { @bogus export function f(): f32 { return 1.; } }
+@fragment export function fs(): vec4 { return vec4(N.f()) }`,
+      [
+        'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+      ],
+    ],
+    [
+      'an unknown name on a local function',
+      `@fragment export function fs(): vec4 { @bogus function g(): f32 { return 1. } return vec4(g()) }`,
+      [
+        'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+      ],
+    ],
+    [
+      'an entry attribute on a local function',
+      `@fragment export function fs(): vec4 { @fragment function g(): f32 { return 1. } return vec4(g()) }`,
+      ['"@fragment" does not apply to a local function: it marks an entry function. Remove it.'],
+    ],
+    [
+      'an unknown name on a static field',
+      `class A { @bogus static K: f32 = 2.; x: f32 = 0. }
+@fragment export function fs(): vec4 { return vec4(A.K) }`,
+      [
+        'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+      ],
+    ],
+    [
+      'an entry attribute on a static field',
+      `class A { @location(0) static readonly K: f32 = 2.; x: f32 = 0. }
+@fragment export function fs(): vec4 { return vec4(A.K) }`,
+      [
+        '"@location" does not apply to a static field: it marks an entry\'s input or output. ' +
+          'Remove it.',
       ],
     ],
   ])('refuses %s', (_what, source, messages) => {

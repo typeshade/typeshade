@@ -1634,13 +1634,22 @@ function isAboutRefusedOperation(
   return subject !== undefined && fromRefusedOperation(context, subject, refusals);
 }
 
+/** The codes the compiler refuses a whole decorator with: `TS8028` for a name nothing reads
+ *  there, `TS8010` for `@align` or `@std140` it does not apply, `TS8035` for one on a method. */
+const DECORATOR_REFUSALS: ReadonlySet<string> = new Set([
+  TS_CODES.ATTRIBUTE_NAME,
+  TS_CODES.STRUCT_FIELD,
+  TS_CODES.CLASS_MEMBER,
+]);
+
 /**
- * Whether a TypeScript error sits inside a decorator the compiler refuses whole, with a `TS8028`
- * or a `TS8010` on the decorator (Rule 6.7): TypeScript's TS1206 ("Decorators are not valid
- * here") on a declaration that takes none, and TS2304 or TS2552 on the name of an attribute the
- * ambient library does not declare (`@size`, `@group`, a misspelled `@locaton`). The compiler's
- * sentence says what the attribute is and where its intent goes, and the whole decorator is to
- * be removed, so anything TypeScript says inside it is the same mistake (Rule 12.4).
+ * Whether a TypeScript error sits inside a decorator the compiler refuses whole, with one of
+ * `DECORATOR_REFUSALS` on the decorator (Rule 6.7): TypeScript's TS1206 ("Decorators are not
+ * valid here") on a declaration that takes none, and TS2304 or TS2552 on the name of an
+ * attribute the ambient library does not declare (`@size`, `@group`, a misspelled `@locaton`).
+ * The compiler's sentence says what the attribute is and where its intent goes, and the whole
+ * decorator is to be removed, so anything TypeScript says inside it is the same mistake (Rule
+ * 12.4).
  */
 function isInRefusedDecorator(
   context: DiagnosticFilterContext,
@@ -1653,7 +1662,7 @@ function isInRefusedDecorator(
   const span = spanOfNode(node, context.sourceFile);
   return compilerErrors.some(
     (error) =>
-      (error.code === TS_CODES.ATTRIBUTE_NAME || error.code === TS_CODES.STRUCT_FIELD) &&
+      DECORATOR_REFUSALS.has(String(error.code)) &&
       error.span.start === span.start &&
       error.span.length === span.length,
   );

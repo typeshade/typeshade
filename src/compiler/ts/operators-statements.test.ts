@@ -641,6 +641,27 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
         'elements one by one.',
     ],
     [
+      // WGSL has no unary `+`; the front end lowers it to its operand, which on a struct, an
+      // array or a texture is the value itself where TypeScript's `+a` is `NaN`.
+      'unary + on a class instance',
+      `${A}export function k(a: A): f32 { const b = +a; return b.x }`,
+      'Unary "+" is not defined on A; it takes a number, a vector or a matrix, not a struct. ' +
+        'Remove it.',
+    ],
+    [
+      'unary + on an array',
+      'export function k(a: array<f32, 2>): f32 { const b = +a; return b[0] }',
+      'Unary "+" is not defined on array<f32, 2>; it takes a number, a vector or a matrix, not ' +
+        'an array. Remove it.',
+    ],
+    [
+      'unary + on a texture',
+      'declare const t: texture_2d<f32>\n' +
+        '@fragment export function fs(): vec4 { return textureLoad(+t, vec2i(0, 0), 0) }',
+      'Unary "+" is not defined on texture_2d<f32>; it takes a number, a vector or a matrix, ' +
+        'not a texture or a sampler. Remove it.',
+    ],
+    [
       '+= on a class instance',
       `${A}export function k(b: A): A { let a = b; a += b; return a }`,
       'Cannot += A: WGSL has no arithmetic on a struct. Write it field by field.',
@@ -732,8 +753,10 @@ export function k(x: i32, u: u32): f32 {
 export function v(a: vec3b, c: vec3b): vec3b { return (a & c) | (a !== c) }
 export function n(x: vec3i, y: vec3i): vec3i { return (-x & y) ^ ~y }
 export function m(p: mat3, q: mat3): mat3 { return p + q - p * q }
-export function d(p: mat3<f64>, q: mat3<f64>, s: f64): f64 { const r = p * q; return -s }`);
+export function d(p: mat3<f64>, q: mat3<f64>, s: f64): f64 { const r = p * q; return -s }
+export function u(p: mat3, v: vec3, s: f32): mat3 { return +p * (+s + (+v).x) }`);
     expect(c.wgsl).toContain('return ((a & c) | (a == c));');
+    expect(c.wgsl).toContain('return (p * (s + v.x));');
     expect(c.wgsl).toContain('return ((a & c) | (a != c));');
     expect(c.wgsl).toContain('return (((-x) & y) ^ ~y);');
     expect(c.wgsl).toContain('return ((p + q) - (p * q));');
@@ -746,6 +769,7 @@ export function v(a: vec3b): vec3u { return vec3u(a) }
 export function x(a: bool, c: bool): bool { return a !== c }
 export function e(m: mat3, n: mat3): bool { return all(m[0] === n[0]) }
 export function o(m: mat3): mat3 { return m * -1. }
-export function p(m: mat3<f64>, n: mat3<f64>): mat3<f64> { let q = m; q = q * n; return q }`);
+export function p(m: mat3<f64>, n: mat3<f64>): mat3<f64> { let q = m; q = q * n; return q }
+export function u(a: A): f32 { const b = a; return b.x }`);
   });
 });

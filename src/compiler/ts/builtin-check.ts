@@ -130,7 +130,19 @@ const RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES: readonly string[] = ['std140', '
 
 /** Where a decorator is written, as a refusal names the place. */
 export type AttributeSite =
-  'a struct field' | 'a class' | 'a function' | 'a parameter' | 'a declaration';
+  | 'a struct field'
+  | 'a class'
+  | 'a function'
+  | 'a parameter'
+  | 'a declaration'
+  | 'a local function'
+  | 'a static field';
+
+/** `@std140` anywhere but a class, where `structs.ts` has its own sentence. It is GLSL's layout,
+ *  and no position takes a layout here. */
+const STD140_NOT_APPLIED =
+  '"@std140" is not applied: WGSL lays out a struct by its own rules, which reflect() ' +
+  'reports. Remove it.';
 
 /** Why a binding's `@group` and `@binding` are not the author's (Rule 6.1): whichever form
  *  declares the binding, the host reads its slot back from `reflect()`. */
@@ -448,9 +460,9 @@ export function checkBuiltinStage(
  * from both the compiler and the language service: TypeScript never resolves a decorator on an
  * invalid target, so there is no TS2304, and nothing else names the typo — the function or
  * field just silently stops being an entry point or an I/O field. `site` is where the decorator
- * is written, which the sentence for a struct member's attribute names. `@std140` is left
- * alone, and `@align` on a class or a field: `structs.ts` says those are not applied, and
- * calling them "unknown" too would contradict it. A decorator shape this front end never
+ * is written, which the sentence for a struct member's attribute names. `@std140` and `@align`
+ * on a class, and `@align` on a field, are left alone: `structs.ts` says those are not applied,
+ * and calling them "unknown" too would contradict it. A decorator shape this front end never
  * produces (its expression is neither a bare identifier nor an identifier call) is left alone
  * as well — nothing here can name it usefully.
  */
@@ -465,7 +477,7 @@ export function checkAttributeName(
   if (ATTRIBUTE_NAMES.includes(name)) return;
   if (
     RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name) &&
-    (name === 'std140' || site === 'a class' || site === 'a struct field')
+    (site === 'a class' || (name === 'align' && site === 'a struct field'))
   ) {
     return;
   }
@@ -473,7 +485,9 @@ export function checkAttributeName(
     makeDiagnostic(
       sourceFile,
       decorator,
-      wgslAttributeSentence(name, site) ?? unknownAttribute(name),
+      name === 'std140'
+        ? STD140_NOT_APPLIED
+        : (wgslAttributeSentence(name, site) ?? unknownAttribute(name)),
       TS_CODES.ATTRIBUTE_NAME,
     ),
   );
@@ -503,49 +517,60 @@ function unknownAttribute(name: string): string {
 }
 
 /**
- * Whether `node` is a declaration that takes no decorator: a variable statement at any depth (a
- * binding of any kind, an override, a module, namespace or local `const` or `let`), an enum,
- * an interface, a type alias or a namespace. TypeScript refuses a decorator on each (TS1206),
- * and nothing in the compiler reads one there. {@link checkDeclarationDecorators} refuses it as
- * `TS8028`, and the language service drops its TS1206 on exactly these, so the two agree on
- * where (Rule 12.7).
+ * Where `node` takes a decorator that nothing in the compiler reads, as a refusal names the
+ * place, or `undefined` where one is read or refused elsewhere. A variable statement at any
+ * depth (a binding of any kind, an override, a module, namespace or local `const` or `let`), an
+ * enum, an interface, a type alias and a namespace are `a declaration`, and a function declared
+ * in another function's body is `a local function`: TypeScript refuses a decorator on each
+ * (TS1206). A `static` field is a module constant, which TypeScript lets a decorator name
+ * (TS2304 when the ambient library declares no such name). A top-level or a namespace's
+ * function, a class, its instance fields, its methods and every parameter are read, and
+ * refused, where they are collected.
  */
-export function takesNoDecorator(
-  node: ts.Node,
-): node is
-  | ts.VariableStatement
-  | ts.EnumDeclaration
-  | ts.InterfaceDeclaration
-  | ts.TypeAliasDeclaration
-  | ts.ModuleDeclaration {
-  return (
+function unreadDecoratorSite(node: ts.Node): AttributeSite | undefined {
+  if (
     ts.isVariableStatement(node) ||
     ts.isEnumDeclaration(node) ||
     ts.isInterfaceDeclaration(node) ||
     ts.isTypeAliasDeclaration(node) ||
     ts.isModuleDeclaration(node)
-  );
+  ) {
+    return 'a declaration';
+  }
+  if (ts.isFunctionDeclaration(node)) {
+    return ts.isSourceFile(node.parent) || ts.isModuleBlock(node.parent)
+      ? undefined
+      : 'a local function';
+  }
+  if (
+    ts.isPropertyDeclaration(node) &&
+    node.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)
+  ) {
+    return 'a static field';
+  }
+  return undefined;
 }
 
 /**
- * Refuses every decorator on a declaration that takes none ({@link takesNoDecorator}), anywhere
- * in `sourceFile` (Rule 6.7). TypeScript parses one there and its own checker refuses it
- * (TS1206), which `compile()` never runs, so the decorator vanished: `@group(2) @binding(5)
- * declare const u: uniform<U>` was emitted at group 0, binding 0, and `@id(7)` on an override
- * and `@bogus` on a constant were dropped with no word. Each decorator is answered by what it
- * is: WGSL's own with {@link WGSL_ATTRIBUTES_ELSEWHERE}, a struct member's as the field's, one
- * `"use typeshade"` reads with where it belongs, and any other name with the unknown-attribute
- * sentence. The language service drops its TS1206 on the same decorator, so the editor says it
- * once (Rule 12.4).
+ * Refuses every decorator nothing reads ({@link unreadDecoratorSite}), anywhere in `sourceFile`
+ * (Rule 6.7). TypeScript parses one there, and its own checker refuses it (TS1206) or resolves
+ * its name, which `compile()` never runs, so the decorator vanished: `@group(2) @binding(5)
+ * declare const u: uniform<U>` was emitted at group 0, binding 0, and `@id(7)` on an override,
+ * `@bogus` on a constant, on a local function or on a static field were dropped with no word.
+ * Each decorator is answered by what it is: WGSL's own with {@link WGSL_ATTRIBUTES_ELSEWHERE},
+ * a struct member's as the field's, one `"use typeshade"` reads with where it belongs, and any
+ * other name with the unknown-attribute sentence. The language service's merge keeps this
+ * sentence alone and drops what TypeScript says inside the same decorator (Rule 12.4).
  */
 export function checkDeclarationDecorators(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
 ): void {
   const visit = (node: ts.Node): void => {
-    if (takesNoDecorator(node)) {
+    const site = unreadDecoratorSite(node);
+    if (site !== undefined && ts.canHaveModifiers(node)) {
       for (const d of node.modifiers ?? []) {
-        if (ts.isDecorator(d)) diagnostics.push(declarationDecoratorRefusal(sourceFile, d));
+        if (ts.isDecorator(d)) diagnostics.push(unreadDecoratorRefusal(sourceFile, d, site));
       }
     }
     ts.forEachChild(node, visit);
@@ -553,17 +578,20 @@ export function checkDeclarationDecorators(
   visit(sourceFile);
 }
 
-/** The `TS8028` for decorator `d` on a declaration that takes none. */
-function declarationDecoratorRefusal(
+/** The `TS8028` for decorator `d` written at `site`, where nothing reads it. */
+function unreadDecoratorRefusal(
   sourceFile: ts.SourceFile,
   d: ts.Decorator,
+  site: AttributeSite,
 ): TsCompilerDiagnostic {
   const name = attributeNameOf(d);
   const message =
-    name === undefined || name === 'std140'
-      ? `"${d.getText(sourceFile)}" is not applied: a declaration takes no decorator. Remove it.`
-      : ATTRIBUTE_NAMES.includes(name)
-        ? `"@${name}" does not apply to a declaration: it marks ${ATTRIBUTE_TARGET[name]}. Remove it.`
-        : (wgslAttributeSentence(name, 'a declaration') ?? unknownAttribute(name));
+    name === undefined
+      ? `"${d.getText(sourceFile)}" is not applied: ${site} takes no decorator. Remove it.`
+      : name === 'std140'
+        ? STD140_NOT_APPLIED
+        : ATTRIBUTE_NAMES.includes(name)
+          ? `"@${name}" does not apply to ${site}: it marks ${ATTRIBUTE_TARGET[name]}. Remove it.`
+          : (wgslAttributeSentence(name, site) ?? unknownAttribute(name));
   return makeDiagnostic(sourceFile, d, message, TS_CODES.ATTRIBUTE_NAME);
 }
