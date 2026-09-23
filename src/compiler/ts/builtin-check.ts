@@ -16,6 +16,7 @@ import { typeKey, type ShaderType } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
+import { unknownNameSentence } from './unknown-names.js';
 import { isIntegerVarying } from '../../core/passes/varying-interpolate.js';
 
 /** The pipeline stage a `@builtin(...)` id is being checked against. */
@@ -168,59 +169,6 @@ function isWgslBuiltinName(name: string): name is WgslBuiltinName {
   return (WGSL_BUILTIN_NAMES as readonly string[]).includes(name);
 }
 
-/** Plain Levenshtein edit distance, for the "Did you mean ...?" suggestion below. `a` and `b`
- *  are short (builtin ids), so the classic O(len(a)*len(b)) table is not worth optimizing. */
-function editDistance(a: string, b: string): number {
-  const rows = a.length + 1;
-  const cols = b.length + 1;
-  const dp: number[][] = Array.from({ length: rows }, () => new Array<number>(cols).fill(0));
-  for (let i = 0; i < rows; i++) dp[i]![0] = i;
-  for (let j = 0; j < cols; j++) dp[0]![j] = j;
-  for (let i = 1; i < rows; i++) {
-    for (let j = 1; j < cols; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i]![j] = Math.min(
-        dp[i - 1]![j]! + 1, // deletion
-        dp[i]![j - 1]! + 1, // insertion
-        dp[i - 1]![j - 1]! + cost, // substitution
-      );
-    }
-  }
-  return dp[rows - 1]![cols - 1]!;
-}
-
-/** The closest entry in `candidates` to `name` by edit distance, or `undefined` when nothing is
- *  close enough to be worth suggesting (a threshold that scales a little with the candidate's
- *  own length, so a short id like `"position"` does not suggest itself for an unrelated short
- *  typo). Shared by {@link suggestBuiltinName} (`WGSL_BUILTIN_NAMES`) and
- *  {@link checkAttributeName} (`ATTRIBUTE_NAMES`) so both "Did you mean ...?" hints use one rule. */
-function closestName(name: string, candidates: readonly string[]): string | undefined {
-  let best: string | undefined;
-  let bestDistance = Infinity;
-  for (const candidate of candidates) {
-    const distance = editDistance(name, candidate);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = candidate;
-    }
-  }
-  if (best === undefined) return undefined;
-  const threshold = Math.max(3, Math.ceil(best.length / 3));
-  return bestDistance <= threshold ? best : undefined;
-}
-
-/** The closest {@link WGSL_BUILTIN_NAMES} entry to `name` by edit distance, or `undefined` when
- *  nothing is close enough to be worth suggesting. */
-export function suggestBuiltinName(name: string): string | undefined {
-  return closestName(name, WGSL_BUILTIN_NAMES);
-}
-
-/** The closest {@link ATTRIBUTE_NAMES} entry to `name` by edit distance, or `undefined` when
- *  nothing is close enough to be worth suggesting. */
-export function suggestAttributeName(name: string): string | undefined {
-  return closestName(name, ATTRIBUTE_NAMES);
-}
-
 /** Validates a `@builtin("...")` name against {@link WGSL_BUILTIN_NAMES}, pushing a `BUILTIN_NAME`
  *  error with a "Did you mean ...?" suggestion (by edit distance) when one is close. Returns
  *  whether `name` was valid, so a caller can skip the stage check below on an already-invalid
@@ -232,12 +180,18 @@ export function checkBuiltinName(
   name: string,
 ): boolean {
   if (isWgslBuiltinName(name)) return true;
-  const suggestion = suggestBuiltinName(name);
-  const hint = suggestion
-    ? ` Did you mean "${suggestion}"?`
-    : ` Supported names: ${WGSL_BUILTIN_NAMES.join(', ')}.`;
   diagnostics.push(
-    makeDiagnostic(sourceFile, node, `Unknown builtin "${name}".${hint}`, TS_CODES.BUILTIN_NAME),
+    makeDiagnostic(
+      sourceFile,
+      node,
+      unknownNameSentence(
+        `Unknown builtin "${name}".`,
+        name,
+        [WGSL_BUILTIN_NAMES],
+        `Supported names: ${WGSL_BUILTIN_NAMES.join(', ')}.`,
+      ),
+      TS_CODES.BUILTIN_NAME,
+    ),
   );
   return false;
 }
@@ -246,8 +200,9 @@ export function checkBuiltinName(
  *  and — for the extension-gated ids — per the WGSL built-in value table (§50). Every id in
  *  {@link WGSL_BUILTIN_NAMES} has a row now: `clip_distances` used to be absent and therefore
  *  unconstrained, which let `@builtin("clip_distances")` sit on a fragment INPUT with zero
- *  diagnostics and die at Tint. */
-const BUILTIN_STAGE_RULES: Readonly<
+ *  diagnostics and die at Tint. Exported for `foreign-names.test.ts`, which holds the direction
+ *  a GLSL or HLSL built-in value's remedy names to this table. */
+export const BUILTIN_STAGE_RULES: Readonly<
   Record<string, readonly { readonly stage: BuiltinStage; readonly direction: BuiltinDirection }[]>
 > = {
   vertex_index: [{ stage: 'vertex', direction: 'input' }],
@@ -445,15 +400,19 @@ export function checkAttributeName(
   if (name === undefined) return;
   if (ATTRIBUTE_NAMES.includes(name)) return;
   if (RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name)) return;
-  const suggestion = suggestAttributeName(name);
-  const hint = suggestion
-    ? ` Did you mean "@${suggestion}"?`
-    : ` Supported attributes: ${ATTRIBUTE_NAMES.map((n) => `@${n}`).join(', ')}.`;
+  // An HLSL or GLSL attribute (`@numthreads`) names TypeShade's own (#218) before any
+  // spelling-distance guess, which for a foreign name would point at an unrelated attribute.
   diagnostics.push(
     makeDiagnostic(
       sourceFile,
       decorator,
-      `Unknown attribute "@${name}".${hint}`,
+      unknownNameSentence(
+        `Unknown attribute "@${name}".`,
+        name,
+        [ATTRIBUTE_NAMES],
+        `Supported attributes: ${ATTRIBUTE_NAMES.map((n) => `@${n}`).join(', ')}.`,
+        '@',
+      ),
       TS_CODES.ATTRIBUTE_NAME,
     ),
   );

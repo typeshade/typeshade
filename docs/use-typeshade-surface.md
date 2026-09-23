@@ -407,6 +407,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
 | A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
 | A call that writes in a `while` condition, anywhere but as one side of its comparison | `TS8006`. The condition runs on every iteration, so the call cannot move ahead of the loop to run in source order; compare the call alone, or call it into a `let` at the end of the body (§26, Rule 7.9) |
+| A name the file does not declare: a value, a callee, a type, a field, a member, an assignment target, an attribute, a `@builtin` id, an `enable` extension, an import | `TS8022`, `TS8004`, `TS8002` and the rest, on the name, with the remedy in one order (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name (`lerp` is `mix`), else the name of the same kind it is spelled like (`Did you mean "clamp"?`), else the declaration it needs |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 
 ---
@@ -603,7 +604,8 @@ export function fs(@builtin("position") p: vec4): Color {
 It is allowed in a fragment entry, and in a helper as long as no `@vertex` or `@compute`
 entry can reach it: the check closes over the call graph, so `discard` inside a helper a
 vertex entry calls is rejected too, naming the helper and the entry. The three screen-space
-derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule.
+derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule. `discard()` is refused
+with the remedy: `discard` is a statement, written without the parentheses.
 
 `**` is float-only, as `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
 as `pow(i32, i32)`, which neither compiler accepts.
@@ -953,12 +955,22 @@ that fold to the same number (`case 2:` beside `case 1 + 1:`) is an error here r
 the backend. Two labels on one body (`case 0: case 1:`) are one clause with two selectors
 (§52), and `continue` in a `switch` that no loop encloses is refused.
 
-**A case body does not fall through, whatever TypeScript would do with it.** A body that does
-not end in `break` still ends its case here, since the IR switch has no fall-through and
-neither does WGSL's. So `case 2: { if (c) { …; break } x = … }` runs its last line and leaves,
-where plain TypeScript would carry on into the next case. Write the `break`; the language
-does not warn about a missing one yet, since a body without one is what an author porting
-from WGSL writes.
+**A case body must not fall through.** The IR switch has no fall-through and neither does
+WGSL's, so a body whose end is reachable cannot mean here what it means in TypeScript, which
+carries on into the next case. It is refused at its label, `TS8017`:
+
+```
+switch case 2 falls through into the next case: TypeScript runs both bodies, and WGSL runs
+only this one. End it with "break", or repeat the shared statements in each case.
+```
+
+`case 2: { if (c) { …; break } x = … }` is refused this way, since the `if` leaves on one path
+only; so is a `default:` above a case, and a `case` whose only `break` is inside a loop,
+which leaves the loop. Whether the end is reachable is TypeScript's own reachability, the one
+`tsc` applies with `noFallthroughCasesInSwitch`. The last clause needs no `break`, and neither
+does a clause that runs on only into empty clauses at the end of the switch, since TypeScript
+runs nothing more there either. An author porting from WGSL, whose cases need no `break`,
+writes one per case (§52, #202).
 
 **One emit change, and the only one in this section.** `break` at the end of a case inside a
 loop was already accepted before this item, since the enclosing loop made it legal, and it
@@ -3441,7 +3453,11 @@ has the rest of the operator surface.
 adds that it "requires a TypeShade type annotation", which it has; a return no longer adds
 "Unsupported return type"; a call to a function this file declares and could not lower no
 longer says "Unknown function", which was untrue — the function is there, and its declaration
-already said why. A call to a name nothing declares still says so.
+already said why. A call to a name nothing declares still says so, and names the function it
+is spelled like (§7). A local whose declaration was refused, or that is declared from one that
+was, says nothing more where it is read, assigned or written through (#171): after a refused
+`const t = a * b`, `const u = t * 2.` binds no `u` either, and `return u` is not an unknown
+identifier.
 
 ## 29. The mixin pattern
 
@@ -5037,7 +5053,7 @@ names only. §62 closed that gap: a local named `shared` is now `TS8068` where i
 The ambient library is a second implementation of this surface's type rules, written in
 TypeScript's vocabulary rather than the compiler's, and two implementations drift. A rule the
 ambient lib states more NARROWLY than the compiler is the worse failure: red squiggles on a
-program that compiles, which stops an author who was right. Seven such rows are closed:
+program that compiles, which stops an author who was right. Eight such rows are closed:
 
 | spelling | the editor used to say | now |
 | --- | --- | --- |
@@ -5048,6 +5064,7 @@ program that compiles, which stops an author who was right. Seven such rows are 
 | `m[3].xyz` and `m[0] = vec4(1.)` on a `mat4`, and the same on every square matrix | "Property 'xyz' does not exist on type 'never'"; "Type 'vec4' is not assignable to type 'never'" | clean |
 | `m[i]` on a `mat4` or a `mat2x3`, with `i: u32` or a `for` counter, and `m[0][1]` | "Element implicitly has an 'any' type because expression of type 'u32' can't be used to index type 'mat4<f32>'" | clean |
 | `v[0]` and `v[i]` on a `vec4`, read or written | the same, on type 'vec4' | clean |
+| `v.yx` on a `vec2`, `v.zyx` on a `vec4`, `c.bgra` | "Property 'yx' does not exist on type 'vec2'" | clean |
 
 `select` takes any scalar or vector WGSL gives it, bools and emulated doubles included
 (wgsl.txt:21338-21352). The vector constructors take a component vector anywhere, not only
@@ -5061,7 +5078,13 @@ and an `f32` matrix take any integer index, a runtime one included, as WGSL inde
 library gave both numeric LITERAL keys only, which is the emulated double's rule (§39): they
 take an index signature now, as `array<T, N>` does. A matrix of doubles still takes no runtime
 index (TS7053 beside `TS8003 Cannot index mat4x4<f64>.`), and what the signature admits and the
-compiler refuses is the section "An index only the compiler refuses" below.
+compiler refuses is the section "An index only the compiler refuses" below. A swizzle is any pick
+of one to four letters from one set, repeats and any order included (`parseSwizzle`,
+`src/compiler/ts/swizzle.ts`), and the library declared the eight components and the six prefix
+swizzles only (`xy`, `xyz`, `xyzw`, `rg`, `rgb`, `rgba`), so `v.yx` was red on a program that
+runs; its note and the README called that a false negative. Each vector now declares every pick
+the compiler takes. A pick that mixes the two sets (`v.xg`) or reaches past the vector (`v.xz` on
+a `vec2`) is refused by both, the compiler's `TS8022` alone in the editor's merged list.
 
 `src/language-service/ambient-parity.test.ts` asserts the AGREEMENT rather than either verdict,
 with rows on both sides: a row where both refuse is as much the subject as one where both
@@ -5154,26 +5177,6 @@ The remedy it names is still the right line; the editor simply says one more thi
 Appendix B's row for design rule 12.7 carries it. A square matrix column, `m[0] = vec4(1.)` on
 a `storage<mat4, "read_write">`, was a second row here, and it is closed: the table at the head
 of this section has it.
-
-### A swizzle the editor does not take
-
-The compiler takes any pick of one to four letters from one set, repeats and any order included
-(`parseSwizzle`, `src/compiler/ts/swizzle.ts`), and emits it as written: `v.yx`, `p.xz`,
-`v.zw`, `v.zyx`, `c.bgra`, `v.xxx`. The ambient library declares the eight components and the
-six prefix swizzles (`xy`, `xyz`, `xyzw`, `rg`, `rgb`, `rgba`), so every other pick is red on a
-program that runs, in the editor and in plain `tsc`:
-
-| spelling | the compiler | the editor |
-| --- | --- | --- |
-| `v.yx` on a `vec2` | `v.yx` | TS2339, "Property 'yx' does not exist on type 'vec2'" |
-| `v.zyx` on a `vec4` | `v.zyx` | TS2339, "Property 'zyx' does not exist on type 'vec4'" |
-
-The library's own note and the README called this a false negative, a swizzle the editor did
-not see; it is a false positive. #210 closes it by declaring every pick the compiler takes, and
-until it lands, building the vector instead (`vec2(v.y, v.x)`) is clean in both layers.
-Appendix B's row for design rule 12.7 carries it. A pick that mixes the two sets (`v.xg`) or
-reaches past the vector (`v.xz` on a `vec2`) is refused by both layers, TS2339 beside the
-compiler's TS8022.
 
 ### The second type argument, where the two layers still part
 
@@ -5550,8 +5553,9 @@ between them; there is no gate example, because no `.shade.ts` can carry one.
 | `~x` on an `f32`, `+b` on a `bool` | Refused, naming the kinds each takes. |
 
 **One switch clause, several selectors.** TypeScript spells "two labels, one body" as an empty
-clause above a full one, and that read as `switch case fall-through is not allowed` — the one
-shape that is *not* fall-through, since an empty clause has nothing to fall through:
+clause above a full one, and the compiler used to refuse that shape as
+`switch case fall-through is not allowed` — the one shape that is *not* fall-through, since
+an empty clause has nothing to fall through (a body that does fall through is refused, §14):
 
 ```ts
 "use typeshade";

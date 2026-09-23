@@ -1,28 +1,37 @@
+// Verifies: Rule 12.4 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 12.7 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
-import { createTypeshadeLanguageService } from './service.js';
+import { analyzeSourceFile, createTypeshadeLanguageServiceWith } from './service.js';
 import { getTypeScriptDiagnostics } from './diagnostics.js';
 import { compile } from '../compiler/ts/compile.js';
 import { TypeshadeHost } from './host.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
+import { compileTsSource } from '../compiler/ts/source-file.js';
 import type { TypeshadeDiagnostic } from './types.js';
 
 const URI = 'a.ts';
 
-function diagnosticsOf(source: string): readonly TypeshadeDiagnostic[] {
-  const service = createTypeshadeLanguageService();
+/** What the editor shows: both halves, merged to one diagnostic per mistake. With `merge`
+ * false, the two halves as they are before that merge (`mergeDiagnostics`). */
+function diagnosticsOf(source: string, merge = true): readonly TypeshadeDiagnostic[] {
+  const service = createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge });
   service.openDocument(URI, source);
   return service.getDiagnostics(URI);
 }
 
-/** The diagnostics an editor would attribute to TypeScript itself, which is what §6's "zero
- * false positives on a valid program" is about; a `"use typeshade"` diagnostic is the compiler
- * front end speaking and is asserted on separately below. */
+/** Every TypeScript diagnostic the filters keep, which is what §6's "zero false positives on a
+ * valid program" is about, read before the merge: where the compiler reports the same mistake,
+ * the merge shows its sentence in place of TypeScript's, and these tests are about TypeScript's.
+ * A `"use typeshade"` diagnostic is the compiler front end speaking and is asserted on
+ * separately below. */
+function typeScriptHalfOf(source: string): readonly TypeshadeDiagnostic[] {
+  return diagnosticsOf(source, false).filter((d) => d.source === 'typescript');
+}
+
 function typeScriptDiagnosticsOf(source: string): string[] {
-  return diagnosticsOf(source)
-    .filter((d) => d.source === 'typescript')
-    .map((d) => `TS${d.code}: ${d.message}`);
+  return typeScriptHalfOf(source).map((d) => `TS${d.code}: ${d.message}`);
 }
 
 const entry = (
@@ -123,7 +132,7 @@ describe('vector arithmetic reaching a call draws no TypeScript diagnostic (issu
 describe('an argument that is not vector arithmetic still reports (issue #43)', () => {
   const stillReports = (source: string, code: number): void => {
     expect(
-      diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === code),
+      typeScriptHalfOf(source).some((d) => d.code === code),
       source,
     ).toBe(true);
   };
@@ -193,9 +202,7 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
   const ARGUMENT_MISMATCH_CODES: ReadonlySet<string | number> = new Set([2345, 2769]);
   const keepsReporting = (source: string): void => {
     expect(
-      diagnosticsOf(source).some(
-        (d) => d.source === 'typescript' && ARGUMENT_MISMATCH_CODES.has(d.code),
-      ),
+      typeScriptHalfOf(source).some((d) => ARGUMENT_MISMATCH_CODES.has(d.code)),
       source,
     ).toBe(true);
   };
@@ -275,16 +282,12 @@ describe('a program that is genuinely wrong still reports', () => {
     const source = '"use typeshade"\nexport function f(v: vec3): vec3 {\n  return v * "x"\n}\n';
     // TS2363 is the right-hand operand's, so filtering per operand (rather than dropping the
     // whole expression because ONE operand is a vector) is what leaves this visible.
-    expect(diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === 2363)).toBe(
-      true,
-    );
+    expect(typeScriptHalfOf(source).some((d) => d.code === 2363)).toBe(true);
   });
 
   it('1 * "x", with no vector anywhere, is untouched', () => {
     const source = '"use typeshade"\nexport function f(): f32 {\n  return 1 * "x"\n}\n';
-    expect(diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === 2363)).toBe(
-      true,
-    );
+    expect(typeScriptHalfOf(source).some((d) => d.code === 2363)).toBe(true);
   });
 
   it('a vector assigned into a scalar keeps TS2322', () => {
@@ -292,9 +295,7 @@ describe('a program that is genuinely wrong still reports', () => {
       '"use typeshade"\nexport function f(v: vec3): f32 {\n  let n: f32 = v\n  return n\n}\n';
     // The target is `f32`, which IS a `number` to TypeScript, so the mismatch is not the
     // brand's doing and the TS2322 rule must not reach it.
-    expect(diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === 2322)).toBe(
-      true,
-    );
+    expect(typeScriptHalfOf(source).some((d) => d.code === 2322)).toBe(true);
   });
 });
 
@@ -358,6 +359,423 @@ describe('GPU_BRAND_TAGS is exactly what SHADE_DTS brands vectors and matrices w
     expect(other.length, 'the scalar and array brands should be readable').toBeGreaterThan(0);
     expect(other.filter((tag) => GPU_BRAND_TAGS.includes(tag))).toEqual([]);
   });
+});
+
+// A local declared with no type from vector arithmetic is the `number` the arithmetic is typed,
+// to TypeScript, and the `vec3` it is, to the compiler. Every use of it then drew the false
+// positive the arithmetic itself is filtered for, at each call, assignment, return and swizzle
+// below, and the only way to quiet them was to annotate the local by hand. The program the
+// service builds reads the document with the compiler's type written in (`projection.ts`, #162).
+describe('a name declared with no type from vector arithmetic draws no TypeScript diagnostic', () => {
+  const USES = `"use typeshade";
+export function shade(n: vec3, l: vec3, albedo: vec3, d: f32): vec3 {
+  const lit = albedo * d + albedo * 0.1;
+  const a = normalize(lit);
+  const b = dot(lit, n);
+  const c = dot(n, lit);
+  const e = max(lit, vec3(0.));
+  const f = mix(n, lit, 0.5);
+  const g = vec4(lit, 1.);
+  const h = lit.x + lit.y;
+  const i = lit.xy;
+  let j: vec3 = lit;
+  const k = lit;
+  const m = normalize(k);
+  const p = cross(lit, n);
+  const r = clamp(lit, vec3(0.), vec3(1.));
+  const s = length(lit) + distance(lit, n);
+  const t = normalize(n * 2. - 1.);
+  const u = dot(t, l);
+  const w = (n * 2.).xy;
+  return lit;
+}
+`;
+
+  it('at a call, an assignment, a return and a swizzle', () => {
+    expect(typeScriptDiagnosticsOf(USES)).toEqual([]);
+    expect(diagnosticsOf(USES).filter((x) => x.severity === 'error')).toEqual([]);
+  });
+
+  // The projection spells the compiler's type in the ambient library's words (`ambientSpelling`),
+  // and a parameter's type is the ambient declaration itself; this is the test that the
+  // spelling names that declaration, for every vector and matrix type there is an operation on:
+  // arithmetic, and `&` on a mask.
+  const OPERATED_TYPES = [...VECTOR_AND_MATRIX_NAMES, 'mat2<f64>', 'mat3<f64>', 'mat4<f64>'];
+  for (const type of OPERATED_TYPES) {
+    it(`carries its type into a parameter of type ${type}`, () => {
+      const operation = /^vec\db$/.test(type) ? 'a & a' : 'a + a';
+      const source = `"use typeshade"
+function g(v: ${type}): ${type} {
+  return v
+}
+export function f(a: ${type}): ${type} {
+  const x = ${operation}
+  return g(x)
+}
+`;
+      expect(typeScriptDiagnosticsOf(source), source).toEqual([]);
+      expect(diagnosticsOf(source), source).toEqual([]);
+    });
+  }
+
+  it('keeps TS2345 for a name the compiler types as a scalar', () => {
+    const source = entry('  const d = dot(a, b)\n  const p = cross(d, a)\n');
+    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2345:']);
+  });
+
+  it('keeps TS2345 for a name of the wrong shape', () => {
+    // `w` is the `vec2` the swizzle's arithmetic makes, and `cross` takes two `vec3`.
+    const source = entry('  const w = a.xy * s\n  const p = cross(w, a)\n');
+    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2345:']);
+  });
+
+  it('leaves a bad swizzle of such a name to the compiler, which reports it once', () => {
+    const source = entry('  const lit = a * s\n  const p = lit.w\n');
+    expect(diagnosticsOf(source).map((x) => `${x.source} ${String(x.code)} ${x.message}`)).toEqual([
+      'typeshade TS8022 .w out of range on vec3<f32>.',
+    ]);
+  });
+
+  it('keeps TS2339 on a value TypeScript still types as a vector', () => {
+    // No brand was lost here, so TypeScript's own member check stands.
+    const source = entry('  const p = a.w\n');
+    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2339:']);
+  });
+});
+
+// Arithmetic is not the only operation TypeScript types without the vector: a comparison is a
+// `boolean` to it, and the bitwise and shift operators, `**`, `~` and `!` are a `number` or a
+// `boolean`, where the compiler has a mask, an integer vector or a vector of floats. Each of
+// these compiles, and each drew a TypeScript error where its value was used, from the one
+// operator table the projection reads too (`ERASING_OPERATORS`).
+describe('an operation other than arithmetic loses a vector type the same way', () => {
+  const cases: Readonly<Record<string, string>> = {
+    'a comparison returned as a mask':
+      'export function f(a: vec3, b: vec3): vec3b {\n  return a < b\n}',
+    'a comparison handed to a mask parameter':
+      'function g(m: vec3b): bool {\n  return any(m)\n}\nexport function f(a: vec3, b: vec3): bool {\n  return g(a < b)\n}',
+    'a comparison assigned to a mask':
+      'export function f(a: vec3, b: vec3): vec3b {\n  let m = vec3b(false)\n  m = a < b\n  return m\n}',
+    'a component of a comparison':
+      'export function f(a: vec3, b: vec3): bool {\n  return (a < b).x\n}',
+    'strict equality of two vectors':
+      'export function f(a: vec3, b: vec3): vec3b {\n  return a === b\n}',
+    'a comparison of two products':
+      'function g(m: vec3b): bool {\n  return all(m)\n}\nexport function f(a: vec3, b: vec3): bool {\n  return g((a * 2.) < (b * 2.))\n}',
+    'two masks combined':
+      'export function f(a: vec3, b: vec3): vec3b {\n  return (a < b) & (b > a)\n}',
+    'two masks combined as the condition of select':
+      'export function f(a: vec3, b: vec3): vec3 {\n  return select(a, b, (a < b) & (b > a))\n}',
+    'a logical not of a mask': 'export function f(c: vec3b): vec3b {\n  return !c\n}',
+    'a bitwise and': 'export function f(a: vec3u, b: vec3u): vec3u {\n  return a & b\n}',
+    'a shift': 'export function f(a: vec3u, b: vec3u): vec3u {\n  return a << b\n}',
+    'a complement': 'export function f(a: vec3u): vec3u {\n  return ~a\n}',
+    'a power': 'export function f(a: vec3, b: vec3): vec3 {\n  return a ** b\n}',
+    'a matrix times a scaled vector':
+      'function g(p: vec4): vec4 {\n  return p\n}\nexport function f(m: mat4, c: vec4): vec4 {\n  return g(m * (c * 2.))\n}',
+  };
+  for (const [name, body] of Object.entries(cases)) {
+    it(`${name}: no diagnostic at all`, () => {
+      const source = `"use typeshade"\n${body}\n`;
+      expect(typeScriptDiagnosticsOf(source), source).toEqual([]);
+      expect(diagnosticsOf(source), source).toEqual([]);
+    });
+  }
+
+  it('keeps TS2447 for a bitwise operator on two scalar booleans', () => {
+    // A mask is a vector to the compiler; two scalar booleans are not, and the rule is about
+    // masks only.
+    const source = entry('  const k = (s < 1.) & (s > 0.)\n');
+    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2447:']);
+  });
+});
+
+// Both halves check a `"use typeshade"` file, and a mistake both can see used to read as two
+// diagnostics, one per half. The merge keeps one (`mergeDiagnostics`, Rule 12.4): the
+// compiler's, which is what `compile()` and the build report, except where TypeScript names a
+// spelling fix the compiler's sentence does not.
+describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)', () => {
+  /** `body` as the body of `f(signature): ret`, or, when it declares its own functions, as the
+   * whole program. */
+  const fn = (body: string, signature = 'x: f32, v: vec3, w: vec2', ret = 'f32'): string =>
+    body.includes('function ')
+      ? `"use typeshade"\n${body}\n`
+      : `"use typeshade"\nexport function f(${signature}): ${ret} {\n${body}\n}\n`;
+  const shown = (source: string): string[] =>
+    diagnosticsOf(source).map((d) => `${d.source} ${String(d.code)}`);
+
+  const cases: Readonly<Record<string, readonly [string, string]>> = {
+    'a write to a const (TS2588)': [fn('  const y = x\n  y = 2.\n  return y'), 'typeshade TS8005'],
+    'a write to a read-only resource (TS2588)': [
+      'declare const u: uniform<f32>\nexport function f(): f32 {\n  u = 2.\n  return u\n}',
+      'typeshade TS8005',
+    ],
+    'a write to a readonly field (TS2540)': [
+      'class S {\n  readonly a: f32\n}\nexport function f(s: S): f32 {\n  let t = s\n  t.a = 1.\n  return t.a\n}',
+      'typeshade TS8005',
+    ],
+    'one argument short (TS2554)': [
+      'function g(a: f32, b: f32): f32 {\n  return a + b\n}\nexport function f(x: f32): f32 {\n  return g(x)\n}',
+      'typeshade TS8019',
+    ],
+    'one argument too many (TS2554)': [
+      'function g(a: f32): f32 {\n  return a\n}\nexport function f(x: f32): f32 {\n  return g(x, x)\n}',
+      'typeshade TS8019',
+    ],
+    'a builtin one argument short (TS2554)': [fn('  return dot(v)'), 'typeshade TS8019'],
+    'a vector constructor short of components (TS2769)': [
+      fn('  return vec4(v)', 'v: vec3', 'vec4'),
+      'typeshade TS8019',
+    ],
+    'an unknown name (TS2304)': [fn('  return colr'), 'typeshade TS8022'],
+    'an unknown function (TS2304)': [fn('  return foo(x)'), 'typeshade TS8004'],
+    'an unknown type (TS2304)': [
+      'export function f(v: vec5): f32 {\n  return 1.\n}',
+      'typeshade TS8002',
+    ],
+    'a host API (TS2304)': [fn('  return Date.now()'), 'typeshade TS8012'],
+    'a swizzle out of range (TS2339)': [fn('  return v.w'), 'typeshade TS8022'],
+    'a swizzle out of range with a suggestion (TS2551)': [
+      fn('  return v.xyzw', 'v: vec3', 'vec4'),
+      'typeshade TS8022',
+    ],
+    'a field the struct does not declare (TS2339)': [
+      'class S {\n  a: f32\n}\nexport function f(s: S): f32 {\n  return s.b\n}',
+      'typeshade TS8022',
+    ],
+    // The compiler reports a return of the wrong type on the `return`, where TypeScript does.
+    'a scalar returned for a vector (TS2322)': [
+      fn('  return length(v)', 'v: vec3', 'vec3'),
+      'typeshade TS8003',
+    ],
+    'the second of two returns (TS2740)': [
+      fn('  if (x > 0.) {\n    return v\n  }\n  return x', 'x: f32, v: vec3', 'vec3'),
+      'typeshade TS8003',
+    ],
+    'a vector returned for an entry output struct (TS2741)': [
+      '"use typeshade"\nclass C {\n  @location(0) color: vec4;\n}\n@fragment\nexport function fs(): C {\n  return vec4(1.)\n}',
+      'typeshade TS8003',
+    ],
+    'a vector declared as a scalar (TS2322)': [
+      fn('  let s: f32 = v\n  return s'),
+      'typeshade TS8003',
+    ],
+    'an argument of the wrong size to a user function (TS2345)': [
+      'function g(p: vec3): vec3 {\n  return p\n}\nexport function f(w: vec2): vec3 {\n  return g(w)\n}',
+      'typeshade TS8003',
+    ],
+    'an argument of the wrong size to a math builtin (TS2345)': [
+      fn('  return cross(v, w)', 'v: vec3, w: vec2', 'vec3'),
+      'typeshade TS8036',
+    ],
+    'the same at an overloaded builtin (TS2769)': [
+      fn('  return mix(v, w, 0.5)', 'v: vec3, w: vec2', 'vec3'),
+      'typeshade TS8036',
+    ],
+    // TypeScript fails `max` and types it `number`, so the `return` adds a TS2322 of its own.
+    'a failed overload and the return it poisons (TS2769, TS2322)': [
+      fn('  return max(v, w)', 'v: vec3, w: vec2', 'vec3'),
+      'typeshade TS8036',
+    ],
+    'the same through a local declared with no type': [
+      fn('  const c = max(v, w)\n  return c', 'v: vec3, w: vec2', 'vec3'),
+      'typeshade TS8036',
+    ],
+    // TypeScript cannot find `lerp`, so `c` is `any`, and `c * x` is `number`: every place the
+    // product then reaches is judged by a type TypeScript guessed. Each is the one unknown name.
+    'a value from an unknown function, through an operation, into a constructor (TS2345)': [
+      fn('  const c = lerp(v, vec3(1.), 0.5)\n  return vec4(c * x, 1.)', 'x: f32, v: vec3', 'vec4'),
+      'typeshade TS8004',
+    ],
+    'the same into a declared local (TS2322)': [
+      fn(
+        '  const c = lerp(v, vec3(1.), 0.5)\n  const e: vec3 = c * 2.\n  return e',
+        'v: vec3',
+        'vec3',
+      ),
+      'typeshade TS8004',
+    ],
+    'the same returned (TS2322)': [
+      fn('  const c = lerp(v, vec3(1.), 0.5)\n  return c * x', 'x: f32, v: vec3', 'vec3'),
+      'typeshade TS8004',
+    ],
+    'the same swizzled through a second local (TS2339)': [
+      fn(
+        '  const c = lerp(v, vec3(1.), 0.5)\n  const m = c * x\n  return m.xy',
+        'x: f32, v: vec3',
+        'vec2',
+      ),
+      'typeshade TS8004',
+    ],
+    'the same as a builtin argument (TS2345)': [
+      fn('  const c = lerp(v, vec3(1.), 0.5)\n  return cross(c * 2., v)', 'v: vec3', 'vec3'),
+      'typeshade TS8004',
+    ],
+    'the same compared with a vector (TS2365)': [
+      fn('  const c = lerp(v, vec3(1.), 0.5)\n  return (c * 2.) < v', 'v: vec3', 'vec3b'),
+      'typeshade TS8004',
+    ],
+    'a value from an unknown field, through an operation (TS2322)': [
+      '"use typeshade"\nclass Frame {\n  time: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}',
+      'typeshade TS8022',
+    ],
+    'a value from a call one argument short, through an operation (TS2345)': [
+      fn('  const c = clamp(x, 0.)\n  return vec4(c * 2., 1.)', 'x: f32', 'vec4'),
+      'typeshade TS8019',
+    ],
+    'a scalar where a builtin wants the vector (TS2769, TS2322)': [
+      fn('  return clamp(v, 0., 1.)', 'v: vec3', 'vec3'),
+      'typeshade TS8036',
+    ],
+    // A misspelling too: the compiler names the name it is spelled like, so there is no
+    // exception for TypeScript's "Did you mean".
+    'an unknown name TypeScript can correct (TS2552)': [
+      fn('  return colr', 'color: f32'),
+      'typeshade TS8022',
+    ],
+    'an unknown function TypeScript can correct (TS2552)': [
+      fn('  return clmap(x, 0., 1.)'),
+      'typeshade TS8004',
+    ],
+    'a field TypeScript can correct (TS2561)': [
+      '"use typeshade"\nclass C {\n  @location(0) color: vec4;\n}\n@fragment\nexport function fs(): C {\n  return { colr: vec4(0.) };\n}',
+      'typeshade TS8010',
+    ],
+    'a Math member TypeScript can correct (TS2551)': [
+      fn('  return Math.sqr(x)'),
+      'typeshade TS8022',
+    ],
+    'a method (TS2339)': [
+      '"use typeshade"\nclass P {\n  x: f32;\n  len(): f32 {\n    return this.x;\n  }\n}\nexport function f(p: P): f32 {\n  return p.lne();\n}',
+      'typeshade TS8035',
+    ],
+    'a name read above its declaration (TS2448)': [
+      fn('  const z = q * 2.\n  const q = x\n  return z'),
+      'typeshade TS8022',
+    ],
+    // TypeScript refuses the comparison, and the `boolean` it types it then fails the return.
+    'a comparison of vectors of two sizes (TS2365, TS2322)': [
+      fn('  return v < w', 'v: vec3, w: vec2', 'vec3b'),
+      'typeshade TS8003',
+    ],
+    'a comparison of a vector and a scalar (TS2365, TS2322)': [
+      fn('  return v < x', 'v: vec3, x: f32', 'vec3b'),
+      'typeshade TS8003',
+    ],
+    'strict equality of vectors of two sizes (TS2367, TS2322)': [
+      fn('  return v === w', 'v: vec3, w: vec2', 'vec3b'),
+      'typeshade TS8003',
+    ],
+    'a logical not of a vector of floats (TS2322)': [
+      fn('  return !v', 'v: vec3', 'vec3b'),
+      'typeshade TS8003',
+    ],
+    // The compiler refuses the product, so the projection has no type to write into `t`, and
+    // TypeScript's `number` for it reached the swizzle and the return.
+    'the uses of a local whose product the compiler refused (TS2339, TS2322)': [
+      fn('  const t = v * w\n  const u = t * 2.\n  return u.x + t.y', 'v: vec3, w: vec2'),
+      'typeshade TS8003',
+    ],
+    'a matrix of doubles scaled by a double (TS2322)': [
+      fn('  const t = m * f64(2.)\n  return t', 'm: mat3<f64>', 'mat3<f64>'),
+      'typeshade TS8003',
+    ],
+  };
+  for (const [name, [body, only]] of Object.entries(cases)) {
+    it(`${name}: ${only}`, () => {
+      const source = body.startsWith('"use typeshade"') ? body : fn(body);
+      expect(shown(source), source).toEqual([only]);
+    });
+  }
+
+  it('each half still reports on its own when the halves are read unmerged', () => {
+    // The merge is the editor's view; the two checks it merges are both still run.
+    const source = fn('  const y = x\n  y = 2.\n  return y');
+    expect(
+      diagnosticsOf(source, false)
+        .map((d) => `${d.source} ${String(d.code)}`)
+        .sort(),
+    ).toEqual(['typescript 2588', 'typeshade TS8005']);
+  });
+
+  it('keeps two mistakes as two diagnostics', () => {
+    // The write is both halves' mistake and reads once; the typo in the call only TypeScript
+    // sees, since the compiler refused the statement at the write.
+    expect(shown(fn('  const f = x\n  f = clmap(f, 0., 1.)\n  return f'))).toEqual([
+      'typeshade TS8005',
+      'typescript 2552',
+    ]);
+  });
+
+  it('keeps a second mistake that no failed value reaches', () => {
+    // `c` is typed from the unknown `lerp`, and `x` is not: the declaration of `bad` is its own
+    // mistake, and both halves report it, so it reads once, beside the unknown name.
+    expect(
+      shown(
+        fn(
+          '  const c = lerp(v, vec3(1.), 0.5)\n  const bad: vec3 = x\n  return c',
+          'x: f32, v: vec3',
+          'vec3',
+        ),
+      ),
+    ).toEqual(['typeshade TS8004', 'typeshade TS8003']);
+  });
+
+  it('keeps a typo inside a call to an unknown function as its own diagnostic', () => {
+    // Two mistakes, and the compiler names both, the unknown `g` and then the misspelled `colr`
+    // it still lowers, so the build reports what the editor does (Rule 12.7).
+    expect(shown(fn('  return g(colr)'))).toEqual(['typeshade TS8004', 'typeshade TS8022']);
+  });
+});
+
+// Both halves on the same source (CLAUDE.md, "A test reads both halves"). The table above reads
+// the editor's codes alone, and the compiler's refusal of a return was pinned by its text alone,
+// which is how two mistakes reached the packed `typeshade check` reading twice: a value computed
+// from an unknown name drew a TypeScript knock-on, and a return of the wrong type was reported on
+// the function's name by the compiler and on the `return` by TypeScript. Each program here is one
+// mistake: the compiler reports one error, and the editor shows that error and nothing beside
+// it, with the same code, sentence and span.
+describe("the editor shows the compiler's one diagnostic, at its span (both halves)", () => {
+  const cases: Readonly<Record<string, readonly [string, string]>> = {
+    'a value from an unknown function, through an operation': [
+      '"use typeshade"\nexport function f(x: f32, v: vec3): vec4 {\n  const c = lerp(v, vec3(1.), 0.5)\n  return vec4(c * x, 1.)\n}\n',
+      'TS8004 Unknown function "lerp". HLSL\'s lerp is mix here. @lerp',
+    ],
+    'a value from an unknown field, into a declared local': [
+      '"use typeshade"\nclass Frame {\n  time: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}\n',
+      'TS8022 Unknown field "tiem" on Frame. Did you mean "time"? @tiem',
+    ],
+    'a value from a call one argument short': [
+      '"use typeshade"\nexport function f(x: f32): vec4 {\n  const c = clamp(x, 0.)\n  return vec4(c * 2., 1.)\n}\n',
+      'TS8019 clamp expects 3 argument(s), got 2. @clamp(x, 0.)',
+    ],
+    'a scalar returned for a vector': [
+      '"use typeshade"\nexport function f(v: vec3): vec3 {\n  return length(v)\n}\n',
+      'TS8003 Function "f" return type mismatch: declared vec3<f32>, got f32. @return length(v)',
+    ],
+    'the second of two returns': [
+      '"use typeshade"\nexport function f(x: f32, v: vec3): vec3 {\n  if (x > 0.) {\n    return v\n  }\n  return x\n}\n',
+      'TS8003 Function "f" return type mismatch: declared vec3<f32>, got f32. @return x',
+    ],
+    'a vector returned for an entry output struct': [
+      '"use typeshade"\nclass C {\n  @location(0) color: vec4;\n}\n@fragment\nexport function fs(): C {\n  return vec4(1.)\n}\n',
+      'TS8003 Function "fs" return type mismatch: declared struct:C, got vec4<f32>. @return vec4(1.)',
+    ],
+  };
+  const at = (source: string, start: number, length: number): string =>
+    source.slice(start, start + length);
+  for (const [name, [source, only]] of Object.entries(cases)) {
+    it(name, () => {
+      const compiler = compileTsSource(source)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${String(d.code)} ${d.message} @${at(source, d.start, d.length)}`);
+      const editor = diagnosticsOf(source).map(
+        (d) => `${String(d.code)} ${d.message} @${at(source, d.span.start, d.span.length)}`,
+      );
+      expect(compiler, source).toEqual([only]);
+      expect(editor, source).toEqual([only]);
+    });
+  }
 });
 
 // A field that holds a function is a method to the compiler (Rule 8.16), which it builds from

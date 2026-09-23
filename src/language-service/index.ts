@@ -37,3 +37,20 @@ export {
   MATH_MEMBER_DOCS,
 } from './docs.js';
 export { positionAt, offsetAt, rangeForSpan, spanForRange } from './positions.js';
+// `typeshade check` as a function, for a tool that reports on shader files: one check, so the
+// command, the editor and an agent's tools cannot give two answers about one file (Rule 12.7).
+export {
+  checkDocuments,
+  checkOpenDocument,
+  type CheckDocument,
+  type CheckOptions,
+  type CheckDiagnostic,
+  type CheckReport,
+} from './check.js';
+// The GLSL and HLSL names the compiler's refusals translate (#218), beside the ambient lib and
+// the documentation tables they are checked against.
+export {
+  FOREIGN_NAMES,
+  foreignNameRemedy,
+  type ForeignName,
+} from '../compiler/ts/foreign-names.js';

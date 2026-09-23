@@ -7,7 +7,7 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, boolT, i32T, u32T, isF64, isVec64, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { irNameOf, type LoweringScope } from '../context.js';
-import { resolveLangConst } from '../math-alias.js';
+import { LANG_CONST, resolveLangConst } from '../math-alias.js';
 import { foldConstComponents, foldConstNumber } from '../loop-bound.js';
 import {
   broadcastResultType,
@@ -25,12 +25,15 @@ import { mapTsTypeToShaderType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral } from './expression-array.js';
 import { refuseBareAtomic } from './atomics.js';
-import { lowerCall } from './expression-call.js';
+import { builtinCalleeNames, lowerCall } from './expression-call.js';
+import { declarationOf } from './closures.js';
 import { lowerNew, lowerThis } from './class-methods.js';
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { unknownNameAlreadyReported } from '../refused-names.js';
+import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -276,6 +279,38 @@ const RUNTIME_TYPE_TEST: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
     'write the field access.',
 };
 
+/** The builtin values a name may be meant as: the language constants, `Math` and `console`, and
+ *  every builtin function, which TypeScript's own suggestion offers for a value too. */
+let builtinValues: readonly string[] | undefined;
+const builtinValueNames = (): readonly string[] =>
+  (builtinValues ??= [...Object.keys(LANG_CONST), 'Math', 'console', ...builtinCalleeNames()]);
+
+/** The candidates for a misspelled value where `node` is written: the names in scope there,
+ *  innermost first, then the builtins. */
+export const valueScopes = (node: ts.Node): NameScopes => [
+  ...namesInScope(node, 'value'),
+  builtinValueNames(),
+];
+
+/**
+ * The sentence for an identifier that names no binding, `mistake` followed by its remedy
+ * (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name, or the name in scope a misspelled
+ * one is spelled like. A name the file declares is not misspelled, and a spelling guess would
+ * send the author to another name: when its declaration is further down the same scope, the
+ * mistake is the order, which is TypeScript's TS2448 too, and the sentence says so.
+ */
+export function unknownIdentifierSentence(node: ts.Identifier, mistake: string): string {
+  const declared = declarationOf(node);
+  if (declared === undefined) return unknownNameSentence(mistake, node.text, valueScopes(node));
+  if (
+    (ts.isVariableDeclaration(declared) || ts.isBindingElement(declared)) &&
+    declared.getStart() > node.getStart()
+  ) {
+    return `"${node.text}" is read before its declaration. Declare it above this line.`;
+  }
+  return mistake;
+}
+
 function lowerIdentifier(
   node: ts.Identifier,
   sourceFile: ts.SourceFile,
@@ -303,11 +338,14 @@ function lowerIdentifier(
       return undefined;
     }
     if (scope.declarationRefused(node.text)) return undefined;
+    // A name whose declaration was refused, or one an error already covers, says nothing
+    // more: the refusal is the one diagnostic for the one mistake (Rule 12.4, #171).
+    if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `Unknown identifier "${node.text}".`,
+      unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`),
       TS_CODES.UNKNOWN_NAME,
     );
     return undefined;

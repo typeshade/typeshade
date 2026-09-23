@@ -208,15 +208,15 @@ describe('with a declared struct, the field diagnostics name it', () => {
 
   it('but the declaration only gets to report it when the fallback resolves first', () => {
     // The literal is lowered before the declaration's type check runs, so with TWINS in scope
-    // the fallback fails first and its own generic message is what leads, followed by the
-    // knock-on for a name that never got defined. The declaration is still the position that
-    // OWNS the mistake; it just does not always get to be the one that names it.
+    // the fallback fails first and its own generic message is what leads. The declaration is
+    // still the position that OWNS the mistake; it just does not always get to be the one that
+    // names it. The read of `o` that follows adds nothing: the refusal stands inside the
+    // declaration `o` resolves to (Rule 12.4, #171).
     const r = compileTsSource(
       `"use typeshade";${TWINS}export function f(): f32 {\n  const o: f32 = { a: 1., b: 2. };\n  return o;\n}`,
     );
     expect(r.diagnostics.map((d) => d.message)).toEqual([
       'Object literal { a, b } does not match a known struct.',
-      'Unknown identifier "o".',
     ]);
   });
 });

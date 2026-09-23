@@ -473,7 +473,7 @@ for them and the language session should weigh them accordingly.
   (`TS8018`), which names the local copy to write instead.
 - **A `.shade.ts` file cannot import.** `import { VsOut } from './_fullscreen.js'` parses
   and is then ignored, so the type resolves to nothing and the failure surfaces as
-  `Unknown field "uv" on struct:VsOut`. Every twin has to be self-contained, which means
+  `Unknown field "uv" on VsOut`. Every twin has to be self-contained, which means
   each of the 30 examples that import `_fullscreen.ts` repeats the ~25 lines it shares
   today: the `Uniforms` head, `VsOut`, and the fullscreen-triangle vertex stage. That is a
   real cost of the port and an argument for issue #8's multi-file item (M26·S29).
