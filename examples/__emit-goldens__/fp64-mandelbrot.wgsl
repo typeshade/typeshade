@@ -23,34 +23,44 @@ fn escape_f32(cx: f32, cy: f32, iters: u32) -> vec2<f32> {
   var _v0: f32 = 0.0;
   var _v1: f32 = 0.0;
   var _v2: f32 = 0.0;
-  for (var _v3: u32 = 0u; (_v3 < iters); _v3 = (_v3 + 1u)) {
-    if ((((_v0 * _v0) + (_v1 * _v1)) <= 16.0)) {
-      let _v4 = (((_v0 * _v0) - (_v1 * _v1)) + cx);
-      _v1 = (((_v0 * _v1) * 2.0) + cy);
-      _v0 = _v4;
-      _v2 = (_v2 + 1.0);
+  var _v3: f32 = 0.0;
+  var _v4: f32 = 0.0;
+  var _v5: f32 = 0.0;
+  for (var _v6: u32 = 0u; (_v6 < iters); _v6 = (_v6 + 1u)) {
+    if ((_v4 > 16.0)) {
+      break;
     }
+    let _v7 = ((_v2 - _v3) + cx);
+    _v1 = (((_v0 * _v1) * 2.0) + cy);
+    _v0 = _v7;
+    _v5 = (_v5 + 1.0);
+    _v2 = (_v0 * _v0);
+    _v3 = (_v1 * _v1);
+    _v4 = (_v2 + _v3);
   }
-  return vec2<f32>(_v2, ((_v0 * _v0) + (_v1 * _v1)));
+  return vec2<f32>(_v5, _v4);
 }
 
 fn escape_f64(cx: vec2<f32>, cy: vec2<f32>, iters: u32) -> vec2<f32> {
   let _fp64_g = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
-  let _licm0 = vec2<f32>(16.0, 0.0);
-  let _licm1 = vec2<f32>(2.0, 0.0);
   let _cse0 = vec2<f32>(0.0, 0.0);
   var _v0: vec2<f32> = _cse0;
   var _v1: vec2<f32> = _cse0;
   var _v2: f32 = 0.0;
-  for (var _v3: u32 = 0u; (_v3 < iters); _v3 = (_v3 + 1u)) {
-    if (df64_le(df64_add(df64_mul(_v0, _v0, _fp64_g), df64_mul(_v1, _v1, _fp64_g), _fp64_g), _licm0)) {
-      let _v4 = df64_add(df64_sub(df64_mul(_v0, _v0, _fp64_g), df64_mul(_v1, _v1, _fp64_g), _fp64_g), cx, _fp64_g);
-      _v1 = df64_add(df64_mul(df64_mul(_v0, _v1, _fp64_g), _licm1, _fp64_g), cy, _fp64_g);
-      _v0 = _v4;
-      _v2 = (_v2 + 1.0);
+  var _v3: f32 = 0.0;
+  for (var _v4: u32 = 0u; (_v4 < iters); _v4 = (_v4 + 1u)) {
+    if ((_v2 > 16.0)) {
+      break;
     }
+    let _v5 = df64_add(df64_sub(df64_sqr(_v0, _fp64_g), df64_sqr(_v1, _fp64_g), _fp64_g), cx, _fp64_g);
+    _v1 = df64_add((df64_mul(_v0, _v1, _fp64_g) * 2.0), cy, _fp64_g);
+    _v0 = _v5;
+    _v3 = (_v3 + 1.0);
+    let _v6 = df64_narrow(_v0);
+    let _v7 = df64_narrow(_v1);
+    _v2 = ((_v6 * _v6) + (_v7 * _v7));
   }
-  return vec2<f32>(_v2, df64_narrow(df64_add(df64_mul(_v0, _v0, _fp64_g), df64_mul(_v1, _v1, _fp64_g), _fp64_g)));
+  return vec2<f32>(_v3, _v2);
 }
 
 @vertex
@@ -123,6 +133,13 @@ fn df64_twoProd(a: f32, b: f32, _fp64_g: f32) -> vec2<f32> {
   return vec2<f32>(_v0, _v3);
 }
 
+fn df64_twoSqr(a: f32, _fp64_g: f32) -> vec2<f32> {
+  let _v0 = (a * a);
+  let _v1 = df64_split(a, _fp64_g);
+  let _v2 = (((((_v1.x * _v1.x) - _v0) * _fp64_g) + (((_v1.x * _v1.y) * 2.0) * _fp64_g)) + ((_v1.y * _v1.y) * _fp64_g));
+  return vec2<f32>(_v0, _v2);
+}
+
 fn df64_add(a: vec2<f32>, b: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
   var _v0: vec2<f32> = df64_twoSum(a.x, b.x, _fp64_g);
   let _v1 = df64_twoSum(a.y, b.y, _fp64_g);
@@ -145,8 +162,10 @@ fn df64_mul(a: vec2<f32>, b: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
   return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
 }
 
-fn df64_le(a: vec2<f32>, b: vec2<f32>) -> bool {
-  return ((a.x < b.x) || ((a.x == b.x) && (a.y <= b.y)));
+fn df64_sqr(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
+  var _v0: vec2<f32> = df64_twoSqr(a.x, _fp64_g);
+  _v0.y = (_v0.y + ((a.x * a.y) * 2.0));
+  return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
 }
 
 fn df64_narrow(a: vec2<f32>) -> f32 {

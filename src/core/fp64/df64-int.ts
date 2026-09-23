@@ -14,7 +14,7 @@
 // Integer ops are exact — there is nothing to contract, reassociate, or factor.
 //
 // Same names, same signatures, same (hi, lo) vec2<f32> contract as df64-lib's
-// primitives, so every COMPOSITION (df64_add/sub/mul/floor/fract/mix/cmp/…) is
+// primitives, so every COMPOSITION (df64_add/sub/mul/sqr/floor/fract/mix/cmp/…) is
 // shared byte-for-byte and binds to these bodies when fp64Lower's integer
 // registry is selected. Only the leaves swap:
 //   df64_twoSum / df64_quickTwoSum — exact s+e == a+b via aligned integer add

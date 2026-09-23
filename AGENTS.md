@@ -39,11 +39,26 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
   gated by the emit goldens. A semantic change (the emitted text changes) needs the CPU
   oracle parity gate and a real compile through `bun run gate:compile`.
 - `core/` is private. Do not widen the public barrel to export it.
+- Shader source ends every statement with `;`, as the guide spells `"use typeshade";`. That
+  covers the `examples/*.shade.ts` files, the `"use typeshade"` fences in the docs, every fence
+  in `docs/use-typeshade-surface.md`, and the inline sources the tests compile. Do not write
+  the `;` by hand: run `bun run format:semicolons` after writing shader source (`--check` lists
+  what is missing without writing). It inserts a `;` only where the parser already ended a
+  statement, so the program means the same thing afterwards. `src/compiler/ts/semicolons.test.ts`
+  fails `bun run test` on a missing one. Prettier cannot do this part: it does not parse a
+  decorated top-level function (`*.shade.ts` is prettierignored) and does not format a string a
+  test compiles. It leaves Markdown fences alone too (`embeddedLanguageFormatting: "off"` for
+  `*.md`), because the docs' shader fences are hand-formatted.
+- Everything else is Prettier (`semi: true`, `.prettierrc.json`) and ESLint
+  (`typescript-eslint` recommended, `eslint.config.mjs`; a `_` prefix marks a binding unused on
+  purpose). `bun run format` writes both kinds of `;`; `bun run format:check` and
+  `bun run lint` are CI steps, so run them before pushing.
 
 ## Tests
 
 - `bun run build`: `tsc --build` (dist and `.d.ts`), then `tsc -p tsconfig.tests.json`, the
   noEmit pass over tests, examples and scripts.
+- `bun run lint` (ESLint) and `bun run format:check` (Prettier, then the shader-source `;`).
 - `bun run test`: vitest over `src/**` and `examples/**` (146 test files).
 - `bun run gate:compile`: every registered example emitted and compiled. Needs Chromium once:
   `./node_modules/.bin/playwright install --only-shell chromium`.
