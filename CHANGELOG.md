@@ -379,6 +379,31 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **An array's `map`, `forEach`, `some`, `every` and `reduce` take a function and run as
+  TypeScript runs them** (Rules 2.1, 7.2 and 8.18; surface §63, new, and §14; proposal 0005).
+  Every method of an array was refused with `TS8099` and the advice to use a fold. The five now
+  compile on an `array<T, N>`, and all but `map` on a runtime-sized storage array. Each call is a call of a function of the module made once for each
+  array type and function handed over, a counted loop over the indices (Rule 7.5) that hands the
+  function the element, its `i32` index and the array: `xs.map(sq)` calls `array_map_sq(xs)`, and
+  a call stands in an argument, beside `&&` or in a loop's condition. The function is handed over
+  as Rule 8.18 hands one, by its name or as an arrow function written in the call, and what it
+  captures the loop takes and passes on, by reference where it writes it. The array is read as it
+  goes, as TypeScript reads it: a binding, a module variable or a module constant in place, a
+  variable the function captures through the one reference both use, so
+  `xs.forEach((x, i) => { xs[i + 1] += x; })` adds each element into the next, and any other
+  array by value. `some` and `every` stop at the element that decides them, and `reduce`'s running
+  value takes its type from the function's first parameter or from the value to start from.
+  Refused, each with the fix: the other methods of `Array.prototype`, whose message names the
+  five and `for (const x of xs)`, `map` on a runtime-sized array, `reduce` with no value to start
+  from on one, a function that takes a runtime-sized array, a `thisArg`, and every refusal Rule
+  8.18 makes of a function handed over. The editor types the five: `interface Array<T>` declares
+  them with a `this` of `array<T, N>` and `index: i32`, and `array<T, N>` picks them through
+  `ArrayOps`. `src/compiler/ts/array-methods.test.ts` holds WGSL, GLSL ES 3.00, the CPU oracle,
+  the codegen and the debugger to one value for each; `examples/array-methods.shade.ts` joins the
+  compile gate, and the light-list journey runs them over a storage buffer on WebGPU.
+  `src/compiler/ts/array-hof.ts`, a sketch of a free `map` and `reduce` that nothing imported, is
+  gone.
+
 - **A method, a static method, a constructor, a field that holds a function and a local function
   take a function, as a function of the file does** (Rule 8.18; Rules 7.2 and 8.10; surface §14
   and §26; proposal 0002). A parameter of function type on any of them was refused with

@@ -130,6 +130,19 @@ export type ArgumentLifter = (
   diagnostics: TsCompilerDiagnostic[],
 ) => FuncDecl | undefined;
 
+/** How a function the front end builds itself joins the module: an array's method, one for
+ *  each array type and function a call hands it (Rule 8.18, surface §63). `key` says which two
+ *  calls may share one; `base` is the name it is made under, fresh; `shown` is how a message
+ *  names it; `captures` are the variables its first parameters stand for, which a call passes
+ *  as it passes a local function's (Rule 8.17). `build` makes it under the name it is given. */
+export type FunctionBuilder = (
+  key: string,
+  base: string,
+  shown: string,
+  captures: readonly CaptureKey[],
+  build: (name: string) => FuncDecl,
+) => FuncDecl;
+
 /** Whether a call of `decl` at `at` can be lowered now (Rule 8.19). A function that writes no
  *  return type says it in its body, so the first call that needs it before the body's turn
  *  lowers that body first. False, having said why or leaving it to the check that will, when
@@ -161,6 +174,8 @@ export interface FileFunctions {
   /** For each function in {@link generics} that takes a function, which parameters do. */
   readonly fnParams: Map<string, ReadonlySet<number>>;
   lift: ArgumentLifter | undefined;
+  /** Adds a function the front end builds itself to the module (surface §63). */
+  build: FunctionBuilder | undefined;
   /** Lowers the body of a function whose return type the body says, when a call needs it
    *  first (Rule 8.19); undefined where every function writes its return type. */
   ensure: BodyFiller | undefined;
@@ -194,6 +209,7 @@ export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
     instantiateMember: undefined,
     fnParams: new Map(),
     lift: undefined,
+    build: undefined,
     ensure: undefined,
     declared: new Map(),
     captures: new Map(),
@@ -534,6 +550,18 @@ export class LoweringScope {
     diagnostics: TsCompilerDiagnostic[],
   ): FuncDecl | undefined {
     return this.fns.lift?.(node, shape, hint, this, sourceFile, diagnostics);
+  }
+
+  /** The function the front end builds for `key` (an array's method, surface §63), made the
+   *  first time a call asks for it; undefined outside the lowering of a file's functions. */
+  buildFunction(
+    key: string,
+    base: string,
+    shown: string,
+    captures: readonly CaptureKey[],
+    build: (name: string) => FuncDecl,
+  ): FuncDecl | undefined {
+    return this.fns.build?.(key, base, shown, captures, build);
   }
 
   /** Whether the call of `decl` at `at` can be lowered now: a function whose body says its

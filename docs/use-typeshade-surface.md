@@ -1211,7 +1211,9 @@ called, or handed on to another such parameter (`twice(f)` calling `apply(f, x)`
 `apply_…` for whatever `f` was).
 
 The folds take the same arguments: `any(xs, pred)`, `all`, `none` and `zip(xs, ys, f)` accept an
-arrow function, typed by the arrays, and one `zip` is handed returns what its body does.
+arrow function, typed by the arrays, and one `zip` is handed returns what its body does. So do an
+array's own methods, `xs.map(f)`, `xs.forEach(f)`, `xs.some(p)`, `xs.every(p)` and
+`xs.reduce(f, init)`, each a counted loop the call runs (§63).
 
 A local function takes a function the same way, and so do a method, a static method, a
 constructor and a field that holds a function (§26): `const twice = (f: (x: f32) => f32, x: f32)
@@ -6088,6 +6090,128 @@ one merged vocabulary. `buffer` and `shared` become GLSL keywords in ES 3.10 and
 reserved in ES 1.00, so refusing any of them at 300 would refuse a program a WebGL2 driver
 compiles — while `shared` and `with` are WGSL reserved words, which is what the WGSL column
 says and what Tint enforces.
+
+## 63. An array's methods
+
+An array has five of the methods of ECMAScript's `Array.prototype`, and each runs as TypeScript
+runs it (Rule 8.18). They work on an `array<T, N>`, and all but `map` on a runtime-sized storage
+array too. Before this section every method of an array was `TS8099 JS Array method ".map" is
+not a shader op`.
+
+| Written              | Its value          | What it does                                                          |
+| -------------------- | ------------------ | --------------------------------------------------------------------- |
+| `xs.map(f)`          | `array<R, N>`      | `f(value, index, array)` for each element; `R` is what `f` returns    |
+| `xs.forEach(f)`      | nothing            | `f(value, index, array)` for each element, as a statement             |
+| `xs.some(p)`         | `bool`             | whether `p` holds for an element, stopping at the first that passes   |
+| `xs.every(p)`        | `bool`             | whether `p` holds for every element, stopping at the first that fails |
+| `xs.reduce(f, init)` | the type of `init` | `acc = f(acc, value, index, array)` from `init`, left to right        |
+| `xs.reduce(f)`       | `T`                | the same, starting from the first element, on an `array<T, N>`        |
+
+```ts
+"use typeshade";
+
+class Light {
+  pos: vec2;
+  radius: f32;
+  power: f32;
+}
+declare const lights: storage<array<Light>>;
+declare const out: storage<array<f32>, "read_write">;
+
+function sq(x: f32): f32 {
+  return x * x;
+}
+
+@compute([64])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  const p = vec2(f32(gid.x) / 64., 0.5);
+  const weights: array<f32, 4> = [0.1, 0.2, 0.3, 0.4];
+  const scaled = weights.map((w, i) => w * f32(i + 1));
+  const total = scaled.map(sq).reduce((acc, w) => acc + w, 0.);
+  const lit = lights.some((l) => distance(l.pos, p) < l.radius);
+  let glow = 0.;
+  lights.forEach((l) => {
+    glow += l.power / (1. + distance(l.pos, p));
+  });
+  out[gid.x] = glow * total + (lit ? 1. : 0.);
+}
+```
+
+**The function.** A method takes its function the way a function that takes a function does
+(§14): by its name, or as an arrow function or a function expression written in the call. It is
+handed the element (`value`), the element's `index`, an `i32`, which is the type an unannotated
+counter has (Rule 7.5), and the `array` itself, and for `reduce` the running value first. It
+may leave parameters off at the end, as TypeScript allows, and a function the file declares may
+take fewer than the method passes: `scaled.map(sq)` hands `sq` the element alone. One that
+writes no return type returns what its body does (Rule 8.19). What it captures, the call passes,
+by reference where it writes it: `glow` above. `reduce`'s running value has the type of the
+function's first parameter where that is written, and otherwise the type of the value to start
+from, where a `0` nothing declares an integer is an `f32` (Rule 5.1).
+
+**What it lowers to.** Each call is a call of a function of the module, made once for each array
+type and function handed over: a counted loop over the indices that calls the function, which
+`some` and `every` leave at the first element that decides them.
+
+```wgsl
+fn array_map_sq(scaled: array<f32, 4>) -> array<f32, 4> {
+  var out: array<f32, 4>;
+  for (var i: i32 = 0; (i < 4); i = (i + 1)) {
+    out[i] = sq(scaled[i]);
+  }
+  return out;
+}
+
+fn array_forEach_main_f_2(glow: ptr<function, f32>, p: vec2<f32>) {
+  for (var i: i32 = 0; (i < i32(arrayLength(&lights))); i = (i + 1)) {
+    main_f_2(glow, p, lights[i]);
+  }
+}
+```
+
+A method call is an expression and a loop is a statement. A function is a call anywhere a call
+may stand, in an argument, on the right of `&&`, or in a loop's condition, where no loop could
+be written in place, and every target and the CPU oracle run one already.
+
+**The array is read as it goes, as TypeScript reads it.** An element the function writes before
+the loop reaches it is read with the write:
+
+- a module variable, a module constant or a binding is read in place, `lights[i]` above;
+- a variable the function captures is read through the parameter the loop takes for it, which
+  is the one the function writes through when it writes it (Rule 8.18): a running sum
+  `xs.forEach((x, i) => { xs[i + 1] += x; })` adds each element into the next, as in TypeScript;
+- any other array is passed by value, since nothing can write it while the loop runs.
+
+An index on the way to the array, `cells[k].xs.some(…)`, is read once before the loop, as
+TypeScript reads the receiver once.
+
+**Where it differs from TypeScript** (Rule 7.2): `index` is an `i32` where TypeScript passes a
+`number`, and `map`'s value is an array value that a `const` holds a copy of, as every array
+here is, where TypeScript builds a new array object.
+
+**Refused, each naming what to write:**
+
+- the other methods of `Array.prototype` (`filter`, `find`, `slice`, `push`, `sort`, …): an
+  array's length is fixed, so a search, a copy or a change of length is a loop,
+  `for (const x of xs)` (§17);
+- `map` on a runtime-sized array, whose value would be an array with no size, which exists only
+  in storage: `forEach` storing into a storage binding is the fix;
+- `reduce` with no value to start from on a runtime-sized array, which may be empty, where
+  TypeScript throws a `TypeError` and a shader cannot throw;
+- a function that takes the array itself from a runtime-sized one, which no function can take:
+  it reads the binding by its name instead;
+- a second argument to `map`, `forEach`, `some` or `every` (`thisArg`), since an arrow function
+  reads the `this` around it already;
+- every refusal Rule 8.18 makes of a function handed over: one that does not fit, a builtin or a
+  generic function by its name, and a choice at run time; and a `map` whose function returns
+  nothing, and a `forEach` whose value is used.
+
+The folds of §27 (`sum`, `any`, `all`, `none`, `zip`) stay as they are: unrolled, and shorter
+to write where they fit.
+
+**The editor types all of it.** `interface Array<T>` in the ambient library declares the five,
+as `lib.es5.d.ts` spells them with a `this` of `array<T, N>` and `index: i32`, and
+`array<T, N>` picks them by name (Rule 3.6), so `scaled` above is an `array<f32, 4>` and
+`glow`'s arrow function is checked against the element type.
 
 ---
 

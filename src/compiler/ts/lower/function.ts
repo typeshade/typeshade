@@ -1393,6 +1393,21 @@ export function lowerSourceFunctions(
   // An arrow function or a function expression written as an argument (Rule 8.18): a local
   // function of the body the call is in, lifted where the call is lowered, once for each body
   // lowered, since its captures are that body's.
+  // A function the front end builds itself (surface §63): an array's method, made for the array
+  // type and the function a call hands it the first time a call asks for it. What it captures
+  // is the function's, which a call passes ahead of the rest (Rule 8.17).
+  const built = new Map<string, FuncDecl>();
+  fns.build = (key, base, shown, captures, build): FuncDecl => {
+    const had = built.get(key);
+    if (had !== undefined) return had;
+    const decl = build(freshName(base));
+    callees.set(decl.name, decl);
+    if (captures.length > 0) file.captures.set(decl.name, captures);
+    writtenAs.set(decl.name, shown);
+    funcs.push(decl);
+    built.set(key, decl);
+    return decl;
+  };
   const liftedArguments = new Map<ts.Node, Map<FuncDecl, FuncDecl>>();
   fns.lift = (node, shape, hint, scope, sf, diags): FuncDecl | undefined => {
     const owner = scope.owner();

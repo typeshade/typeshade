@@ -1761,6 +1761,8 @@ export function lowerClassCall(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  /** Where the receiver goes when it is not an object: lowered once, for the caller to use. */
+  seen: { recv?: Expr } = {},
 ): Expr | undefined | 'not-a-class-call' {
   const obj = callee.expression;
   // The member as written: `at`, or `#step` for a private one (Rule 8.12).
@@ -1835,7 +1837,10 @@ export function lowerClassCall(
   }
   const recv = lowerExpression(obj, sourceFile, scope, diagnostics);
   if (!recv) return undefined;
-  if (recv.type.kind !== 'struct') return 'not-a-class-call';
+  if (recv.type.kind !== 'struct') {
+    seen.recv = recv;
+    return 'not-a-class-call';
+  }
   const name = recv.type.name;
   const shown = `${name}.${member}`;
   const found = memberFunctionOf(name, member, 'method', scope);
