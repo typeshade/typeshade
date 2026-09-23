@@ -20,6 +20,7 @@ import { TS_CODES, type TsCode } from '../codes.js';
 import { closureUse } from './closures.js';
 import { captureArguments, declaresFunction } from './local-functions.js';
 import { misfit, type FunctionShape } from './function-types.js';
+import { isAsyncOrGenerator } from '../semantic.js';
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -184,13 +185,8 @@ export function argumentSignature(
     push(diagnostics, sourceFile, at, message, code);
     return undefined;
   };
-  if (node.asteriskToken || node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)) {
-    return refuse(
-      node,
-      'A function written as an argument is a plain function: no async, no generator.',
-      TS_CODES.FUNCTION_SHAPE,
-    );
-  }
+  // An async function or a generator was refused where it is written, once (semantic.ts).
+  if (isAsyncOrGenerator(node)) return undefined;
   if (node.typeParameters !== undefined) {
     return refuse(
       node.typeParameters[0]!,

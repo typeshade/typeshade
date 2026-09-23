@@ -201,7 +201,7 @@ export const SUPPORTED_TYPE_NAMES: readonly string[] = [
  *  Measured before this: the alias fell through to the capitalized-name arm below and became a
  *  struct named after itself, so `type Meters = f32` made `m * 0.5` "cannot * struct:Meters and
  *  f32" and a lowercase alias was an unknown type. */
-function aliasTargetsOf(sourceFile: ts.SourceFile): ReadonlyMap<string, ts.TypeNode> {
+export function aliasTargetsOf(sourceFile: ts.SourceFile): ReadonlyMap<string, ts.TypeNode> {
   const cached = ALIAS_CACHE.get(sourceFile);
   if (cached) return cached;
   const out = new Map<string, ts.TypeNode>();
@@ -272,6 +272,15 @@ const REFUSED_GENERICS = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
 /** Records the generic interfaces and aliases `collectStructs` refuses in `sourceFile`. */
 export function setRefusedGenerics(sourceFile: ts.SourceFile, names: ReadonlySet<string>): void {
   REFUSED_GENERICS.set(sourceFile, names);
+}
+
+/** Whether a type names a generic interface or alias `collectStructs` refused, `G<f32>`. */
+export function namesRefusedGeneric(typeNode: ts.TypeNode, sourceFile: ts.SourceFile): boolean {
+  return (
+    ts.isTypeReferenceNode(typeNode) &&
+    ts.isIdentifier(typeNode.typeName) &&
+    REFUSED_GENERICS.get(sourceFile)?.has(typeNode.typeName.text) === true
+  );
 }
 
 export function mapTsTypeToShaderType(

@@ -1071,16 +1071,11 @@ export function collectClassFunctions(
           );
           continue;
         }
+        // An async method or a generator was refused where it is written (semantic.ts), once.
         if (
           (ts.isMethodDeclaration(method) && method.asteriskToken) ||
           method.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
         ) {
-          pushDiag(
-            diagnostics,
-            sourceFile,
-            method,
-            `"${shown}" is a plain method or nothing: no async, no generator.`,
-          );
           continue;
         }
         if (method.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)) {
@@ -1801,6 +1796,8 @@ export function lowerClassCall(
         if (scope.isGenericFunction(qualified)) {
           return lowerGenericCall(node, qualified, shown, sourceFile, scope, diagnostics);
         }
+        // One the namespace declares and whose declaration was refused, having said why.
+        if (scope.declarationRefused(qualified)) return undefined;
         pushDiag(diagnostics, sourceFile, callee, `"${name}" has no function "${member}".`);
         return undefined;
       }

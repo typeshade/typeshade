@@ -26,12 +26,17 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { LoweringScope } from './context.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
-import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js';
+import {
+  mapTsTypeToShaderType,
+  namesRefusedGeneric,
+  RETIRED_VAR_WRAPPER,
+  retiredWrapperMessage,
+} from './type-map.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { foldConstComponents } from './loop-bound.js';
 import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
 import { lowerExpression } from './lower/expression.js';
-import { lowerArrayLiteral } from './lower/expression-array.js';
+import { lowerArrayLiteral, refuseListSpread, spreadListType } from './lower/expression-array.js';
 import { isOverrideType } from './overrides.js';
 import { isFoldableConstExpr, staticConstName } from './module-const.js';
 import { eachNamespaceStatement } from './namespaces.js';
@@ -105,7 +110,10 @@ const typeOf = (
   diagnostics: TsCompilerDiagnostic[],
 ): ShaderType | undefined =>
   mapTsTypeToShaderType(node, sourceFile, diagnostics) ??
-  (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)
+  // A generic interface or alias was refused where it is declared, and names no struct here.
+  (ts.isTypeReferenceNode(node) &&
+  ts.isIdentifier(node.typeName) &&
+  !namesRefusedGeneric(node, sourceFile)
     ? structT(node.typeName.text)
     : undefined);
 
@@ -353,6 +361,21 @@ function declaredResourceText(type: ts.TypeNode, sourceFile: ts.SourceFile): str
   return `storage<${args[0].getText(sourceFile)}, "read_write">`;
 }
 
+/** Whether a module variable's initializer is a list with a spread, refused as one sentence
+ *  before the list is counted or asked for its type (expression-array.ts). */
+function spreadRefused(
+  decl: VarSite,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): decl is VarSite & { initializer: ts.ArrayLiteralExpression } {
+  return (
+    decl.initializer !== undefined &&
+    ts.isArrayLiteralExpression(decl.initializer) &&
+    refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)
+  );
+}
+
 /** `let seed: u32 = 7`, `let hits: u32`, `let v = 1.5`: the per-invocation variable, its type
  *  from the annotation or, without one, from the initializer by §12's rule for a `const`. */
 function lowerPlain(
@@ -395,6 +418,10 @@ function lowerPlain(
     }
     const type = typeOf(decl.type, sourceFile, diagnostics);
     if (!type) return undefined;
+    // A list refused for its spread keeps the name, with no initializer (Rule 12.4).
+    if (spreadRefused(decl, sourceFile, scope, diagnostics)) {
+      return { name, space: 'private', type };
+    }
     return finish(
       decl,
       decl.type,
@@ -419,6 +446,11 @@ function lowerPlain(
     return undefined;
   }
   if (ts.isArrayLiteralExpression(decl.initializer)) {
+    // A spread is the list's one sentence, and the name keeps the type its elements add up to.
+    if (spreadRefused(decl, sourceFile, scope, diagnostics)) {
+      const type = spreadListType(decl.initializer, sourceFile, scope);
+      return type === undefined ? undefined : { name, space: 'private', type };
+    }
     diagnostics.push(
       diag(
         sourceFile,

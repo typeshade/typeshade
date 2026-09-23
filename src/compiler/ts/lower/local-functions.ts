@@ -23,6 +23,7 @@ import type { CollectedStruct } from '../structs.js';
 import { TS_CODES } from '../codes.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { spanOf } from '../span.js';
+import { isAsyncOrGenerator } from '../semantic.js';
 import {
   THIS_CAPTURE,
   irNameOf,
@@ -142,17 +143,9 @@ export function collectLocalFunctions(
       refuse();
       continue;
     }
-    if (node.asteriskToken || node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)) {
-      // A `function` declaration is semantic.ts's to refuse wherever it stands (TS8013), once.
-      if (!ts.isFunctionDeclaration(node)) {
-        push(
-          diagnostics,
-          sourceFile,
-          node,
-          `"${local}" is a plain function or nothing: no async, no generator.`,
-          TS_CODES.FUNCTION_SHAPE,
-        );
-      }
+    // An async function or a generator is semantic.ts's to refuse, wherever it stands and once
+    // (Rule 12.4): TS8013 on a declaration, TS8020 on a function written as a value.
+    if (isAsyncOrGenerator(node)) {
       refuse();
       continue;
     }

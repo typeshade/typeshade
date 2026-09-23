@@ -58,7 +58,7 @@ import {
 } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
 import { lowerCall } from './expression-call.js';
-import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
+import { lowerArrayLiteral, refuseListSpread, spreadListType } from './expression-array.js';
 import { lowerFor, lowerForOf, lowerSwitch, lowerUpdate, lowerWhile } from './control.js';
 import { refusedBySemantics } from '../semantic.js';
 import { makeDiagnostic } from '../diagnostic.js';
@@ -491,13 +491,14 @@ function lowerDeclarationKind(
   let init: Expr | undefined;
   if (ts.isArrayLiteralExpression(decl.initializer)) {
     // A spread is the list's one mistake, said before the annotation it would otherwise be
-    // asked for. With a type declared the name is still declared, with no value, so a use of it
-    // adds nothing (Rule 12.4).
+    // asked for. The name is still declared, with no value, under the type written or the one
+    // the elements add up to, so a use of it adds nothing (Rule 12.4).
     if (refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)) {
-      if (!annotated) return undefined;
+      const type = annotated ?? spreadListType(decl.initializer, sourceFile, scope);
+      if (!type) return undefined;
       const bound = defineLocal(
         name,
-        annotated,
+        type,
         !isConst,
         undefined,
         decl,
@@ -506,11 +507,7 @@ function lowerDeclarationKind(
         diagnostics,
       );
       if (!bound) return undefined;
-      return withSpan(
-        { s: 'var', name: irNameOf(bound), type: annotated } as Stmt,
-        sourceFile,
-        spanNode,
-      );
+      return withSpan({ s: 'var', name: irNameOf(bound), type } as Stmt, sourceFile, spanNode);
     }
     if (!annotated) {
       const kw = isConst ? 'const' : 'let';

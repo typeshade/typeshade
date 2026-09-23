@@ -3,7 +3,13 @@ import type { StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { boolT, f32T, structT, typeKey as typeKeyOf } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { lookupTypeName, mapTsTypeToShaderType, setRefusedGenerics } from './type-map.js';
+import {
+  aliasTargetsOf,
+  lookupTypeName,
+  mapTsTypeToShaderType,
+  namesRefusedGeneric,
+  setRefusedGenerics,
+} from './type-map.js';
 import {
   baseClassOf,
   emittedMemberName,
@@ -183,15 +189,8 @@ export function collectStructs(
   );
   const candidates = collectCandidates(sourceFile);
   const reachable = reachableCandidates(sourceFile, candidates);
-  // A generic interface or object-type alias something uses is refused once, at its declaration
-  // (below), and a use of it, `G<f32>`, adds nothing to that (Rule 12.4). Recorded before any
-  // type is mapped here, so a field that names one is quiet too.
-  setRefusedGenerics(
-    sourceFile,
-    new Set(
-      [...candidates.values()].filter((c) => c.generic && reachable.has(c.name)).map((c) => c.name),
-    ),
-  );
+  // Recorded before any type is mapped here, so a field that names one is quiet too.
+  const refusedGenerics = refuseGenericsOf(sourceFile, candidates);
   const out: CollectedStruct[] = [];
   const declared = new Set<string>();
   /** Where to anchor a diagnostic about a struct's inheritance, which is reported after the
@@ -273,7 +272,9 @@ export function collectStructs(
     // A declaration with a base gets its fields from `applyInheritance`, which reports an
     // empty one once what it extends is known (T5, #92).
     if (fields.length === 0 && bases.length === 0) {
-      if (diagnostics.length === before) {
+      // A field the class withholds was refused where it is written, which says why this one
+      // is empty; a field typed with a generic interface was refused at that interface.
+      if (diagnostics.length === before && (klass?.withheld.size ?? 0) === 0) {
         diagnostics.push(
           diag(
             sourceFile,
@@ -320,13 +321,17 @@ export function collectStructs(
         refuseNamespaceStatement(stmt, prefix, sourceFile, diagnostics);
         continue;
       }
-      if (!reachable.has(candidate.name)) continue;
       if (candidate.generic) {
         // §32 collects a generic CLASS once per set of type arguments; the other two spellings
         // are not collected that way, so the sentence names the one that is.
-        diagnostics.push(diag(sourceFile, candidate.nameNode, genericCandidateMessage(candidate)));
+        if (refusedGenerics.has(candidate.name)) {
+          diagnostics.push(
+            diag(sourceFile, candidate.nameNode, genericCandidateMessage(candidate)),
+          );
+        }
         continue;
       }
+      if (!reachable.has(candidate.name)) continue;
       const heritage = basesOf(candidate.name, candidate.heritage, sourceFile, diagnostics);
       if (heritage === undefined) continue;
       const before = diagnostics.length;
@@ -704,9 +709,13 @@ export function collectStructs(
           // `v = vec3(0.)` and `p = new P()` the type they build. Before this such a field was
           // dropped from the struct with no diagnostic, and every read of it said it did not
           // exist.
+          // One whose type is a generic interface or alias is withheld: that declaration said
+          // why, once, and a read of the field adds nothing (Rule 12.4).
           const type = member.type
             ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
-              structT(member.type.getText(sourceFile)))
+              (namesRefusedGeneric(member.type, sourceFile)
+                ? undefined
+                : structT(member.type.getText(sourceFile))))
             : member.initializer !== undefined
               ? initializerType(member.initializer, sourceFile)
               : undefined;
@@ -1138,6 +1147,26 @@ function candidateOf(stmt: ts.Statement): Candidate | undefined {
   return undefined;
 }
 
+/** The generic interfaces and object-type aliases of a file that something uses, which
+ *  `collectStructs` refuses at their declaration, recorded so that a use of one, `G<f32>`, adds
+ *  nothing to that sentence (Rule 12.4). A plain alias a use reaches, `type GF = G<f32>`, uses
+ *  what it names. The multi-file path records them before it reads a function's signature. */
+export function noteRefusedGenerics(sourceFile: ts.SourceFile): void {
+  refuseGenericsOf(sourceFile, collectCandidates(sourceFile));
+}
+
+function refuseGenericsOf(
+  sourceFile: ts.SourceFile,
+  candidates: ReadonlyMap<string, Candidate>,
+): ReadonlySet<string> {
+  const reached = reachableCandidates(sourceFile, candidates, aliasTargetsOf(sourceFile));
+  const names = new Set(
+    [...candidates.values()].filter((c) => c.generic && reached.has(c.name)).map((c) => c.name),
+  );
+  setRefusedGenerics(sourceFile, names);
+  return names;
+}
+
 /** Why a generic interface or type alias is no struct, and the class that says it: `class
  *  G<T> { x: T }` with the declaration's own type parameters and fields. */
 function genericCandidateMessage(candidate: Candidate): string {
@@ -1203,10 +1232,19 @@ function eachTypeName(node: ts.Node, f: (name: string) => void): void {
 function reachableCandidates(
   sourceFile: ts.SourceFile,
   candidates: ReadonlyMap<string, Candidate>,
+  /** The file's plain aliases, `type GF = G<f32>`, when an alias a use reaches is to reach
+   *  what it names as well. */
+  aliases?: ReadonlyMap<string, ts.TypeNode>,
 ): Set<string> {
   const reachable = new Set<string>();
   const pending: string[] = [];
+  const followed = new Set<string>();
   const see = (name: string): void => {
+    const target = aliases?.get(name);
+    if (target !== undefined && !followed.has(name)) {
+      followed.add(name);
+      eachTypeName(target, see);
+    }
     if (!candidates.has(name) || reachable.has(name)) return;
     reachable.add(name);
     pending.push(name);
@@ -1503,13 +1541,8 @@ function functionFieldRefusal(
         `function of the module.`,
     };
   }
-  // The sentence a method of the same shape gets.
-  if (
-    (ts.isFunctionExpression(fn) && fn.asteriskToken !== undefined) ||
-    fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
-  ) {
-    return { at: fn, message: `"${shown}" is a plain method or nothing: no async, no generator.` };
-  }
+  // An async function or a generator is refused where it is written (semantic.ts), and is the
+  // method it would be, async, which the method lowering leaves to that one sentence.
   return undefined;
 }
 
@@ -1559,17 +1592,20 @@ function methodOfField(
     body = ts.setTextRange(ts.factory.createBlock([stmt], true), fn.body);
     setParent(stmt, body);
   }
-  const modifiers = (ts.getModifiers(member) ?? []).filter(
-    (m) =>
-      m.kind === ts.SyntaxKind.PublicKeyword ||
-      m.kind === ts.SyntaxKind.PrivateKeyword ||
-      m.kind === ts.SyntaxKind.ProtectedKeyword ||
-      m.kind === ts.SyntaxKind.OverrideKeyword,
-  );
+  const modifiers = [
+    ...(ts.getModifiers(member) ?? []).filter(
+      (m) =>
+        m.kind === ts.SyntaxKind.PublicKeyword ||
+        m.kind === ts.SyntaxKind.PrivateKeyword ||
+        m.kind === ts.SyntaxKind.ProtectedKeyword ||
+        m.kind === ts.SyntaxKind.OverrideKeyword,
+    ),
+    ...(ts.getModifiers(fn) ?? []).filter((m) => m.kind === ts.SyntaxKind.AsyncKeyword),
+  ];
   const method = ts.setTextRange(
     ts.factory.createMethodDeclaration(
       modifiers,
-      undefined,
+      ts.isFunctionExpression(fn) ? fn.asteriskToken : undefined,
       member.name,
       undefined,
       undefined,

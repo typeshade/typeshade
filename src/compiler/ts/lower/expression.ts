@@ -24,7 +24,7 @@ import {
 } from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
-import { lowerArrayLiteral } from './expression-array.js';
+import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
 import { refuseBareAtomic } from './atomics.js';
 import { lowerCall } from './expression-call.js';
 import { lowerNew, lowerThis } from './class-methods.js';
@@ -215,6 +215,9 @@ export function lowerExpression(
     if (contextual?.kind === 'array') {
       return lowerArrayLiteral(node, contextual, sourceFile, scope, diagnostics);
     }
+    // A spread is the list's one sentence, and counting `[...a, 1.]` as two elements would name
+    // an arity the author never wrote (Rule 12.4).
+    if (refuseListSpread(node, sourceFile, scope, diagnostics)) return undefined;
     // With no type declared anywhere there is nothing to fill, so say which spelling does work
     // rather than repeating the generic "Unsupported expression".
     pushDiag(

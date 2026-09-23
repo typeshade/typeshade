@@ -21,6 +21,7 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
+import { compileTsSources } from './module.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const errorsOf = (src: string) =>
@@ -471,9 +472,30 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
   const TOP_VAR =
     'TS8014 Top-level var is not allowed. Use `let` for a per-invocation variable or `const` ' +
     'for a module constant.';
+  const TOP = (kind: string): string =>
+    `TS8014 Unsupported top-level "${kind}". A TypeShade file is directive + types + functions + ` +
+    'imports.';
   const IN_NAMESPACE = (what: string): string =>
     `TS8014 A namespace holds functions, constants, classes and namespaces; ${what} inside "N" ` +
     'has no flattened form. Declare it at the top level of the file.';
+  const ASYNC = (code: string, shown: string): string =>
+    `${code} ${shown} is async, and a shader function runs to completion in one call: there is ` +
+    'no event loop to wait on. Remove "async" and each "await".';
+  const GENERATOR = (code: string, shown: string): string =>
+    `${code} ${shown} is a generator, and a shader function runs to completion in one call: ` +
+    'nothing suspends it at a "yield". Remove the "*" and return one value.';
+  const SPREAD = (operand: string, elements: string): string =>
+    `TS8013 "...${operand}" spreads a list into a list, which a shader array does not do: write ` +
+    `its elements, ${elements}.`;
+  const SPREAD_ANY = (operand: string): string =>
+    `TS8013 "...${operand}" spreads into a list, which a shader array does not do: write the ` +
+    'elements one by one.';
+  const GENERIC = (what: string, body: string): string =>
+    `TS8010 "G" is a generic ${what}; a generic struct is written as a class, class G<T> ` +
+    `{ ${body} } (surface §32).`;
+  const TEMPLATE = 'TS8013 Template strings are JS. TypeShade has no string type.';
+  const AWAIT = 'TS8013 await is host control flow. Shader functions are synchronous.';
+  const LIST = 'const A: array<f32, 2> = [1., 2.];\n';
   const cases: readonly (readonly [string, string, readonly string[]])[] = [
     [
       'for…in, and no "Unsupported statement" after it',
@@ -496,6 +518,14 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       shader('', '  if (a < 0.) {\n    throw `bad ${a}`;\n  }\n  return a;'),
       [THROW],
     ],
+    // A statement the top level cannot hold is that one mistake, whatever it holds.
+    ['throw at the top level', shader('throw 1.;\n', '  return a;'), [TOP('ThrowStatement')]],
+    ['try at the top level', shader('try {\n} catch {\n}\n', '  return a;'), [TOP('TryStatement')]],
+    [
+      'for…in at the top level',
+      shader('for (const k in {}) {\n}\n', '  return a;'),
+      [TOP('ForInStatement')],
+    ],
     [
       'var in a body, lowered as the let it would have been',
       shader('', '  var x: f32 = a;\n  x += 1.;\n  return x;'),
@@ -512,6 +542,19 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       [TOP_VAR],
     ],
     [
+      'var holding a function at the top level',
+      shader('var g = (x: f32): f32 => x * 2.;\n', '  return g(a);'),
+      [TOP_VAR],
+    ],
+    [
+      'a function held by a top-level let, refused as a function and not also as a variable',
+      shader('let g = (x: f32): f32 => x * 2.;\n', '  return g(a);'),
+      [
+        'TS8020 "g" is a function, so it is declared with const; a "let" would let the name ' +
+          'point at another one, which no shader value does.',
+      ],
+    ],
+    [
       'var declaring a binding at the top level',
       shader('class U {\n  k: f32;\n}\ndeclare var u: uniform<U>;\n', '  return u.k;'),
       [TOP_VAR],
@@ -525,6 +568,14 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       'var in a namespace',
       shader('namespace N {\n  export var x = 1.;\n}\n', '  return a;'),
       [IN_NAMESPACE('a variable')],
+    ],
+    [
+      'var in a namespace inside a namespace',
+      shader('namespace N {\n  namespace M {\n    export var x = 1.;\n  }\n}\n', '  return a;'),
+      [
+        'TS8014 A namespace holds functions, constants, classes and namespaces; a variable ' +
+          'inside "N_M" has no flattened form. Declare it at the top level of the file.',
+      ],
     ],
     [
       'an interface in a namespace',
@@ -543,10 +594,108 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
         '  const xs: array<f32, 2> = [a, 2.];\n  const b: array<f32, 4> = [...xs, 3., 4.];\n' +
           '  return b[0];',
       ),
-      [
-        'TS8013 "...xs" spreads a list into a list, which a shader array does not do: write ' +
-          'its elements, xs[0], xs[1].',
-      ],
+      [SPREAD('xs', 'xs[0], xs[1]')],
+    ],
+    [
+      'a spread in a list with no type, whose name keeps the type its elements add up to',
+      shader('', '  const xs: array<f32, 2> = [a, 1.];\n  const b = [...xs, 3.];\n  return b[2];'),
+      [SPREAD('xs', 'xs[0], xs[1]')],
+    ],
+    [
+      'a spread in a list written as an argument, said before the list is counted',
+      shader(
+        'function sum(xs: array<f32, 3>): f32 {\n  return xs[0] + xs[1] + xs[2];\n}\n',
+        '  const xs: array<f32, 2> = [a, 1.];\n  return sum([...xs, 3.]);',
+      ),
+      [SPREAD('xs', 'xs[0], xs[1]')],
+    ],
+    [
+      'a spread in a list with no type anywhere',
+      shader('', '  const xs: array<f32, 2> = [a, 1.];\n  return [...xs, 3.][0];'),
+      [SPREAD('xs', 'xs[0], xs[1]')],
+    ],
+    [
+      'a spread in a module constant, whose name stays declared',
+      shader(`${LIST}const B: array<f32, 4> = [...A, 3., 4.];\n`, '  return B[0] + a;'),
+      [SPREAD('A', 'A[0], A[1]')],
+    ],
+    [
+      'a spread in a module constant with no type',
+      shader(`${LIST}const B = [...A, 3.];\n`, '  return B[2] + a;'),
+      [SPREAD('A', 'A[0], A[1]')],
+    ],
+    [
+      'a spread in a module variable, whose name stays declared',
+      shader(`${LIST}let B: array<f32, 3> = [...A, 3.];\n`, '  B[0] += a;\n  return B[0];'),
+      [SPREAD('A', 'A[0], A[1]')],
+    ],
+    [
+      'a spread in a module variable with no type',
+      shader(`${LIST}let B = [...A, 3.];\n`, '  B[0] += a;\n  return B[0];'),
+      [SPREAD('A', 'A[0], A[1]')],
+    ],
+    [
+      'a spread in a default, and a call that leaves the default out',
+      shader(
+        `${LIST}function k(xs: array<f32, 3> = [...A, 3.]): f32 {\n  return xs[0];\n}\n`,
+        '  return k() + a;',
+      ),
+      [SPREAD('A', 'A[0], A[1]')],
+    ],
+    [
+      'a spread of a vector, which names its components',
+      shader(
+        '',
+        '  const v: vec3 = vec3(a, 1., 2.);\n  const b: array<f32, 4> = [...v, 3.];\n  return b[0];',
+      ),
+      [SPREAD('v', 'v.x, v.y, v.z')],
+    ],
+    [
+      'a spread of a long array, which names its first and last elements',
+      shader(
+        '',
+        '  const xs: array<f32, 8> = [a, a, a, a, a, a, a, a];\n' +
+          '  const b: array<f32, 9> = [...xs, 1.];\n  return b[0];',
+      ),
+      [SPREAD('xs', 'xs[0], xs[1], …, xs[7]')],
+    ],
+    [
+      'a spread of a struct, which has no elements to name',
+      shader(
+        'class S {\n  x: f32 = 0.;\n  y: f32 = 0.;\n}\n',
+        '  const s = new S();\n  const b: array<f32, 3> = [...s, 1.];\n  return b[0];',
+      ),
+      [SPREAD_ANY('s')],
+    ],
+    [
+      'a spread in a list no call lowers',
+      shader(
+        'function g<T>(a: array<T, 2>): array<T, 3> {\n  return [...a, a[0]];\n}\n',
+        '  return a;',
+      ),
+      [SPREAD_ANY('a')],
+    ],
+    [
+      'a spread in a generic body two calls lower alike, said once with its elements',
+      shader(
+        'function g<T>(xs: array<T, 2>): array<T, 3> {\n  return [...xs, xs[0]];\n}\n',
+        '  const i: array<i32, 2> = [1, 2];\n  const xs: array<f32, 2> = [a, a];\n' +
+          '  return g(xs)[0] + f32(g(i)[0]);',
+      ),
+      [SPREAD('xs', 'xs[0], xs[1]')],
+    ],
+    [
+      'a spread in a generic body two calls lower differently, said once without them',
+      shader(
+        'function g<T>(v: T): f32 {\n  const b: array<f32, 4> = [...v, 1.];\n  return b[0];\n}\n',
+        '  return g(vec3(a, a, a)) + g(vec2(a, a));',
+      ),
+      [SPREAD_ANY('v')],
+    ],
+    [
+      'an await in what a spread spreads',
+      shader('', '  const b: array<f32, 3> = [...(await a), 1.];\n  return b[0];'),
+      [SPREAD_ANY('(await a)')],
     ],
     [
       'a spread argument',
@@ -556,42 +705,90 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       ),
       ['TS8013 Spread is a JS runtime operation.'],
     ],
+    ['a template string', shader('', '  const s = `a${a}`;\n  return a;'), [TEMPLATE]],
     [
-      'a template string',
-      shader('', '  const s = `a${a}`;\n  return a;'),
-      ['TS8013 Template strings are JS. TypeShade has no string type.'],
+      'a template string in a template string',
+      shader('', '  const s = `a${`b${a}`}`;\n  return a;'),
+      [TEMPLATE],
     ],
     [
-      'await outside an async function',
-      shader('', '  return await a;'),
-      ['TS8013 await is host control flow. Shader functions are synchronous.'],
+      'a template string in a body whose return type is its own, and a call of it',
+      shader('function h(x: f32) {\n  return `${x}`.length;\n}\n', '  return h(a);'),
+      [TEMPLATE],
     ],
+    ['await outside an async function', shader('', '  return await a;'), [AWAIT]],
+    ['await standing as a statement', shader('', '  await a;\n  return a;'), [AWAIT]],
     [
       'an async function, whose await is part of it, and a call to it',
       shader(
         'async function h(x: f32): f32 {\n  const y = await x;\n  return y;\n}\n',
         '  return h(a);',
       ),
+      [ASYNC('TS8013', '"h"')],
+    ],
+    [
+      'an async function in a namespace, and a call to it through the namespace',
+      shader(
+        'namespace N {\n  export async function h(x: f32): f32 {\n    return await x;\n  }\n}\n',
+        '  return N.h(a);',
+      ),
+      [ASYNC('TS8013', '"h"')],
+    ],
+    [
+      'an async generator',
+      shader('async function* h(): f32 {\n  yield 1.;\n}\n', '  return a;'),
       [
-        'TS8013 "h" is async, and a shader function runs to completion in one call: there is ' +
-          'no event loop to wait on. Remove "async" and each "await".',
+        'TS8013 "h" is an async generator, and a shader function runs to completion in one ' +
+          'call: there is no event loop to wait on. Remove "async" and the "*", and return one ' +
+          'value.',
       ],
     ],
     [
       'a generator, whose yield is part of it',
       shader('function* h(): f32 {\n  yield 1.;\n}\n', '  return a;'),
-      [
-        'TS8013 "h" is a generator, and a shader function runs to completion in one call: ' +
-          'nothing suspends it at a "yield". Remove the "*" and return one value.',
-      ],
+      [GENERATOR('TS8013', '"h"')],
+    ],
+    [
+      'a generator with no name',
+      shader('export default function* (): f32 {\n  yield 1.;\n}\n', '  return a;'),
+      [GENERATOR('TS8013', 'This function')],
     ],
     [
       'a generator declared in a body',
       shader('', '  function* g(): f32 {\n    yield 1.;\n  }\n  return a;'),
-      [
-        'TS8013 "g" is a generator, and a shader function runs to completion in one call: ' +
-          'nothing suspends it at a "yield". Remove the "*" and return one value.',
-      ],
+      [GENERATOR('TS8013', '"g"')],
+    ],
+    [
+      'an async arrow in a body no call lowers',
+      shader(
+        'function g<T>(x: T): T {\n  const h = async (y: T): T => await y;\n  return x;\n}\n',
+        '  return a;',
+      ),
+      [ASYNC('TS8020', '"h"')],
+    ],
+    [
+      'a generator function expression in a body no call lowers',
+      shader(
+        'function g<T>(x: T): T {\n  const h = function* (): T {\n    yield x;\n  };\n  return x;\n}\n',
+        '  return a;',
+      ),
+      [GENERATOR('TS8020', '"h"')],
+    ],
+    [
+      'an async function written as an argument',
+      shader(
+        'function apply(k: (x: f32) => f32, x: f32): f32 {\n  return k(x);\n}\n',
+        '  return apply(async (y: f32): f32 => await y, a);',
+      ),
+      [ASYNC('TS8020', 'This function')],
+    ],
+    [
+      "a class's async method",
+      shader(
+        'class C {\n  x: f32 = 0.;\n  async m(): f32 {\n    return await this.x;\n  }\n}\n',
+        '  return a;',
+      ),
+      [ASYNC('TS8035', '"C.m"')],
     ],
     [
       'a generic interface used with a type argument',
@@ -599,10 +796,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
         'interface G<T> {\n  x: T;\n}\nfunction k(g: G<f32>): f32 {\n  return g.x;\n}\n',
         '  return a;',
       ),
-      [
-        'TS8010 "G" is a generic interface; a generic struct is written as a class, ' +
-          'class G<T> { x: T } (surface §32).',
-      ],
+      [GENERIC('interface', 'x: T')],
     ],
     [
       'a generic type alias used with a type argument',
@@ -610,10 +804,41 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
         'type G<T> = { x: T };\nfunction k(g: G<f32>): f32 {\n  return g.x;\n}\n',
         '  return a;',
       ),
-      [
-        'TS8010 "G" is a generic type alias; a generic struct is written as a class, ' +
-          'class G<T> { x: T } (surface §32).',
-      ],
+      [GENERIC('type alias', 'x: T')],
+    ],
+    [
+      'a generic interface reached through a type alias',
+      shader(
+        'interface G<T> {\n  x: T;\n}\ntype GF = G<f32>;\nfunction k(g: GF): f32 {\n  return g.x;\n}\n',
+        '  return a;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      "a generic interface typing a class's field, and a read of it",
+      shader(
+        'interface G<T> {\n  x: T;\n}\nclass H {\n  g: G<f32>;\n  k: f32;\n}\n' +
+          'function k(h: H): f32 {\n  return h.g.x + h.k;\n}\n',
+        '  return a;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface typing the one field a class has',
+      shader(
+        'interface G<T> {\n  x: T;\n}\nclass H {\n  g: G<f32> = { x: 0. };\n}\n',
+        '  return a;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface with more fields than the sentence shows',
+      shader(
+        'interface G<T> {\n  a: T;\n  b: T;\n  c: T;\n  d: T;\n}\n' +
+          'function k(g: G<f32>): f32 {\n  return g.a;\n}\n',
+        '  return a;',
+      ),
+      [GENERIC('interface', 'a: T; b: T; …')],
     ],
   ];
   for (const [name, src, expected] of cases) {
@@ -622,6 +847,52 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       expect(edited(src)).toEqual(expected);
     });
   }
+
+  it('an async function in a namespace leaves a name nothing declares unknown', () => {
+    const src = shader(
+      'namespace N {\n  export async function h(x: f32): f32 {\n    return await x;\n  }\n}\n',
+      '  return h(a);',
+    );
+    for (const said of [compiled(src), edited(src)]) {
+      expect(said).toHaveLength(2);
+      expect(said[0]).toBe(ASYNC('TS8013', '"h"'));
+      expect(said[1]).toMatch(/^TS8004 /);
+    }
+  });
+
+  // The multi-file path (the documentation gate's) says each once too; it walks no namespace, so
+  // a `var` in one is said where every `var` is, and it reads a signature before it collects a
+  // struct, so a generic interface is recorded first.
+  it('in a program of several files', () => {
+    const sources = (main: string, lib: string): string[] =>
+      compileTsSources([
+        {
+          fileName: 'main.ts',
+          source: `"use typeshade";\nimport { h } from "./lib";\n${main}export function f(a: f32): f32 {\n  return h(a);\n}\n`,
+        },
+        { fileName: 'lib.ts', source: `"use typeshade";\n${lib}` },
+      ]).diagnostics.map((d) => `${String(d.code)} ${d.message}`);
+    const H = 'export function h(x: f32): f32 {\n  return x;\n}\n';
+    expect(
+      sources('', 'export async function h(x: f32): f32 {\n  const y = await x;\n  return y;\n}\n'),
+    ).toEqual([ASYNC('TS8013', '"h"')]);
+    expect(sources('', `${H}function* g(): f32 {\n  yield 1.;\n}\n`)).toEqual([
+      GENERATOR('TS8013', '"g"'),
+    ]);
+    expect(
+      sources('interface G<T> {\n  x: T;\n}\nfunction k(g: G<f32>): f32 {\n  return g.x;\n}\n', H),
+    ).toEqual([GENERIC('interface', 'x: T')]);
+    expect(sources('namespace N {\n  export var x = 1.;\n}\n', H)).toEqual([
+      IN_NAMESPACE('a variable'),
+    ]);
+    expect(sources('', `namespace N {\n  export var x = 1.;\n}\n${H}`)).toEqual([
+      IN_NAMESPACE('a variable'),
+    ]);
+    // A body that stopped at a refusal said its error, so a call of it says nothing more.
+    expect(sources('', 'export function h(x: f32) {\n  return `${x}`.length;\n}\n')).toEqual([
+      TEMPLATE,
+    ]);
+  });
 
   it('the class a generic interface names compiles', () => {
     const r = compile(
@@ -632,5 +903,16 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     );
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct G_f32 {');
+  });
+
+  it('the elements a spread sentence names compile', () => {
+    for (const body of [
+      '  const xs: array<f32, 2> = [a, 2.];\n  const b: array<f32, 4> = [xs[0], xs[1], 3., 4.];\n' +
+        '  return b[0];',
+      '  const v: vec3 = vec3(a, 1., 2.);\n  const b: array<f32, 4> = [v.x, v.y, v.z, 3.];\n' +
+        '  return b[0];',
+    ]) {
+      expect(compiled(shader('', body))).toEqual([]);
+    }
   });
 });

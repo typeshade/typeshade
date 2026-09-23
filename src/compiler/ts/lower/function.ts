@@ -71,7 +71,7 @@ import { ATOMIC_INTRINSICS, isBarrierIntrinsic } from '../../../core/intrinsics.
 import { makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
-import { isAsyncOrGenerator } from '../semantic.js';
+import { isAsyncOrGenerator, isVarStatement, refusalWithin } from '../semantic.js';
 import {
   checkLoweredRecursion,
   checkRecursion,
@@ -124,13 +124,15 @@ export function lowerSourceFunctions(
       // module-const.ts's and the classes are structs.ts's, under the same flattened name
       // (#107); the rest has no flattened form. Only the namespace's own statements are refused
       // here, since a top-level statement of any kind is semantic.ts's to judge. An interface
-      // and an object-type alias are structs.ts's too, which refuses one here itself.
+      // and an object-type alias are structs.ts's too, which refuses one here itself, and a
+      // `var` is semantic.ts's, in a namespace as anywhere else.
       if (
         prefix !== '' &&
         !isNamespaceConst(stmt) &&
         !ts.isClassDeclaration(stmt) &&
         !ts.isInterfaceDeclaration(stmt) &&
-        !(ts.isTypeAliasDeclaration(stmt) && ts.isTypeLiteralNode(stmt.type))
+        !(ts.isTypeAliasDeclaration(stmt) && ts.isTypeLiteralNode(stmt.type)) &&
+        !(ts.isVariableStatement(stmt) && isVarStatement(stmt))
       ) {
         refuseNamespaceStatement(stmt, prefix, sourceFile, diagnostics);
       }
@@ -176,10 +178,10 @@ export function lowerSourceFunctions(
       continue;
     }
     // An async function or a generator is semantic.ts's refusal, and its body is that one
-    // mistake: it is not lowered, and a call to it says nothing more (Rule 12.4).
+    // mistake: it is not lowered, and a call to it, `h(a)` or `N.h(a)`, says nothing more
+    // (Rule 12.4).
     if (isAsyncOrGenerator(stmt)) {
       refused.add(irName ?? stmt.name?.text ?? '');
-      if (stmt.name !== undefined) refused.add(stmt.name.text);
       continue;
     }
     // A generic function is compiled once per set of argument types the file calls it with
@@ -425,11 +427,13 @@ export function lowerSourceFunctions(
   const shownOf = (f: FuncDecl): string =>
     writtenAs.get(f.name) ?? classFns.find((cf) => cf.stub === f)?.shown ?? f.name;
   /** Lower a body with `stub` on the stack of those being lowered; `infers` when its return
-   *  type is the body's to say. */
+   *  type is the body's to say. `node` is the function written, which may hold a refusal
+   *  semantic.ts said, at which its lowering stopped and added nothing. */
   const track = (
     stub: FuncDecl,
     infers: boolean,
     said: readonly TsCompilerDiagnostic[],
+    node: ts.Node,
     run: () => void,
   ): void => {
     const before = said.length;
@@ -444,7 +448,8 @@ export function lowerSourceFunctions(
     if (
       infers &&
       (cyclic.has(stub) ||
-        (typeKey(stub.ret) === 'void' && said.slice(before).some((d) => d.category === 'error')))
+        (typeKey(stub.ret) === 'void' &&
+          (said.slice(before).some((d) => d.category === 'error') || refusalWithin(node))))
     ) {
       unsaid.add(stub);
     }
@@ -544,7 +549,7 @@ export function lowerSourceFunctions(
     return false;
   };
   const fillReady = (r: (typeof ready)[number], infers: boolean): void => {
-    track(r.stub, infers, diagnostics, () => {
+    track(r.stub, infers, diagnostics, r.node, () => {
       fillFunctionBody(
         r.node,
         r.stub,
@@ -586,7 +591,7 @@ export function lowerSourceFunctions(
     infers: boolean,
   ): void => {
     const said = saidFor(cf);
-    track(cf.stub, infers, said, () =>
+    track(cf.stub, infers, said, node, () =>
       fillFunctionBody(
         node,
         cf.stub,
@@ -684,7 +689,7 @@ export function lowerSourceFunctions(
     const bound = captureBindings(l, file);
     if (bound === undefined) return false;
     const into = l.said ?? said;
-    track(fn.stub, fn.infers, into, () => {
+    track(fn.stub, fn.infers, into, fn.node, () => {
       fillFunctionBody(
         fn.node,
         fn.stub,
@@ -935,7 +940,7 @@ export function lowerSourceFunctions(
         }
         // With no return type written, the body says it (Rule 8.19).
         const infers = generic.node.type === undefined;
-        track(stub, infers, diags, () =>
+        track(stub, infers, diags, generic.node, () =>
           fillFunctionBody(
             generic.node,
             stub,
@@ -1143,7 +1148,7 @@ export function lowerSourceFunctions(
         holdLifted(lifts, sf, diags);
       }
       const arrow = ts.isArrowFunction(fn.node);
-      track(stub, fn.infers, diags, () =>
+      track(stub, fn.infers, diags, fn.node, () =>
         fillFunctionBody(
           fn.node,
           stub,
@@ -1372,7 +1377,7 @@ export function lowerSourceFunctions(
         holdLifted(mine, sf, said);
       }
       const infers = cf.infers === true;
-      track(stub, infers, said, () =>
+      track(stub, infers, said, member, () =>
         fillFunctionBody(
           member,
           stub,
@@ -1544,7 +1549,7 @@ export function lowerSourceFunctions(
     holdLifted(mine, sf, diags);
     const arrow = ts.isArrowFunction(node);
     const infers = signature.ret === undefined;
-    track(stub, infers, diags, () =>
+    track(stub, infers, diags, node, () =>
       fillFunctionBody(
         node,
         stub,
@@ -2690,7 +2695,7 @@ export function lowerParamDefaults(
       // A call that omits an argument whose default has no value yet lowers to nothing and
       // says nothing, because on an earlier pass that is not an error. On the last pass it is
       // the one shape this cannot fill: a default that waits on itself.
-      if (final && diagnostics.length === before) {
+      if (final && diagnostics.length === before && !refusalWithin(node)) {
         pushDiag(
           diagnostics,
           sourceFile,

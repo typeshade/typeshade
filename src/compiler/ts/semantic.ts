@@ -6,6 +6,7 @@ import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { isEnableDirective } from './enables.js';
 import { staticThisClass } from './class-names.js';
+import { namespaceMemberName, refuseNamespaceStatement } from './namespaces.js';
 
 export const HOST_GLOBALS: ReadonlySet<string> = new Set([
   'window',
@@ -77,7 +78,9 @@ function push(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
-  REFUSED.get(sourceFile)?.add(node);
+  const refused = REFUSED.get(sourceFile) ?? new Set<ts.Node>();
+  refused.add(node);
+  REFUSED.set(sourceFile, refused);
 }
 
 /** What `new X(...)` names, so the refusal can say the real reason rather than blaming the
@@ -190,6 +193,12 @@ function visit(
       TS_CODES.HOST_STMT,
     );
   }
+  // A statement the top level cannot hold was refused whole by analyzeSemantics, and nothing
+  // under it is lowered, so neither its own form nor what it holds adds to that (Rule 12.4). A
+  // `var` is read as the `let` it would have been, so what it holds is still read.
+  if (node.parent === sourceFile && !ts.isVariableStatement(node) && refusedBySemantics(node)) {
+    return;
+  }
   // `for…of` over an array is a counted loop (Rule 7.5) and is lowered in control.ts.
   // `for…in` enumerates an object's keys, which no shader value has.
   if (ts.isForInStatement(node)) {
@@ -271,45 +280,68 @@ function visit(
     );
   }
   // `{ ...p }` in an object literal is the fields of `p`, which the literal lowering spreads
-  // to one read each (roadmap 0.3 item T7, #92); it says itself what it cannot spread, and so
-  // does a list, `[...a, 3.]`, which knows the elements to name (expression-array.ts). What is
-  // left is a spread argument, `f(...args)`, whose count is known only at run time.
-  if (ts.isSpreadElement(node) && !ts.isArrayLiteralExpression(node.parent)) {
+  // to one read each (roadmap 0.3 item T7, #92); it says itself what it cannot spread. A spread
+  // argument, `f(...args)`, needs an argument count known only at run time. A spread in a list,
+  // `[...a, 3.]`, is refused here as well, so it is refused in a body no call lowers too; the
+  // lowering, which knows what `a` is, names its elements in the sentence (expression-array.ts).
+  if (ts.isSpreadElement(node) && ts.isArrayLiteralExpression(node.parent)) {
+    refuseListSpread(node, sourceFile, diagnostics);
+  } else if (ts.isSpreadElement(node)) {
     push(diagnostics, sourceFile, node, 'Spread is a JS runtime operation.', TS_CODES.HOST_STMT);
   }
-  // Wherever it stands, at the top level or in a body (Rule 8.17); the local-function collector
-  // leaves a declaration to this one sentence.
-  if (ts.isFunctionDeclaration(node) && isAsyncOrGenerator(node)) {
-    push(diagnostics, sourceFile, node, asyncOrGeneratorMessage(node), TS_CODES.HOST_STMT);
+  // An async function or a generator, wherever it is written: a declaration, at the top level
+  // or in a body (Rule 8.17), a function written as a value, or a class's method. Said here,
+  // once, under the code its position has always had, so it is said in a body no call lowers
+  // too; the lowering says nothing more about it.
+  const asyncOrGenerator = asyncOrGeneratorRefusal(node);
+  if (asyncOrGenerator !== undefined) {
+    push(diagnostics, sourceFile, node, asyncOrGenerator.message, asyncOrGenerator.code);
   }
-  // A `var` at the top level is analyzeSemantics' TS8014 below, and one in a namespace the
-  // namespace walk's TS8014; this sentence is a body's.
-  if (
-    ts.isVariableStatement(node) &&
-    !ts.isSourceFile(node.parent) &&
-    !ts.isModuleBlock(node.parent) &&
-    (node.declarationList.flags & ts.NodeFlags.Let) === 0 &&
-    (node.declarationList.flags & ts.NodeFlags.Const) === 0
-  ) {
-    push(
-      diagnostics,
-      sourceFile,
-      node,
-      '`var` is not allowed. Use `let` (mutable) or `const` (immutable).',
-      TS_CODES.HOST_STMT,
-    );
+  // A `var` at the top level is analyzeSemantics' TS8014 below, and one in a namespace takes the
+  // sentence a `let` there takes; this one is a body's. Each is the one sentence in both
+  // compile paths, the multi-file one included, which walks no namespace.
+  if (ts.isVariableStatement(node) && isVarStatement(node) && node.parent !== sourceFile) {
+    if (ts.isModuleBlock(node.parent)) {
+      const prefix = namespacePrefix(node.parent);
+      if (prefix !== undefined) refuseNamespaceStatement(node, prefix, sourceFile, diagnostics);
+    } else {
+      push(
+        diagnostics,
+        sourceFile,
+        node,
+        '`var` is not allowed. Use `let` (mutable) or `const` (immutable).',
+        TS_CODES.HOST_STMT,
+      );
+    }
   }
   if (holdsItsMistake(node)) return;
   ts.forEachChild(node, (child) => visit(child, sourceFile, diagnostics));
 }
 
+/** Whether a variable statement is a `var`. */
+export function isVarStatement(node: ts.VariableStatement): boolean {
+  return (node.declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0;
+}
+
+/** The flattened name the namespace walk gives the namespace a block belongs to, `N` or `A_B`;
+ *  undefined for one it does not walk into, which is refused whole (namespaces.ts). */
+function namespacePrefix(block: ts.ModuleBlock): string | undefined {
+  let prefix: string | undefined;
+  for (let at: ts.Node = block.parent; !ts.isSourceFile(at); at = at.parent) {
+    if (ts.isModuleBlock(at)) continue;
+    if (!ts.isModuleDeclaration(at) || !ts.isIdentifier(at.name)) return undefined;
+    if (at.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) return undefined;
+    prefix = prefix === undefined ? at.name.text : namespaceMemberName(at.name.text, prefix);
+  }
+  return prefix;
+}
+
 /** Whether what is under `node` is part of the one mistake refused at it, and is not read again
  *  (Rule 12.4): the operand of a `throw`, an `await` or a `yield`, the spans of a template
- *  string, what a spread spreads, and the whole of an async function or a generator, which is
- *  refused once on the function wherever it is written (here, or as a local function, an
- *  argument or a method), so an `await` or a `yield` in it is not said again. `throw new
- *  Error("x")` is the `throw`. A `try` and a `for…in` hold statements of the author's own, and
- *  those are still read. */
+ *  string, what a spread spreads, and the whole of an async function or a generator refused
+ *  above, so an `await` or a `yield` in it is not said again. `throw new Error("x")` is the
+ *  `throw`. A `try` and a `for…in` hold statements of the author's own, and those are still
+ *  read, and so is an object literal's async method, which the literal refuses as a method. */
 function holdsItsMistake(node: ts.Node): boolean {
   return (
     ts.isThrowStatement(node) ||
@@ -318,7 +350,7 @@ function holdsItsMistake(node: ts.Node): boolean {
     ts.isTemplateExpression(node) ||
     ts.isTaggedTemplateExpression(node) ||
     ts.isSpreadElement(node) ||
-    (ts.isFunctionLike(node) && isAsyncOrGenerator(node))
+    (ts.isFunctionLike(node) && refusedBySemantics(node))
   );
 }
 
@@ -332,31 +364,146 @@ export function isAsyncOrGenerator(node: ts.SignatureDeclaration): boolean {
   );
 }
 
-/** The one sentence for an async or generator function declaration. */
-function asyncOrGeneratorMessage(node: ts.FunctionDeclaration): string {
-  const shown = node.name === undefined ? 'This function' : `"${node.name.text}"`;
-  const isAsync = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
+/** The refusal of an async function or a generator, under the code its position has: a
+ *  declaration is a host form (TS8013), a function written as a value a function shape (TS8020),
+ *  and a class's method, or the function a class field holds, a class member (TS8035). An object
+ *  literal's method is left to the literal, which has no form for a method at all. */
+function asyncOrGeneratorRefusal(node: ts.Node): { message: string; code: TsCode } | undefined {
+  if (!ts.isFunctionLike(node) || !isAsyncOrGenerator(node)) return undefined;
+  if (ts.isFunctionDeclaration(node)) {
+    return { message: asyncOrGeneratorMessage(node, node.name?.text), code: TS_CODES.HOST_STMT };
+  }
+  const member = ts.isMethodDeclaration(node)
+    ? node
+    : ts.isPropertyDeclaration(node.parent) && node.parent.initializer === node
+      ? node.parent
+      : undefined;
+  if (member !== undefined) {
+    if (!ts.isClassLike(member.parent)) return undefined;
+    const written = member.name.getText();
+    const owner = member.parent.name?.text;
+    return {
+      message: asyncOrGeneratorMessage(node, owner === undefined ? written : `${owner}.${written}`),
+      code: TS_CODES.CLASS_MEMBER,
+    };
+  }
+  if (!ts.isArrowFunction(node) && !ts.isFunctionExpression(node)) return undefined;
+  const named =
+    node.name?.text ??
+    (ts.isVariableDeclaration(node.parent) &&
+    node.parent.initializer === node &&
+    ts.isIdentifier(node.parent.name)
+      ? node.parent.name.text
+      : undefined);
+  return { message: asyncOrGeneratorMessage(node, named), code: TS_CODES.FUNCTION_SHAPE };
+}
+
+/** The one sentence for an async function or a generator, named as written, or "This function"
+ *  for one written with no name. */
+function asyncOrGeneratorMessage(node: ts.SignatureDeclaration, name: string | undefined): string {
+  const shown = name === undefined ? 'This function' : `"${name}"`;
+  const isGenerator = (node as { asteriskToken?: ts.AsteriskToken }).asteriskToken !== undefined;
+  const isAsync =
+    ts.canHaveModifiers(node) &&
+    (ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false);
   if (!isAsync) {
     return (
       `${shown} is a generator, and a shader function runs to completion in one call: nothing ` +
       `suspends it at a "yield". Remove the "*" and return one value.`
     );
   }
-  return node.asteriskToken
+  return isGenerator
     ? `${shown} is an async generator, and a shader function runs to completion in one call: ` +
         `there is no event loop to wait on. Remove "async" and the "*", and return one value.`
     : `${shown} is async, and a shader function runs to completion in one call: there is no ` +
         `event loop to wait on. Remove "async" and each "await".`;
 }
 
-/** The nodes `visit` refused, per file: the lowering reads it where it has no form for a node,
- *  and says nothing more about one of these (Rule 12.4). Replaced on each analysis, so a node
- *  the language service keeps across edits carries only the latest verdict. */
+/** The nodes `visit` and `analyzeSemantics` refused, per file: the lowering reads it where it
+ *  has no form for a node, and says nothing more about one of these (Rule 12.4). Keyed by the
+ *  file, so an edit, which the language service parses into a new one, starts from nothing. */
 const REFUSED = new WeakMap<ts.SourceFile, Set<ts.Node>>();
 
 /** Whether `analyzeSemantics` refused `node`, having said why. */
 export function refusedBySemantics(node: ts.Node): boolean {
   return REFUSED.get(node.getSourceFile())?.has(node) ?? false;
+}
+
+/** Whether `analyzeSemantics` refused `node` or something written inside it. A body or a
+ *  default the lowering could not finish for that reason has said why, though the lowering
+ *  itself added nothing, so a call of it has nothing more to say (Rule 12.4). */
+export function refusalWithin(node: ts.Node): boolean {
+  for (const refused of REFUSED.get(node.getSourceFile()) ?? []) {
+    if (refused.pos >= node.pos && refused.end <= node.end) return true;
+  }
+  return false;
+}
+
+/** A spread in a list `visit` refused, with the sentence that fits any operand, and where that
+ *  diagnostic sits, so the lowering can put the one that names the operand's elements in its
+ *  place. `named` is what every lowering of the list agreed the elements are; a generic body is
+ *  lowered once per instance, and two instances that disagree leave the sentence that fits
+ *  both. */
+interface ListSpread {
+  readonly diagnostics: TsCompilerDiagnostic[];
+  said: TsCompilerDiagnostic;
+  named: string | undefined;
+  asked: boolean;
+}
+
+const LIST_SPREADS = new WeakMap<ts.SourceFile, Map<ts.SpreadElement, ListSpread>>();
+
+function refuseListSpread(
+  spread: ts.SpreadElement,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  push(diagnostics, sourceFile, spread, listSpreadMessage(spread, undefined), TS_CODES.HOST_STMT);
+  const spreads = LIST_SPREADS.get(sourceFile) ?? new Map<ts.SpreadElement, ListSpread>();
+  spreads.set(spread, { diagnostics, said: diagnostics.at(-1)!, named: undefined, asked: false });
+  LIST_SPREADS.set(sourceFile, spreads);
+}
+
+/** `"...a" spreads a list into a list`, with the elements to write in its place when they are
+ *  known (`a[0], a[1]`), and without them when they are not. */
+function listSpreadMessage(spread: ts.SpreadElement, elements: string | undefined): string {
+  const written = `"...${spread.expression.getText()}"`;
+  return elements === undefined
+    ? `${written} spreads into a list, which a shader array does not do: write the elements ` +
+        `one by one.`
+    : `${written} spreads a list into a list, which a shader array does not do: write its ` +
+        `elements, ${elements}.`;
+}
+
+/** The lowering's word on a spread in a list: the elements its operand stands for, as the author
+ *  writes them, or undefined when the operand is no list of known length. The sentence `visit`
+ *  said is replaced by the one that names them; one `visit` did not say (a lowering run on its
+ *  own) is said here, into `diagnostics`. */
+export function nameListSpread(
+  spread: ts.SpreadElement,
+  elements: string | undefined,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const said = LIST_SPREADS.get(sourceFile)?.get(spread);
+  if (said === undefined) {
+    diagnostics.push(
+      makeDiagnostic(sourceFile, spread, listSpreadMessage(spread, elements), TS_CODES.HOST_STMT),
+    );
+    return;
+  }
+  const named = !said.asked || said.named === elements ? elements : undefined;
+  said.asked = true;
+  if (named === said.named) return;
+  said.named = named;
+  const at = said.diagnostics.indexOf(said.said);
+  said.said = makeDiagnostic(
+    sourceFile,
+    spread,
+    listSpreadMessage(spread, named),
+    TS_CODES.HOST_STMT,
+  );
+  if (at >= 0) said.diagnostics[at] = said.said;
 }
 
 const ALLOWED_TOP = new Set([
@@ -426,6 +573,5 @@ export function analyzeSemantics(
       );
     }
   }
-  REFUSED.set(sourceFile, new Set());
   visit(sourceFile, sourceFile, diagnostics);
 }

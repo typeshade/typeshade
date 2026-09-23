@@ -14,12 +14,17 @@ import { emitFuncs, emitModule } from '../../core/backends/wgsl.js';
 import { requiredCaps } from '../../core/passes/required-caps.js';
 import { hasUseTypeshadeDirective } from './directive.js';
 import { reportCrossDeclarationCollisions, type TsCompilerDiagnostic } from './source-file.js';
-import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js';
+import {
+  collectStructs,
+  emittedStructDecls,
+  noteRefusedGenerics,
+  type CollectedStruct,
+} from './structs.js';
 import { collectBindings } from './bindings.js';
 import { collectEnables } from './enables.js';
 import { collectOverrides } from './overrides.js';
 import { fillFunctionBody, parseSignature } from './lower/function.js';
-import { analyzeSemantics } from './semantic.js';
+import { analyzeSemantics, isAsyncOrGenerator, refusalWithin } from './semantic.js';
 import { collectModuleConsts } from './module-const.js';
 import { collectModuleVars } from './module-vars.js';
 import { TS_CODES } from './codes.js';
@@ -98,6 +103,8 @@ export function compileTsSources(
     string,
     Map<string, { stub: FuncDecl; node: ts.FunctionDeclaration; sf: ts.SourceFile }>
   >();
+  // Per file, the functions it declares whose declaration was refused, having said why.
+  const refusedIn = new Map<string, ReadonlySet<string>>();
 
   for (const f of files) {
     const name = normalizePath(f.fileName);
@@ -140,12 +147,22 @@ export function compileTsSources(
     // two-file one — including in the documentation gate, which compiles every multi-file
     // fence in README.md and docs/ through this function.
     analyzeSemantics(sf, diagnostics);
+    // A generic interface or alias is refused at its declaration, before a signature names it.
+    noteRefusedGenerics(sf);
     const table = new Map<
       string,
       { stub: FuncDecl; node: ts.FunctionDeclaration; sf: ts.SourceFile }
     >();
+    const refused = new Set<string>();
+    refusedIn.set(name, refused);
     for (const stmt of sf.statements) {
       if (!ts.isFunctionDeclaration(stmt)) continue;
+      // An async function or a generator is semantic.ts's refusal, and its body is that one
+      // mistake: it is not lowered, and a call or an import of it says nothing more (Rule 12.4).
+      if (isAsyncOrGenerator(stmt)) {
+        if (stmt.name !== undefined) refused.add(stmt.name.text);
+        continue;
+      }
       const exported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
       const stub = parseSignature(stmt, sf, diagnostics);
       if (!stub) continue;
@@ -170,6 +187,7 @@ export function compileTsSources(
   for (const [name, table] of exports) {
     const callees = new Map<string, FuncDecl>();
     for (const [fn, rec] of table) callees.set(fn, rec.stub);
+    for (const fn of refusedIn.get(name) ?? []) fileFunctionsOf(callees).refused.add(fn);
     fileCallees.set(name, callees);
   }
 
@@ -233,6 +251,10 @@ export function compileTsSources(
         const imported = el.propertyName?.text ?? el.name.text;
         const local = el.name.text;
         const rec = targetTable.get(imported);
+        if (!rec && refusedIn.get(target)?.has(imported) === true) {
+          fileFunctionsOf(callees).refused.add(local);
+          continue;
+        }
         if (!rec) {
           diagnostics.push(
             makeDiagnostic(
@@ -432,7 +454,8 @@ export function compileTsSources(
           infers &&
           (cyclic.has(rec.stub) ||
             (typeKey(rec.stub.ret) === 'void' &&
-              diagnostics.slice(before).some((d) => d.category === 'error')))
+              (diagnostics.slice(before).some((d) => d.category === 'error') ||
+                refusalWithin(rec.node))))
         ) {
           unsaid.add(rec.stub);
         }

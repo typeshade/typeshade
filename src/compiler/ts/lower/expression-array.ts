@@ -13,6 +13,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { captureArguments, declaresFunction } from './local-functions.js';
 import { declarationOf, functionAround } from './closures.js';
+import { nameListSpread } from '../semantic.js';
 import type { FunctionShape } from './function-types.js';
 
 export function lowerArrayCtor(
@@ -227,20 +228,80 @@ export function lowerArrayLiteral(
   return { op: 'construct', type: target, args };
 }
 
-/** `[...a, 3.]`: a spread in a list, refused with the elements to write in its place (Rule 12.4,
- *  Rule 12.1). A shader array's length is its type's, so there is no list for `a` to grow; its
- *  own elements, by index, are what the author means. A declaration asks this before the
- *  annotation it would otherwise ask for, so the spread is the one sentence. Returns whether it
- *  refused. */
+/** `[...a, 3.]`: a spread in a list, which a shader array does not do, since its length is its
+ *  type's. semantic.ts refuses each one wherever it is written (TS8013); here, where the operand's
+ *  type is known, the sentence is given the elements to write in its place, `a[0], a[1]`. A
+ *  position that holds a list asks this first, before the count or the annotation it would
+ *  otherwise ask for, so the spread is the list's one sentence (Rule 12.4). Returns whether the
+ *  list holds a spread. */
 export function refuseListSpread(
   node: ts.ArrayLiteralExpression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): boolean {
-  const spread = node.elements.find(ts.isSpreadElement);
-  if (spread === undefined) return false;
+  const spreads = node.elements.filter(ts.isSpreadElement);
+  for (const spread of spreads) {
+    nameListSpread(spread, spreadElements(spread, sourceFile, scope), sourceFile, diagnostics);
+  }
+  return spreads.length > 0;
+}
+
+/** The type a list with a spread would have had, read off its elements: `[...a, 3.]` for an
+ *  `array<f32, 2>` is an `array<f32, 3>`, and `[...v, 1.]` for a `vec3f` an `array<f32, 4>`.
+ *  Undefined when an operand is no list of known length or two elements disagree. A local or a
+ *  module declaration refused for its spread keeps its name with this type. */
+export function spreadListType(
+  node: ts.ArrayLiteralExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+): ShaderType | undefined {
+  let elem: ShaderType | undefined;
+  let size = 0;
+  for (const element of node.elements) {
+    if (ts.isOmittedExpression(element)) return undefined;
+    // Only the types are read; what an element may be refused for is said where the author
+    // writes the list out.
+    const type = lowerExpression(
+      ts.isSpreadElement(element) ? element.expression : element,
+      sourceFile,
+      scope,
+      [],
+    )?.type;
+    const part = ts.isSpreadElement(element)
+      ? spreadOperand(type)
+      : type === undefined
+        ? undefined
+        : { elem: type, n: 1 };
+    if (part === undefined || (elem !== undefined && typeKey(elem) !== typeKey(part.elem))) {
+      return undefined;
+    }
+    elem = part.elem;
+    size += part.n;
+  }
+  return elem === undefined ? undefined : { kind: 'array', elem, size };
+}
+
+/** What a spread's operand holds, element type and count: a sized array or a vector. */
+function spreadOperand(
+  type: ShaderType | undefined,
+): { readonly elem: ShaderType; readonly n: number } | undefined {
+  if (type?.kind === 'array' && type.size !== undefined) return { elem: type.elem, n: type.size };
+  if (type?.kind === 'vec') return { elem: { kind: 'scalar', scalar: type.elem }, n: type.n };
+  return undefined;
+}
+
+/** The elements a spread's operand stands for, as an author writes them: `a[0], a[1]` for a
+ *  sized array, `v.x, v.y, v.z` for a vector. Undefined for anything else, a struct, a scalar or
+ *  a name nothing declares, which has no elements to name. */
+function spreadElements(
+  spread: ts.SpreadElement,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+): string | undefined {
   const operand = spread.expression;
+  // Only its type is read; what the operand itself may be refused for is not this mistake.
+  const type = lowerExpression(operand, sourceFile, scope, [])?.type;
   const written = operand.getText(sourceFile);
   const shown =
     ts.isIdentifier(operand) ||
@@ -249,31 +310,15 @@ export function refuseListSpread(
     ts.isCallExpression(operand)
       ? written
       : `(${written})`;
-  // Only its type is read, to count the elements; what the operand itself may be refused for is
-  // not this mistake.
-  const type = lowerExpression(operand, sourceFile, scope, [])?.type;
-  pushDiag(
-    diagnostics,
-    sourceFile,
-    spread,
-    `"...${written}" spreads a list into a list, which a shader array does not do: write its ` +
-      `elements, ${spreadElements(shown, type)}.`,
-    TS_CODES.HOST_STMT,
-  );
-  return true;
-}
-
-/** The elements a spread of `shown` stands for, as an author writes them. */
-function spreadElements(shown: string, type: ShaderType | undefined): string {
   if (type?.kind === 'vec' || type?.kind === 'vec64') {
     return ['x', 'y', 'z', 'w']
       .slice(0, type.n)
       .map((c) => `${shown}.${c}`)
       .join(', ');
   }
+  if (type?.kind !== 'array' || type.size === undefined) return undefined;
   const at = (i: number): string => `${shown}[${String(i)}]`;
-  const n = type?.kind === 'array' ? type.size : undefined;
-  if (n === undefined) return `${at(0)}, ${at(1)}, …`;
+  const n = type.size;
   if (n <= 4) return Array.from({ length: n }, (_, i) => at(i)).join(', ');
   return `${at(0)}, ${at(1)}, …, ${at(n - 1)}`;
 }
