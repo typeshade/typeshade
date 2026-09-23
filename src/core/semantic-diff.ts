@@ -227,8 +227,10 @@ function interfaceFacts(m: ModuleDecl, c: Canon): string[] {
   const out: string[] = [];
   for (const e of r.entries) {
     const inputs = e.inputs.map((i) => subStructs(i, c)).join(',');
+    // `[64, 1, 1]` reads `wg=64`, as it did before the shape carried y and z.
+    const wg = e.workgroupShape?.join('x').replace(/(x1)+$/, '') ?? '-';
     out.push(
-      `entry ${e.name} stage=${e.stage} wg=${e.workgroupSize ?? '-'} in=[${inputs}] out=${subStructs(e.output, c)}`,
+      `entry ${e.name} stage=${e.stage} wg=${wg} in=[${inputs}] out=${subStructs(e.output, c)}`,
     );
   }
   if (r.vertex) {

@@ -8,7 +8,9 @@ import type {
   Expr,
   OverrideDecl,
   ModuleVarDecl,
+  WorkgroupShape,
 } from '../../../core/ir/nodes.js';
+import { toWorkgroupShape, workgroupSizeAttr } from '../../../core/ir/workgroup.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import type { SourceSpan } from '../../../core/ir/span.js';
 import { voidT, typeKey } from '../../../core/ir/types.js';
@@ -1781,14 +1783,18 @@ export function parseSignature(
   (decl as { span?: SourceSpan }).span = spanOf(sourceFile, node);
   (decl as { nameSpan?: SourceSpan }).nameSpan = spanOf(sourceFile, node.name);
   if (stageInfo.stage) (decl as { stage?: FuncDecl['stage'] }).stage = stageInfo.stage;
-  if (stageInfo.workgroupSize !== undefined) {
-    (decl as { workgroupSize?: number }).workgroupSize = stageInfo.workgroupSize;
+  const shape = stageInfo.workgroupShape;
+  if (shape !== undefined) {
+    (decl as { workgroupSize?: number }).workgroupSize = shape[0];
+    // An absent shape reads as `[workgroupSize, 1, 1]`, so only a y or z other than 1 is kept.
+    if (shape[1] !== 1 || shape[2] !== 1)
+      (decl as { workgroupShape?: WorkgroupShape }).workgroupShape = shape;
   }
   const attrs: string[] = [];
   if (stageInfo.stage === 'vertex') attrs.push('@vertex');
   if (stageInfo.stage === 'fragment') attrs.push('@fragment');
   if (stageInfo.stage === 'compute')
-    attrs.push(`@compute @workgroup_size(${stageInfo.workgroupSize ?? 64})`);
+    attrs.push(`@compute ${workgroupSizeAttr(shape ?? [64, 1, 1])}`);
   if (attrs.length) (decl as { attrs?: string[] }).attrs = attrs;
   if (stageInfo.stage === 'vertex' && typeKey(ret).startsWith('vec4')) {
     (decl as { retAttr?: string }).retAttr = '@builtin(position)';
@@ -2414,10 +2420,10 @@ function parseStage(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): { stage?: FuncDecl['stage']; workgroupSize?: number } {
+): { stage?: FuncDecl['stage']; workgroupShape?: WorkgroupShape } {
   const decos = decoratorsOf(node);
   let stage: FuncDecl['stage'] | undefined;
-  let workgroupSize: number | undefined;
+  let workgroupShape: WorkgroupShape | undefined;
   for (const d of decos) {
     checkAttributeName(diagnostics, sourceFile, d);
     const text = d.getText(sourceFile);
@@ -2425,7 +2431,7 @@ function parseStage(
     else if (/^@fragment\b/.test(text)) stage = 'fragment';
     else if (/^@compute\b/.test(text)) {
       stage = 'compute';
-      workgroupSize = 64;
+      workgroupShape = [64, 1, 1];
       // Read the decorator's AST, not its text (#118). `@compute` and `@compute()` take the
       // default; `@compute([x, y, z])` is a call whose one argument is an array literal of one
       // to three whole numbers, written across lines or through `as const` if the author likes.
@@ -2460,23 +2466,51 @@ function parseStage(
             TS_CODES.WORKGROUP_ARG,
           );
         } else {
-          workgroupSize = sizes[0]!;
-          const [, y, z] = sizes;
-          if ((y !== undefined && y !== 1) || (z !== undefined && z !== 1)) {
-            pushDiag(
-              diagnostics,
-              sourceFile,
-              d,
-              `@compute workgroup shape [${sizes.join(', ')}] must have y and z equal to 1: the ` +
-                `backend only carries the x workgroup size today, and would silently drop the rest.`,
-              TS_CODES.WORKGROUP_SHAPE,
+          workgroupShape = toWorkgroupShape(sizes as [number, number?, number?]);
+          const over = overDefaultWorkgroupLimit(workgroupShape);
+          if (over !== undefined) {
+            diagnostics.push(
+              makeDiagnostic(
+                sourceFile,
+                d,
+                `@compute workgroup shape [${sizes.join(', ')}] ${over}. WebGPU guarantees no ` +
+                  `more, so a device requested without raising that limit refuses the pipeline.`,
+                TS_CODES.WORKGROUP_SHAPE,
+                'warning',
+              ),
             );
           }
         }
       }
     }
   }
-  return { stage, workgroupSize };
+  return { stage, workgroupShape };
+}
+
+/** WebGPU's default compute limits, the ones every adapter supports and `requestDevice()`
+ *  grants when no `requiredLimits` raise them. */
+const DEFAULT_WORKGROUP_LIMITS = {
+  maxComputeWorkgroupSizeX: 256,
+  maxComputeWorkgroupSizeY: 256,
+  maxComputeWorkgroupSizeZ: 64,
+  maxComputeInvocationsPerWorkgroup: 256,
+} as const;
+
+/** The first default limit a workgroup shape exceeds, as a clause naming it; `undefined` when
+ *  the shape fits a device with the default limits. */
+function overDefaultWorkgroupLimit(shape: WorkgroupShape): string | undefined {
+  const [x, y, z] = shape;
+  const L = DEFAULT_WORKGROUP_LIMITS;
+  if (x > L.maxComputeWorkgroupSizeX)
+    return `has x = ${x}, over maxComputeWorkgroupSizeX (${L.maxComputeWorkgroupSizeX})`;
+  if (y > L.maxComputeWorkgroupSizeY)
+    return `has y = ${y}, over maxComputeWorkgroupSizeY (${L.maxComputeWorkgroupSizeY})`;
+  if (z > L.maxComputeWorkgroupSizeZ)
+    return `has z = ${z}, over maxComputeWorkgroupSizeZ (${L.maxComputeWorkgroupSizeZ})`;
+  const n = x * y * z;
+  if (n > L.maxComputeInvocationsPerWorkgroup)
+    return `has ${n} invocations, over maxComputeInvocationsPerWorkgroup (${L.maxComputeInvocationsPerWorkgroup})`;
+  return undefined;
 }
 
 function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {

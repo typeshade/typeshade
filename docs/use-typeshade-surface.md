@@ -198,8 +198,20 @@ export function fs(
 - The builtin name must match the target backend's supported builtin set.
 - Workgroup size is the only payload on `@compute`, an array of one to three whole numbers; a bare
   `@compute` takes the default of 64, emitted as `@workgroup_size(64)`.
-- The `y` and `z` sizes must be 1; `@compute([8, 8])` is refused (`TS8026`):
-  `@compute workgroup shape [8, 8] must have y and z equal to 1: the backend only carries the x workgroup size today, and would silently drop the rest.`
+- `y` and `z` default to 1, and WGSL spells only the extents it needs: `@compute([8, 8])` emits
+  `@workgroup_size(8, 8)`, `@compute([4, 1, 2])` emits `@workgroup_size(4, 1, 2)`, and
+  `@compute([64, 1, 1])` emits `@workgroup_size(64)` as it always did. `reflect()` reports the
+  three extents as `workgroupShape`, `[8, 8, 1]`, beside `workgroupSize`, which stays the `x`
+  extent; a host sizes a dispatch as `ceil(n / extent)` workgroups per axis. The CPU `dispatch`
+  runs the same grid, with `global_invocation_id`, `local_invocation_id` and
+  `local_invocation_index` filled in per axis (§25). `examples/workgroup-tile-2d.shade.ts` is the
+  gate's evidence.
+- A shape over WebGPU's default compute limits (`x` and `y` 256, `z` 64, 256 invocations in all)
+  compiles with a warning (`TS8026`) naming the limit, since only a device requested with that
+  limit raised runs it:
+  `@compute workgroup shape [16, 16, 2] has 512 invocations, over maxComputeInvocationsPerWorkgroup (256). WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`
+- A `portable` kernel's workgroup stays one-dimensional (`SD0111`): the WebGL2 lowering draws one
+  texel per invocation and has no workgroup to give `y` and `z` to.
 - `@compute({ workgroup: [64, 1, 1] })` is refused (`TS8037`):
   `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or no argument for the default of 64; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
 
