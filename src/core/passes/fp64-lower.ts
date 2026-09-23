@@ -7,6 +7,8 @@
 //
 //   lit(f64 v)            → vec2<f32>(hi, lo)            (splitF64 at build time)
 //   a + - * / b           → df64_add/sub/mul/div(a, b)
+//   a * a                 → df64_sqr(a)                  (one operand, no effect)
+//   a * c, c * a, a / c   → pair * s                     (s = c or 1/c, ±2^k: exact)
 //   a < <= > >= == != b   → df64_lt/le/gt/ge/eq/ne(a, b)
 //   -a                    → -(vec2 pair)                 (componentwise, exact)
 //   sqrt/abs/min/max/mix/floor/fract/round/sin/cos → df64_*
@@ -73,6 +75,8 @@ import {
   splitF64,
 } from '../fp64/df64-lib.js'
 import { DF64_FNS_INT, DF64_ORDER_INT } from '../fp64/df64-int.js'
+import { keyOf } from './opt/expr-utils.js'
+import { exprHasEffect, fnWrites, type FnWrites } from './effects.js'
 
 // ── Flavor (which EFT primitive registry backs the df64_* names) ──
 //
@@ -264,6 +268,9 @@ interface LowerCtx {
   /** mat64 dimensions seen — drives DF64MatN struct injection (and forces the
    *  matching DF64VecN, since a DF64MatN nests DF64VecN columns). */
   readonly matWidths: Set<2 | 3 | 4>
+  /** What each of the module's functions writes (passes/effects.ts): whether an operand may
+   *  be evaluated once where it is written twice ("Cheaper multiplies" below). */
+  readonly writes: FnWrites
 }
 
 function callHelper(ctx: LowerCtx, name: string, type: ShaderType, args: Expr[]): Expr {
@@ -275,8 +282,18 @@ function callHelper(ctx: LowerCtx, name: string, type: ShaderType, args: Expr[])
  *  on-GPU (via a twoSum), so it survives a cancelling op. A non-helper operand (a
  *  uniform/attribute/texture LOAD, a widen, a lane swizzle over a loaded vec64)
  *  instead carries a LOADED lo that a driver's fast-math (Apple Metal, ANGLE/fxc)
- *  drops before the cancellation. */
-const isHelperOutput = (x: Expr): boolean => x.op === 'call' && x.fn.startsWith('df64_')
+ *  drops before the cancellation.
+ *
+ *  A helper output scaled by a power of two (scalePair below) is one too: each word is
+ *  multiplied by the literal on its own, so the lo word is the computed lo, exactly scaled.
+ *  Before the scaling existed that operand WAS a call, `df64_mul(h, (2, 0))`, and read as a
+ *  helper output here; seeing through the multiply keeps those renorm decisions where they
+ *  were. A scaled LOADED pair is not one: its lo is the loaded lo, scaled, and it is renormed
+ *  before a cancelling op like any loaded pair. (`df64_mul(u.x, (2, 0))` skipped that renorm
+ *  because its quickTwoSum had recomputed the lo; the renorm now does the same job, and costs
+ *  less than the multiply it replaces.) */
+const isHelperOutput = (x: Expr): boolean =>
+  (x.op === 'call' && x.fn.startsWith('df64_')) || (isScaledPair(x) && isHelperOutput(x.a))
 
 /** Renorm a raw df64 pair through df64_add(x, 0) before it feeds a CANCELLING op
  *  (sub/div): the twoSum recomputes the pair, turning a loaded lo into a computed
@@ -299,6 +316,123 @@ const renormForCancelVec = (ctx: LowerCtx, x: Expr, n: 2 | 3 | 4): Expr =>
   isHelperOutput(x)
     ? x
     : callHelper(ctx, `df64_v${n}_add`, structT(vec64StructName(n)), [x, splatPair(RENORM_ZERO, n)])
+
+// ── Cheaper multiplies: the square, and exact power-of-two scaling ──
+//
+// Two kinds of f64 multiply do not need df64_mul's general two-product.
+//
+// THE SQUARE. `x * x` lowers to `df64_sqr(x)` (df64-lib says why it is exact and why its one
+// renormalization is enough): one Veltkamp split instead of two, one cross term instead of two,
+// one quickTwoSum instead of two. The Julia and Mandelbrot escape loops square both
+// coordinates twice per iteration. It needs the two factors to be ONE value, evaluated once,
+// which is two conditions on the AUTHORED operands:
+//   - the same expression, by keyOf (opt/expr-utils.ts), the structural key CSE and GVN merge
+//     on. Two operands with one key are the same tree — the same operators, the same names, the
+//     same literal values and literal types — and the two sides of one binop are read in one
+//     scope, so they name the same variables. Reusing the optimizer's own key means this pass
+//     merges nothing the optimizer would keep apart.
+//   - evaluating it has no effect (passes/effects.ts, the table the optimizer consults before
+//     it dedupes a call). `f() * f()` over an `f` that writes a binding runs `f` twice as
+//     written, and `df64_sqr(f())` would run it once, so that product stays df64_mul. Without
+//     an effect nothing can change between the two evaluations: the IR has no assignment
+//     EXPRESSION, so the second evaluation reads exactly what the first one read.
+// The lowering's own lane squares (`length`, `distance`, and `dot(v, v)` under the same two
+// conditions) take df64_sqr as well. A vec64 `v * v` stays df64_vN_mul: its square would need
+// a whole-plane twoSqr the vector library does not have.
+//
+// POWER-OF-TWO SCALING. `x * c`, `c * x` and `x / c`, where c is a LITERAL (an f64 `lit`, the
+// `f64(lit)` widen, or an f32 literal the mixed operand widens) and the scale s — c, or 1/c
+// for the divide — is ±2^k with 2^-126 ≤ |s| ≤ 2^127, lower to `pair * s`: the vec2<f32> times
+// an f32 literal, two multiplies where df64_mul(x, (s, 0)) is 37 operations. Exact under
+// round-to-nearest: scaling by a power of two moves each word's exponent and leaves its
+// significand alone, so hi·s and lo·s are both exact, barring a word that overflows or leaves
+// the normal range (df64_mul gives the same words there, and its split overflows sooner). A
+// normalized pair stays normalized: |lo| ≤ ulp(hi)/2 scales to |lo·s| ≤ ulp(hi·s)/2. The range
+// keeps s a NORMAL f32, so the literal is exactly s on every target (splitF64 gives hi = s,
+// lo = 0) and no target can flush it to zero. df64-property.test.ts compares the scaled pair
+// against the df64_mul it replaces on random inputs of both signs across 2^±60.
+//   - s == 1 is the identity: the operand, and no multiply.
+//   - s == -1 is the componentwise negation `-x` already lowers to.
+//   - any other negative s is the same scaling: negating a word is exact too.
+//   - c == 0 is not a power of two and keeps df64_mul. `x * 0` moves no exponent, and its sign
+//     and its answer for a NaN or infinite x are df64_mul's to give, not a new rule here.
+// A divide by such a c is a multiply, so it cancels nothing and takes no renormForCancel:
+// there is no error-free transform downstream of it for a fast-math compiler to fold, only two
+// independent word multiplies. The vec64 form falls out of the plane layout: `v * c` is
+// `DF64VecN(v.hi * s, v.lo * s)`, taken only for a `v` without an effect, because the lowered
+// `v` appears in both planes (as the vec64 negation already spells it; CSE shares the two).
+
+/** `a` and `b` are one value evaluated once: the same expression under the optimizer's key,
+ *  and an evaluation with no effect. Both are the AUTHORED operands. */
+const oneValue = (a: Expr, b: Expr, ctx: LowerCtx): boolean =>
+  typeKey(a.type) === typeKey(b.type) && keyOf(a) === keyOf(b) && !exprHasEffect(a, ctx.writes)
+
+/** The numeric value of a literal f64 operand: an f64 `lit`, an f32 `lit` (a mixed operand
+ *  widens it exactly), or the `f64(lit)` widen of one. */
+function literalValue(x: Expr): number | undefined {
+  if (x.op === 'call' && x.fn === 'f64' && x.args.length === 1) return literalValue(x.args[0]!)
+  if (x.op !== 'lit' || typeof x.value !== 'number') return undefined
+  return isF64(x.type) || (x.type.kind === 'scalar' && x.type.scalar === 'f32')
+    ? x.value
+    : undefined
+}
+
+/** The scale an operand literal applies — c for a multiply, 1/c for a divide — when that is
+ *  ±2^k within the normal f32 range; undefined for anything else, 0 included. */
+function exactScale(x: Expr, divide: boolean): number | undefined {
+  const c = literalValue(x)
+  if (c === undefined) return undefined
+  const s = divide ? 1 / c : c
+  const m = Math.abs(s)
+  // The range test also turns away 0 (whose reciprocal is ∞), NaN and ∞.
+  if (!(m >= 2 ** -126 && m <= 2 ** 127)) return undefined
+  return 2 ** Math.round(Math.log2(m)) === m ? s : undefined
+}
+
+/** `x` is a lowered pair scaled by scalePair: `pair * <f32 literal>`. No other lowering
+ *  multiplies a pair natively, so the shape is scalePair's alone. */
+function isScaledPair(x: Expr): x is Extract<Expr, { op: 'binop' }> {
+  return (
+    x.op === 'binop' && x.bop === '*' && typeKey(x.type) === typeKey(vec2fT) && x.b.op === 'lit'
+  )
+}
+
+/** A lowered f64 pair times the exact power-of-two scale `s`. */
+function scalePair(pair: Expr, s: number): Expr {
+  if (s === 1) return pair
+  if (s === -1) return { op: 'unop', type: vec2fT, a: pair }
+  return { op: 'binop', type: vec2fT, bop: '*', a: pair, b: litF32(s) }
+}
+
+/** A lowered DF64VecN times the exact power-of-two scale `s`, plane by plane. */
+function scaleVec(base: Expr, n: 2 | 3 | 4, s: number): Expr {
+  if (s === 1) return base
+  const scaled = (which: 'hi' | 'lo'): Expr =>
+    s === -1
+      ? { op: 'unop', type: vecFT(n), a: plane(base, n, which) }
+      : { op: 'binop', type: vecFT(n), bop: '*', a: plane(base, n, which), b: litF32(s) }
+  return { op: 'construct', type: structT(vec64StructName(n)), args: [scaled('hi'), scaled('lo')] }
+}
+
+/** The cheaper lowering of an f64 `a * b` or `a / b` over AUTHORED operands, or undefined
+ *  when neither applies and the product takes df64_mul / df64_div. `lower` lowers an operand
+ *  to its pair (the caller's widen rules). */
+function cheapMulDiv(
+  bop: '*' | '/',
+  a: Expr,
+  b: Expr,
+  ctx: LowerCtx,
+  lower: (x: Expr) => Expr,
+): Expr | undefined {
+  const sb = exactScale(b, bop === '/')
+  if (sb !== undefined) return scalePair(lower(a), sb)
+  if (bop === '/') return undefined
+  const sa = exactScale(a, false)
+  if (sa !== undefined) return scalePair(lower(b), sa)
+  return isF64(a.type) && oneValue(a, b, ctx)
+    ? callHelper(ctx, 'df64_sqr', vec2fT, [lower(a)])
+    : undefined
+}
 
 function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
   const walk = (x: Expr): Expr => lowerExpr(x, ctx)
@@ -358,6 +492,14 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const n = e.type.n
         const op = VEC_BINOP_FN[e.bop]
         if (op === undefined) throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.type)}`)
+        // A vec64 times (or over) an exact power-of-two literal scales its two planes
+        // ("Cheaper multiplies" above), when the vector operand has no effect to duplicate.
+        if (op === 'mul' || op === 'div') {
+          const sb = isVec64(e.a.type) ? exactScale(e.b, op === 'div') : undefined
+          const sa = op === 'mul' && isVec64(e.b.type) ? exactScale(e.a, false) : undefined
+          const [v, s] = sb !== undefined ? [e.a, sb] : [e.b, sa]
+          if (s !== undefined && !exprHasEffect(v, ctx.writes)) return scaleVec(walk(v), n, s)
+        }
         // Same raw-operand renorm as the scalar path — a cancelling vec64 sub/div
         // over a loaded DF64VecN drops its lo plane under fast-math.
         const renorm = (x: Expr): Expr =>
@@ -371,6 +513,11 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const fnName = BINOP_FN[e.bop]
         if (fnName === undefined)
           throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.a.type)}`)
+        // A square or an exact power-of-two scale ("Cheaper multiplies" above).
+        if (e.bop === '*' || e.bop === '/') {
+          const cheap = cheapMulDiv(e.bop, e.a, e.b, ctx, pairOperand)
+          if (cheap !== undefined) return cheap
+        }
         // Apple/ANGLE df64 fix: a RAW df64 operand feeding a CANCELLING op
         // (sub/div) loses its loaded lo word under fast-math — renorm it first
         // (see renormForCancel). add/mul don't cancel and are left untouched.
@@ -445,16 +592,22 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         isVec64(e.args[0]!.type)
       ) {
         const n = (e.args[0]!.type as Extract<ShaderType, { kind: 'vec64' }>).n
+        // Each lane is squared by df64_sqr: `li` is ONE lowered expression passed once, where
+        // df64_mul(li, li) passed it twice ("Cheaper multiplies" above).
         const sumSquares = (laneAt: (i: number) => Expr): Expr => {
           let acc: Expr | undefined
           for (let i = 0; i < n; i++) {
-            const li = laneAt(i)
-            const sq = callHelper(ctx, 'df64_mul', vec2fT, [li, li])
+            const sq = callHelper(ctx, 'df64_sqr', vec2fT, [laneAt(i)])
             acc = acc === undefined ? sq : callHelper(ctx, 'df64_add', vec2fT, [acc, sq])
           }
           return acc!
         }
         if (e.fn === 'dot') {
+          // dot(v, v) is Σ vᵢ² when v is one value evaluated once.
+          if (oneValue(e.args[0]!, e.args[1]!, ctx)) {
+            const v = walk(e.args[0]!)
+            return sumSquares((i) => lane(v, n, i))
+          }
           const a = walk(e.args[0]!)
           const b = walk(e.args[1]!)
           let acc: Expr | undefined
@@ -709,6 +862,20 @@ function lowerStmt(s: Stmt, ctx: LowerCtx): Stmt {
       if (isF64(s.target.type)) {
         const fnName = BINOP_FN[s.bop]
         if (fnName === undefined) throw dslError('SD0041', `compound assign '${s.bop}=' on f64`)
+        // `x *= x`, `x *= 2.0` and `x /= 4.0` are the binop's square and scalings: `x *= c`
+        // means `x = x * c`, and the two spellings lower alike ("Cheaper multiplies" above).
+        if (s.bop === '*' || s.bop === '/') {
+          const operand = (x: Expr): Expr =>
+            isF64(x.type)
+              ? walk(x)
+              : x.type.kind === 'scalar' && x.type.scalar === 'f32'
+                ? widen(walk(x))
+                : (() => {
+                    throw dslError('SD0041', `'${s.bop}=' of ${typeKey(x.type)} on f64`)
+                  })()
+          const cheap = cheapMulDiv(s.bop, s.target, s.expr, ctx, operand)
+          if (cheap !== undefined) return { s: 'assign', target: walk(s.target), expr: cheap }
+        }
         // Registered the way the vec64 arm above registers its own: this arm EMITS a call to
         // `fnName`, so the module must carry its helper. Without this the emitted shader called
         // df64_add / df64_sub with no declaration anywhere and no `_fp64` binding, which Tint
@@ -1163,6 +1330,11 @@ function injectGuard(bindings: BindingDecl[]): void {
  *  the componentwise forms of the list above; on `matNxN<f64>`, `*` and `transpose`. Any other
  *  builtin on an f64 operand throws; narrow the operand to f32 first when you need one.
  *
+ *  Two kinds of multiply take a cheaper form. `x * x`, when `x` has no side effect, is
+ *  `df64_sqr(x)`, the multiply specialised to one operand; a multiply by a power-of-two
+ *  literal, or a divide by one, scales the two words of the pair by an f32 literal, which is
+ *  exact.
+ *
  *  When an injected helper reads the runtime guard, the pass also declares the `_fp64` guard
  *  binding at group 0, first index past the module's own group-0 bindings. Declare
  *  {@link fp64Guard} in the module to pin that slot yourself. The host writes `1.0` into it.
@@ -1212,7 +1384,12 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
       throw dslError('SD0043', `struct '${st.name}'`)
   }
 
-  const ctx: LowerCtx = { used: new Set(), vecWidths: new Set(), matWidths: new Set() }
+  const ctx: LowerCtx = {
+    used: new Set(),
+    vecWidths: new Set(),
+    matWidths: new Set(),
+    writes: fnWrites(m),
+  }
   const recordWidths = (t: ShaderType): void => {
     if (isVec64(t)) ctx.vecWidths.add(t.n)
     // A mat width forces its vec width — DF64MatN nests DF64VecN columns.

@@ -6,6 +6,7 @@ import {
   module,
   f64,
   f64T,
+  f32,
   f32T,
   i32,
   vec4fT,
@@ -33,6 +34,7 @@ import {
   type Expr,
   type FuncDecl,
   type ModuleDecl,
+  type ReadonlyNode,
 } from '../ir/index.js'
 import { eachExpr, eachStmtExpr } from '../ir/visit.js'
 import { fp64Guard, FP64_GUARD_NAME, DF64_ORDER } from '../fp64/df64-lib.js'
@@ -40,6 +42,7 @@ import { ioStruct, location, builtin, uniformStruct, resource } from '../sot.js'
 import { fp64Lower, foldGuardChain, hoistGuardFetch } from './fp64-lower.js'
 import { emitModule, emitModuleAt } from '../backends/wgsl.js'
 import { emitGlslModule } from '../backends/glsl.js'
+import { compile } from '../../compiler/ts/compile.js'
 
 describe('identity for non-f64 modules', () => {
   it('returns the SAME module object when no f64 appears anywhere', () => {
@@ -150,6 +153,164 @@ describe('rewrite shapes', () => {
     const wgsl = emitModule(module({ funcs: [k], uses: [U] }))
     expect(wgsl).toContain('origin: vec2<f32>,')
     expect(wgsl).toContain('params.origin')
+  })
+})
+
+// ── Cheaper multiplies (fp64-lower's "Cheaper multiplies"): the Julia / Mandelbrot escape loop
+// squared both coordinates with the general df64_mul and doubled `zx * zy` with a full
+// df64_mul by (2, 0). The square takes df64_sqr, the power-of-two scale two f32 multiplies.
+describe('cheaper multiplies: the square and exact power-of-two scaling', () => {
+  type F64 = ReadonlyNode<'f64'>
+  type V64 = ReadonlyNode<'vec3<f64>'>
+  /** The emitted text of `k` alone, the helper library cut off. */
+  const kText = (m: ModuleDecl): string => {
+    const wgsl = emitModule(m)
+    return wgsl.slice(wgsl.indexOf('fn k('), wgsl.indexOf('\n}\n', wgsl.indexOf('fn k(')))
+  }
+  /** `k(a, b: f64) -> f64` built from `body`, emitted. */
+  const kBody = (body: (p: { a: F64; b: F64 }) => F64): string =>
+    kText(module({ funcs: [fn('k', { a: f64T, b: f64T }, (p) => body(p))] }))
+
+  it('x * x lowers to df64_sqr, which brings twoSqr and not df64_mul', () => {
+    expect(kBody((p) => p.a.mul(p.a))).toContain('return df64_sqr(a, _fp64_g);')
+    const names = fp64Lower(
+      module({ funcs: [fn('k', { a: f64T }, (p) => p.a.mul(p.a))] }),
+    ).funcs.map((f) => f.name)
+    expect(names).toContain('df64_sqr')
+    expect(names).not.toContain('df64_mul')
+    expect(names).not.toContain('df64_twoProd')
+    // Dependency-first, so GLSL's define-before-use holds.
+    expect(names.indexOf('df64_twoSqr')).toBeLessThan(names.indexOf('df64_sqr'))
+    expect(names.indexOf('df64_quickTwoSum')).toBeLessThan(names.indexOf('df64_sqr'))
+    // A compound expression squares once too: `(a + b) * (a + b)`.
+    expect(kBody((p) => p.a.add(p.b).mul(p.a.add(p.b)))).toContain(
+      'df64_sqr(df64_add(a, b, _fp64_g), _fp64_g)',
+    )
+  })
+
+  it('two different operands still take df64_mul', () => {
+    expect(kBody((p) => p.a.mul(p.b))).toContain('df64_mul(a, b, _fp64_g)')
+    expect(kBody((p) => p.a.add(p.b).mul(p.a.sub(p.b)))).toMatch(/df64_mul\(/)
+  })
+
+  it('only an operand without an effect is squared: f() * f() over a writing f stays df64_mul', () => {
+    const { module: m } = compile(`"use typeshade"
+declare let dst: storage<array<f32>>
+function bump(i: u32): f64 {
+  dst[i] = dst[i] + 1.
+  return f64(dst[i])
+}
+function half(x: f64): f64 {
+  return x * 0.5
+}
+@compute([64, 1, 1])
+export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
+  const x = f64(dst[gid.x])
+  dst[gid.x] = f32(bump(gid.x) * bump(gid.x)) + f32(half(x) * half(x))
+}
+`)
+    const wgsl = emitModule(m)
+    // bump writes `dst`: two calls as written, two increments. half is pure: one call.
+    expect(wgsl).toContain('df64_mul(bump(gid.x), bump(gid.x), _fp64_g)')
+    expect(wgsl).toContain('df64_sqr(half(x), _fp64_g)')
+  })
+
+  it('a power-of-two literal scales the pair: 2*x, x*2, x*0.5, x/4, x*-2', () => {
+    expect(kBody((p) => p.a.mul(2.0))).toContain('return (a * 2.0);')
+    expect(kBody((p) => f64(2.0).mul(p.a))).toContain('return (a * 2.0);')
+    expect(kBody((p) => p.a.mul(0.5))).toContain('return (a * 0.5);')
+    expect(kBody((p) => p.a.div(4.0))).toContain('return (a * 0.25);')
+    expect(kBody((p) => p.a.mul(-2.0))).toContain('return (a * -2.0);')
+    // The `f64(lit)` widen and an f32 literal a mixed operand widens are the same literal.
+    expect(kBody((p) => p.a.mul(f64(f32(2.0))))).toContain('return (a * 2.0);')
+    expect(kBody((p) => p.a.mul(f32(0.125)))).toContain('return (a * 0.125);')
+    // ±1 are the identity and the negation; neither multiplies.
+    expect(kBody((p) => p.a.mul(1.0))).toContain('return a;')
+    expect(kBody((p) => p.a.mul(-1.0))).toContain('return (-a);')
+    // A scaling reads no helper, so a module that only scales declares no guard binding.
+    const onlyScales = fp64Lower(module({ funcs: [fn('k', { a: f64T }, (p) => p.a.mul(2.0))] }))
+    expect(onlyScales.funcs.map((f) => f.name)).toEqual(['k'])
+    expect(onlyScales.bindings).toEqual([])
+  })
+
+  it('anything that is not an exact power of two keeps df64_mul / df64_div', () => {
+    for (const c of [3.0, 0.1, 0.0, 2.5])
+      expect(
+        kBody((p) => p.a.mul(c)),
+        `x * ${c}`,
+      ).toMatch(/df64_mul\(a, /)
+    expect(kBody((p) => p.a.div(3.0))).toMatch(/df64_div\(/)
+    // Out of the normal f32 range: 2^-127 is subnormal as an f32, and so is 1 / 2^127.
+    expect(kBody((p) => p.a.mul(2 ** -127))).toMatch(/df64_mul\(a, /)
+    expect(kBody((p) => p.a.div(2 ** 127))).toMatch(/df64_div\(/)
+    // The edges of the range scale.
+    expect(kBody((p) => p.a.mul(2 ** -126))).not.toMatch(/df64_mul\(/)
+    expect(kBody((p) => p.a.div(2 ** 126))).not.toMatch(/df64_div\(/)
+    // A literal divided BY x is a reciprocal, not a scale.
+    expect(kBody((p) => f64(2.0).div(p.a))).toMatch(/df64_div\(/)
+  })
+
+  it('compound assignment lowers alike: x *= x, x *= 2, x /= 4', () => {
+    const k = fn('k', { a: f64T }, f64T, (p, bb) => {
+      const x = bb.var('x', f64T, p.a)
+      bb.assignOp(x, '*', x)
+      bb.assignOp(x, '*', f64(2.0))
+      bb.assignOp(x, '/', f64(4.0))
+      bb.ret(x)
+    })
+    const wgsl = emitModule(module({ funcs: [k] }))
+    expect(wgsl).toContain('x = df64_sqr(x, _fp64_g);')
+    expect(wgsl).toContain('x = (x * 2.0);')
+    expect(wgsl).toContain('x = (x * 0.25);')
+    expect(wgsl).not.toMatch(/\bdf64_(mul|div)\(/)
+  })
+
+  it('length / distance / dot(v, v) square each lane with df64_sqr', () => {
+    /** `k(u, w: vec3<f64>) -> f32`, the narrow of `body`, emitted. */
+    const emitV = (body: (p: { u: V64; w: V64 }) => F64): string =>
+      kText(
+        module({
+          funcs: [fn('k', { u: vec3f64T, w: vec3f64T }, f32T, (p, bb) => bb.ret(toF32(body(p))))],
+        }),
+      )
+    for (const body of [
+      (p: { u: V64; w: V64 }) => length(p.u),
+      (p: { u: V64; w: V64 }) => distance(p.u, p.w),
+      (p: { u: V64; w: V64 }) => dot(p.u, p.u),
+    ]) {
+      const k = emitV(body)
+      expect(k.match(/df64_sqr\(/g)).toHaveLength(3)
+      expect(k).not.toMatch(/df64_mul\(/)
+    }
+    // dot of two different vectors is still a sum of products.
+    expect(emitV((p) => dot(p.u, p.w))).toMatch(/df64_mul\(/)
+  })
+
+  it('a vec64 times a power-of-two literal scales both planes; any other factor keeps df64_vN_mul', () => {
+    const emitV = (body: (v: V64) => V64): string =>
+      kText(module({ funcs: [fn('k', { v: vec3f64T }, (p) => body(p.v))] }))
+    expect(emitV((v) => v.mul(2.0))).toContain('return DF64Vec3((v.hi * 2.0), (v.lo * 2.0));')
+    expect(emitV((v) => v.div(4.0))).toContain('return DF64Vec3((v.hi * 0.25), (v.lo * 0.25));')
+    expect(emitV((v) => v.mul(3.0))).toMatch(/df64_v3_mul\(/)
+  })
+
+  it('a scaled helper output is still a helper output; a scaled LOADED pair is renormed', () => {
+    // (a * b) * 2 - b: the scaled product's lo word was computed by df64_mul's quickTwoSum, so
+    // the cancelling sub renorms only the raw param `b`, exactly as it did before the scaling.
+    const k = kBody((p) => p.a.mul(p.b).mul(2.0).sub(p.b))
+    expect(k).toMatch(/df64_sub\(\(df64_mul\(a, b, _fp64_g\) \* 2\.0\), df64_add\(b, /)
+    // a * 2 - b: `a` is a raw param, and so is the pair it scales.
+    expect(kBody((p) => p.a.mul(2.0).sub(p.b))).toMatch(/df64_sub\(df64_add\(\(a \* 2\.0\), /)
+  })
+
+  it('the integer flavor squares with the same composition, and stays guard-free', () => {
+    const m = module({ funcs: [fn('k', { a: f64T }, (p) => p.a.mul(p.a).mul(0.5))] })
+    const lowered = fp64Lower(m, { flavor: 'integer' })
+    expect(lowered.funcs.map((f) => f.name)).toContain('df64_sqr')
+    expect(lowered.bindings).toEqual([])
+    const wgsl = emitModule(m, { fp64Flavor: 'integer' })
+    expect(wgsl).toContain('(df64_sqr(a) * 0.5)')
+    expect(wgsl).not.toContain(FP64_GUARD_NAME)
   })
 })
 

@@ -52,6 +52,10 @@ const m = module({
     fn('k_add', { a: f64T, b: f64T }, (p) => p.a.add(p.b)),
     fn('k_mul', { a: f64T, b: f64T }, (p) => p.a.mul(p.b)),
     fn('k_div', { a: f64T, b: f64T }, (p) => p.a.div(p.b)),
+    // The square (df64_sqr) and the power-of-two scales (componentwise f32 multiplies).
+    fn('k_sqr', { a: f64T }, (p) => p.a.mul(p.a)),
+    fn('k_x2', { a: f64T }, (p) => p.a.mul(2.0)),
+    fn('k_div4', { a: f64T }, (p) => p.a.div(4.0)),
     fn('k_sqrt', { a: f64T }, (p) => sqrt(p.a)),
     fn('k_abs', { a: f64T }, (p) => abs(p.a)),
     fn('k_min', { a: f64T, b: f64T }, (p) => min(p.a, p.b)),
@@ -110,6 +114,26 @@ describe('df64 known answers — multiplication / division / sqrt (~48-bit resul
     expect(Math.fround(Math.fround(a) * Math.fround(a))).toBe(1) // f32 loses it all
     const r = val(cpu.fns.k_mul!(pair(a), pair(a)))
     expect(Math.abs(r - exact)).toBeLessThan(2 ** -45)
+  })
+
+  it('(1 + 2^-30)² through df64_sqr carries the same 2^-29 cross term', () => {
+    const a = 1 + 2 ** -30
+    const exact = a * a
+    expect(Math.fround(Math.fround(a) * Math.fround(a))).toBe(1)
+    const r = val(cpu.fns.k_sqr!(pair(a)))
+    expect(Math.abs(r - exact)).toBeLessThan(2 ** -45)
+    // √2 squared: the square of a value whose lo word is not zero.
+    const s = val(cpu.fns.k_sqr!(pair(Math.SQRT2)))
+    expect(Math.abs(s - 2)).toBeLessThan(2 ** -45)
+    expect(Math.abs(Math.fround(Math.fround(Math.SQRT2) ** 2) - 2)).toBeGreaterThan(2 ** -25)
+  })
+
+  it('(1e8 + 0.5)·2 and (1e8 + 0.5)/4 are exact — a scale moves the exponent, never the tail', () => {
+    // Discriminative half: f32 has already dropped the 0.5 before it scales anything.
+    expect(Math.fround(1e8 + 0.5) * 2).toBe(2e8)
+    expect(val(cpu.fns.k_x2!(pair(1e8 + 0.5)))).toBe(2e8 + 1)
+    expect(val(cpu.fns.k_div4!(pair(1e8 + 0.5)))).toBe(25_000_000.125)
+    expect(val(cpu.fns.k_x2!(pair(-(2 ** 20 + 2 ** -20))))).toBe(-(2 ** 21 + 2 ** -19))
   })
 
   it('π × e to well past f32 precision', () => {
@@ -193,6 +217,16 @@ describe('metamorphic gate — oracle(fp64Lower(m)) ≈ oracle(m)', () => {
       const exact = authored.fns[name]!(a, b) as number
       const low = val(lowered.fns[name]!(pair(a), pair(b)))
       expect(Math.abs(low - exact)).toBeLessThanOrEqual(Math.abs(exact) * 2 ** -40 + 2 ** -40)
+    }
+  })
+
+  it.each(['k_sqr', 'k_x2', 'k_div4'] as const)('%s agrees across the two paths', (name) => {
+    for (const [a, b] of CASES) {
+      for (const x of [a, b]) {
+        const exact = authored.fns[name]!(x) as number
+        const low = val(lowered.fns[name]!(pair(x)))
+        expect(Math.abs(low - exact)).toBeLessThanOrEqual(Math.abs(exact) * 2 ** -40 + 2 ** -40)
+      }
     }
   })
 

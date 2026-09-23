@@ -309,6 +309,45 @@ const df64_mul = fn('df64_mul', { a: vec2fT, b: vec2fT }, (p) => {
   return df64_quickTwoSum({ a: prod.x, b: prod.y })
 })
 
+/** a²: {@link df64_mul} of a pair with itself, specialised. fp64-lower emits it for an f64
+ *  `x * x` whose operand has no effect (and for the lane squares of `length` / `distance`).
+ *
+ *  Three things are cheaper than `df64_mul(a, a)`:
+ *   - the hi product is {@link df64_twoSqr}, one Veltkamp split where twoProd runs two (the
+ *     two splits of `a.x` are the same split), and exact all the same;
+ *   - the two cross terms `a.x·a.y` and `a.y·a.x` are one product, doubled. The scale by 2
+ *     moves the exponent and nothing else, so `(a.x·a.y)·2` is one rounding, exactly as
+ *     `a.x·a.y` alone is (overflow needs |a.x·a.y| > 2¹²⁷, far beyond any input here);
+ *   - one renormalization instead of two (below).
+ *  As emitted on the float flavor: 26 f32 operations against df64_mul's 37. The accuracy is
+ *  the multiply's: one rounded cross term added once where df64_mul adds two rounded halves.
+ *  df64-property.test.ts sweeps both over the same pairs (worst relative error 2^-46.15 for
+ *  the square, 2^-46.41 for df64_mul(a, a)); over 200,000 pairs in [1, 2) the mean is 2^-49.41
+ *  against 2^-49.36, and the square is the closer one on 27,274 pairs against 15,437.
+ *
+ *  WHY ONE RENORMALIZATION IS ENOUGH. df64_mul renormalizes after EACH cross term (its note:
+ *  the luma.gl / donmccurdy Apple defense). Its two cross terms each share a factor with the hi
+ *  product `a.x·b.x`: `a.x·b.y` shares `a.x`, `a.y·b.x` shares `b.x`. The intermediate
+ *  quickTwoSum is what separates the SECOND one from the hi product: after it, the hi word is
+ *  `(…) · ONE`, a product with the runtime-opaque guard that no compiler can see as a multiple
+ *  of `b.x`, so `a.y·b.x` has nothing left to be factored against. The FIRST cross term has no
+ *  such barrier in df64_mul either: it meets `a.x·b.x` inside the first quickTwoSum's `a + b`,
+ *  before any guard. The square has one cross term, and it enters exactly where df64_mul's first
+ *  one does — added to the twoSqr error word, then one guarded quickTwoSum. So df64_sqr is the
+ *  first half of df64_mul with its cross term doubled: the exposure of df64_mul's first term and
+ *  no second term for a second renormalization to protect. A second quickTwoSum would renormalize
+ *  a pair nothing has been added to since the first, and for the (s, e) a quickTwoSum returns,
+ *  fl(s + e) is s, so the second one is the identity: five operations that guard nothing.
+ *
+ *  The dropped `a.y²` term is the one df64_mul drops too (`a.y·b.y`, below 2⁻⁴⁸ relative).
+ *  The integer flavor overrides df64_twoSqr and df64_quickTwoSum by name (df64-int.ts), and
+ *  this composition binds to those unchanged, guard-free, as df64_mul does. */
+const df64_sqr = fn('df64_sqr', { a: vec2fT }, (p) => {
+  const prod = Var(df64_twoSqr({ a: p.a.x }))
+  prod.y.assign(prod.y.add(p.a.x.mul(p.a.y).mul(2.0)))
+  return df64_quickTwoSum({ a: prod.x, b: prod.y })
+})
+
 /** a ÷ b: f32-reciprocal seed + one Newton-Raphson correction (luma.gl form). */
 const df64_div = fn('df64_div', { a: vec2fT, b: vec2fT }, (p) => {
   const xn = Let(one.div(p.b.x))
@@ -894,6 +933,7 @@ export const DF64_ORDER: readonly FuncDecl[] = [
   df64_add.decl,
   df64_sub.decl,
   df64_mul.decl,
+  df64_sqr.decl,
   df64_div.decl,
   df64_sqrt.decl,
   df64_lt.decl,

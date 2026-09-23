@@ -42,6 +42,13 @@ vec2 df64_twoProd(float a, float b, float _fp64_g) {
   return vec2(_v0, _v3);
 }
 
+vec2 df64_twoSqr(float a, float _fp64_g) {
+  float _v0 = (a * a);
+  vec2 _v1 = df64_split(a, _fp64_g);
+  float _v2 = (((((_v1.x * _v1.x) - _v0) * _fp64_g) + (((_v1.x * _v1.y) * 2.0) * _fp64_g)) + ((_v1.y * _v1.y) * _fp64_g));
+  return vec2(_v0, _v2);
+}
+
 vec2 df64_add(vec2 a, vec2 b, float _fp64_g) {
   vec2 _v0 = df64_twoSum(a.x, b.x, _fp64_g);
   vec2 _v1 = df64_twoSum(a.y, b.y, _fp64_g);
@@ -64,6 +71,12 @@ vec2 df64_mul(vec2 a, vec2 b, float _fp64_g) {
   return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
 }
 
+vec2 df64_sqr(vec2 a, float _fp64_g) {
+  vec2 _v0 = df64_twoSqr(a.x, _fp64_g);
+  _v0.y = (_v0.y + ((a.x * a.y) * 2.0));
+  return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
+}
+
 bool df64_le(vec2 a, vec2 b) {
   return ((a.x < b.x) || ((a.x == b.x) && (a.y <= b.y)));
 }
@@ -81,7 +94,6 @@ layout(location = 0) out vec4 _ret;
 void main() {
   float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;
   vec2 _licm0 = vec2(16.0, 0.0);
-  vec2 _licm1 = vec2(2.0, 0.0);
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
@@ -115,16 +127,16 @@ void main() {
     vec2 _v15 = _cse3;
     vec2 _v16 = _cse3;
     for (uint _v17 = 0u; (_v17 < 128u); _v17 = (_v17 + 1u)) {
-      vec2 _gv3 = df64_mul(_v15, _v15, _fp64_g);
-      vec2 _gv4 = df64_mul(_v16, _v16, _fp64_g);
+      vec2 _gv3 = df64_sqr(_v15, _fp64_g);
+      vec2 _gv4 = df64_sqr(_v16, _fp64_g);
       if (df64_le(df64_add(_gv3, _gv4, _fp64_g), _licm0)) {
         vec2 _v18 = df64_add(df64_sub(_gv3, _gv4, _fp64_g), _v13, _fp64_g);
-        _v16 = df64_add(df64_mul(df64_abs(df64_mul(_v15, _v16, _fp64_g)), _licm1, _fp64_g), _v14, _fp64_g);
+        _v16 = df64_add((df64_abs(df64_mul(_v15, _v16, _fp64_g)) * 2.0), _v14, _fp64_g);
         _v15 = _v18;
         _v5 = (_v5 + 1.0);
       }
     }
-    _v6 = df64_narrow(df64_add(df64_mul(_v15, _v15, _fp64_g), df64_mul(_v16, _v16, _fp64_g), _fp64_g));
+    _v6 = df64_narrow(df64_add(df64_sqr(_v15, _fp64_g), df64_sqr(_v16, _fp64_g), _fp64_g));
   }
   float _v19 = ((_v5 - log2(max(log2(max(_v6, 1.0001)), 0.0001))) + 1.0);
   float _v20 = step(127.5, _v5);

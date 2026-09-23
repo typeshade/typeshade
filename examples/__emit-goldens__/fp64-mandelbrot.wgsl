@@ -39,22 +39,21 @@ fn escape_f32(cx: f32, cy: f32, iters: u32) -> vec2<f32> {
 fn escape_f64(cx: vec2<f32>, cy: vec2<f32>, iters: u32) -> vec2<f32> {
   let _fp64_g = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _licm0 = vec2<f32>(16.0, 0.0);
-  let _licm1 = vec2<f32>(2.0, 0.0);
   let _cse0 = vec2<f32>(0.0, 0.0);
   var _v0: vec2<f32> = _cse0;
   var _v1: vec2<f32> = _cse0;
   var _v2: f32 = 0.0;
   for (var _v3: u32 = 0u; (_v3 < iters); _v3 = (_v3 + 1u)) {
-    let _gv0 = df64_mul(_v0, _v0, _fp64_g);
-    let _gv1 = df64_mul(_v1, _v1, _fp64_g);
+    let _gv0 = df64_sqr(_v0, _fp64_g);
+    let _gv1 = df64_sqr(_v1, _fp64_g);
     if (df64_le(df64_add(_gv0, _gv1, _fp64_g), _licm0)) {
       let _v4 = df64_add(df64_sub(_gv0, _gv1, _fp64_g), cx, _fp64_g);
-      _v1 = df64_add(df64_mul(df64_mul(_v0, _v1, _fp64_g), _licm1, _fp64_g), cy, _fp64_g);
+      _v1 = df64_add((df64_mul(_v0, _v1, _fp64_g) * 2.0), cy, _fp64_g);
       _v0 = _v4;
       _v2 = (_v2 + 1.0);
     }
   }
-  return vec2<f32>(_v2, df64_narrow(df64_add(df64_mul(_v0, _v0, _fp64_g), df64_mul(_v1, _v1, _fp64_g), _fp64_g)));
+  return vec2<f32>(_v2, df64_narrow(df64_add(df64_sqr(_v0, _fp64_g), df64_sqr(_v1, _fp64_g), _fp64_g)));
 }
 
 @vertex
@@ -127,6 +126,13 @@ fn df64_twoProd(a: f32, b: f32, _fp64_g: f32) -> vec2<f32> {
   return vec2<f32>(_v0, _v3);
 }
 
+fn df64_twoSqr(a: f32, _fp64_g: f32) -> vec2<f32> {
+  let _v0 = (a * a);
+  let _v1 = df64_split(a, _fp64_g);
+  let _v2 = (((((_v1.x * _v1.x) - _v0) * _fp64_g) + (((_v1.x * _v1.y) * 2.0) * _fp64_g)) + ((_v1.y * _v1.y) * _fp64_g));
+  return vec2<f32>(_v0, _v2);
+}
+
 fn df64_add(a: vec2<f32>, b: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
   var _v0: vec2<f32> = df64_twoSum(a.x, b.x, _fp64_g);
   let _v1 = df64_twoSum(a.y, b.y, _fp64_g);
@@ -146,6 +152,12 @@ fn df64_mul(a: vec2<f32>, b: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
   _v0.y = (_v0.y + (a.x * b.y));
   _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
   _v0.y = (_v0.y + (a.y * b.x));
+  return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
+}
+
+fn df64_sqr(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
+  var _v0: vec2<f32> = df64_twoSqr(a.x, _fp64_g);
+  _v0.y = (_v0.y + ((a.x * a.y) * 2.0));
   return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
 }
 

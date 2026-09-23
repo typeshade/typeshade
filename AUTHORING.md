@@ -2262,6 +2262,11 @@ One f64 operation is several f32 operations, ten or more for a multiply or an ad
 per value: hold the coordinates that need the range in f64, narrow as soon as the difference
 is small enough for f32, and let the rest of the shader run at f32 speed.
 
+Two multiplies cost less, with nothing to write differently. `x.mul(x)` is a square, about 30%
+cheaper than a general multiply, as long as computing `x` has no side effect, such as a call
+that writes a storage binding. A multiply or a divide by a power-of-two literal, `2.0`, `0.5`
+or `-4.0`, scales the two f32 words and nothing else, which is exact: two f32 operations.
+
 ```ts
 import { f64T, fn, toF32 } from 'typeshade'
 
