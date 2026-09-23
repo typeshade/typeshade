@@ -139,6 +139,22 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **`grad(m, fn, param)` differentiates a function in forward mode** (roadmap 0.7 item 18). It
+  is an IR → IR pass exported from `typeshade`: it adds `<fn>_d_<param>`, which takes `fn`'s
+  arguments and returns the derivative of its result, and a `<g>_jvp` helper for each function
+  the parameter reaches through a call. Every `f32`, float vector and float matrix carries a
+  tangent beside its value; `if`, `switch` and `for` keep their primal conditions; the
+  component-wise builtins, `dot`, `cross`, `length`, `distance`, `normalize`, `reflect`,
+  `transpose`, `mix`, `smoothstep`, `pow` and `atan(y, x)` have their textbook rules; and
+  `floor`, `ceil`, `round`, `trunc`, `sign` and `step` differentiate to zero. A vector parameter
+  takes `{ direction }` and gives the directional derivative. Anything else the parameter
+  reaches, a texture sample, `refract`, a struct or an array that would carry the derivative, a
+  module variable written with it, is refused with the new `SD0118`, naming it, rather than
+  given a zero derivative. Every rule is checked against a central finite difference on both
+  CPU modules, and the generated functions for three modules covering every rule compile on
+  Tint and on ANGLE. `grad` is a host API: no `"use typeshade"` spelling is added (Rule 2.1,
+  §2.1), so the §9.3 extension table does not change.
+
 - **A method that changes its object may return a value** (§26, Rule 8.10). A generator's
   `gen(): f32` that assigns `this.seed = …` and returns the draw was `TS8035 A method that
 changes its object returns nothing (§26)` at the assignment: the rule of the protocol that
