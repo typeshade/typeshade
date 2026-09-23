@@ -414,6 +414,57 @@ export function k(s: f64, t: f32): f64 {
     expect(Math.abs(Math.fround(0.1) - 0.1)).toBeGreaterThan(1e-9);
   });
 
+  // The same claim through the explicit cast, which §39 says emits the pair the retype does. A
+  // negated literal lowers to a unop and `1. / 3.` to a binop, and the cast lifted only a bare
+  // lit, so f64(-0.1) and f64(1. / 3.) widened the f32 rounding as (x, 0.0) while
+  // `const d: f64 = -0.1` kept the double. The bound is 2⁻⁴⁸ of the value, the ~48 bits the pair
+  // holds. The pair for π lands 3.6e-15 from the double, so a fixed 1e-16 is too tight at that
+  // scale, and the f32 rounding is 2⁻²⁶ to 2⁻²⁵ of the value off, well outside the bound.
+  it.each([
+    ['-0.1', -0.1],
+    ['-(0.1)', -0.1],
+    ['1. / 3.', 1 / 3],
+    ['Math.PI', Math.PI],
+  ] as const)(
+    'carries the whole double of f64(%s), the pair a declared f64 carries',
+    (arg, want) => {
+      const cast = bothWays(
+        `"use typeshade";\nexport function k(): f64 { return f64(${arg}); }\n`,
+        [],
+      );
+      const declared = bothWays(
+        `"use typeshade";\nexport function k(): f64 { const d: f64 = ${arg}; return d; }\n`,
+        [],
+      );
+      const bound = Math.abs(want) * 2 ** -48;
+      expect(cast.double).toBe(want);
+      expect(Math.abs(cast.emulated - want)).toBeLessThanOrEqual(bound);
+      expect(Math.abs(Math.fround(want) - want)).toBeGreaterThan(bound);
+      expect(cast.emulated).toBe(declared.emulated);
+    },
+  );
+
+  it('widens the f32 an explicit f32() made, rather than lifting the literal inside it', () => {
+    // f32(0.1) lowers to an f32 literal that still holds the double 0.1, and the cast used to
+    // lift that whole, undoing the narrow the author wrote. A call says which precision it means,
+    // as it does beside an f64 operand, so the cast widens that f32 exactly: the pair is
+    // (fround(0.1), 0.0), and the oracle reads the same f32 rather than the double.
+    for (const [arg, written] of [
+      ['f32(0.1)', 0.1],
+      ['(f32(0.1))', 0.1],
+      ['f32(-0.1)', -0.1],
+    ] as const) {
+      const { double, emulated } = bothWays(
+        `"use typeshade";\nexport function k(): f64 { return f64(${arg}); }\n`,
+        [],
+      );
+      expect(double, arg).toBe(Math.fround(written));
+      expect(emulated, arg).toBe(Math.fround(written));
+      // The instrument: the f32 is not the double, so this pin cannot pass on the whole double.
+      expect(Math.fround(written), arg).not.toBe(written);
+    }
+  });
+
   it('refuses % on an f64 AT THE OPERATOR, not from the backend', () => {
     // `.not.toEqual([])` would pass on the span-less TS8015/SD0041 this is meant to rule out,
     // so the code and the text are both asserted.

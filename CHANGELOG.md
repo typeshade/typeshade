@@ -1352,6 +1352,23 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **`f64()` keeps the whole double of a negated or computed literal** (Rule 5.2, §39).
+  `f64(-0.1)`, `f64(-(0.1))` and `f64(1. / 3.)` carried only the `f32` rounding of their value,
+  widened as `(x, 0.0)` with the tail lost, while `f64(0.1)` and `const k: f64 = -0.1` carried
+  the double. §39 says the cast folds a literal argument at full precision, but it lifted only a
+  bare literal: a negated one lowers to a unary minus over it, and `1. / 3.` to a division. The
+  cast now folds its argument first, as the retype beside an `f64` does, so each emits the pair
+  a declared `f64` carries. For `-0.1` that is
+  `vec2<f32>(-0.10000000149011612, 1.4901161415892261e-9)`, where it emitted
+  `vec2<f32>(-0.1, 0.0)`. That is the splat the `vecNf64` constructor refusals name, so
+  `vec3f64(f64(-0.1))` now carries the double as well. `f64(f32(0.1))` moves the other way. The
+  inner cast folds to an `f32` literal that still holds the double 0.1, and the outer one lifted
+  that whole, undoing the narrow the author wrote. A call says which precision it means, as it
+  does beside an `f64` operand, so the cast now widens that `f32` exactly, to
+  `vec2<f32>(0.10000000149011612, 0.0)`, and the CPU oracle reads the same `f32`. The test is
+  the retype's own, on the argument as a whole, so `f64(-f32(0.1))` folds as `s * -f32(0.1)`
+  does and the two spellings still emit one pair. `f64-types.test.ts` pins each spelling on the
+  oracle and on the lowered module under f32 rounding.
 - **`&`, `|` and `^` refuse a float operand where it is written** (Rules 7.1 and 12.6). The
   binary operators compared only the two operand types, so `a & b` on two `f32`s compiled with
   no diagnostic and emitted `return (a & b);`, which Tint refuses with

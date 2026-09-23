@@ -62,7 +62,7 @@ export function lowerScalarCastCall(
   }
   const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
   if (!arg) return undefined;
-  const out = lowerScalarCast(name, arg, (e) => foldConstNumber(e, scope));
+  const out = lowerScalarCast(name, arg, (e) => foldConstNumber(e, scope), node.arguments[0]!);
   if (typeof out === 'string') {
     pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH);
     return undefined;

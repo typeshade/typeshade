@@ -4224,6 +4224,10 @@ so the two spellings emit the same pair. What the retype buys is that the natura
 `const k: f64 = 0.1` used to be a type mismatch, `f64` against the `f32` every bare literal
 lowers to, and the only way to write an f64 constant was the explicit cast.
 
+Neither the retype nor the cast takes a call for a literal. `f32(0.1)` says which precision it
+means, so `f64(f32(0.1))` widens that `f32` exactly, to the pair `(0.10000000149011612, 0.0)`,
+as `s * f32(0.1)` widens it beside an `f64`.
+
 **Vectors.** `vec2f64`, `vec3f64` and `vec4f64` are vectors of doubles. They swizzle and index
 like any other vector — a lane is a swizzle of the hi and lo planes the pass lowers the vector
 into — and `vecN(v)` narrows one per lane, which is `f32(lane)` N times.
