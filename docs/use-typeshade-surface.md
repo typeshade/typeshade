@@ -5037,7 +5037,7 @@ names only. §62 closed that gap: a local named `shared` is now `TS8068` where i
 The ambient library is a second implementation of this surface's type rules, written in
 TypeScript's vocabulary rather than the compiler's, and two implementations drift. A rule the
 ambient lib states more NARROWLY than the compiler is the worse failure: red squiggles on a
-program that compiles, which stops an author who was right. Four such rows are closed:
+program that compiles, which stops an author who was right. Five such rows are closed:
 
 | spelling | the editor used to say | now |
 | --- | --- | --- |
@@ -5045,11 +5045,16 @@ program that compiles, which stops an author who was right. Four such rows are c
 | `select(vec2b(…), vec2b(…), c)` | the same, about `vec2b` | clean |
 | `vec3(x, v2)`, `vec4(x, v2, w)`, `vec4(x, y, v2)` | "Argument of type 'f32' is not assignable to parameter of type 'vec2'" | clean |
 | `f32(true)`, `i32(true)`, `u32(true)` | "Argument of type 'boolean' is not assignable to parameter of type 'number'" | clean |
+| `m[3].xyz` and `m[0] = vec4(1.)` on a `mat4`, and the same on every square matrix | "Property 'xyz' does not exist on type 'never'"; "Type 'vec4' is not assignable to type 'never'" | clean |
 
 `select` takes any scalar or vector WGSL gives it, bools and emulated doubles included
 (wgsl.txt:21338-21352). The vector constructors take a component vector anywhere, not only
 first (20889/20987). A cast takes a `bool`, which is 1 or 0 (20207) — except `f64`, which
-WIDENS an `f32` and takes nothing else.
+WIDENS an `f32` and takes nothing else. A square matrix's column is a `vecN`, as a non-square
+one's always was (§40). The square aliases take their element as a type argument, `mat4<f64>`
+being a matrix of emulated doubles (§39), and the argument used to be read by assignability,
+under which an `f32` passes for an `f64`. So the default `mat4` was a matrix of doubles to the
+editor, and a column of doubles is `never`, since the compiler refuses to index one.
 
 `src/language-service/ambient-parity.test.ts` asserts the AGREEMENT rather than either verdict,
 with rows on both sides: a row where both refuse is as much the subject as one where both
@@ -5110,27 +5115,24 @@ write (`Write "declare const bins: storage<array<atomic<u32>>, "read_write">" to
 it.`), so the remedy is the same one the indexed write gets; only the layer that says it
 differs. Recorded as the Appendix B row for design rule 6.2 in `docs/language-design.md`.
 
-### Two writes the editor refuses and the compiler takes
+### A write the editor refuses and the compiler takes
 
 Drift the other way, which §49 calls the worse failure: red on a program that runs.
 
 | spelling | the compiler | the editor |
 | --- | --- | --- |
 | `s = 1.` on `declare const s: storage<f32, "read_write">` | `var<storage, read_write> s: f32;` then `s = 1.0` | TS2588, "Cannot assign to 's' because it is a constant" |
-| `m[0] = vec4(1.)` on `declare const m: storage<mat4, "read_write">` | the column is assigned | TS2322, "Type 'vec4' is not assignable to type 'never'" |
 
-The first is the price of the keyword. A binding is `declare const` (§1), and TypeScript will
+It is the price of the keyword. A binding is `declare const` (§1), and TypeScript will
 not assign to a `const` whatever its value type is: no ambient declaration can close it,
 because `const` is the keyword's meaning and not the type's. It reaches only a WHOLE-binding
 write — a scalar, a vector, a struct or an emulated double assigned as one — and a compute
 kernel's `out[gid.x] = …` or `p.scale = …` is untouched, which is why no example and no test in
 the tree met it before `remedy-lines.test.ts` pasted a remedy in and measured what was left.
 The remedy it names is still the right line; the editor simply says one more thing about it.
-
-The second is older than the read view and unchanged by it. Only the SQUARE matrix aliases take
-their element as a type parameter (`mat4<T extends f32 | f64 = f32>`) and resolve through a
-conditional, which is what loses the column's type; `mat2x3[0] = vec3(1.)` is clean in both
-layers, and so is every read of a column. Appendix B's row for design rule 12.7 carries both.
+Appendix B's row for design rule 12.7 carries it. A square matrix column, `m[0] = vec4(1.)` on
+a `storage<mat4, "read_write">`, was a second row here, and it is closed: the table at the head
+of this section has it.
 
 ### The second type argument, where the two layers still part
 
