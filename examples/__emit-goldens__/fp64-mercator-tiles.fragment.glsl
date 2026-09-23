@@ -106,7 +106,7 @@ void main() {
   vec2 _cse3 = vec2(_cse4, _cse4);
   float _v12 = df64_narrow(df64_fract(df64_add(_v8, _cse3, _fp64_g), _fp64_g));
   float _v13 = df64_narrow(df64_fract(df64_add(_v9, _cse3, _fp64_g), _fp64_g));
-  float _v14 = (df64_narrow(df64_fract(df64_mul(df64_add(_gv1, _gv2, _fp64_g), vec2(0.5, 0.0), _fp64_g), _fp64_g)) * 2.0);
+  float _v14 = (df64_narrow(df64_fract((df64_add(_gv1, _gv2, _fp64_g) * 0.5), _fp64_g)) * 2.0);
   float _v15 = ((df64_narrow(_cse1) + _v5) * _v0);
   float _v16 = ((df64_narrow(_cse2) + _v6) * _v0);
   float _v17 = floor(_v15);

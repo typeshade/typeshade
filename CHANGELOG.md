@@ -13,6 +13,48 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **GVN shares a value between an `if` condition and the arms it dominates.** gvn numbered
+  one straight-line block at a time: it minted a temp only for a key repeated in two
+  statements of the same block, and it handed an enclosing temp to no arm of an `if` that
+  wrote one of its roots anywhere. So an escape loop that tests `zx*zx + zy*zy <= 16` and then
+  steps with `zx*zx - zy*zy` squared z twice a trip, in f32 and in df64. A key whose first
+  occurrence is unconditional is now also minted when a nested block, or a later `if`
+  condition, reads it before any root moves; `if` arms and `switch` cases receive the enclosing
+  temps and retire each one at the first statement that writes a root; `for` bodies keep the
+  whole-statement filter (the back edge). No temp is ever read once. Across the 287 WGSL and
+  GLSL goldens, 14 move, all fp64 escape loops: `df64_mul` call sites 362 -> 334 and the
+  escape trip 351 -> 277 f32 operations in julia, mandelbrot and burning-ship (362 -> 288 in
+  mandelbrot-de). Emitting all 107 examples takes about 8% longer (2211 -> 2383 ms, medians
+  of 12 runs), most of it the read table below.
+- **A square is `df64_sqr`, and a multiply by a power of two is exact scaling** (§39). `x * x`
+  on an f64, when the operand has no effect, lowers to `df64_sqr` (one Veltkamp split and one
+  doubled cross term, against `df64_mul`'s two splits and two cross terms); `x * c` or `x / c`
+  with `c` an f64 literal equal to ±2^k scales both words by `c` in f32, which is exact under
+  round-to-nearest barring overflow or underflow. A scale that can grow a word applies only to
+  an operand proven to be a run-time value, so a constant never becomes a WGSL
+  const-expression that overflows f32 at shader creation, and a vec64 scale never computes its
+  vector twice. The float escape loop is 351 -> 272 f32 operations a trip on its own, the
+  integer flavor's 9708 -> 7708, and the fp64 goldens' `df64_mul` call sites 140 -> 56. Over
+  seed 0x5a5a, 20,000 pairs, the square's worst error is 2^-46.15 against 2^-46.41 for
+  `df64_mul(a, a)`, and along a julia orbit its error grows exactly as fast (mean log₁₀
+  relative error after 32 steps -13.50 against -13.53). A module whose only f64 work is
+  comparison, widening, narrowing, negation or power-of-two scaling now reads no guard and
+  gets no `_fp64` binding; bind what `reflect()` lists.
+- **`fp64-julia`, `fp64-mandelbrot` and `fp64-burning-ship` escape the way a practitioner
+  writes it.** The loop carries |z|² beside z,
+  takes the escape test in f32 from the narrowed words on the double half (48 bits move a
+  value across 16 only from within an f32 rounding of it; `f64Parts` is internal, Rule 2.2,
+  so `f32(zx)` is the spelling), carries the f32 half's squares, and leaves with a `break` at
+  the first escaped z. The `for` condition `j < 128 && m2 <= 16.0` would say the same and is
+  TS8006 under Rule 7.5. An active double trip is 354 -> 195 f32 operations with the two
+  changes above, and a wave whose every lane has escaped stops instead of running out its
+  128 trips. Over 256×256 samples
+  a half at spans 1e-4 to 1e-13 no escape count moved; bisecting 560 count boundaries finds 3
+  of 10,080 samples that escape one step later, and the true double sides with the f32 test
+  at one of them, which `fp64-twins.test.ts` now samples. `fp64-mandelbrot` (in its
+  `escape_f32` / `escape_f64` helpers) and `fp64-burning-ship` and its twin take the same shape;
+  their double halves lower to `df64_sqr` for the squares and an exact `* 2.0` for the
+  doubled cross term (after `df64_abs` on the burning ship).
 - **A two-row matrix in a uniform is refused, as Rule 4.8 says** (§40). A `mat2x2`, `mat3x2`
   or `mat4x2` (and `mat2`) in a uniform binding, directly or through a struct or an array, is
   `TS8051` at the declaration with the remedy (`mat{C}x4`, or two `vec2` fields). It was a
@@ -890,6 +932,18 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **The optimizer no longer shares a value across a write to what its callee reads.** A call's
+  value depends on its arguments and on every module name its callee reads, and cse, licm and
+  gvn saw only the arguments: `let a = h(x * 2.); gp = 5.; let c = h(x * 2.)`, with `h`
+  reading the module variable `gp`, gave 12 at O1 where O0 gives 36, and licm lifted the same
+  call out of a loop that writes `gp`. `passes/effects.ts` now keeps a second table, `fnReads`
+  (the module names each function reads, through the functions it calls), and a call's roots
+  include it. A helper that holds a barrier or `workgroupUniformLoad` now counts as an effect
+  (it was taken for pure: `sync();` was dropped at O2 and two `ld()` were shared), and
+  `workgroupUniformLoad` itself is an effectful intrinsic. DCE keeps an unread binding whose
+  initializer has an effect: a write becomes the call statement it amounts to, and an effect
+  that writes nothing, such as `workgroupUniformLoad`, keeps its declaration, since a
+  `@must_use` builtin cannot stand as a call statement. None of these moves a golden byte.
 - **`array<i32, N>(…)` and `array<u32, N>(…)` emit integer literals** (§18). The call form
   emitted `array<i32, 3>(1.0, 2.0, 3.0)`, which neither target accepts; it now types each
   element the way the list form does, one helper for both, so `array<u32, 2>(-1, 2)` is refused

@@ -2182,10 +2182,13 @@ const stripe = fn('stripe', { x: f64T }, (p) => {
 
 A shader compiler may reassociate float arithmetic, and reassociation deletes exactly the
 small correction terms this emulation is built on. Every emitted helper therefore threads a
-value the compiler cannot see through those terms: a 1 read from a texture. Any module that
-does f64 arithmetic gets a `texture_2d<f32>` binding named `_fp64` injected for it, at group
-0 and the first free binding, and it appears in `reflect()` as an ordinary 2D texture. The
-host binds a 1 by 1 texture whose texel reads exactly 1.0, white RGBA8 or R32F holding 1.0.
+value the compiler cannot see through those terms: a 1 read from a texture. Any module whose
+f64 arithmetic calls one of those helpers gets a `texture_2d<f32>` binding named `_fp64`
+injected for it, at group 0 and the first free binding, and it appears in `reflect()` as an
+ordinary 2D texture. A module that only compares, widens, narrows, negates or scales f64
+values by a power of two calls none of them and gets no binding, so a host reads `reflect()`
+rather than binding `_fp64` to every pipeline. The host binds a 1 by 1 texture whose texel
+reads exactly 1.0, white RGBA8 or R32F holding 1.0.
 The value lives in a texture because some drivers specialize a pipeline on the uniform
 values they observe and re-optimize it, which folds the correction terms away again; no
 compiler treats a texel as a constant.
@@ -2271,6 +2274,15 @@ const shade = fn('shade', { world: f64T, camera: f64T }, (p) =>
   toF32(p.world.sub(p.camera)).mul(0.5).add(0.5),
 )
 ```
+
+Two f64 multiplies cost less, with nothing to write differently. `x.mul(x)` is a square, about
+30% cheaper than a general multiply, as long as computing `x` has no side effect, such as a
+call that writes a storage binding. A multiply or a divide by a power-of-two literal, `2.0`,
+`0.5` or `-4.0`, scales the two f32 words and nothing else, which is exact barring overflow and
+underflow: two f32 operations, none for `1.0`, and a sign change for `-1.0`. A scale that can grow the value
+(by more than 1) applies to a value computed at run time; a constant keeps the general
+multiply, so that WGSL, which evaluates constants while it creates the shader and refuses one
+that overflows, never has to.
 
 One example in the gallery, `examples/fp64-deep-zoom.ts`, runs one formula on both types
 side by side, and shows the f32 half collapsing to a flat field while the f64 half keeps
