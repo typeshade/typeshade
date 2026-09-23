@@ -14,9 +14,12 @@
 // accept — and a row that flips from "both refuse" to "both accept" is a feature, not a
 // regression this test should hide.
 
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { createTypeshadeLanguageService } from './service.js';
+import { SHADE_DTS } from './ambient.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
+import { LIBRARY_TYPE_NAMES, isLibraryTypeName } from '../compiler/ts/type-map.js';
 
 const editorRefusal = (source: string): string | null => {
   const service = createTypeshadeLanguageService();
@@ -220,4 +223,35 @@ describe('the ambient library declares what the compiler lowers, no wider and no
       expect(compilerRefusal(source)).toBeNull();
     });
   }
+});
+
+describe('every type the library declares is a name the compiler knows is declared', () => {
+  // A type name nothing declares is `TS8002` wherever it is written (Rule 2.1, proposal 0008),
+  // and the compiler reads "nothing" through `isLibraryTypeName`. A type the library declares
+  // and the compiler does not know would be refused in a constraint the editor takes, such as
+  // the mixin's `<TBase extends AnyClass>` (surface §29).
+  const declared = (): string[] => {
+    const sf = ts.createSourceFile('shade.d.ts', SHADE_DTS, ts.ScriptTarget.Latest, true);
+    const out: string[] = [];
+    const walk = (n: ts.Node): void => {
+      if (
+        (ts.isInterfaceDeclaration(n) ||
+          ts.isTypeAliasDeclaration(n) ||
+          ts.isClassDeclaration(n) ||
+          ts.isEnumDeclaration(n)) &&
+        n.name !== undefined
+      ) {
+        out.push(n.name.text);
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(sf);
+    return [...new Set(out)].sort();
+  };
+
+  it('each one, and no name the library does not declare', () => {
+    const names = declared();
+    expect(names.filter((n) => !isLibraryTypeName(n))).toEqual([]);
+    expect([...LIBRARY_TYPE_NAMES].filter((n) => !names.includes(n))).toEqual([]);
+  });
 });

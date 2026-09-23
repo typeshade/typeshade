@@ -1,34 +1,48 @@
 // ═══ What a `new` names (Rule 2.1, Rule 8.13) ═══
 //
 // A `new` builds a class the file declares (#86, #190). Its target is resolved the way TypeScript
-// resolves it, from where the `new` is written: the innermost declaration of the name, and a
-// dotted name through the namespaces it names (#107). It used to be matched by its spelling
-// against every class declaration in the file, so a namespace's class answered to its short name
-// from anywhere, `new (C)()` named nothing, and whatever else the target was, it was told that
-// "new" allocates a JS object.
+// resolves it, from where the `new` is written: the innermost declaration of the name, every
+// block of a namespace around it counted as one namespace, and a dotted name through the
+// namespaces it names (#107). It used to be matched by its spelling against every class
+// declaration in the file, so a namespace's class answered to its short name from anywhere,
+// `new (C)()` named nothing, and whatever else the target was, it was told that "new" allocates a
+// JS object.
 //
 // What the target turns out to be decides the one sentence it gets. A class is built. A WGSL
 // constructor and a function are called without `new`, an enum's values are its members, and a
 // value, a namespace, a type and a type parameter are none of them a class. A name nothing
-// declares is an unknown name, as it is in any other position (TS8022).
+// declares is an unknown name, as it is in any other position (TS8022). The sentence is said once
+// for the file, where the `new` is written ({@link newRefusal}, from semantic.ts), so a body no
+// call lowers says it too and a body lowered once per instance says it once (Rule 12.4).
 
 import ts from 'typescript';
 import { TS_CODES, type TsCode } from '../codes.js';
-import { lookupTypeName } from '../type-map.js';
-import { USER_FIRST_BUILTINS, isCanonicalMathFn, resolveMathExpand } from '../math-alias.js';
+import { HANDLE_TYPE_NAMES, lookupTypeName } from '../type-map.js';
+import {
+  USER_FIRST_BUILTINS,
+  isCanonicalMathFn,
+  resolveLangConst,
+  resolveMathConst,
+  resolveMathExpand,
+  resolveMathFn,
+} from '../math-alias.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../../core/intrinsics.js';
+import { isConsoleMethod } from '../../../core/console.js';
 import { isMixinApplication } from '../mixins.js';
-import { declarationOf } from './closures.js';
+import { isStaticMember, staticThisClass } from '../class-names.js';
+import { namespaceMember, qualifiedParts } from '../namespaces.js';
+import { declarationOf, importsName } from './closures.js';
 
 /** What a `new` names. */
 export type NewTarget =
-  /** A class the file declares: its declaration, the struct the module emits it as (`N_P`),
-   *  and its name written in full from the top of the file (`N.P`). */
+  /** A class of the module: the struct the module emits it as (`N_P`), its name written in
+   *  full from the top of the file (`N.P`), and whether the file imports it from another file
+   *  rather than declaring it. */
   | {
       readonly kind: 'class';
-      readonly decl: ts.ClassDeclaration;
       readonly flat: string;
       readonly dotted: string;
+      readonly imported?: true;
     }
   /** Anything else, with the sentence that says what it is and the code the sentence takes. */
   | { readonly kind: 'refused'; readonly message: string; readonly code: TsCode };
@@ -47,6 +61,19 @@ const BUILTIN_CALLEES: ReadonlySet<string> = new Set([
   'workgroupUniformLoad',
 ]);
 
+/** The WGSL types that have no constructor: a texture and a sampler, which the host binds, the
+ *  memory an `atomic` names, a pointer, and the wrappers that say where a binding or a module
+ *  variable lives. */
+const NO_CONSTRUCTOR: ReadonlySet<string> = new Set([
+  ...HANDLE_TYPE_NAMES,
+  'atomic',
+  'ptr',
+  'uniform',
+  'storage',
+  'workgroup',
+  'override',
+]);
+
 function unparen(e: ts.Expression): ts.Expression {
   return ts.isParenthesizedExpression(e) ? unparen(e.expression) : e;
 }
@@ -59,79 +86,23 @@ function namePath(e: ts.Expression): ts.Identifier[] | undefined {
   return head === undefined ? undefined : [...head, e.name];
 }
 
-/** The name a declaration statement gives, when it gives one plainly. */
-function declaredName(st: ts.Statement, name: string): ts.Node | undefined {
-  if (
-    (ts.isClassDeclaration(st) ||
-      ts.isFunctionDeclaration(st) ||
-      ts.isEnumDeclaration(st) ||
-      ts.isInterfaceDeclaration(st) ||
-      ts.isTypeAliasDeclaration(st) ||
-      ts.isModuleDeclaration(st)) &&
-    st.name !== undefined &&
-    ts.isIdentifier(st.name) &&
-    st.name.text === name
-  ) {
-    return st;
-  }
-  if (ts.isVariableStatement(st)) {
-    return st.declarationList.declarations.find(
-      (d) => ts.isIdentifier(d.name) && d.name.text === name,
-    );
-  }
-  return undefined;
-}
+const within = (outer: ts.Node, inner: ts.Node): boolean =>
+  inner.pos >= outer.pos && inner.end <= outer.end;
 
-/** The member `name` of a namespace, looked for in every block of that name beside it, since
- *  two `namespace N { ... }` blocks are one namespace. */
-function namespaceMember(ns: ts.ModuleDeclaration, name: string): ts.Node | undefined {
-  const around = ns.parent;
-  const blocks =
-    ts.isSourceFile(around) || ts.isModuleBlock(around)
-      ? around.statements.filter(
-          (st): st is ts.ModuleDeclaration =>
-            ts.isModuleDeclaration(st) &&
-            ts.isIdentifier(st.name) &&
-            ts.isIdentifier(ns.name) &&
-            st.name.text === ns.name.text,
-        )
-      : [ns];
-  for (const block of blocks) {
-    const body = block.body;
-    // `namespace A.B { ... }`: the body of `A` is `B` itself.
-    if (body !== undefined && ts.isModuleDeclaration(body)) {
-      if (ts.isIdentifier(body.name) && body.name.text === name) return body;
-      continue;
-    }
-    if (body === undefined || !ts.isModuleBlock(body)) continue;
-    for (const st of body.statements) {
-      const hit = declaredName(st, name);
-      if (hit !== undefined) return hit;
-    }
-  }
-  return undefined;
-}
-
-/** What another block of a namespace around `id` declares under its name: two
- *  `namespace N { ... }` blocks are one namespace, and a member one of them exports is reached by
- *  its short name from the other, which the block-by-block lookup of {@link declarationOf} does
- *  not see. */
-function mergedNamespaceMember(id: ts.Identifier): ts.Node | undefined {
+/** The declaration `id` names, as TypeScript finds it: {@link declarationOf}'s innermost block,
+ *  parameter list or loop header, with each namespace around `id` taken whole. Two
+ *  `namespace N { ... }` blocks are one namespace, so a member one block exports is reached by its
+ *  short name from another, ahead of a declaration of the same name further out. */
+function scopedDeclaration(id: ts.Identifier): ts.Node | undefined {
+  const found = declarationOf(id);
   for (let at: ts.Node | undefined = id.parent; at !== undefined; at = at.parent) {
     if (!ts.isModuleDeclaration(at)) continue;
+    // Found inside this namespace's own block, which is nearer than its other blocks.
+    if (found !== undefined && within(at, found)) return found;
     const hit = namespaceMember(at, id.text);
     if (hit !== undefined) return hit;
   }
-  return undefined;
-}
-
-/** The namespaces around a declaration, outermost first, and its own name: `[N, P]`. */
-function qualifiedParts(decl: ts.ClassDeclaration): string[] {
-  const parts = [decl.name?.text ?? ''];
-  for (let at: ts.Node | undefined = decl.parent; at !== undefined; at = at.parent) {
-    if (ts.isModuleDeclaration(at) && ts.isIdentifier(at.name)) parts.unshift(at.name.text);
-  }
-  return parts;
+  return found;
 }
 
 /** An interface, a type alias or a type parameter of `name` that is visible where `at` is: the
@@ -173,7 +144,7 @@ const isAbstract = (decl: ts.ClassDeclaration): boolean =>
   decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false;
 
 /** The sentence for a `new` on an `abstract` class, which TypeScript refuses as well. */
-export const abstractNewMessage = (shown: string): string =>
+const abstractNewMessage = (shown: string): string =>
   `"${shown}" is abstract, so there is no instance of it to build. Construct a class that ` +
   `extends it.`;
 
@@ -185,6 +156,19 @@ const typeTarget = (shown: string): NewTarget =>
       `"${shown}" as a class to give it one.`,
   );
 
+/** A function the target reaches, which a call runs without `new`. */
+const functionTarget = (shown: string, node: ts.NewExpression, sourceFile: ts.SourceFile) =>
+  refused(
+    `"${shown}" is a function, which is called without "new": ${asCall(node, shown, sourceFile)}.`,
+  );
+
+/** A value the target reaches, a number or an object, which is no class. */
+const valueTarget = (shown: string): NewTarget => refused(`"${shown}" is a value, not a class.`);
+
+/** A member a dotted target names that the thing before it does not have (TypeScript's TS2339). */
+const noMember = (reached: string, member: string, kind = 'member'): NewTarget =>
+  refused(`"${reached}" has no ${kind} "${member}".`, TS_CODES.UNKNOWN_NAME);
+
 /** What a declaration the target resolved to is, as a `new` sees it. */
 function classify(
   decl: ts.Node,
@@ -195,16 +179,14 @@ function classify(
   if (ts.isClassDeclaration(decl)) {
     if (isAbstract(decl)) return refused(abstractNewMessage(shown));
     const parts = qualifiedParts(decl);
-    return { kind: 'class', decl, flat: parts.join('_'), dotted: parts.join('.') };
+    return { kind: 'class', flat: parts.join('_'), dotted: parts.join('.') };
   }
   const holdsFunction =
     ts.isVariableDeclaration(decl) &&
     decl.initializer !== undefined &&
     (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer));
   if (ts.isFunctionDeclaration(decl) || holdsFunction) {
-    return refused(
-      `"${shown}" is a function, which is called without "new": ${asCall(node, shown, sourceFile)}.`,
-    );
+    return functionTarget(shown, node, sourceFile);
   }
   if (ts.isEnumDeclaration(decl)) {
     const first = decl.members.find((m) => ts.isIdentifier(m.name))?.name.getText(sourceFile);
@@ -216,13 +198,87 @@ function classify(
   }
   if (ts.isModuleDeclaration(decl)) return refused(`"${shown}" is a namespace, not a class.`);
   if (ts.isInterfaceDeclaration(decl) || ts.isTypeAliasDeclaration(decl)) return typeTarget(shown);
-  // A mixin applied and named holds a class the file builds through a class that extends it.
+  // A mixin applied and named holds a class the file builds through a class that extends it,
+  // which TypeScript would build as it is (T8, #92).
   if (ts.isVariableDeclaration(decl) && isMixinApplication(decl, sourceFile)) {
     return refused(
-      `A class this file declares is built with "new", and "${shown}" is not one of them.`,
+      `"${shown}" is a mixin applied to a class, and is built through a class that extends ` +
+        `it: class C extends ${shown} {}, then new C().`,
     );
   }
-  return refused(`"${shown}" is a value, not a class.`);
+  return valueTarget(shown);
+}
+
+/** A member of an enum or a class a dotted target reaches: `E.A`, `C.make`, `C.K`. */
+function memberOf(
+  decl: ts.EnumDeclaration | ts.ClassDeclaration,
+  reached: string,
+  member: string,
+  shown: string,
+  node: ts.NewExpression,
+  sourceFile: ts.SourceFile,
+): NewTarget {
+  if (ts.isEnumDeclaration(decl)) {
+    return decl.members.some((m) => m.name.getText(sourceFile) === member)
+      ? valueTarget(shown)
+      : noMember(reached, member);
+  }
+  const found = decl.members.find(
+    (m) => isStaticMember(m) && m.name !== undefined && m.name.getText(sourceFile) === member,
+  );
+  if (found === undefined) return noMember(reached, member, 'static member');
+  return ts.isMethodDeclaration(found)
+    ? functionTarget(shown, node, sourceFile)
+    : valueTarget(shown);
+}
+
+/** A `new` on a member of `Math` or `console`, the two host objects the ambient library keeps
+ *  (Rule 2.1): a function of either is called, a constant of `Math` is a value. */
+function hostMember(
+  root: 'Math' | 'console',
+  rest: readonly ts.Identifier[],
+  shown: string,
+  node: ts.NewExpression,
+  sourceFile: ts.SourceFile,
+): NewTarget {
+  const member = rest[0]!.text;
+  const isFunction =
+    root === 'Math'
+      ? resolveMathFn(member) !== undefined || resolveMathExpand(member) !== undefined
+      : isConsoleMethod(member);
+  const isValue = root === 'Math' && resolveMathConst(member) !== undefined;
+  if (!isFunction && !isValue) return noMember(root, member);
+  if (rest.length > 1) return noMember(`${root}.${member}`, rest[1]!.text);
+  return isFunction ? functionTarget(shown, node, sourceFile) : valueTarget(shown);
+}
+
+/** A bare name no declaration of the file gives: a type parameter or a type around it, a WGSL
+ *  type, a builtin function, a §9.3 constant, or nothing at all. */
+function undeclared(name: string, node: ts.NewExpression, sourceFile: ts.SourceFile): NewTarget {
+  const type = typeNamed(node, name);
+  if (type === 'type parameter') return refused(`"${name}" is a type parameter, not a class.`);
+  if (type === 'type') return typeTarget(name);
+  if (lookupTypeName(name) !== undefined || name === 'array') {
+    return refused(
+      `"${name}" is a WGSL constructor, which is called without "new": ` +
+        `${asCall(node, name, sourceFile)}.`,
+    );
+  }
+  if (NO_CONSTRUCTOR.has(name)) {
+    return refused(`"${name}" is a type, not a value, and WGSL gives it no constructor.`);
+  }
+  if (
+    isCanonicalMathFn(name) ||
+    USER_FIRST_BUILTINS.has(name) ||
+    resolveMathExpand(name) ||
+    isAtomicIntrinsic(name) ||
+    isBarrierIntrinsic(name) ||
+    BUILTIN_CALLEES.has(name)
+  ) {
+    return functionTarget(name, node, sourceFile);
+  }
+  if (resolveLangConst(name) !== undefined) return valueTarget(name);
+  return refused(`Unknown identifier "${name}".`, TS_CODES.UNKNOWN_NAME);
 }
 
 /** What `new X(...)` names, for any target but `this`, which the lowering reads off its scope. */
@@ -236,48 +292,67 @@ export function newTargetOf(node: ts.NewExpression, sourceFile: ts.SourceFile): 
     );
   }
   const [root, ...rest] = path as [ts.Identifier, ...ts.Identifier[]];
-  let decl = declarationOf(root) ?? mergedNamespaceMember(root);
+  let decl = scopedDeclaration(root);
   if (decl === undefined) {
-    const name = root.text;
-    if (rest.length > 0) return refused(`Unknown identifier "${name}".`, TS_CODES.UNKNOWN_NAME);
-    const type = typeNamed(node, name);
-    if (type === 'type parameter') return refused(`"${name}" is a type parameter, not a class.`);
-    if (type === 'type') return typeTarget(name);
-    if (lookupTypeName(name) !== undefined || name === 'array') {
-      return refused(
-        `"${name}" is a WGSL constructor, which is called without "new": ` +
-          `${asCall(node, name, sourceFile)}.`,
-      );
+    // A name the file imports is another file's, which a multi-file program merges into one
+    // module (#74); `compileTsSources` imports functions, and says so of anything else.
+    if (rest.length === 0 && importsName(sourceFile, root.text)) {
+      return { kind: 'class', flat: root.text, dotted: root.text, imported: true };
     }
-    if (
-      isCanonicalMathFn(name) ||
-      USER_FIRST_BUILTINS.has(name) ||
-      resolveMathExpand(name) ||
-      isAtomicIntrinsic(name) ||
-      isBarrierIntrinsic(name) ||
-      BUILTIN_CALLEES.has(name)
-    ) {
-      return refused(
-        `"${name}" is a function, which is called without "new": ${asCall(node, name, sourceFile)}.`,
-      );
+    if (rest.length === 0) return undeclared(root.text, node, sourceFile);
+    if (root.text === 'Math' || root.text === 'console') {
+      return hostMember(root.text, rest, shown, node, sourceFile);
     }
-    return refused(`Unknown identifier "${name}".`, TS_CODES.UNKNOWN_NAME);
+    return refused(`Unknown identifier "${root.text}".`, TS_CODES.UNKNOWN_NAME);
   }
   let reached = root.text;
-  for (const part of rest) {
-    if (!ts.isModuleDeclaration(decl)) {
-      return ts.isClassDeclaration(decl) || ts.isEnumDeclaration(decl)
-        ? refused(
-            `A class this file declares is built with "new", and "${shown}" is not one of them.`,
-          )
-        : refused(`"${shown}" is a value, not a class.`);
+  for (const [i, part] of rest.entries()) {
+    if (ts.isEnumDeclaration(decl) || ts.isClassDeclaration(decl)) {
+      // What the member is decides, whatever follows it: `E.A` and `C.K` are values.
+      const upTo = [reached, ...rest.slice(0, i + 1).map((p) => p.text)].join('.');
+      return memberOf(decl, reached, part.text, upTo, node, sourceFile);
     }
+    if (!ts.isModuleDeclaration(decl)) return valueTarget(shown);
     const member: ts.Node | undefined = namespaceMember(decl, part.text);
-    if (member === undefined) {
-      return refused(`"${reached}" has no member "${part.text}".`, TS_CODES.UNKNOWN_NAME);
-    }
+    if (member === undefined) return noMember(reached, part.text);
     decl = member;
     reached = `${reached}.${part.text}`;
   }
   return classify(decl, shown, node, sourceFile);
+}
+
+/** The name of the class a node stands inside, the innermost one. */
+function enclosingClassName(node: ts.Node): string | undefined {
+  for (let at: ts.Node | undefined = node.parent; at !== undefined; at = at.parent) {
+    if (ts.isClassLike(at)) return at.name?.text;
+  }
+  return undefined;
+}
+
+/** The sentence a `new this()` outside a static member gets: `this` there is an object. */
+export const thisObjectNewMessage = (node: ts.NewExpression): string =>
+  `"this" here is an object, not a class, so "new" cannot build one from it. Name the class, ` +
+  `"new ${enclosingClassName(node) ?? 'C'}(...)"; "new this()" builds the class in a static ` +
+  `member.`;
+
+/** Why a `new` builds no class, or undefined when it builds one: the one sentence for the file,
+ *  said where the `new` is written. `new this()` builds the class in a static member (Rule 8.13),
+ *  and anything else is {@link newTargetOf}'s. */
+export function newRefusal(
+  node: ts.NewExpression,
+  sourceFile: ts.SourceFile,
+): { readonly message: string; readonly code: TsCode } | undefined {
+  const target = unparen(node.expression);
+  if (target.kind === ts.SyntaxKind.ThisKeyword) {
+    const cls = staticThisClass(target);
+    if (cls === undefined) {
+      return { message: thisObjectNewMessage(node), code: TS_CODES.CLASS_MEMBER };
+    }
+    // A static member of an abstract class builds no instance of it, as TypeScript says (TS2511).
+    return isAbstract(cls)
+      ? { message: abstractNewMessage(cls.name?.text ?? ''), code: TS_CODES.CLASS_MEMBER }
+      : undefined;
+  }
+  const t = newTargetOf(node, sourceFile);
+  return t.kind === 'refused' ? t : undefined;
 }

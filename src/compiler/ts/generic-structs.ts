@@ -25,6 +25,7 @@ import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import { instanceName, typeParameterNames } from './generics.js';
 import { mapTsTypeToShaderType } from './type-map.js';
+import { authorTypeText } from './context.js';
 
 /** One collection of a generic class: the name the module emits it under, and what its type
  *  parameters are bound to while its members are walked. */
@@ -369,7 +370,10 @@ export function newInstanceName(
 export function ambiguousNew(written: string, sourceFile: ts.SourceFile): string | undefined {
   const key = resolveName(written, classesOf(sourceFile));
   if (key === undefined) return undefined;
-  const instances = (instancesOf(sourceFile).get(key) ?? []).map((i) => i.name);
+  // Each instance as the file writes it, `N.P<f32>`, not as the module emits it, `N_P_f32`.
+  const instances = (instancesOf(sourceFile).get(key) ?? []).map(
+    (i) => `${written}<${[...(i.binding?.values() ?? [])].map(authorTypeText).join(', ')}>`,
+  );
   if (instances.length === 0) {
     return (
       `"${written}" is generic, and nothing in this file says what to build it at. A struct is ` +

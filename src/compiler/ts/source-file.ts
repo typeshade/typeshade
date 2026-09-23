@@ -27,6 +27,7 @@ import { TS_CODES } from './codes.js';
 import {
   backendDiagnostic,
   diagnosticAtSpan,
+  dropRepeatedDiagnostics,
   makeDiagnostic,
   syntaxDiagnostics,
 } from './diagnostic.js';
@@ -327,6 +328,7 @@ export function compileTsSource(
   if (options.checkReservedNames ?? true) {
     reportReservedNames(sourceFile, diagnostics, symbols, funcs, vars);
   }
+  dropRepeatedDiagnostics(diagnostics);
   let wgsl: string | undefined;
   const shouldEmit = options.emit ?? true;
   if (shouldEmit && funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {

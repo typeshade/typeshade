@@ -113,6 +113,35 @@ function ctorZero(elem: VecCtorElem): Expr | undefined {
   if (t) return { op: 'lit', type: t, value: 0 };
   return elem === 'bool' ? { op: 'lit', type: boolT, value: false } : undefined;
 }
+/** What a method called on a vector is, which has none: `v.swizzle("yxz")` was the IR
+ *  builder's method reached by its name, which no source gives an author (Rule 2.2), and is
+ *  written as a member, `v.yxz`; a builtin's name, `v.normalize()`, is the builtin, called on the
+ *  vector; anything else is told what a vector's members are. */
+function vectorMethodMessage(
+  node: ts.CallExpression,
+  callee: ts.PropertyAccessExpression,
+  type: ShaderType,
+  sourceFile: ts.SourceFile,
+): string {
+  const v = callee.expression.getText(sourceFile);
+  const method = callee.name.text;
+  const head = `${authorTypeText(type)} has no method "${method}"`;
+  const only = node.arguments.length === 1 ? node.arguments[0] : undefined;
+  if (method === 'swizzle' && only !== undefined && ts.isStringLiteral(only)) {
+    if (/^([xyzw]{1,4}|[rgba]{1,4})$/.test(only.text)) {
+      return `${head}: a swizzle is written as a member, ${v}.${only.text}.`;
+    }
+  }
+  if (
+    (isCanonicalMathFn(method) || resolveMathExpand(method) !== undefined) &&
+    SCALAR_CAST[method] === undefined
+  ) {
+    const args = [v, ...node.arguments.map((a) => a.getText(sourceFile))].join(', ');
+    return `${head}: call the builtin, ${method}(${args}).`;
+  }
+  return `${head}: a vector's members are its components, ${v}.x or ${v}.xy.`;
+}
+
 /** Matrix constructor name -> its shape. Every `matCxR` of wgsl.txt:4621 plus the `matN`
  *  shorthand for a square one, matching the type names `type-map.ts` accepts, so a type an
  *  author can declare is a value an author can build. */
@@ -220,17 +249,13 @@ export function lowerCall(
         );
         return undefined;
       }
-      // A vector's members are its components, and it has no method. `v.swizzle("yxz")` was
-      // the IR builder's method reached by its name, which no source gives an author (Rule 2.2);
-      // a swizzle is written as a member, `v.yxz`.
+      // A vector's members are its components, and it has no method (Rule 2.2).
       if (seen.recv?.type.kind === 'vec' || seen.recv?.type.kind === 'vec64') {
-        const v = callee.expression.getText(sourceFile);
         pushDiag(
           diagnostics,
           sourceFile,
           callee.name,
-          `${authorTypeText(seen.recv.type)} has no method "${callee.name.text}": a vector's ` +
-            `members are its components, ${v}.x or ${v}.xy.`,
+          vectorMethodMessage(node, callee, seen.recv.type, sourceFile),
           TS_CODES.UNKNOWN_NAME,
         );
         return undefined;

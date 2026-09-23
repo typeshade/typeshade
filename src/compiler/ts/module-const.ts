@@ -14,14 +14,14 @@ import { foldConstComponents, foldConstValue } from './loop-bound.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
 import { lowerExpression } from './lower/expression.js';
 import { lowerArrayLiteral } from './lower/expression-array.js';
-import { eachNamespaceStatement, namespaceMemberName } from './namespaces.js';
+import { eachNamespaceStatement, namespaceMemberName, qualifiedParts } from './namespaces.js';
 import { isResourceCall } from './bindings.js';
 import { isOverrideType } from './overrides.js';
 import { moduleVarSpace } from './module-vars.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { localFunctionOf } from './lower/local-functions.js';
-import { declarationOf } from './lower/closures.js';
+import { declarationOf, importsName } from './lower/closures.js';
 import { newTargetOf } from './lower/new-target.js';
 import { isMixinApplication } from './mixins.js';
 import {
@@ -29,6 +29,7 @@ import {
   holdsFunction,
   isStaticMember,
   shadowedStaticFields,
+  staticThisClass,
   writtenMemberName,
   writtenStaticFields,
 } from './class-names.js';
@@ -71,8 +72,9 @@ export function declaredCallIn(
   return found;
 }
 
-/** Whether a callee names a function the file declares: a function, a top-level `const` that
- *  holds one, or a static function or a namespace's function reached through its owner. */
+/** Whether a callee names a function of the module: a function the file declares or imports, a
+ *  top-level `const` that holds one, or a static function or a namespace's function reached
+ *  through its owner, `this` in a static initializer included. */
 function callsDeclared(callee: ts.Expression): boolean {
   let root = callee;
   while (ts.isParenthesizedExpression(root)) root = root.expression;
@@ -80,9 +82,11 @@ function callsDeclared(callee: ts.Expression): boolean {
   while (ts.isPropertyAccessExpression(root) || ts.isParenthesizedExpression(root)) {
     root = root.expression;
   }
+  // `static K = this.f()`: `this` in a static initializer is the class (Rule 8.13).
+  if (root.kind === ts.SyntaxKind.ThisKeyword) return dotted && staticThisClass(root) !== undefined;
   if (!ts.isIdentifier(root)) return false;
   const decl = declarationOf(root);
-  if (decl === undefined) return false;
+  if (decl === undefined) return !dotted && importsName(root.getSourceFile(), root.text);
   if (dotted) return ts.isClassDeclaration(decl) || ts.isModuleDeclaration(decl);
   return (
     ts.isFunctionDeclaration(decl) ||
@@ -90,27 +94,58 @@ function callsDeclared(callee: ts.Expression): boolean {
   );
 }
 
+/** A module-scope declaration's name as the author wrote it: `K`, `N.K` inside a namespace, and
+ *  `S.K` for a static field, never the `N_K` and `S_K` the module emits (Rule 12.1). */
+export function writtenModuleName(
+  decl: ts.VariableDeclaration | ts.PropertyDeclaration,
+  sourceFile: ts.SourceFile,
+): string {
+  const own = decl.name.getText(sourceFile);
+  if (ts.isPropertyDeclaration(decl) && ts.isClassDeclaration(decl.parent)) {
+    return [...qualifiedParts(decl.parent), own].join('.');
+  }
+  const parts = [own];
+  for (let at: ts.Node | undefined = decl.parent; at !== undefined; at = at.parent) {
+    if (ts.isModuleDeclaration(at) && ts.isIdentifier(at.name)) parts.unshift(at.name.text);
+  }
+  return parts.join('.');
+}
+
+/** How a sentence about a module constant names it: `Module const "K"`, or `Static field "S.K"`
+ *  for a static field no code writes, which is one. */
+const constantShown = (
+  decl: ts.VariableDeclaration | ts.PropertyDeclaration,
+  sourceFile: ts.SourceFile,
+): string =>
+  `${ts.isPropertyDeclaration(decl) ? 'Static field' : 'Module const'} ` +
+  `"${writtenModuleName(decl, sourceFile)}"`;
+
 /** The sentence for a module constant, or a static field no code writes, whose initializer
- *  calls a function or builds a class the file declares ({@link declaredCallIn}). */
+ *  calls a function or builds a class of the module ({@link declaredCallIn}). */
 function declaredCallMessage(
   decl: ts.VariableDeclaration | ts.PropertyDeclaration,
   call: ts.CallExpression | ts.NewExpression,
   sourceFile: ts.SourceFile,
 ): string {
-  const what = ts.isNewExpression(call) ? 'builds a class' : 'calls a function';
+  const target = ts.isNewExpression(call) ? newTargetOf(call, sourceFile) : undefined;
+  const root = ts.isCallExpression(call) ? call.expression : undefined;
+  const imported =
+    target !== undefined
+      ? target.kind === 'class' && target.imported === true
+      : root !== undefined &&
+        ts.isIdentifier(root) &&
+        declarationOf(root) === undefined &&
+        importsName(sourceFile, root.text);
+  const what = `${ts.isNewExpression(call) ? 'builds a class' : 'calls a function'} this file ${
+    imported ? 'imports' : 'declares'
+  }`;
   const text = call.getText(sourceFile);
-  if (ts.isPropertyDeclaration(decl) && ts.isClassDeclaration(decl.parent)) {
-    const shown = `${decl.parent.name?.text ?? ''}.${decl.name.getText(sourceFile)}`;
-    return (
-      `Static field "${shown}" must be constant, and "${text}" ${what} this file declares. ` +
-      `A static field no code writes is a module constant, folded before any function ` +
-      `exists, so build the value inside the function that reads it.`
-    );
-  }
+  const kind = ts.isPropertyDeclaration(decl)
+    ? 'A static field no code writes is a module constant, folded'
+    : 'A module constant is folded';
   return (
-    `Module const "${decl.name.getText(sourceFile)}" must be constant, and "${text}" ${what} ` +
-    `this file declares. A module constant is folded before any function exists, so build ` +
-    `the value inside the function that reads it.`
+    `${constantShown(decl, sourceFile)} must be constant, and "${text}" ${what}. ${kind} ` +
+    `before any function exists, so build the value inside the function that reads it.`
   );
 }
 
@@ -484,13 +519,16 @@ function valueExprConst(
       makeDiagnostic(
         sourceFile,
         decl,
-        `Module const "${name}" must be constant: a literal, a whole earlier module const, ` +
-          `a constructor over those, or arithmetic over those with a non-zero divisor. ` +
+        `${constantShown(decl, sourceFile)} must be constant: a literal, a whole earlier module ` +
+          `const, a constructor over those, or arithmetic over those with a non-zero divisor. ` +
           `It may call a math builtin over those, but not a declared function or a derivative, ` +
           `and it cannot read a resource or take a component, field or element.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     );
+    // Refused, not unknown: a read of it adds nothing (Rule 12.4).
+    refusedDeclarationsOf(scope.calleeTable()).add(name);
+    refuseModuleName(sourceFile, name);
     return undefined;
   }
   if (!isValueExprType(type)) {
@@ -613,7 +651,7 @@ function lowerOne(
   if (!init) {
     // An initializer that failed without a word read a constant already refused, and this one
     // is refused with it rather than left to be an unknown name at each use (Rule 12.4).
-    if (diagnostics.length === before) {
+    if (diagnostics.length === before && diagnostics.some((d) => d.category === 'error')) {
       refusedDeclarationsOf(scope.calleeTable()).add(name);
       refuseModuleName(sourceFile, name);
     }

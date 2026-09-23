@@ -128,6 +128,19 @@ export function declarationOf(id: ts.Identifier): ts.Node | undefined {
   return undefined;
 }
 
+/** Whether the file imports a name under `name`: a name another file of a multi-file program
+ *  declares, which {@link declarationOf} does not see. */
+export function importsName(sourceFile: ts.SourceFile, name: string): boolean {
+  return sourceFile.statements.some((st) => {
+    const bindings = ts.isImportDeclaration(st) ? st.importClause?.namedBindings : undefined;
+    return (
+      bindings !== undefined &&
+      ts.isNamedImports(bindings) &&
+      bindings.elements.some((el) => el.name.text === name)
+    );
+  });
+}
+
 /** The function whose own body or parameter list `node` is in: the nearest function around
  *  it, or undefined at the top of the file or of a namespace. */
 export function functionAround(node: ts.Node): ts.SignatureDeclaration | undefined {

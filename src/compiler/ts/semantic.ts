@@ -1,12 +1,16 @@
 // Ban host/JS surface inside "use typeshade" files: host control flow and the runtime forms no
 // shader has. A NAME is not judged here by its spelling. It is resolved where it is used, and one
-// nothing declares is an unknown name of the code that owns its position (Rule 2.1).
+// nothing declares is an unknown name of the code that owns its position (Rule 2.1). Two of those
+// are said here, on the syntax, because the lowering reaches a body once per instance or not at
+// all: a `new` that builds no class, and a type name nothing declares.
 
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { isEnableDirective } from './enables.js';
+import { undeclaredTypeName, unknownTypeMessage } from './type-map.js';
+import { newRefusal } from './lower/new-target.js';
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -23,6 +27,16 @@ function visit(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
+  // What a `new` builds, and a type name nothing declares, are resolved here, once for the file:
+  // in a body no call lowers, and once for a body lowered for every instance (Rule 2.1, Rule 12.4).
+  if (ts.isNewExpression(node)) {
+    const refused = newRefusal(node, sourceFile);
+    if (refused !== undefined) push(diagnostics, sourceFile, node, refused.message, refused.code);
+  }
+  const unknownType = undeclaredTypeName(node, sourceFile);
+  if (unknownType !== undefined) {
+    push(diagnostics, sourceFile, node, unknownTypeMessage(unknownType), TS_CODES.UNKNOWN_TYPE);
+  }
   if (ts.isAwaitExpression(node)) {
     push(
       diagnostics,

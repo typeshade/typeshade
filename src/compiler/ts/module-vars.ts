@@ -23,7 +23,12 @@ import type { Expr, ModuleVarDecl, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { structT, typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { LoweringScope, refuseModuleName, refusedDeclarationsOf } from './context.js';
+import {
+  LoweringScope,
+  refuseModuleName,
+  refusedDeclarationsOf,
+  refusedModuleNames,
+} from './context.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js';
@@ -33,7 +38,12 @@ import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
 import { lowerExpression } from './lower/expression.js';
 import { lowerArrayLiteral } from './lower/expression-array.js';
 import { isOverrideType } from './overrides.js';
-import { declaredCallIn, isFoldableConstExpr, staticConstName } from './module-const.js';
+import {
+  declaredCallIn,
+  isFoldableConstExpr,
+  staticConstName,
+  writtenModuleName,
+} from './module-const.js';
 import { eachNamespaceStatement } from './namespaces.js';
 import {
   emittedMemberName,
@@ -146,6 +156,11 @@ export function collectModuleVars(
   const seen = new Set<string>();
   const scope = new LoweringScope(undefined, undefined);
   scope.setStructs(structs);
+  // A module constant refused before this said why, and an initializer that reads it adds
+  // nothing (Rule 12.4).
+  for (const refused of refusedModuleNames(sourceFile)) {
+    refusedDeclarationsOf(scope.calleeTable()).add(refused);
+  }
   for (const c of consts) {
     scope.define({
       kind: 'module',
@@ -359,15 +374,10 @@ function lowerPlain(
   // yet: it is said here, before the initializer is lowered into "Unknown function" about a
   // function the file declares (Rule 12.4).
   if (decl.initializer !== undefined && declaredCallIn(decl.initializer, sourceFile)) {
-    const shown =
-      ts.isPropertyDeclaration(decl) && ts.isClassDeclaration(decl.parent)
-        ? `${decl.parent.name?.text ?? ''}.${decl.name.getText(sourceFile)}`
-        : name;
     diagnostics.push(
-      diag(sourceFile, decl.initializer, notConstantMessage(shown, decl.initializer, sourceFile)),
+      diag(sourceFile, decl.initializer, notConstantMessage(decl, decl.initializer, sourceFile)),
     );
-    refusedDeclarationsOf(scope.calleeTable()).add(name);
-    refuseModuleName(sourceFile, name);
+    refuse(name, sourceFile, scope);
     return undefined;
   }
   if (decl.type !== undefined) {
@@ -437,8 +447,12 @@ function lowerPlain(
     );
     return undefined;
   }
+  const before = diagnostics.length;
   const init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics);
-  if (!init) return undefined;
+  if (!init) {
+    refuseIfSilent(name, before, sourceFile, scope, diagnostics);
+    return undefined;
+  }
   return finish(
     decl,
     decl,
@@ -493,12 +507,16 @@ function finish(
     );
     return undefined;
   }
+  const before = diagnostics.length;
   let init: Expr | undefined =
     lowered ??
     (ts.isArrayLiteralExpression(decl.initializer)
       ? lowerArrayLiteral(decl.initializer, type, sourceFile, scope, diagnostics)
       : lowerExpression(decl.initializer, sourceFile, scope, diagnostics, type));
-  if (!init) return undefined;
+  if (!init) {
+    refuseIfSilent(name, before, sourceFile, scope, diagnostics);
+    return undefined;
+  }
   init = retargetDeclaredIntLit(init, decl.initializer, type);
   init = reportIntLitRange(init, decl.initializer, type, sourceFile, diagnostics) ?? init;
   if (typeKey(init.type) !== typeKey(type)) {
@@ -520,14 +538,42 @@ function finish(
     isFoldableConstExpr(init, scope);
   if (!folds) {
     diagnostics.push(
-      diag(sourceFile, decl.initializer, notConstantMessage(name, decl.initializer, sourceFile)),
+      diag(sourceFile, decl.initializer, notConstantMessage(decl, decl.initializer, sourceFile)),
     );
+    refuse(name, sourceFile, scope);
     return undefined;
   }
   return { name, space, type, init };
 }
 
-/** The sentence for a module variable whose initializer is not a constant by §12's measure. */
-const notConstantMessage = (name: string, init: ts.Expression, sourceFile: ts.SourceFile): string =>
-  `"${name}" needs a constant initializer (a literal, a module const, arithmetic or a math ` +
-  `builtin over those); "${init.getText(sourceFile)}" is not one. Assign it inside the entry.`;
+/** The sentence for a module variable whose initializer is not a constant by §12's measure,
+ *  naming it as written: `K`, or `S.K` for a static field the file writes. */
+const notConstantMessage = (
+  decl: VarSite,
+  init: ts.Expression,
+  sourceFile: ts.SourceFile,
+): string =>
+  `"${writtenModuleName(decl, sourceFile)}" needs a constant initializer (a literal, a module ` +
+  `const, arithmetic or a math builtin over those); "${init.getText(sourceFile)}" is not one. ` +
+  `Assign it inside the entry.`;
+
+/** Records a module variable whose declaration was refused, so a read or a write of it adds
+ *  nothing to what the declaration said (Rule 12.4). */
+function refuse(name: string, sourceFile: ts.SourceFile, scope: LoweringScope): void {
+  refusedDeclarationsOf(scope.calleeTable()).add(name);
+  refuseModuleName(sourceFile, name);
+}
+
+/** Refuses a module variable whose initializer failed without a word, which is an initializer
+ *  that read a declaration already refused, in a file that already has its error. */
+function refuseIfSilent(
+  name: string,
+  before: number,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: readonly TsCompilerDiagnostic[],
+): void {
+  if (diagnostics.length === before && diagnostics.some((d) => d.category === 'error')) {
+    refuse(name, sourceFile, scope);
+  }
+}

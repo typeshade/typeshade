@@ -17,6 +17,8 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { TS_CODES } from './codes.js';
+import { compileTsSources } from './module.js';
+import { SUPPORTED_TYPE_NAMES } from './type-map.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 
@@ -190,5 +192,108 @@ export function fs(): vec4 {
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('0.693147');
+  });
+});
+
+describe('a type name nothing declares is TS8002 wherever it is written, once', () => {
+  // Measured before this change: each was a single TS8012 while the host list stood, and then
+  // nothing at all, since none of these positions is mapped by a body the compiler lowers: the
+  // editor showed TS2304 alone (Rule 12.7).
+  const lower = (name: string) =>
+    `${TS_CODES.UNKNOWN_TYPE} Unknown type "${name}". Supported names: ${SUPPORTED_TYPE_NAMES.join(', ')}.`;
+
+  it('in a position no body maps', () => {
+    for (const head of [
+      'class C implements Date {\n  a: f32 = 1.;\n}\n',
+      'type A = Date;\n',
+      'function id<T = Date>(x: T): T {\n  return x;\n}\n',
+      'function h(x: Date): f32;\nfunction h(x: f32): f32 {\n  return x;\n}\n',
+      'interface I {\n  m(x: Date): f32;\n}\n',
+      'function apply(fn: (x: Date) => f32): f32 {\n  return 1.;\n}\n',
+      'function mk<T>(x: T): Date {\n  return x;\n}\n',
+    ]) {
+      expect(diagnosticsOf(`"use typeshade";\n${head}${FS}`), head).toEqual([
+        `${TS_CODES.UNKNOWN_TYPE} Unknown type "Date".`,
+      ]);
+    }
+    expect(diagnosticsOf(`"use typeshade";\ntype A = window;\n${FS}`)).toEqual([lower('window')]);
+  });
+
+  it('in a claim, which claims nothing the program has, and leaves its value as it is', () => {
+    for (const [claim, message] of [
+      ['0.5 as window', lower('window')],
+      ['1. as self', lower('self')],
+      ['0.5 satisfies Date', `${TS_CODES.UNKNOWN_TYPE} Unknown type "Date".`],
+    ]) {
+      expect(
+        diagnosticsOf(
+          `"use typeshade";\nfunction g(): f32 {\n  const k = ${claim};\n  return k;\n}\n${FS}`,
+        ),
+        claim,
+      ).toEqual([message]);
+    }
+  });
+
+  it('as a type argument, of a type and of a new', () => {
+    // `x: B<Date>` emitted `fn g(x: B)` with no struct B, and `new B<Foo>()` was told that nothing
+    // in the file says what to build it at, although the file writes `B<Foo>`.
+    const head = 'class B<T> {\n  v: T;\n}\n';
+    for (const [line, name] of [
+      ['function g(x: B<Date>): f32 {\n  return 1.;\n}\n', 'Date'],
+      ['function g(x: B<Foo>): f32 {\n  return 1.;\n}\n', 'Foo'],
+      ['function g(): f32 {\n  const b = new B<Foo>();\n  return 1.;\n}\n', 'Foo'],
+    ]) {
+      expect(diagnosticsOf(`"use typeshade";\n${head}${line}${FS}`), line).toEqual([
+        `${TS_CODES.UNKNOWN_TYPE} Unknown type "${name}".`,
+      ]);
+    }
+  });
+
+  it('a name the library declares is no unknown name in a constraint', () => {
+    const r =
+      compile(`"use typeshade";\nclass B {\n  a: f32 = 1.;\n}\nfunction Tinted<TBase extends AnyClass>(Base: TBase) {\n  return class extends Base {\n    t: f32 = 2.;\n  };\n}\nclass C extends Tinted(B) {}\n@fragment
+export function fs(): vec4 {
+  const c = new C();
+  return vec4(c.a, c.t, 0., 1.);
+}
+`);
+    expect(r.diagnostics).toEqual([]);
+  });
+
+  it('once, in a generic body lowered for two type arguments', () => {
+    expect(
+      diagnosticsOf(`"use typeshade";\nfunction mk<T>(x: T): f32 {\n  return fetch("x");\n}\n@fragment
+export function fs(): vec4 {
+  return vec4(mk(1.) + mk(vec2f(1.)));
+}
+`),
+    ).toEqual([
+      `${TS_CODES.UNKNOWN_FN} Unknown function "fetch("x")". Declare it in this file, or import it from another shader module.`,
+    ]);
+  });
+});
+
+describe('a type another file declares is written by its bare name', () => {
+  // A struct is module scope in a multi-file program (#74), so a class or an interface one file
+  // declares is a type of every file, as the capitalized fallback made it before a name nothing
+  // declares became TS8002.
+  it('a class and an interface, in a parameter, a local annotation and a claim', () => {
+    const r = compileTsSources([
+      {
+        fileName: 'types.ts',
+        source: `"use typeshade";\nexport class Ray {\n  o: vec3;\n  d: vec3;\n}\nexport interface Light {\n  k: f32;\n}\nexport function make(p: vec3): Ray {\n  const r: Ray = { o: p, d: p };\n  return r;\n}\nexport function power(l: Light): f32 {\n  return l.k;\n}\n`,
+      },
+      {
+        fileName: 'main.ts',
+        source: `"use typeshade";\nimport { make } from "./types";\nfunction lit(l: Light, r: Ray): f32 {\n  return l.k * r.d.x;\n}\n@fragment
+export function fs(): vec4 {
+  const r: Ray = make(vec3(2.));
+  return vec4(lit({ k: 3. } as Light, r));
+}
+`,
+      },
+    ]);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('fn lit(l: Light, r: Ray) -> f32 {');
   });
 });

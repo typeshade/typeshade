@@ -46,6 +46,7 @@ import { boundTypeArgument } from './generics.js';
 import { genericStructName, isGenericClass } from './generic-structs.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { isIntegerWritten } from './lit-coerce.js';
+import { namespaceClassAround } from './namespaces.js';
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 
@@ -236,8 +237,9 @@ function enumNamesOf(sourceFile: ts.SourceFile): ReadonlySet<string> {
 const ENUM_CACHE = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
 
 /** Every type name the file declares, wherever it declares it: a class, an interface, a type
- *  alias, an enum and a namespace, at the top level, in a namespace or in a body. A capitalized
- *  name none of them gives, and no other file of the module gives, is no type at all. */
+ *  alias, an enum and a namespace, at the top level, in a namespace or in a body, and a name it
+ *  imports, which another file declares. A capitalized name none of them gives, and no other file
+ *  of the module gives, is no type at all. */
 export function declaredTypeNamesOf(sourceFile: ts.SourceFile): ReadonlySet<string> {
   const cached = DECLARED_TYPES.get(sourceFile);
   if (cached) return cached;
@@ -248,7 +250,9 @@ export function declaredTypeNamesOf(sourceFile: ts.SourceFile): ReadonlySet<stri
         ts.isInterfaceDeclaration(n) ||
         ts.isTypeAliasDeclaration(n) ||
         ts.isEnumDeclaration(n) ||
-        ts.isModuleDeclaration(n)) &&
+        ts.isModuleDeclaration(n) ||
+        ts.isImportSpecifier(n) ||
+        ts.isImportClause(n)) &&
       n.name !== undefined &&
       ts.isIdentifier(n.name)
     ) {
@@ -272,30 +276,140 @@ export function setModuleTypeNames(sourceFile: ts.SourceFile, names: ReadonlySet
   MODULE_TYPES.set(sourceFile, names);
 }
 
-/** Whether `name` is a type parameter of a declaration around `node`. */
+/** The capitalized types the editor's ambient library declares for its own use: the globals
+ *  TypeScript needs when it has no standard library (`Array`, `Number`, `Function`), and the
+ *  helper types its signatures are written in (`AnyClass`, surface §29, `Numeric`, `VecOf`).
+ *  None is a type a shader value has, and none is a name nothing declares either, so none is an
+ *  unknown name in a constraint or wherever else a type is not mapped. `ambient-parity.test.ts`
+ *  holds this list to the library. */
+export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
+  'AnyClass',
+  'Array',
+  'ArrayOps',
+  'BitcastArg',
+  'BoolVec',
+  'Boolean',
+  'CallableFunction',
+  'ComponentKeys',
+  'Console',
+  'Function',
+  'IArguments',
+  'LaneKeys',
+  'Mat',
+  'MatColumn',
+  'MathObject',
+  'NewableFunction',
+  'Number',
+  'Numeric',
+  'Object',
+  'Pick',
+  'ReadView',
+  'ReadWriteStorageFormat',
+  'RegExp',
+  'ScalarOf',
+  'StorageAccess',
+  'StorageBufferAccess',
+  'StorageFormat',
+  'StorageTexel',
+  'String',
+  'SymbolConstructor',
+  'TexelCoord2',
+  'TexelCoord3',
+  'TextureElem',
+  'Vec4OfElem',
+  'Vec64',
+  'Vec64Any',
+  'VecElemOf',
+  'VecFor2',
+  'VecFor3',
+  'VecFor4',
+  'VecOf',
+  'WriteOnlyStorageFormat',
+]);
+
+/** Whether `name` is a type parameter of a declaration around `node`, a mapped type's key
+ *  (`[K in keyof T]`) or a conditional type's `infer U` included. */
 function isTypeParameterAround(node: ts.Node, name: string): boolean {
+  const infers = (n: ts.Node): boolean =>
+    (ts.isInferTypeNode(n) && n.typeParameter.name.text === name) ||
+    (ts.forEachChild(n, infers) ?? false);
   for (let at: ts.Node | undefined = node.parent; at !== undefined; at = at.parent) {
     const params = (at as { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> })
       .typeParameters;
     if (params?.some((p) => p.name.text === name)) return true;
+    if (ts.isMappedTypeNode(at) && at.typeParameter.name.text === name) return true;
+    if (ts.isConditionalTypeNode(at) && infers(at.extendsType)) return true;
   }
   return false;
 }
 
-/** The capitalized name `typeNode` writes, with no type argument, when nothing in the module
- *  declares it: no class, interface, type alias, enum or namespace of any file, and no type
- *  parameter around it. */
-export function undeclaredTypeName(
-  typeNode: ts.TypeNode,
-  sourceFile: ts.SourceFile,
-): string | undefined {
-  if (!ts.isTypeReferenceNode(typeNode) || !ts.isIdentifier(typeNode.typeName)) return undefined;
-  if ((typeNode.typeArguments?.length ?? 0) > 0) return undefined;
-  const name = typeNode.typeName.text;
-  if (!/^[A-Z]/.test(name) || lookupTypeName(name) !== undefined) return undefined;
-  if (declaredTypeNamesOf(sourceFile).has(name)) return undefined;
-  if (MODULE_TYPES.get(sourceFile)?.has(name) === true) return undefined;
-  return isTypeParameterAround(typeNode, name) ? undefined : name;
+/** Whether the module gives the type name `name` written at `node`: a class, an interface, a type
+ *  alias, an enum or a namespace of any file, a name the file imports, or a type parameter of a
+ *  declaration around it. */
+function moduleDeclaresType(node: ts.Node, name: string, sourceFile: ts.SourceFile): boolean {
+  return (
+    declaredTypeNamesOf(sourceFile).has(name) ||
+    MODULE_TYPES.get(sourceFile)?.has(name) === true ||
+    isTypeParameterAround(node, name)
+  );
+}
+
+/** The WGSL types written with type arguments, which the mapper reads in {@link mapGeneric}: a
+ *  bare one is a mistake of arity, not a name nothing declares. */
+const GENERIC_TYPE_NAMES: ReadonlySet<string> = new Set([
+  'array',
+  'atomic',
+  'ptr',
+  'uniform',
+  'storage',
+  'workgroup',
+  'override',
+]);
+
+/** Whether the ambient library declares a type of `name`: a WGSL type, bare or generic, or one of
+ *  {@link LIBRARY_TYPE_NAMES}. `ambient-parity.test.ts` holds it to the library. */
+export const isLibraryTypeName = (name: string): boolean =>
+  LIBRARY_TYPE_NAMES.has(name) ||
+  SUPPORTED_TYPE_NAMES.includes(name) ||
+  GENERIC_TYPE_NAMES.has(name) ||
+  lookupTypeName(name) !== undefined;
+
+/** The sentence a type name nothing declares gets, wherever it is written. A lowercase one is
+ *  offered the WGSL names, which is what a lowercase type name is usually meant to be. */
+export const unknownTypeMessage = (name: string): string =>
+  /^[A-Z]/.test(name)
+    ? `Unknown type "${name}".`
+    : `Unknown type "${name}". Supported names: ${SUPPORTED_TYPE_NAMES.join(', ')}.`;
+
+/** The name a type position writes, bare and with no type argument, when nothing declares it:
+ *  not WGSL, not the ambient library, and nothing of the module ({@link moduleDeclaresType}). A
+ *  type reference, or a name an `implements` clause writes, which is a type too; a class's
+ *  `extends` names a value, and an interface's `extends` its base, both the struct collector's.
+ *  `as const` names no type, and the retired `perInvocation` has a refusal of its own. */
+export function undeclaredTypeName(node: ts.Node, sourceFile: ts.SourceFile): string | undefined {
+  let id: ts.Node;
+  if (ts.isTypeReferenceNode(node)) {
+    id = node.typeName;
+  } else if (
+    ts.isExpressionWithTypeArguments(node) &&
+    ts.isHeritageClause(node.parent) &&
+    node.parent.token === ts.SyntaxKind.ImplementsKeyword
+  ) {
+    id = node.expression;
+  } else {
+    return undefined;
+  }
+  if (!ts.isIdentifier(id) || (node.typeArguments?.length ?? 0) > 0) return undefined;
+  const name = id.text;
+  if (
+    name === 'const' ||
+    name === RETIRED_VAR_WRAPPER ||
+    isLibraryTypeName(name) ||
+    boundTypeArgument(name) !== undefined
+  ) {
+    return undefined;
+  }
+  return moduleDeclaresType(node, name, sourceFile) ? undefined : name;
 }
 
 /** The retired module-variable wrapper, refused by name wherever it is written.
@@ -387,6 +501,10 @@ function mapType(
     if (generic !== undefined && isGenericClass(generic, sourceFile)) {
       const instance = genericStructName(generic, typeNode.typeArguments, sourceFile);
       if (instance !== undefined) return structT(instance);
+      // A type argument nothing declares names no layout, and was said where it is written.
+      if (typeNode.typeArguments?.some((a) => undeclaredTypeName(a, sourceFile) !== undefined)) {
+        return undefined;
+      }
       // Arguments that name no layout — the wrong number of them, or one that is a type
       // parameter — were reported once, where the instances were collected. Recovering as a
       // struct of the written name is what an unknown capitalized name does below, and it keeps
@@ -418,6 +536,10 @@ function mapType(
     }
     const mapped = SCALAR_AND_VEC_MAP[name];
     if (mapped !== undefined) return mapped;
+    // Inside a namespace, the class it declares under the short name, in any of its blocks,
+    // ahead of one further out, as TypeScript resolves it and as a `new` there builds it (#107).
+    const around = namespaceClassAround(typeNode, name);
+    if (around !== undefined) return structT(around);
     // A type alias of anything but an object type is another name for its target (T2, #92).
     // After the builtin names, so no alias can shadow `f32` or `vec3`, and before the
     // capitalized-name arm, so the alias resolves instead of becoming a struct of its own.
@@ -438,11 +560,10 @@ function mapType(
       }
       return mapType(alias, sourceFile, diagnostics, new Set([...(resolving ?? []), name]));
     }
-    // A class declared inside a namespace is reachable by its short name from that namespace's
-    // own bodies, which is where almost every use of it is (#107). The file's own declarations
-    // win, and a short name two namespaces both declare is refused rather than guessed at:
-    // resolving it properly needs the enclosing namespace, which a type annotation does not
-    // carry here.
+    // Outside every namespace that declares it, a namespace class's short name is still read,
+    // which is more than TypeScript allows (a Rule 12.7 divergence, surface §26). A top-level
+    // declaration of the name wins, as it does in TypeScript, and a short name two namespaces
+    // both declare is refused rather than guessed at.
     const ns = namespaceStructsOf(sourceFile);
     if (!ns.topLevel.has(name)) {
       const candidates = ns.short.get(name);
@@ -465,18 +586,13 @@ function mapType(
     // A struct the module declares, or a type parameter of the declaration around it, which an
     // instantiation binds (T9, #92). A capitalized name nothing declares is unknown like any
     // other: it used to become a struct of its own name, which the module never declared and
-    // Tint refused as an unresolved type (Rule 12.6).
-    if (/^[A-Z]/.test(name)) {
-      if (undeclaredTypeName(typeNode, sourceFile) === undefined) return structT(name);
-      pushDiag(diagnostics, sourceFile, typeNode, `Unknown type "${name}".`);
-      return undefined;
+    // Tint refused as an unresolved type (Rule 12.6). The file's own pass (semantic.ts) says it
+    // too, wherever the type is written and whether or not a body maps it, and the same sentence
+    // at the same span is one diagnostic.
+    if (/^[A-Z]/.test(name) && moduleDeclaresType(typeNode, name, sourceFile)) {
+      return structT(name);
     }
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      typeNode,
-      `Unknown type "${name}". Supported names: ${SUPPORTED_TYPE_NAMES.join(', ')}.`,
-    );
+    pushDiag(diagnostics, sourceFile, typeNode, unknownTypeMessage(name));
     return undefined;
   }
 

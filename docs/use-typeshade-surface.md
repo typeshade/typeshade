@@ -408,9 +408,9 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
 | A call that writes in a `while` condition, anywhere but as one side of its comparison | `TS8006`. The condition runs on every iteration, so the call cannot move ahead of the loop to run in source order; compare the call alone, or call it into a `let` at the end of the body (§26, Rule 7.9) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
-| A name nothing declares: `window`, `Date`, `fetch`, `Foo` | Once, where it is used, by the code that owns the position: `TS8022` for a value, `TS8004` for a callee (said before its arguments are lowered), `TS8002` for a type. A name the file declares is the file's, whatever it spells (§28) |
-| `new` on anything but a class the file declares | `TS8035`, naming what the target is and what to write: a WGSL constructor or a function is called without `new`, an enum's values are its members, and an interface, a type alias, a namespace, a type parameter, a value and an `abstract` class are no class to build. A target nothing declares is `TS8022` (§26) |
-| A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class the file declares | The declaration's own sentence, once: `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable (§12, §24, §26) |
+| A name nothing declares: `window`, `Date`, `fetch`, `Foo` | Once, where it is used, by the code that owns the position: `TS8022` for a value and `TS8004` for a callee (said before its arguments are lowered) in a body the compiler lowers, and `TS8002` for a type wherever it is written, a claim, a type argument, an alias and an `implements` clause included. A name the file declares is the file's, whatever it spells (§28) |
+| `new` on anything but a class the file declares | `TS8035`, once for the file, naming what the target is and what to write: a WGSL constructor or a function is called without `new`, a WGSL type with no constructor (`sampler`, a texture) is a type, an enum's values are its members, a mixin applied to a class is built through a class that extends it, and an interface, a type alias, a namespace, a type parameter, a value and an `abstract` class are no class to build. A target nothing declares, and a member the object before it does not have, is `TS8022` (§26) |
+| A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
 
 ---
 
@@ -2406,27 +2406,34 @@ There is no shader rule against it. A class is a struct and a constructor is a f
 `new P(1., 2.)` is `P_new(1.0, 2.0)` and nothing is allocated.
 
 A `new` finds its target as TypeScript does, from where it is written (Rule 2.1): the innermost
-declaration of the name, and a dotted name through the namespaces it names. `new (C)()` is
-`new C()`. What is refused says what the target is, once:
+declaration of the name, every block of a namespace around it counted as one namespace, and a
+dotted name through the namespaces it names. `new (C)()` is `new C()`. What is refused says what
+the target is, once for the file, in a generic body lowered for several type arguments and in a
+body no call lowers alike:
 
 | written | what it says |
 | --- | --- |
 | `new Date()`, and nothing declares `Date` | `TS8022`: `Date` is an unknown name, as it is in any other position |
 | `new vec3f(1., 2., 3.)`, `new f32(1)` | `TS8035`: a WGSL constructor is called without `new`, `vec3f(1., 2., 3.)` |
-| `new F()` on a function | `TS8035`: `F` is a function, which is called without `new`, `F()` |
+| `new sampler()`, `new texture_2d<f32>()` | `TS8035`: it is a type, not a value, and WGSL gives it no constructor |
+| `new F()` on a function, `new Math.sin(1.)` | `TS8035`: `F` is a function, which is called without `new`, `F()` |
 | `new E()` on an enum | `TS8035`: an enum's values are its members, `E.A` |
-| `new c()` on a local or a parameter, `new N()` on a namespace, `new T()` on a type parameter | `TS8035`: it is a value, a namespace or a type parameter, and not a class |
+| `new c()` on a local or a parameter, `new PI()`, `new E.A()`, `new N()` on a namespace, `new T()` on a type parameter | `TS8035`: it is a value, a namespace or a type parameter, and not a class |
+| `new M()` on a mixin applied to a class, `const M = Tinted(B)` | `TS8035`: it is built through a class that extends it, `class C extends M {}` (§29) |
+| `new Math.Foo()`, `new C.q()` | `TS8022`: `Math` has no member `Foo`, `C` no static member `q` |
 | `new I()` on an interface or a type alias | `TS8035`: it is a type, not a value, and carries no constructor; write the object literal or declare it as a class |
 | `new S()` on an `abstract` class | `TS8035`: there is no instance of it to build; construct a class that extends it |
 | `new U()` on a class of statics alone | `TS8035`: it is a group of functions with no fields, so there is no value to build |
 | `new P(1., 2.)` where `P` declares no constructor | `TS8019`: TypeScript's implicit constructor takes no arguments; declare one, or write the fields |
-| `const K = new P(1.)` or `const K = g()` at module scope, or in a static field | `TS8003` from the constant's own check: a module constant is folded before any function exists, so build the value inside the function that reads it. A module `let` says it as `TS8033`, and a read of `K` adds nothing |
+| `const K = new P(1.)` or `const K = g()` at module scope, or in a static field (`this.f()` included) | `TS8003` from the constant's own check: a module constant is folded before any function exists, so build the value inside the function that reads it. A module `let` says it as `TS8033`, and a read or a write of `K` adds nothing |
 
 The class of statics alone follows from a class with no fields not being a struct, and the
 module-scope row from WGSL, whose module scope calls no function the module declares (Tint:
 "user-declared functions cannot be called at module-scope"). The rest are TypeScript's own
 refusals. A constructor refused where it is written, at its signature or for the name it would
-be emitted under, is not refused again at the `new`. Until proposal 0008 every refusal but the
+be emitted under, is not refused again at the `new`; any other `new` with no constructor to call,
+such as one in a multi-file program, which lowers no class function, is `TS8035` "has no
+constructor here" and is never dropped without a word. Until proposal 0008 every refusal but the
 statics one was `TS8013`, and every target the file did not declare as a class was told that
 `new` "allocates a JS object, which a shader has no heap for": `new P(1., 2.)` on the file's own
 class allocates nothing either.
@@ -3215,15 +3222,15 @@ whether the class writes a constructor or not. Inside the namespace's own bodies
 works, `new Camera(...)`, and a nested namespace nests the name, `A_B_Inner`. What a `new` is
 refused for names the class as written, `Scene.Camera`, never the emitted `Scene_Camera`.
 
-A `new` reads the short name where TypeScript does, inside the namespace, so a top-level
-`new Camera()` is an unknown name. A type annotation reads it from anywhere in the file, which
-is more than TypeScript's lexical rule allows: the editor answers a top-level `c: Camera` with
-TS2304 and the compiler takes it, a Rule 12.7 divergence kept because the two places it could
-disagree are refused rather than guessed at. A short name two namespaces both declare says
-which ones and asks for the one you mean. A top-level declaration
-of the same name wins, which is what TypeScript does outside the namespace; write `N.P` for the
-other one. Resolving it exactly needs the enclosing namespace, which a type annotation does not
-carry to the mapper today.
+A `new` and a type annotation read the short name where TypeScript does: inside the namespace,
+in any of its blocks, the namespace's own class comes first, ahead of a top-level class of the
+same name, so `const p: P = new P()` there is `N.P` on both sides. A top-level `new Camera()` is
+an unknown name. Outside every namespace that declares it, a type annotation still reads the
+short name, which is more than TypeScript's lexical rule allows: the editor answers a top-level
+`c: Camera` with TS2304 and the compiler takes it, a Rule 12.7 divergence. There a top-level
+declaration of the same name wins, which is what TypeScript does outside the namespace (write
+`N.P` for the other one), and a short name two namespaces both declare says which ones and asks
+for the one you mean.
 
 An enum, a type alias, an interface and a variable inside a namespace keep their refusal: each
 is collected by a route that has no declaration site to flatten from, which is its own step.
@@ -3461,9 +3468,13 @@ has the rest of the operator surface.
 source in a `"use typeshade"` file (Rule 2.1): not WGSL, not the part of ECMAScript the ambient
 library restates, and no §9.3 row. So they do not exist there, and a use of one is an unknown
 name like any other, said once where it is used, by the code that owns the position: `TS8022`
-for a value (`window`, `Date.now()`), `TS8004` for a callee (`fetch("x")`, said before its
-argument is lowered, so the string adds nothing), and `TS8002` for a type (`x: Date`, which
-emitted a struct of that name that Tint refused as an unresolved type). A name the file declares
+for a value (`window`, `Date.now()`) and `TS8004` for a callee (`fetch("x")`, said before its
+argument is lowered, so the string adds nothing), in a body the compiler lowers; and `TS8002`
+for a type wherever it is written (`x: Date`, which emitted a struct of that name that Tint
+refused as an unresolved type, and `B<Date>`, `0.5 as window`, `type A = Date`,
+`implements Date`, which said nothing once the list was gone). A name the ambient library
+declares for its own signatures, `AnyClass` in a mixin's constraint (§29), is declared, and a
+name the file imports is another file's. A name the file declares
 is the file's, whatever it spells: an `enum Status { Error }`, a `window` parameter, a
 `class Date`, a local function `self`. The front end kept a list of 59 such names and refused
 each by its spelling, at the declaration and at every use, as `TS8012`, which is retired; its <!-- doc-refs: skip — a retired code, named as retired -->

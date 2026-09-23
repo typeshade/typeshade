@@ -317,7 +317,7 @@ export function fs(): vec4 {
 `);
     expect(errors[0]).toBe(
       `${TS_CODES.CLASS_MEMBER} "Pair" is generic and this file writes it at 2 sets of type ` +
-        `arguments (Pair_f32, Pair_vec3), so "new Pair(…)" does not say which one to build. ` +
+        `arguments (Pair<f32>, Pair<vec3>), so "new Pair(…)" does not say which one to build. ` +
         `Write the type argument: "new Pair<f32>(…)".`,
     );
   });

@@ -16,6 +16,9 @@
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
+  /** A type name nothing declares, said once for the file wherever it is written (a parameter,
+   *  a claim, a type argument, an alias, an `implements` clause, a body no call lowers), or a type
+   *  this surface does not take in a position the mapper reads (Rule 2.1). */
   UNKNOWN_TYPE: 'TS8002',
   TYPE_MISMATCH: 'TS8003',
   UNKNOWN_FN: 'TS8004',
@@ -89,8 +92,9 @@ export const TS_CODES = {
    *  a value, since a barrier is a statement (roadmap 0.2 item 5, #82). */
   BARRIER_PLACEMENT: 'TS8034',
   /** A class member shape the surface does not take, or a use of a member the class rules
-   *  refuse (#86), and a `new` that builds no class (Rule 8.13). Getters and setters, static fields and methods, overload signatures,
-   *  abstract members, `#` private names and methods that change their object all compile
+   *  refuse (#86), and a `new` that builds no class (Rule 8.13). Getters and setters, static
+   *  fields and methods, overload signatures, abstract members, `#` private names and methods
+   *  that change their object all compile
    *  (#190), and so does a field holding a function, which is a method (Rule 8.16).
    *  What is refused, in the declaration: a field holding a function when the field is static,
    *  or when the function takes type parameters, is `async` or a generator, or is an
@@ -106,11 +110,14 @@ export const TS_CODES = {
    *  assigned, or a setter with no getter read; a compound assignment through a getter and
    *  setter whose object would run twice; a method that changes its object called on
    *  something it cannot write (a parameter, a `const` whose value something else may hold, a
-   *  dropped value) or used as a value when it returns nothing. In a `new`: a class that declares
-   *  only statics, an `abstract` class, `new this()` outside a static member, and a target the
-   *  file resolves to something other than a class — a WGSL constructor or cast (`new vec3f()`),
-   *  a function, an enum, a namespace, an interface or type alias, a type parameter, or a value.
-   *  A target nothing declares is `UNKNOWN_NAME`. A getter or setter missing its type is
+   *  dropped value) or used as a value when it returns nothing. In a `new`, said once for the
+   *  file where it is written: a class that declares only statics, an `abstract` class,
+   *  `new this()` outside a static member, and a target that resolves to something other than
+   *  a class — a WGSL constructor or cast (`new vec3f()`), a WGSL type with no constructor
+   *  (`new sampler()`), a function (`Math.sin` included), an enum or one of its members, a
+   *  namespace, an interface or type alias, a type parameter, a mixin applied to a class, or a
+   *  value (`PI` included). A target nothing declares, and a member the object before it does
+   *  not have (`new Math.Foo()`), is `UNKNOWN_NAME`. A getter or setter missing its type is
    *  `UNKNOWN_TYPE`, a `readonly` field written outside the constructor `CONST_ASSIGN`. */
   CLASS_MEMBER: 'TS8035',
   /** A math builtin called with arguments its signature does not take (#57, §10): two shapes

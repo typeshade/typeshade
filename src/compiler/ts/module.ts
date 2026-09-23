@@ -26,7 +26,12 @@ import { collectModuleVars } from './module-vars.js';
 import { TS_CODES } from './codes.js';
 import { checkRecursion, type RecursionNode } from './recursion.js';
 import { fileFunctionsOf } from './context.js';
-import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
+import {
+  backendDiagnostic,
+  dropRepeatedDiagnostics,
+  makeDiagnostic,
+  syntaxDiagnostics,
+} from './diagnostic.js';
 import type { DeclaredSymbol } from './symbols.js';
 
 export interface TsSourceFileInput {
@@ -467,6 +472,7 @@ export function compileTsSources(
   // import, which is exactly why the resolver above goes through `callees`.
   checkRecursion(graph, diagnostics);
 
+  dropRepeatedDiagnostics(diagnostics);
   let wgsl: string | undefined;
   if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
     try {

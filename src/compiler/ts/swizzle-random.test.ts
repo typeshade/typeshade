@@ -52,8 +52,32 @@ describe('swizzle', () => {
       }
     `);
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
-      `TS8022 vec3 has no method "swizzle": a vector's members are its components, v.x or v.xy.`,
+      `TS8022 vec3 has no method "swizzle": a swizzle is written as a member, v.yxz.`,
     ]);
+  });
+
+  it('names the builtin a method of a vector is, and the components otherwise', () => {
+    // A vector has no method at all (Rule 2.2); `v.length()` is the builtin `length(v)`, and the
+    // sentence names it rather than a component, which is not what the author meant.
+    const said = (call: string) =>
+      compileTsSource(`
+      "use typeshade";
+      export function f(v: vec3, w: vec3): f32 {
+        const r = ${call};
+        return 1.;
+      }
+    `).diagnostics.map((d) => `${d.code} ${d.message}`);
+    expect(said('v.length()')).toEqual([
+      `TS8022 vec3 has no method "length": call the builtin, length(v).`,
+    ]);
+    expect(said('v.dot(w)')).toEqual([
+      `TS8022 vec3 has no method "dot": call the builtin, dot(v, w).`,
+    ]);
+    expect(said('v.foo()')).toEqual([
+      `TS8022 vec3 has no method "foo": a vector's members are its components, v.x or v.xy.`,
+    ]);
+    // What each names compiles in its place.
+    for (const remedy of ['length(v)', 'dot(v, w)', 'v.x']) expect(said(remedy)).toEqual([]);
   });
 
   it('diagnoses mixed swizzle in source', () => {

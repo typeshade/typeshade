@@ -21,7 +21,7 @@ import {
   shiftAmountMessage,
   shiftAmountOutOfRange,
 } from '../lit-coerce.js';
-import { mapTsTypeToShaderType, undeclaredTypeName } from '../type-map.js';
+import { mapTsTypeToShaderType, undeclaredTypeName, unknownTypeMessage } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral } from './expression-array.js';
 import { refuseBareAtomic } from './atomics.js';
@@ -96,17 +96,15 @@ function lowerTypeClaim(
     ts.isIdentifier(typeNode.typeName) &&
     typeNode.typeName.text === 'const';
   const claimed = isConst ? undefined : mapTsTypeToShaderType(typeNode, sourceFile, /* quiet */ []);
-  // A claim of a type nothing declares claims nothing the program has (Rule 2.1).
-  const unknown = isConst ? undefined : undeclaredTypeName(typeNode, sourceFile);
+  // A claim of a type nothing declares claims nothing the program has (Rule 2.1): `as window`
+  // and `as Date` are unknown types, as they are in any other position, and the file's own pass
+  // (semantic.ts) said so in the same words.
+  const unknown = undeclaredTypeName(typeNode, sourceFile);
   if (unknown !== undefined) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      typeNode,
-      `Unknown type "${unknown}".`,
-      TS_CODES.UNKNOWN_TYPE,
-    );
-    return undefined;
+    pushDiag(diagnostics, sourceFile, typeNode, unknownTypeMessage(unknown), TS_CODES.UNKNOWN_TYPE);
+    // The operand is still the value it is, so a local it initializes stays declared and a read
+    // of it adds nothing (Rule 12.4).
+    return lowerExpression(operand, sourceFile, scope, diagnostics, contextual);
   }
   const lowered = lowerExpression(operand, sourceFile, scope, diagnostics, claimed ?? contextual);
   if (!lowered || claimed === undefined) return lowered;

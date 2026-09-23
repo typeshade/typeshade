@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
+import { compileTsSources } from './module.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
@@ -409,5 +410,312 @@ describe('a value built at module scope is refused once, by its own declaration'
     const r = compile(file(head, `  const K = new P(g() * 2.)\n  return vec4(K.a)`));
     expect(r.diagnostics).toEqual([]);
     agree(r, [2, 2, 2, 2]);
+  });
+});
+
+describe('each thing a new is refused on is named for what it is (Rule 8.13, Rule 12.1)', () => {
+  const TAIL = `\n@fragment\nexport function fs(): vec4 {\n  return vec4(1.)\n}\n`;
+  const built = (head: string, target: string) =>
+    `"use typeshade"\n${head}function g(): f32 {\n  const d = ${target}\n  return 1.\n}${TAIL}`;
+  const one = (
+    head: string,
+    target: string,
+    message: string,
+    code: string = TS_CODES.CLASS_MEMBER,
+  ) => expect(errorsOf(built(head, target)), target).toEqual([`${code} ${message}`]);
+
+  it('a WGSL type with no constructor is a type, not a value', () => {
+    // Each was TS8022 'Unknown identifier "sampler"', although the file can write the type; the
+    // editor says TS2693, "only refers to a type".
+    for (const [target, name] of [
+      ['new sampler()', 'sampler'],
+      ['new texture_2d<f32>()', 'texture_2d'],
+      ['new atomic<i32>()', 'atomic'],
+    ]) {
+      one('', target!, `"${name}" is a type, not a value, and WGSL gives it no constructor.`);
+    }
+  });
+
+  it('a name the ambient library gives is what it is: a constant, a function, a member', () => {
+    one('', 'new PI()', '"PI" is a value, not a class.');
+    one('', 'new Math.PI()', '"Math.PI" is a value, not a class.');
+    one(
+      '',
+      'new Math.sin(1.)',
+      '"Math.sin" is a function, which is called without "new": Math.sin(1.).',
+    );
+    one(
+      '',
+      'new console.log(1.)',
+      '"console.log" is a function, which is called without "new": console.log(1.).',
+    );
+    one('', 'new Math.Foo()', '"Math" has no member "Foo".', TS_CODES.UNKNOWN_NAME);
+    one('', 'new console.foo()', '"console" has no member "foo".', TS_CODES.UNKNOWN_NAME);
+    // The remedies compile: `Math.sin(1.)` where the `new` stood, and `console.log(1.)`, which
+    // returns nothing, on its own line.
+    expect(errorsOf(built('', 'Math.sin(1.)'))).toEqual([]);
+    expect(errorsOf(file('', '  console.log(1.)\n  return vec4(1.)'))).toEqual([]);
+  });
+
+  it('a member of an enum or a class, and a target that is no name', () => {
+    const head =
+      `enum E {\n  A = 1,\n}\nenum Z {}\nclass C {\n  a: f32 = 1.\n  static k: f32 = 2.\n` +
+      `  static make(): C {\n    return new C()\n  }\n}\n`;
+    one(head, 'new E.A()', '"E.A" is a value, not a class.');
+    one(head, 'new E.B()', '"E" has no member "B".', TS_CODES.UNKNOWN_NAME);
+    one(head, 'new Z()', '"Z" is an enum, whose values are its members.');
+    one(head, 'new C.k()', '"C.k" is a value, not a class.');
+    one(head, 'new C.make()', '"C.make" is a function, which is called without "new": C.make().');
+    one(head, 'new C.q()', '"C" has no static member "q".', TS_CODES.UNKNOWN_NAME);
+    one(
+      `namespace N {\n  export class Q {\n    x: f32 = 1.\n  }\n}\n`,
+      'new N.Q.x()',
+      '"N.Q" has no static member "x".',
+      TS_CODES.UNKNOWN_NAME,
+    );
+    one(
+      `class B {\n  a: f32 = 1.\n}\nclass D {\n  a: f32 = 2.\n}\nconst k = true\n`,
+      'new (k ? B : D)()',
+      'A class this file declares is built with "new", and "k ? B : D" is not one of them.',
+    );
+  });
+
+  it('a mixin applied and named is built through a class that extends it, which compiles', () => {
+    const head =
+      `class B {\n  a: f32 = 1.\n}\nfunction Tinted<TBase extends AnyClass>(Base: TBase) {\n` +
+      `  return class extends Base {\n    t: f32 = 2.\n  }\n}\nconst M = Tinted(B)\n`;
+    one(
+      head,
+      'new M()',
+      '"M" is a mixin applied to a class, and is built through a class that extends it: class C extends M {}, then new C().',
+    );
+    const r = compile(
+      file(`${head}class C extends M {}\n`, `  const c = new C()\n  return vec4(c.a, c.t, 0., 1.)`),
+    );
+    expect(r.diagnostics).toEqual([]);
+    agree(r, [1, 2, 0, 1]);
+  });
+
+  it('new this() in a static member of an abstract class, which builds no instance of it', () => {
+    expect(
+      errorsOf(
+        file(
+          `abstract class S {\n  a: f32 = 1.\n  static make(): f32 {\n    const s = new this()\n    return 1.\n  }\n}\n`,
+          `  return vec4(S.make())`,
+        ),
+      ),
+    ).toEqual([
+      `${TS_CODES.CLASS_MEMBER} "S" is abstract, so there is no instance of it to build. Construct a class that extends it.`,
+    ]);
+  });
+
+  it('once, in a generic body lowered for two type arguments and in one no call lowers', () => {
+    // Each was said once per instance, the same sentence at the same span, and not at all in a
+    // body no call reached (Rule 12.4).
+    const generic = (calls: string) =>
+      `"use typeshade"\nfunction mk<T>(x: T): f32 {\n  const d = new vec3f(1.)\n  const e = new Date()\n  return 1.\n}\n` +
+      `@fragment\nexport function fs(): vec4 {\n  return vec4(${calls})\n}\n`;
+    const said = [
+      `${TS_CODES.CLASS_MEMBER} "vec3f" is a WGSL constructor, which is called without "new": vec3f(1.).`,
+      `${TS_CODES.UNKNOWN_NAME} Unknown identifier "Date".`,
+    ];
+    expect(errorsOf(generic('mk(1.) + mk(vec2f(1.)) + mk(2)'))).toEqual(said);
+    expect(errorsOf(generic('1.'))).toEqual(said);
+  });
+
+  it('names a namespace class as written in a copied constructor and in a generic one', () => {
+    // Both named the emitted struct: '"new N_P" takes a function for "g"' and
+    // '(N_P_f32, N_P_i32)'.
+    expect(
+      errorsOf(
+        file(
+          `namespace N {\n  export class P {\n    x: f32\n    constructor(g: (a: f32) => f32) {\n      this.x = g(1.)\n    }\n  }\n}\n`,
+          `  const p = new N.P()\n  return vec4(1.)`,
+        ),
+      )[0],
+    ).toBe(
+      `${TS_CODES.ARITY_MISMATCH} "new N.P" takes a function for "g", "(a: f32) => f32": hand one over by its name, or write it here as an arrow function.`,
+    );
+    expect(
+      errorsOf(
+        file(
+          `namespace N {\n  export class P<T> {\n    v: T\n    constructor(v: T) {\n      this.v = v\n    }\n  }\n}\n`,
+          `  const a = new N.P<f32>(1.)\n  const b = new N.P<i32>(1)\n  const c = new N.P(2.)\n  return vec4(a.v)`,
+        ),
+      ),
+    ).toEqual([
+      `${TS_CODES.CLASS_MEMBER} "N.P" is generic and this file writes it at 2 sets of type arguments (N.P<f32>, N.P<i32>), so "new N.P(…)" does not say which one to build. Write the type argument: "new N.P<f32>(…)".`,
+    ]);
+  });
+});
+
+describe('a short name inside a namespace is the namespace’s, for a new and a type alike', () => {
+  // TypeScript resolves `P` inside `namespace N` to `N.P`, ahead of a top-level `P`, in a `new`
+  // and in a type annotation, and across the blocks of a merged namespace. Measured before this:
+  // the `new` built the top-level `P` (7) while the one below builds `N.P` (1); an annotation `P`
+  // there meant the top-level one, so `const p: P = new P()` was refused as a type mismatch;
+  // and a second block of `N` built the top-level `P` with no diagnostic at all.
+  const TOP = `class P {\n  a: f32 = 7.\n}\n`;
+  const values = (src: string, expected: number[]) => {
+    const r = compile(src);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('N_P_new()');
+    agree(r, expected);
+  };
+
+  it('a bare new P(), a const p: P, a parameter p: P and a return type P', () => {
+    values(
+      file(
+        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(): f32 {\n    const p = new P()\n    return p.a\n  }\n}\n`,
+        `  return vec4(N.f())`,
+      ),
+      [1, 1, 1, 1],
+    );
+    values(
+      file(
+        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(): f32 {\n    const p: P = new P()\n    return p.a\n  }\n}\n`,
+        `  return vec4(N.f())`,
+      ),
+      [1, 1, 1, 1],
+    );
+    values(
+      file(
+        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(p: P): f32 {\n    return p.a\n  }\n  export function g(): f32 {\n    return f(new P())\n  }\n}\n`,
+        `  return vec4(N.g())`,
+      ),
+      [1, 1, 1, 1],
+    );
+    values(
+      file(
+        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function mk(): P {\n    return new P()\n  }\n}\n`,
+        `  return vec4(N.mk().a + new P().a)`,
+      ),
+      [8, 8, 8, 8],
+    );
+  });
+
+  it('in another block of the namespace, ahead of a top-level class of the name', () => {
+    values(
+      file(
+        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n}\nnamespace N {\n  export function mk(): P {\n    return new P()\n  }\n}\n`,
+        `  return vec4(N.mk().a)`,
+      ),
+      [1, 1, 1, 1],
+    );
+  });
+
+  it('a field initializer that builds a sibling class of the namespace', () => {
+    // The initializer was dropped: `N_B_new` assigned nothing to `a`, and `new N.B().a.x` read 0.
+    const r = compile(
+      file(
+        `namespace N {\n  export class A {\n    x: f32 = 1.\n  }\n  export class B {\n    a: A = new A()\n  }\n}\n`,
+        `  return vec4(new N.B().a.x)`,
+      ),
+    );
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('self_.a = N_A_new();');
+    agree(r, [1, 1, 1, 1]);
+  });
+});
+
+describe('a new with no constructor to call is never dropped without a word', () => {
+  // A multi-file program lowers no class function, so a class with a written constructor has no
+  // `P_new`. Before this the `new` lowered to nothing and said nothing: `c.x = new P(2.).a` was
+  // gone from the WGSL, and a function returning one failed in the backend.
+  const LIB = `"use typeshade";\nclass P {\n  a: f32;\n  constructor(a: f32) {\n    this.a = a;\n  }\n}\n`;
+  const sentence = `${TS_CODES.CLASS_MEMBER} "P" has no constructor here; build it as an object literal, { field: value }.`;
+
+  it('in a statement and in a return', () => {
+    for (const body of [
+      `@fragment\nexport function fs(): vec4 {\n  let c = vec4(0.);\n  c.x = new P(2.).a;\n  return c;\n}\n`,
+      `export function mk(): P {\n  return new P(1.);\n}\n`,
+    ]) {
+      const r = compileTsSources([{ fileName: 'lib.ts', source: LIB + body }]);
+      expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([sentence]);
+      expect(r.wgsl).toBeUndefined();
+    }
+  });
+});
+
+describe('a module-scope value, and every read and write of it, says one sentence', () => {
+  const head = `function g(): f32 {\n  return 1.\n}\n`;
+  const fs = (body: string) => `@fragment\nexport function fs(): vec4 {\n${body}\n}\n`;
+  const notConstant = (name: string, init: string) =>
+    `${TS_CODES.MODULE_VAR} "${name}" needs a constant initializer (a literal, a module const, arithmetic or a math builtin over those); "${init}" is not one. Assign it inside the entry.`;
+
+  it('a static initializer that calls through this', () => {
+    // It was '"S" has no static function "f"' and '"S" has no static field "K"', both untrue.
+    expect(
+      errorsOf(
+        `"use typeshade"\nclass S {\n  a: f32 = 0.\n  static f(): f32 {\n    return 2.\n  }\n  static K: f32 = this.f()\n}\n${fs('  return vec4(S.K)')}`,
+      ),
+    ).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} Static field "S.K" must be constant, and "this.f()" calls a function this file declares. A static field no code writes is a module constant, folded before any function exists, so build the value inside the function that reads it.`,
+    ]);
+  });
+
+  it('a write to a refused module let or written static', () => {
+    // Each write was TS8022 'Cannot assign to unknown name "K"', or "S", which the file declares.
+    expect(
+      errorsOf(
+        `"use typeshade"\n${head}let K: f32 = g()\n${fs('  K = 2.\n  K += 1.\n  K++\n  return vec4(K)')}`,
+      ),
+    ).toEqual([notConstant('K', 'g()')]);
+    expect(
+      errorsOf(
+        `"use typeshade"\n${head}class S {\n  a: f32 = 0.\n  static K: f32 = g()\n  static bump(): void {\n    S.K += 1.\n  }\n}\n${fs('  S.K = 2.\n  S.bump()\n  return vec4(S.K)')}`,
+      ),
+    ).toEqual([notConstant('S.K', 'g()')]);
+  });
+
+  it('a module let built from a refused constant or a refused let', () => {
+    // Each was the declaration's sentence, then TS8022 at the let's initializer and at its use.
+    expect(
+      errorsOf(
+        `"use typeshade"\n${head}const K: f32 = g()\nlet L: f32 = K\n${fs('  return vec4(L)')}`,
+      ),
+    ).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} Module const "K" must be constant, and "g()" calls a function this file declares. A module constant is folded before any function exists, so build the value inside the function that reads it.`,
+    ]);
+    expect(
+      errorsOf(
+        `"use typeshade"\n${head}let K: f32 = g()\nlet L: f32 = K\n${fs('  return vec4(L)')}`,
+      ),
+    ).toEqual([notConstant('K', 'g()')]);
+  });
+
+  it('a static field that is not constant is named as written, and a read adds nothing', () => {
+    // Both named the emitted `S_K`, and a read added '"S" has no static field "K"'.
+    expect(
+      errorsOf(
+        `"use typeshade"\nclass S {\n  static K: f32 = dpdx(1.)\n}\n${fs('  return vec4(S.K)')}`,
+      ),
+    ).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} Static field "S.K" must be constant: a literal, a whole earlier module const, a constructor over those, or arithmetic over those with a non-zero divisor. It may call a math builtin over those, but not a declared function or a derivative, and it cannot read a resource or take a component, field or element.`,
+    ]);
+    expect(
+      errorsOf(
+        `"use typeshade"\nclass S {\n  static K: f32 = dpdx(1.)\n}\n${fs('  S.K = 2.\n  return vec4(S.K)')}`,
+      ),
+    ).toEqual([notConstant('S.K', 'dpdx(1.)')]);
+  });
+
+  it('a module const that calls a function another file declares', () => {
+    const r = compileTsSources(
+      [
+        {
+          fileName: 'lib.ts',
+          source: `"use typeshade";\nexport function g(): f32 {\n  return 1.;\n}\n`,
+        },
+        {
+          fileName: 'main.ts',
+          source: `"use typeshade";\nimport { g } from "./lib";\nconst K: f32 = g();\n@fragment\nexport function fs(): vec4 {\n  return vec4(K);\n}\n`,
+        },
+      ],
+      'main.ts',
+    );
+    expect(r.diagnostics.map((d) => `${d.fileName} ${d.code} ${d.message}`)).toEqual([
+      `main.ts ${TS_CODES.TYPE_MISMATCH} Module const "K" must be constant, and "g()" calls a function this file imports. A module constant is folded before any function exists, so build the value inside the function that reads it.`,
+    ]);
   });
 });

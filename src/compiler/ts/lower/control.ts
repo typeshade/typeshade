@@ -676,6 +676,8 @@ export function lowerUpdate(
       target = accessor.read;
     } else if (viaName && ts.isIdentifier(targetExpr)) {
       const binding = scope.resolve(targetExpr.text);
+      // A declaration refused where it is written said why there (Rule 12.4).
+      if (!binding && scope.declarationRefused(targetExpr.text)) return undefined;
       // Two different failures, kept apart as origin/main split them: an UNKNOWN name reported
       // "it is declared with const", a statement about a declaration that does not exist.
       if (!binding) {

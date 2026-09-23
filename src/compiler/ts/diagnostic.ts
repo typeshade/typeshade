@@ -182,3 +182,21 @@ function parseDiagnosticsOf(sourceFile: ts.SourceFile): readonly ts.Diagnostic[]
     .createProgram([sourceFile.fileName], { noResolve: true, noLib: true, types: [] }, host)
     .getSyntacticDiagnostics(sourceFile);
 }
+
+/**
+ * Drops, in place, each diagnostic that repeats an earlier one word for word at the same span of
+ * the same file. A body is lowered once for every instance of a generic function and every set
+ * of functions handed to one, and a name the file's own pass resolves is resolved again where a
+ * body maps it; each says its mistake once (Rule 12.4).
+ */
+export function dropRepeatedDiagnostics(diagnostics: TsCompilerDiagnostic[]): void {
+  const seen = new Set<string>();
+  let kept = 0;
+  for (const d of diagnostics) {
+    const key = [d.fileName, d.start, d.length, d.code ?? '', d.message].join('\u0000');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    diagnostics[kept++] = d;
+  }
+  diagnostics.length = kept;
+}
