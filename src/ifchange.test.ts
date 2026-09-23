@@ -41,6 +41,7 @@ describe('sanity: the reader finds the blocks', () => {
       '# LINT.ThenChange(//typeshade.github.io/src/pages/index.astro)',
       '<!-- LINT.IfChange(d) -->',
       'Mark a pair with `LINT.IfChange(label)` and `LINT.ThenChange(path)`.',
+      '# LINT.ThenChange(//typeshade.github.io/...) target this branch did not change; then the',
       '<!-- LINT.ThenChange() -->',
     ].join('\n');
     const { blocks, problems } = parseBlocks('f.ts', text);
@@ -56,7 +57,7 @@ describe('sanity: the reader finds the blocks', () => {
         ],
       ],
       [null, 4, 6, [{ repo: 'typeshade.github.io', path: 'src/pages/index.astro', label: null }]],
-      ['d', 7, 9, []],
+      ['d', 7, 10, []],
     ]);
   });
 
