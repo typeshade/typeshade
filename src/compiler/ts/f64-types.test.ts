@@ -24,6 +24,7 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { fp64Lower } from '../../core/passes/fp64-lower.js';
 import { splitF64 } from '../../core/fp64/df64-lib.js';
 import { F64_SCALAR_TWINS, F64_VEC_TWINS } from '../../core/fp64/twins.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { TS_CODES } from './codes.js';
 
 const errorsOf = (src: string): string[] =>
@@ -41,6 +42,14 @@ const clean = (src: string): ReturnType<typeof compile> => {
   const r = compile(src);
   expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
   return r;
+};
+
+/** The editor's half of a source (CLAUDE.md, "A test reads both halves"): what the language
+ *  service reports on it, as code and text. */
+const editorSays = (src: string): string[] => {
+  const service = createTypeshadeLanguageService();
+  service.openDocument('a.shade.ts', src);
+  return service.getDiagnostics('a.shade.ts').map((d) => `${String(d.code)} ${d.message}`);
 };
 
 /** The value an f64-returning `k` computes, twice: once on the CPU oracle, which evaluates
@@ -564,10 +573,8 @@ export function k(s: f64, t: f32): f64 {
   ] as const)(
     'carries the whole double of f64(%s), the pair a declared f64 carries',
     (arg, want) => {
-      const cast = bothWays(
-        `"use typeshade";\nexport function k(): f64 { return f64(${arg}); }\n`,
-        [],
-      );
+      const src = `"use typeshade";\nexport function k(): f64 { return f64(${arg}); }\n`;
+      const cast = bothWays(src, []);
       const declared = bothWays(
         `"use typeshade";\nexport function k(): f64 { const d: f64 = ${arg}; return d; }\n`,
         [],
@@ -577,6 +584,9 @@ export function k(s: f64, t: f32): f64 {
       expect(Math.abs(cast.emulated - want)).toBeLessThanOrEqual(bound);
       expect(Math.abs(Math.fround(want) - want)).toBeGreaterThan(bound);
       expect(cast.emulated).toBe(declared.emulated);
+      // The editor's half: the bug was in the pair the compiler emits, and the editor, which
+      // knows only the type, accepts the same source.
+      expect(editorSays(src)).toEqual([]);
     },
   );
 
@@ -590,15 +600,25 @@ export function k(s: f64, t: f32): f64 {
       ['(f32(0.1))', 0.1],
       ['f32(-0.1)', -0.1],
     ] as const) {
-      const { double, emulated } = bothWays(
-        `"use typeshade";\nexport function k(): f64 { return f64(${arg}); }\n`,
-        [],
-      );
+      const src = `"use typeshade";\nexport function k(): f64 { return f64(${arg}); }\n`;
+      const { double, emulated } = bothWays(src, []);
       expect(double, arg).toBe(Math.fround(written));
       expect(emulated, arg).toBe(Math.fround(written));
       // The instrument: the f32 is not the double, so this pin cannot pass on the whole double.
       expect(Math.fround(written), arg).not.toBe(written);
+      expect(editorSays(src), arg).toEqual([]);
     }
+  });
+
+  it('keeps f64() of a negated integer refused, on both halves', () => {
+    // The fold is for an f32 argument only. Folding `-i32(3)` as well would lift it to the
+    // literal -3, where `f64(i)` on an i32 is refused, so the refusal it had stays, in the
+    // compiler and in the editor alike. It is also what shows `editorSays` can report a
+    // refusal, so its silence in the two tests above means something.
+    const src = `"use typeshade";\nexport function k(): f64 { return f64(-i32(3)); }\n`;
+    const refusal = 'TS8003 f64() widens an f32, got i32. Cast to f32 first, e.g. f64(f32(x)).';
+    expect(codedErrorsOf(src)).toEqual([refusal]);
+    expect(editorSays(src)).toEqual([refusal]);
   });
 
   it('refuses % on an f64 AT THE OPERATOR, not from the backend', () => {
