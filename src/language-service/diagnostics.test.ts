@@ -357,3 +357,87 @@ describe('GPU_BRAND_TAGS is exactly what SHADE_DTS brands vectors and matrices w
     expect(other.filter((tag) => GPU_BRAND_TAGS.includes(tag))).toEqual([]);
   });
 });
+
+// A local declared with no type from vector arithmetic is the `number` the arithmetic is typed,
+// to TypeScript, and the `vec3` it is, to the compiler. Every use of it then drew the false
+// positive the arithmetic itself is filtered for, at each call, assignment, return and swizzle
+// below, and the only way to quiet them was to annotate the local by hand. The filters now read the type
+// the front end gave the name (`CompileTsSourceResult.symbols`).
+describe('a name declared with no type from vector arithmetic draws no TypeScript diagnostic', () => {
+  const USES = `"use typeshade"
+export function shade(n: vec3, l: vec3, albedo: vec3, d: f32): vec3 {
+  const lit = albedo * d + albedo * 0.1
+  const a = normalize(lit)
+  const b = dot(lit, n)
+  const c = dot(n, lit)
+  const e = max(lit, vec3(0.))
+  const f = mix(n, lit, 0.5)
+  const g = vec4(lit, 1.)
+  const h = lit.x + lit.y
+  const i = lit.xy
+  let j: vec3 = lit
+  const k = lit
+  const m = normalize(k)
+  const p = cross(lit, n)
+  const r = clamp(lit, vec3(0.), vec3(1.))
+  const s = length(lit) + distance(lit, n)
+  const t = normalize(n * 2. - 1.)
+  const u = dot(t, l)
+  const w = (n * 2.).xy
+  return lit
+}
+`;
+
+  it('at a call, an assignment, a return and a swizzle', () => {
+    expect(typeScriptDiagnosticsOf(USES)).toEqual([]);
+    expect(diagnosticsOf(USES).filter((x) => x.severity === 'error')).toEqual([]);
+  });
+
+  // The filters compare shapes, and the shape of such a name is spelled from the compiler's
+  // type while a parameter's is read off the ambient brand; this is the test that the two
+  // spellings agree, for every vector and matrix type there is arithmetic on.
+  const ARITHMETIC_TYPES = [
+    ...VECTOR_AND_MATRIX_NAMES.filter((name) => !/^vec\db$/.test(name)),
+    'mat2<f64>',
+    'mat3<f64>',
+    'mat4<f64>',
+  ];
+  for (const type of ARITHMETIC_TYPES) {
+    it(`carries its shape into a parameter of type ${type}`, () => {
+      const source = `"use typeshade"
+function g(v: ${type}): ${type} {
+  return v
+}
+export function f(a: ${type}): ${type} {
+  const x = a + a
+  return g(x)
+}
+`;
+      expect(typeScriptDiagnosticsOf(source), source).toEqual([]);
+    });
+  }
+
+  it('keeps TS2345 for a name the compiler types as a scalar', () => {
+    const source = entry('  const d = dot(a, b)\n  const p = cross(d, a)\n');
+    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2345:']);
+  });
+
+  it('keeps TS2345 for a name of the wrong shape', () => {
+    // `w` is the `vec2` the swizzle's arithmetic makes, and `cross` takes two `vec3`.
+    const source = entry('  const w = a.xy * s\n  const p = cross(w, a)\n');
+    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2345:']);
+  });
+
+  it('leaves a bad swizzle of such a name to the compiler, which reports it once', () => {
+    const source = entry('  const lit = a * s\n  const p = lit.w\n');
+    expect(diagnosticsOf(source).map((x) => `${x.source} ${String(x.code)} ${x.message}`)).toEqual([
+      'typeshade TS8022 .w out of range on vec3<f32>.',
+    ]);
+  });
+
+  it('keeps TS2339 on a value TypeScript still types as a vector', () => {
+    // No brand was lost here, so TypeScript's own member check stands.
+    const source = entry('  const p = a.w\n');
+    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2339:']);
+  });
+});

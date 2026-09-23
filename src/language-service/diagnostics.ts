@@ -2,6 +2,7 @@
 
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
+import type { ShaderType } from '../core/ir/types.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
@@ -34,6 +35,11 @@ interface DiagnosticFilterRule {
 interface DiagnosticFilterContext {
   readonly sourceFile: ts.SourceFile;
   readonly checker: ts.TypeChecker | undefined;
+  /** The type the front end gave each name it declared in this file, by the UTF-16 offset of
+   * the declared name (`CompileTsSourceResult.symbols`). Empty when the service has no
+   * analysis to hand, and then `lostBrandShape` answers `undefined` for every name, so a
+   * missing table, like a missing checker, can only ever show more diagnostics. */
+  readonly declaredTypes: ReadonlyMap<number, ShaderType>;
 }
 
 /**
@@ -231,9 +237,11 @@ function isGpuBinaryOperand(context: DiagnosticFilterContext, diagnostic: ts.Dia
  * subtree is searched because the `number` such an operation produces spreads: in
  * `normalize(a * 2.)` the argument is already a `number` when the call's return type is
  * inferred, so the node TS2322 is reported on can sit several levels above the operation that
- * caused it.
+ * caused it. A name whose declaration's arithmetic lost the brand (`lostBrandShape`) carries
+ * that arithmetic with it, so `normalize(lit)` answers as `normalize(albedo * d)` does.
  */
 function hasGpuArithmetic(context: DiagnosticFilterContext, node: ts.Node): boolean {
+  if (ts.isIdentifier(node)) return lostBrandShape(context, node) !== undefined;
   if (
     ts.isBinaryExpression(node) &&
     ARITHMETIC_OPERATORS.has(node.operatorToken.kind) &&
@@ -467,7 +475,9 @@ function gpuShapeKeysOfType(
 }
 
 /** The one brand shape `expression`'s own type carries, or `undefined` when it carries none (a
- * `number`, an `f32`, the `number` a product is typed) or more than one. */
+ * `number`, an `f32`, the `number` a product is typed) or more than one. A name whose brand its
+ * declaration's arithmetic dropped answers with the shape the front end gave it
+ * (`lostBrandShape`), so a local stands in for its initializer wherever a shape is asked. */
 function gpuShapeOfExpression(
   context: DiagnosticFilterContext,
   expression: ts.Expression,
@@ -475,7 +485,66 @@ function gpuShapeOfExpression(
   const checker = context.checker;
   if (checker === undefined) return undefined;
   const keys = gpuShapeKeysOfType(checker, checker.getTypeAtLocation(expression), expression);
-  return keys.size === 1 ? [...keys][0] : undefined;
+  if (keys.size > 0) return keys.size === 1 ? [...keys][0] : undefined;
+  return lostBrandShape(context, expression);
+}
+
+/**
+ * The brand shape key (`gpuShapeKeysOfType`'s spelling) the ambient declaration of `type`
+ * carries: `vecTag:readonly ["f32", 3]` for a `vec3<f32>`, `vec64Tag:3` for a `vec3f64`,
+ * `matTag:readonly ["f32", 4, 4]` for a `mat4x4<f32>`. `undefined` for every type that is not a
+ * vector or a matrix. `diagnostics.test.ts` measures each spelling against the ambient lib's own
+ * brand, so the two cannot drift apart without a failing test.
+ */
+function shapeKeyOfShaderType(type: ShaderType): string | undefined {
+  switch (type.kind) {
+    case 'vec':
+      return `vecTag:readonly ["${type.elem}", ${String(type.n)}]`;
+    case 'vec64':
+      return `vec64Tag:${String(type.n)}`;
+    case 'mat':
+      return `matTag:readonly ["${type.elem}", ${String(type.cols)}, ${String(type.rows)}]`;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * The brand shape a NAME lost: the front end typed its declaration a vector or a matrix, and
+ * TypeScript typed it without the brand. A local or module constant declared with no type from
+ * vector arithmetic is the case (`const lit = albedo * d`): TypeScript infers the `number` the
+ * arithmetic is typed, so every use of `lit` repeats the false positive the arithmetic itself
+ * is filtered for, at a call (TS2345, TS2769), an assignment or return (TS2322) and a swizzle
+ * (TS2339), where the compiler has the local as the `vec3` it is. `normalize(n * 2.)` loses it
+ * the same way through the type parameter the `number` argument settles. Without this, the one
+ * way to quiet those reports was to annotate every such local by hand.
+ *
+ * Only a name declared with no type annotation qualifies, since an annotation is exactly what
+ * TypeScript keeps; and only when TypeScript's own type for it carries no brand, so a name
+ * whose brand survived is always measured by TypeScript's type. The front end's type is read
+ * off `declaredTypes`, by the declared name's own offset, so the answer is the compiler's.
+ */
+function lostBrandShape(
+  context: DiagnosticFilterContext,
+  expression: ts.Expression,
+): string | undefined {
+  const checker = context.checker;
+  if (checker === undefined) return undefined;
+  const name = ts.skipParentheses(expression);
+  if (!ts.isIdentifier(name)) return undefined;
+  const declaration = checker.getSymbolAtLocation(name)?.valueDeclaration;
+  if (
+    declaration === undefined ||
+    !ts.isVariableDeclaration(declaration) ||
+    declaration.type !== undefined ||
+    !ts.isIdentifier(declaration.name) ||
+    declaration.getSourceFile() !== context.sourceFile
+  ) {
+    return undefined;
+  }
+  const type = context.declaredTypes.get(declaration.name.getStart(context.sourceFile));
+  if (type === undefined || isGpuBrandedType(checker.getTypeAtLocation(name))) return undefined;
+  return shapeKeyOfShaderType(type);
 }
 
 /** `matTag:` keys, so `gpuArithmeticShape` can tell a matrix operand from a vector one. */
@@ -501,6 +570,7 @@ function gpuOperationShape(
  * product nested in its right-hand side.
  */
 function gpuArithmeticShape(context: DiagnosticFilterContext, node: ts.Node): string | undefined {
+  if (ts.isIdentifier(node)) return lostBrandShape(context, node);
   if (ts.isBinaryExpression(node) && ARITHMETIC_OPERATORS.has(node.operatorToken.kind)) {
     const shape = gpuOperationShape(
       gpuShapeOfExpression(context, node.left),
@@ -761,6 +831,29 @@ function isGpuArithmeticOverloadCall(
     .some((overload) => overloadFitsRestoredShapes(context, checker, call, overload));
 }
 
+/**
+ * TS2339 ("Property 'xy' does not exist on type 'number'"): a member read on a vector whose
+ * brand arithmetic dropped, in place (`(n * 2.).xy`) or through a name declared with no type
+ * (`lit.x` after `const lit = albedo * d`). TypeScript has no vector there to find the member
+ * on. The front end checks every swizzle itself and names what is wrong with a bad one
+ * (`TS8022 .w out of range on vec3<f32>`), so it is the authority here, as `TS8003` is for
+ * TS2365: the whole family of this code on such a value is dropped, and a real mistake is
+ * reported once, by the compiler.
+ *
+ * A value TypeScript still types as a vector keeps its TS2339, and so does a matrix, which has
+ * no members to read.
+ */
+function isLostBrandMember(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
+  const pos = diagnostic.start ?? 0;
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos);
+  while (node !== undefined && !ts.isPropertyAccessExpression(node)) node = node.parent;
+  if (node === undefined || node.name.getStart(context.sourceFile) !== pos) return false;
+  const object = node.expression;
+  if (isGpuExpression(context, object)) return false;
+  const shape = gpuValueShape(context, object);
+  return shape !== undefined && !shape.startsWith(MATRIX_SHAPE_PREFIX);
+}
+
 const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
@@ -840,6 +933,17 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       '`max`). Issue #43, and the twins corpus measurement in design doc §6.',
     when: isGpuArithmeticOverloadCall,
   },
+  {
+    code: 2339,
+    reason:
+      'A swizzle of a vector whose brand arithmetic dropped, in place (`(n * 2.).xy`) or ' +
+      'through a name declared with no type (`lit.x` after `const lit = albedo * d`, which ' +
+      'TypeScript types `number` and the compiler `vec3`). The front end checks every swizzle ' +
+      'and names a bad one (`TS8022 .w out of range on vec3<f32>`), so it is the authority ' +
+      'and a real mistake is reported once. A value TypeScript still types as a vector keeps ' +
+      'this code, and so does a matrix.',
+    when: isLostBrandMember,
+  },
 ];
 
 function isFiltered(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
@@ -887,20 +991,28 @@ function toTypeshadeDiagnostic(
  * mapped to `TypeshadeDiagnostic` with `source: 'typescript'`, with `TS_DIAGNOSTIC_FILTERS`
  * applied (§6). `uri` is the document's uri, threaded through for the returned diagnostics'
  * `uri` field (`sourceFile.fileName` inside the language service's program is the same value,
- * but naming it explicitly keeps this function agnostic to that detail).
+ * but naming it explicitly keeps this function agnostic to that detail). `analysis` is the
+ * front end's analysis of the same `sourceFile`; the filters read the types it gave the names
+ * the file declares (`lostBrandShape`), and without it they judge from TypeScript alone.
  */
 export function getTypeScriptDiagnostics(
   languageService: ts.LanguageService,
   sourceFile: ts.SourceFile,
   uri: string,
+  analysis?: CompileTsSourceResult,
 ): TypeshadeDiagnostic[] {
   const raw = [
     ...languageService.getSyntacticDiagnostics(uri),
     ...languageService.getSemanticDiagnostics(uri),
   ];
+  const declaredTypes = new Map<number, ShaderType>();
+  if (analysis !== undefined && analysis.sourceFile.text === sourceFile.text) {
+    for (const symbol of analysis.symbols) declaredTypes.set(symbol.start, symbol.type);
+  }
   const context: DiagnosticFilterContext = {
     sourceFile,
     checker: languageService.getProgram()?.getTypeChecker(),
+    declaredTypes,
   };
   return raw
     .filter((d) => !isFiltered(context, d))

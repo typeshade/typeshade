@@ -969,6 +969,18 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   outside the block that refused it, read before its declaration, or declared nowhere is still
   `TS8022`. Appendix B's Rule 12.4 row is removed.
 
+- **A local declared with no type from vector arithmetic draws no TypeScript false positive.**
+  `const lit = albedo * d` is the `number` the arithmetic is typed, to TypeScript, and the
+  `vec3` it is, to the compiler, so every use of `lit` reported what the arithmetic itself is
+  filtered for: TS2345 and TS2769 at a call (`normalize(lit)`, `dot(n, lit)`, `mix(n, lit, t)`),
+  TS2322 at an assignment or a return, and TS2339 at a swizzle (`lit.xy`). The only way to quiet
+  them was to annotate the local by hand. The language service now reads the type the front end
+  gave each declared name (`CompileTsSourceResult.symbols`), and a name whose brand its
+  declaration's arithmetic dropped counts as that arithmetic, with the compiler's shape; a
+  swizzle of it, or of arithmetic in place (`(n * 2.).xy`), is left to the compiler's own swizzle
+  check (`TS8022`). A name the compiler types as a scalar, or a vector of the wrong shape for the
+  parameter, still reports. `typeshade check` and the editor both read the merged list.
+
 - **A `case` that runs on into the next one is refused** (Rule 7.3, #202). WGSL's `switch` has
   no fall-through, so the lowering ended every clause where its statements ended, and a body
   with no `break` compiled to a different program than the one TypeScript runs, with no

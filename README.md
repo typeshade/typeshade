@@ -115,7 +115,6 @@ What it inherits from the language service, it inherits whole:
 
 - **Each file is analysed on its own**, so a function imported from another shader file is `TS8004` ([#187](https://github.com/typeshade/typeshade/issues/187)).
 - **A mistake both halves see is reported by both**, as the editor shows it: an arity error is `TS2554` and `TS8019`, a write to a `const` is `TS2588` and `TS8005`.
-- **One false positive is left**: a local that holds vector arithmetic, declared without a type and then passed where a vector is expected, is `TS2345`, because TypeScript typed the local `number`. Write the type on the local: `const exposed: vec3 = color * exp2(ev)`.
 
 ## Type-checking `.shade.ts` with tsc
 
