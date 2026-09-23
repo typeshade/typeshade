@@ -241,17 +241,17 @@ describe('source spans — every statement kind carries one', () => {
     const body = byName(module, 'shapes').body;
     const at = (s: Stmt): string => textAt(text, sourceSpanOf(s)!);
     // Top-level, in source order.
-    expect(at(body[0]!)).toBe('const base = 1.');
-    expect(at(body[1]!)).toBe('let acc = 0.');
-    expect(at(body[2]!)).toBe('acc = base');
-    expect(at(body[3]!)).toBe('acc += helper(base)');
+    expect(at(body[0]!)).toBe('const base = 1.;');
+    expect(at(body[1]!)).toBe('let acc = 0.;');
+    expect(at(body[2]!)).toBe('acc = base;');
+    expect(at(body[3]!)).toBe('acc += helper(base);');
     expect(at(body[4]!)).toMatch(/^if \(n > 0\) \{/);
     expect(at(body[5]!)).toMatch(/^for \(let i: i32 = 0; i < 4; i\+\+\) \{/);
-    expect(at(body[6]!)).toBe('let w: i32 = 0');
+    expect(at(body[6]!)).toBe('let w: i32 = 0;');
     expect(at(body[7]!)).toMatch(/^while \(w < 4\) \{/);
     expect(at(body[8]!)).toMatch(/^switch \(n\) \{/);
     expect(at(body[9]!)).toMatch(/^for \(let j: i32 = 0; j < 8; j \+= 2\) \{/);
-    expect(at(body[10]!)).toBe('return acc');
+    expect(at(body[10]!)).toBe('return acc;');
   });
 
   it('one declarator spans the whole statement, several span one each', () => {
@@ -267,7 +267,7 @@ export function f(): f32 {
 }
 `);
     const body = byName(module, 'f').body;
-    expect(textAt(text, sourceSpanOf(body[0]!)!)).toBe('const a = 1.');
+    expect(textAt(text, sourceSpanOf(body[0]!)!)).toBe('const a = 1.;');
     expect(textAt(text, sourceSpanOf(body[1]!)!)).toBe('b = 2.');
     expect(textAt(text, sourceSpanOf(body[2]!)!)).toBe('c = 3.');
   });
@@ -290,11 +290,11 @@ export function f(): f32 {
     const outer = sourceSpanOf(ifStmt)!;
     const thenStmt = ifStmt.arms[0]!.body[0]!;
     const inner = sourceSpanOf(thenStmt)!;
-    expect(textAt(text, inner)).toBe('acc = acc + 1.');
+    expect(textAt(text, inner)).toBe('acc = acc + 1.;');
     // Inside, strictly: a debugger highlighting the inner statement never leaves the outer.
     expect(inner.start).toBeGreaterThan(outer.start);
     expect(inner.start + inner.length).toBeLessThan(outer.start + outer.length);
-    expect(textAt(text, sourceSpanOf(ifStmt.elseBody![0]!)!)).toBe('acc = acc - 1.');
+    expect(textAt(text, sourceSpanOf(ifStmt.elseBody![0]!)!)).toBe('acc = acc - 1.;');
   });
 
   it('`break` and `continue` inside a loop carry their own spans', () => {
@@ -302,7 +302,7 @@ export function f(): f32 {
     const spans = allStatements(byName(module, 'shapes').body)
       .filter((s) => s.s === 'break' || s.s === 'continue')
       .map((s) => textAt(text, sourceSpanOf(s)!));
-    expect(spans).toEqual(['continue', 'break']);
+    expect(spans).toEqual(['continue;', 'break;']);
   });
 
   it('a helper and an entry both carry a declaration span and a name span', () => {

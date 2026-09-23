@@ -54,6 +54,7 @@ export type { ScalarKey } from './types.js';
  *  which lifts to an f32 literal. Reading takes the {@link ReadonlyNode} supertype, so a
  *  `Let()`, parameter or constant operand is accepted everywhere a value is consumed; only
  *  `.assign()` needs the mutable {@link Node} subtype. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- any element kind, the widest node
 export type NodeLike = ReadonlyNode<any> | number;
 
 /** The scalar keys a binary op may pair with element kind `E` — the SAME kind only,
@@ -170,10 +171,12 @@ export const isNodeValue = (v: unknown): v is ReadonlyNode =>
  *  current scope. Injected (not imported) so the Node lvalue methods can route to the builder without a
  *  node ↔ builder import cycle. (Reads only `.expr`, so a ReadonlyNode value is fine.) */
 type StmtSink = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a sink takes any element kind
   assign(target: ReadonlyNode<any>, value: ReadonlyNode<any>): void;
   // #8 S2 — the compound-assignment route, `x += v`. OPTIONAL, so a host that installed a sink
   // before this existed still type-checks and still works: the compound methods fall back to
   // `assign(target, target ∘ value)`, which is the statement they used to have to be written as.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- as `assign`
   assignOp?(target: ReadonlyNode<any>, bop: BinOp, value: ReadonlyNode<any>): void;
 };
 let _stmtSink: StmtSink | undefined;
