@@ -501,6 +501,41 @@ export function f(x: f32, k: f32): f32 {
   })
 })
 
+describe('grad: what a caller does with it', () => {
+  it('fits a function to samples by gradient descent, back to the parameters that made them', () => {
+    // The roadmap's use (item 18): parameter estimation. The samples come from a = 1.7,
+    // k = 2.3; descent from a = 1, k = 2 has to land on them, which it does only if both
+    // partial derivatives are right at every step. The rate is small because the first
+    // step's dk is about -132: at 0.01 it jumps k by 1.3 into another minimum of the sine.
+    const m = moduleOf(`export function wave(x: f32, a: f32, k: f32): f32 {
+  return a * sin(k * x) * exp(-0.1 * x)
+}`)
+    const da = grad(m, 'wave', 'a')
+    const dk = grad(da.module, 'wave', 'k')
+    const cpu = compileModuleJs(dk.module)
+    const f = cpu.fns.wave as (x: number, a: number, k: number) => number
+    const fa = cpu.fns[da.name] as typeof f
+    const fk = cpu.fns[dk.name] as typeof f
+    const xs = Array.from({ length: 64 }, (_, i) => i * 0.1)
+    const ys = xs.map((x) => f(x, 1.7, 2.3))
+    let a = 1
+    let k = 2
+    for (let step = 0; step < 1000; step++) {
+      let ga = 0
+      let gk = 0
+      xs.forEach((x, i) => {
+        const r = f(x, a, k) - ys[i]!
+        ga += 2 * r * fa(x, a, k)
+        gk += 2 * r * fk(x, a, k)
+      })
+      a -= 0.001 * ga
+      k -= 0.001 * gk
+    }
+    expect(a).toBeCloseTo(1.7, 6)
+    expect(k).toBeCloseTo(2.3, 6)
+  })
+})
+
 describe('grad: what it refuses, by name', () => {
   it('a function or a parameter that is not there', () => {
     const m = moduleOf(`export function f(x: f32, k: f32): f32 {\n  return x * k\n}`)
