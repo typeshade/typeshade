@@ -39,7 +39,7 @@ fn fs_checker(vo: VsOut) -> @location(0) vec4<f32> {
   let _v6 = df64_add(_cse1, vec2<f32>(_v3, 0.0), _fp64_g);
   let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
   let _v7 = df64_add(_cse2, vec2<f32>(_v4, 0.0), _fp64_g);
-  let _v8 = df64_narrow(df64_fract(df64_mul(df64_add(df64_floor(_v6, _fp64_g), df64_floor(_v7, _fp64_g), _fp64_g), vec2<f32>(0.5, 0.0), _fp64_g), _fp64_g));
+  let _v8 = df64_narrow(df64_fract((df64_add(df64_floor(_v6, _fp64_g), df64_floor(_v7, _fp64_g), _fp64_g) * 0.5), _fp64_g));
   let _cse4 = bitcast<f32>(bitcast<u32>(0.0));
   let _cse3 = vec2<f32>(_cse4, _cse4);
   let _v9 = df64_narrow(df64_fract(df64_add(_v6, _cse3, _fp64_g), _fp64_g));
@@ -72,21 +72,6 @@ fn df64_quickTwoSum(a: f32, b: f32, _fp64_g: f32) -> vec2<f32> {
   return vec2<f32>(_v0, _v1);
 }
 
-fn df64_split(a: f32, _fp64_g: f32) -> vec2<f32> {
-  let _v0 = (a * (_fp64_g * 4097.0));
-  let _v1 = ((_v0 * _fp64_g) - (_v0 - a));
-  let _v2 = ((a * _fp64_g) - _v1);
-  return vec2<f32>(_v1, _v2);
-}
-
-fn df64_twoProd(a: f32, b: f32, _fp64_g: f32) -> vec2<f32> {
-  let _v0 = (a * b);
-  let _v1 = df64_split(a, _fp64_g);
-  let _v2 = df64_split(b, _fp64_g);
-  let _v3 = (((((_v1.x * _v2.x) - _v0) + (_v1.x * _v2.y)) + (_v1.y * _v2.x)) + (_v1.y * _v2.y));
-  return vec2<f32>(_v0, _v3);
-}
-
 fn df64_add(a: vec2<f32>, b: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
   var _v0: vec2<f32> = df64_twoSum(a.x, b.x, _fp64_g);
   let _v1 = df64_twoSum(a.y, b.y, _fp64_g);
@@ -99,14 +84,6 @@ fn df64_add(a: vec2<f32>, b: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
 
 fn df64_sub(a: vec2<f32>, b: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
   return df64_add(a, (-b), _fp64_g);
-}
-
-fn df64_mul(a: vec2<f32>, b: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
-  var _v0: vec2<f32> = df64_twoProd(a.x, b.x, _fp64_g);
-  _v0.y = (_v0.y + (a.x * b.y));
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
-  _v0.y = (_v0.y + (a.y * b.x));
-  return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
 }
 
 fn df64_floor(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
