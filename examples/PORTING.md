@@ -130,7 +130,8 @@ context accept both emits, and the CPU oracle agrees with the original at |Δ| =
 double row AND on the emulated row over all 101 samples (`examples/fp64-twins.test.ts`). The
 two rows that did not move are held by **L-loop** alone, and for the same reason in both: the
 loop bound is a uniform the user turns, a zoom level in `fp64-mercator-tiles` and an iteration
-budget in `fp64-mandelbrot`, where §17 requires a counted `for` over a constant bound.
+budget in `fp64-mandelbrot`, where §17 required a counted `for` over a constant bound. #203
+lifted that: a `for` may now count to a uniform, so **L-loop** no longer holds either row.
 
 The earlier figures were 14, up from 2 once
 [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the single largest
@@ -565,11 +566,11 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `discard`                                                                                                       | ✓ since #8 A6 — in an entry and in a helper the entry calls                                           |
 | `declare const tex: texture_2d<f32>` / `sampler`                                                                | ✓ since #8 A7 — written bare, no uniform<> wrapper                                                    |
 | `declare const quality: override<f32>`                                                                          | ✓ since #8 A7 — default 0 without an initializer, or `= 1.` to state one                              |
-| `for (…; f32(i) < u.n; i++)`                                                                                    | ✗ `for exit must compare "i" to a constant bound`                                                     |
+| `for (…; f32(i) < u.n; i++)`                                                                                    | ✗ `for exit must compare "i" to a bound`; `i < i32(u.n)` compiles since #203                          |
 | `for (let i: u32 = 0; i < WINDOW; i++)` with `const WINDOW: u32 = 8`                                            | ✓ — a module const **is** a constant bound                                                            |
 | `for (let j: i32 = -1; j <= 1; j++)`, 256-trip loops, nested, `break`, `while`                                  | ✓                                                                                                     |
 | `for (let i: i32 = 64; i > 1; i /= 2)`, `i *= 2`, `i -= 1`                                                      | ✓ since #8 A15: `+=`, `-=`, `*=` and `/=` are all update forms                                        |
-| `for (let i: i32 = 0; i < 1024; i++)`                                                                           | ✗ `for trip count 1024 exceeds 256.` since #8 A15; it used to say the loop "does not exit"            |
+| `for (let i: i32 = 0; i < 1024; i++)`                                                                           | ✓ since #203; #8 A15 had said `for trip count 1024 exceeds 256.`                                      |
 | `vec2i(1, 2)`                                                                                                   | ✗ `Vector constructor element type mismatch: expected i32`                                            |
 | `vec2i(1, 2)`, `return 0` in a u32 fn, `g(1)`, `{ id: 0 }`, `c ? 1 : 2`, `min(i, 4)`                            | ✓ since #8 A3 (`min(i, 4)` used to emit the invalid `min(i, 4.0)`)                                    |
 | `vec3(0.5)` splat, `vec4(v3, 1.)`, `vec4(v2, 0., 1.)`, `p.rgb`                                                  | ✓                                                                                                     |

@@ -13,6 +13,19 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **`@compute([8, 8])` is a two-dimensional workgroup** (Rule 8.7, surface §3). The front end
+  refused a `y` or `z` other than 1 with `TS8026`, because the IR carried the `x` extent alone.
+  All three extents now reach the emitted `@workgroup_size(8, 8)`, the reflection, and the CPU
+  `dispatch`, which runs the grid per axis. `FuncDecl.workgroupShape` holds a shape whose `y` or
+  `z` is not 1, `workgroupShapeOf(f)` reads it for every consumer, and `fn()` takes
+  `workgroupSize: [8, 8]`. `EntryInfo.workgroupShape` is the `[x, y, z]` a host sizes a dispatch
+  with; `workgroupSize` stays the `x` extent. A one-dimensional shape emits the bytes it did,
+  and every existing golden is unchanged. `TS8026` is now a warning for a shape over WebGPU's
+  default compute limits (`x` and `y` 256, `z` 64, 256 invocations in all), naming the limit a
+  host has to raise; `x` above 256 compiled with no word before. A `portable` kernel keeps a
+  one-dimensional workgroup (`SD0111`), since the WebGL2 lowering has no workgroup to give `y`
+  and `z` to. `examples/workgroup-tile-2d.shade.ts`, an 8x8 tile blur through workgroup memory,
+  compiles on the gate's Tint.
 - **GVN shares a value between an `if` condition and the arms it dominates.** gvn numbered
   one straight-line block at a time: it minted a temp only for a key repeated in two
   statements of the same block, and it handed an enclosing temp to no arm of an `if` that
@@ -160,6 +173,37 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   compiles, a shape the walk cannot read keeps the refusal it had, and the code that moved is
   `TS8034` becoming `TS8052`.
 
+- **A loop over data compiles: a `for` bound may be a runtime value, the 256-trip ceiling is
+  gone, and a `while` is an open loop** (Rule 7.5, #203). A `for` still has to be counted: an
+  `i32` or `u32` induction variable, a constant step and an exit that compares the variable to
+  a bound. But the start and the bound may now be any integer expression the body does not
+  write: a uniform field, a parameter, `a.length`, `verts.length / 3`. The loop emits as
+  written on both targets, which #203 measured on Tint and on ANGLE. With a runtime part the
+  compiler still checks what the header proves. A step away from the bound, or a
+  multiplicative step from 0, is `TS8007`. `TS8006` covers `==` or `!=` against a runtime
+  bound, a runtime-headed multiplicative step whose factor is not a whole 2 or more, and a
+  bound the body writes. A constant header is still counted exactly. It has no ceiling:
+  `for trip count 1024 exceeds 256.` is gone, since neither target limits a trip count and
+  nothing read `MAX_LOOP_TRIPS` but the check. A `while` takes any `bool` condition. It is
+  refused only as `while (true)` with no `break` or `return` of its own in the body (`TS8007`),
+  where it used to need a comparison with a constant, which let `while (sp > 0)` and
+  `while (i < 100000)` through by accident and refused `while (i < data.length)`. The counter
+  the IR's one loop form gives a `while` is now an `i32` whatever the condition compares. It
+  used to take the type of the comparison's left side, so `while (a < 4.)` emitted
+  `var _w: f32`. The uniformity walk sees a runtime-bounded loop, so a barrier in a loop
+  bounded by `local_invocation_index` is `TS8052`. `examples/loops-over-data.shade.ts` holds a
+  uniform-bounded `for`, a stack walk and a converging `while (true)`, on the compile gate.
+  An unannotated counter whose start is a non-negative integer literal takes the type of a
+  `u32` bound, so `for (let i = 0; i < data.length; i++)`, the loop a TypeScript author writes
+  first, compiles as written instead of `TS8003 cannot compare i32 and u32`. Checked end to
+  end from the packed tarball in a fresh project: a mesh ray cast over `verts.length / 3`
+  triangles, a stack walk with a converging `while (true)`, and a strided sum to a uniform
+  count, compiled with `compile()`, run on WebGPU (SwiftShader), and matched to plain
+  JavaScript and to the CPU oracle within 1.2e-6.
+  Two user journeys carry it: a mesh ray cast over `verts.length / 3` triangles, and a tree
+  walked with a stack beside a strided sum to a uniform count.
+  Language design Rule 7.5 and its two §14 rows, and surface §17, change with it.
+
 ### Removed
 
 - **`perInvocation<T>`, the second spelling of the per-invocation variable** (§24,
@@ -191,6 +235,115 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   spelling of its own (Rule 6.5).
 
 ### Added
+
+- **A function that writes no return type returns what its body does, as TypeScript infers it**
+  (Rule 8.19, new; Rules 7.2 and 8.16; surface §14 and §26). A helper with no annotation was
+  `void` beside a `TS8021` "defaulting to void" warning, so one that returned a value was a type
+  mismatch at every call; a local arrow function with an expression body was `"f" returns a
+value straight away, so it needs a return type`, a getter with none `The getter "C.y" needs a
+return type`, and a field that holds a function with an expression body refused the same way.
+  A function of the file or of a namespace, a local function, each instance of a generic
+  function and of a function that takes a function, a method, a getter and a field that holds a
+  function now take the type of their first `return` with a value, and the ones after it are
+  typed against it as against a written type. A call that needs the type before the body's turn
+  lowers that body first, so a function may be called above its declaration and from another
+  file. An arrow function whose expression body is an assignment, `++`, `--` or a call of a
+  function that returns nothing runs it as a statement; a method whose every `return` is
+  `return this` chains as one written `this` does. A call cycle, whose type would wait on
+  itself, is refused as one, once, with its path; so are returns of two types, a bare `return`
+  beside a value, a default parameter value that calls such a function, and a setter with no
+  type beside a getter with none. The warning is gone. `src/compiler/ts/return-inference.test.ts`
+  holds WGSL, GLSL ES 3.00 and every CPU path to one value for each form and each form to the
+  program that writes its types; `examples/inferred-returns.shade.ts` joins the compile gate.
+
+- **A function takes a function, and a call hands one over by its name or as an arrow function**
+  (Rule 8.18, new; surface §14). `f: (x: f32) => f32` was `TS8002 Unsupported type syntax`, and an
+  arrow function written as an argument `TS8099 Unsupported expression`. A function whose parameter
+  has a function type, written out or through a type alias, is now compiled once for each function
+  its calls hand it, as a generic function is once for each set of type arguments: `apply(sq, x)`
+  calls `apply_sq(x)`, in which `f(x)` is `sq(x)`. A call hands a function over by its name (a
+  module function, a local function, or a parameter of function type handed on) or as an arrow
+  function or a function expression written there, which is a local function of the calling body:
+  it takes its types from the parameter's type, may leave parameters off at the end, and reads and
+  writes the variables around it (Rule 8.17), which the copy takes and passes on,
+  `repeat3_run_body(&s, k)`. An arrow function whose type returns `void` runs an expression body
+  as a statement, `() => n += k`. The folds `any`, `all`, `none` and `zip` take an arrow function
+  the same way, and the one `zip` is handed returns what its body does; `sum`, `none` and `zip`
+  join the §9.3 extension table, and the editor's ambient declarations gain every array fold, each
+  of which it underlined before (TS2304, TS2554). A generic function a namespace declares can be
+  called by its qualified name, `N.pick(a, b)`, which was `"N" has no function "pick"`. A function
+  that does not fit, a choice made at run time, a parameter of function type on a method, a
+  constructor, a local function or an entry point, a function type anywhere else, and copies that
+  would never end are refused, each with the fix. `src/compiler/ts/higher-order.test.ts` holds WGSL,
+  GLSL ES 3.00 and every CPU path to one value for each form; `examples/higher-order.shade.ts`
+  joins the compile gate.
+
+- **A local function reads and writes the variables around it, as a TypeScript closure does**
+  (Rule 8.17, new; Rule 8.8; surface §14). A local function that read a name from the body
+  around it was `TS8099 "f" reads "k" from the function around it. … Pass "k" as a parameter.`,
+  and a `function` declaration inside a body was an unsupported statement. Each variable a local
+  function reads from a function around it is now a parameter the emitted function takes ahead
+  of its own, and every call passes it: by value while nothing writes it, and by reference once
+  the function, or a local function it calls, writes it, `fn run_inc(n: ptr<function, f32>, k:
+f32)` called as `run_inc(&n, k)` in WGSL and `void run_inc(inout float n, float k)` in GLSL
+  ES 3.00. `this` in an arrow function is the method's object, written through as the method's
+  own `this` is (Rule 8.10); a `function` declaration is hoisted; a local function in a method,
+  and one in a generic function, made once per instance, compile where each was "Unknown
+  function" at its call; and a fold's
+  callback (`any(xs, near)`, `zip(xs, ys, f)`) passes what it captures to each call. A call at a
+  point where a variable the function reads is not declared yet is refused, as TypeScript throws
+  there, and a function named as a value (`const g = f`) is refused where it was "Unknown
+  identifier". `src/compiler/ts/closures.test.ts` holds the oracle and the codegen at both
+  precisions, the debugger, and the oracle over the optimized module to one value for each form;
+  `examples/closures.shade.ts` is in the compile gate.
+
+- **A path tracer example** (`examples/path-tracer.shade.ts`). Four spheres with diffuse and
+  emissive materials, eight bounces as an iterative loop with an early `break`, cosine-weighted
+  sampling from `random(seed)`, a constant array of structs as the scene, and sixteen paths per
+  pixel, tone-mapped. It compiles with no diagnostic on both targets and in the editor, passes
+  the compile gate's Tint, WebGL2 and render-pipeline legs, and renders on WebGPU (measured on
+  Tint with SwiftShader). Writing it found what #203 (loop bounds) and #204 (multi-pass
+  rendering) now ask to decide.
+- **`grad(m, fn, param)` differentiates a function in forward mode** (roadmap 0.7 item 18). It
+  is an IR → IR pass exported from `typeshade`: it adds `<fn>_d_<param>`, which takes `fn`'s
+  arguments and returns the derivative of its result, and a `<g>_jvp` helper for each function
+  the parameter reaches through a call. Every `f32`, float vector and float matrix carries a
+  tangent beside its value; `if`, `switch` and `for` keep their primal conditions; the
+  component-wise builtins, `dot`, `cross`, `length`, `distance`, `normalize`, `reflect`,
+  `transpose`, `mix`, `smoothstep`, `pow` and `atan(y, x)` have their textbook rules; and
+  `floor`, `ceil`, `round`, `trunc`, `sign` and `step` differentiate to zero. A vector parameter
+  takes `{ direction }` and gives the directional derivative. Anything else the parameter
+  reaches, a texture sample, `refract`, a struct or an array that would carry the derivative, a
+  module variable written with it, is refused with the new `SD0118`, naming it, rather than
+  given a zero derivative. Every rule is checked against a central finite difference on both
+  CPU modules, and the generated functions for three modules covering every rule compile on
+  Tint and on ANGLE. `grad` is a host API: no `"use typeshade"` spelling is added (Rule 2.1,
+  §2.1), so the §9.3 extension table does not change.
+- **A user-journey gate, `bun run gate:journeys`, in CI as `user-journeys`.** It packs the
+  tarball the way the publish workflow does and installs it into a fresh project, with the
+  README's `tsconfig.shade.json` copied verbatim. Then it checks each program in `journeys/`
+  as its author would meet it. The installed `compile()` must report nothing, and so must the
+  language service. Plain `tsc` may report only the error classes the README documents. Every
+  run must match the journey's own plain-JavaScript reference on WebGPU (headless Chromium,
+  SwiftShader) and on the CPU oracle. Two journeys to start, both written as a TypeScript
+  developer writes them: a fullscreen fragment effect, read back per pixel (16,384 channels,
+  worst error 2.1e-3 of a 5.9e-3 tolerance), and a particle system stepped once per frame for
+  20 frames (1,600 floats, exact on WebGPU). A deliberately wrong reference, the README's
+  previous tsconfig and a shader the compiler refuses each fail it. Its first run found an
+  editor error on correct code: `const uv = p.xy * frame.scale` is a `number` to the editor,
+  so `uv.x` is TS2339 (#162). The journey carries the annotation and names the issue, and
+  `journeys/README.md` requires that of every workaround.
+- **`for (const x of xs)` over an array** (Rules 7.2, 7.5). The other loop a TypeScript author
+  writes over data was `TS8013 for-of / for-in iterate JS objects`. Over an `array<T, N>` or a
+  runtime-sized storage array it is now a counted loop over the indices. The element is read at
+  the top of each trip, and `let x` is a copy the body may change. The bound is the array's size,
+  or `arrayLength(&xs)`. A vector (`TS8003`) and an array that is not a name or a path to one
+  (`TS8006`) are refused with the remedy. `for…in` stays `TS8013`, now with a message that names
+  both loops to use instead. The editor used to report TS2488 (the type "must have a
+  `[Symbol.iterator]()` method") on every such loop. The ambient `array<T, N>` and list types are now iterable: the
+  ambient file restates `Symbol` and `SymbolConstructor` as the standard library spells them,
+  and the compiler still refuses `Symbol` as a value. `examples/loops-over-data.shade.ts` weighs
+  its samples with one, on the compile gate.
 
 - **Hover documents every type name the compiler takes.** `TYPE_DOCS` has rows for
   `sampler`, `sampler_comparison` and every `texture_*` name, each with its `declare const` form
@@ -246,6 +399,70 @@ no fields`), a field written without a type was dropped from the struct with not
   the codegen and the debugger to one value for each form. The four rules are new in
   `docs/language-design.md`, Rules 3.2 and 6.9 name private names and parameter properties, and
   Rule 7.2's table gains the three lowerings.
+- **`super` on an accessor and on a base method that writes its object, statics through a class
+  that extends, `new this()`, `private` and `protected`, and a chain of calls on one object**
+  (§26, Rules 8.10, 8.11, 8.13 and 8.15). `super.value` in an override reads through the base's
+  getter and `super.value = v` writes through its setter, the base's half lowered once more for
+  the derived class (`Clamped_super_Counter_set_value`); a base's body called through `super`
+  that writes `this` takes the object by reference, as any method that writes it does. A class
+  inherits its base's statics, `Big.SCALE` and `Big.unit()`, and `this` in a static member is the
+  class the call names, as TypeScript binds it, so `Big.unit()` runs `Shape`'s body lowered for
+  `Big` (`fn Big_unit() -> Big`): `new this()` builds a `Big`, `this.SCALE` reads `Big.SCALE`,
+  and `super.describe()` in a static member runs the class above's static with `this` still
+  `Big`. `private` and `protected` are enforced as TypeScript's TS2341, TS2445 and TS2446 have
+  them, and an object literal cannot build such a class. A method whose every `return` is
+  `return this` hands back its object, and a chain that is the whole of a statement, an
+  initializer or a `return` runs each call but the last on the place it starts from:
+  `v.setX(1.).setY(2.)` is `V_setX(&v, 1.0); V_setY(&v, 2.0);`, and a `new` at the root is held in
+  a temporary `_chain`. Refused, each with the fix: `super.x` naming a field or a half the class
+  above does not declare, a write to a static through a class that does not declare it
+  (`Big.count += 1.`, TS8005, write `Shape.count`), `super.K = v` in a static member (TypeScript
+  writes `this.K`), `this.#k` in a static a derived class reaches (TypeScript throws), and a call
+  that writes its object on the copy a `return this` method hands back inside a larger
+  expression. What was measured on `main` before this: `super.v` was TS8099 ("`super` has no form
+  here yet"), `super.v = x` TS8018, a write to `this` in a base's body called through `super`
+  TS8035, `B.K` on a class that inherits it TS8022, `B.k()` on a class of statics alone that
+  inherits it TS8035, `new this()` TS8013, `super.k()` in a static member TS8035,
+  `v.setX(1.).setY(2.)` TS8035 ("a value that is dropped"), and `new A().n` on a `private n` or a
+  `protected n` compiled. Rule 8.15 is new, Rules 8.10, 8.11 and 8.13 say the rest, and Rule
+  7.2's table gains the chain and the inherited static.
+  `examples/class-builder.shade.ts` compiles on Tint and links on a WebGL2 driver, and
+  `class-syntax.test.ts` holds WGSL, GLSL ES 3.00, the CPU oracle, the codegen and the debugger to
+  one value for each form.
+- **A method that changes an object its object holds, a `const` object, a field that holds a
+  function, an interface with methods, and a call cycle through methods** (§26, Rules 6.9, 6.10,
+  8.4, 8.10 and 8.16). `this.hull.step(dt)` changes `this` when `step` changes its object,
+  whichever class declares `step`: which methods change their object is worked out for every
+  class of the file at once, through a field, an element, a getter and a `return this` chain, so
+  `fn Ship_drift(self_: ptr<function, Ship>, dt: f32)` calls `Body_step(&(*self_).hull, dt)`. A
+  local `const` leaves what it holds writable, as TypeScript's does: after
+  `const ship = new Ship()`, the call `ship.drift(0.5)` makes the declaration a `var` at the first
+  write through it, for `new`, an object literal, an array literal and a type's constructor, and
+  a `const` nothing writes through stays WGSL's `let`; one that copies another name's value is
+  refused as before, now saying why (TypeScript would change the object both names hold) and
+  naming both fixes. That a struct local is a value, `let` or `const`, so `const w = v` copies
+  where TypeScript shares the object, was so before and is recorded now, in Rule 7.2's table
+  and §26. A field that holds
+  an arrow function or a function expression is the method it is written as:
+  `focus = (d: f32): f32 => d * this.gain` is `fn Lens_focus(self_: Lens, d: f32) -> f32`, and
+  `this` is the object. A static one, type parameters, `async`, a generator and an expression
+  body with no return type are refused with the fix. An interface that declares a method is a
+  contract: `implements Shape` and `<T extends Shape>` compile, `total<T extends Shape>` being one
+  function for each class it is called with, and a value of the interface's own type is refused
+  once, where the interface declares the method, with the type parameter to write. A call cycle
+  through methods, accessors or `new` is TS8031 at the call that closes it
+  (`Recursive call: "N.f" -> "N.g" -> "N.f".`), read off the lowered calls; a static called
+  through its class is named `"N.f"` rather than `"N_f"`, and a generic function's cycle is said
+  once, under the name it was written with. What was measured on `main` before this: `drift`
+  above was TS8035 ("reads its object only, so it cannot write "this""), a changing call on
+  `const ship` TS8035 ("declare it with let"), each arrow field TS8035 ("A field holding a
+  function is a method") with `"Lens" has no method "focus"` after it, `<T extends Shape>`
+  TS8010 ("cannot have methods"), and mutual recursion through `this` compiled to WGSL that Tint
+  refuses. Rules 6.10 and 8.16 are new, Rules 6.9, 8.4 and 8.10 say the rest, and Rule 7.2's
+  table gains the `const` and the field. `examples/class-parts.shade.ts` compiles on Tint and
+  links on a WebGL2 driver, a pointer to a field of the object behind a pointer,
+  `Mover_step(&(*self_).center, dt)`, among it, and `class-syntax.test.ts` holds WGSL, GLSL ES
+  3.00, the CPU oracle, the codegen and the debugger to one value for each form.
 - **Each `.shade.ts` example registers itself** (#65). Every example used to be registered by
   appending an object literal to one hand-ordered array in `examples/_shade.ts`, so two branches
   that each added an example added adjacent lines to the same region and git could not tell the
@@ -943,6 +1160,79 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   or an `f32` matrix is written into. Plain `tsc` is unchanged, and the README's annotation
   advice still holds there.
 
+- **A local function or a parameter that takes a function is what its name means, whatever
+  builtin shares it** (Rule 9.5). `step(i)` on a parameter `step: (i: i32) => void` reached
+  WGSL's two-argument `step` and was `TS8019 step expects 2 argument(s), got 1`, and a local
+  `const log = (x: f32): f32 => x * 100.` called as `log(2.)` computed WGSL's `log`, 0.693
+  where TypeScript computes 200, with nothing said. A name a body declares now wins over every
+  builtin, as TypeScript's lookup finds it first, a fold's callback included; a function of the
+  module keeps the precedence Rule 9.5 records. An arrow function whose body is a barrier,
+  `const sync = () => workgroupBarrier()`, runs it, where it was `TS8034 … is a statement with
+no value`.
+- **`return g()` where `g` returns nothing calls `g` and returns nothing** (Rule 8.19). In a
+  function written `: void`, it emitted `return g();`, which WGSL refuses: a call of a function
+  with no return type is no value to return. It is `g(); return;` now, in any function. A field
+  that holds a function written `: void` whose body is an assignment, `hit = (d: f32): void =>
+this.hp -= d`, was `TS8099 Unsupported binary operator`; it runs the assignment.
+- **The CPU paths hand a function a copy of an aggregate it takes by value, as both GPU targets
+  do.** A JavaScript vector, matrix, array or struct is the caller's own object, so a function
+  that wrote what its caller passed changed its by-value parameter too: `a.add(a)`, with `add`
+  writing its object, computed 4 on the oracle, the codegen and the debugger where WGSL and GLSL
+  ES 3.00 compute 3, and `f(g)`, with `f` writing the module variable `g`, read 5 where both
+  targets read 1. A function that writes anything now copies such a parameter as it is entered,
+  and one that writes nothing, which cannot tell the two apart, pays for no copy. What an `inout`
+  parameter holds as a function returns is stored back into the variable passed there, which a
+  scalar a closure writes needs. The f32 rounding the debugger runs by default no longer wraps a
+  parameter taken by reference, which is storage it would have made `__fround(n) = …` of.
+  `src/core/cpu-aliasing.test.ts` pins both cases on every path.
+- **`this` in a static a derived class inherits is the class the call names** (Rule 8.13, §26).
+  It was the class that wrote the member, silently: `Derived.twice()` read `Base.K` where
+  `Derived` declares its own `K` (6 where TypeScript computes 10), an overridden `this.k()` ran
+  the base's (1, TypeScript 7), and `this.hits += 1.` run through `Derived.record()` wrote
+  `Base.hits`, where TypeScript gives `Derived` a `hits` of its own. The static is lowered again
+  for each class that inherits it, with `this` as that class, and the last is refused with the
+  fix.
+- **A static field beside a function of its name is refused, and a mistake in a body a class
+  inherits is said once** (Rules 8.9, 8.12 and 12.4). `static #k = 2.` beside `static k()`
+  compiled to `const A_k: f32 = 2.0;` beside `fn A_k() -> f32`, which WGSL refuses as a
+  redeclaration, and so did a public static field beside an instance method of its name, which
+  TypeScript keeps on two sides of the class; both are TS8035 now, naming the two members and the
+  name they share. A body a class inherits is lowered again for that class, and an error in it was
+  reported once per class that inherits it (`Unknown identifier "nope".` twice for one base and
+  one derived class); it is reported once. One that fails only for the class that inherits it
+  (`weigh(this)` with `weigh` taking the base, `this.#k`, a write through `this` to a static that
+  class does not declare) is reported when an entry or a top-level function reaches it through
+  calls, and dropped, with every function that calls it, when nothing does: a derived class that
+  never called `score()` could not be declared before.
+- **A member a class that extends declares as another kind is refused, as TypeScript refuses
+  it** (Rule 8.16, §26). A method over a field of the class above, a method over an accessor
+  and an accessor over a method compiled, each to the derived class's member, where TypeScript
+  refuses the program (TS2425, TS2426, TS2423); each is TS8035 now, naming both members, and so
+  are the same changes where one side is a field that holds a function, and `super.f` on such a
+  field (TS2855). An accessor over an abstract field, which TypeScript takes, computed 0 where
+  TypeScript computes the getter's value: the abstract field is a member of every struct below
+  the class that declares it, and a body that class wrote read the member. It is refused with the
+  fix, `abstract get f(): f32`, which means the same and reaches the accessor.
+- **Field initializers run in TypeScript's order** (Rule 8.14, §26). Every initializer ran
+  before the constructor's body, base first, and a derived class's initializer for a field its
+  base initializes too was dropped: `class B extends A { limit: f32 = 5. }` built a `B` whose
+  `limit` was `A`'s 1, where TypeScript gives 5. A base's initializers now run in its
+  constructor, the derived class's parameter properties and its own initializers when
+  `super(...)` returns, and those of a class that inherits its constructor when that body
+  returns, so an initializer that reads `this.limit` reads what the base's constructor left.
+  Measured on `main`: `B` above with `constructor() { super(); this.limit *= 10. }` over an `A`
+  whose constructor adds 1 gave 20, TypeScript 50; it gives 50.
+
+- **GLSL declares a struct before a module constant or variable of its type** (#179). The GLSL
+  ES 3.00 writer emitted the constants and the top-level `let`s above the struct section, so a
+  `const SPHERES: array<Sphere, 4>` or a struct-typed top-level `let` named a type that was not
+  declared yet. ANGLE refused it with `'[' : syntax error` or `'Cursor' : syntax error`, on both
+  stages, while Tint accepted the WGSL. The struct section now comes first. A module variable's
+  struct type is also in every stage's scope, as a constant's already was, because a module
+  variable is emitted into every stage: the #179 reproducer failed in the vertex shader for that
+  reason alone, although only the fragment entry reads the variable. Measured on the compile
+  gate's WebGL2: both stages compile and link. One golden moves, `class-syntax.fragment.glsl`,
+  by the order of three lines.
 - **The optimizer no longer shares a value across a write to what its callee reads.** A call's
   value depends on its arguments and on every module name its callee reads, and cse, licm and
   gvn saw only the arguments: `let a = h(x * 2.); gp = 5.; let c = h(x * 2.)`, with `h`
@@ -1402,6 +1692,13 @@ structures in ESSL 1.0 and webgl`, and the same for arrays. That second half cor
   so the gate compiles the shape on both targets from now on — nothing in it did before, and the
   constant folder hides the easy case, so it takes a runtime condition AND two distinguishable
   arms to reach.
+- **The README's `tsconfig.shade.json` loads `typeshade/shade`.** Copied as written into a
+  fresh project with `typeshade` installed, it failed with TS2688 (no type definition file for
+  `typeshade/shade`) and TS2318 for `Array` and nine more global types, so no shader was
+  type-checked at all. `typeshade/shade` is a subpath export, and TypeScript 5.x falls back to
+  `node10` resolution, which does not read `exports`. The snippet now sets `"module": "esnext"`
+  and `"moduleResolution": "bundler"`, and the README says why. Copied again, it leaves exactly
+  the two error classes the README documents: TS1206 on decorators, and operators on vectors.
 
 ### Changed
 

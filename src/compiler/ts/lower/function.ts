@@ -8,51 +8,85 @@ import type {
   Expr,
   OverrideDecl,
   ModuleVarDecl,
+  WorkgroupShape,
 } from '../../../core/ir/nodes.js';
+import { toWorkgroupShape, workgroupSizeAttr } from '../../../core/ir/workgroup.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import type { SourceSpan } from '../../../core/ir/span.js';
 import { voidT, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
+  THIS_CAPTURE,
   fileFunctionsOf,
+  writeRules,
+  type CaptureKey,
   privateFieldTableOf,
   readonlyFieldTableOf,
+  restrictedFieldTableOf,
   withheldTableOf,
 } from '../context.js';
 import type { CollectedStruct } from '../structs.js';
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { isMixinDeclaration } from '../mixins.js';
-import { inferFrom, instanceName, typeSuffix, withTypeArguments } from '../generics.js';
+import {
+  currentTypeArguments,
+  inferFrom,
+  instanceName,
+  typeSuffix,
+  withTypeArguments,
+} from '../generics.js';
 import { refuseAtomicDeclaration } from './atomics.js';
 import {
-  boundNamesOf,
+  captureArguments,
+  captureBindings,
+  capturedName,
   collectLocalFunctions,
   declarationsIn,
+  liftCaptures,
+  propagateCaptureRefs,
+  type CaptureBinding,
+  type Lifted,
+  type LiftedThis,
   type LocalFunction,
+  type LocalFunctionDecl,
 } from './local-functions.js';
+import { functionParams, functionTypeOf, shapeOf, type FunctionShape } from './function-types.js';
+import { argumentSignature, capturesOfArgument, functionArgument } from './function-args.js';
 import {
   filledCallsOf,
   paramDefaultNodes,
   recordParamDefaults,
   setParamDefault,
 } from './param-defaults.js';
-import { lowerStatements } from './statement.js';
+import { lowerStatements, lowerVoidArrowBody } from './statement.js';
 import { lowerExpression } from './expression.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
-import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js';
+import { ATOMIC_INTRINSICS, isBarrierIntrinsic } from '../../../core/intrinsics.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
-import { checkRecursion } from '../recursion.js';
+import {
+  checkLoweredRecursion,
+  checkRecursion,
+  writtenHops,
+  type RecursionNode,
+} from '../recursion.js';
 import {
   eachNamespaceStatement,
   namespaceMemberName,
   refuseNamespaceStatement,
 } from '../namespaces.js';
-import { collectClassFunctions, ctorPrologue, selfRef, type Receiver } from './class-methods.js';
+import {
+  collectClassFunctions,
+  ctorParts,
+  ctorPrologue,
+  selfRef,
+  type ClassFunction,
+  type Receiver,
+} from './class-methods.js';
 import {
   builtinDecoratorArg,
   checkAttributeName,
@@ -131,11 +165,31 @@ export function lowerSourceFunctions(
     // A generic function is compiled once per set of argument types the file calls it with
     // (roadmap 0.3 item T9, #92), so it has no signature of its own: `pick<T>` is not a
     // function the module emits, `pick_f32` and `pick_vec3` are. Held aside for the
-    // instantiator below, which a call site reaches through the scope.
-    if ((stmt.typeParameters?.length ?? 0) > 0 && stmt.body && stmt.name !== undefined) {
+    // instantiator below, which a call site reaches through the scope. So is one that takes a
+    // function, once per set of functions a call hands it (Rule 8.18): `apply_sq`.
+    const fnAt = functionParams(stmt);
+    if (
+      ((stmt.typeParameters?.length ?? 0) > 0 || fnAt.size > 0) &&
+      stmt.body &&
+      stmt.name !== undefined
+    ) {
       const base = irName ?? stmt.name.text;
+      if (fnAt.size > 0 && decoratorsOf(stmt).length > 0) {
+        // An entry's parameters come from the pipeline, and no call hands it anything.
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          stmt.parameters[[...fnAt][0]!]!,
+          `An entry's parameters come from the pipeline, and a function is nothing the pipeline ` +
+            `can supply: take the function in a helper the entry calls (Rule 8.18).`,
+          TS_CODES.FUNCTION_SHAPE,
+        );
+        refused.add(base);
+        continue;
+      }
       generics.set(base, { node: stmt, prefix });
       fns.generics.add(base);
+      if (fnAt.size > 0) fns.fnParams.set(base, fnAt);
       continue;
     }
     const stub = parseSignature(stmt, sourceFile, diagnostics, structs, irName);
@@ -180,33 +234,26 @@ export function lowerSourceFunctions(
   // A local function is a function of the module, named after the body that declares it
   // (roadmap 0.3 item T7, #92). Collected before any body is lowered, so a call to one
   // resolves; the alias from the written name to the emitted one rides on the scope, which is
-  // what lets two bodies each declare an `f`.
-  const localFns: LocalFunction[] = [];
+  // what lets two bodies each declare an `f`. A body sees its own local functions and those of
+  // every body around it, as TypeScript's scopes do, so a helper may call its sibling.
+  const lifted: Lifted[] = [];
   const aliasesOf = new Map<string, Map<string, string>>();
   const seeLocals = (
-    decls: readonly ts.VariableDeclaration[],
+    decls: readonly LocalFunctionDecl[],
     ownerName: string,
-    bound: ReadonlySet<string>,
+    around: ReadonlyMap<ts.Node, FuncDecl>,
+    self: LiftedThis | undefined,
+    outer: ReadonlyMap<string, string>,
+    into: Lifted[] = lifted,
+    said: TsCompilerDiagnostic[] = diagnostics,
   ): void => {
-    const found = collectLocalFunctions(
-      decls,
-      ownerName,
-      bound,
-      sourceFile,
-      diagnostics,
-      structs,
-      refused,
-    );
-    if (found.length === 0) return;
-    let alias = aliasesOf.get(ownerName);
-    if (!alias) {
-      alias = new Map<string, string>();
-      aliasesOf.set(ownerName, alias);
-    }
+    const found = collectLocalFunctions(decls, ownerName, sourceFile, said, structs, refused);
+    const alias = new Map(outer);
+    const kept: LocalFunction[] = [];
     for (const fn of found) {
       if (callees.has(fn.stub.name)) {
         pushDiag(
-          diagnostics,
+          said,
           sourceFile,
           fn.decl,
           `"${fn.stub.name}" is both a function of this module and the emitted name of the ` +
@@ -217,16 +264,29 @@ export function lowerSourceFunctions(
       }
       callees.set(fn.stub.name, fn.stub);
       alias.set(fn.localName, fn.stub.name);
-      localFns.push(fn);
+      kept.push(fn);
+    }
+    aliasesOf.set(ownerName, alias);
+    for (const fn of kept) {
+      // An arrow function's `this` is the one around it; any other function's is its own,
+      // though it may still hand the method's object on to an arrow it calls.
+      const selfHere =
+        self === undefined
+          ? undefined
+          : { ...self, bindsThis: self.bindsThis && ts.isArrowFunction(fn.node) };
+      into.push({ fn, around, self: selfHere, ...(said !== diagnostics ? { said } : {}) });
       // A local function's own body is an owner in turn, so a helper inside a helper works.
-      seeLocals(
-        declarationsIn(fn.node.body),
-        fn.stub.name,
-        boundNamesOf(
-          fn.node,
-          fn.stub.params.map((p) => p.name),
-        ),
-      );
+      if (fn.node.body !== undefined) {
+        seeLocals(
+          declarationsIn(fn.node.body),
+          fn.stub.name,
+          new Map([...around, [fn.node, fn.stub]]),
+          selfHere,
+          alias,
+          into,
+          said,
+        );
+      }
     }
   };
   // The module top level, and each namespace body, where a `const f = (…) => …` is already a
@@ -239,30 +299,342 @@ export function lowerSourceFunctions(
     into.push(...stmt.declarationList.declarations);
     topDecls.set(prefix, into);
   });
-  for (const [prefix, decls] of topDecls) seeLocals(decls, prefix, new Set());
+  for (const [prefix, decls] of topDecls) seeLocals(decls, prefix, new Map(), undefined, new Map());
   for (const { node, stub } of ready) {
-    if (node.body)
+    if (node.body) {
       seeLocals(
         declarationsIn(node.body),
         stub.name,
-        boundNamesOf(
-          node,
-          stub.params.map((p) => p.name),
-        ),
-      );
-  }
-  for (const cf of classFns) {
-    if (cf.node?.body) {
-      seeLocals(
-        declarationsIn(cf.node.body),
-        cf.stub.name,
-        boundNamesOf(
-          cf.node,
-          cf.stub.params.map((p) => p.name),
-        ),
+        new Map([[node, stub]]),
+        undefined,
+        new Map(),
       );
     }
   }
+  // What a body a class inherits says goes to a list of its own, which `sayInherited` reads once
+  // every body is lowered; its local functions' diagnostics go there too.
+  const inheritedSaid: { cf: ClassFunction; said: TsCompilerDiagnostic[] }[] = [];
+  const saidOf = new Map<ClassFunction, TsCompilerDiagnostic[]>();
+  const saidFor = (cf: ClassFunction): TsCompilerDiagnostic[] => {
+    if (cf.inherited !== true) return diagnostics;
+    let said = saidOf.get(cf);
+    if (said === undefined) {
+      said = [];
+      saidOf.set(cf, said);
+      inheritedSaid.push({ cf, said });
+    }
+    return said;
+  };
+  for (const cf of classFns) {
+    if (cf.node?.body) {
+      // Inside a method, an arrow function's `this` is the method's object, and inside a static
+      // member the class the call names (Rule 8.13).
+      const self: LiftedThis | undefined =
+        cf.receiver !== undefined
+          ? {
+              receiver: {
+                type: cf.receiver.type,
+                mode: cf.receiver.mode === 'param' ? 'param' : 'inout',
+                superMethods: cf.receiver.superMethods,
+              },
+              bindsThis: true,
+              shown: cf.shown,
+            }
+          : cf.staticOwner !== undefined
+            ? {
+                staticOwner: cf.staticOwner,
+                staticSuper: cf.staticSuper,
+                bindsThis: true,
+                shown: cf.shown,
+              }
+            : undefined;
+      seeLocals(
+        declarationsIn(cf.node.body),
+        cf.stub.name,
+        new Map([[cf.node, cf.stub]]),
+        self,
+        new Map(),
+        lifted,
+        saidFor(cf),
+      );
+    }
+  }
+  const file = fileFunctionsOf(callees);
+  liftCaptures(lifted, callees, file);
+  const funcs: FuncDecl[] = [];
+  const nodeByName = new Map<string, FunctionNode>();
+  // The name each instance's author wrote: `pick` for `pick_f32`.
+  const writtenAs = new Map<string, string>();
+  // ═══ A return type the body says (Rule 8.19) ═══
+  //
+  // A function that writes no return type has one once its body is lowered, and a call may
+  // need it before the body's turn: that call lowers the body first (`fns.ensure`). Each such
+  // function waits in `pendingFill` with what lowers its body, until a call or its turn comes.
+  // `inferring` holds the ones whose body is being lowered, whose return type is not known
+  // yet, and `filling` every body being lowered, innermost last: a call back into one of them
+  // closes the cycle `filling` holds from it up.
+  const pendingFill = new Map<FuncDecl, () => boolean>();
+  const inferring = new Set<FuncDecl>();
+  const filling: FuncDecl[] = [];
+  // The ones whose body did not lower, and so says nothing it returns: a call of one adds
+  // nothing to what the body said. So is one a call cycle runs through, whose return type
+  // waits on itself.
+  const unsaid = new Set<FuncDecl>();
+  const cyclic = new Set<FuncDecl>();
+  // Each call a cycle closes at, said once however many paths reach it.
+  const cycleAt = new Set<ts.Node>();
+  // A default is lowered before any body (below), so it cannot wait on one.
+  let bodiesOpen = false;
+  const shownOf = (f: FuncDecl): string =>
+    writtenAs.get(f.name) ?? classFns.find((cf) => cf.stub === f)?.shown ?? f.name;
+  /** Lower a body with `stub` on the stack of those being lowered; `infers` when its return
+   *  type is the body's to say. */
+  const track = (
+    stub: FuncDecl,
+    infers: boolean,
+    said: readonly TsCompilerDiagnostic[],
+    run: () => void,
+  ): void => {
+    const before = said.length;
+    filling.push(stub);
+    if (infers) inferring.add(stub);
+    try {
+      run();
+    } finally {
+      filling.pop();
+      inferring.delete(stub);
+    }
+    if (
+      infers &&
+      (cyclic.has(stub) ||
+        (typeKey(stub.ret) === 'void' && said.slice(before).some((d) => d.category === 'error')))
+    ) {
+      unsaid.add(stub);
+    }
+  };
+  /** Lower the body `stub` waits on, if it still waits. False when it cannot be lowered yet:
+   *  a variable it captures is not lowered where it is declared. */
+  const runPending = (stub: FuncDecl): boolean => {
+    const fill = pendingFill.get(stub);
+    if (fill === undefined) return true;
+    pendingFill.delete(stub);
+    if (fill()) return true;
+    pendingFill.set(stub, fill);
+    return false;
+  };
+  /** The call graph `checkRecursion` walks: the functions the file and its classes declare. In
+   *  a single file a function is called by the name it is declared under, so the graph key and
+   *  the resolver are both just `callees`. A method called through its object (`r.at(t)`) is
+   *  not an identifier call and is not in this graph; the lowered calls are where its cycle
+   *  shows. */
+  const recursionGraph = (): RecursionNode[] => [
+    ...ready.map(({ node, stub }) => ({
+      // The EMITTED name, which for a namespace's function is the flattened one (T4, #92):
+      // the graph's keys and the call resolver are both `callees`, which is keyed by it.
+      name: stub.name,
+      decl: node,
+      sourceFile,
+      resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
+      filled: filledCallsOf(stub),
+    })),
+    ...classFns.flatMap((cf) =>
+      cf.node === undefined
+        ? []
+        : [
+            {
+              name: cf.stub.name,
+              shown: cf.shown,
+              decl: cf.node,
+              sourceFile,
+              resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
+              filled: filledCallsOf(cf.stub),
+            },
+          ],
+    ),
+  ];
+  fns.ensure = (decl, at, sf, diags): boolean => {
+    if (pendingFill.has(decl)) {
+      if (!bodiesOpen) {
+        pushDiag(
+          diags,
+          sf,
+          at,
+          `"${shownOf(decl)}" says what it returns in its body, and a default is lowered ` +
+            `before any body: write the return type on "${shownOf(decl)}" (Rule 8.19).`,
+          TS_CODES.FUNCTION_SHAPE,
+        );
+        return false;
+      }
+      if (!runPending(decl)) {
+        // It captures a variable its declaration did not lower, which said why there. A call
+        // dropped without a word anywhere would be a program that compiles wrong, so a file
+        // with no error yet hears what this one stands on.
+        if (![...diagnostics, ...diags].some((d) => d.category === 'error')) {
+          pushDiag(
+            diags,
+            sf,
+            at,
+            `"${shownOf(decl)}" reads a variable that is not declared yet where it is called: ` +
+              `call it after the variables it reads are declared (Rule 8.17).`,
+            TS_CODES.UNKNOWN_NAME,
+          );
+        }
+        return false;
+      }
+    }
+    if (unsaid.has(decl)) return false;
+    if (!inferring.has(decl)) return true;
+    // A call back into a body still being lowered, whose return type is not known yet: a call
+    // cycle, which WGSL refuses anyway (Rule 8.4). One every hop of which the syntactic check
+    // follows is that check's to name, at the call it closes on; the rest are named here.
+    const path = [...filling.slice(filling.lastIndexOf(decl)), decl];
+    for (const f of path) if (inferring.has(f)) cyclic.add(f);
+    if (!cycleAt.has(at)) {
+      cycleAt.add(at);
+      const hops = path.slice(1).map((to, i) => `${path[i]!.name} ${to.name}`);
+      const written = writtenHops(recursionGraph());
+      if (!hops.every((h) => written.has(h))) {
+        pushDiag(
+          diags,
+          sf,
+          at,
+          `Recursive call: ${path.map((f) => `"${shownOf(f)}"`).join(' -> ')}. WGSL has no ` +
+            `call stack, so a function must not take part in a call cycle.`,
+          TS_CODES.RECURSION,
+        );
+      }
+    }
+    return false;
+  };
+  const fillReady = (r: (typeof ready)[number], infers: boolean): void => {
+    track(r.stub, infers, diagnostics, () => {
+      fillFunctionBody(
+        r.node,
+        r.stub,
+        sourceFile,
+        diagnostics,
+        callees,
+        consts,
+        bindings,
+        structs,
+        symbols,
+        overrides,
+        vars,
+        undefined,
+        undefined,
+        r.prefix === '' ? undefined : r.prefix,
+        aliasesOf.get(r.stub.name),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        infers,
+      );
+      funcs.push(r.stub);
+      nodeByName.set(r.stub.name, r.node);
+    });
+  };
+  for (const r of ready) {
+    if (r.node.type !== undefined || r.stub.stage !== undefined) continue;
+    // Lowered outside any instance of a generic function, wherever the call that asks is.
+    pendingFill.set(r.stub, () => {
+      withTypeArguments(undefined, () => fillReady(r, true));
+      return true;
+    });
+  }
+  // A method, an accessor half or a constructor, into the list its class's body says things to.
+  const fillClassFunction = (
+    cf: ClassFunction,
+    node: NonNullable<ClassFunction['node']>,
+    infers: boolean,
+  ): void => {
+    const said = saidFor(cf);
+    track(cf.stub, infers, said, () =>
+      fillFunctionBody(
+        node,
+        cf.stub,
+        sourceFile,
+        said,
+        callees,
+        consts,
+        bindings,
+        structs,
+        symbols,
+        overrides,
+        vars,
+        cf.receiver,
+        cf.shown,
+        undefined,
+        aliasesOf.get(cf.stub.name),
+        cf.staticOwner,
+        cf.staticSuper,
+        undefined,
+        undefined,
+        infers,
+      ),
+    );
+    nodeByName.set(cf.stub.name, node);
+    funcs.push(cf.stub);
+  };
+  for (const cf of classFns) {
+    if (cf.infers !== true || cf.node === undefined) continue;
+    const node = cf.node;
+    pendingFill.set(cf.stub, () => {
+      withTypeArguments(undefined, () => fillClassFunction(cf, node, true));
+      return true;
+    });
+  }
+  // A local function's body, once the body that declares it has lowered what it captures. False
+  // when that is not yet so.
+  const fillOneLifted = (l: Lifted, sf: ts.SourceFile, said: TsCompilerDiagnostic[]): boolean => {
+    const fn = l.fn;
+    const bound = captureBindings(l, file);
+    if (bound === undefined) return false;
+    const into = l.said ?? said;
+    track(fn.stub, fn.infers, into, () => {
+      fillFunctionBody(
+        fn.node,
+        fn.stub,
+        sf,
+        into,
+        callees,
+        consts,
+        bindings,
+        structs,
+        symbols,
+        overrides,
+        vars,
+        bound.receiver,
+        undefined,
+        undefined,
+        aliasesOf.get(fn.stub.name),
+        l.self?.bindsThis === true ? l.self.staticOwner : undefined,
+        l.self?.bindsThis === true ? l.self.staticSuper : undefined,
+        bound.captures,
+        undefined,
+        fn.infers,
+      );
+      funcs.push(fn.stub);
+      nodeByName.set(fn.stub.name, fn.node);
+    });
+    return true;
+  };
+  /** Hold each local function of `list` that writes no return type until a call needs its body
+   *  or its turn comes, to be lowered under the type arguments in force here (Rule 8.19). */
+  const holdLifted = (
+    list: readonly Lifted[],
+    sf: ts.SourceFile,
+    said: TsCompilerDiagnostic[],
+  ): void => {
+    const typeArgs = currentTypeArguments();
+    for (const l of list) {
+      if (!l.fn.infers) continue;
+      pendingFill.set(l.fn.stub, () =>
+        withTypeArguments(typeArgs, () => fillOneLifted(l, sf, said)),
+      );
+    }
+  };
+  holdLifted(lifted, sourceFile, diagnostics);
   // Every default, lowered before any body, since a body may call a function declared after it
   // and the call needs the default already in hand (roadmap 0.3 item T7, #92). The scope is the
   // module's, with no parameters in it, which is why a default that reads one was refused at
@@ -296,8 +668,25 @@ export function lowerSourceFunctions(
   };
   while (lowerAll([], false));
   lowerAll(diagnostics, true);
-  const funcs: FuncDecl[] = [];
-  const nodeByName = new Map<string, FunctionNode>();
+  bodiesOpen = true;
+  // Each local function's body after the bodies around it, whose declarations say what each
+  // variable it captures is (Rule 8.17); then a capture handed on to a local function that
+  // writes it is made the caller's to write back.
+  const fillLifted = (
+    list: readonly Lifted[],
+    sf: ts.SourceFile,
+    said: TsCompilerDiagnostic[],
+  ): void => {
+    for (const l of list) {
+      if (l.fn.infers) runPending(l.fn.stub);
+      else fillOneLifted(l, sf, said);
+    }
+    propagateCaptureRefs(
+      list.map((l) => l.fn.stub),
+      callees,
+      file,
+    );
+  };
   // One instance of a generic function per set of argument types (roadmap 0.3 item T9, #92).
   // Made where a call asks for it rather than in a pass of its own, because a call is the only
   // thing that says which types: `pick(1., 2.)` is what decides that `pick_f32` exists.
@@ -306,32 +695,310 @@ export function lowerSourceFunctions(
   // asked for it — WGSL wants a function declared before it is called, and the bodies below
   // push themselves only after they are filled.
   const instances = new Map<string, FuncDecl>();
-  fns.instantiate = (name, node, argTypes, sf, diags): FuncDecl | undefined => {
+  // The functions whose instance is being made, innermost last: one asked for again while its
+  // instance is made, for other function arguments, would be made again without end (Rule 8.4).
+  const making: string[] = [];
+  /** A name no function of the module has yet: `base`, or `base_1`, `base_2` and so on. */
+  const freshName = (base: string): string => {
+    let name = base;
+    for (let n = 1; callees.has(name) || refused.has(name); n++) name = `${base}_${String(n)}`;
+    return name;
+  };
+  fns.instantiate = (name, node, argTypes, sf, diags, scope): FuncDecl | undefined => {
     const generic = generics.get(name);
     if (generic === undefined) return undefined;
+    const fnAt = fns.fnParams.get(name) ?? new Set<number>();
     const order = (generic.node.typeParameters ?? []).map((p) => p.name.text);
-    const bound = typeArgumentsFor(generic.node, order, node, argTypes, sf, diags);
-    if (bound === undefined) return undefined;
-    const emitted = instanceName(
-      name,
-      order.map((n) => bound.get(n)!),
-    );
-    const had = instances.get(emitted);
-    if (had !== undefined) return had;
-    const stub = withTypeArguments(bound, () =>
-      parseSignature(generic.node, sf, diags, structs, emitted),
-    );
-    if (!stub) {
-      refused.add(name);
-      return undefined;
+    // A function handed over by its name says what the type parameters in its parameter's type
+    // are, as an argument's value does for its own.
+    const named = new Map<number, { params: readonly ShaderType[]; ret: ShaderType }>();
+    for (const i of fnAt) {
+      const arg = node.arguments[i];
+      const x = arg === undefined ? undefined : skipParens(arg);
+      if (x === undefined || !ts.isIdentifier(x)) continue;
+      const decl = scope.resolveCallee(x.text);
+      if (decl === undefined) continue;
+      // What it returns, which one that writes no return type says once its body is lowered
+      // (Rule 8.19); one that captures a variable not declared yet here is `functionArgument`'s
+      // to refuse, below.
+      if (captureArguments(decl, x.text, x, sf, scope, []) === undefined) continue;
+      if (!scope.calleeReady(decl, x, sf, diags)) continue;
+      const captured = file.captures.get(decl.name)?.length ?? 0;
+      named.set(i, { params: decl.params.slice(captured).map((p) => p.type), ret: decl.ret });
     }
-    // Registered BEFORE the body is lowered, so a generic that calls itself at the same types
-    // finds this instance rather than making another one forever.
-    instances.set(emitted, stub);
-    callees.set(emitted, stub);
-    withTypeArguments(bound, () => {
+    const bound = typeArgumentsFor(generic.node, order, node, argTypes, sf, diags, named);
+    if (bound === undefined) return undefined;
+    return withTypeArguments(bound, (): FuncDecl | undefined => {
+      // Each function argument, as the function of the module it stands for (Rule 8.18).
+      const targets: { param: ts.ParameterDeclaration; fn: FuncDecl }[] = [];
+      for (const i of [...fnAt].sort((a, b) => a - b)) {
+        const param = generic.node.parameters[i]!;
+        const shape = shapeOf(functionTypeOf(param.type)!, sf, diags);
+        if (shape === undefined) {
+          refused.add(name);
+          return undefined;
+        }
+        const fn = functionArgument(node, i, param, shape, name, scope, sf, diags);
+        if (fn === undefined) return undefined;
+        targets.push({ param, fn });
+      }
+      const typed = instanceName(
+        name,
+        order.map((n) => bound.get(n)!),
+      );
+      // `|` joins the key, which no name holds, so `both(a_b, c)` and `both(a, b_c)` are two.
+      const key = [typed, ...targets.map((t) => t.fn.name)].join('|');
+      const had = instances.get(key);
+      if (had !== undefined) return had;
+      if (fnAt.size > 0 && making.includes(name)) {
+        pushDiag(
+          diags,
+          sf,
+          node,
+          `"${name}" calls itself, through the functions it is handed, with a function made ` +
+            `anew for each call, so there is no last copy of it to compile. WGSL has no call ` +
+            `stack, so a function must not take part in a call cycle (Rule 8.4).`,
+          TS_CODES.RECURSION,
+        );
+        return undefined;
+      }
+      const emitted =
+        targets.length === 0
+          ? typed
+          : freshName([typed, ...targets.map((t) => t.fn.name)].join('_'));
+      const stub = parseSignature(generic.node, sf, diags, structs, emitted, fnAt);
+      if (!stub) {
+        refused.add(name);
+        return undefined;
+      }
+      // What the functions handed over capture (Rule 8.17), which this instance takes ahead of
+      // its own parameters and hands on to them: typed as the calling body holds each.
+      const keys: CaptureKey[] = [];
+      for (const t of targets) {
+        for (const k of file.captures.get(t.fn.name) ?? []) {
+          if (keys.includes(k)) continue;
+          if (k === THIS_CAPTURE) keys.unshift(k);
+          else keys.push(k);
+        }
+      }
+      const taken = new Set(stub.params.map((p) => p.name));
+      taken.add('self_');
+      const captures: CaptureBinding[] = [];
+      const hidden = keys.map((k): FuncDecl['params'][number] => {
+        const held =
+          scope.bindingOfDeclaration(k) ?? (k === THIS_CAPTURE ? scope.resolve('this') : undefined);
+        const type = held?.type ?? voidT;
+        let pname = 'self_';
+        if (k !== THIS_CAPTURE) {
+          const base = capturedName(k);
+          pname = base;
+          for (let n = 1; taken.has(pname); n++) pname = `${base}_${String(n)}`;
+          taken.add(pname);
+        }
+        captures.push({
+          key: k,
+          byName: false,
+          binding: { kind: 'param', name: pname, type, mutable: true },
+        });
+        return { name: pname, type };
+      });
+      (stub as { params: FuncDecl['params'] }).params = [...hidden, ...stub.params];
+      if (keys.length > 0) file.captures.set(emitted, keys);
+      // Registered BEFORE the body is lowered, so a generic that calls itself at the same types
+      // finds this instance rather than making another one forever.
+      instances.set(key, stub);
+      callees.set(emitted, stub);
+      writtenAs.set(emitted, name);
+      making.push(name);
+      try {
+        // In the body, a parameter of function type names the function handed over.
+        const handed = new Map<string, string>();
+        for (const t of targets) {
+          if (ts.isIdentifier(t.param.name)) handed.set(t.param.name.text, t.fn.name);
+        }
+        // The instance's own local functions, whose types may name the type parameters: one set
+        // per instance, as the body around them is (`pick_f32_sw`).
+        const mine: Lifted[] = [];
+        if (generic.node.body !== undefined) {
+          seeLocals(
+            declarationsIn(generic.node.body),
+            emitted,
+            new Map([[generic.node, stub]]),
+            undefined,
+            handed,
+            mine,
+            diags,
+          );
+          liftCaptures(
+            mine,
+            callees,
+            file,
+            new Map(targets.map((t) => [t.param as ts.Node, t.fn])),
+          );
+          holdLifted(mine, sf, diags);
+        }
+        // With no return type written, the body says it (Rule 8.19).
+        const infers = generic.node.type === undefined;
+        track(stub, infers, diags, () =>
+          fillFunctionBody(
+            generic.node,
+            stub,
+            sf,
+            diags,
+            callees,
+            consts,
+            bindings,
+            structs,
+            symbols,
+            overrides,
+            vars,
+            undefined,
+            name,
+            generic.prefix === '' ? undefined : generic.prefix,
+            aliasesOf.get(emitted) ?? handed,
+            undefined,
+            undefined,
+            captures,
+            generic.node.parameters.filter((_, i) => !fnAt.has(i)),
+            infers,
+          ),
+        );
+        funcs.push(stub);
+        nodeByName.set(emitted, generic.node);
+        fillLifted(mine, sf, diags);
+      } finally {
+        making.pop();
+      }
+      return stub;
+    });
+  };
+  // An arrow function or a function expression written as an argument (Rule 8.18): a local
+  // function of the body the call is in, lifted where the call is lowered, once for each body
+  // lowered, since its captures are that body's.
+  const liftedArguments = new Map<ts.Node, Map<FuncDecl, FuncDecl>>();
+  fns.lift = (node, shape, hint, scope, sf, diags): FuncDecl | undefined => {
+    const owner = scope.owner();
+    if (owner === undefined) return undefined;
+    const had = liftedArguments.get(node)?.get(owner);
+    if (had !== undefined) return had;
+    const made = liftArgument(node, shape, hint, owner, scope, sf, diags);
+    if (made === undefined) return undefined;
+    let byOwner = liftedArguments.get(node);
+    if (byOwner === undefined) liftedArguments.set(node, (byOwner = new Map()));
+    byOwner.set(owner, made);
+    return made;
+  };
+  const liftArgument = (
+    node: ts.ArrowFunction | ts.FunctionExpression,
+    shape: FunctionShape,
+    hint: string,
+    owner: FuncDecl,
+    scope: LoweringScope,
+    sf: ts.SourceFile,
+    diags: TsCompilerDiagnostic[],
+  ): FuncDecl | undefined => {
+    const signature = argumentSignature(node, shape, sf, diags);
+    if (signature === undefined) return undefined;
+    const name = freshName(`${owner.name}_${hint}`);
+    const stub: FuncDecl = {
+      name,
+      params: signature.params,
+      ret: signature.ret ?? voidT,
+      body: [],
+    };
+    (stub as { span?: unknown }).span = spanOf(sf, node);
+    callees.set(name, stub);
+    // What it captures, read from the body it is written in (Rule 8.17).
+    const keys = capturesOfArgument(node, scope);
+    const taken = new Set(stub.params.map((p) => p.name));
+    taken.add('self_');
+    const captures: CaptureBinding[] = [];
+    let receiver: Receiver | undefined;
+    const hidden: FuncDecl['params'][number][] = [];
+    for (const k of keys) {
+      const held =
+        k === THIS_CAPTURE
+          ? (scope.bindingOfDeclaration(k) ?? scope.resolve('this'))
+          : scope.bindingOfDeclaration(k);
+      if (held === undefined) {
+        // Read before its declaration, where TypeScript throws: the call runs the function now.
+        const shownName = k === THIS_CAPTURE ? 'this' : capturedName(k);
+        pushDiag(
+          diags,
+          sf,
+          node,
+          `The function written here reads "${shownName}", which is not declared yet where it ` +
+            `runs: a let or a const is not there before its declaration, and TypeScript ` +
+            `throws. Declare "${shownName}" above this call.`,
+          TS_CODES.UNKNOWN_NAME,
+        );
+        callees.delete(name);
+        refused.add(name);
+        return undefined;
+      }
+      if (k === THIS_CAPTURE) {
+        const param: FuncDecl['params'][number] = {
+          name: 'self_',
+          type: held.type,
+          ...(held.mutable ? { mode: 'inout' as const } : {}),
+        };
+        hidden.unshift(param);
+        receiver = {
+          type: held.type,
+          mode: held.mutable ? 'inout' : 'param',
+          fieldInits: [],
+          shown: owner.name,
+          ...(scope.superMethods() !== undefined ? { superMethods: scope.superMethods() } : {}),
+        };
+        continue;
+      }
+      const base = capturedName(k);
+      let pname = base;
+      for (let n = 1; taken.has(pname); n++) pname = `${base}_${String(n)}`;
+      taken.add(pname);
+      const param: FuncDecl['params'][number] = { name: pname, type: held.type };
+      hidden.push(param);
+      const of = writeRules(held);
+      captures.push({
+        key: k,
+        byName: true,
+        binding: {
+          kind: 'param',
+          name: base,
+          type: held.type,
+          mutable: of.mutable,
+          ...(of.constValue !== undefined ? { constValue: of.constValue } : {}),
+          irName: pname,
+          capture: {
+            of,
+            byRef: () => {
+              (param as { mode?: 'inout' }).mode = 'inout';
+            },
+          },
+        },
+      });
+    }
+    (stub as { params: FuncDecl['params'] }).params = [...hidden, ...stub.params];
+    if (keys.length > 0) file.captures.set(name, keys);
+    // Its own local functions, which see the ones of the body it is written in.
+    const outer = scope.localFunctions() ?? new Map<string, string>();
+    const mine: Lifted[] = [];
+    seeLocals(
+      declarationsIn(node.body),
+      name,
+      new Map([[node, stub]]),
+      undefined,
+      outer,
+      mine,
+      diags,
+    );
+    liftCaptures(mine, callees, file);
+    holdLifted(mine, sf, diags);
+    const arrow = ts.isArrowFunction(node);
+    const infers = signature.ret === undefined;
+    track(stub, infers, diags, () =>
       fillFunctionBody(
-        generic.node,
+        node,
         stub,
         sf,
         diags,
@@ -342,37 +1009,38 @@ export function lowerSourceFunctions(
         symbols,
         overrides,
         vars,
+        receiver,
         undefined,
-        name,
-        generic.prefix === '' ? undefined : generic.prefix,
-      );
-    });
+        scope.namespaceOf(),
+        aliasesOf.get(name) ?? outer,
+        arrow ? scope.staticClass() : undefined,
+        arrow && receiver === undefined ? scope.superMethods() : undefined,
+        captures,
+        signature.written,
+        infers,
+      ),
+    );
     funcs.push(stub);
-    nodeByName.set(emitted, generic.node);
+    nodeByName.set(name, node);
+    fillLifted(mine, sf, diags);
     return stub;
   };
+  // A body lowered for a class that inherits it says what it says into a list of its own. What
+  // it shares with the body the declaring class lowered was said there, once (Rule 12.4); a
+  // static that fails only for the inheriting class, where `this` is that class, is an error
+  // where something calls it and nothing where nothing does (Rule 8.13), which is decided once
+  // every body is lowered and the calls are known.
   for (const cf of classFns) {
+    // One whose body says its return type and a call lowered already is not lowered again.
+    if (cf.infers === true && cf.node !== undefined) {
+      runPending(cf.stub);
+      continue;
+    }
     if (cf.node !== undefined) {
-      fillFunctionBody(
-        cf.node,
-        cf.stub,
-        sourceFile,
-        diagnostics,
-        callees,
-        consts,
-        bindings,
-        structs,
-        symbols,
-        overrides,
-        vars,
-        cf.receiver,
-        cf.shown,
-        undefined,
-        undefined,
-        cf.staticOwner,
-      );
-      nodeByName.set(cf.stub.name, cf.node);
-    } else if (cf.receiver !== undefined) {
+      fillClassFunction(cf, cf.node, false);
+      continue;
+    }
+    if (cf.receiver !== undefined) {
       // A class with no constructor still answers `new P()`: the zero struct with its field
       // initializers, and nothing else.
       const scope = functionScope(
@@ -393,78 +1061,36 @@ export function lowerSourceFunctions(
     }
     funcs.push(cf.stub);
   }
-  for (const { node: stmt, stub, prefix } of ready) {
-    fillFunctionBody(
-      stmt,
-      stub,
-      sourceFile,
-      diagnostics,
-      callees,
-      consts,
-      bindings,
-      structs,
-      symbols,
-      overrides,
-      vars,
-      undefined,
-      undefined,
-      prefix === '' ? undefined : prefix,
-      aliasesOf.get(stub.name),
-    );
-    funcs.push(stub);
-    nodeByName.set(stub.name, stmt);
+  // Each function the file declares, in order; one whose body says its return type and a call
+  // lowered already is not lowered again.
+  for (const r of ready) {
+    if (pendingFill.has(r.stub)) runPending(r.stub);
+    else if (r.node.type !== undefined || r.stub.stage !== undefined) fillReady(r, false);
   }
-  for (const fn of localFns) {
-    fillFunctionBody(
-      fn.node,
-      fn.stub,
-      sourceFile,
-      diagnostics,
-      callees,
-      consts,
-      bindings,
-      structs,
-      symbols,
-      overrides,
-      vars,
-      undefined,
-      undefined,
-      undefined,
-      aliasesOf.get(fn.stub.name),
-    );
-    funcs.push(fn.stub);
-    nodeByName.set(fn.stub.name, fn.node);
-  }
+  fillLifted(lifted, sourceFile, diagnostics);
+  // Once every body is lowered, the instances and the functions written as arguments among
+  // them: a capture handed on to one that writes it is the caller's to write back (Rule 8.17).
+  propagateCaptureRefs(
+    [...file.captures.keys()].flatMap((n) => {
+      const f = callees.get(n);
+      return f === undefined ? [] : [f];
+    }),
+    callees,
+    file,
+  );
+  sayInherited(inheritedSaid, funcs, new Set(classFns.map((cf) => cf.stub)), diagnostics);
   // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
-  // downstream of here was looking for one. In a single file a function is called by the name
-  // it is declared under, so the graph key and the resolver are both just `callees`. A method
-  // called through its object (`r.at(t)`) is not an identifier call and is not in this graph
-  // yet; Tint still refuses the cycle, as a backend diagnostic (#86).
-  checkRecursion(
-    [
-      ...ready.map(({ node, stub }) => ({
-        // The EMITTED name, which for a namespace's function is the flattened one (T4, #92):
-        // the graph's keys and the call resolver are both `callees`, which is keyed by it.
-        name: stub.name,
-        decl: node,
-        sourceFile,
-        resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
-        filled: filledCallsOf(stub),
-      })),
-      ...classFns.flatMap((cf) =>
-        cf.node === undefined
-          ? []
-          : [
-              {
-                name: cf.stub.name,
-                decl: cf.node,
-                sourceFile,
-                resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
-                filled: filledCallsOf(cf.stub),
-              },
-            ],
-      ),
-    ],
+  // downstream of here was looking for one.
+  const graph = recursionGraph();
+  checkRecursion(graph, diagnostics);
+  // A cycle through a call on a value (`this.g(n)`, `o.m()`), a getter, a setter or `new`, none
+  // of which names a function in its text: read off the calls the bodies lowered to (Rule 8.4).
+  checkLoweredRecursion(
+    graph,
+    funcs,
+    new Map([...writtenAs, ...classFns.map((cf) => [cf.stub.name, cf.shown] as const)]),
+    nodeByName,
+    sourceFile,
     diagnostics,
   );
   checkFragmentOnlyOps(funcs, nodeByName, sourceFile, diagnostics);
@@ -581,6 +1207,71 @@ function stageRestrictedOpsOf(body: readonly Stmt[]): Set<string> {
   };
   for (const s of body) walkStmt(s);
   return found;
+}
+
+/** What the bodies lowered for an inheriting class said, now that every call is known. A
+ *  diagnostic the file already carries at the same place is left out (Rule 12.4).
+ *
+ *  A body lowered again for a class that inherits it can fail for that class alone: `this.#k`
+ *  in a static `Derived` inherits, `weigh(this)` where `weigh` takes the base. Such a copy is
+ *  refused where a call reaches it and dropped where none does, as TypeScript, which lowers
+ *  nothing per class, has nothing to say about a body no one runs that way. What reaches it is
+ *  a function that is not a class's own (an entry, a top-level function), through any chain of
+ *  calls; a class's function that nothing so reaches and that calls a dropped copy is dropped
+ *  with it, so no call is left without its function. A copy of an `abstract` class's method is
+ *  the only lowering its body gets, so what it says is said whether or not anything calls it. */
+function sayInherited(
+  inherited: readonly { cf: ClassFunction; said: readonly TsCompilerDiagnostic[] }[],
+  funcs: FuncDecl[],
+  classStubs: ReadonlySet<FuncDecl>,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const onlyLowering = (cf: ClassFunction): boolean =>
+    cf.kind !== 'static' &&
+    cf.node !== undefined &&
+    ts.isClassLike(cf.node.parent) &&
+    (cf.node.parent.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false);
+  const byName = new Map(funcs.map((f) => [f.name, f]));
+  const live = new Set<string>();
+  const visit = (names: Iterable<string>): void => {
+    for (const name of names) {
+      if (live.has(name)) continue;
+      live.add(name);
+      const f = byName.get(name);
+      if (f !== undefined) visit(calleeNamesOf(f.body));
+    }
+  };
+  for (const f of funcs) if (!classStubs.has(f)) visit([f.name]);
+  const dropped = new Set(
+    inherited
+      .filter(
+        ({ cf, said }) =>
+          !onlyLowering(cf) && !live.has(cf.stub.name) && said.some((d) => d.category === 'error'),
+      )
+      .map(({ cf }) => cf.stub.name),
+  );
+  for (let grew = dropped.size > 0; grew;) {
+    grew = false;
+    for (const f of funcs) {
+      if (dropped.has(f.name) || live.has(f.name)) continue;
+      if ([...calleeNamesOf(f.body)].some((n) => dropped.has(n))) {
+        dropped.add(f.name);
+        grew = true;
+      }
+    }
+  }
+  for (let i = funcs.length - 1; i >= 0; i--) if (dropped.has(funcs[i]!.name)) funcs.splice(i, 1);
+  const key = (d: TsCompilerDiagnostic): string =>
+    `${d.start}:${d.length}:${d.code ?? ''}:${d.message}`;
+  const said = new Set(diagnostics.map(key));
+  for (const { cf, said: own } of inherited) {
+    if (dropped.has(cf.stub.name)) continue;
+    for (const d of own) {
+      if (said.has(key(d))) continue;
+      said.add(key(d));
+      diagnostics.push(d);
+    }
+  }
 }
 
 /** The functions a function's body calls, by name. */
@@ -772,6 +1463,21 @@ export function parseParams(
       );
       return undefined;
     }
+    // A function a top-level function takes is the function a call hands it, one instance per
+    // function (Rule 8.18); a method, a constructor and a local function have no instances to
+    // make, and a top-level function that takes one never reaches here with it.
+    if (functionTypeOf(p.type) !== undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        p.type ?? p,
+        `"${p.name.text}" takes a function, which only a function declared at the top of the ` +
+          `file or of a namespace may take (Rule 8.18): declare one there that takes it, and ` +
+          `call that from ${opts.owner === undefined ? 'here' : `"${opts.owner}"`}.`,
+        TS_CODES.FUNCTION_SHAPE,
+      );
+      return undefined;
+    }
     // The annotation is read first so that a missing one, which has no span of its own to
     // point at, is the parameter's complaint and everything else is the annotation's. Before,
     // both were pushed: a parameter written `x: f32 | vec3` said why the union names no type
@@ -951,55 +1657,30 @@ function refuseDefaultReadingAParameter(
   return true;
 }
 
-/** The return type a signature declares: `void` for none, the mapped type otherwise, checked
- *  against `stage` for an entry's output struct. A helper with no annotation gets the
- *  "defaulting to void" warning at `node`; an entry does not, since its body decides. Returns
- *  `undefined` after saying what it could not map. */
+/** The return type a signature declares: the mapped type, checked against `stage` for an entry's
+ *  output struct, or `void` where none is written, which a function's body then says (Rule
+ *  8.19) and an entry's body is checked against. Returns `undefined` after saying what it
+ *  could not map. */
 export function parseReturnType(
   typeNode: ts.TypeNode | undefined,
-  name: string,
-  node: ts.Node,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
   stage: FuncDecl['stage'] | undefined,
 ): ShaderType | undefined {
+  if (!typeNode) return voidT;
   let ret: ShaderType = voidT;
-  if (typeNode) {
-    if (typeNode.kind === ts.SyntaxKind.VoidKeyword) ret = voidT;
-    else {
-      const mapped = mapTsTypeToShaderType(typeNode, sourceFile, diagnostics);
-      if (refuseAtomicDeclaration(mapped, typeNode, sourceFile, diagnostics, 'a return type'))
-        return undefined;
-      // The annotation said why it names no type, on its own span. "Unsupported return type
-      // for f" repeated that on the same span and named nothing the first one had not (T10).
-      if (!mapped) return undefined;
-      ret = mapped;
-    }
-    if (stage && ret.kind === 'struct') {
-      checkStructBuiltinFields(
-        diagnostics,
-        sourceFile,
-        typeNode,
-        ret.name,
-        structs,
-        stage,
-        'output',
-      );
-    }
-  } else if (!stage) {
-    // Only a helper function gets this warning up front: an entry function's body has not been
-    // lowered yet, so whether "no annotation" is actually a problem (it returns a value) is
-    // decided in `fillFunctionBody`, which can also name the inferred type in the error.
-    diagnostics.push(
-      makeDiagnostic(
-        sourceFile,
-        node,
-        `Function "${name}" has no return type annotation; defaulting to void.`,
-        TS_CODES.RETURN_SHAPE,
-        'warning',
-      ),
-    );
+  if (typeNode.kind !== ts.SyntaxKind.VoidKeyword) {
+    const mapped = mapTsTypeToShaderType(typeNode, sourceFile, diagnostics);
+    if (refuseAtomicDeclaration(mapped, typeNode, sourceFile, diagnostics, 'a return type'))
+      return undefined;
+    // The annotation said why it names no type, on its own span. "Unsupported return type
+    // for f" repeated that on the same span and named nothing the first one had not (T10).
+    if (!mapped) return undefined;
+    ret = mapped;
+  }
+  if (stage && ret.kind === 'struct') {
+    checkStructBuiltinFields(diagnostics, sourceFile, typeNode, ret.name, structs, stage, 'output');
   }
   return ret;
 }
@@ -1038,6 +1719,9 @@ export function parseSignature(
   /** The name the function takes in the IR when it is not the one it was written under: a
    *  function inside `namespace Palette` is `Palette_warm` (roadmap 0.3 item T4, #92). */
   irName?: string,
+  /** The parameters that take a function (Rule 8.18), which an instance has none of: each is
+   *  the function the call handed over. */
+  skip?: ReadonlySet<number>,
 ): FuncDecl | undefined {
   if (!node.name || !ts.isIdentifier(node.name)) {
     pushDiag(
@@ -1064,19 +1748,18 @@ export function parseSignature(
   // checks below, for both a direct parameter builtin and a struct-typed parameter's fields,
   // know the entry stage they are validating against.
   const stageInfo = parseStage(node, sourceFile, diagnostics);
-  const params = parseParams(node.parameters, sourceFile, diagnostics, structs, stageInfo.stage, {
-    fnName: name,
-  });
-  if (!params) return undefined;
-  const ret = parseReturnType(
-    node.type,
-    name,
-    node,
+  const params = parseParams(
+    skip === undefined ? node.parameters : node.parameters.filter((_, i) => !skip.has(i)),
     sourceFile,
     diagnostics,
     structs,
     stageInfo.stage,
+    { fnName: name },
   );
+  if (!params) return undefined;
+  // A function that writes no return type says it in its body (Rule 8.19); an entry's is its
+  // output, which its signature declares.
+  const ret = parseReturnType(node.type, sourceFile, diagnostics, structs, stageInfo.stage);
   if (!ret) return undefined;
   // A stage output of an emulated double is a varying or a render-target write (#151 F64-09).
   if (
@@ -1100,14 +1783,18 @@ export function parseSignature(
   (decl as { span?: SourceSpan }).span = spanOf(sourceFile, node);
   (decl as { nameSpan?: SourceSpan }).nameSpan = spanOf(sourceFile, node.name);
   if (stageInfo.stage) (decl as { stage?: FuncDecl['stage'] }).stage = stageInfo.stage;
-  if (stageInfo.workgroupSize !== undefined) {
-    (decl as { workgroupSize?: number }).workgroupSize = stageInfo.workgroupSize;
+  const shape = stageInfo.workgroupShape;
+  if (shape !== undefined) {
+    (decl as { workgroupSize?: number }).workgroupSize = shape[0];
+    // An absent shape reads as `[workgroupSize, 1, 1]`, so only a y or z other than 1 is kept.
+    if (shape[1] !== 1 || shape[2] !== 1)
+      (decl as { workgroupShape?: WorkgroupShape }).workgroupShape = shape;
   }
   const attrs: string[] = [];
   if (stageInfo.stage === 'vertex') attrs.push('@vertex');
   if (stageInfo.stage === 'fragment') attrs.push('@fragment');
   if (stageInfo.stage === 'compute')
-    attrs.push(`@compute @workgroup_size(${stageInfo.workgroupSize ?? 64})`);
+    attrs.push(`@compute ${workgroupSizeAttr(shape ?? [64, 1, 1])}`);
   if (attrs.length) (decl as { attrs?: string[] }).attrs = attrs;
   if (stageInfo.stage === 'vertex' && typeKey(ret).startsWith('vec4')) {
     (decl as { retAttr?: string }).retAttr = '@builtin(position)';
@@ -1277,8 +1964,16 @@ export function functionScope(
   scope.setPrivateFields(privateFieldTableOf(structs));
   scope.setWithheldFields(withheldTableOf(structs));
   scope.setReadonlyFields(readonlyFieldTableOf(structs));
+  scope.setRestrictedFields(restrictedFieldTableOf(structs));
   scope.setBases(new Map(structs.filter((s) => s.bases).map((s) => [s.decl.name, s.bases!])));
   scope.setAbstractStructs(new Set(structs.filter((s) => s.abstract).map((s) => s.decl.name)));
+  scope.setStaticHolders(
+    new Map(
+      structs
+        .filter((s) => s.staticHolder !== undefined)
+        .map((s) => [s.decl.name, s.staticHolder!] as const),
+    ),
+  );
   // The enum names, so a mistyped member reads as one rather than as an unknown identifier
   // (T1, #92); the members themselves are module constants and resolve through the scope.
   if (sourceFile) {
@@ -1334,7 +2029,56 @@ export function functionScope(
   return scope;
 }
 
-/** `(x: f32): f32 => x * 2.`: the single return an expression-bodied arrow stands for. */
+/** An arrow function's expression body when nothing says what it returns (Rules 8.18, 8.19):
+ *  its value, whose type the function's return type becomes. An assignment, `++` or `--`, and a
+ *  call of a function that returns nothing, run as a statement, and the function returns
+ *  nothing. */
+function inferredArrowValue(
+  expr: ts.Expression,
+  stub: FuncDecl,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] {
+  const bare = skipParens(expr);
+  const statement = ts.isPrefixUnaryExpression(bare)
+    ? bare.operator === ts.SyntaxKind.PlusPlusToken ||
+      bare.operator === ts.SyntaxKind.MinusMinusToken
+    : ts.isPostfixUnaryExpression(bare) ||
+      (ts.isBinaryExpression(bare) &&
+        bare.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        bare.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
+      (ts.isCallExpression(bare) && callsVoidFunction(bare, sourceFile, scope, diagnostics));
+  if (statement) {
+    (stub as { ret: ShaderType }).ret = voidT;
+    return lowerVoidArrowBody(expr, sourceFile, scope, diagnostics);
+  }
+  const lowered = lowerExpression(expr, sourceFile, scope, diagnostics);
+  if (!lowered) return [];
+  (stub as { ret: ShaderType }).ret = lowered.type;
+  if (typeKey(lowered.type) === 'void') {
+    return lowered.op === 'call' ? [withSpan({ s: 'call', expr: lowered }, sourceFile, expr)] : [];
+  }
+  return [withSpan({ s: 'return', expr: lowered }, sourceFile, expr)];
+}
+
+/** Whether `call` names a function of the file that returns nothing, its body lowered first
+ *  when that is what says so (Rule 8.19). */
+function callsVoidFunction(
+  call: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const callee = skipParens(call.expression);
+  if (!ts.isIdentifier(callee)) return false;
+  const decl = scope.resolveCallee(callee.text);
+  // A barrier is a statement and nothing else (§25), where no function of the file takes its name.
+  if (decl === undefined) return isBarrierIntrinsic(callee.text);
+  if (!scope.calleeReady(decl, call, sourceFile, diagnostics)) return false;
+  return typeKey(decl.ret) === 'void';
+}
+
 function lowerArrowValue(
   expr: ts.Expression,
   stub: FuncDecl,
@@ -1446,8 +2190,20 @@ export function fillFunctionBody(
   /** The local functions this body declares, from the written name to the emitted one
    *  (roadmap 0.3 item T7, #92). */
   localFunctions?: ReadonlyMap<string, string>,
-  /** For a static member, the class that declares it: what `this` names (Rule 8.13). */
+  /** For a static member, the class it is emitted for: what `this` names (Rule 8.13). */
   staticOwner?: string,
+  /** For a static member, what `super` names in its body (Rule 8.13). */
+  staticSuper?: ReadonlyMap<string, string>,
+  /** For a local function, the parameters it takes for what it captures (Rule 8.17). */
+  captures?: readonly CaptureBinding[],
+  /** The declarations of the stub's own parameters when they are not the node's: a function
+   *  that takes a function has none for those (Rule 8.18), and a function written as an
+   *  argument none for a parameter it leaves off, whose entry is undefined. */
+  written?: readonly (ts.ParameterDeclaration | undefined)[],
+  /** Whether the stub's return type is the body's to say: a function written as an argument
+   *  where nothing says what it returns (Rule 8.18). An expression body returns its value, and
+   *  a block what its `return`s do. */
+  inferRet?: boolean,
 ): void {
   const scope = functionScope(
     stub,
@@ -1465,13 +2221,20 @@ export function fillFunctionBody(
   // (roadmap 0.3 item T7, #92).
   scope.setOwner(stub);
   // What `super.m(...)` names in this body (roadmap 0.3 item T5, #92).
-  scope.setSuperMethods(receiver?.superMethods);
+  scope.setSuperMethods(receiver?.superMethods ?? staticSuper);
   scope.setLocalFunctions(localFunctions);
   scope.setStaticClass(staticOwner);
+  // With no return type written, the body's first `return` with a value says it (Rule 8.19).
+  if (inferRet === true && node.body !== undefined && ts.isBlock(node.body)) {
+    scope.setInferredReturn(stub);
+  }
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
   // and the receiver read the same name. A user parameter called `self_` was refused at the
   // signature (TS8035), and a local called `self_` is renamed as any shadowing local is.
   const prologue: Stmt[] = [];
+  // A constructor a class inherits runs the initializers of the classes below the one that
+  // declared it when its body returns (Rule 8.14).
+  const afterBody: Stmt[] = [];
   if (receiver !== undefined) {
     if (receiver.mode === 'param') {
       scope.define({
@@ -1484,60 +2247,116 @@ export function fillFunctionBody(
     } else {
       // `super(...)` is a statement of this body and nowhere else (roadmap 0.3 item T5, #92).
       if (receiver.mode === 'ctor') scope.setSuperCtor(receiver.superCtor);
-      prologue.push(...ctorPrologue(receiver, scope, sourceFile, diagnostics));
+      const parts = ctorParts(receiver, scope, sourceFile, diagnostics);
+      prologue.push(...parts.prologue);
+      scope.setAfterSuper(parts.afterSuper);
+      afterBody.push(...parts.afterBody);
     }
   }
   // A method's stub carries `self_` ahead of the declared parameters; a constructor's carries
   // exactly the declared ones.
-  const offset = stub.params.length - node.parameters.length;
+  const declaredParams: readonly (ts.ParameterDeclaration | undefined)[] =
+    written ?? node.parameters;
+  const offset = stub.params.length - declaredParams.length;
   // A parameter that repeats a module const, a binding or an override is refused the way a
   // `let` at the top of the body is (TS8023), on the parameter, instead of the scope's throw
   // escaping `compileTsSource` (#68). The parameter is not defined, so the body's uses of the
   // name resolve to the module-level declaration; the module is refused anyway.
   stub.params.forEach((p, i) => {
     if (i < offset) return;
+    const declared = declaredParams[i - offset];
+    // A parameter a function written as an argument left off: taken, and named nowhere.
+    if (declared === undefined) {
+      scope.define({
+        kind: 'param',
+        name: `#${p.name}`,
+        irName: p.name,
+        type: p.type,
+        mutable: true,
+      });
+      return;
+    }
     if (scope.hasInCurrent(p.name)) {
       pushDiag(
         diagnostics,
         sourceFile,
-        node.parameters[i - offset]?.name ?? node,
+        declared.name,
         `Parameter "${p.name}" repeats the name of a module-level declaration; rename one of them.`,
         TS_CODES.DUPLICATE_SYMBOL,
       );
       return;
     }
-    scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true });
+    const stored = scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true });
+    // What a local function in this body that captures the parameter passes for it (Rule 8.17).
+    scope.bindDeclaration(declared, stored);
   });
-  if (node.name !== undefined && ts.isIdentifier(node.name)) {
+  // The method's object, which an arrow function in this body captures as `this`, and what a
+  // local function takes for each variable it captures (Rule 8.17): under the variable's own
+  // name, unless one of its own parameters took that name first. One the body does not read by
+  // name is bound under a name no source can write, `#n`, and reached through its declaration.
+  const self = scope.resolve('this');
+  if (self !== undefined) scope.bindDeclaration(THIS_CAPTURE, self);
+  for (const c of captures ?? []) {
+    const named = c.byName && !scope.hasInCurrent(c.binding.name);
+    const ir = c.binding.irName ?? c.binding.name;
+    const stored = scope.define(named ? c.binding : { ...c.binding, name: `#${ir}`, irName: ir });
+    scope.bindDeclaration(c.key, stored);
+  }
+  // What a hover on the function's name shows: its return type, which a function that writes
+  // none has only once its body is lowered.
+  const recordName = (): void => {
+    if (node.name === undefined || !ts.isIdentifier(node.name)) return;
     recordDeclaration(symbols, sourceFile, node.name, {
       name: shown ?? stub.name,
       kind: 'function',
       type: stub.ret,
       params: stub.params.slice(offset).map((p) => ({ name: p.name, type: p.type })),
     });
-  }
+  };
+  if (inferRet !== true) recordName();
   // The stub's parameters and the declaration's are one to one and in order: `parseSignature`
   // pushes one entry per parameter and bails out on the first it cannot accept, so it returns a
   // stub only when it accepted them all.
   stub.params.forEach((p, i) => {
     if (i < offset) return;
-    const nameNode = node.parameters[i - offset]?.name;
+    const nameNode = declaredParams[i - offset]?.name;
     if (nameNode === undefined || !ts.isIdentifier(nameNode)) return;
     recordDeclaration(symbols, sourceFile, nameNode, { name: p.name, kind: 'param', type: p.type });
   });
   // An arrow with an expression body is the one return it stands for (T7, #92); every other
   // shape carries a block.
+  // One that returns nothing is the expression as a statement, whose value TypeScript drops.
   let body =
-    ts.isArrowFunction(node) && !ts.isBlock(node.body)
-      ? lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
-      : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics);
+    inferRet === true && ts.isArrowFunction(node) && !ts.isBlock(node.body)
+      ? inferredArrowValue(node.body, stub, sourceFile, scope, diagnostics)
+      : ts.isArrowFunction(node) && !ts.isBlock(node.body)
+        ? typeKey(stub.ret) === 'void'
+          ? lowerVoidArrowBody(node.body, sourceFile, scope, diagnostics)
+          : lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
+        : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics);
+  if (inferRet === true) recordName();
   if (receiver !== undefined && receiver.mode === 'ctor') {
     // A constructor returns the struct it built: a bare `return` inside it returns `self_`,
     // and one more closes the body. A method that CHANGES its object returns nothing — it
     // writes through its receiver — so its bare returns stay bare.
     const self = selfRef(receiver.type);
-    for (const r of collectReturns(body)) if (!r.expr) (r as { expr?: Expr }).expr = self;
-    body = [...prologue, ...body, { s: 'return', expr: self }];
+    const early = collectReturns(body);
+    if (afterBody.length > 0 && early.length > 0) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.name ?? node,
+        `"${shown ?? stub.name}" runs a constructor it inherits, and the initializers of the ` +
+          `classes below the one that declared it run when that body returns; a "return" ` +
+          `inside it would skip them. Declare a constructor on the class, or end the body ` +
+          `without "return".`,
+        TS_CODES.CLASS_MEMBER,
+      );
+    }
+    for (const r of early) if (!r.expr) (r as { expr?: Expr }).expr = self;
+    // A body whose `super(...)` did not lower still runs what follows it, first.
+    const pending = scope.afterSuperPending() ? scope.takeAfterSuper() : [];
+    body = [...prologue, ...pending, ...body, ...afterBody, { s: 'return', expr: self }];
   } else if (receiver !== undefined && receiver.mode === 'inout') {
     body = [...prologue, ...body];
   }
@@ -1586,7 +2405,11 @@ export function fillFunctionBody(
         diagnostics,
         sourceFile,
         node.name ?? node,
-        `Function "${shown ?? stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`,
+        inferRet === true
+          ? `Function "${shown ?? stub.name}" returns ${typeKey(stub.ret)} at its first ` +
+              `"return" and ${typeKey(r.expr.type)} at another; a function returns one type ` +
+              `(Rule 8.19): make them agree, or write the return type.`
+          : `Function "${shown ?? stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
     }
@@ -1597,10 +2420,10 @@ function parseStage(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): { stage?: FuncDecl['stage']; workgroupSize?: number } {
+): { stage?: FuncDecl['stage']; workgroupShape?: WorkgroupShape } {
   const decos = decoratorsOf(node);
   let stage: FuncDecl['stage'] | undefined;
-  let workgroupSize: number | undefined;
+  let workgroupShape: WorkgroupShape | undefined;
   for (const d of decos) {
     checkAttributeName(diagnostics, sourceFile, d);
     const text = d.getText(sourceFile);
@@ -1608,7 +2431,7 @@ function parseStage(
     else if (/^@fragment\b/.test(text)) stage = 'fragment';
     else if (/^@compute\b/.test(text)) {
       stage = 'compute';
-      workgroupSize = 64;
+      workgroupShape = [64, 1, 1];
       // Read the decorator's AST, not its text (#118). `@compute` and `@compute()` take the
       // default; `@compute([x, y, z])` is a call whose one argument is an array literal of one
       // to three whole numbers, written across lines or through `as const` if the author likes.
@@ -1643,23 +2466,51 @@ function parseStage(
             TS_CODES.WORKGROUP_ARG,
           );
         } else {
-          workgroupSize = sizes[0]!;
-          const [, y, z] = sizes;
-          if ((y !== undefined && y !== 1) || (z !== undefined && z !== 1)) {
-            pushDiag(
-              diagnostics,
-              sourceFile,
-              d,
-              `@compute workgroup shape [${sizes.join(', ')}] must have y and z equal to 1: the ` +
-                `backend only carries the x workgroup size today, and would silently drop the rest.`,
-              TS_CODES.WORKGROUP_SHAPE,
+          workgroupShape = toWorkgroupShape(sizes as [number, number?, number?]);
+          const over = overDefaultWorkgroupLimit(workgroupShape);
+          if (over !== undefined) {
+            diagnostics.push(
+              makeDiagnostic(
+                sourceFile,
+                d,
+                `@compute workgroup shape [${sizes.join(', ')}] ${over}. WebGPU guarantees no ` +
+                  `more, so a device requested without raising that limit refuses the pipeline.`,
+                TS_CODES.WORKGROUP_SHAPE,
+                'warning',
+              ),
             );
           }
         }
       }
     }
   }
-  return { stage, workgroupSize };
+  return { stage, workgroupShape };
+}
+
+/** WebGPU's default compute limits, the ones every adapter supports and `requestDevice()`
+ *  grants when no `requiredLimits` raise them. */
+const DEFAULT_WORKGROUP_LIMITS = {
+  maxComputeWorkgroupSizeX: 256,
+  maxComputeWorkgroupSizeY: 256,
+  maxComputeWorkgroupSizeZ: 64,
+  maxComputeInvocationsPerWorkgroup: 256,
+} as const;
+
+/** The first default limit a workgroup shape exceeds, as a clause naming it; `undefined` when
+ *  the shape fits a device with the default limits. */
+function overDefaultWorkgroupLimit(shape: WorkgroupShape): string | undefined {
+  const [x, y, z] = shape;
+  const L = DEFAULT_WORKGROUP_LIMITS;
+  if (x > L.maxComputeWorkgroupSizeX)
+    return `has x = ${x}, over maxComputeWorkgroupSizeX (${L.maxComputeWorkgroupSizeX})`;
+  if (y > L.maxComputeWorkgroupSizeY)
+    return `has y = ${y}, over maxComputeWorkgroupSizeY (${L.maxComputeWorkgroupSizeY})`;
+  if (z > L.maxComputeWorkgroupSizeZ)
+    return `has z = ${z}, over maxComputeWorkgroupSizeZ (${L.maxComputeWorkgroupSizeZ})`;
+  const n = x * y * z;
+  if (n > L.maxComputeInvocationsPerWorkgroup)
+    return `has ${n} invocations, over maxComputeInvocationsPerWorkgroup (${L.maxComputeInvocationsPerWorkgroup})`;
+  return undefined;
 }
 
 function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
@@ -1778,6 +2629,13 @@ function collectReturns(stmts: readonly Stmt[]): { expr?: Expr }[] {
   return out;
 }
 
+/** `e` without the parentheses around it. */
+function skipParens(e: ts.Expression): ts.Expression {
+  let x = e;
+  while (ts.isParenthesizedExpression(x)) x = x.expression;
+  return x;
+}
+
 function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
@@ -1795,10 +2653,18 @@ function typeArgumentsFor(
   decl: ts.FunctionDeclaration,
   order: readonly string[],
   node: ts.CallExpression,
-  argTypes: readonly ShaderType[],
+  argTypes: readonly (ShaderType | undefined)[],
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  /** The functions a call hands over by name, by parameter index (Rule 8.18): their own
+   *  parameters' types and return type say what the type parameters in the parameter's type
+   *  are. */
+  named: ReadonlyMap<
+    number,
+    { readonly params: readonly ShaderType[]; readonly ret: ShaderType }
+  > = new Map(),
 ): Map<string, ShaderType> | undefined {
+  if (order.length === 0) return new Map();
   const shown = decl.name?.text ?? 'this function';
   const out = new Map<string, ShaderType>();
   const written = node.typeArguments ?? [];
@@ -1824,6 +2690,19 @@ function typeArgumentsFor(
   }
   const names = new Set(order);
   for (const [i, p] of decl.parameters.entries()) {
+    const fnType = functionTypeOf(p.type);
+    const handed = named.get(i);
+    if (fnType !== undefined) {
+      if (handed === undefined) continue;
+      fnType.parameters.forEach((fp, j) => {
+        const actual = handed.params[j];
+        if (fp.type !== undefined && actual !== undefined) inferFrom(fp.type, actual, names, out);
+      });
+      if (fnType.type.kind !== ts.SyntaxKind.VoidKeyword) {
+        inferFrom(fnType.type, handed.ret, names, out);
+      }
+      continue;
+    }
     const actual = argTypes[i];
     if (p.type === undefined || actual === undefined) continue;
     inferFrom(p.type, actual, names, out);

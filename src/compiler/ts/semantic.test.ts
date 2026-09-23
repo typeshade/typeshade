@@ -52,16 +52,24 @@ describe('Phase 12 semantic bans', () => {
     expect(r.diagnostics.some((d) => d.code === TS_CODES.HOST_STMT)).toBe(true);
   });
 
-  it('rejects for-of', () => {
+  it('rejects for-in, and for-of over what is not an array', () => {
+    // for-of over an array is a counted loop (Rule 7.5, for-of.test.ts); over a vector it is
+    // refused where it is lowered, and for-in has no meaning on a shader value at all.
     const r = compileTsSource(`
       "use typeshade";
       export function f(xs: vec3): f32 {
         for (const x of xs) { }
+        for (const k in xs) { }
         return 0.;
       }
     `);
     expect(
-      r.diagnostics.some((d) => d.code === TS_CODES.HOST_STMT && /for-of/.test(d.message)),
+      r.diagnostics.some(
+        (d) => d.code === TS_CODES.TYPE_MISMATCH && /for-of iterates an array/.test(d.message),
+      ),
+    ).toBe(true);
+    expect(
+      r.diagnostics.some((d) => d.code === TS_CODES.HOST_STMT && /for-in/.test(d.message)),
     ).toBe(true);
   });
 

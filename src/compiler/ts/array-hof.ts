@@ -64,6 +64,8 @@ export function lowerArrayHof(
     );
     return undefined;
   }
+  // What it returns, which its body says when it writes no return type (Rule 8.19).
+  if (!scope.calleeReady(decl, fnArg, sourceFile, diagnostics)) return undefined;
   const xsNode = args[0];
   if (!xsNode) {
     diagnostics.push(

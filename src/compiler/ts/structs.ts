@@ -5,11 +5,16 @@ import { boolT, f32T, structT, typeKey as typeKeyOf } from '../../core/ir/types.
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { lookupTypeName, mapTsTypeToShaderType } from './type-map.js';
 import {
+  baseClassOf,
   emittedMemberName,
+  holdsFunction,
   isPrivateName,
   isReadonlyMember,
   isStaticMember,
+  keywordAccessOf,
+  memberDeclarationInChain,
   writtenMemberName,
+  type KeywordAccess,
 } from './class-names.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { TS_CODES } from './codes.js';
@@ -88,7 +93,19 @@ export type CollectedStruct = {
   /** The `readonly` fields, by emitted name, with the class that declares each: only that
    *  class's constructor may assign one (Rule 8.14), which is TypeScript's rule. */
   readonly readonlyFields?: ReadonlyMap<string, ts.ClassLikeDeclaration>;
+  /** The fields declared `private` or `protected`, by emitted name, with the class that
+   *  declares each (Rule 8.15). */
+  readonly restrictedFields?: ReadonlyMap<string, RestrictedField>;
+  /** For a generic class's instance, the name its statics are emitted under: the class's own,
+   *  `Pair` for `Pair_f32`, since a static is one per class and not one per instance (T9). */
+  readonly staticHolder?: string;
 };
+
+/** A field declared with `private` or `protected`, and the class that declares it. */
+export interface RestrictedField {
+  readonly access: KeywordAccess;
+  readonly owner: ts.ClassLikeDeclaration;
+}
 
 /** A field written under a private name, and the class whose body may name it (Rule 8.12). */
 export interface PrivateField {
@@ -192,6 +209,8 @@ export function collectStructs(
       withheld: ReadonlySet<string>;
       withheldFunctions: ReadonlySet<string>;
       readonlyFields: ReadonlyMap<string, ts.ClassLikeDeclaration>;
+      restrictedFields: ReadonlyMap<string, RestrictedField>;
+      staticHolder?: string;
     },
   ): void => {
     const fromClass =
@@ -199,12 +218,16 @@ export function collectStructs(
         ? {}
         : {
             classNode: klass.node,
+            ...(klass.staticHolder !== undefined ? { staticHolder: klass.staticHolder } : {}),
             ...(klass.privateFields.size > 0 ? { privateFields: klass.privateFields } : {}),
             ...(klass.withheld.size > 0 ? { withheld: klass.withheld } : {}),
             ...(klass.withheldFunctions.size > 0
               ? { withheldFunctions: klass.withheldFunctions }
               : {}),
             ...(klass.readonlyFields.size > 0 ? { readonlyFields: klass.readonlyFields } : {}),
+            ...(klass.restrictedFields.size > 0
+              ? { restrictedFields: klass.restrictedFields }
+              : {}),
           };
     if (declared.has(name)) {
       diagnostics.push(
@@ -231,6 +254,7 @@ export function collectStructs(
         packing: 'wgsl',
         spelling,
         namespace: true,
+        ...(bases.length > 0 ? { bases } : {}),
         ...(members !== undefined ? { members } : {}),
         ...(binding !== undefined ? { binding } : {}),
         ...fromClass,
@@ -380,6 +404,7 @@ export function collectStructs(
         const privateFields = new Map<string, PrivateField>();
         const withheld = new Set<string>();
         const readonlyFields = new Map<string, ts.ClassLikeDeclaration>();
+        const restrictedFields = new Map<string, RestrictedField>();
         let ctor: ts.ConstructorDeclaration | undefined;
         // Every function the class emits, by what follows `Cls_` in its name, with the member it
         // was written as. Two members can reach one name in ways TypeScript keeps apart: `#step`
@@ -501,6 +526,10 @@ export function collectStructs(
               fields.push(field);
               paramProps.push(field.name);
               if (isReadonlyMember(p)) readonlyFields.set(field.name, member.parent);
+              const access = keywordAccessOf(p);
+              if (access !== undefined) {
+                restrictedFields.set(field.name, { access, owner: member.parent });
+              }
               recordDeclaration(symbols, sourceFile, p.name, {
                 name: field.name,
                 kind: 'field',
@@ -620,6 +649,23 @@ export function collectStructs(
           // collects and folds it, exactly as it does a top-level `const`. Before this it was
           // refused, and the fix it named was to write the const by hand. One the file writes is
           // a module variable instead, which `module-vars.ts` collects (Rule 8.13).
+          // A field that holds a function is a method (Rule 8.16), a static one included.
+          if (holdsFunction(member)) {
+            const fn = member.initializer as ts.ArrowFunction | ts.FunctionExpression;
+            const why = functionFieldRefusal(member, fn, structName, memberName);
+            if (why !== undefined) {
+              diagnostics.push(classDiag(sourceFile, why.at, why.message));
+              continue;
+            }
+            const twice =
+              `"${structName}.${memberName}" is declared twice; a method has one body ` +
+              `and no overloads.`;
+            if (!claimFunction(emittedMemberName(memberName), memberName, member.name, twice))
+              continue;
+            if (!claimKind(memberName, 'method', member.name, memberName)) continue;
+            methods.push(methodOfField(member, fn));
+            continue;
+          }
           if (isStaticMember(member)) {
             if (!claimKind(`static ${memberName}`, 'field', member.name, memberName)) continue;
             // `static #n` and `static n` would be one module constant, `Cls_n` (Rule 8.12).
@@ -639,19 +685,6 @@ export function collectStructs(
             }
             staticFieldNames.set(emitted, memberName);
             staticFields++;
-            continue;
-          }
-          if (
-            member.initializer !== undefined &&
-            (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer))
-          ) {
-            diagnostics.push(
-              classDiag(
-                sourceFile,
-                member,
-                `A field holding a function is a method: write "${memberName}(...) { ... }".`,
-              ),
-            );
             continue;
           }
           for (const d of member.modifiers ?? []) {
@@ -700,6 +733,10 @@ export function collectStructs(
           }
           if (isReadonlyMember(member))
             readonlyFields.set(emittedMemberName(memberName), member.parent);
+          const access = keywordAccessOf(member);
+          if (access !== undefined) {
+            restrictedFields.set(emittedMemberName(memberName), { access, owner: member.parent });
+          }
           const field: StructField = { name: emittedMemberName(memberName), type };
           const loc = numberDecorator(member, 'location');
           const decos = ts.canHaveDecorators(member) ? (ts.getDecorators(member) ?? []) : [];
@@ -791,7 +828,9 @@ export function collectStructs(
             : undefined;
         // Every member static and no field: a namespace (T3). An instance method or a constructor
         // needs a receiver, so a class that declares one keeps the empty-struct refusal and its
-        // "write them as functions" fix.
+        // "write them as functions" fix. One with a base keeps the base, and is a struct after all
+        // when the base has fields (`applyInheritance`): `class Derived extends Base { static J =
+        // 1. }` lost its base, and every static it inherits, as a namespace (Rule 8.13).
         const isNamespace =
           fields.length === 0 &&
           staticFunctions + staticFields > 0 &&
@@ -810,7 +849,15 @@ export function collectStructs(
           bases,
           isAbstract,
           instance.binding,
-          { node: stmt, privateFields, withheld, withheldFunctions, readonlyFields },
+          {
+            node: stmt,
+            privateFields,
+            withheld,
+            withheldFunctions,
+            readonlyFields,
+            restrictedFields,
+            ...(instance.binding !== undefined ? { staticHolder: written } : {}),
+          },
         );
         // A static of a generic class cannot mention the class's type parameters — TypeScript
         // refuses that outright (TS2302) — so it is ONE function, not one per instance. It is
@@ -843,6 +890,7 @@ export function collectStructs(
               withheld: new Set(),
               withheldFunctions: new Set(),
               readonlyFields: new Map(),
+              restrictedFields: new Map(),
             },
           );
         }
@@ -870,6 +918,7 @@ export function collectStructs(
       s.decl.fields,
     );
   }
+  checkOverrideKinds(sourceFile, diagnostics);
   return inherited;
 }
 
@@ -879,6 +928,118 @@ function classDiag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompile
 
 /** `a field`, `a method`, `an accessor`. */
 const a = (kind: string): string => (/^[aeiou]/.test(kind) ? `an ${kind}` : `a ${kind}`);
+
+/** What TypeScript tells a class member apart as where a class that extends declares it again:
+ *  a field (a parameter property is one), a field that holds a function (a method here, Rule
+ *  8.16, and a property to TypeScript), a method, or an accessor. */
+type OverrideKind = 'field' | 'field that holds a function' | 'method' | 'accessor';
+
+function overrideKindOf(d: ts.ClassElement | ts.ParameterDeclaration): OverrideKind | undefined {
+  if (ts.isParameter(d)) return 'field';
+  if (ts.isPropertyDeclaration(d))
+    return holdsFunction(d) ? 'field that holds a function' : 'field';
+  if (ts.isMethodDeclaration(d)) return 'method';
+  if (ts.isGetAccessorDeclaration(d) || ts.isSetAccessorDeclaration(d)) return 'accessor';
+  return undefined;
+}
+
+/** Whether TypeScript lets a member of kind `mine` stand where the class above declares one of
+ *  kind `theirs`: the same kind, a property over a method, and a field over an abstract accessor.
+ *  It refuses the rest: TS2423, TS2425 and TS2426 between a method and a property or an
+ *  accessor, TS2610 and TS2611 between a property and an accessor, and TS2416 between a field of
+ *  a shader type and a function. An accessor over an abstract field is the one TypeScript takes
+ *  and this does not (see `checkOverrideKinds`). */
+function mayOverride(mine: OverrideKind, theirs: OverrideKind, abstract: boolean): boolean {
+  if (mine === theirs) return true;
+  if (mine === 'field that holds a function' && theirs === 'method') return true;
+  return abstract && mine === 'field' && theirs === 'accessor';
+}
+
+/** A member a class that extends declares again as another kind than the class above declares
+ *  it, and `super.f` where the `f` above is a field that holds a function, which is the object's
+ *  own (TS2855): what TypeScript refuses, and what would otherwise compile to one class's member
+ *  where TypeScript's object holds the other's (Rule 8.16). Read off each declaration once, so a
+ *  generic class says it once however many instances the file writes. */
+function checkOverrideKinds(sourceFile: ts.SourceFile, diagnostics: TsCompilerDiagnostic[]): void {
+  const ownerOf = (d: ts.ClassElement | ts.ParameterDeclaration): string => {
+    const cls = ts.isParameter(d) ? d.parent.parent : d.parent;
+    return ts.isClassLike(cls) && cls.name !== undefined ? cls.name.text : '';
+  };
+  const visit = (node: ts.Node): void => {
+    ts.forEachChild(node, visit);
+    if (!ts.isClassDeclaration(node) || node.name === undefined) return;
+    const base = baseClassOf(node);
+    if (base === undefined) return;
+    const cls = node.name.text;
+    const said = new Set<string>();
+    const check = (name: string, mine: OverrideKind, at: ts.Node): void => {
+      if (said.has(name) || isPrivateName(name)) return;
+      const prior = memberDeclarationInChain(base, name, false);
+      const theirs = prior === undefined ? undefined : overrideKindOf(prior);
+      if (prior === undefined || theirs === undefined) return;
+      const abstract =
+        (ts.getCombinedModifierFlags(prior as ts.Declaration) & ts.ModifierFlags.Abstract) !== 0;
+      if (mayOverride(mine, theirs, abstract)) return;
+      said.add(name);
+      const owner = ownerOf(prior);
+      // TypeScript takes an accessor over an abstract field, which it emits nothing for. Here
+      // the field is a member of every struct below it, and a body the base wrote would read
+      // that member, never the accessor: 0 where TypeScript computes the getter's value.
+      const type = ts.isPropertyDeclaration(prior) ? prior.type?.getText(sourceFile) : undefined;
+      diagnostics.push(
+        classDiag(
+          sourceFile,
+          at,
+          abstract && mine === 'accessor' && theirs === 'field'
+            ? `"${cls}.${name}" is an accessor, and the "${owner}.${name}" it overrides is an ` +
+                `abstract field, which every struct below "${owner}" holds as a member, so a ` +
+                `read of it would never reach the accessor. Declare it in "${owner}" as ` +
+                `"abstract get ${name}(): ${type ?? 'T'}".`
+            : `"${cls}.${name}" is ${a(mine)}, and the "${owner}.${name}" it overrides is ` +
+                `${a(theirs)}; TypeScript refuses an override of another kind. Declare it as ` +
+                `${a(theirs)}, or rename it.`,
+        ),
+      );
+    };
+    for (const m of node.members) {
+      if (ts.isConstructorDeclaration(m)) {
+        for (const p of m.parameters) {
+          if (ts.isIdentifier(p.name) && ts.isParameterPropertyDeclaration(p, m)) {
+            check(p.name.text, 'field', p.name);
+          }
+        }
+        continue;
+      }
+      if (m.name === undefined || isStaticMember(m)) continue;
+      const name = writtenMemberName(m.name);
+      const mine = overrideKindOf(m);
+      if (name !== undefined && mine !== undefined) check(name, mine, m.name);
+    }
+    // `super` in an instance member's body, an arrow function's included; a nested class and a
+    // `function` have a `super` of their own, or none.
+    const walk = (n: ts.Node): void => {
+      if (ts.isClassLike(n) || ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n)) return;
+      if (ts.isPropertyAccessExpression(n) && n.expression.kind === ts.SyntaxKind.SuperKeyword) {
+        const name = n.name.text;
+        const prior = memberDeclarationInChain(base, name, false);
+        if (prior !== undefined && ts.isPropertyDeclaration(prior) && holdsFunction(prior)) {
+          diagnostics.push(
+            classDiag(
+              sourceFile,
+              n,
+              `"super.${name}" names a field that holds a function, and a field is the object's ` +
+                `own, which "super" does not reach. Declare "${ownerOf(prior)}.${name}" as a ` +
+                `method, or write "this.${name}".`,
+            ),
+          );
+        }
+      }
+      ts.forEachChild(n, walk);
+    };
+    for (const m of node.members) if (!isStaticMember(m)) ts.forEachChild(m, walk);
+  };
+  visit(sourceFile);
+}
 
 /** The type a field written without one takes from its initializer, or `undefined` when the
  *  initializer does not name one (Rule 8.14). Read off the syntax, since no scope exists yet to
@@ -988,6 +1149,10 @@ function collectCandidates(sourceFile: ts.SourceFile): Map<string, Candidate> {
 function eachTypeName(node: ts.Node, f: (name: string) => void): void {
   if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) f(node.typeName.text);
   node.forEachChild((child) => {
+    // A type parameter's constraint and default describe what an argument may be, and no
+    // value has them: `<T extends HasArea>` names a contract, which an interface with methods
+    // is (Rule 6.9). The type the parameter is bound to is what a call consumes.
+    if (ts.isTypeParameterDeclaration(child)) return;
     eachTypeName(child, f);
   });
 }
@@ -1139,6 +1304,7 @@ function applyInheritance(
     readonly privates: ReadonlyMap<string, PrivateField>;
     readonly withheld: ReadonlySet<string>;
     readonly readonlyFields: ReadonlyMap<string, ts.ClassLikeDeclaration>;
+    readonly restrictedFields: ReadonlyMap<string, RestrictedField>;
   }
   const done = new Map<string, Resolved>();
   const onStack: string[] = [];
@@ -1148,6 +1314,7 @@ function applyInheritance(
     privates: s.privateFields ?? new Map(),
     withheld: s.withheld ?? new Set(),
     readonlyFields: s.readonlyFields ?? new Map(),
+    restrictedFields: s.restrictedFields ?? new Map(),
   });
 
   const resolve = (name: string): Resolved => {
@@ -1155,7 +1322,13 @@ function applyInheritance(
     if (cached) return cached;
     const struct = byName.get(name);
     if (!struct) {
-      return { fields: [], privates: new Map(), withheld: new Set(), readonlyFields: new Map() };
+      return {
+        fields: [],
+        privates: new Map(),
+        withheld: new Set(),
+        readonlyFields: new Map(),
+        restrictedFields: new Map(),
+      };
     }
     if (onStack.includes(name)) {
       diagnostics.push(
@@ -1175,6 +1348,7 @@ function applyInheritance(
     const privates = new Map<string, PrivateField>();
     const withheld = new Set<string>(struct.withheld ?? []);
     const readonlyFields = new Map<string, ts.ClassLikeDeclaration>();
+    const restrictedFields = new Map<string, RestrictedField>();
     const seen = new Map<
       string,
       { field: StructField; from: string; private: PrivateField | undefined }
@@ -1229,25 +1403,36 @@ function applyInheritance(
       const above = resolve(base);
       for (const w of above.withheld) withheld.add(w);
       for (const [f, cls] of above.readonlyFields) readonlyFields.set(f, cls);
+      for (const [f, r] of above.restrictedFields) restrictedFields.set(f, r);
       for (const f of above.fields) put(f, base, above.privates.get(f.name));
     }
     for (const f of struct.decl.fields) put(f, name, struct.privateFields?.get(f.name));
     for (const [f, cls] of struct.readonlyFields ?? []) readonlyFields.set(f, cls);
+    // A field the class declares again takes the class's own modifier: `limit: f32 = 5.` over a
+    // base's `protected limit` makes it public, as TypeScript allows (Rule 8.15).
+    for (const f of struct.decl.fields) {
+      if (!(struct.restrictedFields?.has(f.name) ?? false)) restrictedFields.delete(f.name);
+    }
+    for (const [f, r] of struct.restrictedFields ?? []) restrictedFields.set(f, r);
     onStack.pop();
-    const resolved = { fields, privates, withheld, readonlyFields };
+    const resolved = { fields, privates, withheld, readonlyFields, restrictedFields };
     done.set(name, resolved);
     return resolved;
   };
 
-  const out = structs.map((s) => {
-    const { fields, privates, withheld, readonlyFields } = resolve(s.decl.name);
+  const out = structs.map((s): CollectedStruct => {
+    const { fields, privates, withheld, readonlyFields, restrictedFields } = resolve(s.decl.name);
     if (fields === s.decl.fields) return s;
+    // A class of statics alone that extends a struct is a struct: it has its base's fields, and
+    // `new` builds one (Rule 8.13). Over a chain of such classes it stays a namespace.
+    const { namespace: _namespace, ...rest } = s;
     return {
-      ...s,
+      ...(fields.length > 0 ? rest : s),
       decl: { ...s.decl, fields },
       ...(privates.size > 0 ? { privateFields: privates } : {}),
       ...(withheld.size > 0 ? { withheld } : {}),
       ...(readonlyFields.size > 0 ? { readonlyFields } : {}),
+      ...(restrictedFields.size > 0 ? { restrictedFields } : {}),
     };
   });
   // The empty-struct rule is checked here for a declaration with a base, since what it
@@ -1264,6 +1449,116 @@ function applyInheritance(
     );
   }
   return out;
+}
+
+/** Why the function a field holds cannot be a method, with the fix; undefined when it can. */
+function functionFieldRefusal(
+  member: ts.PropertyDeclaration,
+  fn: ts.ArrowFunction | ts.FunctionExpression,
+  structName: string,
+  memberName: string,
+): { at: ts.Node; message: string } | undefined {
+  const shown = `${structName}.${memberName}`;
+  if (isStaticMember(member)) {
+    return {
+      at: member,
+      message:
+        `A static field holding a function is a static method: write ` +
+        `"static ${memberName}(...) { ... }".`,
+    };
+  }
+  if ((fn.typeParameters?.length ?? 0) > 0) {
+    return {
+      at: fn,
+      message:
+        `"${shown}" takes type parameters, and a method does not; write it as a generic ` +
+        `function of the module.`,
+    };
+  }
+  // The sentence a method of the same shape gets.
+  if (
+    (ts.isFunctionExpression(fn) && fn.asteriskToken !== undefined) ||
+    fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+  ) {
+    return { at: fn, message: `"${shown}" is a plain method or nothing: no async, no generator.` };
+  }
+  return undefined;
+}
+
+/** Whether an arrow function's expression body is an assignment, `++` or `--`: a statement
+ *  whose value is not what the function is for. */
+function runsAsStatement(body: ts.Expression): boolean {
+  let e = body;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  if (ts.isPostfixUnaryExpression(e)) return true;
+  if (ts.isPrefixUnaryExpression(e)) {
+    return (
+      e.operator === ts.SyntaxKind.PlusPlusToken || e.operator === ts.SyntaxKind.MinusMinusToken
+    );
+  }
+  return (
+    ts.isBinaryExpression(e) &&
+    e.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+    e.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+  );
+}
+
+/** The method a field that holds a function is: the field's name and modifiers, the function's
+ *  parameters, return type and body, an expression body being a `return` of it. Its nodes are
+ *  the source's own, so what is said about them is said where they are written. */
+function methodOfField(
+  member: ts.PropertyDeclaration,
+  fn: ts.ArrowFunction | ts.FunctionExpression,
+): ts.MethodDeclaration {
+  const setParent = (node: ts.Node, parent: ts.Node): void => {
+    (node as { parent: ts.Node }).parent = parent;
+  };
+  // Only the nodes made here are given a parent. The author's own keep theirs: the language
+  // service hands the compiler the tree TypeScript's checker binds, whose name lookup walks up
+  // those pointers, and a body moved under a method the binder never saw loses its
+  // parameters (TS2304 "Cannot find name 'p'" on every read of one).
+  let body: ts.Block;
+  if (ts.isBlock(fn.body)) body = fn.body;
+  else {
+    // An assignment, `++` or `--` in a function that returns nothing, or says nothing it
+    // returns, is run as a statement (Rules 8.18, 8.19); any other expression is returned.
+    const stmt =
+      (fn.type === undefined || fn.type.kind === ts.SyntaxKind.VoidKeyword) &&
+      runsAsStatement(fn.body)
+        ? ts.factory.createExpressionStatement(fn.body)
+        : ts.factory.createReturnStatement(fn.body);
+    ts.setTextRange(stmt, fn.body);
+    body = ts.setTextRange(ts.factory.createBlock([stmt], true), fn.body);
+    setParent(stmt, body);
+  }
+  const modifiers = (ts.getModifiers(member) ?? []).filter(
+    (m) =>
+      m.kind === ts.SyntaxKind.PublicKeyword ||
+      m.kind === ts.SyntaxKind.PrivateKeyword ||
+      m.kind === ts.SyntaxKind.ProtectedKeyword ||
+      m.kind === ts.SyntaxKind.OverrideKeyword,
+  );
+  const method = ts.setTextRange(
+    ts.factory.createMethodDeclaration(
+      modifiers,
+      undefined,
+      member.name,
+      undefined,
+      undefined,
+      // `function (this: A)` types `this`; it is not a parameter anything passes.
+      ts.factory.createNodeArray(
+        fn.parameters.filter(
+          (p, i) => !(i === 0 && ts.isIdentifier(p.name) && p.name.text === 'this'),
+        ),
+      ),
+      fn.type,
+      body,
+    ),
+    member,
+  );
+  setParent(method, member.parent);
+  if (body !== fn.body) setParent(body, method);
+  return method;
 }
 
 function memberNameDiag(
@@ -1295,7 +1590,15 @@ function signatureFields(
   const fields: StructField[] = [];
   for (const member of members) {
     if (ts.isMethodSignature(member)) {
-      diagnostics.push(diag(sourceFile, member, `Data type "${owner}" cannot have methods.`));
+      diagnostics.push(
+        diag(
+          sourceFile,
+          member,
+          `"${owner}" declares a method, so it is a contract a class implements and not a ` +
+            `value a shader holds: take the class that implements it, or a type parameter it ` +
+            `constrains, "<T extends ${owner}>(v: T)".`,
+        ),
+      );
       continue;
     }
     if (ts.isCallSignatureDeclaration(member) || ts.isConstructSignatureDeclaration(member)) {

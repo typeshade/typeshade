@@ -75,9 +75,11 @@ import {
   TYPED_BIT_BUILTINS,
   bitBuiltin,
   cloneValue,
+  copiedParams,
   isAggregateType,
 } from '../cpu-runtime.js';
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js';
+import { fnWrites } from '../passes/effects.js';
 
 /** One call frame of a paused run, innermost last. Mutable on purpose: the session reads a
  *  frame's `current` at each pause, and a snapshot is taken there rather than here. */
@@ -159,6 +161,9 @@ export interface StepCtx {
    *  somewhere inside it, at any depth and through any number of calls. That is what makes
    *  taint propagate without threading a second return value through `evalExpr`. */
   stubHits: number;
+  /** Which of each function's by-value parameters it copies as it is entered, as the
+   *  interpreter does (`copiedParams`, cpu-runtime.ts). */
+  readonly copies: Map<string, readonly boolean[]>;
 }
 
 /** A generator that yields statement pauses and finally produces `T`. */
@@ -312,7 +317,23 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
         return stub(...args);
       }
       const decl = ctx.decls.get(e.fn);
-      if (decl) return yield* callFunction(decl, args, e.span, ctx, argStubbed);
+      if (decl) {
+        if (!decl.params.some((p) => p.mode === 'inout')) {
+          return yield* callFunction(decl, args, e.span, ctx, argStubbed);
+        }
+        // What each `inout` parameter holds as the callee returns goes back into the variable
+        // passed there, as the interpreter's `storeBack` does.
+        const returned: CpuValue[] = [];
+        const value = yield* callFunction(decl, args, e.span, ctx, argStubbed, returned);
+        for (const [i, p] of decl.params.entries()) {
+          const arg = e.args[i];
+          if (p.mode !== 'inout' || arg === undefined) continue;
+          if (arg.op === 'varref' || arg.op === 'param') {
+            yield* setLValue(arg, returned[i] as CpuValue, env, ctx);
+          }
+        }
+        return value;
+      }
       throw new Error(`typeshade/debug: unknown fn ${e.fn}`);
     }
     case 'member': {
@@ -397,8 +418,12 @@ export function* callFunction(
   callSpan: SourceSpan | undefined,
   ctx: StepCtx,
   stubbedArgs?: readonly boolean[],
+  /** Filled, by parameter index, with what each parameter holds as the function returns, for
+   *  the caller to store an `inout` one back. Handed back through the call rather than the
+   *  interpreter's shared slot: the pause below may run another invocation first. */
+  returned?: CpuValue[],
 ): Step<CpuValue> {
-  const r = yield* runFunction(decl, args, callSpan, ctx, stubbedArgs);
+  const r = yield* runFunction(decl, args, callSpan, ctx, stubbedArgs, returned);
   // The callee's frame has been popped by now (`runFunction`'s `finally`), so this event
   // reports the CALLER, stopped part-way through the statement that made the call. See
   // `StepEvent.afterCall`.
@@ -418,9 +443,13 @@ export function* runFunction(
   callSpan: SourceSpan | undefined,
   ctx: StepCtx,
   stubbedArgs?: readonly boolean[],
+  returned?: CpuValue[],
 ): Step<Signal> {
   const env = new Map<string, CpuValue>();
-  decl.params.forEach((p, i) => env.set(p.name, args[i] as CpuValue));
+  const copies = ctx.copies.get(decl.name);
+  decl.params.forEach((p, i) =>
+    env.set(p.name, copies?.[i] === true ? cloneValue(args[i]!) : (args[i] as CpuValue)),
+  );
   const frame: StepFrame = {
     fnName: decl.name,
     fnSpan: decl.span,
@@ -432,7 +461,9 @@ export function* runFunction(
   };
   ctx.frames.push(frame);
   try {
-    return yield* execBody(decl.body, env, ctx);
+    const signal = yield* execBody(decl.body, env, ctx);
+    if (returned !== undefined) decl.params.forEach((p, i) => (returned[i] = env.get(p.name)!));
+    return signal;
   } finally {
     ctx.frames.pop();
   }
@@ -705,10 +736,14 @@ export function* execBody(
  *  walk is not steppable: a module constant is fixed before any entry point runs, so there is
  *  no invocation to pause inside. Its pauses are drained rather than reported. */
 export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
+  const writes = fnWrites(m);
   const ctx: StepCtx = {
     consts: new Map<string, CpuValue>(),
     overrides: new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default])),
     decls: new Map(m.funcs.map((f) => [f.name, f])),
+    copies: new Map(
+      m.funcs.map((f) => [f.name, copiedParams(f.params, (writes.get(f.name)?.size ?? 0) > 0)]),
+    ),
     bindings: {},
     vars: {},
     privates: {},
