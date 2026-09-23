@@ -4483,7 +4483,8 @@ And four by design, with no measurement to take:
   compiler analyses asks for it, which is the uniformity item, not a free-form author control:
   the author writes `@diagnostic("off", "derivative_uniformity")` on an entry (§54).
 - Four declarable capabilities — `floatRenderTarget`, `float32Blend`, `float32Filterable` and
-  `multiview` — are still unspellable from a `"use typeshade"` source. `"enable ..."` takes the
+  `multiview` — are still unspellable from a `"use typeshade"` source. (`capabilityMatrix`
+  reports nine of its eighteen rows `declarable`; the other five are the extensions above.) `"enable ..."` takes the
   WGSL extension names, and none of those four is one: three are activated by the host at
   `requestDevice` or `gl.getExtension` and cost the shader no token at all, and the fourth is a
   GLSL `#extension`. A module that needs one is assembled with `module({ enables: [...] })`.

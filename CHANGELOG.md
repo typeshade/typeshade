@@ -139,6 +139,12 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **Hover documents every matrix type, not only `mat4`** (Rule 12.7, surface §40). The language
+  service's type table, which hover, completions and the reference pages read, had rows for
+  `mat4` and `mat4x4` alone, while the compiler takes all nine `matCxR` and the three square
+  `matN` shorthands; hovering `mat3x2` said nothing. The ten missing rows are there now, in the
+  same voice, and `src/language-service/docs.test.ts` requires a row for every matrix name
+  `SUPPORTED_TYPE_NAMES` holds.
 - **A method that changes its object may return a value** (§26, Rule 8.10). A generator's
   `gen(): f32` that assigns `this.seed = …` and returns the draw was `TS8035 A method that
 changes its object returns nothing (§26)` at the assignment: the rule of the protocol that
@@ -926,6 +932,31 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   returns, so an initializer that reads `this.limit` reads what the base's constructor left.
   Measured on `main`: `B` above with `constructor() { super(); this.limit *= 10. }` over an `A`
   whose constructor adds 1 gave 20, TypeScript 50; it gives 50.
+- **`capabilityMatrix` says `declarable: false` for all nine derived capabilities** (Rule 10.1,
+  §50). `bgra8unormStorage` (#147, derived from a storage texture's format) and `packed4x8Dot`
+  (#152, derived from the packed 4x8 calls) came back `declarable: true`, although
+  `DeclarableCapability` excludes both and `module({ enables })` refuses them at compile time:
+  the matrix read a hand list in `src/core/backend.ts` that still stopped at the seven kind- and
+  call-derived ids, and its JSDoc still said three. The list now lives once, in
+  `src/core/ir/derived-capabilities.ts`, private: `DeclarableCapability` is `Capability` minus
+  its members and the matrix reads the same array, so the type and the table cannot part
+  again. Measured after: eighteen rows, nine derived, nine declarable. `AUTHORING.md`'s
+  capabilities section said "the seven", and says nine now; surface §50 and
+  `docs/language-design.md` §10.1 state the same count. Pinned in
+  `src/core/capability-matrix.test.ts`, whose expected set is checked against the type.
+- **A bare `@location` parameter takes its value from a debug configuration** (`typeshade/debug`,
+  `docs/debugging.md` §4). `fs(@location(0) uv: vec2)` with `"inputs": { "uv": [0.5, 0.25] }`
+  ran on `[0, 0]` and returned `[0, 0, 0, 1]`: the resolver filed the value under `uv.uv`,
+  the spelling it builds for a struct field, and the run read the parameter back under `uv`.
+  A bare parameter is now spelled by its own name and nothing else, so the unknown-input
+  sentence names `uv` rather than `uv, uv.uv`, and beside a struct field of the same name the
+  bare name is the parameter and `s.uv` the field. The struct form is unchanged. Pinned in
+  `src/core/debug/config.test.ts` through `startDebugSessionFromConfig` from `typeshade/debug`.
+- **`TS8004` names what to do instead of a plan phase** (Rule 12.1, Rule 12.5). After
+  `Unknown function "foo(a)".`, a call to a name nothing declares read
+  `Function calls (Phase 6) need a visible callee.`, a pointer into a plan that finished long
+  ago. The second sentence is now the remedy,
+  `Declare it in this file, or import it from another shader module.`, and the code is the same.
 - **The optimizer keeps what a call writes, and the debugger copies what it stores** (§19,
   §26). Each of these made the emitted shader, or the stepper, disagree with the CPU oracle:
   dead-code elimination dropped an unread `let` whole, write and all, so `const unused = next()`

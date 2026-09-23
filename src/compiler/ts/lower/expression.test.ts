@@ -178,7 +178,13 @@ describe('Phase 3 - expression lowering', () => {
   it('rejects call to unknown free function foo()', () => {
     const { expr, diagnostics } = lower('foo(a)', withParams)
     expect(expr).toBeUndefined()
-    expect(diagnostics[0]!.message).toMatch(/Unknown function|Function calls|Phase 6/)
+    // Rule 12.1 / 12.5: the second sentence names the remedy, not the plan phase that once
+    // added calls ("Function calls (Phase 6) need a visible callee.").
+    expect(diagnostics[0]!.code).toBe('TS8004')
+    expect(diagnostics[0]!.message).toBe(
+      'Unknown function "foo(a)". Declare it in this file, or import it from another shader module.',
+    )
+    expect(diagnostics[0]!.message).not.toContain('Phase')
   })
 
   it('diagnostic includes line and character', () => {

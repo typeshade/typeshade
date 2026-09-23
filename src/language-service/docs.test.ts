@@ -7,7 +7,9 @@ import {
   MATH_MEMBER_DOCS,
   DOCUMENTED_FUNCTION_NAMES,
   DOCUMENTED_CONSTANT_NAMES,
+  TYPE_DOCS,
 } from './docs.js'
+import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
 
 describe('ambient lib JSDoc', () => {
   it('every declare function line in SHADE_DTS is preceded by a JSDoc line ending in */', () => {
@@ -145,6 +147,49 @@ describe('ambient lib JSDoc', () => {
       // Count sentences (roughly by periods)
       const sentenceCount = doc.split('. ').length
       expect(sentenceCount <= 3, `Doc should have at most 3 sentences: "${doc}"`).toBe(true)
+    }
+  })
+})
+
+describe('TYPE_DOCS: every matrix name the compiler takes has a row', () => {
+  // Regression: the table held `mat4` and `mat4x4` only, while the compiler takes every
+  // `matCxR` and the square `matN` shorthands (surface §40; the TS8002 sentence lists them),
+  // so hover documented two of the twelve and the reference page listed two matrix types.
+  const MATRIX_NAMES = SUPPORTED_TYPE_NAMES.filter((n) => /^mat\d/.test(n))
+
+  it('the compiler takes all twelve, so the check below is not vacuous', () => {
+    expect([...MATRIX_NAMES].sort()).toEqual(
+      [
+        'mat2',
+        'mat2x2',
+        'mat2x3',
+        'mat2x4',
+        'mat3',
+        'mat3x2',
+        'mat3x3',
+        'mat3x4',
+        'mat4',
+        'mat4x2',
+        'mat4x3',
+        'mat4x4',
+      ].sort(),
+    )
+  })
+
+  it('each one has a documented row naming its shape', () => {
+    const missing = MATRIX_NAMES.filter((n) => TYPE_DOCS[n] === undefined)
+    expect(missing).toEqual([])
+    for (const n of MATRIX_NAMES) {
+      const [, c, r] = /^mat(\d)(?:x(\d))?$/.exec(n)!
+      expect(TYPE_DOCS[n], n).toContain(`${c}x${r ?? c} matrix`)
+    }
+  })
+
+  it('each row reads like the rest of the table', () => {
+    for (const n of MATRIX_NAMES) {
+      const doc = TYPE_DOCS[n]!
+      expect(doc.endsWith('.'), n).toBe(true)
+      expect(doc.includes('\u2014') || doc.includes('\u2013'), n).toBe(false)
     }
   })
 })

@@ -3,10 +3,12 @@
 // The pure data shapes of the IR: expression nodes (Expr), statement nodes
 // (Stmt), and module-level declarations. No Node class, no runtime helpers —
 // just the structural types the authoring layer (node.ts/builder.ts) builds and
-// the backends consume. Imports only types.ts and span.ts (both type-only).
+// the backends consume. Imports only types.ts, span.ts and derived-capabilities.ts (all
+// type-only).
 
 import type { ShaderType } from './types.js'
 import type { SourceSpan } from './span.js'
+import type { DerivedCapability } from './derived-capabilities.js'
 
 // ── Expression nodes ──
 
@@ -727,11 +729,14 @@ export const ALL_CAPABILITIES = [
 ] as const satisfies readonly Capability[]
 
 /** The capabilities a module may name in `ModuleDecl.enables`: {@link Capability} minus
- *  the derived resource capabilities. Those are inferred from the module's shape by
- *  `requiredCaps` (a storage binding means `storageBuffer`, a `@compute` entry means
- *  `compute`, a multisampled texture means `msaaTextureLoad`, and so on through the four
- *  texture ids), so declaring one would at best restate the shape and at worst assert a
- *  feature the module does not use. This type makes that a compile error.
+ *  the nine capabilities DERIVED from the module's shape. `requiredCaps` infers each of
+ *  those from what the module already says (a storage binding means `storageBuffer`, a
+ *  `@compute` entry means `compute`, a multisampled texture means `msaaTextureLoad`, and so
+ *  on through the texture ids, a `bgra8unorm` storage format and the packed 4x8 calls), so
+ *  declaring one would at best restate the shape and at worst assert a feature the module
+ *  does not use. This type makes that a compile error. The excluded list is the private
+ *  `DERIVED_CAPABILITIES` (`derived-capabilities.ts`), the same list
+ *  `capabilityMatrix` reads for its `declarable` column.
  *
  *  `clipDistances`, `primitiveIndex` and `subgroups` are on BOTH sides and deliberately so:
  *  each is derived from a `@builtin(...)` id the module spells (§50), and each is still
@@ -741,24 +746,7 @@ export const ALL_CAPABILITIES = [
  *  Only the authoring surface narrows: `requiredCaps`, {@link Capabilities} and
  *  {@link CapProfile} keep reading the full `Capability`, because the derived ids are
  *  exactly what they must express. */
-export type DeclarableCapability = Exclude<
-  Capability,
-  | 'storageBuffer'
-  | 'compute'
-  | 'msaaTextureLoad'
-  | 'storageTexture'
-  | 'texture1d'
-  | 'textureCubeArray'
-  | 'textureGather'
-  // Derived from a binding's FORMAT rather than its kind (#147): a storage texture declared
-  // `bgra8unorm` needs the `bgra8unorm-storage` device feature and nothing else does, so the
-  // module's own shape says it and declaring it would restate the declaration.
-  | 'bgra8unormStorage'
-  // Derived from the CALLS, like `textureGather` (#152): a module using one of the eight
-  // packed 4x8 builtins needs them, and one that does not would be asserting a feature it
-  // never reaches.
-  | 'packed4x8Dot'
->
+export type DeclarableCapability = Exclude<Capability, DerivedCapability>
 
 /** The whole-shader unit: everything a backend needs to emit a complete WGSL or GLSL ES 3.00
  *  module, or to evaluate one on the CPU oracle. It holds the four declaration arrays,
@@ -776,7 +764,8 @@ export type DeclarableCapability = Exclude<
  *  {@link Capability} minus every id DERIVED from the module's own shape — `storageBuffer` (a
  *  storage binding), `compute` (a `@compute` entry), `msaaTextureLoad` (a multisampled load),
  *  `storageTexture`, `texture1d`, `textureCubeArray` and `textureGather` (the binding or the
- *  call that needs each). Naming one of those here is a compile error, so it cannot
+ *  call that needs each), `bgra8unormStorage` (a storage texture's format) and
+ *  `packed4x8Dot` (the packed 4x8 calls). Naming one of those here is a compile error, so it cannot
  *  read as a declaration that quietly does nothing. Each backend's own `capProfile` table is
  *  the authority for the ids that remain: it maps a neutral id to that target's `directive`
  *  and `hostFeature`, coverage is built from its keys, and a backend whose table has no row
