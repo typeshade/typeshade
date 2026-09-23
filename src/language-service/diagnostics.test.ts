@@ -6,6 +6,7 @@ import { analyzeSourceFile, createTypeshadeLanguageServiceWith } from './service
 import { TypeshadeHost } from './host.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
+import { compileTsSource } from '../compiler/ts/source-file.js';
 import type { TypeshadeDiagnostic } from './types.js';
 
 const URI = 'a.ts';
@@ -723,6 +724,56 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
     // it still lowers, so the build reports what the editor does (Rule 12.7).
     expect(shown(fn('  return g(colr)'))).toEqual(['typeshade TS8004', 'typeshade TS8022']);
   });
+});
+
+// Both halves on the same source (CLAUDE.md, "A test reads both halves"). The table above reads
+// the editor's codes alone, and the compiler's refusal of a return was pinned by its text alone,
+// which is how two mistakes reached the packed `typeshade check` reading twice: a value computed
+// from an unknown name drew a TypeScript knock-on, and a return of the wrong type was reported on
+// the function's name by the compiler and on the `return` by TypeScript. Each program here is one
+// mistake: the compiler reports one error, and the editor shows that error and nothing beside
+// it, with the same code, sentence and span.
+describe("the editor shows the compiler's one diagnostic, at its span (both halves)", () => {
+  const cases: Readonly<Record<string, readonly [string, string]>> = {
+    'a value from an unknown function, through an operation': [
+      '"use typeshade"\nexport function f(x: f32, v: vec3): vec4 {\n  const c = lerp(v, vec3(1.), 0.5)\n  return vec4(c * x, 1.)\n}\n',
+      'TS8004 Unknown function "lerp". HLSL\'s lerp is mix here. @lerp',
+    ],
+    'a value from an unknown field, into a declared local': [
+      '"use typeshade"\nclass Frame {\n  time: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}\n',
+      'TS8022 Unknown field "tiem" on Frame. Did you mean "time"? @tiem',
+    ],
+    'a value from a call one argument short': [
+      '"use typeshade"\nexport function f(x: f32): vec4 {\n  const c = clamp(x, 0.)\n  return vec4(c * 2., 1.)\n}\n',
+      'TS8019 clamp expects 3 argument(s), got 2. @clamp(x, 0.)',
+    ],
+    'a scalar returned for a vector': [
+      '"use typeshade"\nexport function f(v: vec3): vec3 {\n  return length(v)\n}\n',
+      'TS8003 Function "f" return type mismatch: declared vec3<f32>, got f32. @return length(v)',
+    ],
+    'the second of two returns': [
+      '"use typeshade"\nexport function f(x: f32, v: vec3): vec3 {\n  if (x > 0.) {\n    return v\n  }\n  return x\n}\n',
+      'TS8003 Function "f" return type mismatch: declared vec3<f32>, got f32. @return x',
+    ],
+    'a vector returned for an entry output struct': [
+      '"use typeshade"\nclass C {\n  @location(0) color: vec4;\n}\n@fragment\nexport function fs(): C {\n  return vec4(1.)\n}\n',
+      'TS8003 Function "fs" return type mismatch: declared struct:C, got vec4<f32>. @return vec4(1.)',
+    ],
+  };
+  const at = (source: string, start: number, length: number): string =>
+    source.slice(start, start + length);
+  for (const [name, [source, only]] of Object.entries(cases)) {
+    it(name, () => {
+      const compiler = compileTsSource(source)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${String(d.code)} ${d.message} @${at(source, d.start, d.length)}`);
+      const editor = diagnosticsOf(source).map(
+        (d) => `${String(d.code)} ${d.message} @${at(source, d.span.start, d.span.length)}`,
+      );
+      expect(compiler, source).toEqual([only]);
+      expect(editor, source).toEqual([only]);
+    });
+  }
 });
 
 // A field that holds a function is a method to the compiler (Rule 8.16), which it builds from
