@@ -17,6 +17,7 @@ import { lowerExpression } from './expression.js';
 import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from './statement.js';
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
+import { fallsIntoABody } from '../fallthrough.js';
 
 export function lowerFor(
   node: ts.ForStatement,
@@ -254,6 +255,22 @@ export function lowerSwitch(
   try {
     const clauses = node.caseBlock.clauses;
     for (const [index, clause] of clauses.entries()) {
+      // A body whose end is reachable runs on into the next body in TypeScript, and WGSL has
+      // no fall-through: the lowering ends the clause here, so `case 0: x = 1.` above
+      // `case 1: x += 2.; break` gave `k = 0` 3 in TypeScript and 1 on the GPU, with no
+      // diagnostic (Rule 7.3, #202). The label is the anchor, as TypeScript's own TS7029 is.
+      if (fallsIntoABody(clauses, index)) {
+        const isDefault = ts.isDefaultClause(clause);
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          isDefault ? (clause.getFirstToken(sourceFile) ?? clause) : clause.expression,
+          `${isDefault ? '"default:"' : `switch case ${clause.expression.getText(sourceFile)}`} ` +
+            `falls through into the next case: TypeScript runs both bodies, and WGSL runs only ` +
+            `this one. End it with "break", or repeat the shared statements in each case.`,
+          TS_CODES.SWITCH_CASE,
+        );
+      }
       if (ts.isDefaultClause(clause)) {
         // Selectors written ABOVE `default:` share the DEFAULT's body, not the body of
         // whatever clause follows. Carrying them past here attached `case 1:` to the next

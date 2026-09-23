@@ -969,6 +969,20 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   outside the block that refused it, read before its declaration, or declared nowhere is still
   `TS8022`. Appendix B's Rule 12.4 row is removed.
 
+- **A `case` that runs on into the next one is refused** (Rule 7.3, #202). WGSL's `switch` has
+  no fall-through, so the lowering ended every clause where its statements ended, and a body
+  with no `break` compiled to a different program than the one TypeScript runs, with no
+  diagnostic: `case 0: x = 1.` above `case 1: x += 2.; break` gave `k = 0` the value 3 in
+  TypeScript and 1 on the GPU. Such a clause, a `case` or a `default:`, is now `TS8017` at its
+  label, and the message names the two fixes: end it with `break`, or repeat the shared
+  statements in each case. Whether a body falls through is TypeScript's own reachability, the
+  analysis `tsc` applies
+  with `noFallthroughCasesInSwitch`: an `if` with no `else` leaves on one path only, and a
+  `break` inside a loop leaves the loop. A clause that runs on only into empty clauses at the
+  end of the switch runs nothing more in TypeScript either, so it is not refused. A program
+  ported from WGSL, whose cases need no `break`, gains one per case. Appendix B's Rule 7.3 row
+  is removed.
+
 - **The optimizer no longer shares a value across a write to what its callee reads.** A call's
   value depends on its arguments and on every module name its callee reads, and cse, licm and
   gvn saw only the arguments: `let a = h(x * 2.); gp = 5.; let c = h(x * 2.)`, with `h`

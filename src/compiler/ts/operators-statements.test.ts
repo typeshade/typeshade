@@ -214,6 +214,133 @@ describe('a switch clause may carry several selectors', () => {
   });
 });
 
+describe('a case body does not fall through (Rule 7.3, #202)', () => {
+  const FELL = (label: string): string =>
+    `${label} falls through into the next case: TypeScript runs both bodies, and WGSL runs ` +
+    `only this one. End it with "break", or repeat the shared statements in each case.`;
+
+  /** Every error, as `line:character code message` over the source as written (line 1 is the
+   *  directive `diagnose` and `compiled` prepend). */
+  function errors(source: string): string[] {
+    return compileTsSource(`"use typeshade"\n${source}`)
+      .diagnostics.filter((d) => d.category === 'error')
+      .map((d) => `${String(d.line)}:${String(d.character)} ${d.code ?? ''} ${d.message}`);
+  }
+
+  it('refuses a case that runs on into the next body, at its label', () => {
+    // The issue's program: TypeScript gives k = 0 the value 3, and the emit, which has no
+    // fall-through, gave 1 with no diagnostic.
+    expect(
+      errors(`export function f(k: i32): f32 {
+  let x: f32 = 0.;
+  switch (k) {
+    case 0: x = 1.
+    case 1: x += 2.; break
+  }
+  return x
+}`),
+    ).toEqual([`5:10 ${TS_CODES.SWITCH_CASE} ${FELL('switch case 0')}`]);
+  });
+
+  it('refuses a default above a case, and names the label as written', () => {
+    expect(
+      errors(`const MODE: i32 = 2
+export function f(k: i32): f32 {
+  let x: f32 = 0.;
+  switch (k) {
+    case MODE: x = 1.
+    case 3:
+    case 4: x = 2.; break
+    default: x = 3.
+    case 5: x = 4.
+  }
+  return x
+}`),
+    ).toEqual([
+      `6:10 ${TS_CODES.SWITCH_CASE} ${FELL('switch case MODE')}`,
+      `9:5 ${TS_CODES.SWITCH_CASE} ${FELL('"default:"')}`,
+    ]);
+  });
+
+  it('refuses a body that leaves on one path only', () => {
+    // An `if` with no `else` leaves only when its condition holds, and a `break` inside a loop
+    // leaves the loop, not the switch: TypeScript's own reachability, which `tsc` applies with
+    // `noFallthroughCasesInSwitch`.
+    expect(
+      errors(`export function f(k: i32, c: bool): f32 {
+  let x: f32 = 0.;
+  switch (k) {
+    case 0:
+      if (c) { break }
+      x = 1.
+    case 1:
+      for (let i: i32 = 0; i < 3; i++) { x += 1.; break }
+    case 2: x = 2.; break
+  }
+  return x
+}`).map((e) => e.split(' ').slice(0, 2).join(' ')),
+    ).toEqual([`5:10 ${TS_CODES.SWITCH_CASE}`, `8:10 ${TS_CODES.SWITCH_CASE}`]);
+  });
+
+  it('takes every way a case can end, and a last case with no break', () => {
+    const c = compiled(`export function f(k: i32, flag: i32): f32 {
+  let x: f32 = 0.;
+  for (let i: i32 = 0; i < 2; i++) {
+    switch (k) {
+      case 0: x = 1.; break
+      case 1: return 2.
+      case 2: x += 1.; continue
+      case 3: if (flag > 0) { x = 3.; break } else { return 4. }
+      case 4: { x = 5.; break }
+      case 5:
+        for (let j: i32 = 0; j < 2; j++) { x += 1.; break }
+        break
+      default: x = 9.
+    }
+  }
+  return x
+}`);
+    for (const [k, flag, want] of [
+      [0, 1, 1],
+      [1, 1, 2],
+      [2, 1, 2],
+      [3, 1, 3],
+      [3, 0, 4],
+      [4, 1, 5],
+      [5, 1, 2],
+      [8, 1, 9],
+    ] as const) {
+      expect(cpu(c, 'f', [k, flag]), `f(${String(k)}, ${String(flag)})`).toEqual([want, want]);
+    }
+  });
+
+  it('takes a case that runs on only into empty clauses at the end, where TypeScript runs nothing more', () => {
+    compiled(`export function f(k: i32): f32 {
+  let x: f32 = 0.;
+  switch (k) {
+    case 0: x = 1.
+    default:
+  }
+  return x
+}`);
+  });
+
+  it('says one thing about a case above a trailing empty one (Rule 12.4)', () => {
+    // The trailing `case 1:` is refused for having no body, and deleting it is the fix; the
+    // case above it runs on into nothing, so it is not reported as well.
+    const found = errors(`export function f(k: i32): f32 {
+  let x: f32 = 0.;
+  switch (k) {
+    case 0: x = 1.
+    case 1:
+  }
+  return x
+}`);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain(`${TS_CODES.SWITCH_CASE} switch case 1 has no body`);
+  });
+});
+
 describe('the statements that now say what is wrong', () => {
   it('shadows nothing and refuses a written parameter, naming the line to add', () => {
     const d = diagnose(`export function f(a: f32): f32 { a = 1.; return a }`);

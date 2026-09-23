@@ -854,12 +854,22 @@ that fold to the same number (`case 2:` beside `case 1 + 1:`) is an error here r
 the backend. Two labels on one body (`case 0: case 1:`) are one clause with two selectors
 (§52), and `continue` in a `switch` that no loop encloses is refused.
 
-**A case body does not fall through, whatever TypeScript would do with it.** A body that does
-not end in `break` still ends its case here, since the IR switch has no fall-through and
-neither does WGSL's. So `case 2: { if (c) { …; break } x = … }` runs its last line and leaves,
-where plain TypeScript would carry on into the next case. Write the `break`; the language
-does not warn about a missing one yet, since a body without one is what an author porting
-from WGSL writes.
+**A case body must not fall through.** The IR switch has no fall-through and neither does
+WGSL's, so a body whose end is reachable cannot mean here what it means in TypeScript, which
+carries on into the next case. It is refused at its label, `TS8017`:
+
+```
+switch case 2 falls through into the next case: TypeScript runs both bodies, and WGSL runs
+only this one. End it with "break", or repeat the shared statements in each case.
+```
+
+`case 2: { if (c) { …; break } x = … }` is refused this way, since the `if` leaves on one path
+only; so is a `default:` above a case, and a `case` whose only `break` is inside a loop,
+which leaves the loop. Whether the end is reachable is TypeScript's own reachability, the one
+`tsc` applies with `noFallthroughCasesInSwitch`. The last clause needs no `break`, and neither
+does a clause that runs on only into empty clauses at the end of the switch, since TypeScript
+runs nothing more there either. An author porting from WGSL, whose cases need no `break`,
+writes one per case (§52, #202).
 
 **One emit change, and the only one in this section.** `break` at the end of a case inside a
 loop was already accepted before this item, since the enclosing loop made it legal, and it
@@ -4463,8 +4473,9 @@ between them; there is no gate example, because no `.shade.ts` can carry one.
 | `~x` on an `f32`, `+b` on a `bool` | Refused, naming the kinds each takes. |
 
 **One switch clause, several selectors.** TypeScript spells "two labels, one body" as an empty
-clause above a full one, and that read as `switch case fall-through is not allowed` — the one
-shape that is *not* fall-through, since an empty clause has nothing to fall through:
+clause above a full one, and the compiler used to refuse that shape as
+`switch case fall-through is not allowed` — the one shape that is *not* fall-through, since
+an empty clause has nothing to fall through (a body that does fall through is refused, §14):
 
 ```ts
 "use typeshade";
