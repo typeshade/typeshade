@@ -1,6 +1,6 @@
 name: ci
 
-# TypeShade's gate. Two jobs, on every push to main and every pull request:
+# TypeShade's gate. Three jobs, on every push to main and every pull request:
 #
 #   check         `tsc --build` (the emitting project) + `tsc -p tsconfig.tests.json` (the
 #                 noEmit pass over tests, examples and scripts), ESLint, the format check
@@ -11,6 +11,11 @@ name: ci
 #                 compile / validate correctness) and both GLSL ES 3.00 stages on a real
 #                 WebGL2 context. See scripts/compile-gate.ts for what it asserts and how
 #                 it proves the instrument can see an error at all.
+#   user-journeys TypeShade the way a user meets it: the tarball npm would ship, installed into
+#                 a fresh project, with the README's tsconfig.shade.json. Each program in
+#                 journeys/ is compiled with the installed `compile()`, checked by the
+#                 language service and plain tsc, run on WebGPU, and matched against its own
+#                 plain-JavaScript reference and the CPU oracle. See scripts/user-journey.ts.
 #
 # The browser is installed with the PROJECT-LOCAL playwright bin, never `bunx playwright`:
 # bunx fetches the standalone package at whatever version is newest, installs THAT
@@ -62,3 +67,20 @@ jobs:
       - run: bun install
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - run: bun run gate:compile
+
+  user-journeys:
+    name: user journeys (packed tarball, WebGPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bun install
+      - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - run: bun run build
+      - run: bun run gate:journeys
