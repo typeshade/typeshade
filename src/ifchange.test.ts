@@ -83,6 +83,7 @@ describe('sanity: the reader finds the blocks', () => {
     );
     expect(waiver('fix: x\n\nNO_IFTTT=')).toBeNull();
     expect(waiver('fix: x')).toBeNull();
+    expect(waiver('fix: x, the convention (with NO_IFTTT=reason) is documented')).toBeNull();
   });
 });
 

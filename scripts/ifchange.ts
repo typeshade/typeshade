@@ -249,9 +249,9 @@ export const describeUnmet = (u: Unmet): string =>
   `${u.block.file}:${u.block.start}${u.block.label ? ` (${u.block.label})` : ''} changed, but ` +
   `${u.target.path}${u.target.label ? `:${u.target.label}` : ''} did not`;
 
-/** `NO_IFTTT=reason`, with a reason. */
+/** `NO_IFTTT=reason` on a line of its own, with a reason; a sentence that mentions it is not one. */
 export const waiver = (message: string): string | null =>
-  /\bNO_IFTTT=(\S.*)$/m.exec(message)?.[1] ?? null;
+  /^NO_IFTTT=(\S.*)$/m.exec(message)?.[1] ?? null;
 
 if (import.meta.main) {
   const args = process.argv.slice(2);
@@ -266,6 +266,7 @@ if (import.meta.main) {
     for (const ref of ['origin/main', 'main']) {
       try {
         base = git('merge-base', ref, 'HEAD').trim();
+        messages = git('log', '--format=%B', `${base}..HEAD`);
         break;
       } catch {
         /* next */

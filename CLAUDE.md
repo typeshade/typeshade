@@ -49,7 +49,8 @@ The graph covers code, not prose, so it cannot tell you which sentence your chan
 <!-- LINT.IfChange(the-prose-follows-the-code) -->
 
 - Before committing, run `bun run docs:impact` and work through its list: fix every _must fix_
-  item, read every _review_ item and fix whatever is no longer true in the same commit.
+  item, read every _review_ item and fix whatever is no longer true in the same commit. A path,
+  anchor, rule or script you name must exist (`bun run docs:refs`).
 - After editing `docs/language-design.md`, the surface document or a test that carries a
   `Verifies: Rule N.M` tag, run `bun run reqs:sync` and `doorstop -C`, and work through what
   it flags as `reqs/README.md` says. Install Doorstop once with `pip install doorstop==3.2`.

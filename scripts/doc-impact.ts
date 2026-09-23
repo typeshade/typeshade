@@ -408,6 +408,8 @@ function defaultBase(): string {
 // and blocks the call (exit 2, the report goes to the agent) when any remains:
 //
 //   must-fix             a removed name or file that the prose still names on an untouched line
+//   dead reference       a path, anchor, section, rule, code or script the prose or a comment
+//                        names and the tree does not have (scripts/doc-refs.ts)
 //   IfChange unmet       a LINT.IfChange block changed and a ThenChange target did not, and the
 //                        message carries no `NO_IFTTT=<reason>` (scripts/ifchange.ts)
 //   traceability         reqs/ is stale (`bun run reqs:sync`), or Doorstop, when installed, finds
@@ -443,6 +445,16 @@ async function hook(): Promise<number> {
     report.push(
       `${render(mustFix, diff, false)}\n\nThe prose above still names what this commit removes, on lines it leaves ` +
         'alone. Update or delete each sentence (CHANGELOG.md and docs/HISTORY.md are exempt).',
+    );
+  }
+
+  const { deadRefs, formatRef } = await import('./doc-refs.js');
+  const dead = deadRefs();
+  if (dead.length) {
+    report.push(
+      `References the tree does not have:\n${dead.map((r) => `    ${formatRef(r)}`).join('\n')}\n\n` +
+        'Name what the tree has now, or mark a sentence that must name something absent with ' +
+        '`<!-- doc-refs: skip — reason -->`.',
     );
   }
 

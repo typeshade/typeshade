@@ -46,7 +46,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+/**
+ * The repository these scripts read. By default the one they live in; a downstream repository
+ * that vendors the compiler (the site, the editor extension) sets `TYPESHADE_DOCS_ROOT` to its
+ * own root to run `ifchange.ts` over itself (`scripts/downstream-impact.ts` explains).
+ */
+export const ROOT =
+  process.env.TYPESHADE_DOCS_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Files that record the past on purpose: what they name may be gone. */
 export const HISTORY_FILES: ReadonlySet<string> = new Set(['CHANGELOG.md', 'docs/HISTORY.md']);
@@ -117,6 +123,8 @@ const SELF: ReadonlySet<string> = new Set([
   'src/doc-references.test.ts',
   'scripts/ifchange.ts',
   'src/ifchange.test.ts',
+  'scripts/downstream-impact.ts',
+  'src/downstream-impact.test.ts',
 ]);
 
 /** TypeScript whose comments may cite the prose. */

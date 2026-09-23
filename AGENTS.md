@@ -124,12 +124,18 @@ true is a set of steps with tools, each an industry practice, not a memory:
   one block and not its targets fails `scripts/ifchange.ts`, unless the commit message says why
   with `NO_IFTTT=<reason>`.
 - **Claude Code enforces it.** `.claude/settings.json` runs `bun scripts/doc-impact.ts --hook`
-  before every `git commit`. The hook blocks the commit on a must-fix, an unmet `ThenChange`,
-  stale `reqs/`, or a Doorstop error (when `doorstop` is installed). It also blocks on open
+  before every `git commit`. The hook blocks the commit on a must-fix, a dead reference, an unmet
+  `ThenChange`, stale `reqs/`, or a Doorstop error (when `doorstop` is installed). It also blocks on open
   review items until the message carries a `Docs-Impact:` trailer saying what you found
   (`Docs-Impact: reviewed, AUTHORING.md#fp64 still holds`, or `Docs-Impact: none, test-only`).
   The trailer answers only the review list; a must-fix or a suspect link is fixed or reviewed,
   never declared away.
+- **The repositories that vendor the compiler are held too.** The site and the editor
+  extension run `scripts/downstream-impact.ts` from the pinned compiler on every compiler-pin
+  pull request. It fails while a downstream file still names an export or file the pin removes.
+  It also fails when a compiler `LINT.ThenChange(//typeshade.github.io/…)` or
+  `//vscode-typeshade/…` target did not change with its block. They run `ifchange.ts` over their
+  own tree with `TYPESHADE_DOCS_ROOT`.
 - **CI enforces it for everyone.** On a pull request, the `check` job runs
   `docs:impact --check` and `ifchange.ts`, and the traceability job runs `doorstop -C -e -F`.
   `.github/CODEOWNERS` puts the normative documents, `reqs/` and these tools under review.
