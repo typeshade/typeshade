@@ -1319,6 +1319,26 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   ported from WGSL, whose cases need no `break`, gains one per case. Appendix B's Rule 7.3 row
   is removed.
 
+- **The four noise twins hash their lattice exactly** (#184). `domain-warp`, `ocean`,
+  `kaleidoscope` and `starfield` hashed a lattice point with `fract(sin(dot(p, k)) * 43758.5453)`
+  on both surfaces. WGSL bounds `sin` only to 2^-11 on [-π, π], and the multiply puts that
+  error above the fraction, so the GPU need not reproduce the oracle's value. Each now uses an
+  integer hash, lowbias32 with xxHash's primes, keeping its top 24 bits and scaling them by
+  `2^-24` rather than dividing, because WGSL lets `/` round. Nothing in the hash may differ by
+  driver. `examples/lattice-hash.test.ts` pins that with the determinism report, and checks the
+  oracle and the generated CPU code against a JavaScript reference bit for bit, negative
+  lattice points included. The twins still reflect identically to their originals. The emit
+  goldens of the eight files moved.
+
+- **A hex literal with an `e` in it is an integer** (#182, Rule 5.1). `x * 0x9e3779b9` on a
+  `u32` was `TS8003`, because the classifier took any `e` or `E` in a literal's text for a
+  decimal exponent, prefix or not. `0xE` was the smallest case. Every standard hash constant
+  has an `e` (`0x9e3779b9`, `0x85ebca6b`, `0xc2b2ae35`), so none of them could be written the
+  way references spell them. A `0x`, `0b` or `0o` literal is now an integer whatever its
+  digits, and emits the decimal it spells. A literal type in a union had the opposite defect:
+  it read TypeScript's normalized text, in which `1.0` is `1`, so `type L = 1.0 | 2.0` was an
+  `i32`. It is an `f32` now. Both read the source text through one helper, `isIntegerWritten`.
+
 - **The editor types a local built by vector arithmetic as the vector it is** (#162).
   `const uv = p.xy * frame.scale` gave `uv` the type `number` in the language service, because
   TypeScript has no operator overloading. So on a program the compiler accepts, `uv.x` was

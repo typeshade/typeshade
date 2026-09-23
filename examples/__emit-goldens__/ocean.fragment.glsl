@@ -7,8 +7,15 @@ layout(std140) uniform Uniforms {
   vec2 resolution;
   float swell;
 } U;
+uint hash32(uint x) {
+  uint _v0 = ((x ^ (x >> 16u)) * 2246822519u);
+  uint _v1 = ((_v0 ^ (_v0 >> 13u)) * 3266489917u);
+  return (_v1 ^ (_v1 >> 16u));
+}
+
 float hash(vec2 p) {
-  return fract((sin(dot(p, vec2(127.1, 311.7))) * 43758.5453));
+  uint _v0 = hash32((uint(int(p.x)) ^ hash32(uint(int(p.y)))));
+  return (float((_v0 >> 8u)) * 5.960464477539063e-8);
 }
 
 float noise(vec2 p) {

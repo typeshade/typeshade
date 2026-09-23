@@ -18,7 +18,6 @@ import {
   cos,
   floor,
   fract,
-  dot,
   mix,
   abs,
   mod,
@@ -28,15 +27,28 @@ import {
   Let,
   f32T,
   vec2fT,
+  u32,
+  i32,
+  u32T,
 } from '../src/index.js';
 import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js';
 import type { ShaderExample } from './_shared.js';
 const U = fullscreenUniforms({ segments: f32T });
 
-// scalar hash of a lattice point → [0,1)
-const hash = fn('hash', { p: vec2fT }, ({ p }) =>
-  fract(sin(dot(p, vec2(127.1, 311.7))).mul(43758.5453)),
-);
+// An exact integer hash (lowbias32 with xxHash's primes): every target and the CPU oracle
+// agree on every bit of it. `fract(sin(x) * 43758.5453)` did not, since WGSL bounds `sin`
+// only to 2^-11 and the multiply puts that error above the fraction (#184).
+const hash32 = fn('hash32', { x: u32T }, ({ x }) => {
+  const a = Let(x.bitXor(x.shr(16)).mul(0x85ebca77));
+  const b = Let(a.bitXor(a.shr(13)).mul(0xc2b2ae3d));
+  return b.bitXor(b.shr(16));
+});
+
+// scalar hash of a lattice point → [0,1): 24 bits, which f32 holds exactly
+const hash = fn('hash', { p: vec2fT }, ({ p }) => {
+  const h = Let(hash32({ x: u32(i32(p.x)).bitXor(hash32({ x: u32(i32(p.y)) })) }));
+  return f32(h.shr(8)).mul(5.9604644775390625e-8); // 2^-24, exact: WGSL lets `/` round
+});
 
 // bilinear value noise with smootherstep weights
 const noise = fn('noise', { p: vec2fT }, ({ p }) => {

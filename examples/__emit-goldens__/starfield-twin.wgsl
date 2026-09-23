@@ -23,8 +23,15 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)));
 }
 
+fn hash32(x: u32) -> u32 {
+  let a = ((x ^ (x >> 16u)) * 2246822519u);
+  let b = ((a ^ (a >> 13u)) * 3266489917u);
+  return (b ^ (b >> 16u));
+}
+
 fn hash(p: vec2<f32>) -> f32 {
-  return fract((sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453));
+  let h = hash32((u32(i32(p.x)) ^ hash32(u32(i32(p.y)))));
+  return (f32((h >> 8u)) * 5.960464477539063e-8);
 }
 
 @fragment

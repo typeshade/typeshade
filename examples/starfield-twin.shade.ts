@@ -40,9 +40,19 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
-// scalar hash of a lattice point → [0,1)
+// An exact integer hash (lowbias32 with xxHash's primes): every target and the CPU oracle
+// agree on every bit of it. `fract(sin(x) * 43758.5453)` did not, since WGSL bounds `sin`
+// only to 2^-11 and the multiply puts that error above the fraction (#184).
+function hash32(x: u32): u32 {
+  const a = (x ^ (x >> 16)) * 0x85ebca77;
+  const b = (a ^ (a >> 13)) * 0xc2b2ae3d;
+  return b ^ (b >> 16);
+}
+
+// scalar hash of a lattice point → [0,1): 24 bits, which f32 holds exactly
 function hash(p: vec2): f32 {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  const h = hash32(u32(i32(p.x)) ^ hash32(u32(i32(p.y))));
+  return f32(h >> 8) * 5.9604644775390625e-8; // 2^-24, exact: WGSL lets `/` round
 }
 
 @fragment

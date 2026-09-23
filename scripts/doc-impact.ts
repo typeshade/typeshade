@@ -416,6 +416,9 @@ function defaultBase(): string {
 //                        an unreviewed rule, a suspect link or a lost reference (reqs/README.md)
 //   open review items    prose that describes what the commit changes, in files it leaves alone,
 //                        and no `Docs-Impact:` trailer
+//   change proposal      the commit touches a rule, an export or a downstream-visible surface,
+//                        and the message names no accepted proposal it stays inside with a
+//                        `Change: NNNN` line, nor says `Change: none, <reason>` (scripts/changes.ts)
 //
 // The trailer is the agent's statement that it read the listed prose and found it still true
 // (`Docs-Impact: reviewed, AUTHORING.md#fp64 still describes the lowering`), or that the change
@@ -503,6 +506,14 @@ async function hook(): Promise<number> {
       `${render(openReview, diff, false)}\n\nThe prose above describes what this commit changes, and the commit leaves it alone. ` +
         'Read each location and fix what is no longer true; then add a trailer that says what you found, ' +
         'for example `Docs-Impact: reviewed, the listed sections still hold` or `Docs-Impact: none, internal refactor`.',
+    );
+  }
+
+  const { judge, touchedBy, proposalsAt } = await import('./changes.js');
+  const verdict = judge(touchedBy(diff), message, proposalsAt('HEAD'));
+  if (verdict.problems.length) {
+    report.push(
+      `Change proposal (changes/README.md):\n${verdict.problems.map((p) => `    ${p}`).join('\n')}`,
     );
   }
 
