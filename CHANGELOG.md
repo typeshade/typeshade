@@ -1149,6 +1149,24 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A comparison of two emulated-double vectors is a vector of bools** (Rule 7.1, §27, §39).
+  `a < b` on two `vec3f64` was typed as one scalar `bool`, where every other vector comparison
+  is the `vecN<bool>` of its width, as WGSL's typing table has it. So it was refused wherever a
+  mask goes (`TS8003` returned as a `vec3b` or passed to a `vec3b` parameter, `TS8022` on `.x`)
+  and accepted where a bool goes: `if (a < b)` compiled with no diagnostic and reached Tint as a
+  `<` on two `DF64Vec3` structs, `no matching overload for 'operator < (DF64Vec3, DF64Vec3)'`.
+  All six comparisons of two `vecNf64` of one width now yield `vecNb`, which `any`, `all` and
+  `!` take, and `if (a < b)` is the `TS8003` two `vec3` operands get. The fp64 pass lowers them
+  to `df64_vN_lt` through `df64_vN_ne`, which run the scalar comparator on each lane, so each
+  operand is evaluated once. Like the scalar comparisons they read no guard, and a module whose
+  only f64 work is comparing vectors gets no `_fp64` binding. A vec64 beside a scalar, another
+  width or a vector of `f32` is still `TS8003`. Measured on SwiftShader: all six comparisons at
+  widths 2 to 4, in both flavors, compile on Tint (module and render pipeline) and on WebGL2
+  (both stages, linked). `f64-types.test.ts` holds the double on the CPU oracle and the lowered
+  module on the f32-rounding oracle to one answer, lane by lane, where only the low word decides.
+  The `double-bounds` journey tests points against a box near 1e7 with
+  `all(box.lo <= p) && all(p <= box.hi)` on `vec3f64`, whose quarter-unit margins an f32 cannot
+  see; it compiled before this with no diagnostic and emitted the structs' `<=`.
 - **The four noise twins hash their lattice exactly** (#184). `domain-warp`, `ocean`,
   `kaleidoscope` and `starfield` hashed a lattice point with `fract(sin(dot(p, k)) * 43758.5453)`
   on both surfaces. WGSL bounds `sin` only to 2^-11 on [-π, π], and the multiply puts that
