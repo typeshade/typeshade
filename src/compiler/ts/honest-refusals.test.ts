@@ -614,6 +614,9 @@ export function fs(): vec4 {
 describe('one mistake, one diagnostic, in compile() and in the editor', () => {
   const compiled = (src: string): string[] =>
     compile(src).diagnostics.map((d) => `${String(d.code)} ${d.message}`);
+  // The editor's half is what the compiler says there. TypeScript's own report of a host form
+  // (TS1308 on an await, TS2318 for the Promise an async function names) is the merged list's to
+  // keep or drop (proposal 0007, `mergeDiagnostics`), which proposal 0008 leaves as it is.
   const edited = (src: string): string[] => {
     const service = createTypeshadeLanguageService();
     service.openDocument('one.ts', src);
@@ -689,12 +692,17 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       [VAR],
     ],
     [
+      'var in a block, and a read of its name after the block',
+      shader('', '  if (a > 0.) {\n    var t = a;\n  }\n  return t;'),
+      [VAR],
+    ],
+    [
       'var holding a function in a body',
       shader('', '  var g = (x: f32): f32 => x * 2.;\n  return g(a);'),
       [VAR],
     ],
     [
-      'var at the top level, bound as the let it would have been',
+      'var at the top level, and a use of the name it declares',
       shader('var k: f32 = 1.;\n', '  k += a;\n  return k;'),
       [TOP_VAR],
     ],
@@ -727,6 +735,11 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       [IN_NAMESPACE('a variable')],
     ],
     [
+      'var in a namespace, and a read of it through the namespace',
+      shader('namespace N {\n  export var x: f32 = 1.;\n}\n', '  return N.x + a;'),
+      [IN_NAMESPACE('a variable')],
+    ],
+    [
       'var in a namespace inside a namespace',
       shader('namespace N {\n  namespace M {\n    export var x = 1.;\n  }\n}\n', '  return a;'),
       [
@@ -754,7 +767,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       [SPREAD('xs', 'xs[0], xs[1]')],
     ],
     [
-      'a spread in a list with no type, whose name keeps the type its elements add up to',
+      'a spread in a list with no type, and a use of the name it declares',
       shader('', '  const xs: array<f32, 2> = [a, 1.];\n  const b = [...xs, 3.];\n  return b[2];'),
       [SPREAD('xs', 'xs[0], xs[1]')],
     ],
@@ -772,7 +785,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       [SPREAD('xs', 'xs[0], xs[1]')],
     ],
     [
-      'a spread in a module constant, whose name stays declared',
+      'a spread in a module constant, and a use of the name it declares',
       shader(`${LIST}const B: array<f32, 4> = [...A, 3., 4.];\n`, '  return B[0] + a;'),
       [SPREAD('A', 'A[0], A[1]')],
     ],
@@ -782,7 +795,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       [SPREAD('A', 'A[0], A[1]')],
     ],
     [
-      'a spread in a module variable, whose name stays declared',
+      'a spread in a module variable, and a use of the name it declares',
       shader(`${LIST}let B: array<f32, 3> = [...A, 3.];\n`, '  B[0] += a;\n  return B[0];'),
       [SPREAD('A', 'A[0], A[1]')],
     ],
@@ -940,6 +953,31 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       [ASYNC('TS8020', 'This function')],
     ],
     [
+      "a class's async method, and a call of it",
+      shader(
+        'class C {\n  x: f32 = 0.;\n  async m(): f32 {\n    return 1.;\n  }\n}\n',
+        '  const c = new C();\n  return c.m() + a;',
+      ),
+      [ASYNC('TS8035', '"C.m"')],
+    ],
+    [
+      "a class's async static function, and a call of it",
+      shader(
+        'class C {\n  x: f32 = 0.;\n  static async s(): f32 {\n    return 1.;\n  }\n}\n',
+        '  return C.s() + a;',
+      ),
+      [ASYNC('TS8035', '"C.s"')],
+    ],
+    [
+      'a generator method, and a call of it through a class that extends its own',
+      shader(
+        'class B {\n  x: f32 = 0.;\n  *g(): f32 {\n    yield 1.;\n  }\n}\n' +
+          'class D extends B {\n  y: f32 = 0.;\n}\n',
+        '  const d = new D();\n  return d.g() + a;',
+      ),
+      [GENERATOR('TS8035', '"B.g"')],
+    ],
+    [
       "a class's async method",
       shader(
         'class C {\n  x: f32 = 0.;\n  async m(): f32 {\n    return await this.x;\n  }\n}\n',
@@ -987,6 +1025,58 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
         '  return a;',
       ),
       [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface typing a local, and a read of it',
+      shader('interface G<T> {\n  x: T;\n}\n', '  const v: G<f32> = { x: a };\n  return v.x;'),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface reached through a type alias that types a local',
+      shader(
+        'interface G<T> {\n  x: T;\n}\ntype GF = G<f32>;\n',
+        '  const v: GF = { x: a };\n  let w: GF;\n  w = v;\n  return w.x + v.x;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      "a generic interface typing an interface's field, and a read of it",
+      shader(
+        'interface G<T> {\n  x: T;\n}\ninterface H {\n  g: G<f32>;\n  k: f32;\n}\n' +
+          'function k(h: H): f32 {\n  return h.g.x + h.k;\n}\n',
+        '  return a;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface typing a binding, and a read of it',
+      shader(
+        'interface G<T> {\n  x: T;\n}\ndeclare const u: uniform<G<f32>>;\n',
+        '  return u.x + a;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface typing a module variable, written and read',
+      shader('interface G<T> {\n  x: T;\n}\nlet m: G<f32>;\n', '  m.x = a;\n  return m.x;'),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic type alias typing a module constant, and a read of it',
+      shader('type G<T> = { x: T };\nconst C: G<f32> = { x: 1. };\n', '  return C.x + a;'),
+      [GENERIC('type alias', 'x: T')],
+    ],
+    [
+      'a contract interface typing a local, and a read of it',
+      shader(
+        'interface C {\n  m(): f32;\n}\n',
+        '  const v: C = { m: (): f32 => a };\n  return v.m();',
+      ),
+      [
+        'TS8010 "C" declares a method, so it is a contract a class implements and not a value a ' +
+          'shader holds: take the class that implements it, or a type parameter it constrains, ' +
+          '"<T extends C>(v: T)".',
+      ],
     ],
     [
       'a generic interface with more fields than the sentence shows',

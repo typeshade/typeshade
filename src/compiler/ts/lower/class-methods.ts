@@ -75,6 +75,7 @@ import {
   memberFunctionOf,
   visibleField,
 } from './class-access.js';
+import { memberRefusedBySemantics } from '../semantic.js';
 
 /** What `this` is while a member's body is lowered: the struct type; whether it is the
  *  read-only first parameter of a method (`param`), the local a constructor builds from the
@@ -217,6 +218,16 @@ function noStaticFunction(
     [name, ...scope.ancestorsOf(name)].flatMap((c) => staticMemberNames(c, sourceFile)),
   ]);
 }
+
+/** Whether `member` of the class `name`, or of a class above it, was refused where it is
+ *  written, an async method or a generator (semantic.ts): a call of it adds nothing (Rule 12.4). */
+const refusedMember = (
+  name: string,
+  member: string,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): boolean =>
+  [name, ...scope.ancestorsOf(name)].some((c) => memberRefusedBySemantics(c, member, sourceFile));
 
 function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
@@ -1828,6 +1839,7 @@ export function lowerClassCall(
         );
         return undefined;
       }
+      if (refusedMember(name, member, scope, sourceFile)) return undefined;
       pushDiag(
         diagnostics,
         sourceFile,
@@ -1838,6 +1850,7 @@ export function lowerClassCall(
     }
     if (cf.member !== member || cf.accessor !== undefined) {
       if (isCollidedFunction(decl!)) return undefined;
+      if (refusedMember(name, member, scope, sourceFile)) return undefined;
       pushDiag(
         diagnostics,
         sourceFile,
@@ -1881,6 +1894,7 @@ export function lowerClassCall(
   if (found === undefined) {
     const taken = scope.resolveCallee(methodFnName(name, emittedMemberName(member)));
     if (taken !== undefined && isCollidedFunction(taken)) return undefined;
+    if (refusedMember(name, member, scope, sourceFile)) return undefined;
     const accessor =
       memberFunctionOf(name, member, 'get', scope) ?? memberFunctionOf(name, member, 'set', scope);
     const field = visibleField(name, member, callee.name, scope) !== undefined;

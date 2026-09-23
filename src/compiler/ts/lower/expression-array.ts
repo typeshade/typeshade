@@ -247,50 +247,6 @@ export function refuseListSpread(
   return spreads.length > 0;
 }
 
-/** The type a list with a spread would have had, read off its elements: `[...a, 3.]` for an
- *  `array<f32, 2>` is an `array<f32, 3>`, and `[...v, 1.]` for a `vec3f` an `array<f32, 4>`.
- *  Undefined when an operand is no list of known length or two elements disagree. A local or a
- *  module declaration refused for its spread keeps its name with this type. */
-export function spreadListType(
-  node: ts.ArrayLiteralExpression,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-): ShaderType | undefined {
-  let elem: ShaderType | undefined;
-  let size = 0;
-  for (const element of node.elements) {
-    if (ts.isOmittedExpression(element)) return undefined;
-    // Only the types are read; what an element may be refused for is said where the author
-    // writes the list out.
-    const type = lowerExpression(
-      ts.isSpreadElement(element) ? element.expression : element,
-      sourceFile,
-      scope,
-      [],
-    )?.type;
-    const part = ts.isSpreadElement(element)
-      ? spreadOperand(type)
-      : type === undefined
-        ? undefined
-        : { elem: type, n: 1 };
-    if (part === undefined || (elem !== undefined && typeKey(elem) !== typeKey(part.elem))) {
-      return undefined;
-    }
-    elem = part.elem;
-    size += part.n;
-  }
-  return elem === undefined ? undefined : { kind: 'array', elem, size };
-}
-
-/** What a spread's operand holds, element type and count: a sized array or a vector. */
-function spreadOperand(
-  type: ShaderType | undefined,
-): { readonly elem: ShaderType; readonly n: number } | undefined {
-  if (type?.kind === 'array' && type.size !== undefined) return { elem: type.elem, n: type.size };
-  if (type?.kind === 'vec') return { elem: { kind: 'scalar', scalar: type.elem }, n: type.n };
-  return undefined;
-}
-
 /** The elements a spread's operand stands for, as an author writes them: `a[0], a[1]` for a
  *  sized array, `v.x, v.y, v.z` for a vector. Undefined for anything else, a struct, a scalar or
  *  a name nothing declares, which has no elements to name. */

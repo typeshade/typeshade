@@ -26,17 +26,12 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { LoweringScope } from './context.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
-import {
-  mapTsTypeToShaderType,
-  namesRefusedGeneric,
-  RETIRED_VAR_WRAPPER,
-  retiredWrapperMessage,
-} from './type-map.js';
+import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { foldConstComponents } from './loop-bound.js';
 import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
 import { lowerExpression } from './lower/expression.js';
-import { lowerArrayLiteral, refuseListSpread, spreadListType } from './lower/expression-array.js';
+import { lowerArrayLiteral, refuseListSpread } from './lower/expression-array.js';
 import { isOverrideType } from './overrides.js';
 import { isFoldableConstExpr, staticConstName } from './module-const.js';
 import { eachNamespaceStatement } from './namespaces.js';
@@ -110,10 +105,7 @@ const typeOf = (
   diagnostics: TsCompilerDiagnostic[],
 ): ShaderType | undefined =>
   mapTsTypeToShaderType(node, sourceFile, diagnostics) ??
-  // A generic interface or alias was refused where it is declared, and names no struct here.
-  (ts.isTypeReferenceNode(node) &&
-  ts.isIdentifier(node.typeName) &&
-  !namesRefusedGeneric(node, sourceFile)
+  (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)
     ? structT(node.typeName.text)
     : undefined);
 
@@ -212,9 +204,10 @@ export function collectModuleVars(
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
     if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue;
-    // A top-level `var` is semantic.ts's refusal (TS8014), and is collected as the `let` it
-    // would have been, so its uses say nothing more (Rule 12.4).
     const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
+    const isLet = (stmt.declarationList.flags & ts.NodeFlags.Let) !== 0;
+    // A top-level `var` is semantic.ts's refusal.
+    if (!isConst && !isLet) continue;
     for (const decl of stmt.declarationList.declarations) {
       const wrapper = moduleVarSpace(decl.type);
       if (isConst) {
@@ -368,7 +361,7 @@ function spreadRefused(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-): decl is VarSite & { initializer: ts.ArrayLiteralExpression } {
+): boolean {
   return (
     decl.initializer !== undefined &&
     ts.isArrayLiteralExpression(decl.initializer) &&
@@ -418,10 +411,8 @@ function lowerPlain(
     }
     const type = typeOf(decl.type, sourceFile, diagnostics);
     if (!type) return undefined;
-    // A list refused for its spread keeps the name, with no initializer (Rule 12.4).
-    if (spreadRefused(decl, sourceFile, scope, diagnostics)) {
-      return { name, space: 'private', type };
-    }
+    // A list refused for its spread is that one sentence (Rule 12.4).
+    if (spreadRefused(decl, sourceFile, scope, diagnostics)) return undefined;
     return finish(
       decl,
       decl.type,
@@ -446,11 +437,8 @@ function lowerPlain(
     return undefined;
   }
   if (ts.isArrayLiteralExpression(decl.initializer)) {
-    // A spread is the list's one sentence, and the name keeps the type its elements add up to.
-    if (spreadRefused(decl, sourceFile, scope, diagnostics)) {
-      const type = spreadListType(decl.initializer, sourceFile, scope);
-      return type === undefined ? undefined : { name, space: 'private', type };
-    }
+    // A spread is the list's one sentence, said before the list is counted (Rule 12.4).
+    if (spreadRefused(decl, sourceFile, scope, diagnostics)) return undefined;
     diagnostics.push(
       diag(
         sourceFile,

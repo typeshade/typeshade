@@ -287,6 +287,13 @@ export function setRefusedGenerics(sourceFile: ts.SourceFile, names: ReadonlySet
   REFUSED_GENERICS.set(sourceFile, names);
 }
 
+/** Whether a struct is named after a generic interface or alias `collectStructs` refused: the
+ *  name a field typed `G<f32>` or a binding typed `uniform<G<f32>>` falls back to, `G<f32>` or
+ *  `G`, which names no layout. */
+export function isRefusedGenericStruct(name: string, sourceFile: ts.SourceFile): boolean {
+  return REFUSED_GENERICS.get(sourceFile)?.has(name.split('<')[0]!) === true;
+}
+
 /** Whether a type names a generic interface or alias `collectStructs` refused, `G<f32>`. */
 export function namesRefusedGeneric(typeNode: ts.TypeNode, sourceFile: ts.SourceFile): boolean {
   return (

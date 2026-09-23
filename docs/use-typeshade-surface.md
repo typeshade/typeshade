@@ -3468,21 +3468,18 @@ generator is refused once, on the function, wherever it is written, in a body no
 a shader function runs to completion in one call, with no event loop to wait on and nothing to
 suspend it. The code is the one its position had: `TS8013` on a declaration, `TS8020` on a
 function written as a value, `TS8035` on a class's method. An `await` or a `yield` inside it adds
-nothing, and neither does a call of a declaration, `h(a)` or `N.h(a)`; a call of an async method
-still says the class has no such method (#171). A `var` is refused once, `TS8013` in a body and
-`TS8014` at the top level or in a namespace. In a body or at the top level it is read as the
-`let` it would have been, in the block it is written in (a binding or an override as the `const`
-it is), so a use of the name there says nothing more; one in a namespace leaves its name unbound,
-as a `let` there does. An interface or a type alias inside a namespace is refused once. A spread
+nothing, and neither does a call of it, `h(a)`, `N.h(a)`, `c.m()` or `C.s()`. A `var` is refused
+once, `TS8013` in a body and `TS8014` at the top level or in a namespace. One in a body is lowered
+as the `let` it would have been. Wherever it is written, a use of the name says nothing more, as
+for any refused declaration: a read after the block the `var` is written in, and `N.x` for one in
+a namespace, included. An interface or a type alias inside a namespace is refused once. A spread
 in a list is refused wherever it is written, before the list is counted or asked for a type. When
 its operand is a vector or an array of fixed length the sentence names the elements to write,
 `"...a" spreads a list into a list, which a shader array does not do: write its elements, a[0],
 a[1].`, and otherwise it says `"...s" spreads into a list, which a shader array does not do:
-write the elements one by one.` A local, a module constant or a module variable the list
-initializes keeps its name, under the type written or the one the elements add up to. A spread
-argument, `f(...args)`, keeps its own sentence. A generic interface or type alias is refused at
-its declaration with the class that says it (§32). A name that another refused declaration leaves
-unbound is still `TS8022` where it is read (#171).
+write the elements one by one.` The name the list initializes says nothing more where it is
+used. A spread argument, `f(...args)`, keeps its own sentence. A generic interface or type alias
+is refused at its declaration with the class that says it (§32).
 
 ## 29. The mixin pattern
 
@@ -3733,9 +3730,9 @@ the class declares, so the mistake does not take the struct, and every use of it
 **A generic interface or type alias is not collected per instance**, so one that something uses,
 directly or through a plain alias (`type GF = G<f32>`), is refused at its declaration with the
 spelling that is: `"G" is a generic interface; a generic struct is written as a class, class G<T>
-{ x: T } (surface §32).` A parameter, a return or a class field typed `G<f32>` adds nothing to
-that sentence. A variable, a binding or an interface's field typed with it is the cascade #171
-records, and a read of one still reports (proposal 0008).
+{ x: T } (surface §32).` A parameter, a return, a local, a module constant or variable, a binding
+or a field typed `G<f32>` adds nothing to that sentence, and neither does a read of one (proposal
+0008).
 
 ## 33. A storage texture
 

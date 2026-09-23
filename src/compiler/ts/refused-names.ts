@@ -15,9 +15,10 @@
 // function whose module then compiled.
 //
 // Which declaration a name resolves to follows TypeScript's own lexical rule: the innermost
-// enclosing block, loop header or parameter list that declares it before the use, then the
-// file's top level, where order does not matter. A name declared in a sibling block, or read
-// before its declaration in the same block, is not found, and stays "Unknown identifier".
+// enclosing block, loop header or parameter list that declares it before the use, a `var`
+// anywhere in the function around it, then the file's top level, where order does not matter. A
+// name declared by a `let` or `const` in a sibling block, or read before its declaration in the
+// same block, is not found, and stays "Unknown identifier".
 
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
@@ -64,8 +65,30 @@ function declaringList(
   return list.declarations.some((d) => binds(d.name, name)) ? list : undefined;
 }
 
+/** The `var` statement that declares `name` anywhere in a function's body, outside the
+ *  functions nested in it: a `var` is visible in the whole function, as TypeScript scopes it,
+ *  and not only in the block it is written in. The front end refuses it and lowers it as the
+ *  `let` it would have been (Rule 12.4), so a read outside that block finds nothing to bind. */
+function declaringVar(body: ts.Node, name: string): ts.VariableStatement | undefined {
+  let found: ts.VariableStatement | undefined;
+  const visit = (node: ts.Node): void => {
+    if (found !== undefined || ts.isFunctionLike(node) || ts.isClassLike(node)) return;
+    if (
+      ts.isVariableStatement(node) &&
+      (node.declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0 &&
+      node.declarationList.declarations.some((d) => binds(d.name, name))
+    ) {
+      found = node;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(body, visit);
+  return found;
+}
+
 /** The declaration of `name` visible at `use`, innermost scope first: the statement or loop
- *  header that declares it, or the parameter. */
+ *  header that declares it, the parameter, or a `var` anywhere in the function. */
 function visibleDeclaration(
   use: ts.Node,
   name: string,
@@ -79,7 +102,9 @@ function visibleDeclaration(
     } else if (ts.isForStatement(p) || ts.isForOfStatement(p) || ts.isForInStatement(p)) {
       found = declaringList(p.initializer, name);
     } else if (ts.isFunctionLike(p)) {
-      found = p.parameters.find((q) => binds(q.name, name));
+      found =
+        p.parameters.find((q) => binds(q.name, name)) ??
+        ('body' in p && p.body !== undefined ? declaringVar(p.body, name) : undefined);
     } else if (ts.isSourceFile(p)) {
       found = declaringStatement(p.statements, name);
     }
@@ -128,13 +153,55 @@ function namesRead(declaration: ts.Node): ts.Identifier[] {
   return out;
 }
 
+/** Every type name `node` writes: `G` in `G<f32>` and in `uniform<G<f32>>`. */
+function typeNames(node: ts.Node, out: string[] = []): string[] {
+  if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) out.push(node.typeName.text);
+  ts.forEachChild(node, (child) => void typeNames(child, out));
+  return out;
+}
+
+/** Every type name `declaration`'s annotations write: `G` in `const v: G<f32>`. */
+function typesNamed(declaration: ts.Node): string[] {
+  const annotations = ts.isVariableStatement(declaration)
+    ? declaration.declarationList.declarations.map((d) => d.type)
+    : ts.isVariableDeclarationList(declaration)
+      ? declaration.declarations.map((d) => d.type)
+      : ts.isParameter(declaration)
+        ? [declaration.type]
+        : [];
+  return annotations.flatMap((a) => (a === undefined ? [] : typeNames(a)));
+}
+
+/** Whether the interface or type alias the file declares as `name` holds an error, or is an
+ *  alias of one that does (`type GF = G<f32>`): the front end refused it at its declaration (a
+ *  generic one, whose sentence names the class to write, or a contract), and it maps to no type
+ *  where it is named, which says nothing there. */
+function typeRefused(
+  name: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: readonly TsCompilerDiagnostic[],
+  seen: Set<string> = new Set(),
+): boolean {
+  if (seen.has(name)) return false;
+  seen.add(name);
+  return sourceFile.statements.some(
+    (s) =>
+      (ts.isInterfaceDeclaration(s) || ts.isTypeAliasDeclaration(s)) &&
+      s.name.text === name &&
+      (hasErrorWithin(rangeOf(s, sourceFile), sourceFile, diagnostics) ||
+        (ts.isTypeAliasDeclaration(s) &&
+          typeNames(s.type).some((n) => typeRefused(n, sourceFile, diagnostics, seen)))),
+  );
+}
+
 /**
- * Whether `declaration` was refused and said why: an error stands inside it, or it reads a name
- * whose own declaration was refused and said why, which is then the reason this one could not
- * be lowered either. `const u = t * 2.` after a refused `const t = a * b` binds no `u` and says
- * nothing, since its read of `t` is itself one of the reads this file keeps quiet, and without
- * following it every use of `u` read "Unknown identifier" beside the one mistake in `t`.
- * `seen` ends a walk through declarations that read each other.
+ * Whether `declaration` was refused and said why: an error stands inside it, it names a type
+ * whose declaration was refused and said why (`const v: G<f32>` for a generic interface `G`), or
+ * it reads a name whose own declaration was refused and said why, which is then the reason this
+ * one could not be lowered either. `const u = t * 2.` after a refused `const t = a * b` binds no
+ * `u` and says nothing, since its read of `t` is itself one of the reads this file keeps quiet,
+ * and without following it every use of `u` read "Unknown identifier" beside the one mistake in
+ * `t`. `seen` ends a walk through declarations that read each other.
  */
 function refusedWithReason(
   declaration: ts.Node,
@@ -143,6 +210,9 @@ function refusedWithReason(
   seen: Set<ts.Node> = new Set(),
 ): boolean {
   if (hasErrorWithin(rangeOf(declaration, sourceFile), sourceFile, diagnostics)) return true;
+  if (typesNamed(declaration).some((name) => typeRefused(name, sourceFile, diagnostics))) {
+    return true;
+  }
   seen.add(declaration);
   return namesRead(declaration).some((read) => {
     const source = visibleDeclaration(read, read.text, sourceFile);
@@ -152,6 +222,23 @@ function refusedWithReason(
       refusedWithReason(source, sourceFile, diagnostics, seen)
     );
   });
+}
+
+/** The statement that declares `member` in a namespace the file declares as `name`, when one
+ *  does: `namespace N { export let x: f32 = 1.; }` for `N.x`. The namespace walk refuses a
+ *  variable there (TS8014), and `N`, which then declares nothing a read can reach, is no value. */
+function namespaceMember(
+  sourceFile: ts.SourceFile,
+  name: string,
+  member: string,
+): ts.VariableStatement | undefined {
+  for (const s of sourceFile.statements) {
+    if (!ts.isModuleDeclaration(s) || !ts.isIdentifier(s.name) || s.name.text !== name) continue;
+    if (s.body === undefined || !ts.isModuleBlock(s.body)) continue;
+    const found = declaringStatement(s.body.statements, member);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
 
 /**
@@ -167,6 +254,12 @@ export function unknownNameAlreadyReported(
   diagnostics: readonly TsCompilerDiagnostic[],
 ): boolean {
   if (hasErrorWithin(rangeOf(use, sourceFile), sourceFile, diagnostics)) return true;
+  // `N.x`, where the namespace `N` declares `x` and that declaration was refused and said why.
+  const access = use.parent;
+  if (ts.isPropertyAccessExpression(access) && access.expression === use) {
+    const member = namespaceMember(sourceFile, name, access.name.text);
+    if (member !== undefined && refusedWithReason(member, sourceFile, diagnostics)) return true;
+  }
   const declaration = visibleDeclaration(use, name, sourceFile);
   return declaration !== undefined && refusedWithReason(declaration, sourceFile, diagnostics);
 }

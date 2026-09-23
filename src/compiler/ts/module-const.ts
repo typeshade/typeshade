@@ -11,7 +11,7 @@ import { LoweringScope } from './context.js';
 import type { DeclaredSymbolSink } from './symbols.js';
 import { mapTsTypeToShaderType } from './type-map.js';
 import { foldConstComponents, foldConstValue } from './loop-bound.js';
-import { refuseListSpread, spreadListType } from './lower/expression-array.js';
+import { refuseListSpread } from './lower/expression-array.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
 import { lowerExpression } from './lower/expression.js';
 import { lowerArrayLiteral } from './lower/expression-array.js';
@@ -477,9 +477,15 @@ function lowerOne(
     );
     return undefined;
   }
+  const mapped = diagnostics.length;
   const annotated = decl.type
     ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
     : undefined;
+  // A type that maps to nothing and says nothing names a declaration refused where it is written
+  // (a generic interface, a contract), which said why; the constant builds nothing (Rule 12.4).
+  if (decl.type !== undefined && annotated === undefined && diagnostics.length === mapped) {
+    return undefined;
+  }
   // A list is lowered AGAINST the annotation, at module scope for the same reason as in a
   // function body (#8 A16): it carries no type of its own. The node it produces is the array
   // `construct` that `array<f32, 3>(...)` already produced here, which `valueExprConst` has
@@ -489,14 +495,9 @@ function lowerOne(
   let init: Expr | undefined;
   if (ts.isArrayLiteralExpression(decl.initializer)) {
     // A spread is the list's one sentence, said before the annotation it would otherwise be
-    // asked for. The name keeps the type written, or the one the elements add up to, with a
-    // value of that type that stands in for the list, so a read of it adds nothing (Rule 12.4);
-    // the refusal is an error, so no emit carries it.
-    if (refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)) {
-      const type = annotated ?? spreadListType(decl.initializer, sourceFile, scope);
-      if (type === undefined) return undefined;
-      init = { op: 'construct', type, args: [] };
-    } else if (!annotated) {
+    // asked for; the name's uses then say nothing more (refused-names.ts, Rule 12.4).
+    if (refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)) return undefined;
+    if (!annotated) {
       diagnostics.push(
         makeDiagnostic(
           sourceFile,
@@ -506,9 +507,8 @@ function lowerOne(
         ),
       );
       return undefined;
-    } else {
-      init = lowerArrayLiteral(decl.initializer, annotated, sourceFile, scope, diagnostics);
     }
+    init = lowerArrayLiteral(decl.initializer, annotated, sourceFile, scope, diagnostics);
   } else {
     // The annotation is the contextual type, which is how a body's `const p: P = { ... }`
     // already knows which struct the object literal builds (§16). Before this a module const

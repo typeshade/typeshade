@@ -32,6 +32,7 @@ import { isArrayMethod, otherArrayMethod } from './array-methods.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { enumMemberNames, staticMemberNames, unknownNameSentence } from '../unknown-names.js';
+import { isRefusedGenericStruct } from '../type-map.js';
 
 const JS_ARRAY_METHODS = new Set([
   'map',
@@ -303,6 +304,9 @@ export function lowerPropertyAccess(
       // A field its class declared and the struct does not carry was refused where it was
       // written; a read of it adds nothing (Rule 12.4).
       if (scope.isWithheld(base.type.name, emittedMemberName(prop))) return undefined;
+      // So is one of a struct named after a generic interface or alias, `G<f32>`: that
+      // declaration was refused with the class that says it (Rule 12.4).
+      if (isRefusedGenericStruct(base.type.name, sourceFile)) return undefined;
       const hidden = isPrivateName(prop)
         ? scope.privateField(base.type.name, emittedMemberName(prop))
         : undefined;

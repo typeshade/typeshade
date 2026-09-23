@@ -429,6 +429,30 @@ export function refusedBySemantics(node: ts.Node): boolean {
   return REFUSED.get(node.getSourceFile())?.has(node) ?? false;
 }
 
+/** Whether the class declared as `struct` (flattened, `N_P` inside a namespace) has a member
+ *  written `member` that `visit` refused, an async method or a generator, having said why: a
+ *  call of it has nothing more to say (Rule 12.4). */
+export function memberRefusedBySemantics(
+  struct: string,
+  member: string,
+  sourceFile: ts.SourceFile,
+): boolean {
+  for (const node of REFUSED.get(sourceFile) ?? []) {
+    const m = ts.isMethodDeclaration(node)
+      ? node
+      : ts.isPropertyDeclaration(node.parent) && node.parent.initializer === node
+        ? node.parent
+        : undefined;
+    if (m === undefined || m.name.getText() !== member) continue;
+    if (!ts.isClassDeclaration(m.parent) || m.parent.name === undefined) continue;
+    const block = m.parent.parent;
+    const prefix = ts.isModuleBlock(block) ? namespacePrefix(block) : undefined;
+    const cls = m.parent.name.text;
+    if ((prefix === undefined ? cls : namespaceMemberName(prefix, cls)) === struct) return true;
+  }
+  return false;
+}
+
 /** Whether `analyzeSemantics` refused `node` or something written inside it. A body or a
  *  default the lowering could not finish for that reason has said why, though the lowering
  *  itself added nothing, so a call of it has nothing more to say (Rule 12.4). */
