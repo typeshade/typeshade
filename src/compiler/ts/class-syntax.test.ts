@@ -15,6 +15,8 @@
 import { describe, expect, it } from 'vitest'
 import { compile } from './compile.js'
 import { TS_CODES } from './codes.js'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { compileModuleJs } from '../../core/cpu-codegen.js'
 import { startDebugSession } from '../../core/debug/session.js'
 
@@ -577,5 +579,90 @@ describe('the example', () => {
     expect(runAll(src, [{ pos: [0, 0, 0, 1], uv: [0, 0] }], 'fs')).toEqual({
       color: [0.07, 0.08, 0.14, 1],
     })
+  })
+})
+
+describe('TS8035 refuses what its catalogue entry says, and nothing that compiles', () => {
+  // The CLASS_MEMBER comment in codes.ts listed a getter or setter, an overload, a static field
+  // and a method that assigns to `this` as refused; after #190 each of them compiles. The
+  // comment is what a reader of the code catalogue takes as the contract, so it is pinned
+  // against the compiler: each shape it says compiles, compiles, and each it says is refused
+  // is TS8035.
+  const COMPILES: Record<string, string> = {
+    'a getter and a setter': `class A { x: f32; get y(): f32 { return this.x } set y(v: f32) { this.x = v } }
+export function f(a: A): f32 { return a.y }`,
+    'a static field': `class A { x: f32; static K: f32 = 2. }
+export function f(a: A): f32 { return a.x * A.K }`,
+    'a static method': `class A { x: f32; static k(): f32 { return 2. } }
+export function f(a: A): f32 { return a.x * A.k() }`,
+    'an overload signature': `class A { x: f32; m(a: f32): f32; m(a: f32): f32 { return a } }
+export function f(a: A): f32 { return a.m(1.) }`,
+    'an abstract member': `abstract class B { x: f32; abstract m(): f32 }
+class A extends B { m(): f32 { return this.x } }
+export function f(a: A): f32 { return a.m() }`,
+    'a # private name': `class A { #x: f32; m(): f32 { return this.#x } }
+export function f(a: A): f32 { return a.m() }`,
+    'a method that changes its object': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
+export function f(): f32 { let a: A = { x: 1. }; a.bump(); return a.x }`,
+  }
+  const REFUSED: Record<string, string> = {
+    'a field holding a function': `class A { x: f32; m = (a: f32): f32 => a }
+export function f(a: A): f32 { return a.x }`,
+    'a static block': `class A { x: f32; static { } }
+export function f(a: A): f32 { return a.x }`,
+    'an index signature': `class A { x: f32; [k: string]: f32 }
+export function f(a: A): f32 { return a.x }`,
+    'a second constructor': `class A { x: f32; constructor(x: f32) { this.x = x } constructor(y: f32) { this.x = y } }
+export function f(a: A): f32 { return a.x }`,
+    'a decorator on a method': `class A { x: f32; @vertex m(): f32 { return this.x } }
+export function f(a: A): f32 { return a.x }`,
+    'an async method': `class A { x: f32; async m(): f32 { return 1. } }
+export function f(a: A): f32 { return a.x }`,
+    'one name as two kinds': `class A { x: f32; x(): f32 { return 1. } }
+export function f(a: A): f32 { return a.x }`,
+    'a parameter named self_': `class A { x: f32; m(self_: f32): f32 { return self_ } }
+export function f(a: A): f32 { return a.x }`,
+    'this outside a method': `class A { x: f32 }
+export function f(a: A): f32 { return this.x }`,
+    'an instance method on the class': `class A { x: f32; m(): f32 { return this.x } }
+export function f(a: A): f32 { return A.m() }`,
+    'a static method on a value': `class A { x: f32; static k(): f32 { return 2. } }
+export function f(a: A): f32 { return a.k() }`,
+    'a # member outside its class': `class A { #x: f32; m(): f32 { return this.#x } }
+export function f(a: A): f32 { return a.#x }`,
+    'a getter with no setter assigned': `class A { x: f32; get y(): f32 { return this.x } }
+export function f(): f32 { let a: A = { x: 1. }; a.y = 2.; return a.x }`,
+    'a mutating method on a parameter': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
+export function f(a: A): f32 { a.bump(); return a.x }`,
+    'new on a class of statics only': `class A { static k(): f32 { return 1. } }
+export function f(): f32 { const a = new A(); return 1. }`,
+  }
+
+  it.each(Object.entries(COMPILES))('compiles %s', (_what, body) => {
+    expect(compile(`"use typeshade"\n${body}`).diagnostics).toEqual([])
+  })
+
+  it.each(Object.entries(REFUSED))('refuses %s as TS8035', (_what, body) => {
+    const codes = compile(`"use typeshade"\n${body}`).diagnostics.map((d) => d.code)
+    expect(codes[0]).toBe(TS_CODES.CLASS_MEMBER)
+  })
+
+  it('does not list a shape that compiles among the refused ones', () => {
+    const CODES_TS = fileURLToPath(new URL('./codes.ts', import.meta.url))
+    const src = readFileSync(CODES_TS, 'utf8')
+    const doc = src.slice(
+      src.lastIndexOf('/**', src.indexOf("CLASS_MEMBER: 'TS8035'")),
+      src.indexOf("CLASS_MEMBER: 'TS8035'"),
+    )
+    const refused = doc.slice(doc.indexOf('What is refused'))
+    expect(doc).toContain('What is refused')
+    for (const phrase of [
+      'a static field',
+      'a getter or setter',
+      'an overload',
+      'assigns to `this`',
+    ]) {
+      expect(refused.replace(/\s*\*\s*/g, ' ')).not.toContain(phrase)
+    }
   })
 })

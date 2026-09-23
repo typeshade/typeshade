@@ -12,7 +12,7 @@ import { numericMismatch } from '../numeric.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
-import { retargetDeclaredIntLit } from '../lit-coerce.js'
+import { reportIntLitRange, retargetDeclaredIntLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from './statement.js'
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js'
@@ -144,6 +144,11 @@ function lowerForInit(
   // never matched — so the initializer kept the f32 the bare `1` was given and the loop emitted
   // `var j: i32 = -1.0`, with no diagnostic, which neither Tint nor ANGLE accepts (issue #40).
   init = retargetDeclaredIntLit(init, decl.initializer, annotated ?? i32T)
+  // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk below would
+  // otherwise add a second one about a start value the author has already been told about.
+  if (reportIntLitRange(init, decl.initializer, annotated ?? i32T, sourceFile, diagnostics)) {
+    return undefined
+  }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
     // The check statement.ts has always had at its own declaration site, and the reason this
     // one was silent rather than merely wrong: nothing compared the two.

@@ -19,6 +19,7 @@ import {
   startDebugSessionFromConfig,
   type DebugLaunchConfig,
 } from './config.js'
+import { startDebugSessionFromConfig as publicStart } from '../../debug.js'
 
 function compiled(source: string): ModuleDecl {
   const r = compileTsSource(source, { fileName: 'cfg.shade.ts' })
@@ -669,6 +670,57 @@ export function vs(a: A, b: B): vec4 {
     })
     s.continue()
     expect(s.result).toEqual({ pos: [1, 2, 3, 0.5] })
+  })
+})
+
+describe('a bare @location parameter, through the public typeshade/debug entry', () => {
+  // Regression: `declaredInputs` keyed a bare parameter's slot `uv.uv` (owner and field are
+  // both the parameter's name) while the run read it back as `uv`, so the documented
+  // `"inputs": { "uv": [0.5, 0.25] }` was accepted, then dropped, and the run saw zeros.
+  const BARE = `"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  return vec4(uv, 0., 1.)
+}
+`
+  const MIXED = `"use typeshade"
+class S {
+  @location(1) uv: vec2
+}
+@fragment
+export function fs(@location(0) uv: vec2, s: S): vec4 {
+  return vec4(uv, s.uv)
+}
+`
+
+  it('the value given under the parameter name reaches the run', () => {
+    const s = publicStart(compiled(BARE), {
+      entry: 'fs',
+      precision: 'f64',
+      invocation: { inputs: { uv: [0.5, 0.25] } },
+    })
+    s.continue()
+    expect(s.result).toEqual([0.5, 0.25, 0, 1])
+  })
+
+  it('an unknown input names the parameter as it is spelled, not "uv.uv"', () => {
+    let problemsSeen: readonly string[] = []
+    try {
+      publicStart(compiled(BARE), { entry: 'fs', invocation: { inputs: { st: [0, 0] } } })
+    } catch (e) {
+      problemsSeen = (e as DebugConfigError).problems
+    }
+    expect(problemsSeen).toEqual(['"st" is not an input this entry declares; fs takes uv'])
+  })
+
+  it('beside a struct field of the same name, the bare name is the parameter and "s.uv" the field', () => {
+    const s = publicStart(compiled(MIXED), {
+      entry: 'fs',
+      precision: 'f64',
+      invocation: { inputs: { uv: [1, 2], 's.uv': [3, 4] } },
+    })
+    s.continue()
+    expect(s.result).toEqual([1, 2, 3, 4])
   })
 })
 
