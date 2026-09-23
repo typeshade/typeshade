@@ -324,7 +324,7 @@ export function analyzeSemantics(
       const isLet = (stmt.declarationList.flags & ts.NodeFlags.Let) !== 0
       // A top-level `let` is a module variable (§24): plain, the per-invocation one; with a
       // wrapper, the space the wrapper names. `module-vars.ts` collects it and owns its
-      // refusals, and a `declare let` is a binding.
+      // refusals, and a `declare` is a binding, which is always const.
       if (!isLet && !isConst) {
         push(
           diagnostics,

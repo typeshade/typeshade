@@ -264,7 +264,7 @@ describe('the missing-return-type warning', () => {
 
   it('is not raised for an entry function, which wants no return type', () => {
     const r = compileTsSource(`"use typeshade";
-declare let out: storage<array<f32>>
+declare const out: storage<array<f32>, "read_write">
 @compute([64, 1, 1])
 export function sum(@builtin("global_invocation_id") gid: vec3u) {
   out[gid.x] = 1.;

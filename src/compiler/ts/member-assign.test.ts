@@ -184,7 +184,7 @@ describe('field assignment', () => {
   it('lowers a field of an element: ps[i].a = 1.', () => {
     const body = lowerBody(`
       ${STRUCTS}
-      declare let ps: storage<array<P>>
+      declare const ps: storage<array<P>, "read_write">
       @compute([64, 1, 1])
       export function k(@builtin("global_invocation_id") gid: vec3u) {
         ps[gid.x].a = 1.;
@@ -279,7 +279,7 @@ describe('emitted text', () => {
     const c = compile(`
       "use typeshade";
       ${STRUCTS}
-      declare let ps: storage<array<P>>
+      declare const ps: storage<array<P>, "read_write">
       @compute([64, 1, 1])
       export function k(@builtin("global_invocation_id") gid: vec3u) {
         ps[gid.x].a = 1.;
@@ -465,7 +465,7 @@ describe('a write through a storage binding survives the optimizer', () => {
   const COMPUTED = `
     "use typeshade";
     ${STRUCTS}
-    declare let ps: storage<array<P>>
+    declare const ps: storage<array<P>, "read_write">
     @compute([64, 1, 1])
     export function k(@builtin("global_invocation_id") gid: vec3u) {
       ps[gid.x + u32(1)].b = ps[gid.x + u32(1)].a * ps[gid.x + u32(1)].a;
@@ -484,7 +484,7 @@ describe('a write through a storage binding survives the optimizer', () => {
     const c = compile(`
       "use typeshade";
       ${STRUCTS}
-      declare let ps: storage<array<P>>
+      declare const ps: storage<array<P>, "read_write">
       @compute([64, 1, 1])
       export function k(@builtin("global_invocation_id") gid: vec3u) {
         ps[gid.x * u32(2) + u32(1)].a++;
@@ -547,7 +547,7 @@ describe('what ++ and -- step', () => {
     )
     expect(
       diagnose(`
-        declare let vs: storage<array<vec3f64>>
+        declare const vs: storage<array<vec3f64>, "read_write">
         @compute([64, 1, 1])
         export function k(@builtin("global_invocation_id") gid: vec3u) {
           vs[gid.x]++;
@@ -601,7 +601,7 @@ describe('what ++ and -- step', () => {
     for (const [program, helper] of [
       [
         `"use typeshade";
-        declare let xs: storage<array<f64>>
+        declare const xs: storage<array<f64>, "read_write">
         @compute([64, 1, 1])
         export function k(@builtin("global_invocation_id") gid: vec3u) {
           xs[gid.x]++;
@@ -610,7 +610,7 @@ describe('what ++ and -- step', () => {
       ],
       [
         `"use typeshade";
-        declare let xs: storage<array<f64>>
+        declare const xs: storage<array<f64>, "read_write">
         @compute([64, 1, 1])
         export function k(@builtin("global_invocation_id") gid: vec3u) {
           xs[gid.x]--;
@@ -622,7 +622,7 @@ describe('what ++ and -- step', () => {
         class P {
           a: f64
         }
-        declare let ds: storage<array<P>>
+        declare const ds: storage<array<P>, "read_write">
         @compute([64, 1, 1])
         export function k(@builtin("global_invocation_id") gid: vec3u) {
           ds[gid.x].a++;
@@ -749,7 +749,7 @@ describe('the root rule reaches an element target too', () => {
   it('still takes the element writes that were always legal', () => {
     const c = compile(`
       "use typeshade";
-      declare let xs: storage<array<f32>>
+      declare const xs: storage<array<f32>, "read_write">
       @compute([64, 1, 1])
       export function k(@builtin("global_invocation_id") gid: vec3u) {
         xs[gid.x] = 1.;

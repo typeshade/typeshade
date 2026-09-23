@@ -20,7 +20,7 @@ import { reflect } from '../../core/reflect.js'
 
 const REDUCE = `"use typeshade"
 declare const src: storage<array<f32>>
-declare let sums: storage<array<f32>>
+declare const sums: storage<array<f32>, "read_write">
 let tile: workgroup<array<f32, 64>>
 @compute([64, 1, 1])
 export function reduce(
@@ -48,7 +48,7 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`)
 
 const HEAD = `"use typeshade"
-declare let out: storage<array<f32>>
+declare const out: storage<array<f32>, "read_write">
 `
 const kernel = (body: string) => `${HEAD}@compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
@@ -96,8 +96,8 @@ describe('barriers: dispatch runs a workgroup in lockstep', () => {
 
   it('fills every compute builtin and hands a scalar binding back', () => {
     const src = `"use typeshade"
-declare let out: storage<array<u32>>
-declare let last: storage<u32>
+declare const out: storage<array<u32>, "read_write">
+declare const last: storage<u32, "read_write">
 @compute([4, 1, 1])
 export function k(
   @builtin("global_invocation_id") gid: vec3u,
@@ -278,7 +278,7 @@ describe("textureBarrier and workgroupUniformLoad carry a barrier's rules", () =
       .map((d) => d.message)
 
   const CS = (decls: string, body: string): string => `"use typeshade"
-declare let o: storage<array<u32>>
+declare const o: storage<array<u32>, "read_write">
 ${decls}
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {

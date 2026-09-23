@@ -294,14 +294,15 @@ describe('getHover: a function with no return annotation', () => {
   })
 })
 
-describe('getHover: a resource binding declared let', () => {
-  // `declare let` is how a storage buffer asks for `read_write`, and the hover has to keep
-  // saying `let`: the source says it, the access mode depends on it, and the line below is
-  // about to be written to.
+describe('getHover: a resource binding, and where its access mode shows', () => {
+  // The declaration keyword of a binding is always `const` (design rule 6.1), so the hover says
+  // `const` for both of these and the ACCESS MODE is what tells them apart. It goes on the
+  // resource line, beside the address space it is part of, the way WGSL writes
+  // `var<storage, read_write>`.
   const source = [
     '"use typeshade";',
     'declare const ro: storage<array<f32>>',
-    'declare let rw: storage<array<f32>>',
+    'declare const rw: storage<array<f32>, "read_write">',
     '@compute([64, 1, 1])',
     'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
     '  rw[gid.x] = ro[gid.x];',
@@ -314,9 +315,18 @@ describe('getHover: a resource binding declared let', () => {
     return service.getHover('w.ts', service.positionAt('w.ts', offset))?.contents
   }
 
-  it('keeps the declaration keyword of each binding', () => {
-    expect(hoverAt(source.indexOf('rw[gid.x]'))).toContain('let rw: array<f32>')
+  it('says const for both, because a binding is declared const', () => {
+    expect(hoverAt(source.indexOf('rw[gid.x]'))).toContain('const rw: array<f32>')
     expect(hoverAt(source.indexOf('ro[gid.x]'))).toContain('const ro: array<f32>')
+  })
+
+  it('names the access mode on the resource line, which is what tells the two apart', () => {
+    expect(hoverAt(source.indexOf('rw[gid.x]'))).toContain(
+      'read_write storage resource at @group(0) @binding(1)',
+    )
+    expect(hoverAt(source.indexOf('ro[gid.x]'))).toContain(
+      'read storage resource at @group(0) @binding(0)',
+    )
   })
 
   it('still adds the resource line under both', () => {

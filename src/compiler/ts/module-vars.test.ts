@@ -20,7 +20,7 @@ import type { CpuValue } from '../../core/cpu-runtime.js'
 
 const KERNEL = `"use typeshade"
 declare const src: storage<array<f32>>
-declare let out: storage<array<f32>>
+declare const out: storage<array<f32>, "read_write">
 const SCALE: f32 = 2.
 let tile: workgroup<array<f32, 64>>
 let seed: u32 = 7
@@ -89,7 +89,7 @@ describe('module variables: the CPU backends', () => {
 
   it('workgroup memory is one implicit workgroup for the module, zero at creation', () => {
     const src = `"use typeshade"
-declare let out: storage<array<u32>>
+declare const out: storage<array<u32>, "read_write">
 let hits: workgroup<u32>
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
@@ -289,7 +289,7 @@ ${TAIL}`)
 
   it('no initializer is zero; an array and a struct take a constant one', () => {
     const src = `"use typeshade"
-declare let out: storage<array<f32>>
+declare const out: storage<array<f32>, "read_write">
 class P { a: f32; b: vec2 }
 let hits: u32
 let a: array<f32, 2> = [1., 2.]
@@ -358,11 +358,19 @@ export function fs(@location(0) uv: vec2): vec4 {
     expect(only(`"use typeshade"\nlet t = [1., 2.]${TAIL}`)).toBe(
       `${TS_CODES.MODULE_VAR} "t" needs an array type to take a list: let t: array<f32, 2> = [...].`,
     )
+    // The quoted line carries `"read_write"`, and the KEYWORD is why: this path is a top-level
+    // `let`, and `bindings.ts` reads the same keyword the same way (`isConst ? 'read' :
+    // 'read_write'`). Naming the read form left a program that writes through the binding
+    // refused after the paste — see remedy-lines.test.ts, which pastes both bodies back.
     expect(only(`"use typeshade"\nlet x: storage<array<f32>>${TAIL}`)).toBe(
-      `${TS_CODES.MODULE_VAR} "x" is a storage binding the host provides, and needs declare: declare let x: storage<array<f32>>.`,
+      `${TS_CODES.MODULE_VAR} "x" is a storage binding the host provides, and needs declare: write "declare const x: storage<array<f32>, \"read_write\">".`,
+    )
+    // A mode the author already named is quoted back as written, not rewritten.
+    expect(only(`"use typeshade"\nlet x: storage<array<f32>, "read">${TAIL}`)).toBe(
+      `${TS_CODES.MODULE_VAR} "x" is a storage binding the host provides, and needs declare: write "declare const x: storage<array<f32>, \"read\">".`,
     )
     expect(only(`"use typeshade"\nlet u: uniform<vec4>${TAIL}`)).toBe(
-      `${TS_CODES.MODULE_VAR} "u" is a uniform binding the host provides, and needs declare: declare let u: uniform<vec4>.`,
+      `${TS_CODES.MODULE_VAR} "u" is a uniform binding the host provides, and needs declare: write "declare const u: uniform<vec4>".`,
     )
     expect(only(`"use typeshade"\nlet t: texture_2d<f32>${TAIL}`)).toBe(
       `${TS_CODES.MODULE_VAR} "t" cannot be texture_2d<f32>: a texture is a resource, declared bare with "declare const".`,

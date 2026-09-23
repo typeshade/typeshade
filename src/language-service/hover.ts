@@ -52,10 +52,11 @@ function topLevelVariableNamed(
 /**
  * For an identifier that refers to one of the front end's collected resource bindings
  * (`analysis.bindings`: `uniform<T>(...)`, `storage<T>(...)` and the rest), the TypeShade line
- * the hover adds under TypeScript's quick info: the address space and the `@group`/`@binding`
- * slot the emitted WGSL declares it at, which the TypeScript type (`Camera`) says nothing
- * about. The name alone is not enough, since a local could shadow the binding, so the
- * identifier must resolve, per TypeScript, to the top-level declaration of that name.
+ * the hover adds under TypeScript's quick info: the access mode, the address space and the
+ * `@group`/`@binding` slot the emitted WGSL declares it at, none of which the TypeScript type
+ * (`Camera`) says anything about. The name alone is not enough, since a local could shadow the
+ * binding, so the identifier must resolve, per TypeScript, to the top-level declaration of that
+ * name.
  */
 function resourceBindingLine(
   analysis: CompileTsSourceResult,
@@ -71,7 +72,11 @@ function resourceBindingLine(
   if (decl === undefined) return undefined
   const declStart = decl.name.getStart(sourceFile)
   if (!defs.some((d) => d.fileName === uri && d.textSpan.start === declStart)) return undefined
-  return `${binding.space} resource at @group(${binding.group}) @binding(${binding.binding})`
+  // The access mode leads, so the line reads as WGSL's own `var<storage, read_write>` does and
+  // so the address space and the slot keep their wording. A uniform has no mode to name.
+  const mode = binding.space === 'storage' ? `${binding.access ?? 'read'} ` : ''
+  const slot = `@group(${binding.group}) @binding(${binding.binding})`
+  return `${mode}${binding.space} resource at ${slot}`
 }
 
 /**
@@ -144,13 +149,13 @@ function declarationLine(symbol: DeclaredSymbol): string | undefined {
       return `(parameter) ${symbol.name}: ${type}`
     case 'const':
       return `const ${symbol.name}: ${type}`
-    // A binding keeps `const name: T` / `let name: T`, the shape TypeScript already uses for it:
-    // the address space is on the resource line below, so spelling it `uniform<T>` here would
-    // say it twice. The keyword is the declaration's own, since `declare let buf: storage<T>` is
-    // what makes the buffer `read_write` and writing `const` over it would contradict both the
-    // source and the write two lines down.
+    // A binding keeps `const name: T`, the shape TypeScript already uses for it: the address
+    // space is on the resource line below, so spelling it `uniform<T>` here would say it twice.
+    // The keyword is always `const` because a binding is always declared `const` (design rule
+    // 6.1); what used to be read out of `symbol.mutable` here is the ACCESS MODE now, and the
+    // resource line below is where it belongs, beside the address space it is part of.
     case 'binding':
-      return `${symbol.mutable === true ? 'let' : 'const'} ${symbol.name}: ${type}`
+      return `const ${symbol.name}: ${type}`
     case 'function': {
       const params = (symbol.params ?? [])
         .map((p) => `${p.name}: ${spellShaderType(p.type)}`)
@@ -177,7 +182,7 @@ function declarationLine(symbol: DeclaredSymbol): string | undefined {
  * document, a host-side declaration, a data class name (`class Vertex` already says it), a
  * declaration the front end refused to lower and so never recorded (its own diagnostic on that
  * line says why), and the documentation section of every hover. A resource binding also gains
- * one line from `analysis`: its address space and `@group`/`@binding` slot.
+ * one line from `analysis`: its access mode, address space and `@group`/`@binding` slot.
  */
 export function getHover(
   languageService: ts.LanguageService,

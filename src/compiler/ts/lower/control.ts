@@ -4,7 +4,7 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import { i32T, isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
-import { irNameOf, readOnlyPhrase } from '../context.js'
+import { irNameOf, readOnlyPhrase, writableRemedy } from '../context.js'
 import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js'
 import { fitsTarget, isIntScalar } from '../lit-coerce.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
@@ -400,7 +400,8 @@ export function lowerUpdate(
           diagnostics,
           sourceFile,
           expr,
-          `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
+          `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(binding.kind)}.` +
+            writableRemedy(binding, sourceFile),
           TS_CODES.CONST_ASSIGN,
         )
         return undefined

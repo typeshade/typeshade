@@ -2,7 +2,8 @@
 
 import type ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
-import { CAS_RESULT_STRUCTS } from '../../core/ir/types.js'
+import { CAS_RESULT_STRUCTS, typeKey } from '../../core/ir/types.js'
+import { authorTypeName } from './type-map.js'
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js'
 import type { FuncDecl, StructDecl, StructField } from '../../core/ir/nodes.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
@@ -92,6 +93,114 @@ export function readOnlyPhrase(kind: BindingKind): string {
       throw new Error(`unhandled binding kind ${String(never)}`)
     }
   }
+}
+
+/** How a refusal spells a binding's value type back to the author. {@link typeKey} is the
+ *  COMPILER's key and is NOT a spelling: it writes a struct as `struct:Params`, an array with
+ *  no space after the comma, and a vector or a non-square matrix with a type argument the
+ *  ambient library does not declare (`vec4<f32>`, `mat2x3<f32>`). A remedy quoting any of
+ *  those goes red the moment the author pastes it — measured, `declare const a:
+ *  storage<array<vec4<f32>>, "read_write">` is TS2315 "Type 'vec4' is not generic" in the
+ *  editor while the compiler is clean.
+ *
+ *  So this spells the type in the SOURCE language, and every name it can produce comes from
+ *  {@link authorTypeName}, the inverse of the very table `type-map.ts` parses a declaration
+ *  with. A type spelled from its parts is composed here: a struct is its name, an array is
+ *  `array<E>` or `array<E, N>` with a space after the comma, an atomic is `atomic<u32>`.
+ *  `remedy-lines.test.ts` pastes every remedy back into its own program and is what keeps
+ *  this honest.
+ */
+export function authorTypeText(t: ShaderType): string {
+  switch (t.kind) {
+    case 'struct':
+      return t.name
+    case 'array':
+      return t.size !== undefined
+        ? `array<${authorTypeText(t.elem)}, ${t.size}>`
+        : `array<${authorTypeText(t.elem)}>`
+    // `atomic<u32>` is written exactly as WGSL writes it, and the element is a bare scalar
+    // name rather than a nested `ShaderType`, so it is composed here and not looked up.
+    case 'atomic':
+      return `atomic<${t.elem}>`
+    default:
+      // A SQUARE `f64` matrix is the one shape with no row in the parse table (it goes through
+      // the generic `matN<f64>` arm), and `typeKey` already writes what an author writes for
+      // it, `mat3x3<f64>`. Every other type without a name of its own is a handle, which is
+      // never a storage binding's value type.
+      return authorTypeName(t) ?? typeKey(t)
+  }
+}
+
+/** The resource bindings a file wrote in the CALL form (`const xs = storage<T>(…)`) rather
+ *  than as a `declare const`. A remedy that names a declaration has to name the one the author
+ *  wrote: measured, pasting `declare const xs: storage<…>` into a file that already binds `xs`
+ *  by a call is `TS8023 Duplicate resource` on top of the refusal it was meant to close.
+ *
+ *  A WeakMap keyed by the source file, for the reason {@link fileFunctionsOf} is one: the
+ *  declaration FORM is a fact about the TypeScript source, not about the resource, so it does
+ *  not belong on `BindingDecl`, which is IR the EDSL builds too. */
+const CALL_FORM_BINDINGS = new WeakMap<ts.SourceFile, Map<string, string>>()
+
+/** Records that `name` was bound by a call in this file, with the argument list as the author
+ *  wrote it (`({ binding: 3 })`, `(0, 1)`, `()`). The arguments ride along because they carry
+ *  the slot: a remedy that dropped them would move the binding while it made it writable.
+ *  Called by `bindings.ts` as it collects, which is the one place that has read the
+ *  declaration's shape. */
+export function recordCallFormBinding(
+  sourceFile: ts.SourceFile,
+  name: string,
+  argsText: string,
+): void {
+  const found = CALL_FORM_BINDINGS.get(sourceFile)
+  if (found) found.set(name, argsText)
+  else CALL_FORM_BINDINGS.set(sourceFile, new Map([[name, argsText]]))
+}
+
+/** The bindings whose declared value type the compiler could NOT read, and recovered. A
+ *  remedy is a line to paste, and a line built from a type that was already refused is not one:
+ *  `storage<mat2x3<f64>>` recovers as `mat2x3` (the fp64 pass carries square matrices only) and
+ *  was answered with `Write "declare const mnd: storage<mat2x3, \"read_write\">"`, which drops
+ *  the `<f64>` the author wrote and is refused again the moment it is pasted; `storage<array<
+ *  vec2h>>` recovers as `struct:array` and was answered with `storage<array, "read_write">`,
+ *  which drops the type argument entirely. In both the FIRST sentence already names the mistake
+ *  the author has to fix, and a second sentence about a type the compiler could not read is
+ *  noise — so {@link writableRemedy} says nothing for these.
+ *
+ *  Recorded rather than derived, for the reason {@link CALL_FORM_BINDINGS} is: whether the
+ *  declaration READ is a fact about this TypeScript source, and the recovered `ShaderType` that
+ *  reaches the IR carries no trace of it. */
+const RECOVERED_BINDINGS = new WeakMap<ts.SourceFile, Set<string>>()
+
+/** Records that `name`'s declared value type drew a refusal and was recovered. Called by
+ *  `bindings.ts`, the one place that maps a binding's declared type. */
+export function recordRecoveredBinding(sourceFile: ts.SourceFile, name: string): void {
+  const found = RECOVERED_BINDINGS.get(sourceFile)
+  if (found) found.add(name)
+  else RECOVERED_BINDINGS.set(sourceFile, new Set([name]))
+}
+
+/** The second sentence of a "cannot assign" refusal: the declaration that WOULD permit the
+ *  write, or `''` where there is none. Design rule 6.2 puts a storage binding's access mode in
+ *  its second type argument, so the remedy names the TYPE and never the declaration keyword.
+ *  Empty for everything else on purpose: a uniform buffer is read-only in WGSL, a module const
+ *  and an override are fixed before the shader runs, and naming a keyword for any of them was
+ *  the stale advice this replaces.
+ *
+ *  It names the form the author WROTE, `declare const x: storage<T, "read_write">` or
+ *  `const x = storage<T, "read_write">()`, because a remedy is a line to paste into the file
+ *  it is about and the two forms do not substitute for each other.
+ */
+export function writableRemedy(binding: Binding, sourceFile?: ts.SourceFile): string {
+  if (binding.kind !== 'binding' || binding.space !== 'storage') return ''
+  // Nothing to say about a type the compiler could not read: see {@link RECOVERED_BINDINGS}.
+  if (sourceFile && RECOVERED_BINDINGS.get(sourceFile)?.has(binding.name)) return ''
+  const type = `storage<${authorTypeText(binding.type)}, \"read_write\">`
+  const args = sourceFile && CALL_FORM_BINDINGS.get(sourceFile)?.get(binding.name)
+  const line =
+    args !== undefined
+      ? `const ${binding.name} = ${type}${args}`
+      : `declare const ${binding.name}: ${type}`
+  return ` Write "${line}" to write to it.`
 }
 
 /** The base constructor a `super(...)` runs, and the fields it decides (roadmap 0.3 item T5,

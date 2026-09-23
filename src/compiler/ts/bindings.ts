@@ -9,9 +9,24 @@ import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES } from './type-map.js'
 import { atomicWithin } from './lower/atomics.js'
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
+import { recordCallFormBinding, recordRecoveredBinding } from './context.js'
 import { isOverrideType } from './overrides.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
+
+/** The two access modes a storage BUFFER may take, WGSL's own words for
+ *  `var<storage, read>` and `var<storage, read_write>`. A storage buffer has no write-only
+ *  mode: `write` is a storage TEXTURE's, and `StorageTextureAccess` carries that set.
+ *
+ *  This is the one list. `ambient.ts` re-exports it (the way it re-exports `ATTRIBUTE_NAMES`
+ *  from `builtin-check.ts`) and generates the library's `StorageBufferAccess` union from it, so
+ *  the words the editor accepts and the words this file reads out of a declaration cannot
+ *  drift. An export is not an author-facing name; the DECLARED name is the union in `SHADE_DTS`.
+ */
+export const STORAGE_BUFFER_ACCESS = ['read', 'read_write'] as const
+
+/** An access mode as it is written and as {@link BindingDecl.access} carries it. */
+export type StorageBufferAccess = (typeof STORAGE_BUFFER_ACCESS)[number]
 
 /** The type names that are a resource HANDLE rather than a buffer: written bare in a
  *  `declare const`, with no address-space wrapper. `sampler` and the texture names are the
@@ -52,7 +67,11 @@ export function collectBindings(
             name: b.name,
             kind: 'binding',
             type: b.type,
-            mutable: !isConst,
+            // A binding is always declared `const` now, so the keyword carries nothing: what
+            // the editor's table calls mutable is what the declared type asked for
+            // (`storage<T, "read_write">`). `function.ts` derives the lowering scope's
+            // `mutable` from the same field, so the two tables agree by construction.
+            mutable: b.access === 'read_write',
           })
           next = Math.max(next, b.binding + 1)
         }
@@ -77,7 +96,11 @@ export function collectBindings(
             name: b.name,
             kind: 'binding',
             type: b.type,
-            mutable: !isConst,
+            // A binding is always declared `const` now, so the keyword carries nothing: what
+            // the editor's table calls mutable is what the declared type asked for
+            // (`storage<T, "read_write">`). `function.ts` derives the lowering scope's
+            // `mutable` from the same field, so the two tables agree by construction.
+            mutable: b.access === 'read_write',
           })
           next = Math.max(next, b.binding + 1)
         }
@@ -166,16 +189,81 @@ function fromType(
     )
     return undefined
   }
+  // THE TYPE ARGUMENT IS READ FIRST, before the declaration keyword, because the keyword's
+  // refusal quotes the line to write and that line has to name the type the author wrote. On
+  // `declare let s: storage` there is none: the keyword sentence used to quote a literal `T`
+  // beside a second `storage<T> needs a type argument.`, two sentences for one mistake, and
+  // the first named a type nobody had written.
   const inner = type.typeArguments?.[0]
   if (!inner) {
     diagnostics.push(diag(sourceFile, type, `${kind}<T> needs a type argument.`))
     return undefined
   }
+  let access: StorageBufferAccess | undefined
+  if (kind === 'storage') {
+    // The word the author wrote, on BOTH keyword paths. Forcing `read_write` on the `let` path
+    // discarded an explicit `"read"` — the refusal named the opposite mode to the one the
+    // declaration asked for — and skipped the word check, so `storage<T, "nope">` under a `let`
+    // got no `TS8002` at all. An absent argument is the one thing the keyword still decides:
+    // WGSL's default is `read`, and a `let` author wanted to write.
+    access =
+      type.typeArguments?.[1] !== undefined
+        ? readStorageAccess(type.typeArguments[1], sourceFile, diagnostics)
+        : isConst
+          ? 'read'
+          : 'read_write'
+  } else if (type.typeArguments?.[1] !== undefined) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        type.typeArguments[1],
+        `uniform<T> takes one type argument. A uniform buffer is read-only, so it has no ` +
+          `access mode to write.`,
+        TS_CODES.UNKNOWN_TYPE,
+      ),
+    )
+  }
+  // A binding is declared `const`. The keyword used to decide a storage binding's access mode,
+  // which was never something a reader could rely on: a TypeScript `const` array forbids
+  // rebinding the name and permits `arr[0] = 1`, the opposite of what `declare const` meant
+  // here. The mode is the second type argument now (design rule 6.2), and the keyword is
+  // refused. REPORTED AND RECOVERED: dropping the binding here trails `TS8022 Unknown
+  // identifier "gain"` at every use, which buries the one sentence the author has to read, so
+  // this collects the binding anyway the way type-map.ts recovers a storage texture no device
+  // binds (T10, #111). The line it quotes carries the access mode read above, so an author who
+  // wrote `declare let x: storage<T, "read">` is not told to write `"read_write"`.
+  if (!isConst) {
+    const innerText = inner.getText(sourceFile)
+    diagnostics.push(
+      diag(
+        sourceFile,
+        type,
+        `"${name}" is a ${kind} binding, and a binding is declared const: write ` +
+          `"declare const ${name}: ${
+            kind === 'storage'
+              ? `storage<${innerText}, "${access ?? 'read_write'}">`
+              : `uniform<${innerText}>`
+          }". ` +
+          (kind === 'storage'
+            ? `A storage binding's access mode is its second type argument, not the ` +
+              `declaration keyword.`
+            : `A uniform buffer is read-only, so there is no writable form of it to ask for.`),
+      ),
+    )
+  }
+  // WHETHER THE TYPE READ is measured, not guessed: a refusal pushed while mapping it is the
+  // one fact that says the `ShaderType` below is a RECOVERY and not what the author declared.
+  // A remedy built from a recovered type quotes a line that is refused again (see
+  // `recordRecoveredBinding`), so the site that would quote one is told not to.
+  const beforeType = diagnostics.length
   const mapped =
     mapTsTypeToShaderType(inner, sourceFile, diagnostics) ??
     (ts.isTypeReferenceNode(inner) && ts.isIdentifier(inner.typeName)
       ? structT(inner.typeName.text)
       : undefined)
+  if (diagnostics.slice(beforeType).some((d) => d.category === 'error')) {
+    recordRecoveredBinding(sourceFile, name)
+  }
   if (!mapped) return undefined
   // An atomic lives in storage memory only (WGSL §6.2.8): `uniform<array<atomic<u32>>>` is
   // refused here, where the address space is decided. A struct's fields are not looked into;
@@ -187,7 +275,8 @@ function fromType(
         sourceFile,
         type,
         `"${name}" holds an atomic<${atomic.elem}>, which lives in storage memory only: ` +
-          `write "declare let ${name}: storage<${inner.getText(sourceFile)}>".`,
+          `write "declare const ${name}: storage<${inner.getText(sourceFile)}, ` +
+          `\"read_write\">".`,
       ),
     )
     return undefined
@@ -219,7 +308,7 @@ function fromType(
     binding: autoBinding,
     name,
     space: kind === 'storage' ? 'storage' : 'uniform',
-    access: kind === 'storage' ? (isConst ? 'read' : 'read_write') : undefined,
+    access,
     type: mapped,
   }
 }
@@ -238,22 +327,59 @@ function fromCall(
     diagnostics.push(diag(sourceFile, call, `${kind}<T>() needs a type argument.`))
     return undefined
   }
+  // The same measurement the `declare` form makes, for the same reason.
+  const beforeType = diagnostics.length
   const type =
     mapTsTypeToShaderType(typeArg, sourceFile, diagnostics) ??
     (ts.isTypeReferenceNode(typeArg) && ts.isIdentifier(typeArg.typeName)
       ? structT(typeArg.typeName.text)
       : undefined)
+  if (diagnostics.slice(beforeType).some((d) => d.category === 'error')) {
+    recordRecoveredBinding(sourceFile, name)
+  }
   if (!type) return undefined
-  if (kind === 'uniform' && !isConst) {
+  if (!isConst) {
+    // The same rule as the `declare` form: a binding is `const`, and a storage binding asks
+    // for a writable buffer in its type. Measured on main, `let xs = storage<f32>()` is
+    // already dead through the whole front end (`module-vars.ts` collects it too and it ends
+    // as `TS8004 Unknown function "storage<f32>()"`), so what changes here is which sentence
+    // the author reads, and the binding is dropped as it always was.
     diagnostics.push(
-      diag(sourceFile, call, `uniform "${name}" must be const. Use const ${name} = uniform<T>().`),
+      diag(
+        sourceFile,
+        call,
+        `"${name}" is a ${kind} binding, and a binding is declared const: write ` +
+          `"const ${name} = ${
+            kind === 'storage'
+              ? `storage<${typeArg.getText(sourceFile)}, "read_write">`
+              : `uniform<${typeArg.getText(sourceFile)}>`
+          }()". ` +
+          (kind === 'storage'
+            ? `A storage binding's access mode is its second type argument, not the ` +
+              `declaration keyword.`
+            : `A uniform buffer is read-only, so there is no writable form of it to ask for.`),
+      ),
     )
     return undefined
   }
   let group = 0
   let binding = autoBinding
-  let access: 'read' | 'read_write' | undefined =
-    kind === 'storage' ? (isConst ? 'read' : 'read_write') : undefined
+  let access: StorageBufferAccess | undefined
+  if (kind === 'storage') {
+    access = readStorageAccess(call.typeArguments?.[1], sourceFile, diagnostics)
+  } else if (call.typeArguments?.[1] !== undefined) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        call.typeArguments[1],
+        `uniform<T>() takes one type argument. A uniform buffer is read-only, so it has no ` +
+          `access mode to write.`,
+        TS_CODES.UNKNOWN_TYPE,
+      ),
+    )
+  }
+  // The options object as it should read, filled in by the arm below when there is one.
+  let keptOptions: string | undefined
   const arg0 = call.arguments[0]
   if (arg0 && ts.isNumericLiteral(arg0)) {
     binding = Number(arg0.text)
@@ -265,29 +391,143 @@ function fromCall(
     const opt = parseOptions(arg0)
     if (opt.group !== undefined) group = opt.group
     if (opt.binding !== undefined) binding = opt.binding
-    if (opt.access) access = kind === 'storage' ? opt.access : undefined
+    keptOptions = arg0.properties
+      .filter((prop) => prop !== opt.access)
+      .map((prop) => prop.getText(sourceFile))
+      .join(', ')
+    // The option is gone, and it is NOT dropped silently: the whole point of moving the mode
+    // into the type is that an author who asks for a writable buffer gets one, so a file that
+    // still carries the option reads the type-argument spelling to write instead. Reported and
+    // ignored; the mode comes from the type argument above.
+    if (opt.access !== undefined) {
+      const args = keptOptions === '' ? '' : `{ ${keptOptions} }`
+      const typeText = typeArg.getText(sourceFile)
+      // The word is VALIDATED before it is named. Echoing the author's own word back made the
+      // remedy quote a line the same file refuses: `{ access: "write" }` was answered with
+      // `storage<…, "write">`, which is `TS8002` the moment it is written. A word outside the
+      // two recovers as `read_write`, the mode this option was written to ask for.
+      const word =
+        opt.accessWord !== undefined && isStorageBufferAccess(opt.accessWord)
+          ? opt.accessWord
+          : 'read_write'
+      diagnostics.push(
+        diag(
+          sourceFile,
+          opt.access,
+          // A UNIFORM has no access mode at all, so the storage sentence was false about it
+          // twice over: it opened "a storage binding's access mode is its second type
+          // argument" about a uniform, and the line it named was a two-type-argument
+          // `uniform<…>`, which the arm above refuses with `TS8002`.
+          kind === 'storage'
+            ? `The { access } option is gone: a storage binding's access mode is its second ` +
+                `type argument. Write "const ${name} = storage<${typeText}, ` +
+                `\"${word}\">(${args})".`
+            : `The { access } option is gone, and a uniform buffer is read-only: it has no ` +
+                `access mode to ask for. Write "const ${name} = uniform<${typeText}>(${args})".`,
+        ),
+      )
+    }
   }
+  // The argument list a later refusal quotes back, so a remedy names the line this file HAS
+  // rather than the `declare const` form of it, which would be a second resource of the same
+  // name (`TS8023 Duplicate resource`) if it were pasted in. The retired `{ access }` option is
+  // NOT echoed: the sentence above already says to drop it, and a remedy that carried it would
+  // quote a line this file refuses.
+  recordCallFormBinding(sourceFile, name, callArgsText(call, sourceFile, keptOptions))
   return { group, binding, name, space: kind === 'storage' ? 'storage' : 'uniform', access, type }
 }
 
+/** The call form's argument list as a remedy quotes it: what the author wrote, with the
+ *  retired `{ access }` option removed. `keptOptions` is the rest of the object literal, or
+ *  `undefined` when the call's argument is not one. */
+function callArgsText(
+  call: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  keptOptions: string | undefined,
+): string {
+  if (keptOptions !== undefined) return keptOptions === '' ? '()' : `({ ${keptOptions} })`
+  return `(${call.arguments.map((a) => a.getText(sourceFile)).join(', ')})`
+}
+
+/** The `{ group, binding }` a call form may pass. `access` is no longer one of them: the key is
+ *  returned as the NODE that spells it so `fromCall` can put the squiggle under it and quote the
+ *  type-argument spelling to write, and `accessWord` is what the author asked for so the remedy
+ *  names the mode they meant rather than guessing. */
 function parseOptions(obj: ts.ObjectLiteralExpression): {
   group?: number
   binding?: number
-  access?: 'read' | 'read_write'
+  access?: ts.ObjectLiteralElementLike
+  accessWord?: string
 } {
-  const out: { group?: number; binding?: number; access?: 'read' | 'read_write' } = {}
+  const out: {
+    group?: number
+    binding?: number
+    access?: ts.ObjectLiteralElementLike
+    accessWord?: string
+  } = {}
   for (const prop of obj.properties) {
     if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) continue
     const key = prop.name.text
     if ((key === 'group' || key === 'binding') && ts.isNumericLiteral(prop.initializer)) {
       out[key] = Number(prop.initializer.text)
     }
-    if (key === 'access' && ts.isStringLiteral(prop.initializer)) {
-      if (prop.initializer.text === 'read' || prop.initializer.text === 'read_write')
-        out.access = prop.initializer.text
+    if (key === 'access') {
+      out.access = prop
+      if (ts.isStringLiteral(prop.initializer)) out.accessWord = prop.initializer.text
     }
   }
   return out
+}
+
+/** The access mode a `storage<T, Access>` declaration asks for, read off the second type
+ *  argument. An absent argument is `read`, WGSL's own default for the address space. Anything
+ *  that is not one of {@link STORAGE_BUFFER_ACCESS} is `TS8002`, the code `mapStorageTexture`
+ *  already raises for a bad `texture_storage_2d<Format, Access>` word, and recovers as
+ *  `read_write`: measured, recovering as `read` makes the author's own write a second `TS8005`
+ *  on the same program, and recovering as `read_write` leaves exactly one sentence. The reader
+ *  is the shape `mapStorageTexture`'s own `written()` helper uses, which is the precedent for
+ *  reading a WGSL enumerant out of a string literal type. */
+function readStorageAccess(
+  accessArg: ts.TypeNode | undefined,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): StorageBufferAccess {
+  if (accessArg === undefined) return 'read'
+  const written =
+    ts.isLiteralTypeNode(accessArg) && ts.isStringLiteral(accessArg.literal)
+      ? accessArg.literal.text
+      : undefined
+  if (written !== undefined && isStorageBufferAccess(written)) return written
+  const got = accessArg.getText(sourceFile)
+  diagnostics.push(
+    makeDiagnostic(
+      sourceFile,
+      accessArg,
+      `storage<T, Access> Access is ${STORAGE_BUFFER_ACCESS.map((w) => `"${w}"`).join(' or ')}; ` +
+        `got ${got}.` +
+        // The storage-TEXTURE sentence answers one mistake — asking a buffer for the write-only
+        // mode — and was printed for every other one too, so `storage<array<f32>, "nope">` and
+        // a non-literal argument were each answered with advice about `"write"` they had
+        // nothing to do with.
+        (written === 'write'
+          ? ` A storage BUFFER has no write-only mode; that is a storage texture's, ` +
+            `texture_storage_2d<Format, "write">.`
+          : ''),
+      TS_CODES.UNKNOWN_TYPE,
+    ),
+  )
+  return 'read_write'
+}
+
+/** Whether a word is one of {@link STORAGE_BUFFER_ACCESS}. THE one reader of that list: the
+ *  type-argument path narrows a string literal type through it and the retired-`{ access }`
+ *  refusal narrows the author's option through it, so neither can name a word the other
+ *  refuses. It used to be `written === 'read' || written === 'read_write'` written out here,
+ *  which is what made the "one list, cannot drift" claim above untrue — a word added to the
+ *  array would have reached the editor's `StorageBufferAccess` union and the sentence below
+ *  while this parser still rejected it. */
+function isStorageBufferAccess(word: string): word is StorageBufferAccess {
+  return (STORAGE_BUFFER_ACCESS as readonly string[]).includes(word)
 }
 
 function diag(sourceFile: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {

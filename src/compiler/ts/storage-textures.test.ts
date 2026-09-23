@@ -82,7 +82,7 @@ describe('the binding', () => {
     )
     const load = wgslOf(
       compute(
-        `declare const src: texture_storage_2d_array<"r32float", "read">\ndeclare let out: storage<array<vec4>>`,
+        `declare const src: texture_storage_2d_array<"r32float", "read">\ndeclare const out: storage<array<vec4>, "read_write">`,
         `  out[gid.x] = textureLoad(src, vec2i(0, 0), 1)`,
       ),
     )
@@ -109,7 +109,7 @@ describe('the binding', () => {
     expect(
       errorsOf(
         compute(
-          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare let out: storage<array<vec4>>`,
+          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare const out: storage<array<vec4>, "read_write">`,
           `  out[gid.x] = textureLoad(src, vec3i(0, 0, 0))`,
         ),
       ),
@@ -186,7 +186,7 @@ ${body}
     // sampler" — the wrong answer AND the wrong reason. Measured accepted on Tint.
     const wgsl = wgslOf(
       compute(
-        `declare const src: texture_storage_2d_array<"r32float", "read">\ndeclare let out: storage<array<u32>>`,
+        `declare const src: texture_storage_2d_array<"r32float", "read">\ndeclare const out: storage<array<u32>, "read_write">`,
         `  out[gid.x] = textureNumLayers(src)`,
       ),
     )
@@ -195,7 +195,7 @@ ${body}
     expect(
       errorsOf(
         compute(
-          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare let out: storage<array<u32>>`,
+          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare const out: storage<array<u32>, "read_write">`,
           `  out[gid.x] = textureNumLayers(src)`,
         ),
       ),
@@ -259,7 +259,7 @@ ${body}
     // carries no directive.
     const readable = compile(
       compute(
-        `declare const src: texture_storage_2d<"r32float", "read">\ndeclare let out: storage<array<u32>>`,
+        `declare const src: texture_storage_2d<"r32float", "read">\ndeclare const out: storage<array<u32>, "read_write">`,
         `  out[gid.x] = textureDimensions(src).x`,
       ),
     )
@@ -286,7 +286,7 @@ ${body}
     expect(
       errorsOf(
         compute(
-          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare let out: storage<array<u32>>`,
+          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare const out: storage<array<u32>, "read_write">`,
           `  out[gid.x] = textureDimensions(src, 0).x`,
         ),
       ),
@@ -297,7 +297,7 @@ ${body}
     expect(
       wgslOf(
         compute(
-          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare let out: storage<array<u32>>`,
+          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare const out: storage<array<u32>, "read_write">`,
           `  out[gid.x] = textureDimensions(src).x`,
         ),
       ),

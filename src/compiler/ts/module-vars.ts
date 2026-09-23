@@ -257,6 +257,36 @@ function lowerWrapped(
   )
 }
 
+/** The resource type a needs-`declare` refusal quotes back: the author's own text, with two
+ *  departures — a `storage<T>` that names no access mode gains `"read_write"`, and a resource
+ *  with no type argument at all becomes a shape rather than a line.
+ *
+ *  This path is a top-level `let` (a `const` that names a space is refused above, and a plain
+ *  one is module-const.ts's), and `bindings.ts` reads the very same keyword the very same way,
+ *  `isConst ? 'read' : 'read_write'`: a `let` author wanted to write. Quoting the text
+ *  unchanged named the READ form, so an author who wrote `let dst: storage<array<f32>>` and
+ *  assigned through it pasted the line, kept a refused program — `TS8005`, with a SECOND
+ *  remedy naming the writable form — and took two steps over one mistake. A declaration that
+ *  already names its mode is quoted as written, and so is a `uniform`, which has none. */
+function declaredResourceText(type: ts.TypeNode, sourceFile: ts.SourceFile): string {
+  const written = type.getText(sourceFile)
+  if (!ts.isTypeReferenceNode(type) || !ts.isIdentifier(type.typeName)) return written
+  const args = type.typeArguments
+  // A RESOURCE WITH NO TYPE ARGUMENT has no line to name, only a shape. `let s: storage` is two
+  // mistakes, and quoting the author's text back named `declare const s: storage`, which the
+  // next compile refuses with `storage<T> needs a type argument.` — so the sentence says what
+  // to write with the ellipsis this surface uses for a shape (`structs.ts` quotes `name(...) {
+  // ... }` the same way), and names no line it cannot make good on. The `declare` form reaches
+  // the same conclusion by a different road: `bindings.ts` reads the type argument FIRST and
+  // suppresses its own keyword sentence when there is none, rather than quoting a literal `T`
+  // nobody wrote.
+  if (args === undefined || args.length === 0) return `${type.typeName.text}<...>`
+  if (type.typeName.text !== 'storage') return written
+  // Exactly one: `storage<T, "read">` said its mode, so it is quoted as the author wrote it.
+  if (args.length !== 1) return written
+  return `storage<${args[0].getText(sourceFile)}, "read_write">`
+}
+
 /** `let seed: u32 = 7`, `let hits: u32`, `let v = 1.5`: the per-invocation variable, its type
  *  from the annotation or, without one, from the initializer by §12's rule for a `const`. */
 function lowerPlain(
@@ -288,8 +318,11 @@ function lowerPlain(
         diag(
           sourceFile,
           decl,
-          `"${name}" is a ${resource} binding the host provides, and needs declare: ` +
-            `declare let ${name}: ${decl.type.getText(sourceFile)}.`,
+          // The line is QUOTED, the way every other remedy on this surface quotes one, so
+          // `remedy-lines.test.ts` can paste it back into the program it came from and check
+          // that what it names compiles.
+          `"${name}" is a ${resource} binding the host provides, and needs declare: write ` +
+            `"declare const ${name}: ${declaredResourceText(decl.type, sourceFile)}".`,
         ),
       )
       return undefined

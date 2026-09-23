@@ -259,7 +259,7 @@ export function fs(@location(0) uv: vec2): vec4 { return vec4(main(uv.x), 0., 0.
 describe('a module the target never reaches is not held to its list (#103)', () => {
   it('keeps a field named half in a compute-only module, which emits no GLSL', () => {
     const r = compile(`"use typeshade"
-declare let sink: storage<array<f32>>
+declare const sink: storage<array<f32>, "read_write">
 class P { half: f32 }
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {

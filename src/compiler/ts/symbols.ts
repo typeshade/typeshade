@@ -60,8 +60,11 @@ export interface DeclaredSymbol {
   readonly type: ShaderType
   /** A `function`'s parameters, in declaration order. Absent for every other kind. */
   readonly params?: readonly DeclaredParam[]
-  /** Whether a `local` or a `binding` was declared `let` (`true`) or `const` (`false`), which
-   *  is also what decides a storage binding's access mode. Absent for every other kind. */
+  /** Whether the declaration may be written to. For a `local` it is the keyword, `let`
+   *  (`true`) or `const` (`false`). For a `binding` it is the ACCESS MODE the declared type
+   *  asked for, `true` only for `storage<T, "read_write">`: a binding is always declared
+   *  `const` (design rule 6.1), so the keyword says nothing about it. Absent for every other
+   *  kind. */
   readonly mutable?: boolean
   /** The name of the struct that owns a `field`. Absent for every other kind. */
   readonly struct?: string

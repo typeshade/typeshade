@@ -12,7 +12,7 @@ import { dce } from './opt/dce.js'
 import type { ModuleDecl } from '../ir/nodes.js'
 
 const SRC = `"use typeshade"
-declare let dst: storage<array<f32>>
+declare const dst: storage<array<f32>, "read_write">
 function pure(x: f32): f32 {
   return x * 2.
 }

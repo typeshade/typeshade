@@ -19,7 +19,7 @@ describe('binding layout', () => {
 
   it('errors when auto fills a slot already taken', () => {
     const r = collect(`
-      let xs = storage<f32>();
+      const xs = storage<f32, "read_write">();
       const scale = uniform<f32>(0);
     `)
     expect(r.diagnostics.some((d) => /@binding\(0\)/.test(d.message))).toBe(true)
@@ -28,7 +28,7 @@ describe('binding layout', () => {
   it('allows a hole after an explicit high slot', () => {
     const r = collect(`
       const camera = uniform<f32>(2);
-      let xs = storage<f32>();
+      const xs = storage<f32, "read_write">();
     `)
     expect(r.diagnostics).toEqual([])
     expect(r.bindings.map((b) => b.binding)).toEqual([2, 3])

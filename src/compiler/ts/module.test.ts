@@ -241,7 +241,7 @@ export function fs(@location(0) uv: vec2): vec4 {
 }
 `
   const STORAGE = `"use typeshade"
-declare let heights: storage<array<f32>>
+declare const heights: storage<array<f32>, "read_write">
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   heights[gid.x] = 1.

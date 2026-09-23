@@ -28,7 +28,13 @@ import type { SourceSpan } from '../../../core/ir/span.js'
 import { boolT, f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { CollectedStruct, FieldInit } from '../structs.js'
-import { irNameOf, readOnlyPhrase, type LoweringScope, type SuperCtor } from '../context.js'
+import {
+  irNameOf,
+  readOnlyPhrase,
+  writableRemedy,
+  type LoweringScope,
+  type SuperCtor,
+} from '../context.js'
 import { pushTypeArguments } from '../generics.js'
 import { ambiguousNew, newInstanceName } from '../generic-structs.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -1043,8 +1049,14 @@ export function lowerMutatingCall(
         diagnostics,
         sourceFile,
         node,
-        `"${shown}" changes its object, and "${bare.text}" is ${readOnlyPhrase(b.kind)}; ` +
-          `declare it with let.`,
+        // A RESOURCE's remedy is its declared type, not the keyword (design rule 6.2): a
+        // binding is `const` now, so "declare it with let" told the author to do the thing
+        // that is refused. A local is unchanged, because for a local the keyword IS the answer.
+        b.kind === 'binding'
+          ? `"${shown}" changes its object, and "${bare.text}" is ` +
+              `${readOnlyPhrase(b.kind)}.${writableRemedy(b, sourceFile)}`
+          : `"${shown}" changes its object, and "${bare.text}" is ${readOnlyPhrase(b.kind)}; ` +
+              `declare it with let.`,
       )
       return undefined
     }

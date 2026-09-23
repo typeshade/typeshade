@@ -20,7 +20,7 @@ import { f32T, u32T } from '../../core/ir/types.js'
 import type { Expr, Stmt } from '../../core/ir/nodes.js'
 
 const STORE = `"use typeshade"
-declare let dst: storage<array<f32>>
+declare const dst: storage<array<f32>, "read_write">
 function store(i: u32): void {
   dst[i] = 1.
 }
@@ -31,7 +31,7 @@ export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
 `
 
 const BUMP = `"use typeshade"
-declare let dst: storage<array<f32>>
+declare const dst: storage<array<f32>, "read_write">
 function bump(i: u32): f32 {
   dst[i] = dst[i] + 1.
   return dst[i]
@@ -133,7 +133,7 @@ export function fs(@location(0) uv: vec2): Color {
 
   it('unrolls with the counter substituted into the call', () => {
     const src = `"use typeshade"
-declare let dst: storage<array<f32>>
+declare const dst: storage<array<f32>, "read_write">
 function store(i: u32): void {
   dst[i] = 1.
 }
@@ -170,7 +170,7 @@ export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
 
   it('is not lifted out of a helper by the linear inliner', () => {
     const src = `"use typeshade"
-declare let dst: storage<array<f32>>
+declare const dst: storage<array<f32>, "read_write">
 function store(i: u32): void {
   dst[i] = 1.
 }

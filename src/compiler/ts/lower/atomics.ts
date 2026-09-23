@@ -19,7 +19,7 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import { casResultT, i32T, typeKey, u32T, voidT } from '../../../core/ir/types.js'
 import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import type { LoweringScope } from '../context.js'
+import { readOnlyPhrase, writableRemedy, type LoweringScope } from '../context.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { retargetIntLitCtx } from '../lit-coerce.js'
@@ -62,8 +62,9 @@ export function refuseAtomicDeclaration(
     sourceFile,
     node,
     `${typeKey(atomic)} lives in storage or workgroup memory only: declare it inside a storage ` +
-      `binding (declare let counters: storage<array<${typeKey(atomic)}>>) or a workgroup ` +
-      `variable (let tile: workgroup<array<${typeKey(atomic)}, 64>>), not as ${where}.`,
+      `binding (declare const counters: storage<array<${typeKey(atomic)}>, "read_write">) or a ` +
+      `workgroup variable (let tile: workgroup<array<${typeKey(atomic)}, 64>>), not as ` +
+      `${where}.`,
     TS_CODES.UNSUPPORTED,
   )
   return true
@@ -144,12 +145,20 @@ export function lowerAtomicCall(
   const binding =
     root.op === 'varref' || root.op === 'param' ? scope.resolveIr(root.name) : undefined
   if (binding !== undefined && !binding.mutable) {
+    // The sentence this replaces said `which is declared const; declare it with let.`, which
+    // was wrong twice over once the access mode moved into the type: the binding is SUPPOSED
+    // to be const, and the remedy named the spelling that is now refused. For a BINDING the
+    // mode is what it is about, so the mode is what it says; the other arm is for a root that
+    // is not a binding (a parameter, a module const), where the keyword still is the answer.
     pushDiag(
       diagnostics,
       sourceFile,
       locNode,
-      `${name} needs read_write access to "${binding.name}", which is declared const; ` +
-        `declare it with let.`,
+      binding.kind === 'binding'
+        ? `${name} needs read_write access to "${binding.name}", which is declared read.` +
+            writableRemedy(binding, sourceFile)
+        : `${name} needs read_write access to "${binding.name}", which is ` +
+            `${readOnlyPhrase(binding.kind)}.`,
       TS_CODES.CONST_ASSIGN,
     )
     return undefined

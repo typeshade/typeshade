@@ -476,7 +476,7 @@ describe('discard', () => {
     ).toBe('"discard" is only valid in a fragment shader; "vs" is a vertex entry.')
     expect(
       diagnose(`
-        declare let xs: storage<array<f32>>
+        declare const xs: storage<array<f32>, "read_write">
         @compute([64, 1, 1])
         export function k(@builtin("global_invocation_id") gid: vec3u) {
           discard;
@@ -553,7 +553,7 @@ describe('the fragment-only rule follows calls, not just the entry body', () => 
       export function outer(x: f32): f32 {
         return inner(x) * 2.;
       }
-      declare let out: storage<array<f32>>
+      declare const out: storage<array<f32>, "read_write">
       @compute([1, 1, 1])
       export function k(@builtin("global_invocation_id") gid: vec3u) {
         out[gid.x] = outer(1.);

@@ -22,10 +22,10 @@ import type { CpuValue } from '../../core/cpu-runtime.js'
 
 const HISTOGRAM = `"use typeshade"
 declare const src: storage<array<f32>>
-declare let bins: storage<array<atomic<u32>>>
-declare let total: storage<atomic<u32>>
+declare const bins: storage<array<atomic<u32>>, "read_write">
+declare const total: storage<atomic<u32>, "read_write">
 class Stats { hits: atomic<u32>; peak: atomic<i32> }
-declare let stats: storage<Stats>
+declare const stats: storage<Stats, "read_write">
 @compute([64, 1, 1])
 export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= arrayLength(src)) {
@@ -86,7 +86,7 @@ describe('atomics: the WGSL', () => {
 
   it('a bare integer literal takes the atomic element type, u32 or i32', () => {
     const r = compile(`"use typeshade"
-declare let counts: storage<array<atomic<i32>>>
+declare const counts: storage<array<atomic<i32>>, "read_write">
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
   atomicSub(counts[gid.x], 3)
@@ -132,8 +132,8 @@ describe('atomics: the CPU backends', () => {
 
   it('every read-modify-write returns the old value and wraps or masks like the GPU', () => {
     const src = `"use typeshade"
-declare let xs: storage<array<atomic<u32>>>
-declare let out: storage<array<u32>>
+declare const xs: storage<array<atomic<u32>>, "read_write">
+declare const out: storage<array<u32>, "read_write">
 @compute([1, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
   out[0] = atomicLoad(xs[0])
@@ -159,7 +159,7 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 
   it('an atomic<i32> wraps as a signed integer', () => {
     const src = `"use typeshade"
-declare let xs: storage<array<atomic<i32>>>
+declare const xs: storage<array<atomic<i32>>, "read_write">
 @compute([1, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
   atomicAdd(xs[0], 1)
@@ -177,7 +177,7 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 describe('atomics: the optimizer and the effect table', () => {
   it('keeps two atomicAdds on one location and never merges them', () => {
     const r = compile(`"use typeshade"
-declare let bins: storage<array<atomic<u32>>>
+declare const bins: storage<array<atomic<u32>>, "read_write">
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
   atomicAdd(bins[gid.x], 1)
@@ -193,7 +193,7 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
       r.wgsl === undefined
         ? ''
         : `"use typeshade"
-declare let bins: storage<array<atomic<u32>>>
+declare const bins: storage<array<atomic<u32>>, "read_write">
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
   atomicAdd(bins[gid.x], 1)
@@ -209,8 +209,8 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 
   it('never shares an atomicLoad across a store to the same location', () => {
     const src = `"use typeshade"
-declare let bins: storage<array<atomic<u32>>>
-declare let out: storage<array<u32>>
+declare const bins: storage<array<atomic<u32>>, "read_write">
+declare const out: storage<array<u32>, "read_write">
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
   const a = atomicLoad(bins[gid.x])
@@ -231,7 +231,7 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 
   it('names the binding an atomic writes, itself and through a helper; a load writes nothing', () => {
     const r = compile(`"use typeshade"
-declare let bins: storage<array<atomic<u32>>>
+declare const bins: storage<array<atomic<u32>>, "read_write">
 function bump(i: u32): void {
   atomicAdd(bins[i], 1)
 }
@@ -268,7 +268,7 @@ describe('atomics: reflection', () => {
 
 describe('atomics: what is refused, and what the fix is', () => {
   const HEAD = `"use typeshade"
-declare let bins: storage<array<atomic<u32>>>
+declare const bins: storage<array<atomic<u32>>, "read_write">
 declare const ro: storage<array<atomic<u32>>>
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
@@ -282,12 +282,18 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
     expect(errorsOf(`${HEAD}  bins[gid.x] = 1\n}\n`)).toEqual([BARE])
   })
 
+  // The sentence used to end `which is declared const; declare it with let.`, which was wrong
+  // twice over once the access mode moved into the type (design rule 6.2): the binding is
+  // SUPPOSED to be const, and the remedy named the spelling that is now refused. It names the
+  // mode it is about, and the declaration that would grant it.
   it('a read-only binding, which no atomic builtin may take', () => {
+    const remedy =
+      'Write "declare const ro: storage<array<atomic<u32>>, \"read_write\">" to write to it.'
     expect(errorsOf(`${HEAD}  atomicAdd(ro[gid.x], 1)\n}\n`)).toEqual([
-      `${TS_CODES.CONST_ASSIGN} atomicAdd needs read_write access to "ro", which is declared const; declare it with let.`,
+      `${TS_CODES.CONST_ASSIGN} atomicAdd needs read_write access to "ro", which is declared read. ${remedy}`,
     ])
     expect(errorsOf(`${HEAD}  const v = atomicLoad(ro[gid.x])\n}\n`)).toEqual([
-      `${TS_CODES.CONST_ASSIGN} atomicLoad needs read_write access to "ro", which is declared const; declare it with let.`,
+      `${TS_CODES.CONST_ASSIGN} atomicLoad needs read_write access to "ro", which is declared read. ${remedy}`,
     ])
   })
 
@@ -305,7 +311,7 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 
   it('an atomic declared anywhere but inside a storage binding', () => {
     const where = (w: string) =>
-      `${TS_CODES.UNSUPPORTED} atomic<u32> lives in storage or workgroup memory only: declare it inside a storage binding (declare let counters: storage<array<atomic<u32>>>) or a workgroup variable (let tile: workgroup<array<atomic<u32>, 64>>), not as ${w}.`
+      `${TS_CODES.UNSUPPORTED} atomic<u32> lives in storage or workgroup memory only: declare it inside a storage binding (declare const counters: storage<array<atomic<u32>>, "read_write">) or a workgroup variable (let tile: workgroup<array<atomic<u32>, 64>>), not as ${w}.`
     expect(errorsOf(`${HEAD}  let a: atomic<u32> = 0\n}\n`)).toEqual([where('a local')])
     expect(
       errorsOf(`"use typeshade"
@@ -321,13 +327,13 @@ declare const u: uniform<array<atomic<u32>>>
 export function fs(): vec4 { return vec4(1.) }
 `),
     ).toEqual([
-      `${TS_CODES.UNSUPPORTED} "u" holds an atomic<u32>, which lives in storage memory only: write "declare let u: storage<array<atomic<u32>>>".`,
+      `${TS_CODES.UNSUPPORTED} "u" holds an atomic<u32>, which lives in storage memory only: write "declare const u: storage<array<atomic<u32>>, "read_write">".`,
     ])
   })
 
   it('an element type that is not u32 or i32', () => {
     const errors = errorsOf(`"use typeshade"
-declare let b: storage<array<atomic<f32>>>
+declare const b: storage<array<atomic<f32>>, "read_write">
 @fragment
 export function fs(): vec4 { return vec4(1.) }
 `)
@@ -342,7 +348,7 @@ export function fs(): vec4 { return vec4(1.) }
     // it. A fragment entry is legal and stays so.
     const vs = (body: string): string => `"use typeshade"
 class Clip { @builtin("position") pos: vec4 }
-declare let total: storage<atomic<u32>>
+declare const total: storage<atomic<u32>, "read_write">
 ${body}
 @vertex
 export function vs(@builtin("vertex_index") i: u32): Clip {
@@ -362,7 +368,7 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
     expect(
       errorsOf(`"use typeshade"
 class Clip { @builtin("position") pos: vec4 }
-declare let total: storage<atomic<u32>>
+declare const total: storage<atomic<u32>, "read_write">
 @vertex
 export function vs(@builtin("vertex_index") i: u32): Clip {
   const n = atomicLoad(total)
@@ -376,7 +382,7 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
     expect(
       errorsOf(`"use typeshade"
 class Color { @location(0) color: vec4 }
-declare let total: storage<atomic<u32>>
+declare const total: storage<atomic<u32>, "read_write">
 @fragment
 export function fs(): Color {
   atomicAdd(total, 1)
@@ -403,8 +409,8 @@ export function fs(): vec4 { return vec4(f32(atomicAdd(1, 2)), 0., 0., 1.) }
 // broken shader fed to the same instrument first.
 describe('atomicCompareExchangeWeak answers a struct WGSL will not let you name', () => {
   const CAS = `"use typeshade"
-declare let lock: storage<atomic<u32>>
-declare let o: storage<array<u32>>
+declare const lock: storage<atomic<u32>, "read_write">
+declare const o: storage<array<u32>, "read_write">
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   const r = atomicCompareExchangeWeak(lock, 0, 7)
@@ -449,8 +455,8 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   it("takes three arguments, both of the atomic's own kind", () => {
     const bad = (call: string): string[] =>
       compileTsSource(`"use typeshade"
-declare let lock: storage<atomic<u32>>
-declare let o: storage<array<u32>>
+declare const lock: storage<atomic<u32>, "read_write">
+declare const o: storage<array<u32>, "read_write">
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   const r = ${call}
@@ -474,8 +480,8 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
 
   it('works on an i32 atomic too, and keeps the atomic rules it shares', () => {
     const r = compile(`"use typeshade"
-declare let lock: storage<atomic<i32>>
-declare let o: storage<array<i32>>
+declare const lock: storage<atomic<i32>, "read_write">
+declare const o: storage<array<i32>, "read_write">
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   const r = atomicCompareExchangeWeak(lock, -1, 7)
@@ -488,7 +494,7 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     expect(
       compileTsSource(`"use typeshade"
 declare const lock: storage<atomic<u32>>
-declare let o: storage<array<u32>>
+declare const o: storage<array<u32>, "read_write">
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   const r = atomicCompareExchangeWeak(lock, 0, 7)
