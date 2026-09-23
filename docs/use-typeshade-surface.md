@@ -1584,8 +1584,9 @@ ordering of integers), as `ok` for a clause `!ok`, and as `!(…)` otherwise, si
 not `x <= 0.` for a NaN. A clause keeps the parentheses that make it one clause:
 `i < 8 && (a > 0 || b > 0) && c > 0` is told `"(a > 0 || b > 0) && c > 0"` and
 `if (!((a > 0 || b > 0) && c > 0)) { break; }`; the clauses joined bare read as
-`a > 0 || (b > 0 && c > 0)`, a different test. The bound may stand on either side of the `&&`, and an unannotated counter takes its type from
-it, so `i < data.length && data[i] > 0.` is told this and not `cannot compare i32 and u32`.
+`a > 0 || (b > 0 && c > 0)`, a different test. The bound may stand on either side of the `&&`,
+and an unannotated counter takes its type from it, so `i < data.length && data[i] > 0.` is told
+this and not `cannot compare i32 and u32`.
 
 What is not checked, because the value is not known before the loop runs: that the counter
 reaches a runtime bound before it leaves its type. `i <= n` with `n` at the type's maximum never
@@ -1608,7 +1609,8 @@ holds `true` is the same loop: `const ON = true;` then `while (ON) { … }` is
 constant or a static readonly (`while (C.ON)`), and `!`, `&&`, `||` or a comparison over constants
 (`while (!PAUSED)`, `while (N > 0)`). Each used to compile, and never end. A `?:`, a call, or a
 local `const` holding one of those (`const go = !OFF`) is still read as a runtime condition
-(Appendix B of the language design). A `break` inside a nested loop or a `switch` leaves that statement, not this loop, and is not counted as a way out.
+(Appendix B of the language design). A `break` inside a nested loop or a `switch` leaves that
+statement, not this loop, and is not counted as a way out.
 A `for` with no condition says to write this form: `for (;;)` is refused and points at
 `while (true) { … }`.
 

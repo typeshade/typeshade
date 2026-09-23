@@ -34,7 +34,8 @@ import { fallsIntoABody } from '../fallthrough.js';
  * deletes the loop, body and all, from both targets: `for (…; v.x += 1.)` and `for (…; zz += 1)`
  * compiled that way with no diagnostic (Rule 12.6). Each refusal below says why; this keeps
  * the invariant for any that does not, with a `TS8099` that says the loop was refused, not
- * dropped.
+ * dropped. A header that reads a name whose declaration was refused is explained by that
+ * refusal, which a read of the name does not repeat (Rule 12.4, #171).
  */
 export function lowerFor(
   node: ts.ForStatement,
@@ -44,7 +45,11 @@ export function lowerFor(
 ): Stmt | undefined {
   const errors = errorCount(diagnostics);
   const loop = lowerCountedFor(node, sourceFile, scope, diagnostics);
-  if (loop === undefined && errorCount(diagnostics) === errors) {
+  if (
+    loop === undefined &&
+    errorCount(diagnostics) === errors &&
+    !readsARefusedName(node, sourceFile, diagnostics)
+  ) {
     pushDiag(
       diagnostics,
       sourceFile,
@@ -59,6 +64,20 @@ export function lowerFor(
 
 function errorCount(diagnostics: readonly TsCompilerDiagnostic[]): number {
   return diagnostics.filter((d) => d.category === 'error').length;
+}
+
+/** Whether the `for` header reads a name an error already stands for: `i < n` for a refused
+ *  `declare const n: i32` is not lowered, and says nothing more than the declaration's
+ *  refusal. The header is where every `undefined` of {@link lowerCountedFor} comes from. */
+function readsARefusedName(
+  node: ts.ForStatement,
+  sourceFile: ts.SourceFile,
+  diagnostics: readonly TsCompilerDiagnostic[],
+): boolean {
+  const reads = (n: ts.Node): boolean =>
+    (ts.isIdentifier(n) && unknownNameAlreadyReported(n, n.text, sourceFile, diagnostics)) ||
+    ts.forEachChild(n, (c) => reads(c) || undefined) === true;
+  return [node.initializer, node.condition, node.incrementor].some((h) => h && reads(h));
 }
 
 function lowerCountedFor(

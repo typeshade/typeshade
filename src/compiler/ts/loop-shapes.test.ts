@@ -24,6 +24,7 @@ import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js';
 import { compile } from './compile.js';
 import { LoweringScope } from './context.js';
 import { lowerStatements } from './lower/statement.js';
+import { checkDocuments } from '../../language-service/check.js';
 
 /** One loop, as a whole module, with `head` spliced into the `for`. */
 function loop(head: string): string {
@@ -48,6 +49,13 @@ function diagnose(head: string): string {
 function errorsOf(src: string): { code?: string; message: string }[] {
   return compileTsSource(src)
     .diagnostics.filter((d) => d.category === 'error')
+    .map((d) => ({ code: d.code, message: d.message }));
+}
+
+/** Every error the editor shows for a whole module, as code and text (Rule 12.7). */
+function editorErrorsOf(src: string): { code?: string; message: string }[] {
+  return checkDocuments([{ path: 'loop.shade.ts', uri: '/p/loop.shade.ts', text: src }])
+    .diagnostics.filter((d) => d.severity === 'error')
     .map((d) => ({ code: d.code, message: d.message }));
 }
 
@@ -345,6 +353,28 @@ describe('a for update is lowered or refused, never dropped (Rules 7.5, 12.6)', 
           'rather than left out of the module; report it as a compiler bug.',
       },
     ]);
+  });
+
+  it('adds nothing to the refusal of a declaration the header reads (Rule 12.4)', () => {
+    // A refused declaration binds no name, and a read of it says nothing more (#171). The
+    // header then did not lower, nothing new was reported, and the invariant above added a
+    // TS8099 claiming that no diagnostic said why, beside the one that does.
+    const g = 'function g(x: i32): i32 { return x; }';
+    for (const [top, declaration, header] of [
+      ['declare const n: i32;', '', 'let i: i32 = 0; i < n; i++'],
+      ['declare const n: i32;', '', 'let i: i32 = n; i < 8; i++'],
+      ['declare const n: i32;', '', 'let i: i32 = 0; i < 8 && n > 0; i++'],
+      ['declare const n: i32;', '', 'let i: i32 = 0; i < 8; i = i + n'],
+      [g, 'const s: i32 = g(1.5);', 'let i: i32 = 0; i < 8; i += s'],
+      ['declare const zz: i32;', '', 'let i: i32 = 0; i < 8; zz += 1'],
+    ]) {
+      const alone = kernel(declaration, top);
+      const src = kernel(`${declaration} for (${header}) { out[0] = 5.; }`, top);
+      expect(errorsOf(alone), header).toHaveLength(1);
+      expect(errorsOf(src), header).toEqual(errorsOf(alone));
+      // The editor too; `zz += 1` is also TypeScript's TS2588, a write to a `const`.
+      if (!header.includes('zz')) expect(editorErrorsOf(src), header).toEqual(errorsOf(alone));
+    }
   });
 });
 
@@ -646,5 +676,51 @@ describe("a loop's hidden counter is the compiler's own name (Rule 2.2)", () => 
     expect(struct.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(struct.wgsl).toContain('for (var _w_1: i32 = 0;');
     expect(struct.eval('f', [])).toBe(4);
+  });
+});
+
+describe('the editor says what compile() says of a loop (Rules 12.4, 12.7)', () => {
+  it('shows each refusal of this change as the one diagnostic compile() gives', () => {
+    const top = 'const ON = true; const PAUSED = false;';
+    const never = (cond: string): { code: string; message: string } => ({
+      code: 'TS8007',
+      message:
+        `while (${cond}) has no break or return in its body, so it never ends. Leave it with ` +
+        'a break, or write the exit into the condition.',
+    });
+    for (const [body, expected] of [
+      ['let v = vec2(0., 0.); for (let i: i32 = 0; i < 16; v.x += 1.) { }', NOT_A_STEP],
+      ['let xs: array<i32, 2> = [0, 0]; for (let i: i32 = 0; i < 8; xs[0] += 1) { }', NOT_A_STEP],
+      ['for (let i: i32 = 0; i < 8; i <<= 1) { }', NOT_A_STEP],
+      [
+        'for (let i: i32 = 0; i < 8; zz += 1) { }',
+        { code: 'TS8022', message: 'Cannot assign to unknown name "zz".' },
+      ],
+      [
+        'for (let i: i32 = 0; i < 8; i = i + 2.) { }',
+        {
+          code: 'TS8003',
+          message:
+            'Type mismatch: cannot + i32 and f32 — no implicit int/float conversion. Cast ' +
+            'explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
+        },
+      ],
+      [
+        'for (let i: i32 = 0; i < 8 && i !== 3; i++) { }',
+        {
+          code: 'TS8006',
+          message:
+            'for exit joins the bound "i < 8" with "i !== 3", and a counted loop\'s exit is its ' +
+            'bound alone. Make "if (i === 3) { break; }" the body\'s first statement, or write ' +
+            'the loop as a while.',
+        },
+      ],
+      ['while (ON) { out[0] = 5.; }', never('ON')],
+      ['while (!PAUSED) { out[0] = 5.; }', never('!PAUSED')],
+    ] as const) {
+      const src = kernel(body, top);
+      expect(errorsOf(src), body).toEqual([expected]);
+      expect(editorErrorsOf(src), body).toEqual([expected]);
+    }
   });
 });
