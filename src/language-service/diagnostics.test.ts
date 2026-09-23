@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { createTypeshadeLanguageService } from './service.js';
 import { getTypeScriptDiagnostics } from './diagnostics.js';
+import { compile } from '../compiler/ts/compile.js';
 import { TypeshadeHost } from './host.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
@@ -385,8 +386,14 @@ describe('a field that holds a function draws no TypeScript diagnostic (Rule 8.1
 // Playground bundles TypeScript 5.9, where `workgroup-scratch`, `workgroup-reduce`,
 // `compute-sync` and `workgroup-tile-2d` showed TS2454 on `tile` and would not compile. The
 // diagnostic TypeScript 5.7 adds is put into a real program here, at the span it reports, and
-// then filtered the way the service filters, so the rule is pinned under either version.
+// then filtered the way the service filters, so the rule is pinned under either version. The
+// tests that let it through read the editor half on TypeScript 5.6 alone (`ambient.test.ts`'s
+// examples corpus); each case below reads the compiler half of the same source too.
 describe('a read of workgroup memory draws no TS2454 (TypeScript 5.7 and later)', () => {
+  /** The compiler half: `compile()`'s diagnostics, code and text (Rule 12.5). */
+  const compiled = (source: string): string[] =>
+    compile(source).diagnostics.map((d) => `${d.code} ${d.message}`);
+
   const kernel =
     '"use typeshade"\n' +
     'declare const src: storage<array<f32>>\n' +
@@ -428,12 +435,35 @@ describe('a read of workgroup memory draws no TS2454 (TypeScript 5.7 and later)'
   }
 
   it('drops it on workgroup memory and keeps it on a per-invocation let nothing assigns', () => {
+    expect(compiled(kernel), 'the compiler accepts the kernel').toEqual([]);
+    expect(compile(kernel).wgsl).toContain('var<workgroup> tile: array<f32, 64>;');
     expect(withNeverAssigned(kernel, ['tile', 'calls'])).toEqual([
       "TS2454: Variable 'calls' is used before being assigned.",
     ]);
   });
 
-  it('keeps it on a local that shadows the workgroup name, which TypeScript 5.6 reports too', () => {
+  it('keeps it on a local read before its first assignment, which TypeScript 5.6 reports too', () => {
+    // Rule 7.6: the read is zero on WGSL and undefined on GLSL ES 3.00, so the compiler accepts
+    // it and the editor keeps TypeScript's word for it.
+    const source =
+      '"use typeshade"\n' +
+      'declare const dst: storage<array<f32>, "read_write">\n' +
+      'let tile: workgroup<array<f32, 64>>\n' +
+      '@compute([64, 1, 1])\n' +
+      'export function k(@builtin("local_invocation_id") lid: vec3u): void {\n' +
+      '  tile[lid.x] = 1.\n' +
+      '  let x: f32\n' +
+      '  dst[lid.x] = x + tile[lid.x]\n' +
+      '}\n';
+    expect(compiled(source)).toEqual([]);
+    expect(typeScriptDiagnosticsOf(source)).toEqual([
+      "TS2454: Variable 'x' is used before being assigned.",
+    ]);
+  });
+
+  it('keeps it on a local that shadows the workgroup name, which the compiler refuses', () => {
+    // The checker resolves `tile` here to the local, so the rule leaves TypeScript's TS2454
+    // beside the compiler's own refusal of the second binding.
     const source =
       '"use typeshade"\n' +
       'declare const dst: storage<array<f32>, "read_write">\n' +
@@ -443,6 +473,7 @@ describe('a read of workgroup memory draws no TS2454 (TypeScript 5.7 and later)'
       '  let tile: f32\n' +
       '  dst[lid.x] = tile\n' +
       '}\n';
+    expect(compiled(source)).toContain('TS8023 Duplicate binding "tile" in this scope.');
     expect(typeScriptDiagnosticsOf(source)).toEqual([
       "TS2454: Variable 'tile' is used before being assigned.",
     ]);
