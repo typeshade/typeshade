@@ -11,7 +11,9 @@ import { parseSwizzle } from '../swizzle.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import { lowerBarrierStatement } from './barriers.js'
 import { classFunctionOf, lowerMutatingCall } from './class-methods.js'
+import { lowerChainPrelude } from './chains.js'
 import {
+  checkFieldAccess,
   destructuredGetter,
   finishAccessorWrite,
   getterInChain,
@@ -19,8 +21,10 @@ import {
   lowerStaticFieldTarget,
   refuseReadonlyWrite,
   refuseWriteThroughGetter,
+  inheritedPrivateStaticField,
+  inheritedStaticWrite,
   staticConstantWrite,
-  staticFieldBinding,
+  staticFieldRead,
   staticOwnerOf,
   visibleField,
   type AccessorTarget,
@@ -109,6 +113,34 @@ export function lowerStatement(
 }
 
 function lowerStatementNode(
+  node: ts.Statement,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | Stmt[] | undefined {
+  // A chain that is the whole of a call statement or of a `return` runs each call but the last
+  // as a statement of its own, ahead of this one, on the object it started from (chains.ts).
+  const whole =
+    ts.isExpressionStatement(node) &&
+    ts.isCallExpression(node.expression) &&
+    node.expression.expression.kind !== ts.SyntaxKind.SuperKeyword
+      ? node.expression
+      : ts.isReturnStatement(node)
+        ? node.expression
+        : undefined
+  if (whole !== undefined) {
+    const prelude = lowerChainPrelude(whole, sourceFile, scope, diagnostics)
+    if (prelude === undefined) return undefined
+    if (prelude !== 'not-a-chain') {
+      const rest = lowerStatementKind(node, sourceFile, scope, diagnostics)
+      if (rest === undefined) return undefined
+      return [...prelude, ...(Array.isArray(rest) ? rest : [rest])]
+    }
+  }
+  return lowerStatementKind(node, sourceFile, scope, diagnostics)
+}
+
+function lowerStatementKind(
   node: ts.Statement,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
@@ -296,6 +328,27 @@ function lowerVariableDeclaration(
   // (roadmap 0.3 item T7, #92): local-functions.ts collected it, or said why it could not, so
   // the declaration itself emits nothing here either way.
   if (localFunctionOf(decl) !== undefined) return undefined
+  // A chain that is the whole initializer runs its calls ahead of the declaration (chains.ts).
+  if (decl.initializer !== undefined) {
+    const prelude = lowerChainPrelude(decl.initializer, sourceFile, scope, diagnostics)
+    if (prelude === undefined) return undefined
+    if (prelude !== 'not-a-chain') {
+      const rest = lowerDeclarationKind(decl, isConst, sourceFile, scope, diagnostics, spanNode)
+      if (rest === undefined) return undefined
+      return [...prelude, ...(Array.isArray(rest) ? rest : [rest])]
+    }
+  }
+  return lowerDeclarationKind(decl, isConst, sourceFile, scope, diagnostics, spanNode)
+}
+
+function lowerDeclarationKind(
+  decl: ts.VariableDeclaration,
+  isConst: boolean,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  spanNode: ts.Node,
+): Stmt | Stmt[] | undefined {
   if (ts.isObjectBindingPattern(decl.name)) {
     return lowerObjectPattern(decl.name, decl, isConst, sourceFile, scope, diagnostics, spanNode)
   }
@@ -730,6 +783,9 @@ function readField(
     // not reach it (Rule 8.12). A getter is read by calling it, as TypeScript's pattern does
     // (Rule 8.11).
     const type = visibleField(base.type.name, field, at, scope)
+    if (type && !checkFieldAccess(base.type.name, field, at, sourceFile, scope, diagnostics)) {
+      return undefined
+    }
     if (!type) {
       const read = destructuredGetter(
         base.type.name,
@@ -1233,6 +1289,10 @@ export function lowerLValue(
   // parentheses come off once, here, rather than in each branch below (where only the member
   // walk looked through them, and the fallback message then denied its own input).
   const node = ts.isParenthesizedExpression(expression) ? unwrapParens(expression) : expression
+  // A call a chain already ran is the object it handed back, and that object is the place the
+  // chain was started on: a variable, or the temporary a `new` at its root was put in.
+  const alias = scope.chainAlias(node)
+  if (alias !== undefined) return alias()
   if (ts.isPropertyAccessExpression(node)) {
     // `C.count = 1`, and `this.count += 1` in a static member: a static field the file writes
     // is a module variable, and it is the place (Rule 8.13).
@@ -1354,14 +1414,17 @@ function staticRootOf(
   node: ts.Expression,
   scope: LoweringScope,
   sourceFile: ts.SourceFile,
-): { binding: Binding; owner: string; written: string } | undefined {
+): { binding: Binding; owner: string; written: string } | { refused: string } | undefined {
   let at = unwrapParens(node)
   for (;;) {
     if (ts.isPropertyAccessExpression(at)) {
       const owner = staticOwnerOf(at.expression, scope)
       if (owner !== undefined) {
-        const binding = staticFieldBinding(owner, at.name.text, scope, sourceFile)
-        return binding === undefined ? undefined : { binding, owner, written: at.name.text }
+        const binding = staticFieldRead(owner, at.name.text, scope, sourceFile)?.binding
+        if (binding !== undefined) return { binding, owner, written: at.name.text }
+        // `this.#n += 1.` in a static body a class inherits, `#n` being the declaring class's.
+        const refused = inheritedPrivateStaticField(owner, at.name.text, scope, sourceFile)
+        return refused === undefined ? undefined : { refused }
       }
       at = unwrapParens(at.expression)
       continue
@@ -1410,7 +1473,17 @@ function checkRootWritable(
   // A chain rooted in a static field, `C.v.x` or `this.v.x` in a static member: the static is
   // the root that has to take the write (Rule 8.13).
   const statik = staticRootOf(node, scope, sourceFile)
+  if (statik !== undefined && 'refused' in statik) {
+    pushDiag(diagnostics, sourceFile, node, statik.refused, TS_CODES.CLASS_MEMBER)
+    return false
+  }
   if (statik !== undefined) {
+    // A static a base declares is written through the base's name (Rule 8.13).
+    const inherited = inheritedStaticWrite(statik.owner, statik.written, scope, sourceFile)
+    if (inherited !== undefined) {
+      pushDiag(diagnostics, sourceFile, node, inherited, TS_CODES.CONST_ASSIGN)
+      return false
+    }
     if (statik.binding.kind === 'modvar') return true
     pushDiag(
       diagnostics,

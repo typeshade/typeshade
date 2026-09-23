@@ -184,15 +184,14 @@ describe('class members: what is refused, and what the fix is', () => {
   }
   const M = TS_CODES.CLASS_MEMBER
 
-  it('a body called through super cannot write its object', () => {
-    // Every method that writes `this` takes it by reference, whatever it returns (§26), so the
-    // one body left with a read-only object is the base's, lowered again for `super.bump()`.
-    // Until a method that changes its object could return a value, this said "A method that
-    // changes its object returns nothing" here too, on a `void` method, which was no help.
-    expect(
-      only(`"use typeshade"
+  it('a body called through super writes the object of the body that called it', () => {
+    // A base's body reached through `super.bump()` runs on the object of the override that
+    // called it, so when it writes `this` it takes that object by reference and the override
+    // hands its own on (Rule 8.10). It was refused until then, with "runs the base's body on an
+    // object it can only read", which sent the author to restructure the override.
+    const r = compile(`"use typeshade"
 class A {
-  x: f32
+  x: f32 = 1.
   bump(): void { this.x = this.x + 1. }
 }
 class B extends A {
@@ -200,10 +199,16 @@ class B extends A {
     super.bump()
     this.x = this.x * 2.
   }
-}${TAIL}`),
-    ).toBe(
-      `${M} "super.bump" runs the base's body on an object it can only read, so the body cannot write "this" (§26). Move the write into a method no class overrides and call that on "this" instead.`,
+}
+export function run(): f32 { let b = new B(); b.bump(); return b.x }${TAIL}`)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain(
+      'fn B_super_A_bump(self_: ptr<function, B>) {\n  (*self_).x = ((*self_).x + 1.0);\n}',
     )
+    expect(r.wgsl).toContain(
+      'fn B_bump(self_: ptr<function, B>) {\n  B_super_A_bump(self_);\n  (*self_).x = ((*self_).x * 2.0);\n}',
+    )
+    expect(r.eval('run', [])).toBe(4)
   })
 
   it('this in a static function and at the top level', () => {
@@ -466,9 +471,19 @@ export function fs(@location(0) uv: vec2): vec4 {
     expect(only(`${C}function g(c: C): f32 { c.bump()\n  return c.x }${TAIL}`)).toBe(
       `${M} "C.bump" changes its object, and "c" is a parameter, which a function cannot write; copy it into a let first.`,
     )
-    expect(only(`${C}function g(): f32 { new C().bump()\n  return 1. }${TAIL}`)).toBe(
-      `${M} "C.bump" changes its object, and this one is a value that is dropped; keep it in a let and call the method on that.`,
+    // A `new` inside a larger expression has no place to hold the object the method changes.
+    // As the whole of a statement it is a chain's root, held in a temporary (Rule 8.10).
+    expect(
+      only(
+        `${C}function g(): f32 { return 1. + new C().twice() }${TAIL}`.replace(
+          'bump(): void { this.x = this.x + 1. }',
+          'bump(): void { this.x = this.x + 1. }\n  twice(): f32 { this.x = this.x * 2.\n    return this.x }',
+        ),
+      ),
+    ).toBe(
+      `${M} "C.twice" changes its object, and this one is a value that is dropped; keep it in a let and call the method on that.`,
     )
+    expect(errorsOf(`${C}function g(): f32 { new C().bump()\n  return 1. }${TAIL}`)).toEqual([])
     expect(
       only(
         `${C}function g(): f32 { let c: C = { x: 1. }\n  const y = c.bump()\n  return c.x }${TAIL}`,
@@ -552,9 +567,11 @@ export function fs(@location(0) uv: vec2): vec4 {
     expect(only(`${Gen}function g(r: Gen): u32 { return r.next() }${TAIL}`)).toBe(
       `${M} "Gen.next" changes its object, and "r" is a parameter, which a function cannot write; copy it into a let first.`,
     )
-    expect(only(`${Gen}function g(): u32 { return new Gen().next() }${TAIL}`)).toBe(
+    expect(only(`${Gen}function g(): u32 { return 1 + new Gen().next() }${TAIL}`)).toBe(
       `${M} "Gen.next" changes its object, and this one is a value that is dropped; keep it in a let and call the method on that.`,
     )
+    // The whole of a `return`, the `new` is a chain's root, held while the method runs.
+    expect(errorsOf(`${Gen}function g(): u32 { return new Gen().next() }${TAIL}`)).toEqual([])
     // On its own line the value is dropped and the write kept.
     const r = compile(
       `${Gen}@fragment\nexport function fs(): vec4 {\n  let r: Gen = { s: 1 }\n  r.next()\n  return vec4(f32(r.next()), 0., 0., 1.)\n}\n`,

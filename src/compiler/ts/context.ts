@@ -6,7 +6,7 @@ import { CAS_RESULT_STRUCTS } from '../../core/ir/types.js'
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js'
 import type { FuncDecl, StructDecl, StructField } from '../../core/ir/nodes.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
-import type { PrivateField } from './structs.js'
+import type { PrivateField, RestrictedField } from './structs.js'
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js'
 
 /** Which fields of each struct are private, by struct and then by the member they are emitted
@@ -30,6 +30,25 @@ export function withheldTableOf(
 
 /** The `readonly` fields of each struct, with the class whose constructor may assign each. */
 export type ReadonlyFieldTable = ReadonlyMap<string, ReadonlyMap<string, ts.ClassLikeDeclaration>>
+
+/** The `private` and `protected` fields of each struct (Rule 8.15). */
+export type RestrictedFieldTable = ReadonlyMap<string, ReadonlyMap<string, RestrictedField>>
+
+/** The {@link RestrictedFieldTable} `structs` carry. */
+export function restrictedFieldTableOf(
+  structs: readonly {
+    readonly decl: StructDecl
+    readonly restrictedFields?: ReadonlyMap<string, RestrictedField>
+  }[],
+): RestrictedFieldTable {
+  const out = new Map<string, ReadonlyMap<string, RestrictedField>>()
+  for (const s of structs) {
+    if (s.restrictedFields !== undefined && s.restrictedFields.size > 0) {
+      out.set(s.decl.name, s.restrictedFields)
+    }
+  }
+  return out
+}
 
 /** The {@link ReadonlyFieldTable} `structs` carry. */
 export function readonlyFieldTableOf(
@@ -224,6 +243,8 @@ export class LoweringScope {
   private privates: PrivateFieldTable = new Map()
   private withheldMembers: WithheldTable = new Map()
   private readonlyMembers: ReadonlyFieldTable = new Map()
+  private restrictedMembers: RestrictedFieldTable = new Map()
+  private readonly chainAliases = new Map<ts.Node, () => Expr>()
   private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
   private atomicOperandDepth = 0
@@ -458,6 +479,38 @@ export class LoweringScope {
     return this.readonlyMembers.get(structName)?.get(field)
   }
 
+  /** The `private` and `protected` fields of each struct (Rule 8.15). */
+  setRestrictedFields(table: RestrictedFieldTable): void {
+    this.restrictedMembers = table
+  }
+
+  /** How `field` of `structName` is restricted, when it is declared `private` or `protected`. */
+  restrictedField(structName: string, field: string): RestrictedField | undefined {
+    return this.restrictedMembers.get(structName)?.get(field)
+  }
+
+  /** Whether `structName` has a field only its class, or its class and the ones that extend
+   *  it, may name: `#x`, `private`, `protected`. An object literal cannot build one. */
+  hasHiddenFields(structName: string): boolean {
+    return (
+      this.hasPrivateFields(structName) || (this.restrictedMembers.get(structName)?.size ?? 0) > 0
+    )
+  }
+
+  /** The first field of `structName` an object literal cannot set, with how it is hidden:
+   *  a `#` name, or a `private` or `protected` one. */
+  hiddenFieldOf(
+    structName: string,
+  ): { readonly written: string; readonly access: 'private' | 'protected' } | undefined {
+    for (const f of this.structs.get(structName)?.fields ?? []) {
+      const p = this.privateField(structName, f.name)
+      if (p !== undefined) return { written: p.written, access: 'private' }
+      const r = this.restrictedField(structName, f.name)
+      if (r !== undefined) return { written: f.name, access: r.access }
+    }
+    return undefined
+  }
+
   /** The class whose static member's body is being lowered: `this.K` there is `Cls.K`. */
   setStaticClass(name: string | undefined): void {
     this.staticOwner = name
@@ -481,7 +534,7 @@ export class LoweringScope {
     for (const s of this.structs.values()) {
       // A struct with a private field is never the one a bare literal means: its literal would
       // have to name the `#` field, which no literal can (Rule 8.12).
-      if (this.hasPrivateFields(s.name)) continue
+      if (this.hasHiddenFields(s.name)) continue
       if (s.fields.length !== set.size) continue
       if (!s.fields.every((f) => set.has(f.name))) continue
       if (hit) return undefined
@@ -516,6 +569,22 @@ export class LoweringScope {
 
   isAbstractStruct(name: string): boolean {
     return this.abstractNames.has(name)
+  }
+
+  /** The chain above `name`, nearest first: what a static a base declares is reached through
+   *  (Rule 8.13). */
+  ancestorsOf(name: string): string[] {
+    const out: string[] = []
+    const seen = new Set<string>([name])
+    const queue = [...(this.baseNames.get(name) ?? [])]
+    while (queue.length > 0) {
+      const next = queue.shift()!
+      if (seen.has(next)) continue
+      seen.add(next)
+      out.push(next)
+      queue.push(...(this.baseNames.get(next) ?? []))
+    }
+    return out
   }
 
   /** True when `derived` extends `base`, at any depth. */
@@ -674,10 +743,21 @@ export class LoweringScope {
    *  IR name no other local can take and binds no source name, so two of them in one block do
    *  not collide with each other and neither collides with a name the program declares. Returns
    *  the IR name to write into the statement. */
-  defineTemp(prefix: string, type: ShaderType): string {
+  defineTemp(prefix: string, type: ShaderType, mutable = false): string {
     const ir = this.allocIrName(prefix)
-    this.byIr.set(ir, { kind: 'local', name: ir, type, mutable: false })
+    this.byIr.set(ir, { kind: 'local', name: ir, type, mutable })
     return ir
+  }
+
+  /** What an expression node stands for once a chain has run the calls before it (Rule 8.10):
+   *  `v.setX(1.)` in `v.setX(1.).setY(2.)` is `v` itself, the call having run as a statement of
+   *  its own. Each read of it builds its lowering anew, so no IR node is shared. */
+  setChainAlias(node: ts.Node, make: () => Expr): void {
+    this.chainAliases.set(node, make)
+  }
+
+  chainAlias(node: ts.Node): (() => Expr) | undefined {
+    return this.chainAliases.get(node)
   }
 
   private allocIrName(name: string): string {

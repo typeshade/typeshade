@@ -1,6 +1,9 @@
-// The class syntax an ordinary TypeScript class is written in (§26, Rules 8.11 to 8.14):
+// The class syntax an ordinary TypeScript class is written in (§26, Rules 8.10 to 8.15):
 // getters and setters, private names, parameter properties, a field typed by its initializer,
-// a static field the file writes and `this` in a static member, and `readonly`.
+// a static field the file writes and `this` in a static member, and `readonly`; then `super` on
+// an accessor and on a base method that writes its object, statics through a class that
+// extends, `new this()` and `super` in a static member, `private` and `protected`, and a chain of
+// calls on one object.
 //
 // Measured on the branch before this: a getter or a setter was TS8035 "write it as a method",
 // `#x` was TS8010 "Field names must be plain identifiers", a parameter property declared no
@@ -19,6 +22,8 @@ import { compileModuleJs } from '../../core/cpu-codegen.js'
 import { startDebugSession } from '../../core/debug/session.js'
 
 const TAIL = `\n@fragment\nexport function fs(): vec4 { return vec4(1.) }\n`
+/** A tail whose entry calls `run`: the GLSL writer emits only what an entry reaches. */
+const RUN_TAIL = `\n@fragment\nexport function fs(): vec4 { return vec4(run(), 0., 0., 1.) }\n`
 
 const errorsOf = (src: string): string[] =>
   compile(src)
@@ -394,7 +399,7 @@ class Derived extends Base { h(): f32 { return 2. } }${TAIL}`),
 class C { #x: f32 = 1.; y: f32 = 2. }
 export function run(): f32 { const c: C = { y: 1. }; return 1. }${TAIL}`),
     ).toBe(
-      `${F} "C" has private fields, which an object literal cannot name. Build it with "new C(...)".`,
+      `${F} "C" has the private field "#x", which an object literal cannot set. Build it with "new C(...)".`,
     )
     expect(
       runAll(`"use typeshade"
@@ -448,16 +453,19 @@ export function run(): f32 {
     expect(runAll(STATS)).toBe(14)
   })
 
-  it('a write to a readonly static, and this as a value, are refused', () => {
+  it('a write to a readonly static, and new on this outside a static member, are refused', () => {
     expect(
       only(`"use typeshade"
 class C { static readonly K = 3.; x: f32 }
 export function run(): f32 { C.K = 4.; return C.K }${TAIL}`),
     ).toBe(`${TS_CODES.CONST_ASSIGN} Cannot assign to "C.K" — it is static readonly.`)
+    // `new this()` builds the class in a static member; in a method `this` is the object.
     expect(
       only(`"use typeshade"
-class V { x: f32; static zero(): V { return new this() } }${TAIL}`),
-    ).toContain('"this" is not one of them')
+class A { x: f32 = 1.; clone(): A { return new this() } }${TAIL}`),
+    ).toBe(
+      `${TS_CODES.HOST_STMT} "this" here is an object, not a class, so "new" cannot build one from it. Name the class, "new A(...)"; "new this()" builds the class in a static member.`,
+    )
   })
 })
 
@@ -562,6 +570,439 @@ class B extends A { constructor() { super(); this.v = 2. } }${TAIL}`),
   })
 })
 
+describe('super on an accessor, and on a base method that writes its object (Rules 8.10, 8.11)', () => {
+  const COUNTER = `"use typeshade"
+class Counter {
+  n: f32 = 0.
+  get value(): f32 { return this.n }
+  set value(v: f32) { this.n = v }
+  bump(): void { this.n += 1. }
+}
+class Clamped extends Counter {
+  set value(v: f32) { super.value = min(v, 10.) }
+  get value(): f32 { return super.value }
+  bump(): void {
+    super.bump()
+    this.value = this.value * 2.
+  }
+  twice(): void { super.value *= 2. }
+}
+export function run(): f32 {
+  let c = new Clamped()
+  c.value = 2.5
+  c.bump()
+  let d = new Clamped()
+  d.value = 3.
+  d.twice()
+  d.twice()
+  return c.value * 100. + d.value
+}${RUN_TAIL}`
+
+  it("super.x runs the base's half lowered for this class, on this body's object", () => {
+    const r = compile(COUNTER)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain(
+      'fn Clamped_set_value(self_: ptr<function, Clamped>, v: f32) {\n  Clamped_super_Counter_set_value(self_, min(v, 10.0));',
+    )
+    expect(r.wgsl).toContain(
+      'fn Clamped_get_value(self_: Clamped) -> f32 {\n  return Clamped_super_Counter_get_value(self_);',
+    )
+    // A compound assignment through `super` reads through the base's getter and writes through
+    // its setter.
+    expect(r.wgsl).toContain(
+      'Clamped_super_Counter_set_value(self_, (Clamped_super_Counter_get_value((*self_)) * 2.0));',
+    )
+    expect(r.glsl?.fragment).toContain(
+      'void Clamped_super_Counter_set_value(inout Clamped self_, float v)',
+    )
+  })
+
+  it('a base body called through super that writes its object takes it by reference', () => {
+    const r = compile(COUNTER)
+    expect(r.wgsl).toContain(
+      'fn Clamped_super_Counter_bump(self_: ptr<function, Clamped>) {\n  (*self_).n += 1.0;',
+    )
+    expect(r.wgsl).toContain('Clamped_super_Counter_bump(self_);')
+    // c: 2.5, bumped to 3.5, doubled to 7; d: 3, doubled twice to 12 through the base's
+    // setter, which `super.value *= 2.` reaches directly and which does not clamp.
+    expect(runAll(COUNTER)).toBe(712)
+  })
+
+  it('what is refused, and the fix', () => {
+    const BASE = `"use typeshade"
+class A { x: f32 = 1.; get g(): f32 { return this.x } set s(v: f32) { this.x = v } }
+`
+    expect(only(BASE + `class B extends A { get y(): f32 { return super.x } }${TAIL}`)).toBe(
+      `${M} "super.x" names a field, and a field is the object's own, which "super" does not reach. Write "this.x".`,
+    )
+    expect(only(BASE + `class B extends A { get y(): f32 { return super.nope } }${TAIL}`)).toBe(
+      `${M} Nothing above this class declares an accessor "nope", so "super.nope" names nothing.`,
+    )
+    expect(only(BASE + `class B extends A { get y(): f32 { return super.s } }${TAIL}`)).toBe(
+      `${M} "super.s" has a setter and no getter above this class, so there is nothing to read.`,
+    )
+    expect(only(BASE + `class B extends A { set y(v: f32) { super.g = v } }${TAIL}`)).toBe(
+      `${M} "super.g" has a getter and no setter above this class, so it cannot be assigned.`,
+    )
+    expect(
+      only(`"use typeshade"
+export function run(): f32 { return super.x }${TAIL}`),
+    ).toBe(
+      `${M} "super" names the class above the one whose body it is written in; a top-level function has none.`,
+    )
+  })
+})
+
+describe('statics through a class that extends, this, new this() and super in a static member (Rule 8.13)', () => {
+  it('a class reads the statics it inherits, and this is the class the call names', () => {
+    const src = `"use typeshade"
+class Base {
+  x: f32 = 1.
+  static K = 1.
+  static get k(): f32 { return this.K }
+  static a(): f32 { return this.b() }
+  static b(): f32 { return this.K }
+}
+class Mid extends Base { static K = 2. }
+class Leaf extends Mid { static K = 3.; static b(): f32 { return this.K * 100. } }
+class Plain extends Base { y: f32 = 0. }
+export function run(): f32 {
+  return Base.a() + Mid.a() * 10. + Leaf.a() + Plain.K * 1000. + Leaf.k * 10000.
+}${TAIL}`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    // `Base.b`'s body lowered for `Mid`, with `this` as `Mid`: it reads `Mid`'s own `K`.
+    expect(r.wgsl).toContain('fn Mid_b() -> f32 {\n  return Mid_K;')
+    // `Leaf` overrides `b`, and `Base.a` lowered for `Leaf` calls `Leaf`'s.
+    expect(r.wgsl).toContain('fn Leaf_a() -> f32 {\n  return Leaf_b();')
+    // 1 + 2 * 10 + 300 + 1 * 1000 + 3 * 10000, as TypeScript computes it.
+    expect(runAll(src)).toBe(31321)
+  })
+
+  it('a class of statics alone keeps its base: a struct over one with fields, else a namespace', () => {
+    const src = `"use typeshade"
+class U { static K = 3.; static a(): f32 { return this.K } }
+class V extends U { static K = 4.; static b(): f32 { return U.a() + 1. } }
+class B { x: f32 = 1. }
+class D extends B { static k(): f32 { return 2. } }
+export function run(): f32 { return V.a() + U.a() * 10. + V.b() * 100. + D.k() * 1000. + new D().x }${TAIL}`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    // `V` extends a namespace and is one, so no struct; `D` has `B`'s field and is a struct.
+    expect(r.wgsl).not.toContain('struct V')
+    expect(r.wgsl).toContain('struct D {\n  x: f32,\n}')
+    expect(r.wgsl).toContain('fn V_a() -> f32 {\n  return V_K;')
+    // 4 + 30 + 400 + 2000 + 1.
+    expect(runAll(src)).toBe(2435)
+  })
+
+  it('new this() builds the class the call names, and returns it', () => {
+    const src = `"use typeshade"
+class Base {
+  x: f32 = 1.
+  static make(): Base { return new this() }
+  d(): f32 { return 1. }
+}
+class Derived extends Base {
+  constructor() { super(); this.x = 5. }
+  d(): f32 { return 2. }
+}
+export function run(): f32 {
+  return Derived.make().x * 100. + Derived.make().d() * 10. + Base.make().d()
+}${TAIL}`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('fn Derived_make() -> Derived {\n  return Derived_new();')
+    expect(runAll(src)).toBe(521)
+  })
+
+  it("a static a class inherits writes that class's own static through this", () => {
+    const src = `"use typeshade"
+class Base { x: f32 = 1.; static hits = 0.; static record(): void { this.hits += 1. } }
+class Derived extends Base { static hits = 10. }
+export function run(): f32 {
+  Derived.record()
+  Base.record()
+  return Base.hits * 100. + Derived.hits
+}${TAIL}`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('var<private> Derived_hits: f32 = 10.0;')
+    expect(r.wgsl).toContain('fn Derived_record() {\n  Derived_hits += 1.0;')
+    expect(runAll(src)).toBe(111)
+  })
+
+  it("super in a static member runs the class above's static, with this the class the call names", () => {
+    const src = `"use typeshade"
+class A {
+  x: f32 = 1.
+  static K = 2.
+  static #s = 1.
+  static k(): f32 { return this.K }
+  static get s(): f32 { return A.#s }
+  static set s(v: f32) { A.#s = v }
+}
+class B extends A {
+  static K = 5.
+  static k(): f32 { return super.k() * 10. + A.k() }
+  static both(): f32 { super.s = 4.; super.s += 1.; return super.K * 100. + super.s }
+}
+class C extends B { }
+export function run(): f32 { return C.k() + B.both() * 1000. }${TAIL}`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    // `super.k()` in `B.k`, run for `C`, is `A.k` with `this` as `C`, whose `K` is `B`'s.
+    expect(r.wgsl).toContain('fn C_super_A_k() -> f32 {\n  return B_K;')
+    // 5 * 10 + 2, and (2 * 100 + 5) * 1000.
+    expect(runAll(src)).toBe(205052)
+  })
+
+  it('a write through a class that does not declare the static is refused, where it is written', () => {
+    const BASE = `"use typeshade"
+class Base { x: f32 = 1.; static count = 0.; static record(): void { this.count += 1. } }
+class Derived extends Base { y: f32 = 0. }
+`
+    const WRITE =
+      `${TS_CODES.CONST_ASSIGN} "Derived.count" is a static "Base" declares, and assigning it ` +
+      `through "Derived" would give "Derived" a copy of its own in TypeScript. Write "Base.count".`
+    expect(only(BASE + `export function run(): f32 { Derived.count++; return 1. }${TAIL}`)).toBe(
+      WRITE,
+    )
+    // `Base.record` run for `Derived` writes through `this`, which is `Derived`: said once a
+    // call makes it happen, and not at all while nothing does.
+    expect(only(BASE + `export function run(): f32 { Derived.record(); return 1. }${TAIL}`)).toBe(
+      WRITE,
+    )
+    expect(
+      errorsOf(BASE + `export function run(): f32 { Base.record(); return Base.count }${TAIL}`),
+    ).toEqual([])
+    expect(
+      only(`"use typeshade"
+class Base { x: f32 = 1.; static K = 2. }
+class Derived extends Base { static bump(): void { super.K = 3. } }${TAIL}`),
+    ).toBe(
+      `${M} Assigning "super.K" writes the static "K" of "this" in TypeScript, not the one "Base" declares. Write "this.K" or "Base.K".`,
+    )
+    expect(
+      only(`"use typeshade"
+class Base { x: f32 = 1. }
+class Derived extends Base { static f(): f32 { return super.nope() } }${TAIL}`),
+    ).toBe(
+      `${M} Nothing above this class declares a static function "nope", so "super.nope" names no body.`,
+    )
+  })
+
+  it('a private static reached through a class that extends its own is refused', () => {
+    const MISS =
+      `${M} "Derived" has no "#k": a private static is the class's own, and TypeScript throws ` +
+      `where a body "Derived" inherits reaches it through "this". Name the class that declares ` +
+      `it, "Base.#k".`
+    const of = (body: string, call: string): string =>
+      only(`"use typeshade"
+class Base { x: f32 = 1.; static #k = 2.; ${body} static get(): f32 { return Base.#k } }
+class Derived extends Base { y: f32 = 0. }
+export function run(): f32 { ${call}; return Base.get() }${TAIL}`)
+    expect(of('static n(): f32 { return this.#k }', 'Derived.n()')).toBe(MISS)
+    expect(of('static bump(): void { this.#k += 1. }', 'Derived.bump()')).toBe(MISS)
+    expect(
+      of('static #h(): f32 { return 3. } static n(): f32 { return this.#h() }', 'Derived.n()'),
+    ).toBe(MISS.replaceAll('#k', '#h'))
+    // Named through the class that declares it, it is that class's, whoever runs the body.
+    expect(
+      runAll(`"use typeshade"
+class Base { x: f32 = 1.; static #k = 2.; static n(): f32 { return Base.#k } }
+class Derived extends Base { y: f32 = 0. }
+export function run(): f32 { return Derived.n() }${TAIL}`),
+    ).toBe(2)
+  })
+
+  it('an error in a body a class inherits is said once', () => {
+    for (const member of ['d(): f32 { return nope }', 'static d(): f32 { return nope }']) {
+      expect(
+        only(`"use typeshade"
+class Base { x: f32 = 1.; ${member} }
+class Derived extends Base { y: f32 = 2. }${TAIL}`),
+      ).toBe(`${TS_CODES.UNKNOWN_NAME} Unknown identifier "nope".`)
+    }
+  })
+
+  it('a static field beside a function of its name is refused (Rule 8.12)', () => {
+    expect(
+      only(`"use typeshade"
+class A { x: f32 = 1.; static #n = 2.; static n(): f32 { return A.#n } }${TAIL}`),
+    ).toBe(
+      `${M} The static field "A.#n" and the function "A.n" would both be "A_n": a private name is emitted without its "#". Rename one of them.`,
+    )
+    expect(
+      only(`"use typeshade"
+class A { x: f32 = 1.; static k = 2.; k(): f32 { return this.x } }${TAIL}`),
+    ).toBe(
+      `${M} The static field "A.k" and the function "A.k" would both be "A_k", where a class names its functions and its statics alike. Rename one of them.`,
+    )
+  })
+})
+
+describe('private and protected (Rule 8.15)', () => {
+  const C = `"use typeshade"
+class C {
+  private x: f32 = 1.
+  protected p: f32 = 2.
+  y: f32 = 3.
+  private pm(): f32 { return this.x }
+  protected get pg(): f32 { return this.p }
+  get mixed(): f32 { return this.y }
+  private set mixed(v: f32) { this.y = v }
+  private static ps = 4.
+  protected static qs = 5.
+  sum(): f32 { return this.x + this.p + this.pm() + this.pg + C.ps }
+}
+`
+  it('each is named where TypeScript allows it, and is emitted as a public member is', () => {
+    const src =
+      C +
+      `class D extends C {
+  f(d: D): f32 { return this.p + this.pg + d.p + C.qs + D.qs }
+}
+export function run(): f32 { const c = new C(); const d = new D(); return c.sum() + c.y + c.mixed + d.f(d) }${TAIL}`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('struct C {\n  x: f32,\n  p: f32,\n  y: f32,\n}')
+    expect(r.wgsl).toContain('fn C_pm(self_: C) -> f32')
+    // 1 + 2 + 1 + 2 + 4, 3, 3, and 2 + 2 + 2 + 5 + 5.
+    expect(runAll(src)).toBe(32)
+  })
+
+  it('each refusal names the member to reach it through', () => {
+    const PRIVATE = (m: string): string =>
+      `${M} "C.${m}" is private, so only the body of "C" may name it. Reach it through a public member of "C".`
+    const PROTECTED = (m: string): string =>
+      `${M} "C.${m}" is protected, so only "C" and the classes that extend it may name it. Reach it through a public member of "C".`
+    expect(only(C + `export function run(c: C): f32 { return c.x }${TAIL}`)).toBe(PRIVATE('x'))
+    expect(only(C + `class D extends C { g(): f32 { return this.x } }${TAIL}`)).toBe(PRIVATE('x'))
+    expect(only(C + `export function run(c: C): f32 { return c.pm() }${TAIL}`)).toBe(PRIVATE('pm'))
+    expect(
+      only(
+        C + `export function run(): f32 { let c = new C(); c.mixed = 3.; return c.mixed }${TAIL}`,
+      ),
+    ).toBe(PRIVATE('mixed'))
+    expect(only(C + `export function run(): f32 { return C.ps }${TAIL}`)).toBe(PRIVATE('ps'))
+    expect(only(C + `class D extends C { sum(): f32 { return super.pm() } }${TAIL}`)).toBe(
+      PRIVATE('pm'),
+    )
+    expect(only(C + `export function run(c: C): f32 { return c.p }${TAIL}`)).toBe(PROTECTED('p'))
+    expect(only(C + `export function run(c: C): f32 { return c.pg }${TAIL}`)).toBe(PROTECTED('pg'))
+    expect(only(C + `export function run(): f32 { return C.qs }${TAIL}`)).toBe(PROTECTED('qs'))
+    // TypeScript's TS2446: a class that extends "C" reaches "p" on its own kind of object only.
+    expect(only(C + `class D extends C { f(o: C): f32 { return o.p } }${TAIL}`)).toBe(
+      `${M} "C.p" is protected, and "D" may name it only on a "D"; this object is a "C". Reach it through a public member of "C".`,
+    )
+    expect(
+      only(
+        C + `export function run(): f32 { const c = new C(); const { x } = c; return 1. }${TAIL}`,
+      ),
+    ).toBe(PRIVATE('x'))
+    expect(
+      only(C + `export function run(): f32 { const c: C = { y: 1. }; return 1. }${TAIL}`),
+    ).toBe(
+      `${F} "C" has the private field "x", which an object literal cannot set. Build it with "new C(...)".`,
+    )
+    expect(
+      only(`"use typeshade"
+class V { constructor(private a: f32, protected b: f32) {} get s(): f32 { return this.a + this.b } }
+export function run(v: V): f32 { return v.a }${TAIL}`),
+    ).toBe(
+      `${M} "V.a" is private, so only the body of "V" may name it. Reach it through a public member of "V".`,
+    )
+  })
+})
+
+describe('a chain of calls on one object (Rule 8.10)', () => {
+  const V = `"use typeshade"
+class V {
+  x: f32 = 0.
+  y: f32 = 0.
+  setX(x: f32): this { this.x = x; return this }
+  setY(y: f32): V { this.y = y; return this }
+  scale(k: f32): this { this.x = this.x * k; this.y = this.y * k; return this }
+  len(): f32 { return sqrt(this.x * this.x + this.y * this.y) }
+}
+`
+  it('a chain that is a whole statement runs each call on the object it starts from', () => {
+    const src =
+      V +
+      `export function run(): f32 { let v = new V(); v.setX(3.).setY(4.).scale(2.); return v.len() }${RUN_TAIL}`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('  V_setX(&v, 3.0);\n  V_setY(&v, 4.0);\n  V_scale(&v, 2.0);')
+    expect(r.glsl?.fragment).toContain('  V_setX(v, 3.0);\n  V_setY(v, 4.0);\n  V_scale(v, 2.0);')
+    expect(runAll(src)).toBe(10)
+  })
+
+  it('a new at the root is held in a temporary, in a declaration and in a return', () => {
+    const src =
+      V +
+      `class W extends V {
+  reset(): this { return this.setX(0.).setY(0.) }
+}
+export function run(): f32 {
+  const v = new V().setX(3.).setY(4.)
+  let w = new W()
+  w.setX(5.)
+  w.reset()
+  let u = new V()
+  const l = u.setX(6.).len()
+  return v.len() * 100. + w.x + w.y + l + u.x
+}${RUN_TAIL}`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain(
+      '  var _chain: V = V_new();\n  V_setX(&_chain, 3.0);\n  let v = V_setY(&_chain, 4.0);',
+    )
+    // A chain that is a `return` runs its first call ahead of it, on the same object.
+    expect(r.wgsl).toContain(
+      'fn W_reset(self_: ptr<function, W>) -> W {\n  W_setX(self_, 0.0);\n  return W_setY(self_, 0.0);',
+    )
+    expect(r.glsl?.fragment).toContain('  V_setX(u, 6.0);\n  float l = V_len(u);')
+    // 5 * 100, `w` reset to nothing, and `u` set to 6 before its length is read.
+    expect(runAll(src)).toBe(512)
+  })
+
+  it('a read on what a chain returns inside an expression reads the copy; an inherited setter keeps its type', () => {
+    expect(
+      runAll(
+        V +
+          `export function run(): f32 { let v = new V(); return v.setX(3.).len() * 2. + v.x }${TAIL}`,
+      ),
+    ).toBe(9)
+    expect(
+      runAll(
+        V +
+          `class P extends V {
+  init(): void { this.setX(1.).setY(2.) }
+}
+export function run(): f32 { let p = new P(); p.init(); return p.x * 10. + p.y }${TAIL}`,
+      ),
+    ).toBe(12)
+  })
+
+  it('a call that writes the copy inside a larger expression is refused, with the fix', () => {
+    expect(
+      only(
+        V +
+          `export function run(): f32 { let v = new V(); return v.setX(3.).setY(4.).len() + v.y }${TAIL}`,
+      ),
+    ).toBe(
+      `${M} "V.setY" changes its object, and inside this expression it would change the copy "v.setX(3.)" hands back. Make the chain a statement of its own, or call each method on the object itself.`,
+    )
+    expect(
+      only(
+        V +
+          `export function run(): f32 { const v = new V(); v.setX(3.).setY(4.); return v.x }${TAIL}`,
+      ),
+    ).toBe(`${M} "V.setX" changes its object, and "v" is declared with const; declare it with let.`)
+  })
+})
+
 describe('the example', () => {
   it('examples/class-syntax.shade.ts renders the two rings on every CPU path', async () => {
     const { readFileSync } = await import('node:fs')
@@ -577,5 +1018,23 @@ describe('the example', () => {
     expect(runAll(src, [{ pos: [0, 0, 0, 1], uv: [0, 0] }], 'fs')).toEqual({
       color: [0.07, 0.08, 0.14, 1],
     })
+  })
+
+  it('examples/class-builder.shade.ts renders the three discs on every CPU path', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const src = readFileSync(
+      fileURLToPath(new URL('../../../examples/class-builder.shade.ts', import.meta.url)),
+      'utf8',
+    )
+    const at = (uv: number[], color: number[]): void =>
+      expectClose(runAll(src, [{ pos: [0, 0, 0, 1], uv }], 'fs'), { color })
+    // The centre of each disc is its tint.
+    at([-0.45, 0], [0.95, 0.74, 0.32, 1])
+    at([0.4, 0], [0.3, 0.6, 0.95, 1])
+    at([0, 0.55], [0.9, 0.3, 0.4, 1])
+    // 0.32 from the blue disc's centre: outside, since its setter clamped `SIZE` and the doubling
+    // to 0.3, where either unclamped would cover it.
+    at([0.72, 0], [0.07, 0.08, 0.14, 1])
   })
 })

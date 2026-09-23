@@ -23,15 +23,22 @@ import {
   isPrivateName,
   isReadonlyMember,
   isStaticMember,
+  keywordAccessOf,
+  keywordAccessVia,
   privateOwner,
   privateStaticFields,
+  staticFieldDeclarations,
   writtenMemberName,
+  type KeywordAccess,
 } from '../class-names.js'
 import {
+  MISSING_HALF,
+  NO_SUPER,
   classFunctionOf,
   isCollidedFunction,
   methodFnName,
   mutatingReceiver,
+  superFieldKey,
   type ClassFunction,
 } from './class-methods.js'
 import { lowerExpression } from './expression.js'
@@ -92,6 +99,121 @@ export function checkPrivateAccess(
       `without the "#".`,
   )
   return false
+}
+
+/** Refuse a member declared `private` or `protected` that the code at `at` may not name (Rule
+ *  8.15), as TypeScript's checker refuses it and this surface, which does not run the checker,
+ *  must: a private one outside the body of `owner` (TS2341), a protected one outside `owner` and
+ *  the classes that extend it (TS2445), and a protected one reached from a class that extends
+ *  `owner` on an object that is not of that class (TS2446). `receiver` is the struct the member
+ *  is reached on, undefined for a static. Returns true when the access stands. */
+export function checkKeywordAccess(
+  access: KeywordAccess | undefined,
+  owner: ts.ClassLikeDeclaration | undefined,
+  member: string,
+  receiver: string | undefined,
+  at: ts.Node,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (access === undefined || owner === undefined) return true
+  const ownerName = classLabel(owner, 'its class')
+  const shown = `${ownerName}.${member}`
+  const via = keywordAccessVia(access, owner, at)
+  if (via === undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      at,
+      access === 'private'
+        ? `"${shown}" is private, so only the body of "${ownerName}" may name it. Reach it ` +
+            `through a public member of "${ownerName}".`
+        : `"${shown}" is protected, so only "${ownerName}" and the classes that extend it may ` +
+            `name it. Reach it through a public member of "${ownerName}".`,
+    )
+    return false
+  }
+  if (access !== 'protected' || via === 'granted' || via === owner || receiver === undefined) {
+    return true
+  }
+  const viaName = via.name?.text
+  if (
+    viaName === undefined ||
+    scope.structByName(viaName) === undefined ||
+    receiver === viaName ||
+    scope.extendsStruct(receiver, viaName)
+  ) {
+    return true
+  }
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    at,
+    `"${shown}" is protected, and "${viaName}" may name it only on a "${viaName}"; this object ` +
+      `is a "${receiver}". Reach it through a public member of "${ownerName}".`,
+  )
+  return false
+}
+
+/** {@link checkKeywordAccess} for a class function: its own `private` or `protected`. */
+export function checkFunctionAccess(
+  cf: ClassFunction,
+  receiver: string | undefined,
+  at: ts.Node,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (cf.node === undefined || cf.member === undefined) return true
+  return checkKeywordAccess(
+    keywordAccessOf(cf.node),
+    declaringClass(cf),
+    cf.member,
+    receiver,
+    at,
+    sourceFile,
+    scope,
+    diagnostics,
+  )
+}
+
+/** {@link checkKeywordAccess} for a field of `struct` reached by the name `written`. */
+export function checkFieldAccess(
+  struct: string,
+  written: string,
+  at: ts.Node,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (isPrivateName(written)) return true
+  const r = scope.restrictedField(struct, emittedMemberName(written))
+  if (r === undefined) return true
+  return checkKeywordAccess(r.access, r.owner, written, struct, at, sourceFile, scope, diagnostics)
+}
+
+/** {@link checkKeywordAccess} for the static field `declaredOn.written`. */
+export function checkStaticFieldAccess(
+  declaredOn: string,
+  written: string,
+  at: ts.Node,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const decl = staticFieldDeclarations(sourceFile).get(`${declaredOn}.${written}`)
+  if (decl === undefined) return true
+  return checkKeywordAccess(
+    keywordAccessOf(decl),
+    ts.isClassLike(decl.parent) ? decl.parent : undefined,
+    written,
+    undefined,
+    at,
+    sourceFile,
+    scope,
+    diagnostics,
+  )
 }
 
 /** The class function `written` names on the struct (or static-only class) `struct` in the
@@ -170,6 +292,43 @@ export function staticFieldBinding(
   return isPrivate === isPrivateName(written) ? b : undefined
 }
 
+/** The static field a read of `owner.written` reaches: `owner`'s own, or, as TypeScript's
+ *  constructors inherit their bases' statics, the nearest base's that declares it (Rule 8.13).
+ *  A private name is never inherited, since only the declaring class's body names it. */
+export function staticFieldRead(
+  owner: string,
+  written: string,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): { binding: Binding; declaredOn: string } | undefined {
+  const own = staticFieldBinding(owner, written, scope, sourceFile)
+  if (own !== undefined) return { binding: own, declaredOn: owner }
+  if (isPrivateName(written)) return undefined
+  for (const base of scope.ancestorsOf(owner)) {
+    const b = staticFieldBinding(base, written, scope, sourceFile)
+    if (b !== undefined) return { binding: b, declaredOn: base }
+  }
+  return undefined
+}
+
+/** Why a write through `owner.written` is refused when the static belongs to a base: in
+ *  TypeScript the assignment would give `owner` a static of its own, which the base's readers no
+ *  longer see, and here there is one module variable. Undefined when nothing above declares it. */
+export function inheritedStaticWrite(
+  owner: string,
+  written: string,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): string | undefined {
+  const read = staticFieldRead(owner, written, scope, sourceFile)
+  if (read === undefined || read.declaredOn === owner) return undefined
+  return (
+    `"${owner}.${written}" is a static "${read.declaredOn}" declares, and assigning it through ` +
+    `"${owner}" would give "${owner}" a copy of its own in TypeScript. Write ` +
+    `"${read.declaredOn}.${written}".`
+  )
+}
+
 /** `o.x` or `C.x` where `x` is an accessor (Rule 8.11): the getter's call, with the object
  *  first for an instance one. `'none'` when `x` is not an accessor of the object's class, which
  *  leaves the read to the field and swizzle paths; undefined having refused it. `base` is the
@@ -217,6 +376,18 @@ export function lowerAccessorRead(
     )
     return undefined
   }
+  if (
+    !checkFunctionAccess(
+      getter.cf,
+      isStatic ? undefined : struct,
+      node.name,
+      sourceFile,
+      scope,
+      diagnostics,
+    )
+  ) {
+    return undefined
+  }
   if (isStatic) return callOf(getter.decl, [], sourceFile, node)
   // A getter that changes its object (a cache it fills) takes the object by reference, as a
   // method that does would (§26), so the object has to be a place it may write.
@@ -242,6 +413,7 @@ export function destructuredGetter(
 ): Expr | undefined | 'none' {
   const getter = memberFunctionOf(struct, field, 'get', scope)
   if (getter === undefined || getter.cf.kind === 'static') return 'none'
+  if (!checkFunctionAccess(getter.cf, struct, at, sourceFile, scope, diagnostics)) return undefined
   if (getter.cf.mutates) {
     pushDiag(
       diagnostics,
@@ -253,6 +425,174 @@ export function destructuredGetter(
     return undefined
   }
   return callOf(getter.decl, [base], sourceFile, at)
+}
+
+/** The object `super.x` runs its base body on: this body's own, as the place it writes
+ *  through or as the value it reads; undefined, having said so, where there is no object. */
+function superReceiver(
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const self = scope.resolve('this')
+  if (self === undefined || self.type.kind !== 'struct') {
+    pushDiag(diagnostics, sourceFile, node, NO_SUPER)
+    return undefined
+  }
+  return self.kind === 'param'
+    ? { op: 'param', type: self.type, name: irNameOf(self) }
+    : { op: 'varref', type: self.type, name: irNameOf(self) }
+}
+
+/** Whether `super` here is the class above rather than this object's: in a static member, where
+ *  `super.K`, `super.x` and `super.k()` name the statics of the class above (Rule 8.13). */
+const inStaticMember = (scope: LoweringScope): boolean =>
+  scope.resolve('this') === undefined && scope.staticClass() !== undefined
+
+/** The class whose static field `super.written` reads in a static member, or undefined. */
+const superField = (written: string, scope: LoweringScope): string | undefined =>
+  inStaticMember(scope) ? scope.superMethods()?.get(superFieldKey(written)) : undefined
+
+/** The base body `super.x` names in the half asked, as its declaration, or undefined. */
+function superHalf(
+  written: string,
+  half: 'get' | 'set',
+  scope: LoweringScope,
+): FuncDecl | undefined {
+  const fn = scope.superMethods()?.get(`${half} ${written}`)
+  return fn === undefined || fn === MISSING_HALF ? undefined : scope.resolveCallee(fn)
+}
+
+/** Why `super.x` names no half `half`: the other half is all there is, the name is a field (the
+ *  object's own, which `super` does not reach), or nothing above declares it. */
+function superMiss(
+  node: ts.PropertyAccessExpression,
+  half: 'get' | 'set',
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const written = node.name.text
+  const shown = `super.${written}`
+  const self = scope.resolve('this')
+  const struct = self?.type.kind === 'struct' ? self.type.name : undefined
+  // The class above declares an accessor of this name, and not this half of it.
+  const other = scope.superMethods()?.get(`${half} ${written}`) === MISSING_HALF
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    other
+      ? half === 'get'
+        ? `"${shown}" has a setter and no getter above this class, so there is nothing to read.`
+        : `"${shown}" has a getter and no setter above this class, so it cannot be assigned.`
+      : struct !== undefined && visibleField(struct, written, node.name, scope) !== undefined
+        ? `"${shown}" names a field, and a field is the object's own, which "super" does not ` +
+          `reach. Write "this.${written}".`
+        : inStaticMember(scope)
+          ? `Nothing above this class declares a static accessor or field "${written}", so ` +
+            `"${shown}" names nothing.`
+          : `Nothing above this class declares an accessor "${written}", so "${shown}" names ` +
+            `nothing.`,
+  )
+}
+
+/** `super.x` read, where a base declares `get x()`: the base's getter, emitted against this
+ *  class, on this body's object (Rule 8.11). */
+export function lowerSuperAccessorRead(
+  node: ts.PropertyAccessExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const written = node.name.text
+  // `super.K` in a static member: the static field of the class above (Rule 8.13).
+  const fieldOwner = superField(written, scope)
+  if (fieldOwner !== undefined) {
+    const b = staticFieldBinding(fieldOwner, written, scope, sourceFile)
+    if (b === undefined) return undefined
+    if (!checkStaticFieldAccess(fieldOwner, written, node.name, sourceFile, scope, diagnostics)) {
+      return undefined
+    }
+    return b.kind === 'modvar'
+      ? { op: 'varref', type: b.type, name: b.name }
+      : { op: 'constref', type: b.type, name: b.name }
+  }
+  const statik = inStaticMember(scope)
+  const recv = statik ? undefined : superReceiver(node, sourceFile, scope, diagnostics)
+  if (!statik && recv === undefined) return undefined
+  const getter = superHalf(written, 'get', scope)
+  if (getter === undefined) {
+    superMiss(node, 'get', sourceFile, scope, diagnostics)
+    return undefined
+  }
+  const cf = classFunctionOf(getter)
+  const self = recv?.type.kind === 'struct' ? recv.type.name : undefined
+  if (
+    cf !== undefined &&
+    !checkFunctionAccess(cf, self, node.name, sourceFile, scope, diagnostics)
+  ) {
+    return undefined
+  }
+  return callOf(getter, recv === undefined ? [] : [recv], sourceFile, node)
+}
+
+/** `super.x = v`, `super.x += v`, `super.x++`: the base's setter, emitted against this class,
+ *  on this body's object; a compound form reads through the base's getter first. */
+function superAccessorTarget(
+  node: ts.PropertyAccessExpression,
+  reads: boolean,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): AccessorTarget | undefined {
+  const written = node.name.text
+  // `super.K = v` in a static member: TypeScript sets `K` on `this`, the class the body runs
+  // for, and not on the class above that declares it (Rule 8.13).
+  const fieldOwner = superField(written, scope)
+  if (fieldOwner !== undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Assigning "super.${written}" writes the static "${written}" of "this" in TypeScript, not ` +
+        `the one "${fieldOwner}" declares. Write "this.${written}" or "${fieldOwner}.${written}".`,
+    )
+    return undefined
+  }
+  const statik = inStaticMember(scope)
+  const recv = statik ? undefined : superReceiver(node, sourceFile, scope, diagnostics)
+  if (!statik && recv === undefined) return undefined
+  const setter = superHalf(written, 'set', scope)
+  if (setter === undefined) {
+    superMiss(node, 'set', sourceFile, scope, diagnostics)
+    return undefined
+  }
+  const getter = reads ? superHalf(node.name.text, 'get', scope) : undefined
+  if (reads && getter === undefined) {
+    superMiss(node, 'get', sourceFile, scope, diagnostics)
+    return undefined
+  }
+  const self = recv?.type.kind === 'struct' ? recv.type.name : undefined
+  const on = recv === undefined ? [] : [recv]
+  for (const half of [setter, getter]) {
+    const cf = half === undefined ? undefined : classFunctionOf(half)
+    if (
+      cf !== undefined &&
+      !checkFunctionAccess(cf, self, node.name, sourceFile, scope, diagnostics)
+    ) {
+      return undefined
+    }
+  }
+  return {
+    type: setter.params[setter.params.length - 1]!.type,
+    read: getter === undefined ? undefined : callOf(getter, on, sourceFile, node),
+    write: (v: Expr): Stmt => ({
+      s: 'call',
+      expr: callOf(setter, [...on, v], sourceFile, node),
+    }),
+  }
 }
 
 /** An assignment whose target is an accessor (Rule 8.11): what a compound assignment reads,
@@ -299,14 +639,17 @@ export function lowerAccessorTarget(
 ): AccessorTarget | undefined | 'not-an-accessor' {
   const node = unparen(left)
   if (!ts.isPropertyAccessExpression(node)) return 'not-an-accessor'
+  // `super.x = v`: the base's setter, run on this body's object.
+  if (node.expression.kind === ts.SyntaxKind.SuperKeyword) {
+    return superAccessorTarget(node, reads, sourceFile, scope, diagnostics)
+  }
   const written = node.name.text
   const obj = node.expression
   const owner = staticOwnerOf(obj, scope)
   let struct: string
   if (owner !== undefined) {
     // A static field is a place of its own, `C.K`; only an accessor is this path's.
-    if (staticFieldBinding(owner, written, scope, sourceFile) !== undefined)
-      return 'not-an-accessor'
+    if (staticFieldRead(owner, written, scope, sourceFile) !== undefined) return 'not-an-accessor'
     struct = owner
   } else {
     // Read without reporting: a receiver that does not lower, or is not a struct, takes the
@@ -360,6 +703,19 @@ export function lowerAccessorTarget(
       `"${shown}" has a setter and no getter, so there is nothing for this assignment to ` +
         `read. Declare "get ${written}()" beside the setter, or assign it with "=".`,
     )
+    return undefined
+  }
+  // Each half has its own `private` or `protected`, as in TypeScript: `private set x` leaves
+  // the read public and takes the write away.
+  const recvStruct = isStatic ? undefined : struct
+  if (!checkFunctionAccess(set.cf, recvStruct, node.name, sourceFile, scope, diagnostics)) {
+    return undefined
+  }
+  if (
+    reads &&
+    get !== undefined &&
+    !checkFunctionAccess(get.cf, recvStruct, node.name, sourceFile, scope, diagnostics)
+  ) {
     return undefined
   }
   const type = set.decl.params[set.decl.params.length - 1]!.type
@@ -500,8 +856,24 @@ export function lowerStaticFieldTarget(
   if (owner === undefined) return undefined
   const written = node.name.text
   const b = staticFieldBinding(owner, written, scope, sourceFile)
-  if (b === undefined) return undefined
-  if (!checkPrivateStatic(owner, written, node.name, sourceFile, diagnostics)) return 'refused'
+  if (b === undefined) {
+    const inherited = inheritedStaticWrite(owner, written, scope, sourceFile)
+    if (inherited !== undefined) {
+      pushDiag(diagnostics, sourceFile, node, inherited, TS_CODES.CONST_ASSIGN)
+      return 'refused'
+    }
+    // `this.#k = v` in a static body a class inherits, `#k` being the declaring class's.
+    const inheritedPrivate = inheritedPrivateStaticField(owner, written, scope, sourceFile)
+    if (inheritedPrivate === undefined) return undefined
+    pushDiag(diagnostics, sourceFile, node, inheritedPrivate)
+    return 'refused'
+  }
+  if (!checkPrivateStatic(owner, written, node.name, sourceFile, diagnostics, scope)) {
+    return 'refused'
+  }
+  if (!checkStaticFieldAccess(owner, written, node.name, sourceFile, scope, diagnostics)) {
+    return 'refused'
+  }
   if (b.kind !== 'modvar') {
     pushDiag(
       diagnostics,
@@ -554,16 +926,48 @@ export function checkPrivateStatic(
   at: ts.Node,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  scope?: LoweringScope,
 ): boolean {
   if (!isPrivateName(written)) return true
   const lexical = privateOwner(at, written)
-  if (lexical !== undefined && lexical.cls.name?.text === owner) return true
+  const declaredIn = lexical?.cls.name?.text
+  if (declaredIn === owner) return true
   pushDiag(
     diagnostics,
     sourceFile,
     at,
-    `"${written}" is private to "${owner}", and this code is outside its class body. Reach it ` +
-      `through a member "${owner}" declares without the "#".`,
+    declaredIn !== undefined && scope?.extendsStruct(owner, declaredIn) === true
+      ? inheritedPrivateStatic(owner, written, declaredIn)
+      : `"${written}" is private to "${owner}", and this code is outside its class body. Reach ` +
+          `it through a member "${owner}" declares without the "#".`,
   )
   return false
+}
+
+/** Why `this.#x` in a static body a class inherits names nothing: the private static is the
+ *  declaring class's own and no class that extends it has one, which TypeScript finds only when
+ *  the body runs (Rule 8.12, Rule 8.13). */
+export function inheritedPrivateStatic(owner: string, written: string, declaredIn: string): string {
+  return (
+    `"${owner}" has no "${written}": a private static is the class's own, and TypeScript throws ` +
+    `where a body "${owner}" inherits reaches it through "this". Name the class that declares ` +
+    `it, "${declaredIn}.${written}".`
+  )
+}
+
+/** {@link inheritedPrivateStatic} for `owner.written` when a class above `owner` declares the
+ *  private static field `written`; undefined when none does. */
+export function inheritedPrivateStaticField(
+  owner: string,
+  written: string,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): string | undefined {
+  if (!isPrivateName(written)) return undefined
+  for (const base of scope.ancestorsOf(owner)) {
+    if (staticFieldBinding(base, written, scope, sourceFile) !== undefined) {
+      return inheritedPrivateStatic(owner, written, base)
+    }
+  }
+  return undefined
 }

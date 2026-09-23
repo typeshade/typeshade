@@ -9,7 +9,9 @@ import {
   isPrivateName,
   isReadonlyMember,
   isStaticMember,
+  keywordAccessOf,
   writtenMemberName,
+  type KeywordAccess,
 } from './class-names.js'
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { TS_CODES } from './codes.js'
@@ -88,6 +90,15 @@ export type CollectedStruct = {
   /** The `readonly` fields, by emitted name, with the class that declares each: only that
    *  class's constructor may assign one (Rule 8.14), which is TypeScript's rule. */
   readonly readonlyFields?: ReadonlyMap<string, ts.ClassLikeDeclaration>
+  /** The fields declared `private` or `protected`, by emitted name, with the class that
+   *  declares each (Rule 8.15). */
+  readonly restrictedFields?: ReadonlyMap<string, RestrictedField>
+}
+
+/** A field declared with `private` or `protected`, and the class that declares it. */
+export interface RestrictedField {
+  readonly access: KeywordAccess
+  readonly owner: ts.ClassLikeDeclaration
 }
 
 /** A field written under a private name, and the class whose body may name it (Rule 8.12). */
@@ -192,6 +203,7 @@ export function collectStructs(
       withheld: ReadonlySet<string>
       withheldFunctions: ReadonlySet<string>
       readonlyFields: ReadonlyMap<string, ts.ClassLikeDeclaration>
+      restrictedFields: ReadonlyMap<string, RestrictedField>
     },
   ): void => {
     const fromClass =
@@ -205,6 +217,9 @@ export function collectStructs(
               ? { withheldFunctions: klass.withheldFunctions }
               : {}),
             ...(klass.readonlyFields.size > 0 ? { readonlyFields: klass.readonlyFields } : {}),
+            ...(klass.restrictedFields.size > 0
+              ? { restrictedFields: klass.restrictedFields }
+              : {}),
           }
     if (declared.has(name)) {
       diagnostics.push(
@@ -231,6 +246,7 @@ export function collectStructs(
         packing: 'wgsl',
         spelling,
         namespace: true,
+        ...(bases.length > 0 ? { bases } : {}),
         ...(members !== undefined ? { members } : {}),
         ...(binding !== undefined ? { binding } : {}),
         ...fromClass,
@@ -380,6 +396,7 @@ export function collectStructs(
         const privateFields = new Map<string, PrivateField>()
         const withheld = new Set<string>()
         const readonlyFields = new Map<string, ts.ClassLikeDeclaration>()
+        const restrictedFields = new Map<string, RestrictedField>()
         let ctor: ts.ConstructorDeclaration | undefined
         // Every function the class emits, by what follows `Cls_` in its name, with the member it
         // was written as. Two members can reach one name in ways TypeScript keeps apart: `#step`
@@ -501,6 +518,10 @@ export function collectStructs(
               fields.push(field)
               paramProps.push(field.name)
               if (isReadonlyMember(p)) readonlyFields.set(field.name, member.parent)
+              const access = keywordAccessOf(p)
+              if (access !== undefined) {
+                restrictedFields.set(field.name, { access, owner: member.parent })
+              }
               recordDeclaration(symbols, sourceFile, p.name, {
                 name: field.name,
                 kind: 'field',
@@ -700,6 +721,10 @@ export function collectStructs(
           }
           if (isReadonlyMember(member))
             readonlyFields.set(emittedMemberName(memberName), member.parent)
+          const access = keywordAccessOf(member)
+          if (access !== undefined) {
+            restrictedFields.set(emittedMemberName(memberName), { access, owner: member.parent })
+          }
           const field: StructField = { name: emittedMemberName(memberName), type }
           const loc = numberDecorator(member, 'location')
           const decos = ts.canHaveDecorators(member) ? (ts.getDecorators(member) ?? []) : []
@@ -791,7 +816,9 @@ export function collectStructs(
             : undefined
         // Every member static and no field: a namespace (T3). An instance method or a constructor
         // needs a receiver, so a class that declares one keeps the empty-struct refusal and its
-        // "write them as functions" fix.
+        // "write them as functions" fix. One with a base keeps the base, and is a struct after all
+        // when the base has fields (`applyInheritance`): `class Derived extends Base { static J =
+        // 1. }` lost its base, and every static it inherits, as a namespace (Rule 8.13).
         const isNamespace =
           fields.length === 0 &&
           staticFunctions + staticFields > 0 &&
@@ -810,7 +837,14 @@ export function collectStructs(
           bases,
           isAbstract,
           instance.binding,
-          { node: stmt, privateFields, withheld, withheldFunctions, readonlyFields },
+          {
+            node: stmt,
+            privateFields,
+            withheld,
+            withheldFunctions,
+            readonlyFields,
+            restrictedFields,
+          },
         )
         // A static of a generic class cannot mention the class's type parameters — TypeScript
         // refuses that outright (TS2302) — so it is ONE function, not one per instance. It is
@@ -843,6 +877,7 @@ export function collectStructs(
               withheld: new Set(),
               withheldFunctions: new Set(),
               readonlyFields: new Map(),
+              restrictedFields: new Map(),
             },
           )
         }
@@ -1133,6 +1168,7 @@ function applyInheritance(
     readonly privates: ReadonlyMap<string, PrivateField>
     readonly withheld: ReadonlySet<string>
     readonly readonlyFields: ReadonlyMap<string, ts.ClassLikeDeclaration>
+    readonly restrictedFields: ReadonlyMap<string, RestrictedField>
   }
   const done = new Map<string, Resolved>()
   const onStack: string[] = []
@@ -1142,6 +1178,7 @@ function applyInheritance(
     privates: s.privateFields ?? new Map(),
     withheld: s.withheld ?? new Set(),
     readonlyFields: s.readonlyFields ?? new Map(),
+    restrictedFields: s.restrictedFields ?? new Map(),
   })
 
   const resolve = (name: string): Resolved => {
@@ -1149,7 +1186,13 @@ function applyInheritance(
     if (cached) return cached
     const struct = byName.get(name)
     if (!struct) {
-      return { fields: [], privates: new Map(), withheld: new Set(), readonlyFields: new Map() }
+      return {
+        fields: [],
+        privates: new Map(),
+        withheld: new Set(),
+        readonlyFields: new Map(),
+        restrictedFields: new Map(),
+      }
     }
     if (onStack.includes(name)) {
       diagnostics.push(
@@ -1169,6 +1212,7 @@ function applyInheritance(
     const privates = new Map<string, PrivateField>()
     const withheld = new Set<string>(struct.withheld ?? [])
     const readonlyFields = new Map<string, ts.ClassLikeDeclaration>()
+    const restrictedFields = new Map<string, RestrictedField>()
     const seen = new Map<
       string,
       { field: StructField; from: string; private: PrivateField | undefined }
@@ -1223,25 +1267,31 @@ function applyInheritance(
       const above = resolve(base)
       for (const w of above.withheld) withheld.add(w)
       for (const [f, cls] of above.readonlyFields) readonlyFields.set(f, cls)
+      for (const [f, r] of above.restrictedFields) restrictedFields.set(f, r)
       for (const f of above.fields) put(f, base, above.privates.get(f.name))
     }
     for (const f of struct.decl.fields) put(f, name, struct.privateFields?.get(f.name))
     for (const [f, cls] of struct.readonlyFields ?? []) readonlyFields.set(f, cls)
+    for (const [f, r] of struct.restrictedFields ?? []) restrictedFields.set(f, r)
     onStack.pop()
-    const resolved = { fields, privates, withheld, readonlyFields }
+    const resolved = { fields, privates, withheld, readonlyFields, restrictedFields }
     done.set(name, resolved)
     return resolved
   }
 
-  const out = structs.map((s) => {
-    const { fields, privates, withheld, readonlyFields } = resolve(s.decl.name)
+  const out = structs.map((s): CollectedStruct => {
+    const { fields, privates, withheld, readonlyFields, restrictedFields } = resolve(s.decl.name)
     if (fields === s.decl.fields) return s
+    // A class of statics alone that extends a struct is a struct: it has its base's fields, and
+    // `new` builds one (Rule 8.13). Over a chain of such classes it stays a namespace.
+    const { namespace: _namespace, ...rest } = s
     return {
-      ...s,
+      ...(fields.length > 0 ? rest : s),
       decl: { ...s.decl, fields },
       ...(privates.size > 0 ? { privateFields: privates } : {}),
       ...(withheld.size > 0 ? { withheld } : {}),
       ...(readonlyFields.size > 0 ? { readonlyFields } : {}),
+      ...(restrictedFields.size > 0 ? { restrictedFields } : {}),
     }
   })
   // The empty-struct rule is checked here for a declaration with a base, since what it

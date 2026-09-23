@@ -182,6 +182,36 @@ no fields`), a field written without a type was dropped from the struct with not
   the codegen and the debugger to one value for each form. The four rules are new in
   `docs/language-design.md`, Rules 3.2 and 6.9 name private names and parameter properties, and
   Rule 7.2's table gains the three lowerings.
+- **`super` on an accessor and on a base method that writes its object, statics through a class
+  that extends, `new this()`, `private` and `protected`, and a chain of calls on one object**
+  (§26, Rules 8.10, 8.11, 8.13 and 8.15). `super.value` in an override reads through the base's
+  getter and `super.value = v` writes through its setter, the base's half lowered once more for
+  the derived class (`Clamped_super_Counter_set_value`); a base's body called through `super`
+  that writes `this` takes the object by reference, as any method that writes it does. A class
+  inherits its base's statics, `Big.SCALE` and `Big.unit()`, and `this` in a static member is the
+  class the call names, as TypeScript binds it, so `Big.unit()` runs `Shape`'s body lowered for
+  `Big` (`fn Big_unit() -> Big`): `new this()` builds a `Big`, `this.SCALE` reads `Big.SCALE`,
+  and `super.describe()` in a static member runs the class above's static with `this` still
+  `Big`. `private` and `protected` are enforced as TypeScript's TS2341, TS2445 and TS2446 have
+  them, and an object literal cannot build such a class. A method whose every `return` is
+  `return this` hands back its object, and a chain that is the whole of a statement, an
+  initializer or a `return` runs each call but the last on the place it starts from:
+  `v.setX(1.).setY(2.)` is `V_setX(&v, 1.0); V_setY(&v, 2.0);`, and a `new` at the root is held in
+  a temporary `_chain`. Refused, each with the fix: `super.x` naming a field or a half the class
+  above does not declare, a write to a static through a class that does not declare it
+  (`Big.count += 1.`, TS8005, write `Shape.count`), `super.K = v` in a static member (TypeScript
+  writes `this.K`), `this.#k` in a static a derived class reaches (TypeScript throws), and a call
+  that writes its object on the copy a `return this` method hands back inside a larger
+  expression. What was measured on `main` before this: `super.v` was TS8099 ("`super` has no form
+  here yet"), `super.v = x` TS8018, a write to `this` in a base's body called through `super`
+  TS8035, `B.K` on a class that inherits it TS8022, `B.k()` on a class of statics alone that
+  inherits it TS8035, `new this()` TS8013, `super.k()` in a static member TS8035,
+  `v.setX(1.).setY(2.)` TS8035 ("a value that is dropped"), and `new A().n` on a `private n` or a
+  `protected n` compiled. Rule 8.15 is new, Rules 8.10, 8.11 and 8.13 say the rest, and Rule
+  7.2's table gains the chain and the inherited static.
+  `examples/class-builder.shade.ts` compiles on Tint and links on a WebGL2 driver, and
+  `class-syntax.test.ts` holds WGSL, GLSL ES 3.00, the CPU oracle, the codegen and the debugger to
+  one value for each form.
 - **Each `.shade.ts` example registers itself** (#65). Every example used to be registered by
   appending an object literal to one hand-ordered array in `examples/_shade.ts`, so two branches
   that each added an example added adjacent lines to the same region and git could not tell the
@@ -868,6 +898,23 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **`this` in a static a derived class inherits is the class the call names** (Rule 8.13, §26).
+  It was the class that wrote the member, silently: `Derived.twice()` read `Base.K` where
+  `Derived` declares its own `K` (6 where TypeScript computes 10), an overridden `this.k()` ran
+  the base's (1, TypeScript 7), and `this.hits += 1.` run through `Derived.record()` wrote
+  `Base.hits`, where TypeScript gives `Derived` a `hits` of its own. The static is lowered again
+  for each class that inherits it, with `this` as that class, and the last is refused with the
+  fix.
+- **A static field beside a function of its name is refused, and a mistake in a body a class
+  inherits is said once** (Rules 8.12 and 12.4). `static #k = 2.` beside `static k()` compiled to
+  `const A_k: f32 = 2.0;` beside `fn A_k() -> f32`, which WGSL refuses as a redeclaration, and so
+  did a public static field beside an instance method of its name, which TypeScript keeps on two
+  sides of the class; both are TS8035 now, naming the two members and the name they share. A body
+  a class inherits is lowered again for that class, and an error in it was reported once per
+  class that inherits it (`Unknown identifier "nope".` twice for one base and one derived class);
+  it is reported once, and a static that fails only for the class that inherits it (`this.#k`,
+  a write through `this` to a static that class does not declare, a `new this()` its constructor
+  cannot take) is reported where that class calls it, and not at all when nothing does.
 - **The optimizer keeps what a call writes, and the debugger copies what it stores** (§19,
   §26). Each of these made the emitted shader, or the stepper, disagree with the CPU oracle:
   dead-code elimination dropped an unread `let` whole, write and all, so `const unused = next()`

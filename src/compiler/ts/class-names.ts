@@ -129,13 +129,19 @@ const WRITTEN_STATICS = new WeakMap<ts.SourceFile, ReadonlySet<string>>()
  *  8.13): an assignment, a compound assignment, `++` or `--` whose target is `Cls.field`, or an
  *  element or member of it, or the same through `this` inside a static member of `Cls`. Such a
  *  field is a module variable; every other static field stays a module constant. A `readonly`
- *  one is never a variable, and a write to it is refused where it stands. */
+ *  one is never a variable, and a write to it is refused where it stands.
+ *
+ *  A static member a class inherits runs with `this` as that class, so `this.hits += 1.` in
+ *  `Base.record` writes `Derived.hits` too when `Derived` declares a `hits` of its own and
+ *  inherits `record`. */
 export function writtenStaticFields(sourceFile: ts.SourceFile): ReadonlySet<string> {
   const cached = WRITTEN_STATICS.get(sourceFile)
   if (cached !== undefined) return cached
   const fields = new Map<string, Set<string>>()
+  const classes: ts.ClassDeclaration[] = []
   const collect = (n: ts.Node): void => {
     if (ts.isClassDeclaration(n) && n.name !== undefined) {
+      classes.push(n)
       const own = fields.get(n.name.text) ?? new Set<string>()
       for (const m of n.members) {
         if (!ts.isPropertyDeclaration(m) || !isStaticMember(m) || isReadonlyMember(m)) continue
@@ -147,23 +153,55 @@ export function writtenStaticFields(sourceFile: ts.SourceFile): ReadonlySet<stri
     ts.forEachChild(n, collect)
   }
   collect(sourceFile)
+  const byName = classesByName(sourceFile)
+  /** The class `cls` names in `extends`, when the file declares exactly one of that name. */
+  const baseOf = (cls: ts.ClassDeclaration): ts.ClassDeclaration | undefined => {
+    const e = cls.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)?.types[0]
+      ?.expression
+    const found = e !== undefined && ts.isIdentifier(e) ? byName.get(e.text) : undefined
+    return found?.length === 1 ? found[0] : undefined
+  }
+  const declaresStatic = (cls: ts.ClassDeclaration, member: string): boolean =>
+    cls.members.some(
+      (m) =>
+        (ts.isMethodDeclaration(m) || ts.isAccessor(m)) &&
+        isStaticMember(m) &&
+        writtenMemberName(m.name) === member,
+    )
+  /** The classes a static member `member` of `owner` runs for: `owner`, and each class that
+   *  extends it and declares no static of that name on the way down. */
+  const runsFor = (owner: ts.ClassDeclaration, member: string | undefined): string[] => {
+    const out = [owner.name!.text]
+    if (member === undefined) return out
+    for (const cls of classes) {
+      for (let at: ts.ClassDeclaration | undefined = cls, depth = 0; at !== undefined; depth++) {
+        if (at === owner) {
+          if (cls !== owner) out.push(cls.name!.text)
+          break
+        }
+        if (declaresStatic(at, member) || depth > classes.length) break
+        at = baseOf(at)
+      }
+    }
+    return out
+  }
   const out = new Set<string>()
-  /** The static field `target` is rooted in, as its key. */
-  const rootOf = (target: ts.Expression): string | undefined => {
+  /** The static fields `target` is rooted in, as their keys. */
+  const rootsOf = (target: ts.Expression): string[] => {
     let at = target
     for (;;) {
       while (ts.isParenthesizedExpression(at)) at = at.expression
       if (ts.isPropertyAccessExpression(at)) {
         let obj: ts.Expression = at.expression
         while (ts.isParenthesizedExpression(obj)) obj = obj.expression
-        const cls = ts.isIdentifier(obj)
-          ? obj.text
+        const field = at.name.text
+        const owners = ts.isIdentifier(obj)
+          ? [obj.text]
           : obj.kind === ts.SyntaxKind.ThisKeyword
-            ? staticThisClass(obj)?.name?.text
-            : undefined
-        if (cls !== undefined && fields.get(cls)?.has(at.name.text)) {
-          return `${cls}.${at.name.text}`
-        }
+            ? thisClassesOf(obj)
+            : []
+        const keys = owners.filter((c) => fields.get(c)?.has(field)).map((c) => `${c}.${field}`)
+        if (keys.length > 0) return keys
         at = at.expression
         continue
       }
@@ -171,8 +209,21 @@ export function writtenStaticFields(sourceFile: ts.SourceFile): ReadonlySet<stri
         at = at.expression
         continue
       }
-      return undefined
+      return []
     }
+  }
+  /** The classes `this` names in the static member around `node`. */
+  const thisClassesOf = (node: ts.Node): string[] => {
+    const owner = staticThisClass(node)
+    if (owner === undefined) return []
+    let member: ts.Node = node
+    while (member.parent !== owner) member = member.parent
+    return runsFor(
+      owner,
+      ts.isMethodDeclaration(member) || ts.isAccessor(member)
+        ? writtenMemberName(member.name)
+        : undefined,
+    )
   }
   const visit = (n: ts.Node): void => {
     let target: ts.Expression | undefined
@@ -188,10 +239,7 @@ export function writtenStaticFields(sourceFile: ts.SourceFile): ReadonlySet<stri
     ) {
       target = n.operand
     }
-    if (target !== undefined) {
-      const key = rootOf(target)
-      if (key !== undefined) out.add(key)
-    }
+    if (target !== undefined) for (const key of rootsOf(target)) out.add(key)
     ts.forEachChild(n, visit)
   }
   visit(sourceFile)
@@ -239,5 +287,142 @@ export function shadowedStaticFields(cls: ts.ClassLikeDeclaration): Set<ts.Prope
     if (seen.has(emitted)) out.add(m)
     seen.add(emitted)
   }
+  return out
+}
+
+/** The access a member declares with a keyword: `private`, `protected`, or undefined for a
+ *  public one. A `#` name is a different mechanism (Rule 8.12). */
+export type KeywordAccess = 'private' | 'protected'
+
+export function keywordAccessOf(node: ts.Node): KeywordAccess | undefined {
+  const mods = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined
+  if (mods?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword)) return 'private'
+  if (mods?.some((m) => m.kind === ts.SyntaxKind.ProtectedKeyword)) return 'protected'
+  return undefined
+}
+
+const CLASSES = new WeakMap<ts.SourceFile, ReadonlyMap<string, ts.ClassDeclaration[]>>()
+
+/** Every class declaration of the file under its name, including those in namespaces. */
+function classesByName(sourceFile: ts.SourceFile): ReadonlyMap<string, ts.ClassDeclaration[]> {
+  const cached = CLASSES.get(sourceFile)
+  if (cached !== undefined) return cached
+  const out = new Map<string, ts.ClassDeclaration[]>()
+  const walk = (n: ts.Node): void => {
+    if (ts.isClassDeclaration(n) && n.name !== undefined) {
+      const list = out.get(n.name.text) ?? []
+      list.push(n)
+      out.set(n.name.text, list)
+    }
+    ts.forEachChild(n, walk)
+  }
+  walk(sourceFile)
+  CLASSES.set(sourceFile, out)
+  return out
+}
+
+/** Whether `cls` extends `owner`, at any depth, as far as the file shows it: an `extends X`
+ *  naming a class of the file, and a mixin application `extends M(X)`, whose argument is the
+ *  base. `'unknown'` when a heritage names something the file does not resolve (a mixin's own
+ *  parameter), where a check has to give the author the benefit of the doubt. */
+export function classExtends(
+  cls: ts.ClassLikeDeclaration,
+  owner: ts.ClassLikeDeclaration,
+): boolean | 'unknown' {
+  const byName = classesByName(cls.getSourceFile())
+  const seen = new Set<ts.ClassLikeDeclaration>()
+  const viaExpr = (e: ts.Expression): boolean | 'unknown' => {
+    if (ts.isIdentifier(e)) {
+      const found = byName.get(e.text)
+      if (found === undefined) return 'unknown'
+      let unknown = false
+      for (const c of found) {
+        const r = via(c)
+        if (r === true) return true
+        if (r === 'unknown') unknown = true
+      }
+      return unknown ? 'unknown' : false
+    }
+    if (ts.isCallExpression(e)) {
+      let unknown = false
+      for (const a of e.arguments) {
+        const r = viaExpr(a)
+        if (r === true) return true
+        if (r === 'unknown') unknown = true
+      }
+      return unknown ? 'unknown' : false
+    }
+    return 'unknown'
+  }
+  const via = (c: ts.ClassLikeDeclaration): boolean | 'unknown' => {
+    if (c === owner) return true
+    if (seen.has(c)) return false
+    seen.add(c)
+    let unknown = false
+    for (const h of c.heritageClauses ?? []) {
+      if (h.token !== ts.SyntaxKind.ExtendsKeyword) continue
+      for (const t of h.types) {
+        const r = viaExpr(t.expression)
+        if (r === true) return true
+        if (r === 'unknown') unknown = true
+      }
+    }
+    return unknown ? 'unknown' : false
+  }
+  let unknown = false
+  for (const h of cls.heritageClauses ?? []) {
+    if (h.token !== ts.SyntaxKind.ExtendsKeyword) continue
+    for (const t of h.types) {
+      const r = viaExpr(t.expression)
+      if (r === true) return true
+      if (r === 'unknown') unknown = true
+    }
+  }
+  return unknown ? 'unknown' : false
+}
+
+/** The class through which the code at `at` may name a member declared `access` in `owner`:
+ *  `owner` itself when the code stands in its body, and for a protected member a class that
+ *  extends it (TypeScript's TS2341 and TS2445). `'granted'` when a heritage the file does not
+ *  resolve might be the way; undefined when nothing grants it. */
+export function keywordAccessVia(
+  access: KeywordAccess,
+  owner: ts.ClassLikeDeclaration,
+  at: ts.Node,
+): ts.ClassLikeDeclaration | 'granted' | undefined {
+  const around = enclosingClasses(at)
+  if (around.includes(owner)) return owner
+  if (access === 'private') return undefined
+  let granted = false
+  for (const cls of around) {
+    const r = classExtends(cls, owner)
+    if (r === true) return cls
+    if (r === 'unknown') granted = true
+  }
+  return granted ? 'granted' : undefined
+}
+
+const STATIC_DECLS = new WeakMap<ts.SourceFile, ReadonlyMap<string, ts.PropertyDeclaration>>()
+
+/** The declaration of each static field, as `Cls.name` with the name as written, so a read of
+ *  one can be checked against its `private` or `protected`. */
+export function staticFieldDeclarations(
+  sourceFile: ts.SourceFile,
+): ReadonlyMap<string, ts.PropertyDeclaration> {
+  const cached = STATIC_DECLS.get(sourceFile)
+  if (cached !== undefined) return cached
+  const out = new Map<string, ts.PropertyDeclaration>()
+  const walk = (n: ts.Node): void => {
+    if (ts.isClassDeclaration(n) && n.name !== undefined) {
+      for (const m of n.members) {
+        if (!ts.isPropertyDeclaration(m) || !isStaticMember(m)) continue
+        const written = writtenMemberName(m.name)
+        if (written !== undefined) out.set(`${n.name.text}.${written}`, m)
+      }
+    }
+    ts.forEachChild(n, walk)
+  }
+  walk(sourceFile)
+  STATIC_DECLS.set(sourceFile, out)
   return out
 }

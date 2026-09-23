@@ -330,7 +330,7 @@ export function fs(): vec4 {
   return vec4(f(), 0., 0., 1.)
 }
 `)[0],
-    ).toContain('"super" names the base of a method\'s class')
+    ).toContain('"super" names the class above the one whose body it is written in')
   })
 })
 

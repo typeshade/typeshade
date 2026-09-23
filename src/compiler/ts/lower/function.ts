@@ -18,6 +18,7 @@ import {
   fileFunctionsOf,
   privateFieldTableOf,
   readonlyFieldTableOf,
+  restrictedFieldTableOf,
   withheldTableOf,
 } from '../context.js'
 import type { CollectedStruct } from '../structs.js'
@@ -52,7 +53,13 @@ import {
   namespaceMemberName,
   refuseNamespaceStatement,
 } from '../namespaces.js'
-import { collectClassFunctions, ctorPrologue, selfRef, type Receiver } from './class-methods.js'
+import {
+  collectClassFunctions,
+  ctorPrologue,
+  selfRef,
+  type ClassFunction,
+  type Receiver,
+} from './class-methods.js'
 import {
   builtinDecoratorArg,
   checkAttributeName,
@@ -351,13 +358,21 @@ export function lowerSourceFunctions(
     nodeByName.set(emitted, generic.node)
     return stub
   }
+  // A body lowered for a class that inherits it says what it says into a list of its own. What
+  // it shares with the body the declaring class lowered was said there, once (Rule 12.4); a
+  // static that fails only for the inheriting class, where `this` is that class, is an error
+  // where something calls it and nothing where nothing does (Rule 8.13), which is decided once
+  // every body is lowered and the calls are known.
+  const inheritedSaid: { cf: ClassFunction; said: TsCompilerDiagnostic[] }[] = []
   for (const cf of classFns) {
     if (cf.node !== undefined) {
+      const said = cf.inherited === true ? [] : diagnostics
+      if (said !== diagnostics) inheritedSaid.push({ cf, said })
       fillFunctionBody(
         cf.node,
         cf.stub,
         sourceFile,
-        diagnostics,
+        said,
         callees,
         consts,
         bindings,
@@ -370,6 +385,7 @@ export function lowerSourceFunctions(
         undefined,
         undefined,
         cf.staticOwner,
+        cf.staticSuper,
       )
       nodeByName.set(cf.stub.name, cf.node)
     } else if (cf.receiver !== undefined) {
@@ -435,6 +451,7 @@ export function lowerSourceFunctions(
     funcs.push(fn.stub)
     nodeByName.set(fn.stub.name, fn.node)
   }
+  sayInherited(inheritedSaid, funcs, diagnostics)
   // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
   // downstream of here was looking for one. In a single file a function is called by the name
   // it is declared under, so the graph key and the resolver are both just `callees`. A method
@@ -581,6 +598,48 @@ function stageRestrictedOpsOf(body: readonly Stmt[]): Set<string> {
   }
   for (const s of body) walkStmt(s)
   return found
+}
+
+/** What the bodies lowered for an inheriting class said, now that every call is known. A
+ *  diagnostic the file already carries at the same place is left out (Rule 12.4). A static one
+ *  whose body did not lower for the inheriting class is reported when a call reaches it from a
+ *  function that is not such a copy, and otherwise dropped with its function: `this.hits += 1.`
+ *  in `Base.record` is a write through `Derived` only once `Derived.record()` is written. */
+function sayInherited(
+  inherited: readonly { cf: ClassFunction; said: readonly TsCompilerDiagnostic[] }[],
+  funcs: FuncDecl[],
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const copies = new Set(
+    inherited.filter(({ cf }) => cf.kind === 'static').map(({ cf }) => cf.stub.name),
+  )
+  const byName = new Map(funcs.map((f) => [f.name, f]))
+  const reached = new Set<string>()
+  const visit = (names: Iterable<string>): void => {
+    for (const name of names) {
+      if (reached.has(name)) continue
+      reached.add(name)
+      const f = copies.has(name) ? byName.get(name) : undefined
+      if (f !== undefined) visit(calleeNamesOf(f.body))
+    }
+  }
+  for (const f of funcs) if (!copies.has(f.name)) visit(calleeNamesOf(f.body))
+  const key = (d: TsCompilerDiagnostic): string =>
+    `${d.start}:${d.length}:${d.code ?? ''}:${d.message}`
+  const said = new Set(diagnostics.map(key))
+  for (const { cf, said: own } of inherited) {
+    const failed = own.some((d) => d.category === 'error')
+    if (failed && copies.has(cf.stub.name) && !reached.has(cf.stub.name)) {
+      const at = funcs.indexOf(cf.stub)
+      if (at >= 0) funcs.splice(at, 1)
+      continue
+    }
+    for (const d of own) {
+      if (said.has(key(d))) continue
+      said.add(key(d))
+      diagnostics.push(d)
+    }
+  }
 }
 
 /** The functions a function's body calls, by name. */
@@ -1277,6 +1336,7 @@ export function functionScope(
   scope.setPrivateFields(privateFieldTableOf(structs))
   scope.setWithheldFields(withheldTableOf(structs))
   scope.setReadonlyFields(readonlyFieldTableOf(structs))
+  scope.setRestrictedFields(restrictedFieldTableOf(structs))
   scope.setBases(new Map(structs.filter((s) => s.bases).map((s) => [s.decl.name, s.bases!])))
   scope.setAbstractStructs(new Set(structs.filter((s) => s.abstract).map((s) => s.decl.name)))
   // The enum names, so a mistyped member reads as one rather than as an unknown identifier
@@ -1446,8 +1506,10 @@ export function fillFunctionBody(
   /** The local functions this body declares, from the written name to the emitted one
    *  (roadmap 0.3 item T7, #92). */
   localFunctions?: ReadonlyMap<string, string>,
-  /** For a static member, the class that declares it: what `this` names (Rule 8.13). */
+  /** For a static member, the class it is emitted for: what `this` names (Rule 8.13). */
   staticOwner?: string,
+  /** For a static member, what `super` names in its body (Rule 8.13). */
+  staticSuper?: ReadonlyMap<string, string>,
 ): void {
   const scope = functionScope(
     stub,
@@ -1465,7 +1527,7 @@ export function fillFunctionBody(
   // (roadmap 0.3 item T7, #92).
   scope.setOwner(stub)
   // What `super.m(...)` names in this body (roadmap 0.3 item T5, #92).
-  scope.setSuperMethods(receiver?.superMethods)
+  scope.setSuperMethods(receiver?.superMethods ?? staticSuper)
   scope.setLocalFunctions(localFunctions)
   scope.setStaticClass(staticOwner)
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter

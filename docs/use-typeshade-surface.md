@@ -1854,7 +1854,7 @@ void Particle_step(inout Particle self_, float dt) {
 The receiver has to be a place a function may write: a `let` local, a module variable, a storage
 element, or `this` inside a constructor or another changing method. Which methods change their
 object is read from their bodies, to a fixpoint: one that assigns to a field of `this` (or
-`++`/`--` on one), and one that calls such a method on `this`. The effect table (§19) counts a
+`++`/`--` on one), and one that calls such a method on `this` or through `super`. The effect table (§19) counts a
 write through a reference as it counts any other, and names it as the CALLER knows it:
 `ps[gid.x].step(dt)` writes `ps`, because `step` writes its receiver and the receiver is reached
 through `ps`.
@@ -1941,15 +1941,15 @@ on a real WebGL2 driver; `examples/particle-step.shade.ts` for the compute one.
 
 **`this`.** Inside a method that reads, `this` is the read-only first parameter; inside a method
 that changes its object it is that parameter, written through; inside a constructor it is the
-local being built. Inside a static member it is the class that declares the member (Rule 8.13),
-so `this.K`, `this.f()` and `this.count += 1.` name its statics; `this` as a value there, and
+local being built. Inside a static member it is the class the call names (Rule 8.13): the class
+that declares the member, or one that inherits it (below), so `this.K`, `this.f()` and
+`this.count += 1.` name its statics and `new this()` builds it; `this` as a value there, and
 `this` in a top-level function, is TS8035.
 
-**Access modifiers.** `public`, `private` and `protected` on a field or a method are accepted and
-mean nothing to the shader; TypeScript's checker enforces the last two in the editor. `readonly`
-is enforced here (Rule 8.14), and a private name, `#x`, is enforced here too (Rule 8.12): the
-front end does not run the checker, and without these a program TypeScript refuses would
-compile.
+**Access modifiers.** `public` is accepted and means nothing to the shader. `private` and
+`protected` are enforced here (Rule 8.15, below), as `readonly` is (Rule 8.14) and a private name,
+`#x`, is (Rule 8.12): the front end does not run the checker, and without these a program
+TypeScript refuses would compile. They were accepted and meant nothing until this.
 
 **Refused, with the fix (TS8035).** A static block (give each static field its value where it
 is declared), a field holding an arrow function (a method), a decorator on a method (an entry is
@@ -1957,9 +1957,9 @@ a top-level function), an `async`, generator or `abstract` method, two construct
 methods of one name (no overloads), a call of a method on the class or of a static function on
 a value, a member the class does not have, a field called as a method and an accessor called as
 one, a method that changes its object called on a `const`, a parameter or a value that is
-dropped, one that returns nothing used as a value, a write to `this` in a base's body called
-through `super` (which reads its object only; move the write into a method no class overrides),
-and a parameter named `self_`. A class with only static functions and no fields is not a struct
+dropped, one that returns nothing used as a value, and a parameter named `self_`. A write to
+`this` in a base's body called through `super` was refused too, since that body read its object
+only; it takes the object by reference now, as any method that writes it does (below). A class with only static functions and no fields is not a struct
 (TS8010): write them as functions. `extends` is a struct's base since roadmap item T5. A `new`
 on anything but a class the file declares stays TS8013, and says which of the four reasons it
 is.
@@ -1991,9 +1991,8 @@ members, so the language service adds nothing for them and the compiler's symbol
 method under its class name.
 
 **Not yet.** A cycle through method calls in the recursion check (Tint still refuses it, as a
-backend diagnostic), and a chain through a changing method, `v.setX(1.).setY(2.)`: `return this`
-returns a copy of the object, since a struct is a value, so the second call would change the
-copy; call each on `v` in turn.
+backend diagnostic). A chain through a changing method, `v.setX(1.).setY(2.)`, was on this list
+until it compiled (below).
 
 ### Getters and setters
 
@@ -2143,6 +2142,172 @@ A `readonly` field may be assigned in a constructor of the class that declares i
 else (TS8005), which is TypeScript's rule; `readonly` is shallow, as TypeScript's is, so
 `p.pos.x = 1.` on a `readonly pos` writes into what the field holds and stands.
 
+### A chain of calls on one object
+
+A method whose every `return` is `return this` hands back its own object, so TypeScript runs the
+next call of a chain on the same one: `b.sized(2.).tinted(red)` sizes `b` and tints it (Rule
+8.10). A struct is a value here, and what such a method returns is a copy of it: the reference is
+how the method changed the object, and the return is a value like any other. So where a chain is
+the whole of a statement, of a declaration's initializer or of a `return`, each call but the last
+runs as a statement of its own, in source order, on the object the chain starts from, and the
+last runs in the statement, on that object too. A chain that starts at `new` puts what `new`
+built in a temporary, `_chain`, and that temporary is the object the chain changes.
+
+```ts
+"use typeshade"
+class Brush {
+  size: f32 = 1.
+  tint: vec3 = vec3(1.)
+  sized(s: f32): Brush {
+    this.size = s
+    return this
+  }
+  tinted(c: vec3): Brush {
+    this.tint = c
+    return this
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let b = new Brush()
+  b.sized(uv.x).tinted(vec3(uv, 0.5))
+  const c = new Brush().sized(2.).tinted(vec3(1., 0., 0.))
+  return vec4(b.tint * b.size + c.tint, 1.)
+}
+```
+
+```wgsl
+fn Brush_sized(self_: ptr<function, Brush>, s: f32) -> Brush {
+  (*self_).size = s;
+  return (*self_);
+}
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  var b: Brush = Brush_new();
+  Brush_sized(&b, uv.x);
+  Brush_tinted(&b, vec3<f32>(uv, 0.5));
+  var _chain: Brush = Brush_new();
+  Brush_sized(&_chain, 2.0);
+  let c = Brush_tinted(&_chain, vec3<f32>(1.0, 0.0, 0.0));
+  ...
+}
+```
+
+A method that returns `this`, inherited by a class that extends the one that wrote it, returns
+the derived object, as it does at run time in TypeScript, so a chain through inherited setters
+keeps its type. Inside a larger expression the copy is all there is. A call on it that only reads
+is right as it is, `1. + v.setX(1.).len()`; one that would change it is refused (TS8035), since the
+change would land on the copy and be dropped where TypeScript changes `v`: make the chain a
+statement of its own, or call each method on `v`.
+
+### `super` on an accessor, and on a method that changes its object
+
+`super.value` in an override reads through the base's getter, and `super.value = v` writes
+through its setter, on this body's object (Rule 8.11); a compound assignment, `++` and `--` go
+through both. The base's half is lowered once more for the derived class,
+`Clamped_super_Counter_set_value`, as the base's body of a method already was for `super.m()`
+(T5, [#92](https://github.com/typeshade/typeshade/issues/92)). A base's body that writes its object,
+called through `super`, takes it by reference as any method that writes it does (Rule 8.10), and
+the override hands on its own reference.
+
+```ts
+"use typeshade"
+class Counter {
+  n: f32 = 0.
+  get value(): f32 {
+    return this.n
+  }
+  set value(v: f32) {
+    this.n = v
+  }
+  bump(): void {
+    this.n += 1.
+  }
+}
+
+class Clamped extends Counter {
+  set value(v: f32) {
+    super.value = min(v, 10.)
+  }
+  get value(): f32 {
+    return super.value
+  }
+  bump(): void {
+    super.bump()
+    this.value = this.value
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let c = new Clamped()
+  c.value = 9.5 + uv.x
+  c.bump()
+  return vec4(c.value / 10., 0., 0., 1.)
+}
+```
+
+```wgsl
+fn Clamped_set_value(self_: ptr<function, Clamped>, v: f32) {
+  Clamped_super_Counter_set_value(self_, min(v, 10.0));
+}
+fn Clamped_bump(self_: ptr<function, Clamped>) {
+  Clamped_super_Counter_bump(self_);
+  Clamped_set_value(self_, Clamped_get_value((*self_)));
+}
+fn Clamped_super_Counter_bump(self_: ptr<function, Clamped>) {
+  (*self_).n += 1.0;
+}
+```
+
+Refused, with the fix (TS8035): `super.x` where the class above declares only the other half of
+`x`, `super.x` naming a field (a field is the object's own, which `super` does not reach, as
+TypeScript's TS2855 says; write `this.x`), and a `super.x` nothing above declares.
+
+### `private` and `protected`
+
+`private` and `protected` are enforced (Rule 8.15), as TypeScript's checker enforces them in the
+editor and as `#x` is here (Rule 8.12). A `private` member may be named only in the body of the
+class that declares it; a `protected` one in that body and in the bodies of the classes that
+extend it, on an object of the naming body's own class or of one that extends it (TypeScript's
+TS2446). Neither changes what is emitted: `balance` is the struct member `balance`, and
+`deposit` the function `Account_deposit`.
+
+```ts
+"use typeshade"
+class Account {
+  private balance: f32 = 0.
+  protected limit: f32 = 100.
+  deposit(v: f32): void {
+    this.balance = min(this.balance + v, this.limit)
+  }
+  get total(): f32 {
+    return this.balance
+  }
+}
+
+class Premium extends Account {
+  raise(): void {
+    this.limit *= 2.
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let p = new Premium()
+  p.raise()
+  p.deposit(150. * uv.x)
+  return vec4(p.total / 200., 0., 0., 1.)
+}
+```
+
+Refused (TS8035), each with the member to reach it through: `p.balance` outside `Account`
+(`"Account.balance" is private, so only the body of "Account" may name it. Reach it through a
+public member of "Account".`), `p.limit` outside the chain, and, in a `Premium` body, `a.limit`
+on an `Account` that is not a `Premium`. An object literal cannot build such a class (TS8010;
+build it with `new`), and a spread and a destructuring pattern leave its `private` and
+`protected` fields out, as TypeScript's do.
+
 ---
 
 **A class whose members are all static is a namespace of functions** (roadmap 0.3 item T3,
@@ -2194,6 +2359,77 @@ export function fs(@location(0) uv: vec2): vec4 {
   return vec4(Stats.hits, 0., 0., 1.)
 }
 ```
+
+### Statics through a class that extends, `new this()`, and `super` in a static member
+
+A class inherits its base's statics, as TypeScript's constructors do (Rule 8.13): `Big.SCALE` is
+`Big`'s own when `Big` declares one and `Shape`'s when it does not, and `Big.unit()` calls the
+`unit` that `Shape` declares. In TypeScript `this` in a static member is the class the call
+names, so `Big.unit()` runs `Shape`'s body with `this` as `Big`: `new this()` builds a `Big`, and
+`this.SCALE` reads `Big.SCALE`. Here that body is lowered once more for `Big`, as `Big_unit`, with
+`this` bound to `Big`, and a static declared to return the class that declares it that builds
+its value with `new this()` returns the class the call names, the object TypeScript returns at
+run time. `super.describe()` in a static member runs the static the class above declares, with
+`this` still the class the call names.
+
+```ts
+"use typeshade"
+class Shape {
+  size: f32 = 1.
+  static SCALE = 1.
+  static unit(): Shape {
+    let s = new this()
+    s.size = this.SCALE
+    return s
+  }
+  static describe(): f32 {
+    return this.SCALE
+  }
+}
+
+class Big extends Shape {
+  static SCALE = 4.
+  static describe(): f32 {
+    return super.describe() * 10.
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  const a = Shape.unit()
+  const b = Big.unit()
+  return vec4(a.size, b.size, Big.describe(), 1.)
+}
+```
+
+```wgsl
+fn Big_describe() -> f32 {
+  return (Big_super_Shape_describe() * 10.0);
+}
+fn Big_unit() -> Big {
+  var s: Big = Big_new();
+  s.size = Big_SCALE;
+  return s;
+}
+fn Big_super_Shape_describe() -> f32 {
+  return Big_SCALE;
+}
+```
+
+`this` in a static member was the class that wrote the member until this, so `Big.unit()` built a
+`Shape` and read `Shape.SCALE`, which is not what TypeScript computes. A class of statics alone
+keeps its base too: over a class with fields it has those fields, so it is a struct and `new`
+builds one, and over another class of statics alone it is a namespace that inherits them.
+
+A write to a static through a class that does not declare it, `Big.count += 1.` for a `count`
+only `Shape` declares, would give `Big` a field of its own in TypeScript, which one module
+variable cannot be; it is TS8005 with the fix, `Shape.count += 1.`. The same write through
+`this`, in a `Shape` static that `Big.f()` runs, is refused where such a call is written and
+nowhere if nothing makes one; so is `this.#k` there, since a private static lives on `Shape` alone
+and TypeScript throws when `Big` reaches it (TS8035, with the fix `Shape.#k`). `super.K = v` in a
+static member writes `this.K` in TypeScript, not the field the class above declares, and is
+refused with both spellings to choose from. `new this()` outside a static member is TS8013:
+`this` there is an object, not a class.
 
 ### `namespace`
 
