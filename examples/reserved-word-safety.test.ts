@@ -19,6 +19,8 @@
 // Both pipelines run because they reach different depths in the name pool:
 // inline() lifts every helper body into the entry points, so one scope needs far
 // more names — which is how `as` (the ~70th) became reachable at all.
+//
+// Verifies: Rule 3.5 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import { examples } from './index.js';

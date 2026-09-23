@@ -42,6 +42,8 @@
 // even there, because a span alone cannot say which file it indexes. Running this check over
 // that half-table would refuse some kinds and miss others with no rule the reader could state,
 // so `compileTsSources` is left alone until every file has a table of its own.
+//
+// Implements: Rule 3.2, Rule 3.3 (docs/language-design.md; traced in reqs/).
 
 import type ts from 'typescript';
 import type { FuncDecl, ModuleVarDecl } from '../../core/ir/nodes.js';

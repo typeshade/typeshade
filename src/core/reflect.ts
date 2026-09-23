@@ -14,6 +14,8 @@
 // change here CAN change emitted GLSL bytes (never WGSL — the WGSL backend derives
 // nothing from it). The std140/std430 offsets are anchored to the offsets the runtime
 // already ships (reflect.test.ts).
+//
+// Implements: Rule 4.8, Rule 6.8 (docs/language-design.md; traced in reqs/).
 
 import {
   type ShaderType,

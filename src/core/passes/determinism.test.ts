@@ -6,6 +6,8 @@
 // operation has one answer. Emulated doubles are their own kind and integer arithmetic is
 // never listed. And `accuracyOf` places EVERY id the compiler can emit, so a new builtin
 // cannot be added without deciding which column it belongs in.
+//
+// Verifies: Rule 1.3, Rule 11.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';

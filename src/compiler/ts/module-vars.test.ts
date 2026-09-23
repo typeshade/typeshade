@@ -6,6 +6,8 @@
 // implicit workgroup's memory), the effect table counting a write to one, reflection ignoring
 // them, workgroup atomics, every refusal with its fix, and the refusal of the retired
 // `perInvocation<T>` wrapper (#83), which the plain `let` replaced.
+//
+// Verifies: Rule 6.5 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

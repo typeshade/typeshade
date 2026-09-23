@@ -1,3 +1,5 @@
+// Verifies: Rule 4.8 (docs/language-design.md; traced in reqs/).
+
 import { describe, it, expect } from 'vitest';
 import { wgslLayout, reflect } from './reflect.js';
 import {

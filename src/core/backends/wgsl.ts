@@ -193,7 +193,7 @@ function paramAttr(p: { builtin?: string; location?: number; attr?: string }): s
  *  (`hostFeature`). Coverage derives from these KEYS (`Capabilities.fromProfile`),
  *  `modulePreamble` from these `directive`s, and the host list from these
  *  `hostFeature`s (`hostFeaturesFor`), so none of the three can disagree; it replaced
- *  the hand-synced `caps`-set + `WGSL_ENABLE`-map pair (CLAUDE.md §12 second-ratchet).
+ *  the hand-synced `caps`-set + `WGSL_ENABLE`-map pair (AGENTS.md#gate-discipline, one authority).
  *
  *  The WGSL writer can SPELL every row here; whether a given adapter HAS an optional
  *  feature is a runtime probe the RHI owns — it opts a module in via `enables` only

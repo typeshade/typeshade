@@ -1,4 +1,6 @@
 // === Expression lowering ===
+//
+// Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 import ts from 'typescript';
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';

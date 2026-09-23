@@ -278,7 +278,7 @@ export interface EmitProfile {
  *
  *  Timing is wall-clock on one machine: read the SHAPE (which stage dominates, by how much),
  *  never the absolute milliseconds, and re-measure on the same commit before believing a
- *  gradient (CLAUDE.md §12).
+ *  gradient (AGENTS.md#gate-discipline).
  *
  *  Exported from `typeshade/dev`.
  */

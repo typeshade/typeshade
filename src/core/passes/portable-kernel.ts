@@ -9,7 +9,7 @@
 // for a portable-declared entry instead of re-deriving the checks, and the `portable-kernel`
 // lint rule (CORE) calls it so the SAME violations surface at every emit on both writers.
 //
-// THE TIER (docs/plans/2026-08-18-portable-kernel-tier.md) is exactly `out[gid.x] = f(reads)`:
+// THE TIER (X-GIS docs/plans/2026-08-18-portable-kernel-tier.md) is exactly `out[gid.x] = f(reads)`:
 //   • a `@builtin(global_invocation_id)` param, used only as `.x` (a 1-D linear index),
 //   • exactly ONE `read_write` storage binding of `array<u32>` — the R32UI draw buffer,
 //   • exactly ONE write to it, a plain store at the invocation index (scatter → violation),

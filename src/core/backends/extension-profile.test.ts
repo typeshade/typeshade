@@ -113,6 +113,8 @@
 //     GREEN today (the enable-directives.test.ts:33-35 behavior), duplicated here as
 //     a local anchor: collapsing WGSL_ENABLE into capProfile must not lose the one
 //     directive the WGSL backend already emits.
+//
+// Verifies: Rule 10.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';

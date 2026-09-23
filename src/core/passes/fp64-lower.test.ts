@@ -1,4 +1,6 @@
 // ═══ fp64Lower pass tests — rewrite shape, fail-loud gates, identity ═══
+//
+// Verifies: Rule 4.4 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import {

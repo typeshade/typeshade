@@ -1,4 +1,6 @@
 // === Statement lowering ===
+//
+// Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';

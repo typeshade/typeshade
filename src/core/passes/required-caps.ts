@@ -6,6 +6,8 @@
 // fail-closed promise is real, not the GLSL writer's ad-hoc per-construct throws.
 // assertBuiltins is its sibling for the target's BUILTIN VOCABULARY (X-GIS #1672) — same
 // place, same voice, per-backend sets.
+//
+// Implements: Rule 1.2, Rule 9.3 (docs/language-design.md; traced in reqs/).
 
 import { stageOf, type ModuleDecl, type Capability } from '../ir/index.js';
 import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend.js';

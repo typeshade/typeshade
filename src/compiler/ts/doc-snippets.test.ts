@@ -30,6 +30,8 @@
 // written better; an error, by contrast, means the example cannot become shader code at all.
 // Asserting on errors is the claim the docs actually make. (A return type an example leaves off
 // is the body's to say, Rule 8.19; it was a "defaulting to void" warning before.)
+//
+// Verifies: Rule 13.8 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';

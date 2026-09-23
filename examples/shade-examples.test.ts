@@ -22,6 +22,11 @@
 // What this suite cannot say is whether the pinned bytes are a PROGRAM — byte-stability is
 // not validity. `scripts/compile-gate.ts` answers that, and it now iterates this corpus too:
 // every WGSL here goes to Tint and every renderable GLSL pair to a real WebGL2 context.
+//
+// Verifies: Rule 4.3, Rule 4.8, Rule 6.9, Rule 6.10, Rule 7.5, Rule 7.9, Rule 8.9, Rule 8.10,
+// Rule 8.11, Rule 8.12, Rule 8.13, Rule 8.16, Rule 8.17, Rule 8.18, Rule 8.19, Rule 11.4
+// (docs/language-design.md; traced in reqs/). All but Rule 11.4 through the `*.shade.ts`
+// examples this suite compiles: an author-facing example carries no tag of its own.
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';

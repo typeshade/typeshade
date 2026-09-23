@@ -103,12 +103,13 @@ than a recursion. A builtin name wins over an alias of the same name, so `type v
 does not make `vec3` a scalar. A generic alias has no one target type and keeps its refusal;
 generics are roadmap 0.3 item T9.
 
-A struct is the members written in it, whichever of the three spellings declared it: a method
-or call signature, an index signature and an optional (`a?: f32`) member are each rejected,
-since a WGSL struct has no form for them and silently dropping one would change the buffer
-layout the host fills. The optional member is the one where the three spellings used to
-disagree: an interface refused it and a class emitted it as required. They refuse it alike
-now. An `extends` clause is inheritance (roadmap 0.3 item T5, §26): the base's fields come
+A struct is the members written in it, whichever of the three spellings declared it: a call
+signature, an index signature and an optional (`a?: f32`) member are each rejected, since a
+WGSL struct has no form for them and silently dropping one would change the buffer layout the
+host fills. An interface that declares a method is not a struct but a contract, which a class
+may name in `implements` and a type parameter may take as its constraint (§26, Rule 6.9). The
+optional member is the one where the three spellings used to disagree: an interface refused it
+and a class emitted it as required. They refuse it alike now. An `extends` clause is inheritance (roadmap 0.3 item T5, §26): the base's fields come
 first and the derived ones after, so nothing is dropped.
 
 Field metadata (`@location`, `@builtin`, `@interpolate`, `@invariant`, `@blend_src`, `@align`, `@size`, `@offset`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators, so a struct used as entry I/O — where WGSL requires `@builtin` or `@location` on every member — has to be a class.
@@ -3810,7 +3811,7 @@ WGSL row and no GLSL row, the pattern `storageTexture` set (§33): the gate fail
 closed on GLSL before any emit, `enables` cannot name them, and `reflect().requiredFeatures`
 tells the host which ones a module needs. Three capabilities rather than one because a module
 that uses a cube array and no gather should not be told about gather. On Tint every shape here
-was measured accepted, gather in a compute stage too (`scratchpad/item12-probe.mts`).
+was measured accepted, gather in a compute stage too (a one-off probe that was not kept in the tree).
 
 **The argument order is the spec's.** WGSL puts the **component first** on a colour texture and
 has **none** on a depth texture, whose texels have one channel; the layer follows the coordinate

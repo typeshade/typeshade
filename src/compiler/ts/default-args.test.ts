@@ -5,6 +5,8 @@
 // the fill at the call site on all four signature shapes, a default lowered once and read from
 // the module's scope, the order-independence of one default that calls another, the cycle a
 // filled default can close, both CPU paths agreeing, and the shapes that have no value to fill.
+//
+// Verifies: Rule 8.4 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

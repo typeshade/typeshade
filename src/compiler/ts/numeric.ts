@@ -1,4 +1,6 @@
 // Scalar numeric policy: NO implicit i32 ↔ u32 ↔ f32 conversion.
+//
+// Implements: Rule 5.2, Rule 5.3 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import type { BinOp, Expr } from '../../core/ir/nodes.js';

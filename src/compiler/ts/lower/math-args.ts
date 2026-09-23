@@ -13,6 +13,8 @@
 // offending argument and, where one exists, the fix: splat the scalar, cast one side, or give
 // the vectors one size. An emulated double (`f64`, a `vec64`) is left to the fp64 pass, which
 // has its own lifting rules.
+//
+// Implements: Rule 9.2 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import type { Expr } from '../../../core/ir/nodes.js';

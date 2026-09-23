@@ -36,6 +36,8 @@
 // const-fold's EXACT_BUILTINS except for `fract`: the spec words it as inherited from
 // `x - floor(x)` and its own note says `fract` of a tiny negative may be 1.0, so it has two
 // allowed answers; the fold picks one of them, which is const-fold's matter, not this table's.
+//
+// Implements: Rule 11.5 (docs/language-design.md; traced in reqs/).
 
 import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';

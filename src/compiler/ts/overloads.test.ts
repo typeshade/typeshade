@@ -5,6 +5,8 @@
 // the signatures are skipped and the implementation is lowered once, inside a namespace too,
 // the class shapes that already worked keep working, and the two body-less declarations that
 // are not overloads keep their error.
+//
+// Verifies: Rule 8.8 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

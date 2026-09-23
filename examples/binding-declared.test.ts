@@ -25,6 +25,8 @@
 // every arm reported green. Each half of the invariant now has to prove it examined
 // something, and the GLSL arms are counted separately from the WGSL ones, because a floor
 // that adds them together is exactly the floor that missed it.
+//
+// Verifies: Rule 6.1 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import { examples } from './index.js';

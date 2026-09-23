@@ -15,6 +15,8 @@
 // it: a declaration this file could not lower no longer makes its call sites say "Unknown
 // function" as well, and a parameter or return whose annotation was refused no longer repeats
 // that it "requires a TypeShade type annotation" when it has one.
+//
+// Verifies: Rule 4.5, Rule 4.6, Rule 7.8, Rule 12.1, Rule 12.4, Rule 12.5, Rule 12.6 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
