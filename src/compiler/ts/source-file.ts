@@ -418,16 +418,82 @@ function entryDeclaration(sourceFile: ts.SourceFile, name: string): ts.Node | un
   );
 }
 
+/** Where a {@link UniformityViolation}'s call is reached, around the value that made it
+ *  non-uniform, and the two remedies that fit that statement: where to move a barrier or hoist
+ *  a derivative, and what to write the statement on instead. Each remedy compiles on Tint in
+ *  the shape it names (Rule 12.1), and the loop rows are why there are rows: a barrier moved
+ *  ABOVE a non-uniform `break` is still refused, because the next iteration is reached by fewer
+ *  invocations, so a `break` or `continue` sends it out of the loop; and a `return` taken in a
+ *  loop reaches that loop's later iterations and everything after it, so it sends it above. */
+const UNIFORMITY_SITES: Readonly<
+  Record<
+    UniformityViolation['via'],
+    { before: string; after: string; move: string; hoist: string; on: string }
+  >
+> = {
+  branch: {
+    before: 'under',
+    after: '',
+    move: 'Move it out of the branch',
+    hoist: 'Hoist the call above the branch',
+    on: 'branch on',
+  },
+  loop: {
+    before: 'in a loop whose condition reads',
+    after: '',
+    move: 'Move it out of the loop',
+    hoist: 'Hoist the call out of the loop',
+    on: 'bound the loop by',
+  },
+  return: {
+    before: 'after a return taken under',
+    after: '',
+    move: 'Move it above the return',
+    hoist: 'Hoist the call above the return',
+    on: 'return on',
+  },
+  'loop-return': {
+    before: 'after a return taken under',
+    after: ' inside a loop',
+    move: 'Move it above the loop',
+    hoist: 'Hoist the call above the loop',
+    on: 'return on',
+  },
+  break: {
+    before: 'in a loop some invocations leave by a break taken under',
+    after: '',
+    move: 'Move it out of the loop',
+    hoist: 'Hoist the call out of the loop',
+    on: 'break on',
+  },
+  continue: {
+    before: 'in a loop where a continue taken under',
+    after: ' skips some invocations ahead',
+    move: 'Move it out of the loop',
+    hoist: 'Hoist the call out of the loop',
+    on: 'continue on',
+  },
+  'switch-break': {
+    before: 'after a break out of the switch taken under',
+    after: '',
+    move: 'Move it above the break',
+    hoist: 'Hoist the call above the break',
+    on: 'break on',
+  },
+};
+
 /** The sentence a {@link UniformityViolation} reads as. Two rules with one walk behind them,
  *  so two wordings: a derivative needs uniform control flow because its value is a difference
  *  between neighbouring invocations, and a barrier because a workgroup where some invocations
  *  arrive and some do not waits forever. */
 function uniformityMessage(v: UniformityViolation): string {
+  const site = UNIFORMITY_SITES[v.via];
+  const reached = `${site.before} ${v.cause}${site.after}`;
   if (v.kind === 'barrier') {
     return (
-      `${v.callee}() is reached under ${v.cause}, and every invocation of the workgroup has ` +
-      `to reach it: one that does not is a workgroup that waits forever. Move it out of the ` +
-      `branch, or branch on a value the whole workgroup shares (a uniform, a module const, ` +
+      `${v.callee}() is reached ${reached}, and every invocation of the workgroup has ` +
+      `to reach it: one that does not is a workgroup that waits forever. ${site.move}, or ` +
+      `${site.on} a value the whole workgroup shares (a uniform, a module const, ` +
       `@builtin("workgroup_id")).`
     );
   }
@@ -436,12 +502,12 @@ function uniformityMessage(v: UniformityViolation): string {
   // is what `dpdx` IS, so there is nothing to swap it for and the fix is to restructure. The
   // `fragment-only-builtin` rule splits its fix string for the same reason.
   const fix = v.isDerivativeBuiltin
-    ? `Hoist the call above the branch and select from its result, or compute the quantity ` +
+    ? `${site.hoist} and select from its result, or compute the quantity ` +
       `some other way — a screen-space derivative has no alternative form`
-    : `Hoist the call above the branch, or use textureSampleLevel or textureSampleGrad, whose ` +
+    : `${site.hoist}, or use textureSampleLevel or textureSampleGrad, whose ` +
       `level of detail is the one you wrote`;
   return (
-    `${v.callee}() is reached under ${v.cause}, which WGSL's derivative_uniformity rule ` +
+    `${v.callee}() is reached ${reached}, which WGSL's derivative_uniformity rule ` +
     `refuses: ${
       v.isDerivativeBuiltin
         ? 'it differences neighbouring invocations'

@@ -93,10 +93,10 @@ export function lowerBarrierStatement(
 
 /** `workgroupUniformLoad(w)` (#152, wgsl.txt:26057): ONE value read out of workgroup memory,
  *  with a barrier on each side of the read, so every invocation of the workgroup sees the same
- *  one. It carries a barrier's placement rules for that reason, and this file's, not the
- *  generic math path's: measured on Tint, inside an `if` it is "'workgroupUniformLoad' must
- *  only be called from uniform control flow", and in a fragment entry the workgroup variable
- *  itself is "var with 'workgroup' address space cannot be used by fragment pipeline stage".
+ *  one. It carries a barrier's placement rules for that reason: measured on Tint, under a
+ *  branch on `local_invocation_id` it is "'workgroupUniformLoad' must only be called from
+ *  uniform control flow", and in a fragment entry the workgroup variable itself is "var with
+ *  'workgroup' address space cannot be used by fragment pipeline stage".
  *
  *  The argument is a place in WORKGROUP memory, not storage: `workgroupUniformLoad` of a
  *  storage pointer is "no matching call", measured. Any type that memory can hold is allowed,
@@ -127,18 +127,12 @@ export function lowerWorkgroupUniformLoad(
   // argument is lowered, before this function is reached. A stage arm here would be a second
   // sentence for the same mistake that no program can see, and a worse one: it would name the
   // builtin where the existing rule names the variable, which is what the author has to move.
-  if (scope.inBranch()) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `${name}() must be reached by every invocation of the workgroup: move it out of the if ` +
-        `or switch. It is a read between two barriers, so a branch on a value the invocations ` +
-        `do not share is how a workgroup waits forever; a for loop with a constant bound is fine.`,
-      TS_CODES.BARRIER_PLACEMENT,
-    );
-    return undefined;
-  }
+  //
+  // NOT `scope.inBranch()` either, for the reason the barrier above gave it up (§54): that
+  // rule refused `if (k > 0.5)` on a uniform, which Tint accepts, and saw none of what Tint
+  // refuses without a branch in sight — a `return` taken under `local_invocation_id` above
+  // the call, a helper holding it called under a branch on one, a loop bounded by one. The
+  // uniformity walk reads the call as it reads a barrier, and answers all of them, measured.
   const arg = args[0]!;
   if (!rootedIn(arg, scope, ['workgroup'])) {
     pushDiag(

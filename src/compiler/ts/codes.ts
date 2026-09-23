@@ -79,9 +79,9 @@ export const TS_CODES = {
    *  and whose refusal names that `let`. */
   MODULE_VAR: 'TS8033',
   /** `workgroupBarrier()` / `storageBarrier()` somewhere a barrier cannot stand (§25): in a
-   *  vertex or fragment entry, which has no workgroup; inside an `if` or `switch` body, where
-   *  a branch on a value the invocations do not share is how a workgroup waits forever; or as
-   *  a value, since a barrier is a statement (roadmap 0.2 item 5, #82). */
+   *  vertex or fragment entry, which has no workgroup; or as a value, since a barrier is a
+   *  statement (roadmap 0.2 item 5, #82). A barrier or a `workgroupUniformLoad` under control
+   *  flow the invocations do not share is `UNIFORMITY` (§54), not this. */
   BARRIER_PLACEMENT: 'TS8034',
   /** A class member shape the surface does not take, or a use of a member the class rules
    *  refuse (#86). Getters and setters, static fields and methods, overload signatures,
@@ -161,8 +161,9 @@ export const TS_CODES = {
    *  WGSL and std140 lay out at different offsets (Rule 4.8, surface §40). */
   LAYOUT: 'TS8051',
   /** A call that needs uniform control flow — `textureSample` and the other implicit-LOD
-   *  forms, the derivatives, or a barrier — reached under a condition that is not uniform
-   *  across the invocations that run together (§54). */
+   *  forms, the derivatives, a barrier, or `workgroupUniformLoad` — reached under a condition
+   *  that is not uniform across the invocations that run together, or after a `return`,
+   *  `break` or `continue` taken under one (§54). */
   UNIFORMITY: 'TS8052',
   /** A DEPRECATION warning, not an error: an integer-written literal in a declaration that
    *  declares no type still becomes `f32` and will become `i32` (§13, #148).

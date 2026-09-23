@@ -58,6 +58,19 @@ function compiled(source: string) {
   return c;
 }
 
+/** The whole TS8052 sentence for a `textureSample` (Rule 12.5): where the call is reached, and
+ *  the hoist that fits that place. */
+const sampleRefusal = (reached: string, hoist: string): string =>
+  `${TS_CODES.UNIFORMITY} textureSample() is reached ${reached}, which WGSL's derivative_uniformity rule refuses: the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. ${hoist}, or use textureSampleLevel or textureSampleGrad, whose level of detail is the one you wrote, or write @diagnostic("off", "derivative_uniformity") on the entry to take the module as written.`;
+
+/** The whole TS8052 sentence for a call the workgroup has to reach together: where it is
+ *  reached, where to move it, and what to write the statement on instead. */
+const barrierRefusal = (callee: string, reached: string, move: string, on: string): string =>
+  `${TS_CODES.UNIFORMITY} ${callee}() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`;
+
+const UV = '"VsOut.uv" (a fragment input at @location(0))';
+const LID = '"lid" (@builtin(local_invocation_id))';
+
 describe('a derivative under a branch the invocations do not share', () => {
   it('refuses textureSample under a condition on a fragment input, naming the input', () => {
     const [first, ...rest] = errorsOf(
@@ -126,13 +139,17 @@ describe('a derivative under a branch the invocations do not share', () => {
     ).toContain('textureSample() is reached under');
     // A `for` bound may be a runtime value (Rule 7.5, #203), so a loop whose trip count differs
     // between invocations is authorable, and a sample in its body is under that divergence.
+    // Named as the loop it is: no branch surrounds the call, so "above the branch" pointed at
+    // nothing (Rule 12.1).
     expect(
       errorsOf(
         frag(`  let acc: vec4 = vec4(0., 0., 0., 1.)
   for (let i: i32 = 0; i < i32(v.uv.x * 4.); i++) { acc = textureSample(t, s, v.uv) }
   return acc`),
-      )[0],
-    ).toContain('textureSample() is reached under');
+      ),
+    ).toEqual([
+      sampleRefusal(`in a loop whose condition reads ${UV}`, 'Hoist the call out of the loop'),
+    ]);
   });
 
   it('makes everything after a non-uniform `return` non-uniform, and nothing after a discard', () => {
@@ -141,12 +158,15 @@ describe('a derivative under a branch the invocations do not share', () => {
     // `discard` is ACCEPTED — an invocation that discards is demoted to a helper and goes on
     // contributing the neighbour a derivative differences against, which is why `discard`
     // beside `fwidth` is the ordinary antialiased-cutout idiom.
+    // The call sits in no branch, so the sentence names the return and the hoist above it.
     expect(
       errorsOf(
         frag(`  if (v.uv.x > 1.) { return vec4(0., 0., 0., 1.) }
   return textureSample(t, s, v.uv)`),
-      )[0],
-    ).toContain('textureSample() is reached under');
+      ),
+    ).toEqual([
+      sampleRefusal(`after a return taken under ${UV}`, 'Hoist the call above the return'),
+    ]);
     expect(
       compiled(
         frag(`  if (v.uv.x > 1.) { discard }
@@ -443,8 +463,15 @@ export function opaque(): f32 { return 0.5 }
   if (opaque() > 0.5) { return }
   workgroupBarrier()
   out[lid.x] = 1.
-}`)[0],
-    ).toContain('workgroupBarrier() is reached under');
+}`),
+    ).toEqual([
+      barrierRefusal(
+        'workgroupBarrier',
+        'after a return taken under the expression, which this compiler cannot prove uniform',
+        'Move it above the return',
+        'return on',
+      ),
+    ]);
   });
 
   it('rebinds the ROOT of a write, so `v.x = …` is a write to `v`', () => {
@@ -539,7 +566,7 @@ describe('a value that goes through a helper keeps its class', () => {
   if (edge(v.uv.x)) { return vec4(1., 0., 0., 1.) }
   return textureSample(t, s, v.uv)
 }`,
-      'textureSample() is reached under "VsOut.uv"',
+      'textureSample() is reached after a return taken under "VsOut.uv"',
     ],
     [
       'the sample inside the branch',
@@ -1078,5 +1105,430 @@ export function peek2(): f32 { return scratch[0] }
   return vec4(0., 0., 0., 1.)
 }`).wgsl,
     ).toContain('textureSample(t, s,');
+  });
+});
+
+// ═══ A `break` or `continue` under a non-uniform condition (proposal 0008 §4, Rule 8.5) ═══
+//
+// The walk modelled `return` alone, so a jump out of a loop under `lid.x` left the rest of the
+// loop uniform, and every refused row below compiled with no diagnostic and failed at
+// `createShaderModule`. Each row was measured on Chromium 141 (`chromium_headless_shell-1194`)
+// with the instrument reporting a broken shader first, the refused ones as
+// `'workgroupBarrier' must only be called from uniform control flow` (or the same of
+// `textureSample`), and the accepted ones compiled whole:
+//
+//   barrier below `if (lid.x > 2u) { break; }` in the body, `for`, `while` and `for…of`   refused
+//   the same with `continue`                                                              refused
+//   barrier ABOVE the jump, `break` and `continue` alike (the second iteration)           refused
+//   barrier below a `break` out of a `switch` case, in that case                          refused
+//   `textureSample` below the jump in a fragment loop, and above it                        refused
+//   a local the loop writes, before or after the jump, branched on after the loop         refused
+//   the same through a UNIFORM `break` or `continue`, carrying `f32(lid.x)` out            refused
+//   a barrier above or below `if (lid.x > 2u) { return; }` in a loop, or below the loop    refused
+//   barrier below the loop, the jump non-uniform                                          ACCEPTED
+//   barrier in the body, the jump on a uniform, on the counter, on `workgroup_id`         ACCEPTED
+//   barrier in the outer loop, the non-uniform `break` in an inner one                    ACCEPTED
+//   barrier after the `switch`, or above the `break` in the case                          ACCEPTED
+//   barrier after a loop whose `continue` is non-uniform                                  ACCEPTED
+//   `textureSample` below the loop, `textureSampleLevel` below the jump                   ACCEPTED
+describe('a break or continue taken under a non-uniform condition', () => {
+  const kernel = (body: string, decls = ''): string =>
+    `declare const out: storage<array<u32>, "read_write">;
+declare const k: uniform<f32>;
+${decls}@compute([64]) export function cs(@builtin("local_invocation_id") lid: vec3u, @builtin("workgroup_id") wid: vec3u): void {
+${body}
+}`;
+  const leftByBreak = barrierRefusal(
+    'workgroupBarrier',
+    `in a loop some invocations leave by a break taken under ${LID}`,
+    'Move it out of the loop',
+    'break on',
+  );
+  const skippedByContinue = barrierRefusal(
+    'workgroupBarrier',
+    `in a loop where a continue taken under ${LID} skips some invocations ahead`,
+    'Move it out of the loop',
+    'continue on',
+  );
+  const branchedOnLid = barrierRefusal(
+    'workgroupBarrier',
+    `under ${LID}`,
+    'Move it out of the branch',
+    'branch on',
+  );
+
+  it.each([
+    [
+      'below a break, in a for',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (lid.x > 2) { break; }
+    workgroupBarrier();
+  }`,
+      leftByBreak,
+    ],
+    [
+      'ABOVE a break: the next iteration is reached by fewer invocations',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    workgroupBarrier();
+    if (lid.x > 2) { break; }
+  }`,
+      leftByBreak,
+    ],
+    [
+      'below a break, in a while',
+      `  let i: i32 = 0;
+  while (i < 4) {
+    if (lid.x > 2) { break; }
+    workgroupBarrier();
+    i++;
+  }`,
+      leftByBreak,
+    ],
+    [
+      'below a break, in a for…of',
+      `  const xs = array<u32, 4>(1, 2, 3, 4);
+  for (const x of xs) {
+    if (lid.x > x) { break; }
+    workgroupBarrier();
+  }`,
+      leftByBreak,
+    ],
+    [
+      'below a break in an else, and in an if nested in a uniform one',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (k > 0.5) {
+      if (lid.x > 2) { out[i] = 1; } else { break; }
+    }
+    workgroupBarrier();
+  }`,
+      leftByBreak,
+    ],
+    [
+      'below a continue',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (lid.x > 2) { continue; }
+    workgroupBarrier();
+  }`,
+      skippedByContinue,
+    ],
+    [
+      'ABOVE a continue',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    workgroupBarrier();
+    if (lid.x > 2) { continue; }
+  }`,
+      skippedByContinue,
+    ],
+    [
+      'below a continue taken inside a switch, which continues the loop',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    switch (i32(wid.x)) {
+      case 0: {
+        if (lid.x > 2) { continue; }
+        out[0] = 1;
+        break;
+      }
+      default: { }
+    }
+    workgroupBarrier();
+  }`,
+      skippedByContinue,
+    ],
+    [
+      'below a break out of a switch case, in that case',
+      `  switch (i32(wid.x)) {
+    case 0: {
+      if (lid.x > 2) { break; }
+      workgroupBarrier();
+      break;
+    }
+    default: { }
+  }`,
+      barrierRefusal(
+        'workgroupBarrier',
+        `after a break out of the switch taken under ${LID}`,
+        'Move it above the break',
+        'break on',
+      ),
+    ],
+    [
+      'ABOVE a return taken in a loop, and so below it on the next iteration',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    workgroupBarrier();
+    if (lid.x > 2) { return; }
+  }`,
+      barrierRefusal(
+        'workgroupBarrier',
+        `after a return taken under ${LID} inside a loop`,
+        'Move it above the loop',
+        'return on',
+      ),
+    ],
+    [
+      // The first pass of the body reaches it after a plain `return`, the settled one after a
+      // return a loop takes; the settled one names it, since "above the return" is refused too.
+      'below a return taken in a loop',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (lid.x > 2) { return; }
+    workgroupBarrier();
+  }`,
+      barrierRefusal(
+        'workgroupBarrier',
+        `after a return taken under ${LID} inside a loop`,
+        'Move it above the loop',
+        'return on',
+      ),
+    ],
+    [
+      'below the loop a return was taken in',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (lid.x > 2) { return; }
+  }
+  workgroupBarrier();`,
+      barrierRefusal(
+        'workgroupBarrier',
+        `after a return taken under ${LID} inside a loop`,
+        'Move it above the loop',
+        'return on',
+      ),
+    ],
+  ])('refuses a barrier %s', (_what, body, want) => {
+    expect(errorsOf(kernel(body))).toEqual([want]);
+  });
+
+  it.each([
+    [
+      'written below the jump',
+      `  let x = 0.;
+  for (let i: i32 = 0; i < 4; i++) {
+    if (lid.x > 2) { break; }
+    x = x + 1.;
+  }
+  if (x > 3.) { workgroupBarrier(); }`,
+    ],
+    [
+      'written above it, a constant (the second iteration writes it)',
+      `  let x = 0.;
+  for (let i: i32 = 0; i < 4; i++) {
+    x = 1.;
+    if (lid.x > 2) { break; }
+  }
+  if (x > 0.5) { workgroupBarrier(); }`,
+    ],
+    [
+      'written below a continue',
+      `  let x = 0.;
+  for (let i: i32 = 0; i < 4; i++) {
+    if (lid.x > 2) { continue; }
+    x = x + 1.;
+  }
+  if (x > 3.) { workgroupBarrier(); }`,
+    ],
+    [
+      'the counter of a while',
+      `  let i: i32 = 0;
+  while (i < 4) {
+    if (lid.x > 2) { break; }
+    i++;
+  }
+  if (i > 2) { workgroupBarrier(); }`,
+    ],
+    [
+      'carried out by a UNIFORM break, though the body ends with a constant',
+      `  let x = 0.;
+  for (let i: i32 = 0; i < 4; i++) {
+    x = f32(lid.x);
+    if (k > 0.5) { break; }
+    x = 0.;
+  }
+  if (x > 0.5) { workgroupBarrier(); }`,
+    ],
+    [
+      'carried to the next iteration by a UNIFORM continue',
+      `  let x = 0.;
+  for (let i: i32 = 0; i < 4; i++) {
+    if (x > 0.5) { workgroupBarrier(); }
+    x = f32(lid.x);
+    if (k > 0.5) { continue; }
+    x = 0.;
+  }`,
+    ],
+    [
+      'carried out of a switch by a break',
+      `  let x = 0.;
+  switch (i32(wid.x)) {
+    case 0: {
+      x = f32(lid.x);
+      if (k > 0.5) { break; }
+      x = 0.;
+      break;
+    }
+    default: { }
+  }
+  if (x > 0.5) { workgroupBarrier(); }`,
+    ],
+  ])('refuses a branch on a local the loop wrote, %s', (_what, body) => {
+    expect(errorsOf(kernel(body))).toEqual([branchedOnLid]);
+  });
+
+  it.each([
+    [
+      'below the loop the break left',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (lid.x > 2) { break; }
+    out[i] = 1;
+  }
+  workgroupBarrier();`,
+    ],
+    [
+      'below the loop a continue skipped ahead in',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (lid.x > 2) { continue; }
+    out[i] = 1;
+  }
+  workgroupBarrier();`,
+    ],
+    [
+      'in the body, the break on a uniform',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (k > 0.5) { break; }
+    workgroupBarrier();
+  }`,
+    ],
+    [
+      'in the body, the break on the counter',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (i === 2) { break; }
+    workgroupBarrier();
+  }`,
+    ],
+    [
+      'in the body, the continue on workgroup_id',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (wid.x > 2) { continue; }
+    workgroupBarrier();
+  }`,
+    ],
+    [
+      'in the outer loop, the break in an inner one',
+      `  for (let j: i32 = 0; j < 4; j++) {
+    for (let i: i32 = 0; i < 4; i++) {
+      if (lid.x > 2) { break; }
+      out[i] = 1;
+    }
+    workgroupBarrier();
+  }`,
+    ],
+    [
+      'in a loop body after a switch a break left',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    switch (i32(wid.x)) {
+      case 0: {
+        if (lid.x > 2) { break; }
+        out[0] = 1;
+        break;
+      }
+      default: { }
+    }
+    workgroupBarrier();
+  }`,
+    ],
+    [
+      'above the break in a switch case, which runs once',
+      `  switch (i32(wid.x)) {
+    case 0: {
+      workgroupBarrier();
+      if (lid.x > 2) { break; }
+      out[0] = 1;
+      break;
+    }
+    default: { }
+  }`,
+    ],
+    [
+      'above a loop a return is taken in',
+      `  workgroupBarrier();
+  for (let i: i32 = 0; i < 4; i++) {
+    if (lid.x > 2) { return; }
+  }`,
+    ],
+    [
+      'after a local the loop wrote is written again below it',
+      `  let x = 0.;
+  for (let i: i32 = 0; i < 4; i++) {
+    if (lid.x > 2) { break; }
+  }
+  x = 2.;
+  if (x > 3.) { workgroupBarrier(); }`,
+    ],
+  ])('accepts a barrier %s', (_what, body) => {
+    expect(errorsOf(kernel(body))).toEqual([]);
+  });
+
+  it('refuses a sample below the jump and above it, and takes one below the loop', () => {
+    const loop = (inner: string): string =>
+      frag(`  let c = vec4(0., 0., 0., 0.);
+  for (let i: i32 = 0; i < 4; i++) {
+${inner}
+  }
+  return c;`);
+    const refusal = sampleRefusal(
+      `in a loop some invocations leave by a break taken under ${UV}`,
+      'Hoist the call out of the loop',
+    );
+    expect(
+      errorsOf(
+        loop(`    if (v.uv.x > 0.5) { break; }
+    c = c + textureSample(t, s, v.uv + vec2(f32(i), 0.));`),
+      ),
+    ).toEqual([refusal]);
+    expect(
+      errorsOf(
+        loop(`    c = c + textureSample(t, s, v.uv + vec2(f32(i), 0.));
+    if (v.uv.x > 0.5) { break; }`),
+      ),
+    ).toEqual([refusal]);
+    // The two remedies it names: the level of detail written, and the call out of the loop.
+    expect(
+      compiled(
+        loop(`    if (v.uv.x > 0.5) { break; }
+    c = c + textureSampleLevel(t, s, v.uv, 0.);`),
+      ).wgsl,
+    ).toContain('textureSampleLevel(t, s,');
+    expect(
+      compiled(
+        frag(`  let c = vec4(0., 0., 0., 0.);
+  for (let i: i32 = 0; i < 4; i++) {
+    if (v.uv.x > 0.5) { break; }
+    c = c + vec4(1., 0., 0., 0.);
+  }
+  return c + textureSample(t, s, v.uv);`),
+      ).wgsl,
+    ).toContain('textureSample(t, s,');
+  });
+
+  it('carries the condition of a jump into a helper’s summary', () => {
+    // `count(x)` returns how many iterations ran, which `x` decided through the break. Tint
+    // refuses the sample under `count(v.uv.x)`, through a `break` and through a `continue`,
+    // and accepts it under `count(k)`.
+    const counted = (jump: string, arg: string): string =>
+      `${HEAD}function count(x: f32): f32 {
+  let n = 0.;
+  for (let i: i32 = 0; i < 4; i++) {
+    if (x > 0.5) { ${jump}; }
+    n = n + 1.;
+  }
+  return n;
+}
+@fragment export function fs(v: VsOut): vec4 {
+  if (count(${arg}) > 2.) { return textureSample(t, s, v.uv); }
+  return vec4(0., 0., 0., 1.);
+}`;
+    for (const jump of ['break', 'continue']) {
+      expect(errorsOf(counted(jump, 'v.uv.x')), jump).toEqual([
+        sampleRefusal(`under ${UV}`, 'Hoist the call above the branch'),
+      ]);
+      expect(compiled(counted(jump, 'k')).wgsl, jump).toContain('textureSample(t, s,');
+    }
   });
 });

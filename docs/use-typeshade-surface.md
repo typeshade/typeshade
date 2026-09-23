@@ -5003,9 +5003,15 @@ It carries a barrier's placement rules, because it *is* two barriers around a re
 | spelling | Tint |
 | --- | --- |
 | in a compute entry, outside any branch | accepts |
-| inside an `if` | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
+| inside an `if` or a `switch` on a uniform, or on `workgroup_id` | accepts |
+| inside an `if` on `local_invocation_id`, after a `return` or a `break` taken under one, or in a loop it bounds | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
 | of a storage pointer | **"no matching call"**, both candidates workgroup pointers |
 | of a `vec4`, of an array element | accepts — any shape that memory holds |
+
+The compiler reads the call with §54's uniformity walk, as it reads a barrier, so the refused
+rows are TS8052 at the call, worded as the barrier's, and the accepted ones compile. It used
+to refuse every `if` and `switch` around the call with TS8034, the uniform ones included, and to
+pass an early `return`, a helper called under a branch and a loop bound, which Tint refuses.
 
 A render entry needs no rule of its own here: a workgroup variable read from one is already
 refused where it is read, which is the sentence that names what the author has to move.
@@ -5707,7 +5713,13 @@ broken-shader instrument check passing on both compilers first:
 | the same, **with** `diagnostic(off, derivative_uniformity);` in the module | still `'workgroupBarrier' must only be called from uniform control flow` |
 | `if (uv.x > 1.) { return … }` above a `textureSample` | `'textureSample' must only be called from uniform control flow` |
 | `if (uv.x > 1.) { discard }` above a `textureSample`, and above a `fwidth` | accepted |
-| `break` out of a loop under a non-uniform condition, above a barrier | accepted |
+| `if (id.x > 4u) { break }` or `{ continue }` in a loop, a barrier below the loop | accepted |
+| the same, a barrier in the loop body, below the jump or above it | `'workgroupBarrier' must only be called from uniform control flow` |
+| the same, a `textureSample` in the loop body | `'textureSample' must only be called from uniform control flow` |
+| the same, a barrier after the loop under a branch on a local the loop writes | `'workgroupBarrier' must only be called from uniform control flow` |
+| `if (id.x > 4u) { break }` out of a `switch` case, a barrier after the `switch` | accepted |
+| `workgroupUniformLoad` under `if (k > 0.5)` on a uniform buffer value | accepted |
+| `workgroupUniformLoad` after `if (id.x > 4u) { return }`, or in a loop `id.x` bounds | `'workgroupUniformLoad' must only be called from uniform control flow` |
 
 Every one of those is reported by `createShaderModule`, not only by `createRenderPipeline` — so
 the compile gate already runs Tint's own uniformity check on every example, and the acceptance
@@ -5723,6 +5735,16 @@ invocation is demoted to a helper rather than ended, so it goes on contributing 
 derivative differences against, which is why `discard` beside `fwidth` is the ordinary
 antialiased-cutout idiom and `examples/cutout.shade.ts` compiles.
 
+**A `break` or `continue` under a non-uniform condition makes the rest of its loop
+non-uniform**, the next iterations included: a barrier above the jump is refused as well as one
+below it, because on the second iteration the invocations that left are not there. The flow
+after the loop is the loop's own again, so a barrier below the loop is accepted. The same holds
+for `for`, `while` and `for…of`. A `break` out of a `switch` case makes the rest of that case
+non-uniform and nothing after the `switch`, since a case runs once. The environment at the jump
+goes where the jump lands, so a local written before a `break`, even a uniform one, reaches the
+code after the loop with the value it had there, and a local the loop writes after a
+non-uniform jump is non-uniform after the loop.
+
 **What the compiler says now.** The call is refused at the call, naming the value the control
 flow depends on and the three ways out:
 
@@ -5734,6 +5756,23 @@ the call above the branch, or use textureSampleLevel or textureSampleGrad, whose
 detail is the one you wrote, or write @diagnostic("off", "derivative_uniformity") on the entry
 to take the module as written.
 ```
+
+The sentence names the statement that made the flow non-uniform, and the move that fits it.
+Each move compiles on Tint:
+
+| The call is reached | The sentence says it is reached | The move |
+| --- | --- | --- |
+| under an `if` or a `switch` on the value | under … | out of the branch, or the call hoisted above it |
+| after a `return` taken under it | after a return taken under … | above the return |
+| in a loop whose condition reads it | in a loop whose condition reads … | out of the loop |
+| in a loop a `break` taken under it leaves early | in a loop some invocations leave by a break taken under … | out of the loop |
+| in a loop a `continue` taken under it cuts short | in a loop where a continue taken under … skips some invocations ahead | out of the loop |
+| after a `break` taken under it out of a `switch` case | after a break out of the switch taken under … | above the break |
+| in or after a loop a `return` taken under it leaves | after a return taken under … inside a loop | above the loop |
+
+A barrier's sentence also names the other way out, a value the whole workgroup shares to branch,
+return, break, continue or bound the loop on; a derivative's names the explicit-LOD sample and
+the filter.
 
 **The analysis is three-valued, and that is the design, not a hedge.** A value is `uniform`,
 `non-uniform`, or `unknown`, and the two callers want opposite answers from the same walk:
@@ -5839,7 +5878,9 @@ ADDRESS SPACE, and Tint does not look at the write side at all — it refuses a 
 `workgroupUniformLoad` is the carve-out and it is load-bearing: with a workgroup read
 non-uniform on sight, it is the only spelling left that can carry a barrier — which is exactly
 what the builtin is for, since it *is* one value for the whole workgroup with a barrier on each
-side. It is the value the CALL produces that is uniform, not the argument.
+side. It is the value the CALL produces that is uniform, not the argument. The call itself is
+held to the barrier's threshold, for the same reason: a `workgroupUniformLoad` reached where the
+walk has not proven the flow uniform is TS8052, worded as a barrier's (§48).
 
 An earlier round classified those three spaces by the join of every write in the module
 instead, on the theory that a location written only constants stays uniform. That refinement is
@@ -5862,10 +5903,10 @@ flow-insensitive over locals, so `gate(x, y) { let acc = x * 2.; acc = y; return
 `x` where the same statements inline do not. Both only ever refuse.
 
 **The barrier rule is the spec's now, not a stricter one.** It used to refuse every `if` and
-`switch`. `if (k > 0.5)` on a uniform buffer value is accepted by Tint, and is accepted here —
-which is the shape a kernel branching on a dispatch-wide flag needs. What is still refused is a
-branch on a value the invocations do not share, and a branch this compiler cannot read, which
-keeps the old answer.
+`switch`, and `workgroupUniformLoad` kept that rule until proposal 0008. `if (k > 0.5)` on a
+uniform buffer value is accepted by Tint, and is accepted here, for both — which is the shape a
+kernel branching on a dispatch-wide flag needs. What is still refused is a branch on a value the
+invocations do not share, and a branch this compiler cannot read, which keeps the old answer.
 
 **Switching it off.** `@diagnostic("off", "derivative_uniformity")` on an entry silences the
 analysis and emits WGSL's module-scope directive:

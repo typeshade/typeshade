@@ -325,6 +325,28 @@ export function fs(): vec4 {
     ]);
   });
 
+  it('names the return or the loop that made the flow non-uniform, not a branch', () => {
+    // No branch surrounds either barrier, so "move it out of the branch" pointed at nothing
+    // the author could find (Rule 12.1). Each remedy named compiles on Tint: the barrier above
+    // the `if (…) { return; }`, and a loop bound every invocation shares.
+    const lid = `${HEAD}@compute([64, 1, 1])
+export function k(@builtin("local_invocation_id") lid: vec3u): void {
+`;
+    expect(errorsOf(`${lid}  if (lid.x > 2) { return; }\n  workgroupBarrier();\n}\n`)).toEqual([
+      `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached after a return taken under "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it above the return, or return on a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`,
+    ]);
+    expect(errorsOf(`${lid}  workgroupBarrier();\n  if (lid.x > 2) { return; }\n}\n`)).toEqual([]);
+    const inLoop = `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached in a loop whose condition reads "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the loop, or bound the loop by a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`;
+    expect(
+      errorsOf(
+        `${lid}  let i: u32 = lid.x;\n  while (i < 8) {\n    workgroupBarrier();\n    i++;\n  }\n}\n`,
+      ),
+    ).toEqual([inLoop]);
+    expect(
+      errorsOf(`${lid}  for (let i: u32 = 0; i < lid.x; i++) {\n    workgroupBarrier();\n  }\n}\n`),
+    ).toEqual([inLoop]);
+  });
+
   it('a function the file declares under the name keeps the call', () => {
     const r = compileTsSource(`${HEAD}function workgroupBarrier(): void {
   out[0] = 1.
@@ -365,6 +387,11 @@ describe("textureBarrier and workgroupUniformLoad carry a barrier's rules", () =
     compileTsSource(src)
       .diagnostics.filter((d) => d.category === 'error')
       .map((d) => d.message);
+  /** The same with each code in front, for the pins that assert both (Rule 12.5). */
+  const codedErrorsOf = (src: string): string[] =>
+    compileTsSource(src)
+      .diagnostics.filter((d) => d.category === 'error')
+      .map((d) => `${d.code} ${d.message}`);
 
   const CS = (decls: string, body: string): string => `"use typeshade"
 declare const o: storage<array<u32>, "read_write">
@@ -438,11 +465,19 @@ export function fs(): vec4 {
       'workgroupUniformLoad reads WORKGROUP memory; this value is not in it. Declare the ' +
         'variable "let w: workgroup<T>" and read it as workgroupUniformLoad(w).',
     );
+    // Under a branch on a value the invocations do not share, it is the barrier's refusal,
+    // from §54's walk: `o` is a read_write storage buffer, which Tint reads as non-uniform,
+    // and it answers "'workgroupUniformLoad' must only be called from uniform control flow".
     expect(
-      errorsOf(
+      codedErrorsOf(
         CS('let w: workgroup<u32>', '  if (o[0] === 1) {\n    o[1] = workgroupUniformLoad(w)\n  }'),
-      )[0],
-    ).toContain('workgroupUniformLoad() must be reached by every invocation of the workgroup');
+      ),
+    ).toEqual([
+      `${TS_CODES.UNIFORMITY} workgroupUniformLoad() is reached under "o" (a read_write storage buffer), and every ` +
+        'invocation of the workgroup has to reach it: one that does not is a workgroup that ' +
+        'waits forever. Move it out of the branch, or branch on a value the whole workgroup ' +
+        'shares (a uniform, a module const, @builtin("workgroup_id")).',
+    ]);
     // A fragment entry has no workgroup memory at all, and Tint refuses the VARIABLE there
     // ("var with 'workgroup' address space cannot be used by fragment pipeline stage") rather
     // than the builtin. So does this surface, by a rule that predates the builtin and fires
@@ -460,6 +495,95 @@ export function fs(): vec4 {
       '"w" is workgroup memory, which only a compute entry has; a fragment entry cannot read ' +
         'or write it.',
     );
+  });
+
+  // Proposal 0008 §4: the load answers to §54's walk, as a barrier does, and no longer to a
+  // rule of its own that refused every `if` and `switch`. Measured on Chromium 141 with the
+  // instrument reporting first: Tint ACCEPTS the load under `if (k > 0.5)` on a uniform, under
+  // `if (wid.x > 2u)`, in a `switch` on `workgroup_id`, and in a loop with a constant bound; it
+  // refuses it after a `return` taken under `local_invocation_id`, in a helper called under a
+  // branch on it, in a `while` or a `for` it bounds, and below a `break` taken under it, each
+  // as "'workgroupUniformLoad' must only be called from uniform control flow". The old rule
+  // refused the first four and passed the last five.
+  const LOAD_HEAD = `"use typeshade";
+declare const o: storage<array<u32>, "read_write">;
+declare const k: uniform<f32>;
+let w: workgroup<u32>;
+`;
+  const load = (body: string, helpers = ''): string =>
+    `${LOAD_HEAD}${helpers}@compute([64, 1, 1])
+export function cs(@builtin("local_invocation_id") lid: vec3u, @builtin("workgroup_id") wid: vec3u): void {
+${body}
+}
+`;
+  const refusal = (reached: string, move: string, on: string): string =>
+    `${TS_CODES.UNIFORMITY} workgroupUniformLoad() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`;
+  const LID = '"lid" (@builtin(local_invocation_id))';
+
+  it.each([
+    ['a uniform', '  if (k > 0.5) {\n    o[0] = workgroupUniformLoad(w);\n  }'],
+    ['workgroup_id', '  if (wid.x > 2) {\n    o[0] = workgroupUniformLoad(w);\n  }'],
+    [
+      'a switch on workgroup_id',
+      '  switch (i32(wid.x)) {\n    case 0: {\n      o[0] = workgroupUniformLoad(w);\n      break;\n    }\n    default: { }\n  }',
+    ],
+    [
+      'a constant loop bound',
+      '  for (let i: u32 = 0; i < 4; i++) {\n    o[i] = workgroupUniformLoad(w);\n  }',
+    ],
+  ])('takes workgroupUniformLoad under %s, which the whole workgroup shares', (_what, body) => {
+    const r = compile(load(body));
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('workgroupUniformLoad(&w)');
+  });
+
+  it.each([
+    [
+      'after a return taken under local_invocation_id',
+      load('  if (lid.x > 2) { return; }\n  o[0] = workgroupUniformLoad(w);'),
+      refusal(`after a return taken under ${LID}`, 'Move it above the return', 'return on'),
+    ],
+    [
+      'in a helper called under a branch on it',
+      load(
+        '  if (lid.x > 2) {\n    o[0] = peek();\n  }',
+        'function peek(): u32 {\n  return workgroupUniformLoad(w);\n}\n',
+      ),
+      refusal(`under ${LID}`, 'Move it out of the branch', 'branch on'),
+    ],
+    [
+      'in a while it bounds',
+      load(
+        '  let i: u32 = lid.x;\n  while (i < 8) {\n    o[i] = workgroupUniformLoad(w);\n    i++;\n  }',
+      ),
+      refusal(
+        `in a loop whose condition reads ${LID}`,
+        'Move it out of the loop',
+        'bound the loop by',
+      ),
+    ],
+    [
+      'in a for it bounds',
+      load('  for (let i: u32 = 0; i < lid.x; i++) {\n    o[i] = workgroupUniformLoad(w);\n  }'),
+      refusal(
+        `in a loop whose condition reads ${LID}`,
+        'Move it out of the loop',
+        'bound the loop by',
+      ),
+    ],
+    [
+      'below a break taken under it',
+      load(
+        '  for (let i: u32 = 0; i < 4; i++) {\n    if (lid.x > 2) { break; }\n    o[i] = workgroupUniformLoad(w);\n  }',
+      ),
+      refusal(
+        `in a loop some invocations leave by a break taken under ${LID}`,
+        'Move it out of the loop',
+        'break on',
+      ),
+    ],
+  ])('refuses workgroupUniformLoad %s', (_what, src, want) => {
+    expect(codedErrorsOf(src)).toEqual([want]);
   });
 
   it('fails closed on GLSL ES 3.00, which has neither', () => {
