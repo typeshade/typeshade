@@ -16,6 +16,7 @@ import { reportIntLitRange, retargetDeclaredIntLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from './statement.js'
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js'
+import { unknownNameAlreadyReported } from '../refused-names.js'
 
 export function lowerFor(
   node: ts.ForStatement,
@@ -457,13 +458,15 @@ export function lowerUpdate(
       // Two different failures, kept apart as origin/main split them: an UNKNOWN name reported
       // "it is declared with const", a statement about a declaration that does not exist.
       if (!binding) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          expr,
-          `Cannot assign to unknown name "${targetExpr.text}".`,
-          TS_CODES.UNKNOWN_NAME,
-        )
+        if (!unknownNameAlreadyReported(targetExpr, targetExpr.text, sourceFile, diagnostics)) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            expr,
+            `Cannot assign to unknown name "${targetExpr.text}".`,
+            TS_CODES.UNKNOWN_NAME,
+          )
+        }
         return undefined
       }
       if (!binding.mutable) {

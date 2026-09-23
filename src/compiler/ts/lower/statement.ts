@@ -50,6 +50,7 @@ import { withSpan } from '../span.js'
 import { foldNumericLit } from '../lit-coerce.js'
 import { foldConstNumber, foldConstComponents, foldConstValue } from '../loop-bound.js'
 import { TS_CODES, type TsCode } from '../codes.js'
+import { unknownNameAlreadyReported } from '../refused-names.js'
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusEqualsToken]: '+',
@@ -1306,6 +1307,8 @@ export function lowerLValue(
   }
   const binding = scope.resolve(node.text)
   if (!binding) {
+    // A refused declaration already said why the name is unbound (Rule 12.4, #171).
+    if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined
     pushDiag(
       diagnostics,
       sourceFile,
@@ -1432,6 +1435,9 @@ function checkRootWritable(
   }
   const binding = scope.resolve(rootName)
   if (!binding) {
+    // A refused declaration already said why the root is unbound (Rule 12.4, #171).
+    if (rootName !== 'this' && unknownNameAlreadyReported(node, rootName, sourceFile, diagnostics))
+      return false
     pushDiag(
       diagnostics,
       sourceFile,

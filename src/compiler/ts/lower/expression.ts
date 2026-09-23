@@ -29,6 +29,7 @@ import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
+import { unknownNameAlreadyReported } from '../refused-names.js'
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -283,6 +284,9 @@ function lowerIdentifier(
   if (!binding) {
     const c = resolveLangConst(node.text)
     if (c !== undefined) return { op: 'lit', type: f32T, value: c }
+    // A name whose declaration was refused, or one an error already covers, says nothing
+    // more: the refusal is the one diagnostic for the one mistake (Rule 12.4, #171).
+    if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined
     pushDiag(
       diagnostics,
       sourceFile,

@@ -955,6 +955,20 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A refused declaration is the one diagnostic for its name** (Rule 12.4, #171). A declaration
+  the front end refuses binds no name, so every later read of it added a
+  `TS8022 Unknown identifier` to the refusal, naming a symbol the author did declare: `const y: f32 = g(x)` with
+  a mismatched argument, `const r = g(x)` with one missing, `const c = a + b` on two vector
+  sizes, `declare const x: f32`, a top-level `let x: uniform<f32>`, each reported once and then
+  once per use. An assignment to the name, a compound assignment and a write through it
+  (`y.x = 1.`) added `Cannot assign to unknown name` the same way, and `Date.now()` was
+  `TS8012` and `TS8022` on the same identifier. The unknown-name report is now dropped only when
+  an error stands inside the declaration the name resolves to, or on the name itself, and that
+  is checked rather than assumed, so a declaration that was dropped without a diagnostic still
+  has every use reported. The name is resolved by TypeScript's lexical rule, so a name read
+  outside the block that refused it, read before its declaration, or declared nowhere is still
+  `TS8022`. Appendix B's Rule 12.4 row is removed.
+
 - **The optimizer no longer shares a value across a write to what its callee reads.** A call's
   value depends on its arguments and on every module name its callee reads, and cse, licm and
   gvn saw only the arguments: `let a = h(x * 2.); gp = 5.; let c = h(x * 2.)`, with `h`
