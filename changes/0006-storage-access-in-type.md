@@ -1,5 +1,5 @@
 ---
-id: '0002'
+id: '0006'
 title: A storage binding's access mode is its second type argument, every binding is declare const, and the editor refuses a write to a read binding
 status: accepted
 rules:
@@ -170,5 +170,5 @@ substitution: `declare let x: storage<T>` becomes `declare const x: storage<T, "
     carries this change fails until they move.
   - **The MCP server:** the `KERNEL` fixture in `packages/mcp-server/src/fixtures.ts` declares <!-- doc-refs: skip — a file in vscode-typeshade -->
     `pixels` with `declare let`. Its tests quote line numbers, and the substitution keeps them.
-  - Both repositories record `0002` in their `compiler-changes.md` when they pin a compiler
+  - Both repositories record `0006` in their `compiler-changes.md` when they pin a compiler
     that carries it (`scripts/downstream-impact.ts`).
