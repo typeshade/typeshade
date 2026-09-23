@@ -2,8 +2,6 @@
 precision highp float;
 precision highp int;
 
-const float Disc_SIZE = 0.2;
-const float Capped_SIZE = 0.35;
 struct Disc {
   float radius;
   vec2 center;
@@ -15,6 +13,8 @@ struct Capped {
   vec2 center;
   vec3 tint;
 };
+const float Disc_SIZE = 0.2;
+const float Capped_SIZE = 0.35;
 Disc Disc_at(inout Disc self_, vec2 c) {
   self_.center = c;
   return self_;
