@@ -64,19 +64,29 @@
 //     or an effectful call. That last rule is also what covers an `inout` argument:
 //     `collectMutatedRoots` does not count `f(x)` as a write to `x` (the callee's write set
 //     names its own parameter), but the callee writes something, so the call is effectful.
+//   • NOT shared across a write to a module name a CALLED function reads. A root is not only
+//     a name the expression spells: `h(b)` where `h` returns `q * gp` reads `gp` too, and
+//     `rootsOf` adds every name the callee reads, transitively (`fnReads` in ../effects.ts),
+//     so `gp = 5.` retires it like `b = 5.` would. Before that, this change reached the hole
+//     the same-block rule already had: `if (h(b) > 0.) { gp = 5.; r = h(b) }` became
+//     `let _gv0 = h(b); if (_gv0 > 0.) { gp = 5.; r = _gv0; }`, 4 where O0 returns 20.
 //
 // MEASURED over the baked corpus (every WGSL and GLSL golden, 287 files), before vs after:
 // 14 files move, all fp64 escape loops (fp64-julia, fp64-mandelbrot, fp64-burning-ship,
 // fp64-mandelbrot-de, their "use typeshade" twins, WGSL and fragment GLSL), and nothing
-// else in the corpus moves. df64_mul call sites 362 -> 334, f32 binops 7772 -> 7744,
-// df64_add unchanged at 366 (the sum the condition compares and the difference the arm
-// builds are different values). Per iteration that takes the arm, the df64 loop body goes
-// 351 -> 277 f32 operations counting through the df64 helper bodies (one df64_mul is 37),
-// and the f32 twin loop body 11 -> 9. The reach check never proposed a temp the count then
-// denied: across three emits of all 107 examples, 5973 function numberings, 0 retries. gvn
-// time over those emits, interleaved A/B medians of five: 390 ms -> 443 ms; whole-emit time
-// unchanged within noise (2392 ms -> 2375 ms).
-
+// else in the corpus moves. df64_mul call sites 362 -> 334, binary operators in function
+// bodies 7772 -> 7744, df64_add unchanged at 366 (the sum the condition compares and the
+// difference the arm builds are different values). Per iteration that takes the arm, counted
+// as f32 arithmetic operators (+ - * /; comparisons and negation not counted) through the
+// df64 helper bodies, where one df64_mul is 37: the df64 loop body goes 351 -> 277 in julia,
+// mandelbrot and burning-ship, 362 -> 288 in mandelbrot-de; each example's f32 loop (the
+// same escape test in plain f32) goes 11 -> 9, 19 -> 17 in mandelbrot-de. The reach check
+// never proposed a temp the count then denied: across three emits of all 107 examples,
+// 5973 function numberings, 0 retries. Compile time over those three emits, medians of 12
+// interleaved runs on an otherwise idle machine, before this change / with it / with the
+// read table of ../effects.ts added too: gvn 362 / 417 / 422 ms, the whole emit 2211 / 2281
+// / 2383 ms.
+//
 // Bit-exact (pure dedup — no float arithmetic changes), so no f32 differential
 // gate is needed; pinned by oracle value-equality like cse / cse-local.
 //
@@ -101,17 +111,28 @@ import {
   mapStmtValue,
 } from './expr-utils.js'
 import { eachStmtExpr } from '../../ir/visit.js'
-import { bodyHasEffectfulCall, fnWrites, type FnWrites } from '../effects.js'
+import { bodyHasEffectfulCall, fnReads, fnWrites, type FnReads, type FnWrites } from '../effects.js'
 
 /** The root names an expression reads: every op that names a storage location (a local,
  *  a parameter, a binding, a host global — the set `refsLocal` in expr-utils treats as one),
  *  so a write to any of them retires a temp that reads it. A module constant lands here
- *  too and is harmless: nothing ever writes one, so it never meets a mutated set. */
-function rootsOf(e: Expr): Set<string> {
+ *  too and is harmless: nothing ever writes one, so it never meets a mutated set.
+ *
+ *  `constref` and `externref` are here because `collectMutatedRoots` counts an assignment to
+ *  either as a write (expr-utils `rootName`), so `refsLocal` tallies a key that reads a written
+ *  one, and a root set without them would never see that write. No front end assigns to
+ *  either today — a module constant and a host global are read-only on both surfaces — so
+ *  only a hand-built module shows it (gvn.test.ts pins one).
+ *
+ *  A CALL adds every module name its callee reads (`reads`, {@link fnReads}): `load(j)` where
+ *  `load` returns `buf[i] * 2.` reads `buf` as surely as `buf[j] * 2.` does, and a temp for
+ *  it that crossed `buf[j] = 10.` into the arm returned 4 where O0 returns 22. */
+function rootsOf(e: Expr, reads: FnReads): Set<string> {
   const out = new Set<string>()
   eachExpr(e, (x) => {
     if (x.op === 'varref' || x.op === 'param' || x.op === 'constref' || x.op === 'externref')
       out.add(x.name)
+    else if (x.op === 'call') for (const n of reads.get(x.fn) ?? []) out.add(n)
   })
   return out
 }
@@ -178,10 +199,11 @@ function valueExprs(s: Stmt): readonly Expr[] {
  *  bodies, so an intervening if/for that writes a root is caught) PLUS a let/var's
  *  own declared name (a same-name redeclaration invalidates an earlier numbering) and a
  *  `for` counter's, which shadows an outer name of the same spelling for the header and
- *  the body alike. Binding names are unique per function today (the builder auto-names,
- *  the front end renames a second declaration `i_1`), so neither redeclaration occurs in
- *  the corpus; they are here because a temp that crosses into a nested block is only as
- *  sound as this set is complete. */
+ *  the body alike (the update usually writes the counter and names it anyway; the declared
+ *  name covers a loop whose update writes something else). Binding names are unique per
+ *  function today (the builder auto-names, the front end renames a second declaration
+ *  `i_1`), so neither redeclaration occurs in the corpus; they are here because a temp that
+ *  crosses into a nested block is only as sound as this set is complete. */
 function mutatedBy(s: Stmt): Set<string> {
   const out = new Set<string>()
   collectMutatedRoots([s], out)
@@ -235,8 +257,9 @@ function tally(
   occ: Map<string, Occur>,
   condKeys: Set<string>,
   loadRoots: ReadonlySet<string>,
+  reads: FnReads,
 ): void {
-  if (isCompound(e) && isWorthHoisting(e, loadRoots) && refsLocal(e, localSet)) {
+  if (isCompound(e) && isWorthHoisting(e, loadRoots) && refsLocal(e, localSet, reads)) {
     const k = keyOf(e)
     if (cond) {
       condKeys.add(k)
@@ -248,37 +271,37 @@ function tally(
   }
   switch (e.op) {
     case 'logical':
-      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots)
-      tally(e.b, idx, true, localSet, occ, condKeys, loadRoots)
+      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots, reads)
+      tally(e.b, idx, true, localSet, occ, condKeys, loadRoots, reads)
       break
     case 'select':
-      tally(e.cond, idx, cond, localSet, occ, condKeys, loadRoots)
-      tally(e.ifTrue, idx, true, localSet, occ, condKeys, loadRoots)
-      tally(e.ifFalse, idx, true, localSet, occ, condKeys, loadRoots)
+      tally(e.cond, idx, cond, localSet, occ, condKeys, loadRoots, reads)
+      tally(e.ifTrue, idx, true, localSet, occ, condKeys, loadRoots, reads)
+      tally(e.ifFalse, idx, true, localSet, occ, condKeys, loadRoots, reads)
       break
     case 'matchExpr':
-      tally(e.scrutinee, idx, cond, localSet, occ, condKeys, loadRoots)
-      for (const [, v] of e.cases) tally(v, idx, true, localSet, occ, condKeys, loadRoots)
-      tally(e.default, idx, true, localSet, occ, condKeys, loadRoots)
+      tally(e.scrutinee, idx, cond, localSet, occ, condKeys, loadRoots, reads)
+      for (const [, v] of e.cases) tally(v, idx, true, localSet, occ, condKeys, loadRoots, reads)
+      tally(e.default, idx, true, localSet, occ, condKeys, loadRoots, reads)
       break
     case 'binop':
     case 'compare':
-      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots)
-      tally(e.b, idx, cond, localSet, occ, condKeys, loadRoots)
+      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots, reads)
+      tally(e.b, idx, cond, localSet, occ, condKeys, loadRoots, reads)
       break
     case 'unop':
-      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots)
+      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots, reads)
       break
     case 'call':
     case 'construct':
-      for (const a of e.args) tally(a, idx, cond, localSet, occ, condKeys, loadRoots)
+      for (const a of e.args) tally(a, idx, cond, localSet, occ, condKeys, loadRoots, reads)
       break
     case 'member':
-      tally(e.base, idx, cond, localSet, occ, condKeys, loadRoots)
+      tally(e.base, idx, cond, localSet, occ, condKeys, loadRoots, reads)
       break
     case 'index':
-      tally(e.base, idx, cond, localSet, occ, condKeys, loadRoots)
-      tally(e.idx, idx, cond, localSet, occ, condKeys, loadRoots)
+      tally(e.base, idx, cond, localSet, occ, condKeys, loadRoots, reads)
+      tally(e.idx, idx, cond, localSet, occ, condKeys, loadRoots, reads)
       break
     default:
       break // leaf
@@ -388,6 +411,8 @@ function keysInside(body: readonly Stmt[]): Set<string> {
 interface Ctx {
   readonly localSet: ReadonlySet<string>
   readonly loadRoots: ReadonlySet<string>
+  /** The module's read table: a call's roots include what its callee reads. */
+  readonly reads: FnReads
   readonly next: { n: number }
   /** Keys a previous attempt minted in that block and found read fewer than twice. */
   readonly deny: ReadonlyMap<readonly Stmt[], ReadonlySet<string>>
@@ -423,7 +448,7 @@ function gvnBlock(
   ctx: Ctx,
   env: ReadonlyMap<string, Avail> = new Map(),
 ): Stmt[] {
-  const { localSet, loadRoots } = ctx
+  const { localSet, loadRoots, reads } = ctx
   // 1. Tally cross-statement candidates over this block's value exprs. Recursion now
   //    happens in step 7 instead, so the temps minted here are in scope for it;
   //    `valueExprs` reads only this block's own statements, which recursion never
@@ -432,7 +457,7 @@ function gvnBlock(
   const occ = new Map<string, Occur>()
   const condKeys = new Set<string>()
   rec.forEach((s, idx) => {
-    for (const e of valueExprs(s)) tally(e, idx, false, localSet, occ, condKeys, loadRoots)
+    for (const e of valueExprs(s)) tally(e, idx, false, localSet, occ, condKeys, loadRoots, reads)
   })
   const muts = rec.map(mutatedBy)
   const denied = ctx.deny.get(body)
@@ -469,7 +494,7 @@ function gvnBlock(
       .filter(([, o]) => {
         const idxs = [...o.stmts].sort((a, b) => a - b)
         const last = idxs[idxs.length - 1]!
-        const roots = rootsOf(o.exemplar)
+        const roots = rootsOf(o.exemplar, reads)
         for (let m = idxs[0]!; m < last; m++) if (touches(muts[m]!, roots)) return false
         return true
       })
@@ -482,15 +507,20 @@ function gvnBlock(
   //     inside it and would be split by a larger temp around it (a temp for `normalize(v).x`
   //     that an arm reads must not take `normalize(v)` away from the two statements that
   //     share it).
-  //     The next fixpoint round sees the repeat's temp and asks again. Among themselves,
-  //     maximal only, as in step 4 — the arm of the escape loop reuses zx*zx and zy*zy, not
-  //     the sum the condition compares.
+  //     The next fixpoint round sees the repeat's temp and asks again.
+  //     Among themselves, maximal only, as in step 4: when the arm reads both a value and a
+  //     part of it (normalize(v).x, and normalize(v) for its .y), binding both would put the
+  //     larger first — tally order — with its own copy of the part, and the path that skips
+  //     the arm would compute the part twice where the authored code computes it once. The
+  //     larger is bound; the arm numbers its own repeat of the part. (The escape loop does
+  //     not exercise this: the sum its condition compares is never read in the arm, so it is
+  //     no candidate, and zx*zx and zy*zy are disjoint.)
   //     Only a block with a nested statement pays for any of it: `keysInside` is empty
   //     otherwise, and it is the cheap filter every candidate meets first.
   if (rec.some((s) => s.s === 'if' || s.s === 'for' || s.s === 'switch')) {
     const inside = keysInside(rec)
     const reusedInside = (k: string, o: Occur): boolean => {
-      const roots = rootsOf(o.exemplar)
+      const roots = rootsOf(o.exemplar, reads)
       for (let j = first(o); j < rec.length; j++) {
         if (readInside(rec[j]!, k, roots)) return true
         if (touches(muts[j]!, roots)) return false
@@ -550,7 +580,7 @@ function gvnBlock(
       // `k + 1` recomputed an enclosing `k` until the next fixpoint round, and the use
       // count `gvnFn` takes would miss that read.
       out.push({ s: 'let', name: l.name, expr: mapChildren(l.expr, replace) })
-      live.set(keyOf(l.expr), { name: l.name, roots: rootsOf(l.expr) })
+      live.set(keyOf(l.expr), { name: l.name, roots: rootsOf(l.expr, reads) })
     }
     // The RHS of an assign is evaluated BEFORE the write, so rewriting statement idx
     // against the pre-statement `live` is right; the retirement below is for idx+1 on.
@@ -612,7 +642,12 @@ function readCounts(
  *  it is one attempt everywhere (the measurement is in the header). Re-numbering
  *  from scratch rather than inlining the temp back keeps the `_gvN` sequence dense and lets
  *  a key the denied one had shadowed as non-maximal (step 4) be numbered in its place. */
-function gvnFn(f: FuncDecl, loadRoots: ReadonlySet<string>, writes: FnWrites): FuncDecl {
+function gvnFn(
+  f: FuncDecl,
+  loadRoots: ReadonlySet<string>,
+  writes: FnWrites,
+  reads: FnReads,
+): FuncDecl {
   if (bodyHasRaw(f.body)) return f // raw WGSL is opaque
   // A call that writes a binding is not a value to number: two `store(i)` are two writes,
   // and a read between them sees the first (issue #47).
@@ -629,12 +664,12 @@ function gvnFn(f: FuncDecl, loadRoots: ReadonlySet<string>, writes: FnWrites): F
   const deny = new Map<readonly Stmt[], Set<string>>()
   for (;;) {
     const minted: Ctx['minted'] = new Map()
-    const body = gvnBlock(f.body, { localSet, loadRoots, next: { n: base }, deny, minted })
+    const body = gvnBlock(f.body, { localSet, loadRoots, reads, next: { n: base }, deny, minted })
     if (minted.size === 0) return { ...f, body }
-    const reads = readCounts(body, minted)
+    const counts = readCounts(body, minted)
     let again = false
     for (const [name, m] of minted) {
-      if ((reads.get(name) ?? 0) >= 2) continue
+      if ((counts.get(name) ?? 0) >= 2) continue
       let set = deny.get(m.block)
       if (set === undefined) deny.set(m.block, (set = new Set()))
       set.add(m.key)
@@ -649,5 +684,6 @@ export function gvn(m: ModuleDecl): ModuleDecl {
   // Indexing one of these is a memory load, not free addressing (X-GIS #1886).
   const loadRoots = new Set(m.bindings.map((b) => b.name))
   const writes = fnWrites(m)
-  return { ...m, funcs: m.funcs.map((f) => gvnFn(f, loadRoots, writes)) }
+  const reads = fnReads(m)
+  return { ...m, funcs: m.funcs.map((f) => gvnFn(f, loadRoots, writes, reads)) }
 }

@@ -8,7 +8,10 @@ import {
   i32,
   u32,
   u32T,
+  i32T,
+  boolT,
   vec3,
+  vec3fT,
   arrayLit,
   normalize,
   Var,
@@ -28,6 +31,7 @@ import { structDecl, storageBuffer } from '../../sot.js'
 import { fp64Lower } from '../fp64-lower.js'
 import { compile } from '../../../compiler/ts/compile.js'
 import { gvn } from './gvn.js'
+import { optimizeAt } from './optimize.js'
 
 // gvn numbers a compound, local-touching subexpr that repeats ACROSS statements in a
 // straight-line block — the redundancy cse (input-only) and cse-local (within one
@@ -700,6 +704,176 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     oracleStable(m, 'sp', [1, -2, 0.25])
   })
 
+  it('a temp minted in an arm reads the enclosing temp in its own initialiser', () => {
+    // normalize(v) is bound in the outer block (`p` and `q`); the arm repeats
+    // normalize(v).z * x in two statements and mints a temp for it. Its initialiser is built
+    // from the ORIGINAL expression, so without rewriting it against the temps in scope it
+    // recomputed normalize(v) the outer temp already holds.
+    const m = module({
+      funcs: [
+        fn('ai', { x: f32T }, f32T, ({ x }, b) => {
+          const v = b.let('v', vec3(x, x.mul(2), 1))
+          const p = b.let('p', normalize(v).x)
+          const q = b.let('q', normalize(v).y)
+          const r = Var(f32(0))
+          b.if(x.gt(0), () => {
+            const a = Let(normalize(v).z.mul(x))
+            r.assign(a.add(normalize(v).z.mul(x).mul(2)))
+          })
+          b.ret(p.add(q).add(r))
+        }),
+      ],
+    })
+    const out = gvn(m)
+    expect(gvTempCount(out)).toBe(2)
+    expect(callsTo(out, 'ai', 'normalize')).toBe(1)
+    const wgsl = emitModuleAt(out, 'O0')
+    expect(wgsl).toContain('let _gv1 = (_gv0.z * x);')
+    expectEveryTempReadTwice(out)
+    oracleStable(m, 'ai', [1, -2, 0.25])
+  })
+
+  it('binds a value, not a part of it too: the path that skips the arm pays what it did', () => {
+    // The condition computes normalize(v).x, and the arm reads both normalize(v).x and
+    // normalize(v) (for .y and .z), so both are dominance candidates. Binding both before the
+    // `if` puts `let _gv0 = normalize(v).x` first (tally order) with its own normalize, then
+    // `let _gv1 = normalize(v)`: two normalizes on the path that never enters the arm, where
+    // the authored code runs one. Only the larger is bound; the arm numbers its own repeat.
+    const m = module({
+      funcs: [
+        fn('mx', { x: f32T }, f32T, ({ x }, b) => {
+          const v = b.let('v', vec3(x, x.mul(2), 1))
+          const r = Var(f32(0))
+          b.if(normalize(v).x.gt(0.5), () => {
+            r.assign(normalize(v).x.add(normalize(v).y))
+            r.assign(r.add(normalize(v).z))
+          })
+          b.ret(r)
+        }),
+      ],
+    })
+    const out = gvn(m)
+    const f = out.funcs[0]!
+    const outside = f.body.filter((s) => s.s !== 'if')
+    const cond = f.body.find((s) => s.s === 'if')!
+    let before = 0
+    for (const s of outside)
+      eachStmtExpr(s, (e) =>
+        eachExpr(e, (x) => {
+          if (x.op === 'call' && x.fn === 'normalize') before++
+        }),
+      )
+    if (cond.s === 'if')
+      eachExpr(cond.arms[0]!.cond, (x) => {
+        if (x.op === 'call' && x.fn === 'normalize') before++
+      })
+    expect(before, emitModuleAt(out, 'O0')).toBe(1)
+    expectEveryTempReadTwice(out)
+    oracleStable(m, 'mx', [1, -2, 0.25, 0.01])
+  })
+
+  it('a `for` counter that shadows a root is a write to it, even when the update is not', () => {
+    // The loop's own counter is spelled `i`, like the outer local the key reads. The update
+    // here writes `k`, not the counter, so only the counter's declared name tells the loop
+    // filter that `i` inside the body is another value. The validator and the oracle refuse a
+    // duplicated local (SD0112), so the check is structural; `gvn` is callable on its own.
+    const m = module({
+      funcs: [
+        fn('fc', { x: f32T }, f32T, ({ x }, b) => {
+          const i = b.let('i', i32(2))
+          const p = b.let('p', normalize(vec3(i.f32(), x, 1)).x)
+          const k = b.var('k', i32T, i32(0))
+          const acc = b.var('acc', f32T, f32(0))
+          b.forRange(
+            'i',
+            i32(0),
+            (j) => j.lt(i32(3)),
+            (cb, j) => {
+              cb.addAssign(acc, normalize(vec3(j.f32(), x, 1)).x)
+            },
+          )
+          b.ret(p.add(acc).add(k.f32()))
+        }),
+      ],
+    })
+    // Point the loop's update at `k`, leaving the counter unwritten.
+    const f = m.funcs[0]!
+    const body = f.body.map((s): Stmt => {
+      if (s.s !== 'for') return s
+      const kref: Expr = { op: 'varref', type: i32T, name: 'k' }
+      return {
+        ...s,
+        update: {
+          s: 'assign',
+          target: kref,
+          expr: { op: 'binop', type: i32T, bop: '+', a: kref, b: i32(1).expr },
+        },
+      }
+    })
+    const shadowed: ModuleDecl = { ...m, funcs: [{ ...f, body }] }
+    const loop = body.find((s) => s.s === 'for')!
+    expect(loop.s === 'for' && loop.init.s === 'var' && loop.init.name).toBe('i')
+    const out = gvn(shadowed)
+    expect(gvTempCount(out)).toBe(0)
+    expect(callsTo(out, 'fc', 'normalize')).toBe(2)
+  })
+
+  it('a write to a `constref` or `externref` root retires a temp, as it does a local', () => {
+    // `collectMutatedRoots` counts both ops as assignable roots (expr-utils `rootName`), so
+    // `refsLocal` tallies a key that reads a written one, and the temp's roots must name it
+    // too, or the arm's write never retires it. Neither front end assigns to either today (a
+    // module constant and a host global are read-only on both surfaces), so the module is
+    // built by hand, and the check is structural: the oracle refuses the assignment too
+    // ("bad assignment target constref").
+    for (const op of ['constref', 'externref'] as const) {
+      const g: Expr = { op, type: f32T, name: 'G' }
+      const x: Expr = { op: 'param', type: f32T, name: 'x' }
+      const r: Expr = { op: 'varref', type: f32T, name: 'r' }
+      const key: Expr = {
+        op: 'member',
+        type: f32T,
+        field: 'x',
+        base: {
+          op: 'call',
+          type: vec3fT,
+          fn: 'normalize',
+          args: [{ op: 'construct', type: vec3fT, args: [g, x, f32(1).expr] }],
+        },
+      }
+      const m: ModuleDecl = {
+        consts: [],
+        structs: [],
+        bindings: [],
+        funcs: [
+          {
+            name: 'cr',
+            params: [{ name: 'x', type: f32T }],
+            ret: f32T,
+            body: [
+              { s: 'var', name: 'r', type: f32T, init: f32(0).expr },
+              {
+                s: 'if',
+                arms: [
+                  {
+                    cond: { op: 'compare', type: boolT, cop: '>', a: key, b: f32(0.1).expr },
+                    body: [
+                      { s: 'assign', target: g, expr: f32(5).expr },
+                      { s: 'assign', target: r, expr: key },
+                    ],
+                  },
+                ],
+              },
+              { s: 'return', expr: r },
+            ],
+          },
+        ],
+      }
+      const out = gvn(m)
+      expect(gvTempCount(out), op).toBe(0)
+      expect(callsTo(out, 'cr', 'normalize'), op).toBe(2)
+    }
+  })
+
   it('every temp is read at least twice — a reuse the rewrite masks is denied, not left behind', () => {
     // The reach check sees normalize(v).x inside the nested `if` and proposes a temp for it in
     // the arm. But that occurrence sits inside normalize(v).x + 1, which the OUTER block has
@@ -851,6 +1025,16 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const wgsl = emitModuleAt(out, 'O0')
     const fbody = wgsl.slice(wgsl.indexOf('fn sa('))
     expect((fbody.match(/\(gvn_arm\[i\] \* x\)/g) ?? []).length, fbody).toBe(2)
+    // The values, return and buffer both, from the same starting buffer: x = 2 and x = 3 take
+    // the arm (s = 3, 4), x = 0.5 does not (s = 1.5).
+    const run = (mod: ModuleDecl, x: number): [CpuValue, number[]] => {
+      const buf = [1, 1, 1, 1]
+      const cm = compileModule(mod)
+      cm.setBinding('gvn_arm', buf)
+      return [cm.fns['sa']!(x), buf]
+    }
+    expect(run(m, 3)).toEqual([4, [1, 5, 4, 16]])
+    for (const x of [2, 0.5, 3]) expect(run(out, x), `x=${x}`).toEqual(run(m, x))
   })
 
   it('does NOT reuse past a `let` in the arm that shadows a root', () => {
@@ -918,5 +1102,127 @@ export function fs(): vec4 {
     const after = compileModule(out).fns['f']!
     expect(before(1)).toBe(4) // (1 + 1)², read after the write
     for (const x of [1, 0.25, -3]) expect(after(x)).toEqual(before(x))
+  })
+})
+
+// ═══ A call reads what its callee reads ═══
+//
+// `h(b)` has the roots {b} to a walk of the expression, but `h` also reads `gp`, and a write to
+// `gp` between two `h(b)` makes them two values. The same-block form was already wrong at the
+// base of the dominance change; that change also handed a temp into an `if` arm that writes,
+// and minted one for the purpose, so the condition-plus-arm shape it exists for reached the
+// hole: `let _gv0 = h(b); if (_gv0 > 0.) { gp = 5.; r = _gv0; }`, 4 where O0 returns 20.
+describe('gvn — a call reads the module names its callee reads', () => {
+  const PRIV = `"use typeshade"
+let gp: f32 = 1.
+function h(q: f32): f32 {
+  return q * gp
+}
+`
+  const FS = `
+@fragment
+export function fs(): vec4 {
+  return vec4(f(3.), 0., 0., 1.)
+}
+`
+  const privModule = (body: string): ModuleDecl => {
+    const r = compile(PRIV + body + FS)
+    expect(r.diagnostics).toEqual([])
+    return r.module
+  }
+
+  /** gvn alone, and the O1 and O2 pipelines (one function per view, with the module's read
+   *  table handed to each), return what O0 returns. */
+  const agrees = (m: ModuleDecl, xs: number[]): void => {
+    const o0 = compileModule(m).fns['f']!
+    // A fresh module object for each: the read table is cached per object, and the pipelines
+    // must compute it for the whole module themselves, not find one `gvn(m)` left behind.
+    for (const [name, out] of [
+      ['gvn', gvn({ ...m })],
+      ['O1', optimizeAt({ ...m }, 'O1')],
+      ['O2', optimizeAt({ ...m }, 'O2')],
+    ] as const) {
+      const g = compileModule(out).fns['f']!
+      for (const x of xs) expect(g(x), `${name} x=${x}`).toEqual(o0(x))
+    }
+  }
+
+  it('an arm that writes a `var<private>` the helper reads calls the helper again', () => {
+    const m = privModule(`export function f(x: f32): f32 {
+  let b = x + 1.
+  let r = 0.
+  if (h(b) > 0.) {
+    gp = 5.
+    r = h(b)
+  }
+  return r
+}`)
+    expect(compileModule(m).fns['f']!(3)).toBe(20) // (3 + 1) * 5, read after the write
+    const out = gvn(m)
+    expect(gvTempCount(out)).toBe(0)
+    expect(callsTo(out, 'f', 'h')).toBe(2)
+    agrees(m, [3, -3, 0.5])
+  })
+
+  it('a statement that writes it keeps a later arm from reading the value from before', () => {
+    const m = privModule(`export function f(x: f32): f32 {
+  let b = x + 1.
+  let r = 0.
+  gp = h(b)
+  if (x > 0.) {
+    r = h(b)
+  }
+  return r
+}`)
+    expect(compileModule(m).fns['f']!(3)).toBe(16) // gp = 4, then 4 * 4
+    expect(gvTempCount(gvn(m))).toBe(0)
+    agrees(m, [3, -3, 0.5])
+  })
+
+  it('the same-block repeat across the write is two values', () => {
+    const m = privModule(`export function f(x: f32): f32 {
+  let b = x + 1.
+  let y = h(b)
+  gp = 5.
+  let z = h(b)
+  return y + z
+}`)
+    expect(compileModule(m).fns['f']!(3)).toBe(24) // 4 + 20
+    expect(gvTempCount(gvn(m))).toBe(0)
+    agrees(m, [3, -3, 0.5])
+  })
+
+  it('a read_write binding the helper reads, written in the arm, through the oracle', () => {
+    const r = compile(`"use typeshade"
+declare let buf: storage<array<f32>>
+function load(i: u32): f32 {
+  return buf[i] * 2.
+}
+export function f(i: u32): f32 {
+  let j = i * u32(1)
+  let r = load(j)
+  if (r > 0.) {
+    buf[j] = 10.
+    r = r + load(j)
+  }
+  return r
+}
+@compute([1, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  buf[gid.x + 1] = f(gid.x)
+}
+`)
+    expect(r.diagnostics).toEqual([])
+    const m = r.module
+    const run = (mod: ModuleDecl, i: number): [CpuValue, number[]] => {
+      const buf = [1, 2, -3, 4]
+      const cm = compileModule(mod)
+      cm.setBinding('buf', buf)
+      return [cm.fns['f']!(i), buf]
+    }
+    expect(run(m, 0)).toEqual([22, [10, 2, -3, 4]]) // 1 * 2, then 10 * 2 after the store
+    expect(callsTo(gvn(m), 'f', 'load')).toBe(2)
+    for (const out of [gvn({ ...m }), optimizeAt({ ...m }, 'O1'), optimizeAt({ ...m }, 'O2')])
+      for (const i of [0, 2]) expect(run(out, i), `i=${i}`).toEqual(run(m, i))
   })
 })
