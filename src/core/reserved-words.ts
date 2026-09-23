@@ -36,7 +36,7 @@ export const WGSL_RESERVED: ReadonlySet<string> = new Set([
       subroutine super target template this thread_local throw trait try type typedef typeid
       typename typeof union unless unorm unsafe unsized use using varying virtual volatile
       wgsl where with writeonly yield`.split(/\s+/),
-])
+]);
 
 /** Every spelling GLSL ES 3.00 refuses as an identifier, for the WebGL2 target: its keywords
  *  (§3.6) and type names (§3.7), plus the words it reserves for future use. Measured against
@@ -75,7 +75,7 @@ export const GLSL_ES300_RESERVED: ReadonlySet<string> = new Set([
       usampler1DArray usampler2DRect sampler2DMS isampler2DMS usampler2DMS sampler2DMSArray
       isampler2DMSArray usampler2DMSArray samplerBuffer isamplerBuffer usamplerBuffer
       samplerCubeArray samplerCubeArrayShadow isamplerCubeArray usamplerCubeArray`.split(/\s+/),
-])
+]);
 
 // ═══ Shader DSL — reserved-word vocabulary for GENERATED identifiers ═══
 //
@@ -236,4 +236,4 @@ export const RESERVED_WORDS: ReadonlySet<string> = new Set([
       std subroutine super superp target tempate template this throw trait try type typedef
       typeid typename typeof union unless unorm unsafe unsigned unsized use using virtual
       wgsl where yield`.split(/\s+/),
-])
+]);

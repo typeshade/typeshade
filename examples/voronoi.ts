@@ -25,26 +25,26 @@ import {
   Let,
   f32T,
   vec2fT,
-} from '../src/index.js'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js'
-import type { ShaderExample } from './_shared.js'
-const U = fullscreenUniforms({ cells: f32T })
+} from '../src/index.js';
+import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js';
+import type { ShaderExample } from './_shared.js';
+const U = fullscreenUniforms({ cells: f32T });
 
 // Hash a cell coordinate → a stable point in [0,1]² (the per-cell feature seed).
 const hash2 = fn('hash2', { c: vec2fT }, ({ c }) => {
-  const h = vec2(dot(c, vec2(127.1, 311.7)), dot(c, vec2(269.5, 183.3)))
-  return fract(vec2(sin(h.x), sin(h.y)).mul(43758.5453))
-})
+  const h = vec2(dot(c, vec2(127.1, 311.7)), dot(c, vec2(269.5, 183.3)));
+  return fract(vec2(sin(h.x), sin(h.y)).mul(43758.5453));
+});
 
 const fs = fn(
   'fs',
   { vo: VsOut },
   ({ vo }) => {
-    const uv = vo.uv
-    const p = uv.mul(U.field.cells)
-    const cell = floor(p)
-    const f = fract(p)
-    const md = f32(8) // nearest-point distance accumulator
+    const uv = vo.uv;
+    const p = uv.mul(U.field.cells);
+    const cell = floor(p);
+    const f = fract(p);
+    const md = f32(8); // nearest-point distance accumulator
     // 3×3 neighbour scan — the nearest feature point may live in an adjacent cell.
     Loop(
       i32(-1),
@@ -54,8 +54,8 @@ const fs = fn(
           i32(-1),
           (i) => i.le(1),
           (i) => {
-            const g = Let(vec2(toF32(i), toF32(j)))
-            const seed = Let(hash2({ c: cell.add(g) })) // materialise once: the loop counters are mutated `var`s, so CSE can't hoist the hash — without Let the 3 `seed.*` reads re-call hash2() per iteration
+            const g = Let(vec2(toF32(i), toF32(j)));
+            const seed = Let(hash2({ c: cell.add(g) })); // materialise once: the loop counters are mutated `var`s, so CSE can't hoist the hash — without Let the 3 `seed.*` reads re-call hash2() per iteration
             // animate each point on a small orbit around its cell so the pattern shimmers
             const pt = g
               .add(seed.mul(0.5).add(0.25))
@@ -64,27 +64,27 @@ const fs = fn(
                   sin(U.field.time.add(seed.x.mul(6.283))),
                   cos(U.field.time.add(seed.y.mul(6.283))),
                 ).mul(0.18),
-              )
-            md.assign(min(md, distance(f, pt)))
+              );
+            md.assign(min(md, distance(f, pt)));
           },
-        )
+        );
       },
-    )
+    );
     // tint the distance field: dark cores, cool cell walls
     const c = vec3(md.mul(md))
       .mul(vec3(0.35, 0.6, 1.0))
-      .add(vec3(0.02, 0.03, 0.06))
-    return vec4(c, 1)
+      .add(vec3(0.02, 0.03, 0.06));
+    return vec4(c, 1);
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 // `hash2` is called via its handle in `fs`, so module() collects it transitively — funcs lists only the entry points.
 const voronoiModule = module({
   structs: [U.struct, VsOut.decl],
   bindings: [U.binding],
   funcs: [vs, fs],
-})
+});
 
 export const voronoi: ShaderExample = {
   id: 'voronoi',
@@ -100,4 +100,4 @@ export const voronoi: ShaderExample = {
     resolution: { kind: 'resolution' },
     cells: { kind: 'slider', label: 'Cell density', min: 2, max: 16, step: 1, value: 6 },
   },
-}
+};

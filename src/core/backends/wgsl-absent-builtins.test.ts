@@ -16,11 +16,11 @@
 // run from lowerForBackend beside assertCaps) reading the per-backend
 // `Backend.absentBuiltins` set.
 
-import { describe, it, expect } from 'vitest'
-import { emitModule } from './wgsl.js'
-import { emitGlslModule } from './glsl.js'
-import { UnsupportedFeatureError } from '../backend.js'
-import { ioStruct, builtin, location } from '../sot.js'
+import { describe, it, expect } from 'vitest';
+import { emitModule } from './wgsl.js';
+import { emitGlslModule } from './glsl.js';
+import { UnsupportedFeatureError } from '../backend.js';
+import { ioStruct, builtin, location } from '../sot.js';
 import {
   module,
   fn,
@@ -34,7 +34,7 @@ import {
   u32T,
   type StructDecl,
   type ModuleDecl,
-} from '../ir/index.js'
+} from '../ir/index.js';
 
 // ── an IO-struct FIELD carrying the absent builtin (the sot-authored shape) ──
 // The WgslBuiltinName union now rejects the denylist names at tsc as well; these
@@ -44,7 +44,7 @@ const PointOut = ioStruct('PointOut', {
   clip_pos: builtin('position', vec4fT),
   // @ts-expect-error — 'point_size' is not a WGSL builtin (WgslBuiltinName)
   psize: builtin('point_size', f32T),
-})
+});
 const pointSizeMod = (): ModuleDecl =>
   module({
     funcs: [
@@ -53,7 +53,7 @@ const pointSizeMod = (): ModuleDecl =>
       }),
     ],
     uses: [PointOut],
-  })
+  });
 
 // ── an entry PARAM carrying the absent builtin (the other place a backend spells one) ──
 const pointCoordMod = (): ModuleDecl =>
@@ -65,7 +65,7 @@ const pointCoordMod = (): ModuleDecl =>
         retAttr: '@location(0)',
       }),
     ],
-  })
+  });
 
 const fragCoordMod = (): ModuleDecl =>
   module({
@@ -76,13 +76,13 @@ const fragCoordMod = (): ModuleDecl =>
         retAttr: '@location(0)',
       }),
     ],
-  })
+  });
 
 // ── the negative arm: an entry using ONLY legal WGSL builtins ──
 const LegalOut = ioStruct('LegalVsOut', {
   clip_pos: builtin('position', vec4fT),
   uv: location(0, vec2fT),
-})
+});
 const legalMod = (): ModuleDecl =>
   module({
     funcs: [
@@ -94,33 +94,33 @@ const legalMod = (): ModuleDecl =>
       ),
     ],
     uses: [LegalOut],
-  })
+  });
 
 describe('wgsl — absent builtins fail closed (X-GIS #1672)', () => {
   it('an IO-struct field @builtin(point_size) throws instead of emitting invalid WGSL', () => {
-    expect(() => emitModule(pointSizeMod())).toThrow(UnsupportedFeatureError)
+    expect(() => emitModule(pointSizeMod())).toThrow(UnsupportedFeatureError);
     // The message is the deliverable — a prescriptive remedy, not just a rejection.
-    expect(() => emitModule(pointSizeMod())).toThrow(/1px|instanced quad/)
-  })
+    expect(() => emitModule(pointSizeMod())).toThrow(/1px|instanced quad/);
+  });
 
   it('an entry-param @builtin(point_coord) throws too (params are spelled, not just fields)', () => {
-    expect(() => emitModule(pointCoordMod())).toThrow(UnsupportedFeatureError)
-    expect(() => emitModule(pointCoordMod())).toThrow(/@builtin\(point_coord\)/)
-  })
+    expect(() => emitModule(pointCoordMod())).toThrow(UnsupportedFeatureError);
+    expect(() => emitModule(pointCoordMod())).toThrow(/@builtin\(point_coord\)/);
+  });
 
   it('@builtin(frag_coord) — absent in WGSL — throws with the remedy naming position', () => {
-    expect(() => emitModule(fragCoordMod())).toThrow(UnsupportedFeatureError)
-    expect(() => emitModule(fragCoordMod())).toThrow(/@builtin\(position\)/)
-  })
+    expect(() => emitModule(fragCoordMod())).toThrow(UnsupportedFeatureError);
+    expect(() => emitModule(fragCoordMod())).toThrow(/@builtin\(position\)/);
+  });
 
   // The GLSL writer used to accept frag_coord as a gl_FragCoord ALIAS, so exactly this
   // module emitted fine on WebGL2 and died only when the WGSL writer ran — the
   // works-on-one-backend trap. Both writers now reject it with the SAME remedy, so the
   // error arrives on the FIRST emit, whichever backend that is.
   it('@builtin(frag_coord) — the GLSL writer rejects the retired alias with the same remedy', () => {
-    expect(() => emitGlslModule(fragCoordMod(), 'fragment')).toThrow(UnsupportedFeatureError)
-    expect(() => emitGlslModule(fragCoordMod(), 'fragment')).toThrow(/@builtin\(position\)/)
-  })
+    expect(() => emitGlslModule(fragCoordMod(), 'fragment')).toThrow(UnsupportedFeatureError);
+    expect(() => emitGlslModule(fragCoordMod(), 'fragment')).toThrow(/@builtin\(position\)/);
+  });
 
   // The pre-pass must add ZERO bytes to a legal module. This is the exact string the
   // pre-implementation run emitted (captured from the fail-before transcript), so the
@@ -136,8 +136,8 @@ describe('wgsl — absent builtins fail closed (X-GIS #1672)', () => {
         'fn vs_legal(@builtin(vertex_index) vi: u32) -> LegalVsOut {\n' +
         '  return LegalVsOut(vec4<f32>(f32(vi), 0.0, 0.0, 1.0), vec2<f32>(0.0, 0.0));\n' +
         '}\n',
-    )
-  })
+    );
+  });
 
   // The documented contract (X-GIS #740 R3): the STRUCTURED `builtin` field is the semantic
   // source, `attr` is only the emit spelling. A hand-built decl literal carrying just
@@ -151,10 +151,10 @@ describe('wgsl — absent builtins fail closed (X-GIS #1672)', () => {
         { name: 'clip_pos', type: vec4fT, attr: '@builtin(position)' },
         { name: 'psize', type: f32T, attr: '@builtin(point_size)' },
       ],
-    }
-    const m: ModuleDecl = { consts: [], structs: [stringOnly], bindings: [], funcs: [] }
-    expect(emitModule(m)).toContain('@builtin(point_size)')
-  })
+    };
+    const m: ModuleDecl = { consts: [], structs: [stringOnly], bindings: [], funcs: [] };
+    expect(emitModule(m)).toContain('@builtin(point_size)');
+  });
 
   // X-GIS #1672 review finding: `retAttr: builtin(name, T)` is a X-GIS #740-R3-COMPLIANT authoring
   // form whose structured id the builder used to DISCARD (only `.attr` survived), so an
@@ -169,10 +169,10 @@ describe('wgsl — absent builtins fail closed (X-GIS #1672)', () => {
           retAttr: builtin('point_size', f32T),
         }),
       ],
-    })
-    expect(() => emitModule(m)).toThrow(UnsupportedFeatureError)
-    expect(() => emitModule(m)).toThrow(/1px|instanced quad/)
-  })
+    });
+    expect(() => emitModule(m)).toThrow(UnsupportedFeatureError);
+    expect(() => emitModule(m)).toThrow(/1px|instanced quad/);
+  });
 
   it('the live idiom retAttr: builtin(position) keeps emitting untouched', () => {
     const m = module({
@@ -182,7 +182,7 @@ describe('wgsl — absent builtins fail closed (X-GIS #1672)', () => {
           retAttr: builtin('position', vec4fT),
         }),
       ],
-    })
-    expect(emitModule(m)).toContain('-> @builtin(position) vec4<f32>')
-  })
-})
+    });
+    expect(emitModule(m)).toContain('-> @builtin(position) vec4<f32>');
+  });
+});

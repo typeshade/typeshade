@@ -1,5 +1,5 @@
-import type { Stmt, FuncDecl } from '../../../ir/index.js'
-import type { LintRule } from '../engine.js'
+import type { Stmt, FuncDecl } from '../../../ir/index.js';
+import type { LintRule } from '../engine.js';
 
 // Every DECLARATION site inside a body, nested scopes and `for` inits included. Only
 // `let` / `var` bind a name; every other statement is walked for the bodies it carries.
@@ -7,23 +7,23 @@ function eachDecl(s: Stmt, onDecl: (name: string, s: Stmt) => void): void {
   switch (s.s) {
     case 'let':
     case 'var':
-      onDecl(s.name, s)
-      break
+      onDecl(s.name, s);
+      break;
     case 'if':
-      for (const arm of s.arms) for (const b of arm.body) eachDecl(b, onDecl)
-      if (s.elseBody) for (const b of s.elseBody) eachDecl(b, onDecl)
-      break
+      for (const arm of s.arms) for (const b of arm.body) eachDecl(b, onDecl);
+      if (s.elseBody) for (const b of s.elseBody) eachDecl(b, onDecl);
+      break;
     case 'for':
-      eachDecl(s.init, onDecl)
-      eachDecl(s.update, onDecl)
-      for (const b of s.body) eachDecl(b, onDecl)
-      break
+      eachDecl(s.init, onDecl);
+      eachDecl(s.update, onDecl);
+      for (const b of s.body) eachDecl(b, onDecl);
+      break;
     case 'switch':
-      for (const c of s.cases) for (const b of c.body) eachDecl(b, onDecl)
-      if (s.defaultBody) for (const b of s.defaultBody) eachDecl(b, onDecl)
-      break
+      for (const c of s.cases) for (const b of c.body) eachDecl(b, onDecl);
+      if (s.defaultBody) for (const b of s.defaultBody) eachDecl(b, onDecl);
+      break;
     default:
-      break // assign / assignOp / return / break / continue / discard / raw / placeholder
+      break; // assign / assignOp / return / break / continue / discard / raw / placeholder
   }
 }
 
@@ -33,15 +33,15 @@ function eachDecl(s: Stmt, onDecl: (name: string, s: Stmt) => void): void {
  *  Exported for the `fixpoint` premise assert (passes/opt/optimize.ts), which checks the
  *  same invariant on the POST-LOWERING module the optimizer actually sees. */
 export function duplicateLocalNames(f: FuncDecl): Array<{ name: string; node: Stmt }> {
-  const seen = new Set<string>(f.params.map((p) => p.name))
-  const dups: Array<{ name: string; node: Stmt }> = []
+  const seen = new Set<string>(f.params.map((p) => p.name));
+  const dups: Array<{ name: string; node: Stmt }> = [];
   for (const s of f.body) {
     eachDecl(s, (name, node) => {
-      if (seen.has(name)) dups.push({ name, node })
-      else seen.add(name)
-    })
+      if (seen.has(name)) dups.push({ name, node });
+      else seen.add(name);
+    });
   }
-  return dups
+  return dups;
 }
 
 /** No duplicate local name within one function — the premise five optimizer passes rest on.
@@ -69,8 +69,8 @@ export const noShadowedLocal: LintRule = {
         ctx.report(
           `'${name}' is declared more than once in fn '${f.name}' — the optimizer's per-function maps are keyed on the name alone, so the two bindings collapse into one`,
           { fn: f.name, node, code: 'SD0112' },
-        )
+        );
       }
     },
   }),
-}
+};

@@ -65,9 +65,9 @@
 // the integer flavour (`recommendFp64Flavor`) remains the answer; forcing the float
 // flavour flat does not change that.
 
-import type { ModuleDecl, Expr } from '../ir/index.js'
-import { mapStmt, mapModuleExprs, deadFnElim, memberFold } from './opt/index.js'
-import { inlineLinearAll } from './inline-linear.js'
+import type { ModuleDecl, Expr } from '../ir/index.js';
+import { mapStmt, mapModuleExprs, deadFnElim, memberFold } from './opt/index.js';
+import { inlineLinearAll } from './inline-linear.js';
 
 /** How far `inline({ opaque })` unlocks `FuncDecl.opaque`. Spelled as inline code
  *  rather than a `{@link}`: the internal pass is not published in the API reference,
@@ -75,24 +75,24 @@ import { inlineLinearAll } from './inline-linear.js'
  *  • `'single-call'` — only helpers with exactly ONE call site (no body is duplicated).
  *  • `'all'` — every opaque helper, so the df64 library leaves the output entirely,
  *    at 5-27x the emitted bytes and the ANGLE-D3D11 compile-cost risk noted above. */
-export type InlineOpaque = 'keep' | 'single-call' | 'all'
+export type InlineOpaque = 'keep' | 'single-call' | 'all';
 
 /** One unlock decision, in the shape gcc's `-fopt-info-inline` reports:
  *  what was considered, what it cost, and where that left the unit. */
 export interface InlineDecision {
   /** The opaque helper considered. */
-  readonly fn: string
+  readonly fn: string;
   /** Call sites it had when considered — the copies inlining would make. */
-  readonly callSites: number
+  readonly callSites: number;
   /** Module IR-op count AFTER this decision (unchanged when it was refused). */
-  readonly ops: number
+  readonly ops: number;
   /** `ops` over the count before any unlocking. 1 = no growth, 27 = 27x. */
-  readonly growth: number
-  readonly inlined: boolean
+  readonly growth: number;
+  readonly inlined: boolean;
   /** `over-budget` — inlining it would push growth past `maxGrowth`.
    *  `not-inlinable` — unlocking changed nothing; some other exclusion holds
    *  (see `preludeBlocker` in inline-linear.ts). */
-  readonly reason: 'inlined' | 'over-budget' | 'not-inlinable'
+  readonly reason: 'inlined' | 'over-budget' | 'not-inlinable';
 }
 
 export interface InlineOpaqueOpts {
@@ -107,21 +107,21 @@ export interface InlineOpaqueOpts {
    *  +40%). The default here is deliberately the opposite — unbounded — because
    *  the goal is OBFUSCATION, where flattening everything is the point rather
    *  than a cost to be contained. */
-  readonly maxGrowth?: number
+  readonly maxGrowth?: number;
   /** Out-param: push a {@link InlineDecision} per helper considered. Same
    *  idiom as `mangle({ renames })`. */
-  readonly report?: InlineDecision[]
+  readonly report?: InlineDecision[];
 }
 
 /** Call sites of `name` across every fn body in the module. */
 function countCalls(m: ModuleDecl, name: string): number {
-  let n = 0
+  let n = 0;
   const probe = (e: Expr): Expr => {
-    if (e.op === 'call' && e.fn === name) n++
-    return e
-  }
-  for (const f of m.funcs) for (const s of f.body) mapStmt(s, probe)
-  return n
+    if (e.op === 'call' && e.fn === name) n++;
+    return e;
+  };
+  for (const f of m.funcs) for (const s of f.body) mapStmt(s, probe);
+  return n;
 }
 
 /** Inline through `opaque`, then drop the functions that inlining emptied. Pure
@@ -134,12 +134,12 @@ function countCalls(m: ModuleDecl, name: string): number {
  *  rewrite with (`mapModuleExprs`), so the budget cannot drift from what the
  *  optimizer actually sees. This is the analogue of gcc's "insns". */
 function moduleOps(m: ModuleDecl): number {
-  let n = 0
+  let n = 0;
   mapModuleExprs(m, (e) => {
-    n++
-    return e
-  })
-  return n
+    n++;
+    return e;
+  });
+  return n;
 }
 
 /** Unlock `names` in `m`, inline, clean up, and re-lock whatever of `locked`
@@ -153,14 +153,14 @@ function unlockAndInline(
   const opened = {
     ...m,
     funcs: m.funcs.map((f) => (names.has(f.name) ? { ...f, opaque: false } : f)),
-  }
-  const inlined = inlineLinearAll(opened, counter)
-  if (inlined === opened) return undefined // nothing moved
-  const cleaned = deadFnElim(memberFold(inlined))
+  };
+  const inlined = inlineLinearAll(opened, counter);
+  if (inlined === opened) return undefined; // nothing moved
+  const cleaned = deadFnElim(memberFold(inlined));
   return {
     ...cleaned,
     funcs: cleaned.funcs.map((f) => (locked.has(f.name) ? { ...f, opaque: true } : f)),
-  }
+  };
 }
 
 export function forceInline(
@@ -168,25 +168,25 @@ export function forceInline(
   policy: InlineOpaque = 'keep',
   opts?: InlineOpaqueOpts,
 ): ModuleDecl {
-  if (policy === 'keep') return inlineLinearAll(m)
-  const locked = new Set(m.funcs.filter((f) => f.opaque === true).map((f) => f.name))
-  if (locked.size === 0) return inlineLinearAll(m)
+  if (policy === 'keep') return inlineLinearAll(m);
+  const locked = new Set(m.funcs.filter((f) => f.opaque === true).map((f) => f.name));
+  if (locked.size === 0) return inlineLinearAll(m);
 
   if (policy === 'all') {
     // UNBUDGETED — the shipped path, left byte-for-byte alone: one batch unlock.
     if (opts?.maxGrowth === undefined) {
-      const opened = { ...m, funcs: m.funcs.map((f) => ({ ...f, opaque: false })) }
-      const inlined = inlineLinearAll(opened)
-      if (inlined === opened) return m
-      const out = deadFnElim(memberFold(inlined))
+      const opened = { ...m, funcs: m.funcs.map((f) => ({ ...f, opaque: false })) };
+      const inlined = inlineLinearAll(opened);
+      if (inlined === opened) return m;
+      const out = deadFnElim(memberFold(inlined));
       // The batch has no per-helper steps to narrate, but a `report` that came
       // back EMPTY would read as "nothing was inlined" — the exact wrong answer
       // when everything was. So report the outcome per helper instead: one entry
       // each, with the unit's single end-state growth.
       if (opts?.report) {
-        const survived = new Set(out.funcs.map((f) => f.name))
-        const ops = moduleOps(out)
-        const growth = ops / moduleOps(m)
+        const survived = new Set(out.funcs.map((f) => f.name));
+        const ops = moduleOps(out);
+        const growth = ops / moduleOps(m);
         for (const name of locked) {
           opts.report.push({
             fn: name,
@@ -195,10 +195,10 @@ export function forceInline(
             growth,
             inlined: !survived.has(name),
             reason: survived.has(name) ? 'not-inlinable' : 'inlined',
-          })
+          });
         }
       }
-      return out
+      return out;
     }
     // BUDGETED — one helper at a time, CHEAPEST FIRST. "Cheapest" is call-site
     // count: a one-call helper duplicates nothing when it goes, so the ordering
@@ -206,22 +206,22 @@ export function forceInline(
     // Recomputed every round, because removing one helper changes another's
     // count. gcc's IPA inliner keys its priority queue the same way — on the
     // growth a candidate would cause, not on source order.
-    const base = moduleOps(m)
-    const budget = opts.maxGrowth
-    const skip = new Set<string>()
+    const base = moduleOps(m);
+    const budget = opts.maxGrowth;
+    const skip = new Set<string>();
     // ONE counter across every round — see inlineLinearAll's header. A fresh counter per
     // round makes two rounds bind the same `_inlN_` temps and the module comes out broken.
-    const counter = { n: 0 }
-    let cur = m
+    const counter = { n: 0 };
+    let cur = m;
     for (let round = 0; round < locked.size; round++) {
-      const remaining = cur.funcs.filter((f) => f.opaque === true && !skip.has(f.name))
-      if (remaining.length === 0) break
+      const remaining = cur.funcs.filter((f) => f.opaque === true && !skip.has(f.name));
+      if (remaining.length === 0) break;
       const pick = remaining
         .map((f) => ({ f, calls: countCalls(cur, f.name) }))
-        .sort((a, b) => a.calls - b.calls || (a.f.name < b.f.name ? -1 : 1))[0]!
-      const next = unlockAndInline(cur, new Set([pick.f.name]), locked, counter)
+        .sort((a, b) => a.calls - b.calls || (a.f.name < b.f.name ? -1 : 1))[0]!;
+      const next = unlockAndInline(cur, new Set([pick.f.name]), locked, counter);
       if (next === undefined) {
-        skip.add(pick.f.name)
+        skip.add(pick.f.name);
         opts.report?.push({
           fn: pick.f.name,
           callSites: pick.calls,
@@ -229,14 +229,14 @@ export function forceInline(
           growth: moduleOps(cur) / base,
           inlined: false,
           reason: 'not-inlinable',
-        })
-        continue
+        });
+        continue;
       }
-      const ops = moduleOps(next)
+      const ops = moduleOps(next);
       if (ops / base > budget) {
         // Refused, and the NEXT candidate is still tried: cheapest-first makes a
         // later fit unlikely, but deadFnElim can shrink the unit under it.
-        skip.add(pick.f.name)
+        skip.add(pick.f.name);
         opts.report?.push({
           fn: pick.f.name,
           callSites: pick.calls,
@@ -244,10 +244,10 @@ export function forceInline(
           growth: moduleOps(cur) / base,
           inlined: false,
           reason: 'over-budget',
-        })
-        continue
+        });
+        continue;
       }
-      cur = next
+      cur = next;
       opts.report?.push({
         fn: pick.f.name,
         callSites: pick.calls,
@@ -255,38 +255,38 @@ export function forceInline(
         growth: ops / base,
         inlined: true,
         reason: 'inlined',
-      })
+      });
     }
-    return cur === m ? m : cur
+    return cur === m ? m : cur;
   }
 
   // 'single-call': unlock only the one-call-site helpers, and re-lock the survivors. Removing
   // one helper can drop another's count to 1, so this repeats until it stops finding any.
-  let cur = m
-  let moved = false
+  let cur = m;
+  let moved = false;
   for (let round = 0; round <= locked.size; round++) {
     const once = cur.funcs
       .filter((f) => f.opaque === true && countCalls(cur, f.name) === 1)
-      .map((f) => f.name)
-    if (once.length === 0) break
+      .map((f) => f.name);
+    if (once.length === 0) break;
     const opened = {
       ...cur,
       funcs: cur.funcs.map((f) => (once.includes(f.name) ? { ...f, opaque: false } : f)),
-    }
-    const inlined = inlineLinearAll(opened)
-    if (inlined === opened) break
-    moved = true
+    };
+    const inlined = inlineLinearAll(opened);
+    if (inlined === opened) break;
+    moved = true;
     cur = {
       ...inlined,
       funcs: inlined.funcs.map((f) => (locked.has(f.name) ? { ...f, opaque: true } : f)),
-    }
+    };
   }
   // A module whose only inlinable helpers were locked must come back UNCHANGED, so the
   // plugin stays a true no-op there rather than silently re-optimizing (inlineLinearAll's
   // own identity contract, one level up).
   if (!moved) {
-    const plain = inlineLinearAll(cur)
-    return plain === cur ? m : deadFnElim(memberFold(plain))
+    const plain = inlineLinearAll(cur);
+    return plain === cur ? m : deadFnElim(memberFold(plain));
   }
-  return deadFnElim(memberFold(cur))
+  return deadFnElim(memberFold(cur));
 }

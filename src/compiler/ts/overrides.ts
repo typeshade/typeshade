@@ -8,15 +8,15 @@
 // has carried an `overrides` array and `Expr.overrideref` all along — this is the EDSL's
 // `overrideConst(name, type, default)` given a source spelling.
 
-import ts from 'typescript'
-import type { OverrideDecl } from '../../core/ir/nodes.js'
-import type { ShaderType } from '../../core/ir/types.js'
-import { typeKey } from '../../core/ir/types.js'
-import type { TsCompilerDiagnostic } from './source-file.js'
-import { mapTsTypeToShaderType } from './type-map.js'
-import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
-import { TS_CODES } from './codes.js'
-import { makeDiagnostic } from './diagnostic.js'
+import ts from 'typescript';
+import type { OverrideDecl } from '../../core/ir/nodes.js';
+import type { ShaderType } from '../../core/ir/types.js';
+import { typeKey } from '../../core/ir/types.js';
+import type { TsCompilerDiagnostic } from './source-file.js';
+import { mapTsTypeToShaderType } from './type-map.js';
+import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
+import { TS_CODES } from './codes.js';
+import { makeDiagnostic } from './diagnostic.js';
 
 /** Whether a declaration's type annotation is `override<T>`. Read by the binding and module
  *  const collectors, which both walk the same top-level statements and must leave this one
@@ -27,7 +27,7 @@ export function isOverrideType(type: ts.TypeNode | undefined): boolean {
     ts.isTypeReferenceNode(type) &&
     ts.isIdentifier(type.typeName) &&
     type.typeName.text === 'override'
-  )
+  );
 }
 
 /** Every `override<T>` declared at the top level, in source order.
@@ -43,20 +43,20 @@ export function collectOverrides(
   symbols?: DeclaredSymbolSink,
   glslNames: ReadonlySet<string> = new Set(),
 ): OverrideDecl[] {
-  const out: OverrideDecl[] = []
-  const seen = new Set<string>()
+  const out: OverrideDecl[] = [];
+  const seen = new Set<string>();
   for (const stmt of sourceFile.statements) {
-    if (!ts.isVariableStatement(stmt)) continue
-    const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0
+    if (!ts.isVariableStatement(stmt)) continue;
+    const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
     for (const decl of stmt.declarationList.declarations) {
-      if (!ts.isIdentifier(decl.name) || !isOverrideType(decl.type)) continue
-      const one = lowerOne(decl, isConst, sourceFile, diagnostics)
-      if (!one) continue
+      if (!ts.isIdentifier(decl.name) || !isOverrideType(decl.type)) continue;
+      const one = lowerOne(decl, isConst, sourceFile, diagnostics);
+      if (!one) continue;
       // The check `collectModuleConsts` already had. Without it a repeated name reached
       // `scope.define` and threw out of `compile()` rather than being reported.
       if (seen.has(one.name)) {
-        diagnostics.push(diag(sourceFile, decl, `Duplicate override "${one.name}".`))
-        continue
+        diagnostics.push(diag(sourceFile, decl, `Duplicate override "${one.name}".`));
+        continue;
       }
       // On GLSL ES 3.00 an override is a `#define`, and a #define rewrites every later
       // occurrence of its name — including a declaration. `const uv: override<f32> = 0.85`
@@ -73,20 +73,20 @@ export function collectOverrides(
               `On GLSL ES 3.00 an override is a #define, so it would rewrite that declaration; ` +
               `rename the override.`,
           ),
-        )
-        continue
+        );
+        continue;
       }
-      seen.add(one.name)
-      out.push(one)
+      seen.add(one.name);
+      out.push(one);
       recordDeclaration(symbols, sourceFile, decl.name, {
         name: one.name,
         kind: 'override',
         type: one.type,
         mutable: false,
-      })
+      });
     }
   }
-  return out
+  return out;
 }
 
 function lowerOne(
@@ -95,30 +95,30 @@ function lowerOne(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): OverrideDecl | undefined {
-  const name = (decl.name as ts.Identifier).text
+  const name = (decl.name as ts.Identifier).text;
   if (!isConst) {
-    diagnostics.push(diag(sourceFile, decl, `override "${name}" must be const, not let.`))
-    return undefined
+    diagnostics.push(diag(sourceFile, decl, `override "${name}" must be const, not let.`));
+    return undefined;
   }
-  const inner = (decl.type as ts.TypeReferenceNode).typeArguments?.[0]
+  const inner = (decl.type as ts.TypeReferenceNode).typeArguments?.[0];
   if (!inner) {
-    diagnostics.push(diag(sourceFile, decl, `override<T> needs a type argument.`))
-    return undefined
+    diagnostics.push(diag(sourceFile, decl, `override<T> needs a type argument.`));
+    return undefined;
   }
-  const type = mapTsTypeToShaderType(inner, sourceFile, diagnostics)
-  if (!type) return undefined
-  const k = typeKey(type)
+  const type = mapTsTypeToShaderType(inner, sourceFile, diagnostics);
+  if (!type) return undefined;
+  const k = typeKey(type);
   if (k !== 'f32' && k !== 'i32' && k !== 'u32' && k !== 'bool') {
     // WGSL's own rule: an override is a scalar. A vector or a struct has no `override`
     // spelling to emit, and GLSL's `#define` stand-in has nothing to substitute either.
     diagnostics.push(
       diag(sourceFile, decl, `override "${name}" must be f32, i32, u32 or bool, not ${k}.`),
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const dflt = defaultValue(decl, type, sourceFile, diagnostics)
-  if (dflt === undefined) return undefined
-  return { name, type, default: dflt }
+  const dflt = defaultValue(decl, type, sourceFile, diagnostics);
+  if (dflt === undefined) return undefined;
+  return { name, type, default: dflt };
 }
 
 /** The value the override takes when the pipeline supplies none.
@@ -141,44 +141,45 @@ function defaultValue(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): number | boolean | undefined {
-  const init = decl.initializer
-  const k = typeKey(type)
-  if (!init) return k === 'bool' ? false : 0
-  const name = (decl.name as ts.Identifier).text
-  const unwrapped = ts.isPrefixUnaryExpression(init) ? init.operand : init
-  const negated = ts.isPrefixUnaryExpression(init) && init.operator === ts.SyntaxKind.MinusToken
-  const isBool = init.kind === ts.SyntaxKind.TrueKeyword || init.kind === ts.SyntaxKind.FalseKeyword
+  const init = decl.initializer;
+  const k = typeKey(type);
+  if (!init) return k === 'bool' ? false : 0;
+  const name = (decl.name as ts.Identifier).text;
+  const unwrapped = ts.isPrefixUnaryExpression(init) ? init.operand : init;
+  const negated = ts.isPrefixUnaryExpression(init) && init.operator === ts.SyntaxKind.MinusToken;
+  const isBool =
+    init.kind === ts.SyntaxKind.TrueKeyword || init.kind === ts.SyntaxKind.FalseKeyword;
   if (k === 'bool') {
-    if (isBool) return init.kind === ts.SyntaxKind.TrueKeyword
+    if (isBool) return init.kind === ts.SyntaxKind.TrueKeyword;
     diagnostics.push(
       diag(sourceFile, init, `override "${name}" is bool; its default must be true or false.`),
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (isBool) {
     diagnostics.push(
       diag(sourceFile, init, `override "${name}" is ${k}; its default must be a number.`),
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (ts.isNumericLiteral(unwrapped)) {
-    const v = negated ? -Number(unwrapped.text) : Number(unwrapped.text)
+    const v = negated ? -Number(unwrapped.text) : Number(unwrapped.text);
     // An integer override takes an integer, in range. `override<u32> = -1` and
     // `override<i32> = 1.5` reach the backend's literal spelling otherwise, which refuses them
     // as SD0017 with no line of source to point at.
     if (k !== 'f32' && !Number.isInteger(v)) {
       diagnostics.push(
         diag(sourceFile, init, `override "${name}" is ${k}; its default must be a whole number.`),
-      )
-      return undefined
+      );
+      return undefined;
     }
     if (k === 'u32' && v < 0) {
       diagnostics.push(
         diag(sourceFile, init, `override "${name}" is u32; its default cannot be negative.`),
-      )
-      return undefined
+      );
+      return undefined;
     }
-    return v
+    return v;
   }
   diagnostics.push(
     diag(
@@ -187,10 +188,10 @@ function defaultValue(
       `override "${name}" default must be a literal; ` +
         `the declaration each backend emits carries it.`,
     ),
-  )
-  return undefined
+  );
+  return undefined;
 }
 
 function diag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
-  return makeDiagnostic(sf, node, message, TS_CODES.TOP_LEVEL)
+  return makeDiagnostic(sf, node, message, TS_CODES.TOP_LEVEL);
 }

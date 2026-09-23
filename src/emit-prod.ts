@@ -24,24 +24,24 @@
 // Every renderable example is compiled AND pixel-compared through obfuscate()
 // on real Tint + ANGLE by playground/e2e/_emit-obfuscate-gate.spec.ts.
 
-import type { EmitPlugin } from './core/emit.js'
-import { mangleModule } from './core/passes/mangle.js'
-import { minifyShaderText, type MinifyOptions } from './core/emit-minify.js'
-import { aliasShaderTypes } from './core/emit-alias.js'
-import { pruneRedundantPrototypes } from './core/emit-prune.js'
+import type { EmitPlugin } from './core/emit.js';
+import { mangleModule } from './core/passes/mangle.js';
+import { minifyShaderText, type MinifyOptions } from './core/emit-minify.js';
+import { aliasShaderTypes } from './core/emit-alias.js';
+import { pruneRedundantPrototypes } from './core/emit-prune.js';
 import {
   forceInline as inlineModule,
   type InlineOpaque,
   type InlineDecision,
-} from './core/passes/force-inline.js'
+} from './core/passes/force-inline.js';
 
-export type { EmitPlugin, EmitOptions } from './core/emit.js'
-export { minifyShaderText, type MinifyOptions } from './core/emit-minify.js'
-export { aliasShaderTypes } from './core/emit-alias.js'
-export { pruneRedundantPrototypes } from './core/emit-prune.js'
-export { decodeShaderLog, invertRenames, type DecodedName } from './core/decode-log.js'
-export { mangleModule, type MangleResult } from './core/passes/mangle.js'
-export type { InlineOpaque, InlineDecision } from './core/passes/force-inline.js'
+export type { EmitPlugin, EmitOptions } from './core/emit.js';
+export { minifyShaderText, type MinifyOptions } from './core/emit-minify.js';
+export { aliasShaderTypes } from './core/emit-alias.js';
+export { pruneRedundantPrototypes } from './core/emit-prune.js';
+export { decodeShaderLog, invertRenames, type DecodedName } from './core/decode-log.js';
+export { mangleModule, type MangleResult } from './core/passes/mangle.js';
+export type { InlineOpaque, InlineDecision } from './core/passes/force-inline.js';
 
 /** Identifier-mangling plugin: renames the authored vocabulary to short names, and returns
  *  the mapping so a production driver log can be read back.
@@ -104,11 +104,11 @@ export function mangle(opts?: { renames?: Map<string, string> }): EmitPlugin {
   return {
     name: 'mangle',
     transformIR: (lowered) => {
-      const r = mangleModule(lowered)
-      if (opts?.renames) for (const [from, to] of r.renames) opts.renames.set(from, to)
-      return r.module
+      const r = mangleModule(lowered);
+      if (opts?.renames) for (const [from, to] of r.renames) opts.renames.set(from, to);
+      return r.module;
     },
-  }
+  };
 }
 
 /** Text-minification plugin: compacts the emitted string without changing what it means.
@@ -163,7 +163,7 @@ export function mangle(opts?: { renames?: Map<string, string> }): EmitPlugin {
  *  @see {@link obfuscate} for the preset that includes it.
  */
 export function minify(opts?: MinifyOptions): EmitPlugin {
-  return { name: 'minify', transformText: (code) => minifyShaderText(code, opts) }
+  return { name: 'minify', transformText: (code) => minifyShaderText(code, opts) };
 }
 
 /** Call-graph-flattening plugin: inlines every helper it can at all its call sites, so those
@@ -218,16 +218,16 @@ export function minify(opts?: MinifyOptions): EmitPlugin {
  *  @see {@link obfuscate} for the preset it goes in front of.
  */
 export function inline(opts?: {
-  opaque?: InlineOpaque
-  maxGrowth?: number
-  report?: InlineDecision[]
+  opaque?: InlineOpaque;
+  maxGrowth?: number;
+  report?: InlineDecision[];
 }): EmitPlugin {
-  const opaque = opts?.opaque ?? 'keep'
+  const opaque = opts?.opaque ?? 'keep';
   return {
     name: 'inline',
     transformIR: (m) =>
       inlineModule(m, opaque, { maxGrowth: opts?.maxGrowth, report: opts?.report }),
-  }
+  };
 }
 
 /** Type-name aliasing plugin: gives each heavily used type a one-character name, declares it
@@ -278,7 +278,7 @@ export function aliasTypes(opts?: { renames?: Map<string, string> }): EmitPlugin
   return {
     name: 'alias-types',
     transformText: (code) => aliasShaderTypes(code, opts?.renames),
-  }
+  };
 }
 
 /** Forward-prototype pruning plugin, for GLSL ES 3.00.
@@ -316,7 +316,7 @@ export function aliasTypes(opts?: { renames?: Map<string, string> }): EmitPlugin
  *  @see {@link obfuscate} for the preset that includes it.
  */
 export function prune(): EmitPlugin {
-  return { name: 'prune-prototypes', transformText: pruneRedundantPrototypes }
+  return { name: 'prune-prototypes', transformText: pruneRedundantPrototypes };
 }
 
 /** The standard production preset. It expands, in order, to
@@ -355,5 +355,5 @@ export function prune(): EmitPlugin {
  *  @see {@link semanticDiff} for asserting the production emit is the development one.
  */
 export function obfuscate(opts?: { renames?: Map<string, string> }): EmitPlugin[] {
-  return [mangle(opts), prune(), aliasTypes(opts), minify({ numbers: 'f32' })]
+  return [mangle(opts), prune(), aliasTypes(opts), minify({ numbers: 'f32' })];
 }

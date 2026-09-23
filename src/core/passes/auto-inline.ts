@@ -20,20 +20,20 @@
 // NOT in DEFAULT_PASSES (wiring it changes production WGSL bytes -> the byte-stable
 // shared-prelude golden snapshots would need regenerating, a maintainer decision).
 
-import { stageOf } from '../ir/index.js'
-import type { Expr, ModuleDecl, FuncDecl } from '../ir/index.js'
-import { mapStmt } from './opt/ir-transform.js'
-import { bodyHasRaw } from './opt/dce.js'
-import { inlineFn } from './inline.js'
+import { stageOf } from '../ir/index.js';
+import type { Expr, ModuleDecl, FuncDecl } from '../ir/index.js';
+import { mapStmt } from './opt/ir-transform.js';
+import { bodyHasRaw } from './opt/dce.js';
+import { inlineFn } from './inline.js';
 
 // Shared stage predicate (X-GIS #763 S4 — this site was MISSED in the Phase-S sweep:
 // it lives under passes/, not passes/opt/, and the sweep grepped opt/ only).
-const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined
+const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined;
 
 /** The single-return expression of `f`, or undefined if `f` isn't `{ return e }`. */
 function singleReturnExpr(f: FuncDecl): Expr | undefined {
-  const only = f.body.length === 1 ? f.body[0] : undefined
-  return only && only.s === 'return' && only.expr !== undefined ? only.expr : undefined
+  const only = f.body.length === 1 ? f.body[0] : undefined;
+  return only && only.s === 'return' && only.expr !== undefined ? only.expr : undefined;
 }
 
 /** Node-count cost of an expression — a leaf (param / lit / const / varref) is 1. */
@@ -42,39 +42,39 @@ function exprCost(e: Expr): number {
     case 'binop':
     case 'compare':
     case 'logical':
-      return 1 + exprCost(e.a) + exprCost(e.b)
+      return 1 + exprCost(e.a) + exprCost(e.b);
     case 'unop':
-      return 1 + exprCost(e.a)
+      return 1 + exprCost(e.a);
     case 'call':
     case 'construct':
-      return 1 + e.args.reduce((n, a) => n + exprCost(a), 0)
+      return 1 + e.args.reduce((n, a) => n + exprCost(a), 0);
     case 'member':
-      return 1 + exprCost(e.base)
+      return 1 + exprCost(e.base);
     case 'index':
-      return 1 + exprCost(e.base) + exprCost(e.idx)
+      return 1 + exprCost(e.base) + exprCost(e.idx);
     case 'select':
-      return 1 + exprCost(e.cond) + exprCost(e.ifTrue) + exprCost(e.ifFalse)
+      return 1 + exprCost(e.cond) + exprCost(e.ifTrue) + exprCost(e.ifFalse);
     case 'matchExpr':
       return (
         1 +
         exprCost(e.scrutinee) +
         e.cases.reduce((n, [, v]) => n + exprCost(v), 0) +
         exprCost(e.default)
-      )
+      );
     default:
-      return 1 // lit / constref / param / varref
+      return 1; // lit / constref / param / varref
   }
 }
 
 /** Count `call` sites of `name` across every fn body in the module. */
 function countCalls(m: ModuleDecl, name: string): number {
-  let n = 0
+  let n = 0;
   const probe = (e: Expr): Expr => {
-    if (e.op === 'call' && e.fn === name) n++
-    return e
-  }
-  for (const f of m.funcs) for (const s of f.body) mapStmt(s, probe)
-  return n
+    if (e.op === 'call' && e.fn === name) n++;
+    return e;
+  };
+  for (const f of m.funcs) for (const s of f.body) mapStmt(s, probe);
+  return n;
 }
 
 /** The single-return expression of a helper that is SAFE to inline — non-entry,
@@ -90,40 +90,40 @@ function countCalls(m: ModuleDecl, name: string): number {
  *  single-return fns are skipped (inlineFn keeps them; infinite expansion
  *  otherwise). A dead fn (0 calls) is left to deadFnElim, not inlining. */
 function inlinableRet(m: ModuleDecl, f: FuncDecl): Expr | undefined {
-  if (isEntry(f) || f.opaque === true) return undefined
-  const ret = singleReturnExpr(f)
-  if (ret === undefined) return undefined
-  let recursive = false
+  if (isEntry(f) || f.opaque === true) return undefined;
+  const ret = singleReturnExpr(f);
+  if (ret === undefined) return undefined;
+  let recursive = false;
   mapStmt({ s: 'return', expr: ret }, (e) => {
-    if (e.op === 'call' && e.fn === f.name) recursive = true
-    return e
-  })
-  if (recursive) return undefined
-  return countCalls(m, f.name) > 0 ? ret : undefined
+    if (e.op === 'call' && e.fn === f.name) recursive = true;
+    return e;
+  });
+  if (recursive) return undefined;
+  return countCalls(m, f.name) > 0 ? ret : undefined;
 }
 
 /** Pick the next helper to inline by the SIZE heuristic (single-call or
  *  leaf-return), or undefined when none qualifies. */
 function pickCandidate(m: ModuleDecl): string | undefined {
   for (const f of m.funcs) {
-    const ret = inlinableRet(m, f)
-    if (ret === undefined) continue
-    if (countCalls(m, f.name) === 1 || exprCost(ret) === 1) return f.name
+    const ret = inlinableRet(m, f);
+    if (ret === undefined) continue;
+    if (countCalls(m, f.name) === 1 || exprCost(ret) === 1) return f.name;
   }
-  return undefined
+  return undefined;
 }
 
 /** Auto-inline small / single-call helpers throughout a module. Pure (module -> module). */
 export function autoInline(m: ModuleDecl): ModuleDecl {
   // A raw WGSL stmt may call a helper textually (invisible to the IR walk) — bail.
-  if (m.funcs.some((f) => bodyHasRaw(f.body))) return m
-  let cur = m
+  if (m.funcs.some((f) => bodyHasRaw(f.body))) return m;
+  let cur = m;
   // Each inlineFn removes its target, so the candidate set strictly shrinks;
   // the fn-count bound is a belt-and-suspenders cap on the loop.
   for (let i = 0; i < m.funcs.length; i++) {
-    const name = pickCandidate(cur)
-    if (name === undefined) break
-    cur = inlineFn(cur, name)
+    const name = pickCandidate(cur);
+    if (name === undefined) break;
+    cur = inlineFn(cur, name);
   }
-  return cur
+  return cur;
 }

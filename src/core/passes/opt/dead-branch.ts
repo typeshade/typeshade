@@ -13,43 +13,43 @@
 // unique per fn (flat env, see oracle.ts). A fn with a raw Stmt is skipped.
 // `select(lit cond, …)` is handled at the expr level by const-fold, not here.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
-import { bodyHasRaw } from './expr-utils.js'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js';
+import { bodyHasRaw } from './expr-utils.js';
 
-const isLitBool = (e: Expr, v: boolean): boolean => e.op === 'lit' && e.value === v
+const isLitBool = (e: Expr, v: boolean): boolean => e.op === 'lit' && e.value === v;
 
 function ddBody(body: readonly Stmt[]): Stmt[] {
-  const out: Stmt[] = []
-  for (const s of body) out.push(...ddStmt(s))
-  return out
+  const out: Stmt[] = [];
+  for (const s of body) out.push(...ddStmt(s));
+  return out;
 }
 
 function ddStmt(s: Stmt): Stmt[] {
   switch (s.s) {
     case 'if': {
-      const newArms: { cond: Expr; body: readonly Stmt[] }[] = []
-      let elseBody = s.elseBody ? ddBody(s.elseBody) : undefined
+      const newArms: { cond: Expr; body: readonly Stmt[] }[] = [];
+      let elseBody = s.elseBody ? ddBody(s.elseBody) : undefined;
       for (const arm of s.arms) {
-        const body = ddBody(arm.body)
-        if (isLitBool(arm.cond, false)) continue // never taken — drop the arm
+        const body = ddBody(arm.body);
+        if (isLitBool(arm.cond, false)) continue; // never taken — drop the arm
         if (isLitBool(arm.cond, true)) {
           // Always taken (given earlier arms fell through). First arm → the whole
           // `if` is just this body; otherwise it becomes the else, rest unreachable.
-          if (newArms.length === 0) return body
-          elseBody = body
-          break
+          if (newArms.length === 0) return body;
+          elseBody = body;
+          break;
         }
-        newArms.push({ cond: arm.cond, body })
+        newArms.push({ cond: arm.cond, body });
       }
-      if (newArms.length === 0) return elseBody ? [...elseBody] : []
+      if (newArms.length === 0) return elseBody ? [...elseBody] : [];
       // Spread rather than rebuild: this pass rewrites an `if`'s ARMS, so everything else the
       // node carries is still true of it, including the authored span. Building a fresh
       // literal dropped every `if` span at O1 and above, which is exactly the tier a debugger
       // attaches to.
-      return [{ ...s, arms: newArms, elseBody }]
+      return [{ ...s, arms: newArms, elseBody }];
     }
     case 'for':
-      return [{ ...s, body: ddBody(s.body) }]
+      return [{ ...s, body: ddBody(s.body) }];
     case 'switch':
       return [
         {
@@ -57,18 +57,18 @@ function ddStmt(s: Stmt): Stmt[] {
           cases: s.cases.map((c) => ({ values: c.values, body: ddBody(c.body) })),
           defaultBody: s.defaultBody ? ddBody(s.defaultBody) : undefined,
         },
-      ]
+      ];
     default:
-      return [s]
+      return [s];
   }
 }
 
 function ddFn(f: FuncDecl): FuncDecl {
-  if (bodyHasRaw(f.body)) return f
-  return { ...f, body: ddBody(f.body) }
+  if (bodyHasRaw(f.body)) return f;
+  return { ...f, body: ddBody(f.body) };
 }
 
 /** Eliminate statically-decided `if` branches. Pure (module -> module). */
 export function deadBranch(m: ModuleDecl): ModuleDecl {
-  return { ...m, funcs: m.funcs.map(ddFn) }
+  return { ...m, funcs: m.funcs.map(ddFn) };
 }

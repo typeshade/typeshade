@@ -4,16 +4,16 @@
 // (CSE, LICM, …). Kept in one place so the two passes cannot drift (duplicated
 // traversal logic that must agree is this codebase's #1 bug archetype).
 
-import type { Expr, Stmt, ShaderType, BinOp } from '../../ir/index.js'
-import { typeKey } from '../../ir/index.js'
-import { eachExpr, eachStmtExpr, mapStmtExpr } from '../../ir/visit.js'
-import { calleeWritesOf, type FnWrites } from '../effects.js'
+import type { Expr, Stmt, ShaderType, BinOp } from '../../ir/index.js';
+import { typeKey } from '../../ir/index.js';
+import { eachExpr, eachStmtExpr, mapStmtExpr } from '../../ir/visit.js';
+import { calleeWritesOf, type FnWrites } from '../effects.js';
 
 // The IR walkers moved to `core/ir/visit.ts` — `core/ir` cannot import from
 // `passes/opt`, and the builder / fp64 / GLSL backends need them too (ADR-0013:
 // IR walkers live in core/ir). Re-exported here so the analysis passes keep ONE
 // import surface; a NEW walker belongs in visit.ts, not in this file.
-export { eachExpr, mapChildren } from '../../ir/visit.js'
+export { eachExpr, mapChildren } from '../../ir/visit.js';
 
 /** `'i32'` / `'u32'` for an integer scalar or integer VECTOR type, else undefined.
  *
@@ -23,9 +23,9 @@ export { eachExpr, mapChildren } from '../../ir/visit.js'
  *  float literal arithmetic does not. Shared by const-fold and algebraic so the two cannot
  *  disagree about what counts as an integer — the drift this module exists to prevent. */
 export function intElemOf(t: ShaderType): 'i32' | 'u32' | undefined {
-  if (t.kind === 'scalar') return t.scalar === 'i32' || t.scalar === 'u32' ? t.scalar : undefined
-  if (t.kind === 'vec') return t.elem === 'i32' || t.elem === 'u32' ? t.elem : undefined
-  return undefined
+  if (t.kind === 'scalar') return t.scalar === 'i32' || t.scalar === 'u32' ? t.scalar : undefined;
+  if (t.kind === 'vec') return t.elem === 'i32' || t.elem === 'u32' ? t.elem : undefined;
+  return undefined;
 }
 
 /** Wrap a folded integer into `elem`'s 32-bit range, the way the GPU (and C) does.
@@ -33,7 +33,7 @@ export function intElemOf(t: ShaderType): 'i32' | 'u32' | undefined {
  *  input — measured against gcc 13.3 -O2: `2147483647 + 1` -> `-2147483648`,
  *  `0u - 1u` -> `4294967295`, `100000 * 100000` -> `1410065408`. */
 export const wrapInt = (v: number, elem: 'i32' | 'u32'): number =>
-  elem === 'u32' ? v >>> 0 : v | 0
+  elem === 'u32' ? v >>> 0 : v | 0;
 
 /** Fold two INTEGER literals with the target's semantics, not JavaScript's.
  *
@@ -58,36 +58,36 @@ export function foldIntLit(
   b: number,
   elem: 'i32' | 'u32',
 ): number | undefined {
-  const ua = elem === 'u32' ? a >>> 0 : a | 0
-  const ub = elem === 'u32' ? b >>> 0 : b | 0
+  const ua = elem === 'u32' ? a >>> 0 : a | 0;
+  const ub = elem === 'u32' ? b >>> 0 : b | 0;
   switch (bop) {
     case '+':
-      return wrapInt(ua + ub, elem)
+      return wrapInt(ua + ub, elem);
     case '-':
-      return wrapInt(ua - ub, elem)
+      return wrapInt(ua - ub, elem);
     case '*':
-      return wrapInt(Math.imul(ua, ub), elem)
+      return wrapInt(Math.imul(ua, ub), elem);
     case '/':
       // Truncating division (C99 / WGSL). i32 INT_MIN / -1 overflows; wrapInt gives
       // INT_MIN back, which is what the hardware produces.
-      return ub === 0 ? undefined : wrapInt(Math.trunc(ua / ub), elem)
+      return ub === 0 ? undefined : wrapInt(Math.trunc(ua / ub), elem);
     case '%':
       // JS `%` truncates toward zero, same as C and WGSL: -7 % 2 === -1.
-      return ub === 0 ? undefined : wrapInt(ua % ub, elem)
+      return ub === 0 ? undefined : wrapInt(ua % ub, elem);
     case '&':
-      return wrapInt(ua & ub, elem)
+      return wrapInt(ua & ub, elem);
     case '|':
-      return wrapInt(ua | ub, elem)
+      return wrapInt(ua | ub, elem);
     case '^':
-      return wrapInt(ua ^ ub, elem)
+      return wrapInt(ua ^ ub, elem);
     // A shift count outside [0, 31] is not folded: JS masks it to 5 bits, and leaning on
     // that would bake one interpretation of a case the targets do not agree on.
     case '<<':
-      return ub < 0 || ub > 31 ? undefined : wrapInt(ua << ub, elem)
+      return ub < 0 || ub > 31 ? undefined : wrapInt(ua << ub, elem);
     case '>>':
-      return ub < 0 || ub > 31 ? undefined : wrapInt(elem === 'u32' ? ua >>> ub : ua >> ub, elem)
+      return ub < 0 || ub > 31 ? undefined : wrapInt(elem === 'u32' ? ua >>> ub : ua >> ub, elem);
     default:
-      return undefined
+      return undefined;
   }
 }
 
@@ -112,15 +112,15 @@ export function foldIntLit(
  *  and 8,256 `collectMutatedRoots` calls in the same emit. Interleaved A/B/A/B on one machine,
  *  each figure the median of 3 emits: optimize 230.7 / 242.2 ms -> 182.3 / 153.5, gvn
  *  58.7 / 60.8 -> 40.7 / 38.1. Emitted bytes unchanged (goldens + `bake:shaders`). */
-const keyMemo = new WeakMap<Expr, string>()
+const keyMemo = new WeakMap<Expr, string>();
 
 /** A deterministic structural key — two structurally-equal exprs share a key. */
 export function keyOf(e: Expr): string {
-  const memo = keyMemo.get(e)
-  if (memo !== undefined) return memo
-  const k = keyOfUncached(e)
-  keyMemo.set(e, k)
-  return k
+  const memo = keyMemo.get(e);
+  if (memo !== undefined) return memo;
+  const k = keyOfUncached(e);
+  keyMemo.set(e, k);
+  return k;
 }
 
 function keyOfUncached(e: Expr): string {
@@ -134,36 +134,36 @@ function keyOfUncached(e: Expr): string {
       // 4294967295. CSE then hoisted one and rewrote the other to it, in the emitted WGSL
       // and GLSL alike. `-0` is spelled apart from `0` for the same reason: `x + -0.0` and
       // `x + 0.0` differ when x is -0.0. Found by the X-GIS #2406 generated-program differential.
-      return `L:${typeKey(e.type)}:${Object.is(e.value, -0) ? '-0' : String(e.value)}`
+      return `L:${typeKey(e.type)}:${Object.is(e.value, -0) ? '-0' : String(e.value)}`;
     case 'constref':
-      return `C:${e.name}`
+      return `C:${e.name}`;
     case 'externref':
     case 'overrideref':
-      return `O:${e.name}` // X-GIS #923 — distinct from a const read (never CSE'd together)
+      return `O:${e.name}`; // X-GIS #923 — distinct from a const read (never CSE'd together)
     case 'param':
-      return `P:${e.name}`
+      return `P:${e.name}`;
     case 'varref':
-      return `V:${e.name}`
+      return `V:${e.name}`;
     case 'binop':
-      return `(${keyOf(e.a)}${e.bop}${keyOf(e.b)})`
+      return `(${keyOf(e.a)}${e.bop}${keyOf(e.b)})`;
     case 'compare':
-      return `(${keyOf(e.a)}${e.cop}${keyOf(e.b)})`
+      return `(${keyOf(e.a)}${e.cop}${keyOf(e.b)})`;
     case 'logical':
-      return `(${keyOf(e.a)}${e.lop}${keyOf(e.b)})`
+      return `(${keyOf(e.a)}${e.lop}${keyOf(e.b)})`;
     case 'unop':
-      return `(-${keyOf(e.a)})`
+      return `(-${keyOf(e.a)})`;
     case 'call':
-      return `${e.fn}(${e.args.map(keyOf).join(',')})`
+      return `${e.fn}(${e.args.map(keyOf).join(',')})`;
     case 'construct':
-      return `${typeKey(e.type)}{${e.args.map(keyOf).join(',')}}`
+      return `${typeKey(e.type)}{${e.args.map(keyOf).join(',')}}`;
     case 'member':
-      return `${keyOf(e.base)}.${e.field}`
+      return `${keyOf(e.base)}.${e.field}`;
     case 'index':
-      return `${keyOf(e.base)}[${keyOf(e.idx)}]`
+      return `${keyOf(e.base)}[${keyOf(e.idx)}]`;
     case 'select':
-      return `S(${keyOf(e.cond)},${keyOf(e.ifTrue)},${keyOf(e.ifFalse)})`
+      return `S(${keyOf(e.cond)},${keyOf(e.ifTrue)},${keyOf(e.ifFalse)})`;
     case 'matchExpr':
-      return `M(${keyOf(e.scrutinee)};${e.cases.map(([n, v]) => `${n}:${keyOf(v)}`).join(',')};${keyOf(e.default)})`
+      return `M(${keyOf(e.scrutinee)};${e.cases.map(([n, v]) => `${n}:${keyOf(v)}`).join(',')};${keyOf(e.default)})`;
   }
 }
 
@@ -182,7 +182,7 @@ export const isCompound = (e: Expr): boolean =>
   e.op !== 'externref' &&
   e.op !== 'param' &&
   e.op !== 'varref' &&
-  !(e.op === 'call' && e.fn === 'f64Guard' && e.args.length === 0)
+  !(e.op === 'call' && e.fn === 'f64Guard' && e.args.length === 0);
 
 /** The unconditionally-evaluated VALUE positions of a statement, rewritten through `f`
  *  (the lvalue TARGET is not one, and the nested block bodies are their own blocks).
@@ -195,41 +195,41 @@ export function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
     case 'assign':
     case 'assignOp':
       // The lvalue TARGET is not a value position — only the right-hand side.
-      return { ...s, expr: f(s.expr) }
+      return { ...s, expr: f(s.expr) };
     case 'if': {
       // Arm 0 only: every later arm is an `else if`, reached only when the earlier
       // conditions were false, so hoisting one would evaluate it unconditionally.
-      const [first, ...rest] = s.arms
-      return first === undefined ? s : { ...s, arms: [{ ...first, cond: f(first.cond) }, ...rest] }
+      const [first, ...rest] = s.arms;
+      return first === undefined ? s : { ...s, arms: [{ ...first, cond: f(first.cond) }, ...rest] };
     }
     case 'let':
     case 'var':
     case 'return':
       // These hold nothing BUT value positions and no nested body, so the shared
       // statement rewrite is exactly right for them.
-      return mapStmtExpr(s, f)
+      return mapStmtExpr(s, f);
     default:
       // `for` / `switch` headers run per-iteration or guard a block — not value
       // positions here — and the Expr-less kinds have nothing to rewrite.
-      return s
+      return s;
   }
 }
 
 /** True iff any Stmt in `body` (recursively) is a raw WGSL Stmt. */
 export function bodyHasRaw(body: readonly Stmt[]): boolean {
   for (const s of body) {
-    if (s.s === 'raw') return true
+    if (s.s === 'raw') return true;
     if (s.s === 'if') {
-      if (s.arms.some((a) => bodyHasRaw(a.body))) return true
-      if (s.elseBody && bodyHasRaw(s.elseBody)) return true
+      if (s.arms.some((a) => bodyHasRaw(a.body))) return true;
+      if (s.elseBody && bodyHasRaw(s.elseBody)) return true;
     } else if (s.s === 'for') {
-      if (bodyHasRaw(s.body)) return true
+      if (bodyHasRaw(s.body)) return true;
     } else if (s.s === 'switch') {
-      if (s.cases.some((c) => bodyHasRaw(c.body))) return true
-      if (s.defaultBody && bodyHasRaw(s.defaultBody)) return true
+      if (s.cases.some((c) => bodyHasRaw(c.body))) return true;
+      if (s.defaultBody && bodyHasRaw(s.defaultBody)) return true;
     }
   }
-  return false
+  return false;
 }
 
 /** Collect every `let` binding in `body` — nested bodies included — whose bound
@@ -253,28 +253,28 @@ export function collectLets<T extends Expr>(
   body: readonly Stmt[],
   accepts: (name: string, e: Expr) => e is T,
 ): Map<string, T> {
-  const out = new Map<string, T>()
+  const out = new Map<string, T>();
   const walk = (s: Stmt): void => {
-    if (s.s === 'let' && accepts(s.name, s.expr)) out.set(s.name, s.expr)
-    eachStmtExpr(s, () => {}, walk)
-  }
-  for (const s of body) walk(s)
-  return out
+    if (s.s === 'let' && accepts(s.name, s.expr)) out.set(s.name, s.expr);
+    eachStmtExpr(s, () => {}, walk);
+  };
+  for (const s of body) walk(s);
+  return out;
 }
 
 /** Collect every function-local binding name (let / var / for-counter). */
 export function collectLocals(body: readonly Stmt[], out: Set<string>): void {
   for (const s of body) {
-    if (s.s === 'let' || s.s === 'var') out.add(s.name)
+    if (s.s === 'let' || s.s === 'var') out.add(s.name);
     else if (s.s === 'if') {
-      for (const a of s.arms) collectLocals(a.body, out)
-      if (s.elseBody) collectLocals(s.elseBody, out)
+      for (const a of s.arms) collectLocals(a.body, out);
+      if (s.elseBody) collectLocals(s.elseBody, out);
     } else if (s.s === 'for') {
-      collectLocals([s.init], out)
-      collectLocals(s.body, out)
+      collectLocals([s.init], out);
+      collectLocals(s.body, out);
     } else if (s.s === 'switch') {
-      for (const c of s.cases) collectLocals(c.body, out)
-      if (s.defaultBody) collectLocals(s.defaultBody, out)
+      for (const c of s.cases) collectLocals(c.body, out);
+      if (s.defaultBody) collectLocals(s.defaultBody, out);
     }
   }
 }
@@ -288,9 +288,9 @@ export function collectLocals(body: readonly Stmt[], out: Set<string>): void {
  *  assignment target, so widening to it could only suppress a valid hoist. */
 function rootName(e: Expr): string | undefined {
   if (e.op === 'varref' || e.op === 'constref' || e.op === 'externref' || e.op === 'param') {
-    return e.name
+    return e.name;
   }
-  return undefined
+  return undefined;
 }
 
 /** True iff `e` reads any of `names` — through a varref, or through any of the other ops that
@@ -305,20 +305,20 @@ function rootName(e: Expr): string | undefined {
  *  `let _cse1 = ps[i]; _cse1.b = …`, which Tint rejects with "cannot assign to value of type
  *  'f32'". The same hole existed for a parameter root. */
 export function refsLocal(e: Expr, locals: ReadonlySet<string>): boolean {
-  let yes = false
+  let yes = false;
   eachExpr(e, (x) => {
-    const name = rootName(x)
-    if (name !== undefined && locals.has(name)) yes = true
-  })
-  return yes
+    const name = rootName(x);
+    if (name !== undefined && locals.has(name)) yes = true;
+  });
+  return yes;
 }
 
 /** The root name written by an assignment lvalue (`buf.v`/`arr[i]` -> `buf`/`arr`), for any
  *  root {@link rootName} recognises. */
 function targetRoot(e: Expr): string | undefined {
-  if (e.op === 'member') return targetRoot(e.base)
-  if (e.op === 'index') return targetRoot(e.base)
-  return rootName(e)
+  if (e.op === 'member') return targetRoot(e.base);
+  if (e.op === 'index') return targetRoot(e.base);
+  return rootName(e);
 }
 
 /** Is `e` worth binding to a temp when it repeats?
@@ -363,7 +363,7 @@ function targetRoot(e: Expr): string | undefined {
  *  CSE family) then hoists the array and rewrites the base inside the temp. Reading
  *  the output alone would have accused this predicate of leaking. */
 export function isWorthHoisting(e: Expr, loadRoots?: ReadonlySet<string>): boolean {
-  let worth = false
+  let worth = false;
   eachExpr(e, (x) => {
     if (
       x.op === 'binop' ||
@@ -375,14 +375,14 @@ export function isWorthHoisting(e: Expr, loadRoots?: ReadonlySet<string>): boole
       x.op === 'select' ||
       x.op === 'matchExpr'
     ) {
-      worth = true
-      return
+      worth = true;
+      return;
     }
-    if (loadRoots === undefined || x.op !== 'index') return
-    const root = targetRoot(x.base)
-    if (root !== undefined && loadRoots.has(root)) worth = true
-  })
-  return worth
+    if (loadRoots === undefined || x.op !== 'index') return;
+    const root = targetRoot(x.base);
+    if (root !== undefined && loadRoots.has(root)) worth = true;
+  });
+  return worth;
 }
 
 /** Collect every name MUTATED by an assignment in `body` (the assign-target roots).
@@ -397,20 +397,20 @@ export function collectMutatedRoots(
   for (const s of body) {
     // With the module's effect table, a call inside this statement mutates whatever its
     // callee writes (`store(i)` writes `dst`), whether the call stands alone or feeds a `let`.
-    if (writes !== undefined) calleeWritesOf(s, writes, out)
+    if (writes !== undefined) calleeWritesOf(s, writes, out);
     if (s.s === 'assign' || s.s === 'assignOp') {
-      const r = targetRoot(s.target)
-      if (r !== undefined) out.add(r)
+      const r = targetRoot(s.target);
+      if (r !== undefined) out.add(r);
     } else if (s.s === 'if') {
-      for (const a of s.arms) collectMutatedRoots(a.body, out, writes)
-      if (s.elseBody) collectMutatedRoots(s.elseBody, out, writes)
+      for (const a of s.arms) collectMutatedRoots(a.body, out, writes);
+      if (s.elseBody) collectMutatedRoots(s.elseBody, out, writes);
     } else if (s.s === 'for') {
-      collectMutatedRoots([s.init], out, writes)
-      collectMutatedRoots([s.update], out, writes)
-      collectMutatedRoots(s.body, out, writes)
+      collectMutatedRoots([s.init], out, writes);
+      collectMutatedRoots([s.update], out, writes);
+      collectMutatedRoots(s.body, out, writes);
     } else if (s.s === 'switch') {
-      for (const c of s.cases) collectMutatedRoots(c.body, out, writes)
-      if (s.defaultBody) collectMutatedRoots(s.defaultBody, out, writes)
+      for (const c of s.cases) collectMutatedRoots(c.body, out, writes);
+      if (s.defaultBody) collectMutatedRoots(s.defaultBody, out, writes);
     }
   }
 }

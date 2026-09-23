@@ -16,11 +16,11 @@
 // any branch, whatever that branch changed. A test that takes 14 s idle needs a limit set
 // against its loaded cost, not its idle one; 90 s is ~6x the idle worst case. This is a
 // ceiling, not a budget — a test that actually hangs still fails, just later.
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
     include: ['src/**/*.test.ts', 'examples/**/*.test.ts'],
     testTimeout: 90_000,
   },
-})
+});

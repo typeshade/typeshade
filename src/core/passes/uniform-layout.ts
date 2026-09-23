@@ -49,20 +49,20 @@
 // unlowered form — LICM lifted `U.weights` out of a loop as `let _licm0 = U.weights;`, leaving
 // no `member` node to rewrite, so `_licm0[i]` came out typed as the wrapper.
 
-import type { BindingDecl, Expr, ModuleDecl, Stmt, StructDecl } from '../ir/nodes.js'
-import { arrayT, structT, typeKey, type ShaderType } from '../ir/types.js'
-import { eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js'
-import { UnsupportedFeatureError } from '../backend.js'
-import { typeLayout } from '../reflect.js'
+import type { BindingDecl, Expr, ModuleDecl, Stmt, StructDecl } from '../ir/nodes.js';
+import { arrayT, structT, typeKey, type ShaderType } from '../ir/types.js';
+import { eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js';
+import { UnsupportedFeatureError } from '../backend.js';
+import { typeLayout } from '../reflect.js';
 
 /** The boundary WGSL's uniform address space puts an array element — and therefore the array
  *  itself — on. */
-const UNIFORM_ARRAY_ALIGN = 16
+const UNIFORM_ARRAY_ALIGN = 16;
 
 /** The one field a wrapper holds. Named `v`, which is what the rewritten reads append. */
-const WRAPPED_FIELD = 'v'
+const WRAPPED_FIELD = 'v';
 
-const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
+const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a;
 
 /** The size and alignment a type has AS EMITTED — that is, after this pass has padded
  *  whatever it is going to pad inside it. Recursive and memoized per struct, because the two
@@ -82,7 +82,7 @@ function makeLayout(
   structs: ReadonlyMap<string, StructDecl>,
   decide: (elem: ShaderType, wrapperSize: number) => void,
 ): (t: ShaderType) => { size: number; align: number } | undefined {
-  const memo = new Map<string, { size: number; align: number } | undefined>()
+  const memo = new Map<string, { size: number; align: number } | undefined>();
   const layout = (
     t: ShaderType,
     seen: ReadonlySet<string>,
@@ -98,21 +98,21 @@ function makeLayout(
       case 'vec':
       case 'mat':
       case 'atomic':
-        return typeLayout(t, 'std430', new Map())
+        return typeLayout(t, 'std430', new Map());
       case 'struct': {
-        if (seen.has(t.name)) return undefined
-        if (memo.has(t.name)) return memo.get(t.name)
-        const decl = structs.get(t.name)
-        if (decl === undefined) return undefined
-        const next = new Set(seen).add(t.name)
-        let cursor = 0
-        let align = 1
-        let ok = true
+        if (seen.has(t.name)) return undefined;
+        if (memo.has(t.name)) return memo.get(t.name);
+        const decl = structs.get(t.name);
+        if (decl === undefined) return undefined;
+        const next = new Set(seen).add(t.name);
+        let cursor = 0;
+        let align = 1;
+        let ok = true;
         for (const f of decl.fields) {
-          const fl = layout(f.type, next)
+          const fl = layout(f.type, next);
           if (fl === undefined) {
-            ok = false
-            break
+            ok = false;
+            break;
           }
           // The field's OWN `@size` and `@align`, where this pass has already written them.
           // Reading the type alone made the walk answer differently on a module it had
@@ -120,24 +120,24 @@ function makeLayout(
           // second application wrapped the wrapper. The pass is a lowering and runs once in
           // the pipeline, but `lowerForBackend` is public and a caller may run it twice; a
           // pass whose second application is not the identity is a trap either way.
-          const size = f.size ?? fl.size
-          const fieldAlign = f.align ?? fl.align
-          cursor = roundUp(cursor, fieldAlign) + size
-          if (fieldAlign > align) align = fieldAlign
+          const size = f.size ?? fl.size;
+          const fieldAlign = f.align ?? fl.align;
+          cursor = roundUp(cursor, fieldAlign) + size;
+          if (fieldAlign > align) align = fieldAlign;
         }
-        const out = ok ? { size: roundUp(cursor, align), align } : undefined
-        memo.set(t.name, out)
-        return out
+        const out = ok ? { size: roundUp(cursor, align), align } : undefined;
+        memo.set(t.name, out);
+        return out;
       }
       case 'array': {
-        if (t.size === undefined) return undefined
-        const el = layout(t.elem, seen)
-        if (el === undefined) return undefined
+        if (t.size === undefined) return undefined;
+        const el = layout(t.elem, seen);
+        if (el === undefined) return undefined;
         // A struct's alignment is the MAXIMUM of its members', not 16: the 16-byte round-up
         // belongs to the address space, not to the type. Reading it as 16 is what let
         // `array<{a: f32, b: f32}, 3>` through with a stride of 8, which Tint refuses.
-        const natural = roundUp(el.size, el.align)
-        const stride = roundUp(natural, UNIFORM_ARRAY_ALIGN)
+        const natural = roundUp(el.size, el.align);
+        const stride = roundUp(natural, UNIFORM_ARRAY_ALIGN);
         // An ARRAY in this address space is 16-aligned whatever its element is:
         // `RequiredAlignOf(array<E, N>)` is `roundUp(16, AlignOf(E))`, which is 16 for every
         // E. The stride and the alignment are two rules, and only the stride depends on the
@@ -145,24 +145,24 @@ function makeLayout(
         // stride 16 already) at offset 4 with no `@align`, which Tint answers with `the
         // offset of a struct member of type 'array<P, 3>' in address space 'uniform' must be
         // a multiple of 16 bytes, but 'xs' is currently at offset 4`.
-        if (stride === natural) return { size: natural * t.size, align: UNIFORM_ARRAY_ALIGN }
-        decide(t.elem, stride)
+        if (stride === natural) return { size: natural * t.size, align: UNIFORM_ARRAY_ALIGN };
+        decide(t.elem, stride);
         // The wrapper gives the ELEMENT its stride; the MEMBER holding the array carries
         // `@align(16)`, which is also what raises the enclosing struct's own alignment.
-        return { size: stride * t.size, align: UNIFORM_ARRAY_ALIGN }
+        return { size: stride * t.size, align: UNIFORM_ARRAY_ALIGN };
       }
       default:
-        return undefined
+        return undefined;
     }
-  }
-  return (t) => layout(t, new Set())
+  };
+  return (t) => layout(t, new Set());
 }
 
 /** A name for the wrapper struct of one element type: `_Pad16_f32`, `_Pad16_vec2_f32_`. The
  *  type key is the authority, so two fields of one element type share a wrapper and the name
  *  is stable across runs (goldens). */
 const wrapperName = (elem: ShaderType): string =>
-  `_Pad16_${typeKey(elem).replace(/[^A-Za-z0-9]/g, '_')}`
+  `_Pad16_${typeKey(elem).replace(/[^A-Za-z0-9]/g, '_')}`;
 
 /** A buffer binding in the uniform address space — the one place the 16-byte array rule
  *  applies. A texture or sampler carries `space: 'uniform'` too (it has no address space of
@@ -172,7 +172,7 @@ const isBufferBinding = (b: BindingDecl): boolean =>
   b.type.kind === 'array' ||
   b.type.kind === 'scalar' ||
   b.type.kind === 'vec' ||
-  b.type.kind === 'mat'
+  b.type.kind === 'mat';
 
 /** Every struct name reachable from `t`, through arrays and nested structs. */
 function reachableStructs(
@@ -180,62 +180,62 @@ function reachableStructs(
   structs: ReadonlyMap<string, StructDecl>,
   out: Set<string>,
 ): void {
-  if (t.kind === 'array') return reachableStructs(t.elem, structs, out)
-  if (t.kind !== 'struct' || out.has(t.name)) return
-  out.add(t.name)
-  for (const f of structs.get(t.name)?.fields ?? []) reachableStructs(f.type, structs, out)
+  if (t.kind === 'array') return reachableStructs(t.elem, structs, out);
+  if (t.kind !== 'struct' || out.has(t.name)) return;
+  out.add(t.name);
+  for (const f of structs.get(t.name)?.fields ?? []) reachableStructs(f.type, structs, out);
 }
 
 /** Pad every uniform-reachable array whose element stride WGSL's uniform rule would round up,
  *  and rewrite the reads that reach through it. Identity for a module with no such array,
  *  which is every module in the corpus but the ones that carry the shape on purpose. */
 export function padUniformArrays(m: ModuleDecl): ModuleDecl {
-  const structs = new Map(m.structs.map((s) => [s.name, s]))
-  const inUniform = new Set<string>()
-  const inStorage = new Set<string>()
+  const structs = new Map(m.structs.map((s) => [s.name, s]));
+  const inUniform = new Set<string>();
+  const inStorage = new Set<string>();
   for (const b of m.bindings) {
-    if (!isBufferBinding(b)) continue
-    reachableStructs(b.type, structs, b.space === 'storage' ? inStorage : inUniform)
+    if (!isBufferBinding(b)) continue;
+    reachableStructs(b.type, structs, b.space === 'storage' ? inStorage : inUniform);
   }
   const bareUniformArrays = m.bindings.filter(
     (b) => b.space !== 'storage' && isBufferBinding(b) && b.type.kind === 'array',
-  )
-  if (inUniform.size === 0 && bareUniformArrays.length === 0) return m
+  );
+  if (inUniform.size === 0 && bareUniformArrays.length === 0) return m;
 
   // (struct name, field name) → the AUTHORED array type, before padding.
-  const padded = new Map<string, Extract<ShaderType, { kind: 'array' }>>()
-  const wrappers = new Map<string, StructDecl>()
-  const wrapperSizes = new Map<string, number>()
+  const padded = new Map<string, Extract<ShaderType, { kind: 'array' }>>();
+  const wrappers = new Map<string, StructDecl>();
+  const wrapperSizes = new Map<string, number>();
   const layoutOf = makeLayout(structs, (elem, size) => {
-    wrapperSizes.set(typeKey(elem), size)
-  })
+    wrapperSizes.set(typeKey(elem), size);
+  });
   // The element's OWN size and alignment, as emitted — to tell an array whose element is
   // already 16-aligned (no `@align` needed) from one that is not (a scalar, a `vec2`, a
   // struct that maxes out under 16). The wrapper recorder plays no part, so it is a no-op.
-  const elemLayoutOf = makeLayout(structs, () => undefined)
+  const elemLayoutOf = makeLayout(structs, () => undefined);
   // A uniform whose WHOLE type is a list has no member to carry the `@align(16)`, and no
   // struct for `reflect()` to describe either — `reflect().uniforms` is empty for one. Refused
   // rather than emitted, since what would be emitted is the very stride Tint rejects.
   for (const b of bareUniformArrays) {
-    if (b.type.kind !== 'array' || b.type.size === undefined) continue
-    wrapperSizes.delete(typeKey(b.type.elem))
-    layoutOf(b.type)
-    if (wrapperSizes.get(typeKey(b.type.elem)) === undefined) continue
+    if (b.type.kind !== 'array' || b.type.size === undefined) continue;
+    wrapperSizes.delete(typeKey(b.type.elem));
+    layoutOf(b.type);
+    if (wrapperSizes.get(typeKey(b.type.elem)) === undefined) continue;
     throw new UnsupportedFeatureError(
       `wgsl: uniform '${b.name}' is a ${typeKey(b.type)}. WGSL aligns every array element in ` +
         `a uniform to 16 bytes, and a bare list has no member to carry that. Wrap it in a ` +
         `struct — interface ${b.name}Data { items: ${typeKey(b.type)} } — or use a list of ` +
         `vec4.`,
-    )
+    );
   }
-  wrapperSizes.clear()
+  wrapperSizes.clear();
 
   const nextStructs = m.structs.map((s) => {
-    if (!inUniform.has(s.name)) return s
-    let changed = false
+    if (!inUniform.has(s.name)) return s;
+    let changed = false;
     const fields = s.fields.map((f) => {
-      if (f.type.kind !== 'array' || f.type.size === undefined) return f
-      const arrayElem = f.type.elem
+      if (f.type.kind !== 'array' || f.type.size === undefined) return f;
+      const arrayElem = f.type.elem;
       // A list of lists, checked BEFORE the layout walk. The inner list's elements are in the
       // uniform address space too, and a wrapper around the outer one leaves their stride
       // untouched — there is nothing here that can emit the bytes `reflect()` reports for
@@ -245,13 +245,13 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
           `wgsl: '${s.name}.${f.name}' is a ${typeKey(f.type)} in a uniform. WGSL aligns every ` +
             `array element to 16 bytes, and a list of lists would need that at both levels. ` +
             `Use a list of a struct, or of a vec4.`,
-        )
+        );
       }
       // The layout walk decides, and records the wrapper size for this element type as it
       // goes; an element whose stride is already a multiple of 16 records nothing.
-      wrapperSizes.delete(typeKey(arrayElem))
-      layoutOf(f.type)
-      const size = wrapperSizes.get(typeKey(arrayElem))
+      wrapperSizes.delete(typeKey(arrayElem));
+      layoutOf(f.type);
+      const size = wrapperSizes.get(typeKey(arrayElem));
       // No wrapper needed — the element's stride is already a multiple of 16 — but the MEMBER
       // may still need `@align(16)`: the array's required alignment in this address space is
       // `roundUp(16, AlignOf(elem))`, so an element whose OWN alignment is under 16 leaves the
@@ -261,11 +261,11 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
       // aligns the array to 16 with no attribute at all — `roundUp(16, 16)` is 16 — so writing
       // one there is noise the emit does not need, and `array<vec4, N>` stays byte-identical.
       if (size === undefined) {
-        const el = elemLayoutOf(arrayElem)
-        const needsAlign = el !== undefined && el.align < UNIFORM_ARRAY_ALIGN
-        if (!needsAlign || f.align === UNIFORM_ARRAY_ALIGN) return f
-        changed = true
-        return { ...f, align: UNIFORM_ARRAY_ALIGN }
+        const el = elemLayoutOf(arrayElem);
+        const needsAlign = el !== undefined && el.align < UNIFORM_ARRAY_ALIGN;
+        if (!needsAlign || f.align === UNIFORM_ARRAY_ALIGN) return f;
+        changed = true;
+        return { ...f, align: UNIFORM_ARRAY_ALIGN };
       }
       // A struct laid out for BOTH address spaces cannot be padded: std430 gives the same
       // array its natural stride, so padding it here would move every byte a host packs for
@@ -278,9 +278,9 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
             `'${f.name}' is a ${typeKey(f.type)}, which the two address spaces lay out ` +
             `differently (a uniform rounds the element stride to 16 bytes, storage does not). ` +
             `Declare one struct per address space.`,
-        )
+        );
       }
-      const name = wrapperName(arrayElem)
+      const name = wrapperName(arrayElem);
       // The generated name is `_`-prefixed, which the `"use typeshade"` front end refuses as
       // a struct name outright — but a hand-built `ModuleDecl` can carry one, and two structs
       // of a name is `redeclaration of '_Pad16_f32'` at Tint. Caught here, where the name is
@@ -290,45 +290,45 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
           `wgsl: this module declares a struct named '${name}', which is the name the uniform ` +
             `layout pass generates for the padded element of '${s.name}.${f.name}' (§51). ` +
             `Rename it; names beginning with '_Pad16_' are reserved for that padding.`,
-        )
+        );
       }
       if (!wrappers.has(name)) {
-        wrappers.set(name, { name, fields: [{ name: WRAPPED_FIELD, type: arrayElem, size }] })
+        wrappers.set(name, { name, fields: [{ name: WRAPPED_FIELD, type: arrayElem, size }] });
       }
-      changed = true
-      padded.set(`${s.name}.${f.name}`, f.type)
+      changed = true;
+      padded.set(`${s.name}.${f.name}`, f.type);
       return {
         ...f,
         align: UNIFORM_ARRAY_ALIGN,
         type: arrayT(structT(name), f.type.size),
-      }
-    })
-    return changed ? { ...s, fields } : s
-  })
+      };
+    });
+    return changed ? { ...s, fields } : s;
+  });
   // No wrapper anywhere: no read has to be rewritten, and no struct has to be added. The
   // ALIGNMENTS may still have moved, though — a uniform array whose element stride is already
   // 16 needs `@align(16)` on its member and nothing else — so the rebuilt structs are carried
   // out, and only a module where nothing at all changed returns `m` unchanged.
   if (wrappers.size === 0) {
-    return nextStructs.every((s, i) => s === m.structs[i]) ? m : { ...m, structs: nextStructs }
+    return nextStructs.every((s, i) => s === m.structs[i]) ? m : { ...m, structs: nextStructs };
   }
 
   /** The authored array type a `member` expression reads, when that member was padded. */
   const paddedMember = (e: Expr): Extract<ShaderType, { kind: 'array' }> | undefined => {
-    if (e.op !== 'member' || e.base.type.kind !== 'struct') return undefined
-    return padded.get(`${e.base.type.name}.${e.field}`)
-  }
+    if (e.op !== 'member' || e.base.type.kind !== 'struct') return undefined;
+    return padded.get(`${e.base.type.name}.${e.field}`);
+  };
 
   const wrapperTypeOf = (arr: Extract<ShaderType, { kind: 'array' }>): ShaderType => ({
     kind: 'struct',
     name: wrapperName(arr.elem),
-  })
+  });
 
   /** The member expression retyped to the padded array it now holds. */
   const retypedMember = (e: Expr, arr: Extract<ShaderType, { kind: 'array' }>): Expr => ({
     ...e,
     type: { kind: 'array', elem: wrapperTypeOf(arr), size: arr.size },
-  })
+  });
 
   // A read through a padded field is one `.v` deeper than the author wrote. Two shapes, and
   // the second is why this walk is written by hand instead of with the bottom-up `mapExpr`:
@@ -342,7 +342,7 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
   // expects, and costs the loads the copy was already going to do.
   const rewrite = (e: Expr): Expr => {
     if (e.op === 'index') {
-      const arr = paddedMember(e.base)
+      const arr = paddedMember(e.base);
       if (arr !== undefined) {
         return {
           op: 'member',
@@ -354,12 +354,12 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
             base: retypedMember(e.base, arr),
             idx: rewrite(e.idx),
           },
-        }
+        };
       }
     }
-    const arr = paddedMember(e)
+    const arr = paddedMember(e);
     if (arr !== undefined && arr.size !== undefined) {
-      const base = retypedMember(e, arr)
+      const base = retypedMember(e, arr);
       return {
         op: 'construct',
         type: arr,
@@ -378,7 +378,7 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
             },
           },
         })),
-      }
+      };
     }
     // Building a padded struct BY VALUE — `fn mk() -> U { return { k: 1., xs: [0., 1.] } }` —
     // hands the constructor an `array<f32, N>` for a member that now holds
@@ -386,15 +386,15 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
     // the member does; Tint otherwise answers `type in structure constructor does not match
     // struct member type`.
     if (e.op === 'construct' && e.type.kind === 'struct') {
-      const structName = e.type.name
-      const decl = structs.get(structName)
+      const structName = e.type.name;
+      const decl = structs.get(structName);
       if (decl !== undefined && inUniform.has(structName)) {
         const args = e.args.map((a, i) => {
-          const field = decl.fields[i]
-          const fieldArr = field && padded.get(`${structName}.${field.name}`)
-          if (fieldArr === undefined || fieldArr.size === undefined) return rewrite(a)
-          const inner = rewrite(a)
-          const wrapperT = wrapperTypeOf(fieldArr)
+          const field = decl.fields[i];
+          const fieldArr = field && padded.get(`${structName}.${field.name}`);
+          if (fieldArr === undefined || fieldArr.size === undefined) return rewrite(a);
+          const inner = rewrite(a);
+          const wrapperT = wrapperTypeOf(fieldArr);
           return {
             op: 'construct' as const,
             type: { kind: 'array' as const, elem: wrapperT, size: fieldArr.size },
@@ -414,25 +414,25 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
                 },
               ],
             })),
-          }
-        })
-        return { ...e, args }
+          };
+        });
+        return { ...e, args };
       }
     }
-    return mapChildren(e, rewrite)
-  }
+    return mapChildren(e, rewrite);
+  };
 
   // A WHOLE-array write to a padded member has no lowering: the read form materialises the
   // array into a constructor, and a constructor is not something to assign to. It can only
   // ever be a write to a LOCAL of a uniform struct's type, since a uniform itself is
   // read-only, so refusing it costs an author nothing they could have run.
-  for (const f of m.funcs) refuseWholeArrayWrites(f.body, paddedMember)
+  for (const f of m.funcs) refuseWholeArrayWrites(f.body, paddedMember);
 
   return {
     ...m,
     structs: orderWrappers(wrappers, nextStructs),
     funcs: m.funcs.map((f) => ({ ...f, body: f.body.map((s) => mapStmtExpr(s, rewrite)) })),
-  }
+  };
 }
 
 /** The declaration order the wrappers go out in: a wrapper over a STRUCT element sits
@@ -447,34 +447,34 @@ function orderWrappers(
   wrappers: ReadonlyMap<string, StructDecl>,
   structs: readonly StructDecl[],
 ): StructDecl[] {
-  const leading: StructDecl[] = []
-  const after = new Map<string, StructDecl[]>()
+  const leading: StructDecl[] = [];
+  const after = new Map<string, StructDecl[]>();
   for (const w of wrappers.values()) {
-    const elem = w.fields[0]?.type
+    const elem = w.fields[0]?.type;
     if (elem?.kind !== 'struct') {
-      leading.push(w)
-      continue
+      leading.push(w);
+      continue;
     }
-    const list = after.get(elem.name) ?? []
-    list.push(w)
-    after.set(elem.name, list)
+    const list = after.get(elem.name) ?? [];
+    list.push(w);
+    after.set(elem.name, list);
   }
-  const out: StructDecl[] = [...leading]
-  const placed = new Set<StructDecl>()
+  const out: StructDecl[] = [...leading];
+  const placed = new Set<StructDecl>();
   for (const s of structs) {
-    out.push(s)
+    out.push(s);
     for (const w of after.get(s.name) ?? []) {
-      out.push(w)
-      placed.add(w)
+      out.push(w);
+      placed.add(w);
     }
   }
   // A wrapper whose element struct is not in the list cannot arise — the element came from
   // a field of one of these structs — but dropping a declaration would emit a module that
   // names a type nothing declares, so an unplaced one leads rather than vanishing.
   for (const list of after.values()) {
-    for (const w of list) if (!placed.has(w)) out.unshift(w)
+    for (const w of list) if (!placed.has(w)) out.unshift(w);
   }
-  return out
+  return out;
 }
 
 /** Throws on `x.padded = …`, the one shape the read rewrite has no assignable form for. */
@@ -487,12 +487,12 @@ function refuseWholeArrayWrites(
       throw new UnsupportedFeatureError(
         `wgsl: '${s.target.op === 'member' ? s.target.field : '?'}' is a uniform-padded list ` +
           `(§51) and cannot be assigned whole. Write its elements one at a time.`,
-      )
+      );
     }
     eachStmtExpr(
       s,
       () => undefined,
       (b) => refuseWholeArrayWrites([b], paddedMember),
-    )
+    );
   }
 }

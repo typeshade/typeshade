@@ -15,23 +15,23 @@
 // module's oracle bit-equality loop over every proj_* fn
 // (map/src/shaders/dsl/optimize.test.ts), and the examples emit-goldens byte gate.
 
-import type { ModuleDecl, FuncDecl } from '../../ir/index.js'
-import { fnWrites, inheritEffects } from '../effects.js'
-import { constProp } from './const-prop.js'
-import { copyProp } from './copy-prop.js'
-import { constFold } from './const-fold.js'
-import { algebraicSimplify } from './algebraic.js'
-import { deadBranch } from './dead-branch.js'
-import { cse } from './cse.js'
-import { cseLocal } from './cse-local.js'
-import { gvn } from './gvn.js'
-import { licm } from './licm.js'
-import { dce } from './dce.js'
-import { duplicateLocalNames } from '../lint/rules/no-shadowed-local.js'
-import { dslError } from '../../diagnostics/error.js'
-import { structCtor } from './struct-ctor.js'
+import type { ModuleDecl, FuncDecl } from '../../ir/index.js';
+import { fnWrites, inheritEffects } from '../effects.js';
+import { constProp } from './const-prop.js';
+import { copyProp } from './copy-prop.js';
+import { constFold } from './const-fold.js';
+import { algebraicSimplify } from './algebraic.js';
+import { deadBranch } from './dead-branch.js';
+import { cse } from './cse.js';
+import { cseLocal } from './cse-local.js';
+import { gvn } from './gvn.js';
+import { licm } from './licm.js';
+import { dce } from './dce.js';
+import { duplicateLocalNames } from '../lint/rules/no-shadowed-local.js';
+import { dslError } from '../../diagnostics/error.js';
+import { structCtor } from './struct-ctor.js';
 
-export type OptPass = (m: ModuleDecl) => ModuleDecl
+export type OptPass = (m: ModuleDecl) => ModuleDecl;
 
 /** The default pipeline. const/copy-prop first (move literals & copies into uses),
  *  then const-fold + algebraic-simplify (collapse the exposed literals / identities),
@@ -73,7 +73,7 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   gvn,
   licm,
   dce,
-]
+];
 
 /** Run an optimizer pass list over a module ONCE, in order, and return the result. Pure — the
  *  input module is not mutated.
@@ -107,30 +107,30 @@ export function optimize(
   // Each pass returns a new module; the effect table (passes/effects.ts) computed for the
   // whole module rides along so a per-function view still knows what every helper writes.
   const step = (mod: ModuleDecl, pass: OptPass): ModuleDecl => {
-    const out = pass(mod)
-    inheritEffects(mod, out)
-    return out
-  }
-  if (onPass === undefined) return passes.reduce(step, m)
+    const out = pass(mod);
+    inheritEffects(mod, out);
+    return out;
+  };
+  if (onPass === undefined) return passes.reduce(step, m);
   return passes.reduce((mod, pass) => {
-    const t0 = nowMs()
-    const out = step(mod, pass)
-    onPass(pass.name, nowMs() - t0)
-    return out
-  }, m)
+    const t0 = nowMs();
+    const out = step(mod, pass);
+    onPass(pass.name, nowMs() - t0);
+    return out;
+  }, m);
 }
 
 /** Called once per pass per fixpoint iteration when profiling (X-GIS #2449). Absent on the
  *  production path, which keeps the plain `reduce` above — a profiler must not be something
  *  the shipped pipeline pays for. */
-export type PassSink = (pass: string, ms: number) => void
+export type PassSink = (pass: string, ms: number) => void;
 
 /** `performance.now()` where it exists (node and every browser), else a monotonic-enough
  *  fallback. Read through globalThis because the package declares no ambient lib types. */
 const nowMs = (): number => {
-  const perf = (globalThis as { performance?: { now(): number } }).performance
-  return perf ? perf.now() : Date.now()
-}
+  const perf = (globalThis as { performance?: { now(): number } }).performance;
+  return perf ? perf.now() : Date.now();
+};
 
 /** Structural equality over the IR — the fixpoint's own convergence test, exported so
  *  `profileEmit` can assert its instrumented optimizer produced the same module as the
@@ -149,33 +149,33 @@ const nowMs = (): number => {
  *  key-order-only difference can never reach emitted bytes — pinned by the
  *  emit-goldens + polygon-variant-diff byte gates. */
 /** Keys that record where a node came from rather than what it means. */
-const isProvenance = (k: string): boolean => k === 'span' || k === 'nameSpan'
+const isProvenance = (k: string): boolean => k === 'span' || k === 'nameSpan';
 
 export function irEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
-  const aArr = Array.isArray(a)
-  if (aArr !== Array.isArray(b)) return false
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  const aArr = Array.isArray(a);
+  if (aArr !== Array.isArray(b)) return false;
   if (aArr) {
-    const aa = a as unknown[]
-    const ba = b as unknown[]
-    if (aa.length !== ba.length) return false
-    for (let i = 0; i < aa.length; i++) if (!irEqual(aa[i], ba[i])) return false
-    return true
+    const aa = a as unknown[];
+    const ba = b as unknown[];
+    if (aa.length !== ba.length) return false;
+    for (let i = 0; i < aa.length; i++) if (!irEqual(aa[i], ba[i])) return false;
+    return true;
   }
-  const ao = a as Record<string, unknown>
-  const bo = b as Record<string, unknown>
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
   // `span`/`nameSpan` are PROVENANCE, never program: they say where a statement was written,
   // and this function asks whether a pass changed what the program DOES. Leaving them in makes
   // two otherwise-equal trees compare unequal whenever a pass rebuilt one of them, which costs
   // the fixpoint an extra iteration — measured at twice the iterations on a registered example
   // when spans first landed. No emitted byte moves either way; the cost was the whole effect.
-  const ak = Object.keys(ao).filter((k) => ao[k] !== undefined && !isProvenance(k))
-  const bk = Object.keys(bo).filter((k) => bo[k] !== undefined && !isProvenance(k))
-  if (ak.length !== bk.length) return false
+  const ak = Object.keys(ao).filter((k) => ao[k] !== undefined && !isProvenance(k));
+  const bk = Object.keys(bo).filter((k) => bo[k] !== undefined && !isProvenance(k));
+  if (ak.length !== bk.length) return false;
   // A key defined on `a` but absent/undefined on `b` fails via irEqual(x, undefined).
-  for (const k of ak) if (!irEqual(ao[k], bo[k])) return false
-  return true
+  for (const k of ak) if (!irEqual(ao[k], bo[k])) return false;
+  return true;
 }
 
 /** Optimize ONE function to a fixed point (X-GIS #1186). Reuses the module-level passes
@@ -205,17 +205,17 @@ function fnFixpoint(
   maxIters: number,
   onPass?: PassSink,
 ): FuncDecl {
-  let cur = fn
+  let cur = fn;
   for (let i = 0; i < maxIters; i++) {
     // One function at a time, but with the WHOLE module's effect table: `store(i)` is a
     // write to `dst` only if the pass can see `store`, which this view does not hold.
-    const view: ModuleDecl = { ...m, funcs: [cur] }
-    inheritEffects(m, view)
-    const next = optimize(view, passes, onPass).funcs[0]!
-    if (irEqual(next, cur)) return next
-    cur = next
+    const view: ModuleDecl = { ...m, funcs: [cur] };
+    inheritEffects(m, view);
+    const next = optimize(view, passes, onPass).funcs[0]!;
+    if (irEqual(next, cur)) return next;
+    cur = next;
   }
-  return cur
+  return cur;
 }
 
 /** The premise every pass below rests on: within one function a binding is identified by its
@@ -233,12 +233,12 @@ function fnFixpoint(
  *  whole pass list it guards, so it is unconditional: a premise that only holds in dev is not
  *  a premise. */
 function assertUniqueLocalNames(fn: FuncDecl): void {
-  const dups = duplicateLocalNames(fn)
-  if (dups.length === 0) return
+  const dups = duplicateLocalNames(fn);
+  if (dups.length === 0) return;
   throw dslError(
     'SD0112',
     `fn '${fn.name}' declares ${dups.map((d) => `'${d.name}'`).join(', ')} more than once`,
-  )
+  );
 }
 
 /** Run `passes` to a fixed point — until each function stops changing — capped at
@@ -260,9 +260,9 @@ export function fixpoint(
   maxIters = 8,
   onPass?: PassSink,
 ): ModuleDecl {
-  for (const fn of m.funcs) assertUniqueLocalNames(fn)
-  fnWrites(m) // computed once for the whole module; every per-function view inherits it
-  return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters, onPass)) }
+  for (const fn of m.funcs) assertUniqueLocalNames(fn);
+  fnWrites(m); // computed once for the whole module; every per-function view inherits it
+  return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters, onPass)) };
 }
 
 // ── Named optimization levels (C-compiler -O0/-O1/-O2) ──
@@ -291,7 +291,7 @@ export function fixpoint(
  *
  *  Exported from `typeshade`.
  */
-export type OptLevel = 'O0' | 'O1' | 'O2'
+export type OptLevel = 'O0' | 'O1' | 'O2';
 
 /** The pass list each level runs to a fixed point.
  *  • O0 — none. Naive lowered emit (debug / the size baseline the optimizer is measured against).
@@ -307,9 +307,9 @@ export const LEVEL_PASSES: Record<OptLevel, readonly OptPass[]> = {
   O0: [],
   O1: [constProp, copyProp, deadBranch, cse, cseLocal, gvn, dce],
   O2: DEFAULT_PASSES,
-}
+};
 
 /** Optimize a module at a named level (fixpoint of that level's passes). O0 is identity. */
 export function optimizeAt(m: ModuleDecl, level: OptLevel): ModuleDecl {
-  return level === 'O0' ? m : fixpoint(m, LEVEL_PASSES[level])
+  return level === 'O0' ? m : fixpoint(m, LEVEL_PASSES[level]);
 }

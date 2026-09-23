@@ -12,20 +12,20 @@
 // `mapModuleExprsPerFunc` (ir-transform.ts) owns skipping a fn with a raw Stmt.
 // What is THIS pass is the one line below — which bindings it admits.
 
-import type { Expr, ModuleDecl } from '../../ir/index.js'
-import { mapModuleExprsPerFunc } from './ir-transform.js'
-import { collectLets, collectMutatedRoots } from './expr-utils.js'
+import type { Expr, ModuleDecl } from '../../ir/index.js';
+import { mapModuleExprsPerFunc } from './ir-transform.js';
+import { collectLets, collectMutatedRoots } from './expr-utils.js';
 
 /** Propagate literal-bound, never-reassigned locals into their uses. Pure (module -> module). */
 export function constProp(m: ModuleDecl): ModuleDecl {
   return mapModuleExprsPerFunc(m, (f) => {
-    const mutated = new Set<string>()
-    collectMutatedRoots(f.body, mutated)
+    const mutated = new Set<string>();
+    collectMutatedRoots(f.body, mutated);
     const consts = collectLets(
       f.body,
       (name, e): e is Extract<Expr, { op: 'lit' }> => e.op === 'lit' && !mutated.has(name),
-    )
-    if (consts.size === 0) return undefined
-    return (e) => (e.op === 'varref' && consts.has(e.name) ? consts.get(e.name)! : e)
-  })
+    );
+    if (consts.size === 0) return undefined;
+    return (e) => (e.op === 'varref' && consts.has(e.name) ? consts.get(e.name)! : e);
+  });
 }

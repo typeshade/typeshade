@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest';
 import {
   module,
   fn,
@@ -13,11 +13,11 @@ import {
   Var,
   type ModuleDecl,
   type Stmt,
-} from '../../ir/index.js'
-import { emitModule } from '../../backends/wgsl.js'
-import { compileModule } from '../../oracle.js'
-import { structDecl, storageBuffer } from '../../sot.js'
-import { gvn } from './gvn.js'
+} from '../../ir/index.js';
+import { emitModule } from '../../backends/wgsl.js';
+import { compileModule } from '../../oracle.js';
+import { structDecl, storageBuffer } from '../../sot.js';
+import { gvn } from './gvn.js';
 
 // gvn numbers a compound, local-touching subexpr that repeats ACROSS statements in a
 // straight-line block — the redundancy cse (input-only) and cse-local (within one
@@ -27,29 +27,29 @@ import { gvn } from './gvn.js'
 /** Count `_gvN` temps gvn introduced (its observable effect — robust to the FnHandle
  *  wrapper, unlike whole-module JSON equality). */
 function gvTempCount(m: ModuleDecl): number {
-  let n = 0
+  let n = 0;
   const walk = (body: readonly Stmt[]): void => {
     for (const s of body) {
-      if ((s.s === 'let' || s.s === 'var') && /^_gv\d+$/.test(s.name)) n++
+      if ((s.s === 'let' || s.s === 'var') && /^_gv\d+$/.test(s.name)) n++;
       if (s.s === 'if') {
-        for (const a of s.arms) walk(a.body)
-        if (s.elseBody) walk(s.elseBody)
-      } else if (s.s === 'for') walk(s.body)
+        for (const a of s.arms) walk(a.body);
+        if (s.elseBody) walk(s.elseBody);
+      } else if (s.s === 'for') walk(s.body);
       else if (s.s === 'switch') {
-        for (const c of s.cases) walk(c.body)
-        if (s.defaultBody) walk(s.defaultBody)
+        for (const c of s.cases) walk(c.body);
+        if (s.defaultBody) walk(s.defaultBody);
       }
     }
-  }
-  for (const f of m.funcs) walk(f.body)
-  return n
+  };
+  for (const f of m.funcs) walk(f.body);
+  return n;
 }
 
 const oracleStable = (m: ModuleDecl, name: string, xs: number[]): void => {
-  const before = compileModule(m).fns[name]!
-  const after = compileModule(gvn(m)).fns[name]!
-  for (const x of xs) expect(after(x), `x=${x}`).toEqual(before(x))
-}
+  const before = compileModule(m).fns[name]!;
+  const after = compileModule(gvn(m)).fns[name]!;
+  for (const x of xs) expect(after(x), `x=${x}`).toEqual(before(x));
+};
 
 describe('gvn — cross-statement value numbering', () => {
   it('hoists a local-touching repeat that spans two statements to one temp', () => {
@@ -58,21 +58,21 @@ describe('gvn — cross-statement value numbering', () => {
     const m = module({
       funcs: [
         fn('f', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), x.mul(3)))
-          const p = b.let('p', normalize(v).x)
-          const q = b.let('q', normalize(v).y)
-          b.ret(p.add(q))
+          const v = b.let('v', vec3(x, x.mul(2), x.mul(3)));
+          const p = b.let('p', normalize(v).x);
+          const q = b.let('q', normalize(v).y);
+          b.ret(p.add(q));
         }),
       ],
-    })
-    const out = gvn(m)
-    expect(gvTempCount(out)).toBeGreaterThanOrEqual(1)
-    const body = emitModule(out)
-    const fbody = body.slice(body.indexOf('fn f('))
-    const calls = (fbody.match(/normalize\(/g) ?? []).length
-    expect(calls, `normalize should emit once after gvn, got ${calls}:\n${fbody}`).toBe(1)
-    oracleStable(m, 'f', [1, 2, 3.5, -4, 0.25])
-  })
+    });
+    const out = gvn(m);
+    expect(gvTempCount(out)).toBeGreaterThanOrEqual(1);
+    const body = emitModule(out);
+    const fbody = body.slice(body.indexOf('fn f('));
+    const calls = (fbody.match(/normalize\(/g) ?? []).length;
+    expect(calls, `normalize should emit once after gvn, got ${calls}:\n${fbody}`).toBe(1);
+    oracleStable(m, 'f', [1, 2, 3.5, -4, 0.25]);
+  });
 
   it('does NOT number across a reassignment of a referenced root', () => {
     // v is mutated BETWEEN the two normalize(v) uses, so the two values differ — the
@@ -80,63 +80,63 @@ describe('gvn — cross-statement value numbering', () => {
     const m = module({
       funcs: [
         fn('g', { x: f32T }, f32T, ({ x }, b) => {
-          const v = Var(vec3(x, x, x))
-          const p = b.let('p', normalize(v).x)
-          v.assign(v.add(vec3(1, 1, 1))) // mutate v in the span
-          const q = b.let('q', normalize(v).y)
-          b.ret(p.add(q))
+          const v = Var(vec3(x, x, x));
+          const p = b.let('p', normalize(v).x);
+          v.assign(v.add(vec3(1, 1, 1))); // mutate v in the span
+          const q = b.let('q', normalize(v).y);
+          b.ret(p.add(q));
         }),
       ],
-    })
-    expect(gvTempCount(gvn(m))).toBe(0) // nothing hoisted
-    oracleStable(m, 'g', [1, 2, 3.5, -4, 0.25])
-  })
+    });
+    expect(gvTempCount(gvn(m))).toBe(0); // nothing hoisted
+    oracleStable(m, 'g', [1, 2, 3.5, -4, 0.25]);
+  });
 
   it('leaves input-only repeats alone (that is cse’s job, not gvn’s)', () => {
     // x*x is input-only (x is a param) — gvn targets only local-touching repeats.
     const m = module({
       funcs: [
         fn('h', { x: f32T }, f32T, ({ x }, b) => {
-          const p = b.let('p', x.mul(x).add(1))
-          const q = b.let('q', x.mul(x).mul(2))
-          b.ret(p.add(q))
+          const p = b.let('p', x.mul(x).add(1));
+          const q = b.let('q', x.mul(x).mul(2));
+          b.ret(p.add(q));
         }),
       ],
-    })
-    expect(gvTempCount(gvn(m))).toBe(0)
-  })
+    });
+    expect(gvTempCount(gvn(m))).toBe(0);
+  });
 
   it('does NOT lift a repeat that only occurs under a short-circuit (||) RHS', () => {
     const m = module({
       funcs: [
         fn('k', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x, x))
+          const v = b.let('v', vec3(x, x, x));
           // normalize(v) appears only inside the guarded RHS of two ORs (different stmts).
-          const p = b.let('p', x.gt(0).or(normalize(v).x.gt(0.5)).select(f32(1), f32(0)))
-          const q = b.let('q', x.gt(0).or(normalize(v).y.gt(0.5)).select(f32(2), f32(0)))
-          b.ret(p.add(q))
+          const p = b.let('p', x.gt(0).or(normalize(v).x.gt(0.5)).select(f32(1), f32(0)));
+          const q = b.let('q', x.gt(0).or(normalize(v).y.gt(0.5)).select(f32(2), f32(0)));
+          b.ret(p.add(q));
         }),
       ],
-    })
-    expect(gvTempCount(gvn(m))).toBe(0) // guarded -> excluded
-    oracleStable(m, 'k', [1, -2, 0.5])
-  })
+    });
+    expect(gvTempCount(gvn(m))).toBe(0); // guarded -> excluded
+    oracleStable(m, 'k', [1, -2, 0.5]);
+  });
 
   it('bails out on a fn containing a raw Stmt', () => {
     const base = module({
       funcs: [
         fn('f', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(x.mul(2))
+          b.ret(x.mul(2));
         }),
       ],
-    })
+    });
     const withRaw: ModuleDecl = {
       ...base,
       funcs: [{ ...base.funcs[0]!, body: [{ s: 'raw', wgsl: 'return x * 2.0;' }] }],
-    }
-    expect(gvTempCount(gvn(withRaw))).toBe(0) // untouched
-  })
-})
+    };
+    expect(gvTempCount(gvn(withRaw))).toBe(0); // untouched
+  });
+});
 
 // ═══ Control-flow CONDITIONS (X-GIS #1886) ═══
 //
@@ -160,24 +160,24 @@ describe('gvn — control-flow conditions (X-GIS #1886)', () => {
     const m = module({
       funcs: [
         fn('c', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x, x))
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x, x));
+          const r = Var(f32(0));
           b.if(normalize(v).x.gt(0.5), () => {
-            r.assign(f32(1))
-          })
-          const q = b.let('q', normalize(v).y)
-          b.ret(r.add(q))
+            r.assign(f32(1));
+          });
+          const q = b.let('q', normalize(v).y);
+          b.ret(r.add(q));
         }),
       ],
-    })
-    const out = gvn(m)
-    expect(gvTempCount(out)).toBeGreaterThanOrEqual(1)
-    const wgsl = emitModule(out)
-    const fbody = wgsl.slice(wgsl.indexOf('fn c('))
-    const calls = (fbody.match(/normalize\(/g) ?? []).length
-    expect(calls, `normalize should emit once after gvn, got ${calls}:\n${fbody}`).toBe(1)
-    oracleStable(m, 'c', [1, 2, -3, 0.25])
-  })
+    });
+    const out = gvn(m);
+    expect(gvTempCount(out)).toBeGreaterThanOrEqual(1);
+    const wgsl = emitModule(out);
+    const fbody = wgsl.slice(wgsl.indexOf('fn c('));
+    const calls = (fbody.match(/normalize\(/g) ?? []).length;
+    expect(calls, `normalize should emit once after gvn, got ${calls}:\n${fbody}`).toBe(1);
+    oracleStable(m, 'c', [1, 2, -3, 0.25]);
+  });
 
   it('does NOT number from an `else if` condition — the arm before it guards it', () => {
     // Hoisting normalize(v) to before the `if` would evaluate it on the x > 0 path,
@@ -186,21 +186,21 @@ describe('gvn — control-flow conditions (X-GIS #1886)', () => {
     const m = module({
       funcs: [
         fn('e', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x, x))
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x, x));
+          const r = Var(f32(0));
           b.if(x.gt(0), () => {
-            r.assign(f32(1))
+            r.assign(f32(1));
           }).elif(normalize(v).x.gt(0.5), () => {
-            r.assign(f32(2))
-          })
-          const q = b.let('q', normalize(v).y)
-          b.ret(r.add(q))
+            r.assign(f32(2));
+          });
+          const q = b.let('q', normalize(v).y);
+          b.ret(r.add(q));
         }),
       ],
-    })
-    expect(gvTempCount(gvn(m))).toBe(0)
-    oracleStable(m, 'e', [1, -2, 0.5])
-  })
+    });
+    expect(gvTempCount(gvn(m))).toBe(0);
+    oracleStable(m, 'e', [1, -2, 0.5]);
+  });
 
   it('does NOT number from a `for` condition — it is re-evaluated per iteration', () => {
     // A loop condition runs once per iteration; lifting one out is loop-invariance,
@@ -215,8 +215,8 @@ describe('gvn — control-flow conditions (X-GIS #1886)', () => {
     const m = module({
       funcs: [
         fn('l', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x, x))
-          const acc = b.var('acc', f32T, f32(0))
+          const v = b.let('v', vec3(x, x, x));
+          const acc = b.var('acc', f32T, f32(0));
           b.forRange(
             'i',
             i32(0),
@@ -225,18 +225,18 @@ describe('gvn — control-flow conditions (X-GIS #1886)', () => {
                 .x.gt(-2)
                 .and(i.lt(i32(2))),
             (cb) => {
-              cb.addAssign(acc, f32(1))
+              cb.addAssign(acc, f32(1));
             },
-          )
-          const q = b.let('q', normalize(v).y)
-          b.ret(acc.add(q))
+          );
+          const q = b.let('q', normalize(v).y);
+          b.ret(acc.add(q));
         }),
       ],
-    })
-    expect(gvTempCount(gvn(m))).toBe(0)
-    oracleStable(m, 'l', [1, -2, 0.5])
-  })
-})
+    });
+    expect(gvTempCount(gvn(m))).toBe(0);
+    oracleStable(m, 'l', [1, -2, 0.5]);
+  });
+});
 
 // ═══ Cross-block reuse: an inner block may read an enclosing block's temp (X-GIS #1886) ═══
 //
@@ -255,24 +255,24 @@ describe('gvn — cross-block reuse (X-GIS #1886)', () => {
     const m = module({
       funcs: [
         fn('d', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x, x))
-          const p = b.let('p', normalize(v).x) // outer occurrence 1
-          const q = b.let('q', normalize(v).y) // outer occurrence 2 -> mints the temp
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x, x));
+          const p = b.let('p', normalize(v).x); // outer occurrence 1
+          const q = b.let('q', normalize(v).y); // outer occurrence 2 -> mints the temp
+          const r = Var(f32(0));
           b.if(x.gt(0), () => {
-            r.assign(normalize(v).z) // inner: must read the temp, not recompute
-          })
-          b.ret(p.add(q).add(r))
+            r.assign(normalize(v).z); // inner: must read the temp, not recompute
+          });
+          b.ret(p.add(q).add(r));
         }),
       ],
-    })
-    const out = gvn(m)
-    const wgsl = emitModule(out)
-    const fbody = wgsl.slice(wgsl.indexOf('fn d('))
-    const calls = (fbody.match(/normalize\(/g) ?? []).length
-    expect(calls, `normalize should emit once after gvn, got ${calls}:\n${fbody}`).toBe(1)
-    oracleStable(m, 'd', [1, 2, -3, 0.25])
-  })
+    });
+    const out = gvn(m);
+    const wgsl = emitModule(out);
+    const fbody = wgsl.slice(wgsl.indexOf('fn d('));
+    const calls = (fbody.match(/normalize\(/g) ?? []).length;
+    expect(calls, `normalize should emit once after gvn, got ${calls}:\n${fbody}`).toBe(1);
+    oracleStable(m, 'd', [1, 2, -3, 0.25]);
+  });
 
   it('does NOT reuse it past a statement that mutates a root the expr reads', () => {
     // The temp is bound from the pre-mutation `v`; inside the `if`, `normalize(v)` is a
@@ -281,25 +281,25 @@ describe('gvn — cross-block reuse (X-GIS #1886)', () => {
     const m = module({
       funcs: [
         fn('dm', { x: f32T }, f32T, ({ x }, b) => {
-          const v = Var(vec3(x, x, x))
-          const p = b.let('p', normalize(v).x)
-          const q = b.let('q', normalize(v).y) // mints on the pre-mutation v
-          v.assign(v.add(vec3(1, 1, 1))) // …then v changes
-          const r = Var(f32(0))
+          const v = Var(vec3(x, x, x));
+          const p = b.let('p', normalize(v).x);
+          const q = b.let('q', normalize(v).y); // mints on the pre-mutation v
+          v.assign(v.add(vec3(1, 1, 1))); // …then v changes
+          const r = Var(f32(0));
           b.if(x.gt(0), () => {
-            r.assign(normalize(v).z) // post-mutation value — must recompute
-          })
-          b.ret(p.add(q).add(r))
+            r.assign(normalize(v).z); // post-mutation value — must recompute
+          });
+          b.ret(p.add(q).add(r));
         }),
       ],
-    })
-    const out = gvn(m)
-    const wgsl = emitModule(out)
-    const fbody = wgsl.slice(wgsl.indexOf('fn dm('))
-    const calls = (fbody.match(/normalize\(/g) ?? []).length
-    expect(calls, `the post-mutation normalize must survive, got ${calls}:\n${fbody}`).toBe(2)
-    oracleStable(m, 'dm', [1, 2, -3, 0.25])
-  })
+    });
+    const out = gvn(m);
+    const wgsl = emitModule(out);
+    const fbody = wgsl.slice(wgsl.indexOf('fn dm('));
+    const calls = (fbody.match(/normalize\(/g) ?? []).length;
+    expect(calls, `the post-mutation normalize must survive, got ${calls}:\n${fbody}`).toBe(2);
+    oracleStable(m, 'dm', [1, 2, -3, 0.25]);
+  });
 
   it('does NOT reuse it inside a loop whose body mutates a root the expr reads', () => {
     // The back edge is what makes this different from the `if` above: iteration 2 sees
@@ -307,31 +307,31 @@ describe('gvn — cross-block reuse (X-GIS #1886)', () => {
     const m = module({
       funcs: [
         fn('dl', { x: f32T }, f32T, ({ x }, b) => {
-          const v = Var(vec3(x, x, x))
-          const p = b.let('p', normalize(v).x)
-          const q = b.let('q', normalize(v).y) // mints before the loop
-          const acc = b.var('acc', f32T, f32(0))
+          const v = Var(vec3(x, x, x));
+          const p = b.let('p', normalize(v).x);
+          const q = b.let('q', normalize(v).y); // mints before the loop
+          const acc = b.var('acc', f32T, f32(0));
           b.forRange(
             'i',
             i32(0),
             (i) => i.lt(i32(2)),
             (cb) => {
-              cb.addAssign(acc, normalize(v).z) // stale after the mutation below
-              v.assign(v.add(vec3(1, 1, 1)))
+              cb.addAssign(acc, normalize(v).z); // stale after the mutation below
+              v.assign(v.add(vec3(1, 1, 1)));
             },
-          )
-          b.ret(p.add(q).add(acc))
+          );
+          b.ret(p.add(q).add(acc));
         }),
       ],
-    })
-    const out = gvn(m)
-    const wgsl = emitModule(out)
-    const fbody = wgsl.slice(wgsl.indexOf('fn dl('))
-    const calls = (fbody.match(/normalize\(/g) ?? []).length
-    expect(calls, `the in-loop normalize must survive, got ${calls}:\n${fbody}`).toBe(2)
-    oracleStable(m, 'dl', [1, 2, -3, 0.25])
-  })
-})
+    });
+    const out = gvn(m);
+    const wgsl = emitModule(out);
+    const fbody = wgsl.slice(wgsl.indexOf('fn dl('));
+    const calls = (fbody.match(/normalize\(/g) ?? []).length;
+    expect(calls, `the in-loop normalize must survive, got ${calls}:\n${fbody}`).toBe(2);
+    oracleStable(m, 'dl', [1, 2, -3, 0.25]);
+  });
+});
 
 // ═══ Indexing a BINDING is a memory load, not free navigation (X-GIS #1886) ═══
 //
@@ -345,26 +345,26 @@ describe('gvn — cross-block reuse (X-GIS #1886)', () => {
 // storage buffer hits it, and a driver cannot reliably CSE a load through a dynamic
 // index it must assume may alias.
 describe('gvn — indexing a binding (X-GIS #1886)', () => {
-  const Slot = structDecl('GvnSlot', { id: u32T, size: f32T })
+  const Slot = structDecl('GvnSlot', { id: u32T, size: f32T });
 
   it('collapses a repeated `buf.at(i).field` across two statements', () => {
-    const buf = storageBuffer('gvn_buf', Slot, { group: 0, binding: 0, access: 'read' })
+    const buf = storageBuffer('gvn_buf', Slot, { group: 0, binding: 0, access: 'read' });
     const m = module({
       uses: [buf],
       funcs: [
         fn('bi', { x: f32T }, f32T, ({ x }, b) => {
-          const i = b.let('i', u32(3))
-          const p = b.let('p', buf.at(i).size.mul(x))
-          const q = b.let('q', buf.at(i).size.add(1))
-          b.ret(p.add(q))
+          const i = b.let('i', u32(3));
+          const p = b.let('p', buf.at(i).size.mul(x));
+          const q = b.let('q', buf.at(i).size.add(1));
+          b.ret(p.add(q));
         }),
       ],
-    })
-    const wgsl = emitModule(gvn(m))
-    const fbody = wgsl.slice(wgsl.indexOf('fn bi('))
-    const loads = (fbody.match(/gvn_buf\[/g) ?? []).length
-    expect(loads, `the buffer should be indexed once, got ${loads}:\n${fbody}`).toBe(1)
-  })
+    });
+    const wgsl = emitModule(gvn(m));
+    const fbody = wgsl.slice(wgsl.indexOf('fn bi('));
+    const loads = (fbody.match(/gvn_buf\[/g) ?? []).length;
+    expect(loads, `the buffer should be indexed once, got ${loads}:\n${fbody}`).toBe(1);
+  });
 
   it('does NOT collapse the same shape on a LOCAL array — only a binding is a load', () => {
     // The binding restriction is what does the work, and this is the arm that proves it:
@@ -376,16 +376,16 @@ describe('gvn — indexing a binding (X-GIS #1886)', () => {
     const m = module({
       funcs: [
         fn('bl', { x: f32T }, f32T, ({ x }, b) => {
-          const i = b.let('i', u32(1))
-          const arr = b.let('arr', arrayLit(f32T, f32(1), f32(2), f32(3)))
-          const p = b.let('p', arr.at(i, f32T).mul(x))
-          const q = b.let('q', arr.at(i, f32T).add(1))
-          b.ret(p.add(q))
+          const i = b.let('i', u32(1));
+          const arr = b.let('arr', arrayLit(f32T, f32(1), f32(2), f32(3)));
+          const p = b.let('p', arr.at(i, f32T).mul(x));
+          const q = b.let('q', arr.at(i, f32T).add(1));
+          b.ret(p.add(q));
         }),
       ],
-    })
-    expect(gvTempCount(gvn(m))).toBe(0)
-  })
+    });
+    expect(gvTempCount(gvn(m))).toBe(0);
+  });
 
   it('does NOT collapse across a WRITE to the same read_write binding', () => {
     // The safety arm. Widening the predicate makes the load a CANDIDATE; every guard
@@ -394,19 +394,19 @@ describe('gvn — indexing a binding (X-GIS #1886)', () => {
     // through its index/member chain, so a written `read_write` binding lands in the
     // mutated set and the span check rejects the pair. This arm is what fails if the
     // new path ever reaches the hoist without passing that check.
-    const rw = storageBuffer('gvn_rw', f32T, { group: 0, binding: 1, access: 'read_write' })
+    const rw = storageBuffer('gvn_rw', f32T, { group: 0, binding: 1, access: 'read_write' });
     const m = module({
       uses: [rw],
       funcs: [
         fn('brw', { x: f32T }, f32T, ({ x }, b) => {
-          const i = b.let('i', u32(1))
-          const p = b.let('p', rw.at(i).mul(x))
-          rw.at(i).assign(f32(7))
-          const q = b.let('q', rw.at(i).add(1))
-          b.ret(p.add(q))
+          const i = b.let('i', u32(1));
+          const p = b.let('p', rw.at(i).mul(x));
+          rw.at(i).assign(f32(7));
+          const q = b.let('q', rw.at(i).add(1));
+          b.ret(p.add(q));
         }),
       ],
-    })
-    expect(emitModule(gvn(m))).not.toMatch(/_gv\d+ = gvn_rw\[/)
-  })
-})
+    });
+    expect(emitModule(gvn(m))).not.toMatch(/_gv\d+ = gvn_rw\[/);
+  });
+});

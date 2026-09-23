@@ -23,7 +23,7 @@
 //
 // See `docs/debugging.md` §3 for the design this implements.
 
-import type { Expr, FuncDecl, Stmt } from './nodes.js'
+import type { Expr, FuncDecl, Stmt } from './nodes.js';
 
 /** Where an IR node came from in its authored source: the file, the exact UTF-16 offsets, and
  *  the line and character of each end for display.
@@ -54,19 +54,19 @@ import type { Expr, FuncDecl, Stmt } from './nodes.js'
 export interface SourceSpan {
   /** The compilation unit's file name: the one the caller named, or the compiler's own default
    *  when the caller named none (`compileTsSource` supplies `typeshade-input.ts`). */
-  readonly file: string
+  readonly file: string;
   /** UTF-16 code-unit offset of the first character, into that file's text. */
-  readonly start: number
+  readonly start: number;
   /** Length in UTF-16 code units. `start + length` is the exclusive end offset. */
-  readonly length: number
+  readonly length: number;
   /** Zero-based line of `start`. */
-  readonly line: number
+  readonly line: number;
   /** Zero-based UTF-16 character of `start` within its line. */
-  readonly character: number
+  readonly character: number;
   /** Zero-based line of the exclusive end offset. */
-  readonly endLine: number
+  readonly endLine: number;
   /** Zero-based UTF-16 character of the exclusive end offset within its line. */
-  readonly endCharacter: number
+  readonly endCharacter: number;
 }
 
 /** The authored source span of an IR node, or `undefined` when it has none.
@@ -108,5 +108,5 @@ export interface SourceSpan {
  *  @see {@link SourceSpan} for the shape it returns.
  */
 export function sourceSpanOf(node: Stmt | Expr | FuncDecl): SourceSpan | undefined {
-  return (node as { readonly span?: SourceSpan }).span
+  return (node as { readonly span?: SourceSpan }).span;
 }

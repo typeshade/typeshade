@@ -4,17 +4,17 @@
 // backend's `preOptimize` hook). A module assembled here is the other authoring surface, and
 // it is the one that would carry a regression neither the goldens nor the front-end tests see.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest';
 import {
   canonicalInterpolation,
   emittedInterpolation,
   flatIntegerVaryings,
   isIntegerVarying,
-} from './varying-interpolate.js'
-import { interstageMismatches } from './lint/rules/interstage-io.js'
-import { emitModule, emitModuleAt } from '../backends/wgsl.js'
-import type { Expr, FuncDecl, ModuleDecl, StructDecl } from '../ir/nodes.js'
-import { f32T, u32T, vec2fT, vec2uT, vec4fT, structT } from '../ir/types.js'
+} from './varying-interpolate.js';
+import { interstageMismatches } from './lint/rules/interstage-io.js';
+import { emitModule, emitModuleAt } from '../backends/wgsl.js';
+import type { Expr, FuncDecl, ModuleDecl, StructDecl } from '../ir/nodes.js';
+import { f32T, u32T, vec2fT, vec2uT, vec4fT, structT } from '../ir/types.js';
 
 const vsOut = (id: { type: typeof u32T | typeof vec2fT; interpolate?: string }): StructDecl => ({
   name: 'VsOut',
@@ -28,40 +28,40 @@ const vsOut = (id: { type: typeof u32T | typeof vec2fT; interpolate?: string }):
       ...(id.interpolate !== undefined ? { interpolate: id.interpolate } : {}),
     },
   ],
-})
+});
 
 const entry = (
   name: string,
   stage: FuncDecl['stage'],
   ret: FuncDecl['ret'],
   params: FuncDecl['params'] = [],
-): FuncDecl => ({ name, params, ret, body: [], stage })
+): FuncDecl => ({ name, params, ret, body: [], stage });
 
 describe('the integer-varying predicate, shared by both writers and the interstage rule', () => {
   it('is the integer scalars and their vectors, and nothing else', () => {
-    expect(isIntegerVarying(u32T)).toBe(true)
-    expect(isIntegerVarying(vec2uT)).toBe(true)
-    expect(isIntegerVarying(f32T)).toBe(false)
-    expect(isIntegerVarying(vec2fT)).toBe(false)
-  })
+    expect(isIntegerVarying(u32T)).toBe(true);
+    expect(isIntegerVarying(vec2uT)).toBe(true);
+    expect(isIntegerVarying(f32T)).toBe(false);
+    expect(isIntegerVarying(vec2fT)).toBe(false);
+  });
 
   it('answers what the pass will write, before the pass runs', () => {
-    expect(emittedInterpolation({ type: u32T, location: 0 })).toBe('flat')
-    expect(emittedInterpolation({ type: vec2fT, location: 0 })).toBeUndefined()
+    expect(emittedInterpolation({ type: u32T, location: 0 })).toBe('flat');
+    expect(emittedInterpolation({ type: vec2fT, location: 0 })).toBeUndefined();
     // A `@builtin` has no location and takes no attribute.
-    expect(emittedInterpolation({ type: u32T })).toBeUndefined()
+    expect(emittedInterpolation({ type: u32T })).toBeUndefined();
     // What the author wrote wins, because the pass leaves it alone.
-    expect(emittedInterpolation({ type: vec2fT, location: 0, interpolate: 'flat' })).toBe('flat')
-  })
+    expect(emittedInterpolation({ type: vec2fT, location: 0, interpolate: 'flat' })).toBe('flat');
+  });
 
   it("fills in WGSL's own sampling defaults so two spellings compare equal", () => {
-    expect(canonicalInterpolation('flat')).toBe(canonicalInterpolation('flat, first'))
-    expect(canonicalInterpolation(undefined)).toBe(canonicalInterpolation('perspective'))
-    expect(canonicalInterpolation(undefined)).toBe(canonicalInterpolation('perspective, center'))
-    expect(canonicalInterpolation('linear')).toBe('linear, center')
-    expect(canonicalInterpolation('flat')).not.toBe(canonicalInterpolation('flat, either'))
-  })
-})
+    expect(canonicalInterpolation('flat')).toBe(canonicalInterpolation('flat, first'));
+    expect(canonicalInterpolation(undefined)).toBe(canonicalInterpolation('perspective'));
+    expect(canonicalInterpolation(undefined)).toBe(canonicalInterpolation('perspective, center'));
+    expect(canonicalInterpolation('linear')).toBe('linear, center');
+    expect(canonicalInterpolation('flat')).not.toBe(canonicalInterpolation('flat, either'));
+  });
+});
 
 describe('flatIntegerVaryings, on the IR', () => {
   const moduleWith = (s: StructDecl, fragParams: FuncDecl['params'] = []): ModuleDecl => ({
@@ -74,47 +74,47 @@ describe('flatIntegerVaryings, on the IR', () => {
         ...(fragParams.length > 0 ? fragParams : [{ name: 'v', type: structT('VsOut') }]),
       ]),
     ],
-  })
+  });
 
   it('gives an integer varying the attribute and leaves a float one alone', () => {
-    const out = flatIntegerVaryings(moduleWith(vsOut({ type: u32T })))
-    const id = out.structs[0]!.fields[1]!
-    expect(id.interpolate).toBe('flat')
-    expect(id.attr).toBe('@location(0) @interpolate(flat)')
-    const float = flatIntegerVaryings(moduleWith(vsOut({ type: vec2fT })))
-    expect(float.structs[0]!.fields[1]!.interpolate).toBeUndefined()
-  })
+    const out = flatIntegerVaryings(moduleWith(vsOut({ type: u32T })));
+    const id = out.structs[0]!.fields[1]!;
+    expect(id.interpolate).toBe('flat');
+    expect(id.attr).toBe('@location(0) @interpolate(flat)');
+    const float = flatIntegerVaryings(moduleWith(vsOut({ type: vec2fT })));
+    expect(float.structs[0]!.fields[1]!.interpolate).toBeUndefined();
+  });
 
   it('is the identity for a module it changes nothing in, so the emit cannot move', () => {
-    const m = moduleWith(vsOut({ type: vec2fT }))
-    expect(flatIntegerVaryings(m)).toBe(m)
-  })
+    const m = moduleWith(vsOut({ type: vec2fT }));
+    expect(flatIntegerVaryings(m)).toBe(m);
+  });
 
   it('leaves an interpolation the author already wrote exactly as it is', () => {
-    const out = flatIntegerVaryings(moduleWith(vsOut({ type: u32T, interpolate: 'flat, either' })))
-    expect(out.structs[0]!.fields[1]!.interpolate).toBe('flat, either')
-  })
+    const out = flatIntegerVaryings(moduleWith(vsOut({ type: u32T, interpolate: 'flat, either' })));
+    expect(out.structs[0]!.fields[1]!.interpolate).toBe('flat, either');
+  });
 
   it('reaches a bare fragment PARAMETER, which no struct rewrite would', () => {
-    const m = moduleWith(vsOut({ type: u32T }), [{ name: 'id', type: u32T, location: 0 }])
-    const fs = flatIntegerVaryings(m).funcs.find((f) => f.name === 'fs')!
-    expect(fs.params[0]!.attr).toBe('@location(0) @interpolate(flat)')
+    const m = moduleWith(vsOut({ type: u32T }), [{ name: 'id', type: u32T, location: 0 }]);
+    const fs = flatIntegerVaryings(m).funcs.find((f) => f.name === 'fs')!;
+    expect(fs.params[0]!.attr).toBe('@location(0) @interpolate(flat)');
     // A VERTEX entry's `@location` parameters are vertex attributes, not varyings.
     const vertexIn: ModuleDecl = {
       consts: [],
       structs: [],
       bindings: [],
       funcs: [entry('vs', 'vertex', vec4fT, [{ name: 'a', type: u32T, location: 0 }])],
-    }
-    expect(flatIntegerVaryings(vertexIn)).toBe(vertexIn)
-  })
-})
+    };
+    expect(flatIntegerVaryings(vertexIn)).toBe(vertexIn);
+  });
+});
 
 describe('the flattening is a LOWERING, so every emit entry runs it', () => {
   // A module complete enough to EMIT — every path returns — which is what separates this from
   // the identity checks above: the question here is not what the pass does but whether the
   // writer ever reaches it.
-  const zero: Expr = { op: 'lit', type: f32T, value: 0 }
+  const zero: Expr = { op: 'lit', type: f32T, value: 0 };
   const emittable: ModuleDecl = {
     consts: [],
     structs: [vsOut({ type: u32T })],
@@ -147,7 +147,7 @@ describe('the flattening is a LOWERING, so every emit entry runs it', () => {
         body: [{ s: 'return', expr: { op: 'construct', type: vec4fT, args: [zero] } }],
       },
     ],
-  }
+  };
 
   it('writes @interpolate(flat) at every optimization level, not only the default', () => {
     // `flatIntegerVaryings` lived in the WGSL backend's `optimize`, which only the default
@@ -157,11 +157,11 @@ describe('the flattening is a LOWERING, so every emit entry runs it', () => {
     // '@interpolate(flat)'` on Tint, at every level but one. A lowering a module is wrong
     // without is not an optimization, so it runs before either tier now.
     for (const level of ['O0', 'O1', 'O2'] as const) {
-      expect(emitModuleAt(emittable, level), level).toContain('@interpolate(flat) id: u32,')
+      expect(emitModuleAt(emittable, level), level).toContain('@interpolate(flat) id: u32,');
     }
-    expect(emitModule(emittable)).toContain('@interpolate(flat) id: u32,')
-  })
-})
+    expect(emitModule(emittable)).toContain('@interpolate(flat) id: u32,');
+  });
+});
 
 describe('interstageMismatches, on the IR', () => {
   const pair = (out: StructDecl, into: StructDecl): ModuleDecl => ({
@@ -172,7 +172,7 @@ describe('interstageMismatches, on the IR', () => {
       entry('vs', 'vertex', structT(out.name)),
       entry('fs', 'fragment', vec4fT, [{ name: 'v', type: structT(into.name) }]),
     ],
-  })
+  });
 
   const fsIn = (type: typeof u32T | typeof vec2fT, interpolate?: string): StructDecl => ({
     name: 'FsIn',
@@ -186,27 +186,27 @@ describe('interstageMismatches, on the IR', () => {
         ...(interpolate !== undefined ? { interpolate } : {}),
       },
     ],
-  })
+  });
 
   it('is silent when the two sides agree', () => {
     expect(
       interstageMismatches([vsOut({ type: u32T })], pair(vsOut({ type: u32T }), fsIn(u32T)).funcs),
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('names both sides of a type mismatch', () => {
-    const m = pair(vsOut({ type: u32T }), fsIn(vec2fT))
-    const found = interstageMismatches(m.structs, m.funcs)
-    expect(found).toHaveLength(1)
-    expect(found[0]!.message).toContain('leaves "vs" as u32')
-    expect(found[0]!.message).toContain('enters "fs" as vec2<f32>')
-    expect(found[0]!.fragment).toBe('fs')
-  })
+    const m = pair(vsOut({ type: u32T }), fsIn(vec2fT));
+    const found = interstageMismatches(m.structs, m.funcs);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.message).toContain('leaves "vs" as u32');
+    expect(found[0]!.message).toContain('enters "fs" as vec2<f32>');
+    expect(found[0]!.fragment).toBe('fs');
+  });
 
   it('takes the derived flat on one side and the written one on the other', () => {
-    const m = pair(vsOut({ type: u32T, interpolate: 'flat' }), fsIn(u32T))
-    expect(interstageMismatches(m.structs, m.funcs)).toEqual([])
-  })
+    const m = pair(vsOut({ type: u32T, interpolate: 'flat' }), fsIn(u32T));
+    expect(interstageMismatches(m.structs, m.funcs)).toEqual([]);
+  });
 
   it('refuses two names at one slot, because GLSL ES 3.00 links a varying by NAME', () => {
     // Measured on a real WebGL2 context: this writer emits no explicit location for a
@@ -221,18 +221,18 @@ describe('interstageMismatches, on the IR', () => {
         { name: 'pos', type: vec4fT, builtin: 'position', attr: '@builtin(position)' },
         { name: 'texCoord', type: u32T, location: 0, attr: '@location(0)' },
       ],
-    }
-    const m = pair(vsOut({ type: u32T }), renamed)
-    const found = interstageMismatches(m.structs, m.funcs)
-    expect(found).toHaveLength(1)
-    expect(found[0]!.message).toContain('leaves "vs" as "id"')
-    expect(found[0]!.message).toContain('enters "fs" as "texCoord"')
-    expect(found[0]!.message).toContain('links a varying by name')
-  })
+    };
+    const m = pair(vsOut({ type: u32T }), renamed);
+    const found = interstageMismatches(m.structs, m.funcs);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.message).toContain('leaves "vs" as "id"');
+    expect(found[0]!.message).toContain('enters "fs" as "texCoord"');
+    expect(found[0]!.message).toContain('links a varying by name');
+  });
 
   it("is silent with several entries of a stage, where the pairing is the host's", () => {
-    const m = pair(vsOut({ type: u32T }), fsIn(vec2fT))
-    const two = { ...m, funcs: [...m.funcs, entry('fs2', 'fragment', vec4fT)] }
-    expect(interstageMismatches(two.structs, two.funcs)).toEqual([])
-  })
-})
+    const m = pair(vsOut({ type: u32T }), fsIn(vec2fT));
+    const two = { ...m, funcs: [...m.funcs, entry('fs2', 'fragment', vec4fT)] };
+    expect(interstageMismatches(two.structs, two.funcs)).toEqual([]);
+  });
+});

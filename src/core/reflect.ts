@@ -28,18 +28,18 @@ import {
   typeKey,
   stageOf,
   workgroupSizeOf,
-} from './ir/index.js'
-import { entryIo, type IoField } from './ir/entry-io.js'
-import { twoRowStd140Reason } from './std140.js'
+} from './ir/index.js';
+import { entryIo, type IoField } from './ir/entry-io.js';
+import { twoRowStd140Reason } from './std140.js';
 import {
   requiredCaps,
   requiredLanguageFeatures,
   type LanguageFeature,
-} from './passes/required-caps.js'
-import { bindingStages } from './passes/stage-bindings.js'
-import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
+} from './passes/required-caps.js';
+import { bindingStages } from './passes/stage-bindings.js';
+import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js';
 
-const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
+const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a;
 
 /** The byte-layout rule a struct's fields are placed under. `'std140'` is the rule WGSL
  *  applies to the `uniform` address space, and the rule of a GLSL ES 3.00
@@ -61,7 +61,7 @@ const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
  *
  *  Exported from `typeshade`.
  */
-export type LayoutKind = 'std140' | 'std430'
+export type LayoutKind = 'std140' | 'std430';
 
 /** Size + alignment (bytes) of a host-shareable type under a layout. Throws on a
  *  non-host-shareable type (texture/sampler/void are bind resources, not struct fields).
@@ -83,21 +83,21 @@ export function typeLayout(
 ): { size: number; align: number } {
   switch (t.kind) {
     case 'scalar':
-      return { size: 4, align: 4 }
+      return { size: 4, align: 4 };
     // An atomic<u32> / atomic<i32> occupies its integer's 4 bytes (WGSL §14.4.1).
     case 'atomic':
-      return { size: 4, align: 4 }
+      return { size: 4, align: 4 };
     // f64 (emulated double) occupies its lowered vec2<f32> slot — hi then lo,
     // 8 bytes, 8-aligned — under BOTH layouts, so reflecting the authored module
     // and the lowered module yield byte-identical offsets. Hosts pack with
     // splitF64 (core/fp64/df64-lib.ts).
     case 'f64':
-      return { size: 8, align: 8 }
+      return { size: 8, align: 8 };
     // vec64 lowers to `struct { hi: vecN<f32>, lo: vecN<f32> }` — derive the
     // layout from THAT struct through the same engine (single authority), so
     // authored and lowered reflections agree byte-for-byte here too.
     case 'vec64': {
-      const vecT: ShaderType = { kind: 'vec', n: t.n, elem: 'f32' }
+      const vecT: ShaderType = { kind: 'vec', n: t.n, elem: 'f32' };
       const sl = structLayout(
         {
           name: `DF64Vec${t.n}`,
@@ -108,8 +108,8 @@ export function typeLayout(
         },
         layout,
         structs,
-      )
-      return { size: sl.size, align: sl.align }
+      );
+      return { size: sl.size, align: sl.align };
     }
     case 'vec':
       // vec2 → 8/8, vec3 → 12/16, vec4 → 16/16 (elem is always 4 bytes)
@@ -117,7 +117,7 @@ export function typeLayout(
         ? { size: 8, align: 8 }
         : t.n === 3
           ? { size: 12, align: 16 }
-          : { size: 16, align: 16 }
+          : { size: 16, align: 16 };
     case 'mat': {
       // mat64 (emulated double) lowers to `struct DF64MatN { c0..c(N-1): DF64VecN }`
       // — derive the layout from THAT struct through the same engine (single
@@ -131,19 +131,19 @@ export function typeLayout(
           throw new Error(
             `wgslLayout: ${typeKey(t)} has no layout — the emulated-double matrices are square ` +
               `(the fp64 pass has one df64 body per dimension, not per shape)`,
-          )
+          );
         }
-        const n = t.cols
-        const vecT: ShaderType = { kind: 'vec', n, elem: 'f32' }
+        const n = t.cols;
+        const vecT: ShaderType = { kind: 'vec', n, elem: 'f32' };
         const colStruct: StructDecl = {
           name: `DF64Vec${n}`,
           fields: [
             { name: 'hi', type: vecT },
             { name: 'lo', type: vecT },
           ],
-        }
-        const nested = new Map(structs)
-        nested.set(colStruct.name, colStruct)
+        };
+        const nested = new Map(structs);
+        nested.set(colStruct.name, colStruct);
         const sl = structLayout(
           {
             name: `DF64Mat${n}`,
@@ -154,8 +154,8 @@ export function typeLayout(
           },
           layout,
           nested,
-        )
-        return { size: sl.size, align: sl.align }
+        );
+        return { size: sl.size, align: sl.align };
       }
       // A TWO-ROW matrix in std140 diverges, and only a two-row one. Measured (#149): on a
       // real WebGL2 context ANGLE reports UNIFORM_MATRIX_STRIDE 16 for every shape, because
@@ -170,7 +170,7 @@ export function typeLayout(
       // to prevent. (The earlier note here said "mat2", on the recorded ground that a 2×2 or
       // 3×3 both diverge; the measurement says a 3×3 does not — X-GIS #763 P7.)
       if (layout === 'std140' && t.rows === 2) {
-        throw new Error(`wgslLayout: ${twoRowStd140Reason(t.cols)}`)
+        throw new Error(`wgslLayout: ${twoRowStd140Reason(t.cols)}`);
       }
       // matCxR<f32>: C columns of vecR; column stride = round(size, align) of the column vec.
       const col =
@@ -178,34 +178,34 @@ export function typeLayout(
           ? { size: 8, align: 8 }
           : t.rows === 3
             ? { size: 12, align: 16 }
-            : { size: 16, align: 16 }
-      const stride = roundUp(col.size, col.align)
-      return { size: stride * t.cols, align: col.align }
+            : { size: 16, align: 16 };
+      const stride = roundUp(col.size, col.align);
+      return { size: stride * t.cols, align: col.align };
     }
     case 'struct': {
-      const sl = structLayout(structByName(structs, t.name), layout, structs)
-      return { size: sl.size, align: sl.align }
+      const sl = structLayout(structByName(structs, t.name), layout, structs);
+      return { size: sl.size, align: sl.align };
     }
     case 'array': {
-      const el = typeLayout(t.elem, layout, structs)
-      let stride = roundUp(el.size, el.align)
-      let align = el.align
+      const el = typeLayout(t.elem, layout, structs);
+      let stride = roundUp(el.size, el.align);
+      let align = el.align;
       if (layout === 'std140') {
-        stride = roundUp(stride, 16)
-        align = roundUp(align, 16)
+        stride = roundUp(stride, 16);
+        align = roundUp(align, 16);
       }
-      const count = t.size ?? 0 // runtime-sized array → 0 (stride still defined)
-      return { size: count * stride, align }
+      const count = t.size ?? 0; // runtime-sized array → 0 (stride still defined)
+      return { size: count * stride, align };
     }
     default:
-      throw new Error(`reflect: type '${t.kind}' is not host-shareable (no byte layout)`)
+      throw new Error(`reflect: type '${t.kind}' is not host-shareable (no byte layout)`);
   }
 }
 
 function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): StructDecl {
-  const s = structs.get(name)
-  if (!s) throw new Error(`reflect: struct '${name}' not found in module`)
-  return s
+  const s = structs.get(name);
+  if (!s) throw new Error(`reflect: struct '${name}' not found in module`);
+  return s;
 }
 
 /** One struct field's byte layout: its `name`, its DSL type key (the string {@link typeKey}
@@ -217,11 +217,11 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
  *  Exported from `typeshade`.
  */
 export interface FieldLayout {
-  readonly name: string
-  readonly type: string
-  readonly offset: number
-  readonly align: number
-  readonly size: number
+  readonly name: string;
+  readonly type: string;
+  readonly offset: number;
+  readonly align: number;
+  readonly size: number;
 }
 /** A struct's complete byte layout: its total `size` and `align` plus one {@link FieldLayout}
  *  per field, in declaration order. {@link wgslLayout} produces one for a standalone struct;
@@ -233,10 +233,10 @@ export interface FieldLayout {
  *  Exported from `typeshade`.
  */
 export interface StructLayout {
-  readonly name: string
-  readonly size: number
-  readonly align: number
-  readonly fields: readonly FieldLayout[]
+  readonly name: string;
+  readonly size: number;
+  readonly align: number;
+  readonly fields: readonly FieldLayout[];
 }
 
 /** Compute the byte layout of one struct under a {@link LayoutKind}: each field's offset,
@@ -271,7 +271,7 @@ export function wgslLayout(
   layout: LayoutKind,
   structs: ReadonlyMap<string, StructDecl> = new Map(),
 ): StructLayout {
-  return structLayout(struct, layout, structs.size ? structs : new Map([[struct.name, struct]]))
+  return structLayout(struct, layout, structs.size ? structs : new Map([[struct.name, struct]]));
 }
 
 function structLayout(
@@ -279,18 +279,18 @@ function structLayout(
   layout: LayoutKind,
   structs: ReadonlyMap<string, StructDecl>,
 ): StructLayout {
-  let cursor = 0
-  let maxAlign = 1
-  const fields: FieldLayout[] = []
+  let cursor = 0;
+  let maxAlign = 1;
+  const fields: FieldLayout[] = [];
   for (const f of struct.fields) {
-    const { size, align } = typeLayout(f.type, layout, structs)
-    cursor = roundUp(cursor, align)
-    fields.push({ name: f.name, type: typeKey(f.type), offset: cursor, align, size })
-    cursor += size
-    if (align > maxAlign) maxAlign = align
+    const { size, align } = typeLayout(f.type, layout, structs);
+    cursor = roundUp(cursor, align);
+    fields.push({ name: f.name, type: typeKey(f.type), offset: cursor, align, size });
+    cursor += size;
+    if (align > maxAlign) maxAlign = align;
   }
-  const structAlign = layout === 'std140' ? roundUp(maxAlign, 16) : maxAlign
-  return { name: struct.name, size: roundUp(cursor, structAlign), align: structAlign, fields }
+  const structAlign = layout === 'std140' ? roundUp(maxAlign, 16) : maxAlign;
+  return { name: struct.name, size: roundUp(cursor, structAlign), align: structAlign, fields };
 }
 
 /** What a bind entry is at the host API, independent of the WGSL address space (`uniform`,
@@ -306,7 +306,7 @@ function structLayout(
  *  Exported from `typeshade`.
  */
 export type ResourceKind =
-  'uniform-buffer' | 'storage-buffer' | 'texture' | 'storage-texture' | 'sampler'
+  'uniform-buffer' | 'storage-buffer' | 'texture' | 'storage-texture' | 'sampler';
 /** One resource slot in a reflected bind group: the shape of a single WGSL
  *  `@group(G) @binding(B) var<space> name: T` declaration, or of the sampler uniform or std140
  *  block the GLSL ES 3.00 backend emits for it. `name` is the declaration's own identifier,
@@ -326,35 +326,35 @@ export type ResourceKind =
  *  Exported from `typeshade`.
  */
 export interface BindEntry {
-  readonly group: number
-  readonly binding: number
-  readonly name: string
-  readonly space: AddressSpace
-  readonly access?: 'read' | 'read_write'
-  readonly resourceKind: ResourceKind
+  readonly group: number;
+  readonly binding: number;
+  readonly name: string;
+  readonly space: AddressSpace;
+  readonly access?: 'read' | 'read_write';
+  readonly resourceKind: ResourceKind;
   /** Who owns the resource. `'module'` when the module declares it and the host builds its
    *  bind group from this reflection; `'host'` when the surrounding host owns it and the
    *  host's own layout is the authority. Always set. `bindGroups` lists host-owned bindings
    *  too: a host still has to know about a binding it owns, it just must not allocate for
    *  it. */
-  readonly owner: 'module' | 'host'
+  readonly owner: 'module' | 'host';
   /** How GLSL ES 3.00 spells a host-owned struct binding. Present only when `owner` is
    *  `'host'` and the binding's type is a struct: a module-owned block is always a std140
    *  block, and WGSL has one spelling regardless. `'std140-block'` means bind a uniform
    *  buffer to the block index; `'loose'` means the members were flattened into the default
    *  uniform block and are set individually with `glUniform*` under their field names (the
    *  layout in `uniforms` still lists them, in declaration order). */
-  readonly glslSpelling?: 'std140-block' | 'loose'
+  readonly glslSpelling?: 'std140-block' | 'loose';
   /** The struct's type name, for a binding whose type is a struct; absent on every other
    *  kind. It is the name a GLSL host passes to `getUniformBlockIndex`. */
-  readonly structName?: string
+  readonly structName?: string;
   /** The texture dimension the shader declared, so a host can create or validate the
    *  matching view: `'2d-array'` needs an array view and a layer-aware bind, `'2d-ms'` a
    *  multisampled one, `'cube'` a cube view, `'3d'` a 3d one, `'1d'` a 1d one and
    *  `'cube-array'` a cube-array view — the value
    *  `GPUTextureViewDescriptor.dimension` takes. Always set on a `texture` entry, absent on
    *  every other kind. */
-  readonly textureDim?: '2d' | '2d-ms' | '2d-array' | 'cube' | '3d' | '1d' | 'cube-array'
+  readonly textureDim?: '2d' | '2d-ms' | '2d-array' | 'cube' | '3d' | '1d' | 'cube-array';
   /** The texel element the shader declared. Always set on a `texture` entry, absent on
    *  every other kind.
    *
@@ -368,7 +368,7 @@ export interface BindEntry {
    *  An integer texture is unfilterable, so a host must not pair one with a filtering
    *  sampler. A module that type-checks never asks it to: {@link textureSample} rejects an
    *  integer texture at compile time. */
-  readonly textureElem?: TextureElem
+  readonly textureElem?: TextureElem;
   /** The texel format the shader declared for a storage texture, exactly as WebGPU's
    *  `GPUStorageTextureBindingLayout.format` spells it. Always set on a `storage-texture`
    *  entry, absent on every other kind (roadmap 0.4 item 10).
@@ -376,7 +376,7 @@ export interface BindEntry {
    *  A storage texture's format is part of its TYPE in WGSL, not a property of the view, and a
    *  host's bind group layout has to repeat it exactly: a layout whose format differs from the
    *  shader's is a validation error at pipeline creation. */
-  readonly storageFormat?: StorageTextureFormat
+  readonly storageFormat?: StorageTextureFormat;
   /** How the shader may touch a storage texture, in WebGPU's spelling rather than WGSL's —
    *  `'write-only'`, `'read-only'`, `'read-write'` — which is what
    *  `GPUStorageTextureBindingLayout.access` takes. Always set on a `storage-texture` entry,
@@ -384,15 +384,15 @@ export interface BindEntry {
    *
    *  A host passing WGSL's own `write` / `read` / `read_write` through gets a validation error,
    *  so the translation happens here rather than in every host. */
-  readonly storageAccess?: 'write-only' | 'read-only' | 'read-write'
+  readonly storageAccess?: 'write-only' | 'read-only' | 'read-write';
   /** Set on a depth texture (roadmap 0.4 item 11): the host's `GPUTextureBindingLayout` takes
    *  `sampleType: 'depth'` for it, and pairs it with a comparison sampler. Always `true` on such
    *  an entry, absent on every other kind, so a host never has to read absence as "not depth"
    *  on an entry that is not a texture at all. A depth texture has no `textureElem`. */
-  readonly textureDepth?: true
+  readonly textureDepth?: true;
   /** Set on a comparison sampler (roadmap 0.4 item 11): the host's `GPUSamplerBindingLayout`
    *  takes `type: 'comparison'` for it. Always `true` on such an entry, absent otherwise. */
-  readonly samplerComparison?: true
+  readonly samplerComparison?: true;
   /** The stages that reference this binding, in the order vertex, fragment, compute. It
    *  comes from the same reachability walk the per-stage GLSL emit uses to decide which
    *  shader declares which uniform, so a host's stage mask can never describe a narrower
@@ -409,7 +409,7 @@ export interface BindEntry {
    *  lower bound: the host's real layout may expose the resource to stages this module's
    *  entries never reach. Merge it into the host layout; do not narrow the host layout to
    *  it. */
-  readonly stages: readonly ('vertex' | 'fragment' | 'compute')[]
+  readonly stages: readonly ('vertex' | 'fragment' | 'compute')[];
 }
 /** The bind entries of one WGSL `@group(N)`, sorted by `binding`. `Reflection.bindGroups`
  *  holds one of these per group the module declares, sorted by `group`; a module that
@@ -420,8 +420,8 @@ export interface BindEntry {
  *  Exported from `typeshade`.
  */
 export interface BindGroup {
-  readonly group: number
-  readonly entries: readonly BindEntry[]
+  readonly group: number;
+  readonly entries: readonly BindEntry[];
 }
 /** One `@location`-attributed parameter of the module's `@vertex` entry point. Attributes
  *  are listed in the order the entry function declares its parameters, and `offset` comes
@@ -433,10 +433,10 @@ export interface BindGroup {
  *  Exported from `typeshade`.
  */
 export interface VertexAttr {
-  readonly name: string
-  readonly location: number
-  readonly type: string
-  readonly offset: number
+  readonly name: string;
+  readonly location: number;
+  readonly type: string;
+  readonly offset: number;
 }
 /** The vertex-buffer layout for a module's `@vertex` entry: every `@location` parameter and
  *  the interleaved `arrayStride` those parameters pack into. {@link reflect} describes the
@@ -447,8 +447,8 @@ export interface VertexAttr {
  *  Exported from `typeshade`.
  */
 export interface VertexLayout {
-  readonly attributes: readonly VertexAttr[]
-  readonly arrayStride: number
+  readonly attributes: readonly VertexAttr[];
+  readonly arrayStride: number;
 }
 /** One field of an entry point's stage interface: a `@location(n)` varying, vertex attribute
  *  or fragment draw buffer, or a `@builtin(name)` slot. Where the entry spelled it as a member
@@ -461,18 +461,18 @@ export interface EntryIoField {
   /** The field's own identifier: a parameter's name, a flattened struct field's name, or
    *  `_ret` for a bare non-struct return value (the name the GLSL backend gives that
    *  output). */
-  readonly name: string
+  readonly name: string;
   /** The DSL type key (the string {@link typeKey} returns), the same spelling
    *  `StructLayout.fields[].type` and `VertexAttr.type` use. */
-  readonly type: string
+  readonly type: string;
   /** The declared `@location(n)`. Absent on a `@builtin` field and on an unattributed one;
    *  the two are told apart by whether `builtin` is set. */
-  readonly location?: number
+  readonly location?: number;
   /** The declared `@builtin(name)`, in WGSL's own vocabulary (`position`, `vertex_index`,
    *  …). Builtins are reported alongside locations. A consumer that compares varyings and
    *  leaves builtins out (they are not varyings) filters on this field, and can then report
    *  that `position` was excluded because it is a builtin. */
-  readonly builtin?: string
+  readonly builtin?: string;
 }
 /** One entry point's `@location` and `@builtin` interface: the shape a host validates a
  *  vertex/fragment pair against, builds a `GPUVertexState` from, or diffs as a pipeline
@@ -491,8 +491,8 @@ export interface EntryIoField {
  *  Exported from `typeshade`.
  */
 export interface EntryIo {
-  readonly inputs: readonly EntryIoField[]
-  readonly outputs: readonly EntryIoField[]
+  readonly inputs: readonly EntryIoField[];
+  readonly outputs: readonly EntryIoField[];
 }
 /** One `@vertex`, `@fragment` or `@compute` entry point: its stage, its parameter and return
  *  types as DSL type keys (the strings {@link typeKey} returns), and, for a `@compute` entry
@@ -504,22 +504,22 @@ export interface EntryIo {
  *  Exported from `typeshade`.
  */
 export interface EntryInfo {
-  readonly name: string
-  readonly stage: 'vertex' | 'fragment' | 'compute'
-  readonly workgroupSize?: number
-  readonly inputs: readonly string[]
-  readonly output: string
+  readonly name: string;
+  readonly stage: 'vertex' | 'fragment' | 'compute';
+  readonly workgroupSize?: number;
+  readonly inputs: readonly string[];
+  readonly output: string;
   /** Present, as `true`, when the entry is declared a portable kernel; absent otherwise,
    *  never `false`. It tells a host which dispatch shape the kernel needs: on a backend with
    *  no compute stage a portable kernel emits as fragment-shader GPGPU and is dispatched as
    *  a fullscreen draw into an `R32UI` target instead of a compute dispatch. An entry
    *  without it runs on WebGPU only. */
-  readonly portable?: true
+  readonly portable?: true;
   /** The entry's location and builtin interface, in structured form. `inputs` and `output`
    *  are type keys, which is what {@link semanticDiff} fingerprints with; `io` is the view
    *  beside them that a host validating a stage pair reads for the `@location` numbers.
    *  Always present. See {@link EntryIo} for how struct parameters and returns flatten. */
-  readonly io: EntryIo
+  readonly io: EntryIo;
 }
 /** A pipeline specialization constant (a WGSL `override`) the host supplies when it creates
  *  a pipeline. Both backends' host-side shapes derive from it: the WGSL `constants`
@@ -530,9 +530,9 @@ export interface EntryInfo {
  *  Exported from `typeshade`.
  */
 export interface OverrideInfo {
-  readonly name: string
-  readonly type: string
-  readonly default: number | boolean
+  readonly name: string;
+  readonly type: string;
+  readonly default: number | boolean;
 }
 /** The target-neutral pipeline metadata {@link reflect} recovers from a module: bind-group
  *  layout (`bindGroups`), every bound struct's byte layout (`uniforms`, `storage`), the
@@ -547,20 +547,20 @@ export interface OverrideInfo {
  *  Exported from `typeshade`.
  */
 export interface Reflection {
-  readonly bindGroups: readonly BindGroup[]
+  readonly bindGroups: readonly BindGroup[];
   /** std140 uniform-buffer struct layouts (one per uniform binding whose type is a struct). */
-  readonly uniforms: readonly StructLayout[]
+  readonly uniforms: readonly StructLayout[];
   /** std430 storage-buffer struct layouts. */
-  readonly storage: readonly StructLayout[]
+  readonly storage: readonly StructLayout[];
   /** Vertex attributes from the `@vertex` entry's `@location` parameters. Offsets are
    *  std430-aligned, each field rounded up to its type's alignment, so a host reads `offset`
    *  and `arrayStride` from here instead of assuming a tightly packed buffer. */
-  readonly vertex?: VertexLayout
-  readonly entries: readonly EntryInfo[]
+  readonly vertex?: VertexLayout;
+  readonly entries: readonly EntryInfo[];
   /** Pipeline specialization constants: the names, types and defaults the host passes at
    *  pipeline creation (WGSL `constants`, or the GLSL `#define` header). Always present;
    *  empty for a module that declares no overrides. */
-  readonly overrides: readonly OverrideInfo[]
+  readonly overrides: readonly OverrideInfo[];
   /** Every capability this module's emit requires: the ones derived from the module's shape
    *  (a storage binding needs `storageBuffer`, a `@compute` entry needs `compute`, a
    *  multisampled texture load needs `msaaTextureLoad`) plus everything the module declared
@@ -587,7 +587,7 @@ export interface Reflection {
    *  emits fine while reflection of the module as authored still reports the capability.
    *  `hostFeaturesFor` skips every capability the backend has no host feature for, so the
    *  loop above is correct either way. */
-  readonly requiredFeatures: readonly Capability[]
+  readonly requiredFeatures: readonly Capability[];
   /** Every WGSL *language* extension this module needs (§50), sorted and deduplicated. Always
    *  present; empty for a module that needs none, which is most.
    *
@@ -614,14 +614,14 @@ export interface Reflection {
    *  }
    *  ```
    */
-  readonly requiredLanguageFeatures: readonly LanguageFeature[]
+  readonly requiredLanguageFeatures: readonly LanguageFeature[];
   /** The host-provided globals this module references but does not declare: one entry per
    *  {@link externVar} declarator, reported so a composer can check them against what the
    *  host's prelude actually supplies. Always present; empty for a module that expects
    *  nothing from its host. Host-provided functions ({@link externFn}) have no declaration to
    *  report here; the `requires` list of an emitted fragment ({@link emitFragment}) covers
    *  those by walking call sites. */
-  readonly requires: readonly ExternRequirement[]
+  readonly requires: readonly ExternRequirement[];
 }
 
 /** One host-provided global a module expects, declared with {@link externVar}. `type` is the
@@ -633,11 +633,11 @@ export interface Reflection {
  *  Exported from `typeshade`.
  */
 export interface ExternRequirement {
-  readonly name: string
-  readonly type: string
-  readonly wgsl: string
-  readonly glsl: string
-  readonly stage?: 'vertex' | 'fragment' | 'compute'
+  readonly name: string;
+  readonly type: string;
+  readonly wgsl: string;
+  readonly glsl: string;
+  readonly stage?: 'vertex' | 'fragment' | 'compute';
 }
 
 /** An `ir/entry-io` field as the reflection publishes it: the `ShaderType` becomes its type
@@ -648,7 +648,7 @@ const ioField = (f: IoField): EntryIoField => ({
   type: typeKey(f.type),
   ...(f.location !== undefined ? { location: f.location } : {}),
   ...(f.builtin !== undefined ? { builtin: f.builtin } : {}),
-})
+});
 
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
   // A depth texture is a `texture` here (roadmap 0.4 item 11): the host builds it with the
@@ -668,7 +668,7 @@ const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
         ? 'sampler'
         : space === 'storage'
           ? 'storage-buffer'
-          : 'uniform-buffer'
+          : 'uniform-buffer';
 
 // String fallback ONLY (X-GIS #740 R3): fn()-authored decls carry structured
 // `stage`/`workgroupSize` — reflect reads those first; the attrs-string parse
@@ -685,7 +685,7 @@ export interface ReflectOptions {
    *  not. Pass the same value the emit will get; a host that builds a bind group from a
    *  reflection computed with a different flavour is describing a different program than the
    *  one it runs. */
-  readonly fp64Flavor?: Fp64Flavor
+  readonly fp64Flavor?: Fp64Flavor;
 }
 
 /** The module's declared bindings, plus any a LOWERING injects that a host must still bind
@@ -719,14 +719,14 @@ function bindingsIncludingInjected(
   m: ModuleDecl,
   flavor: Fp64Flavor | undefined,
 ): { readonly bindings: readonly BindingDecl[]; readonly lowered: ModuleDecl } {
-  const lowered = fp64Lower(m, flavor !== undefined ? { flavor } : undefined)
-  if (lowered === m) return { bindings: m.bindings, lowered }
-  const declared = new Set(m.bindings.map((b) => b.name))
-  const injected = lowered.bindings.filter((b) => !declared.has(b.name))
+  const lowered = fp64Lower(m, flavor !== undefined ? { flavor } : undefined);
+  if (lowered === m) return { bindings: m.bindings, lowered };
+  const declared = new Set(m.bindings.map((b) => b.name));
+  const injected = lowered.bindings.filter((b) => !declared.has(b.name));
   return {
     bindings: injected.length === 0 ? m.bindings : [...m.bindings, ...injected],
     lowered,
-  }
+  };
 }
 
 /** Recover a module's pipeline metadata from its IR. It is what a host reads to build bind
@@ -795,11 +795,11 @@ function bindingsIncludingInjected(
  *  @see {@link hostFeaturesFor} for turning `requiredFeatures` into one target's strings.
  */
 export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
-  const structs = new Map(m.structs.map((s) => [s.name, s]))
-  const { bindings: allBindings, lowered } = bindingsIncludingInjected(m, opts?.fp64Flavor)
-  const stages = bindingStages(lowered)
+  const structs = new Map(m.structs.map((s) => [s.name, s]));
+  const { bindings: allBindings, lowered } = bindingsIncludingInjected(m, opts?.fp64Flavor);
+  const stages = bindingStages(lowered);
   // bind groups (sorted by group, then binding)
-  const byGroup = new Map<number, BindEntry[]>()
+  const byGroup = new Map<number, BindEntry[]>();
   for (const b of allBindings) {
     const e: BindEntry = {
       group: b.group,
@@ -830,31 +830,31 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
           }
         : {}),
       stages: stages.get(b.name) ?? [],
-    }
-    ;(byGroup.get(b.group) ?? byGroup.set(b.group, []).get(b.group)!).push(e)
+    };
+    (byGroup.get(b.group) ?? byGroup.set(b.group, []).get(b.group)!).push(e);
   }
   const bindGroups: BindGroup[] = [...byGroup.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([group, entries]) => ({ group, entries: entries.sort((a, b) => a.binding - b.binding) }))
+    .map(([group, entries]) => ({ group, entries: entries.sort((a, b) => a.binding - b.binding) }));
 
-  const uniforms: StructLayout[] = []
-  const storage: StructLayout[] = []
+  const uniforms: StructLayout[] = [];
+  const storage: StructLayout[] = [];
   for (const b of allBindings) {
-    if (b.type.kind !== 'struct') continue
-    const s = structs.get(b.type.name)
-    if (!s) continue
-    if (b.space === 'uniform') uniforms.push(structLayout(s, 'std140', structs))
-    else storage.push(structLayout(s, 'std430', structs))
+    if (b.type.kind !== 'struct') continue;
+    const s = structs.get(b.type.name);
+    if (!s) continue;
+    if (b.space === 'uniform') uniforms.push(structLayout(s, 'std140', structs));
+    else storage.push(structLayout(s, 'std430', structs));
   }
 
-  const entries: EntryInfo[] = []
-  let vertex: VertexLayout | undefined
+  const entries: EntryInfo[] = [];
+  let vertex: VertexLayout | undefined;
   for (const f of m.funcs) {
-    const stage = stageOf(f)
-    if (!stage) continue
+    const stage = stageOf(f);
+    if (!stage) continue;
     // X-GIS #1905 — the location/builtin view of the same signature, read through the GLSL
     // backend's own attribute readers so the two cannot describe different interfaces.
-    const io = entryIo(f, structs)
+    const io = entryIo(f, structs);
     entries.push({
       name: f.name,
       stage,
@@ -865,23 +865,23 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       // host reads "WebGPU-only" the same way it reads every other absent capability.
       ...(f.portable === true ? { portable: true as const } : {}),
       io: { inputs: io.inputs.map(ioField), outputs: io.outputs.map(ioField) },
-    })
+    });
     if (stage === 'vertex' && !vertex) {
-      let cursor = 0
-      const attributes: VertexAttr[] = []
+      let cursor = 0;
+      const attributes: VertexAttr[] = [];
       for (const p of f.params) {
-        if (p.location === undefined) continue
-        const { size, align } = typeLayout(p.type, 'std430', structs)
-        cursor = roundUp(cursor, align)
+        if (p.location === undefined) continue;
+        const { size, align } = typeLayout(p.type, 'std430', structs);
+        cursor = roundUp(cursor, align);
         attributes.push({
           name: p.name,
           location: p.location,
           type: typeKey(p.type),
           offset: cursor,
-        })
-        cursor += size
+        });
+        cursor += size;
       }
-      if (attributes.length) vertex = { attributes, arrayStride: cursor }
+      if (attributes.length) vertex = { attributes, arrayStride: cursor };
     }
   }
 
@@ -891,7 +891,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
     name: o.name,
     type: typeKey(o.type),
     default: o.default,
-  }))
+  }));
 
   // X-GIS #1670 — the caps the host must have active before pipeline creation. Same
   // derivation the emit gate uses (requiredCaps: shape-derived + declared `enables`), so
@@ -899,7 +899,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   // deterministic order. Always present, empty when the module needs nothing — the
   // `overrides` model, so a consumer never distinguishes "needs nothing" from "old
   // reflection shape".
-  const requiredFeatures = requiredCaps(m).sort()
+  const requiredFeatures = requiredCaps(m).sort();
   // The `requires` axis (#147, #152, §50) lives in `required-caps.ts`, which both this and the
   // WGSL writer's preamble read: two lanes each grew a derivation of it — the storage-texture
   // row here and the packed-4x8 row in the emit — and two copies of one answer is how
@@ -924,5 +924,5 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       glsl: e.spelling?.glsl ?? e.name,
       ...(e.stage ? { stage: e.stage } : {}),
     })),
-  }
+  };
 }

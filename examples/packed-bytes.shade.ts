@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -30,50 +30,50 @@
 
 class Palette {
   // Four 8-bit weights packed into one word, the way a host hands a shader a small LUT.
-  weights: u32
-  texels: u32
+  weights: u32;
+  texels: u32;
 }
 
-declare const palette: uniform<Palette>
+declare const palette: uniform<Palette>;
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): VsOut {
-  const xs = array(-1., 3., -1.)
-  const ys = array(-1., -1., 3.)
-  const i = i32(vi)
-  const p: vec2 = vec2(xs[i], ys[i])
-  const out: VsOut = { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) }
-  return out
+  const xs = array(-1., 3., -1.);
+  const ys = array(-1., -1., 3.);
+  const i = i32(vi);
+  const p: vec2 = vec2(xs[i], ys[i]);
+  const out: VsOut = { pos: vec4(p, 0., 1.), uv: p * 0.5 + vec2(0.5, 0.5) };
+  return out;
 }
 
 @fragment
 export function fs(v: VsOut): vec4 {
   // The two dots: four byte products summed, unsigned into a u32 and signed into an i32.
-  const lit: u32 = dot4U8Packed(palette.weights, palette.texels)
-  const signedLit: i32 = dot4I8Packed(palette.weights, palette.texels)
+  const lit: u32 = dot4U8Packed(palette.weights, palette.texels);
+  const signedLit: i32 = dot4I8Packed(palette.weights, palette.texels);
 
   // Unpack both ways. The signed form sign-extends each byte, which is the whole difference.
-  const bytes: vec4u = unpack4xU8(palette.texels)
-  const signedBytes: vec4i = unpack4xI8(palette.texels)
+  const bytes: vec4u = unpack4xU8(palette.texels);
+  const signedBytes: vec4i = unpack4xI8(palette.texels);
 
   // Pack both ways, truncating and saturating. A component past a byte is TRUNCATED by the
   // plain form and clamped by the `Clamp` one, which is why both are here.
-  const truncated: u32 = pack4xU8(vec4u(bytes.x + u32(300), bytes.y, bytes.z, bytes.w))
-  const clamped: u32 = pack4xU8Clamp(vec4u(bytes.x + u32(300), bytes.y, bytes.z, bytes.w))
+  const truncated: u32 = pack4xU8(vec4u(bytes.x + u32(300), bytes.y, bytes.z, bytes.w));
+  const clamped: u32 = pack4xU8Clamp(vec4u(bytes.x + u32(300), bytes.y, bytes.z, bytes.w));
   // BOTH packs return a `u32`, the signed ones included: the result is four bytes in a word,
   // not a number with a sign (WGSL index.bs:20307, :20341). Typing these `i32` emitted WGSL
   // Tint refuses, "cannot assign 'u32' to 'i32'".
-  const signedPacked: u32 = pack4xI8(signedBytes)
-  const signedClamped: u32 = pack4xI8Clamp(vec4i(signedBytes.x * 400, signedBytes.y, 3, 4))
+  const signedPacked: u32 = pack4xI8(signedBytes);
+  const signedClamped: u32 = pack4xI8Clamp(vec4i(signedBytes.x * 400, signedBytes.y, 3, 4));
 
-  const a: f32 = f32(lit % u32(211)) / 211.
-  const b: f32 = f32(u32(signedLit & 255)) / 255.
-  const c: f32 = f32((truncated ^ clamped) % u32(97)) / 97.
-  const d: f32 = f32((signedPacked ^ signedClamped) % u32(63)) / 63.
-  return vec4(a * v.uv.x, b * v.uv.y, c * 0.5 + d * 0.5, 1.)
+  const a: f32 = f32(lit % u32(211)) / 211.;
+  const b: f32 = f32(u32(signedLit & 255)) / 255.;
+  const c: f32 = f32((truncated ^ clamped) % u32(97)) / 97.;
+  const d: f32 = f32((signedPacked ^ signedClamped) % u32(63)) / 63.;
+  return vec4(a * v.uv.x, b * v.uv.y, c * 0.5 + d * 0.5, 1.);
 }
