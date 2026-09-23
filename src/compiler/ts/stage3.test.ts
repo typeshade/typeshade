@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { compile } from './compile.js'
 import { compileTsSource } from './source-file.js'
 import { TS_CODES } from './codes.js'
+import { reflect } from '../../core/reflect.js'
 
 function diag(source: string) {
   return compileTsSource(source)
@@ -122,45 +123,81 @@ describe('builtin stage/direction compatibility (BUILTIN_STAGE)', () => {
   })
 })
 
-describe('@compute workgroup shape (WORKGROUP_SHAPE)', () => {
-  it('rejects a y axis other than 1', () => {
+describe('@compute workgroup shape', () => {
+  it('carries a two-dimensional shape to the emitted attribute and the reflection', () => {
+    const r = compile(`"use typeshade"
+declare let dst: storage<array<u32>>
+@compute([8, 8])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  dst[gid.y * 64 + gid.x] = gid.x + gid.y
+}
+`)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('@compute @workgroup_size(8, 8)')
+    const entry = reflect(r.module).entries.find((e) => e.name === 'cs')
+    expect(entry?.workgroupShape).toEqual([8, 8, 1])
+    expect(entry?.workgroupSize).toBe(8)
+  })
+
+  it('carries a three-dimensional shape, keeping a y of 1 between x and z', () => {
+    const r = compile(`"use typeshade"
+declare let dst: storage<array<u32>>
+@compute([4, 1, 2])
+export function cs(@builtin("local_invocation_index") i: u32): void {
+  dst[i] = i
+}
+`)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('@compute @workgroup_size(4, 1, 2)')
+    expect(reflect(r.module).entries[0]?.workgroupShape).toEqual([4, 1, 2])
+  })
+
+  it('emits a one-dimensional shape as it always did', () => {
+    for (const deco of ['@compute', '@compute([64])', '@compute([64, 1, 1])']) {
+      const r = compile(`"use typeshade"
+declare let dst: storage<array<u32>>
+${deco}
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  dst[gid.x] = gid.x
+}
+`)
+      expect(r.diagnostics, deco).toEqual([])
+      expect(r.wgsl, deco).toContain('@compute @workgroup_size(64)\n')
+      expect(reflect(r.module).entries[0]?.workgroupShape, deco).toEqual([64, 1, 1])
+    }
+  })
+
+  it.each([
+    ['[512]', 'x = 512, over maxComputeWorkgroupSizeX (256)'],
+    ['[1, 300]', 'y = 300, over maxComputeWorkgroupSizeY (256)'],
+    ['[1, 1, 65]', 'z = 65, over maxComputeWorkgroupSizeZ (64)'],
+    ['[16, 16, 2]', '512 invocations, over maxComputeInvocationsPerWorkgroup (256)'],
+  ])('warns (WORKGROUP_SHAPE) that %s exceeds a default WebGPU limit', (shape, clause) => {
     const r = diag(`
       "use typeshade";
-      @compute([64, 2, 1])
+      @compute(${shape})
       export function cs(): void {
       }
     `)
     const d = r.diagnostics.find((d) => d.code === TS_CODES.WORKGROUP_SHAPE)
     expect(d, 'expected a WORKGROUP_SHAPE diagnostic').toBeDefined()
-    expect(d!.category).toBe('error')
-    expect(d!.message).toContain('[64, 2, 1]')
+    expect(d!.category).toBe('warning')
+    expect(d!.message).toContain(clause)
   })
 
-  it('rejects a z axis other than 1', () => {
-    const r = diag(`
-      "use typeshade";
-      @compute([64, 1, 4])
-      export function cs(): void {
-      }
-    `)
-    expect(r.diagnostics.some((d) => d.code === TS_CODES.WORKGROUP_SHAPE)).toBe(true)
-  })
-
-  it('accepts [64, 1, 1] and the bare single-axis form', () => {
-    const r1 = diag(`
-      "use typeshade";
-      @compute([64, 1, 1])
-      export function cs(): void {
-      }
-    `)
-    const r2 = diag(`
-      "use typeshade";
-      @compute([64])
-      export function cs(): void {
-      }
-    `)
-    expect(r1.diagnostics.filter((d) => d.code === TS_CODES.WORKGROUP_SHAPE)).toEqual([])
-    expect(r2.diagnostics.filter((d) => d.code === TS_CODES.WORKGROUP_SHAPE)).toEqual([])
+  it('stays silent at the default limits themselves', () => {
+    for (const shape of ['[256]', '[16, 16]', '[4, 4, 16]', '[1, 1, 64]']) {
+      const r = diag(`
+        "use typeshade";
+        @compute(${shape})
+        export function cs(): void {
+        }
+      `)
+      expect(
+        r.diagnostics.filter((d) => d.code === TS_CODES.WORKGROUP_SHAPE),
+        shape,
+      ).toEqual([])
+    }
   })
 })
 

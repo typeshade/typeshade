@@ -123,6 +123,52 @@ export function k(
     expect(out.slice(8, 12)).toEqual([23, 1123, 2223, 3323])
   })
 
+  it('runs a two-dimensional workgroup over a two-dimensional grid, on both CPU modules', () => {
+    // A 2x2 box sum over a 4x4 image, one invocation per pixel: each workgroup of [2, 2]
+    // loads its tile, waits, and reads its neighbours' slots. The ids are WGSL's: gid is
+    // wid * size + lid per axis, and local_invocation_index is lid.x + lid.y * 2.
+    const src = `"use typeshade"
+declare const img: storage<array<u32>>
+declare let out: storage<array<u32>>
+declare let ids: storage<array<u32>>
+let tile: workgroup<array<u32, 4>>
+@compute([2, 2])
+export function box(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("local_invocation_id") lid: vec3u,
+  @builtin("local_invocation_index") li: u32,
+  @builtin("workgroup_id") wid: vec3u,
+): void {
+  const p: u32 = gid.y * 4 + gid.x
+  tile[li] = img[p]
+  workgroupBarrier()
+  out[p] = tile[0] + tile[1] + tile[2] + tile[3]
+  ids[p] = wid.y * 1000 + wid.x * 100 + lid.y * 10 + lid.x
+}
+`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('@compute @workgroup_size(2, 2)')
+    for (const make of [compileModule, compileModuleJs]) {
+      const cm = make(r.module)
+      const img = Array.from({ length: 16 }, (_, i) => i)
+      const out = Array.from({ length: 16 }, () => 0)
+      const ids = Array.from({ length: 16 }, () => 0)
+      cm.setBinding('img', img)
+      cm.setBinding('out', out)
+      cm.setBinding('ids', ids)
+      const report = cm.dispatch('box', [2, 2, 1])
+      expect(report, make.name).toEqual({ workgroups: 4, invocations: 16, barrierPhases: 4 })
+      // The top-left tile holds pixels 0, 1, 4, 5; the bottom-right one 10, 11, 14, 15.
+      expect(out, make.name).toEqual([
+        10, 10, 18, 18, 10, 10, 18, 18, 42, 42, 50, 50, 42, 42, 50, 50,
+      ])
+      expect(ids, make.name).toEqual([
+        0, 1, 100, 101, 10, 11, 110, 111, 1000, 1001, 1100, 1101, 1010, 1011, 1110, 1111,
+      ])
+    }
+  })
+
   it('refuses a workgroup whose invocations do not all reach the barrier', () => {
     const src = REDUCE.replace(
       '  tile[lid.x] = src[gid.x]\n',

@@ -13,6 +13,20 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **`@compute([8, 8])` is a two-dimensional workgroup** (Rule 8.7, surface §3). The front end
+  refused a `y` or `z` other than 1 with `TS8026`, because the IR carried the `x` extent alone.
+  All three extents now reach the emitted `@workgroup_size(8, 8)`, the reflection, and the CPU
+  `dispatch`, which runs the grid per axis. `FuncDecl.workgroupShape` holds a shape whose `y` or
+  `z` is not 1, `workgroupShapeOf(f)` reads it for every consumer, and `fn()` takes
+  `workgroupSize: [8, 8]`. `EntryInfo.workgroupShape` is the `[x, y, z]` a host sizes a dispatch
+  with; `workgroupSize` stays the `x` extent. A one-dimensional shape emits the bytes it did,
+  and every existing golden is unchanged. `TS8026` is now a warning for a shape over WebGPU's
+  default compute limits (`x` and `y` 256, `z` 64, 256 invocations in all), naming the limit a
+  host has to raise; `x` above 256 compiled with no word before. A `portable` kernel keeps a
+  one-dimensional workgroup (`SD0111`), since the WebGL2 lowering has no workgroup to give `y`
+  and `z` to. `examples/workgroup-tile-2d.shade.ts`, an 8x8 tile blur through workgroup memory,
+  compiles on the gate's Tint.
+
 - **The fp64 guard is read once per function, and its redundant multiplies are gone** (§39).
   Every float `df64_*` helper fetched the `_fp64` guard texel itself, so every helper CALL
   fetched it again: the `fp64-mandelbrot` escape loop read the texture up to 40 times per

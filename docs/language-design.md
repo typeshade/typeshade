@@ -576,14 +576,15 @@ The atomic builtins may be used in the compute and fragment stages, and must not
 - Derives from: [Restrictions on Functions](https://gpuweb.github.io/gpuweb/wgsl/#function-restriction) ("an entry point must never be the target of a function call").
 - Enforced by: not enforced; a helper calling a fragment entry compiles with zero diagnostics on this tree (#160, Appendix B).
 
-**Rule 8.7.** `@compute` carries the workgroup size as an array literal of one to three whole numbers, and the default is 64; a `y` or `z` other than 1 must be refused until the backend carries it.
+**Rule 8.7.** `@compute` carries the workgroup size as an array literal of one to three whole numbers, `x`, `y` and `z`, a missing `y` or `z` being 1, and the default is 64; every extent reaches the emitted `@workgroup_size` and the reflection, and a shape over WebGPU's default compute limits must be reported as a warning.
 
-- Rationale: an argument the decorator cannot read must not fall through to a default the author did not ask for.
-- Derives from: [`workgroup_size`](https://gpuweb.github.io/gpuweb/wgsl/#workgroup-size-attr); #118.
+- Rationale: an argument the decorator cannot read must not fall through to a default the author did not ask for, and an extent the author wrote must not be dropped. The limits are the device's, not the language's: a device requested with raised limits runs a larger workgroup, so a shape over the defaults compiles, and the warning says which limit the host has to raise.
+- Derives from: [`workgroup_size`](https://gpuweb.github.io/gpuweb/wgsl/#workgroup-size-attr); WebGPU [Limits](https://gpuweb.github.io/gpuweb/#limits) (`maxComputeWorkgroupSizeX` and `Y` 256, `Z` 64, `maxComputeInvocationsPerWorkgroup` 256); #118.
 - Enforced by:
   - `TS8037 WORKGROUP_ARG`, where a bare `@compute` emits `@workgroup_size(64)` and the object form is refused (`@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or no argument for the default of 64; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`);
-  - `TS8026 WORKGROUP_SHAPE`;
-  - surface §3's three bullets on the payload of `@compute`, under the entry example, which state the default of 64, the `y` and `z` restriction, and the refused object form.
+  - `TS8026 WORKGROUP_SHAPE`, a warning naming the first default limit the shape exceeds;
+  - `SD0111`, which keeps a `portable` kernel's workgroup one-dimensional, since the WebGL2 lowering has no workgroup;
+  - surface §3's bullets on the payload of `@compute`, under the entry example, which state the default of 64, the emitted spelling of a two- or three-dimensional shape, the limits warning, and the refused object form.
 
 **Rule 8.8.** A parameter must be passed by value; there must be no pointers and no reference parameters.
 

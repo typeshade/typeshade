@@ -29,6 +29,7 @@
 import {
   stageOf,
   typeKey,
+  workgroupShapeOf,
   type BindingDecl,
   type Expr,
   type FuncDecl,
@@ -283,6 +284,14 @@ export function analyzePortableKernel(
   } else if (usesGidBeyondX(entry.body, gid.name)) {
     violations.push(
       `'${gid.name}' is used other than as '${gid.name}.x' — the portable tier is 1-D, so derive every index from the linear invocation index \`${gid.name}.x\` (recover a 2-D coordinate from it and the dispatch uniform's row width instead of reading \`.y\`/\`.z\`)`,
+    )
+  }
+  // A runner dispatches `ceil(count / x)` workgroups along x and WebGL2 drops the size, so
+  // a `y` or `z` extent would run every `gid.x` that many times over.
+  const shape = workgroupShapeOf(entry)
+  if (shape !== undefined && (shape[1] !== 1 || shape[2] !== 1)) {
+    violations.push(
+      `the portable compute entry '${entry.name}' has workgroup shape [${shape.join(', ')}] — the portable tier is 1-D, so its workgroup is \`[x, 1, 1]\`; give the invocations to x (\`[${shape[0] * shape[1] * shape[2]}]\`) and derive a 2-D coordinate from \`gid.x\`, or drop \`portable\` and keep the kernel WebGPU-only`,
     )
   }
 

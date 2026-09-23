@@ -587,8 +587,11 @@ export interface FuncDecl {
   readonly attrs?: readonly string[]
   /** Structured pipeline stage. Set by `fn()`'s `opts.stage`. */
   readonly stage?: 'vertex' | 'fragment' | 'compute'
-  /** Structured workgroup size for a compute stage. */
+  /** Structured workgroup size for a compute stage: the `x` extent. */
   readonly workgroupSize?: number
+  /** The three workgroup extents of a compute stage, present when `y` or `z` is not 1. An
+   *  absent shape is `[workgroupSize, 1, 1]`; read it through {@link workgroupShapeOf}. */
+  readonly workgroupShape?: WorkgroupShape
   /** Marks a compute entry as a portable kernel. Set by `fn()`'s `opts.portable`, which
    *  rejects it on any other stage with `SD0110`. A portable kernel emits on both
    *  backends: as a native `@compute` entry on WGSL, and through the
@@ -871,14 +874,36 @@ export const stageOf = (
         ? 'compute'
         : undefined)
 
-/** The workgroup size of a compute entry: the structured `workgroupSize` field first,
- *  then the `@workgroup_size(n)` attribute string; `undefined` when neither is present. */
+/** The `x`, `y` and `z` extents of a compute entry's workgroup, WGSL's `@workgroup_size(x, y, z)`.
+ *
+ *  Exported from `typeshade`. */
+export type WorkgroupShape = readonly [number, number, number]
+
+/** The `x` workgroup size of a compute entry: the structured `workgroupSize` field first,
+ *  then the `@workgroup_size(n)` attribute string; `undefined` when neither is present. A
+ *  two- or three-dimensional workgroup has more invocations than this; read
+ *  {@link workgroupShapeOf} for the grid. */
 export const workgroupSizeOf = (
   f: Pick<FuncDecl, 'workgroupSize' | 'attrs'>,
 ): number | undefined => {
   if (f.workgroupSize !== undefined) return f.workgroupSize
   const m = f.attrs?.map((a) => a.match(/@workgroup_size\((\d+)/)).find(Boolean)
   return m ? Number(m[1]) : undefined
+}
+
+/** The workgroup shape of a compute entry: the structured `workgroupShape` field first, then
+ *  `[workgroupSize, 1, 1]`, then the extents of the `@workgroup_size(x, y, z)` attribute
+ *  string; `undefined` when none is present. Every consumer that sizes a grid (the CPU
+ *  dispatch, {@link reflect}, a runner) reads this, so the three extents have one source. */
+export const workgroupShapeOf = (
+  f: Pick<FuncDecl, 'workgroupSize' | 'workgroupShape' | 'attrs'>,
+): WorkgroupShape | undefined => {
+  if (f.workgroupShape !== undefined) return f.workgroupShape
+  if (f.workgroupSize !== undefined) return [f.workgroupSize, 1, 1]
+  const m = f.attrs
+    ?.map((a) => a.match(/@workgroup_size\((\d+)(?:\s*,\s*(\d+))?(?:\s*,\s*(\d+))?\s*,?\s*\)/))
+    .find(Boolean)
+  return m ? [Number(m[1]), Number(m[2] ?? 1), Number(m[3] ?? 1)] : undefined
 }
 
 /** An entry-point parameter: it carries a `@builtin(...)` or a `@location(n)`. */

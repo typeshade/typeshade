@@ -247,6 +247,15 @@ describe('X-GIS #1812 SD0111 — every tier violation fails on BOTH writers with
       detail: "'u_count' is vec4<f32>, not vec4<u32>",
     },
     {
+      name: 'a two-dimensional workgroup (the tier is 1-D)',
+      module: modOf({ ...PORTABLE_ENTRY, workgroupSize: 8, workgroupShape: [8, 8, 1] }, [
+        FEAT,
+        OUT,
+        UNIFORM,
+      ]),
+      detail: 'has workgroup shape [8, 8, 1]',
+    },
+    {
       name: 'a raw statement in the entry body',
       module: withBody([guard, { s: 'raw', wgsl: '// spliced', glsl: '// spliced' }, store]),
       detail: 'contains a `raw` statement',

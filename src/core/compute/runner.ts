@@ -514,6 +514,8 @@ function createWebGpuRunner(
   // The kernel's OWN declaration decides the workgroup count, through the same accessor
   // reflect() uses (`workgroupSizeOf(f) ?? 64`) — a second default here would let the
   // dispatch and the reflection disagree about the grid.
+  // The x extent is the whole workgroup: planKernel's tier check refuses a portable
+  // kernel whose workgroup has a y or z other than 1.
   const wg = workgroupSizeOf(plan.entry) ?? 64
   let disposed = false
 

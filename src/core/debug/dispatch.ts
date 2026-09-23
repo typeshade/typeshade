@@ -16,7 +16,13 @@
 // line and the counts, the first divergence report roadmap item 21 asks for.
 
 import { zeroOf, type CpuValue } from '../cpu-runtime.js'
-import { stageOf, workgroupSizeOf, type FuncDecl, type ModuleDecl, type Stmt } from '../ir/index.js'
+import {
+  stageOf,
+  workgroupShapeOf,
+  type FuncDecl,
+  type ModuleDecl,
+  type Stmt,
+} from '../ir/index.js'
 import { sourceSpanOf } from '../ir/span.js'
 import { isBarrierIntrinsic } from '../intrinsics.js'
 import { validate } from '../passes/validate.js'
@@ -119,8 +125,7 @@ export function dispatchCompute(
       `typeshade/cpu: dispatch runs a @compute entry; "${entry}" is ${stageOf(decl) ?? 'a helper function'}`,
     )
   }
-  // The front end carries the x size alone today (`@compute([n, 1, 1])`, TS8028 otherwise).
-  const size: Vec3 = [workgroupSizeOf(decl) ?? 64, 1, 1]
+  const size: Vec3 = workgroupShapeOf(decl) ?? [64, 1, 1]
   const nwg: Vec3 = typeof workgroups === 'number' ? [workgroups, 1, 1] : workgroups
   const base = makeCtx(prepared, opts?.gpuStubs ?? false)
   for (const [k, v] of Object.entries(bindings)) base.bindings[k] = v

@@ -23,6 +23,7 @@ import {
   type StructDecl,
   type ModuleDecl,
   type ShaderType,
+  workgroupShapeOf,
 } from './ir/index.js'
 import { uniformStruct } from './sot.js'
 
@@ -171,6 +172,33 @@ describe('reflect — module metadata walker', () => {
     expect(r.uniforms[0]?.size).toBe(80) // mat4x4(64) + vec4(16)
     expect(r.entries.map((e) => e.stage)).toEqual(['vertex', 'compute'])
     expect(r.entries.find((e) => e.stage === 'compute')?.workgroupSize).toBe(64)
+    expect(r.entries.find((e) => e.stage === 'compute')?.workgroupShape).toEqual([64, 1, 1])
+  })
+
+  it('reports the workgroup shape fn() declares, and emits only the extents WGSL needs', () => {
+    const cases = [
+      [[8, 8], [8, 8, 1], '@workgroup_size(8, 8)'],
+      [[4, 1, 2], [4, 1, 2], '@workgroup_size(4, 1, 2)'],
+      [[32, 1, 1], [32, 1, 1], '@workgroup_size(32)'],
+      [32, [32, 1, 1], '@workgroup_size(32)'],
+    ] as const
+    for (const [size, shape, attr] of cases) {
+      const cs = fn('cs', {}, () => {}, { stage: 'compute', workgroupSize: size })
+      const m = module({ funcs: [cs] })
+      const entry = reflect(m).entries[0]
+      expect(entry?.workgroupShape, String(size)).toEqual(shape)
+      expect(entry?.workgroupSize, String(size)).toBe(shape[0])
+      expect(cs.attrs, String(size)).toEqual(['@compute', attr])
+      // A hand-built decl carrying only the attribute string reads the same shape.
+      const bare = {
+        name: 'cs',
+        attrs: ['@compute', attr],
+        params: [],
+        ret: { kind: 'void' as const },
+        body: [],
+      }
+      expect(workgroupShapeOf(bare), String(size)).toEqual(shape)
+    }
   })
 })
 

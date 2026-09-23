@@ -152,6 +152,21 @@ describe('a compute invocation derives the ids it can', () => {
     expect(out[11]).toBe(3 * 100 + 1 * 10 + 3 + 1)
   })
 
+  it('derives them per axis for a two-dimensional workgroup', () => {
+    // gid (9, 3) with @compute([8, 8]): workgroup (1, 0), local (1, 3), index 1 + 3 * 8.
+    const m2 = compiled(COMPUTE.replace('@compute([8, 1, 1])', '@compute([8, 8])'))
+    const s = startDebugSessionFromConfig(m2, {
+      entry: 'k',
+      precision: 'f64',
+      invocation: { global_invocation_id: [9, 3, 0] },
+      bindings: { params, out: zeros() },
+    })
+    const frame = s.pause!.frames[0]!
+    expect(frame.locals.get('lid')).toEqual([1, 3, 0])
+    expect(frame.locals.get('wid')).toEqual([1, 0, 0])
+    expect(frame.locals.get('li')).toBe(25)
+  })
+
   it('an explicit id overrides the derivation', () => {
     const s = startDebugSessionFromConfig(m, {
       entry: 'k',

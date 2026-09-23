@@ -237,16 +237,16 @@ describe('getDiagnostics: Stage 3 TypeShade checks (design doc §10 step 5)', ()
     expect(d!.range.start.line).toBe(2)
   })
 
-  it('reports a bad @compute workgroup shape with source typeshade and the right code', () => {
+  it('warns about a @compute workgroup shape over the default limits with source typeshade and the right code', () => {
     const service = createTypeshadeLanguageService()
     const text =
-      '"use typeshade";\n' + '@compute([64, 2, 1])\n' + 'export function cs(): void {\n' + '}\n'
+      '"use typeshade";\n' + '@compute([64, 8, 1])\n' + 'export function cs(): void {\n' + '}\n'
     service.openDocument('workgroup.ts', text)
     const d = service
       .getDiagnostics('workgroup.ts')
       .find((d) => d.source === 'typeshade' && d.code === 'TS8026')
     expect(d, 'expected a TS8026 (WORKGROUP_SHAPE) diagnostic').toBeDefined()
-    expect(d!.severity).toBe('error')
+    expect(d!.severity).toBe('warning')
     expect(d!.range.start.line).toBe(1)
   })
 
