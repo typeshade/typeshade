@@ -25,9 +25,13 @@ float Orbit_get_period(Orbit self_) {
   return (6.2831855 / self_.speed);
 }
 
+void Orbit_set_span(inout Orbit self_, float d) {
+  self_.radius = (d * 0.5);
+}
+
 vec2 Orbit_at(Orbit self_, float t) {
   float a = (t * self_.speed);
-  return vec2((cos(a) * self_.radius), (sin(a) * self_.radius));
+  return (vec2(cos(a), sin(a)) * self_.radius);
 }
 
 Orbit Orbit_new() {
@@ -61,6 +65,7 @@ layout(location = 0) out vec4 color;
 void main() {
   vec2 p = uv;
   Orbit orbit = Orbit_new();
+  Orbit_set_span(orbit, 0.9);
   Rng rng = Rng_new();
   float glow = 0.0;
   for (int i = 0; (i < 5); i = (i + 1)) {

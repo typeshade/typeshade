@@ -11,6 +11,7 @@
 //   a * c, c * a, a / c   → pair * s                     (s = c or 1/c, ±2^k: exact;
 //                                                         |s| > 1 needs a run-time a)
 //   a < <= > >= == != b   → df64_lt/le/gt/ge/eq/ne(a, b)
+//     on vecN<f64>        → df64_vN_lt/…/ne(a, b)        (a vecN<bool>, lane by lane)
 //   -a                    → -(vec2 pair)                 (componentwise, exact)
 //   sqrt/abs/min/max/mix/floor/fract/round/sin/cos → df64_*
 //   abs/min/max/mix/floor/fract/round/normalize/sin/cos on vecN<f64> → df64_vN_*
@@ -227,6 +228,14 @@ const VEC_BINOP_FN: Partial<Record<BinOp, string>> = {
   '-': 'sub',
   '*': 'mul',
   '/': 'div',
+};
+const VEC_CMP_FN: Record<CmpOp, string> = {
+  '<': 'lt',
+  '>': 'gt',
+  '<=': 'le',
+  '>=': 'ge',
+  '==': 'eq',
+  '!=': 'ne',
 };
 /** base.hi / base.lo (base = a LOWERED DF64VecN expr). */
 const plane = (base: Expr, n: 2 | 3 | 4, which: 'hi' | 'lo'): Expr => ({
@@ -691,6 +700,25 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
     case 'compare':
       if (isF64(e.a.type) || isF64(e.b.type)) {
         return callHelper(ctx, CMP_FN[e.cop], boolT, [pairOperand(e.a), pairOperand(e.b)]);
+      }
+      // Two vec64s of one width compare lane by lane into a vector of bools (§27), each operand
+      // evaluated once, as the helper's argument. Any other vec64 comparison was built past the
+      // front end: WGSL compares no scalar with a vector, and a scalar bool result is the
+      // mistyping that sent `if (a < b)` to WGSL as a `<` on two structs.
+      if (isVec64(e.a.type) || isVec64(e.b.type)) {
+        const t = e.a.type;
+        if (
+          !isVec64(t) ||
+          typeKey(e.b.type) !== typeKey(t) ||
+          typeKey(e.type) !== typeKey({ kind: 'vec', n: t.n, elem: 'bool' })
+        ) {
+          throw dslError(
+            'SD0041',
+            `compare '${e.cop}' of ${typeKey(e.a.type)} and ${typeKey(e.b.type)} typed ` +
+              `${typeKey(e.type)}; two vec64s of one width compare into a vector of bools`,
+          );
+        }
+        return callHelper(ctx, `df64_v${t.n}_${VEC_CMP_FN[e.cop]}`, e.type, [walk(e.a), walk(e.b)]);
       }
       return { ...e, a: walk(e.a), b: walk(e.b) };
     case 'logical':

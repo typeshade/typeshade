@@ -2,6 +2,17 @@
 precision highp float;
 precision highp int;
 
+struct Ring {
+  int n;
+  float radius;
+};
+Ring Ring_new(int n, float radius) {
+  Ring self_ = Ring(0, 0.0);
+  self_.n = n;
+  self_.radius = radius;
+  return self_;
+}
+
 float circle(vec2 p) {
   return (length(p) - 0.2);
 }
@@ -46,6 +57,17 @@ void times3_fs_body(inout float glow, vec2 p) {
   }
 }
 
+void fs_dot(inout float dots, vec2 p, vec2 c) {
+  dots = max(dots, (1.0 - smoothstep(0.03, 0.04, length((p - c)))));
+}
+
+void Ring_each_fs_dot(inout float dots, vec2 p, Ring self_) {
+  for (int i = 0; (i < self_.n); i = (i + 1)) {
+    float a = ((float(i) * 6.2831855) / float(self_.n));
+    fs_dot(dots, p, (vec2(cos(a), sin(a)) * self_.radius));
+  }
+}
+
 bool fs_any(vec2 p, float b) {
   return (abs((length(p) - b)) < 0.012);
 }
@@ -60,6 +82,10 @@ void main() {
   float glow = 0.0;
   times3_fs_body(glow, p);
   col += vec3((glow * 0.3), (glow * 0.2), (glow * 0.6));
+  Ring ring = Ring_new(6, 0.7);
+  float dots = 0.0;
+  Ring_each_fs_dot(dots, p, ring);
+  col = mix(col, vec3(0.9, 0.3, 0.5), dots);
   float[3] bands = float[3](0.8, 0.88, 0.96);
   if (((fs_any(p, bands[0]) || fs_any(p, bands[1])) || fs_any(p, bands[2]))) {
     col = vec3(1.0, 1.0, 1.0);

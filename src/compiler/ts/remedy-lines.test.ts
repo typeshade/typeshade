@@ -130,7 +130,7 @@ function checkRemedies(program: string, hole?: EditorHole): string[] {
   return lines;
 }
 
-/** The one editor hole this change opens, and the one it inherits.
+/** The one editor hole this change opens.
  *
  *  A WHOLE-BINDING WRITE. `s = 1.` on a scalar, vector, struct or emulated-double binding is
  *  `var<storage, read_write> s: f32; s = 1.0;` in WGSL and the compiler takes it, but a
@@ -141,24 +141,15 @@ function checkRemedies(program: string, hole?: EditorHole): string[] {
  *  B's row for design rule 12.7 rather than left for an author to find. A write through an
  *  index or a field — what a compute kernel actually does — is unaffected.
  *
- *  A SQUARE MATRIX COLUMN. `m4[0] = vec4(1.)` is `TS2322 … not assignable to type 'never'` on
- *  a read_write binding, which is `T` itself, so it is identical on `main` and the read view
- *  neither caused it nor can close it. Measured, it is the SQUARE aliases only: they take the
- *  element as a type parameter (`mat4<T extends f32 | f64 = f32>`) and resolve through a
- *  conditional, which is what loses the column's type; `mat2x3[0] = vec3(1.)` is clean in both
- *  layers. Surface §49 has the row. */
+ *  It also inherited one, now closed. A SQUARE MATRIX COLUMN, `m4[0] = vec4(1.)`, was `TS2322
+ *  … not assignable to type 'never'`: the square aliases resolved their element with `T extends
+ *  f64`, which read `mat4` as a matrix of doubles. They key on `keyof` now, and the square
+ *  matrix case below comes back clean from both layers. */
 const constWholeWrite = (name: string): EditorHole => ({
   diagnostics: [`typescript 2588 Cannot assign to '${name}' because it is a constant.`],
   why:
     `a whole-binding write is TS2588 in the editor because a binding is declared const; ` +
     `the compiler takes it, and surface §49 has the row`,
-});
-
-const matrixColumnWrite = (elem: string): EditorHole => ({
-  diagnostics: [`typescript 2322 Type '${elem}' is not assignable to type 'never'.`],
-  why:
-    `writing a matrix COLUMN is TS2322 on 'never' in the editor on either access mode, ` +
-    `unchanged from main: the ambient matrix declares no writable column (surface §49)`,
 });
 
 // ── The type a remedy spells is the type an author writes ──
@@ -222,7 +213,6 @@ describe('the type a remedy spells is the one an author writes', () => {
       decl: 'declare const m4: storage<mat4>',
       body: 'm4[0] = vec4(1.)',
       names: 'declare const m4: storage<mat4x4, "read_write">',
-      hole: matrixColumnWrite('vec4'),
     },
     {
       what: 'an emulated double',
@@ -735,10 +725,10 @@ describe('every refusal that names a line is pinned above', () => {
       note: 'quotes the member access to write instead (`Base.x`, `this.x`), an expression and not a declaration',
     },
     {
-      file: 'lower/class-methods.ts',
+      file: 'lower/function.ts',
       sites: 1,
       lines: 0,
-      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open',
+      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open, for a setter whose value has no type and no getter that returns one',
     },
     {
       file: 'lower/function-types.ts',
