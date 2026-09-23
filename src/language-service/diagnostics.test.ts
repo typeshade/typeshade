@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { createTypeshadeLanguageService } from './service.js';
+import { getTypeScriptDiagnostics } from './diagnostics.js';
 import { TypeshadeHost } from './host.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
@@ -375,4 +376,75 @@ describe('a field that holds a function draws no TypeScript diagnostic (Rule 8.1
       expect(diagnosticsOf(source).map((d) => `${d.source} ${d.code}: ${d.message}`)).toEqual([]);
     });
   }
+});
+
+// TypeScript 5.7 added a check the TypeScript this repository installs (5.6) does not run: a
+// `let` that no statement assigns is "used before being assigned" in every function that reads
+// it. Workgroup memory is that shape by construction: it takes no initializer, and a kernel
+// writes it through an element (`tile[i] = x`), which is not an assignment to `tile`. The site's
+// Playground bundles TypeScript 5.9, where `workgroup-scratch`, `workgroup-reduce`,
+// `compute-sync` and `workgroup-tile-2d` showed TS2454 on `tile` and would not compile. The
+// diagnostic TypeScript 5.7 adds is put into a real program here, at the span it reports, and
+// then filtered the way the service filters, so the rule is pinned under either version.
+describe('a read of workgroup memory draws no TS2454 (TypeScript 5.7 and later)', () => {
+  const kernel =
+    '"use typeshade"\n' +
+    'declare const src: storage<array<f32>>\n' +
+    'let tile: workgroup<array<f32, 64>>\n' +
+    'let calls: u32\n' +
+    '@compute([64, 1, 1])\n' +
+    'export function k(@builtin("local_invocation_id") lid: vec3u): void {\n' +
+    '  tile[lid.x] = src[lid.x] + f32(calls)\n' +
+    '}\n';
+
+  /** What the service reports for `source` when TypeScript also reports TS2454, as 5.7 and
+   *  later do, on every read of `names` inside the entry point. */
+  function withNeverAssigned(source: string, names: readonly string[]): string[] {
+    const host = new TypeshadeHost();
+    host.openDocument(URI, source);
+    const service = ts.createLanguageService(host, ts.createDocumentRegistry());
+    const sourceFile = service.getProgram()!.getSourceFile(URI)!;
+    const body = sourceFile.text.indexOf('export function k');
+    const added: ts.Diagnostic[] = names.flatMap((name) =>
+      [...sourceFile.text.slice(body).matchAll(new RegExp(`\\b${name}\\b`, 'g'))].map((match) => ({
+        file: sourceFile,
+        start: body + match.index,
+        length: name.length,
+        code: 2454,
+        category: ts.DiagnosticCategory.Error,
+        messageText: `Variable '${name}' is used before being assigned.`,
+      })),
+    );
+    expect(added.length, 'every name should be read in the entry point').toBeGreaterThanOrEqual(
+      names.length,
+    );
+    const reporting: ts.LanguageService = {
+      ...service,
+      getSemanticDiagnostics: (fileName) => [...service.getSemanticDiagnostics(fileName), ...added],
+    };
+    return getTypeScriptDiagnostics(reporting, sourceFile, URI).map(
+      (d) => `TS${d.code}: ${d.message}`,
+    );
+  }
+
+  it('drops it on workgroup memory and keeps it on a per-invocation let nothing assigns', () => {
+    expect(withNeverAssigned(kernel, ['tile', 'calls'])).toEqual([
+      "TS2454: Variable 'calls' is used before being assigned.",
+    ]);
+  });
+
+  it('keeps it on a local that shadows the workgroup name, which TypeScript 5.6 reports too', () => {
+    const source =
+      '"use typeshade"\n' +
+      'declare const dst: storage<array<f32>, "read_write">\n' +
+      'let tile: workgroup<array<f32, 64>>\n' +
+      '@compute([64, 1, 1])\n' +
+      'export function k(@builtin("local_invocation_id") lid: vec3u): void {\n' +
+      '  let tile: f32\n' +
+      '  dst[lid.x] = tile\n' +
+      '}\n';
+    expect(typeScriptDiagnosticsOf(source)).toEqual([
+      "TS2454: Variable 'tile' is used before being assigned.",
+    ]);
+  });
 });

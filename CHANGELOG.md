@@ -1352,6 +1352,17 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A read of workgroup memory no longer shows as unassigned in the editor on TypeScript 5.7 and
+  later** (`docs/language-service-api.md` §6, surface §24). `let tile: workgroup<array<f32, 64>>`
+  takes no initializer, and a kernel writes it through an element (`tile[i] = x`), so
+  TypeScript 5.7 and later reported every read of it as TS2454,
+  `Variable 'tile' is used before being assigned.` TypeScript 5.6, the version this repository
+  installs, never reports it. The site's Playground bundles TypeScript 5.9, where
+  `workgroup-scratch`, `workgroup-reduce`, `compute-sync` and `workgroup-tile-2d` showed the
+  error and would not compile. The language service now drops TS2454 when the name resolves to
+  a top-level `let` annotated `workgroup<T>`. A per-invocation module `let` that nothing
+  assigns, and a local read before its first assignment, still report it. Measured over the
+  Playground's 82 examples under TypeScript 5.9.3: 4 with an error before, 0 after.
 - **Two refusals around a vector of doubles name the reason and a remedy that compiles**
   (Rule 12.1, Rule 12.5, §27, §39). `select(a, b, m)` with `vec3f64` arms and a `vec3b` mask,
   which a comparison of two `vec3f64` now gives, read

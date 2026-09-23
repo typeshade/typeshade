@@ -429,6 +429,17 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   TS2542 ("Index signature in type 'array<f32, number>' only permits reading") a false positive
   on the Playground's own compute sample. The brand and `length` stay `readonly`: neither is
   assignable in the source language, so `out.length = 2` keeps its TS2540.
+- A read of workgroup memory is clean in the editor on every TypeScript the package admits.
+  `let tile: workgroup<array<f32, 64>>` takes no initializer, since WGSL gives a
+  `var<workgroup>` none, and a kernel writes it through an element (`tile[i] = x`), which
+  TypeScript does not count as an assignment to `tile`. TypeScript 5.7 and later report such a
+  `let` as used before being assigned (TS2454) in every function that reads it; 5.6, the
+  version this repository installs, reports nothing. The Playground bundles TypeScript 5.9, and
+  four compute examples would not compile there. The service drops TS2454 when the checker
+  resolves the name to a top-level `let` annotated `workgroup<T>`, by `moduleVarSpace`, the
+  front end's own test. A per-invocation module `let` that nothing assigns keeps it, and so
+  does a local read before its first assignment (Rule 7.6), since GLSL ES 3.00 leaves either
+  one undefined.
 
 ### Vector and matrix arithmetic (issue #21)
 
