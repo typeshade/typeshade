@@ -70,8 +70,8 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
   own JavaScript reference. A change that improves what a user can write adds its journey
   (`journeys/README.md`).
 - CI's traceability job: `doorstop -C -e -F` over `reqs/` and the traceability matrix as an
-  artifact (`reqs/README.md`). On a pull request, the `check` job also runs `docs:impact --check`
-  and `ifchange.ts` against the base.
+  artifact (`reqs/README.md`). On a pull request, the `check` job also runs `docs:impact --check`,
+  `ifchange.ts` and `changes.ts` against the base.
 
 <!-- LINT.ThenChange() -->
 
@@ -100,6 +100,15 @@ true is a set of steps with tools, each an industry practice, not a memory:
 
 <!-- LINT.IfChange(docs-follow-the-code) -->
 
+- **Agree the change before writing it.** A change that alters a design rule, a public export
+  or what the site and the editor show (a surface section, a diagnostic code, the set of
+  examples) starts as a proposal in `changes/`, merged with `status: accepted` before the
+  implementation. It names everything the change will touch and the work each downstream
+  repository will owe. Each implementing commit says `Change: NNNN`, and
+  `scripts/changes.ts` (`bun run changes:check`) fails a diff that reaches past what its
+  proposal declared, or that needs a proposal and names none. `changes/README.md` has the
+  criteria and the lifecycle; a caught change that truly needs no proposal says why with
+  `Change: none, <reason>`.
 - **Read the impact before you commit.** `bun run docs:impact` lists what the prose owes the
   working tree against `main`. _Must fix_: a name or file the change removes that a sentence
   still names on a line the change did not touch. _Review_: every sentence that names a file
@@ -125,21 +134,26 @@ true is a set of steps with tools, each an industry practice, not a memory:
   with `NO_IFTTT=<reason>`.
 - **Claude Code enforces it.** `.claude/settings.json` runs `bun scripts/doc-impact.ts --hook`
   before every `git commit`. The hook blocks the commit on a must-fix, a dead reference, an unmet
-  `ThenChange`, stale `reqs/`, or a Doorstop error (when `doorstop` is installed). It also blocks on open
+  `ThenChange`, stale `reqs/`, a Doorstop error (when `doorstop` is installed), or a change that
+  needs a proposal and does not stay inside an accepted one. It also blocks on open
   review items until the message carries a `Docs-Impact:` trailer saying what you found
   (`Docs-Impact: reviewed, AUTHORING.md#fp64 still holds`, or `Docs-Impact: none, test-only`).
   The trailer answers only the review list; a must-fix or a suspect link is fixed or reviewed,
   never declared away.
 - **The repositories that vendor the compiler are held too.** The site and the editor
   extension run `scripts/downstream-impact.ts` from the pinned compiler on every compiler-pin
-  pull request. It fails while a downstream file still names an export or file the pin removes.
+  pull request. It fails while a downstream file still names an export or file the pin removes,
+  and while a proposal the pin implements names that repository in `downstream` and the
+  repository's `compiler-changes.md` does not record its id. <!-- doc-refs: skip — a file in each downstream repository -->
   It also fails when a compiler `LINT.ThenChange(//typeshade.github.io/…)` or
   `//vscode-typeshade/…` target did not change with its block. They run `ifchange.ts` over their
   own tree with `TYPESHADE_DOCS_ROOT`, and their `.claude/settings.json` runs the same check as
   a commit hook (`downstream-impact.ts --hook`).
 - **CI enforces it for everyone.** On a pull request, the `check` job runs
-  `docs:impact --check` and `ifchange.ts`, and the traceability job runs `doorstop -C -e -F`.
-  `.github/CODEOWNERS` puts the normative documents, `reqs/` and these tools under review.
+  `docs:impact --check`, `ifchange.ts` and `changes.ts` (reading the commit messages and the
+  pull request's description for the `Change:` line), and the traceability job runs `doorstop -C -e -F`.
+  `.github/CODEOWNERS` puts the normative documents, `reqs/`, `changes/` and these tools under
+  review.
 
 <!-- LINT.ThenChange() -->
 

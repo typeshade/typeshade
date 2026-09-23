@@ -8,6 +8,7 @@
 /docs/language-design.md         @Seungup
 /docs/use-typeshade-surface.md   @Seungup
 /reqs/                           @Seungup
+/changes/                        @Seungup
 
 # The guide typeshade.dev renders, and the maps agents read first.
 /AUTHORING.md                    @Seungup
@@ -20,5 +21,6 @@
 /scripts/doc-impact.ts           @Seungup
 /scripts/ifchange.ts             @Seungup
 /scripts/reqs-sync.ts            @Seungup
+/scripts/changes.ts              @Seungup
 /.claude/                        @Seungup
 /.github/                        @Seungup

@@ -71,6 +71,7 @@
     "manifest:publish": "bun scripts/publish-manifest.ts",
     "docs:refs": "bun scripts/doc-refs.ts",
     "docs:impact": "bun scripts/doc-impact.ts",
+    "changes:check": "bun scripts/changes.ts",
     "reqs:sync": "bun scripts/reqs-sync.ts",
     "lint": "eslint .",
     "format": "prettier --write . && bun scripts/semicolons.ts",

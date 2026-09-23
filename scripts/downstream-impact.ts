@@ -17,6 +17,11 @@
 //              `scripts/ifchange.ts`, checked where both sides finally meet. A commit message on
 //              the downstream branch that says `NO_IFTTT=<reason>` waives this kind, and only
 //              this kind: a removed name is fixed, never declared away.
+//   must fix   a change proposal (`changes/`, `changes/README.md`) implemented at the new pin
+//              that names THIS repository in its `downstream` list, when this repository's
+//              `compiler-changes.md` does not record its id. The proposal says what the
+//              repository owes; the record, a list item that starts with the id, says it is
+//              done. Nothing waives it.
 //
 // The downstream repository's own `LINT.IfChange` pairs are checked by the same `ifchange.ts`,
 // pointed at the downstream root: `TYPESHADE_DOCS_ROOT=$PWD bun <submodule>/scripts/ifchange.ts`.
@@ -34,10 +39,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseBlocks, waiver, type Block } from './ifchange.js';
 import { surface } from './doc-impact.js';
+import { HANDLED_FILE, handledIds, owedDownstream, proposalsAt } from './changes.js';
 
 export interface Finding {
-  /** `removed`: fix it, nothing waives it. `ifchange`: a `NO_IFTTT=` message can. */
-  readonly kind: 'removed' | 'ifchange';
+  /** `removed` and `proposal`: fix it, nothing waives it. `ifchange`: a `NO_IFTTT=` message can. */
+  readonly kind: 'removed' | 'ifchange' | 'proposal';
   readonly subject: string;
   readonly file: string;
   readonly line: number;
@@ -227,6 +233,21 @@ export function downstreamImpact(o: Options): { mustFix: Finding[]; waived: stri
     }
   }
 
+  // 4. Proposals the new pin implements that name this repository and are not yet recorded.
+  const handledPath = join(o.root, HANDLED_FILE);
+  const handled = handledIds(existsSync(handledPath) ? readFileSync(handledPath, 'utf8') : '');
+  const atPin = proposalsAt(o.newSha, (...args) => run(sub, ...args));
+  for (const p of owedDownstream(atPin, o.repo, handled)) {
+    const owed = p.downstream.filter((d) => d.repo === o.repo).map((d) => d.what);
+    mustFix.push({
+      kind: 'proposal',
+      subject: `compiler change ${p.id} (${p.file}) owes this repository work`,
+      file: HANDLED_FILE,
+      line: 1,
+      text: `${owed.join('; ')}. Do it on this branch, then record \`- ${p.id}\` in ${HANDLED_FILE}.`,
+    });
+  }
+
   return { mustFix, waived: waiver(messages) };
 }
 
@@ -262,7 +283,8 @@ export function renderFindings(findings: readonly Finding[], markdown: boolean):
 // It does nothing unless the call is a `git commit`. Then, when the commit moves the pin (the
 // staged gitlink differs from HEAD's), it runs the check above over that move; and it runs
 // `ifchange.ts` over this repository's staged diff. It blocks the commit (exit 2, the report goes
-// to the agent) on a removed export or file still named here, and on an unmet ThenChange that
+// to the agent) on a removed export or file still named here, on a proposal the new pin owes
+// this repository and `compiler-changes.md` does not record, and on an unmet ThenChange that
 // the message does not waive with a `NO_IFTTT=<reason>` line.
 
 function hook(repo: string, submodule: string): number {
@@ -284,11 +306,11 @@ function hook(repo: string, submodule: string): number {
   const newSha = /^\d+ ([0-9a-f]{40}) /.exec(tryRun(root, 'ls-files', '-s', submodule))?.[1] ?? '';
   if (oldSha && newSha && oldSha !== newSha) {
     const { mustFix } = downstreamImpact({ root, repo, submodule, oldSha, newSha, base: 'HEAD' });
-    const binding = mustFix.filter((f) => f.kind === 'removed' || !waiver(message));
+    const binding = mustFix.filter((f) => f.kind !== 'ifchange' || !waiver(message));
     if (binding.length) {
       report.push(
-        `${renderFindings(binding, false)}\n\nThis commit moves the compiler pin, and the lines above still ` +
-          'name what the new compiler removes. Update each one on this branch.',
+        `${renderFindings(binding, false)}\n\nThis commit moves the compiler pin, and the new compiler ` +
+          'removes what the lines above still name, or owes this repository the work above. Do each on this branch.',
       );
     }
   }
@@ -333,7 +355,7 @@ if (import.meta.main) {
   const markdown = args.includes('--markdown');
   console.log(markdown ? '## What this compiler bump owes this repository\n' : '');
   console.log(renderFindings(mustFix, markdown));
-  const binding = mustFix.filter((f) => f.kind === 'removed' || !waived);
+  const binding = mustFix.filter((f) => f.kind !== 'ifchange' || !waived);
   if (waived && binding.length < mustFix.length) {
     console.log(`\nNO_IFTTT=${waived}: the cross-repository IfChange findings above are waived.`);
   }

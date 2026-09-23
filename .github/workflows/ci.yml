@@ -12,7 +12,9 @@ name: ci
 #                 change removed, and writes the review list to the job summary; then every
 #                 IfChange block (scripts/ifchange.ts) the diff changed must have its targets
 #                 changed too, unless a commit message says NO_IFTTT=<reason>
-#                 (AGENTS.md#docs-follow-the-code).
+#                 (AGENTS.md#docs-follow-the-code); then a diff that touches a rule, an export
+#                 or a downstream-visible surface must name an accepted proposal it stays
+#                 inside, with a `Change: NNNN` line (scripts/changes.ts, changes/README.md).
 #   traceability  Doorstop over reqs/ (reqs/README.md): fails on a rule changed without review,
 #                 a surface section left suspect by a rule it explains, or a verifying file that
 #                 no longer names its rule; uploads the traceability matrix as an artifact.
@@ -75,6 +77,11 @@ jobs:
       - name: LINT.IfChange pairs
         if: github.event_name == 'pull_request'
         run: bun scripts/ifchange.ts --base "origin/${{ github.base_ref }}"
+      - name: change proposal
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: bun scripts/changes.ts --base "origin/${{ github.base_ref }}"
 
   traceability:
     name: traceability (Doorstop)

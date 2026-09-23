@@ -116,7 +116,10 @@ export function markdownFiles(): string[] {
   );
 }
 
-/** The reader and its test quote dead references on purpose, as examples and as fixtures. */
+/**
+ * The reader and its test quote dead references on purpose, as examples and as fixtures; the
+ * downstream checks name files that live in the downstream repositories.
+ */
 const SELF: ReadonlySet<string> = new Set([
   'scripts/doc-refs.ts',
   'scripts/doc-impact.ts',
@@ -125,6 +128,8 @@ const SELF: ReadonlySet<string> = new Set([
   'src/ifchange.test.ts',
   'scripts/downstream-impact.ts',
   'src/downstream-impact.test.ts',
+  'scripts/changes.ts',
+  'src/changes.test.ts',
 ]);
 
 /** TypeScript whose comments may cite the prose. */
