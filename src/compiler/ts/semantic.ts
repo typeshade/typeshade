@@ -5,6 +5,7 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { isEnableDirective } from './enables.js';
+import { staticThisClass } from './class-names.js';
 
 export const HOST_GLOBALS: ReadonlySet<string> = new Set([
   'window',
@@ -86,6 +87,14 @@ function newTarget(
   node: ts.NewExpression,
   sourceFile: ts.SourceFile,
 ): 'class' | 'abstract' | 'type' | 'host' {
+  // `new this()` in a static member builds the class that declares the member (Rule 8.13).
+  if (node.expression.kind === ts.SyntaxKind.ThisKeyword) {
+    const cls = staticThisClass(node.expression);
+    if (cls === undefined) return 'host';
+    return cls.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)
+      ? 'abstract'
+      : 'class';
+  }
   const written = newTargetName(node.expression);
   if (written === undefined) return 'host';
   // The name as written, and the short name a dotted one ends in: `new N.P()` names the class
@@ -113,6 +122,14 @@ function newTarget(
   };
   walk(sourceFile.statements, false);
   return found ?? 'host';
+}
+
+/** The name of the class a node stands inside, the innermost one. */
+function enclosingClassName(node: ts.Node): string | undefined {
+  for (let at: ts.Node | undefined = node.parent; at !== undefined; at = at.parent) {
+    if (ts.isClassLike(at)) return at.name?.text;
+  }
+  return undefined;
 }
 
 /** The name a `new` writes, joined the way the module flattens it: `P`, `N_P`. */
@@ -197,7 +214,9 @@ function visit(
   if (ts.isNewExpression(node)) {
     const shown = ts.isIdentifier(node.expression)
       ? node.expression.text
-      : node.expression.getText(sourceFile);
+      : node.expression.kind === ts.SyntaxKind.ThisKeyword
+        ? (staticThisClass(node.expression)?.name?.text ?? 'this')
+        : node.expression.getText(sourceFile);
     switch (newTarget(node, sourceFile)) {
       case 'class':
         break;
@@ -227,8 +246,13 @@ function visit(
           diagnostics,
           sourceFile,
           node,
-          `A class this file declares is built with "new", and "${shown}" is not one of them. ` +
-            `"new" on anything else allocates a JS object, which a shader has no heap for.`,
+          node.expression.kind === ts.SyntaxKind.ThisKeyword
+            ? `"this" here is an object, not a class, so "new" cannot build one from it. Name ` +
+                `the class, "new ${enclosingClassName(node) ?? 'C'}(...)"; "new this()" builds ` +
+                `the class in a static member.`
+            : `A class this file declares is built with "new", and "${shown}" is not one of ` +
+                `them. "new" on anything else allocates a JS object, which a shader has no heap ` +
+                `for.`,
           TS_CODES.HOST_STMT,
         );
     }

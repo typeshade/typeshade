@@ -43,6 +43,12 @@ export function withTypeArguments<R>(
   }
 }
 
+/** The type arguments in force right now: what a body lowered later, from wherever a call
+ *  asks for it, is lowered under again (Rule 8.19). */
+export function currentTypeArguments(): ReadonlyMap<string, ShaderType> | undefined {
+  return BOUND;
+}
+
 /** Bind `args` as the type arguments and return the undo. The imperative twin of
  *  {@link withTypeArguments}, for a caller whose body is a loop with `continue` in it: an
  *  arrow function would make that `continue` cross a function boundary. */

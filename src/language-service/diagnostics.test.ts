@@ -357,3 +357,22 @@ describe('GPU_BRAND_TAGS is exactly what SHADE_DTS brands vectors and matrices w
     expect(other.filter((tag) => GPU_BRAND_TAGS.includes(tag))).toEqual([]);
   });
 });
+
+// A field that holds a function is a method to the compiler (Rule 8.16), which it builds from
+// the author's nodes. The editor hands the compiler the tree TypeScript's checker binds, so
+// moving a node under that method would move it out of the scope the binder gave it: the first
+// version re-parented the body, and every read of a parameter or a local in it was TS2304
+// "Cannot find name 'p'" in the editor while the command line compiled it clean.
+describe('a field that holds a function draws no TypeScript diagnostic (Rule 8.16)', () => {
+  const cases: Readonly<Record<string, string>> = {
+    'an expression body': `class A { k: f32 = 1.; f = (p: f32): f32 => p * this.k }`,
+    'a block body with a local': `class A { k: f32 = 1.; f = (p: f32): f32 => { const d = p * this.k; return d } }`,
+    'a function expression': `class A { k: f32 = 1.; f = function (this: A, p: f32): f32 { const d = p * this.k; return d } }`,
+  };
+  for (const [what, cls] of Object.entries(cases)) {
+    it(what, () => {
+      const source = `"use typeshade"\n${cls}\nexport function g(a: A): f32 { return a.f(2.) }\n`;
+      expect(diagnosticsOf(source).map((d) => `${d.source} ${d.code}: ${d.message}`)).toEqual([]);
+    });
+  }
+});

@@ -4,10 +4,11 @@ import type ts from 'typescript';
 import type { ShaderType } from '../../core/ir/types.js';
 import { CAS_RESULT_STRUCTS } from '../../core/ir/types.js';
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js';
-import type { FuncDecl, StructDecl, StructField } from '../../core/ir/nodes.js';
+import type { FuncDecl, Stmt, StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import type { PrivateField } from './structs.js';
+import type { PrivateField, RestrictedField } from './structs.js';
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js';
+import type { FunctionShape } from './lower/function-types.js';
 
 /** Which fields of each struct are private, by struct and then by the member they are emitted
  *  as (Rule 8.12). */
@@ -30,6 +31,25 @@ export function withheldTableOf(
 
 /** The `readonly` fields of each struct, with the class whose constructor may assign each. */
 export type ReadonlyFieldTable = ReadonlyMap<string, ReadonlyMap<string, ts.ClassLikeDeclaration>>;
+
+/** The `private` and `protected` fields of each struct (Rule 8.15). */
+export type RestrictedFieldTable = ReadonlyMap<string, ReadonlyMap<string, RestrictedField>>;
+
+/** The {@link RestrictedFieldTable} `structs` carry. */
+export function restrictedFieldTableOf(
+  structs: readonly {
+    readonly decl: StructDecl;
+    readonly restrictedFields?: ReadonlyMap<string, RestrictedField>;
+  }[],
+): RestrictedFieldTable {
+  const out = new Map<string, ReadonlyMap<string, RestrictedField>>();
+  for (const s of structs) {
+    if (s.restrictedFields !== undefined && s.restrictedFields.size > 0) {
+      out.set(s.decl.name, s.restrictedFields);
+    }
+  }
+  return out;
+}
 
 /** The {@link ReadonlyFieldTable} `structs` carry. */
 export function readonlyFieldTableOf(
@@ -67,16 +87,44 @@ export function privateFieldTableOf(
  *  (roadmap 0.3 item T10, #92). It hangs off the table instead of being threaded through every
  *  scope factory because it is the other half of the same thing: what this file's calls
  *  resolve against. A call to a name in here reports nothing — the declaration said why. */
-/** How one instance of a generic function is made (roadmap 0.3 item T9, #92). `argTypes` are
- *  the call's arguments as they lowered, which is what the type arguments are read off when the
- *  call site writes none. */
+/** How one instance of a generic function is made (roadmap 0.3 item T9, #92), or of a function
+ *  that takes a function (Rule 8.18). `argTypes` are the call's arguments as they lowered, which
+ *  is what the type arguments are read off when the call site writes none, with a hole where a
+ *  parameter takes a function; `scope` is the calling body's, which the functions a call hands
+ *  over are resolved in, an arrow function written there lifted out of, and what each captures
+ *  read from. */
 export type Instantiator = (
   name: string,
   node: ts.CallExpression,
-  argTypes: readonly ShaderType[],
+  argTypes: readonly (ShaderType | undefined)[],
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  scope: LoweringScope,
+) => FuncDecl | undefined;
+
+/** How an arrow function or a function expression written as an argument becomes a function of
+ *  the module (Rule 8.18): named after the body it is written in and `hint`, typed by `shape`
+ *  where it writes no types of its own, and taking what it captures there (Rule 8.17). */
+export type ArgumentLifter = (
+  node: ts.ArrowFunction | ts.FunctionExpression,
+  shape: FunctionShape,
+  hint: string,
+  scope: LoweringScope,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ) => FuncDecl | undefined;
+
+/** Whether a call of `decl` at `at` can be lowered now (Rule 8.19). A function that writes no
+ *  return type says it in its body, so the first call that needs it before the body's turn
+ *  lowers that body first. False, having said why or leaving it to the check that will, when
+ *  the call closes a cycle through a body still being lowered, or the body said nothing it
+ *  returns because it did not lower. */
+export type BodyFiller = (
+  decl: FuncDecl,
+  at: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+) => boolean;
 
 /** What a file's lowering knows about its own functions, beyond the callee table itself: the
  *  names it could not lower (T10, #92) and the generic ones, with the hook that makes an
@@ -88,10 +136,32 @@ export type Instantiator = (
 export interface FileFunctions {
   /** A call to a name in here reports nothing — its declaration already said why. */
   readonly refused: Set<string>;
-  /** The generic functions, under the emitted name a call resolves to. */
+  /** The generic functions, and those that take a function (Rule 8.18), under the emitted name
+   *  a call resolves to: each is made once per set of type and function arguments. */
   readonly generics: Set<string>;
   instantiate: Instantiator | undefined;
+  /** For each function in {@link generics} that takes a function, which parameters do. */
+  readonly fnParams: Map<string, ReadonlySet<number>>;
+  lift: ArgumentLifter | undefined;
+  /** Lowers the body of a function whose return type the body says, when a call needs it
+   *  first (Rule 8.19); undefined where every function writes its return type. */
+  ensure: BodyFiller | undefined;
+  /** Each function's declarations as lowered so far, by the node that declares them (a `let`, a
+   *  `const`, a parameter, and {@link THIS_CAPTURE} for its object), to the binding each made
+   *  there. What a call to a local function passes for a variable the function captures (Rule
+   *  8.17), and the type the function's parameter for it takes. */
+  readonly declared: Map<FuncDecl, Map<CaptureKey, Binding>>;
+  /** The variables each local function captures, by its emitted name, in the order of the
+   *  parameters it takes for them, which lead its own (Rule 8.17). */
+  readonly captures: Map<string, readonly CaptureKey[]>;
 }
+
+/** What a local function captures: the declaration of a variable, or the object of the method
+ *  around it, `this` (Rule 8.17). */
+export type CaptureKey = ts.Node | typeof THIS_CAPTURE;
+
+/** The key {@link FileFunctions.declared} holds a method's object under. */
+export const THIS_CAPTURE = 'this' as const;
 
 const FILE_FUNCTIONS = new WeakMap<Map<string, FuncDecl>, FileFunctions>();
 
@@ -99,7 +169,16 @@ const FILE_FUNCTIONS = new WeakMap<Map<string, FuncDecl>, FileFunctions>();
 export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
   const found = FILE_FUNCTIONS.get(callees);
   if (found !== undefined) return found;
-  const made: FileFunctions = { refused: new Set(), generics: new Set(), instantiate: undefined };
+  const made: FileFunctions = {
+    refused: new Set(),
+    generics: new Set(),
+    instantiate: undefined,
+    fnParams: new Map(),
+    lift: undefined,
+    ensure: undefined,
+    declared: new Map(),
+    captures: new Map(),
+  };
   FILE_FUNCTIONS.set(callees, made);
   return made;
 }
@@ -175,6 +254,10 @@ export interface Binding {
    *  `aliasOf: 'src'`, so a question about what `a` denotes (is it a storage array, for
    *  `arrayLength`) follows the chain to the binding instead of stopping at the local (#46). */
   readonly aliasOf?: string;
+  /** For a local `const` whose initializer built a value nothing else holds (Rule 6.10): makes
+   *  the declaration a `var` and the name writable through, the first time something writes
+   *  into what it holds. The name itself is never assigned again. */
+  readonly toVar?: () => void;
   /** For a `kind: 'module'` const whose value is not a scalar (a vector, an array), the
    *  initializer as lowered, so a division inside a function body can be proven zero
    *  componentwise the way a module const's own initializer is (#68). A scalar const carries
@@ -187,12 +270,34 @@ export interface Binding {
    *  bindings share an IR name (#38). Absent for a first declaration, whose IR name is its
    *  source name. */
   readonly irName?: string;
+  /** For the parameter a local function takes for a variable it captures (Rule 8.17): `of`,
+   *  the binding the variable has where it is declared, whose rules a write through this one
+   *  keeps (a `let` is written, a `const` only through what it holds, a parameter never), and
+   *  `byRef`, which makes the parameter a reference to the variable, the way a closure writes
+   *  the variable itself, the first time something writes it. */
+  readonly capture?: { readonly of: Binding; readonly byRef: () => void };
 }
+
+/** The binding whose rules a write to `b` keeps: the variable's own, for a local function's
+ *  parameter that captures it (Rule 8.17), and `b` itself otherwise. */
+export const writeRules = (b: Binding): Binding => b.capture?.of ?? b;
 
 /** The name an IR node for `b` carries: its {@link Binding.irName} when the source name was
  *  already taken in the function, its source name otherwise. Every site that builds a
  *  `varref` or `param` from a binding spells the name through this. */
 export const irNameOf = (b: Binding): string => b.irName ?? b.name;
+
+/** A copy of an IR node, sharing only what is shared by identity: a type, a span, and the
+ *  declaration a call refers to. */
+function cloneIr<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => cloneIr(v)) as T;
+  if (value === null || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = k === 'type' || k === 'span' || k === 'declRef' ? v : cloneIr(v);
+  }
+  return out as T;
+}
 
 export class LoweringScope {
   private readonly frames: Map<string, Binding>[] = [new Map()];
@@ -203,10 +308,13 @@ export class LoweringScope {
   private readonly byIr = new Map<string, Binding>();
   private ownerDecl: FuncDecl | undefined;
   private superCtorInfo: SuperCtor | undefined;
+  private afterSuperStmts: readonly Stmt[] | undefined;
+  private afterSuperTaken = false;
   private superMethodMap: ReadonlyMap<string, string> | undefined;
   private localFns: ReadonlyMap<string, string> | undefined;
   private baseNames: ReadonlyMap<string, readonly string[]> = new Map();
   private abstractNames: ReadonlySet<string> = new Set();
+  private staticHolders: ReadonlyMap<string, string> = new Map();
   private readonly callees: Map<string, FuncDecl>;
   private readonly fns: FileFunctions;
   private readonly refusedDecls: Set<string>;
@@ -224,12 +332,15 @@ export class LoweringScope {
   private privates: PrivateFieldTable = new Map();
   private withheldMembers: WithheldTable = new Map();
   private readonlyMembers: ReadonlyFieldTable = new Map();
+  private restrictedMembers: RestrictedFieldTable = new Map();
+  private readonly chainAliases = new Map<ts.Node, () => Expr>();
   private readonly symbols: DeclaredSymbolSink | undefined;
   private loopDepth = 0;
   private atomicOperandDepth = 0;
   private branchDepth = 0;
   private stage: 'vertex' | 'fragment' | 'compute' | undefined;
   private retType: ShaderType | undefined;
+  private inferInto: FuncDecl | undefined;
   private switchDepth = 0;
 
   constructor(callees?: Map<string, FuncDecl>, symbols?: DeclaredSymbolSink) {
@@ -258,13 +369,44 @@ export class LoweringScope {
   instantiateGeneric(
     name: string,
     node: ts.CallExpression,
-    argTypes: readonly ShaderType[],
+    argTypes: readonly (ShaderType | undefined)[],
     sourceFile: ts.SourceFile,
     diagnostics: TsCompilerDiagnostic[],
   ): FuncDecl | undefined {
     const written = this.genericName(name);
     if (written === undefined) return undefined;
-    return this.fns.instantiate?.(written, node, argTypes, sourceFile, diagnostics);
+    return this.fns.instantiate?.(written, node, argTypes, sourceFile, diagnostics, this);
+  }
+
+  /** Which parameters of the function `name` take a function (Rule 8.18), or undefined when
+   *  none does: those arguments are resolved as functions rather than lowered as values. */
+  functionParamsOf(name: string): ReadonlySet<number> | undefined {
+    const written = this.genericName(name);
+    return written === undefined ? undefined : this.fns.fnParams.get(written);
+  }
+
+  /** The function an arrow function or a function expression written as an argument stands
+   *  for (Rule 8.18), lifted out of this body; undefined, having said why, when it cannot be. */
+  liftArgument(
+    node: ts.ArrowFunction | ts.FunctionExpression,
+    shape: FunctionShape,
+    hint: string,
+    sourceFile: ts.SourceFile,
+    diagnostics: TsCompilerDiagnostic[],
+  ): FuncDecl | undefined {
+    return this.fns.lift?.(node, shape, hint, this, sourceFile, diagnostics);
+  }
+
+  /** Whether the call of `decl` at `at` can be lowered now: a function whose body says its
+   *  return type has that body lowered first (Rule 8.19). False, having said why or leaving it
+   *  to the recursion check, for a call back into a body still being lowered. */
+  calleeReady(
+    decl: FuncDecl,
+    at: ts.Node,
+    sourceFile: ts.SourceFile,
+    diagnostics: TsCompilerDiagnostic[],
+  ): boolean {
+    return this.fns.ensure?.(decl, at, sourceFile, diagnostics) ?? true;
   }
 
   private genericName(name: string): string | undefined {
@@ -357,15 +499,26 @@ export class LoweringScope {
   /** The declared return type of the function whose body is being lowered, so a `return` can
    *  be checked and typed against it: `return 0` takes it (#8 A3) and `return { … }` takes the
    *  struct it names (#8 A11). Undefined outside a function body — at module-constant
-   *  collection, for instance. INSIDE one it is always set, `parseSignature` supplying `voidT`
-   *  for a function with no annotation, which is the distinction that decides whether a bare
-   *  `return 0` is retyped. */
+   *  collection, for instance — and, in a function that writes no return type, until its first
+   *  `return` with a value says it (Rule 8.19, {@link setInferredReturn}). */
   setReturnType(t: ShaderType | undefined): void {
     this.retType = t;
   }
 
   returnType(): ShaderType | undefined {
     return this.retType;
+  }
+
+  /** For a function that writes no return type (Rule 8.19), the stub whose return type its
+   *  first `return` with a value says: the later ones are then typed against it, as against a
+   *  written one. The return type stays undefined until that `return`. */
+  setInferredReturn(stub: FuncDecl | undefined): void {
+    this.inferInto = stub;
+    if (stub !== undefined) this.retType = undefined;
+  }
+
+  inferredReturn(): FuncDecl | undefined {
+    return this.inferInto;
   }
 
   enterSwitch(): void {
@@ -458,6 +611,38 @@ export class LoweringScope {
     return this.readonlyMembers.get(structName)?.get(field);
   }
 
+  /** The `private` and `protected` fields of each struct (Rule 8.15). */
+  setRestrictedFields(table: RestrictedFieldTable): void {
+    this.restrictedMembers = table;
+  }
+
+  /** How `field` of `structName` is restricted, when it is declared `private` or `protected`. */
+  restrictedField(structName: string, field: string): RestrictedField | undefined {
+    return this.restrictedMembers.get(structName)?.get(field);
+  }
+
+  /** Whether `structName` has a field only its class, or its class and the ones that extend
+   *  it, may name: `#x`, `private`, `protected`. An object literal cannot build one. */
+  hasHiddenFields(structName: string): boolean {
+    return (
+      this.hasPrivateFields(structName) || (this.restrictedMembers.get(structName)?.size ?? 0) > 0
+    );
+  }
+
+  /** The first field of `structName` an object literal cannot set, with how it is hidden:
+   *  a `#` name, or a `private` or `protected` one. */
+  hiddenFieldOf(
+    structName: string,
+  ): { readonly written: string; readonly access: 'private' | 'protected' } | undefined {
+    for (const f of this.structs.get(structName)?.fields ?? []) {
+      const p = this.privateField(structName, f.name);
+      if (p !== undefined) return { written: p.written, access: 'private' };
+      const r = this.restrictedField(structName, f.name);
+      if (r !== undefined) return { written: f.name, access: r.access };
+    }
+    return undefined;
+  }
+
   /** The class whose static member's body is being lowered: `this.K` there is `Cls.K`. */
   setStaticClass(name: string | undefined): void {
     this.staticOwner = name;
@@ -481,7 +666,7 @@ export class LoweringScope {
     for (const s of this.structs.values()) {
       // A struct with a private field is never the one a bare literal means: its literal would
       // have to name the `#` field, which no literal can (Rule 8.12).
-      if (this.hasPrivateFields(s.name)) continue;
+      if (this.hasHiddenFields(s.name)) continue;
       if (s.fields.length !== set.size) continue;
       if (!s.fields.every((f) => set.has(f.name))) continue;
       if (hit) return undefined;
@@ -500,6 +685,28 @@ export class LoweringScope {
     return this.superCtorInfo;
   }
 
+  /** What the constructor being lowered runs right after its `super(...)` returns, lowered
+   *  before its body (Rule 8.14); undefined in any other body. */
+  setAfterSuper(stmts: readonly Stmt[] | undefined): void {
+    this.afterSuperStmts = stmts;
+    this.afterSuperTaken = false;
+  }
+
+  /** The statements one `super(...)` is followed by: those lowered, and a copy of them for a
+   *  second `super(...)` on another path, so no two places in the IR share a node. */
+  takeAfterSuper(): Stmt[] {
+    const stmts = this.afterSuperStmts ?? [];
+    const out = this.afterSuperTaken ? stmts.map((st) => cloneIr(st)) : [...stmts];
+    this.afterSuperTaken = true;
+    return out;
+  }
+
+  /** Whether the statements of {@link setAfterSuper} are still to be placed: a body with no
+   *  `super(...)` that lowered puts them first. */
+  afterSuperPending(): boolean {
+    return !this.afterSuperTaken && (this.afterSuperStmts?.length ?? 0) > 0;
+  }
+
   /** Which structs extend which (roadmap 0.3 item T5, #92), so a type mismatch between two
    *  that are related can say what is really wrong: dispatch here is static, so a base-typed
    *  name must not hold a derived value. */
@@ -516,6 +723,33 @@ export class LoweringScope {
 
   isAbstractStruct(name: string): boolean {
     return this.abstractNames.has(name);
+  }
+
+  /** The chain above `name`, nearest first: what a static a base declares is reached through
+   *  (Rule 8.13). */
+  ancestorsOf(name: string): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>([name]);
+    const queue = [...(this.baseNames.get(name) ?? [])];
+    while (queue.length > 0) {
+      const next = queue.shift()!;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      out.push(next);
+      queue.push(...(this.baseNames.get(next) ?? []));
+    }
+    return out;
+  }
+
+  /** For a generic class's instance, the name its statics are emitted under (T9, #92). */
+  setStaticHolders(holders: ReadonlyMap<string, string>): void {
+    this.staticHolders = holders;
+  }
+
+  /** The name the statics of `name` are emitted under: a generic class's own for one of its
+   *  instances, `Pair` for `Pair_f32`, and `name` itself for every other class. */
+  staticHolderOf(name: string): string {
+    return this.staticHolders.get(name) ?? name;
   }
 
   /** True when `derived` extends `base`, at any depth. */
@@ -573,6 +807,31 @@ export class LoweringScope {
 
   owner(): FuncDecl | undefined {
     return this.ownerDecl;
+  }
+
+  /** Record the binding `node` made in this function's body, a `let`, a `const` or a
+   *  parameter, for a local function that captures it (Rule 8.17). */
+  bindDeclaration(node: CaptureKey, binding: Binding): void {
+    if (this.ownerDecl === undefined) return;
+    const file = fileFunctionsOf(this.callees);
+    let mine = file.declared.get(this.ownerDecl);
+    if (mine === undefined) {
+      mine = new Map();
+      file.declared.set(this.ownerDecl, mine);
+    }
+    mine.set(node, binding);
+  }
+
+  /** The binding `node` made in this function, or undefined when nothing lowered so far made
+   *  one here: a variable read before its declaration, which TypeScript throws on (Rule 8.17). */
+  bindingOfDeclaration(node: CaptureKey): Binding | undefined {
+    if (this.ownerDecl === undefined) return undefined;
+    return fileFunctionsOf(this.callees).declared.get(this.ownerDecl)?.get(node);
+  }
+
+  /** The variables the local function `fn` captures, which a call to it passes first. */
+  capturesOf(fn: string): readonly CaptureKey[] {
+    return fileFunctionsOf(this.callees).captures.get(fn) ?? [];
   }
 
   defineCallee(fn: FuncDecl): void {
@@ -674,10 +933,21 @@ export class LoweringScope {
    *  IR name no other local can take and binds no source name, so two of them in one block do
    *  not collide with each other and neither collides with a name the program declares. Returns
    *  the IR name to write into the statement. */
-  defineTemp(prefix: string, type: ShaderType): string {
+  defineTemp(prefix: string, type: ShaderType, mutable = false): string {
     const ir = this.allocIrName(prefix);
-    this.byIr.set(ir, { kind: 'local', name: ir, type, mutable: false });
+    this.byIr.set(ir, { kind: 'local', name: ir, type, mutable });
     return ir;
+  }
+
+  /** What an expression node stands for once a chain has run the calls before it (Rule 8.10):
+   *  `v.setX(1.)` in `v.setX(1.).setY(2.)` is `v` itself, the call having run as a statement of
+   *  its own. Each read of it builds its lowering anew, so no IR node is shared. */
+  setChainAlias(node: ts.Node, make: () => Expr): void {
+    this.chainAliases.set(node, make);
+  }
+
+  chainAlias(node: ts.Node): (() => Expr) | undefined {
+    return this.chainAliases.get(node);
   }
 
   private allocIrName(name: string): string {

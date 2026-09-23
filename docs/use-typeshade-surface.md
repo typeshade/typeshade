@@ -263,9 +263,10 @@ entry may also return nothing, which is what a program that only writes to stora
 | `class Scene { @compute paint() {} }` | `this` is not a GPU instance |
 | Static class as bind group | Extra ban list; emit `.d.ts` instead |
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
-| JS `Array` / lambdas / `filter` length change | IR + WGSL constraints |
+| JS `Array` / `filter` length change | IR + WGSL constraints |
+| A function held in a variable, returned, or chosen at run time | Neither target has a function value; a local function and a closure's variables are §14's, and every call of one is written where it is in scope (Rule 8.17), as every function a call hands to a parameter of function type is named there (Rule 8.18) |
 | Implicit `gid` / `vid` / `pid` globals | Hidden stage inputs make dependencies less explicit |
-| Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright. The check is SYNTACTIC, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
+| Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright. The check reads the calls as written, and a method call, an accessor and `new` as they lower, before the optimizer runs, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
 
 ---
 
@@ -322,7 +323,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare`, a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
-| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. An arrow-function field, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a method that changes its object called on a `const`, a parameter or a dropped value, one that returns nothing used as a value, or a write to `this` in a base's body called through `super` (§26) |
+| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
 | A call that writes in a `while` condition, anywhere but as one side of its comparison | `TS8006`. The condition runs on every iteration, so the call cannot move ahead of the loop to run in source order; compare the call alone, or call it into a `let` at the end of the body (§26, Rule 7.9) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 
@@ -493,7 +494,11 @@ A function the file declares wins over any name in the table above, and over `bo
 `f64`: those names meant the author's function before they were builtins, and an addition
 does not change what a program means. The builtins that came earlier (`min`, `max`, `mix`,
 `clamp`, `pow`, `f32` …) keep their precedence, for the same reason pointing the other way:
-a program that resolves to one today must keep resolving to it.
+a program that resolves to one today must keep resolving to it. That precedence is a function
+of the module's: a name a body declares, a local function (§14) or a parameter that takes a
+function, wins over every builtin, as TypeScript's lookup finds it first. `step(i)` on a parameter
+`step` calls the function the call handed over, and a local `const mix = …` is the one `mix(…)`
+calls, where both reached WGSL's builtin before.
 
 `discard` kills the fragment:
 
@@ -997,14 +1002,199 @@ function may declare one of its own (`fs_outer_inner`), and one written at the m
 is a module function already, under its own name; inside a `namespace` it takes the flattened
 one, `N_twice`.
 
-**A local function may not capture.** A shader function takes its arguments and reads the
-module; there is no environment for it to carry a name in, and no closure to allocate one. A
-name read from the body around it is refused where it is written, with the parameter to add
-instead. That is the one rule separating a local function from a function declaration.
+**A local function reads and writes the variables around it**, as a TypeScript closure does
+(Rule 8.17). Neither target has an environment to carry them in, and none is needed: a function
+is no value here, so every call of a local function is written where the variables it reads are
+in scope. Each variable it reads from a function around it is a parameter the emitted function
+takes ahead of its own, and every call passes it. One it writes, or that a local function it
+calls writes, is passed by reference, a pointer in WGSL and an `inout` parameter in GLSL ES
+3.00, so the write lands in the variable itself and the next call sees it:
 
-Three more shapes are refused: an expression body with no return type, since there is nothing to
-infer it from here; a `let`, which would let the name point at another function; and a type
-written on the const rather than on the function itself.
+```ts
+"use typeshade";
+
+export function accumulate(k: f32): f32 {
+  let total = 0.;
+  const add = (v: f32): void => {     // fn accumulate_add(total: ptr<function, f32>, k: f32, v: f32)
+    total += v * k;                   //   (*total) += (v * k);
+  };
+  add(1.);                            // accumulate_add(&total, k, 1.0);
+  add(2.);
+  return total;                       // 1.5 for k = 0.5
+}
+
+class Meter {
+  level: f32 = 0.;
+  gain: f32 = 2.;
+  feed(xs: array<f32, 3>): f32 {
+    // `this` in an arrow function is the method's object; `push` writes it, so `feed` takes it
+    // by reference (Rule 8.10) and hands it on: Meter_feed_push(self_, xs[0]).
+    const push = (x: f32): void => {
+      this.level += x * this.gain;
+    };
+    push(xs[0]);
+    push(xs[1]);
+    push(xs[2]);
+    return this.level;
+  }
+}
+
+export function hoisted(x: f32): f32 {
+  let steps = 0.;
+  bump();                             // a function declaration is hoisted, as TypeScript's is
+  bump();
+  return steps * x;
+  function bump(): void {
+    steps += 1.;
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  let m = new Meter();
+  return vec4(accumulate(0.5), m.feed(array<f32, 3>(1., 2., 3.)), hoisted(2.), 1.);
+}
+```
+
+A variable is read when the call runs, not when the function is declared, so a write between
+the two is seen. A write through a capture follows the variable's own declaration: a `let` may be
+written, a `const` only through the object it built (Rule 6.10), and a parameter not at all, as in
+the body around it. A function named as a fold's callback (`any(xs, near)`, `zip(xs, ys, f)`)
+passes what it captures to every call the fold makes. A local function inside a generic function
+is made once per instance, `pick_f32_swap`.
+
+Refused, each with the reason: a call at a point where a variable the function reads is not
+declared yet, since TypeScript throws there (`"f" reads "y", which is not declared yet where
+"f" is called`); and a function named as a value rather than called (`const g = f`, `return f`),
+since nothing at run time can hold a function.
+
+Two shapes of the declaration itself are refused too: a `let`, which would let the name point at
+another function, and a type written on the const rather than on the function itself. A return
+type it leaves off, its body says, as for any function (below).
+
+### A function that takes a function
+
+A parameter whose type is a function type, written out or through a type alias, takes a function
+(Rule 8.18). Neither target has a function value to take, and none is needed: every call names
+the function it hands over, so the function is compiled once for each function its calls hand
+it, as a generic function is once for each set of type arguments. In each copy a call of the
+parameter calls the function handed over:
+
+```ts
+"use typeshade";
+
+type Op = (a: f32, b: f32) => f32;
+
+function fold3(op: Op, a: f32, b: f32, c: f32): f32 {
+  return op(op(a, b), c);
+}
+
+function times(body: (i: i32) => void): void {
+  for (let i = 0; i < 4; i++) {
+    body(i);
+  }
+}
+
+function mul(a: f32, b: f32): f32 {
+  return a * b;
+}
+
+export function shade(k: f32): f32 {
+  let total = 0.;
+  times((i) => {                            // fn shade_body(total: ptr<function, f32>, k: f32, i: i32)
+    total += f32(i) * k;                    // times_shade_body(&total, k);
+  });
+  const xs = array<f32, 3>(1., 2., 3.);
+  const big = any(xs, (x) => x > k);        // shade_any(k, xs[0]) || …
+  return fold3(mul, 2., 3., 4.) +           // fold3_mul(2.0, 3.0, 4.0)
+    fold3((a, b) => a + b * k, 1., 2., 3.) + // fold3_shade_op(k, 1.0, 2.0, 3.0)
+    total + (big ? 1. : 0.);
+}
+
+@fragment
+export function fs(): vec4 {
+  return vec4(shade(0.5), 0., 0., 1.);
+}
+```
+
+A call hands a function over by its name, a local one included, or as an arrow function or a
+function expression written in the call. One written in the call is a local function of the body
+the call is in, so it reads and writes that body's variables as §14's local functions do, and the
+copy takes what it captures and passes it on: `total` above is written through a pointer from
+`shade_body`, by way of `times_shade_body`. It takes its parameters' types from the parameter's
+type, and its return type too, where it writes none; it may leave parameters off at the end, as
+TypeScript allows; and when the type returns `void`, an expression body runs as a statement, so
+`times(() => n += k)` adds. Inside the function that takes it, a parameter of function type is
+called, or handed on to another such parameter (`twice(f)` calling `apply(f, x)` makes
+`apply_…` for whatever `f` was).
+
+The folds take the same arguments: `any(xs, pred)`, `all`, `none` and `zip(xs, ys, f)` accept an
+arrow function, typed by the arrays, and one `zip` is handed returns what its body does.
+
+Refused, each with the reason: a function that does not fit the parameter's type (`"add" takes 2
+argument(s), and "(x: f32) => f32" passes 1`); an argument that would choose a function at run
+time (`c ? sq : cube`); a builtin or a generic function by its name, for which an arrow function
+that calls it is the fix; a parameter of function type on a method, a constructor, an accessor, a
+local function or an entry point, which have no copies to make; a function type anywhere else, a
+return, a field, a variable; and a function that hands itself a function it builds anew on every
+call, whose copies would never end.
+
+### A return type left off is the body's to say
+
+A function that writes no return type returns what its body does, as TypeScript infers it (Rule
+8.19): a function of the file or of a namespace, a local function, a generic function's instance,
+a method, a getter and a field that holds a function all take the type of their first `return`
+with a value, and one with none returns nothing. The `return`s after the first are typed against
+it as against a written type, so `return 0` after `return u32(7)` is a `u32`. A call that needs
+the type before the body's turn lowers that body first, so a function may be called above its
+declaration:
+
+```ts
+"use typeshade";
+
+class Rng {
+  seed: u32 = u32(1);
+  next() {
+    this.seed = this.seed * u32(1664525) + u32(1013904223);
+    return f32(this.seed >> u32(8)) / 16777216.;
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let rng = new Rng();
+  const jitter = (k: f32) => (rng.next() - 0.5) * k;
+  return vec4(glow(uv) + jitter(0.1), 0., 0., 1.);
+}
+
+function glow(p: vec2) {
+  return 0.1 / length(p);
+}
+```
+
+```wgsl
+fn Rng_next(self_: ptr<function, Rng>) -> f32 { … }
+fn glow(p: vec2<f32>) -> f32 { … }
+fn fs_jitter(rng: ptr<function, Rng>, k: f32) -> f32 { … }
+```
+
+An arrow function whose body is an expression returns its value, but an assignment, `++`, `--`
+or a call of a function that returns nothing runs as a statement and the function returns
+nothing: `const inc = () => n += k` adds, where TypeScript would also return the new `n` (Rule
+7.2). A method whose every `return` is `return this` returns its object, so a chain goes on from
+it (§26). `return g()`, where `g` returns nothing, calls `g` and returns nothing, in any function.
+
+In the editor, TypeScript types an operator on a vector as `number`, as it does for a `const` that
+holds one (`docs/language-service-api.md`, [#162](https://github.com/typeshade/typeshade/issues/162)), so a function whose return is `v * 2.` is `number`
+there and a caller that reads `.x` off it is underlined: write its return type, `: vec2`, which is
+the one the compiler infers anyway. A return of a call, a constructor or a field keeps its type.
+
+Refused, each with the reason: a function whose type waits on itself, which is a call cycle and
+refused as one (§4); `return`s of two types (`Function "f" returns f32 at its first "return" and
+vec2<f32> at another`); a bare `return` beside one with a value; a default parameter value that
+calls such a function, since every default is lowered before any body; and a setter's value with
+no type beside a getter with none, since no call says what it takes. An entry point writes its
+return type, which is its output (§3).
 
 ### Triple-slash directives
 
@@ -1951,10 +2141,13 @@ void Particle_step(inout Particle self_, float dt) {
 // Particle_step(ps[i], 0.5);
 ```
 
-The receiver has to be a place a function may write: a `let` local, a module variable, a storage
-element, or `this` inside a constructor or another changing method. Which methods change their
-object is read from their bodies, to a fixpoint: one that assigns to a field of `this` (or
-`++`/`--` on one), and one that calls such a method on `this`. The effect table (§19) counts a
+The receiver has to be a place a function may write: a `let` local, a `const` whose initializer
+built its value (below), a module variable, a storage element, or `this` inside a constructor or
+another changing method, or a field or an element of one of those. Which methods change their
+object is read from their bodies, to a fixpoint over every class of the file at once: one that
+assigns to a field of `this` (or `++`/`--` on one), one that calls such a method or reads such a
+getter on `this` or on a field or an element of it, whatever class that field is, and one that
+reaches such a body through `super`. The effect table (§19) counts a
 write through a reference as it counts any other, and names it as the CALLER knows it:
 `ps[gid.x].step(dt)` writes `ps`, because `step` writes its receiver and the receiver is reached
 through `ps`.
@@ -2041,26 +2234,30 @@ on a real WebGL2 driver; `examples/particle-step.shade.ts` for the compute one.
 
 **`this`.** Inside a method that reads, `this` is the read-only first parameter; inside a method
 that changes its object it is that parameter, written through; inside a constructor it is the
-local being built. Inside a static member it is the class that declares the member (Rule 8.13),
-so `this.K`, `this.f()` and `this.count += 1.` name its statics; `this` as a value there, and
+local being built. Inside a static member it is the class the call names (Rule 8.13): the class
+that declares the member, or one that inherits it (below), so `this.K`, `this.f()` and
+`this.count += 1.` name its statics and `new this()` builds it; `this` as a value there, and
 `this` in a top-level function, is TS8035.
 
-**Access modifiers.** `public`, `private` and `protected` on a field or a method are accepted and
-mean nothing to the shader; TypeScript's checker enforces the last two in the editor. `readonly`
-is enforced here (Rule 8.14), and a private name, `#x`, is enforced here too (Rule 8.12): the
-front end does not run the checker, and without these a program TypeScript refuses would
-compile.
+**Access modifiers.** `public` is accepted and means nothing to the shader. `private` and
+`protected` are enforced here (Rule 8.15, below), as `readonly` is (Rule 8.14) and a private name,
+`#x`, is (Rule 8.12): the front end does not run the checker, and without these a program
+TypeScript refuses would compile. They were accepted and meant nothing until this.
 
 **Refused, with the fix (TS8035).** A static block (give each static field its value where it
-is declared), a field holding an arrow function (a method), a decorator on a method (an entry is
-a top-level function), an `async` or generator method, two constructors or two
+is declared), a static field holding a function (a static method), a decorator on a method (an
+entry is a top-level function), an `async` or generator method, two constructors or two
 methods of one name (no overloads), a call of a method on the class or of a static function on
 a value, a member the class does not have, a field called as a method and an accessor called as
-one, a method that changes its object called on a `const`, a parameter or a value that is
-dropped, one that returns nothing used as a value, a write to `this` in a base's body called
-through `super` (which reads its object only; move the write into a method no class overrides),
-and a parameter named `self_`. A class with only static functions and no fields is a namespace
-of functions (below). `abstract` and `extends` are a struct's base since roadmap item T5. A `new`
+one, a member a class that extends declares as another kind than its base does, a method that
+changes its object called on a `const` whose value something else may hold, a parameter or a
+value that is dropped, one that returns nothing used as a value, and a parameter named `self_`.
+A field holding an arrow function was on this list; it is the method it is written as now
+(below). A write to
+`this` in a base's body called through `super` was refused too, since that body read its object
+only; it takes the object by reference now, as any method that writes it does (below). A class
+with only static functions and no fields is a namespace of functions (below). `abstract` and
+`extends` are a struct's base since roadmap item T5. A `new`
 on anything but a class the file declares stays TS8013, and says which of the four reasons it
 is.
 
@@ -2090,10 +2287,8 @@ definition from `r.at` lands on the method. The TypeScript checker already knows
 members, so the language service adds nothing for them and the compiler's symbols record each
 method under its class name.
 
-**Not yet.** A cycle through method calls in the recursion check (Tint still refuses it, as a
-backend diagnostic), and a chain through a changing method, `v.setX(1.).setY(2.)`: `return this`
-returns a copy of the object, since a struct is a value, so the second call would change the
-copy; call each on `v` in turn.
+A cycle through method calls is TS8031 at the call that closes it (below). It reached Tint until
+then, as did a chain through a changing method, `v.setX(1.).setY(2.)`, until it compiled (below).
 
 ### Getters and setters
 
@@ -2243,6 +2438,187 @@ A `readonly` field may be assigned in a constructor of the class that declares i
 else (TS8005), which is TypeScript's rule; `readonly` is shallow, as TypeScript's is, so
 `p.pos.x = 1.` on a `readonly pos` writes into what the field holds and stands.
 
+Field initializers run in TypeScript's order (Rule 8.14): a base's in its constructor, then, when
+`super(...)` returns, the derived class's parameter properties and its own initializers, then the
+rest of its body. So `class B extends A { limit = 5. }` builds a `B` whose `limit` is 5 whatever
+`A` starts it at, and an initializer that reads `this.limit` reads what `A`'s constructor left.
+A class that inherits its constructor runs its own initializers when that body returns. Until
+this, every initializer ran before the constructor's body, and a derived class's one for an
+inherited field was dropped, so that `B`'s `limit` was `A`'s.
+
+### A chain of calls on one object
+
+A method whose every `return` is `return this` hands back its own object, so TypeScript runs the
+next call of a chain on the same one: `b.sized(2.).tinted(red)` sizes `b` and tints it (Rule
+8.10). A struct is a value here, and what such a method returns is a copy of it: the reference is
+how the method changed the object, and the return is a value like any other. So where a chain is
+the whole of a statement, of a declaration's initializer or of a `return`, each call but the last
+runs as a statement of its own, in source order, on the object the chain starts from, and the
+last runs in the statement, on that object too. The object is found once, before the first call,
+as TypeScript finds it: `slots[cursor].claim(1.).tag(2.)` reads `cursor` into a `let` first, so
+`tag` tags the slot `claim` claimed even when `claim` moves `cursor`. A chain that starts at `new`
+puts what `new` built in a temporary, `_chain`, and that temporary is the object the chain changes.
+
+```ts
+"use typeshade";
+class Brush {
+  size: f32 = 1.;
+  tint: vec3 = vec3(1.);
+  sized(s: f32): Brush {
+    this.size = s;
+    return this;
+  }
+  tinted(c: vec3): Brush {
+    this.tint = c;
+    return this;
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let b = new Brush();
+  b.sized(uv.x).tinted(vec3(uv, 0.5));
+  const c = new Brush().sized(2.).tinted(vec3(1., 0., 0.));
+  return vec4(b.tint * b.size + c.tint, 1.);
+}
+```
+
+```wgsl
+fn Brush_sized(self_: ptr<function, Brush>, s: f32) -> Brush {
+  (*self_).size = s;
+  return (*self_);
+}
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  var b: Brush = Brush_new();
+  Brush_sized(&b, uv.x);
+  Brush_tinted(&b, vec3<f32>(uv, 0.5));
+  var _chain: Brush = Brush_new();
+  Brush_sized(&_chain, 2.0);
+  let c = Brush_tinted(&_chain, vec3<f32>(1.0, 0.0, 0.0));
+  ...
+}
+```
+
+A method that returns `this`, inherited by a class that extends the one that wrote it, returns
+the derived object, as it does at run time in TypeScript, so a chain through inherited setters
+keeps its type. Inside a larger expression the copy is all there is. A call on it that only reads
+is right as it is, `1. + v.setX(1.).len()`; one that would change it is refused (TS8035), since the
+change would land on the copy and be dropped where TypeScript changes `v`: make the chain a
+statement of its own, or call each method on `v`.
+
+### `super` on an accessor, and on a method that changes its object
+
+`super.value` in an override reads through the base's getter, and `super.value = v` writes
+through its setter, on this body's object (Rule 8.11); a compound assignment, `++` and `--` go
+through both. The base's half is lowered once more for the derived class,
+`Clamped_super_Counter_set_value`, as the base's body of a method already was for `super.m()`
+(T5, [#92](https://github.com/typeshade/typeshade/issues/92)). A base's body that writes its object,
+called through `super`, takes it by reference as any method that writes it does (Rule 8.10), and
+the override hands on its own reference.
+
+```ts
+"use typeshade";
+class Counter {
+  n: f32 = 0.;
+  get value(): f32 {
+    return this.n;
+  }
+  set value(v: f32) {
+    this.n = v;
+  }
+  bump(): void {
+    this.n += 1.;
+  }
+}
+
+class Clamped extends Counter {
+  set value(v: f32) {
+    super.value = min(v, 10.);
+  }
+  get value(): f32 {
+    return super.value;
+  }
+  bump(): void {
+    super.bump();
+    this.value = this.value;
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let c = new Clamped();
+  c.value = 9.5 + uv.x;
+  c.bump();
+  return vec4(c.value / 10., 0., 0., 1.);
+}
+```
+
+```wgsl
+fn Clamped_set_value(self_: ptr<function, Clamped>, v: f32) {
+  Clamped_super_Counter_set_value(self_, min(v, 10.0));
+}
+fn Clamped_bump(self_: ptr<function, Clamped>) {
+  Clamped_super_Counter_bump(self_);
+  Clamped_set_value(self_, Clamped_get_value((*self_)));
+}
+fn Clamped_super_Counter_bump(self_: ptr<function, Clamped>) {
+  (*self_).n += 1.0;
+}
+```
+
+Refused, with the fix (TS8035): `super.x` where the class above declares only the other half of
+`x`, `super.x` naming a field (a field is the object's own, which `super` does not reach, as
+TypeScript's TS2855 says; write `this.x`), and a `super.x` nothing above declares.
+
+### `private` and `protected`
+
+`private` and `protected` are enforced (Rule 8.15), as TypeScript's checker enforces them in the
+editor and as `#x` is here (Rule 8.12). A `private` member may be named only in the body of the
+class that declares it; a `protected` one in that body and in the bodies of the classes that
+extend it, on an object of the naming body's own class or of one that extends it (TypeScript's
+TS2446). Neither changes what is emitted: `balance` is the struct member `balance`, and
+`deposit` the function `Account_deposit`.
+
+```ts
+"use typeshade";
+class Account {
+  private balance: f32 = 0.;
+  protected limit: f32 = 100.;
+  deposit(v: f32): void {
+    this.balance = min(this.balance + v, this.limit);
+  }
+  get total(): f32 {
+    return this.balance;
+  }
+}
+
+class Premium extends Account {
+  raise(): void {
+    this.limit *= 2.;
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let p = new Premium();
+  p.raise();
+  p.deposit(150. * uv.x);
+  return vec4(p.total / 200., 0., 0., 1.);
+}
+```
+
+A name is checked against the declaration the class whose body holds it sees, as TypeScript
+checks it: `this.weight()` in an `abstract` class that declares `protected abstract weight()` is
+that class's own call, even in the body a class that overrides `weight` inherits. A field a
+derived class declares again without a modifier is public, as TypeScript allows.
+
+Refused (TS8035), each with the member to reach it through: `p.balance` outside `Account`
+(`"Account.balance" is private, so only the body of "Account" may name it. Reach it through a
+public member of "Account".`), `p.limit` outside the chain, and, in a `Premium` body, `a.limit`
+on an `Account` that is not a `Premium`. An object literal cannot build such a class (TS8010;
+build it with `new`), and a spread and a destructuring pattern leave its `private` and
+`protected` fields out, as TypeScript's do.
+
 ---
 
 **A class whose members are all static is a namespace of functions** (roadmap 0.3 item T3,
@@ -2294,6 +2670,283 @@ export function fs(@location(0) uv: vec2): vec4 {
   return vec4(Stats.hits, 0., 0., 1.);
 }
 ```
+
+### Statics through a class that extends, `new this()`, and `super` in a static member
+
+A class inherits its base's statics, as TypeScript's constructors do (Rule 8.13): `Big.SCALE` is
+`Big`'s own when `Big` declares one and `Shape`'s when it does not, and `Big.unit()` calls the
+`unit` that `Shape` declares. In TypeScript `this` in a static member is the class the call
+names, so `Big.unit()` runs `Shape`'s body with `this` as `Big`: `new this()` builds a `Big`, and
+`this.SCALE` reads `Big.SCALE`. Here that body is lowered once more for `Big`, as `Big_unit`, with
+`this` bound to `Big`, and a static declared to return the class that declares it that builds
+its value with `new this()` returns the class the call names, the object TypeScript returns at
+run time. `super.describe()` in a static member runs the static the class above declares, with
+`this` still the class the call names.
+
+```ts
+"use typeshade";
+class Shape {
+  size: f32 = 1.;
+  static SCALE = 1.;
+  static unit(): Shape {
+    let s = new this();
+    s.size = this.SCALE;
+    return s;
+  }
+  static describe(): f32 {
+    return this.SCALE;
+  }
+}
+
+class Big extends Shape {
+  static SCALE = 4.;
+  static describe(): f32 {
+    return super.describe() * 10.;
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  const a = Shape.unit();
+  const b = Big.unit();
+  return vec4(a.size, b.size, Big.describe(), 1.);
+}
+```
+
+```wgsl
+fn Big_describe() -> f32 {
+  return (Big_super_Shape_describe() * 10.0);
+}
+fn Big_unit() -> Big {
+  var s: Big = Big_new();
+  s.size = Big_SCALE;
+  return s;
+}
+fn Big_super_Shape_describe() -> f32 {
+  return Big_SCALE;
+}
+```
+
+`this` in a static member was the class that wrote the member until this, so `Big.unit()` built a
+`Shape` and read `Shape.SCALE`, which is not what TypeScript computes. A class of statics alone
+keeps its base too: over a class with fields it has those fields, so it is a struct and `new`
+builds one, and over another class of statics alone it is a namespace that inherits them.
+
+A write to a static through a class that does not declare it, `Big.count += 1.` for a `count`
+only `Shape` declares, would give `Big` a field of its own in TypeScript, which one module
+variable cannot be; it is TS8005 with the fix, `Shape.count += 1.`. The same write through
+`this`, in a `Shape` static that `Big.f()` runs, is refused where such a call is written and
+nowhere if nothing makes one; so is `this.#k` there, since a private static lives on `Shape` alone
+and TypeScript throws when `Big` reaches it (TS8035, with the fix `Shape.#k`). `super.K = v` in a
+static member writes `this.K` in TypeScript, not the field the class above declares, and is
+refused with both spellings to choose from. `new this()` outside a static member is TS8013:
+`this` there is an object, not a class.
+
+A write INTO a static a base declares is another matter: `Big.origin.y = 5.`, or a method that
+changes `Big.origin`, changes the one object `Shape` and `Big` both read, in TypeScript and here.
+The statics of a generic base are its class's, one for every instance, so `FPair.K` over
+`class FPair extends Pair<f32>` reads `Pair.K`. And what holds for a static holds for every body a
+class inherits (Rule 8.9): an instance method whose body calls `weigh(this)` with `weigh` taking
+the base fails for the derived class alone, since a derived value is not a base one here, and it
+is refused when something calls it on a derived object, and not at all while nothing does.
+
+### A method that changes an object its object holds, and a `const` object
+
+A field of `this` is part of `this`. So a method that calls a changing method on one,
+`this.hull.step(dt)`, changes its own object too, whichever class declares `step`, and takes it by
+reference as any changing method does (Rule 8.10). The same holds for an element,
+`this.parts[i].step(dt)`, for a getter that writes its object, and at any depth: which methods
+change their object is worked out for every class of the file at once, so a class may hold one
+declared after it. Until this, `drift` below was TS8035, `"Ship.drift" reads its object only, so
+it cannot write "this" (§26).`
+
+```ts
+"use typeshade";
+class Body {
+  pos: vec2 = vec2(0.);
+  vel: vec2 = vec2(1., 0.5);
+  step(dt: f32): void {
+    this.pos += this.vel * dt;
+  }
+}
+
+class Ship {
+  hull: Body = new Body();
+  drift(dt: f32): vec2 {
+    this.hull.step(dt);
+    return this.hull.pos;
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  const ship = new Ship();
+  const at = ship.drift(0.5);
+  return vec4(at, ship.hull.pos.x, 1.);
+}
+```
+
+```wgsl
+fn Ship_drift(self_: ptr<function, Ship>, dt: f32) -> vec2<f32> {
+  Body_step(&(*self_).hull, dt);
+  return (*self_).hull.pos;
+}
+fn fs() -> @location(0) vec4<f32> {
+  var ship: Ship = Ship_new();
+  let at = Ship_drift(&ship, 0.5);
+  return vec4<f32>(at, ship.hull.pos.x, 1.0);
+}
+```
+
+`const ship = new Ship()` is how TypeScript writes that: a `const` fixes the name and not the
+object, so a method may change what it holds (Rule 6.10). Nothing else holds the object `new`
+built, so the local is that object, and the declaration is a `var` from the first write through
+it; a `const` nothing writes through stays WGSL's `let`. An object literal, an array literal and a
+type's constructor build a value of their own too, so `const v = vec3(0.); v.x = 1.` is a write to
+`v`. A `const` that copies what another name holds is where TypeScript and a struct part: its write
+would reach the object both names hold, and a write here the copy alone. So it is refused, and the
+message asks which is meant, `let c = a` to write a copy or the write on `a` itself:
+
+```
+TS8035  "C.bump" changes its object, and "c" is a const whose value may be one something else
+        holds, which TypeScript would change with it and a copy here would not. Declare it with
+        let to change a copy, or call it on the value itself.
+```
+
+Until this, every write through a `const` was refused, with `let` as the fix: `"Ship.drift"
+changes its object, and "ship" is declared with const; declare it with let.`
+
+What holds for that refusal holds for every struct local, `let` as well as `const`: a struct is a
+value here, so `const w = v` and `let w = v` copy it, where TypeScript hands `w` the object `v`
+holds. A write through one name after the copy is not seen through the other:
+`const v = new V(); const w = v; v.bump(); w.x` is 0 here and 1 in TypeScript. Write through one
+name, or copy after the last write.
+
+### A field that holds a function
+
+`focus = (d: f32): f32 => d * this.gain` is how TypeScript code often writes a method, to keep
+`this` bound. A shader has no function value to hand anywhere, so such a field is the method it
+is written as (Rule 8.16): the function's parameters, return type and body are the method's, an
+expression body is what it returns, and `this` is the object, as in TypeScript. `lens.focus(x)`
+is `Lens_focus(lens, x)`. A `function` expression is taken the same way, its `this` parameter
+dropped.
+
+```ts
+"use typeshade";
+class Lens {
+  gain: f32 = 2.;
+  focus = (d: f32): f32 => d * this.gain;
+  blur = (d: f32): f32 => {
+    const k = this.focus(d);
+    return k / (1. + k);
+  };
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const lens = new Lens();
+  return vec4(lens.focus(uv.x), lens.blur(uv.y), 0., 1.);
+}
+```
+
+```wgsl
+fn Lens_focus(self_: Lens, d: f32) -> f32 {
+  return (d * self_.gain);
+}
+fn Lens_blur(self_: Lens, d: f32) -> f32 {
+  let k = Lens_focus(self_, d);
+  return (k / (1.0 + k));
+}
+```
+
+With no return type written, it returns what its body does (Rule 8.19, §14): `focus = (d: f32) =>
+d * this.gain` is the same method, and an expression body that is an assignment, `hit = (d: f32)
+=> this.hp -= d`, runs as a statement.
+
+Refused, with the fix: a static field that holds a function, since an arrow there binds `this` to
+the class that declares it where a static method binds the class a call names (Rule 8.13), so it
+is written as the static method; type parameters; and an `async` or generator function. Until
+this, every such field was `A field holding a function is a method: write "focus(...) { ... }".`
+
+A class that extends keeps the kind each member has above it, as TypeScript requires: a field
+that holds a function may stand where a method was, and a method may not stand where such a field
+was (TS2425); a method, an accessor and a field of a shader type may not stand in for one another
+either. Those that did not involve a function field compiled before, to the derived class's member
+where TypeScript's object holds the base's. Each is TS8035 now, naming both members. `super.f` on a
+field that holds a function is refused as TypeScript refuses it (TS2855), since a field is the
+object's own. An accessor over an abstract field is refused too, although TypeScript takes it: the
+abstract field is a member of every struct below the class that declares it, so a body that class
+wrote would read the member and never the accessor, 0 where TypeScript computes the getter's value.
+The fix is named, `abstract get f(): f32`, which means the same and reaches the accessor.
+
+### An interface with methods is a contract
+
+An interface that declares a method says what a class supplies. `implements Shape` and a type
+parameter's constraint, `<T extends Shape>`, are how TypeScript uses one, and both compile: a call
+on a `T` reaches the method of the class the call binds, one function for each class, which is
+the static dispatch of Rule 8.9. A value of type `Shape` itself would have to pick its body at run
+time, which no WGSL function can, so a parameter, a field or a local of that type is refused once,
+where the interface declares the method, with the type parameter to write instead (Rule 6.9). An
+interface of fields alone is a struct, as it was.
+
+```ts
+"use typeshade";
+interface Shape {
+  area(): f32;
+}
+
+class Square implements Shape {
+  side: f32 = 2.;
+  area(): f32 {
+    return this.side * this.side;
+  }
+}
+
+class Disc implements Shape {
+  r: f32 = 1.;
+  area(): f32 {
+    return 3.14159 * this.r * this.r;
+  }
+}
+
+function total<T extends Shape>(a: T, b: T): f32 {
+  return a.area() + b.area();
+}
+
+@fragment
+export function fs(): vec4 {
+  return vec4(total(new Square(), new Square()), total(new Disc(), new Disc()), 0., 1.);
+}
+```
+
+```wgsl
+fn total_Square(a: Square, b: Square) -> f32 {
+  return (Square_area(a) + Square_area(b));
+}
+fn total_Disc(a: Disc, b: Disc) -> f32 {
+  return (Disc_area(a) + Disc_area(b));
+}
+```
+
+Until this, the constraint was TS8010, `Data type "Shape" cannot have methods.`, and a value of the
+interface's type said so again at each use.
+
+### A call cycle through methods
+
+`this.g(n)` names no function in its text, so the recursion check (§4) could not follow a call on
+a value, and a cycle through methods reached Tint. The check reads the calls each body lowers to
+now, a method call, a getter, a setter and `new` included, and says TS8031 at the call that closes
+the cycle, naming it as written (Rule 8.4):
+
+```
+TS8031  Recursive call: "N.f" -> "N.g" -> "N.f". WGSL has no call stack, so a function must not
+        take part in a call cycle.
+```
+
+A body a class inherits is lowered once more for that class, and the cycle it closes there is said
+once, as is the one each instance of a generic function closes, under the name the function was
+written with. A static called through its class, `N.f()`, is named `"N.f"` too, where the check
+said `"N_f"` before.
 
 ### `namespace`
 
@@ -2398,8 +3051,9 @@ _ret = vec4(c, float(any(equal(m, bvec3(false, false, false)))));
   `>`, `>=`) on two bool vectors is TS8003 with the fix: `===`/`!==`, or `any`/`all`.
 - **`any(m)` and `all(m)`** reduce a vector of bools to one bool, the same builtins on both
   targets. Over an array they stay the folds, `any(xs, pred)` with `pred` a function the file
-  declares (an arrow function written in the call is `TS8099`); a scalar or a numeric vector is
-  TS8003 naming both shapes.
+  declares, a local one included, which hands each call what it captures (Rule 8.17), or an arrow
+  function written in the call (Rule 8.18, §14); a scalar or a numeric vector is TS8003 naming
+  both shapes.
 - **`select(f, t, m)`** with a vector-of-bools condition picks per component, and the arms are
   vectors of the mask's size (TS8003 otherwise). WGSL's `select` takes the mask as is; GLSL ES
   3.00 spells `mix(f, t, m)` for float vectors and a componentwise ternary through the vector's

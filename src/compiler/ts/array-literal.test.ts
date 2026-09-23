@@ -307,17 +307,13 @@ describe('what a list is refused for', () => {
 describe('the missing-return-type warning', () => {
   // The other half of #8 A16: at the investigated base (b6d6c56) this warning was pushed with
   // a hardcoded `line: 1, character: 1` and fired for entry functions too, so the docs'
-  // `@compute` example warned about a return type it does not want. Both are already fixed on
-  // main; these pin them.
-  it('lands on the function it is about, not at line 1', () => {
+  // `@compute` example warned about a return type it does not want. Rule 8.19 retired it: a
+  // function that writes no return type returns what its body does.
+  it('is not raised for a helper, whose body says what it returns', () => {
     const r = compileTsSource(
       '"use typeshade";\n\nexport function helper(a: f32) {\n  let x: f32 = a;\n}',
     );
-    expect(r.diagnostics).toHaveLength(1);
-    const d = r.diagnostics[0]!;
-    expect(d.message).toBe('Function "helper" has no return type annotation; defaulting to void.');
-    expect(d.category).toBe('warning');
-    expect(d.line).toBe(3);
+    expect(r.diagnostics).toEqual([]);
   });
 
   it('is not raised for an entry function, which wants no return type', () => {
