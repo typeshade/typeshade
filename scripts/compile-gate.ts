@@ -26,7 +26,7 @@
 // what it cannot stand in for is a GPU's rasterization and speed, and neither is measured
 // here. Compile / validate / link is exactly the class SwiftShader is good for.
 //
-// WHY IT CANNOT BE VACUOUSLY GREEN (CLAUDE.md §12 — validate the instrument against a
+// WHY IT CANNOT BE VACUOUSLY GREEN (AGENTS.md#gate-discipline — validate the instrument against a
 // known positive before believing a zero):
 //
 //   1. WebGPU MUST be reachable. `navigator.gpu` absent, no adapter, or no device is a
@@ -504,7 +504,7 @@ struct Out { @builtin(position) pos: vec4<f32> }
   }
   // The instrument verdict is printed on BOTH paths. A check whose success is silent cannot be
   // told apart, in a CI log, from a check that was deleted — and this one is the only reason to
-  // believe the greens below (CLAUDE.md §12: validate the instrument before believing a zero).
+  // believe the greens below (AGENTS.md#gate-discipline: validate the instrument before believing a zero).
   if (report.brokenWgslReported && report.brokenGlslReported) {
     console.log('instrument: Tint and WebGL2 both REPORTED a non-program — the verdicts can fail');
   } else {

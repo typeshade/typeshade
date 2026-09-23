@@ -3046,7 +3046,7 @@ WGSL row and no GLSL row, the pattern `storageTexture` set (§33): the gate fail
 closed on GLSL before any emit, `enables` cannot name them, and `reflect().requiredFeatures`
 tells the host which ones a module needs. Three capabilities rather than one because a module
 that uses a cube array and no gather should not be told about gather. On Tint every shape here
-was measured accepted, gather in a compute stage too (`scratchpad/item12-probe.mts`).
+was measured accepted, gather in a compute stage too (a one-off probe that was not kept in the tree).
 
 **The argument order is the spec's.** WGSL puts the **component first** on a colour texture and
 has **none** on a depth texture, whose texels have one channel; the layer follows the coordinate

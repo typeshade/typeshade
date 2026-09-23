@@ -21,7 +21,7 @@
 // zero-dependency), so validation is a real browser's Tint through
 // `GPUDevice.createShaderModule()` + `getCompilationInfo()` — hence the ASYNC shape and the
 // second structural parameter. What was wrong was the follow-on claim, once recorded here and
-// in CLAUDE.md §5, that no software adapter exists to run it against: headless Chromium
+// in X-GIS CLAUDE.md §5, that no software adapter exists to run it against: headless Chromium
 // enumerates the SwiftShader Vulkan adapter given `--enable-unsafe-swiftshader` (the flag
 // usually omitted) on a secure origin (`about:blank` has no `navigator.gpu` at all), and
 // `playwright.config.ts` already sets both. `_variant-link-gate.spec.ts`'s WGSL arm drives it.

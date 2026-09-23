@@ -7,7 +7,7 @@
 // job (`playground/e2e/_compute-runner-parity.spec.ts`, real WebGL2 and real WebGPU under
 // SwiftShader), and nothing here substitutes for it: the stub device below is deliberately
 // never `run()` against, because a dispatch recorded by a stub succeeds identically
-// whether or not it would have computed anything (CLAUDE.md §12 — the pipeline that was
+// whether or not it would have computed anything (AGENTS.md#gate-discipline — the pipeline that was
 // right somewhere else). What IS decidable here is everything that decides which tier
 // runs, plus the CPU tier's numbers against the interpreter oracle — and those are the
 // parts a consumer's build breaks on, not the raster.

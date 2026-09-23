@@ -9,7 +9,7 @@
 // The two non-vacuity guards that matter: `selectGuardedArm` must select a DIFFERENT arm
 // for different defines (otherwise the byte-identity sweep is comparing one arm to itself
 // N times and would pass over a broken ladder), and the key-collision throw must fire —
-// that throw is what turns AUTHORING.md §11's identity rule from prose into a gate.
+// that throw is what turns AUTHORING.md#the-identity-of-a-specialized-program's rule from prose into a gate.
 
 import { describe, it, expect } from 'vitest';
 import { externVar, fn, module, vec4, vec4fT, f32T } from './ir/index.js';
@@ -71,7 +71,7 @@ describe('variantFamily — the matrix', () => {
   });
 
   it('a key that does not name every axis is a collision, and throws', () => {
-    // AUTHORING.md §11's identity rule, as a gate rather than prose. `ids.ts:64-70`
+    // AUTHORING.md#the-identity-of-a-specialized-program's rule, as a gate rather than prose. `ids.ts:64-70`
     // records the near-miss this prevents.
     expect(() =>
       variantFamily({

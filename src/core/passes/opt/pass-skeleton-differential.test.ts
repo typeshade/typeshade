@@ -11,7 +11,7 @@
 // (random-ir.ts, the same generator the O1 differential uses), which reaches `if`, `for`,
 // `switch` and nested bodies rather than the flat fixtures the per-pass suites use.
 //
-// INSTRUMENT CHECK FIRST (CLAUDE.md §12 — a blind probe reports zero, which reads as a
+// INSTRUMENT CHECK FIRST (AGENTS.md#gate-discipline — a blind probe reports zero, which reads as a
 // clean corpus). A differential over inputs no pass transforms passes trivially and proves
 // nothing, so the corpus must be shown to MOVE each pass before any equality is believed.
 

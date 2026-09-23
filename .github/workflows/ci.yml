@@ -5,7 +5,10 @@ name: ci
 #   check         `tsc --build` (the emitting project) + `tsc -p tsconfig.tests.json` (the
 #                 noEmit pass over tests, examples and scripts), ESLint, the format check
 #                 (Prettier, then the `;` in shader source Prettier cannot reach), then the
-#                 unit suite.
+#                 unit suite. On a pull request, then the documentation impact of the diff
+#                 against its base: fails when a sentence still names a name or file the
+#                 change removed, and writes the review list to the job summary
+#                 (AGENTS.md#docs-follow-the-code).
 #   compile-gate  every registered example is emitted and COMPILED by real compilers —
 #                 the WGSL on Tint (Chromium's WebGPU, on SwiftShader: no GPU needed for
 #                 compile / validate correctness) and both GLSL ES 3.00 stages on a real
@@ -46,6 +49,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The documentation-impact step diffs against the merge base with the PR's base.
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -54,6 +60,10 @@ jobs:
       - run: bun run lint
       - run: bun run format:check
       - run: bun run test
+      - name: documentation impact
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bun scripts/doc-impact.ts --base "origin/${{ github.base_ref }}" --check --markdown | tee -a "$GITHUB_STEP_SUMMARY"
 
   compile-gate:
     name: compile gate (Tint + WebGL2)

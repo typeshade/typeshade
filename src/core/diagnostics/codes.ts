@@ -130,7 +130,7 @@ export const CODES = {
     // X-GIS #1717 Ask 3 — close the discovery loop. The error already names the capability; what
     // a reader needs next is where the per-backend support table lives, and that a
     // capability with no row is a HARD stop rather than something to work around.
-    hint: 'see AUTHORING.md §10 (Capabilities & extensions) for the per-backend support table; a capability the target has no capProfile row for fails closed by design',
+    hint: 'see AUTHORING.md#capabilities--extensions for the per-backend support table; a capability the target has no capProfile row for fails closed by design',
   },
 
   // ── fp64 (emulated double precision) — passes/fp64-lower.ts ──

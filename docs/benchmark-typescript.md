@@ -1,5 +1,7 @@
 # Benchmark against the TypeScript project
 
+<!-- doc-refs: skip-file — a measurement of the tree at d5c7305 and of three other repositories; its paths name those trees, not this one -->
+
 This document measures TypeShade against the TypeScript project: what microsoft/TypeScript does as
 a language, a compiler, a language service, a tooling project, a testing and CI project, and a
 release and documentation project, and what of that TypeShade should adopt in its next phase. Three

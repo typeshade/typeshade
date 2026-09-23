@@ -33,7 +33,7 @@
 // (the second half of `bun run build`), and the new entry then has to resolve or be
 // allowlisted with a reason.
 //
-// NON-VACUITY (X-GIS #996 / CLAUDE.md §12 — "the authority itself is seen"): the resolver is
+// NON-VACUITY (X-GIS #996 / AGENTS.md#gate-discipline — "the authority itself is seen"): the resolver is
 // probed per kind with BOTH a known-good and a known-bad witness, so a resolver that
 // broke into always-true or always-false cannot carry the two ratchet arms above.
 
@@ -564,7 +564,7 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
       // `WITNESSES.storageBuffer`. Sharing the table's entry here would make this arm red
       // for two different reasons — a broken RESOLVER and a broken WITNESS — and the whole
       // job of this arm is to tell those apart, so the failure message can name the
-      // severed half (CLAUDE.md §12). Every other probe below is already self-contained;
+      // severed half (AGENTS.md#gate-discipline). Every other probe below is already self-contained;
       // this one was the exception.
       [
         'moduleShape +',

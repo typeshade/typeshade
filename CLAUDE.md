@@ -41,6 +41,16 @@ Indexing takes about ten seconds. Re-index after each commit.
 `.codebase-memory/` (the artifact the indexer may write at the root) is gitignored; never
 commit it.
 
+## The prose follows the code
+
+The graph covers code, not prose, so it cannot tell you which sentence your change made false.
+`bun run docs:impact` does that: before committing, run it and work through its list, as
+`AGENTS.md#docs-follow-the-code` describes. Fix every _must fix_ item. Read every _review_
+item, and fix whatever is no longer true in the same commit. `.claude/settings.json` holds
+`git commit` until that is done: a must-fix blocks the commit, and open review items block it
+until the message carries a `Docs-Impact:` trailer that says what you read and found. Never
+write the trailer without reading the listed locations; a reviewer reads it as a claim.
+
 ## The language design rules are normative
 
 The language design rules are `docs/language-design.md`, and they are normative. Every change
