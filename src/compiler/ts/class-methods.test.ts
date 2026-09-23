@@ -242,11 +242,51 @@ export function run(): f32 { let b = new B(); b.bump(); return b.x }${TAIL}`);
     expect(only(C('  constructor() { this.x = 1. }\n  constructor(a: f32) { this.x = a }'))).toBe(
       `${M} "C" declares two constructors; a shader function has one body.`,
     );
-    expect(only(C('  f(): f32 { return 1. }\n  f(a: f32): f32 { return a }'))).toContain(
-      '"C.f" is declared twice; a method has one body and no overloads.',
+    expect(only(C('  f(): f32 { return 1. }\n  f(a: f32): f32 { return a }'))).toBe(
+      `${M} "C.f" has two bodies; a method has one body, with overload signatures above it for each shape it takes.`,
     );
     expect(only(C('  @fragment\n  f(): vec4 { return vec4(1.) }'))).toBe(
       `${M} A decorator has no place on "C.f"; an entry is a top-level function.`,
+    );
+  });
+
+  it('two bodies for one method, said once, of the class as it is written', () => {
+    // Until proposal 0008 this was `"C.f" is declared twice; a method has one body and no
+    // overloads.`, written before overload signatures compiled (#190), and it named a generic
+    // class's instance (`"P_f32.m"`, once per instance) and a namespaced class's struct
+    // (`"N_C.m"`), neither of which the author wrote (Rule 12.1).
+    const twice = (cls: string, m: string): string =>
+      `${M} "${cls}.${m}" has two bodies; a method has one body, with overload signatures above it for each shape it takes.`;
+    // What the sentence offers compiles: a signature for each shape, and the one body.
+    const r = compile(
+      C('  f(): f32\n  f(a: f32): f32\n  f(a: f32 = 2.): f32 { return a * this.x }').replace(
+        TAIL,
+        `\nexport function run(): f32 { const c: C = { x: 3. }; return c.f() + c.f(1.) }${TAIL}`,
+      ),
+    );
+    expect(r.diagnostics).toEqual([]);
+    expect(r.eval('run', [])).toBe(9);
+    // A field that holds a function is a method (Rule 8.16), so beside one it is a second body.
+    expect(only(C('  f(): f32 { return 1. }\n  f = (): f32 => 2.'))).toBe(twice('C', 'f'));
+    expect(
+      errorsOf(`"use typeshade"
+class P<T> { x: T; m(): f32 { return 1. } m(): f32 { return 2. } }
+function g(a: P<f32>, b: P<vec2>): f32 { return a.m() + b.m() }${TAIL}`),
+    ).toEqual([twice('P', 'm')]);
+    expect(
+      errorsOf(`"use typeshade"
+class P<T> { x: T; get g(): f32 { return 1. } get g(): f32 { return 2. } }
+function g(a: P<f32>, b: P<vec2>): f32 { return a.g + b.g }${TAIL}`),
+    ).toEqual([`${M} "P.g" has two getters; an accessor has one body.`]);
+    expect(
+      errorsOf(
+        `"use typeshade"\nnamespace N { export class C { x: f32; m(): f32 { return 1. } m(): f32 { return 2. } } }${TAIL}`,
+      ),
+    ).toEqual([twice('C', 'm')]);
+    // A static and an instance method of one name are two members, as TypeScript has them,
+    // and one emitted function; that is the sentence they get, not "two bodies".
+    expect(only(C('  f(): f32 { return 1. }\n  static f(): f32 { return 2. }'))).toBe(
+      `${M} "C.f" and "C.static f" would both be the function "C_f". Rename one of them.`,
     );
   });
 

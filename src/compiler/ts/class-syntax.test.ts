@@ -1695,6 +1695,14 @@ export function f(a: A): f32 { return a.x }`,
 export function f(a: A): f32 { return a.x }`,
     'a second constructor': `class A { x: f32; constructor(x: f32) { this.x = x } constructor(y: f32) { this.x = y } }
 export function f(a: A): f32 { return a.x }`,
+    'a second body for a method': `class A { x: f32; m(): f32 { return 1. } m(): f32 { return 2. } }
+export function f(a: A): f32 { return a.x }`,
+    'an abstract member with a body': `abstract class B { x: f32; abstract m(): f32 { return 1. } }
+class A extends B { y: f32 }
+export function f(a: A): f32 { return a.x }`,
+    'a class that leaves an abstract member unimplemented': `abstract class B { x: f32; abstract m(): f32 }
+class A extends B { y: f32 }
+export function f(a: A): f32 { return a.x }`,
     'a decorator on a method': `class A { x: f32; @vertex m(): f32 { return this.x } }
 export function f(a: A): f32 { return a.x }`,
     'an async method': `class A { x: f32; async m(): f32 { return 1. } }

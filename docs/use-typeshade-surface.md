@@ -2380,8 +2380,11 @@ TypeScript refuses would compile. They were accepted and meant nothing until thi
 
 **Refused, with the fix (TS8035).** A static block (give each static field its value where it
 is declared), a static field holding a function (a static method), a decorator on a method (an
-entry is a top-level function), an `async` or generator method, two constructors or two
-methods of one name (no overloads), a call of a method on the class or of a static function on
+entry is a top-level function), an `async` or generator method, two bodies for one constructor
+or one method (overload signatures above the one body compile), a static and an instance method
+of one name (both would be one function), an `abstract` member written with a body (remove
+`abstract`, or the body), a class that is not abstract and leaves an abstract member of its
+base unimplemented (write it there), a call of a method on the class or of a static function on
 a value, a member the class does not have, a field called as a method and an accessor called as
 one, a member a class that extends declares as another kind than its base does, a method that
 changes its object called on a `const` whose value something else may hold, a parameter or a
@@ -3357,7 +3360,11 @@ class means the same thing TypeScript's dynamic dispatch would.
 derived one can be described in terms of it, its methods reach each concrete class through
 inheritance rather than becoming functions of its own, and a constructor it declares is emitted
 because a derived `super(...)` calls it. An `abstract` member declares no body and contributes
-nothing; TypeScript already requires a concrete class to implement it.
+nothing. One written with a body is refused on the class that declares it, as TypeScript
+refuses it (TS1245), and a class that is not abstract and leaves one unimplemented is refused on
+that class, whether or not anything calls the member (TS2515). Until proposal 0008 the first
+was said of each class that inherited the member, and the second only at a call, as `"D" has no
+method "m"`.
 
 **`super`.** Both forms work. `super(a, b)` in a constructor calls the base's constructor and
 copies its fields into the object being built, which is what a flat struct makes of it:

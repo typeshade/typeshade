@@ -419,3 +419,85 @@ export function fs(): vec4 {
     ).toContain('so its body has to be one "return class');
   });
 });
+
+describe('an abstract member is checked where it is declared', () => {
+  const M = TS_CODES.CLASS_MEMBER;
+  const FS = `@fragment
+export function fs(): vec4 { return vec4(1.) }
+`;
+
+  it('one with a body, on the class that declares it, once', () => {
+    // Until proposal 0008 the sentence was `"D.m" is abstract; a shader function has one body.`,
+    // named for the class that inherits the member rather than the one that wrote it, said
+    // nothing of the body, and was followed by `"D" has no method "m"` at the call. With an
+    // override in `D` it was not said at all, and the program compiled (TS1245 in the editor).
+    const body = `"B.m" is abstract and has a body; remove "abstract", or remove the body and let each class that extends "B" write it.`;
+    const B = `abstract class B { x: f32; abstract m(): f32 { return 1. } }\n`;
+    const call = `export function g(d: D): f32 { return d.m() }\n`;
+    expect(errorsOf(`"use typeshade"\n${B}class D extends B { y: f32 }\n${call}${FS}`)).toEqual([
+      `${M} ${body}`,
+    ]);
+    expect(
+      errorsOf(
+        `"use typeshade"\n${B}class D extends B { y: f32; m(): f32 { return 2. } }\n${call}${FS}`,
+      ),
+    ).toEqual([`${M} ${body}`]);
+    // Nothing extends it, and a generic class says it once, whatever it is instantiated with.
+    expect(errorsOf(`"use typeshade"\n${B}${FS}`)).toEqual([`${M} ${body}`]);
+    expect(
+      errorsOf(`"use typeshade"
+abstract class B<T> { x: T; abstract m(): f32 { return 1. } }
+class D extends B<f32> { y: f32 }
+class E extends B<vec2> { y: f32 }
+${FS}`),
+    ).toEqual([`${M} ${body}`]);
+    // An accessor is a member too (TS1318), and a class that is not abstract has one remedy.
+    expect(
+      errorsOf(`"use typeshade"
+abstract class B { x: f32; abstract get g(): f32 { return 1. } }
+class D extends B { y: f32 }
+export function g(d: D): f32 { return d.g }
+${FS}`),
+    ).toEqual([
+      `${M} "B.g" is abstract and has a body; remove "abstract", or remove the body and let each class that extends "B" write it.`,
+    ]);
+    expect(
+      errorsOf(`"use typeshade"\nclass B { x: f32; abstract m(): f32 { return 1. } }\n${FS}`),
+    ).toEqual([`${M} "B.m" is abstract and has a body; remove "abstract".`]);
+  });
+
+  it('and so is a class that leaves one unimplemented, whether or not anything calls it', () => {
+    // TypeScript refuses the class (TS2515). Until proposal 0008 it compiled while nothing
+    // called the member, and a call was `"D" has no method "m"`, at the call.
+    const B = `abstract class B { x: f32; abstract m(): f32; abstract get g(): f32; n(): f32 { return this.m() } }\n`;
+    const unimplemented = `${M} "D" does not implement "m" and "g", which "B" declares abstract; write each in "D".`;
+    expect(errorsOf(`"use typeshade"\n${B}class D extends B { y: f32 }\n${FS}`)).toEqual([
+      unimplemented,
+    ]);
+    // A call, a read and an inherited body that calls it add nothing.
+    expect(
+      errorsOf(`"use typeshade"
+${B}class D extends B { y: f32 }
+export function f(d: D): f32 { return d.m() + d.g + d.n() }
+${FS}`),
+    ).toEqual([unimplemented]);
+    // Through a class between, which declares nothing of it.
+    expect(
+      errorsOf(`"use typeshade"
+abstract class A { x: f32; abstract m(): f32 }
+abstract class B extends A { y: f32 }
+class D extends B { z: f32 }
+${FS}`),
+    ).toEqual([`${M} "D" does not implement "m", which "A" declares abstract; write "m" in "D".`]);
+    // What TypeScript takes compiles: the member written in the class, in a class between, as
+    // a field that holds a function, and a field over an abstract accessor.
+    expect(
+      errorsOf(`"use typeshade"
+${B}class D extends B { y: f32; m(): f32 { return 2. } g: f32 = 1. }
+abstract class C extends B { m = (): f32 => 3. }
+class E extends C { get g(): f32 { return 4. } }
+export function f(d: D, e: E): f32 { return d.n() + d.g + e.n() + e.g }
+${FS}`),
+    ).toEqual([]);
+  });
+});

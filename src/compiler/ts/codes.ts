@@ -90,8 +90,10 @@ export const TS_CODES = {
    *  What is refused, in the declaration: a field holding a function when the field is static,
    *  or when the function takes type parameters, is `async` or a generator, or is an
    *  expression body with no return type; a static block, an index signature, a second
-   *  constructor, a decorator on a method or on a parameter property, an `async` or generator
-   *  method, one name declared as two kinds of member, or as another kind than the class it
+   *  constructor, a second body for a method, a decorator on a method or on a parameter
+   *  property, an `async` or generator method, an `abstract` member with a body, a class that
+   *  is not abstract and leaves an abstract member unimplemented, one name declared as two
+   *  kinds of member, or as another kind than the class it
    *  extends declares it, two members that would emit one function or constant name (a
    *  private name loses its `#`), and a parameter named `self_`, the name the emitted function
    *  gives its object. In a use: `this` outside a method, or naming an instance field in a
