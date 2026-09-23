@@ -27,9 +27,9 @@ class Summary {
 }
 
 declare const src: storage<array<f32>>;
-declare let bins: storage<array<atomic<u32>>>;
-declare let summary: storage<Summary>;
-declare let firstValue: storage<atomic<u32>>;
+declare const bins: storage<array<atomic<u32>>, "read_write">;
+declare const summary: storage<Summary, "read_write">;
+declare const firstValue: storage<atomic<u32>, "read_write">;
 
 const BINS: f32 = 8.;
 

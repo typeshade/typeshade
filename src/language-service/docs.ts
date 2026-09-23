@@ -20,7 +20,7 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   workgroup:
     "A module variable one workgroup shares, `let tile: workgroup<array<f32, 64>>`: zero at the start of each workgroup, read and written by every invocation of the workgroup, and a compute entry's alone. WGSL `var<workgroup>`; GLSL ES 3.00 has no form for it.",
   atomic:
-    'An `atomic<u32>` or `atomic<i32>`: an integer location in a read-write storage binding that many invocations update at once through `atomicAdd`, `atomicLoad` and the other atomic builtins. It is never read or assigned directly, and it is declared only inside a storage binding, as `declare let bins: storage<array<atomic<u32>>>`.',
+    'An `atomic<u32>` or `atomic<i32>`: an integer location in a read-write storage binding that many invocations update at once through `atomicAdd`, `atomicLoad` and the other atomic builtins. It is never read or assigned directly, and it is declared only inside a storage binding, as `declare const bins: storage<array<atomic<u32>>, "read_write">`.',
   vec2: 'A two-component vector of `f32`.',
   vec3: 'A three-component vector of `f32`.',
   vec4: 'A four-component vector of `f32`.',
@@ -409,7 +409,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   uniform:
     'Declares a uniform binding of type T; use `declare const name: uniform<T>` or `const name = uniform<T>()`.',
   storage:
-    'Declares a storage binding of type T; use `declare const name: storage<T>` for read-only or `declare let name: storage<T>` for read-write access.',
+    'Declares a storage binding of type T; use `declare const name: storage<T>` for read-only or `declare const name: storage<T, "read_write">` for read-write access. The access mode is part of the type, as it is in WGSL (`var<storage, read_write>`); the declaration is always `declare const`.',
   random:
     'Returns an `f32` in the range [0, 1) hashed from an `f32`, `vec2` or `vec3` seed, emitted as `fract(sin(dot(seed, k)) * 43758.5453123)`. One seed is one value in the IR and NOT on a GPU: WGSL bounds `sin` to 2^-11 absolute error on [-PI, PI] and not at all outside it, which is where this hash lives, so the driver decides the answer (surface section 55 has the measurements; #181 replaces the hash with an exact integer one). There is no unseeded form: `Math.random()` without a seed does not compile.',
 };

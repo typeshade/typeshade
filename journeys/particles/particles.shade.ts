@@ -16,7 +16,7 @@ class Sim {
 }
 
 declare const sim: uniform<Sim>;
-declare let particles: storage<array<Particle>>;
+declare const particles: storage<array<Particle>, "read_write">;
 
 @compute([64])
 export function step(@builtin("global_invocation_id") gid: vec3u) {

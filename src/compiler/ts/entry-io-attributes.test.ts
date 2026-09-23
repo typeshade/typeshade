@@ -255,7 +255,7 @@ class VsOut extends Base {
   });
 
   it('refuses a @location on a compute entry reached through a struct', () => {
-    const d = diagnose(`declare let buf: storage<array<f32>>
+    const d = diagnose(`declare const buf: storage<array<f32>, "read_write">
 class CsIn {
   @builtin("global_invocation_id") gid: vec3u
   @location(0) x: f32

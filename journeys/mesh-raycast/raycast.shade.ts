@@ -11,7 +11,7 @@ class Ray {
 
 declare const verts: storage<array<vec4>>;
 declare const rays: storage<array<Ray>>;
-declare let hits: storage<array<f32>>;
+declare const hits: storage<array<f32>, "read_write">;
 
 function intersect(o: vec3, d: vec3, a: vec3, b: vec3, c: vec3): f32 {
   const e1 = b - a;
