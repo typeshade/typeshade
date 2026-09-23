@@ -192,6 +192,21 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A user-journey gate, `bun run gate:journeys`, in CI as `user-journeys`.** It packs the
+  tarball the way the publish workflow does and installs it into a fresh project, with the
+  README's `tsconfig.shade.json` copied verbatim. Then it checks each program in `journeys/`
+  as its author would meet it. The installed `compile()` must report nothing, and so must the
+  language service. Plain `tsc` may report only the error classes the README documents. Every
+  run must match the journey's own plain-JavaScript reference on WebGPU (headless Chromium,
+  SwiftShader) and on the CPU oracle. Two journeys to start, both written as a TypeScript
+  developer writes them: a fullscreen fragment effect, read back per pixel (16,384 channels,
+  worst error 2.1e-3 of a 5.9e-3 tolerance), and a particle system stepped once per frame for
+  20 frames (1,600 floats, exact on WebGPU). A deliberately wrong reference, the README's
+  previous tsconfig and a shader the compiler refuses each fail it. Its first run found an
+  editor error on correct code: `const uv = p.xy * frame.scale` is a `number` to the editor,
+  so `uv.x` is TS2339 (#162). The journey carries the annotation and names the issue, and
+  `journeys/README.md` requires that of every workaround.
+
 - **Hover documents every type name the compiler takes.** `TYPE_DOCS` has rows for
   `sampler`, `sampler_comparison` and every `texture_*` name, each with its `declare const` form
   and the capability that keeps it off GLSL ES 3.00 where one does. `DOCUMENTED_TYPE_NAMES` is
