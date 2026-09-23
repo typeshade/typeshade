@@ -45,6 +45,7 @@ import { makeDiagnostic } from './diagnostic.js';
 import { boundTypeArgument } from './generics.js';
 import { genericStructName, isGenericClass } from './generic-structs.js';
 import { TS_CODES, type TsCode } from './codes.js';
+import { isIntegerWritten } from './lit-coerce.js';
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 
@@ -465,15 +466,15 @@ function literalBase(node: ts.TypeNode): ShaderType | undefined {
   if (lit.kind === ts.SyntaxKind.TrueKeyword || lit.kind === ts.SyntaxKind.FalseKeyword) {
     return boolT;
   }
-  if (ts.isNumericLiteral(lit)) return numericBase(lit.text);
+  if (ts.isNumericLiteral(lit)) return numericBase(lit);
   if (ts.isPrefixUnaryExpression(lit) && ts.isNumericLiteral(lit.operand)) {
-    return numericBase(lit.operand.text);
+    return numericBase(lit.operand);
   }
   return undefined;
 }
 
-/** `1.` and `1e3` are floats the way a shader author writes them; `1` is an integer. */
-const numericBase = (text: string): ShaderType => (/[.eE]/.test(text) ? f32T : i32T);
+/** `1.` and `1e3` are floats the way a shader author writes them; `1` and `0xE` are integers. */
+const numericBase = (lit: ts.NumericLiteral): ShaderType => (isIntegerWritten(lit) ? i32T : f32T);
 
 const isNullish = (node: ts.TypeNode): boolean =>
   node.kind === ts.SyntaxKind.NullKeyword ||
