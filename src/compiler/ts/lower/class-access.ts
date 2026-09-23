@@ -23,8 +23,10 @@ import {
   isPrivateName,
   isReadonlyMember,
   isStaticMember,
+  classExtends,
   keywordAccessOf,
   keywordAccessVia,
+  memberDeclarationInChain,
   privateOwner,
   privateStaticFields,
   staticFieldDeclarations,
@@ -108,16 +110,31 @@ export function checkPrivateAccess(
  *  `owner` on an object that is not of that class (TS2446). `receiver` is the struct the member
  *  is reached on, undefined for a static. Returns true when the access stands. */
 export function checkKeywordAccess(
-  access: KeywordAccess | undefined,
-  owner: ts.ClassLikeDeclaration | undefined,
+  found: KeywordAccess | undefined,
+  foundOwner: ts.ClassLikeDeclaration | undefined,
   member: string,
   receiver: string | undefined,
   at: ts.Node,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  isStatic = false,
 ): boolean {
+  let access = found
+  let owner = foundOwner
   if (access === undefined || owner === undefined) return true
+  // A body a class inherits is lowered again for that class, where `this.weight()` finds the
+  // override the class declares. TypeScript checked the name against the declaration the body's
+  // own class sees, so that is the one whose `private` or `protected` counts.
+  const lexical = ts.findAncestor(at, ts.isClassLike)
+  if (lexical !== undefined && lexical !== owner && classExtends(owner, lexical) === true) {
+    const seen = memberDeclarationInChain(lexical, member, isStatic)
+    if (seen !== undefined) {
+      access = keywordAccessOf(seen)
+      owner = ts.findAncestor(seen, ts.isClassLike)
+      if (access === undefined || owner === undefined) return true
+    }
+  }
   const ownerName = classLabel(owner, 'its class')
   const shown = `${ownerName}.${member}`
   const via = keywordAccessVia(access, owner, at)
@@ -175,6 +192,7 @@ export function checkFunctionAccess(
     sourceFile,
     scope,
     diagnostics,
+    cf.kind === 'static',
   )
 }
 
@@ -213,6 +231,7 @@ export function checkStaticFieldAccess(
     sourceFile,
     scope,
     diagnostics,
+    true,
   )
 }
 
@@ -305,8 +324,10 @@ export function staticFieldRead(
   if (own !== undefined) return { binding: own, declaredOn: owner }
   if (isPrivateName(written)) return undefined
   for (const base of scope.ancestorsOf(owner)) {
-    const b = staticFieldBinding(base, written, scope, sourceFile)
-    if (b !== undefined) return { binding: b, declaredOn: base }
+    // A generic base's statics are its class's, one for every instance (T9, #92).
+    const holder = scope.staticHolderOf(base)
+    const b = staticFieldBinding(holder, written, scope, sourceFile)
+    if (b !== undefined) return { binding: b, declaredOn: holder }
   }
   return undefined
 }
@@ -362,7 +383,8 @@ export function lowerAccessorRead(
       node.name,
       sourceFile,
       diagnostics,
-    )
+    ) ||
+    !checkInheritedPrivateStatic(found.cf, struct, node, sourceFile, diagnostics)
   ) {
     return undefined
   }
@@ -510,8 +532,18 @@ export function lowerSuperAccessorRead(
   // `super.K` in a static member: the static field of the class above (Rule 8.13).
   const fieldOwner = superField(written, scope)
   if (fieldOwner !== undefined) {
-    const b = staticFieldBinding(fieldOwner, written, scope, sourceFile)
-    if (b === undefined) return undefined
+    const b = staticFieldBinding(scope.staticHolderOf(fieldOwner), written, scope, sourceFile)
+    if (b === undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"super.${written}" names the static "${written}" of "${fieldOwner}", which this ` +
+          `module emits no value for.`,
+        TS_CODES.UNKNOWN_NAME,
+      )
+      return undefined
+    }
     if (!checkStaticFieldAccess(fieldOwner, written, node.name, sourceFile, scope, diagnostics)) {
       return undefined
     }
@@ -681,7 +713,8 @@ export function lowerAccessorTarget(
       node.name,
       sourceFile,
       diagnostics,
-    )
+    ) ||
+    !checkInheritedPrivateStatic(either.cf, struct, node, sourceFile, diagnostics)
   ) {
     return undefined
   }
@@ -851,11 +884,16 @@ export function lowerStaticFieldTarget(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  /** The write lands inside the static, as a method that changes it does: a base's static is
+   *  then the one object both classes reach, and is the place (Rule 8.13). */
+  into = false,
 ): Expr | 'refused' | undefined {
-  const owner = staticOwnerOf(node.expression, scope)
-  if (owner === undefined) return undefined
+  const staticOwner = staticOwnerOf(node.expression, scope)
+  if (staticOwner === undefined) return undefined
   const written = node.name.text
-  const b = staticFieldBinding(owner, written, scope, sourceFile)
+  const read = into ? staticFieldRead(staticOwner, written, scope, sourceFile) : undefined
+  const owner = read?.declaredOn ?? staticOwner
+  const b = read?.binding ?? staticFieldBinding(owner, written, scope, sourceFile)
   if (b === undefined) {
     const inherited = inheritedStaticWrite(owner, written, scope, sourceFile)
     if (inherited !== undefined) {
@@ -941,6 +979,22 @@ export function checkPrivateStatic(
       : `"${written}" is private to "${owner}", and this code is outside its class body. Reach ` +
           `it through a member "${owner}" declares without the "#".`,
   )
+  return false
+}
+
+/** A private static accessor or method reached through a class other than the one that declares
+ *  it, `this.#w` in a static `Derived` inherits: refused, having said so (Rules 8.12, 8.13). */
+export function checkInheritedPrivateStatic(
+  cf: ClassFunction,
+  owner: string,
+  at: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (cf.kind !== 'static' || cf.member === undefined || !isPrivateName(cf.member)) return true
+  const declaredIn = declaringClass(cf)?.name?.text
+  if (declaredIn === undefined || declaredIn === owner) return true
+  pushDiag(diagnostics, sourceFile, at, inheritedPrivateStatic(owner, cf.member, declaredIn))
   return false
 }
 

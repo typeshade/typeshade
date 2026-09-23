@@ -4,7 +4,7 @@ import type ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
 import { CAS_RESULT_STRUCTS } from '../../core/ir/types.js'
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js'
-import type { FuncDecl, StructDecl, StructField } from '../../core/ir/nodes.js'
+import type { FuncDecl, Stmt, StructDecl, StructField } from '../../core/ir/nodes.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import type { PrivateField, RestrictedField } from './structs.js'
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js'
@@ -213,6 +213,18 @@ export interface Binding {
  *  `varref` or `param` from a binding spells the name through this. */
 export const irNameOf = (b: Binding): string => b.irName ?? b.name
 
+/** A copy of an IR node, sharing only what is shared by identity: a type, a span, and the
+ *  declaration a call refers to. */
+function cloneIr<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => cloneIr(v)) as T
+  if (value === null || typeof value !== 'object') return value
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = k === 'type' || k === 'span' || k === 'declRef' ? v : cloneIr(v)
+  }
+  return out as T
+}
+
 export class LoweringScope {
   private readonly frames: Map<string, Binding>[] = [new Map()]
   /** Every IR name a `define` in this scope has handed out, module-level names included: a
@@ -222,10 +234,13 @@ export class LoweringScope {
   private readonly byIr = new Map<string, Binding>()
   private ownerDecl: FuncDecl | undefined
   private superCtorInfo: SuperCtor | undefined
+  private afterSuperStmts: readonly Stmt[] | undefined
+  private afterSuperTaken = false
   private superMethodMap: ReadonlyMap<string, string> | undefined
   private localFns: ReadonlyMap<string, string> | undefined
   private baseNames: ReadonlyMap<string, readonly string[]> = new Map()
   private abstractNames: ReadonlySet<string> = new Set()
+  private staticHolders: ReadonlyMap<string, string> = new Map()
   private readonly callees: Map<string, FuncDecl>
   private readonly fns: FileFunctions
   private readonly refusedDecls: Set<string>
@@ -553,6 +568,28 @@ export class LoweringScope {
     return this.superCtorInfo
   }
 
+  /** What the constructor being lowered runs right after its `super(...)` returns, lowered
+   *  before its body (Rule 8.14); undefined in any other body. */
+  setAfterSuper(stmts: readonly Stmt[] | undefined): void {
+    this.afterSuperStmts = stmts
+    this.afterSuperTaken = false
+  }
+
+  /** The statements one `super(...)` is followed by: those lowered, and a copy of them for a
+   *  second `super(...)` on another path, so no two places in the IR share a node. */
+  takeAfterSuper(): Stmt[] {
+    const stmts = this.afterSuperStmts ?? []
+    const out = this.afterSuperTaken ? stmts.map((st) => cloneIr(st)) : [...stmts]
+    this.afterSuperTaken = true
+    return out
+  }
+
+  /** Whether the statements of {@link setAfterSuper} are still to be placed: a body with no
+   *  `super(...)` that lowered puts them first. */
+  afterSuperPending(): boolean {
+    return !this.afterSuperTaken && (this.afterSuperStmts?.length ?? 0) > 0
+  }
+
   /** Which structs extend which (roadmap 0.3 item T5, #92), so a type mismatch between two
    *  that are related can say what is really wrong: dispatch here is static, so a base-typed
    *  name must not hold a derived value. */
@@ -585,6 +622,17 @@ export class LoweringScope {
       queue.push(...(this.baseNames.get(next) ?? []))
     }
     return out
+  }
+
+  /** For a generic class's instance, the name its statics are emitted under (T9, #92). */
+  setStaticHolders(holders: ReadonlyMap<string, string>): void {
+    this.staticHolders = holders
+  }
+
+  /** The name the statics of `name` are emitted under: a generic class's own for one of its
+   *  instances, `Pair` for `Pair_f32`, and `name` itself for every other class. */
+  staticHolderOf(name: string): string {
+    return this.staticHolders.get(name) ?? name
   }
 
   /** True when `derived` extends `base`, at any depth. */

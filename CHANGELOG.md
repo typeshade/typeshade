@@ -906,15 +906,26 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   for each class that inherits it, with `this` as that class, and the last is refused with the
   fix.
 - **A static field beside a function of its name is refused, and a mistake in a body a class
-  inherits is said once** (Rules 8.12 and 12.4). `static #k = 2.` beside `static k()` compiled to
-  `const A_k: f32 = 2.0;` beside `fn A_k() -> f32`, which WGSL refuses as a redeclaration, and so
-  did a public static field beside an instance method of its name, which TypeScript keeps on two
-  sides of the class; both are TS8035 now, naming the two members and the name they share. A body
-  a class inherits is lowered again for that class, and an error in it was reported once per
-  class that inherits it (`Unknown identifier "nope".` twice for one base and one derived class);
-  it is reported once, and a static that fails only for the class that inherits it (`this.#k`,
-  a write through `this` to a static that class does not declare, a `new this()` its constructor
-  cannot take) is reported where that class calls it, and not at all when nothing does.
+  inherits is said once** (Rules 8.9, 8.12 and 12.4). `static #k = 2.` beside `static k()`
+  compiled to `const A_k: f32 = 2.0;` beside `fn A_k() -> f32`, which WGSL refuses as a
+  redeclaration, and so did a public static field beside an instance method of its name, which
+  TypeScript keeps on two sides of the class; both are TS8035 now, naming the two members and the
+  name they share. A body a class inherits is lowered again for that class, and an error in it was
+  reported once per class that inherits it (`Unknown identifier "nope".` twice for one base and
+  one derived class); it is reported once. One that fails only for the class that inherits it
+  (`weigh(this)` with `weigh` taking the base, `this.#k`, a write through `this` to a static that
+  class does not declare) is reported when an entry or a top-level function reaches it through
+  calls, and dropped, with every function that calls it, when nothing does: a derived class that
+  never called `score()` could not be declared before.
+- **Field initializers run in TypeScript's order** (Rule 8.14, §26). Every initializer ran
+  before the constructor's body, base first, and a derived class's initializer for a field its
+  base initializes too was dropped: `class B extends A { limit: f32 = 5. }` built a `B` whose
+  `limit` was `A`'s 1, where TypeScript gives 5. A base's initializers now run in its
+  constructor, the derived class's parameter properties and its own initializers when
+  `super(...)` returns, and those of a class that inherits its constructor when that body
+  returns, so an initializer that reads `this.limit` reads what the base's constructor left.
+  Measured on `main`: `B` above with `constructor() { super(); this.limit *= 10. }` over an `A`
+  whose constructor adds 1 gave 20, TypeScript 50; it gives 50.
 - **The optimizer keeps what a call writes, and the debugger copies what it stores** (§19,
   §26). Each of these made the emitted shader, or the stepper, disagree with the CPU oracle:
   dead-code elimination dropped an unread `let` whole, write and all, so `const unused = next()`

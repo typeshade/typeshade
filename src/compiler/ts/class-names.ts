@@ -123,6 +123,18 @@ export function staticThisClass(node: ts.Node): ts.ClassDeclaration | undefined 
   return undefined
 }
 
+/** Whether `node` holds a `super.member` reference, a call or an access. */
+function namesSuper(node: ts.Node, member: string): boolean {
+  if (
+    ts.isPropertyAccessExpression(node) &&
+    node.expression.kind === ts.SyntaxKind.SuperKeyword &&
+    node.name.text === member
+  ) {
+    return true
+  }
+  return ts.forEachChild(node, (n) => namesSuper(n, member)) ?? false
+}
+
 const WRITTEN_STATICS = new WeakMap<ts.SourceFile, ReadonlySet<string>>()
 
 /** The static fields the file writes, as `Cls.field` keys with the field as written (Rule
@@ -168,8 +180,13 @@ export function writtenStaticFields(sourceFile: ts.SourceFile): ReadonlySet<stri
         isStaticMember(m) &&
         writtenMemberName(m.name) === member,
     )
+  /** Whether a static member of `cls` names `member` through `super`: `super.record()` in an
+   *  override of `record`, or in any other static of the class. */
+  const reachesSuper = (cls: ts.ClassDeclaration, member: string): boolean =>
+    cls.members.some((m) => isStaticMember(m) && namesSuper(m, member))
   /** The classes a static member `member` of `owner` runs for: `owner`, and each class that
-   *  extends it and declares no static of that name on the way down. */
+   *  extends it and reaches it, by inheriting it or through `super` from a class on the way
+   *  down that declares its own. */
   const runsFor = (owner: ts.ClassDeclaration, member: string | undefined): string[] => {
     const out = [owner.name!.text]
     if (member === undefined) return out
@@ -179,11 +196,22 @@ export function writtenStaticFields(sourceFile: ts.SourceFile): ReadonlySet<stri
           if (cls !== owner) out.push(cls.name!.text)
           break
         }
-        if (declaresStatic(at, member) || depth > classes.length) break
+        if (depth > classes.length) break
+        if (declaresStatic(at, member) && !reachesSuper(at, member)) break
         at = baseOf(at)
       }
     }
     return out
+  }
+  /** The class above `name` that declares the static field `field`, the nearest first. */
+  const declaringAncestor = (name: string, field: string): string | undefined => {
+    const found = byName.get(name)
+    let at = found?.length === 1 ? baseOf(found[0]!) : undefined
+    for (let depth = 0; at !== undefined && depth <= classes.length; depth++) {
+      if (fields.get(at.name!.text)?.has(field)) return at.name!.text
+      at = baseOf(at)
+    }
+    return undefined
   }
   const out = new Set<string>()
   /** The static fields `target` is rooted in, as their keys. */
@@ -202,6 +230,15 @@ export function writtenStaticFields(sourceFile: ts.SourceFile): ReadonlySet<stri
             : []
         const keys = owners.filter((c) => fields.get(c)?.has(field)).map((c) => `${c}.${field}`)
         if (keys.length > 0) return keys
+        // A write into a static a base declares, `Derived.origin.y = 5.`, lands on the base's:
+        // the object is the one both classes read. A write to the static itself is refused
+        // where it is lowered (Rule 8.13).
+        if (at !== target) {
+          const above = owners
+            .map((c) => declaringAncestor(c, field))
+            .filter((c): c is string => c !== undefined)
+          if (above.length > 0) return above.map((c) => `${c}.${field}`)
+        }
         at = at.expression
         continue
       }
@@ -215,7 +252,8 @@ export function writtenStaticFields(sourceFile: ts.SourceFile): ReadonlySet<stri
   /** The classes `this` names in the static member around `node`. */
   const thisClassesOf = (node: ts.Node): string[] => {
     const owner = staticThisClass(node)
-    if (owner === undefined) return []
+    // A class with no name (`export default class { … }`) has no static a name can reach.
+    if (owner?.name === undefined) return []
     let member: ts.Node = node
     while (member.parent !== owner) member = member.parent
     return runsFor(
@@ -319,6 +357,44 @@ function classesByName(sourceFile: ts.SourceFile): ReadonlyMap<string, ts.ClassD
   walk(sourceFile)
   CLASSES.set(sourceFile, out)
   return out
+}
+
+/** The declaration of the member `member` that code in the body of `cls` sees: `cls`'s own, or
+ *  the nearest in the chain above it that the file declares with `extends X`. A parameter
+ *  property is found as the parameter that declares it. Undefined when the chain runs out, or
+ *  runs into a base the file does not resolve. This is what TypeScript checks `this.m()` against
+ *  in `cls`'s body, whichever class that body is later lowered for (Rule 8.15). */
+export function memberDeclarationInChain(
+  cls: ts.ClassLikeDeclaration,
+  member: string,
+  isStatic: boolean,
+): ts.ClassElement | ts.ParameterDeclaration | undefined {
+  const byName = classesByName(cls.getSourceFile())
+  const seen = new Set<ts.ClassLikeDeclaration>()
+  let at: ts.ClassLikeDeclaration | undefined = cls
+  while (at !== undefined && !seen.has(at)) {
+    seen.add(at)
+    for (const m of at.members) {
+      if (ts.isConstructorDeclaration(m)) {
+        if (isStatic) continue
+        for (const p of m.parameters) {
+          if (ts.isIdentifier(p.name) && p.name.text === member && ts.getModifiers(p)?.length) {
+            return p
+          }
+        }
+        continue
+      }
+      if (m.name === undefined || isStaticMember(m) !== isStatic) continue
+      if (writtenMemberName(m.name) === member) return m
+    }
+    const e: ts.Expression | undefined = at.heritageClauses?.find(
+      (h) => h.token === ts.SyntaxKind.ExtendsKeyword,
+    )?.types[0]?.expression
+    const found: readonly ts.ClassDeclaration[] | undefined =
+      e !== undefined && ts.isIdentifier(e) ? byName.get(e.text) : undefined
+    at = found?.length === 1 ? found[0] : undefined
+  }
+  return undefined
 }
 
 /** Whether `cls` extends `owner`, at any depth, as far as the file shows it: an `extends X`

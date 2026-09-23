@@ -55,8 +55,8 @@ import {
 import { mapTsTypeToShaderType } from '../type-map.js'
 import {
   checkFunctionAccess,
+  checkInheritedPrivateStatic,
   checkPrivateAccess,
-  inheritedPrivateStatic,
   memberFunctionOf,
   visibleField,
 } from './class-access.js'
@@ -83,6 +83,20 @@ export interface Receiver {
   /** A constructor's parameter properties, which it assigns from their parameters before the
    *  field initializers run (Rule 8.14), the order TypeScript's own constructor keeps. */
   readonly paramProps?: readonly { readonly name: string; readonly type: ShaderType }[]
+  /** What a constructor whose `super(...)` runs a base's constructor does right after that call
+   *  returns: its parameter properties, then its class's own field initializers, which
+   *  TypeScript runs there and not before the base's constructor (Rule 8.14). */
+  readonly afterSuper?: {
+    readonly paramProps: readonly { readonly name: string; readonly type: ShaderType }[]
+    readonly fieldInits: readonly FieldInit[]
+  }
+  /** The initializers of the classes below the one that declared this constructor, down to the
+   *  class being built, which run when its body returns, as their implicit constructors would. */
+  readonly afterBody?: readonly FieldInit[]
+  /** A constructor's own class's initializers when no base constructor runs first: after its
+   *  parameter properties, and after the initializers of `fieldInits`, which are the classes
+   *  above it (Rule 8.14). */
+  readonly ownInits?: readonly FieldInit[]
 }
 
 /** A member that becomes a function of the module: a method, or one half of an accessor. */
@@ -199,10 +213,45 @@ function namesConstructed(
   return out
 }
 
-/** Whether a body builds its own class with `new this(...)`. */
-function buildsThis(node: ts.Node): boolean {
-  if (ts.isNewExpression(node) && node.expression.kind === ts.SyntaxKind.ThisKeyword) return true
-  return ts.forEachChild(node, buildsThis) ?? false
+/** Whether a constructor body calls `super(...)`. */
+function callsSuper(node: ts.Node): boolean {
+  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.SuperKeyword) return true
+  if (ts.isFunctionLike(node) && !ts.isArrowFunction(node)) return false
+  return ts.forEachChild(node, callsSuper) ?? false
+}
+
+/** Whether every `return` of a body returns what `new this(...)` built: the expression itself,
+ *  or a name the body declared from one. A body that returns anything else, on any path, keeps
+ *  the type it declares. */
+function returnsBuiltThis(node: MemberFunction): boolean {
+  const isNewThis = (e: ts.Expression): boolean => {
+    const x = unparen(e)
+    return ts.isNewExpression(x) && x.expression.kind === ts.SyntaxKind.ThisKeyword
+  }
+  const built = new Set<string>()
+  let returns = 0
+  let others = 0
+  const walk = (n: ts.Node): void => {
+    if (ts.isFunctionLike(n) && !ts.isArrowFunction(n)) return
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer !== undefined &&
+      isNewThis(n.initializer)
+    ) {
+      built.add(n.name.text)
+    }
+    if (ts.isReturnStatement(n)) {
+      returns++
+      const e = n.expression !== undefined ? unparen(n.expression) : undefined
+      if (!(e !== undefined && (isNewThis(e) || (ts.isIdentifier(e) && built.has(e.text))))) {
+        others++
+      }
+    }
+    ts.forEachChild(n, walk)
+  }
+  if (node.body !== undefined) ts.forEachChild(node.body, walk)
+  return returns > 0 && others === 0
 }
 
 function unparen(e: ts.Expression): ts.Expression {
@@ -678,16 +727,14 @@ function effectiveMembers(
   // A field initializer runs base first, so a derived class that initializes an inherited
   // field wins, the way its assignment would.
   const fieldInits: FieldInit[] = []
-  const initNames = new Set<string>()
+  // Every one of them runs, a class's own after its base's, so one a derived class writes for
+  // an inherited field lands last, as TypeScript's does. The first one alone used to be kept,
+  // which gave the field the base's value (Rule 8.14).
   const initsOf = (s: CollectedStruct | undefined, seen: Set<string>): void => {
     if (!s || seen.has(s.decl.name)) return
     seen.add(s.decl.name)
     for (const base of s.bases ?? []) initsOf(byName.get(base), seen)
-    for (const f of s.members?.fieldInits ?? []) {
-      if (initNames.has(f.name)) continue
-      initNames.add(f.name)
-      fieldInits.push(f)
-    }
+    for (const f of s.members?.fieldInits ?? []) fieldInits.push(f)
   }
   initsOf(struct, new Set())
   return { bodies, fieldInits, collisions }
@@ -1000,7 +1047,7 @@ export function collectClassFunctions(
         const ret =
           declaresOwnClass &&
           ((half === undefined && !isStatic && returnsThis(method.body)) ||
-            (isStatic && body.declaredIn !== name && buildsThis(method)))
+            (isStatic && body.declaredIn !== name && returnsBuiltThis(method)))
             ? selfT
             : signature.ret
         // A method that changes its object takes it BY REFERENCE: `mode: 'inout'` on the
@@ -1109,6 +1156,35 @@ export function collectClassFunctions(
         .map((p) => ({ name: p.name, type: p.type }))
       const at = ctor ?? members?.node
       if (at !== undefined) (stub as { span?: SourceSpan }).span = spanOf(sourceFile, at)
+      // Relative to the class that DECLARED this body: an inherited constructor's `super` still
+      // names ITS base, not the base of the class being built.
+      const superCtor = found ? superCtorOf(found.owner, byName) : undefined
+      // Which class wrote an initializer decides when it runs, as in TypeScript (Rule 8.14).
+      // The classes above the one that declared this constructor run theirs first: in the base
+      // constructor `super(...)` calls, when there is one, and before the body when there is
+      // not. That class runs its parameter properties and its own after its `super(...)`
+      // returns. The classes below it, down to this one, run theirs when its body returns, as
+      // their implicit constructors would. An initializer whose class is not in the chain (a
+      // mixin's) runs first, as every one did before.
+      const chain: readonly (ts.ClassLikeDeclaration | undefined)[] = [
+        struct,
+        ...ancestorsOf(name, byName),
+      ].map((c) => c.classNode)
+      const ownerAt = found?.owner.classNode ? chain.indexOf(found.owner.classNode) : -1
+      const afterSuperRuns =
+        superCtor !== undefined && ctor?.body !== undefined && callsSuper(ctor.body)
+      const first: FieldInit[] = []
+      const atOwner: FieldInit[] = []
+      const below: FieldInit[] = []
+      for (const f of fieldInits) {
+        const cls = ts.findAncestor(f.init, ts.isClassLike)
+        const depth = ownerAt < 0 || cls === undefined ? -1 : chain.indexOf(cls)
+        if (depth < 0) first.push(f)
+        else if (depth > ownerAt) {
+          if (superCtor === undefined) first.push(f)
+        } else if (depth === ownerAt) atOwner.push(f)
+        else below.push(f)
+      }
       const cf: ClassFunction = {
         stub,
         kind: 'ctor',
@@ -1118,13 +1194,17 @@ export function collectClassFunctions(
         receiver: {
           type: selfT,
           mode: 'ctor',
-          fieldInits,
+          fieldInits: first,
           shown,
-          // Relative to the class that DECLARED this body: an inherited constructor's `super`
-          // still names ITS base, not the base of the class being built.
-          ...(found ? { superCtor: superCtorOf(found.owner, byName) } : {}),
+          ...(superCtor !== undefined ? { superCtor } : {}),
           superMethods: ctorSuperMethods(struct, found?.owner.decl.name ?? name, byName, ctor),
-          ...(paramProps.length > 0 ? { paramProps } : {}),
+          ...(paramProps.length > 0 && !afterSuperRuns ? { paramProps } : {}),
+          ...(afterSuperRuns
+            ? { afterSuper: { paramProps, fieldInits: atOwner } }
+            : atOwner.length > 0
+              ? { ownInits: atOwner }
+              : {}),
+          ...(below.length > 0 ? { afterBody: below } : {}),
         },
         mutates: false,
       }
@@ -1188,6 +1268,87 @@ export function ctorPrologue(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt[] {
+  const parts = ctorParts(receiver, scope, sourceFile, diagnostics)
+  return [...parts.prologue, ...parts.afterSuper, ...parts.afterBody]
+}
+
+/** A constructor's statements that are not its body's: what starts it (`self_` at the zero
+ *  struct, and what runs before the body), what runs right after its `super(...)`, and what
+ *  runs when its body returns (Rule 8.14). All are lowered here, before the body and its
+ *  parameters are in scope, since an initializer is written in the class and sees neither. */
+export function ctorParts(
+  receiver: Receiver,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): { prologue: Stmt[]; afterSuper: Stmt[]; afterBody: Stmt[] } {
+  const prologue = ctorStart(receiver, scope, sourceFile, diagnostics)
+  if (receiver.mode === 'inout') return { prologue, afterSuper: [], afterBody: [] }
+  const after = receiver.afterSuper
+  return {
+    prologue,
+    afterSuper:
+      after === undefined
+        ? []
+        : [
+            ...paramPropAssigns(after.paramProps, receiver.type),
+            ...initAssigns(after.fieldInits, receiver.type, scope, sourceFile, diagnostics),
+          ],
+    afterBody: initAssigns(receiver.afterBody ?? [], receiver.type, scope, sourceFile, diagnostics),
+  }
+}
+
+/** `self_.x = x` for each parameter property. */
+function paramPropAssigns(
+  props: readonly { readonly name: string; readonly type: ShaderType }[],
+  type: ShaderType,
+): Stmt[] {
+  return props.map((p) => ({
+    s: 'assign',
+    target: { op: 'member', type: p.type, base: selfRef(type), field: p.name },
+    expr: { op: 'param', type: p.type, name: p.name },
+  }))
+}
+
+/** `self_.f = init` for each field initializer, in order, each checked against its field. */
+function initAssigns(
+  inits: readonly FieldInit[],
+  type: ShaderType,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] {
+  const out: Stmt[] = []
+  for (const f of inits) {
+    const lowered = lowerExpression(f.init, sourceFile, scope, diagnostics, f.type)
+    if (!lowered) continue
+    const init = retargetIntLitCtx(lowered, f.init, f.type)
+    if (typeKey(init.type) !== typeKey(f.type)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        f.init,
+        `Field "${f.name}" is ${typeKey(f.type)} but its initializer is ${typeKey(init.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      continue
+    }
+    out.push({
+      s: 'assign',
+      target: { op: 'member', type: f.type, base: selfRef(type), field: f.name },
+      expr: init,
+    })
+  }
+  return out
+}
+
+/** `self_` at the zero struct, then what runs before the body. */
+function ctorStart(
+  receiver: Receiver,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] {
   const self = scope.define({
     kind: 'local',
     name: 'this',
@@ -1205,36 +1366,16 @@ export function ctorPrologue(
       ? { s: 'var', name: irNameOf(self), type: receiver.type, init: zero }
       : { s: 'var', name: irNameOf(self), type: receiver.type },
   ]
-  // `constructor(public x: f32)`: the field takes its parameter first, then the initializers
-  // run, so one written `y = this.x * 2.` reads the value passed in (Rule 8.14). A parameter is
-  // named as the signature wrote it; the scope defines the parameters after this prologue.
-  for (const p of receiver.paramProps ?? []) {
-    out.push({
-      s: 'assign',
-      target: { op: 'member', type: p.type, base: selfRef(receiver.type), field: p.name },
-      expr: { op: 'param', type: p.type, name: p.name },
-    })
-  }
-  for (const f of receiver.fieldInits) {
-    const lowered = lowerExpression(f.init, sourceFile, scope, diagnostics, f.type)
-    if (!lowered) continue
-    const init = retargetIntLitCtx(lowered, f.init, f.type)
-    if (typeKey(init.type) !== typeKey(f.type)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        f.init,
-        `Field "${f.name}" is ${typeKey(f.type)} but its initializer is ${typeKey(init.type)}.`,
-        TS_CODES.TYPE_MISMATCH,
-      )
-      continue
-    }
-    out.push({
-      s: 'assign',
-      target: { op: 'member', type: f.type, base: selfRef(receiver.type), field: f.name },
-      expr: init,
-    })
-  }
+  // The initializers of the classes above the one that declared this constructor come first,
+  // as their implicit constructors run them. Then `constructor(public x: f32)`: the field takes
+  // its parameter, then this class's initializers run, so one written `y = this.x * 2.` reads the
+  // value passed in (Rule 8.14). A parameter is named as the signature wrote it; the scope
+  // defines the parameters after this prologue.
+  out.push(
+    ...initAssigns(receiver.fieldInits, receiver.type, scope, sourceFile, diagnostics),
+    ...paramPropAssigns(receiver.paramProps ?? [], receiver.type),
+    ...initAssigns(receiver.ownInits ?? [], receiver.type, scope, sourceFile, diagnostics),
+  )
   return out
 }
 
@@ -1545,16 +1686,7 @@ export function lowerClassCall(
     )
       return undefined
     // `this.#h()` in a static body a class inherits: `#h` is the declaring class's own.
-    const declaredIn = declaringClassOf(cf)?.name?.text
-    if (cf.kind === 'static' && isPrivateName(member) && declaredIn !== name) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        callee,
-        inheritedPrivateStatic(name, member, declaredIn ?? name),
-      )
-      return undefined
-    }
+    if (!checkInheritedPrivateStatic(cf, name, callee, sourceFile, diagnostics)) return undefined
     if (!checkFunctionAccess(cf, undefined, callee.name, sourceFile, scope, diagnostics)) {
       return undefined
     }
@@ -1701,7 +1833,8 @@ export function mutatingReceiver(
     )
     return undefined
   }
-  return lowerLValue(obj, sourceFile, scope, diagnostics)
+  // The method writes into its receiver, which is then the place however it is reached.
+  return lowerLValue(obj, sourceFile, scope, diagnostics, true)
 }
 
 /** A call statement of a method that changes its object, `r.advance(2.)`: the receiver is

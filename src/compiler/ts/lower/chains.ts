@@ -9,6 +9,9 @@
 // that object too. A `new` at the root is put in a temporary first: that temporary is the object
 // `new V().setX(1.)` builds and the chain changes.
 //
+// The place a chain starts from is found once, as TypeScript finds it: an index it is reached
+// through is read into a `let` ahead of the chain.
+//
 // A chain inside a larger expression keeps the copy. A call that only reads it is right as it
 // is, `v.setX(1.).len()`, and one that would change it is refused where the receiver is
 // lowered, with the fix (class-methods.ts).
@@ -59,6 +62,18 @@ function isPlace(e: ts.Expression): boolean {
 function hasCall(e: ts.Node): boolean {
   if (ts.isCallExpression(e) || ts.isNewExpression(e)) return true
   return ts.forEachChild(e, hasCall) ?? false
+}
+
+/** The index expressions of a place, in the order TypeScript evaluates them: `i` then `j` in
+ *  `a[i].b[j]`. A written number is left out, since nothing a call does can change it. */
+function indexesOf(e: ts.Expression): ts.Expression[] {
+  const x = unparen(e)
+  if (ts.isPropertyAccessExpression(x)) return indexesOf(x.expression)
+  if (ts.isElementAccessExpression(x)) {
+    const index = unparen(x.argumentExpression)
+    return [...indexesOf(x.expression), ...(ts.isNumericLiteral(index) ? [] : [index])]
+  }
+  return []
 }
 
 /** A statement's own call of a method, lowered the way a call statement is: through the
@@ -129,6 +144,18 @@ export function lowerChainPrelude(
     make = (): Expr => ({ op: 'varref', type: built.type, name })
     scope.setChainAlias(root, make)
   } else {
+    // TypeScript evaluates the place once, before the first call, and every call after runs on
+    // the object found there: `slots[cursor].claim(1.).tag(2.)` tags the slot it claimed even
+    // when `claim` moves `cursor`. So each index the place is reached through is read once,
+    // into a `let` ahead of the chain, and the place is lowered through those.
+    for (const index of indexesOf(root)) {
+      const value = lowerExpression(index, sourceFile, scope, diagnostics)
+      if (value === undefined) return undefined
+      const name = scope.defineTemp('_at', value.type)
+      prelude.push({ s: 'let', name, expr: value })
+      const type = value.type
+      scope.setChainAlias(index, (): Expr => ({ op: 'varref', type, name }))
+    }
     const at = root
     make = (): Expr => lowerExpression(at, sourceFile, scope, [])!
   }

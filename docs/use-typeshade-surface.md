@@ -2151,6 +2151,14 @@ A `readonly` field may be assigned in a constructor of the class that declares i
 else (TS8005), which is TypeScript's rule; `readonly` is shallow, as TypeScript's is, so
 `p.pos.x = 1.` on a `readonly pos` writes into what the field holds and stands.
 
+Field initializers run in TypeScript's order (Rule 8.14): a base's in its constructor, then, when
+`super(...)` returns, the derived class's parameter properties and its own initializers, then the
+rest of its body. So `class B extends A { limit = 5. }` builds a `B` whose `limit` is 5 whatever
+`A` starts it at, and an initializer that reads `this.limit` reads what `A`'s constructor left.
+A class that inherits its constructor runs its own initializers when that body returns. Until
+this, every initializer ran before the constructor's body, and a derived class's one for an
+inherited field was dropped, so that `B`'s `limit` was `A`'s.
+
 ### A chain of calls on one object
 
 A method whose every `return` is `return this` hands back its own object, so TypeScript runs the
@@ -2159,8 +2167,10 @@ next call of a chain on the same one: `b.sized(2.).tinted(red)` sizes `b` and ti
 how the method changed the object, and the return is a value like any other. So where a chain is
 the whole of a statement, of a declaration's initializer or of a `return`, each call but the last
 runs as a statement of its own, in source order, on the object the chain starts from, and the
-last runs in the statement, on that object too. A chain that starts at `new` puts what `new`
-built in a temporary, `_chain`, and that temporary is the object the chain changes.
+last runs in the statement, on that object too. The object is found once, before the first call,
+as TypeScript finds it: `slots[cursor].claim(1.).tag(2.)` reads `cursor` into a `let` first, so
+`tag` tags the slot `claim` claimed even when `claim` moves `cursor`. A chain that starts at `new`
+puts what `new` built in a temporary, `_chain`, and that temporary is the object the chain changes.
 
 ```ts
 "use typeshade"
@@ -2310,6 +2320,11 @@ export function fs(@location(0) uv: vec2): vec4 {
 }
 ```
 
+A name is checked against the declaration the class whose body holds it sees, as TypeScript
+checks it: `this.weight()` in an `abstract` class that declares `protected abstract weight()` is
+that class's own call, even in the body a class that overrides `weight` inherits. A field a
+derived class declares again without a modifier is public, as TypeScript allows.
+
 Refused (TS8035), each with the member to reach it through: `p.balance` outside `Account`
 (`"Account.balance" is private, so only the body of "Account" may name it. Reach it through a
 public member of "Account".`), `p.limit` outside the chain, and, in a `Premium` body, `a.limit`
@@ -2439,6 +2454,14 @@ and TypeScript throws when `Big` reaches it (TS8035, with the fix `Shape.#k`). `
 static member writes `this.K` in TypeScript, not the field the class above declares, and is
 refused with both spellings to choose from. `new this()` outside a static member is TS8013:
 `this` there is an object, not a class.
+
+A write INTO a static a base declares is another matter: `Big.origin.y = 5.`, or a method that
+changes `Big.origin`, changes the one object `Shape` and `Big` both read, in TypeScript and here.
+The statics of a generic base are its class's, one for every instance, so `FPair.K` over
+`class FPair extends Pair<f32>` reads `Pair.K`. And what holds for a static holds for every body a
+class inherits (Rule 8.9): an instance method whose body calls `weigh(this)` with `weigh` taking
+the base fails for the derived class alone, since a derived value is not a base one here, and it
+is refused when something calls it on a derived object, and not at all while nothing does.
 
 ### `namespace`
 

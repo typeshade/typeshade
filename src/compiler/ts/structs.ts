@@ -93,6 +93,9 @@ export type CollectedStruct = {
   /** The fields declared `private` or `protected`, by emitted name, with the class that
    *  declares each (Rule 8.15). */
   readonly restrictedFields?: ReadonlyMap<string, RestrictedField>
+  /** For a generic class's instance, the name its statics are emitted under: the class's own,
+   *  `Pair` for `Pair_f32`, since a static is one per class and not one per instance (T9). */
+  readonly staticHolder?: string
 }
 
 /** A field declared with `private` or `protected`, and the class that declares it. */
@@ -204,6 +207,7 @@ export function collectStructs(
       withheldFunctions: ReadonlySet<string>
       readonlyFields: ReadonlyMap<string, ts.ClassLikeDeclaration>
       restrictedFields: ReadonlyMap<string, RestrictedField>
+      staticHolder?: string
     },
   ): void => {
     const fromClass =
@@ -211,6 +215,7 @@ export function collectStructs(
         ? {}
         : {
             classNode: klass.node,
+            ...(klass.staticHolder !== undefined ? { staticHolder: klass.staticHolder } : {}),
             ...(klass.privateFields.size > 0 ? { privateFields: klass.privateFields } : {}),
             ...(klass.withheld.size > 0 ? { withheld: klass.withheld } : {}),
             ...(klass.withheldFunctions.size > 0
@@ -844,6 +849,7 @@ export function collectStructs(
             withheldFunctions,
             readonlyFields,
             restrictedFields,
+            ...(instance.binding !== undefined ? { staticHolder: written } : {}),
           },
         )
         // A static of a generic class cannot mention the class's type parameters — TypeScript
@@ -1272,6 +1278,11 @@ function applyInheritance(
     }
     for (const f of struct.decl.fields) put(f, name, struct.privateFields?.get(f.name))
     for (const [f, cls] of struct.readonlyFields ?? []) readonlyFields.set(f, cls)
+    // A field the class declares again takes the class's own modifier: `limit: f32 = 5.` over a
+    // base's `protected limit` makes it public, as TypeScript allows (Rule 8.15).
+    for (const f of struct.decl.fields) {
+      if (!(struct.restrictedFields?.has(f.name) ?? false)) restrictedFields.delete(f.name)
+    }
     for (const [f, r] of struct.restrictedFields ?? []) restrictedFields.set(f, r)
     onStack.pop()
     const resolved = { fields, privates, withheld, readonlyFields, restrictedFields }

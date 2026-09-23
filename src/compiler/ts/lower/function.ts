@@ -55,6 +55,7 @@ import {
 } from '../namespaces.js'
 import {
   collectClassFunctions,
+  ctorParts,
   ctorPrologue,
   selfRef,
   type ClassFunction,
@@ -451,7 +452,7 @@ export function lowerSourceFunctions(
     funcs.push(fn.stub)
     nodeByName.set(fn.stub.name, fn.node)
   }
-  sayInherited(inheritedSaid, funcs, diagnostics)
+  sayInherited(inheritedSaid, funcs, new Set(classFns.map((cf) => cf.stub)), diagnostics)
   // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
   // downstream of here was looking for one. In a single file a function is called by the name
   // it is declared under, so the graph key and the resolver are both just `callees`. A method
@@ -601,39 +602,62 @@ function stageRestrictedOpsOf(body: readonly Stmt[]): Set<string> {
 }
 
 /** What the bodies lowered for an inheriting class said, now that every call is known. A
- *  diagnostic the file already carries at the same place is left out (Rule 12.4). A static one
- *  whose body did not lower for the inheriting class is reported when a call reaches it from a
- *  function that is not such a copy, and otherwise dropped with its function: `this.hits += 1.`
- *  in `Base.record` is a write through `Derived` only once `Derived.record()` is written. */
+ *  diagnostic the file already carries at the same place is left out (Rule 12.4).
+ *
+ *  A body lowered again for a class that inherits it can fail for that class alone: `this.#k`
+ *  in a static `Derived` inherits, `weigh(this)` where `weigh` takes the base. Such a copy is
+ *  refused where a call reaches it and dropped where none does, as TypeScript, which lowers
+ *  nothing per class, has nothing to say about a body no one runs that way. What reaches it is
+ *  a function that is not a class's own (an entry, a top-level function), through any chain of
+ *  calls; a class's function that nothing so reaches and that calls a dropped copy is dropped
+ *  with it, so no call is left without its function. A copy of an `abstract` class's method is
+ *  the only lowering its body gets, so what it says is said whether or not anything calls it. */
 function sayInherited(
   inherited: readonly { cf: ClassFunction; said: readonly TsCompilerDiagnostic[] }[],
   funcs: FuncDecl[],
+  classStubs: ReadonlySet<FuncDecl>,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
-  const copies = new Set(
-    inherited.filter(({ cf }) => cf.kind === 'static').map(({ cf }) => cf.stub.name),
-  )
+  const onlyLowering = (cf: ClassFunction): boolean =>
+    cf.kind !== 'static' &&
+    cf.node !== undefined &&
+    ts.isClassLike(cf.node.parent) &&
+    (cf.node.parent.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false)
   const byName = new Map(funcs.map((f) => [f.name, f]))
-  const reached = new Set<string>()
+  const live = new Set<string>()
   const visit = (names: Iterable<string>): void => {
     for (const name of names) {
-      if (reached.has(name)) continue
-      reached.add(name)
-      const f = copies.has(name) ? byName.get(name) : undefined
+      if (live.has(name)) continue
+      live.add(name)
+      const f = byName.get(name)
       if (f !== undefined) visit(calleeNamesOf(f.body))
     }
   }
-  for (const f of funcs) if (!copies.has(f.name)) visit(calleeNamesOf(f.body))
+  for (const f of funcs) if (!classStubs.has(f)) visit([f.name])
+  const dropped = new Set(
+    inherited
+      .filter(
+        ({ cf, said }) =>
+          !onlyLowering(cf) && !live.has(cf.stub.name) && said.some((d) => d.category === 'error'),
+      )
+      .map(({ cf }) => cf.stub.name),
+  )
+  for (let grew = dropped.size > 0; grew;) {
+    grew = false
+    for (const f of funcs) {
+      if (dropped.has(f.name) || live.has(f.name)) continue
+      if ([...calleeNamesOf(f.body)].some((n) => dropped.has(n))) {
+        dropped.add(f.name)
+        grew = true
+      }
+    }
+  }
+  for (let i = funcs.length - 1; i >= 0; i--) if (dropped.has(funcs[i]!.name)) funcs.splice(i, 1)
   const key = (d: TsCompilerDiagnostic): string =>
     `${d.start}:${d.length}:${d.code ?? ''}:${d.message}`
   const said = new Set(diagnostics.map(key))
   for (const { cf, said: own } of inherited) {
-    const failed = own.some((d) => d.category === 'error')
-    if (failed && copies.has(cf.stub.name) && !reached.has(cf.stub.name)) {
-      const at = funcs.indexOf(cf.stub)
-      if (at >= 0) funcs.splice(at, 1)
-      continue
-    }
+    if (dropped.has(cf.stub.name)) continue
     for (const d of own) {
       if (said.has(key(d))) continue
       said.add(key(d))
@@ -1339,6 +1363,13 @@ export function functionScope(
   scope.setRestrictedFields(restrictedFieldTableOf(structs))
   scope.setBases(new Map(structs.filter((s) => s.bases).map((s) => [s.decl.name, s.bases!])))
   scope.setAbstractStructs(new Set(structs.filter((s) => s.abstract).map((s) => s.decl.name)))
+  scope.setStaticHolders(
+    new Map(
+      structs
+        .filter((s) => s.staticHolder !== undefined)
+        .map((s) => [s.decl.name, s.staticHolder!] as const),
+    ),
+  )
   // The enum names, so a mistyped member reads as one rather than as an unknown identifier
   // (T1, #92); the members themselves are module constants and resolve through the scope.
   if (sourceFile) {
@@ -1534,6 +1565,9 @@ export function fillFunctionBody(
   // and the receiver read the same name. A user parameter called `self_` was refused at the
   // signature (TS8035), and a local called `self_` is renamed as any shadowing local is.
   const prologue: Stmt[] = []
+  // A constructor a class inherits runs the initializers of the classes below the one that
+  // declared it when its body returns (Rule 8.14).
+  const afterBody: Stmt[] = []
   if (receiver !== undefined) {
     if (receiver.mode === 'param') {
       scope.define({
@@ -1546,7 +1580,10 @@ export function fillFunctionBody(
     } else {
       // `super(...)` is a statement of this body and nowhere else (roadmap 0.3 item T5, #92).
       if (receiver.mode === 'ctor') scope.setSuperCtor(receiver.superCtor)
-      prologue.push(...ctorPrologue(receiver, scope, sourceFile, diagnostics))
+      const parts = ctorParts(receiver, scope, sourceFile, diagnostics)
+      prologue.push(...parts.prologue)
+      scope.setAfterSuper(parts.afterSuper)
+      afterBody.push(...parts.afterBody)
     }
   }
   // A method's stub carries `self_` ahead of the declared parameters; a constructor's carries
@@ -1598,8 +1635,23 @@ export function fillFunctionBody(
     // and one more closes the body. A method that CHANGES its object returns nothing — it
     // writes through its receiver — so its bare returns stay bare.
     const self = selfRef(receiver.type)
-    for (const r of collectReturns(body)) if (!r.expr) (r as { expr?: Expr }).expr = self
-    body = [...prologue, ...body, { s: 'return', expr: self }]
+    const early = collectReturns(body)
+    if (afterBody.length > 0 && early.length > 0) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.name ?? node,
+        `"${shown ?? stub.name}" runs a constructor it inherits, and the initializers of the ` +
+          `classes below the one that declared it run when that body returns; a "return" ` +
+          `inside it would skip them. Declare a constructor on the class, or end the body ` +
+          `without "return".`,
+        TS_CODES.CLASS_MEMBER,
+      )
+    }
+    for (const r of early) if (!r.expr) (r as { expr?: Expr }).expr = self
+    // A body whose `super(...)` did not lower still runs what follows it, first.
+    const pending = scope.afterSuperPending() ? scope.takeAfterSuper() : []
+    body = [...prologue, ...pending, ...body, ...afterBody, { s: 'return', expr: self }]
   } else if (receiver !== undefined && receiver.mode === 'inout') {
     body = [...prologue, ...body]
   }

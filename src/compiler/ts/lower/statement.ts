@@ -8,6 +8,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope, irNameOf, readOnlyPhrase, type Binding } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { parseSwizzle } from '../swizzle.js'
+import { staticThisClass } from '../class-names.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import { lowerBarrierStatement } from './barriers.js'
 import { classFunctionOf, lowerMutatingCall } from './class-methods.js'
@@ -341,6 +342,30 @@ function lowerVariableDeclaration(
   return lowerDeclarationKind(decl, isConst, sourceFile, scope, diagnostics, spanNode)
 }
 
+/** `let s: Shape = new this()` in a static that `Big` inherits: the body is lowered again for
+ *  `Big` with `this` as `Big` (Rule 8.13), so what `new this()` builds is a `Big`, and the class
+ *  the body names for it, its own, is the class the call names, as its return type is. */
+function builtThisType(
+  annotated: ShaderType,
+  decl: ts.VariableDeclaration,
+  scope: LoweringScope,
+): ShaderType {
+  const init = decl.initializer !== undefined ? unwrapParens(decl.initializer) : undefined
+  if (
+    annotated.kind !== 'struct' ||
+    init === undefined ||
+    !ts.isNewExpression(init) ||
+    init.expression.kind !== ts.SyntaxKind.ThisKeyword
+  ) {
+    return annotated
+  }
+  const lexical = staticThisClass(init.expression)?.name?.text
+  const runsFor = scope.staticClass()
+  return lexical === annotated.name && runsFor !== undefined && runsFor !== lexical
+    ? { kind: 'struct', name: runsFor }
+    : annotated
+}
+
 function lowerDeclarationKind(
   decl: ts.VariableDeclaration,
   isConst: boolean,
@@ -382,6 +407,7 @@ function lowerDeclarationKind(
     if (!annotated) return undefined
     if (refuseAtomicDeclaration(annotated, decl.type, sourceFile, diagnostics, 'a local'))
       return undefined
+    annotated = builtThisType(annotated, decl, scope)
   }
   if (!decl.initializer) {
     // `let x: f32;` — declare now, assign later (#8 A10). WGSL's `var x: f32;` and GLSL's
@@ -591,6 +617,9 @@ function lowerSuperCall(
       expr: { op: 'member', type: f.type, base, field: f.name },
     })
   }
+  // Then this class's parameter properties and field initializers, which TypeScript runs when
+  // `super(...)` returns (Rule 8.14).
+  out.push(...scope.takeAfterSuper())
   return out
 }
 
@@ -1284,6 +1313,9 @@ export function lowerLValue(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  /** The write lands inside the place, as a method that changes its object does, and not on
+   *  it: a static a base declares is then the base's (Rule 8.13). */
+  into = false,
 ): Expr | undefined {
   // `(v) = a` and `(v).x = a` name the same targets `v = a` and `v.x = a` do, so the
   // parentheses come off once, here, rather than in each branch below (where only the member
@@ -1296,7 +1328,7 @@ export function lowerLValue(
   if (ts.isPropertyAccessExpression(node)) {
     // `C.count = 1`, and `this.count += 1` in a static member: a static field the file writes
     // is a module variable, and it is the place (Rule 8.13).
-    const statik = lowerStaticFieldTarget(node, sourceFile, scope, diagnostics)
+    const statik = lowerStaticFieldTarget(node, sourceFile, scope, diagnostics, into)
     if (statik === 'refused') return undefined
     if (statik !== undefined) return statik
     return lowerMemberLValue(node, sourceFile, scope, diagnostics)
@@ -1414,14 +1446,22 @@ function staticRootOf(
   node: ts.Expression,
   scope: LoweringScope,
   sourceFile: ts.SourceFile,
-): { binding: Binding; owner: string; written: string } | { refused: string } | undefined {
-  let at = unwrapParens(node)
+  into = false,
+):
+  | { binding: Binding; owner: string; written: string; whole: boolean }
+  | { refused: string }
+  | undefined {
+  const target = unwrapParens(node)
+  let at = target
   for (;;) {
     if (ts.isPropertyAccessExpression(at)) {
       const owner = staticOwnerOf(at.expression, scope)
       if (owner !== undefined) {
         const binding = staticFieldRead(owner, at.name.text, scope, sourceFile)?.binding
-        if (binding !== undefined) return { binding, owner, written: at.name.text }
+        // `whole`: the write is to the static itself, not into what it holds.
+        if (binding !== undefined) {
+          return { binding, owner, written: at.name.text, whole: at === target && !into }
+        }
         // `this.#n += 1.` in a static body a class inherits, `#n` being the declaring class's.
         const refused = inheritedPrivateStaticField(owner, at.name.text, scope, sourceFile)
         return refused === undefined ? undefined : { refused }
@@ -1457,6 +1497,8 @@ function checkRootWritable(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  /** The write lands inside `node`, on a field or an element of it, and not on `node`. */
+  into = false,
 ): boolean {
   const root = rootLValueName(node)
   if (!root) {
@@ -1472,14 +1514,17 @@ function checkRootWritable(
   const rootName = ts.isIdentifier(root) ? root.text : 'this'
   // A chain rooted in a static field, `C.v.x` or `this.v.x` in a static member: the static is
   // the root that has to take the write (Rule 8.13).
-  const statik = staticRootOf(node, scope, sourceFile)
+  const statik = staticRootOf(node, scope, sourceFile, into)
   if (statik !== undefined && 'refused' in statik) {
     pushDiag(diagnostics, sourceFile, node, statik.refused, TS_CODES.CLASS_MEMBER)
     return false
   }
   if (statik !== undefined) {
-    // A static a base declares is written through the base's name (Rule 8.13).
-    const inherited = inheritedStaticWrite(statik.owner, statik.written, scope, sourceFile)
+    // A static a base declares is written through the base's name (Rule 8.13). A write INTO
+    // it, `Derived.origin.y = 5.`, changes the one object both classes read, as in TypeScript.
+    const inherited = statik.whole
+      ? inheritedStaticWrite(statik.owner, statik.written, scope, sourceFile)
+      : undefined
     if (inherited !== undefined) {
       pushDiag(diagnostics, sourceFile, node, inherited, TS_CODES.CONST_ASSIGN)
       return false
@@ -1596,7 +1641,7 @@ function lowerMemberLValue(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  if (!checkRootWritable(node.expression, sourceFile, scope, diagnostics)) return undefined
+  if (!checkRootWritable(node.expression, sourceFile, scope, diagnostics, true)) return undefined
   const target = lowerExpression(node, sourceFile, scope, diagnostics)
   if (!target) return undefined
   // A write through what a getter returns lands on a copy (Rule 8.11): `o.pos.x = 1.` with

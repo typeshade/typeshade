@@ -1003,6 +1003,186 @@ export function run(): f32 { let p = new P(); p.init(); return p.x * 10. + p.y }
   })
 })
 
+describe('what a review of the class surface found, each pinned', () => {
+  it('a static super call that writes a static the derived class declares writes it (Rule 8.13)', () => {
+    const src = `"use typeshade"
+class Base { static hits = 0.; static record(): void { this.hits += 1. } }
+class Mid extends Base { static record(): void { super.record() } }
+class Derived extends Mid { static hits = 10. }
+export function run(): f32 { Derived.record(); return Derived.hits * 100. + Base.hits }${RUN_TAIL}`
+    expect(compile(src).wgsl).toContain('var<private> Derived_hits: f32 = 10.0;')
+    expect(runAll(src)).toBe(1100)
+    // Through `Mid`, which declares no `hits`, TypeScript would give `Mid` one of its own.
+    expect(
+      only(
+        src.replace(
+          'Derived.record(); return Derived.hits * 100. + Base.hits',
+          'Mid.record(); return Base.hits',
+        ),
+      ),
+    ).toBe(
+      `${TS_CODES.CONST_ASSIGN} "Mid.hits" is a static "Base" declares, and assigning it through "Mid" would give "Mid" a copy of its own in TypeScript. Write "Base.hits".`,
+    )
+  })
+
+  it('an inherited body that fails only for the class that inherits it is said where it is called', () => {
+    // `Derived.next` writes `this.count` through `Derived`, which is refused; nothing calls it,
+    // so it is dropped, and so is `Derived.twice`, which calls it: no call is left without its
+    // function.
+    const src = `"use typeshade"
+class Base {
+  static count = 0.
+  static next(): f32 { this.count += 1.; return this.count }
+  static twice(): f32 { return this.next() + this.next() }
+}
+class Derived extends Base { x: f32 = 1. }
+export function run(): f32 { return Base.twice() }${RUN_TAIL}`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).not.toContain('Derived_next')
+    expect(r.wgsl).not.toContain('Derived_twice')
+    expect(runAll(src)).toBe(3)
+    // An instance body is the same: `weigh(this)` takes a `Material`, and a `Presets` is not one.
+    const PRESETS = `"use typeshade"
+class Material { rough: f32 = 0.5; score(): f32 { return weigh(this) } }
+function weigh(m: Material): f32 { return m.rough * 2. }
+class Presets extends Material { static SHINY = 0.1 }
+`
+    expect(
+      runAll(
+        PRESETS +
+          `export function run(): f32 { return new Material().score() + Presets.SHINY }${RUN_TAIL}`,
+      ),
+    ).toBeCloseTo(1.1, 6)
+    expect(
+      only(PRESETS + `export function run(): f32 { return new Presets().score() }${RUN_TAIL}`),
+    ).toBe(
+      `${TS_CODES.TYPE_MISMATCH} Argument 1 of "weigh" type mismatch. "Presets" extends "Material", and a name typed as the base cannot hold a derived value here: method dispatch is static, so a call through it would run "Material"'s body. Write "Presets" as the type.`,
+    )
+  })
+
+  it('a write into a static a base declares changes the one object both classes read', () => {
+    const src = `"use typeshade"
+class P { x: f32 = 0.; bump(): void { this.x += 1. } }
+class Base {
+  y: f32 = 1.
+  static origin = vec2(0.)
+  static p: P = { x: 0. }
+  static shift(d: f32): void { this.origin.x += d }
+  static reset(): void { Base.p = { x: 0. } }
+}
+class Derived extends Base { z: f32 = 0. }
+export function run(): f32 {
+  Derived.origin.y = 5.
+  Derived.shift(2.)
+  Derived.p.bump()
+  return Base.origin.x * 10. + Base.origin.y + Base.p.x * 100.
+}${RUN_TAIL}`
+    expect(runAll(src)).toBe(125)
+  })
+
+  it('statics reached through a generic base are the generic class own, one for every instance', () => {
+    const src = `"use typeshade"
+class Pair<T> { a: T; static K = 2.; static twice(): f32 { return this.K * 2. } constructor(a: T) { this.a = a } }
+class FPair extends Pair<f32> {
+  static total = 1.
+  static g(): void { this.total = super.K * 3. }
+}
+export function run(): f32 { FPair.g(); return FPair.K + FPair.twice() * 10. + FPair.total * 100. }${RUN_TAIL}`
+    expect(runAll(src)).toBe(642)
+  })
+
+  it('a class with no name compiles, and a private static accessor is its own class alone', () => {
+    expect(
+      errorsOf(`"use typeshade"
+export default class { static count = 0.; static bump(): void { this.count += 1. } }${TAIL}`),
+    ).toEqual([])
+    const BASE = `"use typeshade"
+class Base { x: f32 = 1.; static #v = 5.; static get #w(): f32 { return Base.#v } static read(): f32 { return this.#w } }
+class Derived extends Base { y: f32 = 0. }
+`
+    expect(only(BASE + `export function run(): f32 { return Derived.read() }${RUN_TAIL}`)).toBe(
+      `${M} "Derived" has no "#w": a private static is the class's own, and TypeScript throws where a body "Derived" inherits reaches it through "this". Name the class that declares it, "Base.#w".`,
+    )
+    expect(runAll(BASE + `export function run(): f32 { return Base.read() }${RUN_TAIL}`)).toBe(5)
+  })
+
+  it('a local the body names as its own class, built with new this(), is the class the call names', () => {
+    const src = `"use typeshade"
+class Shape {
+  size: f32 = 1.
+  static SCALE = 1.
+  static unit(): Shape { let s: Shape = new this(); s.size = this.SCALE; return s }
+  static pick(c: bool): Shape { if (c) { return new this() } return new Shape() }
+}
+class Big extends Shape { static SCALE = 4. }
+export function run(): f32 { return Big.unit().size + Shape.unit().size * 10. + Shape.pick(true).size * 100. }${RUN_TAIL}`
+    expect(runAll(src)).toBe(114)
+  })
+
+  it('an override is checked against the declaration the class that wrote the code sees (Rule 8.15)', () => {
+    const src = `"use typeshade"
+abstract class Material {
+  base: f32 = 1.
+  protected abstract weight(): f32
+  shade(x: f32): f32 { return x * this.weight() * this.base }
+}
+class Metal extends Material { protected weight(): f32 { return 3. } }
+class A { protected limit: f32 = 1.; get lim(): f32 { return this.limit } }
+class B extends A { protected limit: f32 = 5. }
+class C extends A { limit: f32 = 7. }
+export function run(): f32 { return new Metal().shade(2.) + new B().lim * 10. + new C().limit * 100. }${RUN_TAIL}`
+    // A public redeclaration of a protected field makes it public, as TypeScript allows.
+    expect(runAll(src)).toBe(756)
+    expect(
+      only(`"use typeshade"
+class A { protected limit: f32 = 1. }
+class B extends A { y: f32 = 5. }
+export function run(): f32 { return new B().limit }${RUN_TAIL}`),
+    ).toBe(
+      `${M} "A.limit" is protected, so only "A" and the classes that extend it may name it. Reach it through a public member of "A".`,
+    )
+  })
+
+  it('the place a chain starts from is found once, before its first call (Rule 8.10)', () => {
+    const src = `"use typeshade"
+let cursor: i32 = 0
+class Slot {
+  x: f32 = 0.
+  y: f32 = 0.
+  claim(x: f32): Slot { this.x = x; cursor += 1; return this }
+  tag(y: f32): Slot { this.y = y; return this }
+}
+export function run(): f32 {
+  let slots = array(new Slot(), new Slot())
+  slots[cursor].claim(1.).tag(2.)
+  return slots[0].x + slots[0].y * 10. + slots[1].x * 100. + slots[1].y * 1000.
+}${RUN_TAIL}`
+    const r = compile(src)
+    expect(r.wgsl).toContain(
+      '  let _at = cursor;\n  Slot_claim(&slots[_at], 1.0);\n  Slot_tag(&slots[_at], 2.0);',
+    )
+    // `claim` moves `cursor`, and `tag` still tags the slot it claimed, as in TypeScript.
+    expect(runAll(src)).toBe(21)
+  })
+
+  it('field initializers run in TypeScript order, a derived one last (Rule 8.14)', () => {
+    const src = `"use typeshade"
+class A { limit: f32 = 1.; constructor() { this.limit = this.limit + 1. } }
+class B extends A { limit: f32 = 5.; doubled: f32 = this.limit * 2.; constructor() { super(); this.limit *= 10. } }
+class C extends A { limit: f32 = 7. }
+class D { x: f32 = 1. }
+class E extends D { x: f32 = 3. }
+export function run(): f32 {
+  const b = new B()
+  return b.limit + b.doubled * 1000. + new C().limit * 100000. + new E().x * 10000000. + new A().limit * 0.1
+}${RUN_TAIL}`
+    // B: A's initializer (1) and body (2), then B's own (5, and doubled 10), then B's body (50).
+    // C inherits A's constructor: 1, 2, then its own 7. E has no constructor at all: 1, then 3.
+    expect(runAll(src)).toBeCloseTo(50 + 10000 + 700000 + 30000000 + 0.2, 1)
+  })
+})
+
 describe('the example', () => {
   it('examples/class-syntax.shade.ts renders the two rings on every CPU path', async () => {
     const { readFileSync } = await import('node:fs')
