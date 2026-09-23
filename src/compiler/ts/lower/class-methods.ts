@@ -147,6 +147,9 @@ export interface ClassFunction {
   readonly returnsThis?: true;
   /** A method or a getter that writes no return type, which its body says (Rule 8.19). */
   readonly infers?: true;
+  /** A setter whose value writes no type beside a getter that writes none: the value takes
+   *  what the getter's body returns, known once that body is lowered (Rule 8.19). */
+  readonly valueFromGetter?: true;
 }
 
 /** The emitted name of a method or a static function: `Ray_at`. */
@@ -919,9 +922,10 @@ function accessorSignature(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
-): { params: FuncDecl['params'][number][]; ret: ShaderType; infers?: true } | undefined {
+):
+  | { params: FuncDecl['params'][number][]; ret: ShaderType; infers?: true; fromGetter?: true }
+  | undefined {
   const pair = otherHalf(node);
-  const written = writtenMemberName(node.name) ?? 'x';
   const pairType = (): ShaderType | undefined => {
     const t =
       pair === undefined ? undefined : half === 'get' ? pair.parameters[0]?.type : pair.type;
@@ -950,17 +954,6 @@ function accessorSignature(
     return params === undefined ? undefined : { params, ret: voidT };
   }
   const inferred = pairType();
-  if (inferred === undefined) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      value,
-      `The setter "${shown}" needs a type for "${value.name.text}": write ` +
-        `"set ${written}(${value.name.text}: T)", or give the getter a return type.`,
-      TS_CODES.UNKNOWN_TYPE,
-    );
-    return undefined;
-  }
   if (value.name.text === 'self_') {
     pushDiag(
       diagnostics,
@@ -970,7 +963,14 @@ function accessorSignature(
     );
     return undefined;
   }
-  return { params: [{ name: value.name.text, type: inferred }], ret: voidT };
+  // Neither half writes the property's type: the value takes what the getter's body returns
+  // (Rule 8.19), as TypeScript types it, and `void` stands in until that body is lowered. The
+  // setter's turn, or an assignment that needs the type first, asks for it; a setter with no
+  // getter, or beside one that returns nothing, is refused there, once, so an assignment to it
+  // adds nothing (Rule 12.4).
+  return inferred === undefined
+    ? { params: [{ name: value.name.text, type: voidT }], ret: voidT, fromGetter: true }
+    : { params: [{ name: value.name.text, type: inferred }], ret: voidT };
 }
 
 /** The functions every class in `structs` contributes, with their signatures parsed and
@@ -1159,6 +1159,9 @@ export function collectClassFunctions(
             ? { returnsThis: true as const }
             : {}),
           ...(infers ? { infers: true as const } : {}),
+          ...('fromGetter' in signature && signature.fromGetter === true
+            ? { valueFromGetter: true as const }
+            : {}),
         };
         registry.set(stub, cf);
         if (

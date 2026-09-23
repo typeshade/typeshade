@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Return types the body says",
-  "blurb": "No function here writes a return type, and each returns what its body does, as TypeScript infers it (Rule 8.19): `Orbit.at` a `vec2`, the getter `period` an `f32`, the generic `pick` its arguments' type, `tint` a `vec3` and `ring` an `f32` although both are declared below the entry that calls them, and the local arrow function `falloff` what its expression is. `Rng.next` changes its object and returns an `f32`. Renders five jittered dots on an orbit, a ring and a falloff.",
+  "blurb": "No function here writes a return type, and each returns what its body does, as TypeScript infers it (Rule 8.19): `Orbit.at` a `vec2`, the getter `period` an `f32`, the generic `pick` its arguments' type, `tint` a `vec3` and `ring` an `f32` although both are declared below the entry that calls them, and the local arrow function `falloff` what its expression is. The setter `span` writes no type either, and takes the `f32` its getter returns. `Rng.next` changes its object and returns an `f32`. Renders five jittered dots on an orbit, a ring and a falloff.",
   "renderable": true
 }
 */
@@ -14,7 +14,8 @@
 // - an arrow function's expression body returns its value;
 // - a call that needs the type before the body's turn lowers the body first, so `tint` and
 //   `ring` are called above their declarations;
-// - a method, a getter and each instance of a generic function say theirs the same way.
+// - a method, a getter and each instance of a generic function say theirs the same way;
+// - a setter whose value writes no type takes the one its getter returns.
 //
 // Each returns a constructor or a scalar, which the editor's TypeScript types as the compiler
 // does; it types a product of vectors `number` (surface §14, #162).
@@ -52,6 +53,13 @@ class Orbit {
   get period() {
     return 6.2831855 / this.speed;
   }
+  /** The orbit's width, which sets its radius. */
+  get span() {
+    return this.radius * 2.;
+  }
+  set span(d) {
+    this.radius = d / 2.;
+  }
   at(t: f32) {
     const a = t * this.speed;
     return vec2(cos(a) * this.radius, sin(a) * this.radius);
@@ -70,6 +78,7 @@ function pick<T>(c: bool, a: T, b: T) {
 export function fs(v: VsOut): FsOut {
   const p = v.uv;
   const orbit = new Orbit();
+  orbit.span = 0.9;
   let rng = new Rng();
   const falloff = (d: f32) => 0.004 / (d * d + 0.002);
   let glow = 0.;

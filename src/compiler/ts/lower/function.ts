@@ -586,6 +586,62 @@ export function lowerSourceFunctions(
       return true;
     });
   }
+  // A setter whose value writes no type beside a getter that writes none takes what the
+  // getter's body returns, as TypeScript types it (Rule 8.19). Its turn, or an assignment that
+  // needs the type first, lowers the getter's body first. With no getter, or beside one that
+  // returns nothing, the value has no type (TypeScript's implicit `any`, TS7006), which is
+  // refused where the value is declared and nowhere else (Rule 12.4).
+  for (const cf of classFns) {
+    const node = cf.node;
+    if (cf.valueFromGetter !== true || node === undefined || !ts.isSetAccessorDeclaration(node)) {
+      continue;
+    }
+    const getter = classFns.find(
+      (g) =>
+        g.accessor === 'get' &&
+        g.struct === cf.struct &&
+        g.member === cf.member &&
+        g.kind === cf.kind,
+    );
+    pendingFill.set(cf.stub, () => {
+      const said = saidFor(cf);
+      const value = node.parameters[0]!;
+      const named = value.name.getText(sourceFile);
+      const fix = `write "set ${cf.member ?? 'x'}(${named}: T)".`;
+      if (getter === undefined) {
+        pushDiag(
+          said,
+          sourceFile,
+          value,
+          `The setter "${cf.shown}" needs a type for "${named}": ${fix}`,
+          TS_CODES.UNKNOWN_TYPE,
+        );
+        unsaid.add(cf.stub);
+        return true;
+      }
+      if (!fns.ensure!(getter.stub, value, sourceFile, said)) {
+        unsaid.add(cf.stub);
+        return true;
+      }
+      const type = getter.stub.ret;
+      if (typeKey(type) === 'void') {
+        pushDiag(
+          said,
+          sourceFile,
+          value,
+          `The getter "${getter.shown}" returns nothing, so the setter has no type for ` +
+            `"${named}": ${fix}`,
+          TS_CODES.UNKNOWN_TYPE,
+        );
+        unsaid.add(cf.stub);
+        return true;
+      }
+      const params = cf.stub.params;
+      (params[params.length - 1] as { type: ShaderType }).type = type;
+      withTypeArguments(undefined, () => fillClassFunction(cf, node, false));
+      return true;
+    });
+  }
   // A local function's body, once the body that declares it has lowered what it captures. False
   // when that is not yet so.
   const fillOneLifted = (l: Lifted, sf: ts.SourceFile, said: TsCompilerDiagnostic[]): boolean => {
@@ -1033,8 +1089,9 @@ export function lowerSourceFunctions(
   // where something calls it and nothing where nothing does (Rule 8.13), which is decided once
   // every body is lowered and the calls are known.
   for (const cf of classFns) {
-    // One whose body says its return type and a call lowered already is not lowered again.
-    if (cf.infers === true && cf.node !== undefined) {
+    // One whose body says its return type, or a setter whose value takes its getter's, and that
+    // a call lowered already, is not lowered again.
+    if ((cf.infers === true || cf.valueFromGetter === true) && cf.node !== undefined) {
       runPending(cf.stub);
       continue;
     }

@@ -236,6 +236,20 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A setter with no type takes the type its getter's body returns** (Rule 8.19; surface §14
+  and §26; proposal 0003). `get x() { return this.v * 2.; }` beside `set x(n) { this.v = n / 2.; }`
+  was `TS8002 The setter "Gauge.x" needs a type for "n": write "set x(n: T)", or give the getter a
+return type.` The value now takes what the getter returns, written or said by its body, as
+  TypeScript types it: `fn Gauge_set_x(self_: ptr<function, Gauge>, n: f32)` on WGSL and
+  `void Gauge_set_x(inout Gauge self_, float n)` on GLSL ES 3.00, for an instance and a static
+  pair. An assignment that needs the type before the getter's body is lowered lowers it first,
+  from any body and with the setter above its getter. Still refused with `TS8002`, once: a
+  setter whose value has no type and no getter (TypeScript's implicit `any`), where an
+  assignment to it used to add `TS8022 Unknown field` as well, and one beside a getter that
+  returns nothing. `examples/inferred-returns.shade.ts` sets its orbit's size through such a
+  pair; `src/compiler/ts/return-inference.test.ts` holds every CPU path to one value and to the
+  program that writes the types.
+
 - **A function that writes no return type returns what its body does, as TypeScript infers it**
   (Rule 8.19, new; Rules 7.2 and 8.16; surface §14 and §26). A helper with no annotation was
   `void` beside a `TS8021` "defaulting to void" warning, so one that returned a value was a type
@@ -251,8 +265,8 @@ return type`, and a field that holds a function with an expression body refused 
   function that returns nothing runs it as a statement; a method whose every `return` is
   `return this` chains as one written `this` does. A call cycle, whose type would wait on
   itself, is refused as one, once, with its path; so are returns of two types, a bare `return`
-  beside a value, a default parameter value that calls such a function, and a setter with no
-  type beside a getter with none. The warning is gone. `src/compiler/ts/return-inference.test.ts`
+  beside a value, and a default parameter value that calls such a function. The warning is
+  gone. `src/compiler/ts/return-inference.test.ts`
   holds WGSL, GLSL ES 3.00 and every CPU path to one value for each form and each form to the
   program that writes its types; `examples/inferred-returns.shade.ts` joins the compile gate.
 

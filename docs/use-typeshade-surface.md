@@ -1194,8 +1194,9 @@ Refused, each with the reason: a function whose type waits on itself, which is a
 refused as one (§4); `return`s of two types (`Function "f" returns f32 at its first "return" and
 vec2<f32> at another`); a bare `return` beside one with a value; a default parameter value that
 calls such a function, since every default is lowered before any body; and a setter's value with
-no type beside a getter with none, since no call says what it takes. An entry point writes its
-return type, which is its output (§3).
+no type and no getter, or beside a getter that returns nothing, since nothing says what it takes.
+A setter's value that writes no type beside a getter takes what the getter returns, written or
+said by its body (§26). An entry point writes its return type, which is its output (§3).
 
 ### Triple-slash directives
 
@@ -2385,15 +2386,41 @@ fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 ```
 
 Either half's annotation types the other when one has none, as in TypeScript: `set
-fahrenheit(v)` takes the getter's `f32`. A static accessor is a function with no receiver, read
-on the class, `Temperature.boiling`. The nearest class of a chain that declares either half of
-an accessor owns both, so a class that overrides the getter alone has no setter, as in
-TypeScript.
+fahrenheit(v)` takes the getter's `f32`. When neither half writes a type, the getter's body says
+it (Rule 8.19, §14) and the setter's value takes it, as TypeScript types it: `v` below is an `f32`
+because `level` returns one, and an assignment that needs the type before the getter's body is
+lowered lowers it first.
+
+```ts
+"use typeshade";
+class Gauge {
+  #raw: f32 = 0.;
+  get level() {
+    return this.#raw * 0.5;
+  }
+  set level(v) {
+    this.#raw = v * 2.;
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let g = new Gauge();
+  g.level = uv.x;
+  g.level += 0.25;
+  return vec4(g.level, 0., 0., 1.);
+}
+```
+
+A static accessor is a function with no receiver, read on the class, `Temperature.boiling`. The
+nearest class of a chain that declares either half of an accessor owns both, so a class that
+overrides the getter alone has no setter, as in TypeScript.
 
 Refused, with the fix: a read of an accessor with no getter and a write of one with no setter
-(declare the other half), a getter with no type from either half (annotate it), and a write into
-what a getter returns, `t.pos.x = 1.` (TS8018): the getter hands back a copy, so the write would
-be lost where TypeScript changes the object; assign the whole property instead.
+(declare the other half); a setter's value with no type and no getter, which TypeScript would
+type `any`, or beside a getter that returns nothing (write `set x(v: T)`); and a write into what
+a getter returns, `t.pos.x = 1.` (TS8018): the getter hands back a copy, so the write would be
+lost where TypeScript changes the object; assign the whole property instead.
 
 ### Private names
 

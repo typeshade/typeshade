@@ -58,10 +58,11 @@ function run(src: string, arg = 2): unknown {
 }
 
 /** The declarations of an emitted module, in no order: a function whose body is lowered at its
- *  first call is emitted ahead of the body that called it. */
+ *  first call is emitted ahead of the body that called it. Each starts on a line of its own at
+ *  the left margin, whether or not a blank line stands above it, as the GLSL writer's do not. */
 const declarations = (text: string | undefined): string[] =>
   (text ?? '')
-    .split('\n\n')
+    .split(/\n(?=[^\s}])/)
     .map((b) => b.trim())
     .filter((b) => b !== '')
     .sort();
@@ -273,6 +274,52 @@ export function run(k: f32): f32 {
     expect(run(rng(''))).toBe(run(rng(': f32')));
     expect(compile(rng('')).wgsl).toContain('fn Rng_next(self_: ptr<function, Rng>) -> f32 {');
     sameAsWritten(rng(': f32'), (s) => s.replace('next(): f32 {', 'next() {'));
+  });
+
+  it("a setter with no type takes what its getter's body returns, as TypeScript types it", () => {
+    const gauge = (get: string, set: string): string =>
+      RUN(`class Driver {
+  static push(k: f32) {
+    let g = new Gauge();
+    g.x = k * 4.;
+    return g.v;
+  }
+}
+class Gauge {
+  v: f32 = 1.;
+  set x(n${set}) {
+    this.v = n / 2.;
+  }
+  get x()${get} {
+    return this.v * 2.;
+  }
+  static base: f32 = 3.;
+  static get scale()${get} {
+    return Gauge.base * 2.;
+  }
+  static set scale(s${set}) {
+    Gauge.base = s / 2.;
+  }
+}
+export function run(k: f32): f32 {
+  let g = new Gauge();
+  g.x = k * 4.;
+  g.x += 1.;
+  Gauge.scale = k;
+  return g.x + g.v + Gauge.scale + Driver.push(k);
+}`);
+    // `Driver.push` assigns `g.x` in a body lowered before either half, and the setter is
+    // declared above its getter: each asks for the getter's body first. v = 4, then 4.5; the
+    // static's base = 1; `push` returns its own v, 4.
+    expect(run(gauge('', ''))).toBe(19.5);
+    expect(run(gauge('', ''))).toBe(run(gauge(': f32', ': f32')));
+    const r = compile(gauge('', ''));
+    expect(r.wgsl).toContain('fn Gauge_set_x(self_: ptr<function, Gauge>, n: f32) {');
+    expect(r.wgsl).toContain('fn Gauge_set_scale(s: f32) {');
+    expect(r.glsl!.fragment).toContain('void Gauge_set_scale(float s) {');
+    sameAsWritten(gauge(': f32', ': f32'), (s) =>
+      s.replaceAll('(): f32 {', '() {').replace('(n: f32)', '(n)').replace('(s: f32)', '(s)'),
+    );
   });
 
   it('a method whose every return is `return this` chains, as one written `this` does', () => {
@@ -490,24 +537,33 @@ export function run(k: f32): f32 {
     ).toBe(`${TS_CODES.UNKNOWN_NAME} Unknown identifier "nope".`);
   });
 
-  it('a setter with no type beside a getter with none, and an entry that returns a value', () => {
-    expect(
-      only(
-        RUN(`class A {
-  _x: f32 = 2.;
-  get x() {
-    return this._x;
-  }
+  it('a setter with no type and no getter, or beside one that returns nothing, and an entry that returns a value', () => {
+    // Nothing says the value's type: TypeScript's implicit `any` (TS7006). Said where the value
+    // is declared, and the assignment adds nothing (Rule 12.4).
+    const setter = (getter: string): string =>
+      RUN(`class A {
+  _x: f32 = 2.;${getter}
   set x(v) {
     this._x = v;
   }
 }
 export function run(k: f32): f32 {
-  return new A().x + k;
-}`),
+  let a = new A();
+  a.x = k;
+  return a._x;
+}`);
+    expect(only(setter(''))).toBe(
+      `${TS_CODES.UNKNOWN_TYPE} The setter "A.x" needs a type for "v": write "set x(v: T)".`,
+    );
+    expect(
+      only(
+        setter(`
+  get x() {
+    this._x = 1.;
+  }`),
       ),
     ).toBe(
-      `${TS_CODES.UNKNOWN_TYPE} The setter "A.x" needs a type for "v": write "set x(v: T)", or give the getter a return type.`,
+      `${TS_CODES.UNKNOWN_TYPE} The getter "A.x" returns nothing, so the setter has no type for "v": write "set x(v: T)".`,
     );
     expect(
       only(`"use typeshade";
