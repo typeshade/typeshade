@@ -1,11 +1,16 @@
 import ts from 'typescript';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { i32T, isVec, isVec64, typeKey } from '../../../core/ir/types.js';
+import { boolT, i32T, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
-import { irNameOf, readOnlyPhrase, writableRemedy } from '../context.js';
-import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js';
+import { irNameOf, readOnlyPhrase, writableRemedy, writeRules } from '../context.js';
+import {
+  analyzeCountedFor,
+  boundWrittenIn,
+  foldConstNumber,
+  openLoopError,
+} from '../loop-bound.js';
 import { fitsTarget, isIntScalar } from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { numericMismatch } from '../numeric.js';
@@ -14,6 +19,7 @@ import { withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { reportIntLitRange, retargetDeclaredIntLit } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
+import { arrayLengthOf } from './expression-prop.js';
 import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from './statement.js';
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js';
 
@@ -28,7 +34,8 @@ export function lowerFor(
       diagnostics,
       sourceFile,
       node,
-      'for is missing an exit condition; infinite loops are not allowed.',
+      'for is missing an exit condition. A for loop is counted; a loop that ends at a break ' +
+        'is "while (true) { … }".',
       TS_CODES.LOOP_INFINITE,
     );
     return undefined;
@@ -38,7 +45,7 @@ export function lowerFor(
       diagnostics,
       sourceFile,
       node,
-      'for-init must be `let i: i32 = <const>`.',
+      'for-init must be `let i: i32 = <start>`.',
       TS_CODES.LOOP_INDUCTION,
     );
     return undefined;
@@ -56,7 +63,8 @@ export function lowerFor(
   scope.push();
   scope.enterLoop();
   try {
-    const initStmt = lowerForInit(node.initializer, sourceFile, scope, diagnostics);
+    const hint = counterTypeFromBound(node, node.initializer, sourceFile, scope);
+    const initStmt = lowerForInit(node.initializer, sourceFile, scope, diagnostics, hint);
     if (!initStmt) return undefined;
     // The `for` header's own two statements never pass through `lowerStatement`, so the
     // blanket stamp there does not reach them; give each the span of the clause it came from
@@ -82,24 +90,81 @@ export function lowerFor(
       pushDiag(diagnostics, sourceFile, node, counted.message, counted.code);
       return undefined;
     }
-    return {
-      s: 'for',
-      init: initStmt,
-      cond,
-      update,
-      body: lowerBody(node.statement, sourceFile, scope, diagnostics),
-    };
+    const body = lowerBody(node.statement, sourceFile, scope, diagnostics);
+    // A runtime bound counts the loop only if the body leaves it alone (Rule 7.5).
+    const moved = boundWrittenIn(cond, initStmt.s === 'var' ? initStmt.name : '', scope, body);
+    if (moved !== undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.condition,
+        `for bound reads "${moved}", which the loop body writes, so it does not bound the ` +
+          `loop. Read it into a const before the loop, or write the loop as a while.`,
+        TS_CODES.LOOP_BOUND,
+      );
+      return undefined;
+    }
+    return { s: 'for', init: initStmt, cond, update, body };
   } finally {
     scope.exitLoop();
     scope.pop();
   }
 }
 
+/**
+ * The type an unannotated counter takes from the bound it is compared with (Rule 7.5).
+ *
+ * `for (let i = 0; i < data.length; i++)` is the loop a TypeScript author writes first, and
+ * `data.length` is a `u32`. An unannotated counter was always an `i32`, so the comparison was
+ * `TS8003 cannot compare i32 and u32`, a type the author never wrote. A counter whose initializer
+ * is a plain non-negative integer literal and whose bound is a `u32` is a `u32`, which is the one
+ * type the loop can have. Anything else keeps the `i32` default: an annotation, a negative or
+ * computed start, an `i32` or float bound.
+ *
+ * The bound is lowered once here into a scratch list, to read its type, and again where the
+ * condition is lowered, which reports its diagnostics. Lowering an expression declares nothing.
+ */
+function counterTypeFromBound(
+  node: ts.ForStatement,
+  list: ts.VariableDeclarationList,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+): ShaderType | undefined {
+  const decl = list.declarations[0];
+  if (!decl || list.declarations.length !== 1 || decl.type || !ts.isIdentifier(decl.name)) {
+    return undefined;
+  }
+  let start = decl.initializer;
+  while (start && ts.isParenthesizedExpression(start)) start = start.expression;
+  if (!start || !ts.isNumericLiteral(start) || !/^\d+$/.test(start.text)) return undefined;
+  let cond = node.condition;
+  while (cond && ts.isParenthesizedExpression(cond)) cond = cond.expression;
+  if (!cond || !ts.isBinaryExpression(cond) || !COMPARISONS.has(cond.operatorToken.kind)) {
+    return undefined;
+  }
+  const name = decl.name.text;
+  const isCounter = (e: ts.Expression): boolean => ts.isIdentifier(e) && e.text === name;
+  const bound = isCounter(cond.left) ? cond.right : isCounter(cond.right) ? cond.left : undefined;
+  if (!bound) return undefined;
+  const lowered = lowerExpression(bound, sourceFile, scope, []);
+  return lowered && typeKey(lowered.type) === 'u32' ? lowered.type : undefined;
+}
+
+const COMPARISONS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+]);
+
 function lowerForInit(
   list: ts.VariableDeclarationList,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  hint: ShaderType | undefined,
 ): Stmt | undefined {
   const decl = list.declarations[0];
   if (!decl || list.declarations.length !== 1 || !ts.isIdentifier(decl.name)) {
@@ -143,10 +208,11 @@ function lowerForInit(
   // rather than a NumericLiteral, which the `init.op === 'lit'` special case this replaces
   // never matched — so the initializer kept the f32 the bare `1` was given and the loop emitted
   // `var j: i32 = -1.0`, with no diagnostic, which neither Tint nor ANGLE accepts (issue #40).
-  init = retargetDeclaredIntLit(init, decl.initializer, annotated ?? i32T);
+  const counterType = annotated ?? hint ?? i32T;
+  init = retargetDeclaredIntLit(init, decl.initializer, counterType);
   // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk below would
   // otherwise add a second one about a start value the author has already been told about.
-  if (reportIntLitRange(init, decl.initializer, annotated ?? i32T, sourceFile, diagnostics)) {
+  if (reportIntLitRange(init, decl.initializer, counterType, sourceFile, diagnostics)) {
     return undefined;
   }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
@@ -181,6 +247,8 @@ function lowerForInit(
     constValue: init.op === 'lit' ? init.value : undefined,
   });
   scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable: true });
+  // What a local function in the loop body reads `i` through (Rule 8.17).
+  scope.bindDeclaration(decl, bound);
   // Two sequential loops over `i` are the first shape a shader author writes; the second
   // counter takes the IR name `i_1` so the two never collide in the function (#38).
   return { s: 'var', name: irNameOf(bound), type, init };
@@ -194,7 +262,7 @@ export function lowerWhile(
 ): Stmt | undefined {
   const cond = lowerExpression(node.expression, sourceFile, scope, diagnostics);
   if (!cond) return undefined;
-  const err = loopConditionError(cond, scope);
+  const err = openLoopError(cond, scope, bodyHasExit(node.statement));
   if (err) {
     pushDiag(diagnostics, sourceFile, node, err.message, err.code);
     return undefined;
@@ -202,21 +270,175 @@ export function lowerWhile(
   scope.enterLoop();
   try {
     const body = lowerBody(node.statement, sourceFile, scope, diagnostics);
-    const i32 = cond.op === 'compare' ? cond.a.type : cond.type;
-    const w = { op: 'varref' as const, type: i32, name: '_w' };
+    // The IR has one loop statement, the `for`, so a `while` is a `for` whose counter nothing
+    // reads. The counter is an `i32` whatever the condition compares: it used to take the
+    // type of the condition's left operand, which made it an `f32` under `while (a < 4.)` and
+    // a `bool` under `while (true)`.
+    const w = { op: 'varref' as const, type: i32T, name: '_w' };
     return {
       s: 'for',
-      init: { s: 'var', name: '_w', type: i32, init: { op: 'lit', type: i32, value: 0 } },
+      init: { s: 'var', name: '_w', type: i32T, init: { op: 'lit', type: i32T, value: 0 } },
       cond,
       update: {
         s: 'assign',
         target: w,
-        expr: { op: 'binop', type: i32, bop: '+', a: w, b: { op: 'lit', type: i32, value: 1 } },
+        expr: { op: 'binop', type: i32T, bop: '+', a: w, b: { op: 'lit', type: i32T, value: 1 } },
       },
       body,
     };
   } finally {
     scope.exitLoop();
+  }
+}
+
+/** Whether a `while` body can leave its loop: a `break` that belongs to it, or a `return`.
+ *  A `break` inside a nested loop or a `switch` leaves that statement instead, and a nested
+ *  function's `return` is its own; labels are refused (surface §17), so no `break` names an
+ *  outer loop. */
+function bodyHasExit(body: ts.Statement): boolean {
+  const walk = (n: ts.Node, ownsBreak: boolean): boolean => {
+    if (ts.isReturnStatement(n)) return true;
+    if (ts.isBreakStatement(n)) return ownsBreak && n.label === undefined;
+    if (ts.isFunctionLike(n) || ts.isClassLike(n)) return false;
+    const nested = ts.isIterationStatement(n, false) || ts.isSwitchStatement(n) ? false : ownsBreak;
+    return ts.forEachChild(n, (c) => walk(c, nested) || undefined) === true;
+  };
+  return walk(body, true);
+}
+
+/**
+ * `for (const x of xs)` over an array: a counted loop over its indices (Rules 7.2, 7.5).
+ *
+ * `for (var _i: u32 = 0u; _i < len; _i = _i + 1u) { let x = xs[_i]; … }`, where `len` is the
+ * array's size for an `array<T, N>` and `arrayLength(&xs)` for a runtime-sized storage array.
+ * The element is read at the top of each trip, as TypeScript's array iterator reads it, and a
+ * `let x` is a copy the body may change without writing the array. The array must be a place,
+ * a name or a member or index path to one, since it is read on every trip and a place is the
+ * only expression both targets read twice for what it read once.
+ */
+export function lowerForOf(
+  node: ts.ForOfStatement,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  if (node.awaitModifier) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'for await iterates an async JS iterable. Shader functions are synchronous.',
+      TS_CODES.HOST_STMT,
+    );
+    return undefined;
+  }
+  const list = node.initializer;
+  const decl = ts.isVariableDeclarationList(list) ? list.declarations[0] : undefined;
+  if (
+    !ts.isVariableDeclarationList(list) ||
+    list.declarations.length !== 1 ||
+    !decl ||
+    !ts.isIdentifier(decl.name) ||
+    (list.flags & (ts.NodeFlags.Const | ts.NodeFlags.Let)) === 0
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      list,
+      'for-of declares one element: `for (const x of xs)` or `for (let x of xs)`.',
+      TS_CODES.LOOP_INDUCTION,
+    );
+    return undefined;
+  }
+  const array = lowerExpression(node.expression, sourceFile, scope, diagnostics);
+  if (!array) return undefined;
+  if (array.type.kind !== 'array') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.expression,
+      `for-of iterates an array; this is a ${typeKey(array.type)}. Index it with a counted ` +
+        `for, or write the value into an array<T, N>.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
+  if (!isPlace(array)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.expression,
+      'for-of reads its array on every trip, so the array has to be a name: bind it first, ' +
+        '`const xs = …; for (const x of xs)`.',
+      TS_CODES.LOOP_BOUND,
+    );
+    return undefined;
+  }
+  const length =
+    array.type.size !== undefined
+      ? ({ op: 'lit', type: u32T, value: array.type.size } as const)
+      : arrayLengthOf(array, node.expression, sourceFile, scope, diagnostics, '.length');
+  if (!length) return undefined;
+  const elemType = array.type.elem;
+  const mutable = (list.flags & ts.NodeFlags.Let) !== 0;
+  scope.push();
+  scope.enterLoop();
+  try {
+    const counter = scope.define({ kind: 'local', name: '_i', type: u32T, mutable: true });
+    const i = { op: 'varref' as const, type: u32T, name: irNameOf(counter) };
+    let element;
+    try {
+      element = scope.define({ kind: 'local', name: decl.name.text, type: elemType, mutable });
+    } catch (e) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl.name,
+        e instanceof Error ? e.message : String(e),
+        TS_CODES.DUPLICATE_SYMBOL,
+      );
+      return undefined;
+    }
+    scope.recordDeclaration(sourceFile, decl.name, {
+      name: decl.name.text,
+      kind: 'local',
+      type: elemType,
+      mutable,
+    });
+    const read: Expr = { op: 'index', type: elemType, base: array, idx: i };
+    const bind: Stmt = mutable
+      ? { s: 'var', name: irNameOf(element), type: elemType, init: read }
+      : { s: 'let', name: irNameOf(element), expr: read };
+    withSpan(bind, sourceFile, list);
+    const body = lowerBody(node.statement, sourceFile, scope, diagnostics);
+    const one = { op: 'lit' as const, type: u32T, value: 1 };
+    return {
+      s: 'for',
+      init: { s: 'var', name: i.name, type: u32T, init: { op: 'lit', type: u32T, value: 0 } },
+      cond: { op: 'compare', type: boolT, cop: '<', a: i, b: length },
+      update: { s: 'assign', target: i, expr: { op: 'binop', type: u32T, bop: '+', a: i, b: one } },
+      body: [bind, ...body],
+    };
+  } finally {
+    scope.exitLoop();
+    scope.pop();
+  }
+}
+
+/** A name, or a member or index path to one: what a for-of may read on every trip. */
+function isPlace(e: Expr): boolean {
+  switch (e.op) {
+    case 'varref':
+    case 'param':
+    case 'constref':
+    case 'externref':
+      return true;
+    case 'member':
+      return isPlace(e.base);
+    case 'index':
+      return isPlace(e.base) && (isPlace(e.idx) || e.idx.op === 'lit');
+    default:
+      return false;
   }
 }
 
@@ -466,13 +688,15 @@ export function lowerUpdate(
         );
         return undefined;
       }
-      if (!binding.mutable) {
+      // A captured variable's parameter keeps the variable's rules (Rule 8.17).
+      const rules = writeRules(binding);
+      if (!rules.mutable) {
         pushDiag(
           diagnostics,
           sourceFile,
           expr,
-          `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(binding.kind)}.` +
-            writableRemedy(binding, sourceFile),
+          `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(rules.kind)}.` +
+            writableRemedy(rules, sourceFile),
           TS_CODES.CONST_ASSIGN,
         );
         return undefined;
@@ -481,15 +705,20 @@ export function lowerUpdate(
       // `a = v` is — one rule, one wording, stated once in statement.ts. This branch builds
       // its own target instead of going through lowerLValue, so without this call the emit
       // was `a = (a + 1);`, which Tint refuses with `cannot assign to parameter 'a'`.
-      if (binding.kind === 'param') {
+      if (rules.kind === 'param') {
         refuseParamWrite(expr, targetExpr.text, sourceFile, diagnostics);
         return undefined;
       }
+      binding.capture?.byRef();
       // withSpan, as origin/main's #32 gives every authored lvalue: the write position is
       // what a stepped run and a diagnostic point at, and this branch builds the target
       // itself rather than going through lowerLValue, which carries its own.
       target = withSpan(
-        { op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr,
+        {
+          op: binding.kind === 'param' ? 'param' : 'varref',
+          type: binding.type,
+          name: irNameOf(binding),
+        } as Expr,
         sourceFile,
         targetExpr,
       );
@@ -581,25 +810,32 @@ export function lowerUpdate(
         if (folded !== undefined) rhs = { op: 'lit', type: binding.type, value: folded };
       }
       // The same parameter rule as `i++` above: `for (…; p += 2)` on a formal parameter
-      // emitted `p += 2`, which is `cannot assign to parameter 'p'` on Tint.
-      if (binding.kind === 'param') {
+      // emitted `p += 2`, which is `cannot assign to parameter 'p'` on Tint. A captured
+      // variable's parameter keeps the variable's rules (Rule 8.17).
+      const rules = writeRules(binding);
+      if (rules.kind === 'param') {
         refuseParamWrite(expr, left.text, sourceFile, diagnostics);
         return undefined;
       }
-      if (!binding.mutable) {
+      if (!rules.mutable) {
         pushDiag(
           diagnostics,
           sourceFile,
           expr,
-          `Cannot assign to "${left.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
+          `Cannot assign to "${left.text}" — it is ${readOnlyPhrase(rules.kind)}.`,
           TS_CODES.CONST_ASSIGN,
         );
         return undefined;
       }
+      binding.capture?.byRef();
       // `i += 2` writes `i`, so the target carries the lvalue's span (#32) — for all four
       // operators, the same way main stamped the `+=`-only form this generalises.
       const target: Expr = withSpan(
-        { op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr,
+        {
+          op: binding.kind === 'param' ? 'param' : 'varref',
+          type: binding.type,
+          name: irNameOf(binding),
+        } as Expr,
         sourceFile,
         left,
       );

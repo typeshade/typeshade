@@ -1,0 +1,26 @@
+# Who reviews what. With branch protection's "Require review from Code Owners", a pull request
+# that touches one of these paths cannot merge without that owner's approval (AGENTS.md#docs-follow-the-code).
+# The last matching line wins, so the default comes first.
+
+*                                @Seungup
+
+# The normative text, and the traceability derived from it (reqs/README.md).
+/docs/language-design.md         @Seungup
+/docs/use-typeshade-surface.md   @Seungup
+/reqs/                           @Seungup
+/changes/                        @Seungup
+
+# The guide typeshade.dev renders, and the maps agents read first.
+/AUTHORING.md                    @Seungup
+/AGENTS.md                       @Seungup
+/src/AGENTS.md                   @Seungup
+/CLAUDE.md                       @Seungup
+
+# The tools and settings that hold the prose to the code, and CI itself.
+/scripts/doc-refs.ts             @Seungup
+/scripts/doc-impact.ts           @Seungup
+/scripts/ifchange.ts             @Seungup
+/scripts/reqs-sync.ts            @Seungup
+/scripts/changes.ts              @Seungup
+/.claude/                        @Seungup
+/.github/                        @Seungup

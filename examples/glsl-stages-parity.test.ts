@@ -16,6 +16,8 @@
 // a mutating emitter shows up as a fragment mismatch, a non-deterministic lowering as
 // a vertex mismatch. This is the gate the WGSL/GLSL goldens cannot give — they pin what
 // `emitGlslModule` produces, not that the shared-lowering path agrees with it.
+//
+// Verifies: Rule 11.1 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import { examples } from './index.js';

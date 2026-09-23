@@ -5,6 +5,8 @@
 // OPAQUE to the optimizer (a guarded branch survives DEFAULT_PASSES for the driver to
 // eliminate); reflect() reports the override set; and BOTH host shapes (the WGSL
 // `constants` dict + the GLSL define header) derive mechanically from reflect().
+//
+// Verifies: Rule 6.4 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import {

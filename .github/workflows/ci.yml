@@ -1,16 +1,33 @@
 name: ci
 
-# TypeShade's gate. Two jobs, on every push to main and every pull request:
+# Verifies: Rule 13.4 (docs/language-design.md; traced in reqs/).
+
+# TypeShade's gate. Three jobs, on every push to main and every pull request:
 #
 #   check         `tsc --build` (the emitting project) + `tsc -p tsconfig.tests.json` (the
 #                 noEmit pass over tests, examples and scripts), ESLint, the format check
 #                 (Prettier, then the `;` in shader source Prettier cannot reach), then the
-#                 unit suite.
+#                 unit suite. On a pull request, then the documentation impact of the diff
+#                 against its base: fails when a sentence still names a name or file the
+#                 change removed, and writes the review list to the job summary; then every
+#                 IfChange block (scripts/ifchange.ts) the diff changed must have its targets
+#                 changed too, unless a commit message says NO_IFTTT=<reason>
+#                 (AGENTS.md#docs-follow-the-code); then a diff that touches a rule, an export
+#                 or a downstream-visible surface must name an accepted proposal it stays
+#                 inside, with a `Change: NNNN` line (scripts/changes.ts, changes/README.md).
+#   traceability  Doorstop over reqs/ (reqs/README.md): fails on a rule changed without review,
+#                 a surface section left suspect by a rule it explains, or a verifying file that
+#                 no longer names its rule; uploads the traceability matrix as an artifact.
 #   compile-gate  every registered example is emitted and COMPILED by real compilers —
 #                 the WGSL on Tint (Chromium's WebGPU, on SwiftShader: no GPU needed for
 #                 compile / validate correctness) and both GLSL ES 3.00 stages on a real
 #                 WebGL2 context. See scripts/compile-gate.ts for what it asserts and how
 #                 it proves the instrument can see an error at all.
+#   user-journeys TypeShade the way a user meets it: the tarball npm would ship, installed into
+#                 a fresh project, with the README's tsconfig.shade.json. Each program in
+#                 journeys/ is compiled with the installed `compile()`, checked by the
+#                 language service and plain tsc, run on WebGPU, and matched against its own
+#                 plain-JavaScript reference and the CPU oracle. See scripts/user-journey.ts.
 #
 # The browser is installed with the PROJECT-LOCAL playwright bin, never `bunx playwright`:
 # bunx fetches the standalone package at whatever version is newest, installs THAT
@@ -34,6 +51,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# LINT.IfChange(jobs)
 jobs:
   check:
     name: typecheck + unit
@@ -41,6 +59,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The documentation-impact step diffs against the merge base with the PR's base.
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -49,6 +70,39 @@ jobs:
       - run: bun run lint
       - run: bun run format:check
       - run: bun run test
+      - name: documentation impact
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bun scripts/doc-impact.ts --base "origin/${{ github.base_ref }}" --check --markdown | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: LINT.IfChange pairs
+        if: github.event_name == 'pull_request'
+        run: bun scripts/ifchange.ts --base "origin/${{ github.base_ref }}"
+      - name: change proposal
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: bun scripts/changes.ts --base "origin/${{ github.base_ref }}"
+
+  traceability:
+    name: traceability (Doorstop)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install doorstop==3.2
+      # -C: not every rule has a surface section explaining it. -e: every warning is an error, so
+      # an unreviewed rule or a suspect surface link fails. -F: validate without reformatting.
+      - run: doorstop -C -e -F
+      - run: doorstop publish all traceability
+        if: always()
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: traceability
+          path: traceability
 
   compile-gate:
     name: compile gate (Tint + WebGL2)
@@ -62,3 +116,21 @@ jobs:
       - run: bun install
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - run: bun run gate:compile
+
+  user-journeys:
+    name: user journeys (packed tarball, WebGPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bun install
+      - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - run: bun run build
+      - run: bun run gate:journeys
+# LINT.ThenChange(AGENTS.md:tests)

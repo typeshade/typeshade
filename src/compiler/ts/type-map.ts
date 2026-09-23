@@ -1,4 +1,6 @@
 // === TypeScript type node -> TypeShade ShaderType (Phase 2+) ===
+//
+// Implements: Rule 4.1, Rule 4.8 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import { typeKey, type ShaderType } from '../../core/ir/types.js';
@@ -43,6 +45,7 @@ import { makeDiagnostic } from './diagnostic.js';
 import { boundTypeArgument } from './generics.js';
 import { genericStructName, isGenericClass } from './generic-structs.js';
 import { TS_CODES, type TsCode } from './codes.js';
+import { isIntegerWritten } from './lit-coerce.js';
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 
@@ -245,6 +248,23 @@ export const retiredWrapperMessage = (fix: string): string =>
   `${RETIRED_VAR_WRAPPER}<T> was removed: a top-level let is already the per-invocation ` +
   `variable. ${fix}`;
 
+const CONTRACTS = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+
+/** The interfaces of the file that declare a method: contracts a class implements, which a
+ *  shader value cannot be, since a call through one would need to pick its body at run time. */
+function contractInterfaces(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const cached = CONTRACTS.get(sourceFile);
+  if (cached !== undefined) return cached;
+  const out = new Set<string>();
+  const walk = (n: ts.Node): void => {
+    if (ts.isInterfaceDeclaration(n) && n.members.some(ts.isMethodSignature)) out.add(n.name.text);
+    ts.forEachChild(n, walk);
+  };
+  walk(sourceFile);
+  CONTRACTS.set(sourceFile, out);
+  return out;
+}
+
 export function mapTsTypeToShaderType(
   typeNode: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
@@ -376,6 +396,9 @@ function mapType(
         return undefined;
       }
     }
+    // An interface that declares a method is a contract and never a value (Rule 6.9); it was
+    // said so where it declares the method, once, and a type it names here names nothing.
+    if (contractInterfaces(sourceFile).has(name)) return undefined;
     if (/^[A-Z]/.test(name)) return structT(name);
     pushDiag(
       diagnostics,
@@ -411,6 +434,22 @@ function mapType(
       sourceFile,
       typeNode,
       KEYWORD_ADVICE[typeNode.kind] ?? `Keyword type "${text}" is not a TypeShade type.`,
+    );
+    return undefined;
+  }
+
+  // A function type anywhere but on a parameter of a function (Rule 8.18): a return, a field, a
+  // variable, an element. A parameter that takes one is read before its type is mapped
+  // (lower/function-types.ts), so what reaches here would be a value holding a function.
+  if (ts.isFunctionTypeNode(typeNode)) {
+    const text = typeNode.getText(sourceFile);
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `"${text}" is a function type, and nothing a shader holds is a function: a function ` +
+        `takes one as a parameter, "f: ${text}", and a call hands it a function by its name ` +
+        `or as an arrow function written there (Rule 8.18).`,
     );
     return undefined;
   }
@@ -456,15 +495,15 @@ function literalBase(node: ts.TypeNode): ShaderType | undefined {
   if (lit.kind === ts.SyntaxKind.TrueKeyword || lit.kind === ts.SyntaxKind.FalseKeyword) {
     return boolT;
   }
-  if (ts.isNumericLiteral(lit)) return numericBase(lit.text);
+  if (ts.isNumericLiteral(lit)) return numericBase(lit);
   if (ts.isPrefixUnaryExpression(lit) && ts.isNumericLiteral(lit.operand)) {
-    return numericBase(lit.operand.text);
+    return numericBase(lit.operand);
   }
   return undefined;
 }
 
-/** `1.` and `1e3` are floats the way a shader author writes them; `1` is an integer. */
-const numericBase = (text: string): ShaderType => (/[.eE]/.test(text) ? f32T : i32T);
+/** `1.` and `1e3` are floats the way a shader author writes them; `1` and `0xE` are integers. */
+const numericBase = (lit: ts.NumericLiteral): ShaderType => (isIntegerWritten(lit) ? i32T : f32T);
 
 const isNullish = (node: ts.TypeNode): boolean =>
   node.kind === ts.SyntaxKind.NullKeyword ||

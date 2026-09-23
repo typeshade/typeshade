@@ -1,4 +1,6 @@
 // === Expression lowering ===
+//
+// Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 import ts from 'typescript';
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -117,6 +119,9 @@ export function lowerExpression(
   diagnostics: TsCompilerDiagnostic[],
   contextual?: ShaderType,
 ): Expr | undefined {
+  // A call a chain already ran as a statement stands for the object it handed back (chains.ts).
+  const alias = scope.chainAlias(node);
+  if (alias !== undefined) return alias();
   if (ts.isParenthesizedExpression(node))
     return lowerExpression(node.expression, sourceFile, scope, diagnostics, contextual);
   if (ts.isIdentifier(node)) return lowerIdentifier(node, sourceFile, scope, diagnostics);
@@ -220,19 +225,17 @@ export function lowerExpression(
     );
     return undefined;
   }
-  // `super` (roadmap 0.3 item T5, #92). A method a class inherits is lowered into that class,
-  // so an ordinary inherited call needs no `super`; what `super` is for is a method that
-  // OVERRIDES another and wants the base's body, and a derived constructor, which TypeScript
-  // requires to call `super(...)`. Neither has a form here yet, and the generic
-  // "Unsupported expression" said nothing about what to write instead.
+  // `super` on its own (roadmap 0.3 item T5, #92). `super(...)`, `super.m(...)` and `super.x`
+  // are lowered where the call and the member access are (Rules 8.10, 8.11, 8.13); what reaches
+  // here is `super` as a value or under a computed `super[k]`, which names no member the
+  // collector could lower a base's body for.
   if (node.kind === ts.SyntaxKind.SuperKeyword) {
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `"super" has no form here yet. A class inherits its base's methods already, so a call ` +
-        `that does not override needs no "super"; for one that does, give the base's body a ` +
-        `method of its own name and call that from both.`,
+      `"super" reaches a member of the class above by its name, "super.m(...)" or "super.x"; ` +
+        `as a value, or under a computed "super[k]", it names nothing to call or read.`,
       TS_CODES.UNSUPPORTED,
     );
     return undefined;
@@ -283,6 +286,23 @@ function lowerIdentifier(
   if (!binding) {
     const c = resolveLangConst(node.text);
     if (c !== undefined) return { op: 'lit', type: f32T, value: c };
+    // A function named where a value is read (Rule 8.17). A call of it is lowered where the call
+    // is, and a function handed to a fold is read there, so what reaches here asks for the
+    // function as a value: to hold, return, compare or choose at run time.
+    if (scope.resolveCallee(node.text) !== undefined || scope.isGenericFunction(node.text)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${node.text}" is a function, and a shader has no function values: nothing at run ` +
+          `time can hold one, return one or choose between two. Call it where its value is ` +
+          `needed, "${node.text}(...)", or hand it to a parameter that takes a function ` +
+          `(Rule 8.18).`,
+        TS_CODES.UNSUPPORTED,
+      );
+      return undefined;
+    }
+    if (scope.declarationRefused(node.text)) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,

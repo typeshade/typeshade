@@ -14,6 +14,8 @@
 // change here CAN change emitted GLSL bytes (never WGSL — the WGSL backend derives
 // nothing from it). The std140/std430 offsets are anchored to the offsets the runtime
 // already ships (reflect.test.ts).
+//
+// Implements: Rule 4.8, Rule 6.8 (docs/language-design.md; traced in reqs/).
 
 import {
   type ShaderType,
@@ -27,7 +29,8 @@ import {
   type BindingDecl,
   typeKey,
   stageOf,
-  workgroupSizeOf,
+  workgroupShapeOf,
+  type WorkgroupShape,
 } from './ir/index.js';
 import { entryIo, type IoField } from './ir/entry-io.js';
 import { twoRowStd140Reason } from './std140.js';
@@ -506,7 +509,13 @@ export interface EntryIo {
 export interface EntryInfo {
   readonly name: string;
   readonly stage: 'vertex' | 'fragment' | 'compute';
+  /** The `x` workgroup extent of a compute entry. A host sizing a dispatch reads
+   *  {@link EntryInfo.workgroupShape}, which also carries `y` and `z`. */
   readonly workgroupSize?: number;
+  /** The `[x, y, z]` workgroup extents of a compute entry, WGSL's `@workgroup_size(x, y, z)`
+   *  with a missing extent as 1: a dispatch of `n` invocations along an axis needs
+   *  `ceil(n / extent)` workgroups on it. */
+  readonly workgroupShape?: WorkgroupShape;
   readonly inputs: readonly string[];
   readonly output: string;
   /** Present, as `true`, when the entry is declared a portable kernel; absent otherwise,
@@ -855,10 +864,12 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
     // X-GIS #1905 — the location/builtin view of the same signature, read through the GLSL
     // backend's own attribute readers so the two cannot describe different interfaces.
     const io = entryIo(f, structs);
+    const shape: WorkgroupShape | undefined =
+      stage === 'compute' ? (workgroupShapeOf(f) ?? [64, 1, 1]) : undefined;
     entries.push({
       name: f.name,
       stage,
-      ...(stage === 'compute' ? { workgroupSize: workgroupSizeOf(f) ?? 64 } : {}),
+      ...(shape !== undefined ? { workgroupSize: shape[0], workgroupShape: shape } : {}),
       inputs: f.params.map((p) => typeKey(p.type)),
       output: typeKey(f.ret),
       // Present only when declared (X-GIS #1812) — an absent field, not `portable: false`, so the

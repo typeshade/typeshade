@@ -1545,6 +1545,36 @@ cpu.setBinding('smp', 0)
 cpu.fns.shade([0.5, 0.5]) // → [0, 0, 0, 1]
 ```
 
+### Derivatives with grad
+
+`grad(m, fn, param)` differentiates a function of the module with respect to one of its
+parameters and returns `{ module, name }`: the module with a new function added, which takes
+the same arguments as `fn` and returns `d fn / d param` at them, with the type of `fn`'s
+result. The new function is ordinary IR, so the oracle runs it, and the WGSL and GLSL writers
+emit it for an entry that calls it.
+
+```ts
+import { module, fn, f32T, sin, compileModule, grad } from 'typeshade'
+
+const wave = fn('wave', { x: f32T, k: f32T }, ({ x, k }) => sin(k.mul(x)).mul(k))
+const d = grad(module({ funcs: [wave] }), 'wave', 'k')
+
+compileModule(d.module).fns[d.name](0.5, 2) // → cos(1) * 0.5 * 2 + sin(1) = 1.3817…
+```
+
+It works in forward mode: every `f32`, float vector and float matrix gets a derivative beside
+its value, and `if`, `switch` and `for` carry both through their bodies. A call to another
+function of the module goes through a helper, `g_jvp`, generated once per callee. The
+component-wise builtins have their textbook rules; `floor`, `ceil`, `round`, `trunc`, `sign`
+and `step` have a zero derivative, which is the derivative everywhere but at their jumps. For a
+vector parameter, pass `{ direction: [...] }` and the result is the derivative along it.
+
+A construct with no derivative rule is refused with `SD0118` naming it, a texture sample, a
+derivative builtin or a struct the parameter would flow into among them, and only when the
+parameter reaches it; the pass never returns a zero derivative it did not derive. The generated
+function is checked against a central finite difference on the oracle, which is how to check
+one of your own.
+
 ## Diagnostics
 
 After this page you can read a coded error, branch your own code on the code it carries,

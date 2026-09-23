@@ -3,6 +3,8 @@
 // the type comes from a declaration instead — return, assignment, argument, field,
 // constructor, ternary, for-init, index, builtin call, module const — and, as importantly,
 // that a float context is left exactly as it was.
+//
+// Verifies: Rule 5.1, Rule 5.2, Rule 5.4, Rule 5.5 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';

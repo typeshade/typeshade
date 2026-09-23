@@ -6,11 +6,15 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
 import { resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js';
 import { emittedMemberName, isPrivateName } from '../class-names.js';
-import { methodFnName } from './class-methods.js';
+import { classFunctionOf, methodFnName } from './class-methods.js';
 import {
+  checkFieldAccess,
   checkPrivateStatic,
+  checkStaticFieldAccess,
+  inheritedPrivateStaticField,
   lowerAccessorRead,
-  staticFieldBinding,
+  lowerSuperAccessorRead,
+  staticFieldRead,
   staticOwnerOf,
   visibleField,
 } from './class-access.js';
@@ -167,6 +171,10 @@ export function lowerPropertyAccess(
     );
     return undefined;
   }
+  // `super.x` inside an override: the base's getter, run on this object (Rule 8.11).
+  if (obj.kind === ts.SyntaxKind.SuperKeyword) {
+    return lowerSuperAccessorRead(node, sourceFile, scope, diagnostics);
+  }
   // `K.PI` on a class name: a static field is the module constant `K_PI` the collector made
   // of it (roadmap 0.3 item T3, #92), or the module variable one the file writes is (Rule
   // 8.13). Read before the receiver is lowered, because a class name is a type and not a
@@ -174,9 +182,17 @@ export function lowerPropertyAccess(
   // is the same read, `this` there being the class.
   const owner = staticOwnerOf(obj, scope);
   if (owner !== undefined) {
-    const binding = staticFieldBinding(owner, prop, scope, sourceFile);
-    if (binding !== undefined) {
-      if (!checkPrivateStatic(owner, prop, node.name, sourceFile, diagnostics)) return undefined;
+    // Its own static, or the nearest base's: a class's statics are inherited (Rule 8.13).
+    const read = staticFieldRead(owner, prop, scope, sourceFile);
+    const binding = read?.binding;
+    if (read !== undefined && binding !== undefined) {
+      if (!checkPrivateStatic(owner, prop, node.name, sourceFile, diagnostics, scope)) {
+        return undefined;
+      }
+      const at = node.name;
+      if (!checkStaticFieldAccess(read.declaredOn, prop, at, sourceFile, scope, diagnostics)) {
+        return undefined;
+      }
       return binding.kind === 'modvar'
         ? { op: 'varref', type: binding.type, name: binding.name }
         : { op: 'constref', type: binding.type, name: binding.name };
@@ -202,11 +218,18 @@ export function lowerPropertyAccess(
       );
       return undefined;
     }
+    // `this.#n` in a static body a class inherits, `#n` being the declaring class's own.
+    const inheritedPrivate = inheritedPrivateStaticField(owner, prop, scope, sourceFile);
+    if (inheritedPrivate !== undefined) {
+      pushDiag(diagnostics, sourceFile, node, inheritedPrivate, TS_CODES.CLASS_MEMBER);
+      return undefined;
+    }
     // The name is a type, not a value, so lowering the receiver would report an unknown
     // identifier. Say what it is instead, when it is a class or an enum the file declares.
     if (scope.structByName(owner) !== undefined) {
-      const asFunction =
-        scope.resolveCallee(methodFnName(owner, emittedMemberName(prop))) !== undefined;
+      const fn = scope.resolveCallee(methodFnName(owner, emittedMemberName(prop)));
+      // `#n` and `n` are two members, so a function of the name answers only as the one written.
+      const asFunction = fn !== undefined && classFunctionOf(fn)?.member === prop;
       pushDiag(
         diagnostics,
         sourceFile,
@@ -279,6 +302,11 @@ export function lowerPropertyAccess(
           : `Unknown field "${prop}" on ${typeKey(base.type)}.`,
         hidden !== undefined ? TS_CODES.CLASS_MEMBER : TS_CODES.UNKNOWN_NAME,
       );
+      return undefined;
+    }
+    // `private` and `protected` are checked here, where every read and write of a field lowers
+    // (Rule 8.15).
+    if (!checkFieldAccess(base.type.name, prop, node.name, sourceFile, scope, diagnostics)) {
       return undefined;
     }
     if (refuseBareAtomic(ft, node, sourceFile, scope, diagnostics)) return undefined;
@@ -370,15 +398,17 @@ export function lowerObjectLiteral(
   }
   const names = props.map((p) => p.name);
   const declared = contextual?.kind === 'struct' ? scope.structByName(contextual.name) : undefined;
-  // A class with a private field cannot be written as a literal: a literal names its fields,
-  // and `#n` is a name only the class's own body may use (Rule 8.12, TypeScript's TS2741).
-  if (declared !== undefined && scope.hasPrivateFields(declared.name)) {
+  // A class with a private or protected field cannot be written as a literal: a literal names
+  // its fields, and such a field is one only the class may set (Rule 8.12 and Rule 8.15,
+  // TypeScript's TS2741 and TS2322).
+  const hidden = declared === undefined ? undefined : scope.hiddenFieldOf(declared.name);
+  if (declared !== undefined && hidden !== undefined) {
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `"${declared.name}" has private fields, which an object literal cannot name. Build it ` +
-        `with "new ${declared.name}(...)".`,
+      `"${declared.name}" has the ${hidden.access} field "${hidden.written}", which an object ` +
+        `literal cannot set. Build it with "new ${declared.name}(...)".`,
       TS_CODES.STRUCT_FIELD,
     );
     return undefined;
@@ -550,10 +580,14 @@ function lowerSpreadInto(
     );
     return undefined;
   }
-  // A private field is not a property of the object to TypeScript, so a spread does not copy
-  // it (Rule 8.12).
+  // A private field is not a property of the object to TypeScript, and a spread's type leaves
+  // out a `private` or `protected` one too (Rule 8.12, Rule 8.15), so neither is copied.
   return struct.fields
-    .filter((f) => scope.privateField(struct.name, f.name) === undefined)
+    .filter(
+      (f) =>
+        scope.privateField(struct.name, f.name) === undefined &&
+        scope.restrictedField(struct.name, f.name) === undefined,
+    )
     .map((f) => ({
       name: f.name,
       ready: { op: 'member', type: f.type, base: value, field: f.name } as Expr,

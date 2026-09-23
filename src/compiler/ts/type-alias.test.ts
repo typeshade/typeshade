@@ -6,6 +6,8 @@
 // unknown type. What is pinned here: the alias resolves wherever a type may stand, an alias of
 // an object type is still a struct, a cycle is named rather than recursed, and the shapes that
 // were refused before are refused still.
+//
+// Verifies: Rule 4.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

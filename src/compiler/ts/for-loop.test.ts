@@ -43,16 +43,23 @@ describe('Phase 9 for', () => {
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
   });
 
-  it('rejects i < n', () => {
+  it('rejects a runtime bound the body writes (Rule 7.5)', () => {
     const r = compileTsSource(`
       "use typeshade";
-      export function f(n: i32): i32 {
+      export function f(n0: i32): i32 {
         let s: i32 = 0;
-        for (let i: i32 = 0; i < n; i++) s = s + i;
+        let n: i32 = n0;
+        for (let i: i32 = 0; i < n; i++) { s = s + i; n = n - 1; }
         return s;
       }
     `);
-    expect(r.diagnostics.some((d) => /constant bound|16/.test(d.message))).toBe(true);
+    expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([
+      [
+        'TS8006',
+        'for bound reads "n", which the loop body writes, so it does not bound the loop. ' +
+          'Read it into a const before the loop, or write the loop as a while.',
+      ],
+    ]);
   });
 
   it('rejects i-- against i < 8', () => {

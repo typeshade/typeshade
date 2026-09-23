@@ -2,6 +2,8 @@
 // is one the IR already carries and both backends already spell; the surface had no word for
 // it, so a shader needing one had to drop to the fn() EDSL. `select` and `bool` are the two
 // exceptions and are explained where they are lowered.
+//
+// Verifies: Rule 7.7, Rule 9.5 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';

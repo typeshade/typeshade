@@ -37,7 +37,7 @@
 // Treat this oracle as the ALGEBRA half of a two-oracle contract; the f32 half lives
 // on the GPU.
 
-import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType } from './ir/index.js';
+import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType, FuncDecl } from './ir/index.js';
 import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
 import { froundF32 } from './passes/precision.js';
@@ -53,6 +53,8 @@ import {
   f32ToI32Sat,
   numKindOf,
   cloneValue,
+  copiedParams,
+  inoutReturn,
   isAggregateType,
   convertComponent,
   convertComponents,
@@ -71,6 +73,7 @@ import {
   matMulShaped,
 } from './cpu-runtime.js';
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js';
+import { fnWrites } from './passes/effects.js';
 import type { ConsoleMethod, ConsoleSink } from './console.js';
 import { dispatchCompute, type WorkgroupCount } from './debug/dispatch.js';
 
@@ -89,6 +92,9 @@ interface Ctx {
    *  specialization is a GPU-driver concept with no CPU analogue). */
   overrides: Map<string, CpuValue>;
   fns: Record<string, (...args: CpuValue[]) => CpuValue>;
+  /** Each declared function's parameters, for a call to store back what its `inout`
+   *  parameters hold as it returns (`inoutReturn`, cpu-runtime.ts). */
+  params: Map<string, FuncDecl['params']>;
   bindings: Record<string, CpuValue>;
   /** The module variables (roadmap 0.2 item 5): a `workgroup` one is allocated once, zero,
    *  and lives for the module's lifetime as one implicit workgroup's memory; a `private` one
@@ -267,7 +273,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       // still takes the builtin, so nothing that resolved to one moves.
       if (e.declRef !== undefined) {
         const declared = ctx.fns[e.fn];
-        if (declared) return declared(...args);
+        if (declared) return storeBack(e, declared(...args), env, ctx);
       }
       const b = BUILTINS[e.fn];
       if (b) return b(...args);
@@ -281,7 +287,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         return stub(...args);
       }
       const user = ctx.fns[e.fn];
-      if (user) return user(...args);
+      if (user) return storeBack(e, user(...args), env, ctx);
       throw new Error(`typeshade/cpu: unknown fn ${e.fn}`);
     }
     case 'member': {
@@ -429,6 +435,27 @@ function evalAtomic(
   const step = atomicStep(e.fn, ref.get() as number, arg, numKindOf(loc.type), store);
   if (e.fn !== 'atomicLoad') ref.set(step.next);
   return step.result;
+}
+
+/** A call's value, having stored what each of the callee's `inout` parameters holds as it
+ *  returned into the variable passed there (`inoutReturn`, cpu-runtime.ts). Only a variable:
+ *  an `inout` argument that is a field or an element reaches a struct, which the callee wrote
+ *  in place, and evaluating its index again could run what the call already ran. */
+function storeBack(
+  call: Expr & { op: 'call' },
+  value: CpuValue,
+  env: Map<string, CpuValue>,
+  ctx: Ctx,
+): CpuValue {
+  const params = ctx.params.get(call.fn);
+  if (params === undefined || !params.some((p) => p.mode === 'inout')) return value;
+  const out = inoutReturn.values;
+  params.forEach((p, i) => {
+    const arg = call.args[i];
+    if (p.mode !== 'inout' || arg === undefined) return;
+    if (arg.op === 'varref' || arg.op === 'param') setLValue(arg, out[i] as CpuValue, env, ctx);
+  });
+  return value;
 }
 
 function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ctx: Ctx): void {
@@ -691,6 +718,7 @@ export function compileModule(
     // X-GIS #923 — an override reads as its default on the CPU mirror.
     overrides: new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default])),
     fns: {},
+    params: new Map(m.funcs.map((f) => [f.name, f.params])),
     bindings: {},
     vars: {},
     structs: new Map(m.structs.map((s) => [s.name, s])),
@@ -713,11 +741,15 @@ export function compileModule(
         : zeroOf(v.type, ctx.structs);
     }
   };
+  const writes = fnWrites(m);
   for (const f of m.funcs) {
+    const copies = copiedParams(f.params, (writes.get(f.name)?.size ?? 0) > 0);
+    const inout = f.params.some((p) => p.mode === 'inout');
     ctx.fns[f.name] = (...args: CpuValue[]): CpuValue => {
       const env = new Map<string, CpuValue>();
-      f.params.forEach((p, i) => env.set(p.name, args[i]));
+      f.params.forEach((p, i) => env.set(p.name, copies[i] ? cloneValue(args[i]!) : args[i]));
       const r = execBody(f.body, env, ctx);
+      if (inout) inoutReturn.values = f.params.map((p) => env.get(p.name) as CpuValue);
       // Unread placeholder: a void (ret: voidT) fn is invoked as a STATEMENT — its value
       // is never consumed, so the undefined bridged to CpuValue here is never read.
       return r.kind === 'return' ? (r.value as CpuValue) : (undefined as unknown as CpuValue);

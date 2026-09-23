@@ -1,3 +1,5 @@
+// Verifies: Rule 5.3 (docs/language-design.md; traced in reqs/).
+
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { typeKey } from '../../core/ir/types.js';

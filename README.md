@@ -99,6 +99,8 @@ The editor experience TypeShade supports is the language service (`typeshade/lan
   "compilerOptions": {
     "lib": [],
     "types": ["typeshade/shade"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "experimentalDecorators": true,
     "strictPropertyInitialization": false,
     "strict": true,
@@ -107,6 +109,8 @@ The editor experience TypeShade supports is the language service (`typeshade/lan
   "include": ["src/**/*.shade.ts"],
 }
 ```
+
+`moduleResolution` has to be one that reads a package's `exports` map (`bundler`, `node16` or `nodenext`), because `typeshade/shade` is a subpath export. Without it TypeScript 5.x falls back to `node10`, which does not read `exports`: the entry is `TS2688 Cannot find type definition file for 'typeshade/shade'`, the stand-ins below never load, and every file fails with `TS2318 Cannot find global type 'Array'` and nine like it, so nothing in the shaders is checked.
 
 `lib: []` is required, not a preference. `typeshade/shade` declares its own `Array`, `Function`, `Object`, `Math` and `Pick` stand-ins because a `"use typeshade"` file is not a JavaScript program and must not see the JavaScript standard library. Loading both puts the two sets of declarations in the same program: measured on `hello.shade.ts` with the default lib, that is 19 errors, most of them reported _inside_ `lib.es5.d.ts` and `lib.dom.d.ts` (`Duplicate identifier 'Pick'`, `Cannot redeclare block-scoped variable 'Math'`, `Duplicate index signature for type 'number'`). Keep the shader sources in their own project and they do not meet.
 
@@ -120,12 +124,12 @@ hello.shade.ts(20,20): error TS1206: Decorators are not valid here.
 hello.shade.ts(33,1):  error TS1206: Decorators are not valid here.
 ```
 
-There are 214 of those across the 71 files. The second is arithmetic on a vector: TypeScript has no operator overloading, so `a + b` or `2.0 * v` on a GPU vector type is TS2362, TS2363 or TS2365 at the operator, with TS2322, TS2345 or TS2769 where the result is used. That is 328 errors in 57 of the files, covered below.
+There are 214 of those across the 71 files. The second is arithmetic on a vector: TypeScript has no operator overloading, so `a + b` or `2.0 * v` on a GPU vector type is TS2362, TS2363 or TS2365 at the operator, with TS2322, TS2345 or TS2769 where the result is used, and TS2339 on a swizzle of a local the result was stored in (`const uv = p.xy * s; uv.x`), since TypeScript declared that local a `number`. That is 328 errors in 57 of the files, covered below.
 
 TS1206 fires on `@vertex` / `@fragment` / `@compute` and on `@builtin(...)` parameters, because TypeScript does not allow decorators on function declarations or their parameters at all. No `.d.ts` can turn that off, because it is a grammar rule rather than a resolution failure. The language service drops it for exactly those positions, since the TypeShade grammar defines them; `tsc` on its own cannot. So the practical shape of this subpath is:
 
 - **Covered.** Every type, resource and builtin name resolves: `f32`, `vec4`, `mat4`, `array<T>`, `uniform<T>`, `storage<T>`, `storage<T, "read_write">`, the `Math` aliases, `@builtin(...)` ids. Wrong types, misspelled fields and wrong arities are caught, and so is a write to a resource that is read-only: `src[i] = x` on a `declare const src: storage<array<f32>>` is TS2542 and `camera.fov = 1.` on a `uniform<Camera>` is TS2540, which is the write `compile()` refuses with `TS8005`. A `storage<T, "read_write">` binding is writable in the editor exactly as it is in the compiler.
-- **Not covered.** TS1206 on stage and `@builtin` decorators. Expect it on every entry point, and filter it in your build if the noise matters. Arithmetic operators on vector and matrix values: the compiler accepts `a + b` on two `vec3`s, and `tsc` reports it, because the ambient types cannot overload an operator. A WHOLE-binding write — `s = 1.` on a `declare const s: storage<f32, "read_write">`, as opposed to the `out[i] = x` and `p.field = x` a kernel actually writes — is TS2588 in the editor, because a binding is `declare const` and TypeScript will not assign to a const whatever its value type is; the compiler emits it, and `"use typeshade"` surface §49 has the row. Swizzles outside the `x`/`y`/`z`/`w`, `r`/`g`/`b`/`a` and `xy`/`xyz`/`xyzw`/`rg`/`rgb`/`rgba` set are not type-checked (they compile correctly; the editor just does not see them).
+- **Not covered.** TS1206 on stage and `@builtin` decorators. Expect it on every entry point, and filter it in your build if the noise matters. Arithmetic operators on vector and matrix values: the compiler accepts `a + b` on two `vec3`s, and `tsc` reports it, because the ambient types cannot overload an operator. The language service does better: it reads the local with the type the compiler gave it, so the editor shows no error there and completes `uv.` (#162). A WHOLE-binding write — `s = 1.` on a `declare const s: storage<f32, "read_write">`, as opposed to the `out[i] = x` and `p.field = x` a kernel actually writes — is TS2588 in the editor, because a binding is `declare const` and TypeScript will not assign to a const whatever its value type is; the compiler emits it, and `"use typeshade"` surface §49 has the row. Swizzles outside the `x`/`y`/`z`/`w`, `r`/`g`/`b`/`a` and `xy`/`xyz`/`xyzw`/`rg`/`rgb`/`rgba` set are not type-checked (they compile correctly; the editor just does not see them).
 - **The authority is still the compiler.** `compile()` reports what TypeShade actually accepts, and the compile gate gives the emitted WGSL and GLSL to real drivers. `typeshade/shade` is an editor and CI convenience layered on top, never a second definition of the language.
 
 The file is generated from `SHADE_DTS` in `src/language-service/ambient.ts` at build time, so the declarations the service loads and the ones `tsc` reads are the same bytes.
@@ -141,6 +145,7 @@ The documentation is at [typeshade.dev](https://typeshade.dev/), in English and 
 - [API reference](https://typeshade.dev/api/), public compiler APIs
 - [Verification](https://typeshade.dev/guide/checks/), compiler and output checks
 - [Compiler internals](https://typeshade.dev/guide/internals/), implementation-facing compiler documentation
+- [The developer experience](docs/dx.md), what TypeShade asks of a TypeScript developer and the bar it is measured against
 - [Roadmap to 1.0.0](docs/roadmap.md), the order of work and the two rules that decide what is in it
 - [Runtime architecture](docs/runtime-architecture.md), the proposed boundary between the compiler, host runtime and GPU backends
 

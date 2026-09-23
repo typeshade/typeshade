@@ -4,6 +4,8 @@
 // the collector's door: every program below compiled clean on `main` before this, except the
 // parameter one, which threw out of `compileTsSource`. The divisor is now folded wherever a
 // division is lowered, componentwise, through the consts it names.
+//
+// Verifies: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

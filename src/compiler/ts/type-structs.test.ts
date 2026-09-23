@@ -8,6 +8,8 @@
 // collected only when something USES it. A "use typeshade" file may hold host-shaped
 // declarations that are not shader types at all, and collecting those would turn each into a
 // type error and put an unreferenced shape into the emit.
+//
+// Verifies: Rule 6.9 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
@@ -297,7 +299,9 @@ describe('shapes a WGSL struct has no form for', () => {
         }
         ${USED}
       `),
-    ).toBe('Data type "Bad" cannot have methods.');
+    ).toBe(
+      '"Bad" declares a method, so it is a contract a class implements and not a value a shader holds: take the class that implements it, or a type parameter it constrains, "<T extends Bad>(v: T)".',
+    );
   });
 
   it('rejects a call signature with its own message', () => {

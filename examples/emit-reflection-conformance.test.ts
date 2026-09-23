@@ -27,6 +27,8 @@
 //
 // Stated plainly so the green is not read as more than it is: the GLSL half cannot catch a
 // binding emitted at the wrong slot, because GLSL has no slot to be wrong about.
+//
+// Verifies: Rule 6.8 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import { examples } from './index.js';

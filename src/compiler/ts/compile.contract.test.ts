@@ -2,6 +2,8 @@
 // compile. Before this, an error left `wgsl` undefined in `compileTsSource` and compile() then
 // packed the PARTIAL module anyway, so a caller got WGSL for a program that had not compiled,
 // or a TypeShadeError thrown out of the emitter.
+//
+// Verifies: Rule 3.1, Rule 10.3, Rule 12.3 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

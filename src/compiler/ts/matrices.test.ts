@@ -10,6 +10,8 @@
 // These tests are the shape rules: what each product is, what each constructor takes, and
 // which builtins apply — each checked against the CPU oracle with a hand-computed product, so
 // a rule that is merely self-consistent cannot pass.
+//
+// Verifies: Rule 4.8 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

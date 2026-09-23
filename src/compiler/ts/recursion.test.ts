@@ -13,6 +13,8 @@
 //
 // The third line is the instrument check: the harness that produced the two rejections also
 // accepts a non-recursive module, so the rejections are verdicts and not a broken probe.
+//
+// Verifies: Rule 8.4 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';

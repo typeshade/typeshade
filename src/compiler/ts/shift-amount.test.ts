@@ -4,6 +4,8 @@
 // `x << 0` on one target and anything on the other. Measured on `main` before this: `y <<= 32`,
 // `x >> 33` and `x >> (16 + 16)` each compiled clean and emitted `32u` or `33u` for Tint to
 // refuse.
+//
+// Verifies: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';

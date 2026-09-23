@@ -20,7 +20,7 @@
 // mutated with nothing saying so. This script is invoked DELIBERATELY — by the publish
 // workflow, or by a human verifying a tarball — and says what it did.
 //
-// WHY THIS IS NOT A SECOND AUTHORITY (CLAUDE.md §12). It does not carry a list of entry
+// WHY THIS IS NOT A SECOND AUTHORITY (AGENTS.md#gate-discipline). It does not carry a list of entry
 // points. It READS `exports` and rewrites each target by one rule — `./<dir>/<path>.ts`
 // becomes `./dist/<dir>/<path>.js` — which is exactly what tsconfig.json's `rootDir: "."`
 // makes true on disk. A subpath added to `exports` is picked up with no edit here, and a

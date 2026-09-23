@@ -1,3 +1,5 @@
+// Verifies: Rule 1.3, Rule 7.1, Rule 11.1 (docs/language-design.md; traced in reqs/).
+
 import { describe, it, expect } from 'vitest';
 import { fn, module, f32, vec4, u32T, f32T, vec4fT, vec2fT, matT } from './ir/index.js';
 import type { FuncDecl, ShaderType, Stmt } from './ir/index.js';

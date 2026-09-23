@@ -14,3 +14,6 @@ docs/use-typeshade-surface.md
 # Generated: the checked-in slice of Tint's core.def (scripts/bake-coredef-textures.ts), one
 # row per line so a re-bake diffs by row. Same rule as the emit goldens above.
 src/core/spec-conformance/fixtures
+# Doorstop items: written by scripts/reqs-sync.ts and by doorstop itself, in doorstop's format.
+reqs/rules/
+reqs/surface/

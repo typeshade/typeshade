@@ -15,6 +15,8 @@
 // it: a declaration this file could not lower no longer makes its call sites say "Unknown
 // function" as well, and a parameter or return whose annotation was refused no longer repeats
 // that it "requires a TypeShade type annotation" when it has one.
+//
+// Verifies: Rule 4.5, Rule 4.6, Rule 7.8, Rule 12.1, Rule 12.4, Rule 12.5, Rule 12.6 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
@@ -372,17 +374,17 @@ export function fs(): vec4 {
     expect(errs.join('\n')).not.toContain('Unsupported return type');
   });
 
-  it('a capturing local function does not also say the call has no callee', () => {
+  it('a refused local function does not also say the call has no callee', () => {
     const errs = errorsOf(`"use typeshade";
 @fragment
 export function fs(): vec4 {
   const k: f32 = 2.;
-  const scale = (x: f32): f32 => x * k;
+  let scale = (x: f32): f32 => x * k;
   return vec4(scale(1.), 0., 0., 1.);
 }
 `);
     expect(errs).toHaveLength(1);
-    expect(errs[0]).toContain('reads "k" from the function around it');
+    expect(errs[0]).toContain('"scale" is a function, so it is declared with const');
   });
 
   it('a call to a name nothing declares still says so', () => {

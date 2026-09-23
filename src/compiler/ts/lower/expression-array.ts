@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { typeKey } from '../../../core/ir/types.js';
+import { boolT, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
 import { fillArray, noneOf, unrollMinMax, unrollPred, unrollSum, unrollZip } from '../array-ops.js';
@@ -11,6 +11,9 @@ import { USER_FIRST_BUILTINS, isCanonicalMathFn } from '../math-alias.js';
 import { lowerExpression } from './expression.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { captureArguments, declaresFunction } from './local-functions.js';
+import { declarationOf, functionAround } from './closures.js';
+import type { FunctionShape } from './function-types.js';
 
 export function lowerArrayCtor(
   node: ts.CallExpression,
@@ -337,10 +340,34 @@ export function lowerArrayFold(
   }
   const args: Expr[] = [];
   const predDecls: FuncDecl[] = [];
+  // What each call of the function passes ahead of its own arguments: the variables a local
+  // function captures (Rule 8.17).
+  let leading: Expr[] = [];
   for (const arg of node.arguments) {
+    // An arrow function written as the callback (Rule 8.18): a local function of this body,
+    // typed by the arrays before it, `any(xs, (x) => x > k)`.
+    if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) {
+      const shape = foldCallbackShape(name, args);
+      if (shape !== undefined) {
+        const decl = scope.liftArgument(arg, shape, name, sourceFile, diagnostics);
+        if (decl === undefined) return undefined;
+        const captured = captureArguments(decl, name, arg, sourceFile, scope, diagnostics);
+        if (captured === undefined) return undefined;
+        predDecls.push(decl);
+        leading = captured;
+        continue;
+      }
+    }
     if (ts.isIdentifier(arg)) {
       const decl = scope.resolveCallee(arg.text);
-      if (decl && intrinsicFirst(arg.text)) {
+      // A local function or a parameter that takes a function, which the body declares, is
+      // what its name means there, whatever builtin shares it (Rule 9.5).
+      const declared = declarationOf(arg);
+      const local =
+        declared !== undefined &&
+        functionAround(declared) !== undefined &&
+        declaresFunction(declared);
+      if (decl && !local && intrinsicFirst(arg.text)) {
         // The precedence `lowerCall` applies, applied here too: a name that was a builtin
         // before #8 A6 stays the intrinsic even when the file declares a function of that
         // name, so a fold cannot hand the declaration to `unrollZip` and stamp a `declRef` on
@@ -358,7 +385,12 @@ export function lowerArrayFold(
         return undefined;
       }
       if (decl) {
+        const captured = captureArguments(decl, arg.text, arg, sourceFile, scope, diagnostics);
+        if (captured === undefined) return undefined;
+        // What it returns, which its body says when it writes no return type (Rule 8.19).
+        if (!scope.calleeReady(decl, arg, sourceFile, diagnostics)) return undefined;
         predDecls.push(decl);
+        leading = captured;
         continue;
       }
     }
@@ -399,7 +431,7 @@ export function lowerArrayFold(
       );
       return undefined;
     }
-    const out = unrollPred(first, predDecls[0]!, name === 'all' ? '&&' : '||');
+    const out = unrollPred(first, predDecls[0]!, name === 'all' ? '&&' : '||', leading);
     if (typeof out === 'string') {
       pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH);
       return undefined;
@@ -417,7 +449,7 @@ export function lowerArrayFold(
       );
       return undefined;
     }
-    const out = unrollZip(args[0]!, args[1]!, predDecls[0]!);
+    const out = unrollZip(args[0]!, args[1]!, predDecls[0]!, leading);
     if (typeof out === 'string') {
       pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH);
       return undefined;
@@ -425,6 +457,29 @@ export function lowerArrayFold(
     return out;
   }
   return 'fallback';
+}
+
+/** What the function a fold is handed takes and returns, read off the arrays lowered ahead of
+ *  it: an element for a predicate, which answers a bool, and one of each for `zip`, whose
+ *  function's return is its own to say. Undefined for a fold that takes no function, or when
+ *  the arrays are not there yet. */
+function foldCallbackShape(name: string, arrays: readonly Expr[]): FunctionShape | undefined {
+  const elem = (e: Expr | undefined): ShaderType | undefined =>
+    e !== undefined && e.type.kind === 'array' ? e.type.elem : undefined;
+  if (name === 'any' || name === 'all' || name === 'none') {
+    const x = elem(arrays[0]);
+    return x === undefined
+      ? undefined
+      : { params: [x], ret: boolT, text: `(x: ${typeKey(x)}) => bool` };
+  }
+  if (name === 'zip') {
+    const a = elem(arrays[0]);
+    const b = elem(arrays[1]);
+    return a === undefined || b === undefined
+      ? undefined
+      : { params: [a, b], ret: undefined, text: `(a: ${typeKey(a)}, b: ${typeKey(b)}) => …` };
+  }
+  return undefined;
 }
 
 /** A builtin name a declaration does NOT win: every canonical math id and `mod`, except the

@@ -1,3 +1,5 @@
+// Implements: Rule 5.1 (docs/language-design.md; traced in reqs/).
+
 import ts from 'typescript';
 import type { Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
@@ -11,8 +13,16 @@ export function isIntegerLiteralNode(node: ts.Expression): boolean {
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
     return isIntegerLiteralNode(node.operand);
   }
-  if (!ts.isNumericLiteral(node)) return false;
-  return !/[.eE]/.test(node.getText());
+  return ts.isNumericLiteral(node) && isIntegerWritten(node);
+}
+
+/** Whether a numeric literal is written as an integer (Rule 5.1): `1`, `0x9e3779b9`, `0b1011`,
+ *  `0o17`, `1_000`, but not `1.`, `1.5` or `1e3`. A `0x`, `0b` or `0o` literal is an integer
+ *  whatever its digits, so an `e` in one is a hex digit and not an exponent (#182). The source
+ *  text decides, not `node.text`, which TypeScript normalizes: `1.0` reads `1` and `1e3` `1000`. */
+export function isIntegerWritten(node: ts.NumericLiteral): boolean {
+  const written = node.getText();
+  return /^0[xXbBoO]/.test(written) || !/[.eE]/.test(written);
 }
 
 export function isIntScalar(t: ShaderType): boolean {

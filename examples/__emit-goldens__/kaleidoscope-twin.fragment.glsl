@@ -12,8 +12,15 @@ vec2 screenCoords(vec2 uv, vec2 resolution) {
   return vec2((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
 }
 
+uint hash32(uint x) {
+  uint a = ((x ^ (x >> 16u)) * 2246822519u);
+  uint b = ((a ^ (a >> 13u)) * 3266489917u);
+  return (b ^ (b >> 16u));
+}
+
 float hash(vec2 p) {
-  return fract((sin(dot(p, vec2(127.1, 311.7))) * 43758.5453));
+  uint h = hash32((uint(int(p.x)) ^ hash32(uint(int(p.y)))));
+  return (float((h >> 8u)) * 5.960464477539063e-8);
 }
 
 float noise(vec2 p) {

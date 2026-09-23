@@ -12,6 +12,8 @@
 // So these tests are written as the two halves of one claim: everything the pass CAN lower is
 // accepted and the CPU agrees with the double, and everything it cannot is refused AT THE
 // CALL with the list of what would have worked.
+//
+// Verifies: Rule 2.3, Rule 5.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../index.js';

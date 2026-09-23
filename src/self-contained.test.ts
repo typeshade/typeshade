@@ -45,7 +45,7 @@
 //                              `private: true` is one `npm publish` away from a broken
 //                              upload, and the mirror pivot removed the reason to have any.
 //
-// ANTI-VACUITY (CLAUDE.md §12). Every scan here iterates a set that could be empty, and an
+// ANTI-VACUITY (AGENTS.md#gate-discipline). Every scan here iterates a set that could be empty, and an
 // empty set passes every `toEqual([])`. So each scan has a sanity arm, run first as its own
 // named `it()`, proving the READER saw the thing: the import scan reports its file and
 // specifier counts against measured floors; the tsconfig resolver is probed with a
@@ -74,7 +74,7 @@ const REPO_ROOT = PKG_DIR;
 const PATHSPEC = '.';
 const PKG_PREFIX = '';
 
-/** `git`, array-argv, output captured to a variable (CLAUDE.md §12 shell rules). Throws on a
+/** `git`, array-argv, output captured to a variable (AGENTS.md#gate-discipline). Throws on a
  *  non-zero exit instead of returning `[]` — a silently empty list is precisely how a scan
  *  gate goes vacuous, and this helper feeds four of them. */
 function git(cwd: string, ...args: string[]): string[] {
@@ -376,7 +376,7 @@ describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it 
         'bun pm pack 1.3.11 applies publishConfig FIELD overrides — npm honours publishConfig ' +
         'natively only for access / tag / registry / provenance, and main/module/types/' +
         'exports/browser/typesVersions are a pnpm-and-yarn extension. So this block is a ' +
-        'SECOND AUTHORITY for the entry points (CLAUDE.md §12) that changes nothing and has ' +
+        'SECOND AUTHORITY for the entry points (AGENTS.md#gate-discipline) that changes nothing and has ' +
         'already drifted from the real one by a whole subpath: `./examples` is in `exports` ' +
         'and was never in publishConfig.exports — and cannot be, because tsconfig rootDir is ' +
         './src, so examples/ is never emitted to dist at all. The real `exports` map is the ' +

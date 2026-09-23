@@ -16,7 +16,7 @@
 // here is the INSTRUMENT CHECK: the corpus must contain the constructs the known defects
 // lived in (integer `/` and `%`, `switch` with `continue` inside a loop). Without it a
 // generator that quietly stopped emitting integer division would report zero divergences
-// forever and read as a clean compiler (CLAUDE.md §12).
+// forever and read as a clean compiler (AGENTS.md#gate-discipline).
 
 import { describe, it, expect } from 'vitest';
 import type { ShaderType, ModuleDecl } from '../ir/index.js';

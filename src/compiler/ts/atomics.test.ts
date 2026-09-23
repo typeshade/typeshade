@@ -6,6 +6,8 @@
 // compile gate), the three CPU backends agreeing on a kernel that counts, the optimizer
 // leaving an atomic call alone, the effect table seeing the write, and the refusals a wrong
 // program gets, each naming the fix.
+//
+// Verifies: Rule 8.3 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

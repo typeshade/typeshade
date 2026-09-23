@@ -798,8 +798,11 @@ declare const arrayTag: unique symbol
 // compiler refuses the call on a read binding; that decision belongs to #177 and not to this
 // declaration.
 type ArrayOps = never
+// Iterable, so \`for (const x of xs)\` type-checks (Rule 7.5): the compiler lowers it to a counted
+// loop over the indices. The iterator's shape is written inline so it adds no global name.
 type array<T, N extends number = number> = Pick<Array<T>, ArrayOps> & { readonly [arrayTag]?: readonly [T, N]; readonly length: N } & {
   [index: number]: T
+  [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
 }
 ${renderJSDoc(FUNCTION_DOCS.array)}
 declare function array<T, N extends number>(...values: readonly T[]): array<T, N>
@@ -1516,8 +1519,26 @@ declare function select<T extends Numeric | bool | BoolVec | Vec64Any | f64>(
 ): T
 ${renderJSDoc(FUNCTION_DOCS.any)}
 declare function any(v: bool | BoolVec): bool
+${renderJSDoc(FUNCTION_DOCS.any)}
+declare function any<T>(xs: array<T>, pred: (x: T) => bool): bool
 ${renderJSDoc(FUNCTION_DOCS.all)}
 declare function all(v: bool | BoolVec): bool
+${renderJSDoc(FUNCTION_DOCS.all)}
+declare function all<T>(xs: array<T>, pred: (x: T) => bool): bool
+${renderJSDoc(FUNCTION_DOCS.none)}
+declare function none<T>(xs: array<T>, pred: (x: T) => bool): bool
+${renderJSDoc(FUNCTION_DOCS.sum)}
+declare function sum<T extends Numeric>(xs: array<T>): T
+${renderJSDoc(FUNCTION_DOCS.zip)}
+declare function zip<A, B, R, N extends number>(
+  xs: array<A, N>,
+  ys: array<B, N>,
+  f: (a: A, b: B) => R,
+): array<R, N>
+${renderJSDoc(FUNCTION_DOCS.min)}
+declare function min<T extends Numeric>(xs: array<T>): T
+${renderJSDoc(FUNCTION_DOCS.max)}
+declare function max<T extends Numeric>(xs: array<T>): T
 ${renderJSDoc(FUNCTION_DOCS.atan2)}
 declare function atan<T extends Numeric>(y: T, x: T): T
 ${renderJSDoc(FUNCTION_DOCS.bool)}
@@ -1563,7 +1584,15 @@ declare function compute(target: Function, context?: unknown): void
 interface Array<T> {
   readonly length: number
   [n: number]: T
+  // A list literal is an \`Array\` here, and it has to stay assignable to an iterable \`array<T, N>\`.
+  [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
 }
+// What \`[Symbol.iterator]\` above resolves through. \`Symbol\` itself stays a host API: the
+// compiler refuses it as a value (TS8012), so declaring it here gives an author nothing to write.
+interface SymbolConstructor {
+  readonly iterator: unique symbol
+}
+declare var Symbol: SymbolConstructor
 interface Boolean {}
 interface Function {}
 interface CallableFunction extends Function {}

@@ -20,6 +20,7 @@ import {
   type RawPayload,
   ASSEMBLED_AS,
 } from './nodes.js';
+import { toWorkgroupShape, workgroupSizeAttr } from './workgroup.js';
 import {
   Node,
   ReadonlyNode,
@@ -633,8 +634,9 @@ type FnOpts = {
   /** Stage: makes this a pipeline entry point (`@vertex`, `@fragment` or
    *  `@compute @workgroup_size(...)`). Omit it for an ordinary helper. */
   stage?: 'vertex' | 'fragment' | 'compute';
-  /** Workgroup size for a `stage: 'compute'` entry (defaults to 64). */
-  workgroupSize?: number;
+  /** Workgroup size for a `stage: 'compute'` entry (defaults to 64): the `x` extent, or one to
+   *  three extents `[x, y, z]`, a missing `y` or `z` being 1. */
+  workgroupSize?: number | readonly [number, number?, number?];
   /** Declare this compute entry a portable kernel; compute-only, `SD0110` otherwise.
    *
    *  A portable kernel emits on both backends: natively as `@compute` on WGSL, where
@@ -791,7 +793,8 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[Symbol.for('typesha
  *  - `stage: 'vertex' | 'fragment' | 'compute'` makes the function a pipeline entry point.
  *    Omit it for an ordinary helper.
  *  - `workgroupSize` sizes a compute entry, emitting `@compute @workgroup_size(N)`. It
- *    defaults to 64.
+ *    defaults to 64. `[8, 8]` or `[4, 4, 4]` gives a two- or three-dimensional workgroup,
+ *    emitting `@workgroup_size(8, 8)`.
  *  - `retAttr` attaches an attribute to a bare, non-struct stage return, giving
  *    `-> @location(0) vec4<f32>`. A typed `location(0, T)` spec is accepted and its `.attr`
  *    is used. A bare non-struct fragment return defaults to `@location(0)`. A struct return
@@ -806,7 +809,7 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[Symbol.for('typesha
  *  A portable kernel emits on both backends: natively as `@compute` on WGSL, and on GLSL ES
  *  3.00 through a compute-to-fragment translation, which WebGL2 dispatches as a fullscreen
  *  draw into an R32UI target. In exchange the kernel stays inside the gather-only tier: a
- *  `global_invocation_id` read only as `.x`, exactly one `read_write` storage binding of
+ *  one-dimensional workgroup, a `global_invocation_id` read only as `.x`, exactly one `read_write` storage binding of
  *  `array<u32>` written exactly once at the invocation index, a first `uniform` binding of
  *  `vec4<u32>` whose `.x` is the invocation count and `.y` the output-grid width, and no raw
  *  statements anywhere the entry can reach. Anything outside that shape fails validation on
@@ -969,12 +972,12 @@ export function fn(
   // whose handle says `'void'`. Hold it to that, or say which token to write.
   if (inferred && result === undefined) assertInferredVoid(name, ret);
   // stage → pipeline attrs (@vertex / @fragment / @compute @workgroup_size(N)).
-  const attrs =
-    opts?.stage === 'compute'
-      ? ['@compute', `@workgroup_size(${opts.workgroupSize ?? 64})`]
-      : opts?.stage
-        ? [`@${opts.stage}`]
-        : undefined;
+  const shape = opts?.stage === 'compute' ? toWorkgroupShape(opts.workgroupSize ?? 64) : undefined;
+  const attrs = shape
+    ? ['@compute', workgroupSizeAttr(shape)]
+    : opts?.stage
+      ? [`@${opts.stage}`]
+      : undefined;
   // retAttr: string | FieldSpec, with the fragment default (X-GIS #763 X3).
   const retAttrRaw = opts?.retAttr;
   const retAttr =
@@ -994,7 +997,10 @@ export function fn(
     attrs,
     // Structured stage (X-GIS #740 R3) — reflect/backends read these; `attrs` stays the emit spelling.
     stage: opts?.stage,
-    workgroupSize: opts?.stage === 'compute' ? (opts.workgroupSize ?? 64) : undefined,
+    workgroupSize: shape?.[0],
+    // Only a shape with a `y` or `z` other than 1 is carried: an absent one reads as
+    // `[workgroupSize, 1, 1]`, so a one-dimensional entry's IR is what it always was.
+    ...(shape !== undefined && (shape[1] !== 1 || shape[2] !== 1) ? { workgroupShape: shape } : {}),
     // Structured-only, no attrs spelling (X-GIS #740 R3 / X-GIS #1812) — see FuncDecl.portable.
     portable: opts?.portable,
     retAttr,

@@ -1,3 +1,5 @@
+// Verifies: Rule 7.3 (docs/language-design.md; traced in reqs/).
+
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { compileTsSource } from './source-file.js';

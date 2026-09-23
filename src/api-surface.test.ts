@@ -46,6 +46,8 @@
 //   bun run bake:api-surface
 // — and commit the diff. That diff IS the record; a reviewer reads it instead of trusting a
 // subject line.
+//
+// Verifies: Rule 11.6 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
