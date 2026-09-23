@@ -5,8 +5,15 @@ import { f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js'
-import { staticConstName } from '../module-const.js'
+import { emittedMemberName, isPrivateName } from '../class-names.js'
 import { methodFnName } from './class-methods.js'
+import {
+  checkPrivateStatic,
+  lowerAccessorRead,
+  staticFieldBinding,
+  staticOwnerOf,
+  visibleField,
+} from './class-access.js'
 import { parseSwizzle } from '../swizzle.js'
 import { numericMismatch } from '../numeric.js'
 import { retargetIntLitCtx } from '../lit-coerce.js'
@@ -161,34 +168,62 @@ export function lowerPropertyAccess(
     return undefined
   }
   // `K.PI` on a class name: a static field is the module constant `K_PI` the collector made
-  // of it (roadmap 0.3 item T3, #92). Read before the receiver is lowered, because a class
-  // name is a type and not a value, so lowering it would report an unknown identifier.
-  if (ts.isIdentifier(obj) && scope.resolve(obj.text) === undefined) {
-    const binding = scope.resolve(staticConstName(obj.text, prop))
-    if (binding?.kind === 'module') {
-      return { op: 'constref', type: binding.type, name: binding.name }
+  // of it (roadmap 0.3 item T3, #92), or the module variable one the file writes is (Rule
+  // 8.13). Read before the receiver is lowered, because a class name is a type and not a
+  // value, so lowering it would report an unknown identifier. `this.K` inside a static member
+  // is the same read, `this` there being the class.
+  const owner = staticOwnerOf(obj, scope)
+  if (owner !== undefined) {
+    const binding = staticFieldBinding(owner, prop, scope, sourceFile)
+    if (binding !== undefined) {
+      if (!checkPrivateStatic(owner, prop, node.name, sourceFile, diagnostics)) return undefined
+      return binding.kind === 'modvar'
+        ? { op: 'varref', type: binding.type, name: binding.name }
+        : { op: 'constref', type: binding.type, name: binding.name }
+    }
+    // A static accessor, `Vec.zero` for `static get zero()` (Rule 8.11).
+    if (scope.structByName(owner) !== undefined) {
+      const read = lowerAccessorRead(node, owner, undefined, sourceFile, scope, diagnostics)
+      if (read !== 'none') return read
+    }
+    // `this.x` in a static member, where `x` is a field of each value (Rule 8.13).
+    if (
+      obj.kind === ts.SyntaxKind.ThisKeyword &&
+      scope.fieldType(owner, emittedMemberName(prop)) !== undefined
+    ) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `In a static member, "this" is the class "${owner}", and "${prop}" is a field of each ` +
+          `${owner} value, not of the class. Take the value as a parameter, or make the member ` +
+          `an instance method.`,
+        TS_CODES.CLASS_MEMBER,
+      )
+      return undefined
     }
     // The name is a type, not a value, so lowering the receiver would report an unknown
     // identifier. Say what it is instead, when it is a class or an enum the file declares.
-    if (scope.structByName(obj.text) !== undefined) {
-      const asFunction = scope.resolveCallee(methodFnName(obj.text, prop)) !== undefined
+    if (scope.structByName(owner) !== undefined) {
+      const asFunction =
+        scope.resolveCallee(methodFnName(owner, emittedMemberName(prop))) !== undefined
       pushDiag(
         diagnostics,
         sourceFile,
         node,
         asFunction
-          ? `"${obj.text}.${prop}" is a function; call it: ${obj.text}.${prop}(...).`
-          : `"${obj.text}" has no static field "${prop}".`,
+          ? `"${owner}.${prop}" is a function; call it: ${owner}.${prop}(...).`
+          : `"${owner}" has no static field "${prop}".`,
         TS_CODES.UNKNOWN_NAME,
       )
       return undefined
     }
-    if (scope.isEnum(obj.text)) {
+    if (scope.isEnum(owner)) {
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        `"${obj.text}" has no member "${prop}".`,
+        `"${owner}" has no member "${prop}".`,
         TS_CODES.UNKNOWN_NAME,
       )
       return undefined
@@ -220,19 +255,34 @@ export function lowerPropertyAccess(
     return undefined
   }
   if (base.type.kind === 'struct') {
-    const ft = scope.fieldType(base.type.name, prop)
+    // A field the code here may name: a public one, or a private one inside the class body
+    // that declares it (Rule 8.12). Emitted without the `#`.
+    const ft = visibleField(base.type.name, prop, node.name, scope)
     if (!ft) {
+      // `o.x` where the class declares `get x()` is a call of the getter (Rule 8.11).
+      const read = lowerAccessorRead(node, base.type.name, base, sourceFile, scope, diagnostics)
+      if (read !== 'none') return read
+      // A field its class declared and the struct does not carry was refused where it was
+      // written; a read of it adds nothing (Rule 12.4).
+      if (scope.isWithheld(base.type.name, emittedMemberName(prop))) return undefined
+      const hidden = isPrivateName(prop)
+        ? scope.privateField(base.type.name, emittedMemberName(prop))
+        : undefined
+      const owner = hidden?.owner.name?.text ?? base.type.name
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        `Unknown field "${prop}" on ${typeKey(base.type)}.`,
-        TS_CODES.UNKNOWN_NAME,
+        hidden !== undefined && hidden.written === prop
+          ? `"${prop}" is private to "${owner}", and this code is outside its class body. Reach ` +
+              `it through a member "${owner}" declares without the "#".`
+          : `Unknown field "${prop}" on ${typeKey(base.type)}.`,
+        hidden !== undefined ? TS_CODES.CLASS_MEMBER : TS_CODES.UNKNOWN_NAME,
       )
       return undefined
     }
     if (refuseBareAtomic(ft, node, sourceFile, scope, diagnostics)) return undefined
-    return { op: 'member', type: ft, base, field: prop }
+    return { op: 'member', type: ft, base, field: emittedMemberName(prop) }
   }
   const sw = parseSwizzle(base.type, prop)
   if (!sw.ok) {
@@ -320,6 +370,19 @@ export function lowerObjectLiteral(
   }
   const names = props.map((p) => p.name)
   const declared = contextual?.kind === 'struct' ? scope.structByName(contextual.name) : undefined
+  // A class with a private field cannot be written as a literal: a literal names its fields,
+  // and `#n` is a name only the class's own body may use (Rule 8.12, TypeScript's TS2741).
+  if (declared !== undefined && scope.hasPrivateFields(declared.name)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${declared.name}" has private fields, which an object literal cannot name. Build it ` +
+        `with "new ${declared.name}(...)".`,
+      TS_CODES.STRUCT_FIELD,
+    )
+    return undefined
+  }
   const match = declared ?? scope.matchStruct(names)
   if (!match) {
     pushDiag(
@@ -482,11 +545,15 @@ function lowerSpreadInto(
     )
     return undefined
   }
-  return struct.fields.map((f) => ({
-    name: f.name,
-    ready: { op: 'member', type: f.type, base: value, field: f.name } as Expr,
-    at: prop,
-  }))
+  // A private field is not a property of the object to TypeScript, so a spread does not copy
+  // it (Rule 8.12).
+  return struct.fields
+    .filter((f) => scope.privateField(struct.name, f.name) === undefined)
+    .map((f) => ({
+      name: f.name,
+      ready: { op: 'member', type: f.type, base: value, field: f.name } as Expr,
+      at: prop,
+    }))
 }
 
 function pushDiag(

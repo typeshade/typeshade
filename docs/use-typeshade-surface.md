@@ -310,7 +310,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare`, a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
-| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A getter or setter, a static field, an arrow-function field, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a method that changes its object called on a `const`, a parameter or a dropped value, or used as a value (§26) |
+| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. An arrow-function field, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a method that changes its object called on a `const`, a parameter or a dropped value, one that returns nothing used as a value, or a write to `this` in a base's body called through `super` (§26) |
+| A call that writes in a `while` condition, anywhere but as one side of its comparison | `TS8006`. The condition runs on every iteration, so the call cannot move ahead of the loop to run in source order; compare the call alone, or call it into a `let` at the end of the body (§26, Rule 7.9) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 
 ---
@@ -1355,13 +1356,19 @@ statement is refused (TS8099) with the two ways out, assign the value or remove 
 
 **A call that writes a binding is the one impure expression the IR has**, and the optimizer
 knows it. The effect table (`src/core/passes/effects.ts`) names the bindings each function
-writes, itself or through the functions it calls. Dead-code elimination keeps a `call`
-statement exactly when its call has an effect. Common-subexpression elimination, value
+writes, itself or through the functions it calls, and a write through a method's object as the
+caller's receiver (§26). Dead-code elimination keeps a `call` statement exactly when its call
+has an effect, and a `let` nobody reads whose initializer writes becomes the call statement it
+amounts to: `const unused = next()` still calls `next`. Common-subexpression elimination, value
 numbering and loop-invariant motion leave a function that makes an effectful call alone, and
 a read of a binding some callee writes is never shared across the call: two `bump(i)` in a
-row stay two, and a `dst[i]` read after them is a second read. The linear inliner does not
-lift a helper whose prelude holds a call statement, since splicing it ahead of the `if` that
-guarded the call site would run the effect on a path that never called.
+row stay two, and a `dst[i]` read after them is a second read; nor is a copy taken before a
+method changes its object, `const before = p` ahead of `p.bump()`. A struct assembled field by
+field is not folded into a constructor when a field's value writes, since the constructor would
+evaluate the fields in declaration order rather than the order they were assigned. The linear
+inliner does not lift a helper whose prelude holds a call statement, since splicing it ahead of
+the `if` that guarded the call site would run the effect on a path that never called. Such a
+call inside a larger expression is put in source order before any of this runs (§26, Rule 7.9).
 
 **What this does not cover.** The portable compute tier (§ the `portable` kernel shape) refuses
 a call statement anywhere in the entry's reach: its single store is a plain assignment written
@@ -1855,11 +1862,75 @@ void Particle_step(inout Particle self_, float dt) {
 The receiver has to be a place a function may write: a `let` local, a module variable, a storage
 element, or `this` inside a constructor or another changing method. Which methods change their
 object is read from their bodies, to a fixpoint: one that assigns to a field of `this` (or
-`++`/`--` on one), and one that calls such a method on `this`. Such a method returns nothing;
-one that returns a value reads its object only, and a write to `this` inside it is TS8035 with
-that rule. The effect table (§19) counts a write through a reference as it counts any other, and
-names it as the CALLER knows it: `ps[gid.x].step(dt)` writes `ps`, because `step` writes its
-receiver and the receiver is reached through `ps`.
+`++`/`--` on one), and one that calls such a method on `this`. The effect table (§19) counts a
+write through a reference as it counts any other, and names it as the CALLER knows it:
+`ps[gid.x].step(dt)` writes `ps`, because `step` writes its receiver and the receiver is reached
+through `ps`.
+
+**It may return a value** (Rule 8.10), as any method may. A random-number generator is the
+shape: `next()` advances the state and returns the draw. The reference is what carries the object
+back, so the return is free, and the emitted function is WGSL's own idiom for a generator,
+`fn Rng_next(self_: ptr<function, Rng>) -> f32`, and GLSL ES 3.00's, `float Rng_next(inout Rng
+self_)`. On its own line the value is dropped and the write kept; anywhere a value goes, it is
+one.
+
+```ts
+"use typeshade"
+class Rng {
+  state: u32
+  next(): f32 {
+    this.state = this.state * 747796405 + 2891336453
+    return f32(this.state >> 8) / 16777216.
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let rng: Rng = { state: u32(uv.x * 1000.) }
+  const grain = vec2(rng.next(), rng.next())
+  const spark = uv.y > 0.5 ? rng.next() : 0.
+  return vec4(grain, spark, 1.)
+}
+```
+
+```wgsl
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  var rng: Rng = Rng(u32((uv.x * 1000.0)));
+  let _seq0 = Rng_next(&rng);
+  let _seq1 = Rng_next(&rng);
+  let grain = vec2<f32>(_seq0, _seq1);
+  var _seq2: f32;
+  if ((uv.y > 0.5)) {
+    _seq2 = Rng_next(&rng);
+  } else {
+    _seq2 = 0.0;
+  }
+  let spark = _seq2;
+  return vec4<f32>(grain, spark, 1.0);
+}
+```
+
+**A call that writes runs in source order** (Rule 7.9). TypeScript evaluates `vec2(rng.next(),
+rng.next())` left to right, and so does WGSL; GLSL ES 3.00 fixes that order for a call's
+arguments and leaves it open for an operator's operands (§5.11). So a call that writes, inside a
+larger expression, is bound to a `let` of its own ahead of the statement, in the order the source
+evaluates it, and the statement reads the temporary: the two draws above are two lets, first to
+last, on both targets. An operand evaluated before such a call that reads what the call changes
+is bound ahead of it, so `rng.state + rng.next()` adds the state from before the draw. A call
+TypeScript runs conditionally keeps its condition: an arm of `?:` is an `if` rather than WGSL's
+`select`, which would evaluate both arms, and the right operand of `&&` or `||` is an `if` on the
+left one. A call that is the whole of its statement (`const a = rng.next()`, the value of an
+assignment or a `return`, a condition, a selector, a call statement) stays where it is. This is
+the same for a helper that writes a storage binding or a module variable and for an atomic, which
+could write from inside an expression before any of this (§19, §23, §24). A `while` condition
+runs on every iteration, so nothing
+in it can move ahead of the loop: a call that writes may be one side of its comparison,
+`while (rng.next() < 0.9)`, and anything deeper is TS8006 with the remedy.
+`examples/rng-method.shade.ts` is the gate's evidence, on Tint and on a real WebGL2 driver.
+
+It returned nothing while the struct itself was what came back, and until this a method that
+wrote `this` and returned a value was TS8035 at the write, "A method that changes its object
+returns nothing (§26)".
 
 **One WGSL function per address space.** The address space is part of a WGSL pointer's type:
 `ptr<function, T>` and `ptr<storage, T, read_write>` are different types, and a function
@@ -1878,22 +1949,28 @@ on a real WebGL2 driver; `examples/particle-step.shade.ts` for the compute one.
 
 **`this`.** Inside a method that reads, `this` is the read-only first parameter; inside a method
 that changes its object it is that parameter, written through; inside a constructor it is the
-local being built.
-`this` in a static function or a top-level function is TS8035.
+local being built. Inside a static member it is the class that declares the member (Rule 8.13),
+so `this.K`, `this.f()` and `this.count += 1.` name its statics; `this` as a value there, and
+`this` in a top-level function, is TS8035.
 
-**Access modifiers** `private`, `protected`, `public` and `readonly` on a field or a method are
-accepted and mean nothing to the shader; TypeScript enforces them.
+**Access modifiers.** `public`, `private` and `protected` on a field or a method are accepted and
+mean nothing to the shader; TypeScript's checker enforces the last two in the editor. `readonly`
+is enforced here (Rule 8.14), and a private name, `#x`, is enforced here too (Rule 8.12): the
+front end does not run the checker, and without these a program TypeScript refuses would
+compile.
 
-**Refused, with the fix (TS8035).** A getter or a setter (write a method), a static field (a
-module `const`), a field holding an arrow function (a method), a decorator on a method (an
-entry is a top-level function), an `async` or generator method, two constructors
-or two methods of one name (no overloads), a call of a method on the class or of a static
-function on a value, a member the class does not have, a field called as a method, a method
-that changes its object called on a `const`, a parameter or a value that is dropped, or used
-as a value, and a parameter named `self_`. A class with only static functions and no fields is
-a namespace of functions (below). `abstract` and `extends` are a struct's base since roadmap
-item T5. A `new` on anything but a class the file declares stays TS8013, and
-says which of the four reasons it is.
+**Refused, with the fix (TS8035).** A static block (give each static field its value where it
+is declared), a field holding an arrow function (a method), a decorator on a method (an entry is
+a top-level function), an `async` or generator method, two constructors or two
+methods of one name (no overloads), a call of a method on the class or of a static function on
+a value, a member the class does not have, a field called as a method and an accessor called as
+one, a method that changes its object called on a `const`, a parameter or a value that is
+dropped, one that returns nothing used as a value, a write to `this` in a base's body called
+through `super` (which reads its object only; move the write into a method no class overrides),
+and a parameter named `self_`. A class with only static functions and no fields is a namespace
+of functions (below). `abstract` and `extends` are a struct's base since roadmap item T5. A `new`
+on anything but a class the file declares stays TS8013, and says which of the four reasons it
+is.
 
 ### `new` is how a class is built, and the refusals say why
 
@@ -1922,7 +1999,157 @@ members, so the language service adds nothing for them and the compiler's symbol
 method under its class name.
 
 **Not yet.** A cycle through method calls in the recursion check (Tint still refuses it, as a
-backend diagnostic), and `return this` from a changing method (split the chain).
+backend diagnostic), and a chain through a changing method, `v.setX(1.).setY(2.)`: `return this`
+returns a copy of the object, since a struct is a value, so the second call would change the
+copy; call each on `v` in turn.
+
+### Getters and setters
+
+A `get` or a `set` accessor is a function of the module, one for each half: `get area()` is
+`Rect_get_area(self_: Rect)`, and `set width(v)` is `Rect_set_width(self_, v)` (Rule 8.11). A
+read `r.area` calls the getter; an assignment `r.width = 4.` calls the setter with the new value,
+and a compound assignment, `++` and `--` read the old value through the getter and write the new
+one through the setter. A setter that assigns a field changes its object, so it takes it by
+reference, as a method that does (§26 above); so does a getter that fills a cache.
+
+```ts
+"use typeshade"
+class Temperature {
+  #celsius: f32 = 0.
+  get celsius(): f32 {
+    return this.#celsius
+  }
+  set celsius(v: f32) {
+    this.#celsius = max(v, -273.15)
+  }
+  get fahrenheit(): f32 {
+    return this.#celsius * 1.8 + 32.
+  }
+  set fahrenheit(v) {
+    this.celsius = (v - 32.) / 1.8
+  }
+  static get boiling(): Temperature {
+    let t = new Temperature()
+    t.celsius = 100.
+    return t
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let t = new Temperature()
+  t.fahrenheit = 212. * uv.x
+  t.celsius += 5.
+  return vec4(t.celsius / Temperature.boiling.celsius, t.fahrenheit / 212., 0., 1.)
+}
+```
+
+```wgsl
+fn Temperature_get_celsius(self_: Temperature) -> f32 {
+  return self_.celsius;
+}
+fn Temperature_set_celsius(self_: ptr<function, Temperature>, v: f32) {
+  (*self_).celsius = max(v, -273.15);
+}
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  var t: Temperature = Temperature_new();
+  Temperature_set_fahrenheit(&t, (212.0 * uv.x));
+  Temperature_set_celsius(&t, (Temperature_get_celsius(t) + 5.0));
+  ...
+}
+```
+
+Either half's annotation types the other when one has none, as in TypeScript: `set
+fahrenheit(v)` takes the getter's `f32`. A static accessor is a function with no receiver, read
+on the class, `Temperature.boiling`. The nearest class of a chain that declares either half of
+an accessor owns both, so a class that overrides the getter alone has no setter, as in
+TypeScript.
+
+Refused, with the fix: a read of an accessor with no getter and a write of one with no setter
+(declare the other half), a getter with no type from either half (annotate it), and a write into
+what a getter returns, `t.pos.x = 1.` (TS8018): the getter hands back a copy, so the write would
+be lost where TypeScript changes the object; assign the whole property instead.
+
+### Private names
+
+A member written `#x` is private to its class (Rule 8.12). WGSL and GLSL ES 3.00 have no private
+member and no `#` in a name, so it is emitted without the `#`: the field `#count` is the struct
+member `count`, the method `#step` is `Cls_step`, the static `#K` the constant `Cls_K`. What keeps
+it private is the front end, which lets `#x` be named only inside the body of the class that
+declares it, TypeScript's own rule. A private field and a public accessor of one name is the
+ordinary pairing, and the two do not meet: `count` the member, `Counter_get_count` the getter.
+
+```ts
+"use typeshade"
+class Counter {
+  #count: u32 = 0
+  static #limit = 100
+  get count(): u32 {
+    return this.#count
+  }
+  increment(): void {
+    this.#count = this.#clamped(this.#count + 1)
+  }
+  #clamped(n: u32): u32 {
+    return min(n, u32(Counter.#limit))
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  let c = new Counter()
+  c.increment()
+  c.increment()
+  return vec4(f32(c.count) / 2., 0., 0., 1.)
+}
+```
+
+A public name never reaches a private member, so `c.count` above is the getter and never the
+field; an object literal cannot build a class with a private field (build it with `new`), and a
+spread and a destructuring pattern leave the private fields out, as TypeScript's do. Refused:
+`#x` named outside its class body (TS8035), and two members of one class chain that would share
+an emitted name, `#x` beside `x` or a `#x` a class and one it extends both declare (TS8010 for a
+field, TS8035 for a function).
+
+### Parameter properties, a field's type from its initializer, and `readonly`
+
+`constructor(public x: f32, public y: f32) {}` declares the fields `x` and `y` where the
+constructor stands, and the constructor assigns them from its parameters before the field
+initializers run (Rule 8.14). `private`, `protected` and `readonly` declare one too. A field
+written without a type takes the one its initializer names: a written number is an `f32` (Rule
+5.1), `true` and `false` a `bool`, `new P()` the struct `P`, `vec3(0.)` or `u32(1)` that type. One
+whose initializer names no type, `a = f(x)`, is TS8010 with the fix, `a: T = ...`; before this
+it was dropped from the struct with nothing said where it was declared, and every use of it read
+as an unknown field.
+
+```ts
+"use typeshade"
+class Particle {
+  age = 0.
+  alive = true
+  vel = vec2(0.)
+  constructor(
+    readonly id: u32,
+    public pos: vec2,
+  ) {}
+  step(dt: f32): void {
+    this.age += dt
+    this.pos += this.vel * dt
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let p = new Particle(7, uv)
+  p.vel = vec2(1., 0.)
+  p.step(0.5)
+  return vec4(p.pos, p.age, f32(p.id))
+}
+```
+
+A `readonly` field may be assigned in a constructor of the class that declares it and nowhere
+else (TS8005), which is TypeScript's rule; `readonly` is shallow, as TypeScript's is, so
+`p.pos.x = 1.` on a `readonly pos` writes into what the field holds and stands.
 
 ---
 
@@ -1951,6 +2178,30 @@ name a constant declared earlier and may bound a `for` loop, and it takes the sa
 top-level const does. A static field with no initializer is refused: it is a constant, and a
 constant has a value. Reading a name the class does not declare says so, and naming a static
 function without calling it says to call it.
+
+**A static field the file writes is a module variable** (Rule 8.13). `Stats.hits += 1` anywhere
+in the file, or `this.hits += 1` in a static member, makes `hits` the per-invocation variable a
+top-level `let` is (§24), `var<private> Stats_hits`, and every read of it reads the variable. Its
+initializer is a constant by §24's measure. A `readonly` static is never written, and a write to
+one is TS8005.
+
+```ts
+"use typeshade"
+class Stats {
+  static hits = 0.
+  static readonly WEIGHT = 0.5
+  static record(v: f32): void {
+    this.hits += v * this.WEIGHT
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  Stats.record(uv.x)
+  Stats.record(uv.y)
+  return vec4(Stats.hits, 0., 0., 1.)
+}
+```
 
 ### `namespace`
 

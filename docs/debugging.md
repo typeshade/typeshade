@@ -567,10 +567,14 @@ to show. The known spanless statements, as of milestone 1:
 | an `_av` materialisation                  | `autoVars`, for a value the author assigned to without naming          |
 | every `if`, at O1 and above               | `dead-branch` rebuilds the node from named fields instead of spreading |
 | an `fp64Lower` helper's whole body        | injected, with no authored origin at all                               |
+| a `_seq` read, and an arm made an `if`    | `sequenceEffects` (Rule 7.9), around a call that writes                |
 
 The third row is a defect rather than a fact of life, and milestone 1 fixes it by spreading:
 a pass that rewrites a node's children should carry the rest of it. The first, second and
-fourth are correct and permanent, because there is no authored statement to point at.
+fourth are correct and permanent, because there is no authored statement to point at, and so
+is the fifth. A CALL that `sequenceEffects` binds ahead of its statement is not in the table:
+its `let` carries the call's own span, so stepping through `vec2(rng.next(), rng.next())` stops
+on each call, in order, and then on the statement.
 
 **Capture is always on.** `loc.ts` is opt-in because it allocates an `Error` and
 parses a stack. Here there is no stack: the node is in hand and the cost is one frozen object
