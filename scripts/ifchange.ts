@@ -64,10 +64,12 @@ export interface Problem {
   readonly message: string;
 }
 
-// A marker is a comment of its own: `//`, `#`, `<!--` or `/*` then the marker, so a sentence that
-// mentions `LINT.IfChange` (this repository's docs describe the convention) is not one.
-const IF = /^\s*(?:\/\/|#|<!--|\/\*|\*)\s*LINT\.IfChange(?:\(([\w.-]+)\))?/;
-const THEN = /^\s*(?:\/\/|#|<!--|\/\*|\*)\s*LINT\.ThenChange\(([^)]*)\)/;
+// A marker is a whole comment: `//`, `#`, `<!--` or `/*`, the marker, and nothing after it but the
+// comment's close. A sentence that mentions `LINT.IfChange` is not one, and neither is a line of
+// a wrapped comment that happens to begin with the marker and goes on talking (the site's
+// deploy.yml had one, and it failed the build as a ThenChange with no IfChange above it).
+const IF = /^\s*(?:\/\/|#|<!--|\/\*|\*)\s*LINT\.IfChange(?:\(([\w.-]+)\))?\s*(?:-->|\*\/)?\s*$/;
+const THEN = /^\s*(?:\/\/|#|<!--|\/\*|\*)\s*LINT\.ThenChange\(([^)]*)\)\s*(?:-->|\*\/)?\s*$/;
 
 /** The files a block can live in: tracked text, minus this checker, its test and the generated. */
 export function candidateFiles(files = trackedFiles()): string[] {
