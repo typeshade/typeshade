@@ -529,8 +529,14 @@ function lowerOne(
         sourceFile,
         decl,
         `Module const "${name}" is ${authorTypeText(type)}, but its initializer is ` +
-          `${authorTypeText(init.type)}. Cast it, e.g. ${authorTypeText(type)}(...), or change ` +
-          `the annotation.`,
+          `${authorTypeText(init.type)}. ` +
+          // A conversion of the call, or a splat of it into a vector of its own element, is a
+          // module const; any other call around it (`A(...)`, `vec3u(u32(...))`, `bool(...)`,
+          // `f64(...)`) is not one, so the annotation is what changes (Rule 12.1).
+          ((type.kind === 'scalar' && type.scalar !== 'bool') ||
+          (type.kind === 'vec' && typeKey(init.type) === type.elem)
+            ? `Cast it, e.g. ${authorTypeText(type)}(...), or change the annotation.`
+            : `Change the annotation to ${authorTypeText(init.type)}.`),
         TS_CODES.TYPE_MISMATCH,
       ),
     );

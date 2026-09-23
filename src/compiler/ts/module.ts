@@ -327,6 +327,7 @@ function compileAllSources(
     });
   }
   const merged = mergeDeclarations(perFile, diagnostics);
+  // Each file's collection bound its own classes' written forms; the lowering reads every file's.
   useWrittenStructs(merged.structs);
 
   // BEFORE the bodies are filled, not after. `fillFunctionBody` takes the module constants as

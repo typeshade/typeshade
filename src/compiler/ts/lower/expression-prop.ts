@@ -425,8 +425,9 @@ export function lowerObjectLiteral(
       diagnostics,
       sourceFile,
       node,
-      `"${declared.name}" has the ${hidden.access} field "${hidden.written}", which an object ` +
-        `literal cannot set. Build it with "new ${declared.name}(...)".`,
+      `"${authorTypeText(structT(declared.name))}" has the ${hidden.access} field ` +
+        `"${hidden.written}", which an object literal cannot set. Build it with ` +
+        `"new ${authorTypeText(structT(declared.name))}(...)".`,
       TS_CODES.STRUCT_FIELD,
     );
     return undefined;
@@ -442,6 +443,8 @@ export function lowerObjectLiteral(
     );
     return undefined;
   }
+  // A class in a namespace or an instance of a generic one is named as written, `N.P`.
+  const written = authorTypeText(structT(match.name));
   // Only where the struct is DECLARED. On the fallback path `matchStruct` has already equated
   // the struct's field count with the literal's UNIQUE name count and checked that every field
   // is among those names, so a name it does not have cannot reach here — and the count guard
@@ -460,7 +463,7 @@ export function lowerObjectLiteral(
           diagnostics,
           sourceFile,
           p.at,
-          `Struct ${match.name} has no field "${p.name}", which this spread brings in.`,
+          `Struct ${written} has no field "${p.name}", which this spread brings in.`,
           TS_CODES.STRUCT_FIELD,
         );
         return undefined;
@@ -470,7 +473,7 @@ export function lowerObjectLiteral(
         diagnostics,
         sourceFile,
         p.key,
-        unknownNameSentence(`Struct ${match.name} has no field "${p.name}".`, p.name, [
+        unknownNameSentence(`Struct ${written} has no field "${p.name}".`, p.name, [
           match.fields.map((f) => f.name),
         ]),
         TS_CODES.STRUCT_FIELD,
@@ -510,7 +513,7 @@ export function lowerObjectLiteral(
         diagnostics,
         sourceFile,
         node,
-        `Missing field "${field.name}" for struct ${match.name}.`,
+        `Missing field "${field.name}" for struct ${written}.`,
         TS_CODES.STRUCT_FIELD,
       );
       return undefined;
@@ -520,7 +523,7 @@ export function lowerObjectLiteral(
         diagnostics,
         sourceFile,
         node,
-        numericMismatch(`field ${match.name}.${field.name}`, field.type, expr.type),
+        numericMismatch(`field ${written}.${field.name}`, field.type, expr.type),
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;

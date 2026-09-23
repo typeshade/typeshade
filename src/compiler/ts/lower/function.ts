@@ -2453,7 +2453,7 @@ function refuseVertexWithoutPosition(
       sourceFile,
       node,
       `"${name}" is a @vertex entry, so what it returns has to carry the position: give ` +
-        `"${ret.name}" a field with @builtin("position"), typed vec4.`,
+        `"${authorTypeText(ret)}" a field with @builtin("position"), typed vec4.`,
       TS_CODES.FUNCTION_SHAPE,
     );
     return;

@@ -8,7 +8,7 @@ import { authorTypeName } from './type-map.js';
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js';
 import type { FuncDecl, Stmt, StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import type { CollectedStruct, PrivateField, RestrictedField } from './structs.js';
+import type { PrivateField, RestrictedField } from './structs.js';
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js';
 import type { FunctionShape } from './lower/function-types.js';
 import type { ClassFunction } from './lower/class-methods.js';
@@ -295,11 +295,20 @@ export function withWrittenStructs<R>(f: () => R): R {
   }
 }
 
+/** What {@link useWrittenStructs} reads a struct's written form off: the name it is emitted
+ *  under, the class declaration it comes from, and what that class's type parameters are bound
+ *  to. A `CollectedStruct` is one. */
+export interface StructOrigin {
+  readonly decl: { readonly name: string };
+  readonly classNode?: ts.ClassDeclaration;
+  readonly binding?: ReadonlyMap<string, ShaderType>;
+}
+
 /** Binds the written form of every class in `structs` whose emitted name differs from it, for
  *  the rest of the compile {@link withWrittenStructs} is running. Read off the declaration the
  *  struct was collected from, not off its emitted name, which cannot be split back: a
  *  top-level class may be called `N_P` itself. */
-export function useWrittenStructs(structs: readonly CollectedStruct[]): void {
+export function useWrittenStructs(structs: readonly StructOrigin[]): void {
   const written = new Map<string, WrittenStruct>();
   for (const s of structs) {
     const node = s.classNode;
@@ -315,15 +324,17 @@ export function useWrittenStructs(structs: readonly CollectedStruct[]): void {
   WRITTEN_STRUCTS = written;
 }
 
-/** How a diagnostic spells a type back to the author: every message the front end writes that
- *  names a type names it through this (Rule 12.1, Rule 12.7), and so does the interstage check
- *  it runs from `src/core`. {@link typeKey} is the COMPILER's key and is NOT a
- *  spelling: it writes a struct as `struct:Params`, an array with no space after the comma, and
- *  a vector or a non-square matrix with a type argument the ambient library does not declare
- *  (`vec4<f32>`, `mat2x3<f32>`). A remedy quoting any of those goes red the moment the author
- *  pastes it — measured, `declare const a: storage<array<vec4<f32>>, "read_write">` is TS2315
- *  "Type 'vec4' is not generic" in the editor while the compiler is clean — and a message
- *  naming one names a type the editor says does not exist.
+/** How a diagnostic spells a type back to the author (Rule 12.1, Rule 12.7): a message the front
+ *  end writes names the type of a value, a field, a parameter or a return through this, and a
+ *  struct as a whole (`Struct "N.E" has no fields`), and so does the interstage check it runs from
+ *  `src/core`. A sentence about one member of a class still names the class by the struct it emits
+ *  (`"N_P.m" is declared twice`). {@link typeKey} is the COMPILER's key and is NOT a spelling: it
+ *  writes a struct as `struct:Params`, an array with no space after the comma, and a vector or a
+ *  non-square matrix with a type argument the ambient library does not declare (`vec4<f32>`,
+ *  `mat2x3<f32>`). A remedy quoting any of those goes red the moment the author pastes it —
+ *  measured, `declare const a: storage<array<vec4<f32>>, "read_write">` is TS2315 "Type 'vec4' is
+ *  not generic" in the editor while the compiler is clean — and a message naming one names a type
+ *  the editor says does not exist.
  *
  *  So this spells the type in the SOURCE language, and every name it can produce comes from
  *  {@link authorTypeName}, the inverse of the very table `type-map.ts` parses a declaration

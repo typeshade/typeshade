@@ -30,7 +30,7 @@ import {
 } from './builtin-check.js';
 import { applyMixins, isMixinHeritage, mixedMembers, type MixinApplication } from './mixins.js';
 import { pushTypeArguments } from './generics.js';
-import { authorTypeText } from './context.js';
+import { authorTypeText, useWrittenStructs, type StructOrigin } from './context.js';
 import {
   genericClasses,
   genericStructName,
@@ -182,6 +182,9 @@ export function collectStructs(
     (node) => mapTsTypeToShaderType(node, sourceFile, undefined),
     diagnostics,
   );
+  // Every class's written form is bound before any is walked: a sentence about a field, a base
+  // or a @location may name a class the walk has not reached (`N.P`, not the emitted `N_P`).
+  useWrittenStructs(classStructs(sourceFile, genericParams, instances));
   const candidates = collectCandidates(sourceFile);
   const reachable = reachableCandidates(sourceFile, candidates);
   const out: CollectedStruct[] = [];
@@ -270,8 +273,8 @@ export function collectStructs(
           diag(
             sourceFile,
             node,
-            `Struct "${name}" has no fields. WGSL requires a struct to declare at least one ` +
-              `member, so an empty one cannot be emitted.` +
+            `Struct "${authorTypeText(structT(name))}" has no fields. WGSL requires a struct to ` +
+              `declare at least one member, so an empty one cannot be emitted.` +
               (members !== undefined && (members.methods.length > 0 || members.accessors.length > 0)
                 ? ` A class holding only functions is not a struct; write them as functions.`
                 : ''),
@@ -1285,6 +1288,33 @@ function basesOf(
   return { bases: out, bodies };
 }
 
+/** Every struct a class declaration of the file emits, with the declaration and what its type
+ *  parameters are bound to, found the way {@link collectStructs} walks them: a class in a
+ *  namespace under its flattened name, a generic class once per set of type arguments the file
+ *  writes. */
+function classStructs(
+  sourceFile: ts.SourceFile,
+  genericParams: ReadonlyMap<string, unknown>,
+  instances: ReadonlyMap<string, readonly StructInstance[]>,
+): StructOrigin[] {
+  const out: StructOrigin[] = [];
+  eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt, prefix) => {
+    if (!ts.isClassDeclaration(stmt) || !stmt.name) return;
+    const written = prefix === '' ? stmt.name.text : namespaceMemberName(prefix, stmt.name.text);
+    const cases: readonly StructInstance[] = genericParams.has(written)
+      ? (instances.get(written) ?? [])
+      : [{ name: written, binding: undefined }];
+    for (const c of cases) {
+      out.push({
+        decl: { name: c.name },
+        classNode: stmt,
+        ...(c.binding !== undefined ? { binding: c.binding } : {}),
+      });
+    }
+  });
+  return out;
+}
+
 /** Splice each struct's bases into it, base fields first (roadmap 0.3 item T5, #92). Runs
  *  after the whole file is collected, because TypeScript lets a derived declaration stand
  *  above its base, and resolves depth first so a chain of three inherits the whole prefix.
@@ -1310,6 +1340,8 @@ function applyInheritance(
   const done = new Map<string, Resolved>();
   const onStack: string[] = [];
   const at = (n: string): ts.Node => nodeOf.get(n) ?? sourceFile;
+  /** A class as its author wrote it, `N.P` for the struct `N_P`. */
+  const shown = (n: string): string => authorTypeText(structT(n));
   const ownOf = (s: CollectedStruct): Resolved => ({
     fields: s.decl.fields,
     privates: s.privateFields ?? new Map(),
@@ -1336,8 +1368,11 @@ function applyInheritance(
         diag(
           sourceFile,
           at(name),
-          `"${name}" extends itself, through ${[...onStack.slice(onStack.indexOf(name)), name]
-            .map((n) => `"${n}"`)
+          `"${shown(name)}" extends itself, through ${[
+            ...onStack.slice(onStack.indexOf(name)),
+            name,
+          ]
+            .map((n) => `"${shown(n)}"`)
             .join(' -> ')}. A struct cannot contain its own fields.`,
         ),
       );
@@ -1371,9 +1406,10 @@ function applyInheritance(
           diag(
             sourceFile,
             at(name),
-            `"${prior.from}" declares "${prior.private?.written ?? f.name}" and "${from}" ` +
-              `declares "${priv?.written ?? f.name}", which would both be the struct member ` +
-              `"${f.name}": a private name is emitted without its "#". Rename one of them.`,
+            `"${shown(prior.from)}" declares "${prior.private?.written ?? f.name}" and ` +
+              `"${shown(from)}" declares "${priv?.written ?? f.name}", which would both be the ` +
+              `struct member "${f.name}": a private name is emitted without its "#". Rename one ` +
+              `of them.`,
           ),
         );
         return;
@@ -1383,9 +1419,9 @@ function applyInheritance(
         diag(
           sourceFile,
           at(name),
-          `"${from}" declares "${f.name}" as ${authorTypeText(f.type)}, and "${prior.from}" ` +
-            `declares it as ${authorTypeText(prior.field.type)}. A struct has one layout, so a ` +
-            `field cannot change type on the way down.`,
+          `"${shown(from)}" declares "${f.name}" as ${authorTypeText(f.type)}, and ` +
+            `"${shown(prior.from)}" declares it as ${authorTypeText(prior.field.type)}. A struct ` +
+            `has one layout, so a field cannot change type on the way down.`,
         ),
       );
     };
@@ -1444,8 +1480,8 @@ function applyInheritance(
       diag(
         sourceFile,
         at(s.decl.name),
-        `Struct "${s.decl.name}" has no fields, and neither has what it extends. WGSL requires ` +
-          `a struct to declare at least one member.`,
+        `Struct "${shown(s.decl.name)}" has no fields, and neither has what it extends. WGSL ` +
+          `requires a struct to declare at least one member.`,
       ),
     );
   }
@@ -1688,6 +1724,8 @@ function checkLocationSlots(
   fields: readonly StructField[],
 ): void {
   const at = node ?? sourceFile;
+  // A class in a namespace or an instance of a generic one is named as written, `N.VOut`.
+  const shown = authorTypeText(structT(structName));
   const atLocation = new Map<string, string>();
   const blendSources = new Set<number>();
   for (const field of fields) {
@@ -1700,7 +1738,7 @@ function checkLocationSlots(
         makeDiagnostic(
           sourceFile,
           at,
-          `Struct "${structName}" puts "${prev}" and "${field.name}" both at ` +
+          `Struct "${shown}" puts "${prev}" and "${field.name}" both at ` +
             `@location(${String(field.location)})` +
             `${field.blendSrc !== undefined ? ` @blend_src(${String(field.blendSrc)})` : ''}; ` +
             `each slot carries one value.`,
@@ -1712,7 +1750,7 @@ function checkLocationSlots(
       diagnostics,
       sourceFile,
       at,
-      `${structName}.${field.name}`,
+      `${shown}.${field.name}`,
       field.type,
       field.interpolate,
     );
@@ -1729,7 +1767,7 @@ function checkLocationSlots(
       makeDiagnostic(
         sourceFile,
         at,
-        `Struct "${structName}" declares @blend_src(${String(only)}) and not ` +
+        `Struct "${shown}" declares @blend_src(${String(only)}) and not ` +
           `@blend_src(${String(1 - only)}); a dual-source blend mixes two colours, so both sit ` +
           `at the same @location.`,
         TS_CODES.STRUCT_FIELD,

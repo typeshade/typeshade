@@ -1785,7 +1785,8 @@ right-hand side that is not a call is refused (TS8099), as the bare statement is
 takes it as the compiler does. `_` is not a name the ambient library declares, since no source
 of the surface gives it one, so the language service drops TypeScript's `TS2304` ("Cannot find
 name '_'") on the `_` of that statement and nowhere else: `_ = max(a, 1.)` is clean, `_ = a + 1.`
-reads as the compiler's one refusal, and a `_` read as a value keeps the `TS2304`.
+reads as the compiler's one refusal, and a `_` read as a value is an unknown name, the
+compiler's `TS8022`.
 
 **A call that writes a binding is the one impure expression the IR has**, and the optimizer
 knows it. The effect table (`src/core/passes/effects.ts`) names the bindings each function

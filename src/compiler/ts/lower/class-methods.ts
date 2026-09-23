@@ -1880,7 +1880,9 @@ export function lowerClassCall(
     return 'not-a-class-call';
   }
   const name = recv.type.name;
-  const shown = `${name}.${member}`;
+  // A class in a namespace or an instance of a generic one is named as written, `N.P`.
+  const written = authorTypeText(recv.type);
+  const shown = `${written}.${member}`;
   const found = memberFunctionOf(name, member, 'method', scope);
   if (found === undefined) {
     const taken = scope.resolveCallee(methodFnName(name, emittedMemberName(member)));
@@ -1896,9 +1898,9 @@ export function lowerClassCall(
         ? `"${shown}" is an accessor, not a method; read or assign it without the call: ` +
             `v.${member}.`
         : field
-          ? `"${member}" is a field of ${name}, not a method.`
+          ? `"${member}" is a field of ${written}, not a method.`
           : // On the member, as TypeScript's TS2339 is, with the method it is spelled like.
-            unknownNameSentence(`"${name}" has no method "${member}".`, member, [
+            unknownNameSentence(`"${written}" has no method "${member}".`, member, [
               [name, ...scope.ancestorsOf(name)].flatMap((c) => methodNames(c, sourceFile)),
             ]),
     );
@@ -1913,7 +1915,7 @@ export function lowerClassCall(
       diagnostics,
       sourceFile,
       callee,
-      `"${shown}" is static; call it on the class: ${name}.${member}(...).`,
+      `"${shown}" is static; call it on the class: ${written}.${member}(...).`,
     );
     return undefined;
   }

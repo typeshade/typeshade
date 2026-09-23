@@ -11,6 +11,7 @@ import {
   LoweringScope,
   authorTypeText,
   irNameOf,
+  isRecoveredBinding,
   readOnlyPhrase,
   writableRemedy,
   writeRules,
@@ -1571,6 +1572,9 @@ export function lowerLValue(
     refuseParamWrite(node, node.text, sourceFile, diagnostics);
     return undefined;
   }
+  // A write to a binding whose declared type was refused says nothing more, as a read of it
+  // does (`lowerIdentifier`, Rule 12.4): its type is the mapper's placeholder, not one written.
+  if (binding.kind === 'binding' && isRecoveredBinding(sourceFile, binding.name)) return undefined;
   binding.capture?.byRef();
   return withSpan(
     {

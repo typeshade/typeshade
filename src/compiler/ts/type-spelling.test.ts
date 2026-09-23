@@ -363,8 +363,241 @@ describe('the messages round one left on the key', () => {
           `@compute([1, 1, 1]) export function cs(): void { const y = ${read}; }`,
         ].join('\n'),
       );
-      expect(messages).toHaveLength(1);
-      expect(messages[0]).toMatch(/^TS8002 Unknown type "vec2h"\./);
+      expect(messages).toEqual(['TS8002 Unknown type "vec2h". Did you mean "vec2"?']);
     }
+  });
+});
+
+describe('a class named while the structs are collected, and a sentence about a struct itself', () => {
+  const ns = [
+    '"use typeshade";',
+    'namespace N {',
+    '  export class P { x: f32 = 0.; y: f32 = 0.; }',
+    '  export class In { p: vec3 = vec3(0.); }',
+    '}',
+    'class Slot<T> { v: T; constructor(v: T) { this.v = v; } }',
+    '',
+  ].join('\n');
+  const saidOf = (body: string): string[] =>
+    compile(`${ns}${body}\n`).diagnostics.map((d) => `${d.code} ${d.message}`);
+
+  // The written names were bound once the structs had been collected, and these sentences are
+  // said while they are: they read `N_P`, `Slot_f32` and `N_In`.
+  it('a field a derived class retypes, with a class in a namespace or a generic one', () => {
+    expect(
+      saidOf(
+        [
+          'class A { f: N.P = new N.P(); }',
+          'class B extends A { f: f32 = 0.; }',
+          'class C { s: Slot<f32> = new Slot<f32>(1.); }',
+          'class D extends C { s: Slot<i32> = new Slot<i32>(1); }',
+          'export function k(b: B, d: D): f32 { return 1.; }',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      'TS8010 "B" declares "f" as f32, and "A" declares it as N.P. A struct has one layout, so ' +
+        'a field cannot change type on the way down.',
+      'TS8010 "D" declares "s" as Slot<i32>, and "C" declares it as Slot<f32>. A struct has one ' +
+        'layout, so a field cannot change type on the way down.',
+    ]);
+  });
+
+  it('a class at a @location, and at a builtin', () => {
+    expect(
+      saidOf(
+        [
+          'class VO {',
+          '  @builtin("position") pos: vec4 = vec4(0.);',
+          '  @location(0) b: N.In = new N.In();',
+          '  @location(1) c: Slot<f32> = new Slot<f32>(1.);',
+          '}',
+          '@vertex export function vs(): VO { return new VO(); }',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      'TS8003 "VO.b" is at a @location and is "N.In"; a value passed between stages is a ' +
+        'numeric scalar or a numeric vector. Send its components as separate locations.',
+      'TS8003 "VO.c" is at a @location and is "Slot<f32>"; a value passed between stages is a ' +
+        'numeric scalar or a numeric vector. Send its components as separate locations.',
+    ]);
+    // Said twice, at the field and at the entry, and now in one spelling.
+    expect(
+      saidOf(
+        [
+          'class VO { @builtin("position") pos: N.In = new N.In(); }',
+          '@vertex export function vs(): VO { return new VO(); }',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      'TS8003 Builtin "position" is "vec4"; this declares it "N.In".',
+      'TS8003 Builtin "position" is "vec4"; this declares it "N.In".',
+    ]);
+  });
+
+  it('an object literal, a vertex entry and a method call of a class in a namespace', () => {
+    expect(
+      saidOf('export function k(): f32 { const p: N.P = { x: 1., y: 2., z: 3. }; return p.x; }'),
+    ).toEqual(['TS8010 Struct N.P has no field "z".']);
+    expect(saidOf('export function k(): f32 { const p: N.P = { x: 1. }; return p.x; }')).toEqual([
+      'TS8010 Missing field "y" for struct N.P.',
+    ]);
+    expect(saidOf('export function k(p: N.P): f32 { return p.q(); }')).toEqual([
+      'TS8035 "N.P" has no method "q".',
+    ]);
+    expect(
+      saidOf(
+        [
+          'namespace S { export class VOut { @location(0) uv: vec2 = vec2(0.); } }',
+          '@vertex export function vs(): S.VOut { return new S.VOut(); }',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      'TS8020 "vs" is a @vertex entry, so what it returns has to carry the position: give ' +
+        '"S.VOut" a field with @builtin("position"), typed vec4.',
+    ]);
+  });
+
+  it('a member a call reaches on a class in a namespace, and a generic class built as a literal', () => {
+    expect(saidOf('export function k(p: N.P): f32 { return p.x(); }')).toEqual([
+      'TS8035 "x" is a field of N.P, not a method.',
+    ]);
+    // The call this names, `N.P.m()`, is refused today where the namespace is read as a value
+    // (TS8022 Unknown identifier "N"), a gap of its own; the spelling is the one the editor reads.
+    expect(
+      compile(
+        [
+          '"use typeshade";',
+          'namespace N { export class P { x: f32 = 0.; static m(): f32 { return 1.; } } }',
+          'export function k(p: N.P): f32 { return p.m(); }',
+          '',
+        ].join('\n'),
+      ).diagnostics.map((d) => `${d.code} ${d.message}`),
+    ).toEqual(['TS8035 "N.P.m" is static; call it on the class: N.P.m(...).']);
+    const box = 'class Box<T> { #h: f32 = 0.; v: T; constructor(v: T) { this.v = v; } }';
+    expect(
+      saidOf(`${box}\nexport function k(): f32 { const b: Box<f32> = { v: 1. }; return b.v; }`),
+    ).toEqual([
+      'TS8010 "Box<f32>" has the private field "#h", which an object literal cannot set. Build ' +
+        'it with "new Box<f32>(...)".',
+    ]);
+    expect(
+      saidOf(
+        `${box}\nexport function k(): f32 { const b: Box<f32> = new Box<f32>(1.); return b.v; }`,
+      ),
+    ).toEqual([]);
+    expect(
+      saidOf(
+        [
+          'class Two<T> { #v: f32 = 0.; w: T; constructor(w: T) { this.w = w; } }',
+          'class D extends Two<f32> { #v: f32 = 1.; }',
+          'export function k(d: D): f32 { return d.w; }',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      'TS8010 "Two<f32>" declares "#v" and "D" declares "#v", which would both be the struct ' +
+        'member "v": a private name is emitted without its "#". Rename one of them.',
+    ]);
+  });
+
+  it('a struct declared in a namespace, as the sentence about its declaration names it', () => {
+    expect(
+      saidOf(
+        [
+          'namespace S {',
+          '  export class E {}',
+          '  export class VOut {',
+          '    @builtin("position") pos: vec4 = vec4(0.);',
+          '    @location(0) uv: vec2 = vec2(0.);',
+          '    @location(0) c: vec2 = vec2(0.);',
+          '  }',
+          '  export class L { xs: array<f32>; n: u32 = 0; }',
+          '}',
+          'declare const b: storage<S.L, "read_write">;',
+          'export function k(e: S.E): f32 { return 1.; }',
+          '@vertex export function vs(): S.VOut { return new S.VOut(); }',
+          '@compute([1, 1, 1]) export function cs(): void { b.n = 1; }',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      'TS8010 Struct "S.E" has no fields. WGSL requires a struct to declare at least one ' +
+        'member, so an empty one cannot be emitted.',
+      'TS8010 Struct "S.VOut" puts "uv" and "c" both at @location(0); each slot carries one ' +
+        'value.',
+      'TS8051 "S.L.xs" is a list of no fixed length and is not the last field of "S.L": nothing ' +
+        'after it has an offset. Move it last, or give it a length.',
+    ]);
+    expect(
+      compile(
+        [
+          '"use typeshade";',
+          '"enable dual_source_blending";',
+          'namespace S { export class FOut { @location(0) @blend_src(0) c: vec4 = vec4(0.); } }',
+          '@fragment export function fs(): S.FOut { return new S.FOut(); }',
+          '',
+        ].join('\n'),
+      ).diagnostics.map((d) => `${d.code} ${d.message}`),
+    ).toEqual([
+      'TS8010 Struct "S.FOut" declares @blend_src(0) and not @blend_src(1); a dual-source blend ' +
+        'mixes two colours, so both sit at the same @location.',
+    ]);
+  });
+
+  it('a write to a binding whose type was refused says nothing more', () => {
+    // The placeholder `mat2x3` printed as the f32 matrix it is not: "cannot assign to mat2x3
+    // mat2x3 and mat2x3". The refusal at the declaration is the one mistake (Rule 12.4).
+    expect(
+      said(
+        [
+          'declare const mnd: storage<mat2x3<f64>, "read_write">;',
+          'declare const vh: storage<array<vec2h>, "read_write">;',
+          'declare const o: storage<array<f32>, "read_write">;',
+          '@compute([1, 1, 1]) export function cs(): void {',
+          '  mnd = mat2x3();',
+          '  mnd *= 2.;',
+          '  vh++;',
+          '  let m = mnd;',
+          '  o[0] = f32(m[0].x);',
+          '}',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      'TS8027 mat2x3<f64> has no emulated-double form: the fp64 pass carries a square matrix of ' +
+        'doubles only (mat2, mat3, mat4). Declare it mat2x3 and narrow, or use a square shape.',
+      'TS8002 Unknown type "vec2h". Did you mean "vec2"?',
+    ]);
+  });
+
+  it('a module const whose annotation no call converts to names the annotation, which compiles', () => {
+    // "Cast it, e.g. A(...)" named a call a class does not have, and `mat3x3<f64>(...)` and
+    // `vec3u(u32(...))` are no module const either.
+    expect(
+      said(
+        [
+          'const K: A = sin(1.);',
+          'const L: Slot<f32> = sin(1.);',
+          'const M: vec3u = sin(1.);',
+          'const Q: mat3x3<f64> = sin(1.);',
+          'class Slot<T> { v: T; constructor(v: T) { this.v = v; } }',
+          'export function k(): f32 { return 1.; }',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      'TS8003 Module const "K" is A, but its initializer is f32. Change the annotation to f32.',
+      'TS8003 Module const "L" is Slot<f32>, but its initializer is f32. Change the annotation ' +
+        'to f32.',
+      'TS8003 Module const "M" is vec3u, but its initializer is f32. Change the annotation to ' +
+        'f32.',
+      'TS8003 Module const "Q" is mat3x3<f64>, but its initializer is f32. Change the ' +
+        'annotation to f32.',
+    ]);
+    expect(said('const K: f32 = sin(1.);\nexport function k(): f32 { return K; }')).toEqual([]);
+    // A scalar keeps its cast, which is a module const.
+    expect(said('const U: u32 = sin(1.);\nexport function k(): u32 { return U; }')).toEqual([
+      'TS8003 Module const "U" is u32, but its initializer is f32. Cast it, e.g. u32(...), or ' +
+        'change the annotation.',
+    ]);
+    expect(said('const U: u32 = u32(sin(1.));\nexport function k(): u32 { return U; }')).toEqual(
+      [],
+    );
   });
 });

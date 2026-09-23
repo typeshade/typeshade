@@ -3,7 +3,7 @@ import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { authorTypeText, type LoweringScope } from '../context.js';
+import { authorTypeText, isRecoveredBinding, type LoweringScope } from '../context.js';
 import { irNameOf, readOnlyPhrase, writableRemedy, writeRules } from '../context.js';
 import {
   analyzeCountedFor,
@@ -731,6 +731,10 @@ export function lowerUpdate(
       // was `a = (a + 1);`, which Tint refuses with `cannot assign to parameter 'a'`.
       if (rules.kind === 'param') {
         refuseParamWrite(expr, targetExpr.text, sourceFile, diagnostics);
+        return undefined;
+      }
+      // A binding whose declared type was refused says nothing more (see `lowerLValue`).
+      if (binding.kind === 'binding' && isRecoveredBinding(sourceFile, binding.name)) {
         return undefined;
       }
       binding.capture?.byRef();

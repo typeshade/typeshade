@@ -38,7 +38,7 @@ import {
 } from './diagnostic-directive.js';
 import { uniformityViolations, type UniformityViolation } from '../../core/passes/uniformity.js';
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js';
-import { authorTypeText, useWrittenStructs, withWrittenStructs } from './context.js';
+import { authorTypeText, withWrittenStructs } from './context.js';
 
 /** Options controlling compilation of a TypeShade TypeScript source string. */
 export interface CompileTsSourceOptions {
@@ -220,7 +220,6 @@ function compileOneSource(source: string, options: CompileTsSourceOptions): Comp
   const enables = collectEnables(sourceFile, diagnostics);
   const directives = collectDiagnosticDirectives(sourceFile, diagnostics);
   const structs = collectStructs(sourceFile, diagnostics, symbols);
-  useWrittenStructs(structs);
   // The structs, so a buffer binding's host-shareable rules can be read through its struct
   // type (§51) — collected first, which this order already guaranteed.
   const bindings = collectBindings(
