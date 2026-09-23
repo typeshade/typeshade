@@ -1,7 +1,7 @@
 ---
 id: '0003'
 title: A setter with no type takes the type its getter's body returns
-status: draft
+status: accepted
 rules:
 - '8.19'
 surface:

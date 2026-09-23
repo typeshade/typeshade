@@ -1,7 +1,7 @@
 ---
 id: '0002'
 title: A method, a constructor and a local function take a function, as a function of the file does
-status: draft
+status: accepted
 rules:
 - '7.2'
 - '8.10'

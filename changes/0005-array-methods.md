@@ -1,7 +1,7 @@
 ---
 id: '0005'
 title: An array's map, reduce, some, every and forEach take a function, as TypeScript's do
-status: draft
+status: accepted
 rules:
 - '2.1'
 - '7.2'

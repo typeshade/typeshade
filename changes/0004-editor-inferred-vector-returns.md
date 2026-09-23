@@ -1,7 +1,7 @@
 ---
 id: '0004'
 title: The editor types a function whose body returns vector arithmetic as the compiler does
-status: draft
+status: accepted
 rules: []
 surface:
 - 14
