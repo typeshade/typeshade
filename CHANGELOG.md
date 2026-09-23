@@ -1392,13 +1392,12 @@ structures in ESSL 1.0 and webgl`, and the same for arrays. That second half cor
   constant folder hides the easy case, so it takes a runtime condition AND two distinguishable
   arms to reach.
 - **The README's `tsconfig.shade.json` loads `typeshade/shade`.** Copied as written into a
-  fresh project with `typeshade` installed, it was `TS2688 Cannot find type definition file
-  for 'typeshade/shade'` and `TS2318 Cannot find global type 'Array'` (and nine more), so no
-  shader was type-checked at all. `typeshade/shade` is a subpath export, and TypeScript 5.x
-  falls back to `node10` resolution, which does not read `exports`. The snippet now sets
-  `"module": "esnext"` and `"moduleResolution": "bundler"`, and the README says why. Copied
-  again, it leaves exactly the two error classes the README documents: TS1206 on decorators,
-  and operators on vectors.
+  fresh project with `typeshade` installed, it failed with TS2688 (no type definition file for
+  `typeshade/shade`) and TS2318 for `Array` and nine more global types, so no shader was
+  type-checked at all. `typeshade/shade` is a subpath export, and TypeScript 5.x falls back to
+  `node10` resolution, which does not read `exports`. The snippet now sets `"module": "esnext"`
+  and `"moduleResolution": "bundler"`, and the README says why. Copied again, it leaves exactly
+  the two error classes the README documents: TS1206 on decorators, and operators on vectors.
 
 ### Changed
 
