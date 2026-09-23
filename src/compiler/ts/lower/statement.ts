@@ -11,6 +11,20 @@ import { parseSwizzle } from '../swizzle.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import { lowerBarrierStatement } from './barriers.js'
 import { classFunctionOf, lowerMutatingCall } from './class-methods.js'
+import {
+  destructuredGetter,
+  finishAccessorWrite,
+  getterInChain,
+  lowerAccessorTarget,
+  lowerStaticFieldTarget,
+  refuseReadonlyWrite,
+  refuseWriteThroughGetter,
+  staticConstantWrite,
+  staticFieldBinding,
+  staticOwnerOf,
+  visibleField,
+  type AccessorTarget,
+} from './class-access.js'
 import { lowerUserCall } from './expression-misc.js'
 import { localFunctionOf } from './local-functions.js'
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js'
@@ -712,8 +726,21 @@ function readField(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   if (base.type.kind === 'struct') {
-    const type = scope.fieldType(base.type.name, field)
+    // A pattern names public members only: `#x` is not a property to destructure, and `x` does
+    // not reach it (Rule 8.12). A getter is read by calling it, as TypeScript's pattern does
+    // (Rule 8.11).
+    const type = visibleField(base.type.name, field, at, scope)
     if (!type) {
+      const read = destructuredGetter(
+        base.type.name,
+        field,
+        base,
+        at,
+        sourceFile,
+        scope,
+        diagnostics,
+      )
+      if (read !== 'none') return read
       pushDiag(
         diagnostics,
         sourceFile,
@@ -901,29 +928,35 @@ function lowerAssign(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
-  const target = lowerLValue(left, sourceFile, scope, diagnostics)
-  if (!target) return undefined
+  // `o.x = v` where `x` is an accessor is a call of its setter (Rule 8.11).
+  const accessor = lowerAccessorTarget(left, false, sourceFile, scope, diagnostics)
+  if (accessor === undefined) return undefined
+  const target =
+    accessor === 'not-an-accessor' ? lowerLValue(left, sourceFile, scope, diagnostics) : undefined
+  if (accessor === 'not-an-accessor' && !target) return undefined
+  if (target && refuseReadonlyWrite(target, left, sourceFile, scope, diagnostics)) return undefined
+  const want = target?.type ?? (accessor as AccessorTarget).type
   // The target's type is the context for the right-hand side, so `o = { x: 1., y: 2. }` knows
   // which struct it builds the same way `const o: A = { … }` does (#8 A11). An assignment
   // target is a DECLARED position: the name was annotated where it was declared, and the
   // lvalue carries that type here. Without this the literal fell through to the
   // unique-struct fallback and a second struct of the same shape refused it.
-  let value = lowerExpression(right, sourceFile, scope, diagnostics, target.type)
+  let value = lowerExpression(right, sourceFile, scope, diagnostics, want)
   if (!value) return undefined
   // `x = 2` takes the target's type when it is i32 or u32 (#8 A3); the compound form already
   // did through lowerAssignOp.
-  value = retargetIntLitCtx(value, right, target.type)
-  if (typeKey(target.type) !== typeKey(value.type)) {
+  value = retargetIntLitCtx(value, right, want)
+  if (typeKey(want) !== typeKey(value.type)) {
     pushDiag(
       diagnostics,
       sourceFile,
       right,
-      numericMismatch(`assign to ${typeKey(target.type)}`, target.type, value.type),
+      numericMismatch(`assign to ${typeKey(want)}`, want, value.type),
       TS_CODES.TYPE_MISMATCH,
     )
     return undefined
   }
-  return { s: 'assign', target, expr: value }
+  return target ? { s: 'assign', target, expr: value } : (accessor as AccessorTarget).write(value)
 }
 
 /**
@@ -945,8 +978,36 @@ function lowerBitwiseAssignOp(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
-  const target = lowerLValue(left, sourceFile, scope, diagnostics)
+  const accessor = lowerAccessorTarget(left, true, sourceFile, scope, diagnostics)
+  if (accessor === undefined) return undefined
+  return finishAccessorWrite(
+    lowerBitwiseAssignOpTo(accessor, left, bop, right, sourceFile, scope, diagnostics),
+    accessor,
+  )
+}
+
+/** {@link lowerBitwiseAssignOp} once the target is known: a place, or an accessor whose getter
+ *  stands in for the read (Rule 8.11). */
+function lowerBitwiseAssignOpTo(
+  accessor: AccessorTarget | 'not-an-accessor',
+  left: ts.Expression,
+  bop: BinOp,
+  right: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  const target =
+    accessor === 'not-an-accessor'
+      ? lowerLValue(left, sourceFile, scope, diagnostics)
+      : accessor.read
   if (!target) return undefined
+  if (
+    accessor === 'not-an-accessor' &&
+    refuseReadonlyWrite(target, left, sourceFile, scope, diagnostics)
+  ) {
+    return undefined
+  }
   const k = typeKey(target.type)
   if (k !== 'i32' && k !== 'u32') {
     pushDiag(
@@ -1024,8 +1085,38 @@ function lowerAssignOp(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
-  const target = lowerLValue(left, sourceFile, scope, diagnostics)
+  // `o.x += v` where `x` is an accessor reads through its getter and writes through its setter
+  // (Rule 8.11): the checks below run on the getter's call as they would on a field.
+  const accessor = lowerAccessorTarget(left, true, sourceFile, scope, diagnostics)
+  if (accessor === undefined) return undefined
+  return finishAccessorWrite(
+    lowerAssignOpTo(accessor, left, bop, right, sourceFile, scope, diagnostics),
+    accessor,
+  )
+}
+
+/** {@link lowerAssignOp} once the target is known: a place, or an accessor whose getter stands
+ *  in for the read (Rule 8.11). */
+function lowerAssignOpTo(
+  accessor: AccessorTarget | 'not-an-accessor',
+  left: ts.Expression,
+  bop: BinOp,
+  right: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  const target =
+    accessor === 'not-an-accessor'
+      ? lowerLValue(left, sourceFile, scope, diagnostics)
+      : accessor.read
   if (!target) return undefined
+  if (
+    accessor === 'not-an-accessor' &&
+    refuseReadonlyWrite(target, left, sourceFile, scope, diagnostics)
+  ) {
+    return undefined
+  }
   let value = lowerExpression(right, sourceFile, scope, diagnostics)
   if (!value) return undefined
   // The same refusal `a / b` gets in lowerBinary (#68): a divisor proven zero is undefined on
@@ -1143,6 +1234,11 @@ export function lowerLValue(
   // walk looked through them, and the fallback message then denied its own input).
   const node = ts.isParenthesizedExpression(expression) ? unwrapParens(expression) : expression
   if (ts.isPropertyAccessExpression(node)) {
+    // `C.count = 1`, and `this.count += 1` in a static member: a static field the file writes
+    // is a module variable, and it is the place (Rule 8.13).
+    const statik = lowerStaticFieldTarget(node, sourceFile, scope, diagnostics)
+    if (statik === 'refused') return undefined
+    if (statik !== undefined) return statik
     return lowerMemberLValue(node, sourceFile, scope, diagnostics)
   }
   // `this` as a whole is a place inside a constructor or a method that changes its object,
@@ -1178,6 +1274,11 @@ export function lowerLValue(
         `Cannot assign to "${truncate(node.getText(sourceFile))}" — it is not a place.`,
         TS_CODES.ASSIGN_TARGET,
       )
+      return undefined
+    }
+    const getter = getterInChain(idx)
+    if (getter !== undefined) {
+      refuseWriteThroughGetter(node, getter, sourceFile, diagnostics)
       return undefined
     }
     // The lvalue carries its own span (docs/debugging.md §5 decision 3): a debugger stopped on
@@ -1247,6 +1348,32 @@ function rootLValueName(node: ts.Expression): ts.Identifier | ts.ThisExpression 
   return undefined
 }
 
+/** The static field at the root of a member or element chain, `C.v` in `C.v.x = 1.` or `this.v`
+ *  in a static member, with how a message names it; undefined for a chain rooted in a value. */
+function staticRootOf(
+  node: ts.Expression,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): { binding: Binding; owner: string; written: string } | undefined {
+  let at = unwrapParens(node)
+  for (;;) {
+    if (ts.isPropertyAccessExpression(at)) {
+      const owner = staticOwnerOf(at.expression, scope)
+      if (owner !== undefined) {
+        const binding = staticFieldBinding(owner, at.name.text, scope, sourceFile)
+        return binding === undefined ? undefined : { binding, owner, written: at.name.text }
+      }
+      at = unwrapParens(at.expression)
+      continue
+    }
+    if (ts.isElementAccessExpression(at)) {
+      at = unwrapParens(at.expression)
+      continue
+    }
+    return undefined
+  }
+}
+
 /** Lowers `v.x`, `o.pos`, `ps[i].a` and `o.pos.x` as an assignment target. The IR `assign`
  *  target already takes a `member` — the EDSL spells the same write `o.pos.assign(v)`, and
  *  WGSL, GLSL ES 3.00 and the CPU oracle all assign a struct field or a single vector
@@ -1280,6 +1407,20 @@ function checkRootWritable(
     return false
   }
   const rootName = ts.isIdentifier(root) ? root.text : 'this'
+  // A chain rooted in a static field, `C.v.x` or `this.v.x` in a static member: the static is
+  // the root that has to take the write (Rule 8.13).
+  const statik = staticRootOf(node, scope, sourceFile)
+  if (statik !== undefined) {
+    if (statik.binding.kind === 'modvar') return true
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      staticConstantWrite(statik.owner, statik.written, sourceFile),
+      TS_CODES.CONST_ASSIGN,
+    )
+    return false
+  }
   const binding = scope.resolve(rootName)
   if (!binding) {
     pushDiag(
@@ -1385,6 +1526,13 @@ function lowerMemberLValue(
   if (!checkRootWritable(node.expression, sourceFile, scope, diagnostics)) return undefined
   const target = lowerExpression(node, sourceFile, scope, diagnostics)
   if (!target) return undefined
+  // A write through what a getter returns lands on a copy (Rule 8.11): `o.pos.x = 1.` with
+  // `pos` an accessor, and `o.pos` itself as the receiver of a method that writes.
+  const getter = getterInChain(target)
+  if (getter !== undefined) {
+    refuseWriteThroughGetter(node, getter, sourceFile, diagnostics)
+    return undefined
+  }
   if (target.op !== 'member') {
     pushDiag(
       diagnostics,

@@ -179,6 +179,7 @@ Roadmap 0.6 item B1 (#97) will let a file hold both a shader and its host half; 
 ### 3.3. Identifiers
 
 **Rule 3.2.** An identifier is a TypeScript identifier that is also a WGSL identifier: a name that contains `$`, a name that is exactly `_`, and a name that starts with `__` must be refused on the declaration; the compiler must emit a declared name as written, and a member of a class or namespace as the flattened name `Owner_member`.
+A private member `#m` is emitted without its `#` (Rule 8.12), and the two halves of an accessor `m` as `Owner_get_m` and `Owner_set_m` (Rule 8.11).
 
 - Rationale: an author reads a diagnostic and an emitted module against the name they typed, so a rename the author cannot predict breaks that, and a name WGSL's identifier profile excludes is one Tint refuses in text the author never sees.
 - Derives from: [Identifiers](https://gpuweb.github.io/gpuweb/wgsl/#identifiers) (`<Start> := XID_Start + U+005F`, which admits no `$`; "an identifier must not be `_`"; "an identifier must not start with `__`", each a shader-creation error); surface §26 and §29 for the flattening.
@@ -437,6 +438,7 @@ An integer varying needs `@interpolate(flat)` on WGSL, and the compiler does not
 
 **Rule 6.9.** A struct must be the members written in it, in one of three spellings (`class`, `interface`, a `type` over an object literal).
 On a class or an interface with an `extends` clause it must be the base's members first and its own after, through a chain of any depth.
+A class's members include the fields its constructor's parameter properties declare, and a field written without a type takes the one its initializer names (Rule 8.14).
 A method or call signature, an index signature, and an optional member must be refused.
 
 - Rationale: a WGSL structure has no form for any of the three, and dropping one silently would change the buffer layout the host fills; a base's members are laid out where TypeScript's structural typing says they are, so an `extends` drops nothing.
@@ -472,6 +474,9 @@ A _counted loop_ is a loop whose trip count the compiler can compute from a cons
 | `[a, b]` in a typed position           | `array<T, 2>(a, b)`                                                       | surface §18 and §28                                                                                                 |
 | `{ field: value }` in a typed position | a struct constructor                                                      | surface §16                                                                                                         |
 | `obj.method()`                         | `Cls_method(obj, …)`, dispatched statically                               | surface §26                                                                                                         |
+| `o.x`, `o.x = v` on an accessor        | `Cls_get_x(o)`, `Cls_set_x(&o, v)`; `o.x += v` goes through both          | Rule 8.11; surface §26                                                                                              |
+| a private name `#x`                    | `x`, private through the front end's check alone                          | Rule 8.12; surface §26                                                                                              |
+| a static field the file writes         | a `var<private>` `Cls_f`, as a top-level `let` is                         | Rule 8.13; surface §26                                                                                              |
 | a call that writes, in an expression   | a `let` ahead of it, in source order; an `if` for `?:`, `&&` and `\|\|`   | Rule 7.9; surface §26                                                                                               |
 
 - Rationale: a TypeScript reader expects the TypeScript meaning, so every place the two languages differ has to be written down where the reader will look.
@@ -618,6 +623,38 @@ A receiver that is a parameter, a `const`, or a value nothing holds must be refu
 - Rationale: WGSL takes a place as a pointer and GLSL ES 3.00 as an `inout` parameter, and either leaves the return free for a value, so a generator's `next()` can advance its state and return the draw as TypeScript's own method does; the rule that such a method returns nothing belonged to the protocol that returned the struct itself, which the reference replaced.
 - Derives from: [Reference and Pointer Types](https://gpuweb.github.io/gpuweb/wgsl/#ref-ptr-types); [Function Calls](https://gpuweb.github.io/gpuweb/wgsl/#function-calls); GLSL ES 3.00 §6.1.1 ("Evaluation of an inout parameter results in both a value and an l-value"); surface §26 (design #86 step 2).
 - Enforced by: `TS8035 CLASS_MEMBER` for each refusal (`"Gen.next" changes its object, and "r" is declared with const; declare it with let.`), pinned by `src/compiler/ts/class-methods.test.ts`, which also holds the three CPU paths to one value for a method that changes its object and returns one; `src/compiler/ts/inout-params.test.ts`; `examples/orbit-inout.shade.ts`, `examples/particle-step.shade.ts` and `examples/rng-method.shade.ts` in the compile gate.
+
+**Rule 8.11.** A `get` or `set` accessor is a function of the module, `Owner_get_x` or `Owner_set_x`, which takes its object as a method does (Rule 8.10); a read of `o.x` must call the getter, and an assignment, a compound assignment, `++` and `--` must call the setter with the new value, the compound forms reading the old one through the getter.
+The nearest class of a chain that declares either half of an accessor owns both, as in TypeScript, and either half's annotation types the other when one has none.
+A read of an accessor with no getter, a write of one with no setter, and a write into what a getter returns (`o.pos.x = 1.`), which is a copy, must be refused with the remedy.
+
+- Rationale: an accessor is TypeScript's own spelling of a computed or checked property, and a function for each half is all it is once `this` has a name; a getter hands back a value and not a place, so a write through its result would change a copy and be lost where TypeScript changes the object.
+- Derives from: ECMAScript [method definitions](https://tc39.es/ecma262/#sec-method-definitions) (`get` and `set`) as TypeScript spells them; [Function Calls](https://gpuweb.github.io/gpuweb/wgsl/#function-calls); surface §26.
+- Enforced by: `TS8035 CLASS_MEMBER` for each refusal (`"C.y" has a getter and no setter, so it cannot be assigned. Declare "set y(value)" beside the getter.`) and `TS8018 ASSIGN_TARGET` for a write through a getter, pinned by `src/compiler/ts/class-syntax.test.ts`, which also holds the three CPU paths to the value the WGSL and GLSL ES 3.00 text computes; `examples/class-syntax.shade.ts` in the compile gate.
+
+**Rule 8.12.** A private name `#x` must be emitted without its `#`: a field as the struct member `x`, a method as `Owner_x`, an accessor as `Owner_get_x` and `Owner_set_x`, a static field as `Owner_x`.
+It may be named only inside the body of the class that declares it, which is TypeScript's rule and which the front end enforces because it does not run the checker; a public name never reaches a private member, and an object literal, a spread and a destructuring pattern do not reach one either.
+Two members of one class chain that would share an emitted name (`#x` beside `x`, or `#x` declared by a class and again by one that extends it) must be refused.
+
+- Rationale: WGSL and GLSL ES 3.00 have no private member and no `#` in a name, so privacy is a property of the source that the front end keeps, and it can keep it only while no emitted name stands for two members.
+- Derives from: ECMAScript [private names](https://tc39.es/ecma262/#sec-private-names) as TypeScript spells them (TS18013 for an access from outside, TS2741 for a literal of such a class); Rule 3.2; surface §26.
+- Enforced by: `TS8035 CLASS_MEMBER` for an access from outside the class and for two members on one function name, `TS8010 STRUCT_FIELD` for two members on one struct member and for an object literal of a class with a private field, pinned by `src/compiler/ts/class-syntax.test.ts`; `examples/class-syntax.shade.ts`.
+
+**Rule 8.13.** A static field must be a module constant `Owner_x` when nothing in the file writes it, and a module variable in the per-invocation space (Rule 6.5) when something does; a `readonly` static is never written.
+Inside a static member `this` is the class that declares the member: `this.K`, `this.f()` and `this.x = v` name its statics, and `this` as a value must be refused.
+A static block must be refused.
+
+- Rationale: a static field that TypeScript code writes is state of the program's run, which on the GPU is the invocation, so it is the variable a top-level `let` already is (surface §24); one no code writes folds as a top-level `const` does; a static block runs when a class is evaluated, and a shader has no such moment.
+- Derives from: Rule 6.3; Rule 6.5; [Variable and Value Declarations](https://gpuweb.github.io/gpuweb/wgsl/#var-and-value); surface §24 and §26.
+- Enforced by: `TS8035 CLASS_MEMBER` for a static block and for `this` as a value, `TS8005 CONST_ASSIGN` for a write to a `readonly` static, pinned by `src/compiler/ts/class-syntax.test.ts` and `src/compiler/ts/class-methods.test.ts`.
+
+**Rule 8.14.** A constructor's parameter property (`constructor(public x: f32)`, or `private`, `protected` or `readonly` in place of `public`) is a field of its class, at the constructor's place among the members, which the constructor assigns from the parameter before the field initializers run.
+A field written without a type must take the type its initializer names (a written number is an `f32` by Rule 5.1, `true` and `false` a `bool`, `new C()` the struct `C`, and a type's own constructor that type), and a field whose initializer names none, or that has neither, must be refused.
+A `readonly` field may be assigned only in a constructor of the class that declares it, which is TypeScript's rule; `readonly` is shallow, as TypeScript's is, so a write into what the field holds stands.
+
+- Rationale: all three are how a TypeScript class is ordinarily written; before this rule a field without a type was dropped from the struct with nothing said where it was declared and an unknown field at every use, and a `readonly` field took any write.
+- Derives from: TypeScript's [parameter properties](https://www.typescriptlang.org/docs/handbook/2/classes.html#parameter-properties) and `readonly` modifier (TS2540); Rule 5.1; Rule 6.9; surface §26.
+- Enforced by: `TS8010 STRUCT_FIELD` for a field with no type, `TS8005 CONST_ASSIGN` for a write to a `readonly` field, pinned by `src/compiler/ts/class-syntax.test.ts`.
 
 ## 9. Built-in functions and the TypeShade extensions
 

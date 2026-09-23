@@ -207,8 +207,13 @@ class B extends A {
   })
 
   it('this in a static function and at the top level', () => {
+    // In a static member `this` is the class (Rule 8.13), so `this.x` names a static; an
+    // instance field there is a field of each value and not of the class.
     expect(only(C('  static f(): f32 { return this.x }'))).toBe(
-      `${M} "this" names a method's object; a static function and a top-level function have none.`,
+      `${M} In a static member, "this" is the class "C", and "x" is a field of each C value, not of the class. Take the value as a parameter, or make the member an instance method.`,
+    )
+    expect(only(C('  static f(): C { return this }'))).toBe(
+      `${M} In a static member, "this" is the class "C", which is not a value. Name one of its statics through it, "this.K" or "this.f()".`,
     )
     expect(only(`"use typeshade"\nfunction f(): f32 { return this.x }${TAIL}`)).toBe(
       `${M} "this" names a method's object; a static function and a top-level function have none.`,
@@ -216,8 +221,10 @@ class B extends A {
   })
 
   it('member shapes with no shader form', () => {
-    expect(only(C('  get y(): f32 { return this.x }'))).toBe(
-      `${M} A getter has no shader form; write "y" as a method and call it.`,
+    // A getter and a setter are functions of the module now (Rule 8.11); class-syntax.test.ts
+    // has them. A static block has no moment to run in.
+    expect(only(C('  static { }'))).toBe(
+      `${M} A static block runs when the class is defined, and a shader has no such moment. Give each static field its value where it is declared.`,
     )
     expect(only(C('  f = (): f32 => 1.'))).toBe(
       `${M} A field holding a function is a method: write "f(...) { ... }".`,

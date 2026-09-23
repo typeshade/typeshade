@@ -131,6 +131,33 @@ Random_gen(rng);`. Called on its own line the value is dropped and the write kep
   and in an arm of `?:`; it compiles on Tint and links on a WebGL2 driver, and the CPU oracle,
   the codegen and the debugger agree on the generator in `class-methods.test.ts`. Rule 8.10 is
   new in `docs/language-design.md`, and Rule 8.8 says the object is not an authored parameter.
+- **Getters and setters, private names, parameter properties and the rest of an ordinary
+  TypeScript class** (§26, Rules 8.11 to 8.14). An accessor is a function of the module for each
+  half, `get area()` as `fn Rect_get_area(self_: Rect) -> f32` and `set width(v)` as
+  `fn Rect_set_width(self_: ptr<function, Rect>, v: f32)`: `r.area` calls the getter,
+  `r.width = 4.` the setter, and `r.width += 1.`, `++` and `--` read through the one and write
+  through the other; a static accessor is read on the class. A private name `#x` is emitted
+  without its `#` (the field `#count` is the member `count`, the method `#step` is `Cls_step`)
+  and may be named only inside the class that declares it, which the front end checks since it
+  does not run TypeScript's checker. `constructor(public x: f32)` declares the field and assigns
+  it before the initializers run; a field written without a type takes the one its initializer
+  names (`hits = 0` an `f32` by Rule 5.1, `on = false` a `bool`, `v = vec3(0.)`, `p = new P()`);
+  a static field the file writes is a `var<private>`, the variable a top-level `let` is, and
+  `this` in a static member is its class, so `this.hits += 1.` writes it; a `readonly` field
+  takes a write only in its class's constructor. Refused, each with the fix: a read of an accessor
+  with no getter and a write of one with no setter, a write into what a getter returns (a copy),
+  `#x` outside its class body, two members of one class chain that would share an emitted name,
+  an object literal of a class with a private field, a field whose initializer names no type, a
+  write to a `readonly` field, and a static block. What was measured before this: a getter or a
+  setter was `TS8035` with "write it as a method", `#x` was `TS8010` ("Field names must be plain
+  identifiers"), a parameter property declared no field (a class of them alone was `Struct has
+no fields`), a field written without a type was dropped from the struct with nothing said at
+  its declaration and `Unknown field` at every use, a static block was passed over in silence, a write to a static field was `Cannot assign to unknown name`, and a
+  write to a `readonly` field compiled. `examples/class-syntax.shade.ts` compiles on Tint and
+  links on a WebGL2 driver, and `class-syntax.test.ts` holds WGSL, GLSL ES 3.00, the CPU oracle,
+  the codegen and the debugger to one value for each form. The four rules are new in
+  `docs/language-design.md`, Rules 3.2 and 6.9 name private names and parameter properties, and
+  Rule 7.2's table gains the three lowerings.
 - **Each `.shade.ts` example registers itself** (#65). Every example used to be registered by
   appending an object literal to one hand-ordered array in `examples/_shade.ts`, so two branches
   that each added an example added adjacent lines to the same region and git could not tell the

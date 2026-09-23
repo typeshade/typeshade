@@ -1941,24 +1941,28 @@ on a real WebGL2 driver; `examples/particle-step.shade.ts` for the compute one.
 
 **`this`.** Inside a method that reads, `this` is the read-only first parameter; inside a method
 that changes its object it is that parameter, written through; inside a constructor it is the
-local being built.
-`this` in a static function or a top-level function is TS8035.
+local being built. Inside a static member it is the class that declares the member (Rule 8.13),
+so `this.K`, `this.f()` and `this.count += 1.` name its statics; `this` as a value there, and
+`this` in a top-level function, is TS8035.
 
-**Access modifiers** `private`, `protected`, `public` and `readonly` on a field or a method are
-accepted and mean nothing to the shader; TypeScript enforces them.
+**Access modifiers.** `public`, `private` and `protected` on a field or a method are accepted and
+mean nothing to the shader; TypeScript's checker enforces the last two in the editor. `readonly`
+is enforced here (Rule 8.14), and a private name, `#x`, is enforced here too (Rule 8.12): the
+front end does not run the checker, and without these a program TypeScript refuses would
+compile.
 
-**Refused, with the fix (TS8035).** A getter or a setter (write a method), a static field (a
-module `const`), a field holding an arrow function (a method), a decorator on a method (an
-entry is a top-level function), an `async`, generator or `abstract` method, two constructors
-or two methods of one name (no overloads), a call of a method on the class or of a static
-function on a value, a member the class does not have, a field called as a method, a method
-that changes its object called on a `const`, a parameter or a value that is dropped, one that
-returns nothing used as a value, a write to `this` in a base's body called through `super`
-(which reads its object only; move the write into a method no class overrides), and a
-parameter named `self_`. A class with only static functions
-and no fields is not a struct (TS8010): write them as functions. `extends` is a struct's base
-since roadmap item T5. A `new` on anything but a class the file declares stays TS8013, and
-says which of the four reasons it is.
+**Refused, with the fix (TS8035).** A static block (give each static field its value where it
+is declared), a field holding an arrow function (a method), a decorator on a method (an entry is
+a top-level function), an `async`, generator or `abstract` method, two constructors or two
+methods of one name (no overloads), a call of a method on the class or of a static function on
+a value, a member the class does not have, a field called as a method and an accessor called as
+one, a method that changes its object called on a `const`, a parameter or a value that is
+dropped, one that returns nothing used as a value, a write to `this` in a base's body called
+through `super` (which reads its object only; move the write into a method no class overrides),
+and a parameter named `self_`. A class with only static functions and no fields is not a struct
+(TS8010): write them as functions. `extends` is a struct's base since roadmap item T5. A `new`
+on anything but a class the file declares stays TS8013, and says which of the four reasons it
+is.
 
 ### `new` is how a class is built, and the refusals say why
 
@@ -1987,7 +1991,157 @@ members, so the language service adds nothing for them and the compiler's symbol
 method under its class name.
 
 **Not yet.** A cycle through method calls in the recursion check (Tint still refuses it, as a
-backend diagnostic), and `return this` from a changing method (split the chain).
+backend diagnostic), and a chain through a changing method, `v.setX(1.).setY(2.)`: `return this`
+returns a copy of the object, since a struct is a value, so the second call would change the
+copy; call each on `v` in turn.
+
+### Getters and setters
+
+A `get` or a `set` accessor is a function of the module, one for each half: `get area()` is
+`Rect_get_area(self_: Rect)`, and `set width(v)` is `Rect_set_width(self_, v)` (Rule 8.11). A
+read `r.area` calls the getter; an assignment `r.width = 4.` calls the setter with the new value,
+and a compound assignment, `++` and `--` read the old value through the getter and write the new
+one through the setter. A setter that assigns a field changes its object, so it takes it by
+reference, as a method that does (§26 above); so does a getter that fills a cache.
+
+```ts
+"use typeshade"
+class Temperature {
+  #celsius: f32 = 0.
+  get celsius(): f32 {
+    return this.#celsius
+  }
+  set celsius(v: f32) {
+    this.#celsius = max(v, -273.15)
+  }
+  get fahrenheit(): f32 {
+    return this.#celsius * 1.8 + 32.
+  }
+  set fahrenheit(v) {
+    this.celsius = (v - 32.) / 1.8
+  }
+  static get boiling(): Temperature {
+    let t = new Temperature()
+    t.celsius = 100.
+    return t
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let t = new Temperature()
+  t.fahrenheit = 212. * uv.x
+  t.celsius += 5.
+  return vec4(t.celsius / Temperature.boiling.celsius, t.fahrenheit / 212., 0., 1.)
+}
+```
+
+```wgsl
+fn Temperature_get_celsius(self_: Temperature) -> f32 {
+  return self_.celsius;
+}
+fn Temperature_set_celsius(self_: ptr<function, Temperature>, v: f32) {
+  (*self_).celsius = max(v, -273.15);
+}
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  var t: Temperature = Temperature_new();
+  Temperature_set_fahrenheit(&t, (212.0 * uv.x));
+  Temperature_set_celsius(&t, (Temperature_get_celsius(t) + 5.0));
+  ...
+}
+```
+
+Either half's annotation types the other when one has none, as in TypeScript: `set
+fahrenheit(v)` takes the getter's `f32`. A static accessor is a function with no receiver, read
+on the class, `Temperature.boiling`. The nearest class of a chain that declares either half of
+an accessor owns both, so a class that overrides the getter alone has no setter, as in
+TypeScript.
+
+Refused, with the fix: a read of an accessor with no getter and a write of one with no setter
+(declare the other half), a getter with no type from either half (annotate it), and a write into
+what a getter returns, `t.pos.x = 1.` (TS8018): the getter hands back a copy, so the write would
+be lost where TypeScript changes the object; assign the whole property instead.
+
+### Private names
+
+A member written `#x` is private to its class (Rule 8.12). WGSL and GLSL ES 3.00 have no private
+member and no `#` in a name, so it is emitted without the `#`: the field `#count` is the struct
+member `count`, the method `#step` is `Cls_step`, the static `#K` the constant `Cls_K`. What keeps
+it private is the front end, which lets `#x` be named only inside the body of the class that
+declares it, TypeScript's own rule. A private field and a public accessor of one name is the
+ordinary pairing, and the two do not meet: `count` the member, `Counter_get_count` the getter.
+
+```ts
+"use typeshade"
+class Counter {
+  #count: u32 = 0
+  static #limit = 100
+  get count(): u32 {
+    return this.#count
+  }
+  increment(): void {
+    this.#count = this.#clamped(this.#count + 1)
+  }
+  #clamped(n: u32): u32 {
+    return min(n, u32(Counter.#limit))
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  let c = new Counter()
+  c.increment()
+  c.increment()
+  return vec4(f32(c.count) / 2., 0., 0., 1.)
+}
+```
+
+A public name never reaches a private member, so `c.count` above is the getter and never the
+field; an object literal cannot build a class with a private field (build it with `new`), and a
+spread and a destructuring pattern leave the private fields out, as TypeScript's do. Refused:
+`#x` named outside its class body (TS8035), and two members of one class chain that would share
+an emitted name, `#x` beside `x` or a `#x` a class and one it extends both declare (TS8010 for a
+field, TS8035 for a function).
+
+### Parameter properties, a field's type from its initializer, and `readonly`
+
+`constructor(public x: f32, public y: f32) {}` declares the fields `x` and `y` where the
+constructor stands, and the constructor assigns them from its parameters before the field
+initializers run (Rule 8.14). `private`, `protected` and `readonly` declare one too. A field
+written without a type takes the one its initializer names: a written number is an `f32` (Rule
+5.1), `true` and `false` a `bool`, `new P()` the struct `P`, `vec3(0.)` or `u32(1)` that type. One
+whose initializer names no type, `a = f(x)`, is TS8010 with the fix, `a: T = ...`; before this
+it was dropped from the struct with nothing said where it was declared, and every use of it read
+as an unknown field.
+
+```ts
+"use typeshade"
+class Particle {
+  age = 0.
+  alive = true
+  vel = vec2(0.)
+  constructor(
+    readonly id: u32,
+    public pos: vec2,
+  ) {}
+  step(dt: f32): void {
+    this.age += dt
+    this.pos += this.vel * dt
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let p = new Particle(7, uv)
+  p.vel = vec2(1., 0.)
+  p.step(0.5)
+  return vec4(p.pos, p.age, f32(p.id))
+}
+```
+
+A `readonly` field may be assigned in a constructor of the class that declares it and nowhere
+else (TS8005), which is TypeScript's rule; `readonly` is shallow, as TypeScript's is, so
+`p.pos.x = 1.` on a `readonly pos` writes into what the field holds and stands.
 
 ---
 
@@ -2016,6 +2170,30 @@ name a constant declared earlier and may bound a `for` loop, and it takes the sa
 top-level const does. A static field with no initializer is refused: it is a constant, and a
 constant has a value. Reading a name the class does not declare says so, and naming a static
 function without calling it says to call it.
+
+**A static field the file writes is a module variable** (Rule 8.13). `Stats.hits += 1` anywhere
+in the file, or `this.hits += 1` in a static member, makes `hits` the per-invocation variable a
+top-level `let` is (§24), `var<private> Stats_hits`, and every read of it reads the variable. Its
+initializer is a constant by §24's measure. A `readonly` static is never written, and a write to
+one is TS8005.
+
+```ts
+"use typeshade"
+class Stats {
+  static hits = 0.
+  static readonly WEIGHT = 0.5
+  static record(v: f32): void {
+    this.hits += v * this.WEIGHT
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  Stats.record(uv.x)
+  Stats.record(uv.y)
+  return vec4(Stats.hits, 0., 0., 1.)
+}
+```
 
 ### `namespace`
 
