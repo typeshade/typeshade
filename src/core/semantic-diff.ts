@@ -35,7 +35,7 @@
 // a resemblance test cannot distinguish an intentional inline from a regression that
 // happens to resemble one, which is the 'temporaries' knob above wearing a new name.
 
-import { typeKey, type ShaderType } from './ir/types.js'
+import { typeKey, type ShaderType } from './ir/types.js';
 import {
   stageOf,
   type ConstDecl,
@@ -43,10 +43,10 @@ import {
   type FuncDecl,
   type ModuleDecl,
   type Stmt,
-} from './ir/nodes.js'
-import { eachStmtExpr } from './ir/visit.js'
-import { reflect } from './reflect.js'
-import type { EmitPlugin } from './emit.js'
+} from './ir/nodes.js';
+import { eachStmtExpr } from './ir/visit.js';
+import { reflect } from './reflect.js';
+import type { EmitPlugin } from './emit.js';
 
 /** An axis of difference {@link semanticDiff} can be told to disregard.
  *
@@ -57,13 +57,13 @@ import type { EmitPlugin } from './emit.js'
  *    points and their parameters, binding names, binding struct names, struct field
  *    names, override names, and intrinsic call ids.
  *  - `'declOrder'`: the position of a declaration or statement within its list. */
-export type SemanticAspect = 'names' | 'declOrder'
+export type SemanticAspect = 'names' | 'declOrder';
 
 /** Options for {@link semanticDiff}. */
 export interface SemanticDiffOptions {
   /** Axes to disregard. Defaults to `['names', 'declOrder']`. Pass `[]` to compare
    *  identifier spelling and declaration order too. */
-  readonly ignore?: readonly SemanticAspect[]
+  readonly ignore?: readonly SemanticAspect[];
   /** Plugins declared as intentionally applied to `b`. Pass the same plugin array your
    *  production emit call uses, for example `[inline(), ...obfuscate()]`. Each plugin's
    *  `transformIR` is applied to `a` in order, and every diff line the applied transform
@@ -72,7 +72,7 @@ export interface SemanticDiffOptions {
    *  no declared transform explains stay in the buckets, so a regression cannot hide
    *  behind a declaration. Text-stage plugins (`minify`, `aliasTypes`, `prune`)
    *  contribute nothing here, because the comparison never sees emitted text. */
-  readonly transforms?: readonly EmitPlugin[]
+  readonly transforms?: readonly EmitPlugin[];
 }
 
 /** The four buckets of difference. Each entry is a fact line prefixed `-` (present in
@@ -80,20 +80,20 @@ export interface SemanticDiffOptions {
  *  on everything this comparison inspects; {@link isSemanticallyEqual} performs that test. */
 export interface SemanticDiff {
   /** Entry-point signatures and the vertex attribute layout. */
-  readonly interface: readonly string[]
+  readonly interface: readonly string[];
   /** Bind groups, std140/std430 struct layouts, and required capabilities. */
-  readonly resources: readonly string[]
+  readonly resources: readonly string[];
   /** Module consts, pipeline overrides, and the multiset of numeric literals in
    *  function bodies. A literal's value is reported here and nowhere else, because the
    *  control-flow skeleton leaves it out, so changing a constant and changing the shape
    *  of the code around it land in different buckets. */
-  readonly constants: readonly string[]
+  readonly constants: readonly string[];
   /** Per-statement control-flow skeleton, one line per statement, addressed by path. */
-  readonly controlFlow: readonly string[]
+  readonly controlFlow: readonly string[];
 }
 
 /** One of the four fact buckets of a {@link SemanticDiff}. */
-export type SemanticDiffBucket = keyof SemanticDiff
+export type SemanticDiffBucket = keyof SemanticDiff;
 
 /** One diff line that a declared transform explains: applying `transform` to the
  *  reference side made `line` disappear from `bucket`. The line keeps its `-` or `+`
@@ -101,9 +101,9 @@ export type SemanticDiffBucket = keyof SemanticDiff
  *  of `b` the transformed reference now also has. `transform` is the plugin's
  *  `identity ?? name`, the same spelling {@link emitIdentity} reports. */
 export interface ExplainedDiffEntry {
-  readonly transform: string
-  readonly bucket: SemanticDiffBucket
-  readonly line: string
+  readonly transform: string;
+  readonly bucket: SemanticDiffBucket;
+  readonly line: string;
 }
 
 /** A {@link SemanticDiff} whose differences were classified against a declared
@@ -112,7 +112,7 @@ export interface ExplainedDiffEntry {
  *  should fail on. `explained` holds every difference a declared transform proved
  *  intentional, with enough detail to review the classification. */
 export interface ClassifiedSemanticDiff extends SemanticDiff {
-  readonly explained: readonly ExplainedDiffEntry[]
+  readonly explained: readonly ExplainedDiffEntry[];
 }
 
 /** True when every bucket of `d` is empty. `explained` entries do not count, so on a
@@ -121,7 +121,7 @@ export const isSemanticallyEqual = (d: SemanticDiff): boolean =>
   d.interface.length === 0 &&
   d.resources.length === 0 &&
   d.constants.length === 0 &&
-  d.controlFlow.length === 0
+  d.controlFlow.length === 0;
 
 // ── canonical naming ──────────────────────────────────────────────────────────
 //
@@ -133,10 +133,10 @@ export const isSemanticallyEqual = (d: SemanticDiff): boolean =>
 // same decl.
 
 interface Canon {
-  readonly fns: ReadonlyMap<string, string>
-  readonly structs: ReadonlyMap<string, string>
-  readonly consts: ReadonlyMap<string, string>
-  readonly locals: ReadonlyMap<string, ReadonlyMap<string, string>>
+  readonly fns: ReadonlyMap<string, string>;
+  readonly structs: ReadonlyMap<string, string>;
+  readonly consts: ReadonlyMap<string, string>;
+  readonly locals: ReadonlyMap<string, ReadonlyMap<string, string>>;
 }
 
 const EMPTY_CANON: Canon = {
@@ -144,69 +144,69 @@ const EMPTY_CANON: Canon = {
   structs: new Map(),
   consts: new Map(),
   locals: new Map(),
-}
+};
 
 /** Names DECLARED by a body — the `let`/`var` binding sites, in source order.
  *  Mirrors mangle's own collector; a Set so a shadowed spelling counts once. */
 function declaredNames(body: readonly Stmt[], acc: Set<string>): void {
   for (const s of body) {
-    if (s.s === 'let' || s.s === 'var') acc.add(s.name)
+    if (s.s === 'let' || s.s === 'var') acc.add(s.name);
     else if (s.s === 'if') {
-      for (const a of s.arms) declaredNames(a.body, acc)
-      if (s.elseBody) declaredNames(s.elseBody, acc)
+      for (const a of s.arms) declaredNames(a.body, acc);
+      if (s.elseBody) declaredNames(s.elseBody, acc);
     } else if (s.s === 'for') {
-      declaredNames([s.init], acc)
-      declaredNames(s.body, acc)
+      declaredNames([s.init], acc);
+      declaredNames(s.body, acc);
     } else if (s.s === 'switch') {
-      for (const c of s.cases) declaredNames(c.body, acc)
-      if (s.defaultBody) declaredNames(s.defaultBody, acc)
+      for (const c of s.cases) declaredNames(c.body, acc);
+      if (s.defaultBody) declaredNames(s.defaultBody, acc);
     }
   }
 }
 
 function buildCanon(m: ModuleDecl): Canon {
-  const bindingStructs = new Set<string>()
-  for (const b of m.bindings) if (b.type.kind === 'struct') bindingStructs.add(b.type.name)
+  const bindingStructs = new Set<string>();
+  for (const b of m.bindings) if (b.type.kind === 'struct') bindingStructs.add(b.type.name);
 
-  const fns = new Map<string, string>()
-  let fi = 0
-  for (const f of m.funcs) if (stageOf(f) === undefined) fns.set(f.name, `fn#${fi++}`)
+  const fns = new Map<string, string>();
+  let fi = 0;
+  for (const f of m.funcs) if (stageOf(f) === undefined) fns.set(f.name, `fn#${fi++}`);
 
-  const structs = new Map<string, string>()
-  let si = 0
-  for (const s of m.structs) if (!bindingStructs.has(s.name)) structs.set(s.name, `st#${si++}`)
+  const structs = new Map<string, string>();
+  let si = 0;
+  for (const s of m.structs) if (!bindingStructs.has(s.name)) structs.set(s.name, `st#${si++}`);
 
-  const consts = new Map<string, string>()
-  let ci = 0
-  for (const c of m.consts) consts.set(c.name, `k#${ci++}`)
+  const consts = new Map<string, string>();
+  let ci = 0;
+  for (const c of m.consts) consts.set(c.name, `k#${ci++}`);
 
-  const locals = new Map<string, ReadonlyMap<string, string>>()
+  const locals = new Map<string, ReadonlyMap<string, string>>();
   for (const f of m.funcs) {
-    const declared = new Set<string>()
-    if (stageOf(f) === undefined) for (const p of f.params) declared.add(p.name)
-    declaredNames(f.body, declared)
-    const scoped = new Map<string, string>()
-    let vi = 0
-    for (const name of declared) scoped.set(name, `v#${vi++}`)
-    locals.set(f.name, scoped)
+    const declared = new Set<string>();
+    if (stageOf(f) === undefined) for (const p of f.params) declared.add(p.name);
+    declaredNames(f.body, declared);
+    const scoped = new Map<string, string>();
+    let vi = 0;
+    for (const name of declared) scoped.set(name, `v#${vi++}`);
+    locals.set(f.name, scoped);
   }
-  return { fns, structs, consts, locals }
+  return { fns, structs, consts, locals };
 }
 
 /** Canonicalize struct names inside a type, then spell it through `typeKey` — the
  *  single authority for type spelling, so this never becomes a second one. */
-const typeSig = (t: ShaderType, c: Canon): string => typeKey(canonType(t, c))
+const typeSig = (t: ShaderType, c: Canon): string => typeKey(canonType(t, c));
 
 function canonType(t: ShaderType, c: Canon): ShaderType {
   if (t.kind === 'struct') {
-    const to = c.structs.get(t.name)
-    return to === undefined ? t : { ...t, name: to }
+    const to = c.structs.get(t.name);
+    return to === undefined ? t : { ...t, name: to };
   }
   if (t.kind === 'array') {
-    const elem = canonType(t.elem, c)
-    return elem === t.elem ? t : { ...t, elem }
+    const elem = canonType(t.elem, c);
+    return elem === t.elem ? t : { ...t, elem };
   }
-  return t
+  return t;
 }
 
 /** `reflect()` hands back type strings already spelled by `typeKey`, so a nested
@@ -216,38 +216,38 @@ const subStructs = (s: string, c: Canon): string =>
   c.structs.size === 0
     ? s
     : s.replace(/struct:([A-Za-z_][A-Za-z0-9_]*)/g, (all, n: string) => {
-        const to = c.structs.get(n)
-        return to === undefined ? all : `struct:${to}`
-      })
+        const to = c.structs.get(n);
+        return to === undefined ? all : `struct:${to}`;
+      });
 
 // ── fact extraction ───────────────────────────────────────────────────────────
 
 function interfaceFacts(m: ModuleDecl, c: Canon): string[] {
-  const r = reflect(m)
-  const out: string[] = []
+  const r = reflect(m);
+  const out: string[] = [];
   for (const e of r.entries) {
-    const inputs = e.inputs.map((i) => subStructs(i, c)).join(',')
+    const inputs = e.inputs.map((i) => subStructs(i, c)).join(',');
     out.push(
       `entry ${e.name} stage=${e.stage} wg=${e.workgroupSize ?? '-'} in=[${inputs}] out=${subStructs(e.output, c)}`,
-    )
+    );
   }
   if (r.vertex) {
-    out.push(`vertex stride=${r.vertex.arrayStride}`)
+    out.push(`vertex stride=${r.vertex.arrayStride}`);
     for (const a of r.vertex.attributes)
-      out.push(`vertex.attr ${a.name} loc=${a.location} ${subStructs(a.type, c)} off=${a.offset}`)
+      out.push(`vertex.attr ${a.name} loc=${a.location} ${subStructs(a.type, c)} off=${a.offset}`);
   }
-  return out
+  return out;
 }
 
 function resourceFacts(m: ModuleDecl, c: Canon): string[] {
-  const r = reflect(m)
-  const out: string[] = []
+  const r = reflect(m);
+  const out: string[] = [];
   for (const g of r.bindGroups)
     for (const e of g.entries)
       out.push(
         `bind ${e.group}:${e.binding} ${e.name} ${e.space}${e.access ? '/' + e.access : ''} ` +
           `${e.resourceKind} struct=${e.structName ?? '-'} dim=${e.textureDim ?? '-'} elem=${e.textureElem ?? '-'}`,
-      )
+      );
   for (const [kind, layouts] of [
     ['std140', r.uniforms],
     ['std430', r.storage],
@@ -255,40 +255,40 @@ function resourceFacts(m: ModuleDecl, c: Canon): string[] {
     for (const l of layouts) {
       out.push(
         `layout ${kind} ${subStructs(`struct:${l.name}`, c)} size=${l.size} align=${l.align}`,
-      )
+      );
       for (const f of l.fields)
         out.push(
           `field ${l.name}.${f.name} ${subStructs(f.type, c)} off=${f.offset} align=${f.align} size=${f.size}`,
-        )
+        );
     }
-  for (const cap of r.requiredFeatures) out.push(`cap ${cap}`)
-  return out
+  for (const cap of r.requiredFeatures) out.push(`cap ${cap}`);
+  return out;
 }
 
 /** Literal VALUES, as a multiset — the control-flow skeleton elides them. */
 function literalFacts(m: ModuleDecl, c: Canon): string[] {
-  const out: string[] = []
+  const out: string[] = [];
   const walkE = (e: Expr): void => {
-    if (e.op === 'lit') out.push(`lit ${typeSig(e.type, c)}=${String(e.value)}`)
-    for (const sub of subExprs(e)) walkE(sub)
-  }
-  for (const f of m.funcs) for (const s of f.body) eachStmtExpr(s, walkE)
-  return out
+    if (e.op === 'lit') out.push(`lit ${typeSig(e.type, c)}=${String(e.value)}`);
+    for (const sub of subExprs(e)) walkE(sub);
+  };
+  for (const f of m.funcs) for (const s of f.body) eachStmtExpr(s, walkE);
+  return out;
 }
 
 function constantFacts(m: ModuleDecl, c: Canon): string[] {
-  const out: string[] = []
+  const out: string[] = [];
   for (const o of m.overrides ?? [])
-    out.push(`override ${o.name} ${typeSig(o.type, c)} = ${String(o.default)}`)
-  for (const k of m.consts) out.push(constFact(k, c))
-  out.push(...literalFacts(m, c))
-  return out
+    out.push(`override ${o.name} ${typeSig(o.type, c)} = ${String(o.default)}`);
+  for (const k of m.consts) out.push(constFact(k, c));
+  out.push(...literalFacts(m, c));
+  return out;
 }
 
 const constFact = (k: ConstDecl, c: Canon): string =>
   `const ${c.consts.get(k.name) ?? k.name} ${typeSig(k.type, c)} ` +
   `wgsl=${k.wgslValue} cpu=${k.cpuValue}` +
-  (k.valueExpr === undefined ? '' : ` expr=${exprSig(k.valueExpr, c, new Map())}`)
+  (k.valueExpr === undefined ? '' : ` expr=${exprSig(k.valueExpr, c, new Map())}`);
 
 // ── control-flow skeleton ─────────────────────────────────────────────────────
 
@@ -299,23 +299,23 @@ function subExprs(e: Expr): readonly Expr[] {
   switch (e.op) {
     case 'call':
     case 'construct':
-      return e.args
+      return e.args;
     case 'binop':
     case 'compare':
     case 'logical':
-      return [e.a, e.b]
+      return [e.a, e.b];
     case 'unop':
-      return [e.a]
+      return [e.a];
     case 'member':
-      return [e.base]
+      return [e.base];
     case 'index':
-      return [e.base, e.idx]
+      return [e.base, e.idx];
     case 'select':
-      return [e.cond, e.ifTrue, e.ifFalse]
+      return [e.cond, e.ifTrue, e.ifFalse];
     case 'matchExpr':
-      return [e.scrutinee, ...e.cases.map(([, v]) => v), e.default]
+      return [e.scrutinee, ...e.cases.map(([, v]) => v), e.default];
     default:
-      return [] // lit / constref / overrideref / param / varref
+      return []; // lit / constref / overrideref / param / varref
   }
 }
 
@@ -323,69 +323,69 @@ function subExprs(e: Expr): readonly Expr[] {
  *  A literal's VALUE is elided (`lit`) — values live in the `constants` bucket, so a
  *  changed number and a changed shape land in different buckets. */
 function exprSig(e: Expr, c: Canon, locals: ReadonlyMap<string, string>): string {
-  const t = typeSig(e.type, c)
+  const t = typeSig(e.type, c);
   const kids = (): string =>
     subExprs(e)
       .map((k) => exprSig(k, c, locals))
-      .join(' ')
+      .join(' ');
   switch (e.op) {
     case 'lit':
-      return `(lit:${t})`
+      return `(lit:${t})`;
     case 'constref':
-      return `(const ${c.consts.get(e.name) ?? e.name}:${t})`
+      return `(const ${c.consts.get(e.name) ?? e.name}:${t})`;
     case 'overrideref':
-      return `(override ${e.name}:${t})`
+      return `(override ${e.name}:${t})`;
     // X-GIS #1713 — a host-provided global's name is ABI (the host's prelude spells it), so it is
     // compared even under `ignore: ['names']`, same as an override.
     case 'externref':
-      return `(extern ${e.name}:${t})`
+      return `(extern ${e.name}:${t})`;
     case 'param':
     case 'varref':
-      return `(${e.op} ${locals.get(e.name) ?? e.name}:${t})`
+      return `(${e.op} ${locals.get(e.name) ?? e.name}:${t})`;
     case 'binop':
-      return `(${e.bop}:${t} ${kids()})`
+      return `(${e.bop}:${t} ${kids()})`;
     case 'compare':
-      return `(${e.cop}:${t} ${kids()})`
+      return `(${e.cop}:${t} ${kids()})`;
     case 'logical':
-      return `(${e.lop}:${t} ${kids()})`
+      return `(${e.lop}:${t} ${kids()})`;
     case 'call':
-      return `(call ${c.fns.get(e.fn) ?? e.fn}:${t} ${kids()})`
+      return `(call ${c.fns.get(e.fn) ?? e.fn}:${t} ${kids()})`;
     case 'member':
-      return `(.${e.field}:${t} ${kids()})`
+      return `(.${e.field}:${t} ${kids()})`;
     case 'matchExpr':
-      return `(match:${t} [${e.cases.map(([v]) => v).join(',')}] ${kids()})`
+      return `(match:${t} [${e.cases.map(([v]) => v).join(',')}] ${kids()})`;
     default:
-      return `(${e.op}:${t} ${kids()})`
+      return `(${e.op}:${t} ${kids()})`;
   }
 }
 
 function stmtSig(s: Stmt, c: Canon, locals: ReadonlyMap<string, string>): string {
-  const E = (e: Expr): string => exprSig(e, c, locals)
+  const E = (e: Expr): string => exprSig(e, c, locals);
   switch (s.s) {
     case 'let':
-      return `let ${locals.get(s.name) ?? s.name} = ${E(s.expr)}`
+      return `let ${locals.get(s.name) ?? s.name} = ${E(s.expr)}`;
     case 'var':
-      return `var ${locals.get(s.name) ?? s.name}: ${typeSig(s.type, c)}${s.init === undefined ? '' : ' = ' + E(s.init)}`
+      return `var ${locals.get(s.name) ?? s.name}: ${typeSig(s.type, c)}${s.init === undefined ? '' : ' = ' + E(s.init)}`;
     case 'assign':
-      return `assign ${E(s.target)} = ${E(s.expr)}`
+      return `assign ${E(s.target)} = ${E(s.expr)}`;
     case 'assignOp':
-      return `assign${s.bop} ${E(s.target)} = ${E(s.expr)}`
+      return `assign${s.bop} ${E(s.target)} = ${E(s.expr)}`;
     case 'return':
-      return `return${s.expr === undefined ? '' : ' ' + E(s.expr)}`
+      return `return${s.expr === undefined ? '' : ' ' + E(s.expr)}`;
     case 'call':
-      return `call ${E(s.expr)}`
+      return `call ${E(s.expr)}`;
     case 'if':
-      return `if arms=${s.arms.length} else=${s.elseBody ? 'y' : 'n'} conds=[${s.arms.map((a) => E(a.cond)).join(' ')}]`
+      return `if arms=${s.arms.length} else=${s.elseBody ? 'y' : 'n'} conds=[${s.arms.map((a) => E(a.cond)).join(' ')}]`;
     case 'for':
-      return `for cond=${E(s.cond)}`
+      return `for cond=${E(s.cond)}`;
     case 'switch':
-      return `switch ${E(s.scrut)} cases=[${s.cases.map((k) => k.values.join('|')).join(',')}] default=${s.defaultBody ? 'y' : 'n'}`
+      return `switch ${E(s.scrut)} cases=[${s.cases.map((k) => k.values.join('|')).join(',')}] default=${s.defaultBody ? 'y' : 'n'}`;
     case 'placeholder':
-      return `placeholder ${s.tag}`
+      return `placeholder ${s.tag}`;
     case 'raw':
-      return `raw wgsl=${s.wgsl === undefined ? 'n' : 'y'} glsl=${s.glsl === undefined ? 'n' : 'y'}`
+      return `raw wgsl=${s.wgsl === undefined ? 'n' : 'y'} glsl=${s.glsl === undefined ? 'n' : 'y'}`;
     default:
-      return s.s // break / continue / discard
+      return s.s; // break / continue / discard
   }
 }
 
@@ -399,45 +399,45 @@ function bodyLines(
   out: string[],
 ): void {
   body.forEach((s, i) => {
-    const p = `${path}${i}`
-    out.push(`${p} ${stmtSig(s, c, locals)}`)
+    const p = `${path}${i}`;
+    out.push(`${p} ${stmtSig(s, c, locals)}`);
     if (s.s === 'if') {
-      s.arms.forEach((a, ai) => bodyLines(a.body, `${p}.arm${ai}.`, c, locals, out))
-      if (s.elseBody) bodyLines(s.elseBody, `${p}.else.`, c, locals, out)
+      s.arms.forEach((a, ai) => bodyLines(a.body, `${p}.arm${ai}.`, c, locals, out));
+      if (s.elseBody) bodyLines(s.elseBody, `${p}.else.`, c, locals, out);
     } else if (s.s === 'for') {
-      bodyLines([s.init], `${p}.init.`, c, locals, out)
-      bodyLines([s.update], `${p}.update.`, c, locals, out)
-      bodyLines(s.body, `${p}.body.`, c, locals, out)
+      bodyLines([s.init], `${p}.init.`, c, locals, out);
+      bodyLines([s.update], `${p}.update.`, c, locals, out);
+      bodyLines(s.body, `${p}.body.`, c, locals, out);
     } else if (s.s === 'switch') {
-      s.cases.forEach((k, ki) => bodyLines(k.body, `${p}.case${ki}.`, c, locals, out))
-      if (s.defaultBody) bodyLines(s.defaultBody, `${p}.default.`, c, locals, out)
+      s.cases.forEach((k, ki) => bodyLines(k.body, `${p}.case${ki}.`, c, locals, out));
+      if (s.defaultBody) bodyLines(s.defaultBody, `${p}.default.`, c, locals, out);
     }
-  })
+  });
 }
 
 function fnHeader(f: FuncDecl, c: Canon, locals: ReadonlyMap<string, string>): string {
-  const stage = stageOf(f)
+  const stage = stageOf(f);
   const params = f.params
     .map(
       (p) =>
         `${stage === undefined ? (locals.get(p.name) ?? p.name) : p.name}:${typeSig(p.type, c)}` +
         `${p.builtin ? '@' + p.builtin : ''}${p.location === undefined ? '' : '@loc' + p.location}`,
     )
-    .join(',')
-  return `fn ${c.fns.get(f.name) ?? f.name}(${params}) -> ${typeSig(f.ret, c)} stage=${stage ?? '-'}`
+    .join(',');
+  return `fn ${c.fns.get(f.name) ?? f.name}(${params}) -> ${typeSig(f.ret, c)} stage=${stage ?? '-'}`;
 }
 
 function controlFlowFacts(m: ModuleDecl, c: Canon): string[] {
-  const out: string[] = []
+  const out: string[] = [];
   for (const f of m.funcs) {
-    const locals = c.locals.get(f.name) ?? new Map<string, string>()
-    const name = c.fns.get(f.name) ?? f.name
-    out.push(fnHeader(f, c, locals))
-    const lines: string[] = []
-    bodyLines(f.body, '', c, locals, lines)
-    for (const l of lines) out.push(`${name}#${l}`)
+    const locals = c.locals.get(f.name) ?? new Map<string, string>();
+    const name = c.fns.get(f.name) ?? f.name;
+    out.push(fnHeader(f, c, locals));
+    const lines: string[] = [];
+    bodyLines(f.body, '', c, locals, lines);
+    for (const l of lines) out.push(`${name}#${l}`);
   }
-  return out
+  return out;
 }
 
 // ── diffing ───────────────────────────────────────────────────────────────────
@@ -446,38 +446,38 @@ function controlFlowFacts(m: ModuleDecl, c: Canon): string[] {
  *  pure reordering shows up as a pair of moves rather than silently cancelling. */
 function diffFacts(a: readonly string[], b: readonly string[], ignoreOrder: boolean): string[] {
   const key = (xs: readonly string[]): string[] =>
-    ignoreOrder ? [...xs].sort() : xs.map((x, i) => `@${i} ${x}`)
-  const left = key(a)
-  const right = key(b)
-  const counts = new Map<string, number>()
-  for (const x of left) counts.set(x, (counts.get(x) ?? 0) + 1)
-  for (const x of right) counts.set(x, (counts.get(x) ?? 0) - 1)
-  const out: string[] = []
+    ignoreOrder ? [...xs].sort() : xs.map((x, i) => `@${i} ${x}`);
+  const left = key(a);
+  const right = key(b);
+  const counts = new Map<string, number>();
+  for (const x of left) counts.set(x, (counts.get(x) ?? 0) + 1);
+  for (const x of right) counts.set(x, (counts.get(x) ?? 0) - 1);
+  const out: string[] = [];
   for (const [line, n] of counts) {
-    for (let i = 0; i < n; i++) out.push(`-${line}`)
-    for (let i = 0; i < -n; i++) out.push(`+${line}`)
+    for (let i = 0; i < n; i++) out.push(`-${line}`);
+    for (let i = 0; i < -n; i++) out.push(`+${line}`);
   }
-  return out.sort()
+  return out.sort();
 }
 
 /** All four fact sets of one module, extracted under one canon build. */
 interface ModuleFacts {
-  readonly interface: readonly string[]
-  readonly resources: readonly string[]
-  readonly constants: readonly string[]
-  readonly controlFlow: readonly string[]
+  readonly interface: readonly string[];
+  readonly resources: readonly string[];
+  readonly constants: readonly string[];
+  readonly controlFlow: readonly string[];
 }
 
-const BUCKETS = ['interface', 'resources', 'constants', 'controlFlow'] as const
+const BUCKETS = ['interface', 'resources', 'constants', 'controlFlow'] as const;
 
 function moduleFacts(m: ModuleDecl, canonNames: boolean): ModuleFacts {
-  const c = canonNames ? buildCanon(m) : EMPTY_CANON
+  const c = canonNames ? buildCanon(m) : EMPTY_CANON;
   return {
     interface: interfaceFacts(m, c),
     resources: resourceFacts(m, c),
     constants: constantFacts(m, c),
     controlFlow: controlFlowFacts(m, c),
-  }
+  };
 }
 
 const diffAllFacts = (fa: ModuleFacts, fb: ModuleFacts, order: boolean): SemanticDiff => ({
@@ -485,21 +485,21 @@ const diffAllFacts = (fa: ModuleFacts, fb: ModuleFacts, order: boolean): Semanti
   resources: diffFacts(fa.resources, fb.resources, order),
   constants: diffFacts(fa.constants, fb.constants, order),
   controlFlow: diffFacts(fa.controlFlow, fb.controlFlow, order),
-})
+});
 
 /** Multiset of lines present in `prev` and gone from `next` — the differences one
  *  transform step resolved. Lines a step INTRODUCES are not attributed to it; they
  *  flow into later steps and, if never resolved, into the final buckets. */
 function resolvedLines(prev: readonly string[], next: readonly string[]): string[] {
-  const counts = new Map<string, number>()
-  for (const l of prev) counts.set(l, (counts.get(l) ?? 0) + 1)
+  const counts = new Map<string, number>();
+  for (const l of prev) counts.set(l, (counts.get(l) ?? 0) + 1);
   for (const l of next) {
-    const n = counts.get(l)
-    if (n !== undefined) counts.set(l, n - 1)
+    const n = counts.get(l);
+    if (n !== undefined) counts.set(l, n - 1);
   }
-  const out: string[] = []
-  for (const [line, n] of counts) for (let i = 0; i < n; i++) out.push(line)
-  return out
+  const out: string[] = [];
+  for (const [line, n] of counts) for (let i = 0; i < n; i++) out.push(line);
+  return out;
 }
 
 /** Compare two modules at the IR and reflection layer. A textual diff of emitted source is
@@ -557,30 +557,34 @@ export function semanticDiff(
   a: ModuleDecl,
   b: ModuleDecl,
   opts: SemanticDiffOptions & { readonly transforms: readonly EmitPlugin[] },
-): ClassifiedSemanticDiff
-export function semanticDiff(a: ModuleDecl, b: ModuleDecl, opts?: SemanticDiffOptions): SemanticDiff
+): ClassifiedSemanticDiff;
+export function semanticDiff(
+  a: ModuleDecl,
+  b: ModuleDecl,
+  opts?: SemanticDiffOptions,
+): SemanticDiff;
 export function semanticDiff(
   a: ModuleDecl,
   b: ModuleDecl,
   opts?: SemanticDiffOptions,
 ): SemanticDiff | ClassifiedSemanticDiff {
-  const ignore = new Set<SemanticAspect>(opts?.ignore ?? ['names', 'declOrder'])
-  const names = ignore.has('names')
-  const order = ignore.has('declOrder')
-  const fb = moduleFacts(b, names)
-  let diff = diffAllFacts(moduleFacts(a, names), fb, order)
-  if (opts?.transforms === undefined) return diff
-  const explained: ExplainedDiffEntry[] = []
-  let current = a
+  const ignore = new Set<SemanticAspect>(opts?.ignore ?? ['names', 'declOrder']);
+  const names = ignore.has('names');
+  const order = ignore.has('declOrder');
+  const fb = moduleFacts(b, names);
+  let diff = diffAllFacts(moduleFacts(a, names), fb, order);
+  if (opts?.transforms === undefined) return diff;
+  const explained: ExplainedDiffEntry[] = [];
+  let current = a;
   for (const p of opts.transforms) {
-    if (p.transformIR === undefined) continue
-    current = p.transformIR(current)
-    const next = diffAllFacts(moduleFacts(current, names), fb, order)
-    const transform = p.identity ?? p.name
+    if (p.transformIR === undefined) continue;
+    current = p.transformIR(current);
+    const next = diffAllFacts(moduleFacts(current, names), fb, order);
+    const transform = p.identity ?? p.name;
     for (const bucket of BUCKETS)
       for (const line of resolvedLines(diff[bucket], next[bucket]))
-        explained.push({ transform, bucket, line })
-    diff = next
+        explained.push({ transform, bucket, line });
+    diff = next;
   }
-  return { ...diff, explained }
+  return { ...diff, explained };
 }

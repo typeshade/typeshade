@@ -50,10 +50,10 @@
 // taken here. `docs/use-typeshade-surface.md` §4 says so too, because its "Tint rejects the
 // module outright" justification does NOT hold for this class.
 
-import ts from 'typescript'
-import { TS_CODES } from './codes.js'
-import { makeDiagnostic } from './diagnostic.js'
-import type { TsCompilerDiagnostic } from './source-file.js'
+import ts from 'typescript';
+import { TS_CODES } from './codes.js';
+import { makeDiagnostic } from './diagnostic.js';
+import type { TsCompilerDiagnostic } from './source-file.js';
 
 /** One node of the call graph, as the caller's own compile path already knows it.
  *
@@ -63,22 +63,22 @@ import type { TsCompilerDiagnostic } from './source-file.js'
  *  rather than re-deriving it here means this module never has to know about imports. */
 export interface RecursionNode {
   /** The canonical graph key — the name the emitted WGSL function will carry. */
-  readonly name: string
-  readonly decl: ts.FunctionLikeDeclarationBase
-  readonly sourceFile: ts.SourceFile
+  readonly name: string;
+  readonly decl: ts.FunctionLikeDeclarationBase;
+  readonly sourceFile: ts.SourceFile;
   /** A called identifier's text to the canonical name it refers to, or `undefined` when it is
    *  not a user function in this graph (an intrinsic, a constructor, an unknown name). */
-  readonly resolve: (callee: string) => string | undefined
+  readonly resolve: (callee: string) => string | undefined;
   /** Calls this body makes that are not written in it: a default filled into a call is
    *  spliced in at lowering, so the syntax tree never shows the calls it carries (roadmap 0.3
    *  item T7, #92). Each `to` is already a canonical graph key. */
-  readonly filled?: readonly { readonly to: string; readonly node: ts.Node }[]
+  readonly filled?: readonly { readonly to: string; readonly node: ts.Node }[];
 }
 
 interface Edge {
-  readonly to: string
-  readonly node: ts.Node
-  readonly sourceFile: ts.SourceFile
+  readonly to: string;
+  readonly node: ts.Node;
+  readonly sourceFile: ts.SourceFile;
 }
 
 /** Every call this function makes to another graph node, in source order, each paired with the
@@ -87,56 +87,56 @@ interface Edge {
 /** The name a callee is written under when it is an identifier or a chain of them, joined the
  *  way a namespace's members are flattened: `f`, `A.f` as `A_f`, `A.B.f` as `A_B_f`. */
 function dottedName(expr: ts.Expression): string | undefined {
-  const parts: string[] = []
-  let node: ts.Expression = expr
+  const parts: string[] = [];
+  let node: ts.Expression = expr;
   for (;;) {
     if (ts.isIdentifier(node)) {
-      parts.unshift(node.text)
-      return parts.join('_')
+      parts.unshift(node.text);
+      return parts.join('_');
     }
-    if (!ts.isPropertyAccessExpression(node)) return undefined
-    parts.unshift(node.name.text)
-    node = node.expression
+    if (!ts.isPropertyAccessExpression(node)) return undefined;
+    parts.unshift(node.name.text);
+    node = node.expression;
   }
 }
 
 function edgesOf(fn: RecursionNode): Edge[] {
-  const edges: Edge[] = []
-  const body = fn.decl.body
-  if (!body) return edges
+  const edges: Edge[] = [];
+  const body = fn.decl.body;
+  if (!body) return edges;
   const walk = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
       // A bare call, and a call through a chain of identifiers, which is how a namespace's
       // function is written (`A.f()`, `A.B.f()`) and how the module names it (`A_f`,
       // `A_B_f`) (roadmap 0.3 item T4, #92). A call on a VALUE has a receiver that is not a
       // chain of identifiers and is not in this graph; Tint still refuses its cycle.
-      const written = dottedName(node.expression)
-      const to = written === undefined ? undefined : fn.resolve(written)
-      if (to !== undefined) edges.push({ to, node, sourceFile: fn.sourceFile })
+      const written = dottedName(node.expression);
+      const to = written === undefined ? undefined : fn.resolve(written);
+      if (to !== undefined) edges.push({ to, node, sourceFile: fn.sourceFile });
     }
-    ts.forEachChild(node, walk)
-  }
-  walk(body)
+    ts.forEachChild(node, walk);
+  };
+  walk(body);
   for (const f of fn.filled ?? []) {
-    edges.push({ to: f.to, node: f.node, sourceFile: fn.sourceFile })
+    edges.push({ to: f.to, node: f.node, sourceFile: fn.sourceFile });
   }
-  return edges
+  return edges;
 }
 
 /** The cycle, arrow-joined the way Tint reports one (`'a' -> 'b' -> 'a'`) but with the DOUBLE
  *  quotes every other diagnostic in this compiler uses for a name. The arrows are Tint's; the
  *  quoting is the house style, and the two differ on purpose. */
 function renderCycle(names: readonly string[]): string {
-  return names.map((n) => `"${n}"`).join(' -> ')
+  return names.map((n) => `"${n}"`).join(' -> ');
 }
 
 /** A cycle's identity, independent of where the walk happened to enter it, so `a -> b -> a` and
  *  `b -> a -> b` are reported once rather than once per entry point. Rotating to the
  *  lexicographically smallest member is enough: a simple cycle has one such rotation. */
 function cycleKey(names: readonly string[]): string {
-  let best = 0
-  for (let i = 1; i < names.length; i++) if (names[i]! < names[best]!) best = i
-  return [...names.slice(best), ...names.slice(0, best)].join(' ')
+  let best = 0;
+  for (let i = 1; i < names.length; i++) if (names[i]! < names[best]!) best = i;
+  return [...names.slice(best), ...names.slice(0, best)].join(' ');
 }
 
 /**
@@ -160,33 +160,33 @@ export function checkRecursion(
   // to add — and keeping only the first meant the second's calls left the graph entirely, so a
   // recursive second `helper` reported nothing. The emit is already invalid in that case (Tint:
   // `redeclaration of 'helper'`), but losing a node silently is not how this should fail.
-  const outgoing = new Map<string, Edge[]>()
+  const outgoing = new Map<string, Edge[]>();
   for (const n of nodes) {
-    const prior = outgoing.get(n.name)
-    if (prior) prior.push(...edgesOf(n))
-    else outgoing.set(n.name, edgesOf(n))
+    const prior = outgoing.get(n.name);
+    if (prior) prior.push(...edgesOf(n));
+    else outgoing.set(n.name, edgesOf(n));
   }
 
-  const WHITE = 0
-  const GREY = 1
-  const BLACK = 2
-  const colour = new Map<string, number>()
-  for (const name of outgoing.keys()) colour.set(name, WHITE)
-  const stack: string[] = []
-  const reported = new Set<string>()
+  const WHITE = 0;
+  const GREY = 1;
+  const BLACK = 2;
+  const colour = new Map<string, number>();
+  for (const name of outgoing.keys()) colour.set(name, WHITE);
+  const stack: string[] = [];
+  const reported = new Set<string>();
 
   const visit = (name: string): void => {
-    colour.set(name, GREY)
-    stack.push(name)
+    colour.set(name, GREY);
+    stack.push(name);
     for (const edge of outgoing.get(name) ?? []) {
-      const state = colour.get(edge.to)
-      if (state === undefined) continue // not a graph node after all
+      const state = colour.get(edge.to);
+      if (state === undefined) continue; // not a graph node after all
       if (state === GREY) {
-        const from = stack.lastIndexOf(edge.to)
-        const cycle = stack.slice(from)
-        const key = cycleKey(cycle)
+        const from = stack.lastIndexOf(edge.to);
+        const cycle = stack.slice(from);
+        const key = cycleKey(cycle);
         if (!reported.has(key)) {
-          reported.add(key)
+          reported.add(key);
           diagnostics.push(
             makeDiagnostic(
               edge.sourceFile,
@@ -194,16 +194,16 @@ export function checkRecursion(
               `Recursive call: ${renderCycle([...cycle, edge.to])}. WGSL has no call stack, so a function must not take part in a call cycle.`,
               TS_CODES.RECURSION,
             ),
-          )
+          );
         }
-        continue
+        continue;
       }
-      if (state === WHITE) visit(edge.to)
+      if (state === WHITE) visit(edge.to);
     }
-    stack.pop()
-    colour.set(name, BLACK)
-  }
+    stack.pop();
+    colour.set(name, BLACK);
+  };
 
   // Declaration order, so the diagnostics of a file with several cycles are stable.
-  for (const n of nodes) if (colour.get(n.name) === WHITE) visit(n.name)
+  for (const n of nodes) if (colour.get(n.name) === WHITE) visit(n.name);
 }

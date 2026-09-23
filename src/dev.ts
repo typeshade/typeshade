@@ -12,16 +12,16 @@
 // EMIT-time gate — stay on the main barrel; this is the opt-in analysis surface.
 // The `Diagnostic` result type also stays on the main barrel: ValidationError
 // exposes `.diagnostics` there.)
-export { lintModule } from './core/passes/validate.js'
+export { lintModule } from './core/passes/validate.js';
 export {
   summarize,
   formatDiagnostics,
   type LintSummary,
   type Severity,
   type LintConfig,
-} from './core/passes/lint/engine.js'
-export { checkSingleExit } from './core/passes/single-exit.js'
-export { requiredCaps, assertCaps } from './core/passes/required-caps.js'
+} from './core/passes/lint/engine.js';
+export { checkSingleExit } from './core/passes/single-exit.js';
+export { requiredCaps, assertCaps } from './core/passes/required-caps.js';
 
 // Unified diagnose()/formatReport() report + the error-code catalogue + coded-error
 // authoring helpers. (TypeShadeError itself stays on the main barrel — it is the
@@ -31,12 +31,12 @@ export {
   formatReport,
   type DiagnoseOptions,
   type DiagnosticReport,
-} from './core/diagnostics/report.js'
-export { CODES, type ErrorCode, type ErrorCodeDef } from './core/diagnostics/codes.js'
-export { dslError, formatLoc, type SourceLoc } from './core/diagnostics/error.js'
+} from './core/diagnostics/report.js';
+export { CODES, type ErrorCode, type ErrorCodeDef } from './core/diagnostics/codes.js';
+export { dslError, formatLoc, type SourceLoc } from './core/diagnostics/error.js';
 
 // Opt-in authored-source tracing (off by default, never on the emit path).
-export { setSourceTracing, isSourceTracing } from './core/diagnostics/loc.js'
+export { setSourceTracing, isSourceTracing } from './core/diagnostics/loc.js';
 
 // Optimizer measurement (A/B the optimizer on op-count + source size).
 export {
@@ -50,12 +50,12 @@ export {
   type EmitProfile,
   type StageTiming,
   type PassTiming,
-} from './core/measure.js'
+} from './core/measure.js';
 
 // Optimizer pass surface for A/B and pass-level tests (X-GIS #763 D3 — the former
 // `core/passes/opt/index` deep-path consumers; the `./core/*` wildcard subpath
 // that reached it bypassed the main//dev split and enabled partial-graph loads).
-export { optimize, fixpoint, DEFAULT_PASSES, constFold } from './core/passes/opt/index.js'
+export { optimize, fixpoint, DEFAULT_PASSES, constFold } from './core/passes/opt/index.js';
 
 // Pipeline introspection siblings of emitModule (byte-identical `.code`).
-export { lowerForBackend, emitModuleWithReflection } from './core/emit.js'
+export { lowerForBackend, emitModuleWithReflection } from './core/emit.js';

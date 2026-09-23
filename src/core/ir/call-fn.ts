@@ -8,8 +8,8 @@
 // a function the module does not define; both check argument names and types at `tsc` time,
 // where this form checks nothing.
 
-import type { ShaderType, KeyOf } from './types.js'
-import { Node, lift, type NodeLike } from './node.js'
+import type { ShaderType, KeyOf } from './types.js';
+import { Node, lift, type NodeLike } from './node.js';
 
 /** Build a call node for the function `name`, with the return type given explicitly. The
  *  WGSL backend emits `name(args)`; the CPU backend dispatches through its compiled function
@@ -25,5 +25,5 @@ export function callFn<T extends ShaderType>(
     type: ret,
     fn: name,
     args: args.map((a) => lift(a).expr),
-  })
+  });
 }

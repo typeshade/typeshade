@@ -74,12 +74,12 @@
 // The goldens live in `__emit-goldens__/` with the emits they are derived from, so the one
 // bake protocol in `_goldens.ts` covers them: `UPDATE_EMIT_GOLDENS=1`.
 
-import { describe, it, expect } from 'vitest'
-import { shadeExamples, SHADE_TWINS } from './_shade.js'
-import { examples } from './index.js'
-import { checkGolden } from './_goldens.js'
-import { unifiedDiff } from './_twin-diff.js'
-import { emitModule, reflect, semanticDiff, isSemanticallyEqual } from '../src/index.js'
+import { describe, it, expect } from 'vitest';
+import { shadeExamples, SHADE_TWINS } from './_shade.js';
+import { examples } from './index.js';
+import { checkGolden } from './_goldens.js';
+import { unifiedDiff } from './_twin-diff.js';
+import { emitModule, reflect, semanticDiff, isSemanticallyEqual } from '../src/index.js';
 
 /** The registered twins, paired with the EDSL example each mirrors. Resolved once so a
  *  missing original fails the well-formedness arm below rather than every arm at once. */
@@ -88,31 +88,31 @@ const pairs = [...SHADE_TWINS].map(([twinId, ofId]) => ({
   ofId,
   twin: shadeExamples.find((e) => e.id === twinId),
   original: examples.find((e) => e.id === ofId),
-}))
+}));
 
 describe('twins — the claim is well-formed', () => {
   it('there is at least one twin (the suite is not vacuously green)', () => {
     // Every arm below iterates `pairs`, and an empty list passes all of them. This is the
     // floor that stops `twinOf` being dropped from every entry and the suite still greening.
-    expect(pairs.length).toBeGreaterThanOrEqual(1)
-  })
+    expect(pairs.length).toBeGreaterThanOrEqual(1);
+  });
 
   it('every twinOf names a registered example, and every twin is registered', () => {
     for (const p of pairs) {
-      expect(p.twin, `${p.twinId}: declared as a twin but not in shadeExamples`).toBeDefined()
-      expect(p.original, `${p.twinId}: twinOf "${p.ofId}" is not an examples id`).toBeDefined()
+      expect(p.twin, `${p.twinId}: declared as a twin but not in shadeExamples`).toBeDefined();
+      expect(p.original, `${p.twinId}: twinOf "${p.ofId}" is not an examples id`).toBeDefined();
     }
-  })
-})
+  });
+});
 
 describe('twins — the pipeline interface is identical, not merely similar', () => {
   for (const p of pairs) {
     it(`${p.twinId}: reflect() matches ${p.ofId}`, () => {
-      const twin = p.twin
-      const original = p.original
-      expect(twin).toBeDefined()
-      expect(original).toBeDefined()
-      if (!twin || !original) return
+      const twin = p.twin;
+      const original = p.original;
+      expect(twin).toBeDefined();
+      expect(original).toBeDefined();
+      if (!twin || !original) return;
       // Bind groups, std140/std430 layouts, the stages that reach each binding, and every
       // entry-point signature. A twin that shifts a binding or renames an entry point is not
       // the same shader, however close the body is, and no host that packed a buffer for one
@@ -123,42 +123,42 @@ describe('twins — the pipeline interface is identical, not merely similar', ()
       // every binding reflected `stages: []`. The exclusion carried an arm asserting the bug
       // still reproduced, and that arm is what failed when #14 landed — which is how both it
       // and the exclusion came to be deleted here rather than outliving the bug.
-      expect(reflect(twin.module)).toEqual(reflect(original.module))
-    })
+      expect(reflect(twin.module)).toEqual(reflect(original.module));
+    });
   }
-})
+});
 
 describe('twins — the difference is pinned', () => {
   for (const p of pairs) {
     it(`${p.twinId}: semanticDiff against ${p.ofId} is byte-stable`, () => {
-      const twin = p.twin
-      const original = p.original
-      expect(twin).toBeDefined()
-      expect(original).toBeDefined()
-      if (!twin || !original) return
+      const twin = p.twin;
+      const original = p.original;
+      expect(twin).toBeDefined();
+      expect(original).toBeDefined();
+      if (!twin || !original) return;
       // The public comparison, defaults and all: `names` and `declOrder` are ignored, so
       // what survives is what the two surfaces genuinely built differently.
-      const diff = semanticDiff(original.module, twin.module)
+      const diff = semanticDiff(original.module, twin.module);
       checkGolden(
         `${p.twinId}.semantic.json`,
         `${JSON.stringify({ twin: p.twinId, of: p.ofId, equal: isSemanticallyEqual(diff), diff }, null, 2)}\n`,
-      )
-    })
+      );
+    });
 
     it(`${p.twinId}: WGSL diff against ${p.ofId} is byte-stable`, () => {
-      const twin = p.twin
-      const original = p.original
-      expect(twin).toBeDefined()
-      expect(original).toBeDefined()
-      if (!twin || !original) return
+      const twin = p.twin;
+      const original = p.original;
+      expect(twin).toBeDefined();
+      expect(original).toBeDefined();
+      if (!twin || !original) return;
       // Spelling, which semanticDiff deliberately does not report.
       const diff = unifiedDiff(
         emitModule(original.module),
         emitModule(twin.module),
         `${p.ofId} (fn() EDSL)`,
         `${p.twinId} ("use typeshade")`,
-      )
-      checkGolden(`${p.twinId}.diff`, diff)
-    })
+      );
+      checkGolden(`${p.twinId}.diff`, diff);
+    });
   }
-})
+});

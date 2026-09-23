@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -18,41 +18,41 @@
 // each omit a different argument.
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
-const WARM: vec3 = vec3(1., 0.72, 0.42)
+const WARM: vec3 = vec3(1., 0.72, 0.42);
 
 function grade(c: vec3, gamma: f32 = 2.2): vec3 {
-  return pow(max(c, vec3(0.)), vec3(1. / gamma))
+  return pow(max(c, vec3(0.)), vec3(1. / gamma));
 }
 
 function vignette(uv: vec2, strength: f32 = 0.8, softness: f32 = 1.35): f32 {
-  return 1. - strength * smoothstep(0., softness, dot(uv, uv))
+  return 1. - strength * smoothstep(0., softness, dot(uv, uv));
 }
 
 function bands(uv: vec2, tint: vec3 = WARM, count: f32 = 6.): vec3 {
-  const t = fract(uv.y * count) * 0.35 + 0.65
-  return tint * t
+  const t = fract(uv.y * count) * 0.35 + 0.65;
+  return tint * t;
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): VsOut {
-  const xs: array<f32, 3> = [-1., 3., -1.]
-  const ys: array<f32, 3> = [-1., -1., 3.]
-  const i = i32(vi)
-  const p: vec2 = vec2(xs[i], ys[i])
-  return { pos: vec4(p, 0., 1.), uv: p }
+  const xs: array<f32, 3> = [-1., 3., -1.];
+  const ys: array<f32, 3> = [-1., -1., 3.];
+  const i = i32(vi);
+  const p: vec2 = vec2(xs[i], ys[i]);
+  return { pos: vec4(p, 0., 1.), uv: p };
 }
 
 @fragment
 export function fs(v: VsOut): vec4 {
   // Every argument written, one omitted, all the optional ones omitted.
-  const cool = bands(v.uv, vec3(0.38, 0.6, 1.), 10.)
-  const warm = bands(v.uv)
-  const mixed = mix(cool, warm, smoothstep(-1., 1., v.uv.x))
+  const cool = bands(v.uv, vec3(0.38, 0.6, 1.), 10.);
+  const warm = bands(v.uv);
+  const mixed = mix(cool, warm, smoothstep(-1., 1., v.uv.x));
   // Annotated for the editor: the ambient lib types vector arithmetic loosely.
-  const lit: vec3 = mixed * vignette(v.uv)
-  return vec4(grade(lit), 1.)
+  const lit: vec3 = mixed * vignette(v.uv);
+  return vec4(grade(lit), 1.);
 }

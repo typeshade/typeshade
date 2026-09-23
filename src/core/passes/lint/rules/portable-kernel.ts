@@ -1,6 +1,6 @@
-import type { LintRule } from '../engine.js'
-import { CODES } from '../../../diagnostics/codes.js'
-import { analyzePortableKernel, isPortableComputeEntry } from '../../portable-kernel.js'
+import type { LintRule } from '../engine.js';
+import { CODES } from '../../../diagnostics/codes.js';
+import { analyzePortableKernel, isPortableComputeEntry } from '../../portable-kernel.js';
 
 /** A `portable`-declared `@compute` entry must stay inside the gather-only tier (X-GIS #1812).
  *
@@ -27,11 +27,11 @@ export const portableKernel: LintRule = {
   category: 'correctness',
   create: (ctx) => ({
     Func(f) {
-      if (!isPortableComputeEntry(f)) return
-      const result = analyzePortableKernel(ctx.module, f)
-      if (result.ok) return
+      if (!isPortableComputeEntry(f)) return;
+      const result = analyzePortableKernel(ctx.module, f);
+      if (result.ok) return;
       for (const violation of result.violations)
-        ctx.report(violation, { fn: f.name, node: f, code: 'SD0111', hint: CODES.SD0111.hint })
+        ctx.report(violation, { fn: f.name, node: f, code: 'SD0111', hint: CODES.SD0111.hint });
     },
   }),
-}
+};

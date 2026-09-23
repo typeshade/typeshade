@@ -4,40 +4,40 @@
 // constructor, ternary, for-init, index, builtin call, module const — and, as importantly,
 // that a float context is left exactly as it was.
 
-import { describe, expect, it } from 'vitest'
-import { compileTsSource } from './source-file.js'
-import { compile } from './compile.js'
-import { typeKey } from '../../core/ir/types.js'
-import type { Expr } from '../../core/ir/nodes.js'
+import { describe, expect, it } from 'vitest';
+import { compileTsSource } from './source-file.js';
+import { compile } from './compile.js';
+import { typeKey } from '../../core/ir/types.js';
+import type { Expr } from '../../core/ir/nodes.js';
 
 function wgslOf(source: string): string {
-  const r = compileTsSource(`"use typeshade";\n${source}`)
-  expect(r.diagnostics).toEqual([])
-  return r.wgsl!
+  const r = compileTsSource(`"use typeshade";\n${source}`);
+  expect(r.diagnostics).toEqual([]);
+  return r.wgsl!;
 }
 
 function diagnose(source: string): string {
-  const r = compileTsSource(`"use typeshade";\n${source}`)
-  expect(r.diagnostics.length).toBeGreaterThan(0)
-  return r.diagnostics[0]!.message
+  const r = compileTsSource(`"use typeshade";\n${source}`);
+  expect(r.diagnostics.length).toBeGreaterThan(0);
+  return r.diagnostics[0]!.message;
 }
 
 function returnExpr(source: string): Expr {
-  const r = compileTsSource(`"use typeshade";\n${source}`)
-  expect(r.diagnostics).toEqual([])
-  const stmt = r.funcs[r.funcs.length - 1]!.body.find((s) => s.s === 'return')
-  if (!stmt || stmt.s !== 'return' || !stmt.expr) throw new Error('expected a return')
-  return stmt.expr
+  const r = compileTsSource(`"use typeshade";\n${source}`);
+  expect(r.diagnostics).toEqual([]);
+  const stmt = r.funcs[r.funcs.length - 1]!.body.find((s) => s.s === 'return');
+  if (!stmt || stmt.s !== 'return' || !stmt.expr) throw new Error('expected a return');
+  return stmt.expr;
 }
 
 describe('the ten positions', () => {
   it('1. return takes the declared return type', () => {
-    const e = returnExpr('export function f(): u32 {\n  return 0;\n}')
-    expect(e).toEqual({ op: 'lit', type: expect.anything(), value: 0 })
-    expect(typeKey(e.type)).toBe('u32')
-    expect(wgslOf('export function f(): u32 {\n  return 0;\n}')).toContain('return 0u;')
-    expect(wgslOf('export function f(): i32 {\n  return -3;\n}')).toContain('return -3;')
-  })
+    const e = returnExpr('export function f(): u32 {\n  return 0;\n}');
+    expect(e).toEqual({ op: 'lit', type: expect.anything(), value: 0 });
+    expect(typeKey(e.type)).toBe('u32');
+    expect(wgslOf('export function f(): u32 {\n  return 0;\n}')).toContain('return 0u;');
+    expect(wgslOf('export function f(): i32 {\n  return -3;\n}')).toContain('return -3;');
+  });
 
   it('2. assignment takes the target’s type', () => {
     expect(
@@ -48,8 +48,8 @@ describe('the ten positions', () => {
           return x;
         }
       `),
-    ).toContain('x = 2u;')
-  })
+    ).toContain('x = 2u;');
+  });
 
   it('3. an argument takes the parameter’s type', () => {
     expect(
@@ -61,8 +61,8 @@ describe('the ten positions', () => {
           return g(1);
         }
       `),
-    ).toContain('return g(1u);')
-  })
+    ).toContain('return g(1u);');
+  });
 
   it('4. a struct field takes the field’s type', () => {
     expect(
@@ -75,33 +75,33 @@ describe('the ten positions', () => {
           return s.id;
         }
       `),
-    ).toContain('S(0u)')
-  })
+    ).toContain('S(0u)');
+  });
 
   it('5. a vector constructor takes its element kind', () => {
     expect(wgslOf('export function f(): vec3u {\n  return vec3u(1, 2, 3);\n}')).toContain(
       'vec3<u32>(1u, 2u, 3u)',
-    )
+    );
     expect(wgslOf('export function f(): vec2i {\n  return vec2i(-1, 2);\n}')).toContain(
       'vec2<i32>(-1, 2)',
-    )
+    );
     expect(
       wgslOf(`
         export function f(n: u32): vec3u {
           return vec3u(n, 1, 2);
         }
       `),
-    ).toContain('vec3<u32>(n, 1u, 2u)')
-  })
+    ).toContain('vec3<u32>(n, 1u, 2u)');
+  });
 
   it('6. a ternary takes the type of the position it is in', () => {
-    const e = returnExpr('export function f(c: bool): u32 {\n  return c ? 1 : 2;\n}')
-    expect(e.op).toBe('select')
-    if (e.op !== 'select') return
-    expect(typeKey(e.type)).toBe('u32')
-    expect(typeKey(e.ifTrue.type)).toBe('u32')
-    expect(typeKey(e.ifFalse.type)).toBe('u32')
-  })
+    const e = returnExpr('export function f(c: bool): u32 {\n  return c ? 1 : 2;\n}');
+    expect(e.op).toBe('select');
+    if (e.op !== 'select') return;
+    expect(typeKey(e.type)).toBe('u32');
+    expect(typeKey(e.ifTrue.type)).toBe('u32');
+    expect(typeKey(e.ifFalse.type)).toBe('u32');
+  });
 
   it('7. a for-init with no annotation is the i32 the induction variable must be', () => {
     const w = wgslOf(`
@@ -112,10 +112,10 @@ describe('the ten positions', () => {
         }
         return a;
       }
-    `)
-    expect(w).toContain('for (var i: i32 = 0;')
-    expect(w).toContain('(i < 4)')
-  })
+    `);
+    expect(w).toContain('for (var i: i32 = 0;');
+    expect(w).toContain('(i < 4)');
+  });
 
   it('8. an index is an i32, as it already was', () => {
     expect(
@@ -125,17 +125,17 @@ describe('the ten positions', () => {
           return xs[0];
         }
       `),
-    ).toContain('xs[0]')
-  })
+    ).toContain('xs[0]');
+  });
 
   it('9. a builtin call takes the kind of its other arguments', () => {
     // Before this, min(i, 4) emitted min(i, 4.0), which is not valid WGSL.
     expect(wgslOf('export function f(i: i32): i32 {\n  return min(i, 4);\n}')).toContain(
       'min(i, 4)',
-    )
+    );
     expect(wgslOf('export function f(i: u32): u32 {\n  return max(i, 1);\n}')).toContain(
       'max(i, 1u)',
-    )
+    );
     // The written `2` takes u32 from `u32(1)`. The IR pins that; the emitted text no longer
     // can, because the optimizer now folds `min` over two literals (#73), so the WGSL shows
     // the folded result with the u32 suffix instead of the call.
@@ -146,36 +146,36 @@ describe('the ten positions', () => {
       export function f(): u32 {
         return g(min(u32(1), 2));
       }
-    `
-    const e = returnExpr(src)
-    if (e.op !== 'call' || e.args[0]!.op !== 'call') throw new Error('expected g(min(...))')
-    expect(e.args[0]!.fn).toBe('min')
-    expect(e.args[0]!.args.map((a) => a.op)).toEqual(['lit', 'lit'])
-    expect(e.args[0]!.args.map((a) => typeKey(a.type))).toEqual(['u32', 'u32'])
-    expect(wgslOf(src)).toContain('g(1u)')
-  })
+    `;
+    const e = returnExpr(src);
+    if (e.op !== 'call' || e.args[0]!.op !== 'call') throw new Error('expected g(min(...))');
+    expect(e.args[0]!.fn).toBe('min');
+    expect(e.args[0]!.args.map((a) => a.op)).toEqual(['lit', 'lit']);
+    expect(e.args[0]!.args.map((a) => typeKey(a.type))).toEqual(['u32', 'u32']);
+    expect(wgslOf(src)).toContain('g(1u)');
+  });
 
   it('10. a module const keeps the declared type', () => {
     const r = compileTsSource(`
       "use typeshade";
-      const N: u32 = 16
+      const N: u32 = 16;
       export function f(): u32 {
         return N;
       }
-    `)
-    expect(r.diagnostics).toEqual([])
-    expect(typeKey(r.consts[0]!.type)).toBe('u32')
-    expect(r.consts[0]!.wgslValue).toBe(16)
-    expect(r.consts[0]!.cpuValue).toBe(16)
+    `);
+    expect(r.diagnostics).toEqual([]);
+    expect(typeKey(r.consts[0]!.type)).toBe('u32');
+    expect(r.consts[0]!.wgslValue).toBe(16);
+    expect(r.consts[0]!.cpuValue).toBe(16);
     // The emitted `const N: u32 = 16.0;` is issue #13 (the backend's emitConst spells every
     // scalar with f32Lit), not the front end's: the ConstDecl above is already right.
-  })
-})
+  });
+});
 
 describe('folded integer arithmetic in an integer context', () => {
   it('takes the declared type', () => {
-    expect(wgslOf('export function f(): u32 {\n  return 2 + 3;\n}')).toContain('return 5u;')
-  })
+    expect(wgslOf('export function f(): u32 {\n  return 2 + 3;\n}')).toContain('return 5u;');
+  });
 
   it('works through a const expression', () => {
     expect(
@@ -185,9 +185,9 @@ describe('folded integer arithmetic in an integer context', () => {
           return min(i, W);
         }
       `),
-    ).toContain('min(i, W)')
-  })
-})
+    ).toContain('min(i, W)');
+  });
+});
 
 describe('the CPU oracle agrees', () => {
   it('evaluates every retargeted position', () => {
@@ -211,16 +211,16 @@ describe('the CPU oracle agrees', () => {
       export function clamped(i: i32): i32 {
         return min(i, 4);
       }
-    `)
-    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(c.eval('ret', [])).toBe(0)
-    expect(c.eval('arg', [])).toBe(7)
-    expect(c.eval('ctor', [])).toEqual([1, 2, 3])
-    expect(c.eval('tern', [true])).toBe(1)
-    expect(c.eval('tern', [false])).toBe(2)
-    expect(c.eval('clamped', [9])).toBe(4)
-  })
-})
+    `);
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(c.eval('ret', [])).toBe(0);
+    expect(c.eval('arg', [])).toBe(7);
+    expect(c.eval('ctor', [])).toEqual([1, 2, 3]);
+    expect(c.eval('tern', [true])).toBe(1);
+    expect(c.eval('tern', [false])).toBe(2);
+    expect(c.eval('clamped', [9])).toBe(4);
+  });
+});
 
 describe('a float context is untouched', () => {
   it('leaves an f32 return, assignment and argument exactly as they were', () => {
@@ -233,33 +233,33 @@ describe('a float context is untouched', () => {
         y = 2.5;
         return g(2) + min(y, 2.) + y;
       }
-    `)
-    expect(w).toContain('var y: f32 = 1.5;')
-    expect(w).toContain('y = 2.5;')
-    expect(w).toContain('g(2.0)')
-    expect(w).toContain('min(y, 2.0)')
-  })
+    `);
+    expect(w).toContain('var y: f32 = 1.5;');
+    expect(w).toContain('y = 2.5;');
+    expect(w).toContain('g(2.0)');
+    expect(w).toContain('min(y, 2.0)');
+  });
 
   it('leaves an f32 vector constructor and mix alone', () => {
     const w = wgslOf(`
       export function f(a: vec3, b: vec3): vec3 {
         return mix(a, b, 1) + vec3(1, 2, 3);
       }
-    `)
-    expect(w).toContain('mix(a, b, 1.0)')
-    expect(w).toContain('vec3<f32>(1.0, 2.0, 3.0)')
-  })
+    `);
+    expect(w).toContain('mix(a, b, 1.0)');
+    expect(w).toContain('vec3<f32>(1.0, 2.0, 3.0)');
+  });
 
   it('leaves a call whose arguments are all written numbers alone', () => {
     // Both literals stay f32 in the IR. The optimizer folds the call itself (#73), so the
     // emitted text is the folded f32 value; had either literal been retyped, WGSL would
     // have carried a bare `1` into an f32 return.
-    const src = 'export function f(): f32 {\n  return min(1, 2);\n}'
-    const e = returnExpr(src)
-    if (e.op !== 'call') throw new Error('expected min(...)')
-    expect(e.args.map((a) => typeKey(a.type))).toEqual(['f32', 'f32'])
-    expect(wgslOf(src)).toContain('return 1.0;')
-  })
+    const src = 'export function f(): f32 {\n  return min(1, 2);\n}';
+    const e = returnExpr(src);
+    if (e.op !== 'call') throw new Error('expected min(...)');
+    expect(e.args.map((a) => typeKey(a.type))).toEqual(['f32', 'f32']);
+    expect(wgslOf(src)).toContain('return 1.0;');
+  });
 
   it('keeps the IR SHAPE, which is what the isIntScalar guard is for', () => {
     // Every other assertion in this block reads emitted TEXT, and the emit-level constant
@@ -273,13 +273,13 @@ describe('a float context is untouched', () => {
     // one line later (it rejects any text carrying a `.`), which is why deleting the guard left
     // that spelling green. `1 + 1` is an integer tree in an f32 position, which is exactly the
     // pair only the guard separates.
-    const e = returnExpr('export function f(): f32 {\n  return 1 + 1;\n}')
-    expect(e.op).toBe('binop')
-    const u = returnExpr('export function f(): u32 {\n  return 1 + 1;\n}')
-    expect(u).toEqual({ op: 'lit', type: expect.anything(), value: 2 })
-    expect(typeKey(u.type)).toBe('u32')
-  })
-})
+    const e = returnExpr('export function f(): f32 {\n  return 1 + 1;\n}');
+    expect(e.op).toBe('binop');
+    const u = returnExpr('export function f(): u32 {\n  return 1 + 1;\n}');
+    expect(u).toEqual({ op: 'lit', type: expect.anything(), value: 2 });
+    expect(typeKey(u.type)).toBe('u32');
+  });
+});
 
 describe('a declaration keeps the acceptance it had before this item', () => {
   // The fix round's own regression. `retargetIntLitCtx` retargets only what
@@ -312,8 +312,8 @@ describe('a declaration keeps the acceptance it had before this item', () => {
       'for (var k: u32 = 0u;',
     ],
   ])('%s still compiles', (_label, src, want) => {
-    expect(wgslOf(src)).toContain(want)
-  })
+    expect(wgslOf(src)).toContain(want);
+  });
 
   it('takes the integral value only — a float-written one that is not stays refused', () => {
     // `let y: i32 = 1.5` was never a program: on origin/main it was retyped as an i32 literal
@@ -321,12 +321,12 @@ describe('a declaration keeps the acceptance it had before this item', () => {
     // is the same answer with a better message, so the fallback stops at `Number.isInteger`.
     expect(diagnose('export function f(): i32 {\n  let y: i32 = 1.5;\n  return y;\n}')).toContain(
       'no implicit int/float conversion',
-    )
+    );
     // …and out of range is still out of range, written as a float or not.
     expect(diagnose('export function f(): u32 {\n  let y: u32 = -1.;\n  return y;\n}')).toContain(
       'no implicit int/float conversion',
-    )
-  })
+    );
+  });
 
   it('is a single literal, not a folded expression', () => {
     // The old rule was `init.op === 'lit'` on the lowered IR, which a `binop` or a `unop`
@@ -337,17 +337,17 @@ describe('a declaration keeps the acceptance it had before this item', () => {
       expect(
         diagnose(`export function f(): i32 {\n  let y: i32 = ${init};\n  return y;\n}`),
         init,
-      ).toContain('no implicit int/float conversion')
+      ).toContain('no implicit int/float conversion');
     }
     // …while the integer-written forms of the same values still take the declared type.
     expect(wgslOf('export function f(): i32 {\n  let y: i32 = 2 + 1;\n  return y;\n}')).toContain(
       'var y: i32 = 3;',
-    )
+    );
     expect(wgslOf('export function f(): i32 {\n  let y: i32 = -1;\n  return y;\n}')).toContain(
       'var y: i32 = -1;',
-    )
-  })
-})
+    );
+  });
+});
 
 describe('what the rule deliberately does not reach', () => {
   it('leaves a literal that does not fit the declared integer type alone', () => {
@@ -370,16 +370,16 @@ describe('what the rule deliberately does not reach', () => {
         'The value has to fit: -2147483649 is outside i32',
       ],
     ] as const) {
-      expect(diagnose(src)).toContain(want)
+      expect(diagnose(src)).toContain(want);
     }
     // The edges themselves still retarget.
     expect(wgslOf('export function f(): i32 {\n  return -2147483648;\n}')).toContain(
       'return -2147483648;',
-    )
+    );
     expect(wgslOf('export function f(): u32 {\n  return 4294967295;\n}')).toContain(
       'return 4294967295u;',
-    )
-  })
+    );
+  });
 
   it('does not retype float arithmetic that happens to fold to a whole number', () => {
     // §13 says a number written WITHOUT a decimal point takes the declared type. The fold
@@ -388,7 +388,7 @@ describe('what the rule deliberately does not reach', () => {
     // literal.
     expect(diagnose('export function f(): u32 {\n  return 2.5 + 0.5;\n}')).toContain(
       'declared u32, got f32',
-    )
+    );
     expect(
       diagnose(`
         export function g(a: u32): u32 {
@@ -398,13 +398,13 @@ describe('what the rule deliberately does not reach', () => {
           return g(0.5 + 0.5);
         }
       `),
-    ).toBe('Argument 1 of "g" type mismatch.')
+    ).toBe('Argument 1 of "g" type mismatch.');
     expect(diagnose('export function f(): vec2i {\n  return vec2i(1.5 + 0.5, 2);\n}')).toContain(
       'expected i32',
-    )
+    );
     // …while arithmetic whose leaves ARE integer literals still takes the declared type.
-    expect(wgslOf('export function f(): u32 {\n  return 2 + 3;\n}')).toContain('return 5u;')
-  })
+    expect(wgslOf('export function f(): u32 {\n  return 2 + 3;\n}')).toContain('return 5u;');
+  });
 
   it('a literal in the first argument takes an integer peer, so the call is of that kind (#57)', () => {
     // mathResultType is args[0].type, so retargeting there retypes the call. Until roadmap 0.2
@@ -412,28 +412,28 @@ describe('what the rule deliberately does not reach', () => {
     // refuses; now the first argument that is not a written number decides.
     expect(wgslOf('export function f(i: i32): i32 {\n  return max(1, i);\n}')).toContain(
       'max(1, i)',
-    )
+    );
     // In an f32 position that is the honest mismatch, on the return, instead of the invalid emit.
     expect(diagnose('export function f(i: i32): f32 {\n  return max(1, i);\n}')).toBe(
       'Function "f" return type mismatch: declared f32, got i32.',
-    )
+    );
     // A float peer changes nothing.
     expect(wgslOf('export function f(x: f32): f32 {\n  return max(1, x);\n}')).toContain(
       'max(1.0, x)',
-    )
+    );
     // The position the rule was first for, where the literal is not the peer, still works.
     expect(wgslOf('export function f(i: i32): i32 {\n  return min(i, 4);\n}')).toContain(
       'min(i, 4)',
-    )
-  })
-})
+    );
+  });
+});
 
 describe('what still does not compile', () => {
   it('rejects a non-integer literal in an integer position', () => {
     expect(diagnose('export function f(): u32 {\n  return 1.5;\n}')).toBe(
       'Function "f" return type mismatch: declared u32, got f32.',
-    )
-  })
+    );
+  });
 
   it('rejects an i32 value where a u32 is declared', () => {
     expect(
@@ -445,8 +445,8 @@ describe('what still does not compile', () => {
           return g(i);
         }
       `),
-    ).toBe('Argument 1 of "g" type mismatch.')
-  })
+    ).toBe('Argument 1 of "g" type mismatch.');
+  });
 
   it('rejects a for-init that is not an integer', () => {
     expect(
@@ -457,8 +457,8 @@ describe('what still does not compile', () => {
           return 0.;
         }
       `),
-    ).toBe('for induction must be i32 or u32, got f32.')
-  })
+    ).toBe('for induction must be i32 or u32, got f32.');
+  });
 
   it('rejects a ternary whose arms disagree', () => {
     expect(
@@ -467,9 +467,9 @@ describe('what still does not compile', () => {
           return c ? 1 : x;
         }
       `),
-    ).toContain('mismatch')
-  })
-})
+    ).toContain('mismatch');
+  });
+});
 
 // A declaration with an annotation is one of the ten positions above, but it was reaching the
 // retarget through a special case of its own — `init.op === 'lit'` — and a negative literal is
@@ -480,10 +480,10 @@ describe('a negative integer literal in a declaration (issue #40)', () => {
   it('takes the declared type in a let, a const, and a for-init', () => {
     expect(wgslOf('export function f(): i32 {\n  let j: i32 = -1;\n  return j;\n}')).toContain(
       'var j: i32 = -1;',
-    )
+    );
     // A `const` is folded into its use, so what there is to look at is the type it carries.
-    const folded = returnExpr('export function f(): i32 {\n  const j: i32 = -1;\n  return j;\n}')
-    expect(typeKey(folded.type)).toBe('i32')
+    const folded = returnExpr('export function f(): i32 {\n  const j: i32 = -1;\n  return j;\n}');
+    expect(typeKey(folded.type)).toBe('i32');
     expect(
       wgslOf(`
         export function f(): i32 {
@@ -494,23 +494,23 @@ describe('a negative integer literal in a declaration (issue #40)', () => {
           return a;
         }
       `),
-    ).toContain('for (var j: i32 = -1;')
-  })
+    ).toContain('for (var j: i32 = -1;');
+  });
 
   it('takes it through a folded expression too', () => {
     expect(wgslOf('export function f(): i32 {\n  let j: i32 = -1 - 2;\n  return j;\n}')).toContain(
       'var j: i32 = -3;',
-    )
-  })
+    );
+  });
 
   it('leaves an annotated float declaration exactly as it was', () => {
     expect(wgslOf('export function f(): f32 {\n  let y: f32 = -1;\n  return y;\n}')).toContain(
       'var y: f32 = -1.0;',
-    )
+    );
     expect(wgslOf('export function f(): bool {\n  let b: bool = true;\n  return b;\n}')).toContain(
       'var b: bool = true;',
-    )
-  })
+    );
+  });
 
   it('now rejects a fractional initializer an integer declaration used to swallow', () => {
     // Before, `init.op === 'lit'` retyped the literal without looking at its value, so this
@@ -518,8 +518,8 @@ describe('a negative integer literal in a declaration (issue #40)', () => {
     expect(diagnose('export function f(): i32 {\n  let j: i32 = 1.5;\n  return j;\n}')).toBe(
       'Type mismatch: cannot let/const j i32 and f32 — no implicit int/float conversion. ' +
         'Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
-    )
-  })
+    );
+  });
 
   it('now rejects a fractional for-init with a diagnostic instead of a backend crash', () => {
     // `for (let j: i32 = 1.5; …)` reached the WGSL writer as an i32 loop over an f32 literal
@@ -535,8 +535,8 @@ describe('a negative integer literal in a declaration (issue #40)', () => {
     ).toBe(
       'Type mismatch: cannot for-init j i32 and f32 — no implicit int/float conversion. ' +
         'Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
-    )
-  })
+    );
+  });
 
   it('agrees on the CPU', () => {
     const c = compile(`
@@ -552,27 +552,27 @@ describe('a negative integer literal in a declaration (issue #40)', () => {
         }
         return a;
       }
-    `)
-    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(c.eval('neg', [])).toBe(-1)
-    expect(c.eval('sum', [])).toBe(0)
-  })
-})
+    `);
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(c.eval('neg', [])).toBe(-1);
+    expect(c.eval('sum', [])).toBe(0);
+  });
+});
 
 describe('an integer literal out of range for its declared type (§13: "the value has to fit")', () => {
   // `const a: u32 = 4294967296` was told "cannot let/const a u32 and f32 — no implicit
   // int/float conversion", a conversion the author never wrote. Every declared integer
   // position now says what §13 says: the value has to fit. One diagnostic, TS8003, the code
   // the scalar casts' and module constants' range checks already use.
-  const U32 = 'u32, which holds 0 to 4294967295 (§13).'
-  const I32 = 'i32, which holds -2147483648 to 2147483647 (§13).'
+  const U32 = 'u32, which holds 0 to 4294967295 (§13).';
+  const I32 = 'i32, which holds -2147483648 to 2147483647 (§13).';
   function only(source: string): { code?: string; message: string } {
-    const r = compileTsSource(`"use typeshade";\n${source}`)
-    expect(r.diagnostics).toHaveLength(1)
-    return { code: r.diagnostics[0]!.code, message: r.diagnostics[0]!.message }
+    const r = compileTsSource(`"use typeshade";\n${source}`);
+    expect(r.diagnostics).toHaveLength(1);
+    return { code: r.diagnostics[0]!.code, message: r.diagnostics[0]!.message };
   }
   const fn = (body: string, ret = 'u32'): string =>
-    `class Id { id: u32 }\nfunction g(a: u32): u32 { return a; }\nexport function f(): ${ret} {\n${body}\n}`
+    `class Id { id: u32 }\nfunction g(a: u32): u32 { return a; }\nexport function f(): ${ret} {\n${body}\n}`;
 
   it('reports the §13 sentence at every declared integer position', () => {
     for (const [body, want] of [
@@ -596,37 +596,37 @@ describe('an integer literal out of range for its declared type (§13: "the valu
       ],
       ['  const a: u32 = 4294967295 + 1;\n  return a;', `4294967296 is outside ${U32}`],
     ] as const) {
-      const d = only(fn(body))
-      expect(d.message, body).toBe(`The value has to fit: ${want}`)
-      expect(d.code, body).toBe('TS8003')
+      const d = only(fn(body));
+      expect(d.message, body).toBe(`The value has to fit: ${want}`);
+      expect(d.code, body).toBe('TS8003');
     }
-  })
+  });
 
   it('reports it for a module-scope variable too', () => {
     const d = only(
       'let counter: u32 = 4294967296;\nexport function f(): u32 {\n  return counter;\n}',
-    )
-    expect(d.message).toBe(`The value has to fit: 4294967296 is outside ${U32}`)
-  })
+    );
+    expect(d.message).toBe(`The value has to fit: 4294967296 is outside ${U32}`);
+  });
 
   it('points at the literal, not the declaration', () => {
     const r = compileTsSource(
       `"use typeshade";\nexport function f(): u32 {\n  const a: u32 = 4294967296;\n  return a;\n}`,
-    )
-    expect(r.diagnostics[0]!.line).toBe(3)
-    expect(r.diagnostics[0]!.character).toBe(18)
-  })
+    );
+    expect(r.diagnostics[0]!.line).toBe(3);
+    expect(r.diagnostics[0]!.character).toBe(18);
+  });
 
   it('leaves the edges, and a float written as a float, as they were', () => {
     expect(
       wgslOf('export function f(): u32 {\n  let a: u32 = 4294967295;\n  return a;\n}'),
-    ).toContain('4294967295u')
+    ).toContain('4294967295u');
     expect(
       wgslOf('export function f(): i32 {\n  let b: i32 = -2147483648;\n  return b;\n}'),
-    ).toContain('-2147483648')
+    ).toContain('-2147483648');
     // Written as a float: not an integer literal, so the int/float mismatch is the right one.
     expect(diagnose('export function f(): u32 {\n  const a: u32 = 1.5;\n  return a;\n}')).toContain(
       'no implicit int/float conversion',
-    )
-  })
-})
+    );
+  });
+});

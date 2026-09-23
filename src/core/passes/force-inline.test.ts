@@ -1,14 +1,14 @@
-import { describe, it, expect } from 'vitest'
-import { fn, module, f64T, f32T, sqrt, toF32, stageOf } from '../ir/index.js'
-import type { ModuleDecl } from '../ir/index.js'
-import { compileModule, type CpuValue } from '../oracle.js'
-import { fp64Lower, hoistGuardFetch } from './fp64-lower.js'
-import { fixpoint } from './opt/index.js'
-import { splitF64 } from '../fp64/df64-lib.js'
-import { forceInline, type InlineDecision } from './force-inline.js'
-import { inline as inlinePlugin } from '../../emit-prod.js'
-import { emitModule } from '../../index.js'
-import type { EmitPlugin } from '../emit.js'
+import { describe, it, expect } from 'vitest';
+import { fn, module, f64T, f32T, sqrt, toF32, stageOf } from '../ir/index.js';
+import type { ModuleDecl } from '../ir/index.js';
+import { compileModule, type CpuValue } from '../oracle.js';
+import { fp64Lower, hoistGuardFetch } from './fp64-lower.js';
+import { fixpoint } from './opt/index.js';
+import { splitF64 } from '../fp64/df64-lib.js';
+import { forceInline, type InlineDecision } from './force-inline.js';
+import { inline as inlinePlugin } from '../../emit-prod.js';
+import { emitModule } from '../../index.js';
+import type { EmitPlugin } from '../emit.js';
 
 // forceInline unlocks `FuncDecl.opaque` so the df64 library can be inlined and then
 // tree-shaken away. The whole question is whether the error-free transforms SURVIVE
@@ -36,7 +36,7 @@ import type { EmitPlugin } from '../emit.js'
 /** The f32 oracle over an ALREADY-lowered module: a correctly-rounding f32 machine, which
  *  is what the GPU is. `precision: 'f32'` (X-GIS #2426) replaced a copy of this wrapper here and
  *  in six fp64 test files. */
-const f32Oracle = (lowered: ModuleDecl) => compileModule(lowered, { precision: 'f32' })
+const f32Oracle = (lowered: ModuleDecl) => compileModule(lowered, { precision: 'f32' });
 
 const kernel = module({
   funcs: [
@@ -46,13 +46,13 @@ const kernel = module({
     fn('k_sqrt', { a: f64T }, (p) => sqrt(p.a)),
     fn('k_narrow', { a: f64T }, (p) => toF32(p.a)),
   ],
-})
+});
 
 // An f64 divide on two PARAMS: neither operand is a helper output, so fp64Lower inserts
 // renormForCancel before the cancelling op — the exact shape whose guard must survive.
 const guarded = module({
   funcs: [fn('g', { a: f64T, b: f64T }, f32T, (p, bb) => bb.ret(toF32(p.a.div(p.b))))],
-})
+});
 
 /** The pinned arithmetic-op count of the force-inlined `guarded` kernel. Measured, and it
  *  is the number a guard-deleting fold moves: a member-of-construct fold takes it to 400.
@@ -63,41 +63,41 @@ const guarded = module({
  *  is `guard(x)` (fp64-lower's `foldGuardChain`), so the term is now `(…) * G` and the kernel
  *  carries 16 × 2 = 32 fewer multiplies. Diffing the flattened WGSL with the guard's name
  *  normalised shows those lines and no other op moving. */
-const FLATTENED_OPS = 376
+const FLATTENED_OPS = 376;
 
-const BASE = fixpoint(fp64Lower(kernel))
-const SIZE_WIN = forceInline(BASE, 'single-call')
-const ALL = forceInline(BASE, 'all')
+const BASE = fixpoint(fp64Lower(kernel));
+const SIZE_WIN = forceInline(BASE, 'single-call');
+const ALL = forceInline(BASE, 'all');
 /** Same policy, but bounded — a DIFFERENT module, so it needs its own value arms. */
-const BUDGETED = forceInline(BASE, 'all', { maxGrowth: 2 })
+const BUDGETED = forceInline(BASE, 'all', { maxGrowth: 2 });
 
 const df64Count = (m: ModuleDecl): number =>
-  m.funcs.filter((f) => f.name.startsWith('df64_')).length
+  m.funcs.filter((f) => f.name.startsWith('df64_')).length;
 const val = (r: CpuValue): number => {
-  const [hi, lo] = r as number[]
-  return hi! + lo!
-}
-const P = splitF64
+  const [hi, lo] = r as number[];
+  return hi! + lo!;
+};
+const P = splitF64;
 
 describe('forceInline — unlocking `opaque` removes the df64 library', () => {
   // Without these two the value arms below would pass vacuously: an unchanged module
   // trivially agrees with itself. They assert the mechanism actually fired.
   it("'all' removes EVERY df64 helper declaration", () => {
-    expect(df64Count(BASE)).toBeGreaterThan(0)
-    expect(df64Count(ALL)).toBe(0)
-  })
+    expect(df64Count(BASE)).toBeGreaterThan(0);
+    expect(df64Count(ALL)).toBe(0);
+  });
 
   it("'single-call' removes some but leaves the multi-call helpers standing", () => {
-    expect(df64Count(SIZE_WIN)).toBeLessThan(df64Count(BASE))
-    expect(df64Count(SIZE_WIN)).toBeGreaterThan(0)
-  })
+    expect(df64Count(SIZE_WIN)).toBeLessThan(df64Count(BASE));
+    expect(df64Count(SIZE_WIN)).toBeGreaterThan(0);
+  });
 
   it('leaves a module with no opaque helper to plain inlining (identity when nothing inlines)', () => {
-    const plain = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => b.ret(x.add(1)))] })
-    expect(forceInline(plain, 'all')).toBe(plain)
-    expect(forceInline(plain, 'single-call')).toBe(plain)
-  })
-})
+    const plain = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => b.ret(x.add(1)))] });
+    expect(forceInline(plain, 'all')).toBe(plain);
+    expect(forceInline(plain, 'single-call')).toBe(plain);
+  });
+});
 
 // Inlining is not folding. Flattening a df64 body copies its expressions; the
 // runtime-opaque ONE travels with them, so the fast-math guard is still there afterwards —
@@ -106,20 +106,20 @@ describe('forceInline — unlocking `opaque` removes the df64 library', () => {
 // deleted guard changes no value, only what a driver is then free to do.
 describe('forceInline — the fast-math guard survives the flattening', () => {
   const wgslOf = (plugins: EmitPlugin[]): string =>
-    emitModule(guarded, { parens: 'minimal', plugins })
+    emitModule(guarded, { parens: 'minimal', plugins });
 
-  const GUARD = /textureLoad\(_fp64/g
+  const GUARD = /textureLoad\(_fp64/g;
 
   it('the baseline reads the opaque ONE, and the flattened body still does', () => {
-    expect(wgslOf([]).match(GUARD)?.length ?? 0).toBeGreaterThan(0)
-    expect(wgslOf([inlinePlugin({ opaque: 'all' })]).match(GUARD)?.length ?? 0).toBeGreaterThan(0)
-  })
+    expect(wgslOf([]).match(GUARD)?.length ?? 0).toBeGreaterThan(0);
+    expect(wgslOf([inlinePlugin({ opaque: 'all' })]).match(GUARD)?.length ?? 0).toBeGreaterThan(0);
+  });
 
   it('the df64 call graph is gone, yet the guard binding is not', () => {
-    const flat = wgslOf([inlinePlugin({ opaque: 'all' })])
-    expect(flat).not.toMatch(/^fn df64_/m) // every helper inlined away…
-    expect(flat).toMatch(/_fp64/) // …and the guard it carried is still read
-  })
+    const flat = wgslOf([inlinePlugin({ opaque: 'all' })]);
+    expect(flat).not.toMatch(/^fn df64_/m); // every helper inlined away…
+    expect(flat).toMatch(/_fp64/); // …and the guard it carried is still read
+  });
 
   // The `_fp64` check above is NOT sufficient, and that was measured rather than assumed:
   // a member-of-construct fold deletes `renormForCancel`'s twoSum (408 arithmetic ops ->
@@ -134,23 +134,23 @@ describe('forceInline — the fast-math guard survives the flattening', () => {
   it('pins the flattened arithmetic-op count — a DROP means a guard was optimized away', () => {
     // The emit path's order: lowerForBackend (optimizer, then the once-per-function guard
     // read) and only then the inline plugin.
-    const flat = forceInline(hoistGuardFetch(fixpoint(fp64Lower(guarded))), 'all')
-    let ops = 0
+    const flat = forceInline(hoistGuardFetch(fixpoint(fp64Lower(guarded))), 'all');
+    let ops = 0;
     const walkE = (e: unknown): void => {
-      if (!e || typeof e !== 'object') return
-      const x = e as { op?: string; s?: string }
-      if (x.op === 'binop' || x.op === 'unop') ops++
+      if (!e || typeof e !== 'object') return;
+      const x = e as { op?: string; s?: string };
+      if (x.op === 'binop' || x.op === 'unop') ops++;
       for (const v of Object.values(e as Record<string, unknown>)) {
-        if (Array.isArray(v)) v.forEach(walkE)
-        else if (v && typeof v === 'object') walkE(v)
+        if (Array.isArray(v)) v.forEach(walkE);
+        else if (v && typeof v === 'object') walkE(v);
       }
-    }
-    for (const f of flat.funcs) f.body.forEach(walkE)
+    };
+    for (const f of flat.funcs) f.body.forEach(walkE);
     expect(ops, 'flattened df64 arithmetic-op count moved — see the header before re-pinning').toBe(
       FLATTENED_OPS,
-    )
-  })
-})
+    );
+  });
+});
 
 describe('forceInline — df64 known answers survive both strengths, bit for bit', () => {
   const arms: [string, ModuleDecl][] = [
@@ -159,8 +159,8 @@ describe('forceInline — df64 known answers survive both strengths, bit for bit
     // A budgeted run is a DIFFERENT module — a different subset of helpers inlined, in a
     // different order — so it needs its own bit-equality arms rather than inheriting them.
     ['all+maxGrowth:2', BUDGETED],
-  ]
-  const base = f32Oracle(BASE)
+  ];
+  const base = f32Oracle(BASE);
 
   // Each case carries its DISCRIMINATIVE half: what plain f32 produces. If df64 had
   // collapsed to f32 under inlining, the expectation would land on that value instead.
@@ -170,26 +170,26 @@ describe('forceInline — df64 known answers survive both strengths, bit for bit
     ['1e8 · 5e-9', (c) => val(c.fns.k_mul!(P(1e8), P(5e-9))), Number.NaN],
     ['(1 + 2^-30) / 1', (c) => val(c.fns.k_div!(P(1 + 2 ** -30), P(1))), Math.fround(1 + 2 ** -30)],
     ['sqrt(2)', (c) => val(c.fns.k_sqrt!(P(2))), Math.fround(Math.sqrt(2))],
-  ]
+  ];
 
   for (const [strength, m] of arms) {
-    const armOracle = f32Oracle(m)
+    const armOracle = f32Oracle(m);
     for (const [name, run, f32Only] of cases) {
       it(`${strength}: ${name} is bit-identical to the un-inlined module`, () => {
-        const want = run(base)
-        expect(run(armOracle)).toBe(want)
+        const want = run(base);
+        expect(run(armOracle)).toBe(want);
         // …and df64 is still doing something plain f32 cannot.
-        if (!Number.isNaN(f32Only)) expect(want).not.toBe(f32Only)
-      })
+        if (!Number.isNaN(f32Only)) expect(want).not.toBe(f32Only);
+      });
     }
   }
 
   it('narrow(a) keeps its DOCUMENTED f32 rounding under both strengths', () => {
     for (const [, m] of arms) {
-      expect(f32Oracle(m).fns.k_narrow!(P(1e8 + 0.5))).toBe(Math.fround(1e8 + 0.5))
+      expect(f32Oracle(m).fns.k_narrow!(P(1e8 + 0.5))).toBe(Math.fround(1e8 + 0.5));
     }
-  })
-})
+  });
+});
 
 // ── What flattening the WHOLE example corpus leaves standing ────────────────
 //
@@ -212,33 +212,33 @@ describe('forceInline(all) over the example corpus', () => {
     // The module IS this function — no entry point calls it, so there is no call
     // site to inline into and deadFnElim must not strip the module to nothing.
     shade: 'uncalled (the module is the helper)',
-  }
+  };
 
   it('leaves exactly the helpers that cannot be inlined, and nothing else', async () => {
-    const { examples } = await import('../../../examples/index.js')
-    const survivors: Record<string, string> = {}
+    const { examples } = await import('../../../examples/index.js');
+    const survivors: Record<string, string> = {};
     for (const ex of examples) {
       const entries = new Set(
         ex.module.funcs.filter((f) => stageOf(f) !== undefined).map((f) => f.name),
-      )
-      let wgsl: string
+      );
+      let wgsl: string;
       try {
-        wgsl = emitModule(ex.module, { plugins: [inlinePlugin({ opaque: 'all' })] })
+        wgsl = emitModule(ex.module, { plugins: [inlinePlugin({ opaque: 'all' })] });
       } catch {
-        continue // not every example emits standalone; the parity gate covers those
+        continue; // not every example emits standalone; the parity gate covers those
       }
       for (const m of wgsl.match(/^fn ([A-Za-z0-9_]+)/gm) ?? []) {
-        const name = m.slice(3)
-        if (!entries.has(name)) survivors[name] = ex.id
+        const name = m.slice(3);
+        if (!entries.has(name)) survivors[name] = ex.id;
       }
     }
     expect(
       Object.keys(survivors).sort(),
       `unexpected survivor(s): ${JSON.stringify(survivors)} — a helper the flattening ` +
         `is meant to dissolve did not. Check preludeBlocker before re-pinning.`,
-    ).toEqual(Object.keys(EXPECTED).sort())
-  })
-})
+    ).toEqual(Object.keys(EXPECTED).sort());
+  });
+});
 
 // ── The growth budget (gcc's --param inline-unit-growth, in this codebase's units) ──
 //
@@ -247,58 +247,58 @@ describe('forceInline(all) over the example corpus', () => {
 // and `maxGrowth` is how a caller declines to pay that.
 describe('forceInline — maxGrowth bounds the unlocking', () => {
   const runReport = (max?: number): { out: ModuleDecl; report: InlineDecision[] } => {
-    const report: InlineDecision[] = []
-    return { out: forceInline(BASE, 'all', { maxGrowth: max, report }), report }
-  }
+    const report: InlineDecision[] = [];
+    return { out: forceInline(BASE, 'all', { maxGrowth: max, report }), report };
+  };
 
   it('LEAVES THE UNBUDGETED PATH ALONE — no budget is byte-for-byte the shipped result', () => {
     // The load-bearing no-regression arm. A budget switches to unlocking one helper at a
     // time; without one the batch unlock must still produce exactly what it always did.
-    expect(emitModule(forceInline(BASE, 'all', {}))).toBe(emitModule(ALL))
-    expect(emitModule(forceInline(BASE, 'all', { report: [] }))).toBe(emitModule(ALL))
+    expect(emitModule(forceInline(BASE, 'all', {}))).toBe(emitModule(ALL));
+    expect(emitModule(forceInline(BASE, 'all', { report: [] }))).toBe(emitModule(ALL));
     // …and that is a real claim, not a tautology: the two paths are DISTINGUISHABLE.
     // Routing the no-budget case through the incremental one would move shipped bytes —
     // measured 17,724 -> 13,621 on this kernel, both at df64Left=0. (Which is also the
     // surprise worth knowing: unlocking one helper at a time, with the cleanup running
     // between steps, reaches the SAME full flattening ~23% smaller than the batch. Making
     // that the default is a separate decision, because it moves everyone's output.)
-    expect(emitModule(forceInline(BASE, 'all', { maxGrowth: Infinity }))).not.toBe(emitModule(ALL))
-  })
+    expect(emitModule(forceInline(BASE, 'all', { maxGrowth: Infinity }))).not.toBe(emitModule(ALL));
+  });
 
   it('a tight budget leaves helpers standing; an ample one removes them all', () => {
-    const tight = runReport(1.5)
-    const ample = runReport(50)
-    expect(df64Count(tight.out), 'a 1.5x cap should not fit the whole library').toBeGreaterThan(0)
-    expect(df64Count(ample.out), 'a 50x cap should fit everything').toBe(0)
+    const tight = runReport(1.5);
+    const ample = runReport(50);
+    expect(df64Count(tight.out), 'a 1.5x cap should not fit the whole library').toBeGreaterThan(0);
+    expect(df64Count(ample.out), 'a 50x cap should fit everything').toBe(0);
     // …and the cap is the reason, not an accident: the refusals say so by name.
-    expect(tight.report.some((r) => r.reason === 'over-budget')).toBe(true)
-    expect(ample.report.some((r) => r.reason === 'over-budget')).toBe(false)
-  })
+    expect(tight.report.some((r) => r.reason === 'over-budget')).toBe(true);
+    expect(ample.report.some((r) => r.reason === 'over-budget')).toBe(false);
+  });
 
   it('never reports growth past the cap it was given', () => {
     for (const cap of [1.5, 2, 3, 8]) {
-      const { report } = runReport(cap)
+      const { report } = runReport(cap);
       for (const r of report.filter((d) => d.inlined))
         expect(
           r.growth,
           `${r.fn} was accepted at ${r.growth}x under a ${cap}x cap`,
-        ).toBeLessThanOrEqual(cap)
+        ).toBeLessThanOrEqual(cap);
     }
-  })
+  });
 
   it('unlocks CHEAPEST FIRST — accepted helpers arrive in non-decreasing call-site order', () => {
-    const { report } = runReport(50)
-    const accepted = report.filter((r) => r.inlined).map((r) => r.callSites)
-    expect(accepted.length).toBeGreaterThan(1)
+    const { report } = runReport(50);
+    const accepted = report.filter((r) => r.inlined).map((r) => r.callSites);
+    expect(accepted.length).toBeGreaterThan(1);
     for (let i = 1; i < accepted.length; i++)
       expect(
         accepted[i],
         `call-site order broke at ${i}: ${accepted.join(',')}`,
-      ).toBeGreaterThanOrEqual(accepted[i - 1]!)
-  })
+      ).toBeGreaterThanOrEqual(accepted[i - 1]!);
+  });
 
   it('reports on BOTH paths — an empty report would read as "nothing was inlined"', () => {
-    expect(runReport(undefined).report.filter((r) => r.inlined).length).toBeGreaterThan(0)
-    expect(runReport(50).report.filter((r) => r.inlined).length).toBeGreaterThan(0)
-  })
-})
+    expect(runReport(undefined).report.filter((r) => r.inlined).length).toBeGreaterThan(0);
+    expect(runReport(50).report.filter((r) => r.inlined).length).toBeGreaterThan(0);
+  });
+});

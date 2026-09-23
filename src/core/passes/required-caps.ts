@@ -7,10 +7,10 @@
 // assertBuiltins is its sibling for the target's BUILTIN VOCABULARY (X-GIS #1672) — same
 // place, same voice, per-backend sets.
 
-import { stageOf, type ModuleDecl, type Capability } from '../ir/index.js'
-import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend.js'
-import { collectFnRefs } from '../ir/collect-refs.js'
-import { PACKED_4X8_IDS, PACKED_4X8_LANGUAGE_FEATURE, TEXTURE_GATHER_IDS } from '../intrinsics.js'
+import { stageOf, type ModuleDecl, type Capability } from '../ir/index.js';
+import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend.js';
+import { collectFnRefs } from '../ir/collect-refs.js';
+import { PACKED_4X8_IDS, PACKED_4X8_LANGUAGE_FEATURE, TEXTURE_GATHER_IDS } from '../intrinsics.js';
 
 /** Capability DEPENDENCIES (X-GIS #1670) — declaring the key implies needing the values, so a
  *  host activating off `reflect().requiredFeatures` gets the whole set rather than the
@@ -25,7 +25,7 @@ import { PACKED_4X8_IDS, PACKED_4X8_LANGUAGE_FEATURE, TEXTURE_GATHER_IDS } from 
  *  activate both. */
 const CAP_IMPLIES: Readonly<Partial<Record<Capability, readonly Capability[]>>> = {
   float32Blend: ['floatRenderTarget'],
-}
+};
 
 /** The `@builtin(<id>)` ids WGSL puts behind an `enable` extension, and the neutral
  *  {@link Capability} each one derives (§50). Spelling the id is the declaration: WGSL refuses
@@ -37,16 +37,16 @@ const BUILTIN_CAPS: Readonly<Record<string, Capability>> = {
   primitive_index: 'primitiveIndex',
   subgroup_invocation_id: 'subgroups',
   subgroup_size: 'subgroups',
-}
+};
 
 /** Every `@builtin(<id>)` this module spells, from the structured `builtin` field on an IO
  *  struct member, an entry parameter and a bare `retAttr`-authored return — the three places a
  *  backend can spell one, exactly as `assertBuiltins` enumerates them. */
 function* moduleBuiltins(m: ModuleDecl): Generator<string> {
-  for (const s of m.structs) for (const f of s.fields) if (f.builtin !== undefined) yield f.builtin
+  for (const s of m.structs) for (const f of s.fields) if (f.builtin !== undefined) yield f.builtin;
   for (const f of m.funcs) {
-    for (const p of f.params) if (p.builtin !== undefined) yield p.builtin
-    if (f.retBuiltin !== undefined) yield f.retBuiltin
+    for (const p of f.params) if (p.builtin !== undefined) yield p.builtin;
+    if (f.retBuiltin !== undefined) yield f.retBuiltin;
   }
 }
 
@@ -62,7 +62,7 @@ function* moduleBuiltins(m: ModuleDecl): Generator<string> {
  *  (`reflect.ts`'s `typeLayout`), so a module never depends on the device relaxing the
  *  rule. */
 export type LanguageFeature =
-  'readonly_and_readwrite_storage_textures' | typeof PACKED_4X8_LANGUAGE_FEATURE
+  'readonly_and_readwrite_storage_textures' | typeof PACKED_4X8_LANGUAGE_FEATURE;
 
 /** The language features the WGSL writer emits a `requires` directive for.
  *
@@ -77,7 +77,7 @@ export type LanguageFeature =
  *  `navigator.gpu.wgslLanguageFeatures`; one is written. */
 export const REQUIRES_DIRECTIVE: ReadonlySet<LanguageFeature> = new Set([
   'readonly_and_readwrite_storage_textures',
-])
+]);
 
 /** The WGSL language features this module's emit requires, sorted and deduplicated.
  *
@@ -86,22 +86,22 @@ export const REQUIRES_DIRECTIVE: ReadonlySet<LanguageFeature> = new Set([
  *  extension. `requires readonly_and_readwrite_storage_textures;` is accepted by the Tint the
  *  gate runs (measured 2026-09-21), so the directive is emitted rather than merely reported. */
 export function requiredLanguageFeatures(m: ModuleDecl): LanguageFeature[] {
-  const out = new Set<LanguageFeature>()
+  const out = new Set<LanguageFeature>();
   for (const b of m.bindings) {
     if (b.type.kind === 'storage-texture' && b.type.access !== 'write') {
-      out.add('readonly_and_readwrite_storage_textures')
+      out.add('readonly_and_readwrite_storage_textures');
     }
   }
   // `textureBarrier` is the same extension's: it orders the reads and writes of a
   // read_write storage texture, so a module calling it depends on the extension whatever its
   // bindings' access spells (#164's measurement).
   if (m.funcs.some((f) => collectFnRefs(f).calls.has('textureBarrier'))) {
-    out.add('readonly_and_readwrite_storage_textures')
+    out.add('readonly_and_readwrite_storage_textures');
   }
   // The packed 4x8 family is a feature of the CALLS (#152), the same derivation `requiredCaps`
   // performs for `packed4x8Dot`. Reported here and NOT directed — see REQUIRES_DIRECTIVE.
-  if (usesPacked4x8(m)) out.add(PACKED_4X8_LANGUAGE_FEATURE)
-  return [...out].sort()
+  if (usesPacked4x8(m)) out.add(PACKED_4X8_LANGUAGE_FEATURE);
+  return [...out].sort();
 }
 
 /** Whether the module CALLS one of the packed 4x8 integer builtins (#152), as opposed to
@@ -110,48 +110,48 @@ export function requiredLanguageFeatures(m: ModuleDecl): LanguageFeature[] {
  *
  *  Shared with reflection, which reports the WGSL language feature from the same fact. */
 export function usesPacked4x8(m: ModuleDecl): boolean {
-  const declared = new Set(m.funcs.map((f) => f.name))
+  const declared = new Set(m.funcs.map((f) => f.name));
   for (const f of m.funcs) {
-    const refs = collectFnRefs(f)
-    for (const id of PACKED_4X8_IDS) if (refs.calls.has(id) && !declared.has(id)) return true
+    const refs = collectFnRefs(f);
+    for (const id of PACKED_4X8_IDS) if (refs.calls.has(id) && !declared.has(id)) return true;
   }
-  return false
+  return false;
 }
 
 /** The capabilities a module's emit requires. */
 export function requiredCaps(m: ModuleDecl): Capability[] {
-  const caps = new Set<Capability>()
+  const caps = new Set<Capability>();
   for (const b of m.bindings) {
-    if (b.space === 'storage') caps.add('storageBuffer')
+    if (b.space === 'storage') caps.add('storageBuffer');
     // The depth twin rides the same capability (roadmap 0.4 item 13).
     if ((b.type.kind === 'texture' || b.type.kind === 'depth-texture') && b.type.dim === '2d-ms')
-      caps.add('msaaTextureLoad')
+      caps.add('msaaTextureLoad');
     // A storage texture is WebGPU-only (roadmap 0.4 item 10): GLSL ES 3.00 has no image
     // load/store, so the capability is what fails a module closed on that target rather than
     // letting it reach `glslType` and throw from inside the emit.
-    if (b.type.kind === 'storage-texture') caps.add('storageTexture')
+    if (b.type.kind === 'storage-texture') caps.add('storageTexture');
     // `bgra8unorm` is the one storage format that is not core (#147). Measured on two Chromium
     // builds: a device with nothing requested refuses the bind group layout, a device that
     // requested `bgra8unorm-storage` builds it, and Tint compiles the module either way. So the
     // capability is derived from the FORMAT, and `reflect().requiredFeatures` is where a host
     // learns which feature to ask for.
     if (b.type.kind === 'storage-texture' && b.type.format === 'bgra8unorm')
-      caps.add('bgra8unormStorage')
+      caps.add('bgra8unormStorage');
     // A 1d or a cube-array texture is WebGPU-only too (roadmap 0.4 item 12): GLSL ES 3.00 has
     // no `sampler1D` (a reserved word) and no `samplerCubeArray` (a WebGL2 driver refuses the
     // extension). The depth cube array rides the same capability as the colour one.
-    if (b.type.kind === 'texture' && b.type.dim === '1d') caps.add('texture1d')
+    if (b.type.kind === 'texture' && b.type.dim === '1d') caps.add('texture1d');
     if (
       (b.type.kind === 'texture' || b.type.kind === 'depth-texture') &&
       b.type.dim === 'cube-array'
     )
-      caps.add('textureCubeArray')
+      caps.add('textureCubeArray');
   }
   // A textureGather call is a capability of the CALLS, not of a binding (roadmap 0.4 item 12):
   // the texture it reads is an ordinary 2d or cube one. GLSL ES 3.00 has no gather (ES 3.10).
   for (const f of m.funcs) {
-    const refs = collectFnRefs(f)
-    for (const id of TEXTURE_GATHER_IDS) if (refs.calls.has(id)) caps.add('textureGather')
+    const refs = collectFnRefs(f);
+    for (const id of TEXTURE_GATHER_IDS) if (refs.calls.has(id)) caps.add('textureGather');
   }
   // The packed 4x8 integer family is a capability of the CALLS too (#152): the values it reads
   // are ordinary u32s and vectors, so nothing in the module's declarations says it. A call to a
@@ -161,11 +161,11 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
   //
   // Asked ONCE, outside the loop above: `usesPacked4x8` walks the whole module itself, so a
   // call per function walked it N times over for one module-wide answer.
-  if (usesPacked4x8(m)) caps.add('packed4x8Dot')
+  if (usesPacked4x8(m)) caps.add('packed4x8Dot');
   for (const f of m.funcs) {
     // stageOf reads structured `stage` first (X-GIS #763 S2) — a hand-built
     // `{ stage: 'compute' }` decl without attrs must NOT slip past the gate.
-    if (stageOf(f) === 'compute') caps.add('compute')
+    if (stageOf(f) === 'compute') caps.add('compute');
   }
   // Extension-gated BUILT-IN VALUES (§50): WGSL refuses `@builtin(clip_distances)` and
   // `@builtin(primitive_index)` unless the module enables the matching extension, and the
@@ -177,33 +177,33 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
   // `assertBuiltins` reads, so a hand-built decl carrying only `attr` is treated the same way
   // there and here.
   for (const b of moduleBuiltins(m)) {
-    const cap = BUILTIN_CAPS[b]
-    if (cap !== undefined) caps.add(cap)
+    const cap = BUILTIN_CAPS[b];
+    if (cap !== undefined) caps.add(cap);
   }
   // `@blend_src` derives dual-source blending the same way (§53): WGSL refuses the attribute
   // without `enable dual_source_blending;`, so the use is the declaration.
   for (const s of m.structs) {
-    for (const f of s.fields) if (f.blendSrc !== undefined) caps.add('dualSourceBlending')
+    for (const f of s.fields) if (f.blendSrc !== undefined) caps.add('dualSourceBlending');
   }
   // OPT-IN language-feature caps (X-GIS #628) — f16 / subgroups the author turned on. Folded
   // in here so assertCaps gates them exactly like the derived resource caps (fail-closed
   // on GLSL); the WGSL backend then emits the matching `enable <ext>;` for each.
-  for (const c of m.enables ?? []) caps.add(c)
+  for (const c of m.enables ?? []) caps.add(c);
   // Transitive closure over CAP_IMPLIES, to a fixed point. Today's table is depth 1, so
   // one pass would do — written as a loop anyway, because a future row implying a cap
   // that itself implies another must not need this code re-read to stay correct.
-  let grew = true
+  let grew = true;
   while (grew) {
-    grew = false
+    grew = false;
     for (const c of [...caps]) {
       for (const dep of CAP_IMPLIES[c] ?? []) {
-        if (caps.has(dep)) continue
-        caps.add(dep)
-        grew = true
+        if (caps.has(dep)) continue;
+        caps.add(dep);
+        grew = true;
       }
     }
   }
-  return [...caps]
+  return [...caps];
 }
 
 /** Throw UnsupportedFeatureError if `m` names a `@builtin(...)` id the target does
@@ -223,34 +223,35 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
  *  deliberately does not replicate it, so the structured field stays the one
  *  authority a target-vocabulary decision reads). */
 export function assertBuiltins(backend: Backend, m: ModuleDecl): void {
-  const absent = backend.absentBuiltins
-  if (absent === undefined) return
+  const absent = backend.absentBuiltins;
+  if (absent === undefined) return;
   const check = (b: string | undefined): void => {
-    const why = b === undefined ? undefined : absent.get(b)
-    if (why !== undefined) throw new UnsupportedFeatureError(`${backend.id}: @builtin(${b}) ${why}`)
-  }
+    const why = b === undefined ? undefined : absent.get(b);
+    if (why !== undefined)
+      throw new UnsupportedFeatureError(`${backend.id}: @builtin(${b}) ${why}`);
+  };
   // Every place a backend can SPELL a builtin attr: an IO struct field, an entry
   // param, and a bare return authored as `retAttr: builtin(name, T)` — the builder
   // preserves that FieldSpec's id as `retBuiltin` (X-GIS #1672 review finding: it used to
   // be discarded, leaving retAttr the one structured-authoring path this gate missed).
-  for (const s of m.structs) for (const sf of s.fields) check(sf.builtin)
+  for (const s of m.structs) for (const sf of s.fields) check(sf.builtin);
   for (const f of m.funcs) {
-    for (const p of f.params) check(p.builtin)
-    check(f.retBuiltin)
+    for (const p of f.params) check(p.builtin);
+    check(f.retBuiltin);
   }
 }
 
 /** Throw UnsupportedFeatureError if `backend` cannot cover everything `m` needs. */
 export function assertCaps(backend: Backend, m: ModuleDecl): void {
-  const req = requiredCaps(m)
+  const req = requiredCaps(m);
   // Coverage is DERIVED from the one authority (X-GIS #1670) — the backend carries the
   // `capProfile` table and nothing else; a cached `caps` field beside it was a second
   // place the same fact could live. Built once per call, over 9 keys.
-  const caps = Capabilities.fromProfile(backend.capProfile)
+  const caps = Capabilities.fromProfile(backend.capProfile);
   if (!caps.covers(req)) {
-    const missing = caps.missing(req)
+    const missing = caps.missing(req);
     throw new UnsupportedFeatureError(
       `backend '${backend.id}' cannot emit this module — missing capabilities: ${missing.join(', ')}`,
-    )
+    );
   }
 }

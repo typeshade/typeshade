@@ -12,102 +12,107 @@
 // GATE A2: a microbench (logged, not asserted) — N=100k calls of a representative
 // vector fn, interpreter vs codegen.
 
-import { describe, it, expect } from 'vitest'
-import type { Expr, Stmt, ModuleDecl, ShaderType, BinOp, CmpOp } from './ir/index.js'
-import { f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, structT, arrayT } from './ir/index.js'
-import { compileModule } from './oracle.js'
-import { compileModuleJs } from './cpu-codegen.js'
+import { describe, it, expect } from 'vitest';
+import type { Expr, Stmt, ModuleDecl, ShaderType, BinOp, CmpOp } from './ir/index.js';
+import { f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, structT, arrayT } from './ir/index.js';
+import { compileModule } from './oracle.js';
+import { compileModuleJs } from './cpu-codegen.js';
 
 // ── Hand-built IR constructors (explicit Stmt/Expr shapes) ──
-const lit = (v: number | boolean, type: ShaderType = f32T): Expr => ({ op: 'lit', type, value: v })
-const param = (name: string, type: ShaderType = f32T): Expr => ({ op: 'param', type, name })
-const vref = (name: string, type: ShaderType = f32T): Expr => ({ op: 'varref', type, name })
-const cref = (name: string, type: ShaderType = f32T): Expr => ({ op: 'constref', type, name })
-const oref = (name: string, type: ShaderType = f32T): Expr => ({ op: 'overrideref', type, name })
+const lit = (v: number | boolean, type: ShaderType = f32T): Expr => ({ op: 'lit', type, value: v });
+const param = (name: string, type: ShaderType = f32T): Expr => ({ op: 'param', type, name });
+const vref = (name: string, type: ShaderType = f32T): Expr => ({ op: 'varref', type, name });
+const cref = (name: string, type: ShaderType = f32T): Expr => ({ op: 'constref', type, name });
+const oref = (name: string, type: ShaderType = f32T): Expr => ({ op: 'overrideref', type, name });
 const bin = (bop: BinOp, a: Expr, b: Expr, type: ShaderType = f32T): Expr => ({
   op: 'binop',
   type,
   bop,
   a,
   b,
-})
-const neg = (a: Expr, type: ShaderType = f32T): Expr => ({ op: 'unop', type, a })
-const cmp = (cop: CmpOp, a: Expr, b: Expr): Expr => ({ op: 'compare', type: boolT, cop, a, b })
+});
+const neg = (a: Expr, type: ShaderType = f32T): Expr => ({ op: 'unop', type, a });
+const cmp = (cop: CmpOp, a: Expr, b: Expr): Expr => ({ op: 'compare', type: boolT, cop, a, b });
 const logical = (lop: '&&' | '||', a: Expr, b: Expr): Expr => ({
   op: 'logical',
   type: boolT,
   lop,
   a,
   b,
-})
+});
 const call = (fn: string, args: Expr[], type: ShaderType = f32T): Expr => ({
   op: 'call',
   type,
   fn,
   args,
-})
+});
 const member = (base: Expr, field: string, type: ShaderType = f32T): Expr => ({
   op: 'member',
   type,
   base,
   field,
-})
-const construct = (type: ShaderType, args: Expr[]): Expr => ({ op: 'construct', type, args })
+});
+const construct = (type: ShaderType, args: Expr[]): Expr => ({ op: 'construct', type, args });
 const sel = (cond: Expr, ifTrue: Expr, ifFalse: Expr, type: ShaderType = f32T): Expr => ({
   op: 'select',
   type,
   cond,
   ifTrue,
   ifFalse,
-})
+});
 const index = (base: Expr, idx: Expr, type: ShaderType = f32T): Expr => ({
   op: 'index',
   type,
   base,
   idx,
-})
+});
 const matchE = (
   scrutinee: Expr,
   cases: ReadonlyArray<readonly [number, Expr]>,
   dflt: Expr,
   type: ShaderType = f32T,
-): Expr => ({ op: 'matchExpr', type, scrutinee, cases, default: dflt })
+): Expr => ({ op: 'matchExpr', type, scrutinee, cases, default: dflt });
 
-const ret = (expr?: Expr): Stmt => ({ s: 'return', expr })
-const letS = (name: string, expr: Expr): Stmt => ({ s: 'let', name, expr })
-const varS = (name: string, type: ShaderType, init?: Expr): Stmt => ({ s: 'var', name, type, init })
-const assign = (target: Expr, expr: Expr): Stmt => ({ s: 'assign', target, expr })
+const ret = (expr?: Expr): Stmt => ({ s: 'return', expr });
+const letS = (name: string, expr: Expr): Stmt => ({ s: 'let', name, expr });
+const varS = (name: string, type: ShaderType, init?: Expr): Stmt => ({
+  s: 'var',
+  name,
+  type,
+  init,
+});
+const assign = (target: Expr, expr: Expr): Stmt => ({ s: 'assign', target, expr });
 const assignOp = (target: Expr, bop: BinOp, expr: Expr): Stmt => ({
   s: 'assignOp',
   target,
   bop,
   expr,
-})
+});
 const ifS = (arms: ReadonlyArray<{ cond: Expr; body: Stmt[] }>, elseBody?: Stmt[]): Stmt => ({
   s: 'if',
   arms,
   elseBody,
-})
+});
 const forS = (init: Stmt, cond: Expr, update: Stmt, body: Stmt[]): Stmt => ({
   s: 'for',
   init,
   cond,
   update,
   body,
-})
+});
 const switchS = (
   scrut: Expr,
   cases: ReadonlyArray<{ values: number[]; body: Stmt[] }>,
   defaultBody?: Stmt[],
-): Stmt => ({ s: 'switch', scrut, cases, defaultBody })
+): Stmt => ({ s: 'switch', scrut, cases, defaultBody });
 
-type P = { name: string; type: ShaderType }
+type P = { name: string; type: ShaderType };
 const func = (name: string, params: P[], retType: ShaderType, body: Stmt[]) => ({
   name,
   params,
   ret: retType,
   body,
-})
+});
 
 // ── The module under test ──
 const P_STRUCT = {
@@ -116,7 +121,7 @@ const P_STRUCT = {
     { name: 'a', type: f32T },
     { name: 'b', type: f32T },
   ],
-}
+};
 
 function buildModule(): ModuleDecl {
   return {
@@ -465,19 +470,19 @@ function buildModule(): ModuleDecl {
         ret(bin('+', param('s'), lit(5))),
       ]),
     ],
-  }
+  };
 }
 
 // ── seeded RNG + input generation ──
 function mulberry32(seed: number): () => number {
-  let s = seed
+  let s = seed;
   return () => {
-    s |= 0
-    s = (s + 0x6d2b79f5) | 0
-    let t = Math.imul(s ^ (s >>> 15), 1 | s)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
+    s |= 0;
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 const SCALAR_BOUNDARIES = [
@@ -503,112 +508,112 @@ const SCALAR_BOUNDARIES = [
   0.25,
   Math.PI,
   -Math.PI,
-]
-const INT_BOUNDARIES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, -1, -2, 15, 31]
+];
+const INT_BOUNDARIES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, -1, -2, 15, 31];
 
 function scalarKind(t: ShaderType): 'f32' | 'i32' | 'u32' | 'other' {
-  if (t.kind === 'scalar') return t.scalar === 'bool' ? 'other' : t.scalar
-  return 'other'
+  if (t.kind === 'scalar') return t.scalar === 'bool' ? 'other' : t.scalar;
+  return 'other';
 }
 
 function genScalar(t: ShaderType, rng: () => number, useBoundary: boolean): number {
-  const kind = scalarKind(t)
+  const kind = scalarKind(t);
   if (kind === 'i32') {
     return useBoundary
       ? INT_BOUNDARIES[Math.floor(rng() * INT_BOUNDARIES.length)]!
-      : Math.floor((rng() - 0.5) * 64)
+      : Math.floor((rng() - 0.5) * 64);
   }
   if (kind === 'u32') {
     return useBoundary
       ? Math.abs(INT_BOUNDARIES[Math.floor(rng() * INT_BOUNDARIES.length)]!)
-      : Math.floor(rng() * 256)
+      : Math.floor(rng() * 256);
   }
   // f32 / f64
-  if (useBoundary) return SCALAR_BOUNDARIES[Math.floor(rng() * SCALAR_BOUNDARIES.length)]!
-  return (rng() - 0.5) * 400
+  if (useBoundary) return SCALAR_BOUNDARIES[Math.floor(rng() * SCALAR_BOUNDARIES.length)]!;
+  return (rng() - 0.5) * 400;
 }
 
 function genArg(t: ShaderType, rng: () => number, useBoundary: boolean): number | number[] {
   if (t.kind === 'vec' || t.kind === 'vec64')
-    return Array.from({ length: t.n }, () => genScalar(f32T, rng, useBoundary))
-  return genScalar(t, rng, useBoundary)
+    return Array.from({ length: t.n }, () => genScalar(f32T, rng, useBoundary));
+  return genScalar(t, rng, useBoundary);
 }
 
 function clone<T>(v: T): T {
-  if (Array.isArray(v)) return v.map((x) => clone(x)) as unknown as T
+  if (Array.isArray(v)) return v.map((x) => clone(x)) as unknown as T;
   if (v && typeof v === 'object') {
-    const o: Record<string, unknown> = {}
-    for (const k of Object.keys(v as object)) o[k] = clone((v as Record<string, unknown>)[k])
-    return o as T
+    const o: Record<string, unknown> = {};
+    for (const k of Object.keys(v as object)) o[k] = clone((v as Record<string, unknown>)[k]);
+    return o as T;
   }
-  return v
+  return v;
 }
 
 function bitEqual(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false
-    for (let i = 0; i < a.length; i++) if (!bitEqual(a[i], b[i])) return false
-    return true
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!bitEqual(a[i], b[i])) return false;
+    return true;
   }
-  const ao = a && typeof a === 'object' && !Array.isArray(a)
-  const bo = b && typeof b === 'object' && !Array.isArray(b)
+  const ao = a && typeof a === 'object' && !Array.isArray(a);
+  const bo = b && typeof b === 'object' && !Array.isArray(b);
   if (ao && bo) {
-    const ka = Object.keys(a as object)
-    const kb = Object.keys(b as object)
-    if (ka.length !== kb.length) return false
+    const ka = Object.keys(a as object);
+    const kb = Object.keys(b as object);
+    if (ka.length !== kb.length) return false;
     for (const k of ka)
       if (!bitEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
-        return false
-    return true
+        return false;
+    return true;
   }
-  return Object.is(a, b)
+  return Object.is(a, b);
 }
 
 describe('compileModuleJs — differential vs interpreter (GATE A1)', () => {
-  const m = buildModule()
-  const jsMod = compileModuleJs(m)
-  const interpMod = compileModule(m)
+  const m = buildModule();
+  const jsMod = compileModuleJs(m);
+  const interpMod = compileModule(m);
 
   it('every fn is bit-identical over boundary + seeded-random sweeps (Object.is per element)', () => {
-    const PER_FN = 400
-    let fnCount = 0
-    let inputCount = 0
-    const divergences: string[] = []
+    const PER_FN = 400;
+    let fnCount = 0;
+    let inputCount = 0;
+    const divergences: string[] = [];
 
     for (const f of m.funcs) {
-      fnCount++
-      const jsFn = jsMod.fns[f.name]!
-      const interpFn = interpMod.fns[f.name]!
+      fnCount++;
+      const jsFn = jsMod.fns[f.name]!;
+      const interpFn = interpMod.fns[f.name]!;
       const rng = mulberry32(
         0x9e3779b9 ^ f.name.split('').reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7),
-      )
+      );
       for (let k = 0; k < PER_FN; k++) {
-        const useBoundary = k < PER_FN / 2
-        const args = f.params.map((p) => genArg(p.type, rng, useBoundary))
-        const a = jsFn(...(clone(args) as never[]))
-        const b = interpFn(...(clone(args) as never[]))
-        inputCount++
+        const useBoundary = k < PER_FN / 2;
+        const args = f.params.map((p) => genArg(p.type, rng, useBoundary));
+        const a = jsFn(...(clone(args) as never[]));
+        const b = interpFn(...(clone(args) as never[]));
+        inputCount++;
         if (!bitEqual(a, b)) {
           divergences.push(
             `${f.name}(${JSON.stringify(args)}): js=${JSON.stringify(a)} interp=${JSON.stringify(b)}`,
-          )
-          if (divergences.length > 10) break
+          );
+          if (divergences.length > 10) break;
         }
       }
     }
 
     console.log(
       `[GATE A1] ${fnCount} fns × ${inputCount / fnCount} inputs = ${inputCount} exact-equality checks`,
-    )
-    expect(divergences).toEqual([])
-    expect(fnCount).toBe(m.funcs.length)
-  })
+    );
+    expect(divergences).toEqual([]);
+    expect(fnCount).toBe(m.funcs.length);
+  });
 
   it('the js backend runs the SAME preamble (validate + autoVars) and shares CpuModule shape', () => {
     // setBinding is a no-op here (no bindings) but must exist + not throw.
-    expect(() => jsMod.setBinding('unused', 0)).not.toThrow()
-    expect(Object.keys(jsMod.fns).sort()).toEqual(Object.keys(interpMod.fns).sort())
-  })
+    expect(() => jsMod.setBinding('unused', 0)).not.toThrow();
+    expect(Object.keys(jsMod.fns).sort()).toEqual(Object.keys(interpMod.fns).sort());
+  });
 
   it('hybrid fallback: a fn with a raw/placeholder Stmt falls back to the interpreter, rest compile', () => {
     const hybrid: ModuleDecl = {
@@ -624,54 +629,54 @@ describe('compileModuleJs — differential vs interpreter (GATE A1)', () => {
           ret(param('a')),
         ]),
       ],
-    }
-    const jm = compileModuleJs(hybrid)
-    const im = compileModule(hybrid)
-    expect(jm.fns.ok!(4)).toBe(12)
+    };
+    const jm = compileModuleJs(hybrid);
+    const im = compileModule(hybrid);
+    expect(jm.fns.ok!(4)).toBe(12);
     // `bad` fell back to the interpreter twin → its raw-Stmt throw matches.
-    let jThrew = false
-    let iThrew = false
+    let jThrew = false;
+    let iThrew = false;
     try {
-      jm.fns.bad!(1)
+      jm.fns.bad!(1);
     } catch {
-      jThrew = true
+      jThrew = true;
     }
     try {
-      im.fns.bad!(1)
+      im.fns.bad!(1);
     } catch {
-      iThrew = true
+      iThrew = true;
     }
-    expect(jThrew).toBe(true)
-    expect(iThrew).toBe(true)
-  })
-})
+    expect(jThrew).toBe(true);
+    expect(iThrew).toBe(true);
+  });
+});
 
 describe('compileModuleJs — microbench (GATE A2, logged not asserted)', () => {
   it('N=100k calls: interpreter vs codegen (representative vector fn)', () => {
-    const m = buildModule()
-    const jsFn = compileModuleJs(m).fns.vecops!
-    const interpFn = compileModule(m).fns.vecops!
-    const N = 100_000
-    const p = [0.3, -0.7, 1.2]
-    const q = [-0.4, 0.9, 0.1]
+    const m = buildModule();
+    const jsFn = compileModuleJs(m).fns.vecops!;
+    const interpFn = compileModule(m).fns.vecops!;
+    const N = 100_000;
+    const p = [0.3, -0.7, 1.2];
+    const q = [-0.4, 0.9, 0.1];
 
     // warm up (JIT both)
     for (let i = 0; i < 2000; i++) {
-      jsFn([...p], [...q])
-      interpFn([...p], [...q])
+      jsFn([...p], [...q]);
+      interpFn([...p], [...q]);
     }
 
-    const t0 = performance.now()
-    for (let i = 0; i < N; i++) interpFn([...p], [...q])
-    const tInterp = performance.now() - t0
+    const t0 = performance.now();
+    for (let i = 0; i < N; i++) interpFn([...p], [...q]);
+    const tInterp = performance.now() - t0;
 
-    const t1 = performance.now()
-    for (let i = 0; i < N; i++) jsFn([...p], [...q])
-    const tCodegen = performance.now() - t1
+    const t1 = performance.now();
+    for (let i = 0; i < N; i++) jsFn([...p], [...q]);
+    const tCodegen = performance.now() - t1;
 
     console.log(
       `[GATE A2] vecops ×${N}: interpreter ${tInterp.toFixed(1)}ms · codegen ${tCodegen.toFixed(1)}ms · speedup ${(tInterp / tCodegen).toFixed(2)}×`,
-    )
-    expect(tCodegen).toBeGreaterThan(0)
-  })
-})
+    );
+    expect(tCodegen).toBeGreaterThan(0);
+  });
+});

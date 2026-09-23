@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { module, fn, vec2fT, vec3fT, smoothstep, fma, atan2 } from './index.js'
-import { compileModule } from '../oracle.js'
+import { describe, expect, it } from 'vitest';
+import { module, fn, vec2fT, vec3fT, smoothstep, fma, atan2 } from './index.js';
+import { compileModule } from '../oracle.js';
 
 // ═══ CPU-oracle VECTOR parity for smoothstep / fma / atan2 ═══
 //
@@ -23,10 +23,10 @@ describe('CPU oracle — vector smoothstep/fma/atan2 (component-wise, as WGSL co
           ),
         ],
       }),
-    ).fns.f
+    ).fns.f;
     // t=0 / t=0.5 / t=1 per component: 0, 0.5²·(3−2·0.5)=0.5, 1.
-    expect(f([0, 0, 0], [1, 1, 1], [0, 0.5, 1])).toEqual([0, 0.5, 1])
-  })
+    expect(f([0, 0, 0], [1, 1, 1], [0, 0.5, 1])).toEqual([0, 0.5, 1]);
+  });
 
   it('fma over vec2 operands is component-wise (was: silent NaN)', () => {
     const f = compileModule(
@@ -37,16 +37,16 @@ describe('CPU oracle — vector smoothstep/fma/atan2 (component-wise, as WGSL co
           ),
         ],
       }),
-    ).fns.f
-    expect(f([2, 3], [4, 5], [1, 1])).toEqual([9, 16])
-  })
+    ).fns.f;
+    expect(f([2, 3], [4, 5], [1, 1])).toEqual([9, 16]);
+  });
 
   it('atan2 over vec2 operands is component-wise (was: silent NaN)', () => {
     const f = compileModule(
       module({
         funcs: [fn('f', { y: vec2fT, x: vec2fT }, vec2fT, ({ y, x }, b) => b.ret(atan2(y, x)))],
       }),
-    ).fns.f
-    expect(f([1, 0], [1, 1])).toEqual([Math.PI / 4, 0])
-  })
-})
+    ).fns.f;
+    expect(f([1, 0], [1, 1])).toEqual([Math.PI / 4, 0]);
+  });
+});

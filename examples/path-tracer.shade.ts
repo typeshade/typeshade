@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -26,94 +26,94 @@
 // the editor needs the annotation to stay green (#162, the ambient-DX row).
 
 class Sphere {
-  center: vec3
-  radius: f32
-  albedo: vec3
-  emission: vec3
+  center: vec3;
+  radius: f32;
+  albedo: vec3;
+  emission: vec3;
 }
 
 interface Frame {
-  resolution: vec2
-  frame: f32
-  camPos: vec3
+  resolution: vec2;
+  frame: f32;
+  camPos: vec3;
 }
-declare const u: uniform<Frame>
+declare const u: uniform<Frame>;
 
 const SPHERES: array<Sphere, 4> = [
   { center: vec3(0., -100.5, -1.), radius: 100., albedo: vec3(0.8, 0.8, 0.8), emission: vec3(0.) },
   { center: vec3(0., 0., -1.), radius: 0.5, albedo: vec3(0.7, 0.3, 0.3), emission: vec3(0.) },
   { center: vec3(-1., 0., -1.), radius: 0.5, albedo: vec3(0.3, 0.7, 0.3), emission: vec3(0.) },
   { center: vec3(0., 2., -1.), radius: 0.7, albedo: vec3(0.), emission: vec3(6., 5., 4.) },
-]
+];
 
 function hitSphere(s: Sphere, ro: vec3, rd: vec3): f32 {
-  const oc: vec3 = ro - s.center
-  const b = dot(oc, rd)
-  const c = dot(oc, oc) - s.radius * s.radius
-  const h = b * b - c
+  const oc: vec3 = ro - s.center;
+  const b = dot(oc, rd);
+  const c = dot(oc, oc) - s.radius * s.radius;
+  const h = b * b - c;
   if (h < 0.) {
-    return -1.
+    return -1.;
   }
-  return -b - sqrt(h)
+  return -b - sqrt(h);
 }
 
 function cosineDir(n: vec3, seed: f32): vec3 {
-  const r1 = random(seed)
-  const r2 = random(seed + 17.13)
-  const phi = 6.2831853 * r1
-  const r = sqrt(r2)
-  const t = normalize(cross(abs(n.x) > 0.9 ? vec3(0., 1., 0.) : vec3(1., 0., 0.), n))
-  const b = cross(n, t)
-  return normalize(t * (cos(phi) * r) + b * (sin(phi) * r) + n * sqrt(1. - r2))
+  const r1 = random(seed);
+  const r2 = random(seed + 17.13);
+  const phi = 6.2831853 * r1;
+  const r = sqrt(r2);
+  const t = normalize(cross(abs(n.x) > 0.9 ? vec3(0., 1., 0.) : vec3(1., 0., 0.), n));
+  const b = cross(n, t);
+  return normalize(t * (cos(phi) * r) + b * (sin(phi) * r) + n * sqrt(1. - r2));
 }
 
 function trace(ro0: vec3, rd0: vec3, seed0: f32): vec3 {
-  let ro = ro0
-  let rd = rd0
-  let seed = seed0
-  let throughput = vec3(1.)
-  let radiance = vec3(0.)
+  let ro = ro0;
+  let rd = rd0;
+  let seed = seed0;
+  let throughput = vec3(1.);
+  let radiance = vec3(0.);
   for (let bounce: i32 = 0; bounce < 8; bounce++) {
-    let tMin: f32 = 1e30
-    let hit: i32 = -1
+    let tMin: f32 = 1e30;
+    let hit: i32 = -1;
     for (let i: i32 = 0; i < 4; i++) {
-      const t = hitSphere(SPHERES[i], ro, rd)
+      const t = hitSphere(SPHERES[i], ro, rd);
       if (t > 0.001 && t < tMin) {
-        tMin = t
-        hit = i
+        tMin = t;
+        hit = i;
       }
     }
     if (hit < 0) {
-      radiance += throughput * vec3(0.05, 0.07, 0.1)
-      break
+      radiance += throughput * vec3(0.05, 0.07, 0.1);
+      break;
     }
-    const s = SPHERES[hit]
-    const p: vec3 = ro + rd * tMin
-    const n: vec3 = normalize(p - s.center)
-    radiance += throughput * s.emission
-    throughput = throughput * s.albedo
-    ro = p + n * 0.001
-    seed = seed + 1.618
-    rd = cosineDir(n, seed)
+    const s = SPHERES[hit];
+    const p: vec3 = ro + rd * tMin;
+    const n: vec3 = normalize(p - s.center);
+    radiance += throughput * s.emission;
+    throughput = throughput * s.albedo;
+    ro = p + n * 0.001;
+    seed = seed + 1.618;
+    rd = cosineDir(n, seed);
   }
-  return radiance
+  return radiance;
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): vec4 {
-  const x = f32(i32(vi) / 2) * 4. - 1.
-  const y = f32(i32(vi) % 2) * 4. - 1.
-  return vec4(x, y, 0., 1.)
+  const x = f32(i32(vi) / 2) * 4. - 1.;
+  const y = f32(i32(vi) % 2) * 4. - 1.;
+  return vec4(x, y, 0., 1.);
 }
 
 @fragment
 export function fs(@builtin("position") pos: vec4): vec4 {
-  const uv: vec2 = (pos.xy - u.resolution * 0.5) / u.resolution.y
-  const rd = normalize(vec3(uv.x, -uv.y, -1.))
-  let color = vec3(0.)
+  const uv: vec2 = (pos.xy - u.resolution * 0.5) / u.resolution.y;
+  const rd = normalize(vec3(uv.x, -uv.y, -1.));
+  let color = vec3(0.);
   for (let s: i32 = 0; s < 16; s++) {
-    color += trace(u.camPos, rd, dot(pos.xy, vec2(12.9898, 78.233)) + u.frame * 7.31 + f32(s) * 3.7)
+    color += trace(u.camPos, rd, dot(pos.xy, vec2(12.9898, 78.233)) + u.frame * 7.31 + f32(s) * 3.7);
   }
-  const c: vec3 = color / 16.
-  return vec4(pow(c / (c + 1.), vec3(1. / 2.2)), 1.)
+  const c: vec3 = color / 16.;
+  return vec4(pow(c / (c + 1.), vec3(1. / 2.2)), 1.);
 }

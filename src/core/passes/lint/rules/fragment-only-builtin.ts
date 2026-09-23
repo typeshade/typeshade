@@ -1,17 +1,17 @@
-import type { LintRule } from '../engine.js'
-import { stageOf } from '../../../ir/index.js'
-import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs.js'
+import type { LintRule } from '../engine.js';
+import { stageOf } from '../../../ir/index.js';
+import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs.js';
 
 /** The derivative builtins (X-GIS #1654) share ONE fix: unlike the texture rows there is
  *  no drop-in same-shape alternative — a screen-space derivative simply does not
  *  exist outside a fragment invocation, so the quantity has to come from elsewhere. */
 const DERIVATIVE_FIX =
-  'precompute the quantity and pass it in (a per-vertex varying, a CPU-computed uniform, or finite differences of neighboring samples) — derivatives exist only in a fragment invocation'
+  'precompute the quantity and pass it in (a per-vertex varying, a CPU-computed uniform, or finite differences of neighboring samples) — derivatives exist only in a fragment invocation';
 
 /** The comparison reads whose level of detail is implicit share ONE fix: the `…Level` twin
  *  compares at level 0 and needs no derivatives. */
 const COMPARE_FIX = (args: string): string =>
-  `use textureSampleCompareLevel(${args}) — it compares at level 0 and needs no derivatives`
+  `use textureSampleCompareLevel(${args}) — it compares at level 0 and needs no derivatives`;
 
 /** Fragment-only builtin id -> the fix its message must name. Table-driven, so a
  *  further fragment-only builtin joins by adding ONE row.
@@ -84,7 +84,7 @@ export const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
   ['dpdyFine', DERIVATIVE_FIX],
   ['fwidthCoarse', DERIVATIVE_FIX],
   ['fwidthFine', DERIVATIVE_FIX],
-])
+]);
 
 /** A fragment-only builtin must not be reachable from a VERTEX or COMPUTE entry.
  *
@@ -114,37 +114,37 @@ export const fragmentOnlyBuiltin: LintRule = {
   severity: 'error',
   category: 'correctness',
   create: (ctx) => {
-    const byName = new Map(ctx.module.funcs.map((f) => [f.name, f]))
+    const byName = new Map(ctx.module.funcs.map((f) => [f.name, f]));
     const entries = ctx.module.funcs.filter((f) => {
-      const stage = stageOf(f)
-      return stage === 'vertex' || stage === 'compute'
-    })
+      const stage = stageOf(f);
+      return stage === 'vertex' || stage === 'compute';
+    });
     // Call-graph closure from the non-fragment entries.
-    const reachable = new Set(entries.map((f) => f.name))
-    const stack = [...entries]
+    const reachable = new Set(entries.map((f) => f.name));
+    const stack = [...entries];
     while (stack.length > 0) {
-      const refs = emptyRefSet()
-      collectFnRefs(stack.pop()!, refs)
+      const refs = emptyRefSet();
+      collectFnRefs(stack.pop()!, refs);
       for (const name of refs.calls) {
-        const f = byName.get(name)
+        const f = byName.get(name);
         if (f && !reachable.has(name)) {
-          reachable.add(name)
-          stack.push(f)
+          reachable.add(name);
+          stack.push(f);
         }
       }
     }
     return {
       Expr(e, fn) {
-        if (e.op !== 'call' || !reachable.has(fn.name)) return
-        const fix = FRAGMENT_ONLY_IDS.get(e.fn)
-        if (fix === undefined) return
+        if (e.op !== 'call' || !reachable.has(fn.name)) return;
+        const fix = FRAGMENT_ONLY_IDS.get(e.fn);
+        if (fix === undefined) return;
         ctx.report(`${e.fn} is fragment-only in WGSL — ${fix}`, {
           fn: fn.name,
           node: e,
           code: 'SD0109',
           hint: fix,
-        })
+        });
       },
-    }
+    };
   },
-}
+};

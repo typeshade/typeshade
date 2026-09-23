@@ -9,7 +9,7 @@
 // is the silent-on-GPU (`// __placeholder`) / throws-on-CPU footgun, and a typo'd swap key
 // silently no-ops — both are now a loud error at compose time instead. Pure: returns a new module.
 
-import type { ModuleDecl, Stmt, FuncDecl } from '../ir/index.js'
+import type { ModuleDecl, Stmt, FuncDecl } from '../ir/index.js';
 
 /** Options for {@link composeModule}. The default is strict: a placeholder that receives no
  *  swap and a swap key that matches no placeholder are both errors at compose time.
@@ -26,7 +26,7 @@ export interface ComposeOptions {
   /** Let a placeholder with no matching swap stay in the module. The WGSL emitter writes it as
    *  the comment `// __placeholder: <tag>`; the GLSL emitter and {@link compileModule} throw when
    *  they reach it. Off by default, where an un-swapped placeholder is a compose-time error. */
-  readonly allowUnswapped?: boolean
+  readonly allowUnswapped?: boolean;
 }
 
 /** Replace every `placeholder(tag)` Stmt in `stmts` with `swaps[tag]`, recursing into nested bodies.
@@ -37,16 +37,16 @@ function swapInBody(
   seen: Set<string>,
   used: Set<string>,
 ): Stmt[] {
-  const out: Stmt[] = []
+  const out: Stmt[] = [];
   for (const s of stmts) {
     if (s.s === 'placeholder') {
-      seen.add(s.tag)
-      const replacement = swaps[s.tag]
+      seen.add(s.tag);
+      const replacement = swaps[s.tag];
       if (replacement) {
-        used.add(s.tag)
-        out.push(...replacement)
-      } else out.push(s)
-      continue
+        used.add(s.tag);
+        out.push(...replacement);
+      } else out.push(s);
+      continue;
     }
     if (s.s === 'if') {
       out.push({
@@ -56,12 +56,12 @@ function swapInBody(
           body: swapInBody(arm.body, swaps, seen, used),
         })),
         elseBody: s.elseBody ? swapInBody(s.elseBody, swaps, seen, used) : undefined,
-      })
-      continue
+      });
+      continue;
     }
     if (s.s === 'for') {
-      out.push({ ...s, body: swapInBody(s.body, swaps, seen, used) })
-      continue
+      out.push({ ...s, body: swapInBody(s.body, swaps, seen, used) });
+      continue;
     }
     if (s.s === 'switch') {
       out.push({
@@ -72,12 +72,12 @@ function swapInBody(
           body: swapInBody(c.body, swaps, seen, used),
         })),
         defaultBody: s.defaultBody ? swapInBody(s.defaultBody, swaps, seen, used) : undefined,
-      })
-      continue
+      });
+      continue;
     }
-    out.push(s)
+    out.push(s);
   }
-  return out
+  return out;
 }
 
 /** Compose a module by filling its placeholder statements. A base module marks each place where
@@ -125,27 +125,27 @@ export function composeModule(
   swaps: Record<string, readonly Stmt[]>,
   opts?: ComposeOptions,
 ): ModuleDecl {
-  const seen = new Set<string>()
-  const used = new Set<string>()
+  const seen = new Set<string>();
+  const used = new Set<string>();
   const funcs: FuncDecl[] = m.funcs.map((f) => ({
     ...f,
     body: swapInBody(f.body, swaps, seen, used),
-  }))
+  }));
 
-  const unknownKeys = Object.keys(swaps).filter((k) => !used.has(k))
+  const unknownKeys = Object.keys(swaps).filter((k) => !used.has(k));
   if (unknownKeys.length) {
     throw new Error(
       `typeshade: composeModule swap key(s) match no placeholder: ${unknownKeys.join(', ')} (seen: ${[...seen].join(', ') || 'none'})`,
-    )
+    );
   }
   if (!opts?.allowUnswapped) {
-    const unswapped = [...seen].filter((t) => !used.has(t))
+    const unswapped = [...seen].filter((t) => !used.has(t));
     if (unswapped.length) {
       throw new Error(
         `typeshade: composeModule left placeholder(s) un-swapped: ${unswapped.join(', ')} — provide a swap or pass { allowUnswapped: true }`,
-      )
+      );
     }
   }
 
-  return { ...m, funcs }
+  return { ...m, funcs };
 }

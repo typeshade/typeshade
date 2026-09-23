@@ -63,38 +63,38 @@
 // non-comment line of every file. The block is REQUIRED: a shader without one fails the drift
 // arm in `shade-examples.test.ts` rather than going quietly unregistered.
 
-import { readdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { compile } from '../src/index.js'
-import type { ShaderExample } from './_shared.js'
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { compile } from '../src/index.js';
+import type { ShaderExample } from './_shared.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url))
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** The extension that marks a TypeShade source module — the same one `src/compiler/ts/vite.ts`
  *  filters on, so the corpus on disk and the bundler plugin agree on what a shade module is. */
-export const SHADE_EXT = '.shade.ts'
+export const SHADE_EXT = '.shade.ts';
 
 /** The hand-written half of a `.shade.ts` registration: everything `compile()` cannot infer. */
 type ShadeSpec = {
   /** Registry id. Also the golden filename stem, so it must not collide with an `examples` id. */
-  readonly id: string
-  readonly title: string
-  readonly blurb: string
+  readonly id: string;
+  readonly title: string;
+  readonly blurb: string;
   /** The `examples` id this file is the source-language TWIN of: the same shader, authored
    *  through the other surface. Set it and `shade-twins.test.ts` pins the two emits side by
    *  side and compares the lowered modules — which is what turns "the EDSL corpus is the
    *  oracle" from a claim in the surface document into something a suite can fail on. */
-  readonly twinOf?: string
+  readonly twinOf?: string;
 } & (
   | {
       /** Has a GLSL ES 3.00 form — both stages emit AND link. Authored, never derived: a flag
        *  computed by try/catch around the emitter agrees with the emitter by construction, and
        *  the compile gate would then have nothing left to catch. */
-      readonly renderable: true
+      readonly renderable: true;
     }
   | {
-      readonly renderable: false
+      readonly renderable: false;
       /** WHY the GLSL backend cannot serve this example, checked rather than believed
        *  (`shade-examples.test.ts`): a substring of the refusal the backend throws, or the
        *  literal `NO_ENTRY_POINT` for a module that emits a stage with no `main()` because it
@@ -103,13 +103,13 @@ type ShadeSpec = {
        *  `renderable: false` without one would be a way to opt out of the compile gate for
        *  free; with one, the flag and the reason are both claims a suite can fail. A UNION
        *  rather than an optional field, so `tsc` refuses an entry that leaves it out. */
-      readonly reason: string
+      readonly reason: string;
     }
-)
+);
 
 /** The `reason` of an example whose GLSL stages emit but carry no `main()`, because the module
  *  declares no entry point at all. Not a refusal message — there is no throw to match. */
-export const NO_ENTRY_POINT = 'no entry point'
+export const NO_ENTRY_POINT = 'no entry point';
 
 /** The `@example` block every `.shade.ts` file carries, directly after its directive:
  *
@@ -123,7 +123,7 @@ export const NO_ENTRY_POINT = 'no entry point'
  *
  *  Matched non-greedily, so the FIRST block wins and an `@example` mentioned later in prose
  *  cannot shadow it. */
-const EXAMPLE_BLOCK = /\/\*\s*@example\s*([\s\S]*?)\*\//
+const EXAMPLE_BLOCK = /\/\*\s*@example\s*([\s\S]*?)\*\//;
 
 /** Read one shader's registration out of its own source.
  *
@@ -134,50 +134,50 @@ const EXAMPLE_BLOCK = /\/\*\s*@example\s*([\s\S]*?)\*\//
  *  otherwise leave the example silently unregistered or half-described.
  */
 function readSpec(id: string, source: string): ShadeSpec {
-  const file = `${id}${SHADE_EXT}`
-  const block = EXAMPLE_BLOCK.exec(source)
+  const file = `${id}${SHADE_EXT}`;
+  const block = EXAMPLE_BLOCK.exec(source);
   if (block === null) {
     throw new Error(
       `typeshade: ${file} carries no @example block — every shader registers itself, so a file ` +
         `without one would never reach the compile gate or the emit goldens`,
-    )
+    );
   }
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(block[1] ?? '')
+    parsed = JSON.parse(block[1] ?? '');
   } catch (e) {
     throw new Error(
       `typeshade: ${file}'s @example block is not JSON: ${e instanceof Error ? e.message : String(e)}`,
-    )
+    );
   }
-  const spec = parsed as Partial<Record<string, unknown>>
-  const { title, blurb, renderable, twinOf, reason } = spec
+  const spec = parsed as Partial<Record<string, unknown>>;
+  const { title, blurb, renderable, twinOf, reason } = spec;
   if (typeof title !== 'string' || title === '')
-    throw new Error(`typeshade: ${file}'s @example block has no "title"`)
+    throw new Error(`typeshade: ${file}'s @example block has no "title"`);
   if (typeof blurb !== 'string' || blurb === '')
-    throw new Error(`typeshade: ${file}'s @example block has no "blurb"`)
+    throw new Error(`typeshade: ${file}'s @example block has no "blurb"`);
   if (typeof renderable !== 'boolean')
     throw new Error(
       `typeshade: ${file}'s @example block needs "renderable": true or false — authored, never ` +
         `derived, because a flag computed from the emitter agrees with it by construction and ` +
         `the compile gate would then have nothing left to catch`,
-    )
+    );
   if (twinOf !== undefined && typeof twinOf !== 'string')
-    throw new Error(`typeshade: ${file}'s "twinOf" is not a string`)
-  const common = { id, title, blurb, ...(twinOf === undefined ? {} : { twinOf }) }
-  if (renderable) return { ...common, renderable: true }
+    throw new Error(`typeshade: ${file}'s "twinOf" is not a string`);
+  const common = { id, title, blurb, ...(twinOf === undefined ? {} : { twinOf }) };
+  if (renderable) return { ...common, renderable: true };
   if (typeof reason !== 'string' || reason === '')
     throw new Error(
       `typeshade: ${file} is "renderable": false and states no "reason" — the flag is a claim ` +
         `this package checks (shade-examples.test.ts), not a way out of the compile gate`,
-    )
-  return { ...common, renderable: false, reason }
+    );
+  return { ...common, renderable: false, reason };
 }
 
 /** `readSpec` under a name a suite may import: `shade-examples.test.ts` drives it with a
  *  missing, malformed and incomplete block, because refusing those is the whole reason a
  *  shader registering ITSELF is safer than one hand-ordered array. Not part of the corpus. */
-export const readSpecForTest = readSpec
+export const readSpecForTest = readSpec;
 
 /** Every `.shade.ts` file in this directory, id-sorted, each registered from its own bytes.
  *
@@ -190,7 +190,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = readdirSync(HERE)
   .filter((f) => f.endsWith(SHADE_EXT))
   .map((f) => f.slice(0, -SHADE_EXT.length))
   .sort()
-  .map((id) => readSpec(id, readFileSync(join(HERE, `${id}${SHADE_EXT}`), 'utf8')))
+  .map((id) => readSpec(id, readFileSync(join(HERE, `${id}${SHADE_EXT}`), 'utf8')));
 
 /**
  * Compile one `.shade.ts` file into the registry shape the EDSL examples use.
@@ -208,15 +208,15 @@ const SHADE_ORDER: readonly ShadeSpec[] = readdirSync(HERE)
  * @throws when the file is missing, or when `compile()` reports an error diagnostic.
  */
 function shadeExample(spec: ShadeSpec): ShaderExample {
-  const file = `${spec.id}${SHADE_EXT}`
-  const source = readFileSync(join(HERE, file), 'utf8')
-  const { diagnostics, module } = compile(source)
-  const errors = diagnostics.filter((d) => d.category === 'error')
+  const file = `${spec.id}${SHADE_EXT}`;
+  const source = readFileSync(join(HERE, file), 'utf8');
+  const { diagnostics, module } = compile(source);
+  const errors = diagnostics.filter((d) => d.category === 'error');
   if (errors.length > 0) {
     const lines = errors.map(
       (d) => `  ${d.category} ${d.line}:${d.character} ${d.code ?? '—'} ${d.message}`,
-    )
-    throw new Error(`typeshade: ${file} does not compile\n${lines.join('\n')}`)
+    );
+    throw new Error(`typeshade: ${file} does not compile\n${lines.join('\n')}`);
   }
   return {
     id: spec.id,
@@ -226,12 +226,14 @@ function shadeExample(spec: ShadeSpec): ShaderExample {
     file,
     module,
     renderable: spec.renderable,
-  }
+  };
 }
 
 /** Every `"use typeshade"` example, compiled. Iterated by `scripts/compile-gate.ts` and
  *  `shade-examples.test.ts` alongside `examples`. */
-export const shadeExamples: readonly ShaderExample[] = SHADE_ORDER.map((spec) => shadeExample(spec))
+export const shadeExamples: readonly ShaderExample[] = SHADE_ORDER.map((spec) =>
+  shadeExample(spec),
+);
 
 /** Twin id → the `examples` id it mirrors, for the entries that claim one. Kept here rather
  *  than on `ShaderExample` because the relationship belongs to this corpus: an EDSL example
@@ -240,7 +242,7 @@ export const SHADE_TWINS: ReadonlyMap<string, string> = new Map(
   SHADE_ORDER.flatMap((spec) =>
     spec.twinOf === undefined ? [] : [[spec.id, spec.twinOf] as const],
   ),
-)
+);
 
 /** Non-renderable id → the reason its `renderable: false` states, for the suite that checks
  *  the flag rather than believing it (`shade-examples.test.ts`). Kept here beside `SHADE_TWINS`
@@ -248,4 +250,4 @@ export const SHADE_TWINS: ReadonlyMap<string, string> = new Map(
  *  the site consumes. */
 export const SHADE_REFUSALS: ReadonlyMap<string, string> = new Map(
   SHADE_ORDER.flatMap((spec) => (spec.renderable ? [] : [[spec.id, spec.reason] as const])),
-)
+);

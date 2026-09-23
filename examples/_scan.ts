@@ -11,22 +11,22 @@
 // imports it, and nothing tracked in this package may reference a path outside it
 // (`src/self-contained.test.ts`).
 
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** `export const <name>: ShaderExample = {` … `id: '<id>'` — the convention every example
  *  file follows. Both must be present for a file to count as an example. */
-const DECL = /export const (\w+)\s*:\s*ShaderExample\s*=/
-const ID = /\bid:\s*'([^']+)'/
+const DECL = /export const (\w+)\s*:\s*ShaderExample\s*=/;
+const ID = /\bid:\s*'([^']+)'/;
 
 /** One discovered example: its stable id, the module to import, and the binding to import.
  *  `importPath` carries the `.js` extension the TypeScript ESM convention asks for (X-GIS #1686):
  *  what is written is what is emitted, so the generated registry resolves under plain Node
  *  as well as under a bundler. */
 export interface DiscoveredExample {
-  readonly id: string
-  readonly importPath: string
-  readonly exportName: string
+  readonly id: string;
+  readonly importPath: string;
+  readonly exportName: string;
 }
 
 /**
@@ -43,12 +43,12 @@ export function discoverExamples(dir: string): readonly DiscoveredExample[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.ts') && !f.startsWith('_') && !f.endsWith('.test.ts'))
     .flatMap((file) => {
-      const src = readFileSync(join(dir, file), 'utf8')
-      const decl = DECL.exec(src)
-      const id = ID.exec(src)
+      const src = readFileSync(join(dir, file), 'utf8');
+      const decl = DECL.exec(src);
+      const id = ID.exec(src);
       return decl && id
         ? [{ id: id[1]!, importPath: `./${file.slice(0, -3)}.js`, exportName: decl[1]! }]
-        : []
+        : [];
     })
-    .sort((a, b) => a.id.localeCompare(b.id))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }

@@ -10,18 +10,18 @@
 // It composes the existing infra (lint / summarize / requiredCaps) — no re-implementation,
 // and it runs over the AUTHORED module (before lowering), so reported `loc`s resolve.
 
-import type { ModuleDecl } from '../ir/index.js'
-import { Capabilities, type Backend } from '../backend.js'
+import type { ModuleDecl } from '../ir/index.js';
+import { Capabilities, type Backend } from '../backend.js';
 import {
   lint,
   summarize,
   type Diagnostic,
   type LintSummary,
   type LintConfig,
-} from '../passes/lint/engine.js'
-import { RULES, CORE_RULES } from '../passes/lint/rules/index.js'
-import { requiredCaps } from '../passes/required-caps.js'
-import { formatLoc } from './error.js'
+} from '../passes/lint/engine.js';
+import { RULES, CORE_RULES } from '../passes/lint/rules/index.js';
+import { requiredCaps } from '../passes/required-caps.js';
+import { formatLoc } from './error.js';
 
 /** Options for {@link diagnose}. Every field is optional; the default is "run the full ruleset
  *  and check no backend".
@@ -30,11 +30,11 @@ import { formatLoc } from './error.js'
  */
 export interface DiagnoseOptions {
   /** Which ruleset to run — 'all' (full RULES, default) or 'core' (emit-time CORE_RULES). */
-  readonly rules?: 'core' | 'all'
+  readonly rules?: 'core' | 'all';
   /** When given, also report any capability the backend cannot cover (non-throwing). */
-  readonly backend?: Backend
+  readonly backend?: Backend;
   /** Per-rule severity / options overrides, forwarded to the lint engine. */
-  readonly config?: LintConfig
+  readonly config?: LintConfig;
 }
 
 /** What {@link diagnose} returns: every {@link Diagnostic} it found, plus the {@link LintSummary}
@@ -55,8 +55,8 @@ export interface DiagnoseOptions {
  *  ```
  */
 export interface DiagnosticReport {
-  readonly diagnostics: readonly Diagnostic[]
-  readonly summary: LintSummary
+  readonly diagnostics: readonly Diagnostic[];
+  readonly summary: LintSummary;
 }
 
 /** Ask one question of a module, "what is wrong with this?", and get every answer at once.
@@ -104,48 +104,48 @@ export interface DiagnosticReport {
  *  @see {@link formatReport} for the rendering shown above.
  */
 export function diagnose(m: ModuleDecl, opts?: DiagnoseOptions): DiagnosticReport {
-  const rules = opts?.rules === 'core' ? CORE_RULES : RULES
-  const diagnostics: Diagnostic[] = [...lint(m, rules, opts?.config)]
+  const rules = opts?.rules === 'core' ? CORE_RULES : RULES;
+  const diagnostics: Diagnostic[] = [...lint(m, rules, opts?.config)];
 
   if (opts?.backend) {
-    const req = requiredCaps(m)
+    const req = requiredCaps(m);
     // Derived from the backend's ONE capability authority, exactly as assertCaps does
     // (X-GIS #1670) — this non-throwing check and the throwing gate must not read two
     // different surfaces. Built once per call, over 9 keys.
-    const caps = Capabilities.fromProfile(opts.backend.capProfile)
+    const caps = Capabilities.fromProfile(opts.backend.capProfile);
     if (!caps.covers(req)) {
-      const missing = caps.missing(req)
+      const missing = caps.missing(req);
       diagnostics.push({
         ruleId: 'unsupported-capability',
         severity: 'error',
         code: 'SD0030',
         message: `backend '${opts.backend.id}' cannot emit this module — missing capabilities: ${missing.join(', ')}`,
-      })
+      });
     }
   }
 
-  return { diagnostics, summary: summarize(diagnostics) }
+  return { diagnostics, summary: summarize(diagnostics) };
 }
 
-const SEVERITY_ORDER = { error: 0, warning: 1 } as const
+const SEVERITY_ORDER = { error: 0, warning: 1 } as const;
 
 /** Render a DiagnosticReport as a human-readable, severity-sorted block report. */
 export function formatReport(report: DiagnosticReport): string {
-  const { diagnostics, summary } = report
-  if (diagnostics.length === 0) return 'no diagnostics'
+  const { diagnostics, summary } = report;
+  if (diagnostics.length === 0) return 'no diagnostics';
 
   const blocks = [...diagnostics]
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
     .map((d) => {
-      const code = d.code ? `[${d.code}]` : ''
-      const fn = d.fn ? `  (fn ${d.fn})` : ''
-      const lines = [`${d.severity}${code} ${d.ruleId}${fn}`]
-      if (d.loc) lines.push(`  --> ${formatLoc(d.loc)}`)
-      lines.push(`  ${d.message}`)
-      if (d.hint) lines.push(`  hint: ${d.hint}`)
-      return lines.join('\n')
-    })
+      const code = d.code ? `[${d.code}]` : '';
+      const fn = d.fn ? `  (fn ${d.fn})` : '';
+      const lines = [`${d.severity}${code} ${d.ruleId}${fn}`];
+      if (d.loc) lines.push(`  --> ${formatLoc(d.loc)}`);
+      lines.push(`  ${d.message}`);
+      if (d.hint) lines.push(`  hint: ${d.hint}`);
+      return lines.join('\n');
+    });
 
-  const footer = `${summary.errors} error${summary.errors === 1 ? '' : 's'}, ${summary.warnings} warning${summary.warnings === 1 ? '' : 's'}`
-  return [...blocks, footer].join('\n\n')
+  const footer = `${summary.errors} error${summary.errors === 1 ? '' : 's'}, ${summary.warnings} warning${summary.warnings === 1 ? '' : 's'}`;
+  return [...blocks, footer].join('\n\n');
 }
