@@ -52,6 +52,44 @@ correct before it runs. And a debugger can stop inside a GPU function, which PyT
 inside a CUDA kernel. Both rest on the same asset: a compiler with a reference implementation
 of its own semantics.
 
+## A language, not a domain
+
+C is not a language for operating systems, or for databases, or for games. It is a small,
+general core, and each of those was built on it as a library or a program. TypeShade has to be
+the same kind of thing for the parallel half of a TypeScript program. Graphics is where it
+started, and machine learning is one place `grad` is useful. Neither is what TypeShade is for.
+
+The test of that is the range of programs the one language already carries. Each row below is a
+domain, what it needs from the language rather than from a library, and the example on `main`
+that exercises it.
+
+| Domain                            | What it needs from the language                                        | On `main`                                                                                        |
+| --------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Maps and geodesy                  | Precision beyond `f32` at planetary scale; projections                 | The emulated `f64` (surface §39); `fp64-mercator-tiles`, `fp64-loran`, `fp64-rtc`                |
+| Terrain and rendering             | Vertex and fragment stages, textures, depth, render targets            | `hillshade`, `shadow-compare`, `cube-env`, `msaa-resolve`, `_mrt-gate` (multiple render targets) |
+| Simulation                        | Compute, state that persists between steps, workgroup memory, barriers | `particle-step`, `workgroup-reduce`                                                              |
+| Data analysis                     | Atomics, reductions, integer arithmetic                                | `atomic-histogram`, `compute-reduction`                                                          |
+| Image processing                  | Storage textures, two-dimensional dispatch                             | `storage-texture`; two-dimensional workgroups in #192                                            |
+| Data formats and codecs           | Bit operations, packing, bitcasts                                      | `packed-bytes`, `packing-bitcast`                                                                |
+| Interaction                       | Integer render targets for picking, clip planes                        | `id-pick`, `clip-planes`                                                                         |
+| Optimization and inverse problems | Derivatives of ordinary functions                                      | `grad`, in #194                                                                                  |
+| Procedural content                | Noise, hashing, signed distance functions                              | `ocean`, `raymarch-sphere`, `random(seed)` (surface §55)                                         |
+
+The same list tells the language what not to grow. A feature belongs in the language when many
+domains need it and it cannot be written in TypeShade itself: a numeric type, a control-flow
+shape, a transformation of any function, such as `grad`. `grad` is in that set because
+derivatives are domain-general, not because of machine learning:
+
+- a surface normal from a height field or a signed distance function;
+- a Newton step in a solver;
+- a Jacobian in a physics integrator;
+- the sensitivity of a simulation to its inputs;
+- fitting parameters to data.
+
+Everything domain-shaped, such as a projection, a color space, a noise function or a filter
+kernel, belongs in a library written in TypeShade. That is how C has libpng and SQLite rather
+than a PNG type and a query statement.
+
 ## Principles
 
 Each principle comes with the question a reviewer asks of a new public API.
@@ -74,14 +112,32 @@ Each principle comes with the question a reviewer asks of a new public API.
    `await` appears only where a result genuinely crosses back from the GPU. That is
    asynchronous in every browser, so it is shown once, where it costs something.
    _Test:_ does the caller write any step that a correct default could have taken for them?
-5. **Every function has a derivative.** `grad(fn, 'k')` takes a function and returns a function.
-   The oracle checks every derivative against a finite difference.
-   _Test:_ is differentiating something the caller has to set up, or something they ask for?
+5. **A transformation applies to any function.** `grad(fn, 'k')` takes a function and returns a
+   function, whatever the domain the function comes from. The oracle checks every derivative
+   against a finite difference. The same holds for any later transformation the compiler
+   offers: it works on functions, not on one domain's objects.
+   _Test:_ does the transformation need the function to be written in a particular domain's
+   shape?
 6. **Lower layers are escape hatches, never requirements.** `compile()`, `reflect()`, an
    explicit `@compute` entry and a workgroup shape stay public. Reaching one never requires
    rewriting code on the layer above it.
    _Test:_ is this API on the primary path, or is it an escape hatch that says so in its
    documentation?
+7. **Nothing domain-shaped in the language.** A domain concept is a library written in
+   TypeShade, not a built-in.
+   _Test:_ could this be written as a TypeShade library? If it could, it is not a language
+   feature.
+8. **TypeShade code is shared the way TypeScript code is.** A library of TypeShade functions is
+   an npm package, and it is imported by name.
+   **Today this is the gap that blocks an ecosystem.** The compiler takes relative imports only.
+   A multi-file program refuses a package import with TS8099:
+
+   `Only relative imports are supported (got "shade-noise").`
+
+   The check is in `src/compiler/ts/module.ts`. A single file reports the imported function as
+   `TS8004 Unknown function`. So no library of TypeShade code can be published and used.
+   _Test:_ can a developer use a library of TypeShade functions from npm without copying its
+   source?
 
 ## The two layers
 
@@ -104,16 +160,26 @@ CI once the thing it measures exists.
 
 | Bar                                                                                                                           | How it is checked                                                                                         | Status                                                             |
 | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| No GPU vocabulary in a compute program. A caller's file never names a device, buffer, bind group, pipeline, workgroup or WGSL | A test scans the run-layer example application for those words, and fails on any                          | Waits on items 15 and 16                                           |
+| No GPU vocabulary in a compute program. A caller's file never names a device, buffer, bind group, pipeline, workgroup or WGSL | A test scans each domain's example application for those words, and fails on any                          | Waits on items 15 and 16                                           |
+| A library of TypeShade code installs from npm and imports by name                                                             | A test installs a TypeShade package into a fresh project and imports a function from it                   | Relative imports only today                                        |
 | Zero lines of configuration from install to a first GPU result                                                                | A test in a fresh project: install, write the example, run it                                             | Waits on item 16                                                   |
 | Every program runs without a GPU                                                                                              | The run layer's CPU tier runs every example under the test runner, with no device                         | The compute runner has a CPU tier today, for portable kernels only |
 | Every failure names a source line                                                                                             | Front end: every `TS80xx` diagnostic has a span. Run time: every refusal and every divergence carries one | Front end holds on `main`. Run time waits on item 19               |
 | Development mode compares the GPU with the oracle automatically                                                               | A run under development mode reports the first differing invocation and expression                        | Waits on item 19                                                   |
 
-## The demonstration
+## The demonstrations
 
-One program should show all of this at once, in a way nothing else on the web can: inverse
-rendering in a browser tab. A render function is written in TypeScript. `grad` fits its
+No single program can stand for a general language. The bar is measured over one small program
+per domain of the table above, each a single file with no GPU vocabulary:
+
+- a particle simulation stepped every frame;
+- an image filter over a camera frame;
+- a map layer that stays exact at street level on a planetary scale;
+- a histogram of a large data set;
+- a parameter fit.
+
+The last one shows the most at once, in a way nothing else on the web can: inverse rendering in
+a browser tab. A render function is written in TypeScript. `grad` fits its
 parameters to a target image. The loss over every pixel runs on the GPU, and the descent around
 it is ordinary host code. A breakpoint inside the render function stops on the CPU, with the same
 numbers.
@@ -158,5 +224,8 @@ There is no device, buffer, workgroup or WGSL in it, and it can be stepped throu
 - **The CPU/GPU boundary (#97, #198) is about residency, not uniforms.** The developer thinks
   "the shader reads my variable", not "this is a uniform or a storage buffer". Which it is, is
   the compiler's decision.
+- **Packages come before domain features.** A package that ships TypeShade code, imported by
+  name, is what lets each domain grow its own libraries. The compiler does not have to grow one
+  feature per domain.
 - **The roadmap gains the bar as items.** The `explain` report and the checks above are listed
   in `docs/roadmap.md` under "The DX bar".
