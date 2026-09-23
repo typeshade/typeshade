@@ -487,7 +487,9 @@ two causes. 28 of them came from a product assigned to an un-annotated local, wh
 declared `number`, the brand is gone at the declaration, and every later use reports (TS2339 on a
 swizzle of it, TS2345 where it is handed to a call, TS2322 where it is assigned back); no rule
 here can help with that, because by then there is no arithmetic left in the expression to
-recognize, and `const col: vec3 = ...` restores the brand. The other 16 were the generic math
+recognize, and `const col: vec3 = ...` restores the brand. (That cause is closed now, by the
+projection below rather than by a rule: the program reads the document with the annotation
+written in.) The other 16 were the generic math
 signatures' own shape, which is not a diagnostic to filter but a declaration to fix, and they are
 what the `mix` and all-scalar overloads below are for. `main`'s own `examples/` gate was already
 green before any of this, because #18 annotated the one local that failed it (`const rgb: vec3 =
@@ -588,6 +590,38 @@ each meaning copied from that file's own comment):
 | `TS8053` | `INT_LITERAL_DEPRECATION`   | A DEPRECATION warning, not an error: an integer-written literal in a declaration that declares no type still types as `f32` and will type as `i32` (surface doc §13, #148). Reported only when the caller passes `deprecations: true`; the compiler's behaviour has not changed, and the emitted bytes are identical with the flag on and off.                                                                                                                                                                                 |
 | `TS8068` | `RESERVED_NAME`             | A declared name a target reserves, checked on the name the emit carries (`Cls_member`, `Ns_member`) rather than the one written (#103): an error for a WGSL keyword, reserved word, `__` prefix or bare `_`, since WGSL is the program; a warning for a GLSL ES 3.00 word, `gl_` prefix or `__` anywhere, since that target is a second one and the module still compiles for WebGPU. Not raised for a target the module never emits for, nor for a local, parameter or function name the GLSL writer renames itself.          |
 | `TS8099` | `UNSUPPORTED`               | Catch-all for a diagnostic whose site does not yet deserve its own code; parked past the sequential range instead of at its head. (Codes from TS8038 on are drawn from per-branch blocks, so the sequence has gaps there — `codes.ts` says why.)                                                                                                                                                                                                                                                                               |
+
+### A local built by vector arithmetic (#162)
+
+A diagnostic filter cannot help a local the arithmetic produced. `const uv = p.xy * frame.scale`
+declares `uv` a `number`, and from there `uv.x` is TS2339, `tint(uv)` is TS2345, completion after
+`uv.` offers nothing, and hover says `number`, all on a program the compiler accepts. The first
+run of the user-journey gate (#214) found exactly this, in the editor, on the first fullscreen
+shader it checked.
+
+So the TypeScript program does not read an open document as written. `projection.ts` writes in
+the type TypeScript cannot infer: a `: vec2` after the name of every `const` or `let` that has no
+annotation, is not a `for` header's, has an initializer that does arithmetic, and has a front-end
+type that is a vector (`f32`, `i32`, `u32`) or an `f32` matrix. The type comes from the front
+end's own record of what it declared (`CompileTsSourceResult.symbols`), so it is the type the
+compiler uses. `host.ts` serves that text to TypeScript, and `service.ts` wraps every method:
+
+- a position the caller passes in moves to the projected text;
+- every position, range and span in the answer moves back, each through the projection of the
+  document it belongs to (a location's `uri`, a rename's key);
+- a semantic token on the inserted text is dropped, since the author never wrote it;
+- `positionAt` and `offsetAt` convert against the document as written.
+
+An insertion never spans a line break, so the two texts have the same lines. Only an open
+document is projected; a file pulled in through `readDocument` is read as written. Planning costs
+one extra front-end pass per document version, skipped when a syntax scan finds no candidate
+declaration. Measured on the three largest examples: 3 to 36 ms, against 52 to 79 ms for the
+whole `getDiagnostics`. `projection.test.ts` pins diagnostics, hover, completion, references,
+rename, semantic tokens and the offset maps.
+
+Plain `tsc` with `typeshade/shade` has no service in front of it and still types the local as a
+`number` (README, "What it covers, and what it does not"); the annotation remains the remedy
+there.
 
 ## 7. Adapter contracts
 

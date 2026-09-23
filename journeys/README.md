@@ -24,7 +24,7 @@ The unit suite and the compile gate test the compiler from inside the repository
 
 A journey is a directory holding one or more `*.shade.ts` sources and a `journey.mjs` host.
 
-- **The sources** are shader code as their author would write it. Where they spell something a way the author would not, only to get past a gap, the line says so and names the issue. For example, `const uv: vec2 = …` carries a comment pointing to #162. A workaround with no issue is not allowed, because the point of the gate is that each one is visible and counted.
+- **The sources** are shader code as their author would write it. Where they spell something a way the author would not, only to get past a gap, the line says so and names the issue. The plasma journey's `const uv: vec2 = …` did, pointing to #162, until the language service learned the type and the annotation came out. A workaround with no issue is not allowed, because the point of the gate is that each one is visible and counted.
 - **The host** is plain JavaScript, as the author's own host code would be. TypeShade has no runtime, so the host packs its own buffers in the layout WGSL gives them. It also computes, without TypeShade, what the shader should produce. It default-exports `{ title, runs }`. Each run is one of two kinds:
 
 | Field        | `kind: 'compute'`                                                                                    | `kind: 'render'`                                                                                        |

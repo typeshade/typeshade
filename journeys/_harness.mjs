@@ -31,6 +31,7 @@ const { chromium } = await import(pathToFileURL(PLAYWRIGHT).href);
 const TSC_DOCUMENTED = new Set([
   'TS1206',
   'TS2322',
+  'TS2339',
   'TS2345',
   'TS2362',
   'TS2363',
