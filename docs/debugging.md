@@ -687,17 +687,16 @@ For compute, supplying `global_invocation_id` alone is the common case, so three
 are **derived** from it and the entry's workgroup size rather than left at zero:
 
 ```
-size                   = [workgroupSize, 1, 1]
+size                   = workgroupShape
 workgroup_id           = floor(gid / size)
 local_invocation_id    = gid % size
 local_invocation_index = local.x + local.y * size.x + local.z * size.x * size.y
 ```
 
-The size is `[workgroupSize, 1, 1]`, from the scalar `reflect()` reports, because that is all
-the backend carries: `@compute([x, y, z])` with a `y` or `z` other than `1` is rejected at the
-front end (`TS8026`), precisely so a shape the backend would silently drop cannot be written.
-A genuinely three-dimensional derivation waits on the backend carrying three extents, and the
-formulas above are already written for it.
+The size is the entry's `[x, y, z]` workgroup shape, the `workgroupShape` `reflect()` reports:
+`@compute([8, 8])` is `[8, 8, 1]`, so a supplied `global_invocation_id` of `(9, 3, 0)` derives
+`workgroup_id` `(1, 0, 0)`, `local_invocation_id` `(1, 3, 0)` and `local_invocation_index` 25.
+A one-dimensional `@compute([64])` is `[64, 1, 1]`, and the `y` and `z` terms vanish.
 
 `num_workgroups` is the exception, and it is not derivable: the number of workgroups is a
 property of the **dispatch** rather than of any one invocation, and nothing else in the configuration

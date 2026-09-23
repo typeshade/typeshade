@@ -1681,6 +1681,7 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
     // Byte-neutral for the attrs-only M2a fixture: stageOf already answered 'fragment' there.
     stage: 'fragment',
     workgroupSize: undefined,
+    workgroupShape: undefined,
     // The tier declaration is compute-only and this entry is no longer a compute entry, so it
     // does not survive the rewrite — which is also what keeps the portable-kernel lint rule
     // (CORE, so it runs again on this lowered module) from analysing a fragment entry.
