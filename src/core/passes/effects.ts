@@ -12,24 +12,58 @@
 // function that only calls a writer is a writer too. Intrinsics with an effect are listed
 // in `EFFECTFUL_INTRINSICS`: the atomic builtins today (roadmap 0.2 item 4); barriers and
 // `textureStore` add their names on the commit that makes them authorable.
+//
+// The second table here is what each function READS of the module (`fnReads`). A call's
+// value depends on its arguments AND on every module name its callee reads, and the passes
+// that share or move a value see only the first: `h(b)` where `h` returns `q * gp` has the
+// roots {b} to a walk of the call, so a write to `gp` between two `h(b)` did not stop cse,
+// licm or gvn from treating them as one value. `refsLocal` and gvn's roots now add the
+// callee's reads from this table. Measured cost, over three emits of all 107 examples
+// (medians of 12 interleaved runs, otherwise idle machine): the whole emit 2281 -> 2383 ms.
+// Building the table is 35-40 ms of that, over 861 builds, one for each module object the
+// write table is also built for (which takes 71-88 ms); the rest is the passes asking it.
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/index.js'
 import { eachExpr, eachStmtExpr } from '../ir/visit.js'
 import { ATOMIC_INTRINSICS, BARRIER_INTRINSICS, isAtomicIntrinsic } from '../intrinsics.js'
-import { collectLocals } from './opt/expr-utils.js'
+import { bodyHasRaw, collectLocals } from './opt/expr-utils.js'
 
 /** Intrinsic ids whose call has an effect beyond its value: the atomic builtins, `atomicLoad`
- *  included, since two loads must not be shared across a store to the same location; the two
+ *  included, since two loads must not be shared across a store to the same location; the
  *  barriers, which order every read and write around them and must never be dropped, merged or
- *  moved; and `textureStore`, which writes a texel and returns nothing, so an optimizer that
- *  treated it as a pure call would drop every one of them (roadmap 0.4 item 10). */
+ *  moved; `workgroupUniformLoad`, which is a read with a barrier on each side of it
+ *  (wgsl.txt:26057), so the same holds for it — two of them with the same argument are two
+ *  barriers, and sharing one value between them deleted the second from a loop body whose
+ *  neighbour reads it ordered; and `textureStore`, which writes a texel and returns nothing, so
+ *  an optimizer that treated it as a pure call would drop every one of them (roadmap 0.4 item
+ *  10). */
 export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>([
   ...Object.keys(ATOMIC_INTRINSICS),
   ...BARRIER_INTRINSICS,
+  'workgroupUniformLoad',
   'textureStore',
 ])
 
-/** The module-level names each function writes, itself or through the functions it calls. */
+/** The intrinsics that SYNCHRONISE the workgroup: the barriers, and `workgroupUniformLoad`
+ *  for the two it carries. Unlike an atomic store they write no location of their own, so the
+ *  write table used to hold nothing for a helper that calls one, and a call to that helper was
+ *  taken for a pure one: `sync();` wrapping a `workgroupBarrier()` was dropped by DCE, and two
+ *  `ld()` wrapping a `workgroupUniformLoad` were shared by cse. `atomicLoad` is not here: two
+ *  loads with no store between them in this invocation may read one value. */
+const SYNC_INTRINSICS: ReadonlySet<string> = new Set<string>([
+  ...BARRIER_INTRINSICS,
+  'workgroupUniformLoad',
+])
+
+/** What a function that synchronises the workgroup WRITES, in the table: the memory the other
+ *  invocations share, which a barrier is where their writes land. No program can spell the
+ *  name, so it never meets a root, and its only work is to make the function's write set
+ *  non-empty — which is what {@link exprHasEffect} reads for every call to it, and what the
+ *  call-graph fixpoint below carries to every caller. */
+export const SYNC_WRITE = '<workgroup sync>'
+
+/** The module-level names each function writes, itself or through the functions it calls, and
+ *  {@link SYNC_WRITE} for one that synchronises the workgroup. */
 export type FnWrites = ReadonlyMap<string, ReadonlySet<string>>
 
 const memo = new WeakMap<ModuleDecl, FnWrites>()
@@ -72,13 +106,16 @@ function directWrites(f: FuncDecl, out: Set<string>): void {
   const walk = (body: readonly Stmt[]): void => {
     for (const s of body) {
       // An atomic store or read-modify-write anywhere in the statement's own expressions
-      // writes the binding at its location's root, the way an `assign` to it would.
+      // writes the binding at its location's root, the way an `assign` to it would. A
+      // barrier or a `workgroupUniformLoad` writes what the other invocations share.
       eachStmtExpr(
         s,
         (e) => {
           eachExpr(e, (x) => {
             const root = atomicWriteRoot(x)
             if (root !== undefined && !owned.has(root)) out.add(root)
+            if (x.op === 'call' && x.declRef === undefined && SYNC_INTRINSICS.has(x.fn))
+              out.add(SYNC_WRITE)
           })
         },
         () => {},
@@ -156,11 +193,92 @@ function calleesOf(f: FuncDecl, declared: ReadonlySet<string>, out: Set<string>)
  *  every pass returns a new module object, so without this a pass would see a table computed
  *  from one function and take every call to a helper for a pure one. A stale table is only
  *  ever an over-approximation (no pass adds a binding write to a function that had none), so
- *  carrying it forward is safe. */
+ *  carrying it forward is safe. The read table ({@link fnReads}) rides along the same way and
+ *  for the same reason: a view cannot see what `h` reads, only that it is called. */
 export function inheritEffects(from: ModuleDecl, to: ModuleDecl): void {
-  if (to === from || memo.has(to)) return
+  if (to === from) return
   const table = memo.get(from)
-  if (table !== undefined) memo.set(to, table)
+  if (table !== undefined && !memo.has(to)) memo.set(to, table)
+  const reads = readMemo.get(from)
+  if (reads !== undefined && !readMemo.has(to)) readMemo.set(to, reads)
+}
+
+/** The module-level names each function READS, itself or through the functions it calls. */
+export type FnReads = ReadonlyMap<string, ReadonlySet<string>>
+
+const readMemo = new WeakMap<ModuleDecl, FnReads>()
+
+/** The names each function of `m` reads that it does not own, transitively: every name a
+ *  `varref`, `constref` or `externref` in its body spells that is neither one of its
+ *  parameters nor one of its locals, and every such name of every function it calls. That is
+ *  its bindings, its `var<private>` and `var<workgroup>` variables, its host globals, and its
+ *  module constants (which nothing writes, so they never meet a mutated set). An `inout`
+ *  parameter is owned here although it is not owned in {@link fnWrites}: what the callee reads
+ *  through one is the caller's argument, which the caller's own walk of the call already sees.
+ *  A function with a `raw` statement reads every module-scope name, since its text is opaque.
+ *
+ *  Cached per module object and handed to views by {@link inheritEffects}, like the write
+ *  table, and computed once for the whole module by `fixpoint`. A name a caller also uses for
+ *  a local of its own over-approximates (a write to the local retires the call too), which is
+ *  the safe direction. */
+export function fnReads(m: ModuleDecl): FnReads {
+  const hit = readMemo.get(m)
+  if (hit !== undefined) return hit
+  const declared = new Set(m.funcs.map((f) => f.name))
+  const opaque = [
+    ...m.bindings.map((b) => b.name),
+    ...(m.vars ?? []).map((v) => v.name),
+    ...(m.externs ?? []).map((v) => v.name),
+  ]
+  const reads = new Map<string, Set<string>>()
+  const callees = new Map<string, Set<string>>()
+  for (const f of m.funcs) {
+    const owned = new Set<string>(f.params.map((p) => p.name))
+    collectLocals(f.body, owned)
+    const r = new Set<string>()
+    for (const s of f.body)
+      eachStmtExpr(s, (e) =>
+        eachExpr(e, (x) => {
+          if (
+            (x.op === 'varref' || x.op === 'constref' || x.op === 'externref') &&
+            !owned.has(x.name)
+          )
+            r.add(x.name)
+        }),
+      )
+    if (bodyHasRaw(f.body)) for (const n of opaque) r.add(n)
+    reads.set(f.name, r)
+    const c = new Set<string>()
+    calleesOf(f, declared, c)
+    callees.set(f.name, c)
+  }
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const f of m.funcs) {
+      const r = reads.get(f.name)!
+      const before = r.size
+      for (const callee of callees.get(f.name)!) for (const n of reads.get(callee) ?? []) r.add(n)
+      if (r.size !== before) changed = true
+    }
+  }
+  readMemo.set(m, reads)
+  return reads
+}
+
+/** Does `x`, a call, read any of `names` through its callee (the module names the callee
+ *  reads, per {@link fnReads})? Its ARGUMENTS are not looked at: the caller's own walk of the
+ *  expression reaches them. */
+export function callReadsAny(
+  x: Expr,
+  names: ReadonlySet<string>,
+  reads: FnReads | undefined,
+): boolean {
+  if (x.op !== 'call' || reads === undefined || names.size === 0) return false
+  const r = reads.get(x.fn)
+  if (r === undefined) return false
+  for (const n of r) if (names.has(n)) return true
+  return false
 }
 
 /** The names each function of `m` writes, transitively. Cached per module object; the IR is

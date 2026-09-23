@@ -37,6 +37,13 @@ vec2 df64_twoProd(float a, float b, float _fp64_g) {
   return vec2(_v0, _v3);
 }
 
+vec2 df64_twoSqr(float a, float _fp64_g) {
+  float _v0 = (a * a);
+  vec2 _v1 = df64_split(a, _fp64_g);
+  float _v2 = (((((_v1.x * _v1.x) - _v0) * _fp64_g) + (((_v1.x * _v1.y) * 2.0) * _fp64_g)) + ((_v1.y * _v1.y) * _fp64_g));
+  return vec2(_v0, _v2);
+}
+
 vec2 df64_add(vec2 a, vec2 b, float _fp64_g) {
   vec2 _v0 = df64_twoSum(a.x, b.x, _fp64_g);
   vec2 _v1 = df64_twoSum(a.y, b.y, _fp64_g);
@@ -59,6 +66,12 @@ vec2 df64_mul(vec2 a, vec2 b, float _fp64_g) {
   return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
 }
 
+vec2 df64_sqr(vec2 a, float _fp64_g) {
+  vec2 _v0 = df64_twoSqr(a.x, _fp64_g);
+  _v0.y = (_v0.y + ((a.x * a.y) * 2.0));
+  return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
+}
+
 float df64_narrow(vec2 a) {
   return (a.x + a.y);
 }
@@ -76,11 +89,11 @@ void main() {
   bool _v4 = (_cse0 || (u.fp64 < 0.5));
   vec2 _cse1 = vec2(1.0, 0.0);
   vec2 _v5 = df64_add(_cse1, vec2(_v3, 0.0), _fp64_g);
-  vec2 _v6 = df64_mul(_v5, _v5, _fp64_g);
+  vec2 _v6 = df64_sqr(_v5, _fp64_g);
   vec2 _v7 = df64_mul(_v6, _v5, _fp64_g);
-  vec2 _v8 = df64_mul(_v6, _v6, _fp64_g);
+  vec2 _v8 = df64_sqr(_v6, _fp64_g);
   vec2 _v9 = df64_mul(_v8, _v5, _fp64_g);
-  vec2 _v10 = df64_mul(_v7, _v7, _fp64_g);
+  vec2 _v10 = df64_sqr(_v7, _fp64_g);
   vec2 _v11 = df64_mul(_v10, _v5, _fp64_g);
   float _cse6 = uintBitsToFloat(floatBitsToUint(0.0));
   vec2 _cse2 = vec2(_cse6, _cse6);
