@@ -77,10 +77,6 @@ vec2 df64_sqr(vec2 a, float _fp64_g) {
   return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
 }
 
-bool df64_le(vec2 a, vec2 b) {
-  return ((a.x < b.x) || ((a.x == b.x) && (a.y <= b.y)));
-}
-
 float df64_narrow(vec2 a) {
   return (a.x + a.y);
 }
@@ -89,9 +85,8 @@ layout(location = 0) out vec4 _ret;
 
 void main() {
   float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  vec2 _licm0 = vec2(16.0, 0.0);
-  vec2 _licm1 = vec2(-0.800000011920929, 1.1920929132713809e-8);
-  vec2 _licm2 = vec2(0.15600000321865082, -3.218650901359865e-9);
+  vec2 _licm0 = vec2(-0.800000011920929, 1.1920929132713809e-8);
+  vec2 _licm1 = vec2(0.15600000321865082, -3.218650901359865e-9);
   float span = pow(10.0, (-u.zoom_exp));
   float half_ = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
@@ -105,31 +100,33 @@ void main() {
   if ((_cse0 || (u.fp64 < 0.5))) {
     float zx = (df64_narrow(_cse1) + dx);
     float zy = (df64_narrow(_cse2) + dy);
+    m2 = ((zx * zx) + (zy * zy));
     for (uint j = 0u; (j < 128u); j = (j + 1u)) {
-      float _gv0 = (zx * zx);
-      float _gv1 = (zy * zy);
-      if (((_gv0 + _gv1) <= 16.0)) {
-        float nzx = ((_gv0 - _gv1) + -0.8);
+      if ((m2 <= 16.0)) {
+        float nzx = (((zx * zx) - (zy * zy)) + -0.8);
         zy = (((zx * zy) * 2.0) + 0.156);
         zx = nzx;
         it = (it + 1.0);
+        m2 = ((zx * zx) + (zy * zy));
       }
     }
-    m2 = ((zx * zx) + (zy * zy));
   } else {
     vec2 zx_1 = df64_add(_cse1, vec2(dx, 0.0), _fp64_g);
     vec2 zy_1 = df64_add(_cse2, vec2(dy, 0.0), _fp64_g);
+    float hx0 = df64_narrow(zx_1);
+    float hy0 = df64_narrow(zy_1);
+    m2 = ((hx0 * hx0) + (hy0 * hy0));
     for (uint j_1 = 0u; (j_1 < 128u); j_1 = (j_1 + 1u)) {
-      vec2 _gv2 = df64_sqr(zx_1, _fp64_g);
-      vec2 _gv3 = df64_sqr(zy_1, _fp64_g);
-      if (df64_le(df64_add(_gv2, _gv3, _fp64_g), _licm0)) {
-        vec2 nzx_1 = df64_add(df64_sub(_gv2, _gv3, _fp64_g), _licm1, _fp64_g);
-        zy_1 = df64_add((df64_mul(zx_1, zy_1, _fp64_g) * 2.0), _licm2, _fp64_g);
+      if ((m2 <= 16.0)) {
+        vec2 nzx_1 = df64_add(df64_sub(df64_sqr(zx_1, _fp64_g), df64_sqr(zy_1, _fp64_g), _fp64_g), _licm0, _fp64_g);
+        zy_1 = df64_add((df64_mul(zx_1, zy_1, _fp64_g) * 2.0), _licm1, _fp64_g);
         zx_1 = nzx_1;
         it = (it + 1.0);
+        float hx = df64_narrow(zx_1);
+        float hy = df64_narrow(zy_1);
+        m2 = ((hx * hx) + (hy * hy));
       }
     }
-    m2 = df64_narrow(df64_add(df64_sqr(zx_1, _fp64_g), df64_sqr(zy_1, _fp64_g), _fp64_g));
   }
   float sn = ((it - log2(max(log2(max(m2, 1.0001)), 0.0001))) + 1.0);
   float inside = step(127.5, it);

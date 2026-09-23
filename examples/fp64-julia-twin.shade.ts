@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "fp64 Julia set (source twin)",
-  "blurb": "`fp64-julia.ts` written in the source language: the seed is fixed and the pixel becomes z₀, so the `if`/`else` split runs the same escape loop over an `f64` on one side and a plain `f32` on the other. The double half spells nothing the emulation does not already carry, a `vec2f64` lane read, `f64(dx)` widening the pixel offset, and the seed and bailout lifted to full doubles beside it (§39), and the f64 half lowers to `df64_sqr` for every square, one `df64_mul` for `zx * zy` with its doubling an exact `* 2.0` on the two words, and `df64_add` / `df64_sub` / `df64_le` around them, against the very same f32 ops.",
+  "blurb": "`fp64-julia.ts` written in the source language: the seed is fixed and the pixel becomes z₀, so the `if`/`else` split runs the same escape loop over an `f64` on one side and a plain `f32` on the other. The double half spells nothing the emulation does not already carry, a `vec2f64` lane read, `f64(dx)` widening the pixel offset, and the seed lifted to full doubles beside it (§39), and the two halves lower to `df64_add` / `df64_mul` against the very same f32 ops. The escape test reads an f32 |z|² on both halves: the double half narrows its words for it, since 48 bits move a value across 16 only from within an f32 rounding of it.",
   "renderable": true,
   "twinOf": "fp64-julia"
 }
@@ -69,37 +69,63 @@ export function fs_julia(vo: VsOut): vec4 {
   const dx = (sx - 0.5) * span
   const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2.0)
 
+  // |z|^2 of the last z the loop reached, CARRIED beside z: set from z0 before
+  // the loop, refreshed after every step, read by the escape test, and after the
+  // loop already the |z|^2 the smooth colouring wants. The test is one compare,
+  // so a trip after escape costs that compare and the counter's own step.
+  //
+  // The test belongs in the loop condition, `j < 128 && m2 <= 16.0`, which exits
+  // where this skips. This surface does not accept it: a `for` is counted (§17,
+  // Rule 7.5 of docs/language-design.md), its condition is read as ONE
+  // comparison of the counter against a constant, and the conjunction is
+  // TS8006. The original could say it and spells what this file spells instead;
+  // `fp64-julia.ts` records what exiting would and would not save.
   let it = 0.
-  let m2 = 0. // |z|^2 at escape (frozen once the guard fails)
+  let m2 = 0.
   if (vo.uv.x < 0.5 || u.fp64 < 0.5) {
     // f32 twin: z0 built from the narrowed center. At deep zoom the pixel
     // coordinate quantizes to f32 ulps and whole columns collapse.
     let zx = f32(u.center.x) + dx
     let zy = f32(u.center.y) + dy
+    m2 = zx * zx + zy * zy
     for (let j: u32 = 0; j < 128; j++) {
-      if (zx * zx + zy * zy <= 16.0) {
+      if (m2 <= 16.0) {
         const nzx = zx * zx - zy * zy + -0.8
         zy = zx * zy * 2.0 + 0.156
         zx = nzx
         it = it + 1.0
+        m2 = zx * zx + zy * zy
       }
     }
-    m2 = zx * zx + zy * zy
   } else {
-    // f64: identical authoring, z0 keeps its extended-precision position. The
+    // f64: the same loop, z0 keeps its extended-precision position. The
     // literals beside an f64 are lifted to full doubles (§39), and `f64(dx)`
-    // widens the f32 pixel offset exactly.
+    // widens the f32 pixel offset exactly. ONE thing differs from the f32 half,
+    // how m2 is taken. The escape test asks only which side of 16 |z|^2 lies
+    // on, and 48 bits change that answer only within an f32 rounding of the
+    // threshold, so m2 is squared in f32 from the narrowed words instead of in
+    // df64: two df64_mul, a df64_add and a df64_le fewer every trip. `f32(zx)`
+    // rounds hi + lo, which is the high word itself up to a half-ulp tie; the
+    // high word alone is not a name this surface has (§2.4 of
+    // docs/language-design.md). A pixel within an f32 rounding of |z|^2 = 16
+    // can escape one step earlier or later than a df64 test would have it, and
+    // the smooth colouring absorbs the step; the counts are in `fp64-julia.ts`.
     let zx = u.center.x + f64(dx)
     let zy = u.center.y + f64(dy)
+    const hx0 = f32(zx)
+    const hy0 = f32(zy)
+    m2 = hx0 * hx0 + hy0 * hy0
     for (let j: u32 = 0; j < 128; j++) {
-      if (zx * zx + zy * zy <= 16.0) {
+      if (m2 <= 16.0) {
         const nzx = zx * zx - zy * zy + -0.8
         zy = zx * zy * 2.0 + 0.156
         zx = nzx
         it = it + 1.0
+        const hx = f32(zx)
+        const hy = f32(zy)
+        m2 = hx * hx + hy * hy
       }
     }
-    m2 = f32(zx * zx + zy * zy)
   }
 
   // Smooth escape time (the same log2 log2 treatment as fp64-mandelbrot.ts)

@@ -80,43 +80,86 @@ const fsJulia = fn(
       p.vo.uv.y.sub(0.5).mul(span).mul(U.field.resolution.y.div(U.field.resolution.x).mul(2.0)),
     )
 
+    // |z|² of the last z the loop reached, CARRIED beside z: set from z₀ before the loop,
+    // refreshed after every step, read by the escape test, and after the loop already the
+    // |z|² the smooth colouring wants. The test is one compare, so a trip after escape costs
+    // that compare and the counter's own step. It used to recompute |z|² every trip, escaped
+    // or not, and on the right half in df64: 106 f32 operations and 3 compares a trip,
+    // counted over the emitted helpers.
+    //
+    // The test belongs in the loop condition, `j < ITER && m2 <= 16`, which EXITS where this
+    // SKIPS. This file can say it (`Loop(u32(0), (j) => j.lt(u32(ITER)).and(m2.le(16.0)), …)`
+    // lowers to that `for`, and Tint and WebGL2 accept it); the twin cannot. The source
+    // language's `for` is counted (surface §17, Rule 7.5 of docs/language-design.md), its
+    // condition is read as ONE comparison of the counter against a constant, and the
+    // conjunction is TS8006. A twin spells what its original spells, so both skip. Measured
+    // on the GPU-like evaluator (the fp64-lowered module at f32 precision) over 256×256
+    // pixels a half, the exit shape gives the same `it`, m2 and colour bit for bit on both
+    // halves, and what it would save is small now that a skipped trip computes nothing. A
+    // wave runs until its LAST lane leaves: 302 of 1024 8×8 tiles on the right half have
+    // every lane escape before trip 128 at the default zoom (500 at a 1e-10 span), and each
+    // would drop its remaining trips, which cost a u32 increment, two compares and a branch.
     const it = Var(f32(0))
-    const m2 = Var(f32(0)) // |z|² at escape (frozen once the guard fails)
+    const m2 = Var(f32(0))
     If(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)), () => {
       // f32 twin — z₀ built from the narrowed center: at deep zoom the pixel
       // coordinate quantizes to f32 ulps and whole columns collapse.
       const zx = Var(toF32(U.field.center.x).add(dx))
       const zy = Var(toF32(U.field.center.y).add(dy))
+      m2.assign(zx.mul(zx).add(zy.mul(zy)))
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
-          If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
+          If(m2.le(16.0), () => {
             const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE))
             zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
             zx.assign(nzx)
             it.assign(it.add(1.0))
+            m2.assign(zx.mul(zx).add(zy.mul(zy)))
           })
         },
       )
-      m2.assign(zx.mul(zx).add(zy.mul(zy)))
     }).else(() => {
-      // f64 — identical authoring; z₀ keeps its extended-precision position.
+      // f64 — the same loop, z₀ keeps its extended-precision position, and ONE thing differs
+      // from the left half: how m2 is taken. The escape test asks only which side of 16 |z|²
+      // lies on, and 48 bits change that answer only within an f32 rounding of the
+      // threshold, so m2 is squared in f32 from the narrowed words instead of in df64. Per
+      // trip that is two df64_narrow, two multiplies and an add (5 f32 operations) in place
+      // of two df64_mul, a df64_add and a df64_le (106, and three compares); the trip as a
+      // whole goes from 354 f32 operations to 253. `toF32(zx)` rounds hi + lo, which is the
+      // high word itself up to a half-ulp tie; the high word alone is not an author's to
+      // name (the split is compiler-internal, §2.4 of docs/language-design.md).
+      //
+      // Near |z|² = 16 a pixel can escape one step earlier or later than the df64 test had
+      // it, and the smooth colouring absorbs the step: `sn` subtracts log₂ log₂ |z|², which
+      // rises by about one as |z|² squares past the threshold and cancels the extra count.
+      // Measured on the GPU-like evaluator over 256×256 pixels at spans of 1e-4, 1e-7, 1e-10
+      // and 1e-13, no pixel's count moved, `sn` moved by 7.6e-6 at most on an escaped
+      // pixel, and the colour by 1.2e-4 of an 8-bit step; the closest any test came to 16
+      // was 6.3e-6 relative, about 50 f32 ulps. Bisecting 560 count boundaries at 1e-4 down
+      // to adjacent f32 uv values finds the case: 3 of 10,080 samples there escape one step
+      // later, with `sn` moved by 0.027 and the colour by 0.11 of an 8-bit step.
       const zx = Var(U.field.center.x.add(toF64(dx)))
       const zy = Var(U.field.center.y.add(toF64(dy)))
+      const hx0 = Let(toF32(zx))
+      const hy0 = Let(toF32(zy))
+      m2.assign(hx0.mul(hx0).add(hy0.mul(hy0)))
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
-          If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
+          If(m2.le(16.0), () => {
             const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE))
             zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
             zx.assign(nzx)
             it.assign(it.add(1.0))
+            const hx = Let(toF32(zx))
+            const hy = Let(toF32(zy))
+            m2.assign(hx.mul(hx).add(hy.mul(hy)))
           })
         },
       )
-      m2.assign(toF32(zx.mul(zx).add(zy.mul(zy))))
     })
 
     // Smooth escape time (same log₂ log₂ treatment as fp64-mandelbrot.ts)

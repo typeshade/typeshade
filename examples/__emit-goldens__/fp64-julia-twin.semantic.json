@@ -16,13 +16,13 @@
       "-lit u32=1"
     ],
     "controlFlow": [
-      "+fs_julia#11 let v#18 = (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32))",
-      "+fs_julia#12 let v#19 = (*:vec3<f32> (*:vec3<f32> (+:vec3<f32> (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:vec3<f32> (call cos:vec3<f32> (+:vec3<f32> (+:vec3<f32> (varref v#18:vec3<f32>) (*:f32 (varref v#17:f32) (lit:f32))) (lit:f32))) (lit:f32))) (call mix:f32 (lit:f32) (lit:f32) (varref v#17:f32))) (-:f32 (lit:f32) (varref v#16:f32)))",
-      "+fs_julia#13 return (construct:vec4<f32> (varref v#19:vec3<f32>) (lit:f32))",
+      "+fs_julia#11 let v#22 = (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32))",
+      "+fs_julia#12 let v#23 = (*:vec3<f32> (*:vec3<f32> (+:vec3<f32> (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:vec3<f32> (call cos:vec3<f32> (+:vec3<f32> (+:vec3<f32> (varref v#22:vec3<f32>) (*:f32 (varref v#21:f32) (lit:f32))) (lit:f32))) (lit:f32))) (call mix:f32 (lit:f32) (lit:f32) (varref v#21:f32))) (-:f32 (lit:f32) (varref v#20:f32)))",
+      "+fs_julia#13 return (construct:vec4<f32> (varref v#23:vec3<f32>) (lit:f32))",
       "+vs#0 let v#0 = (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32))",
       "+vs#1 let v#1 = (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32))",
       "+vs#2 return (construct:struct:st#0 (construct:vec4<f32> (varref v#0:f32) (varref v#1:f32) (lit:f32) (lit:f32)) (construct:vec2<f32> (+:f32 (*:f32 (varref v#0:f32) (lit:f32)) (lit:f32)) (+:f32 (*:f32 (varref v#1:f32) (lit:f32)) (lit:f32))))",
-      "-fs_julia#11 return (construct:vec4<f32> (*:vec3<f32> (*:vec3<f32> (+:vec3<f32> (construct:vec3<f32> (lit:f32)) (*:vec3<f32> (call cos:vec3<f32> (+:vec3<f32> (+:vec3<f32> (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:f32 (varref v#17:f32) (lit:f32))) (lit:f32))) (lit:f32))) (call mix:f32 (lit:f32) (lit:f32) (varref v#17:f32))) (-:f32 (lit:f32) (varref v#16:f32))) (lit:f32))",
+      "-fs_julia#11 return (construct:vec4<f32> (*:vec3<f32> (*:vec3<f32> (+:vec3<f32> (construct:vec3<f32> (lit:f32)) (*:vec3<f32> (call cos:vec3<f32> (+:vec3<f32> (+:vec3<f32> (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:f32 (varref v#21:f32) (lit:f32))) (lit:f32))) (lit:f32))) (call mix:f32 (lit:f32) (lit:f32) (varref v#21:f32))) (-:f32 (lit:f32) (varref v#20:f32))) (lit:f32))",
       "-vs#0 return (construct:struct:st#0 (construct:vec4<f32> (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32) (lit:f32)) (construct:vec2<f32> (+:f32 (*:f32 (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32)) (lit:f32)) (+:f32 (*:f32 (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32)) (lit:f32))))"
     ]
   }
