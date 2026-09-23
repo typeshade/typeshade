@@ -127,15 +127,12 @@ function declaredCallMessage(
   call: ts.CallExpression | ts.NewExpression,
   sourceFile: ts.SourceFile,
 ): string {
-  const target = ts.isNewExpression(call) ? newTargetOf(call, sourceFile) : undefined;
   const root = ts.isCallExpression(call) ? call.expression : undefined;
   const imported =
-    target !== undefined
-      ? target.kind === 'class' && target.imported === true
-      : root !== undefined &&
-        ts.isIdentifier(root) &&
-        declarationOf(root) === undefined &&
-        importsName(sourceFile, root.text);
+    root !== undefined &&
+    ts.isIdentifier(root) &&
+    declarationOf(root) === undefined &&
+    importsName(sourceFile, root.text);
   const what = `${ts.isNewExpression(call) ? 'builds a class' : 'calls a function'} this file ${
     imported ? 'imports' : 'declares'
   }`;
@@ -621,9 +618,17 @@ function lowerOne(
     refuseModuleName(sourceFile, name);
     return undefined;
   }
+  const beforeType = diagnostics.length;
   const annotated = decl.type
     ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
     : undefined;
+  // A type the mapper refused (`Foo` that nothing declares) was said where it is written, and
+  // the initializer lowered against no type would be refused again for it (Rule 12.4).
+  if (decl.type !== undefined && annotated === undefined && diagnostics.length > beforeType) {
+    refusedDeclarationsOf(scope.calleeTable()).add(name);
+    refuseModuleName(sourceFile, name);
+    return undefined;
+  }
   // A list is lowered AGAINST the annotation, at module scope for the same reason as in a
   // function body (#8 A16): it carries no type of its own. The node it produces is the array
   // `construct` that `array<f32, 3>(...)` already produced here, which `valueExprConst` has

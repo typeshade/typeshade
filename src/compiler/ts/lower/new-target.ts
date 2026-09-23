@@ -17,7 +17,7 @@
 
 import ts from 'typescript';
 import { TS_CODES, type TsCode } from '../codes.js';
-import { HANDLE_TYPE_NAMES, lookupTypeName } from '../type-map.js';
+import { HANDLE_TYPE_NAMES, lookupTypeName, mapTsTypeToShaderType } from '../type-map.js';
 import {
   USER_FIRST_BUILTINS,
   isCanonicalMathFn,
@@ -32,18 +32,22 @@ import { isMixinApplication } from '../mixins.js';
 import { isStaticMember, staticThisClass } from '../class-names.js';
 import { namespaceMember, qualifiedParts } from '../namespaces.js';
 import { declarationOf, importsName } from './closures.js';
+import { namesInScope, unknownNameSentence } from '../unknown-names.js';
+import { makeDiagnostic } from '../diagnostic.js';
+import type { TsCompilerDiagnostic } from '../source-file.js';
 
 /** What a `new` names. */
 export type NewTarget =
-  /** A class of the module: the struct the module emits it as (`N_P`), its name written in
-   *  full from the top of the file (`N.P`), and whether the file imports it from another file
-   *  rather than declaring it. */
-  | {
-      readonly kind: 'class';
-      readonly flat: string;
-      readonly dotted: string;
-      readonly imported?: true;
-    }
+  /** A class of the file: the struct the module emits it as (`N_P`) and its name written in
+   *  full from the top of the file (`N.P`). */
+  | { readonly kind: 'class'; readonly flat: string; readonly dotted: string }
+  /** A name the file imports, which another file of a multi-file program declares. What it is
+   *  is known only once the imports are resolved (`compileTsSources`, which imports functions
+   *  alone and says so of anything else), so it is said there ({@link reportImportedNews}). */
+  | { readonly kind: 'imported'; readonly name: string }
+  /** A value that holds a class, `const A = B` or `const Q = class {…}`: a class is no value
+   *  here, which its declaration is refused for, and the `new` adds nothing (Rule 12.4). */
+  | { readonly kind: 'held' }
   /** Anything else, with the sentence that says what it is and the code the sentence takes. */
   | { readonly kind: 'refused'; readonly message: string; readonly code: TsCode };
 
@@ -92,14 +96,15 @@ const within = (outer: ts.Node, inner: ts.Node): boolean =>
 /** The declaration `id` names, as TypeScript finds it: {@link declarationOf}'s innermost block,
  *  parameter list or loop header, with each namespace around `id` taken whole. Two
  *  `namespace N { ... }` blocks are one namespace, so a member one block exports is reached by its
- *  short name from another, ahead of a declaration of the same name further out. */
+ *  short name from another, ahead of a declaration of the same name further out; one it does not
+ *  export is not. */
 function scopedDeclaration(id: ts.Identifier): ts.Node | undefined {
   const found = declarationOf(id);
   for (let at: ts.Node | undefined = id.parent; at !== undefined; at = at.parent) {
     if (!ts.isModuleDeclaration(at)) continue;
     // Found inside this namespace's own block, which is nearer than its other blocks.
     if (found !== undefined && within(at, found)) return found;
-    const hit = namespaceMember(at, id.text);
+    const hit = namespaceMember(at, id.text, id);
     if (hit !== undefined) return hit;
   }
   return found;
@@ -107,7 +112,10 @@ function scopedDeclaration(id: ts.Identifier): ts.Node | undefined {
 
 /** An interface, a type alias or a type parameter of `name` that is visible where `at` is: the
  *  names a `new` finds and TypeScript refuses as "only refers to a type". */
-function typeNamed(at: ts.Node, name: string): 'type' | 'type parameter' | undefined {
+function typeNamed(
+  at: ts.Node,
+  name: string,
+): ts.InterfaceDeclaration | ts.TypeAliasDeclaration | 'type parameter' | undefined {
   for (let n: ts.Node | undefined = at.parent; n !== undefined; n = n.parent) {
     const params = (n as { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> })
       .typeParameters;
@@ -118,7 +126,7 @@ function typeNamed(at: ts.Node, name: string): 'type' | 'type parameter' | undef
           (ts.isInterfaceDeclaration(st) || ts.isTypeAliasDeclaration(st)) &&
           st.name.text === name
         ) {
-          return 'type';
+          return st;
         }
       }
     }
@@ -155,6 +163,42 @@ const typeTarget = (shown: string): NewTarget =>
       `carry no constructor. Write the object literal, { field: value }, or declare ` +
       `"${shown}" as a class to give it one.`,
   );
+
+/** A type alias of a type WGSL builds with a constructor, `type S = vec3`, which has no fields
+ *  to write in an object literal: its target, called (Rule 12.1). */
+function aliasTarget(
+  decl: ts.TypeAliasDeclaration,
+  shown: string,
+  node: ts.NewExpression,
+  sourceFile: ts.SourceFile,
+): NewTarget {
+  const kind = mapTsTypeToShaderType(decl.type, sourceFile, undefined)?.kind;
+  if (kind !== 'scalar' && kind !== 'vec' && kind !== 'mat' && kind !== 'array') {
+    return typeTarget(shown);
+  }
+  const target = decl.type.getText(decl.getSourceFile());
+  const args = (node.arguments ?? []).map((a) => a.getText(sourceFile)).join(', ');
+  return refused(
+    `"${shown}" is a type alias of ${target}, which is built without "new": ${target}(${args}).`,
+  );
+}
+
+/** The sentence for a name nothing declares where a `new` names it, with the remedy every
+ *  unknown name gets (Rule 12.1). */
+const unknownTarget = (id: ts.Identifier): NewTarget =>
+  refused(
+    unknownNameSentence(`Unknown identifier "${id.text}".`, id.text, namesInScope(id, 'value')),
+    TS_CODES.UNKNOWN_NAME,
+  );
+
+/** Whether a variable holds a class: one written in place, or one the file declares named by
+ *  its name. */
+function holdsClass(decl: ts.VariableDeclaration): boolean {
+  const init = decl.initializer === undefined ? undefined : unparen(decl.initializer);
+  if (init === undefined) return false;
+  if (ts.isClassExpression(init)) return true;
+  return ts.isIdentifier(init) && ts.isClassDeclaration(scopedDeclaration(init) ?? init);
+}
 
 /** A function the target reaches, which a call runs without `new`. */
 const functionTarget = (shown: string, node: ts.NewExpression, sourceFile: ts.SourceFile) =>
@@ -197,7 +241,8 @@ function classify(
     );
   }
   if (ts.isModuleDeclaration(decl)) return refused(`"${shown}" is a namespace, not a class.`);
-  if (ts.isInterfaceDeclaration(decl) || ts.isTypeAliasDeclaration(decl)) return typeTarget(shown);
+  if (ts.isTypeAliasDeclaration(decl)) return aliasTarget(decl, shown, node, sourceFile);
+  if (ts.isInterfaceDeclaration(decl)) return typeTarget(shown);
   // A mixin applied and named holds a class the file builds through a class that extends it,
   // which TypeScript would build as it is (T8, #92).
   if (ts.isVariableDeclaration(decl) && isMixinApplication(decl, sourceFile)) {
@@ -206,6 +251,7 @@ function classify(
         `it: class C extends ${shown} {}, then new C().`,
     );
   }
+  if (ts.isVariableDeclaration(decl) && holdsClass(decl)) return { kind: 'held' };
   return valueTarget(shown);
 }
 
@@ -253,11 +299,19 @@ function hostMember(
 }
 
 /** A bare name no declaration of the file gives: a type parameter or a type around it, a WGSL
- *  type, a builtin function, a §9.3 constant, or nothing at all. */
-function undeclared(name: string, node: ts.NewExpression, sourceFile: ts.SourceFile): NewTarget {
+ *  type, a builtin function, a §9.3 constant, `Math` or `console`, or nothing at all. */
+function undeclared(
+  id: ts.Identifier,
+  node: ts.NewExpression,
+  sourceFile: ts.SourceFile,
+): NewTarget {
+  const name = id.text;
   const type = typeNamed(node, name);
   if (type === 'type parameter') return refused(`"${name}" is a type parameter, not a class.`);
-  if (type === 'type') return typeTarget(name);
+  if (type !== undefined && ts.isTypeAliasDeclaration(type)) {
+    return aliasTarget(type, name, node, sourceFile);
+  }
+  if (type !== undefined) return typeTarget(name);
   if (lookupTypeName(name) !== undefined || name === 'array') {
     return refused(
       `"${name}" is a WGSL constructor, which is called without "new": ` +
@@ -278,7 +332,13 @@ function undeclared(name: string, node: ts.NewExpression, sourceFile: ts.SourceF
     return functionTarget(name, node, sourceFile);
   }
   if (resolveLangConst(name) !== undefined) return valueTarget(name);
-  return refused(`Unknown identifier "${name}".`, TS_CODES.UNKNOWN_NAME);
+  if (name === 'Math' || name === 'console') {
+    return refused(
+      `"${name}" is an object of functions, not a class. Call one of them, ` +
+        `${name === 'Math' ? 'Math.sin(x)' : 'console.log(x)'}.`,
+    );
+  }
+  return unknownTarget(id);
 }
 
 /** What `new X(...)` names, for any target but `this`, which the lowering reads off its scope. */
@@ -295,15 +355,15 @@ export function newTargetOf(node: ts.NewExpression, sourceFile: ts.SourceFile): 
   let decl = scopedDeclaration(root);
   if (decl === undefined) {
     // A name the file imports is another file's, which a multi-file program merges into one
-    // module (#74); `compileTsSources` imports functions, and says so of anything else.
+    // module (#74).
     if (rest.length === 0 && importsName(sourceFile, root.text)) {
-      return { kind: 'class', flat: root.text, dotted: root.text, imported: true };
+      return { kind: 'imported', name: root.text };
     }
-    if (rest.length === 0) return undeclared(root.text, node, sourceFile);
+    if (rest.length === 0) return undeclared(root, node, sourceFile);
     if (root.text === 'Math' || root.text === 'console') {
       return hostMember(root.text, rest, shown, node, sourceFile);
     }
-    return refused(`Unknown identifier "${root.text}".`, TS_CODES.UNKNOWN_NAME);
+    return unknownTarget(root);
   }
   let reached = root.text;
   for (const [i, part] of rest.entries()) {
@@ -356,3 +416,40 @@ export function newRefusal(
   const t = newTargetOf(node, sourceFile);
   return t.kind === 'refused' ? t : undefined;
 }
+
+/**
+ * Says, once for the file, what each `new` on a name it imports is, once `compileTsSources` has
+ * resolved the imports: it imports functions alone (#74), so a name `isFunction` answers for is
+ * a function, called without `new`, and one whose import it refused said why at the import. A
+ * module constant of a file that is not the entry is never lowered, which is why this is not
+ * the lowering's to say.
+ */
+export function reportImportedNews(
+  sourceFile: ts.SourceFile,
+  isFunction: (name: string) => boolean,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  IMPORTS_RESOLVED.add(sourceFile);
+  const visit = (n: ts.Node): void => {
+    if (ts.isNewExpression(n)) {
+      const t = newTargetOf(n, sourceFile);
+      if (t.kind === 'imported' && isFunction(t.name)) {
+        const said = functionTarget(t.name, n, sourceFile) as Extract<
+          NewTarget,
+          { kind: 'refused' }
+        >;
+        diagnostics.push(makeDiagnostic(sourceFile, n, said.message, said.code));
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+}
+
+/** The files {@link reportImportedNews} has spoken for: the files of a multi-file program. */
+const IMPORTS_RESOLVED = new WeakSet<ts.SourceFile>();
+
+/** Whether the imports of `sourceFile` were resolved, so what a `new` on one is was said
+ *  ({@link reportImportedNews}); a file compiled on its own sees no other file. */
+export const importsResolved = (sourceFile: ts.SourceFile): boolean =>
+  IMPORTS_RESOLVED.has(sourceFile);

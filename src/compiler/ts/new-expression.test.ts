@@ -719,3 +719,171 @@ describe('a module-scope value, and every read and write of it, says one sentenc
     ]);
   });
 });
+
+describe('a new finds what TypeScript finds, and names it as the file writes it', () => {
+  const said = (src: string) => errorsOf(src);
+
+  it('a class another block of the namespace does not export is not its short name there', () => {
+    // TypeScript merges what a block exports. The first block's `P` is not exported, so in the
+    // second block `P` is the top-level class (7), in the `new` and in the annotation alike;
+    // the second block built `N_P` (1), and a parameter `p: P` there refused the top-level `P`
+    // handed to it as a type mismatch.
+    const head =
+      `class P {\n  a: f32 = 7.\n}\nnamespace N {\n  class P {\n    a: f32 = 1.\n  }\n` +
+      `  export function g(): f32 {\n    return new P().a\n  }\n}\n`;
+    const r = compile(
+      file(
+        `${head}namespace N {\n  export function f(): f32 {\n    const p: P = new P()\n    return p.a\n  }\n}\n`,
+        `  return vec4(N.f() + N.g() * 10.)`,
+      ),
+    );
+    expect(r.diagnostics).toEqual([]);
+    agree(r, [17, 17, 17, 17]);
+    const passed = compile(
+      file(
+        `${head}namespace N {\n  export function f(p: P): f32 {\n    return p.a\n  }\n}\n`,
+        `  return vec4(N.f(new P()))`,
+      ),
+    );
+    expect(passed.diagnostics).toEqual([]);
+    agree(passed, [7, 7, 7, 7]);
+    // With nothing else of the name, it is unknown there, as the editor says (TS2304); exported,
+    // it is the namespace's.
+    const other = (exported: string) =>
+      file(
+        `namespace N {\n  ${exported}class P {\n    a: f32 = 1.\n  }\n}\nnamespace N {\n  export function f(): f32 {\n    return new P().a\n  }\n}\n`,
+        `  return vec4(N.f())`,
+      );
+    expect(said(other(''))).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "P".`]);
+    const exported = compile(other('export '));
+    expect(exported.diagnostics).toEqual([]);
+    agree(exported, [1, 1, 1, 1]);
+  });
+
+  it('a generic instance by the type arguments the file writes, never by its emitted name', () => {
+    // They were `Pair<N_Q>`, `Pair<Box_f32>` and `new Pair<Box_f32>`, the structs the module
+    // emits.
+    const box = `class Box<T> {\n  v: T\n  constructor(v: T) {\n    this.v = v\n  }\n}\n`;
+    const pair = `class Pair<T> {\n  a: T\n  constructor(a: T) {\n    this.a = a\n  }\n}\n`;
+    const ambiguous = (instances: string) =>
+      `${TS_CODES.CLASS_MEMBER} "Pair" is generic and this file writes it at 2 sets of type arguments (${instances}), so "new Pair(…)" does not say which one to build. Write the type argument: "new Pair<f32>(…)".`;
+    expect(
+      said(
+        file(
+          `${pair}namespace N {\n  export class Q {\n    x: f32 = 1.\n  }\n}\n`,
+          `  const p = new Pair<N.Q>(new N.Q())\n  const q = new Pair<f32>(1.)\n  const r = new Pair(2.)\n  return vec4(q.a)`,
+        ),
+      ),
+    ).toEqual([ambiguous('Pair<N.Q>, Pair<f32>')]);
+    expect(
+      said(
+        file(
+          `${box}${pair}`,
+          `  const p = new Pair<Box<f32>>(new Box<f32>(1.))\n  const q = new Pair<vec3f>(vec3f(1.))\n  const r = new Pair(2.)\n  return vec4(1.)`,
+        ),
+      ),
+    ).toEqual([ambiguous('Pair<Box<f32>>, Pair<vec3f>')]);
+    expect(
+      said(
+        file(
+          `${box}class Pair<T> {\n  a: f32\n  constructor(g: (a: f32) => f32) {\n    this.a = g(1.)\n  }\n}\n`,
+          `  const p = new Pair<Box<f32>>()\n  return vec4(1.)`,
+        ),
+      ),
+    ).toEqual([
+      `${TS_CODES.ARITY_MISMATCH} "new Pair<Box<f32>>" takes a function for "g", "(a: f32) => f32": hand one over by its name, or write it here as an arrow function.`,
+    ]);
+  });
+
+  it('Math and console are objects, and a type alias of a WGSL type names its constructor', () => {
+    // `new Math()` was 'Unknown identifier "Math"', although `Math.sin` resolves; `new S()` on
+    // `type S = vec3` was told to write an object literal, which a vector has no fields for.
+    const at = (head: string, target: string) =>
+      said(`"use typeshade"\n${head}function g(): f32 {\n  const d = ${target}\n  return 1.\n}\n`);
+    expect(at('', 'new Math()')).toEqual([
+      `${TS_CODES.CLASS_MEMBER} "Math" is an object of functions, not a class. Call one of them, Math.sin(x).`,
+    ]);
+    expect(at('', 'new console()')).toEqual([
+      `${TS_CODES.CLASS_MEMBER} "console" is an object of functions, not a class. Call one of them, console.log(x).`,
+    ]);
+    for (const [alias, target, message] of [
+      ['vec3', 'new S(1., 2., 3.)', 'vec3(1., 2., 3.)'],
+      ['f32', 'new S(1.)', 'f32(1.)'],
+      ['array<f32, 2>', 'new S(1., 2.)', 'array<f32, 2>(1., 2.)'],
+    ]) {
+      expect(at(`type S = ${alias!}\n`, target!), alias).toEqual([
+        `${TS_CODES.CLASS_MEMBER} "S" is a type alias of ${alias!}, which is built without "new": ${message!}.`,
+      ]);
+      expect(at(`type S = ${alias!}\n`, `${message!} as S`), message).toEqual([]);
+    }
+  });
+
+  it('a value that holds a class adds nothing to the refusal of its declaration', () => {
+    // Each said '"A" is a value, not a class.' beside the declaration's own refusal, and a value
+    // that holds a class is no value that is not one.
+    for (const [head, first] of [
+      [
+        `class B {\n  a: f32 = 1.\n}\nconst A = B\n`,
+        `${TS_CODES.UNKNOWN_NAME} Unknown identifier "B".`,
+      ],
+      [
+        `const A = class {\n  a: f32 = 1.\n}\n`,
+        `${TS_CODES.UNSUPPORTED} Unsupported expression "class {\n  a: f32 = 1.\n}".`,
+      ],
+    ]) {
+      expect(said(file(head!, `  return vec4(new A().a)`))).toEqual([first]);
+    }
+  });
+
+  it('a name another file declares is what that file makes it', () => {
+    // `compileTsSources` imports functions alone. `new g()` on one was told to build a class,
+    // in a body and in a module constant, and said nothing in a file that is not the entry,
+    // whose constants are never lowered; a class the import refused added a second sentence.
+    const LIB = {
+      fileName: 'lib.ts',
+      source: `"use typeshade";\nexport function g(): f32 {\n  return 1.;\n}\nexport class P {\n  a: f32 = 1.;\n}\n`,
+    };
+    const FS = `@fragment\nexport function fs(): vec4 {\n  return vec4(1.);\n}\n`;
+    const multi = (files: { fileName: string; source: string }[], entry = 'main.ts') =>
+      compileTsSources([...files, LIB], entry).diagnostics.map(
+        (d) => `${d.fileName}:${d.line} ${d.code} ${d.message}`,
+      );
+    const fn = `${TS_CODES.CLASS_MEMBER} "g" is a function, which is called without "new": g().`;
+    const main = (body: string) => ({
+      fileName: 'main.ts',
+      source: `"use typeshade";\nimport { g, P } from "./lib";\n${body}${FS}`,
+    });
+    expect(
+      multi([main(`export function f(): f32 {\n  const d = new g();\n  return 1.;\n}\n`)]),
+    ).toEqual([
+      `main.ts:2 ${TS_CODES.UNSUPPORTED} "lib.ts" has no function "P".`,
+      `main.ts:4 ${fn}`,
+    ]);
+    expect(
+      multi([
+        {
+          fileName: 'main.ts',
+          source: `"use typeshade";\nimport { g } from "./lib";\nconst K = new g();\nexport function f(): f32 {\n  return K;\n}\n${FS}`,
+        },
+      ]),
+    ).toEqual([`main.ts:3 ${fn}`]);
+    expect(
+      multi([
+        { fileName: 'main.ts', source: `"use typeshade";\nimport { h } from "./util";\n${FS}` },
+        {
+          fileName: 'util.ts',
+          source: `"use typeshade";\nimport { g } from "./lib";\nconst K = new g();\nexport function h(): f32 {\n  return 1.;\n}\n`,
+        },
+      ]),
+    ).toEqual([`util.ts:3 ${fn}`]);
+    expect(
+      multi([main(`export function f(): f32 {\n  const p = new P();\n  return p.a;\n}\n`)]),
+    ).toEqual([`main.ts:2 ${TS_CODES.UNSUPPORTED} "lib.ts" has no function "P".`]);
+    // A file compiled on its own sees no other file: the name is unknown, as a call of it is.
+    expect(
+      said(
+        `"use typeshade"\nimport { g } from "./lib"\nexport function f(): f32 {\n  const d = new g()\n  return 1.\n}\n`,
+      ),
+    ).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "g".`]);
+  });
+});

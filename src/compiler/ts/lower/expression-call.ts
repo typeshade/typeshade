@@ -70,6 +70,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 import { checkMathArgs, mathTakesElem } from './math-args.js';
+import { parseSwizzle } from '../swizzle.js';
 import { isConsoleMethod } from '../../../core/console.js';
 
 const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = {
@@ -126,29 +127,51 @@ function ctorZero(elem: VecCtorElem): Expr | undefined {
 }
 /** What a method called on a vector is, which has none: `v.swizzle("yxz")` was the IR
  *  builder's method reached by its name, which no source gives an author (Rule 2.2), and is
- *  written as a member, `v.yxz`; a builtin's name, `v.normalize()`, is the builtin, called on the
- *  vector; anything else is told what a vector's members are. */
+ *  written as a member, `v.yxz`, when the vector has those components; a builtin's name,
+ *  `v.normalize()`, is the builtin, called on the vector, when that call takes these arguments,
+ *  with a scalar splat to the vector's size where the builtin wants one (`clamp(v, vec3(0.),
+ *  vec3(1.))`), and `any` and `all` on a vector of bools the same; anything else is told what a
+ *  vector's members are. A remedy is named only when it compiles (Rule 12.1). */
 function vectorMethodMessage(
   node: ts.CallExpression,
   callee: ts.PropertyAccessExpression,
-  type: ShaderType,
+  recv: Expr,
   sourceFile: ts.SourceFile,
+  scope: LoweringScope,
 ): string {
   const v = callee.expression.getText(sourceFile);
   const method = callee.name.text;
-  const head = `${authorTypeText(type)} has no method "${method}"`;
+  const vector = authorTypeText(recv.type);
+  const head = `${vector} has no method "${method}"`;
   const only = node.arguments.length === 1 ? node.arguments[0] : undefined;
   if (method === 'swizzle' && only !== undefined && ts.isStringLiteral(only)) {
-    if (/^([xyzw]{1,4}|[rgba]{1,4})$/.test(only.text)) {
+    if (parseSwizzle(recv.type, only.text).ok) {
       return `${head}: a swizzle is written as a member, ${v}.${only.text}.`;
     }
   }
-  if (
-    (isCanonicalMathFn(method) || resolveMathExpand(method) !== undefined) &&
-    SCALAR_CAST[method] === undefined
-  ) {
-    const args = [v, ...node.arguments.map((a) => a.getText(sourceFile))].join(', ');
-    return `${head}: call the builtin, ${method}(${args}).`;
+  const texts = node.arguments.map((a) => a.getText(sourceFile));
+  const call = (args: readonly string[]): string =>
+    `${head}: call the builtin, ${method}(${[v, ...args].join(', ')}).`;
+  if ((method === 'any' || method === 'all') && node.arguments.length === 0) {
+    if (recv.type.kind === 'vec' && recv.type.elem === 'bool') return call([]);
+  } else if (isCanonicalMathFn(method) && SCALAR_CAST[method] === undefined) {
+    // The builtin's own checks, on the arguments lowered where nothing is reported.
+    const scratch: TsCompilerDiagnostic[] = [];
+    const args = node.arguments.map((a) => lowerExpression(a, sourceFile, scope, scratch));
+    const takes = (list: Expr[]): boolean =>
+      (expectedArity(method) ?? list.length) === list.length &&
+      checkMathArgs(method, method, list, node, sourceFile, []);
+    if (args.every((a): a is Expr => a !== undefined)) {
+      if (takes([recv, ...args])) return call(texts);
+      const elem = recv.type.kind === 'vec' ? recv.type.elem : undefined;
+      const splat = (a: Expr): boolean => a.type.kind === 'scalar' && a.type.scalar === elem;
+      if (
+        args.some(splat) &&
+        takes([recv, ...args.map((a) => (splat(a) ? { ...a, type: recv.type } : a))])
+      ) {
+        return call(args.map((a, i) => (splat(a) ? `${vector}(${texts[i]!})` : texts[i]!)));
+      }
+    }
   }
   return `${head}: a vector's members are its components, ${v}.x or ${v}.xy.`;
 }
@@ -269,7 +292,7 @@ export function lowerCall(
           diagnostics,
           sourceFile,
           callee.name,
-          vectorMethodMessage(node, callee, seen.recv.type, sourceFile),
+          vectorMethodMessage(node, callee, seen.recv, sourceFile, scope),
           TS_CODES.UNKNOWN_NAME,
         );
         return undefined;

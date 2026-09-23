@@ -17,8 +17,10 @@
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
   /** A type name nothing declares, said once for the file wherever it is written (a parameter,
-   *  a claim, a type argument, an alias, an `implements` clause, a body no call lowers), or a type
-   *  this surface does not take in a position the mapper reads (Rule 2.1). */
+   *  a claim, a type argument, an alias, an `implements` clause, a body no call lowers), a type
+   *  the library declares for TypeScript alone (`Number`), or a type this surface does not take
+   *  in a position the mapper reads (Rule 2.1). A class's or an interface's `extends` is the
+   *  struct collector's, `STRUCT_FIELD`, where the struct is used. */
   UNKNOWN_TYPE: 'TS8002',
   TYPE_MISMATCH: 'TS8003',
   UNKNOWN_FN: 'TS8004',
@@ -110,15 +112,17 @@ export const TS_CODES = {
    *  assigned, or a setter with no getter read; a compound assignment through a getter and
    *  setter whose object would run twice; a method that changes its object called on
    *  something it cannot write (a parameter, a `const` whose value something else may hold, a
-   *  dropped value) or used as a value when it returns nothing. In a `new`, said once for the
-   *  file where it is written: a class that declares only statics, an `abstract` class,
-   *  `new this()` outside a static member, and a target that resolves to something other than
-   *  a class — a WGSL constructor or cast (`new vec3f()`), a WGSL type with no constructor
-   *  (`new sampler()`), a function (`Math.sin` included), an enum or one of its members, a
-   *  namespace, an interface or type alias, a type parameter, a mixin applied to a class, or a
-   *  value (`PI` included). A target nothing declares, and a member the object before it does
-   *  not have (`new Math.Foo()`), is `UNKNOWN_NAME`. A getter or setter missing its type is
-   *  `UNKNOWN_TYPE`, a `readonly` field written outside the constructor `CONST_ASSIGN`. */
+   *  dropped value) or used as a value when it returns nothing. In a `new`: a class that
+   *  declares only statics, where a body that builds it is lowered; and, once for the file where
+   *  the `new` is written, an `abstract` class, `new this()` outside a static member, and a
+   *  target that resolves to something other than a class — a WGSL constructor or cast
+   *  (`new vec3f()`), a type alias of one (`type S = vec3`), a WGSL type with no constructor
+   *  (`new sampler()`), a function (`Math.sin` and an imported one included), an enum or one of
+   *  its members, a namespace, `Math` or `console`, an interface or type alias, a type
+   *  parameter, a mixin applied to a class, or a value (`PI` included). A target nothing
+   *  declares, and a member the object before it does not have (`new Math.Foo()`), is
+   *  `UNKNOWN_NAME`. A getter or setter missing its type is `UNKNOWN_TYPE`, a `readonly` field
+   *  written outside the constructor `CONST_ASSIGN`. */
   CLASS_MEMBER: 'TS8035',
   /** A math builtin called with arguments its signature does not take (#57, §10): two shapes
    *  that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` with a vector `v`), an element

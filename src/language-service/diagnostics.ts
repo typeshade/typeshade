@@ -1262,6 +1262,28 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'A call of a name that is not a function (`discard()`).',
   },
   {
+    typescript: 7009,
+    typeshade: new Set(['TS8035']),
+    reason: 'A `new` on a function or a WGSL constructor, which is called without it.',
+  },
+  {
+    typescript: 2351,
+    typeshade: new Set(['TS8035']),
+    reason: 'A `new` on a value, an enum, `Math` or `console`, none of which has a constructor.',
+  },
+  {
+    typescript: 2693,
+    typeshade: new Set(['TS8035']),
+    reason:
+      'A `new` on an interface, a type alias or a WGSL type with no constructor, which is a ' +
+      'type and not a value.',
+  },
+  {
+    typescript: 2511,
+    typeshade: new Set(['TS8035']),
+    reason: 'A `new` on an `abstract` class.',
+  },
+  {
     typescript: 2588,
     typeshade: new Set(['TS8005']),
     reason: 'A write to a `const` local or a read-only resource.',
@@ -1331,6 +1353,26 @@ function callOf(
   return argumentAt(context, span)?.call ?? calleeCallAt(context, span);
 }
 
+/** The `new` whose target is exactly `span`, parentheses aside: `new Date()` for `Date`. */
+function newWithTarget(
+  context: DiagnosticFilterContext,
+  span: TypeshadeTextSpan,
+): ts.NewExpression | undefined {
+  for (
+    let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, span.start);
+    node !== undefined;
+    node = node.parent
+  ) {
+    if (node.getStart(context.sourceFile) !== span.start) return undefined;
+    if (node.getEnd() === span.start + span.length) {
+      let at: ts.Node = node;
+      while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+      return ts.isNewExpression(at.parent) && at.parent.expression === at ? at.parent : undefined;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Whether a TypeScript diagnostic and a compiler one that `SAME_MISTAKE` pairs by code sit where
  * one mistake would put them.
@@ -1346,12 +1388,21 @@ function callOf(
  * names at the end of the access the compiler names; a declared type mismatch is the name at
  * the start of the declaration. Inside alone is not enough, since a second mistake can sit
  * inside the span of a first: a misspelled argument inside a call the compiler refuses whole.
+ *
+ * A `new` is refused whole by the compiler, once for the file, for what its target is, where
+ * TypeScript reports the target itself (`Date` in `new Date()`, TS2304; `E` in `new E()`,
+ * TS2351): TypeScript's span is then exactly the target of the `new` the compiler's covers.
  */
 function sameMistakeSpans(
   context: DiagnosticFilterContext,
   diagnostic: TypeshadeDiagnostic,
   error: TypeshadeDiagnostic,
 ): boolean {
+  const built = newWithTarget(context, diagnostic.span);
+  if (built !== undefined) {
+    const whole = spanOfNode(built, context.sourceFile);
+    if (whole.start === error.span.start && whole.length === error.span.length) return true;
+  }
   if (typeof diagnostic.code === 'number' && CALL_CODES.has(diagnostic.code)) {
     const call = callOf(context, diagnostic.span);
     const region = call === undefined ? diagnostic.span : spanOfNode(call, context.sourceFile);

@@ -64,8 +64,20 @@ function declaringList(
   return list.declarations.some((d) => binds(d.name, name)) ? list : undefined;
 }
 
+/** The name an import binds as `name`: an import is a declaration of the file's top level, and a
+ *  multi-file program refuses one that names no function where it is written. */
+function importing(statements: readonly ts.Statement[], name: string): ts.Node | undefined {
+  for (const s of statements) {
+    const bindings = ts.isImportDeclaration(s) ? s.importClause?.namedBindings : undefined;
+    if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
+    const hit = bindings.elements.find((el) => el.name.text === name);
+    if (hit !== undefined) return hit;
+  }
+  return undefined;
+}
+
 /** The declaration of `name` visible at `use`, innermost scope first: the statement or loop
- *  header that declares it, or the parameter. */
+ *  header that declares it, the parameter, or the import. */
 function visibleDeclaration(
   use: ts.Node,
   name: string,
@@ -81,7 +93,7 @@ function visibleDeclaration(
     } else if (ts.isFunctionLike(p)) {
       found = p.parameters.find((q) => binds(q.name, name));
     } else if (ts.isSourceFile(p)) {
-      found = declaringStatement(p.statements, name);
+      found = declaringStatement(p.statements, name) ?? importing(p.statements, name);
     }
     if (found !== undefined) return found;
   }

@@ -32,6 +32,9 @@ import { authorTypeText } from './context.js';
 export interface StructInstance {
   readonly name: string;
   readonly binding: ReadonlyMap<string, ShaderType> | undefined;
+  /** The type arguments as the file first writes them, `N.Q` or `Box<f32>`, which a sentence
+   *  names the instance by, never the emitted `N_Q` or `Box_f32` (Rule 12.1). */
+  readonly args?: string;
 }
 
 /** One type parameter of a generic class, with the default a use may leave to it. */
@@ -165,7 +168,7 @@ export function writtenInstances(
     if (seen.has(name)) return;
     seen.add(name);
     const into = out.get(key) ?? [];
-    into.push({ name, binding: bound });
+    into.push({ name, binding: bound, args: read.map((n) => n.getText()).join(', ') });
     out.set(key, into);
   };
 
@@ -370,9 +373,10 @@ export function newInstanceName(
 export function ambiguousNew(written: string, sourceFile: ts.SourceFile): string | undefined {
   const key = resolveName(written, classesOf(sourceFile));
   if (key === undefined) return undefined;
-  // Each instance as the file writes it, `N.P<f32>`, not as the module emits it, `N_P_f32`.
+  // Each instance as the file writes it, `N.P<N.Q>`, not as the module emits it, `N_P_N_Q`.
   const instances = (instancesOf(sourceFile).get(key) ?? []).map(
-    (i) => `${written}<${[...(i.binding?.values() ?? [])].map(authorTypeText).join(', ')}>`,
+    (i) =>
+      `${written}<${i.args ?? [...(i.binding?.values() ?? [])].map(authorTypeText).join(', ')}>`,
   );
   if (instances.length === 0) {
     return (
@@ -404,4 +408,14 @@ function instancesOf(sourceFile: ts.SourceFile): Map<string, StructInstance[]> {
   );
   INSTANCES.set(sourceFile, made);
   return made;
+}
+
+/** The type arguments of the instance the module emits as `name` (`Pair_Box_f32`), as the file
+ *  first writes them (`Box<f32>`), or undefined when `name` is no instance of a generic class. */
+export function writtenInstanceArgs(name: string, sourceFile: ts.SourceFile): string | undefined {
+  for (const list of instancesOf(sourceFile).values()) {
+    const hit = list.find((i) => i.name === name);
+    if (hit !== undefined) return hit.args;
+  }
+  return undefined;
 }

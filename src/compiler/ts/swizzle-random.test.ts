@@ -80,6 +80,51 @@ describe('swizzle', () => {
     for (const remedy of ['length(v)', 'dot(v, w)', 'v.x']) expect(said(remedy)).toEqual([]);
   });
 
+  it('names a builtin call only when that call compiles, a scalar splat to the vector', () => {
+    // Each named the call as written, which the compiler then refused: `clamp(v, 0., 1.)` is
+    // TS8036, `sqrt(v)` on a vec3u takes no integer, and `v.xyzw` is out of range on a vec3;
+    // `b.any()` was told about components, although `any(b)` compiles (Rule 12.1).
+    const said = (params: string, call: string) =>
+      compileTsSource(`
+      "use typeshade";
+      export function f(${params}): f32 {
+        const r = ${call};
+        return 1.;
+      }
+    `).diagnostics.map((d) => `${d.code} ${d.message}`);
+    const cases: [string, string, string, string | undefined][] = [
+      [
+        'v: vec3',
+        'v.clamp(0., 1.)',
+        'vec3 has no method "clamp": call the builtin, clamp(v, vec3(0.), vec3(1.)).',
+        'clamp(v, vec3(0.), vec3(1.))',
+      ],
+      [
+        'v: vec3',
+        'v.max(0.)',
+        'vec3 has no method "max": call the builtin, max(v, vec3(0.)).',
+        'max(v, vec3(0.))',
+      ],
+      ['b: vec3b', 'b.any()', 'vec3b has no method "any": call the builtin, any(b).', 'any(b)'],
+      [
+        'v: vec3u',
+        'v.sqrt()',
+        `vec3u has no method "sqrt": a vector's members are its components, v.x or v.xy.`,
+        undefined,
+      ],
+      [
+        'v: vec3',
+        'v.swizzle("xyzw")',
+        `vec3 has no method "swizzle": a vector's members are its components, v.x or v.xy.`,
+        undefined,
+      ],
+    ];
+    for (const [params, call, message, remedy] of cases) {
+      expect(said(params, call), call).toEqual([`TS8022 ${message}`]);
+      if (remedy !== undefined) expect(said(params, remedy), remedy).toEqual([]);
+    }
+  });
+
   it('diagnoses mixed swizzle in source', () => {
     const r = compileTsSource(`
       "use typeshade";

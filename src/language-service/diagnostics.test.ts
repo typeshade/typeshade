@@ -534,6 +534,27 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8002',
     ],
     'a name nothing declares, Date (TS2304)': [fn('  return Date.now()'), 'typeshade TS8022'],
+    // A `new` is refused whole, and TypeScript names its target (proposal 0008 §2).
+    'a new of a name nothing declares (TS2304)': [
+      fn('  const d = new Date()\n  return x'),
+      'typeshade TS8022',
+    ],
+    'a new of a WGSL constructor (TS7009)': [
+      fn('  const d = new vec3f(1.)\n  return x'),
+      'typeshade TS8035',
+    ],
+    'a new of an enum (TS2351)': [
+      'enum E {\n  A = 1,\n}\nexport function f(x: f32): f32 {\n  const d = new E()\n  return x\n}',
+      'typeshade TS8035',
+    ],
+    'a new of an interface (TS2693)': [
+      'interface I {\n  a: f32\n}\nexport function f(x: f32): f32 {\n  const d = new I()\n  return x\n}',
+      'typeshade TS8035',
+    ],
+    'a new of an abstract class (TS2511)': [
+      'abstract class B {\n  a: f32 = 1.\n}\nexport function f(x: f32): f32 {\n  const d = new B()\n  return x\n}',
+      'typeshade TS8035',
+    ],
     'a swizzle out of range (TS2339)': [fn('  return v.w'), 'typeshade TS8022'],
     'a swizzle out of range with a suggestion (TS2551)': [
       fn('  return v.xyzw', 'v: vec3', 'vec4'),

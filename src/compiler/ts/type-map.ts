@@ -326,6 +326,20 @@ export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
   'WriteOnlyStorageFormat',
 ]);
 
+/** The type an author writes for a library type that stands for one in TypeScript. */
+const LIBRARY_TYPE_REMEDY: Readonly<Record<string, string>> = {
+  Number: 'Write f32, i32 or u32.',
+  Boolean: 'Write bool.',
+  Array: 'Write array<T, N>.',
+};
+
+/** The sentence a type of {@link LIBRARY_TYPE_NAMES} gets where a shader type is due. */
+const libraryTypeMessage = (name: string): string => {
+  const remedy = LIBRARY_TYPE_REMEDY[name];
+  const mistake = `"${name}" is not a shader type: the library declares it for TypeScript's own use.`;
+  return remedy === undefined ? mistake : `${mistake} ${remedy}`;
+};
+
 /** Whether `name` is a type parameter of a declaration around `node`, a mapped type's key
  *  (`[K in keyof T]`) or a conditional type's `infer U` included. */
 function isTypeParameterAround(node: ts.Node, name: string): boolean {
@@ -383,11 +397,25 @@ export const unknownTypeSentence = (name: string, declared: NameScopes): string 
       : `Supported names: ${SUPPORTED_TYPE_NAMES.join(', ')}.`,
   );
 
+/** The wrappers that map their type argument as a type of its own, `array<Foo, 4>` and
+ *  `uniform<Foo>`, where a name nothing declares is the mapper's `Unknown type` too. Every other
+ *  generic of the library reads its argument itself and says what it takes (`vec3<T> T must be
+ *  f32, i32, u32, or f64.`, `ptr<function, f32>`), which is that argument's one diagnostic. */
+const MAPS_ITS_ARGUMENT: ReadonlySet<string> = new Set([
+  'array',
+  'uniform',
+  'storage',
+  'workgroup',
+  'override',
+]);
+
 /** The name a type position writes, bare and with no type argument, when nothing declares it:
  *  not WGSL, not the ambient library, and nothing of the file ({@link fileDeclaresType}). A
  *  type reference, or a name an `implements` clause writes, which is a type too; a class's
- *  `extends` names a value, and an interface's `extends` its base, both the struct collector's.
- *  `as const` names no type, and the retired `perInvocation` has a refusal of its own. */
+ *  `extends` names a value, and an interface's `extends` its base, both the struct collector's,
+ *  and so is an argument of a generic of the library that reads its own ({@link
+ *  MAPS_ITS_ARGUMENT}). `as const` names no type, and the retired `perInvocation` has a refusal
+ *  of its own. */
 export function undeclaredTypeName(
   node: ts.Node,
   sourceFile: ts.SourceFile,
@@ -405,6 +433,15 @@ export function undeclaredTypeName(
     return undefined;
   }
   if (!ts.isIdentifier(id) || (node.typeArguments?.length ?? 0) > 0) return undefined;
+  const outer = node.parent;
+  if (
+    ts.isTypeReferenceNode(outer) &&
+    ts.isIdentifier(outer.typeName) &&
+    isLibraryTypeName(outer.typeName.text) &&
+    !MAPS_ITS_ARGUMENT.has(outer.typeName.text)
+  ) {
+    return undefined;
+  }
   const name = id.text;
   if (
     name === 'const' ||
@@ -592,6 +629,12 @@ function mapType(
     // An interface that declares a method is a contract and never a value (Rule 6.9); it was
     // said so where it declares the method, once, and a type it names here names nothing.
     if (contractInterfaces(sourceFile).has(name)) return undefined;
+    // A type the library declares for TypeScript's own use is declared, and names no value a
+    // shader has: it is not unknown, and the sentence says what it is (Rule 12.1).
+    if (LIBRARY_TYPE_NAMES.has(name)) {
+      pushDiag(diagnostics, sourceFile, typeNode.typeName, libraryTypeMessage(name));
+      return undefined;
+    }
     // A name the file declares as a type, or imports, is a struct: a class or an interface,
     // declared above or below the use, here or in the module it is imported from. A name
     // declared nowhere was a struct too, and emitted as one, so `l: Lihgt` compiled in silence

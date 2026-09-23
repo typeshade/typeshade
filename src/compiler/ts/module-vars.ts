@@ -108,16 +108,21 @@ function typeRefusal(t: ShaderType, space: ModuleVarDecl['space']): string | und
 }
 
 /** The shader type a module variable's annotation names: a mapped type, or a struct the file
- *  declares under that name. */
-const typeOf = (
+ *  declares under that name. A name the mapper refused, `Foo` that nothing declares, names no
+ *  struct either, and a struct of its name would refuse the initializer a second time against
+ *  a type the program does not have (Rule 12.4). */
+function typeOf(
   node: ts.TypeNode,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): ShaderType | undefined =>
-  mapTsTypeToShaderType(node, sourceFile, diagnostics) ??
-  (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)
+): ShaderType | undefined {
+  const before = diagnostics.length;
+  const mapped = mapTsTypeToShaderType(node, sourceFile, diagnostics);
+  if (mapped !== undefined || diagnostics.length > before) return mapped;
+  return ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)
     ? structT(node.typeName.text)
-    : undefined);
+    : undefined;
+}
 
 /** The type argument of a retired `perInvocation<T>` annotation as the author wrote it, `T`
  *  when it has none, or `undefined` when the annotation is not one. */
@@ -411,8 +416,13 @@ function lowerPlain(
       );
       return undefined;
     }
+    const before = diagnostics.length;
     const type = typeOf(decl.type, sourceFile, diagnostics);
-    if (!type) return undefined;
+    if (!type) {
+      // Refused where its type is written: a read or a write of it adds nothing (Rule 12.4).
+      if (diagnostics.length > before) refuse(name, sourceFile, scope);
+      return undefined;
+    }
     return finish(
       decl,
       decl.type,

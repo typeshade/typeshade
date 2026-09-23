@@ -2417,10 +2417,12 @@ There is no shader rule against it. A class is a struct and a constructor is a f
 `new P(1., 2.)` is `P_new(1.0, 2.0)` and nothing is allocated.
 
 A `new` finds its target as TypeScript does, from where it is written (Rule 2.1): the innermost
-declaration of the name, every block of a namespace around it counted as one namespace, and a
-dotted name through the namespaces it names. `new (C)()` is `new C()`. What is refused says what
-the target is, once for the file, in a generic body lowered for several type arguments and in a
-body no call lowers alike:
+declaration of the name, what another block of a namespace around it exports, and a dotted name
+through what the namespaces it names export. `new (C)()` is `new C()`. What the target is, once
+it is not a class, is said once for the file, in a generic body lowered for several type
+arguments and in a body no call lowers alike; a class of statics alone and the wrong arguments
+are said where a body that builds it is lowered. In the editor each is one diagnostic, the
+compiler's, with TypeScript's report of the same `new` merged into it:
 
 | written | what it says |
 | --- | --- |
@@ -2430,9 +2432,13 @@ body no call lowers alike:
 | `new F()` on a function, `new Math.sin(1.)` | `TS8035`: `F` is a function, which is called without `new`, `F()` |
 | `new E()` on an enum | `TS8035`: an enum's values are its members, `E.A` |
 | `new c()` on a local or a parameter, `new PI()`, `new E.A()`, `new N()` on a namespace, `new T()` on a type parameter | `TS8035`: it is a value, a namespace or a type parameter, and not a class |
+| `new Math()`, `new console()` | `TS8035`: it is an object of functions, and one of them is called, `Math.sin(x)` |
+| `new A()` on `const A = B`, or on `const A = class {…}` | Nothing more: the declaration is refused, since a class is no value |
+| `new g()` on a function the file imports | `TS8035`: `g` is a function, which is called without `new`, `g()`; in a file compiled on its own, which sees no other file, `TS8022` |
 | `new M()` on a mixin applied to a class, `const M = Tinted(B)` | `TS8035`: it is built through a class that extends it, `class C extends M {}` (§29) |
 | `new Math.Foo()`, `new C.q()` | `TS8022`: `Math` has no member `Foo`, `C` no static member `q` |
 | `new I()` on an interface or a type alias | `TS8035`: it is a type, not a value, and carries no constructor; write the object literal or declare it as a class |
+| `new S()` on `type S = vec3` | `TS8035`: its target is built without `new`, `vec3()` |
 | `new S()` on an `abstract` class | `TS8035`: there is no instance of it to build; construct a class that extends it |
 | `new U()` on a class of statics alone | `TS8035`: it is a group of functions with no fields, so there is no value to build |
 | `new P(1., 2.)` where `P` declares no constructor | `TS8019`: TypeScript's implicit constructor takes no arguments; declare one, or write the fields |
@@ -3234,8 +3240,10 @@ works, `new Camera(...)`, and a nested namespace nests the name, `A_B_Inner`. Wh
 refused for names the class as written, `Scene.Camera`, never the emitted `Scene_Camera`.
 
 A `new` and a type annotation read the short name where TypeScript does: inside the namespace,
-in any of its blocks, the namespace's own class comes first, ahead of a top-level class of the
-same name, so `const p: P = new P()` there is `N.P` on both sides. A top-level `new Camera()` is
+the class its own block declares, or one another of its blocks exports, comes first, ahead of a
+top-level class of the same name, so `const p: P = new P()` there is `N.P` on both sides. A
+class another block does not export is not merged into this one, as TypeScript merges only what
+a block exports. A top-level `new Camera()` is
 an unknown name. Outside every namespace that declares it, a type annotation still reads the
 short name, which is more than TypeScript's lexical rule allows: the editor answers a top-level
 `c: Camera` with TS2304 and the compiler takes it, a Rule 12.7 divergence. There a top-level
@@ -3483,9 +3491,11 @@ for a value (`window`, `Date.now()`) and `TS8004` for a callee (`fetch("x")`, wh
 or a function handed to it adds nothing), in a body the compiler lowers; and `TS8002`
 for a type wherever it is written (`x: Date`, which emitted a struct of that name that Tint
 refused as an unresolved type, and `B<Date>`, `0.5 as window`, `type A = Date`,
-`implements Date`, which said nothing once the list was gone). A name the ambient library
-declares for its own signatures, `AnyClass` in a mixin's constraint (§29), is declared, and a
-name the file imports is another file's. A name the file declares
+`implements Date`, which said nothing once the list was gone); a class's or an interface's
+`extends` is the struct collector's `TS8010`, where the struct is used. A name the ambient
+library declares for its own signatures, `AnyClass` in a mixin's constraint (§29), is declared,
+and where a shader type is due it says so: `x: Number` is "not a shader type", with `f32`, `i32`
+or `u32` to write. A name the file imports is another file's. A name the file declares
 is the file's, whatever it spells: an `enum Status { Error }`, a `window` parameter, a
 `class Date`, a local function `self`. The front end kept a list of 59 such names and refused
 each by its spelling, at the declaration and at every use, as `TS8012`, which is retired; its <!-- doc-refs: skip — a retired code, named as retired -->

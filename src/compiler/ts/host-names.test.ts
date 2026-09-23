@@ -21,6 +21,7 @@ import { TS_CODES } from './codes.js';
 import { SUPPORTED_TYPE_NAMES } from './type-map.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const diagnosticsOf = (src: string): string[] =>
   compile(src).diagnostics.map((d) => `${d.code} ${d.message}`);
@@ -272,5 +273,99 @@ export function fs(): vec4 {
     ).toEqual([
       `${TS_CODES.UNKNOWN_FN} Unknown function "fetch". Declare it in this file, or import it from another shader module.`,
     ]);
+  });
+});
+
+describe('a type nothing declares is one diagnostic in every position that reads it', () => {
+  it('an argument of a WGSL generic, which says what it takes', () => {
+    // Each was the generic's own sentence and a second TS8002 for the argument, one mistake.
+    for (const [type, message] of [
+      ['vec3<Foo>', 'vec3<T> T must be f32, i32, u32, or f64.'],
+      ['vec3<float>', 'vec3<T> T must be f32, i32, u32, or f64.'],
+      ['mat3x3<Foo>', 'mat3x3<T> T must be f32 or f64.'],
+      ['ptr<function, f32>', 'Type arguments are not supported yet (got "ptr<...>").'],
+    ]) {
+      expect(
+        diagnosticsOf(`"use typeshade";\nfunction g(x: ${type!}): f32 {\n  return 1.;\n}\n${FS}`),
+        type,
+      ).toEqual([`${TS_CODES.UNKNOWN_TYPE} ${message!}`]);
+    }
+  });
+
+  it('a module let, a static field and a module const, which say nothing more', () => {
+    // Each was TS8002 and then its initializer refused against a struct of the name, `"K" is
+    // declared struct:Foo but its initializer is f32`, an IR key for a type nobody declared.
+    for (const head of [
+      'let K: Foo = 1.;\n',
+      'class S {\n  a: f32 = 1.;\n  static K: Foo = 1.;\n  static bump(): void {\n    S.K = 1.;\n  }\n}\n',
+      'const K: Foo = { a: 1. };\nfunction g(): f32 {\n  return K.a;\n}\n',
+    ]) {
+      expect(diagnosticsOf(`"use typeshade";\n${head}${FS}`), head).toEqual([unknownType('Foo')]);
+    }
+  });
+
+  it('a type the library declares for TypeScript is declared, and no shader type', () => {
+    // Each was 'Unknown type', which the editor contradicts: TypeScript resolves them.
+    for (const [name, remedy] of [
+      ['Number', ' Write f32, i32 or u32.'],
+      ['Boolean', ' Write bool.'],
+      ['AnyClass', ''],
+    ]) {
+      expect(
+        diagnosticsOf(`"use typeshade";\nfunction g(x: ${name!}): f32 {\n  return 1.;\n}\n${FS}`),
+        name,
+      ).toEqual([
+        `${TS_CODES.UNKNOWN_TYPE} "${name!}" is not a shader type: the library declares it for TypeScript's own use.${remedy!}`,
+      ]);
+    }
+  });
+});
+
+describe('the editor says the one sentence the compiler says', () => {
+  // Rule 12.4 and Rule 12.7 in the editor: TypeScript's own report of the same mistake (TS2304
+  // on `Date`, TS2351 on an enum, TS2693 on a type, TS7009 on a function, TS2511 on an abstract
+  // class) is merged into the compiler's, and a name the file declares draws nothing. Before
+  // this each `new` read as the compiler's sentence beside TypeScript's.
+  const editorOf = (src: string): string[] => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', src);
+    return service
+      .getDiagnostics('a.ts')
+      .filter((d) => d.severity === 'error')
+      .map((d) => `${d.source} ${d.code} ${d.message}`);
+  };
+  const body = (head: string, line: string) =>
+    `"use typeshade";\n${head}function g(): f32 {\n  const d = ${line};\n  return 1.;\n}\n${FS}`;
+
+  it('a name nothing declares, and a new of anything but a class', () => {
+    for (const [head, line] of [
+      ['', 'Date.now()'],
+      ['', 'new Date()'],
+      ['', 'fetch("x")'],
+      ['', 'new vec3f(1.)'],
+      ['function F(): f32 {\n  return 1.;\n}\n', 'new F()'],
+      ['enum E {\n  A = 1,\n}\n', 'new E()'],
+      ['', 'new Math()'],
+      ['', 'new PI()'],
+      ['', 'new sampler()'],
+      ['interface I {\n  a: f32;\n}\n', 'new I()'],
+      ['type S = vec3;\n', 'new S()'],
+      ['abstract class B {\n  a: f32 = 1.;\n}\n', 'new B()'],
+    ]) {
+      const src = body(head!, line!);
+      const compiled = diagnosticsOf(src);
+      expect(compiled, line).toHaveLength(1);
+      expect(editorOf(src), line).toEqual(compiled.map((c) => `typeshade ${c}`));
+    }
+  });
+
+  it('a name the file declares, whatever it spells', () => {
+    for (const src of [
+      `"use typeshade";\nenum Status {\n  Ok = 0,\n  Error = 1,\n}\nfunction g(): i32 {\n  return Status.Error;\n}\n${FS}`,
+      `"use typeshade";\nfunction hann(window: f32, n: f32): f32 {\n  return n / window;\n}\n${FS}`,
+    ]) {
+      expect(diagnosticsOf(src)).toEqual([]);
+      expect(editorOf(src)).toEqual([]);
+    }
   });
 });

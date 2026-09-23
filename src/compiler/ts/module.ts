@@ -20,6 +20,7 @@ import { collectEnables } from './enables.js';
 import { collectOverrides } from './overrides.js';
 import { fillFunctionBody, parseSignature } from './lower/function.js';
 import { analyzeSemantics } from './semantic.js';
+import { reportImportedNews } from './lower/new-target.js';
 import { collectModuleConsts } from './module-const.js';
 import { collectModuleVars } from './module-vars.js';
 import { TS_CODES } from './codes.js';
@@ -270,6 +271,17 @@ export function compileTsSources(
         callees.set(local, rec.stub);
       }
     }
+    // A `new` on a name the file imports, now that what it is is known (Rule 8.13).
+    const imported = new Set(
+      sf.statements.flatMap((st) =>
+        ts.isImportDeclaration(st) &&
+        st.importClause?.namedBindings !== undefined &&
+        ts.isNamedImports(st.importClause.namedBindings)
+          ? st.importClause.namedBindings.elements.map((el) => el.name.text)
+          : [],
+      ),
+    );
+    reportImportedNews(sf, (n) => imported.has(n) && callees.has(n), diagnostics);
   }
 
   const entryName = entry === undefined ? [...parsed.keys()][0] : normalizePath(entry);

@@ -42,8 +42,8 @@ import {
 } from '../context.js';
 import { qualifiedParts } from '../namespaces.js';
 import { pushTypeArguments } from '../generics.js';
-import { ambiguousNew, newInstanceName } from '../generic-structs.js';
-import { newRefusal, newTargetOf, thisObjectNewMessage } from './new-target.js';
+import { ambiguousNew, newInstanceName, writtenInstanceArgs } from '../generic-structs.js';
+import { importsResolved, newRefusal, newTargetOf, thisObjectNewMessage } from './new-target.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import {
   methodNames,
@@ -1024,9 +1024,9 @@ function accessorSignature(
 function writtenClass(struct: CollectedStruct): string {
   if (struct.classNode === undefined) return struct.decl.name;
   const base = qualifiedParts(struct.classNode).join('.');
-  return struct.binding === undefined
-    ? base
-    : `${base}<${[...struct.binding.values()].map(authorTypeText).join(', ')}>`;
+  if (struct.binding === undefined) return base;
+  const args = writtenInstanceArgs(struct.decl.name, struct.classNode.getSourceFile());
+  return `${base}<${args ?? [...struct.binding.values()].map(authorTypeText).join(', ')}>`;
 }
 
 /** The functions every class in `structs` contributes, with their signatures parsed and
@@ -1574,7 +1574,6 @@ export function lowerNew(
   let shown: string;
   /** The class written in full from the top of the file, for the sentences that offer a line. */
   let dotted: string;
-  let imported = false;
   if (unparen(node.expression).kind === ts.SyntaxKind.ThisKeyword) {
     const cls = scope.resolve('this') === undefined ? scope.staticClass() : undefined;
     if (newRefusal(node, sourceFile) !== undefined) return undefined;
@@ -1589,11 +1588,24 @@ export function lowerNew(
     dotted = cls;
   } else {
     const target = newTargetOf(node, sourceFile);
-    if (target.kind === 'refused') return undefined;
+    if (target.kind === 'imported') {
+      // What a name another file declares is was said once the imports were resolved. A file
+      // compiled on its own sees no other file, so the name is unknown here, as a call of it is.
+      if (!importsResolved(sourceFile)) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.expression,
+          `Unknown identifier "${target.name}".`,
+          TS_CODES.UNKNOWN_NAME,
+        );
+      }
+      return undefined;
+    }
+    if (target.kind !== 'class') return undefined;
     flat = target.flat;
     shown = unparen(node.expression).getText(sourceFile);
     dotted = target.dotted;
-    imported = target.imported === true;
   }
   // `new Pair<f32>()` builds the instance struct the file collected for that set of type
   // arguments (roadmap 0.3 item T9, #92), and a bare `new Pair()` the one instance the file
@@ -1614,12 +1626,8 @@ export function lowerNew(
   }
   const name = instance ?? scope.qualifiedStruct(flat);
   const struct = name === undefined ? undefined : scope.structByName(name);
-  if (name === undefined || struct === undefined) {
-    // A class the file imports is another file's, and a file compiled on its own has neither its
-    // struct nor its constructor. One the file declares and did not collect said why there.
-    if (imported) pushDiag(diagnostics, sourceFile, node, noConstructorMessage(shown));
-    return undefined;
-  }
+  // One the file declares and did not collect said why there.
+  if (name === undefined || struct === undefined) return undefined;
   // A class whose members are all static is a namespace of functions and is not emitted as a
   // struct at all (T3, #92), so a constructor for it would return a type the module never
   // declares. Before this it emitted `fn U_new() -> U` with no `struct U` anywhere, which
