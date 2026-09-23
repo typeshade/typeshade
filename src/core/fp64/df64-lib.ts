@@ -113,7 +113,9 @@ export function splitF64(x: number): [hi: number, lo: number] {
 // ── The anti-fast-math guard texture ──
 
 /** The fixed name (`'_fp64'`) of the guard texture binding that {@link fp64Lower} adds to
- *  every module that does f64 arithmetic. The binding is a 1×1 `texture_2d<f32>` whose
+ *  every module whose lowered code calls a guarded df64 helper. A module whose only f64 work is
+ *  comparisons, widening and narrowing, negation, or scaling by a power-of-two literal calls
+ *  none, and gets no binding. The binding is a 1×1 `texture_2d<f32>` whose
  *  single texel reads exactly 1.0; the emulated arithmetic multiplies its error terms by
  *  that texel so a fast-math compiler cannot fold them away. See {@link fp64Guard} for
  *  why it is a texture.
@@ -133,9 +135,9 @@ export const FP64_GUARD_TYPE: ShaderType = texture2dfT
  *  texture, pinned to the caller's chosen `(group, binding)`. Pass it inside a
  *  module's `uses: [...]` only when the host's bind-group layout is fixed and needs
  *  the guard at a specific slot. Leaving it out is the common case: {@link fp64Lower}
- *  adds the binding at group 0, in the first free slot, to any module that uses f64
- *  arithmetic. A module that pins a slot here but also declares a conflicting `_fp64`
- *  binding elsewhere (a different type or space) fails emit with `SD0042`.
+ *  adds the binding at group 0, in the first free slot, to any module whose lowered code
+ *  calls a guarded df64 helper. A module that pins a slot here but also declares a
+ *  conflicting `_fp64` binding elsewhere (a different type or space) fails emit with `SD0042`.
  *
  *  Exported from `typeshade`.
  */
@@ -150,8 +152,11 @@ export interface Fp64GuardHandle {
  *  injected for you, and this exists for a fixed bind-group layout that needs it at a chosen
  *  `(group, binding)`.
  *
- *  Every module that does f64 arithmetic gets a `texture_2d<f32>` binding named `_fp64`
- *  added by {@link fp64Lower}, deterministically at group 0 in the first free binding. The
+ *  Every module whose lowered code calls a guarded df64 helper gets a `texture_2d<f32>` binding
+ *  named `_fp64` added by {@link fp64Lower}, deterministically at group 0 in the first free
+ *  binding. A module whose only f64 work is comparisons, widening and narrowing, negation, or
+ *  scaling by a power-of-two literal calls none and gets no binding; a host that binds `_fp64`
+ *  unconditionally should look for it in `reflect()` first. The
  *  host must bind a 1 by 1 texture whose single texel reads back exactly 1.0, an RGBA8 white
  *  texel or an R32F 1.0, and the shader multiplies the error-compensation terms by that texel.
  *
@@ -294,12 +299,17 @@ const df64_sub = fn('df64_sub', { a: vec2fT, b: vec2fT }, (p) => df64_add({ a: p
 /** a × b: twoProd of the hi words + cross terms + renormalize.
  *  Renormalizes (df64_quickTwoSum, which carries the `one` guard) AFTER EACH
  *  cross term — not once at the end as textbook QD does. The intermediate
- *  renorm is the luma.gl / donmccurdy Apple defense: it folds each cross term
- *  into a fresh (hi, lo) pair through a guarded twoSum before the next product,
- *  so a driver's fast-math cannot keep a·b_hi + a·b_lo as one sum and factor
- *  the common a out (which rounds b_hi+b_lo back to b_hi and deletes the cross
- *  term — Apple Metal "optimizes away the calculation necessary for emulated
- *  fp64"). Merely threading `one` through the cross terms does NOT help: the
+ *  renorm is the luma.gl / donmccurdy Apple defense against a driver's
+ *  fast-math factoring a cross term into the hi product it shares a factor
+ *  with: `a.x·b.x + a.y·b.x` factored as `(a.x + a.y)·b.x` rounds a.x + a.y
+ *  back to a.x and deletes the cross term (Apple Metal "optimizes away the
+ *  calculation necessary for emulated fp64"). What the renorm protects is the
+ *  SECOND cross term, a.y·b.x: by the time it is added, the first quickTwoSum
+ *  has turned the hi word into `(…)·one`, a product with the runtime-opaque
+ *  guard that no compiler can see as a multiple of b.x. The FIRST cross term,
+ *  a.x·b.y, has no such barrier: it meets a.x·b.x inside that first
+ *  quickTwoSum's `a + b`, before any guard (df64_sqr, below, relies on this
+ *  reading). Merely threading `one` through the cross terms does NOT help: the
  *  common factor sits outside the guard. */
 const df64_mul = fn('df64_mul', { a: vec2fT, b: vec2fT }, (p) => {
   const prod = Var(df64_twoProd({ a: p.a.x, b: p.b.x }))
@@ -310,7 +320,8 @@ const df64_mul = fn('df64_mul', { a: vec2fT, b: vec2fT }, (p) => {
 })
 
 /** a²: {@link df64_mul} of a pair with itself, specialised. fp64-lower emits it for an f64
- *  `x * x` whose operand has no effect (and for the lane squares of `length` / `distance`).
+ *  `x * x` and an `x *= x` whose operand has no effect, for the lane squares of `length` and
+ *  `distance`, and for the lanes of a `dot(v, v)` whose `v` has no effect.
  *
  *  Three things are cheaper than `df64_mul(a, a)`:
  *   - the hi product is {@link df64_twoSqr}, one Veltkamp split where twoProd runs two (the
@@ -321,9 +332,11 @@ const df64_mul = fn('df64_mul', { a: vec2fT, b: vec2fT }, (p) => {
  *   - one renormalization instead of two (below).
  *  As emitted on the float flavor: 26 f32 operations against df64_mul's 37. The accuracy is
  *  the multiply's: one rounded cross term added once where df64_mul adds two rounded halves.
- *  df64-property.test.ts sweeps both over the same pairs (worst relative error 2^-46.15 for
- *  the square, 2^-46.41 for df64_mul(a, a)); over 200,000 pairs in [1, 2) the mean is 2^-49.41
- *  against 2^-49.36, and the square is the closer one on 27,274 pairs against 15,437.
+ *  df64-property.test.ts sweeps both over the same pairs (seed 0x5a5a, 20,000 pairs in
+ *  2^[-36, 60]: worst relative error 2^-46.15 for the square, 2^-46.41 for df64_mul(a, a)).
+ *  Over 200,000 random pairs in [1, 2) the mean is 2^-49.4 against 2^-49.36, and the square is
+ *  the closer one on about 27,000 pairs against about 15,300, the rest tying; the counts move
+ *  by a few hundred with the seed and the sampler, and the means by 0.01.
  *
  *  WHY ONE RENORMALIZATION IS ENOUGH. df64_mul renormalizes after EACH cross term (its note:
  *  the luma.gl / donmccurdy Apple defense). Its two cross terms each share a factor with the hi

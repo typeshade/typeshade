@@ -34,6 +34,7 @@ import {
 import type { ModuleDecl } from '../ir/index.js'
 import { compileModule, type CpuValue } from '../oracle.js'
 import { fp64Lower } from '../passes/fp64-lower.js'
+import { eachExpr, eachStmtExpr } from '../ir/visit.js'
 import { splitF64 } from './df64-lib.js'
 
 // ── The f32-rounding oracle ──
@@ -73,6 +74,19 @@ const m = module({
 })
 
 const cpu = f32Oracle(m)
+/** The df64 helpers kernel `name` calls once lowered: a known answer df64_mul also reaches says
+ *  nothing about df64_sqr or the scale unless the kernel is shown to use them. */
+const helpersOf = (name: string): string[] => {
+  const k = fp64Lower(m).funcs.find((f) => f.name === name)!
+  const calls: string[] = []
+  for (const s of k.body)
+    eachStmtExpr(s, (e) =>
+      eachExpr(e, (x) => {
+        if (x.op === 'call' && x.fn.startsWith('df64_')) calls.push(x.fn)
+      }),
+    )
+  return calls
+}
 const val = (r: CpuValue): number => {
   const [hi, lo] = r as number[]
   return hi! + lo!
@@ -117,6 +131,7 @@ describe('df64 known answers — multiplication / division / sqrt (~48-bit resul
   })
 
   it('(1 + 2^-30)² through df64_sqr carries the same 2^-29 cross term', () => {
+    expect(helpersOf('k_sqr')).toEqual(['df64_sqr'])
     const a = 1 + 2 ** -30
     const exact = a * a
     expect(Math.fround(Math.fround(a) * Math.fround(a))).toBe(1)
@@ -129,6 +144,8 @@ describe('df64 known answers — multiplication / division / sqrt (~48-bit resul
   })
 
   it('(1e8 + 0.5)·2 and (1e8 + 0.5)/4 are exact — a scale moves the exponent, never the tail', () => {
+    expect(helpersOf('k_x2')).toEqual([])
+    expect(helpersOf('k_div4')).toEqual([])
     // Discriminative half: f32 has already dropped the 0.5 before it scales anything.
     expect(Math.fround(1e8 + 0.5) * 2).toBe(2e8)
     expect(val(cpu.fns.k_x2!(pair(1e8 + 0.5)))).toBe(2e8 + 1)

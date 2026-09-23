@@ -16,6 +16,7 @@ import { fn, module, f64T, sqrt, abs, min, max, floor, fract } from '../ir/index
 import type { ModuleDecl } from '../ir/index.js'
 import { compileModule, type CpuValue } from '../oracle.js'
 import { fp64Lower } from '../passes/fp64-lower.js'
+import { eachExpr, eachStmtExpr } from '../ir/visit.js'
 import { splitF64 } from './df64-lib.js'
 
 // ── The f32-rounding oracle, integer flavor ──
@@ -50,6 +51,21 @@ const m = module({
   ],
 })
 const cpu = intOracle(m)
+
+/** The df64 helpers kernel `name` calls in the integer-flavor lowering. The sqr and scale
+ *  sweeps below compare against df64_mul, which they would equal trivially were the lowering
+ *  to emit df64_mul again; this is what makes them about df64_sqr and the scale. */
+const helpersOf = (name: string): string[] => {
+  const k = fp64Lower(m, { flavor: 'integer' }).funcs.find((f) => f.name === name)!
+  const calls: string[] = []
+  for (const s of k.body)
+    eachStmtExpr(s, (e) =>
+      eachExpr(e, (x) => {
+        if (x.op === 'call' && x.fn.startsWith('df64_')) calls.push(x.fn)
+      }),
+    )
+  return calls
+}
 
 // ── Helpers (same conventions as the float suite) ──
 
@@ -151,6 +167,7 @@ describe('integer-flavor df64 arithmetic tracks f64 across random inputs', () =>
   it('sqr: worst error inside the multiply tolerance across 2^[-36, 60], both signs', async () => {
     // The float suite's range and bound (df64-property.test.ts): the square is the multiply's
     // accuracy, and below 2^-36 its lo word underflows as every df64 product's does.
+    expect(helpersOf('k_sqr')).toEqual(['df64_sqr'])
     const r = sampler(0x5a5a, -36, 60)
     let maxSqr = 0
     await sweep(N, () => {
@@ -167,6 +184,7 @@ describe('integer-flavor df64 arithmetic tracks f64 across random inputs', () =>
       ['k_div4', 0.25],
       ['k_neg8', -8],
     ] as const
+    for (const [name] of scales) expect(helpersOf(name), name).toEqual([])
     await sweep(4000, () => {
       const a = asDf(r())
       for (const [name, s] of scales) {
