@@ -46,7 +46,7 @@ export const TS_CODES = {
   BUILTIN_NAME: 'TS8024',
   /** A `@builtin(...)` id used as the wrong stage's input or output, e.g. `frag_depth` on a vertex return, or `front_facing` on a vertex parameter. */
   BUILTIN_STAGE: 'TS8025',
-  /** `@compute([x, y, z])` with `y` or `z` other than `1`: the backend only carries the first workgroup axis today, so a shape it would silently drop is rejected instead. */
+  /** A warning: `@compute([x, y, z])` exceeds one of WebGPU's default compute limits (`x` and `y` 256, `z` 64, 256 invocations in all), so a device requested without raising that limit refuses the pipeline. It was the error that refused a `y` or `z` other than `1` before the backend carried all three extents. */
   WORKGROUP_SHAPE: 'TS8026',
   /** A non-square `matCxR<f64>`: the fp64 pass carries one df64 body per DIMENSION (`DF64MatN`, matmul, matvec, transpose), so only a square matrix of doubles lowers. Every `matCxR<f32>` is a type (#149), so this no longer marks `mat2`/`mat3`. */
   MAT_UNSUPPORTED: 'TS8027',
@@ -111,7 +111,7 @@ export const TS_CODES = {
   /** `@compute(...)` with an argument that is not an array literal of one to three whole
    *  numbers (#118): an object, a bare number, an identifier, an empty or four-wide array. It
    *  used to fall through to the default of 64 with no diagnostic, so the author dispatched
-   *  against a size they never asked for. The y/z rule stays `WORKGROUP_SHAPE`. */
+   *  against a size they never asked for. The default-limit check is `WORKGROUP_SHAPE`. */
   WORKGROUP_ARG: 'TS8037',
   /** An emulated double (`f64`, a `vec64`) on an entry's IO boundary — a `@location`
    *  parameter, a `@location` field of an IO struct, or an entry's return (#151, §39). A

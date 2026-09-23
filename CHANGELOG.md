@@ -13,6 +13,19 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **`@compute([8, 8])` is a two-dimensional workgroup** (Rule 8.7, surface §3). The front end
+  refused a `y` or `z` other than 1 with `TS8026`, because the IR carried the `x` extent alone.
+  All three extents now reach the emitted `@workgroup_size(8, 8)`, the reflection, and the CPU
+  `dispatch`, which runs the grid per axis. `FuncDecl.workgroupShape` holds a shape whose `y` or
+  `z` is not 1, `workgroupShapeOf(f)` reads it for every consumer, and `fn()` takes
+  `workgroupSize: [8, 8]`. `EntryInfo.workgroupShape` is the `[x, y, z]` a host sizes a dispatch
+  with; `workgroupSize` stays the `x` extent. A one-dimensional shape emits the bytes it did,
+  and every existing golden is unchanged. `TS8026` is now a warning for a shape over WebGPU's
+  default compute limits (`x` and `y` 256, `z` 64, 256 invocations in all), naming the limit a
+  host has to raise; `x` above 256 compiled with no word before. A `portable` kernel keeps a
+  one-dimensional workgroup (`SD0111`), since the WebGL2 lowering has no workgroup to give `y`
+  and `z` to. `examples/workgroup-tile-2d.shade.ts`, an 8x8 tile blur through workgroup memory,
+  compiles on the gate's Tint.
 - **GVN shares a value between an `if` condition and the arms it dominates.** gvn numbered
   one straight-line block at a time: it minted a temp only for a key repeated in two
   statements of the same block, and it handed an enclosing temp to no arm of an `if` that
@@ -220,6 +233,43 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   spelling of its own (Rule 6.5).
 
 ### Added
+
+- **A path tracer example** (`examples/path-tracer.shade.ts`). Four spheres with diffuse and
+  emissive materials, eight bounces as an iterative loop with an early `break`, cosine-weighted
+  sampling from `random(seed)`, a constant array of structs as the scene, and sixteen paths per
+  pixel, tone-mapped. It compiles with no diagnostic on both targets and in the editor, passes
+  the compile gate's Tint, WebGL2 and render-pipeline legs, and renders on WebGPU (measured on
+  Tint with SwiftShader). Writing it found what #203 (loop bounds) and #204 (multi-pass
+  rendering) now ask to decide.
+- **`grad(m, fn, param)` differentiates a function in forward mode** (roadmap 0.7 item 18). It
+  is an IR → IR pass exported from `typeshade`: it adds `<fn>_d_<param>`, which takes `fn`'s
+  arguments and returns the derivative of its result, and a `<g>_jvp` helper for each function
+  the parameter reaches through a call. Every `f32`, float vector and float matrix carries a
+  tangent beside its value; `if`, `switch` and `for` keep their primal conditions; the
+  component-wise builtins, `dot`, `cross`, `length`, `distance`, `normalize`, `reflect`,
+  `transpose`, `mix`, `smoothstep`, `pow` and `atan(y, x)` have their textbook rules; and
+  `floor`, `ceil`, `round`, `trunc`, `sign` and `step` differentiate to zero. A vector parameter
+  takes `{ direction }` and gives the directional derivative. Anything else the parameter
+  reaches, a texture sample, `refract`, a struct or an array that would carry the derivative, a
+  module variable written with it, is refused with the new `SD0118`, naming it, rather than
+  given a zero derivative. Every rule is checked against a central finite difference on both
+  CPU modules, and the generated functions for three modules covering every rule compile on
+  Tint and on ANGLE. `grad` is a host API: no `"use typeshade"` spelling is added (Rule 2.1,
+  §2.1), so the §9.3 extension table does not change.
+- **A user-journey gate, `bun run gate:journeys`, in CI as `user-journeys`.** It packs the
+  tarball the way the publish workflow does and installs it into a fresh project, with the
+  README's `tsconfig.shade.json` copied verbatim. Then it checks each program in `journeys/`
+  as its author would meet it. The installed `compile()` must report nothing, and so must the
+  language service. Plain `tsc` may report only the error classes the README documents. Every
+  run must match the journey's own plain-JavaScript reference on WebGPU (headless Chromium,
+  SwiftShader) and on the CPU oracle. Two journeys to start, both written as a TypeScript
+  developer writes them: a fullscreen fragment effect, read back per pixel (16,384 channels,
+  worst error 2.1e-3 of a 5.9e-3 tolerance), and a particle system stepped once per frame for
+  20 frames (1,600 floats, exact on WebGPU). A deliberately wrong reference, the README's
+  previous tsconfig and a shader the compiler refuses each fail it. Its first run found an
+  editor error on correct code: `const uv = p.xy * frame.scale` is a `number` to the editor,
+  so `uv.x` is TS2339 (#162). The journey carries the annotation and names the issue, and
+  `journeys/README.md` requires that of every workaround.
 
 - **Hover documents every type name the compiler takes.** `TYPE_DOCS` has rows for
   `sampler`, `sampler_comparison` and every `texture_*` name, each with its `declare const` form
@@ -961,6 +1011,16 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **GLSL declares a struct before a module constant or variable of its type** (#179). The GLSL
+  ES 3.00 writer emitted the constants and the top-level `let`s above the struct section, so a
+  `const SPHERES: array<Sphere, 4>` or a struct-typed top-level `let` named a type that was not
+  declared yet. ANGLE refused it with `'[' : syntax error` or `'Cursor' : syntax error`, on both
+  stages, while Tint accepted the WGSL. The struct section now comes first. A module variable's
+  struct type is also in every stage's scope, as a constant's already was, because a module
+  variable is emitted into every stage: the #179 reproducer failed in the vertex shader for that
+  reason alone, although only the fragment entry reads the variable. Measured on the compile
+  gate's WebGL2: both stages compile and link. One golden moves, `class-syntax.fragment.glsl`,
+  by the order of three lines.
 - **The optimizer no longer shares a value across a write to what its callee reads.** A call's
   value depends on its arguments and on every module name its callee reads, and cse, licm and
   gvn saw only the arguments: `let a = h(x * 2.); gp = 5.; let c = h(x * 2.)`, with `h`
@@ -1420,6 +1480,13 @@ structures in ESSL 1.0 and webgl`, and the same for arrays. That second half cor
   so the gate compiles the shape on both targets from now on — nothing in it did before, and the
   constant folder hides the easy case, so it takes a runtime condition AND two distinguishable
   arms to reach.
+- **The README's `tsconfig.shade.json` loads `typeshade/shade`.** Copied as written into a
+  fresh project with `typeshade` installed, it failed with TS2688 (no type definition file for
+  `typeshade/shade`) and TS2318 for `Array` and nine more global types, so no shader was
+  type-checked at all. `typeshade/shade` is a subpath export, and TypeScript 5.x falls back to
+  `node10` resolution, which does not read `exports`. The snippet now sets `"module": "esnext"`
+  and `"moduleResolution": "bundler"`, and the README says why. Copied again, it leaves exactly
+  the two error classes the README documents: TS1206 on decorators, and operators on vectors.
 
 ### Changed
 
