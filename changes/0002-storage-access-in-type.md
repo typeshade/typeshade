@@ -1,7 +1,7 @@
 ---
 id: '0002'
 title: A storage binding's access mode is its second type argument, every binding is declare const, and the editor refuses a write to a read binding
-status: draft
+status: accepted
 rules:
 - '3.6'
 - '6.1'
