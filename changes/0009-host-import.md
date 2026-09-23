@@ -268,8 +268,8 @@ Alternatives considered:
   refusal is a `TypeError` at run time.
 - **Code.**
   - `src/vite.ts` and `src/runtime.ts` are new entry points. `package.json` gains `./vite`,
-    `./runtime`, and a `typeshade` bin with `sync`. If #210's `typeshade check` lands first, the
-    bin is shared.
+    `./runtime`. The `typeshade` bin that #210 added (`src/cli/bin.ts`, beside `check`) gains
+    `sync`.
   - `src/compiler/ts/host-face.ts` (new) computes the callable set, the host types, the view
     text and the generated module text.
   - `src/core/cpu-codegen.ts` returns the source it generates next to what it returns today.
