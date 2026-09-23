@@ -115,7 +115,11 @@ TS2542 and `camera.fov = 1.` is TS2540 as they are typed, before `compile()` is 
 copied out of a read array, `length(p.offset)`, `.length` on a read array and a method on a
 class-typed read binding all behave exactly as before. §49 has the row for row.
 
-Duplicate `@group @binding` is an error.
+A decorator on a declaration is refused, `TS8028`, because nothing reads one there:
+`@group(2) @binding(5) declare const u: uniform<U>` does not move the slot, which is the source
+order above and which `reflect()` hands the host, and the sentence says so:
+`"@group" is WGSL's attribute, and is not applied: the compiler numbers a binding by its place in the file, and reflect() reports its group and slot. Remove it, and read the slot from reflect() on the host.`
+`@id(7)` on an override is refused the same way, since the host sets an override by its name.
 
 Sketch form still exists and occupies the same slot sequence, and takes the access mode in the
 same place:
@@ -337,7 +341,7 @@ entry may also return nothing, which is what a program that only writes to stora
 
 | Idea | Why not |
 |------|--------|
-| `@uniform const scale` | TS does not parse decorators on `const` |
+| `@uniform const scale` | A resource is spelled by its type, `declare const scale: uniform<f32>` (§1). TypeScript parses a decorator on a `const` and refuses it itself (TS1206); the compiler refuses every decorator on a top-level declaration as `TS8028` (§7) |
 | `class Scene { @compute paint() {} }` | `this` is not a GPU instance |
 | Static class as bind group | Extra ban list; emit `.d.ts` instead |
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
@@ -399,6 +403,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | the retired `{ access }` option on the call form | `TS8099`, naming the type-argument spelling to write (§1). Reported and ignored: the mode comes from the type argument |
 | assign to a read resource: a `uniform<T>`, or a `storage<T>` with no `"read_write"` | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a multi-component swizzle `v.xy` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
 | two resources share `@binding` | name both |
+| a decorator on a top-level declaration: a binding, an override, a module `const` or `let` | `TS8028`, one per decorator, saying what it is: `@group` and `@binding` are WGSL's and not applied, since the slot is the source order and `reflect()` reports it (§1); `@id` is not applied, since the host sets an override by its name; a name WGSL does not have either is `Unknown attribute`. The editor shows this sentence alone, without TypeScript's TS1206 |
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
@@ -3281,8 +3286,12 @@ _ret = vec4(c, float(any(equal(m, bvec3(false, false, false)))));
   and bools, one bool broadcast, or a numeric vector of the same size (nonzero is true). A
   component reads as a bool: `m.x`, `m.xy`.
 - **Not vectors of bools:** `&&` and `||` stay scalar (TS8003), as on both targets; combine
-  masks with `all`, `any` or a `select`. A bool vector has no arithmetic and is not
-  host-shareable, so it cannot be a binding's type.
+  masks with `all`, `any` or a `select`. A bool vector has no arithmetic and no negation:
+  `a + b`, `a ^ b` and `-a` are TS8003, and the sentence names `vec3u(a)`, `a !== b` or `!a`
+  (Rule 7.1). It is not host-shareable either, so a binding cannot hold one, as a struct field,
+  a runtime array's element or the binding's whole type: `uniform<vec3b>` is TS8051,
+  `"u" is a vec3b; a uniform binding holds no bool, alone or in a vector (WGSL's host-shareable rule). Use vec3u.`
+  (§51). A workgroup variable, a module `let` and a local hold one as before.
 
 **On the CPU.** The oracle, the CPU codegen and the debug stepper share one comparison and one
 per-component pick (`compareValues`, `selectComponents` in `cpu-runtime.ts`), so a vector of
@@ -5426,18 +5435,20 @@ bytes `reflect()` reports for it:
 A list of `vec4` is exempt from all three — its stride is already 16 — which is what keeps them
 from reading as a blanket ban on lists.
 
-**`@size` and `@align` are still not author attributes.** `@align` on a field is `TS8010` and
-`@size` is an unknown attribute, as before. Applying them would mean teaching the layout engine
+**`@size` and `@align` are still not author attributes.** `@align` on a field is `TS8010`, and
+`@size` is `TS8028`, whose sentence names it as WGSL's attribute and says it is not applied: a
+field takes the size WGSL's layout gives its type, which `reflect()` reports. Applying them would mean teaching the layout engine
 `reflect()` shares with the GLSL writer to read them, and an attribute the emit honoured while
 reflection ignored it is the very disagreement this section closes. They stay refused until
 both halves move together.
 
-**Three shapes a struct used to hide.** The type map sees a field's type; it does not see which
+**Four shapes a struct used to hide.** The type map sees a field's type; it does not see which
 address space the field ends up in, so these reached the backend as text a driver refuses:
 
 | Written | Refused with |
 | --- | --- |
 | `interface U { flag: bool }` in a `uniform` or `storage` | `TS8051` — `"U.flag" is a bool; a uniform struct holds numeric scalars only (WGSL's host-shareable rule). Use u32.` |
+| `class U { a: f32; b: vec3b }` in a `uniform`, `storage<array<vec2b>>`, `uniform<vec4b>` | `TS8051` — `"U.b" is a vec3b; a uniform binding holds no bool, alone or in a vector (WGSL's host-shareable rule). Use vec3u.`, the path naming the field, `xs[]` for an element or the binding for its whole type (§27) |
 | `interface S { xs: array<f32>; k: f32 }` | `TS8051` — a runtime-sized list that is not the last field, so nothing after it has an offset |
 | `uniform<array<f32>>` | `TS8051` — a uniform buffer has one size; give the list a length or declare it `storage<T>` |
 
@@ -5448,8 +5459,10 @@ no use and every index into it is out of range.
 `bool` is the one worth dwelling on: Tint says `type 'bool' cannot be used in address space
 'uniform' as it is non-host-shareable`, while the GLSL writer emitted it into the std140 block
 without complaint. That is a silent divergence between the two targets, not a shared failure,
-and silent divergence is what this compiler exists to remove. A `bool` local, parameter or
-return is untouched — the rule is about host-shared bytes.
+and silent divergence is what this compiler exists to remove. A vector of bools is the same
+rule (`type 'vec3<bool>' cannot be used ...`), and was refused only as a scalar until proposal
+0008. A `bool` or `vec3b` local, parameter or return is untouched — the rule is about
+host-shared bytes.
 
 ## 52. Operators, switch and statements: what WGSL spells, and what it does not
 

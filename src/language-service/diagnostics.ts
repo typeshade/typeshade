@@ -79,6 +79,29 @@ function isDecoratorOnTopLevelFunction(
 }
 
 /**
+ * TS1206 on a decorator of a top-level variable statement (`@group(2) declare const u:
+ * uniform<U>`, `@id(7) declare const k: override<f32>`, `@bogus const K: f32 = 1.`). The compiler
+ * refuses every such decorator itself, as `TS8028` on the decorator with the sentence that says
+ * what the attribute is and where its intent goes (`checkDeclarationDecorators`), so TypeScript's
+ * "Decorators are not valid here" on the same statement would be a second diagnostic for the one
+ * mistake (Rule 12.4).
+ */
+function isDecoratorOnTopLevelDeclaration(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
+  while (node !== undefined && !ts.isDecorator(node)) node = node.parent;
+  const decorated = node?.parent;
+  return (
+    decorated !== undefined &&
+    ts.isVariableStatement(decorated) &&
+    decorated.parent !== undefined &&
+    ts.isSourceFile(decorated.parent)
+  );
+}
+
+/**
  * The escaped name TypeScript gives a property whose key is a unique symbol, for example
  * `__@vecTag@15`. The trailing number is that symbol's internal id, which moves with the
  * TypeScript version (`api-surface.test.ts` records the same hazard about its own snapshot),
@@ -778,6 +801,14 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       'forbid a function declaration or its parameters as a target, and no compiler option ' +
       'relaxes that. See design doc §6.',
     when: isDecoratorOnTopLevelFunction,
+  },
+  {
+    code: 1206,
+    reason:
+      'A decorator on a top-level declaration (a binding, an override, a module constant or ' +
+      'variable) is refused by the compiler as TS8028, with a sentence naming the attribute; ' +
+      "TypeScript's own refusal of the same decorator would say it twice (Rule 12.4).",
+    when: isDecoratorOnTopLevelDeclaration,
   },
   {
     code: 2362,

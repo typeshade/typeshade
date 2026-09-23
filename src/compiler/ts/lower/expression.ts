@@ -31,6 +31,7 @@ import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { refuseNegationKind, refuseOperatorKind } from './operator-kinds.js';
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -386,6 +387,8 @@ function lowerPrefixUnary(
       );
       return undefined;
     }
+    // A bool, a matrix, a struct and an array have no negation in WGSL either (Rule 7.1).
+    if (refuseNegationKind(operand.type, node, sourceFile, diagnostics)) return undefined;
     return { op: 'unop', type: operand.type, a: operand };
   }
   // Unary `+` is the identity WGSL and GLSL both give it, so it lowers to its operand and
@@ -522,7 +525,11 @@ function lowerBinary(
       // A vector against a scalar of its element kind broadcasts, as it does in WGSL, GLSL and
       // the fn() EDSL; the result is the vector's type and the operand order stays as written.
       const broadcast = broadcastResultType(left.type, right.type, arith);
-      if (broadcast) return { op: 'binop', type: broadcast, bop: arith, a: left, b: right };
+      if (broadcast) {
+        // A vector of bools broadcasts its element as any vector does, and has no arithmetic.
+        if (refuseOperatorKind(arith, broadcast, node, sourceFile, diagnostics)) return undefined;
+        return { op: 'binop', type: broadcast, bop: arith, a: left, b: right };
+      }
       // An f32 beside a scalar f64 widens exactly, as it does in the fn() EDSL and as the
       // fp64 pass's contract states (#151 F64-02).
       const widened = f64WidenResultType(left.type, right.type, arith);
@@ -536,6 +543,11 @@ function lowerBinary(
       );
       return undefined;
     }
+    // Two operands of one type still need a kind WGSL has the operator for: two structs, two
+    // arrays, two bools, or a matrix of doubles under anything but `*` passed the check above
+    // and reached Tint as `no matching overload for 'operator + (A, A)'` (Rule 7.1,
+    // lower/operator-kinds.ts).
+    if (refuseOperatorKind(arith, left.type, node, sourceFile, diagnostics)) return undefined;
     // WGSL gives a matrix `+`, `-` and `*` and no `/` or `%` (and GLSL ES 3.00 agrees). Two
     // matrices of one shape pass the key check above without ever reaching `binResultType`,
     // so `m / n` was accepted here and emitted `(a / b)`, which both compilers refuse.
@@ -754,6 +766,9 @@ function lowerBinary(
       );
       return undefined;
     }
+    // `&` and `|` take integers and bools, `^` integers alone; two floats have one type and
+    // reached Tint as `operator & (f32, f32)` (Rule 7.1).
+    if (refuseOperatorKind(bit, left.type, node, sourceFile, diagnostics)) return undefined;
     return { op: 'binop', type: left.type, bop: bit, a: left, b: right };
   }
   const log = LOGICAL[node.operatorToken.kind];
@@ -811,6 +826,19 @@ function lowerBinary(
         a: left,
         b: right,
       };
+    }
+    // An ordering takes numbers, and `===` a scalar or a vector: two bools under `<`, and two
+    // matrices, structs or arrays under either, have one type and no WGSL overload (Rule 7.1).
+    if (
+      refuseOperatorKind(
+        node.operatorToken.getText(sourceFile),
+        left.type,
+        node,
+        sourceFile,
+        diagnostics,
+      )
+    ) {
+      return undefined;
     }
     return { op: 'compare', type: boolT, cop: cmp, a: left, b: right };
   }

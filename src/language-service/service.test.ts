@@ -138,6 +138,35 @@ describe('getDiagnostics: a broken program', () => {
       .filter((d) => d.source === 'typescript' && d.code === 1206);
     expect(ts1206).toEqual([]);
   });
+
+  // A decorator on a top-level declaration is the compiler's TS8028 now (Rule 6.7), with the
+  // sentence that says what the attribute is, so TypeScript's TS1206 "Decorators are not valid
+  // here" on the same decorator would be the one mistake said twice (Rule 12.4).
+  it('says a decorator on a top-level declaration once, as the compiler does', () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class U { a: f32 }\n' +
+      '@group(2) @binding(5) declare const u: uniform<U>;\n' +
+      '@id(7) declare const k: override<f32>;\n' +
+      '@bogus const K: f32 = 1.;\n' +
+      '@fragment\n' +
+      'export function fs(): vec4 { return vec4(u.a + k + K); }\n';
+    service.openDocument('decorated.ts', text);
+    const diagnostics = service.getDiagnostics('decorated.ts');
+    expect(
+      diagnostics.map((d) => [
+        d.source,
+        d.code,
+        text.slice(d.span.start, d.span.start + d.span.length),
+      ]),
+    ).toEqual([
+      ['typeshade', 'TS8028', '@group(2)'],
+      ['typeshade', 'TS8028', '@binding(5)'],
+      ['typeshade', 'TS8028', '@id(7)'],
+      ['typeshade', 'TS8028', '@bogus'],
+    ]);
+  });
 });
 
 describe('getCompiledOutput', () => {

@@ -20,6 +20,7 @@ import { parseSwizzle } from '../swizzle.js';
 import { staticThisClass } from '../class-names.js';
 import { refuseAtomicDeclaration } from './atomics.js';
 import { lowerBarrierStatement } from './barriers.js';
+import { refuseOperatorKind } from './operator-kinds.js';
 import { classFunctionOf, lowerMutatingCall } from './class-methods.js';
 import { lowerChainPrelude } from './chains.js';
 import {
@@ -1379,6 +1380,12 @@ function lowerAssignOpTo(
         expr: { op: 'binop', type: target.type, bop, a: target, b: value },
       };
     }
+  }
+  // `a += b` is `a = a + b`, so WGSL's operator table decides it by kind as the binary form
+  // does: a struct, an array, a bool or a matrix of doubles as the target has no `+=`, and the
+  // equal-key check above let each through to Tint (Rule 7.1, lower/operator-kinds.ts).
+  if (refuseOperatorKind(bop, target.type, left, sourceFile, diagnostics, true)) {
+    return undefined;
   }
   // `m *= n` is `m = m * n`, so WGSL's product rule decides it: `matKxR * matCxK -> matCxR`,
   // the left operand's columns against the right operand's rows. Two matrices of one

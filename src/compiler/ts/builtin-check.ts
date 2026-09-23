@@ -127,6 +127,62 @@ export function hasInvariantDecorator(decorators: readonly ts.Decorator[]): bool
  */
 const RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES: readonly string[] = ['std140', 'align'];
 
+/** Why a binding's `@group` and `@binding` are not the author's (Rule 6.1): the slot is the
+ *  declaration's place in the file, and the host reads it back. */
+const BINDING_SLOT_REASON =
+  "is WGSL's attribute, and is not applied: the compiler numbers a binding by its place in " +
+  'the file, and reflect() reports its group and slot. Remove it, and read the slot from ' +
+  'reflect() on the host.';
+
+/**
+ * WGSL's own attributes (Rule 2.1) that a `"use typeshade"` program does not write as a
+ * decorator, each with the sentence that says where its intent goes instead. They are WGSL's,
+ * so calling one "Unknown attribute" would be false; {@link checkAttributeName} and
+ * {@link checkDeclarationDecorators} answer with these. The rest of WGSL's attribute list is
+ * {@link ATTRIBUTE_NAMES}, except `@const`, which TypeScript does not parse as a decorator (it
+ * is a keyword), and which WGSL keeps for its own built-in functions anyway; `stage3.test.ts`
+ * holds the two lists to the fixture's.
+ */
+export const WGSL_ATTRIBUTES_ELSEWHERE: ReadonlyMap<string, string> = new Map(
+  Object.entries({
+    workgroup_size:
+      '"@workgroup_size" is WGSL\'s attribute, written here as @compute\'s argument: ' +
+      '@compute([64]) or @compute([8, 8]).',
+    size:
+      '"@size" is WGSL\'s attribute, and is not applied: a field takes the size WGSL\'s layout ' +
+      'gives its type, which reflect() reports. Add a field where you need padding.',
+    align:
+      '"@align" is WGSL\'s attribute, and is not applied: a field takes the alignment WGSL\'s ' +
+      'layout gives its type, which reflect() reports.',
+    group: `"@group" ${BINDING_SLOT_REASON}`,
+    binding: `"@binding" ${BINDING_SLOT_REASON}`,
+    id:
+      '"@id" is WGSL\'s attribute, and is not applied: the host sets an override by its name, ' +
+      'which reflect() lists. Remove it.',
+    must_use:
+      '"@must_use" is WGSL\'s attribute, and is not applied: a call\'s result is not checked ' +
+      'for use. Remove it.',
+    subgroup_size:
+      '"@subgroup_size" is WGSL\'s attribute, and is not applied: a compute entry runs at the ' +
+      'subgroup size the device chooses. Remove it.',
+  }),
+);
+
+/** What each attribute of {@link ATTRIBUTE_NAMES} marks, for the refusal of one written on a
+ *  declaration. `stage3.test.ts` writes every name of that list on a declaration and reads the
+ *  sentence back, so a name added there without a row here fails it. */
+const ATTRIBUTE_TARGET: Readonly<Record<string, string>> = {
+  vertex: 'an entry function',
+  fragment: 'an entry function',
+  compute: 'an entry function',
+  builtin: "an entry's input or output",
+  location: "an entry's input or output",
+  interpolate: "an entry's input or output",
+  invariant: "an entry's input or output",
+  blend_src: "an entry's input or output",
+  diagnostic: 'an entry function',
+};
+
 /** The decorator identifier `@name` or `@name(...)` reads off, or `undefined` for a decorator
  *  shape (anything but a bare identifier or an identifier call) this front end never produces. */
 function attributeNameOf(decorator: ts.Decorator): string | undefined {
@@ -445,16 +501,52 @@ export function checkAttributeName(
   if (name === undefined) return;
   if (ATTRIBUTE_NAMES.includes(name)) return;
   if (RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name)) return;
-  const suggestion = suggestAttributeName(name);
-  const hint = suggestion
-    ? ` Did you mean "@${suggestion}"?`
-    : ` Supported attributes: ${ATTRIBUTE_NAMES.map((n) => `@${n}`).join(', ')}.`;
   diagnostics.push(
     makeDiagnostic(
       sourceFile,
       decorator,
-      `Unknown attribute "@${name}".${hint}`,
+      WGSL_ATTRIBUTES_ELSEWHERE.get(name) ?? unknownAttribute(name),
       TS_CODES.ATTRIBUTE_NAME,
     ),
   );
+}
+
+/** The sentence for a decorator name neither `"use typeshade"` nor WGSL has, with the closest
+ *  attribute when one is near. */
+function unknownAttribute(name: string): string {
+  const suggestion = suggestAttributeName(name);
+  const hint = suggestion
+    ? ` Did you mean "@${suggestion}"?`
+    : ` Supported attributes: ${ATTRIBUTE_NAMES.map((n) => `@${n}`).join(', ')}.`;
+  return `Unknown attribute "@${name}".${hint}`;
+}
+
+/**
+ * Refuses every decorator on a top-level variable statement (Rule 6.7): a binding of any kind,
+ * an override, a module constant or a module variable. TypeScript parses one there and its own
+ * checker refuses it (TS1206), which `compile()` never runs, so the decorator vanished: `@group(2)
+ * @binding(5) declare const u: uniform<U>` was emitted at group 0, binding 0, and `@id(7)` on an
+ * override and `@bogus` on a constant were dropped with no word. Each decorator is answered by
+ * what it is: WGSL's own with {@link WGSL_ATTRIBUTES_ELSEWHERE}, one `"use typeshade"` reads with
+ * where it belongs, and any other name with the unknown-attribute sentence. The language
+ * service drops its TS1206 on the same decorator, so the editor says it once (Rule 12.4).
+ */
+export function checkDeclarationDecorators(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
+  statement: ts.VariableStatement,
+): void {
+  for (const d of statement.modifiers ?? []) {
+    if (!ts.isDecorator(d)) continue;
+    const name = attributeNameOf(d);
+    const elsewhere = name === undefined ? undefined : WGSL_ATTRIBUTES_ELSEWHERE.get(name);
+    const message =
+      name === undefined || RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name)
+        ? (elsewhere ??
+          `"${d.getText(sourceFile)}" is not applied: a declaration takes no decorator. Remove it.`)
+        : ATTRIBUTE_NAMES.includes(name)
+          ? `"@${name}" does not apply to a declaration: it marks ${ATTRIBUTE_TARGET[name]}. Remove it.`
+          : (elsewhere ?? unknownAttribute(name));
+    diagnostics.push(makeDiagnostic(sourceFile, d, message, TS_CODES.ATTRIBUTE_NAME));
+  }
 }

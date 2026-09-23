@@ -337,6 +337,34 @@ declare const S_: storage<array<S>, "read_write">
       '"S.flag" is a bool; a storage struct holds numeric scalars only ' +
         "(WGSL's host-shareable rule). Use u32.",
     ],
+    // A vector of bools is no more host-shareable than a bool (surface §27), and Tint refuses it
+    // in all three places a binding can hold one: `type 'vec3<bool>' cannot be used in address
+    // space 'uniform' as it is non-host-shareable`. Only the scalar was refused here.
+    [
+      'a vector of bools in a uniform struct',
+      `class U { a: f32; b: vec3b }
+declare const U_: uniform<U>
+@fragment export function fs(): vec4 { return vec4(U_.a) }`,
+      TS_CODES.LAYOUT,
+      '"U.b" is a vec3b; a uniform binding holds no bool, alone or in a vector ' +
+        "(WGSL's host-shareable rule). Use vec3u.",
+    ],
+    [
+      'a vector of bools as a runtime array element in storage',
+      `declare const xs: storage<array<vec2b>>
+@fragment export function fs(): vec4 { return vec4(0.) }`,
+      TS_CODES.LAYOUT,
+      '"xs[]" is a vec2b; a storage binding holds no bool, alone or in a vector ' +
+        "(WGSL's host-shareable rule). Use vec2u.",
+    ],
+    [
+      'a vector of bools as the whole uniform',
+      `declare const u: uniform<vec4b>
+@fragment export function fs(): vec4 { return vec4(0.) }`,
+      TS_CODES.LAYOUT,
+      '"u" is a vec4b; a uniform binding holds no bool, alone or in a vector ' +
+        "(WGSL's host-shareable rule). Use vec4u.",
+    ],
     [
       'a runtime array that is not last',
       `interface S { xs: array<f32>; k: f32 }
@@ -379,6 +407,21 @@ export function pick(on: bool): f32 { return on ? 1. : 0. }
 @fragment
 export function fs(): vec4 { const on = S_.k > 0.; return vec4(pick(on) * S_.xs[0]) }`);
     expect(c.wgsl).toContain('xs: array<f32>,');
+  });
+
+  it('keeps a vector of bools where it holds no host-shared byte, and its remedy', () => {
+    // Workgroup memory, a module variable and a local are not host-shareable spaces, and the
+    // vec3u the refusal names is what the binding holds instead.
+    const c = compiled(`class U { a: f32; b: vec3u }
+declare const U_: uniform<U>
+let seen: vec3b = vec3b(false)
+@fragment export function fs(): vec4 {
+  const m = vec3f(U_.a) > vec3f(0.)
+  seen = m
+  return vec4(select(0., 1., all(seen) && U_.b.x > 0))
+}`);
+    expect(c.wgsl).toContain('b: vec3<u32>,');
+    expect(c.wgsl).toContain('var<private> seen: vec3<bool>');
   });
 });
 

@@ -439,7 +439,7 @@ A write to a read-only resource must be refused, by the compiler and by the edit
 
 - Rationale: a misspelled decorator would otherwise silently stop a function being an entry point.
 - Derives from: [Attributes](https://gpuweb.github.io/gpuweb/wgsl/#attributes); the fixture's `attributes` list against the ambient library.
-- Enforced by: `TS8028 ATTRIBUTE_NAME` and `surface-names.test.ts`.
+- Enforced by: `TS8028 ATTRIBUTE_NAME` and `surface-names.test.ts`; a WGSL attribute the surface writes another way is named as WGSL's, with where its intent goes (`"@workgroup_size" is WGSL's attribute, written here as @compute's argument: @compute([64]) or @compute([8, 8]).`), and not as an unknown one; every decorator on a top-level declaration (a binding of any kind, an override, a module `const` or `let`) is `TS8028`, `@group` and `@binding` named as the slot the compiler chooses and `reflect()` reports, `@id` as not applied since the host sets an override by its name, with the editor's TS1206 on the same decorator dropped (Rule 12.4); pinned by `src/compiler/ts/stage3.test.ts`, which also holds the attributes it answers for to the fixture's WGSL list, and `src/language-service/service.test.ts`.
 
 An integer varying needs `@interpolate(flat)` on WGSL, and the compiler derives it from the type on both writers, for a struct field and a bare entry parameter alike (#158, surface §53), pinned by `src/core/passes/varying-interpolate.test.ts`.
 
@@ -447,7 +447,7 @@ An integer varying needs `@interpolate(flat)` on WGSL, and the compiler derives 
 
 - Rationale: a buffer the host fills from `reflect()` and the shader reads by its own offsets is a dynamic error nothing detects.
 - Derives from: [Memory Layout](https://gpuweb.github.io/gpuweb/wgsl/#memory-layouts) ("it is a dynamic error if buffer producers and consumers do not agree on the memory layout").
-- Enforced by: `examples/emit-reflection-conformance.test.ts` for bindings, locations, and entry points, and the one layout engine in `src/core/reflect.ts` that the GLSL writer also uses, whose layout checks are the two-row matrix of Rule 4.8 and the uniform-address-space rules of surface §51 (#156): an array in a uniform is padded to a 16-byte stride and `reflect()` agrees; a `bool` in a uniform or storage struct, a runtime-sized array in a uniform, and one that is not a struct's last field are `TS8051 LAYOUT`; a field `@align` is `TS8010` (`@align on a field is not applied.`) and a field `@size` is `TS8028`; pinned by `src/compiler/ts/uniform-layout.test.ts`.
+- Enforced by: `examples/emit-reflection-conformance.test.ts` for bindings, locations, and entry points, and the one layout engine in `src/core/reflect.ts` that the GLSL writer also uses, whose layout checks are the two-row matrix of Rule 4.8 and the uniform-address-space rules of surface §51 (#156): an array in a uniform is padded to a 16-byte stride and `reflect()` agrees; a `bool`, alone or in a vector, in a uniform or storage binding (a struct field, a runtime array's element or the binding's whole type, `"U.b" is a vec3b; a uniform binding holds no bool, alone or in a vector (WGSL's host-shareable rule). Use vec3u.`), a runtime-sized array in a uniform, and one that is not a struct's last field are `TS8051 LAYOUT`; a field `@align` is `TS8010` (`@align on a field is not applied.`) and a field `@size` is `TS8028`; pinned by `src/compiler/ts/uniform-layout.test.ts`.
 
 **Rule 6.9.** A struct must be the members written in it, in one of three spellings (`class`, `interface`, a `type` over an object literal).
 On a class or an interface with an `extends` clause it must be the base's members first and its own after, through a chain of any depth.
@@ -486,7 +486,7 @@ An _open loop_ is a `while` loop: it ends when its condition fails, or at a `bre
 
 - Rationale: Rule 1.1 applied to expressions.
 - Derives from: [Expressions](https://gpuweb.github.io/gpuweb/wgsl/#expressions), [Arithmetic Expressions](https://gpuweb.github.io/gpuweb/wgsl/#arithmetic-expr), [Bit Expressions](https://gpuweb.github.io/gpuweb/wgsl/#bit-expr).
-- Enforced by: the compile gate and `src/core/oracle-backend-parity.test.ts`; `TS8003` for a matrix product whose dimensions do not meet (Rule 4.8, #169).
+- Enforced by: the compile gate and `src/core/oracle-backend-parity.test.ts`; `TS8003` for a matrix product whose dimensions do not meet (Rule 4.8, #169); `TS8003` for an operator WGSL has no overload for on operands of one type, decided by kind in `src/compiler/ts/lower/operator-kinds.ts` (proposal 0008): arithmetic on a bool, a vector of bools, a struct or an array, `+` and `-` and every compound form on a matrix of doubles, an ordering on anything but a number or a vector of numbers, `===` and `!==` on a matrix, a struct or an array, `&` and `|` on anything but an integer or a bool and `^` on anything but an integer, and unary `-` on a bool, a matrix, a struct or an array, each sentence naming the operator and the type as written (`Cannot + A: WGSL has no arithmetic on a struct. Write it field by field.`), pinned by `src/compiler/ts/operators-statements.test.ts`.
 
 **Rule 7.2.** Where TypeShade lowers a TypeScript form to a WGSL form, the mapping must be a rule with a recorded divergence; the mappings today are:
 

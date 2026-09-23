@@ -14,7 +14,7 @@
 // a WGSL function's parameters and its top-level locals share one scope, so the shadow the
 // issue proposed cannot be spelled without renaming what the author wrote.
 //
-// Verifies: Rule 8.6 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 7.1, Rule 8.6 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
@@ -305,5 +305,211 @@ export function g(x: f32): f32 { dst[0] = x; return x }
     ],
   ])('refuses %s with its own reason, not the catch-all', (_what, source, match) => {
     expect(diagnose(source).message).toMatch(match);
+  });
+});
+
+// Rule 7.1: the lowering checked that two operands have ONE type and stopped there, so two
+// operands of one type and of a kind WGSL has no such operator for reached Tint. Each row below
+// compiled on main with no diagnostic and was measured as Tint's `no matching overload`
+// (`operator + (A, A)`, `operator < (bool, bool)`, `operator & (f32, f32)`, `operator ==
+// (mat3x3<f32>, mat3x3<f32>)`, `operator - (DF64Mat3)`, `operator += (DF64Mat3, DF64Mat3)`),
+// or, for `+`/`-` on a matrix of doubles and `&` on a double, as a span-less `TS8015` from the
+// fp64 pass. Now each is one `TS8003` on the line, naming the operator and the type as written.
+describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () => {
+  const A = 'class A { x: f32 = 0; }\n';
+  it.each([
+    [
+      '+ on two class instances',
+      `${A}export function k(a: A, b: A): A { return a + b }`,
+      'Cannot + A: WGSL has no arithmetic on a struct. Write it field by field.',
+    ],
+    [
+      // Two `new A()` with one set of fields are one value (the optimizer folds them into one
+      // `_cse0`), so TypeScript's question, the same object?, has no answer here either.
+      '=== on two built instances',
+      `${A}export function k(): bool { const a = new A(); const b = new A(); return a === b }`,
+      'Cannot === A: a struct is a value with no identity here, and WGSL compares scalars ' +
+        'and vectors only. Compare its fields one by one.',
+    ],
+    [
+      '< on two class instances',
+      `${A}export function k(a: A, b: A): bool { return a < b }`,
+      'Cannot < A: WGSL orders numbers and vectors of numbers, not a struct. Compare one of ' +
+        'its fields.',
+    ],
+    [
+      '+ on two arrays',
+      'export function k(a: array<f32, 3>): array<f32, 3> { return a + a }',
+      'Cannot + array<f32, 3>: WGSL has no arithmetic on an array. Write it element by element.',
+    ],
+    [
+      '!== on two arrays',
+      'export function k(a: array<f32, 3>, b: array<f32, 3>): bool { return a !== b }',
+      'Cannot !== array<f32, 3>: WGSL compares scalars and vectors, not an array. Compare it ' +
+        'element by element.',
+    ],
+    [
+      '< on two bools',
+      'export function k(a: bool, b: bool): bool { return a < b }',
+      'Cannot < bool: a bool has no order in WGSL. Compare it with === or !==.',
+    ],
+    [
+      '* on two bools',
+      'export function k(a: bool, b: bool): bool { return a * b }',
+      'Cannot * bool: WGSL has no arithmetic on a bool. Convert it to a number first, e.g. u32(a).',
+    ],
+    [
+      '+ on two vectors of bools',
+      'export function k(a: vec3b, b: vec3b): vec3b { return a + b }',
+      'Cannot + vec3b: WGSL has no arithmetic on a vector of bools. Convert it to numbers ' +
+        'first, e.g. vec3u(a).',
+    ],
+    [
+      '- on a vector of bools and the bool it broadcasts',
+      'export function k(a: vec2b, b: bool): vec2b { return a - b }',
+      'Cannot - vec2b: WGSL has no arithmetic on a vector of bools. Convert it to numbers ' +
+        'first, e.g. vec2u(a).',
+    ],
+    [
+      '^ on two bools',
+      'export function k(a: bool, b: bool): bool { return a ^ b }',
+      "Cannot ^ bool: WGSL's ^ takes integers, not a bool. Write a !== b, which is the same.",
+    ],
+    [
+      '& on two floats',
+      'export function k(a: f32, b: f32): f32 { return a & b }',
+      "Cannot & f32: WGSL's & takes integers and bools, not a float. Convert it first, e.g. " +
+        'u32(a).',
+    ],
+    [
+      '| on two float vectors',
+      'export function k(a: vec3, b: vec3): vec3 { return a | b }',
+      "Cannot | vec3: WGSL's | takes integers and bools, not a float. Convert it first, e.g. " +
+        'vec3u(a).',
+    ],
+    [
+      '^ on two doubles',
+      'export function k(a: f64, b: f64): f64 { return a ^ b }',
+      "Cannot ^ f64: WGSL's ^ takes integers, not a float. Convert it first, e.g. u32(f32(a)).",
+    ],
+    [
+      '=== on two matrices',
+      'export function k(m: mat3, n: mat3): bool { return m === n }',
+      'Cannot === mat3x3: WGSL compares scalars and vectors, not a matrix. Compare it column ' +
+        'by column, all(m[0] === n[0]).',
+    ],
+    [
+      '=== on two matrices of doubles, whose columns cannot be indexed',
+      'export function k(m: mat3<f64>, n: mat3<f64>): bool { return m === n }',
+      'Cannot === mat3x3<f64>: WGSL compares scalars and vectors, not a matrix.',
+    ],
+    [
+      '< on two matrices',
+      'export function k(m: mat2, n: mat2): bool { return m < n }',
+      'Cannot < mat2x2: WGSL orders numbers and vectors of numbers, not a matrix.',
+    ],
+    [
+      '- on two matrices of doubles',
+      'export function k(m: mat3<f64>): mat3<f64> { return m - m }',
+      'Cannot - mat3x3<f64>: the fp64 pass lowers only * and transpose on a matrix of ' +
+        'doubles. Declare the matrix mat3x3 where you need -.',
+    ],
+    [
+      '== on two samplers',
+      'declare const s: sampler\n' +
+        'export function k(): bool { return s === s }\n' +
+        '@fragment export function fs(): vec4 { return vec4(select(0., 1., k())) }',
+      'Cannot === sampler: WGSL compares scalars and vectors, not a texture or a sampler.',
+    ],
+    [
+      'unary - on a bool',
+      'export function k(b: bool): bool { return -b }',
+      'Unary "-" is not defined on bool; WGSL has no negation for a bool. Write !x for its ' +
+        'logical not.',
+    ],
+    [
+      'unary - on a vector of bools',
+      'export function k(b: vec4b): vec4b { return -b }',
+      'Unary "-" is not defined on vec4b; WGSL has no negation for a vector of bools. Write !x ' +
+        'for its logical not.',
+    ],
+    [
+      'unary - on a matrix',
+      'export function k(m: mat3): mat3 { return -m }',
+      'Unary "-" is not defined on mat3x3; WGSL has no negation for a matrix. Write x * -1. to ' +
+        'negate each entry.',
+    ],
+    [
+      'unary - on a matrix of doubles',
+      'export function k(m: mat4<f64>): mat4<f64> { return -m }',
+      'Unary "-" is not defined on mat4x4<f64>; WGSL has no negation for a matrix.',
+    ],
+    [
+      'unary - on a class instance',
+      `${A}export function k(a: A): A { return -a }`,
+      'Unary "-" is not defined on A; WGSL has no negation for a struct. Negate its fields one ' +
+        'by one.',
+    ],
+    [
+      'unary - on an array',
+      'export function k(a: array<f32, 2>): array<f32, 2> { return -a }',
+      'Unary "-" is not defined on array<f32, 2>; WGSL has no negation for an array. Negate its ' +
+        'elements one by one.',
+    ],
+    [
+      '+= on a class instance',
+      `${A}export function k(b: A): A { let a = b; a += b; return a }`,
+      'Cannot += A: WGSL has no arithmetic on a struct. Write it field by field.',
+    ],
+    [
+      '-= on a vector of bools',
+      'export function k(b: vec3b): vec3b { let a = b; a -= b; return a }',
+      'Cannot -= vec3b: WGSL has no arithmetic on a vector of bools. Convert it to numbers ' +
+        'first, e.g. vec3u(a).',
+    ],
+    [
+      '+= on a matrix of doubles',
+      'export function k(m: mat3<f64>): mat3<f64> { let p = m; p += m; return p }',
+      'Cannot += mat3x3<f64>: the fp64 pass lowers only * and transpose on a matrix of ' +
+        'doubles. Declare the matrix mat3x3 where you need +=.',
+    ],
+    [
+      '*= on a matrix of doubles, whose product the pass has no compound form of',
+      'export function k(m: mat3<f64>, n: mat3<f64>): mat3<f64> { let p = m; p *= n; return p }',
+      'Cannot *= mat3x3<f64>: the fp64 pass lowers the product of two matrices of doubles and ' +
+        'not its compound assignment. Write m = m * n.',
+    ],
+  ])('refuses %s, once, on the line', (_what, source, message) => {
+    const r = compileTsSource(`"use typeshade"\n${source}`);
+    expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([
+      [TS_CODES.TYPE_MISMATCH, message],
+    ]);
+  });
+
+  it('keeps every operator WGSL and the fp64 pass have, with the WGSL it had', () => {
+    // `&` and `|` on a bool are WGSL's non-short-circuiting logical operators, and `===` takes
+    // any scalar or vector; a matrix of doubles keeps its product.
+    const c = compiled(`export function b(a: bool, c: bool): bool { return (a & c) | (a === c) }
+export function v(a: vec3b, c: vec3b): vec3b { return (a & c) | (a !== c) }
+export function n(x: vec3i, y: vec3i): vec3i { return (-x & y) ^ ~y }
+export function m(p: mat3, q: mat3): mat3 { return p + q - p * q }
+export function d(p: mat3<f64>, q: mat3<f64>, s: f64): f64 { const r = p * q; return -s }`);
+    expect(c.wgsl).toContain('return ((a & c) | (a == c));');
+    expect(c.wgsl).toContain('return ((a & c) | (a != c));');
+    expect(c.wgsl).toContain('return (((-x) & y) ^ ~y);');
+    expect(c.wgsl).toContain('return ((p + q) - (p * q));');
+  });
+
+  it('compiles every remedy the refusals name', () => {
+    compiled(`${A}export function a(x: A, y: A): f32 { return x.x + y.x }
+export function b(a: bool, c: bool): u32 { return u32(a) + u32(c) }
+export function v(a: vec3b): vec3u { return vec3u(a) }
+export function x(a: bool, c: bool): bool { return a !== c }
+export function f(a: f32, c: f32): u32 { return u32(a) & u32(c) }
+export function g(a: vec3, c: vec3): vec3u { return vec3u(a) & vec3u(c) }
+export function h(a: f64, c: f64): u32 { return u32(f32(a)) ^ u32(f32(c)) }
+export function e(m: mat3, n: mat3): bool { return all(m[0] === n[0]) }
+export function o(m: mat3): mat3 { return m * -1. }
+export function p(m: mat3<f64>, n: mat3<f64>): mat3<f64> { let q = m; q = q * n; return q }`);
   });
 });

@@ -2,6 +2,7 @@
 
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import { checkDeclarationDecorators } from './builtin-check.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { isEnableDirective } from './enables.js';
@@ -335,6 +336,9 @@ export function analyzeSemantics(
   diagnostics: TsCompilerDiagnostic[],
 ): void {
   for (const stmt of sourceFile.statements) {
+    // A decorator on a binding, an override, a constant or a module variable (Rule 6.7), beside
+    // whatever else the statement is refused for.
+    if (ts.isVariableStatement(stmt)) checkDeclarationDecorators(diagnostics, sourceFile, stmt);
     if (ts.isExpressionStatement(stmt)) {
       const e = stmt.expression;
       if (ts.isStringLiteral(e) && (e.text === 'use typeshade' || e.text === 'use strict'))
