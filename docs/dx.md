@@ -90,6 +90,32 @@ Everything domain-shaped, such as a projection, a color space, a noise function 
 kernel, belongs in a library written in TypeShade. That is how C has libpng and SQLite rather
 than a PNG type and a query statement.
 
+## Prior art
+
+Python reached the GPU in four ways, and each one has something for TypeShade to take.
+
+| Model                                 | Libraries                       | How parallel code is written                                                                                        | Where data lives                                                                                                                                                     | What TypeShade takes                                                                                                              |
+| ------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Array library                         | CuPy, PyTorch, JAX              | Whole-array operations; the library owns the kernels                                                                | On the array (`cp.asarray`, `.to('cuda')`). Calls queue asynchronously, and the host waits only when it reads a value (`.item()`, `cp.asnumpy`, `block_until_ready`) | A wait only at a read. JAX's transformations of functions (`jit`, `grad`, `vmap`) as the shape of `grad(f)`                       |
+| Kernel compiler                       | Numba CUDA, Triton, NVIDIA Warp | One thread's or one block's work, with its index (`cuda.grid`, `wp.tid`, `tl.program_id`) and a launch size         | Explicit device arrays. Numba copies a host array on every call, and warns: `NumbaPerformanceWarning: Host array used in CUDA kernel will incur copy overhead…`      | Inference, with a warning where it costs something. Derivatives outside machine learning: Warp's `wp.Tape` differentiates physics |
+| Embedded language with parallel loops | Taichi, Numba's `prange`        | An ordinary loop. Taichi parallelizes the outermost loop of a kernel by rule; `prange` by the developer's assertion | `ti.field`, declared on the device                                                                                                                                   | The loop as the unit of parallelism. One switch (`ti.init(arch=ti.cpu)`) runs the same code on the CPU. `ti.ad.Tape`              |
+| Tracing                               | Dr.Jit (Mitsuba 3), JAX's `jit` | Ordinary array code, recorded, and fused into kernels when a value is needed                                        | Symbolic until evaluated                                                                                                                                             | Fusing a chain of calls into one kernel, which the roadmap places after 1.0                                                       |
+
+Three conclusions follow.
+
+1. **None of them infers where data lives, completely.** Every one makes device residency a
+   property of the value, and the one that copies silently, Numba, warns about it. TypeShade
+   aims to infer it (#97), and this document does not pretend that is proven. Where inference
+   fails, `explain` says so, and one word keeps the value on the device (principle 1).
+2. **A parallel loop has to be predictable, not only powerful.** Taichi's rule fits in one
+   sentence. Item 15's independence proof is stronger than a rule. It is only usable if every
+   loop that stays on the CPU says why.
+3. **Running the same code on the CPU is common:** Taichi, Warp and Numba all do it. What none of
+   them has is the CPU as the reference meaning, a GPU result checked against it, and a GPU
+   function stepped in a debugger with the same numbers. That is rows 4 and 5 of the table above,
+   and it is TypeShade's own ground. Warp, Taichi and Dr.Jit also show that derivatives in
+   simulation and rendering are ordinary. `grad` is general for the same reason.
+
 ## Principles
 
 Each principle comes with the question a reviewer asks of a new public API.
@@ -97,6 +123,10 @@ Each principle comes with the question a reviewer asks of a new public API.
 1. **The unit is the function call. The data is plain data.** A caller passes `number`,
    `Float32Array` and the vector types, and receives the same. There is no buffer type and no
    device type on the primary path.
+   Where a value lives is inferred by default. Where inference cannot keep a value on the device
+   from one call to the next, `explain` says so and what it costs. One word then keeps the value
+   there. That word is the only device vocabulary a compute program may need, and it is the same
+   concession every library under "Prior art" makes.
    _Test:_ can a caller use the API without naming an IR module, a generated function name or
    a GPU object?
 2. **Looking under the hood goes through one door, and that door speaks the source language.**
@@ -108,9 +138,11 @@ Each principle comes with the question a reviewer asks of a new public API.
 3. **Every failure points at the line the developer wrote.** This holds for a compile-time
    refusal, for a GPU result that differs from the oracle, and for a performance warning.
    _Test:_ does any failure this API can produce name generated text instead of the source?
-4. **No ceremony, and one honest boundary.** There is no configuration and no device setup.
-   `await` appears only where a result genuinely crosses back from the GPU. That is
-   asynchronous in every browser, so it is shown once, where it costs something.
+4. **No ceremony, and one honest boundary.** There is no configuration and no device setup. A
+   call that runs on the GPU is queued, and it returns without waiting. `await` appears only
+   where the host reads a GPU result, because that read is asynchronous in every browser. It is
+   shown once, where it costs something. This is how CuPy, PyTorch and JAX already work: calls
+   queue up, and the host waits only when it reads a value.
    _Test:_ does the caller write any step that a correct default could have taken for them?
 5. **A transformation applies to any function.** `grad(fn, 'k')` takes a function and returns a
    function, whatever the domain the function comes from. The oracle checks every derivative
@@ -158,19 +190,20 @@ thin layer over them (the roadmap's rule "The run layer has no import").
 "Overwhelming" has to be measurable, or it is only a feeling. Each line below becomes a check in
 CI once the thing it measures exists.
 
-| Bar                                                                                                                           | How it is checked                                                                                         | Status                                                             |
-| ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| No GPU vocabulary in a compute program. A caller's file never names a device, buffer, bind group, pipeline, workgroup or WGSL | A test scans each domain's example application for those words, and fails on any                          | Waits on items 15 and 16                                           |
-| A library of TypeShade code installs from npm and imports by name                                                             | A test installs a TypeShade package into a fresh project and imports a function from it                   | Relative imports only today                                        |
-| Zero lines of configuration from install to a first GPU result                                                                | A test in a fresh project: install, write the example, run it                                             | Waits on item 16                                                   |
-| Every program runs without a GPU                                                                                              | The run layer's CPU tier runs every example under the test runner, with no device                         | The compute runner has a CPU tier today, for portable kernels only |
-| Every failure names a source line                                                                                             | Front end: every `TS80xx` diagnostic has a span. Run time: every refusal and every divergence carries one | Front end holds on `main`. Run time waits on item 19               |
-| Development mode compares the GPU with the oracle automatically                                                               | A run under development mode reports the first differing invocation and expression                        | Waits on item 19                                                   |
+| Bar                                                                                                                                                                                                                           | How it is checked                                                                                         | Status                                                             |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| No GPU vocabulary in a compute program. A caller's file never names a device, buffer, bind group, pipeline, workgroup or WGSL. The one word that keeps a value on the device is allowed, and only where `explain` asks for it | A test scans each domain's example application for those words, and fails on any                          | Waits on items 15 and 16                                           |
+| A library of TypeShade code installs from npm and imports by name                                                                                                                                                             | A test installs a TypeShade package into a fresh project and imports a function from it                   | Relative imports only today                                        |
+| Zero lines of configuration from install to a first GPU result                                                                                                                                                                | A test in a fresh project: install, write the example, run it                                             | Waits on item 16                                                   |
+| Every program runs without a GPU                                                                                                                                                                                              | The run layer's CPU tier runs every example under the test runner, with no device                         | The compute runner has a CPU tier today, for portable kernels only |
+| Every failure names a source line                                                                                                                                                                                             | Front end: every `TS80xx` diagnostic has a span. Run time: every refusal and every divergence carries one | Front end holds on `main`. Run time waits on item 19               |
+| Development mode compares the GPU with the oracle automatically                                                                                                                                                               | A run under development mode reports the first differing invocation and expression                        | Waits on item 19                                                   |
 
 ## The demonstrations
 
 No single program can stand for a general language. The bar is measured over one small program
-per domain of the table above, each a single file with no GPU vocabulary:
+per domain of the table above, each a single file with no GPU vocabulary beyond the one
+residency word:
 
 - a particle simulation stepped every frame;
 - an image filter over a camera frame;
@@ -179,32 +212,42 @@ per domain of the table above, each a single file with no GPU vocabulary:
 - a parameter fit.
 
 The last one shows the most at once, in a way nothing else on the web can: inverse rendering in
-a browser tab. A render function is written in TypeScript. `grad` fits its
-parameters to a target image. The loss over every pixel runs on the GPU, and the descent around
-it is ordinary host code. A breakpoint inside the render function stops on the CPU, with the same
-numbers.
+a browser tab. A render function is written in TypeScript, and `grad` fits its parameters to a
+target image.
 
-<!-- doc-snippets: skip — the import of a .shade.ts, the parallel loop and grad on a function are items 16, 15 and 18, which the compiler does not take yet -->
+- **The loop is host code**, as it is in every Python library.
+- **The parameters, the gradient and the update stay on the GPU.** Each step is queued, and the
+  host waits once, at the end.
+- **The debugger reaches inside.** A breakpoint in the render function stops on the CPU, with the
+  same numbers.
+
+<!-- doc-snippets: skip — the import of a .shade.ts, residency, the parallel loop and grad on a function are items 16, B1 to B3, 15 and 18, which the compiler does not take yet -->
 
 ```ts
-import { grad } from 'typeshade'
-import { render, loss } from './scene.shade.ts'
+import { grad, resident } from 'typeshade'
+import { render, loss, descend } from './scene.shade.ts'
 
-let params = [0.5, 0.5, 0.5, 1.0]
+const params = resident(new Float32Array([0.5, 0.5, 0.5, 1.0])) // stays on the GPU
 const dLoss = grad(loss, 'params') // a function, differentiated and checked by the compiler
 for (let step = 0; step < 200; step++) {
-  const g = await dLoss(params, target) // the pixels are compared on the GPU
-  params = params.map((p, i) => p - 0.05 * g[i]!)
+  descend(params, dLoss(params, target), 0.05) // queued; the host does not wait
 }
-await render(params, canvas)
+await render(params, canvas) // the one place the host waits
 ```
 
-There is no device, buffer, workgroup or WGSL in it, and it can be stepped through line by line.
+`resident` stands for the one residency word; the name is not decided. If the compiler can prove
+that `params` never needs to leave the GPU, the word goes too. Awaiting the gradient on every
+step and updating the parameters on the CPU would compute the same numbers. It would also be the
+`.item()`-every-step pattern that PyTorch users learn to avoid: two round trips per step, for a
+value no one reads. Apart from that one word there is no device, buffer, workgroup or WGSL in
+it, and it can be stepped through line by line.
 
 ## What is not promised
 
 - **Reading a GPU result is asynchronous, and stays visible.** An implicit blocking readback
   would hide a frame-time cliff inside an innocent-looking call.
+- **Where data lives is not always inferred.** No shipping array library infers it completely.
+  When TypeShade cannot, it says so in `explain`, and the value takes one word.
 - **Not every TypeScript construct runs on a GPU.** A construct that cannot is refused at
   compile time, with the reason and the ordinary-TypeScript fix. It is never silently moved to
   the CPU inside a function the developer asked to run on the GPU. The exception is a loop the
