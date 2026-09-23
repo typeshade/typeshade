@@ -125,9 +125,18 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
 
 export function foldConstBool(expr: Expr, scope: LoweringScope): boolean | undefined {
   if (expr.op === 'lit' && typeof expr.value === 'boolean') return expr.value;
-  if (expr.op === 'varref' || expr.op === 'param') {
+  // A module constant, a namespace's or a static readonly (`ON`, `N.ON`, `C.ON`) too, as
+  // `foldConstNumber` folds a numeric one: `while (ON)` for `const ON = true` read as a
+  // runtime condition, so the loop that never ends compiled with no diagnostic (Rule 7.5).
+  // A function's scope binds a `bool` module constant to the value the module carries, 1 or
+  // 0, and a `const` copied from one (`const go = ON`) takes that number from the fold.
+  if (expr.op === 'constref' || expr.op === 'varref' || expr.op === 'param') {
     const b = scope.resolveIr(expr.name);
-    if (b && !b.mutable && typeof b.constValue === 'boolean') return b.constValue;
+    if (!b || typeKey(b.type) !== 'bool' || (expr.op !== 'constref' && b.mutable)) {
+      return undefined;
+    }
+    const v = b.constValue;
+    return typeof v === 'boolean' ? v : v === 1 ? true : v === 0 ? false : undefined;
   }
   return undefined;
 }
@@ -186,6 +195,13 @@ function readCond(cond: Expr, name: string, scope: LoweringScope): ExitCompare |
   return undefined;
 }
 
+/** Whether `cond` is the exit a counted loop reads: the induction variable, by its IR name,
+ *  compared to a bound (Rule 7.5). `lowerFor` asks it of each clause of an `&&` exit, to name
+ *  the clause that is not one. */
+export function comparesToBound(cond: Expr, name: string, scope: LoweringScope): boolean {
+  return readCond(cond, name, scope) !== undefined;
+}
+
 /** Whether `e` reads the IR name `name` anywhere. `i < i * 2` compares the induction variable
  *  to itself, which is not a bound. */
 function mentions(e: Expr, name: string): boolean {
@@ -217,10 +233,11 @@ function readStep(update: Stmt, name: string, scope: LoweringScope): Step | unde
     if (update.bop === '/') return { op: 'div', by: c };
     return undefined;
   }
-  // The only `assign` update `lowerUpdate` builds is the `i++` / `i--` pair, which it writes
-  // as `i = i + 1` / `i = i - 1`. A source-level `i = i * 2` is refused there as an unsupported
-  // for-update and never reaches this function, so there is no `*` or `/` arm here: one would
-  // read as support this surface does not have.
+  // The `assign` updates `lowerUpdate` builds are the `i++` / `i--` pair, which it writes as
+  // `i = i + 1` / `i = i - 1`, and the same step spelled out, `i = i + c`, `i = c + i` or
+  // `i = i - c`. A source-level `i = i * 2` is refused there with the sentence below and never
+  // reaches this function, so there is no `*` or `/` arm here: one would read as support this
+  // surface does not have.
   if (update.s === 'assign' && isInduct(update.target, name) && update.expr.op === 'binop') {
     const e = update.expr;
     if (e.bop === '+') {
@@ -247,6 +264,15 @@ function readStep(update: Stmt, name: string, scope: LoweringScope): Step | unde
 function stepText(name: string, step: Step): string {
   if (step.op === 'add') return step.by < 0 ? `${name} -= ${-step.by}` : `${name} += ${step.by}`;
   return `${name} ${step.op === 'mul' ? '*' : '/'}= ${step.by}`;
+}
+
+/** The one sentence for a `for` update that is none of the forms a counted loop steps by
+ *  (Rule 7.5), `shown` being the induction variable as the author spelled it. Said here of an
+ *  update this cannot read a step from (`j += 1`, `v.x++`, `i *= n`), and by `lowerUpdate` of
+ *  one it cannot lower (`i <<= 1`, `i %= 3`, `v.x += 1.`, `i = i * 2`), so one mistake reads
+ *  one way whatever operator it was written with (Rule 12.4). */
+export function forUpdateRefusal(shown: string): string {
+  return `for-update must be ${shown}++ / ${shown} += <const>, or ${shown} *= / /= <const>.`;
 }
 
 /** What the analysis concluded about an accepted counted loop. Nothing reads it yet: the
@@ -305,11 +331,7 @@ export function analyzeCountedFor(
   }
   const step = readStep(update, init.name, scope);
   if (step === undefined) {
-    return {
-      ok: false,
-      message: `for-update must be ${shown}++ / ${shown} += <const>, or ${shown} *= / /= <const>.`,
-      code: TS_CODES.LOOP_INDUCTION,
-    };
+    return { ok: false, message: forUpdateRefusal(shown), code: TS_CODES.LOOP_INDUCTION };
   }
   const stall = stalls(step);
   if (stall) {
@@ -574,18 +596,20 @@ function addTrips(
  * iterative solver are written this way, and both targets accept it. What is refused is the
  * one open loop that certainly never ends: a condition that is constantly true, with no
  * `break` or `return` in the body to leave it by. `hasExit` answers the second half, since
- * that is a question about the source body and not the condition.
+ * that is a question about the source body and not the condition. `written` is the condition
+ * as the author wrote it, `true` or a constant that holds it (`ON`), which the sentence names.
  */
 export function openLoopError(
   cond: Expr,
   scope: LoweringScope,
   hasExit: boolean,
+  written: string,
 ): { message: string; code: TsCode } | undefined {
   if (foldConstBool(cond, scope) !== true || hasExit) return undefined;
   return {
     message:
-      'while (true) has no break or return in its body, so it never ends. Leave it with a ' +
-      'break, or write the exit into the condition.',
+      `while (${written}) has no break or return in its body, so it never ends. Leave it ` +
+      'with a break, or write the exit into the condition.',
     code: TS_CODES.LOOP_INFINITE,
   };
 }
