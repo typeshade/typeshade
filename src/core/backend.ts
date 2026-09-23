@@ -21,6 +21,7 @@ import type {
   RawStmt,
 } from './ir/index.js'
 import { ALL_CAPABILITIES } from './ir/nodes.js'
+import { DERIVED_CAPABILITIES } from './ir/derived-capabilities.js'
 import type { ModuleVarDecl, CmpOp } from './ir/nodes.js'
 import { TypeShadeError } from './diagnostics/error.js'
 import type { ParenMode } from './emit.js'
@@ -376,9 +377,10 @@ export interface CapabilityRow {
   readonly capability: Capability
   /** Keyed by `Backend.id`, one entry per backend passed in. */
   readonly support: Readonly<Record<string, CapSupportKind>>
-  /** Whether a module may name this capability in `enables`. False for the three
-   *  capabilities derived from a module's shape (`storageBuffer`, `compute` and
-   *  `msaaTextureLoad`), which {@link DeclarableCapability} excludes from `enables`. */
+  /** Whether a module may name this capability in `enables`. False for the nine
+   *  capabilities derived from a module's shape (`storageBuffer` through `textureGather`,
+   *  `bgra8unormStorage` and `packed4x8Dot`), which {@link DeclarableCapability} excludes
+   *  from `enables`. */
   readonly declarable: boolean
 }
 
@@ -401,8 +403,10 @@ export interface CapabilityRow {
  *  `UnsupportedFeatureError` with `SD0030` naming the capability, and no source the driver
  *  would reject is produced.
  *
- *  `declarable` is false for the three capabilities derived from a module's shape,
- *  `storageBuffer`, `compute` and `msaaTextureLoad`, which `enables` cannot name.
+ *  `declarable` is false for the nine capabilities derived from a module's shape, which
+ *  `enables` cannot name: `storageBuffer`, `compute`, `msaaTextureLoad`, `storageTexture`,
+ *  `texture1d`, `textureCubeArray`, `textureGather`, `bgra8unormStorage` and
+ *  `packed4x8Dot`. It reads the same list {@link DeclarableCapability} is defined against.
  *
  *  Exported from `typeshade`.
  *
@@ -442,21 +446,11 @@ export function capabilityMatrix(backends: readonly Backend[]): readonly Capabil
         ]
       }),
     ),
-    declarable: !DERIVED_CAPABILITIES.has(capability),
+    declarable: !DERIVED_CAPABILITY_SET.has(capability),
   }))
 }
 
-/** The four caps `requiredCaps` derives from a module's SHAPE — a storage binding, a
- *  `@compute` entry, an MSAA texture load, a storage-texture binding — and which
- *  `DeclarableCapability` therefore makes unrepresentable in `enables` (X-GIS #1681 A2). */
-const DERIVED_CAPABILITIES: ReadonlySet<Capability> = new Set([
-  'storageBuffer',
-  'compute',
-  'msaaTextureLoad',
-  'storageTexture',
-  // Roadmap 0.4 item 12: a 1d or cube-array texture binding, and a textureGather call. Each is
-  // core WebGPU and absent from GLSL ES 3.00, so the WGSL row is empty and GLSL has none.
-  'texture1d',
-  'textureCubeArray',
-  'textureGather',
-])
+/** The derived capabilities as a set, read from the one list `DeclarableCapability` is
+ *  defined against (`ir/derived-capabilities.ts`), so the `declarable` column and the type
+ *  `enables` takes cannot drift apart (X-GIS #1681 A2). */
+const DERIVED_CAPABILITY_SET: ReadonlySet<Capability> = new Set(DERIVED_CAPABILITIES)

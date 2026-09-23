@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { capabilityMatrix } from './backend.js'
-import { ALL_CAPABILITIES } from './ir/index.js'
+import { ALL_CAPABILITIES, type Capability, type DeclarableCapability } from './ir/index.js'
 import { wgslBackend } from './backends/wgsl.js'
 import { glslEs300Backend } from './backends/glsl.js'
 
@@ -46,6 +46,28 @@ describe('capabilityMatrix — one row per capability, one column per backend', 
       (c) => rowFor(c).support['wgsl'] !== rowFor(c).support['glsl-es300'],
     )
     expect(disagreements.length).toBeGreaterThan(0)
+  })
+
+  it('marks EVERY derived cap as not declarable, exactly the ids DeclarableCapability excludes', () => {
+    // Regression: the matrix read a hand list that stopped at the seven kind-derived ids, so
+    // `bgra8unormStorage` (#147, derived from a binding's format) and `packed4x8Dot` (#152,
+    // derived from the calls) reported `declarable: true` although `enables` cannot name
+    // either. The expected set is spelled against the TYPE: the `satisfies` below fails to
+    // compile if an id here is declarable, and the equality fails if the matrix disagrees.
+    const derived = [
+      'storageBuffer',
+      'compute',
+      'msaaTextureLoad',
+      'storageTexture',
+      'texture1d',
+      'textureCubeArray',
+      'textureGather',
+      'bgra8unormStorage',
+      'packed4x8Dot',
+    ] as const satisfies readonly Exclude<Capability, DeclarableCapability>[]
+    expect(matrix.filter((r) => !r.declarable).map((r) => r.capability)).toEqual([...derived])
+    expect(rowFor('bgra8unormStorage').declarable).toBe(false)
+    expect(rowFor('packed4x8Dot').declarable).toBe(false)
   })
 
   it('marks the three DERIVED caps as not declarable', () => {

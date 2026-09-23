@@ -46,8 +46,18 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   vec2f64: 'A two-component vector of `f64`.',
   vec3f64: 'A three-component vector of `f64`.',
   vec4f64: 'A four-component vector of `f64`.',
-  mat4: '4x4 matrix of `f32`, column-major, same type as `mat4x4`.',
+  mat2x2: '2x2 matrix of `f32` (or `f64` as `mat2x2<f64>`), column-major.',
+  mat2: '2x2 matrix of `f32`, column-major, same type as `mat2x2`.',
+  mat2x3: '2x3 matrix of `f32`, column-major: 2 columns of `vec3`.',
+  mat2x4: '2x4 matrix of `f32`, column-major: 2 columns of `vec4`.',
+  mat3x2: '3x2 matrix of `f32`, column-major: 3 columns of `vec2`.',
+  mat3x3: '3x3 matrix of `f32` (or `f64` as `mat3x3<f64>`), column-major.',
+  mat3: '3x3 matrix of `f32`, column-major, same type as `mat3x3`.',
+  mat3x4: '3x4 matrix of `f32`, column-major: 3 columns of `vec4`.',
+  mat4x2: '4x2 matrix of `f32`, column-major: 4 columns of `vec2`.',
+  mat4x3: '4x3 matrix of `f32`, column-major: 4 columns of `vec3`.',
   mat4x4: '4x4 matrix of `f32` (or `f64` as `mat4x4<f64>`), column-major.',
+  mat4: '4x4 matrix of `f32`, column-major, same type as `mat4x4`.',
 }
 
 /** One Markdown sentence per attribute name in `ATTRIBUTE_NAMES`. */
