@@ -9,6 +9,7 @@ import type {
   OverrideDecl,
   StructDecl,
 } from '../../core/ir/nodes.js';
+import { typeKey } from '../../core/ir/types.js';
 import { emitFuncs, emitModule } from '../../core/backends/wgsl.js';
 import { requiredCaps } from '../../core/passes/required-caps.js';
 import { hasUseTypeshadeDirective } from './directive.js';
@@ -23,6 +24,7 @@ import { collectModuleConsts } from './module-const.js';
 import { collectModuleVars } from './module-vars.js';
 import { TS_CODES } from './codes.js';
 import { checkRecursion, type RecursionNode } from './recursion.js';
+import { fileFunctionsOf } from './context.js';
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
 import type { DeclaredSymbol } from './symbols.js';
 
@@ -357,9 +359,35 @@ export function compileTsSources(
 
   const funcs: FuncDecl[] = [];
   const graph: RecursionNode[] = [];
+  // A function that writes no return type says it in its body (Rule 8.19), so a call that needs
+  // it first, from any file, lowers that body then: each waits in `pending` until a call or its
+  // turn comes. A call back into a body still being lowered closes a cycle, which a call here
+  // always names by an identifier the graph below resolves, so `checkRecursion` names it.
+  const pending = new Map<FuncDecl, () => void>();
+  const inferring = new Set<FuncDecl>();
+  // Every body being lowered, innermost last.
+  const filling: FuncDecl[] = [];
+  // The ones whose body did not lower, and so says nothing it returns, and those a call cycle
+  // runs through, whose return type waits on itself.
+  const unsaid = new Set<FuncDecl>();
+  const cyclic = new Set<FuncDecl>();
+  const ensure = (decl: FuncDecl): boolean => {
+    const fill = pending.get(decl);
+    if (fill !== undefined) {
+      pending.delete(decl);
+      fill();
+    }
+    if (inferring.has(decl)) {
+      for (const f of filling.slice(filling.lastIndexOf(decl))) if (inferring.has(f)) cyclic.add(f);
+      return false;
+    }
+    return !unsaid.has(decl);
+  };
+  for (const callees of fileCallees.values()) fileFunctionsOf(callees).ensure = ensure;
   // Only the entry file feeds the symbol table, since a span alone cannot say which file it
   // indexes. `entryName` above is that file: already normalized, so the caller's `'./main.ts'`
   // and `'main.ts'` name one file and neither can be handed the other's offsets.
+  const inOrder: (() => void)[] = [];
   for (const [name, table] of exports) {
     const callees = fileCallees.get(name)!;
     for (const rec of table.values()) {
@@ -367,20 +395,55 @@ export function compileTsSources(
       // `consts` is the entry file's, collected above, and the symbol sink is passed only for
       // the entry file.
       const sink = name === entryName ? symbols : undefined;
-      fillFunctionBody(
-        rec.node,
-        rec.stub,
-        rec.sf,
-        diagnostics,
-        callees,
-        consts,
-        merged.bindings,
-        merged.structs,
-        sink,
-        merged.overrides,
-        vars,
-      );
-      funcs.push(rec.stub);
+      const infers = rec.node.type === undefined && rec.stub.stage === undefined;
+      const fill = (): void => {
+        const before = diagnostics.length;
+        filling.push(rec.stub);
+        if (infers) inferring.add(rec.stub);
+        try {
+          fillFunctionBody(
+            rec.node,
+            rec.stub,
+            rec.sf,
+            diagnostics,
+            callees,
+            consts,
+            merged.bindings,
+            merged.structs,
+            sink,
+            merged.overrides,
+            vars,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            infers,
+          );
+        } finally {
+          filling.pop();
+          inferring.delete(rec.stub);
+        }
+        // A body that did not lower says nothing it returns, and a call of it adds nothing.
+        if (
+          infers &&
+          (cyclic.has(rec.stub) ||
+            (typeKey(rec.stub.ret) === 'void' &&
+              diagnostics.slice(before).some((d) => d.category === 'error')))
+        ) {
+          unsaid.add(rec.stub);
+        }
+        funcs.push(rec.stub);
+      };
+      if (infers) {
+        pending.set(rec.stub, fill);
+        inOrder.push(() => ensure(rec.stub));
+      } else {
+        inOrder.push(fill);
+      }
       // The graph key is the EMITTED name, not the local one: across files the same function
       // reaches its callers under whatever name each `import` bound it to, and a cycle is a
       // cycle in the emitted WGSL. `callees` is already that mapping, per file.
@@ -392,6 +455,8 @@ export function compileTsSources(
       });
     }
   }
+  // Each function in file order; one a call lowered already is not lowered again.
+  for (const run of inOrder) run();
   // A call cycle emits WGSL Tint refuses (#48). Across files it can be spelled through an
   // import, which is exactly why the resolver above goes through `callees`.
   checkRecursion(graph, diagnostics);

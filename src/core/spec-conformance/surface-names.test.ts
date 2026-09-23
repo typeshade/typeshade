@@ -267,6 +267,16 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
     name: 'random',
     reason: 'a hash of its seed, an `f32` in [0, 1); ECMAScript spells a draw `Math.random()`',
   },
+  // The array folds WGSL has no builtin for, unrolled at the call (Rule 8.18).
+  { name: 'sum', reason: "the sum of an array's elements, unrolled; WGSL has no fold" },
+  {
+    name: 'none',
+    reason: 'whether no element passes a test, unrolled; the negation of the `any` fold',
+  },
+  {
+    name: 'zip',
+    reason: 'an array built from two, element by element, by a function the call hands over',
+  },
 
   // Storage-texture vocabulary. WGSL writes these as predeclared enumerants inside
   // `texture_storage_2d<...>`; TypeShade passes the same strings, so the TYPE names are its own.

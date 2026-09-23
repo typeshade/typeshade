@@ -4,7 +4,7 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
-import { irNameOf, readOnlyPhrase } from '../context.js';
+import { irNameOf, readOnlyPhrase, writeRules } from '../context.js';
 import {
   analyzeCountedFor,
   boundWrittenIn,
@@ -247,6 +247,8 @@ function lowerForInit(
     constValue: init.op === 'lit' ? init.value : undefined,
   });
   scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable: true });
+  // What a local function in the loop body reads `i` through (Rule 8.17).
+  scope.bindDeclaration(decl, bound);
   // Two sequential loops over `i` are the first shape a shader author writes; the second
   // counter takes the IR name `i_1` so the two never collide in the function (#38).
   return { s: 'var', name: irNameOf(bound), type, init };
@@ -686,12 +688,14 @@ export function lowerUpdate(
         );
         return undefined;
       }
-      if (!binding.mutable) {
+      // A captured variable's parameter keeps the variable's rules (Rule 8.17).
+      const rules = writeRules(binding);
+      if (!rules.mutable) {
         pushDiag(
           diagnostics,
           sourceFile,
           expr,
-          `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
+          `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(rules.kind)}.`,
           TS_CODES.CONST_ASSIGN,
         );
         return undefined;
@@ -700,15 +704,20 @@ export function lowerUpdate(
       // `a = v` is — one rule, one wording, stated once in statement.ts. This branch builds
       // its own target instead of going through lowerLValue, so without this call the emit
       // was `a = (a + 1);`, which Tint refuses with `cannot assign to parameter 'a'`.
-      if (binding.kind === 'param') {
+      if (rules.kind === 'param') {
         refuseParamWrite(expr, targetExpr.text, sourceFile, diagnostics);
         return undefined;
       }
+      binding.capture?.byRef();
       // withSpan, as origin/main's #32 gives every authored lvalue: the write position is
       // what a stepped run and a diagnostic point at, and this branch builds the target
       // itself rather than going through lowerLValue, which carries its own.
       target = withSpan(
-        { op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr,
+        {
+          op: binding.kind === 'param' ? 'param' : 'varref',
+          type: binding.type,
+          name: irNameOf(binding),
+        } as Expr,
         sourceFile,
         targetExpr,
       );
@@ -800,25 +809,32 @@ export function lowerUpdate(
         if (folded !== undefined) rhs = { op: 'lit', type: binding.type, value: folded };
       }
       // The same parameter rule as `i++` above: `for (…; p += 2)` on a formal parameter
-      // emitted `p += 2`, which is `cannot assign to parameter 'p'` on Tint.
-      if (binding.kind === 'param') {
+      // emitted `p += 2`, which is `cannot assign to parameter 'p'` on Tint. A captured
+      // variable's parameter keeps the variable's rules (Rule 8.17).
+      const rules = writeRules(binding);
+      if (rules.kind === 'param') {
         refuseParamWrite(expr, left.text, sourceFile, diagnostics);
         return undefined;
       }
-      if (!binding.mutable) {
+      if (!rules.mutable) {
         pushDiag(
           diagnostics,
           sourceFile,
           expr,
-          `Cannot assign to "${left.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
+          `Cannot assign to "${left.text}" — it is ${readOnlyPhrase(rules.kind)}.`,
           TS_CODES.CONST_ASSIGN,
         );
         return undefined;
       }
+      binding.capture?.byRef();
       // `i += 2` writes `i`, so the target carries the lvalue's span (#32) — for all four
       // operators, the same way main stamped the `+=`-only form this generalises.
       const target: Expr = withSpan(
-        { op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr,
+        {
+          op: binding.kind === 'param' ? 'param' : 'varref',
+          type: binding.type,
+          name: irNameOf(binding),
+        } as Expr,
         sourceFile,
         left,
       );

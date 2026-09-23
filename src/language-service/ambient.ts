@@ -1410,8 +1410,26 @@ declare function select<T extends Numeric | bool | BoolVec | Vec64Any | f64>(
 ): T
 ${renderJSDoc(FUNCTION_DOCS.any)}
 declare function any(v: bool | BoolVec): bool
+${renderJSDoc(FUNCTION_DOCS.any)}
+declare function any<T>(xs: array<T>, pred: (x: T) => bool): bool
 ${renderJSDoc(FUNCTION_DOCS.all)}
 declare function all(v: bool | BoolVec): bool
+${renderJSDoc(FUNCTION_DOCS.all)}
+declare function all<T>(xs: array<T>, pred: (x: T) => bool): bool
+${renderJSDoc(FUNCTION_DOCS.none)}
+declare function none<T>(xs: array<T>, pred: (x: T) => bool): bool
+${renderJSDoc(FUNCTION_DOCS.sum)}
+declare function sum<T extends Numeric>(xs: array<T>): T
+${renderJSDoc(FUNCTION_DOCS.zip)}
+declare function zip<A, B, R, N extends number>(
+  xs: array<A, N>,
+  ys: array<B, N>,
+  f: (a: A, b: B) => R,
+): array<R, N>
+${renderJSDoc(FUNCTION_DOCS.min)}
+declare function min<T extends Numeric>(xs: array<T>): T
+${renderJSDoc(FUNCTION_DOCS.max)}
+declare function max<T extends Numeric>(xs: array<T>): T
 ${renderJSDoc(FUNCTION_DOCS.atan2)}
 declare function atan<T extends Numeric>(y: T, x: T): T
 ${renderJSDoc(FUNCTION_DOCS.bool)}
