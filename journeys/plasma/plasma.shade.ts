@@ -27,9 +27,7 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 
 @fragment
 export function fs(@builtin("position") p: vec4): Color {
-  // Workaround (#162): the editor types vector arithmetic as `number`, so an unannotated
-  // `uv` is a number there and `uv.x` is TS2339 in the editor, though it compiles.
-  const uv: vec2 = p.xy * frame.scale;
+  const uv = p.xy * frame.scale;
   let v = 0;
   for (let i = 0; i < 4; i++) {
     const k = f32(i + 1);

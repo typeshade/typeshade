@@ -14,22 +14,20 @@ declare const rays: storage<array<Ray>>;
 declare let hits: storage<array<f32>>;
 
 function intersect(o: vec3, d: vec3, a: vec3, b: vec3, c: vec3): f32 {
-  // Workaround (#162): TypeScript reads vector arithmetic as `number`, so these locals carry
-  // their types for the editor and for plain `tsc`; the compiler needs none of them.
-  const e1: vec3 = b - a;
-  const e2: vec3 = c - a;
-  const p: vec3 = cross(d, e2);
+  const e1 = b - a;
+  const e2 = c - a;
+  const p = cross(d, e2);
   const det = dot(e1, p);
   if (abs(det) < 0.000001) {
     return -1;
   }
   const inv = 1 / det;
-  const s: vec3 = o - a;
+  const s = o - a;
   const u = dot(s, p) * inv;
   if (u < 0 || u > 1) {
     return -1;
   }
-  const q: vec3 = cross(s, e1);
+  const q = cross(s, e1);
   const v = dot(d, q) * inv;
   if (v < 0 || u + v > 1) {
     return -1;
