@@ -200,6 +200,8 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   triangles, a stack walk with a converging `while (true)`, and a strided sum to a uniform
   count, compiled with `compile()`, run on WebGPU (SwiftShader), and matched to plain
   JavaScript and to the CPU oracle within 1.2e-6.
+  Two user journeys carry it: a mesh ray cast over `verts.length / 3` triangles, and a tree
+  walked with a stack beside a strided sum to a uniform count.
   Language design Rule 7.5 and its two §14 rows, and surface §17, change with it.
 
 ### Removed
