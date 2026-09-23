@@ -3,7 +3,9 @@ name: ci
 # TypeShade's gate. Two jobs, on every push to main and every pull request:
 #
 #   check         `tsc --build` (the emitting project) + `tsc -p tsconfig.tests.json` (the
-#                 noEmit pass over tests, examples and scripts), then the unit suite.
+#                 noEmit pass over tests, examples and scripts), ESLint, the format check
+#                 (Prettier, then the `;` in shader source Prettier cannot reach), then the
+#                 unit suite.
 #   compile-gate  every registered example is emitted and COMPILED by real compilers —
 #                 the WGSL on Tint (Chromium's WebGPU, on SwiftShader: no GPU needed for
 #                 compile / validate correctness) and both GLSL ES 3.00 stages on a real
@@ -44,6 +46,8 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run build
+      - run: bun run lint
+      - run: bun run format:check
       - run: bun run test
 
   compile-gate:

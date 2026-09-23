@@ -54,6 +54,7 @@ export type { ScalarKey } from './types.js';
  *  which lifts to an f32 literal. Reading takes the {@link ReadonlyNode} supertype, so a
  *  `Let()`, parameter or constant operand is accepted everywhere a value is consumed; only
  *  `.assign()` needs the mutable {@link Node} subtype. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- any element kind, the widest node
 export type NodeLike = ReadonlyNode<any> | number;
 
 /** The scalar keys a binary op may pair with element kind `E` — the SAME kind only,
@@ -170,10 +171,12 @@ export const isNodeValue = (v: unknown): v is ReadonlyNode =>
  *  current scope. Injected (not imported) so the Node lvalue methods can route to the builder without a
  *  node ↔ builder import cycle. (Reads only `.expr`, so a ReadonlyNode value is fine.) */
 type StmtSink = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a sink takes any element kind
   assign(target: ReadonlyNode<any>, value: ReadonlyNode<any>): void;
   // #8 S2 — the compound-assignment route, `x += v`. OPTIONAL, so a host that installed a sink
   // before this existed still type-checks and still works: the compound methods fall back to
   // `assign(target, target ∘ value)`, which is the statement they used to have to be written as.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- as `assign`
   assignOp?(target: ReadonlyNode<any>, bop: BinOp, value: ReadonlyNode<any>): void;
 };
 let _stmtSink: StmtSink | undefined;
@@ -2379,8 +2382,10 @@ export const toF64 = (x: ReadonlyNode<'f32'> | number): Node<'f64'> =>
 /** Assemble an f64 from its (hi, lo) f32 halves, the shader-side counterpart of `splitF64` for
  *  a value that arrives as two f32 components (a hi/lo vertex attribute pair, a packed buffer).
  *  It costs nothing: the result is the pair `(hi, lo)` itself. The halves must be a normalized
- *  split, `lo = x − hi` as `splitF64` produces; an un-normalized pair weakens the arithmetic's
- *  error bounds. */
+ *  split, `lo = x − hi` as `splitF64` produces. Nothing renormalizes a pair that is not: the
+ *  comparisons decide on hi first and can answer wrongly for it (`(1, 1)` is 2, yet it compares
+ *  below `(1.5, 0)`), and a multiply or divide by a power-of-two literal scales the two words as
+ *  they are, so the product is exactly as un-normalized as the operand. */
 export const f64FromParts = (
   hi: ReadonlyNode<'f32'> | number,
   lo: ReadonlyNode<'f32'> | number,

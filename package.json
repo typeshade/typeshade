@@ -68,16 +68,20 @@
     "bake:coredef": "bun scripts/bake-coredef-textures.ts",
     "bake:wgsl-names": "bun scripts/bake-wgsl-names.ts",
     "manifest:publish": "bun scripts/publish-manifest.ts",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "format:compiler": "prettier --write src/compiler/**/*.ts"
+    "lint": "eslint .",
+    "format": "prettier --write . && bun scripts/semicolons.ts",
+    "format:check": "prettier --check . && bun scripts/semicolons.ts --check",
+    "format:compiler": "prettier --write src/compiler/**/*.ts",
+    "format:semicolons": "bun scripts/semicolons.ts"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "@webgpu/types": "^0.1.69",
+    "eslint": "^9",
     "playwright": "^1.59.1",
     "prettier": "^3.5.3",
     "typescript": "5.6.3",
+    "typescript-eslint": "^8",
     "vitest": "^3.0.0"
   },
   "peerDependencies": {

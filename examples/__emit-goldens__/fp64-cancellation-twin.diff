@@ -42,18 +42,18 @@
 +  let isF32 = (_cse0 || (u.fp64 < 0.5));
    let _cse1 = vec2<f32>(1.0, 0.0);
 -  let _v5 = df64_add(_cse1, vec2<f32>(_v3, 0.0), _fp64_g);
--  let _v6 = df64_mul(_v5, _v5, _fp64_g);
+-  let _v6 = df64_sqr(_v5, _fp64_g);
 -  let _v7 = df64_mul(_v6, _v5, _fp64_g);
--  let _v8 = df64_mul(_v6, _v6, _fp64_g);
+-  let _v8 = df64_sqr(_v6, _fp64_g);
 -  let _v9 = df64_mul(_v8, _v5, _fp64_g);
--  let _v10 = df64_mul(_v7, _v7, _fp64_g);
+-  let _v10 = df64_sqr(_v7, _fp64_g);
 -  let _v11 = df64_mul(_v10, _v5, _fp64_g);
 +  let xd = df64_add(_cse1, vec2<f32>(d, 0.0), _fp64_g);
-+  let x2 = df64_mul(xd, xd, _fp64_g);
++  let x2 = df64_sqr(xd, _fp64_g);
 +  let x3 = df64_mul(x2, xd, _fp64_g);
-+  let x4 = df64_mul(x2, x2, _fp64_g);
++  let x4 = df64_sqr(x2, _fp64_g);
 +  let x5 = df64_mul(x4, xd, _fp64_g);
-+  let x6 = df64_mul(x3, x3, _fp64_g);
++  let x6 = df64_sqr(x3, _fp64_g);
 +  let x7 = df64_mul(x6, xd, _fp64_g);
    let _cse6 = bitcast<f32>(bitcast<u32>(0.0));
    let _cse2 = vec2<f32>(_cse6, _cse6);
@@ -159,6 +159,13 @@
    return vec2<f32>(_v0, _v3);
  }
  
+ fn df64_twoSqr(a: f32, _fp64_g: f32) -> vec2<f32> {
+   let _v0 = (a * a);
+   let _v1 = df64_split(a, _fp64_g);
+   let _v2 = (((((_v1.x * _v1.x) - _v0) * _fp64_g) + (((_v1.x * _v1.y) * 2.0) * _fp64_g)) + ((_v1.y * _v1.y) * _fp64_g));
+   return vec2<f32>(_v0, _v2);
+ }
+ 
  fn df64_add(a: vec2<f32>, b: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
    var _v0: vec2<f32> = df64_twoSum(a.x, b.x, _fp64_g);
    let _v1 = df64_twoSum(a.y, b.y, _fp64_g);
@@ -178,6 +185,12 @@
    _v0.y = (_v0.y + (a.x * b.y));
    _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
    _v0.y = (_v0.y + (a.y * b.x));
+   return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
+ }
+ 
+ fn df64_sqr(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
+   var _v0: vec2<f32> = df64_twoSqr(a.x, _fp64_g);
+   _v0.y = (_v0.y + ((a.x * a.y) * 2.0));
    return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
  }
  

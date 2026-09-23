@@ -65,11 +65,9 @@ vec2 df64_sub(vec2 a, vec2 b, float _fp64_g) {
   return df64_add(a, (-b), _fp64_g);
 }
 
-vec2 df64_mul(vec2 a, vec2 b, float _fp64_g) {
-  vec2 _v0 = df64_twoProd(a.x, b.x, _fp64_g);
-  _v0.y = (_v0.y + (a.x * b.y));
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
-  _v0.y = (_v0.y + (a.y * b.x));
+vec2 df64_sqr(vec2 a, float _fp64_g) {
+  vec2 _v0 = df64_twoSqr(a.x, _fp64_g);
+  _v0.y = (_v0.y + ((a.x * a.y) * 2.0));
   return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
 }
 
@@ -112,29 +110,21 @@ void main() {
   vec2 _lc0 = df64_add(_cse1, vec2(dx, 0.0), _fp64_g);
   vec2 _lc1 = df64_add(_cse2, vec2(dy, 0.0), _fp64_g);
   DF64Vec2 pos = DF64Vec2(vec2(_lc0.x, _lc1.x), vec2(_lc0.y, _lc1.y));
-  vec2 _cse7 = vec2(u.st_a.hi.x, u.st_a.lo.x);
-  float _cse12 = uintBitsToFloat(floatBitsToUint(0.0));
-  vec2 _cse8 = vec2(_cse12, _cse12);
-  vec2 _cse3 = df64_add(_cse7, _cse8, _fp64_g);
-  vec2 _cse9 = vec2(u.st_a.hi.y, u.st_a.lo.y);
-  vec2 _cse4 = df64_add(_cse9, _cse8, _fp64_g);
-  vec2 _gv0 = df64_add(vec2(pos.hi.x, pos.lo.x), _cse8, _fp64_g);
-  vec2 _lc2 = df64_sub(_gv0, _cse3, _fp64_g);
-  vec2 _gv1 = df64_add(vec2(pos.hi.y, pos.lo.y), _cse8, _fp64_g);
-  vec2 _lc3 = df64_sub(_gv1, _cse4, _fp64_g);
-  vec2 d1 = df64_sqrt(df64_add(df64_mul(_lc2, _lc2, _fp64_g), df64_mul(_lc3, _lc3, _fp64_g), _fp64_g), _fp64_g);
-  vec2 _cse10 = vec2(u.st_b.hi.x, u.st_b.lo.x);
-  vec2 _cse5 = df64_add(_cse10, _cse8, _fp64_g);
-  vec2 _cse11 = vec2(u.st_b.hi.y, u.st_b.lo.y);
-  vec2 _cse6 = df64_add(_cse11, _cse8, _fp64_g);
-  vec2 _lc4 = df64_sub(_gv0, _cse5, _fp64_g);
-  vec2 _lc5 = df64_sub(_gv1, _cse6, _fp64_g);
-  vec2 d2 = df64_sqrt(df64_add(df64_mul(_lc4, _lc4, _fp64_g), df64_mul(_lc5, _lc5, _fp64_g), _fp64_g), _fp64_g);
-  float th64 = df64_narrow(df64_fract(df64_mul(df64_sub(df64_add(d1, _cse8, _fp64_g), df64_add(d2, _cse8, _fp64_g), _fp64_g), vec2(0.25, 0.0), _fp64_g), _fp64_g));
-  float te64 = df64_narrow(df64_fract(df64_mul(df64_add(d1, d2, _fp64_g), vec2(0.0625, 0.0), _fp64_g), _fp64_g));
+  float _cse8 = uintBitsToFloat(floatBitsToUint(0.0));
+  vec2 _cse3 = vec2(_cse8, _cse8);
+  vec2 _cse4 = vec2(u.st_a.hi.x, u.st_a.lo.x);
+  vec2 _cse5 = vec2(u.st_a.hi.y, u.st_a.lo.y);
+  vec2 _gv0 = df64_add(vec2(pos.hi.x, pos.lo.x), _cse3, _fp64_g);
+  vec2 _gv1 = df64_add(vec2(pos.hi.y, pos.lo.y), _cse3, _fp64_g);
+  vec2 d1 = df64_sqrt(df64_add(df64_sqr(df64_sub(_gv0, df64_add(_cse4, _cse3, _fp64_g), _fp64_g), _fp64_g), df64_sqr(df64_sub(_gv1, df64_add(_cse5, _cse3, _fp64_g), _fp64_g), _fp64_g), _fp64_g), _fp64_g);
+  vec2 _cse6 = vec2(u.st_b.hi.x, u.st_b.lo.x);
+  vec2 _cse7 = vec2(u.st_b.hi.y, u.st_b.lo.y);
+  vec2 d2 = df64_sqrt(df64_add(df64_sqr(df64_sub(_gv0, df64_add(_cse6, _cse3, _fp64_g), _fp64_g), _fp64_g), df64_sqr(df64_sub(_gv1, df64_add(_cse7, _cse3, _fp64_g), _fp64_g), _fp64_g), _fp64_g), _fp64_g);
+  float th64 = df64_narrow(df64_fract((df64_sub(df64_add(d1, _cse3, _fp64_g), df64_add(d2, _cse3, _fp64_g), _fp64_g) * 0.25), _fp64_g));
+  float te64 = df64_narrow(df64_fract((df64_add(d1, d2, _fp64_g) * 0.0625), _fp64_g));
   vec2 pos32 = vec2((df64_narrow(_cse1) + dx), (df64_narrow(_cse2) + dy));
-  float d1f = length((pos32 - vec2(df64_narrow(_cse7), df64_narrow(_cse9))));
-  float d2f = length((pos32 - vec2(df64_narrow(_cse10), df64_narrow(_cse11))));
+  float d1f = length((pos32 - vec2(df64_narrow(_cse4), df64_narrow(_cse5))));
+  float d2f = length((pos32 - vec2(df64_narrow(_cse6), df64_narrow(_cse7))));
   float th32 = fract(((d1f - d2f) * 0.25));
   float te32 = fract(((d1f + d2f) * 0.0625));
   float th = (isF32 ? th32 : th64);

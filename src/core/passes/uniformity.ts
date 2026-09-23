@@ -411,7 +411,7 @@ function returnDepsOf(
           break;
         }
         case 'if': {
-          let all = new Set<number>(control);
+          const all = new Set<number>(control);
           for (const arm of s.arms) {
             const c = readOf(arm.cond);
             if (c.nonUniform) resultNonUniform = true;
