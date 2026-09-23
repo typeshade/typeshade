@@ -1,7 +1,7 @@
-import type { ShaderType } from '../../../ir/index.js'
-import type { LintRule } from '../engine.js'
+import type { ShaderType } from '../../../ir/index.js';
+import type { LintRule } from '../engine.js';
 
-const isFloat = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32'
+const isFloat = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32';
 
 /** Exact == / != on f32 is rounding-unreliable; compare within an epsilon instead. */
 export const noFloatEq: LintRule = {
@@ -18,8 +18,8 @@ export const noFloatEq: LintRule = {
       ) {
         ctx.report(`f32 '${e.cop}' in fn '${fn.name}' — exact float equality is unreliable`, {
           fn: fn.name,
-        })
+        });
       }
     },
   }),
-}
+};

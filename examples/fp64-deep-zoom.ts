@@ -33,8 +33,8 @@ import {
   builtin,
   location,
   uniformStruct,
-} from '../src/index.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import type { ShaderExample } from './_shared.js';
 
 const U = uniformStruct(
   'Uniforms',
@@ -44,55 +44,55 @@ const U = uniformStruct(
     span: f32T, // world units swept across the screen
     fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
   },
-)
+);
 
 const VsOut = ioStruct('VsOut', {
   pos: builtin('position', vec4fT),
   uv: location(0, vec2fT),
-})
+});
 
 // Oversized fullscreen triangle (same pattern as gradient-pass.ts).
 const vsFull = fn(
   'vs_full',
   { idx: builtin('vertex_index', u32T) },
   (p) => {
-    const pos = vec2(-1, -1)
+    const pos = vec2(-1, -1);
     If(p.idx.eq(1), () => {
-      pos.assign(vec2(3, -1))
+      pos.assign(vec2(3, -1));
     }).elif(p.idx.eq(2), () => {
-      pos.assign(vec2(-1, 3))
-    })
+      pos.assign(vec2(-1, 3));
+    });
     return VsOut.construct({
       pos: vec4(pos, 0, 1),
       uv: vec2(pos.x.add(1).mul(0.5), pos.y.add(1).mul(0.5)),
-    })
+    });
   },
   { stage: 'vertex' },
-)
+);
 
 const fsStripes = fn(
   'fs_stripes',
   { vo: VsOut },
   (p) => {
-    const sweep = p.vo.uv.x.mul(U.field.span)
+    const sweep = p.vo.uv.x.mul(U.field.span);
     // f64 path: the full-precision world coordinate keeps its fraction.
-    const stripes64 = toF32(fract(U.field.origin.add(toF64(sweep))))
+    const stripes64 = toF32(fract(U.field.origin.add(toF64(sweep))));
     // f32 twin — SAME formula, origin narrowed: the fraction is unrepresentable.
-    const stripes32 = fract(toF32(U.field.origin).add(sweep))
+    const stripes32 = fract(toF32(U.field.origin).add(sweep));
     // fp64 toggle off → the WHOLE screen takes the f32 path: the right half
     // collapses flat in place, making the emulation's contribution tangible.
-    const v = p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)).select(stripes32, stripes64)
-    return vec4(v, v, v, 1.0)
+    const v = p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)).select(stripes32, stripes64);
+    return vec4(v, v, v, 1.0);
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 // The `_fp64` guard binding lands at (group 0, binding 1) automatically —
 // first free slot past `u` at binding 0.
 const fp64DeepZoomModule = module({
   funcs: [vsFull, fsStripes],
   uses: [U, VsOut],
-})
+});
 
 export const fp64DeepZoom: ShaderExample = {
   id: 'fp64-deep-zoom',
@@ -119,4 +119,4 @@ export const fp64DeepZoom: ShaderExample = {
     span: { kind: 'slider', label: 'World span', min: 1, max: 8, step: 0.5, value: 4 },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },
-}
+};

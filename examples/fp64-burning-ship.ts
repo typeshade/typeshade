@@ -38,15 +38,15 @@ import {
   Let,
   u32,
   uniformStruct,
-} from '../src/index.js'
-import { VsOut, vs } from './_fullscreen.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import { VsOut, vs } from './_fullscreen.js';
+import type { ShaderExample } from './_shared.js';
 
 // A spike point with escape structure at every depth (CPU-verified); y = 0
 // keeps the never-escaping real axis mid-frame at every zoom.
-const CENTER_X = -1.748
-const CENTER_Y = 0
-const ITER = 128
+const CENTER_X = -1.748;
+const CENTER_Y = 0;
+const ITER = 128;
 
 const U = uniformStruct(
   'Uniforms',
@@ -57,98 +57,98 @@ const U = uniformStruct(
     zoom_exp: f32T, // view span = 10^-zoom_exp complex units
     fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
   },
-)
+);
 
 const fsShip = fn(
   'fs_ship',
   { vo: VsOut },
   (p) => {
-    const span = Let(pow(f32(10.0), U.field.zoom_exp.neg()))
-    const half = Let(p.vo.uv.x.mul(2.0))
-    const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)))
-    const dx = Let(sx.sub(0.5).mul(span))
+    const span = Let(pow(f32(10.0), U.field.zoom_exp.neg()));
+    const half = Let(p.vo.uv.x.mul(2.0));
+    const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)));
+    const dx = Let(sx.sub(0.5).mul(span));
     const dy = Let(
       p.vo.uv.y.sub(0.5).mul(span).mul(U.field.resolution.y.div(U.field.resolution.x).mul(2.0)),
-    )
+    );
 
-    const it = Var(f32(0))
-    const m2 = Var(f32(0)) // |z|² of the last z the loop reached: the escape test and the colouring's input
+    const it = Var(f32(0));
+    const m2 = Var(f32(0)); // |z|² of the last z the loop reached: the escape test and the colouring's input
     If(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)), () => {
       // f32 twin — SAME fold-and-square, center narrowed.
-      const cx = Let(toF32(U.field.center.x).add(dx))
-      const cy = Let(toF32(U.field.center.y).add(dy))
+      const cx = Let(toF32(U.field.center.x).add(dx));
+      const cy = Let(toF32(U.field.center.y).add(dy));
       // The escape loop is written as fp64-julia.ts's (which records why and what it saves):
       // |z|² is carried in m2 beside z, the squares beside it so none is computed twice a
       // trip, and the loop leaves at the first escaped z. z₀ = 0, so all three start at 0.
-      const zx = Var(f32(0))
-      const zy = Var(f32(0))
-      const x2 = Var(f32(0))
-      const y2 = Var(f32(0))
+      const zx = Var(f32(0));
+      const zy = Var(f32(0));
+      const x2 = Var(f32(0));
+      const y2 = Var(f32(0));
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
           If(m2.gt(16.0), () => {
-            Break()
-          })
-          const nzx = Let(x2.sub(y2).add(cx))
-          zy.assign(abs(zx.mul(zy)).mul(2.0).add(cy))
-          zx.assign(nzx)
-          it.assign(it.add(1.0))
-          x2.assign(zx.mul(zx))
-          y2.assign(zy.mul(zy))
-          m2.assign(x2.add(y2))
+            Break();
+          });
+          const nzx = Let(x2.sub(y2).add(cx));
+          zy.assign(abs(zx.mul(zy)).mul(2.0).add(cy));
+          zx.assign(nzx);
+          it.assign(it.add(1.0));
+          x2.assign(zx.mul(zx));
+          y2.assign(zy.mul(zy));
+          m2.assign(x2.add(y2));
         },
-      )
+      );
     }).else(() => {
       // f64 — |Re|, |Im| fold in extended precision (2|zx·zy| ≡ the |Im| fold
       // of the squared form: (|zx|+i|zy|)² has Im = 2|zx||zy| = 2|zx·zy|).
-      const cx = Let(U.field.center.x.add(toF64(dx)))
-      const cy = Let(U.field.center.y.add(toF64(dy)))
+      const cx = Let(U.field.center.x.add(toF64(dx)));
+      const cy = Let(U.field.center.y.add(toF64(dy)));
       // The escape test reads an f32 |z|² squared from the narrowed words, as in
       // fp64-julia.ts: 48 bits move |z|² across 16 only from within an f32 rounding of it.
-      const zx = Var(f64(0))
-      const zy = Var(f64(0))
+      const zx = Var(f64(0));
+      const zy = Var(f64(0));
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
           If(m2.gt(16.0), () => {
-            Break()
-          })
-          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx))
-          zy.assign(abs(zx.mul(zy)).mul(2.0).add(cy))
-          zx.assign(nzx)
-          it.assign(it.add(1.0))
-          const hx = Let(toF32(zx))
-          const hy = Let(toF32(zy))
-          m2.assign(hx.mul(hx).add(hy.mul(hy)))
+            Break();
+          });
+          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx));
+          zy.assign(abs(zx.mul(zy)).mul(2.0).add(cy));
+          zx.assign(nzx);
+          it.assign(it.add(1.0));
+          const hx = Let(toF32(zx));
+          const hy = Let(toF32(zy));
+          m2.assign(hx.mul(hx).add(hy.mul(hy)));
         },
-      )
-    })
+      );
+    });
 
     // Smooth escape time through an ember palette (dark hull → orange flame →
     // pale smoke); interior stays black. Same log₂ log₂ smoothing as
     // fp64-mandelbrot.ts.
-    const sn = Let(it.sub(log2(max(log2(max(m2, 1.0001)), 0.0001))).add(1.0))
-    const inside = Let(step(f32(ITER).sub(0.5), it))
-    const s = Let(sn.div(ITER))
-    const ease = Let(s.mul(s).mul(f32(3).sub(s.mul(2)))) // s²(3−2s) ember ramp
+    const sn = Let(it.sub(log2(max(log2(max(m2, 1.0001)), 0.0001))).add(1.0));
+    const inside = Let(step(f32(ITER).sub(0.5), it));
+    const s = Let(sn.div(ITER));
+    const ease = Let(s.mul(s).mul(f32(3).sub(s.mul(2)))); // s²(3−2s) ember ramp
     const rgb = mix(
       mix(vec3(0.06, 0.02, 0.05), vec3(0.95, 0.45, 0.08), ease),
       vec3(1.0, 0.93, 0.75),
       s.mul(s),
-    ).mul(f32(1).sub(inside))
-    return vec4(rgb, f32(1))
+    ).mul(f32(1).sub(inside));
+    return vec4(rgb, f32(1));
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 // `_fp64` guard lands at (group 0, binding 1) automatically.
 const fp64BurningShipModule = module({
   funcs: [vs, fsShip],
   uses: [U, VsOut],
-})
+});
 
 export const fp64BurningShip: ShaderExample = {
   id: 'fp64-burning-ship',
@@ -179,4 +179,4 @@ export const fp64BurningShip: ShaderExample = {
     },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },
-}
+};

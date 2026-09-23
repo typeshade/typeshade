@@ -9,15 +9,15 @@
 //   COMPILE until an entry is written for it. Writing that entry means deciding how many
 //   Exprs the new kind holds, which is the moment the author has to open `visit.ts`.
 
-import { describe, it, expect } from 'vitest'
-import { f32T, boolT, u32T } from './types.js'
-import type { Expr, Stmt } from './nodes.js'
-import { eachExpr, eachStmtExpr, mapStmtExpr } from './visit.js'
+import { describe, it, expect } from 'vitest';
+import { f32T, boolT, u32T } from './types.js';
+import type { Expr, Stmt } from './nodes.js';
+import { eachExpr, eachStmtExpr, mapStmtExpr } from './visit.js';
 
-const lit = (v: number): Expr => ({ op: 'lit', type: f32T, value: v })
-const ref = (name: string): Expr => ({ op: 'varref', type: f32T, name })
-const cond: Expr = { op: 'lit', type: boolT, value: true }
-const inner: Stmt = { s: 'let', name: '_inner', expr: lit(99) }
+const lit = (v: number): Expr => ({ op: 'lit', type: f32T, value: v });
+const ref = (name: string): Expr => ({ op: 'varref', type: f32T, name });
+const cond: Expr = { op: 'lit', type: boolT, value: true };
+const inner: Stmt = { s: 'let', name: '_inner', expr: lit(99) };
 
 /** One instance per `Stmt` kind and the number of Exprs a full walk of it must reach —
  *  the statement's OWN slots plus every slot in its nested bodies. */
@@ -60,52 +60,52 @@ const FIXTURE: Record<Stmt['s'], { stmt: Stmt; slots: number }> = {
   discard: { stmt: { s: 'discard' }, slots: 0 },
   placeholder: { stmt: { s: 'placeholder', tag: 'x' }, slots: 0 },
   raw: { stmt: { s: 'raw', wgsl: 'x = 1;' }, slots: 0 },
-}
+};
 
-const entries = Object.entries(FIXTURE) as [Stmt['s'], (typeof FIXTURE)[Stmt['s']]][]
+const entries = Object.entries(FIXTURE) as [Stmt['s'], (typeof FIXTURE)[Stmt['s']]][];
 
 describe('ir/visit — every Stmt kind is walked', () => {
   it.each(entries)('%s: eachStmtExpr reaches every Expr, own and nested', (_k, f) => {
-    let n = 0
+    let n = 0;
     eachStmtExpr(f.stmt, () => {
-      n++
-    })
-    expect(n).toBe(f.slots)
-  })
+      n++;
+    });
+    expect(n).toBe(f.slots);
+  });
 
   it.each(entries)('%s: mapStmtExpr rewrites every Expr, own and nested', (_k, f) => {
-    let n = 0
+    let n = 0;
     const out = mapStmtExpr(f.stmt, (e) => {
-      n++
-      return e
-    })
-    expect(n).toBe(f.slots)
+      n++;
+      return e;
+    });
+    expect(n).toBe(f.slots);
     // A statement with no Expr keeps its identity (the passes skip work on that).
-    if (f.slots === 0) expect(out).toBe(f.stmt)
-  })
+    if (f.slots === 0) expect(out).toBe(f.stmt);
+  });
 
   it('mapStmtExpr keeps a `var` without an initialiser identical', () => {
-    const s: Stmt = { s: 'var', name: 'b', type: f32T }
-    expect(mapStmtExpr(s, () => lit(0))).toBe(s)
-  })
+    const s: Stmt = { s: 'var', name: 'b', type: f32T };
+    expect(mapStmtExpr(s, () => lit(0))).toBe(s);
+  });
 
   it('open recursion: an eachStmtExpr override applies inside nested bodies', () => {
-    const seen: Stmt['s'][] = []
+    const seen: Stmt['s'][] = [];
     const walk = (s: Stmt): void => {
-      seen.push(s.s)
-      eachStmtExpr(s, () => {}, walk)
-    }
-    walk(FIXTURE.for.stmt)
-    expect(seen).toEqual(['for', 'var', 'assignOp', 'let'])
-  })
+      seen.push(s.s);
+      eachStmtExpr(s, () => {}, walk);
+    };
+    walk(FIXTURE.for.stmt);
+    expect(seen).toEqual(['for', 'var', 'assignOp', 'let']);
+  });
 
   it('open recursion: a mapStmtExpr override applies inside nested bodies', () => {
     const rewrite = (s: Stmt): Stmt =>
-      s.s === 'let' ? { ...s, name: s.name.toUpperCase() } : mapStmtExpr(s, (e) => e, rewrite)
-    const out = rewrite(FIXTURE.if.stmt) as Extract<Stmt, { s: 'if' }>
-    expect(out.arms[0]!.body[0]).toMatchObject({ s: 'let', name: '_INNER' })
-    expect(out.elseBody![0]).toMatchObject({ s: 'let', name: '_INNER' })
-  })
+      s.s === 'let' ? { ...s, name: s.name.toUpperCase() } : mapStmtExpr(s, (e) => e, rewrite);
+    const out = rewrite(FIXTURE.if.stmt) as Extract<Stmt, { s: 'if' }>;
+    expect(out.arms[0]!.body[0]).toMatchObject({ s: 'let', name: '_INNER' });
+    expect(out.elseBody![0]).toMatchObject({ s: 'let', name: '_INNER' });
+  });
 
   it('eachExpr is pre-order over the whole expression tree', () => {
     const e: Expr = {
@@ -114,9 +114,9 @@ describe('ir/visit — every Stmt kind is walked', () => {
       bop: '+',
       a: { op: 'unop', type: f32T, a: lit(1) },
       b: lit(2),
-    }
-    const ops: Expr['op'][] = []
-    eachExpr(e, (x) => ops.push(x.op))
-    expect(ops).toEqual(['binop', 'unop', 'lit', 'lit'])
-  })
-})
+    };
+    const ops: Expr['op'][] = [];
+    eachExpr(e, (x) => ops.push(x.op));
+    expect(ops).toEqual(['binop', 'unop', 'lit', 'lit']);
+  });
+});

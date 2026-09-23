@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -17,39 +17,39 @@
 // is what makes it a changing method too. `speed` reads its object and keeps the plain
 // parameter. WGSL-only: a storage buffer and a compute stage have no WebGL2 form.
 
-declare let ps: storage<array<Particle>>
-declare const delta: uniform<f32>
+declare let ps: storage<array<Particle>>;
+declare const delta: uniform<f32>;
 
 class Particle {
-  pos: vec2
-  vel: vec2
-  age: u32 = 0
+  pos: vec2;
+  vel: vec2;
+  age: u32 = 0;
   step(dt: f32): void {
-    this.pos = this.pos + this.vel * dt
-    this.age++
+    this.pos = this.pos + this.vel * dt;
+    this.age++;
   }
   bounce(): void {
     if (this.pos.y < 0.) {
-      this.pos.y = -this.pos.y
-      this.vel.y = -this.vel.y * 0.8
+      this.pos.y = -this.pos.y;
+      this.vel.y = -this.vel.y * 0.8;
     }
   }
   tick(dt: f32): void {
-    this.step(dt)
-    this.bounce()
+    this.step(dt);
+    this.bounce();
   }
   speed(): f32 {
-    return length(this.vel)
+    return length(this.vel);
   }
 }
 
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= u32(ps.length)) {
-    return
+    return;
   }
-  ps[gid.x].tick(delta)
+  ps[gid.x].tick(delta);
   if (ps[gid.x].speed() < 0.01) {
-    ps[gid.x].vel = vec2(0., 0.)
+    ps[gid.x].vel = vec2(0., 0.);
   }
 }

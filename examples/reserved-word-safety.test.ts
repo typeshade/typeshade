@@ -20,17 +20,17 @@
 // inline() lifts every helper body into the entry points, so one scope needs far
 // more names — which is how `as` (the ~70th) became reachable at all.
 
-import { describe, it, expect } from 'vitest'
-import { examples } from './index.js'
-import { emitModule, emitGlslModule } from '../src/index.js'
-import { inline, obfuscate } from '../src/emit-prod.js'
-import { RESERVED_WORDS } from '../src/core/reserved-words.js'
+import { describe, it, expect } from 'vitest';
+import { examples } from './index.js';
+import { emitModule, emitGlslModule } from '../src/index.js';
+import { inline, obfuscate } from '../src/emit-prod.js';
+import { RESERVED_WORDS } from '../src/core/reserved-words.js';
 
-type Emit = (plugins: ReturnType<typeof obfuscate>) => string
+type Emit = (plugins: ReturnType<typeof obfuscate>) => string;
 
 const targets: {
-  readonly label: string
-  readonly emit: (ex: (typeof examples)[number]) => Emit
+  readonly label: string;
+  readonly emit: (ex: (typeof examples)[number]) => Emit;
 }[] = [
   {
     label: 'WGSL',
@@ -45,36 +45,36 @@ const targets: {
     emit: (ex) => (plugins) =>
       emitGlslModule(ex.module, 'fragment', { parens: 'minimal', plugins }),
   },
-]
+];
 
 const pipelines: {
-  readonly label: string
-  readonly build: (r: Map<string, string>) => ReturnType<typeof obfuscate>
+  readonly label: string;
+  readonly build: (r: Map<string, string>) => ReturnType<typeof obfuscate>;
 }[] = [
   { label: 'obfuscate()', build: (r) => obfuscate({ renames: r }) },
   { label: '[inline(), …obfuscate()]', build: (r) => [inline(), ...obfuscate({ renames: r })] },
-]
+];
 
 describe('generated identifiers never spell a reserved word', () => {
   for (const { label: target, emit } of targets) {
     for (const { label: pipeline, build } of pipelines) {
       it(`${target} · ${pipeline}`, () => {
-        let generated = 0
+        let generated = 0;
         for (const ex of examples) {
-          if (target !== 'WGSL' && !ex.renderable) continue // compute-only: no GLSL stages
-          const renames = new Map<string, string>()
-          emit(ex)(build(renames))
+          if (target !== 'WGSL' && !ex.renderable) continue; // compute-only: no GLSL stages
+          const renames = new Map<string, string>();
+          emit(ex)(build(renames));
           for (const [from, to] of renames) {
-            generated++
+            generated++;
             expect(
               RESERVED_WORDS.has(to),
               `${ex.id}: '${from}' was renamed to the reserved word '${to}'`,
-            ).toBe(false)
+            ).toBe(false);
           }
         }
         // Non-vacuity: an emit path that stopped renaming would pass silently.
-        expect(generated).toBeGreaterThan(100)
-      })
+        expect(generated).toBeGreaterThan(100);
+      });
     }
   }
-})
+});

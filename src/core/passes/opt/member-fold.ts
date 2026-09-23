@@ -76,27 +76,27 @@
 // MOVER and would be legal at any tier; wiring it into O2 is a maintainer decision that
 // regenerates the byte snapshots (`passes/opt/optimize.ts` lists it as available-but-unwired).
 
-import type { Expr, ModuleDecl, StructDecl } from '../../ir/index.js'
-import { typeKey } from '../../ir/types.js'
-import { mapModuleExprsPerFunc } from './ir-transform.js'
-import { collectLets, collectMutatedRoots, eachExpr, refsLocal } from './expr-utils.js'
+import type { Expr, ModuleDecl, StructDecl } from '../../ir/index.js';
+import { typeKey } from '../../ir/types.js';
+import { mapModuleExprsPerFunc } from './ir-transform.js';
+import { collectLets, collectMutatedRoots, eachExpr, refsLocal } from './expr-utils.js';
 
 /** Component index of a single-character vector field, or -1. Both spellings the
  *  targets accept — WGSL and GLSL ES 3.00 each allow `xyzw` and `rgba`. */
 function componentIndex(field: string): number {
-  if (field.length !== 1) return -1
-  const i = 'xyzw'.indexOf(field)
-  return i >= 0 ? i : 'rgba'.indexOf(field)
+  if (field.length !== 1) return -1;
+  const i = 'xyzw'.indexOf(field);
+  return i >= 0 ? i : 'rgba'.indexOf(field);
 }
 
 /** Does `e` call anything? A call can `discard`, so it may be neither duplicated nor
  *  sunk into a conditional — see the call exclusion above. */
 function callsAnything(e: Expr): boolean {
-  let found = false
+  let found = false;
   eachExpr(e, (x) => {
-    if (x.op === 'call') found = true
-  })
-  return found
+    if (x.op === 'call') found = true;
+  });
+  return found;
 }
 
 /** The argument `base.<field>` reads, when the construct's arity makes that
@@ -106,37 +106,37 @@ function pickField(
   field: string,
   structs: ReadonlyMap<string, StructDecl>,
 ): Expr | undefined {
-  const t = base.type
+  const t = base.type;
   if (t.kind === 'struct') {
-    const decl = structs.get(t.name)
-    if (decl === undefined || decl.fields.length !== base.args.length) return undefined
-    const i = decl.fields.findIndex((f) => f.name === field)
-    return i < 0 ? undefined : base.args[i]
+    const decl = structs.get(t.name);
+    if (decl === undefined || decl.fields.length !== base.args.length) return undefined;
+    const i = decl.fields.findIndex((f) => f.name === field);
+    return i < 0 ? undefined : base.args[i];
   }
-  if (t.kind !== 'vec') return undefined
-  const i = componentIndex(field)
-  if (i < 0 || i >= t.n) return undefined
+  if (t.kind !== 'vec') return undefined;
+  const i = componentIndex(field);
+  if (i < 0 || i >= t.n) return undefined;
   // One arg per component: an arity of n admits no sub-vector, but assert scalar
   // anyway so the index-is-component claim is checked rather than inferred.
   if (base.args.length === t.n) {
-    const a = base.args[i]!
-    return a.type.kind === 'scalar' ? a : undefined
+    const a = base.args[i]!;
+    return a.type.kind === 'scalar' ? a : undefined;
   }
   // The splat: `vecN(x)` fills every component with the one scalar.
   if (base.args.length === 1) {
-    const a = base.args[0]!
-    return a.type.kind === 'scalar' ? a : undefined
+    const a = base.args[0]!;
+    return a.type.kind === 'scalar' ? a : undefined;
   }
-  return undefined
+  return undefined;
 }
 
 /** Fold `<construct>.<field>` — including through the `let` the CSE chain bound the
  *  construct to — down to the argument it reads. Pure (module -> module). */
 export function memberFold(m: ModuleDecl): ModuleDecl {
-  const structs = new Map(m.structs.map((s) => [s.name, s]))
+  const structs = new Map(m.structs.map((s) => [s.name, s]));
   return mapModuleExprsPerFunc(m, (f) => {
-    const mutated = new Set<string>()
-    collectMutatedRoots(f.body, mutated)
+    const mutated = new Set<string>();
+    collectMutatedRoots(f.body, mutated);
     // Admit a `let name = <construct>` only when it is safe to resolve a later
     // `.field` read through: neither the binding name NOR any name its arguments
     // read may ever be an assignment target. Both halves are load-bearing — the
@@ -149,7 +149,7 @@ export function memberFold(m: ModuleDecl): ModuleDecl {
       f.body,
       (name, e): e is Extract<Expr, { op: 'construct' }> =>
         e.op === 'construct' && !mutated.has(name) && !e.args.some((a) => refsLocal(a, mutated)),
-    )
+    );
 
     // No `undefined` early-out, unlike const-prop / copy-prop: this pass also folds a
     // DIRECT `<construct>.<field>` that was never bound to a name, so an empty `ctors`
@@ -159,17 +159,17 @@ export function memberFold(m: ModuleDecl): ModuleDecl {
     // binding is resolved HERE rather than by substituting the construct at every
     // varref — that would copy the aggregate into uses this pass cannot remove.
     return (e) => {
-      if (e.op !== 'member') return e
+      if (e.op !== 'member') return e;
       const base =
         e.base.op === 'construct'
           ? e.base
           : e.base.op === 'varref'
             ? ctors.get(e.base.name)
-            : undefined
-      if (base === undefined) return e
-      const picked = pickField(base, e.field, structs)
-      if (picked === undefined || typeKey(picked.type) !== typeKey(e.type)) return e
-      return callsAnything(picked) ? e : picked
-    }
-  })
+            : undefined;
+      if (base === undefined) return e;
+      const picked = pickField(base, e.field, structs);
+      if (picked === undefined || typeKey(picked.type) !== typeKey(e.type)) return e;
+      return callsAnything(picked) ? e : picked;
+    };
+  });
 }

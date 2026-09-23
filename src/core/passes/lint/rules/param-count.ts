@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine.js'
+import type { LintRule } from '../engine.js';
 
 /** A function with too many parameters is hard to call correctly. options.max (default 6). */
 export const paramCount: LintRule = {
@@ -8,9 +8,9 @@ export const paramCount: LintRule = {
   category: 'style',
   create: (ctx) => ({
     Func(f) {
-      const max = (ctx.options?.max as number) ?? 6
+      const max = (ctx.options?.max as number) ?? 6;
       if (f.params.length > max)
-        ctx.report(`fn '${f.name}' has ${f.params.length} parameters > ${max}`, { fn: f.name })
+        ctx.report(`fn '${f.name}' has ${f.params.length} parameters > ${max}`, { fn: f.name });
     },
   }),
-}
+};

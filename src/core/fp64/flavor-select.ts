@@ -20,7 +20,7 @@
 // signal selects the integer flavor. All signals optional — no signals means
 // 'float' (the default, byte-identical lowering).
 
-import type { Fp64Flavor } from '../passes/fp64-lower.js'
+import type { Fp64Flavor } from '../passes/fp64-lower.js';
 
 /** The device-identification signals {@link recommendFp64Flavor} and {@link isAppleGpu}
  *  read to pick the df64 flavour a device needs: `'integer'` on Apple GPUs, where Metal
@@ -38,27 +38,27 @@ import type { Fp64Flavor } from '../passes/fp64-lower.js'
 export interface Fp64FlavorSignals {
   /** `GPUAdapter.info` (or any {vendor, architecture} shaped object). Apple
    *  reports vendor 'apple' (architecture like 'apple' / 'metal-3'). */
-  readonly adapterInfo?: { readonly vendor?: string; readonly architecture?: string } | null
+  readonly adapterInfo?: { readonly vendor?: string; readonly architecture?: string } | null;
   /** The WebGL `UNMASKED_RENDERER_WEBGL` (or RENDERER) string. Apple devices
    *  read like 'ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified
    *  Version)' or 'Apple GPU'. */
-  readonly rendererString?: string | null
+  readonly rendererString?: string | null;
   /** `navigator.userAgent`, the fallback when the GPU strings are masked
    *  (iOS Safari always runs Metal underneath). */
-  readonly userAgent?: string | null
+  readonly userAgent?: string | null;
 }
 
 /** True when any signal identifies an Apple GPU / Metal-backed context. */
 export function isAppleGpu(s: Fp64FlavorSignals): boolean {
-  const vendor = s.adapterInfo?.vendor ?? ''
-  const arch = s.adapterInfo?.architecture ?? ''
-  if (/apple/i.test(vendor) || /^apple|metal/i.test(arch)) return true
-  const r = s.rendererString ?? ''
-  if (/apple|metal/i.test(r)) return true
-  const ua = s.userAgent ?? ''
+  const vendor = s.adapterInfo?.vendor ?? '';
+  const arch = s.adapterInfo?.architecture ?? '';
+  if (/apple/i.test(vendor) || /^apple|metal/i.test(arch)) return true;
+  const r = s.rendererString ?? '';
+  if (/apple|metal/i.test(r)) return true;
+  const ua = s.userAgent ?? '';
   // Any WebKit-on-Apple UA (iPhone/iPad/Mac) — Metal is the only GPU API there.
-  if (/\b(iPhone|iPad|Macintosh)\b/.test(ua) && /AppleWebKit/.test(ua)) return true
-  return false
+  if (/\b(iPhone|iPad|Macintosh)\b/.test(ua) && /AppleWebKit/.test(ua)) return true;
+  return false;
 }
 
 /** Pick the df64 flavour a device needs for correct results, from whatever identifying
@@ -100,5 +100,5 @@ export function isAppleGpu(s: Fp64FlavorSignals): boolean {
  *  @see {@link f64T} for the emulation this configures.
  */
 export function recommendFp64Flavor(s: Fp64FlavorSignals): Fp64Flavor {
-  return isAppleGpu(s) ? 'integer' : 'float'
+  return isAppleGpu(s) ? 'integer' : 'float';
 }

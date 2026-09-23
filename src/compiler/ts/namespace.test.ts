@@ -6,29 +6,29 @@
 // both targets and both CPU paths, TypeScript's own lookup inside a namespace body, nesting in
 // both spellings, the cycle check reaching a dotted call, and the refusals.
 
-import { describe, expect, it } from 'vitest'
-import { compile } from './compile.js'
-import { compileTsSource } from './source-file.js'
-import { TS_CODES } from './codes.js'
-import { compileModule } from '../../core/oracle.js'
-import { compileModuleJs } from '../../core/cpu-codegen.js'
+import { describe, expect, it } from 'vitest';
+import { compile } from './compile.js';
+import { compileTsSource } from './source-file.js';
+import { TS_CODES } from './codes.js';
+import { compileModule } from '../../core/oracle.js';
+import { compileModuleJs } from '../../core/cpu-codegen.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
     .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => `${d.code} ${d.message}`)
+    .map((d) => `${d.code} ${d.message}`);
 
 const file = (head: string, body: string) => `"use typeshade"
 ${head}@fragment
 export function fs(@location(0) uv: vec2): vec4 {
 ${body}
 }
-`
+`;
 const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
   for (const make of [compileModule, compileModuleJs]) {
-    expect(make(r.module).fns['fs']!([0.5, 0.5]), make.name).toEqual(expected)
+    expect(make(r.module).fns['fs']!([0.5, 0.5]), make.name).toEqual(expected);
   }
-}
+};
 
 describe('a namespace is a group of functions and constants', () => {
   it('flattens its members to Ns_member, on both targets', () => {
@@ -43,13 +43,13 @@ describe('a namespace is a group of functions and constants', () => {
 `,
         `  return vec4(Palette.tint(vec3(1., 1., 1.)), 1.)`,
       ),
-    )
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('const Palette_WARM: vec3<f32> = vec3<f32>(0.9, 0.5, 0.1);')
-    expect(r.wgsl).toContain('fn Palette_tint(c: vec3<f32>) -> vec3<f32> {')
-    expect(r.glsl?.fragment).toContain('vec3 Palette_tint(vec3 c) {')
-    agree(r, [0.9, 0.5, 0.1, 1])
-  })
+    );
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('const Palette_WARM: vec3<f32> = vec3<f32>(0.9, 0.5, 0.1);');
+    expect(r.wgsl).toContain('fn Palette_tint(c: vec3<f32>) -> vec3<f32> {');
+    expect(r.glsl?.fragment).toContain('vec3 Palette_tint(vec3 c) {');
+    agree(r, [0.9, 0.5, 0.1, 1]);
+  });
 
   it('looks a name up as TypeScript does: the body first, then the namespace, then the file', () => {
     const r = compile(
@@ -73,12 +73,12 @@ namespace A {
 `,
         `  return vec4(A.shadowed(), A.member(), A.outer(1.), 1.)`,
       ),
-    )
-    expect(r.diagnostics).toEqual([])
+    );
+    expect(r.diagnostics).toEqual([]);
     // A local wins over the member, the member over nothing, and a top-level function is
     // reachable from inside.
-    agree(r, [3, 2, 0.5, 1])
-  })
+    agree(r, [3, 2, 0.5, 1]);
+  });
 
   it('nests, in both spellings, and a member namespace takes its short name inside the parent', () => {
     const nested = compile(
@@ -96,20 +96,20 @@ namespace A {
 `,
         `  return vec4(A.four(), A.B.two(), 0., 1.)`,
       ),
-    )
-    expect(nested.diagnostics).toEqual([])
-    expect(nested.wgsl).toContain('fn A_B_two() -> f32 {')
-    agree(nested, [4, 2, 0, 1])
+    );
+    expect(nested.diagnostics).toEqual([]);
+    expect(nested.wgsl).toContain('fn A_B_two() -> f32 {');
+    agree(nested, [4, 2, 0, 1]);
     const dotted = compile(
       file(
         `namespace A.B {\n  export function two(): f32 {\n    return 2.\n  }\n}\n`,
         `  return vec4(A.B.two(), 0., 0., 1.)`,
       ),
-    )
-    expect(dotted.diagnostics).toEqual([])
-    expect(dotted.wgsl).toContain('fn A_B_two() -> f32 {')
-  })
-})
+    );
+    expect(dotted.diagnostics).toEqual([]);
+    expect(dotted.wgsl).toContain('fn A_B_two() -> f32 {');
+  });
+});
 
 describe('a namespace does not hide a cycle', () => {
   it('a call through a dotted name is in the recursion graph', () => {
@@ -124,7 +124,7 @@ describe('a namespace does not hide a cycle', () => {
       ),
     ).toEqual([
       `${TS_CODES.RECURSION} Recursive call: "A_f" -> "A_f". WGSL has no call stack, so a function must not take part in a call cycle.`,
-    ])
+    ]);
     expect(
       errorsOf(
         file(
@@ -134,9 +134,9 @@ describe('a namespace does not hide a cycle', () => {
       ),
     ).toEqual([
       `${TS_CODES.RECURSION} Recursive call: "A_f" -> "B_g" -> "A_f". WGSL has no call stack, so a function must not take part in a call cycle.`,
-    ])
-  })
-})
+    ]);
+  });
+});
 
 describe('what a namespace does not hold', () => {
   it('an enum, a type or a variable says where to declare it', () => {
@@ -146,13 +146,13 @@ describe('what a namespace does not hold', () => {
       errorsOf(
         file(`namespace A {\n  export enum E {\n    X,\n  }\n}\n`, `  return vec4(1., 0., 0., 1.)`),
       )[0],
-    ).toContain('an enum inside "A" has no flattened form')
+    ).toContain('an enum inside "A" has no flattened form');
     expect(
       errorsOf(
         file(`namespace A {\n  export let x: f32 = 1.\n}\n`, `  return vec4(1., 0., 0., 1.)`),
       )[0],
-    ).toContain('a variable inside "A" has no flattened form')
-  })
+    ).toContain('a variable inside "A" has no flattened form');
+  });
 
   it('a declare namespace, and a member the namespace does not have', () => {
     expect(
@@ -164,7 +164,7 @@ describe('what a namespace does not hold', () => {
       )[0],
     ).toBe(
       `${TS_CODES.TOP_LEVEL} "declare namespace A" has no members to emit; declare the namespace in this file.`,
-    )
+    );
     expect(
       errorsOf(
         file(
@@ -172,8 +172,8 @@ describe('what a namespace does not hold', () => {
           `  return vec4(A.g(), 0., 0., 1.)`,
         ),
       )[0],
-    ).toBe(`${TS_CODES.CLASS_MEMBER} "A" has no function "g".`)
-  })
+    ).toBe(`${TS_CODES.CLASS_MEMBER} "A" has no function "g".`);
+  });
 
   it('a top-level name that collides with a flattened one is reported', () => {
     expect(
@@ -183,6 +183,6 @@ describe('what a namespace does not hold', () => {
           `  return vec4(A.f(), 0., 0., 1.)`,
         ),
       )[0],
-    ).toBe(`${TS_CODES.DUPLICATE_SYMBOL} Duplicate function "A_f".`)
-  })
-})
+    ).toBe(`${TS_CODES.DUPLICATE_SYMBOL} Duplicate function "A_f".`);
+  });
+});

@@ -114,10 +114,10 @@
 //     a local anchor: collapsing WGSL_ENABLE into capProfile must not lose the one
 //     directive the WGSL backend already emits.
 
-import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   module,
   fn,
@@ -128,13 +128,13 @@ import {
   type Capability,
   type DeclarableCapability,
   type ModuleDecl,
-} from '../ir/index.js'
-import { emitModule, wgslBackend } from './wgsl.js'
-import { emitGlslModule, glslEs300Backend } from './glsl.js'
-import { UnsupportedFeatureError } from '../backend.js'
-import { reflect } from '../reflect.js'
-import { emitModuleWithReflection } from '../emit.js'
-import { fp64Lower } from '../passes/fp64-lower.js'
+} from '../ir/index.js';
+import { emitModule, wgslBackend } from './wgsl.js';
+import { emitGlslModule, glslEs300Backend } from './glsl.js';
+import { UnsupportedFeatureError } from '../backend.js';
+import { reflect } from '../reflect.js';
+import { emitModuleWithReflection } from '../emit.js';
+import { fp64Lower } from '../passes/fp64-lower.js';
 
 /** A trivial fragment module — the smallest shape that emits on BOTH backends, so the
  *  `enables` list is the only variable under test. */
@@ -144,9 +144,9 @@ const fragMod = (enables?: readonly DeclarableCapability[]): ModuleDecl =>
     funcs: [
       fn('fs_probe', {}, () => vec4(1, 0, 0, 1), { stage: 'fragment', retAttr: '@location(0)' }),
     ],
-  })
+  });
 
-const requiredFeaturesOf = (m: ModuleDecl): readonly Capability[] => reflect(m).requiredFeatures
+const requiredFeaturesOf = (m: ModuleDecl): readonly Capability[] => reflect(m).requiredFeatures;
 
 describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () => {
   // ── 1. RED — the host-side trio is legal on GLSL and costs zero bytes ──
@@ -155,34 +155,34 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
   // GLSL profile must ACCEPT them and emit the module byte-identically — declaring a
   // host-side requirement must not move a single byte of the emitted source.
   it('GLSL accepts a host-side cap and emits byte-identically to the enables-free module', () => {
-    const base = emitGlslModule(fragMod(), 'fragment')
-    expect(emitGlslModule(fragMod(['floatRenderTarget']), 'fragment')).toBe(base)
-    expect(emitGlslModule(fragMod(['float32Blend']), 'fragment')).toBe(base)
-    expect(emitGlslModule(fragMod(['float32Filterable']), 'fragment')).toBe(base)
+    const base = emitGlslModule(fragMod(), 'fragment');
+    expect(emitGlslModule(fragMod(['floatRenderTarget']), 'fragment')).toBe(base);
+    expect(emitGlslModule(fragMod(['float32Blend']), 'fragment')).toBe(base);
+    expect(emitGlslModule(fragMod(['float32Filterable']), 'fragment')).toBe(base);
     // …and all three at once, still not one byte.
     expect(
       emitGlslModule(
         fragMod(['floatRenderTarget', 'float32Blend', 'float32Filterable']),
         'fragment',
       ),
-    ).toBe(base)
+    ).toBe(base);
     // Directly, not merely transitively via the byte-identity above (test 7 pins that
     // the enables-free baseline carries no `#extension`, but a reader should not have to
     // chain two arms to learn that a HOST-side cap emits no directive).
-    expect(emitGlslModule(fragMod(['floatRenderTarget']), 'fragment')).not.toContain('#extension')
-  })
+    expect(emitGlslModule(fragMod(['floatRenderTarget']), 'fragment')).not.toContain('#extension');
+  });
 
   // ── 2. RED — the same trio on WGSL: accepted, and NOT an `enable` directive ──
   // On WebGPU these are core (float32-blendable / float render targets) or a device
   // FEATURE the host requests at adapter time ('float32-filterable') — none of them is
   // a WGSL `enable`-directive extension, so the WGSL emit must stay byte-identical too.
   it('WGSL accepts a host-side cap without adding an enable directive', () => {
-    const base = emitModule(fragMod())
-    const withCap = emitModule(fragMod(['floatRenderTarget']))
-    expect(withCap).not.toContain('enable ')
-    expect(withCap).toBe(base)
-    expect(emitModule(fragMod(['float32Blend', 'float32Filterable']))).toBe(base)
-  })
+    const base = emitModule(fragMod());
+    const withCap = emitModule(fragMod(['floatRenderTarget']));
+    expect(withCap).not.toContain('enable ');
+    expect(withCap).toBe(base);
+    expect(emitModule(fragMod(['float32Blend', 'float32Filterable']))).toBe(base);
+  });
 
   // ── 3. RED — the `#extension` mechanism itself, on the GLSL header ──
   // GLSL ES 3.00 §3.4: an `#extension` directive must precede any non-preprocessor
@@ -192,19 +192,19 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
   // implementer may pick a different neutral id / extension than the issue's
   // `multiview` → GL_OVR_multiview2 candidate.
   it('GLSL emits `#extension <NAME> : require` at header line index 1, after #version', () => {
-    const lines = emitGlslModule(fragMod(['multiview']), 'fragment').split('\n')
-    expect(lines[0]).toBe('#version 300 es')
+    const lines = emitGlslModule(fragMod(['multiview']), 'fragment').split('\n');
+    expect(lines[0]).toBe('#version 300 es');
     // The mechanism: a real GL extension token, `: require` (not `: enable` — a
     // module that DECLARED the cap cannot compile without it).
-    expect(lines[1]).toMatch(/^#extension GL_[A-Za-z0-9_]+ : require$/)
+    expect(lines[1]).toMatch(/^#extension GL_[A-Za-z0-9_]+ : require$/);
     // …and the precision preamble is PUSHED DOWN, not replaced.
-    expect(lines[2]).toBe('precision highp float;')
-    expect(lines[3]).toBe('precision highp int;')
+    expect(lines[2]).toBe('precision highp float;');
+    expect(lines[3]).toBe('precision highp int;');
     // Exactly one directive line for one declared cap — no duplicate, no stray header.
     expect(emitGlslModule(fragMod(['multiview']), 'fragment').match(/^#extension /gm)).toHaveLength(
       1,
-    )
-  })
+    );
+  });
 
   // ── 4. RED — reflect() exposes the requirement to the HOST ──
   // The host must know which extensions/features to activate BEFORE pipeline creation
@@ -217,11 +217,11 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
     // ArrayContaining [...]` instead of chai's "invalid combination of arguments".
     expect(requiredFeaturesOf(fragMod(['floatRenderTarget']))).toEqual(
       expect.arrayContaining(['floatRenderTarget']),
-    )
+    );
     // The always-present half — an empty ARRAY, never undefined.
-    expect(requiredFeaturesOf(fragMod())).toEqual([])
-    expect(requiredFeaturesOf(fragMod([]))).toEqual([])
-  })
+    expect(requiredFeaturesOf(fragMod())).toEqual([]);
+    expect(requiredFeaturesOf(fragMod([]))).toEqual([]);
+  });
 
   // ── 5. RED — fp64Lower must not swallow `enables` ──
   // The pass rebuilds the module literal and re-attaches only `overrides`, so an f64
@@ -234,52 +234,52 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
     const authored = module({
       enables: ['f16'],
       funcs: [fn('k', { a: f64T, b: f64T }, (p) => p.a.add(p.b))],
-    })
-    const lowered = fp64Lower(authored)
+    });
+    const lowered = fp64Lower(authored);
     // Guard the arm's premise: the pass must NOT have short-circuited via
     // `if (!moduleUsesF64(m)) return m` — otherwise `enables` would survive trivially
     // and this test would prove nothing.
-    expect(lowered).not.toBe(authored)
-    expect(lowered.enables).toEqual(['f16'])
-  })
+    expect(lowered).not.toBe(authored);
+    expect(lowered.enables).toEqual(['f16']);
+  });
 
   // ── 6. GREEN-PIN — f16 stays OUT of the GLSL profile ──
   it('GLSL still fails closed on f16 with SD0030 naming the cap', () => {
-    expect(() => emitGlslModule(fragMod(['f16']), 'fragment')).toThrow(UnsupportedFeatureError)
-    let caught: unknown
+    expect(() => emitGlslModule(fragMod(['f16']), 'fragment')).toThrow(UnsupportedFeatureError);
+    let caught: unknown;
     try {
-      emitGlslModule(fragMod(['f16']), 'fragment')
+      emitGlslModule(fragMod(['f16']), 'fragment');
     } catch (e) {
-      caught = e
+      caught = e;
     }
     // `.code` is the stable host-facing contract; the message must NAME the cap so a
     // profile-row deletion is diagnosable (§12 cut-the-mechanism).
-    expect((caught as { code?: string }).code).toBe('SD0030')
-    expect((caught as { message?: string }).message).toContain('f16')
+    expect((caught as { code?: string }).code).toBe('SD0030');
+    expect((caught as { message?: string }).message).toContain('f16');
     // …and subgroups, the other opt-in language cap, likewise.
     expect(() => emitGlslModule(fragMod(['subgroups']), 'fragment')).toThrow(
       UnsupportedFeatureError,
-    )
-  })
+    );
+  });
 
   // ── 7. GREEN-PIN — enables-free byte-neutrality on BOTH backends ──
   it('enables absent vs enables:[] emits byte-identically on WGSL and GLSL', () => {
-    expect(emitModule(fragMod([]))).toBe(emitModule(fragMod()))
-    expect(emitGlslModule(fragMod([]), 'fragment')).toBe(emitGlslModule(fragMod(), 'fragment'))
+    expect(emitModule(fragMod([]))).toBe(emitModule(fragMod()));
+    expect(emitGlslModule(fragMod([]), 'fragment')).toBe(emitGlslModule(fragMod(), 'fragment'));
     // The GLSL header an extension-free module keeps, spelled out — the baseline the
     // directive of test 3 must push down rather than rewrite.
     expect(
       emitGlslModule(fragMod(), 'fragment').startsWith(
         '#version 300 es\nprecision highp float;\nprecision highp int;\n\n',
       ),
-    ).toBe(true)
-    expect(emitGlslModule(fragMod(), 'fragment')).not.toContain('#extension')
-  })
+    ).toBe(true);
+    expect(emitGlslModule(fragMod(), 'fragment')).not.toContain('#extension');
+  });
 
   // ── 8. GREEN-PIN — the one directive WGSL already emits ──
   it('WGSL still emits `enable f16;` ahead of the declarations', () => {
-    expect(emitModule(fragMod(['f16'])).startsWith('enable f16;\n\n')).toBe(true)
-  })
+    expect(emitModule(fragMod(['f16'])).startsWith('enable f16;\n\n')).toBe(true);
+  });
 
   // ── 9. PROFILE PIN — both tables, row for row, value for value ──
   // Every arm above reads the profiles INDIRECTLY, through emit or reflect, and an
@@ -296,7 +296,7 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
       float32Blend: { hostFeature: 'EXT_float_blend' },
       float32Filterable: { hostFeature: 'OES_texture_float_linear' },
       multiview: { directive: 'GL_OVR_multiview2', hostFeature: 'OVR_multiview2' },
-    })
+    });
     expect(wgslBackend.capProfile).toEqual({
       storageBuffer: {},
       compute: {},
@@ -334,8 +334,8 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
       floatRenderTarget: {},
       float32Blend: { hostFeature: 'float32-blendable' },
       float32Filterable: { hostFeature: 'float32-filterable' },
-    })
-  })
+    });
+  });
 
   // ── 10. WGSL multiview fails CLOSED ──
   // The WGSL profile's missing `multiview` row is deliberate (WebGPU has no
@@ -343,23 +343,23 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
   // makes the GLSL `#extension` path meaningful is that the other target REFUSES rather
   // than emitting a module the device cannot honour.
   it('WGSL fails closed on multiview, naming the cap', () => {
-    expect(() => emitModule(fragMod(['multiview']))).toThrow(/multiview/)
-  })
+    expect(() => emitModule(fragMod(['multiview']))).toThrow(/multiview/);
+  });
 
   // ── 11. GLSL directive dedupe ──
   // The sorted+deduped byte order is pinned for WGSL (enable-directives.test.ts:42-47);
   // the GLSL side had no equivalent, so a `#extension` splice that emitted one line per
   // ENTRY rather than per distinct directive would have gone unnoticed.
   it('a repeated cap emits exactly ONE #extension line', () => {
-    const glsl = emitGlslModule(fragMod(['multiview', 'multiview']), 'fragment')
+    const glsl = emitGlslModule(fragMod(['multiview', 'multiview']), 'fragment');
     // Presence FIRST, count second: `.match()` answers null when nothing matches, and
     // `toHaveLength` on null reports "Target cannot be null or undefined" — a message
     // that names neither the directive nor the row it came from. Asserting the line
     // itself first means severing the profile's `directive` field fails with the string
     // it severed (§12 — a red must name the mechanism it cut).
-    expect(glsl).toContain('#extension GL_OVR_multiview2 : require')
-    expect(glsl.match(/^#extension /gm) ?? []).toHaveLength(1)
-  })
+    expect(glsl).toContain('#extension GL_OVR_multiview2 : require');
+    expect(glsl.match(/^#extension /gm) ?? []).toHaveLength(1);
+  });
 
   // ── 12. requiredFeatures is the UNION of derived + declared, sorted ──
   // The two provenance classes meet only here: `storageBuffer` is inferred from the
@@ -379,11 +379,11 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
         },
       ],
       funcs: [fn('k', { x: f32T }, f32T, (p, b) => b.ret(p.x.mul(2)))],
-    })
+    });
 
   it('reflect() unions the DERIVED and DECLARED caps, sorted', () => {
-    expect(requiredFeaturesOf(storageF16Mod())).toEqual(['f16', 'storageBuffer'])
-  })
+    expect(requiredFeaturesOf(storageF16Mod())).toEqual(['f16', 'storageBuffer']);
+  });
 
   // ── 13. a cap's IMPLIED dependency rides along ──
   // float32Blend ⇒ floatRenderTarget, because blending INTO a float target needs that
@@ -395,8 +395,8 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
     expect(requiredFeaturesOf(fragMod(['float32Blend']))).toEqual([
       'float32Blend',
       'floatRenderTarget',
-    ])
-  })
+    ]);
+  });
 
   // ── 14. the exact consumer the fp64 `enables` fix protects ──
   // Test 5 pins the pass; THIS pins the thing that pass exists for. emitModuleWithReflection
@@ -408,11 +408,11 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
     const m = module({
       enables: ['f16'],
       funcs: [fn('k', { a: f64T, b: f64T }, (p) => p.a.add(p.b))],
-    })
-    const { code, reflection } = emitModuleWithReflection(m, wgslBackend)
-    expect(reflection.requiredFeatures).toContain('f16')
-    expect(code.startsWith('enable f16;')).toBe(true)
-  })
+    });
+    const { code, reflection } = emitModuleWithReflection(m, wgslBackend);
+    expect(reflection.requiredFeatures).toContain('f16');
+    expect(code.startsWith('enable f16;')).toBe(true);
+  });
 
   // ── 15. TYPE negatives — the union rejects the near-miss spellings ──
   // Never executed; `tsc -p shader-dsl/tsconfig.tests.json` (the second half of
@@ -424,13 +424,13 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
       funcs: [],
       // @ts-expect-error — all-lowercase: 'floatrendertarget' is not 'floatRenderTarget'.
       enables: ['floatrendertarget'],
-    })
+    });
     module({
       funcs: [],
       // @ts-expect-error — wrong hump: 'multiView' is not 'multiview'.
       enables: ['multiView'],
-    })
-  })
+    });
+  });
 
   // ── 15b. TYPE negative — a DERIVED cap is not DECLARABLE (X-GIS #1681 A2) ──
   // Same never-executed, tsc-validated mechanism as test 15, over the other axis:
@@ -445,18 +445,18 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
       funcs: [],
       // @ts-expect-error — derived from a `space: 'storage'` binding, never declared.
       enables: ['storageBuffer'],
-    })
+    });
     module({
       funcs: [],
       // @ts-expect-error — derived from a `@compute` entry, never declared.
       enables: ['compute'],
-    })
+    });
     module({
       funcs: [],
       // @ts-expect-error — derived from a `dim: '2d-ms'` texture binding, never declared.
       enables: ['msaaTextureLoad'],
-    })
-  })
+    });
+  });
 
   // ── 16. DOC-SYNC RATCHET: the guide's capabilities page vs the profiles ──
   // That page's table is the only place an author learns which id costs what, and a table
@@ -471,7 +471,7 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
   const AUTHORING = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), '../../../AUTHORING.md'),
     'utf8',
-  )
+  );
   const ALL_CAPS: readonly Capability[] = [
     'storageBuffer',
     'compute',
@@ -485,35 +485,35 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
     'float32Blend',
     'float32Filterable',
     'multiview',
-  ]
+  ];
 
   it('the capabilities guide page names every capability id and every profile string', () => {
-    const start = AUTHORING.indexOf('\n## Capabilities')
+    const start = AUTHORING.indexOf('\n## Capabilities');
     expect(
       start,
       "AUTHORING.md has no '## Capabilities' section: the ratchet lost its anchor",
-    ).toBeGreaterThan(-1)
-    const rest = AUTHORING.slice(start + 1)
-    const end = rest.indexOf('\n## ')
-    const section = end === -1 ? rest : rest.slice(0, end)
+    ).toBeGreaterThan(-1);
+    const rest = AUTHORING.slice(start + 1);
+    const end = rest.indexOf('\n## ');
+    const section = end === -1 ? rest : rest.slice(0, end);
     // Non-empty by construction, but assert it: an empty slice would pass nothing below.
-    expect(section.length).toBeGreaterThan(200)
+    expect(section.length).toBeGreaterThan(200);
 
     for (const cap of ALL_CAPS)
-      expect(section, `the capabilities page never mentions '${cap}'`).toContain(cap)
+      expect(section, `the capabilities page never mentions '${cap}'`).toContain(cap);
 
     // Both halves of every row in BOTH profiles — the host-activation strings included,
     // which is the half AUTHORING.md's one-per-cell vocabulary used to delete.
     for (const be of [glslEs300Backend, wgslBackend]) {
       for (const [cap, row] of Object.entries(be.capProfile)) {
         for (const s of [row?.directive, row?.hostFeature]) {
-          if (s === undefined) continue
+          if (s === undefined) continue;
           expect(
             section,
             `the capabilities page never mentions '${s}' (${be.id} ${cap})`,
-          ).toContain(s)
+          ).toContain(s);
         }
       }
     }
-  })
-})
+  });
+});

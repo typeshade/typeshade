@@ -1,5 +1,5 @@
-import type { Stmt, FuncDecl, ModuleDecl } from '../../../ir/index.js'
-import type { LintRule } from '../engine.js'
+import type { Stmt, FuncDecl, ModuleDecl } from '../../../ir/index.js';
+import type { LintRule } from '../engine.js';
 
 // Every name a body BINDS: the params, and every `let` / `var` anywhere inside it, `for`
 // inits included. The IR has no scope ids — a binding is its name, function-wide (the premise
@@ -8,23 +8,23 @@ function eachBoundName(s: Stmt, onName: (name: string) => void): void {
   switch (s.s) {
     case 'let':
     case 'var':
-      onName(s.name)
-      break
+      onName(s.name);
+      break;
     case 'if':
-      for (const arm of s.arms) for (const b of arm.body) eachBoundName(b, onName)
-      if (s.elseBody) for (const b of s.elseBody) eachBoundName(b, onName)
-      break
+      for (const arm of s.arms) for (const b of arm.body) eachBoundName(b, onName);
+      if (s.elseBody) for (const b of s.elseBody) eachBoundName(b, onName);
+      break;
     case 'for':
-      eachBoundName(s.init, onName)
-      eachBoundName(s.update, onName)
-      for (const b of s.body) eachBoundName(b, onName)
-      break
+      eachBoundName(s.init, onName);
+      eachBoundName(s.update, onName);
+      for (const b of s.body) eachBoundName(b, onName);
+      break;
     case 'switch':
-      for (const c of s.cases) for (const b of c.body) eachBoundName(b, onName)
-      if (s.defaultBody) for (const b of s.defaultBody) eachBoundName(b, onName)
-      break
+      for (const c of s.cases) for (const b of c.body) eachBoundName(b, onName);
+      if (s.defaultBody) for (const b of s.defaultBody) eachBoundName(b, onName);
+      break;
     default:
-      break
+      break;
   }
 }
 
@@ -32,21 +32,21 @@ function eachBoundName(s: Stmt, onName: (name: string) => void): void {
 // A function holding one has no readable scope, so it is skipped whole rather than guessed at.
 function hasRaw(body: readonly Stmt[]): boolean {
   return body.some((s) => {
-    if (s.s === 'raw') return true
-    if (s.s === 'if') return s.arms.some((a) => hasRaw(a.body)) || hasRaw(s.elseBody ?? [])
-    if (s.s === 'for') return hasRaw(s.body)
-    if (s.s === 'switch') return s.cases.some((c) => hasRaw(c.body)) || hasRaw(s.defaultBody ?? [])
-    return false
-  })
+    if (s.s === 'raw') return true;
+    if (s.s === 'if') return s.arms.some((a) => hasRaw(a.body)) || hasRaw(s.elseBody ?? []);
+    if (s.s === 'for') return hasRaw(s.body);
+    if (s.s === 'switch') return s.cases.some((c) => hasRaw(c.body)) || hasRaw(s.defaultBody ?? []);
+    return false;
+  });
 }
 
 function moduleLevelNames(m: ModuleDecl): Set<string> {
-  const names = new Set<string>()
-  for (const b of m.bindings) names.add(b.name)
-  for (const c of m.consts) names.add(c.name)
-  for (const e of m.externs ?? []) names.add(e.name)
-  for (const o of m.overrides ?? []) names.add(o.name)
-  return names
+  const names = new Set<string>();
+  for (const b of m.bindings) names.add(b.name);
+  for (const c of m.consts) names.add(c.name);
+  for (const e of m.externs ?? []) names.add(e.name);
+  for (const o of m.overrides ?? []) names.add(o.name);
+  return names;
 }
 
 /** A variable a function reads that nothing declares — the missing `uses:` entry.
@@ -78,29 +78,29 @@ export const usesDeclared: LintRule = {
   severity: 'error',
   category: 'correctness',
   create: (ctx) => {
-    let bound: Set<string> | undefined
-    const reported = new Set<string>()
+    let bound: Set<string> | undefined;
+    const reported = new Set<string>();
     return {
       Func(f: FuncDecl) {
         if (hasRaw(f.body)) {
-          bound = undefined
-          return
+          bound = undefined;
+          return;
         }
-        const names = moduleLevelNames(ctx.module)
-        for (const p of f.params) names.add(p.name)
-        for (const s of f.body) eachBoundName(s, (n) => names.add(n))
-        bound = names
+        const names = moduleLevelNames(ctx.module);
+        for (const p of f.params) names.add(p.name);
+        for (const s of f.body) eachBoundName(s, (n) => names.add(n));
+        bound = names;
       },
       Expr(e, f) {
-        if (bound === undefined || e.op !== 'varref' || bound.has(e.name)) return
-        const key = `${f.name}:${e.name}`
-        if (reported.has(key)) return
-        reported.add(key)
+        if (bound === undefined || e.op !== 'varref' || bound.has(e.name)) return;
+        const key = `${f.name}:${e.name}`;
+        if (reported.has(key)) return;
+        reported.add(key);
         ctx.report(
           `fn '${f.name}' reads '${e.name}', which nothing declares — add the handle that owns it to module({ uses: [...] }), or declare it in the body`,
           { fn: f.name, node: e, code: 'SD0114' },
-        )
+        );
       },
-    }
+    };
   },
-}
+};

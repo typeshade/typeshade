@@ -17,12 +17,12 @@
 //
 // Both are compile-time-derivable (no GPU); the real-GPU cycle/timing axis is P3.
 
-import type { ModuleDecl, Expr, Stmt, FuncDecl } from './ir/index.js'
-import { emitModule, emitModuleAt, lowerWgsl, wgslBackend } from './backends/wgsl.js'
-import { glslEs300Backend } from './backends/glsl.js'
-import { lowerForBackend } from './emit.js'
-import type { Backend } from './backend.js'
-import { fixpoint, irEqual } from './passes/opt/optimize.js'
+import type { ModuleDecl, Expr, Stmt, FuncDecl } from './ir/index.js';
+import { emitModule, emitModuleAt, lowerWgsl, wgslBackend } from './backends/wgsl.js';
+import { glslEs300Backend } from './backends/glsl.js';
+import { lowerForBackend } from './emit.js';
+import type { Backend } from './backend.js';
+import { fixpoint, irEqual } from './passes/opt/optimize.js';
 
 // ── Source size ──
 
@@ -37,14 +37,14 @@ import { fixpoint, irEqual } from './passes/opt/optimize.js'
  */
 export interface EmitSize {
   /** Emitted source length in characters. */
-  readonly chars: number
+  readonly chars: number;
   /** Emitted source length in lines (`\n`-split). */
-  readonly lines: number
+  readonly lines: number;
 }
 
 /** Measure an already-emitted shader string. */
 export function emitSize(code: string): EmitSize {
-  return { chars: code.length, lines: code.split('\n').length }
+  return { chars: code.length, lines: code.split('\n').length };
 }
 
 // ── Operation count (the GPU-work proxy) ──
@@ -61,60 +61,60 @@ export function emitSize(code: string): EmitSize {
  */
 export interface OpCount {
   /** Intrinsic / user function-call nodes (sin, mix, pack4x8unorm, …) — the transcendental / ALU work. */
-  readonly calls: number
+  readonly calls: number;
   /** Arithmetic nodes: binop (+ − * / …), unop (−x), compare (<,>,==), logical (&&,||). */
-  readonly arith: number
+  readonly arith: number;
   /** calls + arith. */
-  readonly total: number
+  readonly total: number;
 }
 
 function walkExpr(e: Expr, c: { calls: number; arith: number }): void {
   switch (e.op) {
     case 'call':
-      c.calls++
-      for (const a of e.args) walkExpr(a, c)
-      break
+      c.calls++;
+      for (const a of e.args) walkExpr(a, c);
+      break;
     case 'binop':
     case 'compare':
     case 'logical':
-      c.arith++
-      walkExpr(e.a, c)
-      walkExpr(e.b, c)
-      break
+      c.arith++;
+      walkExpr(e.a, c);
+      walkExpr(e.b, c);
+      break;
     case 'unop':
-      c.arith++
-      walkExpr(e.a, c)
-      break
+      c.arith++;
+      walkExpr(e.a, c);
+      break;
     case 'construct':
-      for (const a of e.args) walkExpr(a, c) // a vector ctor is not an ALU op; still recurse its args
-      break
+      for (const a of e.args) walkExpr(a, c); // a vector ctor is not an ALU op; still recurse its args
+      break;
     case 'member':
-      walkExpr(e.base, c)
-      break
+      walkExpr(e.base, c);
+      break;
     case 'index':
-      walkExpr(e.base, c)
-      walkExpr(e.idx, c)
-      break
+      walkExpr(e.base, c);
+      walkExpr(e.idx, c);
+      break;
     case 'select':
-      walkExpr(e.cond, c)
-      walkExpr(e.ifTrue, c)
-      walkExpr(e.ifFalse, c)
-      break
+      walkExpr(e.cond, c);
+      walkExpr(e.ifTrue, c);
+      walkExpr(e.ifFalse, c);
+      break;
     case 'matchExpr':
-      walkExpr(e.scrutinee, c)
-      for (const [, v] of e.cases) walkExpr(v, c)
-      walkExpr(e.default, c)
-      break
+      walkExpr(e.scrutinee, c);
+      for (const [, v] of e.cases) walkExpr(v, c);
+      walkExpr(e.default, c);
+      break;
     case 'lit':
     case 'constref':
     case 'externref': // X-GIS #1713 — a host-provided global read is a leaf too
     case 'overrideref': // X-GIS #923 — a specialization-constant read is a leaf (zero ops)
     case 'param':
     case 'varref':
-      break // leaf — no op
+      break; // leaf — no op
     default: {
-      const _exhaustive: never = e // a new Expr kind must be classified here, not silently undercounted
-      void _exhaustive
+      const _exhaustive: never = e; // a new Expr kind must be classified here, not silently undercounted
+      void _exhaustive;
     }
   }
 }
@@ -122,64 +122,64 @@ function walkExpr(e: Expr, c: { calls: number; arith: number }): void {
 function walkStmt(s: Stmt, c: { calls: number; arith: number }): void {
   switch (s.s) {
     case 'let':
-      walkExpr(s.expr, c)
-      break
+      walkExpr(s.expr, c);
+      break;
     case 'var':
-      if (s.init !== undefined) walkExpr(s.init, c)
-      break
+      if (s.init !== undefined) walkExpr(s.init, c);
+      break;
     case 'assign':
     case 'assignOp':
-      walkExpr(s.target, c)
-      walkExpr(s.expr, c)
-      break
+      walkExpr(s.target, c);
+      walkExpr(s.expr, c);
+      break;
     case 'call':
-      walkExpr(s.expr, c)
-      break
+      walkExpr(s.expr, c);
+      break;
     case 'return':
-      if (s.expr !== undefined) walkExpr(s.expr, c)
-      break
+      if (s.expr !== undefined) walkExpr(s.expr, c);
+      break;
     case 'if':
       for (const arm of s.arms) {
-        walkExpr(arm.cond, c)
-        for (const b of arm.body) walkStmt(b, c)
+        walkExpr(arm.cond, c);
+        for (const b of arm.body) walkStmt(b, c);
       }
-      if (s.elseBody) for (const b of s.elseBody) walkStmt(b, c)
-      break
+      if (s.elseBody) for (const b of s.elseBody) walkStmt(b, c);
+      break;
     case 'for':
-      walkStmt(s.init, c)
-      walkExpr(s.cond, c)
-      walkStmt(s.update, c)
-      for (const b of s.body) walkStmt(b, c)
-      break
+      walkStmt(s.init, c);
+      walkExpr(s.cond, c);
+      walkStmt(s.update, c);
+      for (const b of s.body) walkStmt(b, c);
+      break;
     case 'switch':
-      walkExpr(s.scrut, c)
-      for (const cs of s.cases) for (const b of cs.body) walkStmt(b, c)
-      if (s.defaultBody) for (const b of s.defaultBody) walkStmt(b, c)
-      break
+      walkExpr(s.scrut, c);
+      for (const cs of s.cases) for (const b of cs.body) walkStmt(b, c);
+      if (s.defaultBody) for (const b of s.defaultBody) walkStmt(b, c);
+      break;
     case 'raw': // opaque raw text — ops invisible to the IR (documented undercount in countOps)
     case 'break':
     case 'continue':
     case 'discard':
     case 'placeholder':
-      break // op-free / opaque
+      break; // op-free / opaque
     default: {
-      const _exhaustive: never = s // a new Stmt kind must be classified here, not silently undercounted
-      void _exhaustive
+      const _exhaustive: never = s; // a new Stmt kind must be classified here, not silently undercounted
+      void _exhaustive;
     }
   }
 }
 
 function countFn(f: FuncDecl, c: { calls: number; arith: number }): void {
-  for (const s of f.body) walkStmt(s, c)
+  for (const s of f.body) walkStmt(s, c);
 }
 
 /** Count arithmetic + call operations across every function body of a module. A `raw`
  *  Stmt is opaque (its WGSL ops are invisible to the IR) and contributes 0 — so a module
  *  built on raw blocks (the polygon composer) reports an undercount, not a wrong delta. */
 export function countOps(m: ModuleDecl): OpCount {
-  const c = { calls: 0, arith: 0 }
-  for (const f of m.funcs) countFn(f, c)
-  return { calls: c.calls, arith: c.arith, total: c.calls + c.arith }
+  const c = { calls: 0, arith: 0 };
+  for (const f of m.funcs) countFn(f, c);
+  return { calls: c.calls, arith: c.arith, total: c.calls + c.arith };
 }
 
 // ── Combined report ──
@@ -197,18 +197,18 @@ export function countOps(m: ModuleDecl): OpCount {
 export interface OptimizerReport {
   /** Source size at O0 vs O2; `saved*` may be NEGATIVE (CSE trades bytes for ops). */
   readonly size: {
-    readonly o0: EmitSize
-    readonly o2: EmitSize
-    readonly savedChars: number
-    readonly savedLines: number
-  }
+    readonly o0: EmitSize;
+    readonly o2: EmitSize;
+    readonly savedChars: number;
+    readonly savedLines: number;
+  };
   /** Operation count at O0 vs O2; the optimizer never INCREASES either axis. */
   readonly ops: {
-    readonly o0: OpCount
-    readonly o2: OpCount
-    readonly savedCalls: number
-    readonly savedArith: number
-  }
+    readonly o0: OpCount;
+    readonly o2: OpCount;
+    readonly savedCalls: number;
+    readonly savedArith: number;
+  };
 }
 
 /** A/B a module's WGSL emit between naive (O0) and the production optimizer (O2) on both
@@ -216,10 +216,10 @@ export interface OptimizerReport {
  *  `lowerWgsl` — the SAME lowering pipeline that emit uses — so the two halves never describe
  *  different modules, and neither measures a path the renderer does not ship. */
 export function optimizerReport(m: ModuleDecl): OptimizerReport {
-  const sizeO0 = emitSize(emitModuleAt(m, 'O0'))
-  const sizeO2 = emitSize(emitModule(m)) // === emitModuleAt(m, 'O2'); use the canonical entry
-  const opsO0 = countOps(lowerWgsl(m, 'O0'))
-  const opsO2 = countOps(lowerWgsl(m, 'O2'))
+  const sizeO0 = emitSize(emitModuleAt(m, 'O0'));
+  const sizeO2 = emitSize(emitModule(m)); // === emitModuleAt(m, 'O2'); use the canonical entry
+  const opsO0 = countOps(lowerWgsl(m, 'O0'));
+  const opsO2 = countOps(lowerWgsl(m, 'O2'));
   return {
     size: {
       o0: sizeO0,
@@ -233,7 +233,7 @@ export function optimizerReport(m: ModuleDecl): OptimizerReport {
       savedCalls: opsO0.calls - opsO2.calls,
       savedArith: opsO0.arith - opsO2.arith,
     },
-  }
+  };
 }
 
 // ── Where the emit time actually goes (X-GIS #2449, direction record D1.1) ────────────────────
@@ -247,16 +247,16 @@ export function optimizerReport(m: ModuleDecl): OptimizerReport {
 
 /** One pre-emit stage's wall-clock. The `stage` names are `lowerForBackend`'s own steps. */
 export interface StageTiming {
-  readonly stage: string
-  readonly ms: number
+  readonly stage: string;
+  readonly ms: number;
 }
 
 /** One optimizer pass, summed over every function and every fixpoint iteration it ran in. */
 export interface PassTiming {
-  readonly pass: string
-  readonly ms: number
+  readonly pass: string;
+  readonly ms: number;
   /** How many times the pass ran — functions × iterations. */
-  readonly runs: number
+  readonly runs: number;
 }
 
 /** Where one module's emit spends its time, stage by stage and pass by pass.
@@ -264,13 +264,13 @@ export interface PassTiming {
  *  Exported from `typeshade/dev`.
  */
 export interface EmitProfile {
-  readonly target: 'wgsl' | 'glsl-es300'
+  readonly target: 'wgsl' | 'glsl-es300';
   /** Wall-clock for the whole pre-emit pipeline; `stages` sums to this. */
-  readonly totalMs: number
+  readonly totalMs: number;
   /** In pipeline order, so the reader sees the sequence and not just the winner. */
-  readonly stages: readonly StageTiming[]
+  readonly stages: readonly StageTiming[];
   /** The `optimize` stage broken down, heaviest first. Sums to that stage's `ms`. */
-  readonly passes: readonly PassTiming[]
+  readonly passes: readonly PassTiming[];
 }
 
 /** Profile `m`'s pre-emit pipeline. Runs the REAL `lowerForBackend` with a stopwatch, not a
@@ -283,9 +283,9 @@ export interface EmitProfile {
  *  Exported from `typeshade/dev`.
  */
 export function profileEmit(m: ModuleDecl, target: 'wgsl' | 'glsl-es300' = 'wgsl'): EmitProfile {
-  const be: Backend = target === 'wgsl' ? wgslBackend : glslEs300Backend
-  const stages: StageTiming[] = []
-  const passMs = new Map<string, { ms: number; runs: number }>()
+  const be: Backend = target === 'wgsl' ? wgslBackend : glslEs300Backend;
+  const stages: StageTiming[] = [];
+  const passMs = new Map<string, { ms: number; runs: number }>();
 
   // The pass sink is installed by swapping the backend's `optimize` for the same `fixpoint`
   // call carrying a sink. Both shipped backends ARE `(m) => fixpoint(m)`, and the assertion
@@ -295,17 +295,17 @@ export function profileEmit(m: ModuleDecl, target: 'wgsl' | 'glsl-es300' = 'wgsl
     ...be,
     optimize: (mod: ModuleDecl) =>
       fixpoint(mod, undefined, undefined, (pass, ms) => {
-        const cur = passMs.get(pass) ?? { ms: 0, runs: 0 }
-        passMs.set(pass, { ms: cur.ms + ms, runs: cur.runs + 1 })
+        const cur = passMs.get(pass) ?? { ms: 0, runs: 0 };
+        passMs.set(pass, { ms: cur.ms + ms, runs: cur.runs + 1 });
       }),
-  }
+  };
 
   const lowered = lowerForBackend(m, instrumented, undefined, undefined, (stage, ms) =>
     stages.push({ stage, ms }),
-  )
+  );
   // The substitution above must not have changed the result.
   if (!irEqual(lowered, lowerForBackend(m, be)))
-    throw new Error('profileEmit: the instrumented optimizer produced a different module')
+    throw new Error('profileEmit: the instrumented optimizer produced a different module');
 
   return {
     target,
@@ -314,5 +314,5 @@ export function profileEmit(m: ModuleDecl, target: 'wgsl' | 'glsl-es300' = 'wgsl
     passes: [...passMs.entries()]
       .map(([pass, v]) => ({ pass, ms: v.ms, runs: v.runs }))
       .sort((a, b) => b.ms - a.ms),
-  }
+  };
 }

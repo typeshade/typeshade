@@ -59,18 +59,18 @@
 //     summary table is parsed with its spans expanded.
 //   * Enable-extension names are defined backticked (`` <dfn dfn-for="extension">`f16`</dfn> ``)
 //     and language-extension names bare (`<dfn for="language_extension">subgroup_id</dfn>`).
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-const ROOT = join(HERE, '..')
-const OUT = join(ROOT, 'src', 'core', 'spec-conformance', 'fixtures', 'wgsl-names.json')
-const REPO = 'https://github.com/gpuweb/gpuweb'
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(HERE, '..');
+const OUT = join(ROOT, 'src', 'core', 'spec-conformance', 'fixtures', 'wgsl-names.json');
+const REPO = 'https://github.com/gpuweb/gpuweb';
 
 /** A checkout beside the package is the convention here; `WGSL_SPEC` or argv[2] overrides it. */
-const specPath = process.argv[2] ?? process.env['WGSL_SPEC'] ?? join(ROOT, '..', 'gpuweb')
+const specPath = process.argv[2] ?? process.env['WGSL_SPEC'] ?? join(ROOT, '..', 'gpuweb');
 
 // ─── Bikeshed text ───
 
@@ -95,7 +95,7 @@ function plain(text: string): string {
     .replace(/&amp;/g, '&')
     .replace(/`/g, '')
     .replace(/\s+/g, ' ')
-    .trim()
+    .trim();
 }
 
 // ─── Sections ───
@@ -104,18 +104,18 @@ function plain(text: string): string {
  *  same level or shallower. `# Built-in Functions #` therefore carries its 20 subsections with
  *  it, and `#### Built-in Inputs and Outputs ####` carries the per-value `#####` sections. */
 function sectionRange(lines: readonly string[], id: string): { start: number; end: number } {
-  const open = new RegExp(`^(#{1,6}) .*\\{#${id}\\}\\s*$`)
+  const open = new RegExp(`^(#{1,6}) .*\\{#${id}\\}\\s*$`);
   for (let i = 0; i < lines.length; i++) {
-    const m = open.exec(lines[i] ?? '')
-    if (m === null) continue
-    const level = (m[1] ?? '').length
-    const close = new RegExp(`^#{1,${String(level)}} `)
+    const m = open.exec(lines[i] ?? '');
+    if (m === null) continue;
+    const level = (m[1] ?? '').length;
+    const close = new RegExp(`^#{1,${String(level)}} `);
     for (let j = i + 1; j < lines.length; j++) {
-      if (close.test(lines[j] ?? '')) return { start: i, end: j }
+      if (close.test(lines[j] ?? '')) return { start: i, end: j };
     }
-    return { start: i, end: lines.length }
+    return { start: i, end: lines.length };
   }
-  throw new Error(`section {#${id}} not found in the spec source`)
+  throw new Error(`section {#${id}} not found in the spec source`);
 }
 
 // ─── Tables ───
@@ -124,41 +124,41 @@ function sectionRange(lines: readonly string[], id: string): { start: number; en
  *  Bikeshed tables omit `</td>` and `</tr>` entirely and wrap cells over many lines, so the
  *  split is on the opening tags. Header rows are dropped; the header only fixes the width. */
 function parseTable(block: string): string[][] {
-  const width = (/<thead>([\s\S]*?)<\/thead>/.exec(block)?.[1]?.match(/<th\b/g) ?? []).length
-  const body = block.replace(/<thead>[\s\S]*?<\/thead>/g, '')
-  const rows: string[][] = []
-  const pending = new Map<number, { text: string; left: number }>()
+  const width = (/<thead>([\s\S]*?)<\/thead>/.exec(block)?.[1]?.match(/<th\b/g) ?? []).length;
+  const body = block.replace(/<thead>[\s\S]*?<\/thead>/g, '');
+  const rows: string[][] = [];
+  const pending = new Map<number, { text: string; left: number }>();
   for (const chunk of body.split(/<tr\b/).slice(1)) {
     const cells = chunk
       .split(/<td\b/)
       .slice(1)
       .map((cell) => {
-        const gt = cell.indexOf('>')
-        const attrs = gt < 0 ? '' : cell.slice(0, gt)
-        const span = /rowspan\s*=\s*"?(\d+)"?/.exec(attrs)
-        return { text: plain(gt < 0 ? cell : cell.slice(gt + 1)), span: Number(span?.[1] ?? '1') }
-      })
-    const row: string[] = []
-    let col = 0
-    let next = 0
+        const gt = cell.indexOf('>');
+        const attrs = gt < 0 ? '' : cell.slice(0, gt);
+        const span = /rowspan\s*=\s*"?(\d+)"?/.exec(attrs);
+        return { text: plain(gt < 0 ? cell : cell.slice(gt + 1)), span: Number(span?.[1] ?? '1') };
+      });
+    const row: string[] = [];
+    let col = 0;
+    let next = 0;
     while (col < Math.max(width, cells.length) || next < cells.length) {
-      const held = pending.get(col)
+      const held = pending.get(col);
       if (held !== undefined && held.left > 0) {
-        row[col] = held.text
-        held.left -= 1
-        col += 1
-        continue
+        row[col] = held.text;
+        held.left -= 1;
+        col += 1;
+        continue;
       }
-      const cell = cells[next]
-      if (cell === undefined) break
-      row[col] = cell.text
-      if (cell.span > 1) pending.set(col, { text: cell.text, left: cell.span - 1 })
-      next += 1
-      col += 1
+      const cell = cells[next];
+      if (cell === undefined) break;
+      row[col] = cell.text;
+      if (cell.span > 1) pending.set(col, { text: cell.text, left: cell.span - 1 });
+      next += 1;
+      col += 1;
     }
-    rows.push(row)
+    rows.push(row);
   }
-  return rows
+  return rows;
 }
 
 /** Every name that has its own `### `name` ###` section under `# Built-in Functions #`. This is
@@ -166,24 +166,24 @@ function parseTable(block: string): string[][] {
  *  agree exactly. They do at the baked commit (169 each), which is what makes the declaration
  *  parsing above trustworthy without a hand-maintained expected list. */
 function builtinFunctionHeadings(lines: readonly string[]): string[] {
-  const { start, end } = sectionRange(lines, 'builtin-functions')
-  const names = new Set<string>()
+  const { start, end } = sectionRange(lines, 'builtin-functions');
+  const names = new Set<string>();
   for (let i = start; i < end; i++) {
     // `### `abs` (signed) ###` — the parenthesised overload note is part of the heading text.
-    const m = /^#{2,6} `(\w+)`[^#]*#{2,6} \{#[\w-]+\}\s*$/.exec(lines[i] ?? '')
-    if (m !== null) names.add(m[1] ?? '')
+    const m = /^#{2,6} `(\w+)`[^#]*#{2,6} \{#[\w-]+\}\s*$/.exec(lines[i] ?? '');
+    if (m !== null) names.add(m[1] ?? '');
   }
-  return [...names].sort()
+  return [...names].sort();
 }
 
 /** The table whose `<caption>` contains this text, as one string. */
 function tableWithCaption(block: string, caption: string): string {
   for (const t of block.split(/<table\b/).slice(1)) {
-    const end = t.indexOf('</table>')
-    const text = end < 0 ? t : t.slice(0, end)
-    if (new RegExp(`<caption>[^<]*${caption}`).test(text)) return text
+    const end = t.indexOf('</table>');
+    const text = end < 0 ? t : t.slice(0, end);
+    if (new RegExp(`<caption>[^<]*${caption}`).test(text)) return text;
   }
-  throw new Error(`table with caption ${caption} not found`)
+  throw new Error(`table with caption ${caption} not found`);
 }
 
 // ─── The lists ───
@@ -192,108 +192,108 @@ function tableWithCaption(block: string, caption: string): string {
  *  above: declarations live in table cells and in section-level ```wgsl fences, and everything
  *  else in the section is example or pseudocode text. */
 function builtinFunctions(lines: readonly string[]): string[] {
-  const { start, end } = sectionRange(lines, 'builtin-functions')
-  const names = new Set<string>()
-  let inTable = false
-  let inFence = false
-  let divDepth = 0
+  const { start, end } = sectionRange(lines, 'builtin-functions');
+  const names = new Set<string>();
+  let inTable = false;
+  let inFence = false;
+  let divDepth = 0;
   for (let i = start; i < end; i++) {
-    const raw = lines[i] ?? ''
-    const line = raw.trim()
+    const raw = lines[i] ?? '';
+    const line = raw.trim();
     if (/^```wgsl/.test(line)) {
-      inFence = true
-      continue
+      inFence = true;
+      continue;
     }
     if (inFence && line === '```') {
-      inFence = false
-      continue
+      inFence = false;
+      continue;
     }
-    if (/<table\b/.test(line)) inTable = true
-    divDepth += (line.match(/<div\b/g) ?? []).length - (line.match(/<\/div>/g) ?? []).length
+    if (/<table\b/.test(line)) inTable = true;
+    divDepth += (line.match(/<div\b/g) ?? []).length - (line.match(/<\/div>/g) ?? []).length;
     // A fence inside a `<div>` is an example or an "operation of X as a function" rewrite, which
     // re-declares the built-in it explains; only a fence at section level is the declaration.
     if (inTable || (inFence && divDepth === 0)) {
       for (const m of raw.matchAll(/\bfn\s+([A-Za-z_]\w*)\s*[<(]/g)) {
-        const name = m[1] ?? ''
-        if (/^[a-z]/.test(name)) names.add(name)
+        const name = m[1] ?? '';
+        if (/^[a-z]/.test(name)) names.add(name);
       }
     }
-    if (inTable && /<\/table>/.test(line)) inTable = false
+    if (inTable && /<\/table>/.test(line)) inTable = false;
   }
-  return [...names].sort()
+  return [...names].sort();
 }
 
 /** The predeclared spellable types (a bullet list) and the predeclared type-generators (the
  *  first column of the table that follows them). */
 function predeclared(lines: readonly string[]): { types: string[]; generators: string[] } {
-  const { start, end } = sectionRange(lines, 'predeclared-types')
-  const block = lines.slice(start, end).join('\n')
-  const intro = block.slice(0, block.indexOf('<table'))
-  const types = [...intro.matchAll(/^\* (\[=[^\n]*=\])\s*$/gm)].map((m) => plain(m[1] ?? ''))
+  const { start, end } = sectionRange(lines, 'predeclared-types');
+  const block = lines.slice(start, end).join('\n');
+  const intro = block.slice(0, block.indexOf('<table'));
+  const types = [...intro.matchAll(/^\* (\[=[^\n]*=\])\s*$/gm)].map((m) => plain(m[1] ?? ''));
   const generators = parseTable(tableWithCaption(block, 'Predeclared type generators'))
     .map((row) => row[0] ?? '')
-    .filter((name) => name !== '')
-  return { types: types.sort(), generators: generators.sort() }
+    .filter((name) => name !== '');
+  return { types: types.sort(), generators: generators.sort() };
 }
 
 interface BuiltinValue {
-  readonly name: string
+  readonly name: string;
   /** One entry per stage the value is available in; `position` has two. */
-  readonly stages: readonly { readonly stage: string; readonly direction: string }[]
-  readonly type: string
+  readonly stages: readonly { readonly stage: string; readonly direction: string }[];
+  readonly type: string;
   /** The extension the value needs, `''` when it is always available. */
-  readonly extension: string
+  readonly extension: string;
 }
 
 /** The built-in value summary table: name, stage, direction, type, extension. */
 function builtinValues(lines: readonly string[]): BuiltinValue[] {
-  const { start, end } = sectionRange(lines, 'builtin-inputs-outputs')
-  const block = lines.slice(start, end).join('\n')
-  const rows = parseTable(tableWithCaption(block, 'Built-in input and output values'))
+  const { start, end } = sectionRange(lines, 'builtin-inputs-outputs');
+  const block = lines.slice(start, end).join('\n');
+  const rows = parseTable(tableWithCaption(block, 'Built-in input and output values'));
   const byName = new Map<
     string,
     { stages: { stage: string; direction: string }[]; type: string; extension: string }
-  >()
+  >();
   for (const row of rows) {
-    const name = row[0] ?? ''
-    if (name === '') continue
-    const entry = byName.get(name) ?? { stages: [], type: row[3] ?? '', extension: row[4] ?? '' }
-    entry.stages.push({ stage: row[1] ?? '', direction: row[2] ?? '' })
-    byName.set(name, entry)
+    const name = row[0] ?? '';
+    if (name === '') continue;
+    const entry = byName.get(name) ?? { stages: [], type: row[3] ?? '', extension: row[4] ?? '' };
+    entry.stages.push({ stage: row[1] ?? '', direction: row[2] ?? '' });
+    byName.set(name, entry);
   }
   return [...byName.entries()]
     .map(([name, e]) => ({ name, stages: e.stages, type: e.type, extension: e.extension }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Every attribute that has its own section under `# Attributes #`, including the three shader
  *  stage attributes, whose sections are one level deeper but carry the same `-attr` id. */
 function attributes(lines: readonly string[]): string[] {
-  const { start, end } = sectionRange(lines, 'attributes')
-  const names = new Set<string>()
+  const { start, end } = sectionRange(lines, 'attributes');
+  const names = new Set<string>();
   for (let i = start; i < end; i++) {
-    const m = /^#{2,6} `(\w+)` #{2,6} \{#[\w-]+-attr\}\s*$/.exec(lines[i] ?? '')
-    if (m !== null) names.add(m[1] ?? '')
+    const m = /^#{2,6} `(\w+)` #{2,6} \{#[\w-]+-attr\}\s*$/.exec(lines[i] ?? '');
+    if (m !== null) names.add(m[1] ?? '');
   }
-  return [...names].sort()
+  return [...names].sort();
 }
 
 /** The keyword summary bullet list. */
 function keywords(lines: readonly string[]): string[] {
-  const { start, end } = sectionRange(lines, 'keyword-summary')
-  const block = lines.slice(start, end).join('\n')
+  const { start, end } = sectionRange(lines, 'keyword-summary');
+  const block = lines.slice(start, end).join('\n');
   return [...block.matchAll(/<dfn for=syntax_kw[^>]*>`(\w+)`<\/dfn>/g)]
     .map((m) => m[1] ?? '')
-    .sort()
+    .sort();
 }
 
 /** The names defined in one extension table. Enable-extensions are defined backticked and
  *  language extensions bare, so the backticks are optional in the pattern. */
 function extensions(lines: readonly string[], id: string, dfnFor: string): string[] {
-  const { start, end } = sectionRange(lines, id)
-  const block = lines.slice(start, end).join('\n')
-  const dfn = new RegExp(`<dfn[^>]*\\bd?f?n?-?for="${dfnFor}"[^>]*>\`?(\\w+)\`?</dfn>`, 'g')
-  return [...block.matchAll(dfn)].map((m) => m[1] ?? '').sort()
+  const { start, end } = sectionRange(lines, id);
+  const block = lines.slice(start, end).join('\n');
+  const dfn = new RegExp(`<dfn[^>]*\\bd?f?n?-?for="${dfnFor}"[^>]*>\`?(\\w+)\`?</dfn>`, 'g');
+  return [...block.matchAll(dfn)].map((m) => m[1] ?? '').sort();
 }
 
 // ─── Bake ───
@@ -303,22 +303,22 @@ if (!existsSync(join(specPath, 'wgsl', 'index.bs'))) {
     `no WGSL spec source at ${specPath}\n` +
       `usage: bun scripts/bake-wgsl-names.ts <gpuweb checkout>\n` +
       `  git clone --depth 1 ${REPO} ${join(ROOT, '..', 'gpuweb')}`,
-  )
-  process.exit(1)
+  );
+  process.exit(1);
 }
 
-const lines = readFileSync(join(specPath, 'wgsl', 'index.bs'), 'utf8').split('\n')
+const lines = readFileSync(join(specPath, 'wgsl', 'index.bs'), 'utf8').split('\n');
 const reservedWords = readFileSync(join(specPath, 'wgsl', 'wgsl.reserved.plain'), 'utf8')
   .split('\n')
   .map((w) => w.trim())
-  .filter((w) => w !== '')
+  .filter((w) => w !== '');
 const specCommit = execFileSync('git', ['-C', specPath, 'rev-parse', 'HEAD'], {
   encoding: 'utf8',
-}).trim()
+}).trim();
 
-const fns = builtinFunctions(lines)
-const { types, generators } = predeclared(lines)
-const values = builtinValues(lines)
+const fns = builtinFunctions(lines);
+const { types, generators } = predeclared(lines);
+const values = builtinValues(lines);
 
 // Self-check. A parse that loses the declaration shapes, or that starts eating the spec's
 // example functions, fails HERE rather than in a fixture nobody re-reads.
@@ -334,9 +334,9 @@ const present = [
   'vec4',
   'mat2x3',
   'f32',
-] as const
-const absent = ['vs_main', 'fs_main', 'foo', 'bar', 'main', 'T', 'S'] as const
-const headings = builtinFunctionHeadings(lines)
+] as const;
+const absent = ['vs_main', 'fs_main', 'foo', 'bar', 'main', 'T', 'S'] as const;
+const headings = builtinFunctionHeadings(lines);
 const problems = [
   ...present.filter((n) => !fns.includes(n)).map((n) => `builtinFunctions is missing ${n}`),
   ...absent.filter((n) => fns.includes(n)).map((n) => `builtinFunctions wrongly contains ${n}`),
@@ -353,16 +353,16 @@ const problems = [
     ? []
     : ['builtinValues lost the rowspan on position (vertex output and fragment input)']),
   ...(reservedWords.length > 0 ? [] : ['wgsl.reserved.plain read as empty']),
-]
+];
 if (problems.length > 0) {
-  console.error(`${OUT} NOT written:\n${problems.map((p) => `  ${p}`).join('\n')}`)
-  process.exit(1)
+  console.error(`${OUT} NOT written:\n${problems.map((p) => `  ${p}`).join('\n')}`);
+  process.exit(1);
 }
 
-const attrs = attributes(lines)
-const kws = keywords(lines)
-const enableExtensions = extensions(lines, 'enable-extensions-sec', 'extension')
-const languageExtensions = extensions(lines, 'language-extensions-sec', 'language_extension')
+const attrs = attributes(lines);
+const kws = keywords(lines);
+const enableExtensions = extensions(lines, 'enable-extensions-sec', 'extension');
+const languageExtensions = extensions(lines, 'language-extensions-sec', 'language_extension');
 
 // Every list is written in one literal, in a fixed key order and over sorted names, so a re-bake
 // of an unchanged spec produces a byte-identical file and `git diff` stays a review tool.
@@ -392,13 +392,13 @@ const out = {
     count: languageExtensions.length,
     names: languageExtensions,
   },
-}
+};
 
-mkdirSync(dirname(OUT), { recursive: true })
-writeFileSync(OUT, `${JSON.stringify(out, null, 2)}\n`)
+mkdirSync(dirname(OUT), { recursive: true });
+writeFileSync(OUT, `${JSON.stringify(out, null, 2)}\n`);
 for (const [key, list] of Object.entries(out)) {
   if (typeof list === 'object' && 'count' in list) {
-    console.log(`${String(list.count).padStart(4)}  ${key}  (§${list.section})`)
+    console.log(`${String(list.count).padStart(4)}  ${key}  (§${list.section})`);
   }
 }
-console.log(`→ ${OUT} at gpuweb ${specCommit.slice(0, 12)}`)
+console.log(`→ ${OUT} at gpuweb ${specCommit.slice(0, 12)}`);

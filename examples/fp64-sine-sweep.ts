@@ -35,13 +35,13 @@ import {
   f64T,
   vec2fT,
   Let,
-} from '../src/index.js'
-import { VsOut, vs } from './_fullscreen.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import { VsOut, vs } from './_fullscreen.js';
+import type { ShaderExample } from './_shared.js';
 
 // Sweep window (radians of argument spanned across one half's width). ~4 cycles
 // when the base is small enough to resolve them.
-const SPAN = 8 * Math.PI
+const SPAN = 8 * Math.PI;
 
 const Uni = uniformStruct(
   'Uniforms',
@@ -51,68 +51,68 @@ const Uni = uniformStruct(
     base: f64T, // large argument base (seconds-like), swept 10^4..10^8
     fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
   },
-)
+);
 
 const fsSweep = fn(
   'fs_sweep',
   { vo: VsOut },
   (p) => {
     // Position within this half: sx ∈ [0, 1] over each half's width.
-    const halfUv = Let(p.vo.uv.x.mul(2.0))
-    const sx = Let(halfUv.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)))
-    const isF32 = Let(p.vo.uv.x.lt(0.5).or(Uni.field.fp64.lt(0.5)))
+    const halfUv = Let(p.vo.uv.x.mul(2.0));
+    const sx = Let(halfUv.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)));
+    const isF32 = Let(p.vo.uv.x.lt(0.5).or(Uni.field.fp64.lt(0.5)));
 
     // The swept argument = base + sx·SPAN. f64: add in extended precision, then
     // df64_sin. f32: narrow the base first (its ulp swallows the sweep at large base).
-    const arg64 = Let(Uni.field.base.add(toF64(sx.mul(SPAN))))
-    const y64 = Let(toF32(sin(arg64)))
-    const y32 = Let(sin(toF32(Uni.field.base).add(sx.mul(SPAN))))
-    const v = Let(isF32.select(y32, y64)) // sine value ∈ [−1, 1]
+    const arg64 = Let(Uni.field.base.add(toF64(sx.mul(SPAN))));
+    const y64 = Let(toF32(sin(arg64)));
+    const y32 = Let(sin(toF32(Uni.field.base).add(sx.mul(SPAN))));
+    const v = Let(isF32.select(y32, y64)); // sine value ∈ [−1, 1]
 
     // Plot: py ∈ [−1, 1] over the height; the curve is v.
-    const py = Let(p.vo.uv.y.sub(0.5).mul(2.0))
-    const px = Let(f32(2).div(Uni.field.resolution.y)) // plot-units per pixel
+    const py = Let(p.vo.uv.y.sub(0.5).mul(2.0));
+    const px = Let(f32(2).div(Uni.field.resolution.y)); // plot-units per pixel
 
     // Graph-paper: parchment + a pale grid (10 columns per half, 0.25-unit rows).
-    const gxf = Let(fract(sx.mul(10.0)))
-    const gyf = Let(fract(py.add(1.0).mul(4.0)))
-    const dgx = Let(min(gxf, f32(1).sub(gxf)))
-    const dgy = Let(min(gyf, f32(1).sub(gyf)))
-    const aaCx = Let(f32(30).div(Uni.field.resolution.x))
-    const aaCy = Let(f32(20).div(Uni.field.resolution.y))
+    const gxf = Let(fract(sx.mul(10.0)));
+    const gyf = Let(fract(py.add(1.0).mul(4.0)));
+    const dgx = Let(min(gxf, f32(1).sub(gxf)));
+    const dgy = Let(min(gyf, f32(1).sub(gyf)));
+    const aaCx = Let(f32(30).div(Uni.field.resolution.x));
+    const aaCy = Let(f32(20).div(Uni.field.resolution.y));
     const grid = Let(
       f32(1)
         .sub(smoothstep(f32(0), aaCx, dgx))
         .add(f32(1).sub(smoothstep(f32(0), aaCy, dgy))),
-    )
-    const paper = vec3(0.96, 0.94, 0.88)
-    const rgb0 = Let(mix(paper, vec3(0.72, 0.78, 0.86), min(grid, f32(1)).mul(0.45)))
+    );
+    const paper = vec3(0.96, 0.94, 0.88);
+    const rgb0 = Let(mix(paper, vec3(0.72, 0.78, 0.86), min(grid, f32(1)).mul(0.45)));
 
     // Fill under the curve — its boundary reads the verdict at a glance (a smooth
     // sine on f64, a stepped barcode on f32 once the base is large).
-    const fill = Let(step(py, v))
-    const rgb1 = Let(mix(rgb0, vec3(0.62, 0.74, 0.9), fill.mul(0.4)))
+    const fill = Let(step(py, v));
+    const rgb1 = Let(mix(rgb0, vec3(0.62, 0.74, 0.9), fill.mul(0.4)));
     // Ink the curve.
-    const ink = Let(f32(1).sub(smoothstep(px.mul(1.2), px.mul(3.0), abs(v.sub(py)))))
-    const rgb2 = Let(mix(rgb1, vec3(0.13, 0.16, 0.3), ink.mul(0.85)))
+    const ink = Let(f32(1).sub(smoothstep(px.mul(1.2), px.mul(3.0), abs(v.sub(py)))));
+    const rgb2 = Let(mix(rgb1, vec3(0.13, 0.16, 0.3), ink.mul(0.85)));
     // Axes: the midline y = 0 and the half divider.
     const axis = Let(
       min(
         smoothstep(f32(0), px.mul(1.5), abs(py)),
         smoothstep(f32(0), px.mul(1.5), abs(sx.sub(0.5)).mul(2.0)),
       ),
-    )
-    const rgb = Let(mix(vec3(0.35, 0.33, 0.3), rgb2, axis))
-    return vec4(rgb, f32(1))
+    );
+    const rgb = Let(mix(vec3(0.35, 0.33, 0.3), rgb2, axis));
+    return vec4(rgb, f32(1));
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 // `_fp64` guard lands at (group 0, binding 1) automatically.
 const fp64SineSweepModule = module({
   funcs: [vs, fsSweep],
   uses: [Uni, VsOut],
-})
+});
 
 export const fp64SineSweep: ShaderExample = {
   id: 'fp64-sine-sweep',
@@ -138,4 +138,4 @@ export const fp64SineSweep: ShaderExample = {
     },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },
-}
+};

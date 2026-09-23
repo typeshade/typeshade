@@ -1,26 +1,26 @@
-import ts from 'typescript'
-import type { Expr } from '../../../core/ir/nodes.js'
-import type { ShaderType } from '../../../core/ir/types.js'
-import { f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/types.js'
-import type { TsCompilerDiagnostic } from '../source-file.js'
-import type { LoweringScope } from '../context.js'
-import { resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js'
-import { emittedMemberName, isPrivateName } from '../class-names.js'
-import { methodFnName } from './class-methods.js'
+import ts from 'typescript';
+import type { Expr } from '../../../core/ir/nodes.js';
+import type { ShaderType } from '../../../core/ir/types.js';
+import { f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/types.js';
+import type { TsCompilerDiagnostic } from '../source-file.js';
+import type { LoweringScope } from '../context.js';
+import { resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js';
+import { emittedMemberName, isPrivateName } from '../class-names.js';
+import { methodFnName } from './class-methods.js';
 import {
   checkPrivateStatic,
   lowerAccessorRead,
   staticFieldBinding,
   staticOwnerOf,
   visibleField,
-} from './class-access.js'
-import { parseSwizzle } from '../swizzle.js'
-import { numericMismatch } from '../numeric.js'
-import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js'
-import { lowerExpression } from './expression.js'
-import { refuseBareAtomic } from './atomics.js'
-import { makeDiagnostic } from '../diagnostic.js'
-import { TS_CODES, type TsCode } from '../codes.js'
+} from './class-access.js';
+import { parseSwizzle } from '../swizzle.js';
+import { numericMismatch } from '../numeric.js';
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
+import { lowerExpression } from './expression.js';
+import { refuseBareAtomic } from './atomics.js';
+import { makeDiagnostic } from '../diagnostic.js';
+import { TS_CODES, type TsCode } from '../codes.js';
 
 const JS_ARRAY_METHODS = new Set([
   'map',
@@ -44,16 +44,16 @@ const JS_ARRAY_METHODS = new Set([
   'splice',
   'sort',
   'reverse',
-])
+]);
 
-export { JS_ARRAY_METHODS }
+export { JS_ARRAY_METHODS };
 
 /** Whether `e` bottoms out in a STORAGE resource binding — the binding itself, a field of one,
  *  or an element of one. Only that shape gets the `arrayLength` sentence, because only that
  *  shape is what `arrayLength` accepts (`ptr<storage, array<E>, AM>`); a `uniform<array<T>>`,
  *  a local or a parameter needs an explicit `N` instead. */
 export function storageRooted(e: Expr, scope: LoweringScope): boolean {
-  return rootedIn(e, scope, ['storage'])
+  return rootedIn(e, scope, ['storage']);
 }
 
 /** Whether `e` bottoms out in a module-level name declared in one of `spaces`: a binding or a
@@ -65,17 +65,17 @@ export function rootedIn(e: Expr, scope: LoweringScope, spaces: readonly string[
       // A local that copies a binding (`const a = src`) denotes what the binding denotes; the
       // chain is followed rather than stopped at the local, which answered "give it a size"
       // for a runtime-sized storage array the author could not size (#46).
-      const b = scope.resolveIr(e.name)
-      if (b === undefined) return false
-      if (b.space !== undefined && spaces.includes(b.space)) return true
-      return b.aliasOf !== undefined && rootedIn({ ...e, name: b.aliasOf }, scope, spaces)
+      const b = scope.resolveIr(e.name);
+      if (b === undefined) return false;
+      if (b.space !== undefined && spaces.includes(b.space)) return true;
+      return b.aliasOf !== undefined && rootedIn({ ...e, name: b.aliasOf }, scope, spaces);
     }
     case 'member':
-      return rootedIn(e.base, scope, spaces)
+      return rootedIn(e.base, scope, spaces);
     case 'index':
-      return rootedIn(e.base, scope, spaces)
+      return rootedIn(e.base, scope, spaces);
     default:
-      return false
+      return false;
   }
 }
 
@@ -102,8 +102,8 @@ export function arrayLengthOf(
       node,
       `arrayLength takes a runtime-sized storage array, not a ${typeKey(base.type)}.`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (base.type.size !== undefined) {
     pushDiag(
@@ -112,8 +112,8 @@ export function arrayLengthOf(
       node,
       `arrayLength takes a runtime-sized array; this one has a fixed size of ${base.type.size}. Write ${base.type.size}, or read ".length".`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (!storageRooted(base, scope)) {
     // The guard fires on FOUR shapes, and only the storage one has a runtime length. `arrayLength`
@@ -131,10 +131,10 @@ export function arrayLengthOf(
         ? `".length" on an array with no size is not known at compile time. Give the type a size: array<f32, 3> rather than array<f32>.`
         : `arrayLength takes a runtime-sized array in storage; this one is not in storage, so it has no runtime length. Give the type a size: array<f32, 3> rather than array<f32>.`,
       TS_CODES.UNSIZED_ARRAY_LENGTH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  return { op: 'call', type: u32T, fn: 'arrayLength', args: [base] }
+  return { op: 'call', type: u32T, fn: 'arrayLength', args: [base] };
 }
 
 export function lowerPropertyAccess(
@@ -143,11 +143,11 @@ export function lowerPropertyAccess(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const obj = node.expression
-  const prop = node.name.text
+  const obj = node.expression;
+  const prop = node.name.text;
   if (ts.isIdentifier(obj) && obj.text === 'Math') {
-    const value = resolveMathConst(prop)
-    if (value !== undefined) return { op: 'lit', type: f32T, value }
+    const value = resolveMathConst(prop);
+    if (value !== undefined) return { op: 'lit', type: f32T, value };
     if (resolveMathFn(prop) || resolveMathExpand(prop)) {
       pushDiag(
         diagnostics,
@@ -155,8 +155,8 @@ export function lowerPropertyAccess(
         node,
         `"Math.${prop}" is a function alias. Call it.`,
         TS_CODES.UNSUPPORTED,
-      )
-      return undefined
+      );
+      return undefined;
     }
     pushDiag(
       diagnostics,
@@ -164,27 +164,27 @@ export function lowerPropertyAccess(
       node,
       `"Math.${prop}" is not a TypeShade alias.`,
       TS_CODES.UNKNOWN_NAME,
-    )
-    return undefined
+    );
+    return undefined;
   }
   // `K.PI` on a class name: a static field is the module constant `K_PI` the collector made
   // of it (roadmap 0.3 item T3, #92), or the module variable one the file writes is (Rule
   // 8.13). Read before the receiver is lowered, because a class name is a type and not a
   // value, so lowering it would report an unknown identifier. `this.K` inside a static member
   // is the same read, `this` there being the class.
-  const owner = staticOwnerOf(obj, scope)
+  const owner = staticOwnerOf(obj, scope);
   if (owner !== undefined) {
-    const binding = staticFieldBinding(owner, prop, scope, sourceFile)
+    const binding = staticFieldBinding(owner, prop, scope, sourceFile);
     if (binding !== undefined) {
-      if (!checkPrivateStatic(owner, prop, node.name, sourceFile, diagnostics)) return undefined
+      if (!checkPrivateStatic(owner, prop, node.name, sourceFile, diagnostics)) return undefined;
       return binding.kind === 'modvar'
         ? { op: 'varref', type: binding.type, name: binding.name }
-        : { op: 'constref', type: binding.type, name: binding.name }
+        : { op: 'constref', type: binding.type, name: binding.name };
     }
     // A static accessor, `Vec.zero` for `static get zero()` (Rule 8.11).
     if (scope.structByName(owner) !== undefined) {
-      const read = lowerAccessorRead(node, owner, undefined, sourceFile, scope, diagnostics)
-      if (read !== 'none') return read
+      const read = lowerAccessorRead(node, owner, undefined, sourceFile, scope, diagnostics);
+      if (read !== 'none') return read;
     }
     // `this.x` in a static member, where `x` is a field of each value (Rule 8.13).
     if (
@@ -199,14 +199,14 @@ export function lowerPropertyAccess(
           `${owner} value, not of the class. Take the value as a parameter, or make the member ` +
           `an instance method.`,
         TS_CODES.CLASS_MEMBER,
-      )
-      return undefined
+      );
+      return undefined;
     }
     // The name is a type, not a value, so lowering the receiver would report an unknown
     // identifier. Say what it is instead, when it is a class or an enum the file declares.
     if (scope.structByName(owner) !== undefined) {
       const asFunction =
-        scope.resolveCallee(methodFnName(owner, emittedMemberName(prop))) !== undefined
+        scope.resolveCallee(methodFnName(owner, emittedMemberName(prop))) !== undefined;
       pushDiag(
         diagnostics,
         sourceFile,
@@ -215,8 +215,8 @@ export function lowerPropertyAccess(
           ? `"${owner}.${prop}" is a function; call it: ${owner}.${prop}(...).`
           : `"${owner}" has no static field "${prop}".`,
         TS_CODES.UNKNOWN_NAME,
-      )
-      return undefined
+      );
+      return undefined;
     }
     if (scope.isEnum(owner)) {
       pushDiag(
@@ -225,12 +225,12 @@ export function lowerPropertyAccess(
         node,
         `"${owner}" has no member "${prop}".`,
         TS_CODES.UNKNOWN_NAME,
-      )
-      return undefined
+      );
+      return undefined;
     }
   }
-  const base = lowerExpression(obj, sourceFile, scope, diagnostics)
-  if (!base) return undefined
+  const base = lowerExpression(obj, sourceFile, scope, diagnostics);
+  if (!base) return undefined;
   if (prop === 'length' && base.type.kind === 'array') {
     // `?? 0` used to be the whole of this line, and 0 is not a length — it is the absence of
     // one. A runtime-sized array carries no `size`, so the standard bounds guard folded to
@@ -240,9 +240,9 @@ export function lowerPropertyAccess(
     // `arrayLength(&x)`, a `u32`; every other unsized shape is refused with the one fix that
     // works for it, and the sized array stays the compile-time `i32` it always was.
     if (base.type.size === undefined) {
-      return arrayLengthOf(base, node, sourceFile, scope, diagnostics, '.length')
+      return arrayLengthOf(base, node, sourceFile, scope, diagnostics, '.length');
     }
-    return { op: 'lit', type: i32T, value: base.type.size }
+    return { op: 'lit', type: i32T, value: base.type.size };
   }
   if (JS_ARRAY_METHODS.has(prop)) {
     pushDiag(
@@ -251,24 +251,24 @@ export function lowerPropertyAccess(
       node,
       `JS Array method ".${prop}" is not a shader op. Use sum/min/any/all/zip/fill.`,
       TS_CODES.UNSUPPORTED,
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (base.type.kind === 'struct') {
     // A field the code here may name: a public one, or a private one inside the class body
     // that declares it (Rule 8.12). Emitted without the `#`.
-    const ft = visibleField(base.type.name, prop, node.name, scope)
+    const ft = visibleField(base.type.name, prop, node.name, scope);
     if (!ft) {
       // `o.x` where the class declares `get x()` is a call of the getter (Rule 8.11).
-      const read = lowerAccessorRead(node, base.type.name, base, sourceFile, scope, diagnostics)
-      if (read !== 'none') return read
+      const read = lowerAccessorRead(node, base.type.name, base, sourceFile, scope, diagnostics);
+      if (read !== 'none') return read;
       // A field its class declared and the struct does not carry was refused where it was
       // written; a read of it adds nothing (Rule 12.4).
-      if (scope.isWithheld(base.type.name, emittedMemberName(prop))) return undefined
+      if (scope.isWithheld(base.type.name, emittedMemberName(prop))) return undefined;
       const hidden = isPrivateName(prop)
         ? scope.privateField(base.type.name, emittedMemberName(prop))
-        : undefined
-      const owner = hidden?.owner.name?.text ?? base.type.name
+        : undefined;
+      const owner = hidden?.owner.name?.text ?? base.type.name;
       pushDiag(
         diagnostics,
         sourceFile,
@@ -278,18 +278,18 @@ export function lowerPropertyAccess(
               `it through a member "${owner}" declares without the "#".`
           : `Unknown field "${prop}" on ${typeKey(base.type)}.`,
         hidden !== undefined ? TS_CODES.CLASS_MEMBER : TS_CODES.UNKNOWN_NAME,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    if (refuseBareAtomic(ft, node, sourceFile, scope, diagnostics)) return undefined
-    return { op: 'member', type: ft, base, field: emittedMemberName(prop) }
+    if (refuseBareAtomic(ft, node, sourceFile, scope, diagnostics)) return undefined;
+    return { op: 'member', type: ft, base, field: emittedMemberName(prop) };
   }
-  const sw = parseSwizzle(base.type, prop)
+  const sw = parseSwizzle(base.type, prop);
   if (!sw.ok) {
-    pushDiag(diagnostics, sourceFile, node, sw.message, TS_CODES.UNKNOWN_NAME)
-    return undefined
+    pushDiag(diagnostics, sourceFile, node, sw.message, TS_CODES.UNKNOWN_NAME);
+    return undefined;
   }
-  return { op: 'member', type: sw.type, base, field: sw.field }
+  return { op: 'member', type: sw.type, base, field: sw.field };
 }
 
 /**
@@ -321,16 +321,16 @@ export function lowerObjectLiteral(
   // level was as unresolvable as the outer one was before this item.
   // A property is either written here, and lowered below once the field's type is known, or
   // it came from a spread and is already the read it stands for (roadmap 0.3 item T7, #92).
-  const props: LiteralProp[] = []
+  const props: LiteralProp[] = [];
   for (const prop of node.properties) {
     // `{ ...p, y: 1. }` is the fields of `p` with `y` written over one of them, so it spreads
     // to one read per field of `p`'s struct, in that struct's order. Later wins, which is
     // TypeScript's rule and already how a repeated field is taken below.
     if (ts.isSpreadAssignment(prop)) {
-      const spread = lowerSpreadInto(prop, sourceFile, scope, diagnostics)
-      if (!spread) return undefined
-      props.push(...spread)
-      continue
+      const spread = lowerSpreadInto(prop, sourceFile, scope, diagnostics);
+      if (!spread) return undefined;
+      props.push(...spread);
+      continue;
     }
     // `{ pos, uv }` is `{ pos: pos, uv: uv }` — the shorthand TypeScript gives a property
     // whose value is its own name, and the shape `return { pos, uv }` is written in (#8 A10).
@@ -348,13 +348,13 @@ export function lowerObjectLiteral(
           prop,
           `"${prop.name.text} = ..." is a destructuring default, not a field value. Write "${prop.name.text}: ..." instead.`,
           TS_CODES.UNSUPPORTED,
-        )
-        return undefined
+        );
+        return undefined;
       }
       // The value IS the name, so it joins the list like any other — the struct is resolved
       // before any of them is lowered.
-      props.push({ name: prop.name.text, value: prop.name })
-      continue
+      props.push({ name: prop.name.text, value: prop.name });
+      continue;
     }
     if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) {
       pushDiag(
@@ -363,13 +363,13 @@ export function lowerObjectLiteral(
         prop,
         'Object literals must use identifier fields, e.g. { pos: vec4(...) }.',
         TS_CODES.UNSUPPORTED,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    props.push({ name: prop.name.text, value: prop.initializer })
+    props.push({ name: prop.name.text, value: prop.initializer });
   }
-  const names = props.map((p) => p.name)
-  const declared = contextual?.kind === 'struct' ? scope.structByName(contextual.name) : undefined
+  const names = props.map((p) => p.name);
+  const declared = contextual?.kind === 'struct' ? scope.structByName(contextual.name) : undefined;
   // A class with a private field cannot be written as a literal: a literal names its fields,
   // and `#n` is a name only the class's own body may use (Rule 8.12, TypeScript's TS2741).
   if (declared !== undefined && scope.hasPrivateFields(declared.name)) {
@@ -380,10 +380,10 @@ export function lowerObjectLiteral(
       `"${declared.name}" has private fields, which an object literal cannot name. Build it ` +
         `with "new ${declared.name}(...)".`,
       TS_CODES.STRUCT_FIELD,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const match = declared ?? scope.matchStruct(names)
+  const match = declared ?? scope.matchStruct(names);
   if (!match) {
     pushDiag(
       diagnostics,
@@ -391,8 +391,8 @@ export function lowerObjectLiteral(
       node,
       `Object literal { ${names.join(', ')} } does not match a known struct.`,
       TS_CODES.UNKNOWN_NAME,
-    )
-    return undefined
+    );
+    return undefined;
   }
   // Only where the struct is DECLARED. On the fallback path `matchStruct` has already equated
   // the struct's field count with the literal's UNIQUE name count and checked that every field
@@ -404,7 +404,7 @@ export function lowerObjectLiteral(
   // taking the last, in every position, as it always did.
   if (declared) {
     for (const p of props) {
-      if (match.fields.some((f) => f.name === p.name)) continue
+      if (match.fields.some((f) => f.name === p.name)) continue;
       if ('ready' in p) {
         // A spread of a struct the target does not have every field of: the literal names a
         // field the struct has not got, and says which, rather than "does not match".
@@ -414,8 +414,8 @@ export function lowerObjectLiteral(
           p.at,
           `Struct ${match.name} has no field "${p.name}", which this spread brings in.`,
           TS_CODES.STRUCT_FIELD,
-        )
-        return undefined
+        );
+        return undefined;
       }
       pushDiag(
         diagnostics,
@@ -423,37 +423,37 @@ export function lowerObjectLiteral(
         node,
         `Struct ${match.name} has no field "${p.name}".`,
         TS_CODES.STRUCT_FIELD,
-      )
-      return undefined
+      );
+      return undefined;
     }
   }
-  const fieldType = new Map(match.fields.map((f) => [f.name, f.type]))
-  const given: { name: string; expr: Expr; node: ts.Expression | undefined }[] = []
+  const fieldType = new Map(match.fields.map((f) => [f.name, f.type]));
+  const given: { name: string; expr: Expr; node: ts.Expression | undefined }[] = [];
   for (const p of props) {
     if ('ready' in p) {
-      given.push({ name: p.name, expr: p.ready, node: undefined })
-      continue
+      given.push({ name: p.name, expr: p.ready, node: undefined });
+      continue;
     }
-    const expr = lowerExpression(p.value, sourceFile, scope, diagnostics, fieldType.get(p.name))
-    if (!expr) return undefined
-    given.push({ name: p.name, expr, node: p.value })
+    const expr = lowerExpression(p.value, sourceFile, scope, diagnostics, fieldType.get(p.name));
+    if (!expr) return undefined;
+    given.push({ name: p.name, expr, node: p.value });
   }
-  const byName = new Map(given.map((g) => [g.name, g.expr]))
-  const nodeByName = new Map(given.map((g) => [g.name, g.node]))
-  const args: Expr[] = []
+  const byName = new Map(given.map((g) => [g.name, g.expr]));
+  const nodeByName = new Map(given.map((g) => [g.name, g.node]));
+  const args: Expr[] = [];
   for (const field of match.fields) {
     // `{ id: 0 }` takes the field's type when it is i32 or u32 (#8 A3). Distinct from the
     // context this item passes down: that decides which STRUCT a nested literal builds, this
     // retypes an integer literal once the field's own type is known. Both need the struct
     // resolved first, which is why they sit on the same side of that decision.
-    const named = byName.get(field.name)
-    const namedNode = nodeByName.get(field.name)
-    const retargeted = named && namedNode ? retargetIntLitCtx(named, namedNode, field.type) : named
+    const named = byName.get(field.name);
+    const namedNode = nodeByName.get(field.name);
+    const retargeted = named && namedNode ? retargetIntLitCtx(named, namedNode, field.type) : named;
     const expr =
       retargeted && namedNode
         ? (reportIntLitRange(retargeted, namedNode, field.type, sourceFile, diagnostics) ??
           retargeted)
-        : retargeted
+        : retargeted;
     if (!expr) {
       pushDiag(
         diagnostics,
@@ -461,8 +461,8 @@ export function lowerObjectLiteral(
         node,
         `Missing field "${field.name}" for struct ${match.name}.`,
         TS_CODES.STRUCT_FIELD,
-      )
-      return undefined
+      );
+      return undefined;
     }
     if (typeKey(expr.type) !== typeKey(field.type)) {
       pushDiag(
@@ -471,19 +471,19 @@ export function lowerObjectLiteral(
         node,
         numericMismatch(`field ${match.name}.${field.name}`, field.type, expr.type),
         TS_CODES.TYPE_MISMATCH,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    args.push(expr)
+    args.push(expr);
   }
-  return { op: 'construct', type: structT(match.name), args }
+  return { op: 'construct', type: structT(match.name), args };
 }
 
 /** One field of an object literal: written, and lowered once the field's type is known, or
  *  brought in by a spread and already the read it stands for. */
 type LiteralProp =
   | { readonly name: string; readonly value: ts.Expression }
-  | { readonly name: string; readonly ready: Expr; readonly at: ts.Node }
+  | { readonly name: string; readonly ready: Expr; readonly at: ts.Node };
 
 /** True when reading `e` again costs nothing and runs nothing: a name, a parameter, a module
  *  const, or a field of one. A spread reads its operand once per field, so anything else would
@@ -494,11 +494,11 @@ function isPureRead(e: Expr): boolean {
     case 'param':
     case 'constref':
     case 'overrideref':
-      return true
+      return true;
     case 'member':
-      return isPureRead(e.base)
+      return isPureRead(e.base);
     default:
-      return false
+      return false;
   }
 }
 
@@ -515,8 +515,8 @@ function lowerSpreadInto(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): LiteralProp[] | undefined {
-  const value = lowerExpression(prop.expression, sourceFile, scope, diagnostics)
-  if (!value) return undefined
+  const value = lowerExpression(prop.expression, sourceFile, scope, diagnostics);
+  if (!value) return undefined;
   if (value.type.kind !== 'struct') {
     pushDiag(
       diagnostics,
@@ -525,8 +525,8 @@ function lowerSpreadInto(
       `"..." spreads the fields of a struct, and ${typeKey(value.type)} has none. Write the ` +
         `components by name.`,
       TS_CODES.UNSUPPORTED,
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (!isPureRead(value)) {
     pushDiag(
@@ -536,10 +536,10 @@ function lowerSpreadInto(
       `"..." reads its value once per field, so it takes a name or a field of one; this would ` +
         `run again for every field. Bind it to a const first.`,
       TS_CODES.UNSUPPORTED,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const struct = scope.structByName(value.type.name)
+  const struct = scope.structByName(value.type.name);
   if (!struct) {
     pushDiag(
       diagnostics,
@@ -547,8 +547,8 @@ function lowerSpreadInto(
       prop,
       `"${value.type.name}" is not a struct this module emits, so its fields cannot be spread.`,
       TS_CODES.UNKNOWN_NAME,
-    )
-    return undefined
+    );
+    return undefined;
   }
   // A private field is not a property of the object to TypeScript, so a spread does not copy
   // it (Rule 8.12).
@@ -558,7 +558,7 @@ function lowerSpreadInto(
       name: f.name,
       ready: { op: 'member', type: f.type, base: value, field: f.name } as Expr,
       at: prop,
-    }))
+    }));
 }
 
 function pushDiag(
@@ -568,5 +568,5 @@ function pushDiag(
   message: string,
   code: TsCode,
 ): void {
-  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }

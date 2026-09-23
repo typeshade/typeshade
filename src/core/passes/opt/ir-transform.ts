@@ -6,14 +6,14 @@
 // const-fold) collapses a whole nested literal tree in a single traversal. The
 // IR is treated as immutable: every helper returns a new node, never mutates.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
-import { mapStmtExpr } from '../../ir/visit.js'
-import { bodyHasRaw } from './dce.js'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js';
+import { mapStmtExpr } from '../../ir/visit.js';
+import { bodyHasRaw } from './dce.js';
 
 /** Bottom-up expression rewrite: map children first, then apply `f` to the
  *  rebuilt node. */
 export function mapExpr(e: Expr, f: (e: Expr) => Expr): Expr {
-  let r: Expr
+  let r: Expr;
   switch (e.op) {
     case 'lit':
     case 'constref':
@@ -26,50 +26,50 @@ export function mapExpr(e: Expr, f: (e: Expr) => Expr): Expr {
       // const-prop / dead-branch all rebuild through mapExpr, and a node they neither
       // descend into nor have a fold rule for passes through unchanged, so a branch
       // guarded by a specialization constant always survives for the driver.
-      r = e
-      break
+      r = e;
+      break;
     case 'binop':
-      r = { ...e, a: mapExpr(e.a, f), b: mapExpr(e.b, f) }
-      break
+      r = { ...e, a: mapExpr(e.a, f), b: mapExpr(e.b, f) };
+      break;
     case 'compare':
-      r = { ...e, a: mapExpr(e.a, f), b: mapExpr(e.b, f) }
-      break
+      r = { ...e, a: mapExpr(e.a, f), b: mapExpr(e.b, f) };
+      break;
     case 'logical':
-      r = { ...e, a: mapExpr(e.a, f), b: mapExpr(e.b, f) }
-      break
+      r = { ...e, a: mapExpr(e.a, f), b: mapExpr(e.b, f) };
+      break;
     case 'unop':
-      r = { ...e, a: mapExpr(e.a, f) }
-      break
+      r = { ...e, a: mapExpr(e.a, f) };
+      break;
     case 'call':
-      r = { ...e, args: e.args.map((a) => mapExpr(a, f)) }
-      break
+      r = { ...e, args: e.args.map((a) => mapExpr(a, f)) };
+      break;
     case 'construct':
-      r = { ...e, args: e.args.map((a) => mapExpr(a, f)) }
-      break
+      r = { ...e, args: e.args.map((a) => mapExpr(a, f)) };
+      break;
     case 'member':
-      r = { ...e, base: mapExpr(e.base, f) }
-      break
+      r = { ...e, base: mapExpr(e.base, f) };
+      break;
     case 'index':
-      r = { ...e, base: mapExpr(e.base, f), idx: mapExpr(e.idx, f) }
-      break
+      r = { ...e, base: mapExpr(e.base, f), idx: mapExpr(e.idx, f) };
+      break;
     case 'select':
       r = {
         ...e,
         cond: mapExpr(e.cond, f),
         ifTrue: mapExpr(e.ifTrue, f),
         ifFalse: mapExpr(e.ifFalse, f),
-      }
-      break
+      };
+      break;
     case 'matchExpr':
       r = {
         ...e,
         scrutinee: mapExpr(e.scrutinee, f),
         cases: e.cases.map(([n, v]) => [n, mapExpr(v, f)] as const),
         default: mapExpr(e.default, f),
-      }
-      break
+      };
+      break;
   }
-  return f(r)
+  return f(r);
 }
 
 /** Rewrite every Expr inside a Stmt (and its nested bodies) via `mapExpr` — the
@@ -80,7 +80,7 @@ export function mapStmt(s: Stmt, f: (e: Expr) => Expr): Stmt {
     s,
     (e) => mapExpr(e, f),
     (b) => mapStmt(b, f),
-  )
+  );
 }
 
 /** Apply an Expr rewrite to every function body in a module. With
@@ -101,7 +101,7 @@ export function mapModuleExprs(
         ? fn
         : { ...fn, body: fn.body.map((s) => mapStmt(s, f)) },
     ),
-  }
+  };
 }
 
 /** `mapModuleExprs` where the rewrite is derived PER FUNCTION — the shape every
@@ -117,9 +117,9 @@ export function mapModuleExprsPerFunc(
   return {
     ...m,
     funcs: m.funcs.map((fn): FuncDecl => {
-      if (bodyHasRaw(fn.body)) return fn
-      const f = makeF(fn)
-      return f === undefined ? fn : { ...fn, body: fn.body.map((s) => mapStmt(s, f)) }
+      if (bodyHasRaw(fn.body)) return fn;
+      const f = makeF(fn);
+      return f === undefined ? fn : { ...fn, body: fn.body.map((s) => mapStmt(s, f)) };
     }),
-  }
+  };
 }

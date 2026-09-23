@@ -19,9 +19,9 @@
  *  Exported from `typeshade`, `typeshade/dev`.
  */
 export interface ErrorCodeDef {
-  readonly code: string
-  readonly summary: string
-  readonly hint?: string
+  readonly code: string;
+  readonly summary: string;
+  readonly hint?: string;
 }
 
 /** The whole diagnostic catalogue, keyed by code — the single source of truth for what every
@@ -248,7 +248,7 @@ export const CODES = {
     summary: 'a one-argument .at(i) on a node that is not an array',
     hint: 'only an array node carries its element type — pass the element explicitly as .at(i, elemType)',
   },
-} as const satisfies Record<string, ErrorCodeDef>
+} as const satisfies Record<string, ErrorCodeDef>;
 
 /** The union of every diagnostic code the DSL can emit — `'SD0001' | 'SD0002' | …`, derived
  *  from {@link CODES} rather than restated, so the two can never disagree. Annotate a handler
@@ -261,4 +261,4 @@ export const CODES = {
  *
  *  Exported from `typeshade`, `typeshade/dev`.
  */
-export type ErrorCode = keyof typeof CODES
+export type ErrorCode = keyof typeof CODES;

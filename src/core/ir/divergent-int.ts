@@ -12,13 +12,13 @@
 // about the divergence, the other kept emitting `abs(uvec3)` and `dot(ivec3, ivec3)` (#154). So
 // the rule lives here, over ShaderType alone, and each surface asks it.
 
-import type { ShaderType } from './types.js'
+import type { ShaderType } from './types.js';
 
 /** The element scalar of a scalar or native vector type, or undefined for anything else (a
  *  matrix, an array, a struct, an emulated double). */
 function elemOf(t: ShaderType | undefined): string | undefined {
-  if (!t) return undefined
-  return t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined
+  if (!t) return undefined;
+  return t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined;
 }
 
 /** The id `abs` and `dot` take for the argument types they are given, and the id unchanged for
@@ -31,10 +31,10 @@ export function divergentIntegerId(
   resultType: ShaderType | undefined,
 ): string {
   // `absU` only: the SIGNED and float forms of `abs` are real GLSL and keep the portable name.
-  if (id === 'abs') return elemOf(argType) === 'u32' ? 'absU' : id
+  if (id === 'abs') return elemOf(argType) === 'u32' ? 'absU' : id;
   if (id === 'dot') {
-    const elem = elemOf(resultType)
-    return elem === 'i32' ? 'dotI' : elem === 'u32' ? 'dotU' : id
+    const elem = elemOf(resultType);
+    return elem === 'i32' ? 'dotI' : elem === 'u32' ? 'dotU' : id;
   }
-  return id
+  return id;
 }

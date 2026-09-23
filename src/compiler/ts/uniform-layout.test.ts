@@ -17,49 +17,49 @@
 // The other half is the rules a struct HIDES, which the type map cannot see and the backend
 // meets only as emitted text: a `bool` field, an empty list, and the two runtime-array rules.
 
-import { describe, expect, it } from 'vitest'
-import { compile } from './compile.js'
-import { compileTsSource } from './source-file.js'
-import { TS_CODES } from './codes.js'
-import { reflect } from '../../core/reflect.js'
-import { padUniformArrays } from '../../core/passes/uniform-layout.js'
-import { emitModuleAt } from '../../core/backends/wgsl.js'
+import { describe, expect, it } from 'vitest';
+import { compile } from './compile.js';
+import { compileTsSource } from './source-file.js';
+import { TS_CODES } from './codes.js';
+import { reflect } from '../../core/reflect.js';
+import { padUniformArrays } from '../../core/passes/uniform-layout.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 function compiled(source: string) {
-  const c = compile(`"use typeshade"\n${source}`)
-  expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-  return c
+  const c = compile(`"use typeshade"\n${source}`);
+  expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+  return c;
 }
 
 function diagnose(source: string): { code?: string; message: string } {
-  const r = compileTsSource(`"use typeshade"\n${source}`)
-  const first = r.diagnostics.find((d) => d.category === 'error')
-  expect(first, 'expected a diagnostic, got none').toBeDefined()
-  return { code: first!.code, message: first!.message }
+  const r = compileTsSource(`"use typeshade"\n${source}`);
+  const first = r.diagnostics.find((d) => d.category === 'error');
+  expect(first, 'expected a diagnostic, got none').toBeDefined();
+  return { code: first!.code, message: first!.message };
 }
 
 const SCALAR_ARRAY = `interface U { xs: array<f32, 4>; k: f32 }
 declare const U_: uniform<U>
 @fragment
-export function fs(): vec4 { return vec4(U_.xs[1] * U_.k) }`
+export function fs(): vec4 { return vec4(U_.xs[1] * U_.k) }`;
 
 describe('a uniform array is padded to a 16-byte element stride', () => {
   it('pads a scalar array in a uniform to stride 16 and reflect() agrees', () => {
-    const c = compiled(SCALAR_ARRAY)
+    const c = compiled(SCALAR_ARRAY);
     // The wrapper struct, and the member that now holds it.
-    expect(c.wgsl).toContain('struct _Pad16_f32 {\n  @size(16) v: f32,\n}')
-    expect(c.wgsl).toContain('@align(16) xs: array<_Pad16_f32, 4>,')
+    expect(c.wgsl).toContain('struct _Pad16_f32 {\n  @size(16) v: f32,\n}');
+    expect(c.wgsl).toContain('@align(16) xs: array<_Pad16_f32, 4>,');
     // …and every read through it reaches one field deeper.
-    expect(c.wgsl).toContain('U_.xs[1].v')
-    expect(c.wgsl).not.toContain('U_.xs[1] ')
+    expect(c.wgsl).toContain('U_.xs[1].v');
+    expect(c.wgsl).not.toContain('U_.xs[1] ');
     // 4 elements × 16 + an f32 = 68, rounded to the struct's 16-byte alignment.
-    const u = reflect(c.module).uniforms[0]!
-    expect(u.size).toBe(80)
+    const u = reflect(c.module).uniforms[0]!;
+    expect(u.size).toBe(80);
     expect(u.fields.map((f) => [f.name, f.offset, f.size])).toEqual([
       ['xs', 0, 64],
       ['k', 64, 4],
-    ])
-  })
+    ]);
+  });
 
   it('aligns the member as well as the element, so a scalar may precede the array', () => {
     // The half a wrapper cannot supply. A struct's alignment comes from its members, and
@@ -69,15 +69,15 @@ describe('a uniform array is padded to a 16-byte element stride', () => {
     const c = compiled(`interface U { k: f32; xs: array<f32, 3> }
 declare const U_: uniform<U>
 @fragment
-export function fs(): vec4 { return vec4(U_.k * U_.xs[2]) }`)
-    expect(c.wgsl).toContain('@align(16) xs: array<_Pad16_f32, 3>,')
-    const u = reflect(c.module).uniforms[0]!
+export function fs(): vec4 { return vec4(U_.k * U_.xs[2]) }`);
+    expect(c.wgsl).toContain('@align(16) xs: array<_Pad16_f32, 3>,');
+    const u = reflect(c.module).uniforms[0]!;
     expect(u.fields.map((f) => [f.name, f.offset])).toEqual([
       ['k', 0],
       ['xs', 16],
-    ])
-    expect(u.size).toBe(64)
-  })
+    ]);
+    expect(u.size).toBe(64);
+  });
 
   it('pads a struct element whose own stride is under 16, and sizes the wrapper after it', () => {
     // A struct's alignment is the max of its members', not 16 — the 16-byte round-up belongs
@@ -90,29 +90,29 @@ export function fs(): vec4 { return vec4(U_.k * U_.xs[2]) }`)
 interface U { ps: array<P, 3>; k: f32 }
 declare const U_: uniform<U>
 @fragment
-export function fs(): vec4 { return vec4(U_.ps[1].a * U_.k) }`)
-    expect(flat.wgsl).toContain('@size(16) v: P,')
-    expect(flat.wgsl).toContain('@align(16) ps: array<_Pad16_struct_P, 3>,')
-    expect(flat.wgsl).toContain('U_.ps[1].v.a')
+export function fs(): vec4 { return vec4(U_.ps[1].a * U_.k) }`);
+    expect(flat.wgsl).toContain('@size(16) v: P,');
+    expect(flat.wgsl).toContain('@align(16) ps: array<_Pad16_struct_P, 3>,');
+    expect(flat.wgsl).toContain('U_.ps[1].v.a');
     expect(reflect(flat.module).uniforms[0]!.fields.map((f) => [f.name, f.offset])).toEqual([
       ['ps', 0],
       ['k', 48],
-    ])
+    ]);
 
     // …and a struct that has already grown to a multiple of 16 needs no wrapper at all.
     const nested = compiled(`interface Item { xs: array<f32, 2>; n: f32 }
 interface U { items: array<Item, 2>; k: f32 }
 declare const U_: uniform<U>
 @fragment
-export function fs(): vec4 { return vec4(U_.items[1].xs[0] * U_.k) }`)
-    expect(nested.wgsl).toContain('items: array<Item, 2>,')
-    expect(nested.wgsl).not.toContain('_Pad16_struct_Item')
-    expect(nested.wgsl).toContain('@align(16) xs: array<_Pad16_f32, 2>,')
+export function fs(): vec4 { return vec4(U_.items[1].xs[0] * U_.k) }`);
+    expect(nested.wgsl).toContain('items: array<Item, 2>,');
+    expect(nested.wgsl).not.toContain('_Pad16_struct_Item');
+    expect(nested.wgsl).toContain('@align(16) xs: array<_Pad16_f32, 2>,');
     expect(reflect(nested.module).uniforms[0]!.fields.map((f) => [f.name, f.offset])).toEqual([
       ['items', 0],
       ['k', 96],
-    ])
-  })
+    ]);
+  });
 
   it('aligns a member whose element needs NO wrapper, which is the other half of the rule', () => {
     // Two rules, and only one of them is the element's. `array<P, 2>` where `P` is four f32s
@@ -126,16 +126,16 @@ export function fs(): vec4 { return vec4(U_.items[1].xs[0] * U_.k) }`)
 interface U { k: f32; ps: array<P, 2> }
 declare const U_: uniform<U>
 @fragment
-export function fs(): vec4 { return vec4(U_.k * U_.ps[1].a) }`)
-    expect(c.wgsl).toContain('@align(16) ps: array<P, 2>,')
-    expect(c.wgsl).not.toContain('_Pad16')
-    const u = reflect(c.module).uniforms[0]!
+export function fs(): vec4 { return vec4(U_.k * U_.ps[1].a) }`);
+    expect(c.wgsl).toContain('@align(16) ps: array<P, 2>,');
+    expect(c.wgsl).not.toContain('_Pad16');
+    const u = reflect(c.module).uniforms[0]!;
     expect(u.fields.map((f) => [f.name, f.offset])).toEqual([
       ['k', 0],
       ['ps', 16],
-    ])
-    expect(u.size).toBe(48)
-  })
+    ]);
+    expect(u.size).toBe(48);
+  });
 
   it('declares a wrapper AFTER the struct it wraps, not before it', () => {
     // A `vec2` field makes `Q` 8 bytes with an 8-byte alignment, so `array<Q, 2>` has a
@@ -147,38 +147,38 @@ export function fs(): vec4 { return vec4(U_.k * U_.ps[1].a) }`)
 interface U { qs: array<Q, 2>; k: f32 }
 declare const U_: uniform<U>
 @fragment
-export function fs(): vec4 { return vec4(U_.qs[1].a.x * U_.k) }`)
-    const wgsl = c.wgsl!
-    expect(wgsl).toContain('@size(16) v: Q,')
-    expect(wgsl.indexOf('struct Q {')).toBeLessThan(wgsl.indexOf('struct _Pad16_struct_Q {'))
+export function fs(): vec4 { return vec4(U_.qs[1].a.x * U_.k) }`);
+    const wgsl = c.wgsl!;
+    expect(wgsl).toContain('@size(16) v: Q,');
+    expect(wgsl.indexOf('struct Q {')).toBeLessThan(wgsl.indexOf('struct _Pad16_struct_Q {'));
     // …and the struct that HOLDS the wrapper still comes after it.
-    expect(wgsl.indexOf('struct _Pad16_struct_Q {')).toBeLessThan(wgsl.indexOf('struct U {'))
+    expect(wgsl.indexOf('struct _Pad16_struct_Q {')).toBeLessThan(wgsl.indexOf('struct U {'));
     // A wrapper over a scalar depends on nothing and keeps the lead it had, which is what
     // holds every committed golden that carries one byte-identical.
-    const scalar = compiled(SCALAR_ARRAY).wgsl!
-    expect(scalar.indexOf('struct _Pad16_f32 {')).toBeLessThan(scalar.indexOf('struct U {'))
-  })
+    const scalar = compiled(SCALAR_ARRAY).wgsl!;
+    expect(scalar.indexOf('struct _Pad16_f32 {')).toBeLessThan(scalar.indexOf('struct U {'));
+  });
 
   it('is idempotent: a module already padded is returned unchanged, by identity', () => {
     // The pass reads a field's authored `size`/`align` before falling back to the layout it
     // computes, so a second run finds nothing left to do. Not a nicety — `lowerForBackend`
     // runs the chain once per emit and a module is emitted for WGSL and measured in the same
     // breath, so a pass that padded its own padding would wrap the wrapper.
-    const { module } = compiled(SCALAR_ARRAY)
-    const once = padUniformArrays(module)
-    expect(once).not.toBe(module)
-    expect(padUniformArrays(once)).toBe(once)
-  })
+    const { module } = compiled(SCALAR_ARRAY);
+    const once = padUniformArrays(module);
+    expect(once).not.toBe(module);
+    expect(padUniformArrays(once)).toBe(once);
+  });
 
   it('pads at every optimization level, because it is a lowering and not an optimization', () => {
     // It lived in the WGSL backend's `optimize`, which only the default path calls, so
     // `emitModuleAt(m, level)` — a public entry, and the one `measure()` uses — skipped it and
     // wrote the very stride Chromium 141 refuses. `preOptimize` runs before either tier.
-    const { module } = compiled(SCALAR_ARRAY)
+    const { module } = compiled(SCALAR_ARRAY);
     for (const level of ['O0', 'O1', 'O2'] as const) {
-      expect(emitModuleAt(module, level), level).toContain('@align(16) xs: array<_Pad16_f32, 4>,')
+      expect(emitModuleAt(module, level), level).toContain('@align(16) xs: array<_Pad16_f32, 4>,');
     }
-  })
+  });
 
   it('pads a vec2 array too, and leaves a vec4 array alone', () => {
     // vec2 is 8 bytes, so its natural stride is 8 and the uniform rule rounds it to 16. vec4
@@ -187,18 +187,18 @@ export function fs(): vec4 { return vec4(U_.qs[1].a.x * U_.k) }`)
     const c = compiled(`interface U { ws: array<vec2, 3>; vs: array<vec4, 2> }
 declare const U_: uniform<U>
 @fragment
-export function fs(): vec4 { return U_.vs[1] * U_.ws[2].x }`)
-    expect(c.wgsl).toContain('struct _Pad16_vec2_f32_ {\n  @size(16) v: vec2<f32>,\n}')
-    expect(c.wgsl).toContain('@align(16) ws: array<_Pad16_vec2_f32_, 3>,')
+export function fs(): vec4 { return U_.vs[1] * U_.ws[2].x }`);
+    expect(c.wgsl).toContain('struct _Pad16_vec2_f32_ {\n  @size(16) v: vec2<f32>,\n}');
+    expect(c.wgsl).toContain('@align(16) ws: array<_Pad16_vec2_f32_, 3>,');
     // A vec4 is already 16-aligned, so its array carries no wrapper AND no `@align`: the
     // member's required alignment is `roundUp(16, 16)`, which the natural alignment already
     // meets. Writing one there would be noise, and would drift `array<vec4, N>` from the emit
     // every other authoring surface produces.
-    expect(c.wgsl).toContain('  vs: array<vec4<f32>, 2>,')
-    expect(c.wgsl).not.toContain('@align(16) vs:')
-    expect(c.wgsl).toContain('U_.ws[2].v.x')
-    expect(c.wgsl).not.toContain('_Pad16_vec4')
-  })
+    expect(c.wgsl).toContain('  vs: array<vec4<f32>, 2>,');
+    expect(c.wgsl).not.toContain('@align(16) vs:');
+    expect(c.wgsl).toContain('U_.ws[2].v.x');
+    expect(c.wgsl).not.toContain('_Pad16_vec4');
+  });
 
   it('leaves a storage array unpadded, where WGSL has no such rule', () => {
     // std430 uses the natural stride, so padding a storage buffer would move every byte the
@@ -206,34 +206,34 @@ export function fs(): vec4 { return U_.vs[1] * U_.ws[2].x }`)
     const c = compiled(`interface S { xs: array<f32, 4> }
 declare const S_: storage<S>
 @fragment
-export function fs(): vec4 { return vec4(S_.xs[1]) }`)
-    expect(c.wgsl).toContain('xs: array<f32, 4>,')
-    expect(c.wgsl).not.toContain('_Pad16')
-    expect(reflect(c.module).storage[0]!.size).toBe(16)
-  })
+export function fs(): vec4 { return vec4(S_.xs[1]) }`);
+    expect(c.wgsl).toContain('xs: array<f32, 4>,');
+    expect(c.wgsl).not.toContain('_Pad16');
+    expect(reflect(c.module).storage[0]!.size).toBe(16);
+  });
 
   it('leaves a uniform with no array byte-identical', () => {
     const c = compiled(`interface U { k: f32; v: vec4 }
 declare const U_: uniform<U>
 @fragment
-export function fs(): vec4 { return U_.v * U_.k }`)
-    expect(c.wgsl).not.toContain('_Pad16')
-    expect(c.wgsl).toContain('struct U {\n  k: f32,\n  v: vec4<f32>,\n}')
-  })
+export function fs(): vec4 { return U_.v * U_.k }`);
+    expect(c.wgsl).not.toContain('_Pad16');
+    expect(c.wgsl).toContain('struct U {\n  k: f32,\n  v: vec4<f32>,\n}');
+  });
 
   it('leaves the GLSL std140 block as it was', () => {
     // GLSL ES 3.00 gives `float[4]` a 16-byte stride natively, which is why the program Tint
     // refuses links on WebGL2. The wrapper is a WGSL-only lowering and must not reach here.
-    const c = compiled(SCALAR_ARRAY)
-    expect(c.glsl!.fragment).toContain('float[4] xs;')
-    expect(c.glsl!.fragment).not.toContain('_Pad16')
-    expect(c.glsl!.fragment).toContain('U_.xs[1]')
-  })
-})
+    const c = compiled(SCALAR_ARRAY);
+    expect(c.glsl!.fragment).toContain('float[4] xs;');
+    expect(c.glsl!.fragment).not.toContain('_Pad16');
+    expect(c.glsl!.fragment).toContain('U_.xs[1]');
+  });
+});
 
 describe('a padded array reached any other way keeps the type the author wrote', () => {
   const U = `interface U { xs: array<f32, 4>; k: f32 }
-declare const U_: uniform<U>`
+declare const U_: uniform<U>`;
 
   it.each([
     [
@@ -255,20 +255,20 @@ declare const U_: uniform<U>`
     // argument or a return — Tint answers `no matching overload for 'operator + (_Pad16_f32,
     // _Pad16_f32)'` and `expected 'array<f32, 4>', got 'array<_Pad16_f32, 4>'`. Rebuilding
     // the authored array from its elements costs the loads the copy was going to do anyway.
-    const c = compiled(`${U}\n${body}`)
-    expect(c.wgsl).toContain('array<f32, 4>(U_.xs[0].v, U_.xs[1].v, U_.xs[2].v, U_.xs[3].v)')
-    expect(c.wgsl).not.toMatch(/let \w+ = U_\.xs;/)
-  })
+    const c = compiled(`${U}\n${body}`);
+    expect(c.wgsl).toContain('array<f32, 4>(U_.xs[0].v, U_.xs[1].v, U_.xs[2].v, U_.xs[3].v)');
+    expect(c.wgsl).not.toMatch(/let \w+ = U_\.xs;/);
+  });
 
   it('wraps each element when the struct is built by value', () => {
     const c = compiled(`interface U { k: f32; xs: array<f32, 2> }
 declare const U_: uniform<U>
 export function mk(): U { return { k: 1., xs: [0., 1.] } }
-@fragment export function fs(): vec4 { return vec4(mk().xs[1] + U_.k) }`)
-    expect(c.wgsl).toContain('_Pad16_f32(')
-    expect(c.wgsl).toContain('mk().xs[1].v')
-  })
-})
+@fragment export function fs(): vec4 { return vec4(mk().xs[1] + U_.k) }`);
+    expect(c.wgsl).toContain('_Pad16_f32(');
+    expect(c.wgsl).toContain('mk().xs[1].v');
+  });
+});
 
 describe('what the padding cannot reach is refused, not emitted', () => {
   it.each([
@@ -298,20 +298,20 @@ declare const B_: storage<U>
     // place to put an attribute, the second has no member at all (and `reflect().uniforms` is
     // empty for it), and the third would move the bytes a host packs for the storage half,
     // which `reflect()` still reports unpadded. Each was measured as Tint-refused before.
-    const r = compileTsSource(`"use typeshade"\n${source}`)
-    const d = r.diagnostics.find((x) => x.category === 'error')
-    expect(d?.message, `expected a refusal for ${_what}`).toMatch(match)
-  })
+    const r = compileTsSource(`"use typeshade"\n${source}`);
+    const d = r.diagnostics.find((x) => x.category === 'error');
+    expect(d?.message, `expected a refusal for ${_what}`).toMatch(match);
+  });
 
   it('leaves the shapes that need no padding alone', () => {
     // A list of vec4 is already 16 bytes an element, bare or in a struct, so none of the
     // refusals above may fire for it — that is what keeps them from being a blanket ban.
     const bare = compiled(`declare const U_: uniform<array<vec4, 4>>
-@fragment export function fs(): vec4 { return U_[1] }`)
-    expect(bare.wgsl).toContain('var<uniform> U_: array<vec4<f32>, 4>;')
-    expect(bare.wgsl).not.toContain('_Pad16')
-  })
-})
+@fragment export function fs(): vec4 { return U_[1] }`);
+    expect(bare.wgsl).toContain('var<uniform> U_: array<vec4<f32>, 4>;');
+    expect(bare.wgsl).not.toContain('_Pad16');
+  });
+});
 
 describe('the rules a struct hides from the type map', () => {
   it.each([
@@ -363,10 +363,10 @@ declare const U_: uniform<U>
         'whose length the shader does not know is array<T> in storage.',
     ],
   ])('refuses %s in one sentence', (_what, source, code, message) => {
-    const d = diagnose(source)
-    expect(d.code).toBe(code)
-    expect(d.message).toBe(message)
-  })
+    const d = diagnose(source);
+    expect(d.code).toBe(code);
+    expect(d.message).toBe(message);
+  });
 
   it('keeps the shapes the rules allow', () => {
     // A runtime array LAST in a storage struct, and a bool everywhere a bool is fine: a local,
@@ -375,10 +375,10 @@ declare const U_: uniform<U>
 declare const S_: storage<S>
 export function pick(on: bool): f32 { return on ? 1. : 0. }
 @fragment
-export function fs(): vec4 { const on = S_.k > 0.; return vec4(pick(on) * S_.xs[0]) }`)
-    expect(c.wgsl).toContain('xs: array<f32>,')
-  })
-})
+export function fs(): vec4 { const on = S_.k > 0.; return vec4(pick(on) * S_.xs[0]) }`);
+    expect(c.wgsl).toContain('xs: array<f32>,');
+  });
+});
 
 describe('the padding and the matrix layout rule compose (#149 × §51)', () => {
   it('pads the array and leaves every matrix whose stride is already 16 alone', () => {
@@ -396,26 +396,26 @@ declare const u: uniform<U>
 @vertex export function vs(): vec4 { return vec4(u.count, 0., 0., 1.) }
 @fragment export function fs(): vec4 {
   return vec4(u.weights[1] + u.m[0].x + u.n[0].x, 0., 0., 1.)
-}`)
-    expect(c.wgsl).toContain('@size(16) v: f32,')
-    expect(c.wgsl).toContain('@align(16) weights: array<_Pad16_f32, 3>,')
-    expect(c.wgsl).toContain('  m: mat3x3<f32>,')
-    expect(c.wgsl).toContain('  n: mat2x4<f32>,')
-    expect(c.wgsl).not.toContain('_Pad16_mat')
+}`);
+    expect(c.wgsl).toContain('@size(16) v: f32,');
+    expect(c.wgsl).toContain('@align(16) weights: array<_Pad16_f32, 3>,');
+    expect(c.wgsl).toContain('  m: mat3x3<f32>,');
+    expect(c.wgsl).toContain('  n: mat2x4<f32>,');
+    expect(c.wgsl).not.toContain('_Pad16_mat');
     // The emit and the reflection describe one layout, which is the whole point of §51.
-    const u = reflect(c.module).bindGroups[0]!.entries[0]!
-    expect(u.structName).toBe('U')
-  })
+    const u = reflect(c.module).bindGroups[0]!.entries[0]!;
+    expect(u.structName).toBe('U');
+  });
 
   it('leaves an ARRAY of matrices alone for the same reason', () => {
     const c = compiled(`class U { ms: array<mat3x4, 2> }
 declare const u: uniform<U>
 @vertex export function vs(): vec4 { return vec4(u.ms[0][0].x, 0., 0., 1.) }
-@fragment export function fs(): vec4 { return vec4(u.ms[1][0].x, 0., 0., 1.) }`)
-    expect(c.wgsl).toContain('ms: array<mat3x4<f32>, 2>,')
-    expect(c.wgsl).not.toContain('_Pad16_')
-  })
-})
+@fragment export function fs(): vec4 { return vec4(u.ms[1][0].x, 0., 0., 1.) }`);
+    expect(c.wgsl).toContain('ms: array<mat3x4<f32>, 2>,');
+    expect(c.wgsl).not.toContain('_Pad16_');
+  });
+});
 
 describe('a two-row matrix in a uniform is refused (Rule 4.8, surface §40)', () => {
   // Rule 4.8 says a mat2x2, mat3x2 or mat4x2 in a uniform block "must be refused with the
@@ -426,12 +426,12 @@ describe('a two-row matrix in a uniform is refused (Rule 4.8, surface §40)', ()
     `mat${c}x2 in std140 is not supported — WGSL gives a two-row matrix a column stride of 8 ` +
     `and GLSL std140 rounds every column to 16, so the two targets would disagree on this ` +
     `field and every field after it; carry it as mat${c}x4 (measured: both targets stride 16) ` +
-    `or as ${c} vec2 fields.`
+    `or as ${c} vec2 fields.`;
   const RENDER = (field: string): string => `"use typeshade"
 class U { ${field}; k: f32 }
 declare const u: uniform<U>
 @vertex export function vs(): vec4 { return vec4(u.k, 0., 0., 1.) }
-@fragment export function fs(): vec4 { return vec4(u.k, 0., 0., 1.) }`
+@fragment export function fs(): vec4 { return vec4(u.k, 0., 0., 1.) }`;
 
   it('refuses mat2x2, mat3x2, mat4x2 and mat2 with an error, and emits neither target', () => {
     for (const [field, cols] of [
@@ -441,37 +441,37 @@ declare const u: uniform<U>
       ['m: mat2', 2],
       ['m: array<mat3x2, 2>', 3],
     ] as const) {
-      const c = compile(RENDER(field))
-      expect(c.diagnostics, field).toHaveLength(1)
-      const d = c.diagnostics[0]!
-      expect(d.category, field).toBe('error')
-      expect(d.code, field).toBe(TS_CODES.LAYOUT)
-      expect(d.message, field).toContain(REMEDY(cols))
-      expect(c.wgsl, field).toBeUndefined()
-      expect(c.glsl, field).toBeUndefined()
+      const c = compile(RENDER(field));
+      expect(c.diagnostics, field).toHaveLength(1);
+      const d = c.diagnostics[0]!;
+      expect(d.category, field).toBe('error');
+      expect(d.code, field).toBe(TS_CODES.LAYOUT);
+      expect(d.message, field).toContain(REMEDY(cols));
+      expect(c.wgsl, field).toBeUndefined();
+      expect(c.glsl, field).toBeUndefined();
     }
-  })
+  });
 
   it('names the field that holds it, and refuses a bare uniform matrix too', () => {
     expect(diagnose(RENDER('m: mat3x2').replace('"use typeshade"\n', '')).message).toBe(
       `"U.m" is in a uniform: ${REMEDY(3)}`,
-    )
+    );
     expect(
       diagnose(`declare const m: uniform<mat2x2>
 @compute([64]) export function cs() { let x = m[0].x; }`).message,
-    ).toBe(`"m" is in a uniform: ${REMEDY(2)}`)
-  })
+    ).toBe(`"m" is in a uniform: ${REMEDY(2)}`);
+  });
 
   it('keeps every other shape, and a two-row matrix in storage, where std430 agrees', () => {
     for (const field of ['m: mat2x4', 'm: mat2x3', 'm: mat3', 'm: mat4x3']) {
-      const c = compile(RENDER(field))
-      expect(c.diagnostics, field).toEqual([])
-      expect(c.wgsl, field).toBeDefined()
+      const c = compile(RENDER(field));
+      expect(c.diagnostics, field).toEqual([]);
+      expect(c.wgsl, field).toBeDefined();
     }
-    const s = compile(`"use typeshade"
-class S { m: mat2x2 }
-declare let s: storage<S, "read_write">
-@compute([64]) export function cs() { s.m = mat2x2(1., 0., 0., 1.); }`)
-    expect(s.diagnostics.filter((d) => d.code === TS_CODES.LAYOUT)).toEqual([])
-  })
-})
+    const s = compile(`"use typeshade";
+class S { m: mat2x2; }
+declare let s: storage<S, "read_write">;
+@compute([64]) export function cs() { s.m = mat2x2(1., 0., 0., 1.); }`);
+    expect(s.diagnostics.filter((d) => d.code === TS_CODES.LAYOUT)).toEqual([]);
+  });
+});

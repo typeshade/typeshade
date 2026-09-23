@@ -28,23 +28,23 @@
 // Stated plainly so the green is not read as more than it is: the GLSL half cannot catch a
 // binding emitted at the wrong slot, because GLSL has no slot to be wrong about.
 
-import { describe, it, expect } from 'vitest'
-import { examples } from './index.js'
-import { shadeExamples } from './_shade.js'
-import { reflect } from '../src/index.js'
-import { emitModule } from '../src/core/backends/wgsl.js'
-import { emitGlslModule } from '../src/core/backends/glsl.js'
+import { describe, it, expect } from 'vitest';
+import { examples } from './index.js';
+import { shadeExamples } from './_shade.js';
+import { reflect } from '../src/index.js';
+import { emitModule } from '../src/core/backends/wgsl.js';
+import { emitGlslModule } from '../src/core/backends/glsl.js';
 
-const MIN_EXAMPLES = 10
+const MIN_EXAMPLES = 10;
 
 /** `@group(0) @binding(1) var<uniform> u: U;` → `0:1:u`. Also matches the attribute-less
  *  spelling nothing emits today, so a future change there fails loudly rather than silently
  *  dropping out of the comparison. */
 function wgslDeclaredBindings(src: string): Set<string> {
-  const out = new Set<string>()
-  const re = /@group\(\s*(\d+)\s*\)\s*@binding\(\s*(\d+)\s*\)\s*var(?:<[^>]*>)?\s+([A-Za-z_]\w*)/g
-  for (let m = re.exec(src); m !== null; m = re.exec(src)) out.add(`${m[1]}:${m[2]}:${m[3]}`)
-  return out
+  const out = new Set<string>();
+  const re = /@group\(\s*(\d+)\s*\)\s*@binding\(\s*(\d+)\s*\)\s*var(?:<[^>]*>)?\s+([A-Za-z_]\w*)/g;
+  for (let m = re.exec(src); m !== null; m = re.exec(src)) out.add(`${m[1]}:${m[2]}:${m[3]}`);
+  return out;
 }
 
 /** Names DECLARED as GLSL uniforms — the loose form, the sampler form, and the std140 block
@@ -52,12 +52,12 @@ function wgslDeclaredBindings(src: string): Set<string> {
  *  text": a binding that is only READ would otherwise satisfy the check while its
  *  declaration was missing, which is the exact bug worth catching. */
 function glslDeclaredBindings(src: string): Set<string> {
-  const out = new Set<string>()
-  const loose = /^\s*uniform\s+(?:highp\s+|mediump\s+|lowp\s+)?\w+\s+([A-Za-z_]\w*)\s*[;[]/gm
-  for (let m = loose.exec(src); m !== null; m = loose.exec(src)) out.add(m[1]!)
-  const block = /\}\s*([A-Za-z_]\w*)\s*;/g
-  for (let m = block.exec(src); m !== null; m = block.exec(src)) out.add(m[1]!)
-  return out
+  const out = new Set<string>();
+  const loose = /^\s*uniform\s+(?:highp\s+|mediump\s+|lowp\s+)?\w+\s+([A-Za-z_]\w*)\s*[;[]/gm;
+  for (let m = loose.exec(src); m !== null; m = loose.exec(src)) out.add(m[1]!);
+  const block = /\}\s*([A-Za-z_]\w*)\s*;/g;
+  for (let m = block.exec(src); m !== null; m = block.exec(src)) out.add(m[1]!);
+  return out;
 }
 
 /** Bindings the emit is expected to declare: module-owned, and not a WGSL sampler (the GLSL
@@ -69,84 +69,84 @@ const expectedFor = (r: ReturnType<typeof reflect>, target: 'wgsl' | 'glsl') =>
       .filter((e) => e.owner === 'module')
       .filter((e) => !(target === 'glsl' && e.resourceKind === 'sampler'))
       .map((e) => (target === 'wgsl' ? `${e.group}:${e.binding}:${e.name}` : e.name)),
-  )
+  );
 
 describe('emit ↔ reflection conformance (X-GIS #1714)', () => {
   it(`the corpus is populated (>= ${MIN_EXAMPLES} examples)`, () => {
     // Every arm below is a set comparison, and two empty sets are equal.
-    expect(examples.length).toBeGreaterThanOrEqual(MIN_EXAMPLES)
-  })
+    expect(examples.length).toBeGreaterThanOrEqual(MIN_EXAMPLES);
+  });
 
   it('WGSL declares EXACTLY the group/binding/name triples reflect() reports', () => {
-    const offenders: string[] = []
-    let checked = 0
+    const offenders: string[] = [];
+    let checked = 0;
     for (const ex of examples) {
-      let src: string
+      let src: string;
       try {
-        src = emitModule(ex.module)
+        src = emitModule(ex.module);
       } catch {
-        continue // a module this backend cannot emit is not this gate's subject
+        continue; // a module this backend cannot emit is not this gate's subject
       }
-      const declared = wgslDeclaredBindings(src)
-      const expected = new Set(expectedFor(reflect(ex.module), 'wgsl'))
-      const missing = [...expected].filter((k) => !declared.has(k))
-      const extra = [...declared].filter((k) => !expected.has(k))
+      const declared = wgslDeclaredBindings(src);
+      const expected = new Set(expectedFor(reflect(ex.module), 'wgsl'));
+      const missing = [...expected].filter((k) => !declared.has(k));
+      const extra = [...declared].filter((k) => !expected.has(k));
       if (missing.length || extra.length)
         offenders.push(
           `${ex.id}: reflect() describes but source lacks [${missing}]; source declares but reflect() omits [${extra}]`,
-        )
-      if (expected.size > 0) checked++
+        );
+      if (expected.size > 0) checked++;
     }
     // A corpus where nothing had bindings would make the comparison above meaningless.
-    expect(checked, 'no example contributed a single binding to compare').toBeGreaterThan(5)
-    expect(offenders.join('\n')).toBe('')
-  })
+    expect(checked, 'no example contributed a single binding to compare').toBeGreaterThan(5);
+    expect(offenders.join('\n')).toBe('');
+  });
 
   it('GLSL declares every module-owned binding reflect() reports, in one of the stages', () => {
     // Per-stage, because the GLSL backend is stage-scoped: a binding no reachable fn in THAT
     // stage references is deliberately not declared there. The union across the two stages is
     // what must cover the reflection.
-    const offenders: string[] = []
-    let checked = 0
+    const offenders: string[] = [];
+    let checked = 0;
     for (const ex of examples) {
-      let declared: Set<string>
+      let declared: Set<string>;
       try {
         declared = new Set([
           ...glslDeclaredBindings(emitGlslModule(ex.module, 'vertex')),
           ...glslDeclaredBindings(emitGlslModule(ex.module, 'fragment')),
-        ])
+        ]);
       } catch {
-        continue
+        continue;
       }
-      const expected = expectedFor(reflect(ex.module), 'glsl')
-      const missing = expected.filter((n) => !declared.has(n))
-      if (missing.length) offenders.push(`${ex.id}: not declared in either stage: ${missing}`)
-      if (expected.length > 0) checked++
+      const expected = expectedFor(reflect(ex.module), 'glsl');
+      const missing = expected.filter((n) => !declared.has(n));
+      if (missing.length) offenders.push(`${ex.id}: not declared in either stage: ${missing}`);
+      if (expected.length > 0) checked++;
     }
-    expect(checked, 'no example contributed a single binding to compare').toBeGreaterThan(5)
-    expect(offenders.join('\n')).toBe('')
-  })
+    expect(checked, 'no example contributed a single binding to compare').toBeGreaterThan(5);
+    expect(offenders.join('\n')).toBe('');
+  });
 
   it('every entry point reflect() names is DEFINED in the WGSL source', () => {
-    const offenders: string[] = []
-    let checked = 0
+    const offenders: string[] = [];
+    let checked = 0;
     for (const ex of examples) {
-      let src: string
+      let src: string;
       try {
-        src = emitModule(ex.module)
+        src = emitModule(ex.module);
       } catch {
-        continue
+        continue;
       }
       for (const e of reflect(ex.module).entries) {
-        checked++
+        checked++;
         if (!new RegExp(`fn\\s+${e.name}\\s*\\(`).test(src))
-          offenders.push(`${ex.id}: reflect() names entry '${e.name}', source defines no such fn`)
+          offenders.push(`${ex.id}: reflect() names entry '${e.name}', source defines no such fn`);
       }
     }
-    expect(checked).toBeGreaterThan(5)
-    expect(offenders.join('\n')).toBe('')
-  })
-})
+    expect(checked).toBeGreaterThan(5);
+    expect(offenders.join('\n')).toBe('');
+  });
+});
 
 // ═══ The uniform LAYOUT half (§51) ═══
 //
@@ -163,51 +163,51 @@ describe('an emitted uniform struct lays out the bytes reflect() reports', () =>
    *  which is exactly how the sweep below would go quietly vacuous. Depth over `<…>` is what
    *  tells the two commas apart. Pinned by the reader arm. */
   function splitMembers(body: string): string[] {
-    const out: string[] = []
-    let depth = 0
-    let cur = ''
+    const out: string[] = [];
+    let depth = 0;
+    let cur = '';
     for (const ch of body) {
-      if (ch === '<') depth++
-      else if (ch === '>') depth--
+      if (ch === '<') depth++;
+      else if (ch === '>') depth--;
       if (ch === ',' && depth === 0) {
-        out.push(cur.trim())
-        cur = ''
-        continue
+        out.push(cur.trim());
+        cur = '';
+        continue;
       }
-      cur += ch
+      cur += ch;
     }
-    out.push(cur.trim())
-    return out.filter((m) => m !== '')
+    out.push(cur.trim());
+    return out.filter((m) => m !== '');
   }
 
   /** Every struct name a `var<uniform>` declaration in `src` binds, and the member lines of
    *  each struct reachable from one. Text-level on purpose: the point is what the BACKEND
    *  wrote, not what the IR held. */
   function uniformStructMembers(src: string): string[] {
-    const bodies = new Map<string, string>()
-    const structRe = /struct\s+(\w+)\s*\{([^}]*)\}/g
+    const bodies = new Map<string, string>();
+    const structRe = /struct\s+(\w+)\s*\{([^}]*)\}/g;
     for (let m = structRe.exec(src); m !== null; m = structRe.exec(src)) {
-      bodies.set(m[1]!, m[2]!)
+      bodies.set(m[1]!, m[2]!);
     }
-    const out: string[] = []
-    const seen = new Set<string>()
+    const out: string[] = [];
+    const seen = new Set<string>();
     const visit = (name: string): void => {
-      if (seen.has(name)) return
-      seen.add(name)
-      const body = bodies.get(name)
-      if (body === undefined) return
+      if (seen.has(name)) return;
+      seen.add(name);
+      const body = bodies.get(name);
+      if (body === undefined) return;
       for (const line of splitMembers(body)) {
-        const t = line
-        if (t === '') continue
-        out.push(t)
+        const t = line;
+        if (t === '') continue;
+        out.push(t);
         for (const nested of bodies.keys()) {
-          if (new RegExp(`\\b${nested}\\b`).test(t)) visit(nested)
+          if (new RegExp(`\\b${nested}\\b`).test(t)) visit(nested);
         }
       }
-    }
-    const varRe = /var<uniform>\s+\w+\s*:\s*(\w+)\s*;/g
-    for (let m = varRe.exec(src); m !== null; m = varRe.exec(src)) visit(m[1]!)
-    return out
+    };
+    const varRe = /var<uniform>\s+\w+\s*:\s*(\w+)\s*;/g;
+    for (let m = varRe.exec(src); m !== null; m = varRe.exec(src)) visit(m[1]!);
+    return out;
   }
 
   /** The element types whose natural stride is under 16, so a uniform array of one needs the
@@ -219,50 +219,50 @@ describe('an emitted uniform struct lays out the bytes reflect() reports', () =>
    *  already reach 16 would take a WGSL layout engine in this file. That case is covered
    *  directly in `src/compiler/ts/uniform-layout.test.ts`; this sweep is the corpus-wide net
    *  for the common spellings. */
-  const UNDER_16 = /array<\s*(f32|i32|u32|vec2<(?:f32|i32|u32)>)\s*,/
+  const UNDER_16 = /array<\s*(f32|i32|u32|vec2<(?:f32|i32|u32)>)\s*,/;
 
   it('no uniform-reachable array reaches WGSL with an element stride under 16', () => {
-    let checked = 0
-    const offenders: string[] = []
+    let checked = 0;
+    const offenders: string[] = [];
     for (const ex of [...examples, ...shadeExamples]) {
-      let src: string
+      let src: string;
       try {
-        src = emitModule(ex.module)
+        src = emitModule(ex.module);
       } catch {
-        continue
+        continue;
       }
       for (const member of uniformStructMembers(src)) {
-        checked++
+        checked++;
         if (UNDER_16.test(member)) {
-          offenders.push(`${ex.id}: '${member}' — Tint refuses an element stride under 16`)
+          offenders.push(`${ex.id}: '${member}' — Tint refuses an element stride under 16`);
         }
       }
     }
     // The corpus reads ~180 uniform-reachable members today. A floor of 5 would pass on a
     // reader that had collapsed by 97%, so the floor is set where a real regression in the
     // READER shows up as a failure rather than as a quiet pass.
-    expect(checked).toBeGreaterThan(100)
-    expect(offenders.join('\n')).toBe('')
-  })
+    expect(checked).toBeGreaterThan(100);
+    expect(offenders.join('\n')).toBe('');
+  });
 
   it('the member reader sees through a uniform binding and not past one', () => {
     // Without this the arm above passes on a reader that returns nothing for everything.
     const padded = `struct Pad { @size(16) v: f32, }
 struct U { xs: array<Pad, 4>, k: f32, }
 struct NotBound { ys: array<f32, 4>, }
-@group(0) @binding(0) var<uniform> u: U;`
+@group(0) @binding(0) var<uniform> u: U;`;
     expect(uniformStructMembers(padded)).toEqual([
       'xs: array<Pad, 4>',
       '@size(16) v: f32',
       'k: f32',
-    ])
+    ]);
     // A struct no `var<uniform>` binds is under no such rule and must not be swept in.
-    expect(uniformStructMembers(padded).some((m) => UNDER_16.test(m))).toBe(false)
+    expect(uniformStructMembers(padded).some((m) => UNDER_16.test(m))).toBe(false);
     // …and the pattern really does catch the shape it exists for.
-    expect(UNDER_16.test('ys: array<f32, 4>')).toBe(true)
-    expect(UNDER_16.test('vs: array<vec4<f32>, 2>')).toBe(false)
-  })
-})
+    expect(UNDER_16.test('ys: array<f32, 4>')).toBe(true);
+    expect(UNDER_16.test('vs: array<vec4<f32>, 2>')).toBe(false);
+  });
+});
 
 describe('the readers distinguish the states they claim to', () => {
   // Without these, all four arms above pass on parsers that return an empty set for
@@ -270,17 +270,17 @@ describe('the readers distinguish the states they claim to', () => {
   it('the WGSL reader finds a declaration, and only a declaration', () => {
     expect(wgslDeclaredBindings('@group(0) @binding(2) var<uniform> u: U;')).toEqual(
       new Set(['0:2:u']),
-    )
+    );
     // A READ of the same binding is not a declaration and must not satisfy the gate.
-    expect(wgslDeclaredBindings('let x = u.field;').size).toBe(0)
-  })
+    expect(wgslDeclaredBindings('let x = u.field;').size).toBe(0);
+  });
 
   it('the GLSL reader finds the loose, sampler and block forms — and not a read', () => {
-    expect(glslDeclaredBindings('uniform highp vec2 u_viewport;')).toEqual(new Set(['u_viewport']))
-    expect(glslDeclaredBindings('uniform sampler2D u_tex;')).toEqual(new Set(['u_tex']))
+    expect(glslDeclaredBindings('uniform highp vec2 u_viewport;')).toEqual(new Set(['u_viewport']));
+    expect(glslDeclaredBindings('uniform sampler2D u_tex;')).toEqual(new Set(['u_tex']));
     expect(glslDeclaredBindings('layout(std140) uniform U {\n  float a;\n} u;')).toEqual(
       new Set(['u']),
-    )
-    expect(glslDeclaredBindings('  float x = u_viewport.x;').size).toBe(0)
-  })
-})
+    );
+    expect(glslDeclaredBindings('  float x = u_viewport.x;').size).toBe(0);
+  });
+});
