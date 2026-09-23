@@ -257,7 +257,7 @@ describe('IR equality: use typeshade vs fn()', () => {
     const tsResult = compileTsSource(`
       "use typeshade";
       class P {
-        a: f32
+        a: f32;
       }
       export function put(p: P, x: f32): f32 {
         let o: P = p;
@@ -363,8 +363,8 @@ describe('IR equality: use typeshade vs fn()', () => {
     // array sample is `textureSampleArray` either way — that is the seam this pins.
     const tsResult = compileTsSource(`
       "use typeshade";
-      declare const atlas: texture_2d_array<f32>
-      declare const smp: sampler
+      declare const atlas: texture_2d_array<f32>;
+      declare const smp: sampler;
       export function sample(uv: vec2): vec4 {
         return textureSample(atlas, smp, uv, 1);
       }
@@ -383,7 +383,7 @@ describe('IR equality: use typeshade vs fn()', () => {
   it('an override read matches the EDSL overrideConst handle', () => {
     const tsResult = compileTsSource(`
       "use typeshade";
-      const quality: override<f32> = 0.5
+      const quality: override<f32> = 0.5;
       export function q(): f32 {
         return quality;
       }
@@ -526,7 +526,7 @@ describe('IR equality: use typeshade vs fn()', () => {
   it('a module vector const matches the EDSL constExpr declaration', () => {
     const tsResult = compileTsSource(`
       "use typeshade";
-      const UP = vec3(0., 1., 0.)
+      const UP = vec3(0., 1., 0.);
       export function up(): vec3 {
         return UP;
       }
@@ -546,8 +546,8 @@ describe('IR equality: use typeshade vs fn()', () => {
       type Camera = {
         view: mat4;
         pos: vec3;
-      }
-      declare const cam: uniform<Camera>
+      };
+      declare const cam: uniform<Camera>;
       export function f(): vec3 {
         return cam.pos;
       }
@@ -598,12 +598,12 @@ describe('IR equality: use typeshade vs fn()', () => {
     const tsResult = compileTsSource(`
       "use typeshade";
       class P {
-        a: f32
-        b: f32
+        a: f32;
+        b: f32;
       }
       class Q {
-        a: f32
-        b: f32
+        a: f32;
+        b: f32;
       }
       export function mk(): Q {
         return { a: 1., b: 2. };

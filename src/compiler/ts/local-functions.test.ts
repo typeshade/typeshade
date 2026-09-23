@@ -27,11 +27,11 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 
 describe('a local function is a function of the module', () => {
   it('named after the body that declares it, in both spellings', () => {
-    const arrow = compile(`"use typeshade"
+    const arrow = compile(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const f = (x: f32): f32 => x * 2.
-  return vec4(f(3.), 0., 0., 1.)
+  const f = (x: f32): f32 => x * 2.;
+  return vec4(f(3.), 0., 0., 1.);
 }
 `)
     expect(arrow.diagnostics).toEqual([])
@@ -39,13 +39,13 @@ export function fs(): vec4 {
     expect(arrow.wgsl).toContain('return vec4<f32>(fs_f(3.0), 0.0, 0.0, 1.0);')
     expect(arrow.glsl?.fragment).toContain('float fs_f(float x) {')
     agree(arrow, [6, 0, 0, 1])
-    const expr = compile(`"use typeshade"
+    const expr = compile(`"use typeshade";
 @fragment
 export function fs(): vec4 {
   const f = function (x: f32): f32 {
-    return x * 3.
-  }
-  return vec4(f(3.), 0., 0., 1.)
+    return x * 3.;
+  };
+  return vec4(f(3.), 0., 0., 1.);
 }
 `)
     expect(expr.diagnostics).toEqual([])
@@ -54,15 +54,15 @@ export function fs(): vec4 {
   })
 
   it('so two bodies may each declare an "f"', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 function g(): f32 {
-  const f = (x: f32): f32 => x * 10.
-  return f(2.)
+  const f = (x: f32): f32 => x * 10.;
+  return f(2.);
 }
 @fragment
 export function fs(): vec4 {
-  const f = (x: f32): f32 => x * 100.
-  return vec4(f(2.), g(), 0., 1.)
+  const f = (x: f32): f32 => x * 100.;
+  return vec4(f(2.), g(), 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -72,15 +72,15 @@ export function fs(): vec4 {
   })
 
   it('with a block body, a nested one, and a module const in reach', () => {
-    const r = compile(`"use typeshade"
-const K: f32 = 4.
+    const r = compile(`"use typeshade";
+const K: f32 = 4.;
 @fragment
 export function fs(): vec4 {
   const outer = (x: f32): f32 => {
-    const inner = (y: f32): f32 => y + 1.
-    return inner(x) * K
-  }
-  return vec4(outer(3.), 0., 0., 1.)
+    const inner = (y: f32): f32 => y + 1.;
+    return inner(x) * K;
+  };
+  return vec4(outer(3.), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -90,26 +90,26 @@ export function fs(): vec4 {
   })
 
   it('at the module top level it is already one, and in a namespace it takes the flattened name', () => {
-    const top = compile(`"use typeshade"
-const half = (x: f32): f32 => x * 0.5
+    const top = compile(`"use typeshade";
+const half = (x: f32): f32 => x * 0.5;
 @fragment
 export function fs(): vec4 {
-  return vec4(half(3.), 0., 0., 1.)
+  return vec4(half(3.), 0., 0., 1.);
 }
 `)
     expect(top.diagnostics).toEqual([])
     expect(top.wgsl).toContain('fn half(x: f32) -> f32 {')
     agree(top, [1.5, 0, 0, 1])
-    const ns = compile(`"use typeshade"
+    const ns = compile(`"use typeshade";
 namespace N {
-  export const twice = (x: f32): f32 => x * 2.
+  export const twice = (x: f32): f32 => x * 2.;
   export function use(x: f32): f32 {
-    return twice(x)
+    return twice(x);
   }
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(N.use(3.), 0., 0., 1.)
+  return vec4(N.use(3.), 0., 0., 1.);
 }
 `)
     expect(ns.diagnostics).toEqual([])
@@ -121,11 +121,11 @@ export function fs(): vec4 {
 describe('what a local function may not do', () => {
   it('capture a name from the body around it', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  const f = (x: f32): f32 => x * uv.x
-  return vec4(f(2.), 0., 0., 1.)
+  const f = (x: f32): f32 => x * uv.x;
+  return vec4(f(2.), 0., 0., 1.);
 }
 `)[0],
     ).toBe(
@@ -135,22 +135,22 @@ export function fs(@location(0) uv: vec2): vec4 {
 
   it('leave its return type off an expression body, or be a let', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const f = (x: f32) => x * 2.
-  return vec4(f(3.), 0., 0., 1.)
+  const f = (x: f32) => x * 2.;
+  return vec4(f(3.), 0., 0., 1.);
 }
 `)[0],
     ).toBe(
       `${TS_CODES.FUNCTION_SHAPE} "f" returns a value straight away, so it needs a return type: write "(x: f32): f32 => ...".`,
     )
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  let f = (x: f32): f32 => x * 2.
-  return vec4(f(3.), 0., 0., 1.)
+  let f = (x: f32): f32 => x * 2.;
+  return vec4(f(3.), 0., 0., 1.);
 }
 `)[0],
     ).toBe(
@@ -160,11 +160,11 @@ export function fs(): vec4 {
 
   it('take a type on the const rather than on itself', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const f: f32 = (x: f32): f32 => x * 2.
-  return vec4(f(3.), 0., 0., 1.)
+  const f: f32 = (x: f32): f32 => x * 2.;
+  return vec4(f(3.), 0., 0., 1.);
 }
 `)[0],
     ).toBe(
@@ -176,19 +176,19 @@ export function fs(): vec4 {
 describe('a triple-slash directive is a comment, and always was', () => {
   it('above the "use typeshade" directive and below it', () => {
     const above = compile(`/// <reference types="typeshade" />
-"use typeshade"
+"use typeshade";
 @fragment
 export function fs(): vec4 {
-  return vec4(1.)
+  return vec4(1.);
 }
 `)
     expect(above.diagnostics).toEqual([])
     expect(above.wgsl).toContain('fn fs()')
-    const below = compile(`"use typeshade"
+    const below = compile(`"use typeshade";
 /// <reference path="./other.d.ts" />
 @fragment
 export function fs(): vec4 {
-  return vec4(1.)
+  return vec4(1.);
 }
 `)
     expect(below.diagnostics).toEqual([])

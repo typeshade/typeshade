@@ -226,11 +226,11 @@ describe('emitted text', () => {
   const RENDER = `
     "use typeshade";
     class VsOut {
-      @builtin("position") pos: vec4
-      @location(0) uv: vec2
+      @builtin("position") pos: vec4;
+      @location(0) uv: vec2;
     }
     class Color {
-      @location(0) color: vec4
+      @location(0) color: vec4;
     }
     @vertex
     export function vs(@location(0) p: vec2): VsOut {
@@ -515,9 +515,9 @@ describe('what ++ and -- step', () => {
     // meant to stop an invalid emit must not reject a valid one.
     const r = compileTsSource(`"use typeshade";
       class U {
-        x: f64
+        x: f64;
       }
-      declare const u: uniform<U>
+      declare const u: uniform<U>;
       export function f(): f64 {
         let s = u.x;
         s++;
@@ -601,7 +601,7 @@ describe('what ++ and -- step', () => {
     for (const [program, helper] of [
       [
         `"use typeshade";
-        declare let xs: storage<array<f64>>
+        declare let xs: storage<array<f64>>;
         @compute([64, 1, 1])
         export function k(@builtin("global_invocation_id") gid: vec3u) {
           xs[gid.x]++;
@@ -610,7 +610,7 @@ describe('what ++ and -- step', () => {
       ],
       [
         `"use typeshade";
-        declare let xs: storage<array<f64>>
+        declare let xs: storage<array<f64>>;
         @compute([64, 1, 1])
         export function k(@builtin("global_invocation_id") gid: vec3u) {
           xs[gid.x]--;
@@ -620,9 +620,9 @@ describe('what ++ and -- step', () => {
       [
         `"use typeshade";
         class P {
-          a: f64
+          a: f64;
         }
-        declare let ds: storage<array<P>>
+        declare let ds: storage<array<P>>;
         @compute([64, 1, 1])
         export function k(@builtin("global_invocation_id") gid: vec3u) {
           ds[gid.x].a++;
@@ -749,7 +749,7 @@ describe('the root rule reaches an element target too', () => {
   it('still takes the element writes that were always legal', () => {
     const c = compile(`
       "use typeshade";
-      declare let xs: storage<array<f32>>
+      declare let xs: storage<array<f32>>;
       @compute([64, 1, 1])
       export function k(@builtin("global_invocation_id") gid: vec3u) {
         xs[gid.x] = 1.;

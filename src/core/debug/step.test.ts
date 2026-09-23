@@ -46,24 +46,24 @@ function trace(
   return out
 }
 
-const STRAIGHT = `"use typeshade"
+const STRAIGHT = `"use typeshade";
 export function f(a: f32): f32 {
-  const two = 2.
-  let acc = a
-  acc = acc * two
-  return acc
+  const two = 2.;
+  let acc = a;
+  acc = acc * two;
+  return acc;
 }
 `
 
-const WITH_HELPER = `"use typeshade"
+const WITH_HELPER = `"use typeshade";
 export function double(x: f32): f32 {
-  const d = x + x
-  return d
+  const d = x + x;
+  return d;
 }
 export function f(a: f32): f32 {
-  const first = double(a)
-  const second = double(first)
-  return second
+  const first = double(a);
+  const second = double(first);
+  return second;
 }
 `
 
@@ -72,7 +72,7 @@ describe('a stepped run stops at every statement, in source order', () => {
     const m = compiled(STRAIGHT)
     const s = startDebugSession(m, 'f', [3])
     expect(s.pause!.reason).toBe('entry')
-    expect(textAt(STRAIGHT, s.pause!.span!)).toBe('const two = 2.')
+    expect(textAt(STRAIGHT, s.pause!.span!)).toBe('const two = 2.;')
     // Nothing has executed yet, so the only name in scope is the parameter.
     expect([...s.pause!.frames[0]!.locals.keys()]).toEqual(['a'])
     expect(s.done).toBe(false)
@@ -80,10 +80,10 @@ describe('a stepped run stops at every statement, in source order', () => {
 
   it('visits each statement once, in the order they were written', () => {
     expect(trace(compiled(STRAIGHT), STRAIGHT, 'f', [3])).toEqual([
-      'const two = 2.',
-      'let acc = a',
-      'acc = acc * two',
-      'return acc',
+      'const two = 2.;',
+      'let acc = a;',
+      'acc = acc * two;',
+      'return acc;',
     ])
   })
 
@@ -122,10 +122,10 @@ describe('helpers: step in, step out, step over', () => {
     s.stepIn()
     // Innermost first, as a debug adapter reports a stack.
     expect(s.pause!.frames.map((fr) => fr.fnName)).toEqual(['double', 'f'])
-    expect(textAt(WITH_HELPER, s.pause!.span!)).toBe('const d = x + x')
+    expect(textAt(WITH_HELPER, s.pause!.span!)).toBe('const d = x + x;')
     // The frame knows where it was called from, and the caller still shows its own statement.
     expect(textAt(WITH_HELPER, s.pause!.frames[0]!.callSpan!)).toBe('double(a)')
-    expect(textAt(WITH_HELPER, s.pause!.frames[1]!.span!)).toBe('const first = double(a)')
+    expect(textAt(WITH_HELPER, s.pause!.frames[1]!.span!)).toBe('const first = double(a);')
     expect(s.pause!.frames[0]!.locals.get('x')).toBe(1)
   })
 
@@ -134,7 +134,7 @@ describe('helpers: step in, step out, step over', () => {
     const s = startDebugSession(m, 'f', [1])
     s.stepOver()
     expect(s.pause!.frames.map((fr) => fr.fnName)).toEqual(['f'])
-    expect(textAt(WITH_HELPER, s.pause!.span!)).toBe('const second = double(first)')
+    expect(textAt(WITH_HELPER, s.pause!.span!)).toBe('const second = double(first);')
     expect(s.pause!.frames[0]!.locals.get('first')).toBe(2)
   })
 
@@ -150,7 +150,7 @@ describe('helpers: step in, step out, step over', () => {
     expect(s.pause!.frames).toHaveLength(2)
     s.stepOut()
     expect(s.pause!.frames.map((fr) => fr.fnName)).toEqual(['f'])
-    expect(textAt(WITH_HELPER, s.pause!.span)).toBe('const first = double(a)')
+    expect(textAt(WITH_HELPER, s.pause!.span)).toBe('const first = double(a);')
     // …and the callee's result is in hand, which is what makes the stop worth having.
     s.stepOver()
     expect(s.pause!.frames[0]!.locals.get('first')).toBe(2)
@@ -160,29 +160,29 @@ describe('helpers: step in, step out, step over', () => {
     // The clause §2.1 ends on: "and stepIn again enters g". This is the scenario the review
     // named, `return fA(a) + gB(a)`, where a depth-only step-out ran gB and the rest of the
     // program to completion.
-    const src = `"use typeshade"
+    const src = `"use typeshade";
 export function fA(x: f32): f32 {
-  return x + 1.
+  return x + 1.;
 }
 export function gB(x: f32): f32 {
-  return x * 10.
+  return x * 10.;
 }
 export function f(a: f32): f32 {
-  return fA(a) + gB(a)
+  return fA(a) + gB(a);
 }
 `
     const m = compiled(src)
     const s = startDebugSession(m, 'f', [2])
-    expect(textAt(src, s.pause!.span)).toBe('return fA(a) + gB(a)')
+    expect(textAt(src, s.pause!.span)).toBe('return fA(a) + gB(a);')
     s.stepIn()
     expect(s.pause!.frames.map((fr) => fr.fnName)).toEqual(['fA', 'f'])
     s.stepOut()
     // Back on the calling statement, one frame deep, with fA done and gB not yet begun.
     expect(s.pause!.frames.map((fr) => fr.fnName)).toEqual(['f'])
-    expect(textAt(src, s.pause!.span)).toBe('return fA(a) + gB(a)')
+    expect(textAt(src, s.pause!.span)).toBe('return fA(a) + gB(a);')
     s.stepIn()
     expect(s.pause!.frames.map((fr) => fr.fnName)).toEqual(['gB', 'f'])
-    expect(textAt(src, s.pause!.span)).toBe('return x * 10.')
+    expect(textAt(src, s.pause!.span)).toBe('return x * 10.;')
     s.continue()
     expect(s.result).toBe(23)
   })
@@ -192,63 +192,63 @@ export function f(a: f32): f32 {
     // through a statement with a call would report that statement twice, which is not what
     // either move means.
     expect(trace(compiled(WITH_HELPER), WITH_HELPER, 'f', [1])).toEqual([
-      'const first = double(a)',
-      'const d = x + x',
-      'return d',
-      'const second = double(first)',
-      'const d = x + x',
-      'return d',
-      'return second',
+      'const first = double(a);',
+      'const d = x + x;',
+      'return d;',
+      'const second = double(first);',
+      'const d = x + x;',
+      'return d;',
+      'return second;',
     ])
   })
 
   it('step in visits both call sites of the same helper, one frame at a time', () => {
     expect(trace(compiled(WITH_HELPER), WITH_HELPER, 'f', [1])).toEqual([
-      'const first = double(a)',
-      'const d = x + x',
-      'return d',
-      'const second = double(first)',
-      'const d = x + x',
-      'return d',
-      'return second',
+      'const first = double(a);',
+      'const d = x + x;',
+      'return d;',
+      'const second = double(first);',
+      'const d = x + x;',
+      'return d;',
+      'return second;',
     ])
   })
 })
 
 describe('loops', () => {
-  const LOOP = `"use typeshade"
+  const LOOP = `"use typeshade";
 export function f(): f32 {
-  let acc = 0.
+  let acc = 0.;
   for (let i: i32 = 0; i < 3; i++) {
-    acc += 1.
+    acc += 1.;
   }
-  return acc
+  return acc;
 }
 `
 
   it('pauses once per iteration on the body and on the update', () => {
     expect(trace(compiled(LOOP), LOOP, 'f')).toEqual([
-      'let acc = 0.',
-      'for (let i: i32 = 0; i < 3; i++) {\n    acc += 1.\n  }',
+      'let acc = 0.;',
+      'for (let i: i32 = 0; i < 3; i++) {\n    acc += 1.;\n  }',
       'let i: i32 = 0',
-      'acc += 1.',
+      'acc += 1.;',
       'i++',
-      'acc += 1.',
+      'acc += 1.;',
       'i++',
-      'acc += 1.',
+      'acc += 1.;',
       'i++',
-      'return acc',
+      'return acc;',
     ])
   })
 
   it('step over inside a loop body advances one iteration at a time', () => {
     const m = compiled(LOOP)
     const s = startDebugSession(m, 'f', [], { precision: 'f64' })
-    while (s.pause && textAt(LOOP, s.pause.span!) !== 'acc += 1.') s.stepIn()
+    while (s.pause && textAt(LOOP, s.pause.span!) !== 'acc += 1.;') s.stepIn()
     expect(s.pause!.frames[0]!.locals.get('i')).toBe(0)
     s.stepOver() // the update
     s.stepOver() // back to the body on iteration 2
-    expect(textAt(LOOP, s.pause!.span!)).toBe('acc += 1.')
+    expect(textAt(LOOP, s.pause!.span!)).toBe('acc += 1.;')
     expect(s.pause!.frames[0]!.locals.get('i')).toBe(1)
     expect(s.pause!.frames[0]!.locals.get('acc')).toBe(1)
   })
@@ -258,11 +258,11 @@ describe('breakpoints', () => {
   it('continue stops at the first statement whose span starts on the line', () => {
     const m = compiled(STRAIGHT)
     // `acc = acc * two` is the fifth line of the source, zero-based line 4.
-    const line = STRAIGHT.split('\n').findIndex((l) => l.includes('acc = acc * two'))
+    const line = STRAIGHT.split('\n').findIndex((l) => l.includes('acc = acc * two;'))
     const s = startDebugSession(m, 'f', [3], { breakpoints: [{ line }], precision: 'f64' })
     const hit = s.continue()
     expect(hit!.reason).toBe('breakpoint')
-    expect(textAt(STRAIGHT, hit!.span!)).toBe('acc = acc * two')
+    expect(textAt(STRAIGHT, hit!.span!)).toBe('acc = acc * two;')
     expect(s.pause!.frames[0]!.locals.get('acc')).toBe(3)
   })
 
@@ -276,7 +276,7 @@ describe('breakpoints', () => {
 
   it('a breakpoint naming another file does not fire', () => {
     const m = compiled(STRAIGHT)
-    const line = STRAIGHT.split('\n').findIndex((l) => l.includes('acc = acc * two'))
+    const line = STRAIGHT.split('\n').findIndex((l) => l.includes('acc = acc * two;'))
     const s = startDebugSession(m, 'f', [3], {
       breakpoints: [{ file: 'other.shade.ts', line }],
       precision: 'f64',
@@ -287,7 +287,7 @@ describe('breakpoints', () => {
 
   it('a breakpoint inside a helper fires on the helper frame', () => {
     const m = compiled(WITH_HELPER)
-    const line = WITH_HELPER.split('\n').findIndex((l) => l.includes('const d = x + x'))
+    const line = WITH_HELPER.split('\n').findIndex((l) => l.includes('const d = x + x;'))
     const s = startDebugSession(m, 'f', [1], { breakpoints: [{ line }] })
     const hit = s.continue()
     expect(hit!.frames.map((fr) => fr.fnName)).toEqual(['double', 'f'])
@@ -298,19 +298,19 @@ describe('breakpoints', () => {
   it('breakpoints can be replaced while the run is stopped', () => {
     const m = compiled(STRAIGHT)
     const s = startDebugSession(m, 'f', [3], { precision: 'f64' })
-    const line = STRAIGHT.split('\n').findIndex((l) => l.includes('return acc'))
+    const line = STRAIGHT.split('\n').findIndex((l) => l.includes('return acc;'))
     s.setBreakpoints([{ line }])
-    expect(textAt(STRAIGHT, s.continue()!.span!)).toBe('return acc')
+    expect(textAt(STRAIGHT, s.continue()!.span!)).toBe('return acc;')
   })
 })
 
 describe('bindings, stubs and the ways a run can end', () => {
-  const STORAGE = `"use typeshade"
-declare const scale: uniform<f32>
-declare let out: storage<array<f32>>
+  const STORAGE = `"use typeshade";
+declare const scale: uniform<f32>;
+declare let out: storage<array<f32>>;
 @compute([1, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  out[gid.x] = scale * 2.
+  out[gid.x] = scale * 2.;
 }
 `
 
@@ -449,15 +449,15 @@ describe('the statement a pause reports is the statement it is about to execute'
 
 // ═══ The rules a review found each resting on one test, or on none ═══
 
-const WHILE_SRC = `"use typeshade"
+const WHILE_SRC = `"use typeshade";
 export function f(n: i32): f32 {
-  let acc = 0.
-  let w: i32 = 0
+  let acc = 0.;
+  let w: i32 = 0;
   while (w < 3) {
-    acc = acc + 1.
-    w = w + 1
+    acc = acc + 1.;
+    w = w + 1;
   }
-  return acc
+  return acc;
 }
 `
 
@@ -468,16 +468,16 @@ describe('a statement nobody wrote is never a stop', () => {
     // Every span below is real text from the source, which is the whole of the claim.
     const t = trace(compiled(WHILE_SRC), WHILE_SRC, 'f', [0])
     expect(t).toEqual([
-      'let acc = 0.',
-      'let w: i32 = 0',
-      'while (w < 3) {\n    acc = acc + 1.\n    w = w + 1\n  }',
-      'acc = acc + 1.',
-      'w = w + 1',
-      'acc = acc + 1.',
-      'w = w + 1',
-      'acc = acc + 1.',
-      'w = w + 1',
-      'return acc',
+      'let acc = 0.;',
+      'let w: i32 = 0;',
+      'while (w < 3) {\n    acc = acc + 1.;\n    w = w + 1;\n  }',
+      'acc = acc + 1.;',
+      'w = w + 1;',
+      'acc = acc + 1.;',
+      'w = w + 1;',
+      'acc = acc + 1.;',
+      'w = w + 1;',
+      'return acc;',
     ])
     expect(t).not.toContain('<synthesised>')
   })
@@ -515,7 +515,7 @@ describe('a breakpoint stops every move, not only continue', () => {
     const p = s.stepOver()
     expect(p!.reason).toBe('breakpoint')
     expect(p!.frames.map((fr) => fr.fnName)).toEqual(['double', 'f'])
-    expect(textAt(WITH_HELPER, p!.span)).toBe('const d = x + x')
+    expect(textAt(WITH_HELPER, p!.span)).toBe('const d = x + x;')
   })
 
   it('fires during stepIn and stepOut too', () => {
@@ -531,14 +531,14 @@ describe('a breakpoint stops every move, not only continue', () => {
   it('reports a breakpoint on the entry’s first statement, even as the entry stop', () => {
     // It used to be swallowed: the constructor consumed that statement as the `entry` pause,
     // so a later `continue()` resumed past it and a one-statement entry never stopped at all.
-    const one = `"use typeshade"
+    const one = `"use typeshade";
 export function f(a: f32): f32 {
-  return a * 2.
+  return a * 2.;
 }
 `
     const s = startDebugSession(compiled(one), 'f', [3], { breakpoints: [{ line: 2 }] })
     expect(s.pause!.reason).toBe('breakpoint')
-    expect(textAt(one, s.pause!.span)).toBe('return a * 2.')
+    expect(textAt(one, s.pause!.span)).toBe('return a * 2.;')
     s.continue()
     expect(s.done).toBe(true)
   })
@@ -549,13 +549,13 @@ describe('the two rules the mutation survey found under-tested', () => {
     // The rule `DebugBreakpoint` documents. A mutation to a range match (does the statement's
     // span COVER this line) survived the whole suite, including the test named for the rule,
     // because no fixture had a breakpoint on an inner line of a multi-line statement.
-    const src = `"use typeshade"
+    const src = `"use typeshade";
 export function f(n: i32): f32 {
-  let acc = 0.
+  let acc = 0.;
   if (n > 0) {
-    acc = 1.
+    acc = 1.;
   }
-  return acc
+  return acc;
 }
 `
     const m = compiled(src)
@@ -569,9 +569,9 @@ export function f(n: i32): f32 {
       return out
     }
     // Line 3 is where the `if` STARTS, so it fires there…
-    expect(stops(3)).toEqual(['if (n > 0) {\n    acc = 1.\n  }'])
+    expect(stops(3)).toEqual(['if (n > 0) {\n    acc = 1.;\n  }'])
     // …line 4 is the body statement, which starts there and is its own stop…
-    expect(stops(4)).toEqual(['acc = 1.'])
+    expect(stops(4)).toEqual(['acc = 1.;'])
     // …and line 5 is the closing brace, inside the `if`'s span and the start of nothing. A
     // range match would fire here; the STARTS rule must not.
     expect(stops(5)).toEqual([])
@@ -581,12 +581,12 @@ export function f(n: i32): f32 {
     // Deleting the `froundF32` line survived every test but the differential instrument. A
     // local read at a pause is the number an author is looking AT, so it has to be the f32
     // one; `0.1 + 0.2` is the standard witness.
-    const src = `"use typeshade"
+    const src = `"use typeshade";
 export function f(a: f32): f32 {
-  const tenth = a * 0.1
-  const fifth = a * 0.2
-  const sum = tenth + fifth
-  return sum
+  const tenth = a * 0.1;
+  const fifth = a * 0.2;
+  const sum = tenth + fifth;
+  return sum;
 }
 `
     const m = compiled(src)
@@ -606,13 +606,13 @@ export function f(a: f32): f32 {
 })
 
 describe('a run that cannot finish, and one abandoned on purpose', () => {
-  const FOREVER = `"use typeshade"
+  const FOREVER = `"use typeshade";
 export function f(a: f32): f32 {
-  let acc = a
+  let acc = a;
   while (acc > 0.) {
-    acc = acc + 1.
+    acc = acc + 1.;
   }
-  return acc
+  return acc;
 }
 `
 
@@ -659,10 +659,10 @@ export function f(a: f32): f32 {
 })
 
 describe('bindings are checked against what the module declares', () => {
-  const BOUND = `"use typeshade"
-declare const scale: uniform<f32>
+  const BOUND = `"use typeshade";
+declare const scale: uniform<f32>;
 export function f(a: f32): f32 {
-  return a * scale
+  return a * scale;
 }
 `
 
@@ -689,18 +689,18 @@ describe('a pause carries the declared type of every name it reports', () => {
   // render `b` as the author spelled it, `vec2(...)`, rather than as the bare array the
   // interpreter stores. Nothing else asserted them, so emptying both maps left the suite
   // green while every rendered value silently lost its type.
-  const TYPED = `"use typeshade"
-declare const scale: uniform<f32>
-declare const tint: uniform<vec3f>
+  const TYPED = `"use typeshade";
+declare const scale: uniform<f32>;
+declare const tint: uniform<vec3f>;
 export function f(a: f32, b: vec2f): f32 {
-  const s = a * scale
-  let acc = 0.
+  const s = a * scale;
+  let acc = 0.;
   if (s > 0.) {
-    const inner = s + 1.
-    acc = inner
+    const inner = s + 1.;
+    acc = inner;
   }
-  let last = acc * b.x
-  return last + tint.x
+  let last = acc * b.x;
+  return last + tint.x;
 }
 `
   const session = (): ReturnType<typeof startDebugSession> =>

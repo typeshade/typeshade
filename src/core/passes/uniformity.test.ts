@@ -752,11 +752,11 @@ describe('where the diagnostic points', () => {
     // back to the enclosing declaration and underlined the entry's `@compute` decorator —
     // three lines above the statement an author has to move. An editor squiggle over a whole
     // function is a squiggle that says nothing.
-    const source = `"use typeshade"
-declare let out: storage<array<f32>>
+    const source = `"use typeshade";
+declare let out: storage<array<f32>>;
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
-  if (lid.x > u32(4)) { workgroupBarrier() }
-  out[lid.x] = 1.
+  if (lid.x > u32(4)) { workgroupBarrier(); }
+  out[lid.x] = 1.;
 }`
     const [d, ...rest] = compileTsSource(source).diagnostics.filter((x) => x.category === 'error')
     expect(rest).toEqual([])

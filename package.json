@@ -70,7 +70,8 @@
     "manifest:publish": "bun scripts/publish-manifest.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "format:compiler": "prettier --write src/compiler/**/*.ts"
+    "format:compiler": "prettier --write src/compiler/**/*.ts",
+    "format:semicolons": "bun scripts/semicolons.ts"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

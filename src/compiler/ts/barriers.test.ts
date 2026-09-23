@@ -18,26 +18,26 @@ import { optimizeAt } from '../../core/passes/opt/optimize.js'
 import { emitModule } from '../../core/backends/wgsl.js'
 import { reflect } from '../../core/reflect.js'
 
-const REDUCE = `"use typeshade"
-declare const src: storage<array<f32>>
-declare let sums: storage<array<f32>>
-let tile: workgroup<array<f32, 64>>
+const REDUCE = `"use typeshade";
+declare const src: storage<array<f32>>;
+declare let sums: storage<array<f32>>;
+let tile: workgroup<array<f32, 64>>;
 @compute([64, 1, 1])
 export function reduce(
   @builtin("global_invocation_id") gid: vec3u,
   @builtin("local_invocation_id") lid: vec3u,
   @builtin("workgroup_id") wid: vec3u,
 ): void {
-  tile[lid.x] = src[gid.x]
-  workgroupBarrier()
+  tile[lid.x] = src[gid.x];
+  workgroupBarrier();
   for (let stride: u32 = 32; stride > 0; stride /= 2) {
     if (lid.x < stride) {
-      tile[lid.x] = tile[lid.x] + tile[lid.x + stride]
+      tile[lid.x] = tile[lid.x] + tile[lid.x + stride];
     }
-    workgroupBarrier()
+    workgroupBarrier();
   }
   if (lid.x === 0) {
-    sums[wid.x] = tile[0]
+    sums[wid.x] = tile[0];
   }
 }
 `
@@ -47,8 +47,8 @@ const errorsOf = (src: string) =>
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`)
 
-const HEAD = `"use typeshade"
-declare let out: storage<array<f32>>
+const HEAD = `"use typeshade";
+declare let out: storage<array<f32>>;
 `
 const kernel = (body: string) => `${HEAD}@compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
@@ -95,9 +95,9 @@ describe('barriers: dispatch runs a workgroup in lockstep', () => {
   })
 
   it('fills every compute builtin and hands a scalar binding back', () => {
-    const src = `"use typeshade"
-declare let out: storage<array<u32>>
-declare let last: storage<u32>
+    const src = `"use typeshade";
+declare let out: storage<array<u32>>;
+declare let last: storage<u32>;
 @compute([4, 1, 1])
 export function k(
   @builtin("global_invocation_id") gid: vec3u,
@@ -106,9 +106,9 @@ export function k(
   @builtin("workgroup_id") wid: vec3u,
   @builtin("num_workgroups") n: vec3u,
 ): void {
-  out[gid.x] = lid.x * 1000 + li * 100 + wid.x * 10 + n.x
-  storageBarrier()
-  last = gid.x
+  out[gid.x] = lid.x * 1000 + li * 100 + wid.x * 10 + n.x;
+  storageBarrier();
+  last = gid.x;
 }
 `
     const r = compile(src)
@@ -125,8 +125,8 @@ export function k(
 
   it('refuses a workgroup whose invocations do not all reach the barrier', () => {
     const src = REDUCE.replace(
-      '  tile[lid.x] = src[gid.x]\n',
-      '  if (lid.x > 60) {\n    return\n  }\n  tile[lid.x] = src[gid.x]\n',
+      '  tile[lid.x] = src[gid.x];\n',
+      '  if (lid.x > 60) {\n    return;\n  }\n  tile[lid.x] = src[gid.x];\n',
     )
     const r = compile(src)
     // The front end catches this one at the line now (§54): a `return` under a condition the
@@ -163,9 +163,9 @@ export function k(
 
   it('dispatch takes a compute entry only', () => {
     const cm = compileModule(
-      compile(`"use typeshade"
+      compile(`"use typeshade";
 @fragment
-export function fs(): vec4 { return vec4(1.) }
+export function fs(): vec4 { return vec4(1.); }
 `).module,
     )
     expect(() => cm.dispatch('fs', 1)).toThrow('dispatch runs a @compute entry; "fs" is fragment')
@@ -215,28 +215,28 @@ describe('barriers: where one may stand', () => {
   })
 
   it('inside a branch on a value the whole workgroup shares, it may', () => {
-    const uniform = `"use typeshade"
-declare let out: storage<array<f32>>
-declare const k: uniform<f32>
+    const uniform = `"use typeshade";
+declare let out: storage<array<f32>>;
+declare const k: uniform<f32>;
 @compute([64, 1, 1])
 export function g(@builtin("global_invocation_id") gid: vec3u): void {
   if (k > 0.5) {
-    workgroupBarrier()
+    workgroupBarrier();
   }
-  out[gid.x] = 1.
+  out[gid.x] = 1.;
 }
 `
     expect(errorsOf(uniform)).toEqual([])
     // `@builtin("workgroup_id")` is one of the four WGSL declares uniform, so a branch on it
     // is the same answer for every invocation of the group.
-    const byGroup = `"use typeshade"
-declare let out: storage<array<f32>>
+    const byGroup = `"use typeshade";
+declare let out: storage<array<f32>>;
 @compute([64, 1, 1])
 export function g(@builtin("workgroup_id") wg: vec3u, @builtin("local_invocation_id") id: vec3u): void {
   if (wg.x > u32(1)) {
-    workgroupBarrier()
+    workgroupBarrier();
   }
-  out[id.x] = 1.
+  out[id.x] = 1.;
 }
 `
     expect(errorsOf(byGroup)).toEqual([])
@@ -342,11 +342,11 @@ ${body}
     // Tint: "built-in cannot be used by vertex pipeline stage" / "'textureBarrier' must only be
     // called from uniform control flow". Both are said here first, in the author's own file.
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  textureBarrier()
-  return vec4(0.)
+  textureBarrier();
+  return vec4(0.);
 }
 `)[0],
     ).toBe(
@@ -401,11 +401,11 @@ export function fs(): vec4 {
     // while the argument is lowered — which is why `lowerWorkgroupUniformLoad` carries no stage
     // arm of its own. The message names what the author has to move.
     expect(
-      errorsOf(`"use typeshade"
-let w: workgroup<u32>
+      errorsOf(`"use typeshade";
+let w: workgroup<u32>;
 @fragment
 export function fs(): vec4 {
-  return vec4(f32(workgroupUniformLoad(w)) * 0., 0., 0., 1.)
+  return vec4(f32(workgroupUniformLoad(w)) * 0., 0., 0., 1.);
 }
 `)[0],
     ).toBe(

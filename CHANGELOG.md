@@ -13,6 +13,17 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **Shader source writes every `;`, and a command writes the ones left out.**
+  `bun run format:semicolons` (`scripts/semicolons.ts`) reads each shader source with the
+  compiler's own parser and inserts a `;` wherever a statement was ended by automatic semicolon
+  insertion, so the rewrite never moves a statement boundary. It covers the `examples/*.shade.ts`
+  files, the `"use typeshade"` fences in the docs, the fences of `docs/use-typeshade-surface.md`
+  and the inline sources the tests compile; 3,668 lines in 137 files gained their `;`.
+  `src/compiler/ts/semicolons.test.ts` fails `bun run test` on a missing one, and also proves the
+  compiler still reads source without them: every example with its `;` taken back out emits the
+  same WGSL. The language is unchanged, and so is the emit: ASI is still ordinary TypeScript.
+  Prettier's `semi: false` still holds for host code; it no longer reformats Markdown fences.
+
 - **The fp64 guard is read once per function, and its redundant multiplies are gone** (§39).
   Every float `df64_*` helper fetched the `_fp64` guard texel itself, so every helper CALL
   fetched it again: the `fp64-mandelbrot` escape loop read the texture up to 40 times per

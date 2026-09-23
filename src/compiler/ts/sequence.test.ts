@@ -18,18 +18,18 @@ import { TS_CODES } from './codes.js'
 import { compileModuleJs } from '../../core/cpu-codegen.js'
 import { startDebugSession } from '../../core/debug/session.js'
 
-const RNG = `"use typeshade"
+const RNG = `"use typeshade";
 class Rng {
-  state: u32
+  state: u32;
   constructor(seed: u32) {
-    this.state = seed
+    this.state = seed;
   }
   bits(): u32 {
-    this.state = this.state * 747796405 + 2891336453
-    return this.state >> 8
+    this.state = this.state * 747796405 + 2891336453;
+    return this.state >> 8;
   }
   next(): f32 {
-    return f32(this.bits()) / 16777216.
+    return f32(this.bits()) / 16777216.;
   }
 }
 `
@@ -145,20 +145,20 @@ describe('a call that writes, inside a larger expression, in source order', () =
   it('an assignment reads its target index before the value is evaluated', () => {
     // Both targets evaluate the left of `=` first (GLSL ES 3.00 §5.8); the CPU paths evaluated
     // the value first, so `xs[c.n] = c.bump()` stored into the element after the one written.
-    const src = `"use typeshade"
+    const src = `"use typeshade";
 class Counter {
-  n: i32
+  n: i32;
   bump(): i32 {
-    this.n = this.n + 1
-    return this.n * 10
+    this.n = this.n + 1;
+    return this.n * 10;
   }
 }
 @fragment
 export function fs(): vec4 {
-  let c = new Counter()
-  let xs: array<i32, 2> = [0, 0]
-  xs[c.n] = c.bump()
-  return vec4(f32(xs[0]), f32(xs[1]), f32(c.n), 1.)
+  let c = new Counter();
+  let xs: array<i32, 2> = [0, 0];
+  xs[c.n] = c.bump();
+  return vec4(f32(xs[0]), f32(xs[1]), f32(c.n), 1.);
 }
 `
     expect(compile(src).wgsl).toContain('  let _seq0 = c.n;\n  xs[_seq0] = Counter_bump(&c);')
@@ -166,25 +166,25 @@ export function fs(): vec4 {
   })
 
   it('a compound assignment reads the old value before a call that changes it', () => {
-    const src = `"use typeshade"
+    const src = `"use typeshade";
 class Acc {
-  total: f32
-  n: f32
+  total: f32;
+  n: f32;
   take(): f32 {
-    this.n = this.n + 1.
-    this.total = this.total * 2.
-    return this.n
+    this.n = this.n + 1.;
+    this.total = this.total * 2.;
+    return this.n;
   }
   add(): void {
-    this.total += this.take()
+    this.total += this.take();
   }
 }
 @fragment
 export function fs(): vec4 {
-  let a = new Acc()
-  a.total = 1.
-  a.add()
-  return vec4(a.total, a.n, 0., 1.)
+  let a = new Acc();
+  a.total = 1.;
+  a.add();
+  return vec4(a.total, a.n, 0., 1.);
 }
 `
     expect(compile(src).wgsl).toContain(
@@ -226,19 +226,19 @@ describe('what the passes after it would have done to such a call', () => {
   it('a copy taken before the call keeps the value before it', () => {
     // Copy propagation read `p` where `before` was written: the effect table named the write
     // by the callee's `self_` rather than by the receiver it lands in.
-    const src = `"use typeshade"
+    const src = `"use typeshade";
 class P {
-  v: f32
+  v: f32;
   bump(): void {
-    this.v = this.v + 1.
+    this.v = this.v + 1.;
   }
 }
 @fragment
 export function fs(): vec4 {
-  let p = new P()
-  const before = p
-  p.bump()
-  return vec4(before.v, p.v, 0., 1.)
+  let p = new P();
+  const before = p;
+  p.bump();
+  return vec4(before.v, p.v, 0., 1.);
 }
 `
     expect(compile(src).wgsl).toContain('return vec4<f32>(before.v, p.v, 0.0, 1.0);')
@@ -273,16 +273,16 @@ export function fs(@location(0) uv: vec2): vec4 {
 
 describe('the same order for a helper that writes a module variable', () => {
   it('reads, calls and the unread call, as the source orders them', () => {
-    const src = `"use typeshade"
-let counter: u32 = 0
+    const src = `"use typeshade";
+let counter: u32 = 0;
 function next(): u32 {
-  counter++
-  return counter
+  counter++;
+  return counter;
 }
 @fragment
 export function fs(): vec4 {
-  const unused = next()
-  return vec4(f32(counter) - f32(next()), f32(next() * 2), 0., 1.)
+  const unused = next();
+  return vec4(f32(counter) - f32(next()), f32(next() * 2), 0., 1.);
 }
 `
     const r = compile(src)

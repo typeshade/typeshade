@@ -11,22 +11,22 @@ import { fixpoint, optimizeAt } from './opt/optimize.js'
 import { dce } from './opt/dce.js'
 import type { ModuleDecl } from '../ir/nodes.js'
 
-const SRC = `"use typeshade"
-declare let dst: storage<array<f32>>
+const SRC = `"use typeshade";
+declare let dst: storage<array<f32>>;
 function pure(x: f32): f32 {
-  return x * 2.
+  return x * 2.;
 }
 function store(i: u32): void {
-  dst[i] = 1.
+  dst[i] = 1.;
 }
 function viaStore(i: u32): f32 {
-  store(i)
-  return 3.
+  store(i);
+  return 3.;
 }
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  viaStore(gid.x)
-  pure(1.)
+  viaStore(gid.x);
+  pure(1.);
 }
 `
 

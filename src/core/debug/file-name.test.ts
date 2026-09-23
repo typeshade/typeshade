@@ -77,12 +77,12 @@ describe('normalizeFileName agrees with TypeScript', () => {
   })
 })
 
-const SRC = `"use typeshade"
+const SRC = `"use typeshade";
 
 export function fs(): f32 {
-  const a = 1.
-  const b = a + 1.
-  return b
+  const a = 1.;
+  const b = a + 1.;
+  return b;
 }
 `
 

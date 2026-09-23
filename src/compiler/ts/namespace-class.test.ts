@@ -26,25 +26,25 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 
 describe('a class inside a namespace is the struct Ns_P', () => {
   it('with its constructor and its methods, built from inside the namespace', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 namespace N {
   export class P {
-    x: f32
+    x: f32;
     constructor(x: f32) {
-      this.x = x
+      this.x = x;
     }
     twice(): f32 {
-      return this.x * 2.
+      return this.x * 2.;
     }
   }
   export function make(v: f32): P {
-    return new P(v)
+    return new P(v);
   }
 }
 @fragment
 export function fs(): vec4 {
-  const p = N.make(3.)
-  return vec4(p.twice(), 0., 0., 1.)
+  const p = N.make(3.);
+  return vec4(p.twice(), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -56,22 +56,22 @@ export function fs(): vec4 {
   })
 
   it('and from outside it, written N.P', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 namespace N {
   export class P {
-    x: f32
+    x: f32;
     constructor(x: f32) {
-      this.x = x
+      this.x = x;
     }
   }
 }
 function take(p: N.P): f32 {
-  return p.x
+  return p.x;
 }
 @fragment
 export function fs(): vec4 {
-  const p = new N.P(4.)
-  return vec4(take(p), p.x, 0., 1.)
+  const p = new N.P(4.);
+  return vec4(take(p), p.x, 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -81,22 +81,22 @@ export function fs(): vec4 {
   })
 
   it('nested, and as a field of another struct', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 namespace A {
   export namespace B {
     export class Inner {
-      v: f32
+      v: f32;
     }
   }
   export class Outer {
-    i: A.B.Inner
-    k: f32
+    i: A.B.Inner;
+    k: f32;
   }
 }
 @fragment
 export function fs(): vec4 {
-  const o: A.Outer = { i: { v: 2. }, k: 3. }
-  return vec4(o.i.v, o.k, 0., 1.)
+  const o: A.Outer = { i: { v: 2. }, k: 3. };
+  return vec4(o.i.v, o.k, 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -107,17 +107,17 @@ export function fs(): vec4 {
   })
 
   it('as a binding type, reflected under the flattened name', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 namespace Scene {
   export class Camera {
-    pos: vec3
-    zoom: f32
+    pos: vec3;
+    zoom: f32;
   }
 }
-declare const cam: uniform<Scene.Camera>
+declare const cam: uniform<Scene.Camera>;
 @fragment
 export function fs(): vec4 {
-  return vec4(cam.pos, cam.zoom)
+  return vec4(cam.pos, cam.zoom);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -131,43 +131,43 @@ export function fs(): vec4 {
 describe('what the short name cannot answer', () => {
   it('a name two namespaces both declare', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 namespace A {
   export class P {
-    x: f32
+    x: f32;
   }
 }
 namespace B {
   export class P {
-    y: f32
+    y: f32;
   }
 }
 function take(p: P): f32 {
-  return 1.
+  return 1.;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(take({ x: 1. }), 0., 0., 1.)
+  return vec4(take({ x: 1. }), 0., 0., 1.);
 }
 `)[0],
     ).toBe(`TS8002 "P" is declared in 2 namespaces ("A.P", "B.P"). Write the one you mean.`)
   })
 
   it('a top-level declaration of the same name wins, as it does in TypeScript', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 class P {
-  top: f32
+  top: f32;
 }
 namespace N {
   export class P {
-    inner: f32
+    inner: f32;
   }
 }
-declare const u: uniform<N.P>
+declare const u: uniform<N.P>;
 @fragment
 export function fs(): vec4 {
-  const p: P = { top: 1. }
-  return vec4(p.top, u.inner, 0., 1.)
+  const p: P = { top: 1. };
+  return vec4(p.top, u.inner, 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -177,18 +177,18 @@ export function fs(): vec4 {
 
   it('a dotted name that names no struct says so', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 namespace N {
   export class P {
-    x: f32
+    x: f32;
   }
 }
 function take(q: N.Q): f32 {
-  return 1.
+  return 1.;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(1.)
+  return vec4(1.);
 }
 `)[0],
     ).toBe(
@@ -198,7 +198,7 @@ export function fs(): vec4 {
 
   it('an enum, a type or a variable in a namespace keeps its refusal', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 namespace A {
   export enum E {
     X,
@@ -206,7 +206,7 @@ namespace A {
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(1.)
+  return vec4(1.);
 }
 `)[0],
     ).toContain(

@@ -66,15 +66,15 @@ export function fs(): vec4 { ${body} }
 
 describe('GLSL ES 3.00 reserves the name, and the module has a GLSL form (#103)', () => {
   it('reports a struct field named half, on the field', () => {
-    const src = `"use typeshade"
+    const src = `"use typeshade";
 class V {
-  @builtin("position") pos: vec4
-  @location(0) half: vec2
+  @builtin("position") pos: vec4;
+  @location(0) half: vec2;
 }
 @vertex
-export function vs(): V { return { pos: vec4(0., 0., 0., 1.), half: vec2(0., 0.) } }
+export function vs(): V { return { pos: vec4(0., 0., 0., 1.), half: vec2(0., 0.) }; }
 @fragment
-export function fs(v: V): vec4 { return vec4(v.half, 0., 1.) }
+export function fs(v: V): vec4 { return vec4(v.half, 0., 1.); }
 `
     expect(warningsOf(src)).toContain(GLSL('"half"', 'a field'))
     expect(errorsOf(src)).toEqual([])
@@ -124,12 +124,12 @@ export function fs(): vec4 { return vec4(cam.half + cam.rest, 0., 0., 1.) }
     // `Self` is on WGSL's list, and WGSL is every module's target, so WGSL is what answers.
     // A capitalized word keeps this to ONE diagnostic: a lowercase class name does not resolve
     // as a type here at all, which is a separate, pre-existing TS8002.
-    const src = `"use typeshade"
+    const src = `"use typeshade";
 class Self {
-  @builtin("position") pos: vec4
+  @builtin("position") pos: vec4;
 }
 @vertex
-export function vs(): Self { return { pos: vec4(0., 0., 0., 1.) } }
+export function vs(): Self { return { pos: vec4(0., 0., 0., 1.) }; }
 `
     expect(errorsOf(src)).toEqual([WGSL('"Self"', 'a struct')])
   })
@@ -145,10 +145,10 @@ describe('WGSL reserves the name (#103)', () => {
 
   it('refuses a parameter', () => {
     expect(
-      errorsOf(`"use typeshade"
-export function g(as: f32): f32 { return as }
+      errorsOf(`"use typeshade";
+export function g(as: f32): f32 { return as; }
 @fragment
-export function fs(): vec4 { return vec4(g(1.), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(g(1.), 0., 0., 1.); }
 `),
     ).toEqual([WGSL('"as"', 'a parameter')])
   })
@@ -165,10 +165,10 @@ export function fs(): vec4 { return vec4(g(1.), 0., 0., 1.) }
 
 describe('the name that reaches the backend is the FLATTENED one (#103)', () => {
   it('names both spellings for a static field, whose emitted name is Cls_member', () => {
-    const src = `"use typeshade"
-class atomic { static uint: u32 = 1 }
+    const src = `"use typeshade";
+class atomic { static uint: u32 = 1; }
 @fragment
-export function fs(): vec4 { return vec4(f32(atomic.uint), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(f32(atomic.uint), 0., 0., 1.); }
 `
     expect(warningsOf(src)).toContain(
       `${TS_CODES.RESERVED_NAME} "uint" is emitted as "atomic_uint", which is reserved in GLSL ES 3.00, so this module constant cannot be emitted for the WebGL2 target. Rename it.`,
@@ -179,10 +179,10 @@ export function fs(): vec4 { return vec4(f32(atomic.uint), 0., 0., 1.) }
 
   it('does the same for a namespace member, and for a WGSL word', () => {
     expect(
-      errorsOf(`"use typeshade"
-namespace thread { export const local: f32 = 1. }
+      errorsOf(`"use typeshade";
+namespace thread { export const local: f32 = 1.; }
 @fragment
-export function fs(): vec4 { return vec4(thread.local, 0., 0., 1.) }
+export function fs(): vec4 { return vec4(thread.local, 0., 0., 1.); }
 `),
     ).toEqual([
       `${TS_CODES.RESERVED_NAME} "local" is emitted as "thread_local", which is reserved in WGSL, so this module constant cannot be emitted for the WebGPU target. Rename it.`,
@@ -192,10 +192,10 @@ export function fs(): vec4 { return vec4(thread.local, 0., 0., 1.) }
   it('leaves a flattened name that is NOT reserved alone', () => {
     // A class `S` with a static `half` is `S_half`, which neither target reserves. The written
     // name alone would have refused it — which is the reason the check reads the emitted one.
-    const r = compile(`"use typeshade"
-class S { static half: f32 = 0.5 }
+    const r = compile(`"use typeshade";
+class S { static half: f32 = 0.5; }
 @fragment
-export function fs(): vec4 { return vec4(S.half, 0., 0., 1.) }
+export function fs(): vec4 { return vec4(S.half, 0., 0., 1.); }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(r.wgsl).toContain('S_half')
@@ -208,13 +208,13 @@ describe('the GLSL rename never lands on a name already in scope (#103)', () => 
     // it produced a second `float_` beside the module const of that name and the GLSL answered
     // 4 where WGSL and the CPU oracle answered 12 — compiling cleanly, with no diagnostic. The
     // enlarged word list is what made this reachable for the type names.
-    const r = compile(`"use typeshade"
-const float_: f32 = 10.
+    const r = compile(`"use typeshade";
+const float_: f32 = 10.;
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  let float = uv.x * 2.
-  float = float + 1.
-  return vec4(float + float_, 0., 0., 1.)
+  let float = uv.x * 2.;
+  float = float + 1.;
+  return vec4(float + float_, 0., 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -228,13 +228,13 @@ export function fs(@location(0) uv: vec2): vec4 {
     // Measured: `float__` is "identifiers containing two consecutive underscores (__) are
     // reserved as possible future keywords", so repeating the underscore walked out of one
     // rule of §3.6 into another.
-    const r = compile(`"use typeshade"
-const float_: f32 = 1.
-const float_1: f32 = 2.
+    const r = compile(`"use typeshade";
+const float_: f32 = 1.;
+const float_1: f32 = 2.;
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  let float = uv.x
-  return vec4(float + float_ + float_1, 0., 0., 1.)
+  let float = uv.x;
+  return vec4(float + float_ + float_1, 0., 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -243,10 +243,10 @@ export function fs(@location(0) uv: vec2): vec4 {
   })
 
   it('renames a helper named main, which is the entry point GLSL emits', () => {
-    const r = compile(`"use typeshade"
-export function main(x: f32): f32 { return x * 2. }
+    const r = compile(`"use typeshade";
+export function main(x: f32): f32 { return x * 2.; }
 @fragment
-export function fs(@location(0) uv: vec2): vec4 { return vec4(main(uv.x), 0., 0., 1.) }
+export function fs(@location(0) uv: vec2): vec4 { return vec4(main(uv.x), 0., 0., 1.); }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(r.glsl?.fragment).toContain('float main_(float x)')
@@ -258,13 +258,13 @@ export function fs(@location(0) uv: vec2): vec4 { return vec4(main(uv.x), 0., 0.
 
 describe('a module the target never reaches is not held to its list (#103)', () => {
   it('keeps a field named half in a compute-only module, which emits no GLSL', () => {
-    const r = compile(`"use typeshade"
-declare let sink: storage<array<f32>>
-class P { half: f32 }
+    const r = compile(`"use typeshade";
+declare let sink: storage<array<f32>>;
+class P { half: f32; }
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  const p: P = { half: 2. }
-  sink[gid.x] = p.half
+  const p: P = { half: 2. };
+  sink[gid.x] = p.half;
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])

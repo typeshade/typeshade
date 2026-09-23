@@ -55,12 +55,12 @@ describe('a shift amount of 32 or more (#71)', () => {
   it('refuses a constant the author spelled through a const', () => {
     // The declaration is dropped, so the use below it reports an unknown name as well; the
     // first diagnostic is the one that says why.
-    const errors = errorsOf(`"use typeshade"
-const BITS: u32 = 32
+    const errors = errorsOf(`"use typeshade";
+const BITS: u32 = 32;
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  const x: u32 = u32(uv.x) << BITS
-  return vec4(f32(x), 0., 0., 1.)
+  const x: u32 = u32(uv.x) << BITS;
+  return vec4(f32(x), 0., 0., 1.);
 }
 `)
     expect(errors[0]).toBe(

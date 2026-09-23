@@ -26,15 +26,15 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 
 describe('an overload signature is skipped and the implementation is lowered', () => {
   it('once, however many signatures stand above it', () => {
-    const r = compile(`"use typeshade"
-export function lum(c: vec3): f32
-export function lum(c: vec3): f32
+    const r = compile(`"use typeshade";
+export function lum(c: vec3): f32;
+export function lum(c: vec3): f32;
 export function lum(c: vec3): f32 {
-  return dot(c, vec3(0.2126, 0.7152, 0.0722))
+  return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(lum(vec3(1., 0., 0.)), 0., 0., 1.)
+  return vec4(lum(vec3(1., 0., 0.)), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -45,16 +45,16 @@ export function fs(): vec4 {
   })
 
   it('inside a namespace, under the flattened name', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 namespace Color {
-  export function lum(c: vec3): f32
+  export function lum(c: vec3): f32;
   export function lum(c: vec3): f32 {
-    return dot(c, vec3(0.2126, 0.7152, 0.0722))
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
   }
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(Color.lum(vec3(0., 1., 0.)), 0., 0., 1.)
+  return vec4(Color.lum(vec3(0., 1., 0.)), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -63,27 +63,27 @@ export function fs(): vec4 {
   })
 
   it('on a method, a static function and a constructor', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 class C {
-  x: f32
-  at(t: f32): f32
+  x: f32;
+  at(t: f32): f32;
   at(t: f32): f32 {
-    return this.x * t
+    return this.x * t;
   }
-  static mk(v: f32): C
+  static mk(v: f32): C;
   static mk(v: f32): C {
-    return { x: v }
+    return { x: v };
   }
   constructor(v: f32)
   constructor(v: f32) {
-    this.x = v
+    this.x = v;
   }
 }
 @fragment
 export function fs(): vec4 {
-  const a = C.mk(2.)
-  const b = new C(3.)
-  return vec4(a.at(5.), b.at(5.), 0., 1.)
+  const a = C.mk(2.);
+  const b = new C(3.);
+  return vec4(a.at(5.), b.at(5.), 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -97,11 +97,11 @@ export function fs(): vec4 {
 describe('a body-less declaration that is not an overload keeps its error', () => {
   it('with no implementation anywhere', () => {
     expect(
-      errorsOf(`"use typeshade"
-export function lum(c: vec3): f32
+      errorsOf(`"use typeshade";
+export function lum(c: vec3): f32;
 @fragment
 export function fs(): vec4 {
-  return vec4(1.)
+  return vec4(1.);
 }
 `)[0],
     ).toBe(`${TS_CODES.FUNCTION_SHAPE} Function "lum" needs a body (no ambient declarations).`)
@@ -109,23 +109,23 @@ export function fs(): vec4 {
 
   it('and when it is ambient, even beside an implementation', () => {
     expect(
-      errorsOf(`"use typeshade"
-declare function lum(c: vec3): f32
+      errorsOf(`"use typeshade";
+declare function lum(c: vec3): f32;
 @fragment
 export function fs(): vec4 {
-  return vec4(1.)
+  return vec4(1.);
 }
 `)[0],
     ).toBe(`${TS_CODES.FUNCTION_SHAPE} Function "lum" needs a body (no ambient declarations).`)
     expect(
-      errorsOf(`"use typeshade"
-declare function lum(c: vec3): f32
+      errorsOf(`"use typeshade";
+declare function lum(c: vec3): f32;
 function lum(c: vec3): f32 {
-  return c.x
+  return c.x;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(lum(vec3(1.)), 0., 0., 1.)
+  return vec4(lum(vec3(1.)), 0., 0., 1.);
 }
 `)[0],
     ).toBe(`${TS_CODES.FUNCTION_SHAPE} Function "lum" needs a body (no ambient declarations).`)
@@ -133,16 +133,16 @@ export function fs(): vec4 {
 
   it('and two implementations of one name are still a duplicate', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 function lum(c: vec3): f32 {
-  return c.x
+  return c.x;
 }
 function lum(c: vec3): f32 {
-  return c.y
+  return c.y;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(lum(vec3(1.)), 0., 0., 1.)
+  return vec4(lum(vec3(1.)), 0., 0., 1.);
 }
 `)[0],
     ).toBe(`${TS_CODES.DUPLICATE_SYMBOL} Duplicate function "lum".`)

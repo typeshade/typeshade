@@ -17,7 +17,7 @@ describe('builtin name allow-list (BUILTIN_NAME)', () => {
     const r = diag(`
       "use typeshade";
       export function vs(@builtin("vertex_idx") i: u32): vec4 {
-        return vec4(0., 0., 0., 1.)
+        return vec4(0., 0., 0., 1.);
       }
     `)
     const d = r.diagnostics.find((d) => d.code === TS_CODES.BUILTIN_NAME)
@@ -31,7 +31,7 @@ describe('builtin name allow-list (BUILTIN_NAME)', () => {
     const r = diag(`
       "use typeshade";
       export function vs(@builtin("vertex_index") i: u32): vec4 {
-        return vec4(0., 0., 0., 1.)
+        return vec4(0., 0., 0., 1.);
       }
     `)
     expect(r.diagnostics.filter((d) => d.code === TS_CODES.BUILTIN_NAME)).toEqual([])
@@ -41,7 +41,7 @@ describe('builtin name allow-list (BUILTIN_NAME)', () => {
     const r = diag(`
       "use typeshade";
       export function vs(@builtin("vertex_idx") i: u32): vec4 {
-        return vec4(0., 0., 0., 1.)
+        return vec4(0., 0., 0., 1.);
       }
     `)
     const d = r.diagnostics.find((d) => d.code === TS_CODES.BUILTIN_NAME)!
@@ -55,7 +55,7 @@ describe('builtin stage/direction compatibility (BUILTIN_STAGE)', () => {
       "use typeshade";
       @vertex
       export function vs(@builtin("front_facing") f: bool): vec4 {
-        return vec4(0., 0., 0., 1.)
+        return vec4(0., 0., 0., 1.);
       }
     `)
     const d = r.diagnostics.find((d) => d.code === TS_CODES.BUILTIN_STAGE)
@@ -70,7 +70,7 @@ describe('builtin stage/direction compatibility (BUILTIN_STAGE)', () => {
       "use typeshade";
       @vertex
       export function vs(@builtin("vertex_index") i: u32): vec4 {
-        return vec4(0., 0., 0., 1.)
+        return vec4(0., 0., 0., 1.);
       }
     `)
     expect(r.diagnostics.filter((d) => d.code === TS_CODES.BUILTIN_STAGE)).toEqual([])
@@ -80,15 +80,15 @@ describe('builtin stage/direction compatibility (BUILTIN_STAGE)', () => {
     const r = diag(`
       "use typeshade";
       class Clip {
-        @builtin("position") pos: vec4
+        @builtin("position") pos: vec4;
       }
       @vertex
       export function vs(): Clip {
-        return { pos: vec4(0., 0., 0., 1.) }
+        return { pos: vec4(0., 0., 0., 1.) };
       }
       @fragment
       export function fs(v: Clip): vec4 {
-        return v.pos
+        return v.pos;
       }
     `)
     expect(r.diagnostics.filter((d) => d.code === TS_CODES.BUILTIN_STAGE)).toEqual([])
@@ -98,11 +98,11 @@ describe('builtin stage/direction compatibility (BUILTIN_STAGE)', () => {
     const r = diag(`
       "use typeshade";
       class Out {
-        @builtin("frag_depth") d: f32
+        @builtin("frag_depth") d: f32;
       }
       @vertex
       export function vs(): Out {
-        return { d: 1. }
+        return { d: 1. };
       }
     `)
     const d = r.diagnostics.find((d) => d.code === TS_CODES.BUILTIN_STAGE)
@@ -225,7 +225,7 @@ describe('entry function missing a return type annotation but returning a value 
       "use typeshade";
       @fragment
       export function fs() {
-        return vec4(1., 0., 0., 1.)
+        return vec4(1., 0., 0., 1.);
       }
     `)
     const d = r.diagnostics.find((d) => d.code === TS_CODES.RETURN_SHAPE && d.category === 'error')
@@ -238,7 +238,7 @@ describe('entry function missing a return type annotation but returning a value 
     const r = diag(`
       "use typeshade";
       export function helper() {
-        const x = 1.
+        const x = 1.;
       }
     `)
     const d = r.diagnostics.find((d) => d.code === TS_CODES.RETURN_SHAPE)
@@ -261,7 +261,7 @@ describe('entry function missing a return type annotation but returning a value 
       "use typeshade";
       @fragment
       export function fs(): vec4 {
-        return vec4(1., 0., 0., 1.)
+        return vec4(1., 0., 0., 1.);
       }
     `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -278,7 +278,7 @@ describe('every matCxR is a type, and the f64 ones are square-only (MAT_UNSUPPOR
     const r = diag(`
       "use typeshade";
       export function f(m: mat2<f32>): vec2 {
-        return m * vec2(1., 0.)
+        return m * vec2(1., 0.);
       }
     `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -287,9 +287,9 @@ describe('every matCxR is a type, and the f64 ones are square-only (MAT_UNSUPPOR
   it('accepts mat3<f32> as a return type', () => {
     const r = diag(`
       "use typeshade";
-      declare const m: uniform<mat3<f32>>
+      declare const m: uniform<mat3<f32>>;
       export function f(): mat3<f32> {
-        return m
+        return m;
       }
     `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -317,7 +317,7 @@ describe('every matCxR is a type, and the f64 ones are square-only (MAT_UNSUPPOR
     const r = diag(`
       "use typeshade";
       export function f(m: mat2x3<f64>): f32 {
-        return 0.
+        return 0.;
       }
     `)
     const d = r.diagnostics.find((d) => d.code === TS_CODES.MAT_UNSUPPORTED)
@@ -329,7 +329,7 @@ describe('every matCxR is a type, and the f64 ones are square-only (MAT_UNSUPPOR
     const r = diag(`
       "use typeshade";
       export function f(m: mat3<f64>): mat3<f64> {
-        return transpose(m)
+        return transpose(m);
       }
     `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -338,9 +338,9 @@ describe('every matCxR is a type, and the f64 ones are square-only (MAT_UNSUPPOR
   it('leaves mat4/mat4x4, bare and generic, working as before', () => {
     const r = diag(`
       "use typeshade";
-      declare const m: uniform<mat4<f32>>
+      declare const m: uniform<mat4<f32>>;
       export function f(): mat4 {
-        return m
+        return m;
       }
     `)
     expect(r.diagnostics.filter((d) => d.code === TS_CODES.MAT_UNSUPPORTED)).toEqual([])
@@ -359,7 +359,7 @@ describe('attribute name allow-list (ATTRIBUTE_NAME)', () => {
       "use typeshade";
       @vertx
       export function vs(): vec4 {
-        return vec4(0., 0., 0., 1.)
+        return vec4(0., 0., 0., 1.);
       }
     `)
     const d = r.diagnostics.find((d) => d.code === TS_CODES.ATTRIBUTE_NAME)
@@ -374,7 +374,7 @@ describe('attribute name allow-list (ATTRIBUTE_NAME)', () => {
       "use typeshade";
       @vertex
       export function vs(@locaiton(0) x: f32): vec4 {
-        return vec4(x, 0., 0., 1.)
+        return vec4(x, 0., 0., 1.);
       }
     `)
     expect(r.diagnostics.some((d) => d.code === TS_CODES.ATTRIBUTE_NAME)).toBe(true)
@@ -384,7 +384,7 @@ describe('attribute name allow-list (ATTRIBUTE_NAME)', () => {
     const r = diag(`
       "use typeshade";
       class Clip {
-        @buildin("position") pos: vec4
+        @buildin("position") pos: vec4;
       }
       export function f(): f32 { return 0.; }
     `)
@@ -395,12 +395,12 @@ describe('attribute name allow-list (ATTRIBUTE_NAME)', () => {
     const r = diag(`
       "use typeshade";
       class Clip {
-        @builtin("position") pos: vec4
-        @location(0) uv: vec2
+        @builtin("position") pos: vec4;
+        @location(0) uv: vec2;
       }
       @vertex
       export function vs(@builtin("vertex_index") i: u32): Clip {
-        return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }
+        return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
       }
     `)
     expect(r.diagnostics.filter((d) => d.code === TS_CODES.ATTRIBUTE_NAME)).toEqual([])
@@ -411,7 +411,7 @@ describe('attribute name allow-list (ATTRIBUTE_NAME)', () => {
       "use typeshade";
       @std140
       class Camera {
-        @align(16) pos: vec3
+        @align(16) pos: vec3;
       }
       export function f(): f32 { return 0.; }
     `)
@@ -428,12 +428,12 @@ describe('entry-IO struct fields need @builtin or @location (STRUCT_FIELD_MISSIN
     const r = diag(`
       "use typeshade";
       class Out {
-        @builtin("position") pos: vec4
-        extra: vec4
+        @builtin("position") pos: vec4;
+        extra: vec4;
       }
       @vertex
       export function vs(): Out {
-        return { pos: vec4(0., 0., 0., 1.), extra: vec4(0., 0., 0., 0.) }
+        return { pos: vec4(0., 0., 0., 1.), extra: vec4(0., 0., 0., 0.) };
       }
     `)
     const d = r.diagnostics.find((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR)
@@ -446,12 +446,12 @@ describe('entry-IO struct fields need @builtin or @location (STRUCT_FIELD_MISSIN
     const r = diag(`
       "use typeshade";
       class In {
-        @location(0) uv: vec2
-        extra: f32
+        @location(0) uv: vec2;
+        extra: f32;
       }
       @fragment
       export function fs(v: In): vec4 {
-        return vec4(v.uv, v.extra, 1.)
+        return vec4(v.uv, v.extra, 1.);
       }
     `)
     expect(r.diagnostics.some((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR)).toBe(true)
@@ -461,12 +461,12 @@ describe('entry-IO struct fields need @builtin or @location (STRUCT_FIELD_MISSIN
     const r = diag(`
       "use typeshade";
       class Out {
-        @builtin("position") pos: vec4
-        @location(0) uv: vec2
+        @builtin("position") pos: vec4;
+        @location(0) uv: vec2;
       }
       @vertex
       export function vs(): Out {
-        return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }
+        return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
       }
     `)
     expect(r.diagnostics.filter((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR)).toEqual([])
@@ -476,11 +476,11 @@ describe('entry-IO struct fields need @builtin or @location (STRUCT_FIELD_MISSIN
     const r = diag(`
       "use typeshade";
       class Data {
-        a: vec4
-        b: vec4
+        a: vec4;
+        b: vec4;
       }
       export function f(d: Data): vec4 {
-        return d.a
+        return d.a;
       }
     `)
     expect(r.diagnostics.filter((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR)).toEqual([])

@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -21,10 +21,10 @@
 // invocations in lockstep at every barrier, and refuses a workgroup whose invocations do not
 // all reach it. WGSL-only: WebGL2 has no compute stage.
 
-declare const src: storage<array<f32>>
-declare let sums: storage<array<f32>>
+declare const src: storage<array<f32>>;
+declare let sums: storage<array<f32>>;
 
-let tile: workgroup<array<f32, 64>>
+let tile: workgroup<array<f32, 64>>;
 
 @compute([64, 1, 1])
 export function reduce(
@@ -32,15 +32,15 @@ export function reduce(
   @builtin("local_invocation_id") lid: vec3u,
   @builtin("workgroup_id") wid: vec3u,
 ): void {
-  tile[lid.x] = src[gid.x]
-  workgroupBarrier()
+  tile[lid.x] = src[gid.x];
+  workgroupBarrier();
   for (let stride: u32 = 32; stride > 0; stride /= 2) {
     if (lid.x < stride) {
-      tile[lid.x] = tile[lid.x] + tile[lid.x + stride]
+      tile[lid.x] = tile[lid.x] + tile[lid.x + stride];
     }
-    workgroupBarrier()
+    workgroupBarrier();
   }
   if (lid.x === 0) {
-    sums[wid.x] = tile[0]
+    sums[wid.x] = tile[0];
   }
 }

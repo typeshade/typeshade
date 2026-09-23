@@ -71,13 +71,13 @@ export function c(n: i32): i32 { if (n <= 0) { return i32(0) } return a(n - 1) }
     // A core-rule failure arrives as one TS8015 anchored on the first statement. Line 4 here is
     // the `return n * fact(n - 1)`; line 1 would be `"use typeshade"`.
     const errors = errorsOf(
-      `"use typeshade"
+      `"use typeshade";
 export function fact(n: i32): i32 {
-  if (n <= 1) { return i32(1) }
-  return n * fact(n - 1)
+  if (n <= 1) { return i32(1); }
+  return n * fact(n - 1);
 }
 @fragment
-export function main_fs(): vec4 { return vec4(0., 0., 0., 1.) }
+export function main_fs(): vec4 { return vec4(0., 0., 0., 1.); }
 `,
     )
     expect(errors).toHaveLength(1)
@@ -200,16 +200,16 @@ describe('#48 — across files, where a cycle can be spelled through an import',
     const r = compileTsSources([
       file(
         'a.ts',
-        `"use typeshade"
-import { helper as h } from "./b"
-export function top(n: i32): i32 { if (n <= 0) { return i32(0) } return h(n - 1) }
+        `"use typeshade";
+import { helper as h } from "./b";
+export function top(n: i32): i32 { if (n <= 0) { return i32(0); } return h(n - 1); }
 `,
       ),
       file(
         'b.ts',
-        `"use typeshade"
-import { top } from "./a"
-export function helper(n: i32): i32 { if (n <= 0) { return i32(1) } return top(n - 1) }
+        `"use typeshade";
+import { top } from "./a";
+export function helper(n: i32): i32 { if (n <= 0) { return i32(1); } return top(n - 1); }
 `,
       ),
     ])
@@ -231,10 +231,10 @@ export function helper(n: i32): i32 { if (n <= 0) { return i32(1) } return top(n
     const self = compileTsSources([
       file(
         'a.ts',
-        `"use typeshade"
-export function fact(n: i32): i32 { if (n <= 1) { return i32(1) } return n * fact(n - 1) }
+        `"use typeshade";
+export function fact(n: i32): i32 { if (n <= 1) { return i32(1); } return n * fact(n - 1); }
 @fragment
-export function fs(): vec4 { return vec4(f32(fact(i32(5))), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(f32(fact(i32(5))), 0., 0., 1.); }
 `,
       ),
     ])
@@ -246,16 +246,16 @@ export function fs(): vec4 { return vec4(f32(fact(i32(5))), 0., 0., 1.) }
     const cross = compileTsSources([
       file(
         'a.ts',
-        `"use typeshade"
-import { helper as h } from "./b"
-export function top(n: i32): i32 { if (n <= 0) { return i32(0) } return h(n - 1) }
+        `"use typeshade";
+import { helper as h } from "./b";
+export function top(n: i32): i32 { if (n <= 0) { return i32(0); } return h(n - 1); }
 `,
       ),
       file(
         'b.ts',
-        `"use typeshade"
-import { top } from "./a"
-export function helper(n: i32): i32 { if (n <= 0) { return i32(1) } return top(n - 1) }
+        `"use typeshade";
+import { top } from "./a";
+export function helper(n: i32): i32 { if (n <= 0) { return i32(1); } return top(n - 1); }
 `,
       ),
     ])
@@ -269,9 +269,9 @@ export function helper(n: i32): i32 { if (n <= 0) { return i32(1) } return top(n
     const r = compileTsSources([
       file(
         'a.ts',
-        `"use typeshade"
-import { helper as h } from "./b"
-export function top(n: i32): i32 { return h(n) }
+        `"use typeshade";
+import { helper as h } from "./b";
+export function top(n: i32): i32 { return h(n); }
 `,
       ),
       file('b.ts', `"use typeshade"\nexport function helper(n: i32): i32 { return n * i32(2) }\n`),
@@ -293,8 +293,8 @@ export function top(n: i32): i32 { return h(n) }
       },
       {
         fileName: 'b.ts',
-        source: `"use typeshade"
-export function helper(n: i32): i32 { if (n <= 0) { return i32(0) } return helper(n - 1) }
+        source: `"use typeshade";
+export function helper(n: i32): i32 { if (n <= 0) { return i32(0); } return helper(n - 1); }
 `,
       },
     ]).diagnostics.filter((d) => d.category === 'error')
@@ -306,9 +306,9 @@ export function helper(n: i32): i32 { if (n <= 0) { return i32(0) } return helpe
     const r = compileTsSources([
       file(
         'a.ts',
-        `"use typeshade"
-import { helper as h } from "./b"
-export function top(n: i32): i32 { return h(n) }
+        `"use typeshade";
+import { helper as h } from "./b";
+export function top(n: i32): i32 { return h(n); }
 `,
       ),
       file('b.ts', `"use typeshade"\nexport function helper(n: i32): i32 { return n * i32(2) }\n`),

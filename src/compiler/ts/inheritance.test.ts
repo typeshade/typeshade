@@ -321,13 +321,13 @@ class Derived extends Base {
       `${TS_CODES.CLASS_MEMBER} Nothing above this class declares a method "v", so "super.v" names no body.`,
     )
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 function f(): f32 {
-  return super.v()
+  return super.v();
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(f(), 0., 0., 1.)
+  return vec4(f(), 0., 0., 1.);
 }
 `)[0],
     ).toContain('"super" names the base of a method\'s class')

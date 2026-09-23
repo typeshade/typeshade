@@ -66,15 +66,15 @@ describe('the packed 4x8 integer builtins are authorable, and WGSL-only', () => 
     // So the assertion is the one that fails when the type is wrong: the result goes into a
     // `u32` storage array, which only type-checks if the result IS a u32, and the same
     // program written against an `i32` array must be refused.
-    const intoU32 = compile(`"use typeshade"
-declare let out: storage<array<u32>>
+    const intoU32 = compile(`"use typeshade";
+declare let out: storage<array<u32>>;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  out[0] = pack4xU8(vec4u(1, 2, 3, 4))
-  out[1] = pack4xU8Clamp(vec4u(400, 2, 3, 4))
-  out[2] = pack4xI8(vec4i(-1, 2, -3, 4))
-  out[3] = pack4xI8Clamp(vec4i(400, -400, 3, 4))
-  out[4] = dot4U8Packed(out[5], out[6])
+  out[0] = pack4xU8(vec4u(1, 2, 3, 4));
+  out[1] = pack4xU8Clamp(vec4u(400, 2, 3, 4));
+  out[2] = pack4xI8(vec4i(-1, 2, -3, 4));
+  out[3] = pack4xI8Clamp(vec4i(400, -400, 3, 4));
+  out[4] = dot4U8Packed(out[5], out[6]);
 }
 `)
     expect(intoU32.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -85,11 +85,11 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     // The other half: an `i32` destination must be REFUSED for a pack and accepted for the
     // signed dot, which is the one signed result of the family. Without this arm the test
     // above would still pass if every result were widened to something assignable to both.
-    const signedSlots = compile(`"use typeshade"
-declare let out: storage<array<i32>>
+    const signedSlots = compile(`"use typeshade";
+declare let out: storage<array<i32>>;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  out[0] = pack4xI8(vec4i(1, 2, 3, 4))
+  out[0] = pack4xI8(vec4i(1, 2, 3, 4));
 }
 `)
     expect(
@@ -97,23 +97,23 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     ).not.toEqual([])
 
     // `dot4I8Packed` IS an i32, and the unpacks carry their own signedness.
-    const signed = compile(`"use typeshade"
-declare let out: storage<array<i32>>
+    const signed = compile(`"use typeshade";
+declare let out: storage<array<i32>>;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  out[0] = dot4I8Packed(u32(out[1]), u32(out[2]))
-  out[3] = unpack4xI8(u32(out[4])).y
+  out[0] = dot4I8Packed(u32(out[1]), u32(out[2]));
+  out[3] = unpack4xI8(u32(out[4])).y;
 }
 `)
     expect(signed.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(signed.wgsl).toContain('dot4I8Packed(')
     expect(signed.wgsl).toContain('unpack4xI8(')
 
-    const unsignedUnpack = compile(`"use typeshade"
-declare let out: storage<array<u32>>
+    const unsignedUnpack = compile(`"use typeshade";
+declare let out: storage<array<u32>>;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  out[0] = unpack4xU8(out[1]).z
+  out[0] = unpack4xU8(out[1]).z;
 }
 `)
     expect(unsignedUnpack.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -184,14 +184,14 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   it('keeps the call for a file that declares its own function of the name', () => {
     // The additivity rule: each of the eight was an ordinary unknown name before this item, so
     // a program that already defined one must still call its own.
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 export function pack4xU8(v: vec4u): u32 {
-  return v.x
+  return v.x;
 }
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  const p = pack4xU8(vec4u(7, 0, 0, 0))
-  return vec4(f32(p) * 0., 0., 0., 1.)
+  const p = pack4xU8(vec4u(7, 0, 0, 0));
+  return vec4(f32(p) * 0., 0., 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -204,12 +204,12 @@ export function fs(@location(0) uv: vec2): vec4 {
   })
 
   it('agrees between the tree-walk oracle and the generated one', () => {
-    const r = compile(`"use typeshade"
-declare let o: storage<array<u32>>
+    const r = compile(`"use typeshade";
+declare let o: storage<array<u32>>;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  o[0] = dot4U8Packed(o[1], o[2])
-  o[3] = pack4xU8Clamp(unpack4xU8(o[4]))
+  o[0] = dot4U8Packed(o[1], o[2]);
+  o[3] = pack4xU8Clamp(unpack4xU8(o[4]));
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])

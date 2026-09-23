@@ -1913,8 +1913,8 @@ binding and from the call. In a `"use typeshade"` file the two that no use can d
 spelled as a string directive beside `"use typeshade"`:
 
 ```ts
-'use typeshade'
-'enable subgroups'
+'use typeshade';
+'enable subgroups';
 ```
 
 A capability with a host half and no source half costs zero emitted bytes: declaring it

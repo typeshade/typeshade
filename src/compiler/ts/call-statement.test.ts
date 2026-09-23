@@ -19,31 +19,31 @@ import { countOps } from '../../core/measure.js'
 import { f32T, u32T } from '../../core/ir/types.js'
 import type { Expr, Stmt } from '../../core/ir/nodes.js'
 
-const STORE = `"use typeshade"
-declare let dst: storage<array<f32>>
+const STORE = `"use typeshade";
+declare let dst: storage<array<f32>>;
 function store(i: u32): void {
-  dst[i] = 1.
+  dst[i] = 1.;
 }
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  store(gid.x)
+  store(gid.x);
 }
 `
 
-const BUMP = `"use typeshade"
-declare let dst: storage<array<f32>>
+const BUMP = `"use typeshade";
+declare let dst: storage<array<f32>>;
 function bump(i: u32): f32 {
-  dst[i] = dst[i] + 1.
-  return dst[i]
+  dst[i] = dst[i] + 1.;
+  return dst[i];
 }
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  const a = dst[gid.x]
-  bump(gid.x)
-  bump(gid.x)
-  const b = dst[gid.x]
-  max(a, 1.)
-  dst[gid.x] = a + b
+  const a = dst[gid.x];
+  bump(gid.x);
+  bump(gid.x);
+  const b = dst[gid.x];
+  max(a, 1.);
+  dst[gid.x] = a + b;
 }
 `
 
@@ -95,12 +95,12 @@ describe('a call as a statement', () => {
   })
 
   it('refuses a value that is not a call standing alone', () => {
-    const r = compileTsSource(`"use typeshade"
-class Color { @location(0) color: vec4 }
+    const r = compileTsSource(`"use typeshade";
+class Color { @location(0) color: vec4; }
 @fragment
 export function fs(@location(0) uv: vec2): Color {
-  vec3(1., 2., 3.)
-  return { color: vec4(uv, 0., 1.) }
+  vec3(1., 2., 3.);
+  return { color: vec4(uv, 0., 1.) };
 }
 `)
     expect(r.diagnostics.map((d) => d.code)).toEqual(['TS8099'])
@@ -132,15 +132,15 @@ export function fs(@location(0) uv: vec2): Color {
   })
 
   it('unrolls with the counter substituted into the call', () => {
-    const src = `"use typeshade"
-declare let dst: storage<array<f32>>
+    const src = `"use typeshade";
+declare let dst: storage<array<f32>>;
 function store(i: u32): void {
-  dst[i] = 1.
+  dst[i] = 1.;
 }
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
   for (let i: u32 = 0; i < 2; i++) {
-    store(i + gid.x)
+    store(i + gid.x);
   }
 }
 `
@@ -169,19 +169,19 @@ export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
   })
 
   it('is not lifted out of a helper by the linear inliner', () => {
-    const src = `"use typeshade"
-declare let dst: storage<array<f32>>
+    const src = `"use typeshade";
+declare let dst: storage<array<f32>>;
 function store(i: u32): void {
-  dst[i] = 1.
+  dst[i] = 1.;
 }
 function h(i: u32): f32 {
-  store(i)
-  return 2.
+  store(i);
+  return 2.;
 }
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x > 4) {
-    dst[gid.x] = h(gid.x)
+    dst[gid.x] = h(gid.x);
   }
 }
 `

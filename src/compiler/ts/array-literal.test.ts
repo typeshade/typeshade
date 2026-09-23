@@ -58,7 +58,7 @@ describe('a list initializes a local array', () => {
   it('emits in GLSL ES 3.00 as well', () => {
     const c = compile(`"use typeshade";
 class Out {
-  @location(0) color: vec4
+  @location(0) color: vec4;
 }
 @fragment
 export function fs(): Out {
@@ -264,7 +264,7 @@ describe('the missing-return-type warning', () => {
 
   it('is not raised for an entry function, which wants no return type', () => {
     const r = compileTsSource(`"use typeshade";
-declare let out: storage<array<f32>>
+declare let out: storage<array<f32>>;
 @compute([64, 1, 1])
 export function sum(@builtin("global_invocation_id") gid: vec3u) {
   out[gid.x] = 1.;

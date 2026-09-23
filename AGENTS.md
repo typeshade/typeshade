@@ -39,6 +39,15 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
   gated by the emit goldens. A semantic change (the emitted text changes) needs the CPU
   oracle parity gate and a real compile through `bun run gate:compile`.
 - `core/` is private. Do not widen the public barrel to export it.
+- Shader source ends every statement with `;`, as the guide spells `"use typeshade";`. That
+  covers the `examples/*.shade.ts` files, the `"use typeshade"` fences in the docs, every fence
+  in `docs/use-typeshade-surface.md`, and the inline sources the tests compile. Do not write
+  the `;` by hand: run `bun run format:semicolons` after writing shader source (`--check` lists
+  what is missing without writing). It inserts a `;` only where the parser already ended a
+  statement, so the program means the same thing afterwards. `src/compiler/ts/semicolons.test.ts`
+  fails `bun run test` on a missing one. Host-side TypeScript keeps Prettier's `semi: false`,
+  and Prettier leaves Markdown fences alone (`embeddedLanguageFormatting: "off"` for `*.md`),
+  so `bun run format` cannot strip the `;` back out of a doc.
 
 ## Tests
 

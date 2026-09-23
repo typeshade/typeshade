@@ -27,14 +27,14 @@ describe('no-self-assign', () => {
     // so once calls began carrying spans the two sides serialised differently and the rule
     // went silent on exactly the typo it exists to catch. A span says WHERE a node was
     // written; this rule asks what it MEANS.
-    const src = `"use typeshade"
+    const src = `"use typeshade";
 export function idx(i: i32): i32 {
-  return i
+  return i;
 }
 export function f(i: i32): f32 {
-  let v = 0.
-  v = v
-  return v
+  let v = 0.;
+  v = v;
+  return v;
 }
 `
     const r = compileTsSource(src)

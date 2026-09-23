@@ -33,19 +33,19 @@ const wgslOf = (src: string): string => {
 
 describe('one struct per set of type arguments the file writes', () => {
   it('emits a struct and a method per instance, and nothing under the generic name', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Pair<T> {
-  a: T
-  b: T
+  a: T;
+  b: T;
   first(): T {
-    return this.a
+    return this.a;
   }
 }
 @fragment
 export function fs(@builtin("position") p: vec4): vec4 {
-  const s = new Pair<f32>()
-  const v = new Pair<vec3>()
-  return vec4(v.first() * s.first(), 1.)
+  const s = new Pair<f32>();
+  const v = new Pair<vec3>();
+  return vec4(v.first() * s.first(), 1.);
 }
 `)
     expect(wgsl).toContain('struct Pair_f32 {')
@@ -58,15 +58,15 @@ export function fs(@builtin("position") p: vec4): vec4 {
   })
 
   it('takes the fields at the bound type', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Box<T> {
-  v: T
+  v: T;
 }
 @fragment
 export function fs(): vec4 {
-  const a: Box<f32> = { v: 0.5 }
-  const b: Box<vec2> = { v: vec2(0.25) }
-  return vec4(b.v, a.v, 1.)
+  const a: Box<f32> = { v: 0.5 };
+  const b: Box<vec2> = { v: vec2(0.25) };
+  return vec4(b.v, a.v, 1.);
 }
 `)
     expect(wgsl).toContain('struct Box_f32 {\n  v: f32,\n}')
@@ -74,53 +74,53 @@ export function fs(): vec4 {
   })
 
   it('writes one struct for one set however many times the file writes it', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Box<T> {
-  v: T
+  v: T;
 }
 function one(b: Box<f32>): f32 {
-  return b.v
+  return b.v;
 }
 function two(b: Box<f32>): f32 {
-  return b.v
+  return b.v;
 }
 @fragment
 export function fs(): vec4 {
-  const b: Box<f32> = { v: 0.5 }
-  return vec4(one(b), two(b), 0., 1.)
+  const b: Box<f32> = { v: 0.5 };
+  return vec4(one(b), two(b), 0., 1.);
 }
 `)
     expect(wgsl.match(/struct Box_f32 \{/g)).toHaveLength(1)
   })
 
   it('emits nothing for a generic class nothing writes', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Unused<T> {
-  a: T
+  a: T;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(1.)
+  return vec4(1.);
 }
 `)
     expect(wgsl).not.toContain('Unused')
   })
 
   it('carries a constructor per instance', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Span<T> {
-  lo: T
-  hi: T
+  lo: T;
+  hi: T;
   constructor(lo: T, hi: T) {
-    this.lo = lo
-    this.hi = hi
+    this.lo = lo;
+    this.hi = hi;
   }
 }
 @fragment
 export function fs(): vec4 {
-  const s = new Span<f32>(0., 1.)
-  const t = new Span<vec2>(vec2(0.), vec2(1.))
-  return vec4(t.hi, s.lo, s.hi)
+  const s = new Span<f32>(0., 1.);
+  const t = new Span<vec2>(vec2(0.), vec2(1.));
+  return vec4(t.hi, s.lo, s.hi);
 }
 `)
     expect(wgsl).toContain('fn Span_f32_new(lo: f32, hi: f32) -> Span_f32 {')
@@ -128,17 +128,17 @@ export function fs(): vec4 {
   })
 
   it('takes a type parameter wherever a type is written, array<T, N> included', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Bag<T> {
-  xs: array<T, 3>
+  xs: array<T, 3>;
   nth(i: i32): T {
-    return this.xs[i]
+    return this.xs[i];
   }
 }
 @fragment
 export function fs(): vec4 {
-  const b: Bag<f32> = { xs: [1., 2., 3.] }
-  return vec4(b.nth(0), b.nth(2), 0., 1.)
+  const b: Bag<f32> = { xs: [1., 2., 3.] };
+  return vec4(b.nth(0), b.nth(2), 0., 1.);
 }
 `)
     expect(wgsl).toContain('xs: array<f32, 3>')
@@ -146,14 +146,14 @@ export function fs(): vec4 {
   })
 
   it('nests: the argument may be another instance', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Box<T> {
-  v: T
+  v: T;
 }
 @fragment
 export function fs(): vec4 {
-  const b: Box<Box<f32>> = { v: { v: 0.5 } }
-  return vec4(b.v.v, 0., 0., 1.)
+  const b: Box<Box<f32>> = { v: { v: 0.5 } };
+  return vec4(b.v.v, 0., 0., 1.);
 }
 `)
     expect(wgsl).toContain('struct Box_f32 {')
@@ -161,22 +161,22 @@ export function fs(): vec4 {
   })
 
   it('reaches a class declared inside a namespace, by its dotted name', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 namespace N {
   export class Pair<T> {
-    a: T
-    b: T
+    a: T;
+    b: T;
     constructor(a: T, b: T) {
-      this.a = a
-      this.b = b
+      this.a = a;
+      this.b = b;
     }
   }
 }
 @fragment
 export function fs(): vec4 {
-  const p = new N.Pair<f32>(1., 2.)
-  const q: N.Pair<vec2> = { a: vec2(0.), b: vec2(1.) }
-  return vec4(q.a, p.a, p.b)
+  const p = new N.Pair<f32>(1., 2.);
+  const q: N.Pair<vec2> = { a: vec2(0.), b: vec2(1.) };
+  return vec4(q.a, p.a, p.b);
 }
 `)
     expect(wgsl).toContain('struct N_Pair_f32 {')
@@ -185,15 +185,15 @@ export function fs(): vec4 {
   })
 
   it('carries an instance through a uniform binding', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Span<T> {
-  lo: T
-  hi: T
+  lo: T;
+  hi: T;
 }
-@group(0) @binding(0) declare const u: uniform<Span<f32>>
+@group(0) @binding(0) declare const u: uniform<Span<f32>>;
 @fragment
 export function fs(): vec4 {
-  return vec4(u.lo, u.hi, 0., 1.)
+  return vec4(u.lo, u.hi, 0., 1.);
 }
 `)
     expect(wgsl).toContain('struct Span_f32 {')
@@ -203,20 +203,20 @@ export function fs(): vec4 {
 
 describe('a method that changes its object, once per instance', () => {
   it('takes each instance by reference', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Acc<T> {
-  v: T
+  v: T;
   put(k: T): void {
-    this.v = k
+    this.v = k;
   }
 }
 @fragment
 export function fs(): vec4 {
-  let a: Acc<f32> = { v: 0. }
-  let b: Acc<vec3> = { v: vec3(0.) }
-  a.put(1.)
-  b.put(vec3(0.5))
-  return vec4(b.v * a.v, 1.)
+  let a: Acc<f32> = { v: 0. };
+  let b: Acc<vec3> = { v: vec3(0.) };
+  a.put(1.);
+  b.put(vec3(0.5));
+  return vec4(b.v * a.v, 1.);
 }
 `)
     expect(wgsl).toContain('fn Acc_f32_put(self_: ptr<function, Acc_f32>, k: f32) {')
@@ -226,17 +226,17 @@ export function fs(): vec4 {
 
 describe('a type parameter default, read the way TypeScript reads it', () => {
   it('lets the bare name stand for the instance the defaults give', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Grid<T = f32> {
-  v: T
+  v: T;
 }
 function read(g: Grid): f32 {
-  return g.v
+  return g.v;
 }
 @fragment
 export function fs(): vec4 {
-  const g: Grid<f32> = { v: 0.5 }
-  return vec4(read(g), 0., 0., 1.)
+  const g: Grid<f32> = { v: 0.5 };
+  return vec4(read(g), 0., 0., 1.);
 }
 `)
     // `Grid` and `Grid<f32>` are ONE struct, so the file writes one instance and not two.
@@ -245,32 +245,32 @@ export function fs(): vec4 {
   })
 
   it('fills only the parameters left out', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Cell<A, B = i32> {
-  a: A
-  b: B
+  a: A;
+  b: B;
 }
 @fragment
 export function fs(): vec4 {
-  const c: Cell<f32> = { a: 1., b: 2 }
-  return vec4(c.a, f32(c.b), 0., 1.)
+  const c: Cell<f32> = { a: 1., b: 2 };
+  return vec4(c.a, f32(c.b), 0., 1.);
 }
 `)
     expect(wgsl).toContain('struct Cell_f32_i32 {')
   })
 
   it('answers a `new` with no type arguments from the defaults', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Level<T = f32> {
-  edge: T
+  edge: T;
   constructor(edge: T) {
-    this.edge = edge
+    this.edge = edge;
   }
 }
 @fragment
 export function fs(): vec4 {
-  const l = new Level(0.25)
-  return vec4(l.edge, 0., 0., 1.)
+  const l = new Level(0.25);
+  return vec4(l.edge, 0., 0., 1.);
 }
 `)
     expect(wgsl).toContain('fn Level_f32_new(edge: f32) -> Level_f32 {')
@@ -279,40 +279,40 @@ export function fs(): vec4 {
 
 describe('a `new` that leaves its type arguments to inference', () => {
   it('takes the one instance the file writes', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Pair<T> {
-  a: T
-  b: T
+  a: T;
+  b: T;
   constructor(a: T, b: T) {
-    this.a = a
-    this.b = b
+    this.a = a;
+    this.b = b;
   }
 }
 @fragment
 export function fs(): vec4 {
-  const p: Pair<f32> = new Pair(1., 2.)
-  return vec4(p.a, p.b, 0., 1.)
+  const p: Pair<f32> = new Pair(1., 2.);
+  return vec4(p.a, p.b, 0., 1.);
 }
 `)
     expect(wgsl).toContain('let p = Pair_f32_new(1.0, 2.0);')
   })
 
   it('says which to write when the file writes several', () => {
-    const errors = errorsOf(`"use typeshade"
+    const errors = errorsOf(`"use typeshade";
 class Pair<T> {
-  a: T
-  b: T
+  a: T;
+  b: T;
   constructor(a: T, b: T) {
-    this.a = a
-    this.b = b
+    this.a = a;
+    this.b = b;
   }
 }
 @fragment
 export function fs(): vec4 {
-  const p = new Pair<f32>(1., 2.)
-  const q = new Pair<vec3>(vec3(0.), vec3(1.))
-  const r = new Pair(3., 4.)
-  return vec4(q.a * p.a * r.b, 1.)
+  const p = new Pair<f32>(1., 2.);
+  const q = new Pair<vec3>(vec3(0.), vec3(1.));
+  const r = new Pair(3., 4.);
+  return vec4(q.a * p.a * r.b, 1.);
 }
 `)
     expect(errors[0]).toBe(
@@ -323,19 +323,19 @@ export function fs(): vec4 {
   })
 
   it('says what to write when the file writes none', () => {
-    const errors = errorsOf(`"use typeshade"
+    const errors = errorsOf(`"use typeshade";
 class Pair<T> {
-  a: T
-  b: T
+  a: T;
+  b: T;
   constructor(a: T, b: T) {
-    this.a = a
-    this.b = b
+    this.a = a;
+    this.b = b;
   }
 }
 @fragment
 export function fs(): vec4 {
-  const p = new Pair(1., 2.)
-  return vec4(p.a, p.b, 0., 1.)
+  const p = new Pair(1., 2.);
+  return vec4(p.a, p.b, 0., 1.);
 }
 `)
     expect(errors[0]).toContain('nothing in this file says what to build it at')
@@ -345,21 +345,21 @@ export function fs(): vec4 {
 
 describe('a static belongs to the class, not to an instance', () => {
   it("emits one function under the class's own name", () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Op<T> {
-  v: T
+  v: T;
   static unit(): f32 {
-    return 1.
+    return 1.;
   }
   get(): T {
-    return this.v
+    return this.v;
   }
 }
 @fragment
 export function fs(): vec4 {
-  const a: Op<f32> = { v: 0.5 }
-  const b: Op<vec2> = { v: vec2(0.25) }
-  return vec4(b.get(), Op.unit() * a.get(), 1.)
+  const a: Op<f32> = { v: 0.5 };
+  const b: Op<vec2> = { v: vec2(0.25) };
+  return vec4(b.get(), Op.unit() * a.get(), 1.);
 }
 `)
     // TypeScript refuses a static that mentions `T` (TS2302), so a static is the same function
@@ -376,20 +376,20 @@ export function fs(): vec4 {
 
 describe('a base written with type arguments is the instance it names', () => {
   it('inherits the instance struct, its fields and its methods', () => {
-    const wgsl = wgslOf(`"use typeshade"
+    const wgsl = wgslOf(`"use typeshade";
 class Box<T> {
-  v: T
+  v: T;
   get(): T {
-    return this.v
+    return this.v;
   }
 }
 class FBox extends Box<f32> {
-  w: f32
+  w: f32;
 }
 @fragment
 export function fs(): vec4 {
-  const b: FBox = { v: 1., w: 2. }
-  return vec4(b.get(), b.w, 0., 1.)
+  const b: FBox = { v: 1., w: 2. };
+  return vec4(b.get(), b.w, 0., 1.);
 }
 `)
     expect(wgsl).toContain('struct Box_f32 {')
@@ -401,18 +401,18 @@ export function fs(): vec4 {
 
 describe('what it refuses, and in how many sentences', () => {
   it('refuses a type argument that is itself a type parameter, with the reason', () => {
-    const errors = errorsOf(`"use typeshade"
+    const errors = errorsOf(`"use typeshade";
 class Pair<T> {
-  a: T
-  b: T
+  a: T;
+  b: T;
 }
 function relay<U>(p: Pair<U>): U {
-  return p.a
+  return p.a;
 }
 @fragment
 export function fs(): vec4 {
-  const p: Pair<f32> = { a: 1., b: 2. }
-  return vec4(relay(p), 0., 0., 1.)
+  const p: Pair<f32> = { a: 1., b: 2. };
+  return vec4(relay(p), 0., 0., 1.);
 }
 `)
     expect(errors[0]).toContain('"Pair<U>" is written with the type parameter "U"')
@@ -424,30 +424,30 @@ export function fs(): vec4 {
     // The whole of T10 (#111) in one case: the surplus argument is a mistake, the ones the class
     // declares are still read, and the struct exists — so there is no second refusal at the
     // annotation and no "Unknown identifier" at every read of the binding.
-    const errors = errorsOf(`"use typeshade"
+    const errors = errorsOf(`"use typeshade";
 class Pair<T> {
-  a: T
-  b: T
+  a: T;
+  b: T;
 }
 @fragment
 export function fs(): vec4 {
-  const p: Pair<f32, f32> = { a: 1., b: 2. }
-  return vec4(p.a, p.b, 0., 1.)
+  const p: Pair<f32, f32> = { a: 1., b: 2. };
+  return vec4(p.a, p.b, 0., 1.);
 }
 `)
     expect(errors).toEqual([`${TS_CODES.ARITY_MISMATCH} "Pair" takes 1 type argument(s), got 2.`])
   })
 
   it('names the range when a default makes some of them optional', () => {
-    const errors = errorsOf(`"use typeshade"
+    const errors = errorsOf(`"use typeshade";
 class Cell<A, B = i32> {
-  a: A
-  b: B
+  a: A;
+  b: B;
 }
 @fragment
 export function fs(): vec4 {
-  const c: Cell<f32, i32, i32> = { a: 1., b: 2 }
-  return vec4(c.a, 0., 0., 1.)
+  const c: Cell<f32, i32, i32> = { a: 1., b: 2 };
+  return vec4(c.a, 0., 0., 1.);
 }
 `)
     expect(errors[0]).toBe(
@@ -456,15 +456,15 @@ export function fs(): vec4 {
   })
 
   it('reports too few, which no reading recovers', () => {
-    const errors = errorsOf(`"use typeshade"
+    const errors = errorsOf(`"use typeshade";
 class Two<A, B> {
-  a: A
-  b: B
+  a: A;
+  b: B;
 }
 @fragment
 export function fs(): vec4 {
-  const p: Two<f32> = { a: 1., b: 2. }
-  return vec4(p.a, 0., 0., 1.)
+  const p: Two<f32> = { a: 1., b: 2. };
+  return vec4(p.a, 0., 0., 1.);
 }
 `)
     expect(errors[0]).toBe(`${TS_CODES.ARITY_MISMATCH} "Two" takes 2 type argument(s), got 1.`)

@@ -393,12 +393,12 @@ describe('only a CONSUMPTION site makes a candidate reachable', () => {
   it('reaches through a field of something consumed, from a class as well as an alias', () => {
     const viaAlias = compileTsSource(`"use typeshade";
       type Inner = {
-        x: f32
-      }
+        x: f32;
+      };
       type Outer = {
-        i: Inner
-      }
-      declare const u: uniform<Outer>
+        i: Inner;
+      };
+      declare const u: uniform<Outer>;
       export function f(): f32 {
         return u.i.x;
       }
@@ -408,12 +408,12 @@ describe('only a CONSUMPTION site makes a candidate reachable', () => {
 
     const viaClass = compileTsSource(`"use typeshade";
       type Inner = {
-        x: f32
-      }
+        x: f32;
+      };
       class C {
-        i: Inner
+        i: Inner;
       }
-      declare const u: uniform<C>
+      declare const u: uniform<C>;
       export function f(): f32 {
         return u.i.x;
       }

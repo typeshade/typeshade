@@ -195,7 +195,7 @@ describe('with a declared struct, the field diagnostics name it', () => {
     const r = compileTsSource(`
       "use typeshade";
       class P {
-        a: f32
+        a: f32;
       }
       export function f(): f32 {
         const o: f32 = { a: 1. };
@@ -267,8 +267,8 @@ describe('what this item does NOT change', () => {
     const r = compileTsSource(`
       "use typeshade";
       class P {
-        a: f32
-        b: f32
+        a: f32;
+        b: f32;
       }
       export function f(): P {
         return { c: 1., d: 2. };

@@ -419,7 +419,7 @@ describe('discard', () => {
   const FRAGMENT = `
     "use typeshade";
     class Color {
-      @location(0) color: vec4
+      @location(0) color: vec4;
     }
     @fragment
     export function fs(@builtin("position") p: vec4): Color {
@@ -526,7 +526,7 @@ describe('the fragment-only rule follows calls, not just the entry body', () => 
         return x;
       }
       class VsOut {
-        @builtin("position") pos: vec4
+        @builtin("position") pos: vec4;
       }
       @vertex
       export function vs(): VsOut {
@@ -553,7 +553,7 @@ describe('the fragment-only rule follows calls, not just the entry body', () => 
       export function outer(x: f32): f32 {
         return inner(x) * 2.;
       }
-      declare let out: storage<array<f32>>
+      declare let out: storage<array<f32>>;
       @compute([1, 1, 1])
       export function k(@builtin("global_invocation_id") gid: vec3u) {
         out[gid.x] = outer(1.);
@@ -577,7 +577,7 @@ describe('the fragment-only rule follows calls, not just the entry body', () => 
         return x;
       }
       class VsOut {
-        @builtin("position") pos: vec4
+        @builtin("position") pos: vec4;
       }
       @vertex
       export function vs(): VsOut {
@@ -621,7 +621,7 @@ describe('the derivative stubs keep the shape their argument has', () => {
     const c = compile(`
       "use typeshade";
       class Color {
-        @location(0) color: vec4
+        @location(0) color: vec4;
       }
       @fragment
       export function fs(@builtin("position") p: vec4): Color {

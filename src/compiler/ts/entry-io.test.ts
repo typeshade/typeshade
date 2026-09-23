@@ -47,20 +47,20 @@ ${FS}`)
   })
 
   it('in a struct, with as many varyings as the program wants', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 class Out {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
-  @location(1) color: vec3
-  @location(2) w: f32
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+  @location(1) color: vec3;
+  @location(2) w: f32;
 }
 @vertex
 export function vs(): Out {
-  return { pos: vec4(1.), uv: vec2(0.), color: vec3(1.), w: 2. }
+  return { pos: vec4(1.), uv: vec2(0.), color: vec3(1.), w: 2. };
 }
 @fragment
 export function fs(v: Out): vec4 {
-  return vec4(v.color, v.w)
+  return vec4(v.color, v.w);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -100,14 +100,14 @@ export function fs(): ${type} {
   })
 
   it('and a struct of two render targets', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 class Targets {
-  @location(0) albedo: vec4
-  @location(1) normal: vec4
+  @location(0) albedo: vec4;
+  @location(1) normal: vec4;
 }
 @fragment
 export function fs(): Targets {
-  return { albedo: vec4(1.), normal: vec4(0., 1., 0., 1.) }
+  return { albedo: vec4(1.), normal: vec4(0., 1., 0., 1.) };
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -118,17 +118,17 @@ export function fs(): Targets {
 describe('the one constraint a vertex entry keeps', () => {
   it('a struct with no position field says which field to add', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 class Out {
-  @location(0) uv: vec2
+  @location(0) uv: vec2;
 }
 @vertex
 export function vs(): Out {
-  return { uv: vec2(0.) }
+  return { uv: vec2(0.) };
 }
 @fragment
 export function fs(v: Out): vec4 {
-  return vec4(v.uv, 0., 1.)
+  return vec4(v.uv, 0., 1.);
 }
 `)[0],
     ).toBe(

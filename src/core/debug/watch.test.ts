@@ -26,18 +26,18 @@ function compiled(source: string): ModuleDecl {
   }
 }
 
-const SRC = `"use typeshade"
+const SRC = `"use typeshade";
 
 function twice(x: f32): f32 {
-  return x * 2.
+  return x * 2.;
 }
 
 export function fs(a: f32): f32 {
-  const b = a + 1.
-  const p = vec3f(1., 2., 3.)
-  let acc = 0.
-  acc = b * 2.
-  return acc
+  const b = a + 1.;
+  const p = vec3f(1., 2., 3.);
+  let acc = 0.;
+  acc = b * 2.;
+  return acc;
 }
 `
 
@@ -218,14 +218,14 @@ describe('the compile cache', () => {
   })
 
   it('answers the frame it is asked in, not the frame it was compiled in', () => {
-    const src = `"use typeshade"
+    const src = `"use typeshade";
 function half(x: f32): f32 {
-  const h = x * 0.5
-  return h
+  const h = x * 0.5;
+  return h;
 }
 export function fs(a: f32): f32 {
-  const r = half(a)
-  return r
+  const r = half(a);
+  return r;
 }
 `
     const s = startDebugSession(compiled(src), 'fs', [8], {})
@@ -240,18 +240,18 @@ export function fs(a: f32): f32 {
   })
 })
 
-const WITH_BINDING = `"use typeshade"
+const WITH_BINDING = `"use typeshade";
 
 class Uniforms {
-  tint: vec4
-  gain: f32
+  tint: vec4;
+  gain: f32;
 }
 
-declare const u: uniform<Uniforms>
+declare const u: uniform<Uniforms>;
 
 export function fs(a: f32): f32 {
-  const g = a * u.gain
-  return g
+  const g = a * u.gain;
+  return g;
 }
 `
 
@@ -363,19 +363,19 @@ describe('a helper whose return type only became spellable upstream', () => {
   // constructor it sat in. #30 (A3) made an integer literal take the type its context declares,
   // so the exclusion outlived its reason, and a watch calling such a helper failed with the
   // front end's "Unknown function" for a helper the module plainly has.
-  const INTS = `"use typeshade"
+  const INTS = `"use typeshade";
 
 function ids(n: u32): vec3u {
-  return vec3u(n, n, n)
+  return vec3u(n, n, n);
 }
 
 function signs(n: i32): vec2i {
-  return vec2i(n, n)
+  return vec2i(n, n);
 }
 
 export function k(a: f32): f32 {
-  const b = a * 2.
-  return b
+  const b = a * 2.;
+  return b;
 }
 `
 

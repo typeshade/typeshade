@@ -43,23 +43,23 @@ function problems(m: ModuleDecl, config: DebugLaunchConfig): readonly string[] {
   throw new Error('expected the configuration to be rejected')
 }
 
-const VERTEX = `"use typeshade"
+const VERTEX = `"use typeshade";
 class VsIn {
-  @location(0) position: vec3
-  @location(1) uv: vec2
+  @location(0) position: vec3;
+  @location(1) uv: vec2;
 }
 class Clip {
-  @builtin("position") pos: vec4
+  @builtin("position") pos: vec4;
 }
 @vertex
 export function vs(@builtin("vertex_index") i: u32, vin: VsIn): Clip {
-  return { pos: vec4(vin.position, f32(i) + vin.uv.x) }
+  return { pos: vec4(vin.position, f32(i) + vin.uv.x) };
 }
 `
 
-const COMPUTE = `"use typeshade"
-declare const params: uniform<vec4u>
-declare let out: storage<array<f32>>
+const COMPUTE = `"use typeshade";
+declare const params: uniform<vec4u>;
+declare let out: storage<array<f32>>;
 @compute([8, 1, 1])
 export function k(
   @builtin("global_invocation_id") gid: vec3u,
@@ -67,7 +67,7 @@ export function k(
   @builtin("workgroup_id") wid: vec3u,
   @builtin("local_invocation_index") li: u32,
 ): void {
-  out[gid.x] = f32(lid.x) * 100. + f32(wid.x) * 10. + f32(li) + f32(params.x)
+  out[gid.x] = f32(lid.x) * 100. + f32(wid.x) * 10. + f32(li) + f32(params.x);
 }
 `
 
@@ -234,14 +234,14 @@ describe('bindings are checked against their declared types', () => {
   })
 
   it('a struct binding fills the fields that were left out', () => {
-    const withStruct = compiled(`"use typeshade"
+    const withStruct = compiled(`"use typeshade";
 class Camera {
-  view: vec4
-  pos: vec3
+  view: vec4;
+  pos: vec3;
 }
-declare const camera: uniform<Camera>
+declare const camera: uniform<Camera>;
 export function f(): f32 {
-  return camera.pos.x + camera.view.w
+  return camera.pos.x + camera.view.w;
 }
 `)
     const s = startDebugSessionFromConfig(withStruct, {
@@ -255,13 +255,13 @@ export function f(): f32 {
   })
 
   it('a field the struct does not have is named', () => {
-    const withStruct = compiled(`"use typeshade"
+    const withStruct = compiled(`"use typeshade";
 class Camera {
-  pos: vec3
+  pos: vec3;
 }
-declare const camera: uniform<Camera>
+declare const camera: uniform<Camera>;
 export function f(): f32 {
-  return camera.pos.x
+  return camera.pos.x;
 }
 `)
     const [msg] = problems(withStruct, { entry: 'f', bindings: { camera: { posn: [1, 2, 3] } } })
@@ -278,11 +278,11 @@ describe('the rest of the configuration', () => {
     // breakpoint on `vs`'s only statement, which is also the entry stop, so the test passed
     // with `stopOnEntry` ignored entirely: since #35 the entry pause reports `'breakpoint'`
     // when one is armed on it, and both arms reported the same thing.
-    const src = `"use typeshade"
+    const src = `"use typeshade";
 export function f(a: f32): f32 {
-  const first = a * 2.
-  const second = first + 1.
-  return second
+  const first = a * 2.;
+  const second = first + 1.;
+  return second;
 }
 `
     const two = compiled(src)
@@ -364,26 +364,26 @@ describe('the JSON Schema and the interface describe the same object', () => {
 
 // ═══ What the first review of this PR found, each with the test that would have caught it ═══
 
-const FRAGMENT = `"use typeshade"
+const FRAGMENT = `"use typeshade";
 @fragment
 export function fs(@builtin("position") pos: vec4, @builtin("front_facing") ff: bool): vec4 {
-  const ndc = pos.xyz / pos.w
-  let face = 0.
+  const ndc = pos.xyz / pos.w;
+  let face = 0.;
   if (ff) {
-    face = 1.
+    face = 1.;
   }
-  return vec4(ndc.x, face, 0., 1.)
+  return vec4(ndc.x, face, 0., 1.);
 }
 `
 
-const NWG = `"use typeshade"
-declare let out: storage<array<f32>>
+const NWG = `"use typeshade";
+declare let out: storage<array<f32>>;
 @compute([8])
 export function k(
   @builtin("global_invocation_id") gid: vec3u,
   @builtin("num_workgroups") nwg: vec3u,
 ): void {
-  out[gid.x] = f32(nwg.x) * 100. + f32(nwg.y)
+  out[gid.x] = f32(nwg.x) * 100. + f32(nwg.y);
 }
 `
 
@@ -577,10 +577,10 @@ describe('the guards a malformed declaration needs', () => {
     // id but `clip_distances` has one type, and `global_invocation_id` is `vec3<u32>`), so
     // the malformed module is built by retyping the parameter on the IR. The resolver guard
     // is what is under test, and a hand-built or pass-produced module can still reach it.
-    const good = compiled(`"use typeshade"
+    const good = compiled(`"use typeshade";
 @compute([8])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  let x: u32 = gid.x
+  let x: u32 = gid.x;
 }
 `)
     const m: ModuleDecl = {
@@ -607,11 +607,11 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
   it('an Object.prototype name is not read off the prototype chain', () => {
     // `bindings: {}` has a `constructor`, and reading it with `given[name]` found the function
     // rather than `undefined`, so a binding named `constructor` would have been "supplied".
-    const m = compiled(`"use typeshade"
-declare const constructor: uniform<f32>
+    const m = compiled(`"use typeshade";
+declare const constructor: uniform<f32>;
 @fragment
 export function fs(): vec4 {
-  return vec4(constructor, 0., 0., 1.)
+  return vec4(constructor, 0., 0., 1.);
 }
 `)
     const s = startDebugSessionFromConfig(m, { entry: 'fs', precision: 'f64' })
@@ -621,16 +621,16 @@ export function fs(): vec4 {
 })
 
 describe('two parameters that declare the same field name', () => {
-  const COLLIDE = `"use typeshade"
+  const COLLIDE = `"use typeshade";
 class A {
-  @location(0) v: vec2
+  @location(0) v: vec2;
 }
 class B {
-  @location(1) v: vec3
+  @location(1) v: vec3;
 }
 @vertex
 export function vs(a: A, b: B): vec4 {
-  return vec4(a.v, b.v.x, b.v.y)
+  return vec4(a.v, b.v.x, b.v.y);
 }
 `
 
@@ -677,19 +677,19 @@ describe('a bare @location parameter, through the public typeshade/debug entry',
   // Regression: `declaredInputs` keyed a bare parameter's slot `uv.uv` (owner and field are
   // both the parameter's name) while the run read it back as `uv`, so the documented
   // `"inputs": { "uv": [0.5, 0.25] }` was accepted, then dropped, and the run saw zeros.
-  const BARE = `"use typeshade"
+  const BARE = `"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  return vec4(uv, 0., 1.)
+  return vec4(uv, 0., 1.);
 }
 `
-  const MIXED = `"use typeshade"
+  const MIXED = `"use typeshade";
 class S {
-  @location(1) uv: vec2
+  @location(1) uv: vec2;
 }
 @fragment
 export function fs(@location(0) uv: vec2, s: S): vec4 {
-  return vec4(uv, s.uv)
+  return vec4(uv, s.uv);
 }
 `
 
@@ -765,11 +765,11 @@ describe('the two resolvers on their own, as an adapter that is not starting a s
     expect(args).toEqual([7, { position: [1, 2, 3], uv: [0, 0] }])
   })
 
-  const TWO_BINDINGS = `"use typeshade"
-declare const near: uniform<f32>
-declare const far: uniform<f32>
+  const TWO_BINDINGS = `"use typeshade";
+declare const near: uniform<f32>;
+declare const far: uniform<f32>;
 export function f(a: f32): f32 {
-  return a * near
+  return a * near;
 }
 `
 

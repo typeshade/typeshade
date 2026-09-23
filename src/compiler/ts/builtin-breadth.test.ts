@@ -229,23 +229,23 @@ describe('builtin breadth: the coarse and fine derivatives', () => {
     )
     expect(r.eval('fs', [[0.5, 0.5]])).toEqual([0, 0, 0, 1])
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): vec4 {
-  return vec4(dpdyCoarse(f32(vi)))
+  return vec4(dpdyCoarse(f32(vi)));
 }
 `),
     ).toEqual(['TS8099 "dpdyCoarse" is only valid in a fragment shader; "vs" is a vertex entry.'])
   })
 
   it('a function the file declares under one of the names keeps the call', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 function reflect(a: vec3, b: vec3): vec3 {
-  return a + b
+  return a + b;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(reflect(vec3(1.), vec3(2.)), 1.)
+  return vec4(reflect(vec3(1.), vec3(2.)), 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -289,10 +289,10 @@ ${body}
   })
 
   it('quantizeToF16 takes a vector, one id per width', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  return quantizeToF16(vec4(uv, 1.0009765625, 1.))
+  return quantizeToF16(vec4(uv, 1.0009765625, 1.));
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -386,17 +386,17 @@ export function fs(@location(0) uv: vec2): vec4 {
   })
 
   it('spells each one on both targets', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  const a = pack4x8unorm(vec4(uv, 0., 1.))
-  const b = pack4x8snorm(vec4(uv, 0., 1.))
-  const c = pack2x16float(uv)
-  const d = pack2x16unorm(uv)
-  const e = pack2x16snorm(uv)
-  const f = unpack4x8unorm(a) + unpack4x8snorm(b)
-  const g = unpack2x16float(c) + unpack2x16unorm(d) + unpack2x16snorm(e)
-  return f + vec4(g, 0., 0.) + vec4(f32(bitcast<u32>(uv.x)), quantizeToF16(uv.y), 0., 1.)
+  const a = pack4x8unorm(vec4(uv, 0., 1.));
+  const b = pack4x8snorm(vec4(uv, 0., 1.));
+  const c = pack2x16float(uv);
+  const d = pack2x16unorm(uv);
+  const e = pack2x16snorm(uv);
+  const f = unpack4x8unorm(a) + unpack4x8snorm(b);
+  const g = unpack2x16float(c) + unpack2x16unorm(d) + unpack2x16snorm(e);
+  return f + vec4(g, 0., 0.) + vec4(f32(bitcast<u32>(uv.x)), quantizeToF16(uv.y), 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -449,10 +449,10 @@ export function fs(@location(0) uv: vec2): vec4 {
 
   it('a bare number in an unpack is retargeted, as every integer position is', () => {
     // The bit pattern is written as a number; nobody should have to spell `u32(65536)`.
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  return vec4(unpack2x16unorm(65536), 0., 1.)
+  return vec4(unpack2x16unorm(65536), 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])

@@ -89,14 +89,14 @@ describe('the divergent integer builtins pick the same id on both authoring surf
   })
 
   it('agrees with the "use typeshade" front end, id for id', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const u = vec3u(1, 2, 3)
-  const i = vec3i(1, -2, 3)
-  const m = abs(u).x + u32(dot(u, u))
-  const n = abs(i).x + dot(i, i)
-  return vec4(f32(m) * 0., f32(n) * 0., 0., 1.)
+  const u = vec3u(1, 2, 3);
+  const i = vec3i(1, -2, 3);
+  const m = abs(u).x + u32(dot(u, u));
+  const n = abs(i).x + dot(i, i);
+  return vec4(f32(m) * 0., f32(n) * 0., 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])

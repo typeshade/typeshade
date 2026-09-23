@@ -148,10 +148,10 @@ describe('every builtin the fp64 pass has a twin for', () => {
 
   it('lowers a vec64 reduction and the CPU matches the double', () => {
     const { double, emulated } = bothWays(
-      `"use typeshade"
+      `"use typeshade";
 export function k(a: f64, b: f64, c: f64): f64 {
-  const v = vec3f64(a, b, c)
-  return length(v)
+  const v = vec3f64(a, b, c);
+  return length(v);
 }
 `,
       [3, 4, 12],
@@ -228,12 +228,12 @@ describe('the reductions on a vec64', () => {
     // while `fp64-lower` handed back the (hi, lo) pair, so a correct program could not be
     // written: the declared f64 return was a mismatch against the front end's own f32.
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 export function k(a: vec3f64, b: vec3f64): f64 {
-  const l = length(a)
-  const d = distance(a, b)
-  const p = dot(a, b)
-  return l + d + p
+  const l = length(a);
+  const d = distance(a, b);
+  const p = dot(a, b);
+  return l + d + p;
 }
 `),
     ).toEqual([])
@@ -261,14 +261,14 @@ export function k(a: vec3f64, b: vec3f64): f64 {
 describe('an f64 beside a literal and beside an f32', () => {
   it('lifts a literal beside an f64 and a declared f64 const', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 export function k(s: f64, t: f32): f64 {
-  const declared: f64 = 0.1
-  const lifted = s * 2.5
-  const widened = s * t
-  let stepped: f64 = 0.
-  stepped *= 3.
-  return declared + lifted + widened + stepped
+  const declared: f64 = 0.1;
+  const lifted = s * 2.5;
+  const widened = s * t;
+  let stepped: f64 = 0.;
+  stepped *= 3.;
+  return declared + lifted + widened + stepped;
 }
 `),
     ).toEqual([])
@@ -316,13 +316,13 @@ export function k(s: f64, t: f32): f64 {
 describe('the components of a vec64', () => {
   it('swizzles and indexes a vec64', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 export function k(a: vec3f64): f64 {
-  const x = a.x
-  const one = a[1]
-  const pair = a.xy
-  const narrowed: vec3 = vec3(a)
-  return x + one + pair.y + f64(narrowed.z)
+  const x = a.x;
+  const one = a[1];
+  const pair = a.xy;
+  const narrowed: vec3 = vec3(a);
+  return x + one + pair.y + f64(narrowed.z);
 }
 `),
     ).toEqual([])
@@ -330,10 +330,10 @@ export function k(a: vec3f64): f64 {
 
   it('reads the lane the pass reads, so the CPU agrees with the double', () => {
     const { double, emulated } = bothWays(
-      `"use typeshade"
+      `"use typeshade";
 export function k(a: f64, b: f64, c: f64): f64 {
-  const v = vec3f64(a, b, c)
-  return v.x * 100. + v[1] * 10. + v.z
+  const v = vec3f64(a, b, c);
+  return v.x * 100. + v[1] * 10. + v.z;
 }
 `,
       [1, 2, 3],
@@ -362,10 +362,10 @@ export function k(a: f64, b: f64, c: f64): f64 {
 // ── The f32 slots ──
 
 describe('an f64 where the target takes an f32', () => {
-  const TEXTURE = `"use typeshade"
-declare const t: texture_2d<f32>
-declare const s: sampler
-class C { @location(0) color: vec4 }
+  const TEXTURE = `"use typeshade";
+declare const t: texture_2d<f32>;
+declare const s: sampler;
+class C { @location(0) color: vec4; }
 `
 
   // The wording moved when lane C's #145 landed beside this: `floatArg` and `vecArg` were
@@ -393,14 +393,14 @@ export function fs(@location(0) uv: vec2): C {
     ).toEqual(['textureSampleBias bias must be an f32; got f64. Write f32(b).'])
 
     expect(
-      errorsOf(`"use typeshade"
-declare const shadow: texture_depth_2d
-declare const cmp: sampler_comparison
-class C { @location(0) color: vec4 }
+      errorsOf(`"use typeshade";
+declare const shadow: texture_depth_2d;
+declare const cmp: sampler_comparison;
+class C { @location(0) color: vec4; }
 @fragment
 export function fs(@location(0) uv: vec2): C {
-  const d: f64 = 0.5
-  return { color: vec4(textureSampleCompare(shadow, cmp, uv, d)) }
+  const d: f64 = 0.5;
+  return { color: vec4(textureSampleCompare(shadow, cmp, uv, d)) };
 }
 `),
     ).toEqual(['textureSampleCompare depth_ref must be an f32; got f64. Write f32(d).'])
@@ -427,10 +427,10 @@ export function fs(@location(0) uv: vec2): C {
 describe('an f64 across an entry signature', () => {
   it('refuses an interpolated f64 and names an ordinary remedy', () => {
     expect(
-      errorsOf(`"use typeshade"
-class C { @location(0) color: vec4 }
+      errorsOf(`"use typeshade";
+class C { @location(0) color: vec4; }
 @fragment
-export function fs(@location(0) p: f64): C { return { color: vec4(f32(p), 0., 0., 1.) } }
+export function fs(@location(0) p: f64): C { return { color: vec4(f32(p), 0., 0., 1.) }; }
 `),
     ).toEqual([
       'Parameter "p" carries f64: an emulated double is a pair of f32 words, and a @location ' +
@@ -442,14 +442,14 @@ export function fs(@location(0) p: f64): C { return { color: vec4(f32(p), 0., 0.
 
   it('refuses an f64 @location field of an IO struct', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) w: f64
+  @builtin("position") pos: vec4;
+  @location(0) w: f64;
 }
 @vertex
 export function vs(@builtin("vertex_index") i: u32): VsOut {
-  return { pos: vec4(f32(i), 0., 0., 1.), w: f64(1.) }
+  return { pos: vec4(f32(i), 0., 0., 1.), w: f64(1.) };
 }
 `)[0],
     ).toContain('a uniform or storage binding carries an f64')
@@ -459,10 +459,10 @@ export function vs(@builtin("vertex_index") i: u32): VsOut {
     // A vertex @location input is a buffer read, not a varying — the pass accepts it, so the
     // front end must not be stricter than the pass in the other direction either.
     expect(
-      errorsOf(`"use typeshade"
-class V { @builtin("position") pos: vec4 }
+      errorsOf(`"use typeshade";
+class V { @builtin("position") pos: vec4; }
 @vertex
-export function vs(@location(0) p: f64): V { return { pos: vec4(f32(p), 0., 0., 1.) } }
+export function vs(@location(0) p: f64): V { return { pos: vec4(f32(p), 0., 0., 1.) }; }
 `),
     ).toEqual([])
   })

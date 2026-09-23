@@ -25,8 +25,8 @@ declare const src: storage<array<f32>>;
 declare let dst: storage<array<f32>>;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= u32(src.length)) { return }
-  dst[gid.x] = src[gid.x] * 2.
+  if (gid.x >= u32(src.length)) { return; }
+  dst[gid.x] = src[gid.x] * 2.;
 }
 `
 
@@ -52,7 +52,7 @@ declare const src: storage<array<f32>>;
 declare let dst: storage<array<f32>>;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  for (let i: u32 = 0; i < src.length; i++) { dst[gid.x] = src[gid.x] }
+  for (let i: u32 = 0; i < src.length; i++) { dst[gid.x] = src[gid.x]; }
 }
 `)
     const errors = r.diagnostics.filter((d) => d.category === 'error')
@@ -67,7 +67,7 @@ declare const src: storage<array<f32>>;
 declare let dst: storage<array<f32>>;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  dst[gid.x] = src[gid.x] * 2.
+  dst[gid.x] = src[gid.x] * 2.;
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -96,10 +96,10 @@ describe('#46 — the message tells each shape the truth about its own fix', () 
 
   it('a field of a storage binding reads its length too — the root is what decides', () => {
     const r = compileTsSource(`"use typeshade";
-class Buf { n: u32; xs: array<f32> }
+class Buf { n: u32; xs: array<f32>; }
 declare const b: storage<Buf>;
 @fragment
-export function fs(): vec4 { return vec4(f32(b.xs.length), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(f32(b.xs.length), 0., 0., 1.); }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(r.wgsl).toContain('arrayLength(&b.xs)')
@@ -112,9 +112,9 @@ export function fs(): vec4 { return vec4(f32(b.xs.length), 0., 0., 1.) }
 declare const src: storage<array<f32>>;
 @fragment
 export function fs(): vec4 {
-  const a = src
-  const c = a
-  return vec4(f32(c.length), 0., 0., 1.)
+  const a = src;
+  const c = a;
+  return vec4(f32(c.length), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -125,8 +125,8 @@ export function fs(): vec4 {
     const m = messageFor(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const xs = array<f32>(1., 2., 3.)
-  return vec4(f32(xs.length), 0., 0., 1.)
+  const xs = array<f32>(1., 2., 3.);
+  return vec4(f32(xs.length), 0., 0., 1.);
 }
 `)
     expect(m).toContain('array<f32, 3>')
@@ -137,7 +137,7 @@ export function fs(): vec4 {
     const src = `"use typeshade";
 declare const u: uniform<array<f32>>;
 @fragment
-export function fs(): vec4 { return vec4(f32(u.length), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(f32(u.length), 0., 0., 1.); }
 `
     const m = messageFor(src)
     expect(m).toContain('array<f32, 3>')
@@ -150,7 +150,7 @@ export function fs(): vec4 { return vec4(f32(u.length), 0., 0., 1.) }
 
   it('a parameter is told to give it a size', () => {
     const m = messageFor(`"use typeshade";
-export function n(xs: array<f32>): i32 { return xs.length }
+export function n(xs: array<f32>): i32 { return xs.length; }
 `)
     expect(m).toContain('array<f32, 3>')
     expect(m).not.toContain('arrayLength')
@@ -162,8 +162,8 @@ describe('#46 — a sized array keeps the compile-time length it always had', ()
     const r = compileTsSource(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const xs: array<f32, 4> = [1., 2., 3., 4.]
-  return vec4(f32(xs.length), 0., 0., 1.)
+  const xs: array<f32, 4> = [1., 2., 3., 4.];
+  return vec4(f32(xs.length), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -176,8 +176,8 @@ declare const src: storage<array<f32, 8>>;
 declare let dst: storage<array<f32, 8>>;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  if (gid.x >= u32(src.length)) { return }
-  dst[gid.x] = src[gid.x] * 2.
+  if (gid.x >= u32(src.length)) { return; }
+  dst[gid.x] = src[gid.x] * 2.;
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])

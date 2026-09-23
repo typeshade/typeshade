@@ -15,32 +15,32 @@ import { compileModule } from '../../core/oracle.js'
 import { fnWrites } from '../../core/passes/effects.js'
 import type { CpuValue } from '../../core/cpu-runtime.js'
 
-const RAY = `"use typeshade"
+const RAY = `"use typeshade";
 class Ray {
-  origin: vec3
-  dir: vec3
-  hits: u32 = 0
+  origin: vec3;
+  dir: vec3;
+  hits: u32 = 0;
   constructor(origin: vec3, dir: vec3) {
-    this.origin = origin
-    this.dir = normalize(dir)
+    this.origin = origin;
+    this.dir = normalize(dir);
   }
   at(t: f32): vec3 {
-    return this.origin + this.dir * t
+    return this.origin + this.dir * t;
   }
   farther(t: f32): Ray {
-    return new Ray(this.at(t), this.dir)
+    return new Ray(this.at(t), this.dir);
   }
   static up(): vec3 {
-    return vec3(0., 1., 0.)
+    return vec3(0., 1., 0.);
   }
 }
-class P { a: f32; b: vec2 }
+class P { a: f32; b: vec2; }
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  const r = new Ray(vec3(uv, 0.), vec3(0., 0., 2.))
-  const q = r.farther(1.)
-  const p = new P()
-  return vec4(q.at(1.) + Ray.up() + vec3(p.a), f32(r.hits))
+  const r = new Ray(vec3(uv, 0.), vec3(0., 0., 2.));
+  const q = r.farther(1.);
+  const p = new P();
+  return vec4(q.at(1.) + Ray.up() + vec3(p.a), f32(r.hits));
 }
 `
 
@@ -98,16 +98,16 @@ describe('class members: what each one lowers to', () => {
   })
 
   it('the zero struct reaches every field kind, and a matrix falls back to the bare var', () => {
-    const r = compile(`"use typeshade"
-class Q { a: f32; b: vec2u; ok: bool; xs: array<i32, 2> }
-class P { a: f32; q: Q; n: u32 = 3 }
-class M { m: mat4 }
+    const r = compile(`"use typeshade";
+class Q { a: f32; b: vec2u; ok: bool; xs: array<i32, 2>; }
+class P { a: f32; q: Q; n: u32 = 3; }
+class M { m: mat4; }
 @fragment
 export function fs(): vec4 {
-  const p = new P()
-  const q = new Q()
-  const m = new M()
-  return vec4(p.a + f32(p.n) + f32(q.xs[1]) + f32(p.q.b.y), 0., 0., 1.)
+  const p = new P();
+  const q = new Q();
+  const m = new M();
+  return vec4(p.a + f32(p.n) + f32(q.xs[1]) + f32(p.q.b.y), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -123,21 +123,21 @@ export function fs(): vec4 {
   })
 
   it('a constructor may return early and call a method; both returns hand back self', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 class C {
-  x: f32
+  x: f32;
   constructor(a: f32) {
     if (a > 1.) {
-      this.x = this.twice(a)
-      return
+      this.x = this.twice(a);
+      return;
     }
-    this.x = a
+    this.x = a;
   }
-  twice(a: f32): f32 { return a * 2. }
+  twice(a: f32): f32 { return a * 2.; }
 }
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  return vec4(new C(uv.x).x, 0., 0., 1.)
+  return vec4(new C(uv.x).x, 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -157,17 +157,17 @@ export function fs(@location(0) uv: vec2): vec4 {
   })
 
   it('access modifiers are accepted and mean nothing to the shader', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 class C {
-  private x: f32
-  readonly y: f32 = 2.
-  public constructor(x: f32) { this.x = x }
-  protected inner(): f32 { return this.x }
-  public sum(): f32 { return this.inner() + this.y }
+  private x: f32;
+  readonly y: f32 = 2.;
+  public constructor(x: f32) { this.x = x; }
+  protected inner(): f32 { return this.x; }
+  public sum(): f32 { return this.inner() + this.y; }
 }
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  return vec4(new C(uv.x).sum(), 0., 0., 1.)
+  return vec4(new C(uv.x).sum(), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -302,55 +302,55 @@ class B extends A {
 // changes a field. The IR now says which parameters a callee writes through and each target
 // spells it its own way.
 describe('class members: a method that changes its object', () => {
-  const PARTICLES = `"use typeshade"
-declare let ps: storage<array<Particle>>
+  const PARTICLES = `"use typeshade";
+declare let ps: storage<array<Particle>>;
 class Particle {
-  pos: vec2
-  vel: vec2
-  age: u32 = 0
+  pos: vec2;
+  vel: vec2;
+  age: u32 = 0;
   step(dt: f32): void {
-    this.pos = this.pos + this.vel * dt
-    this.age++
+    this.pos = this.pos + this.vel * dt;
+    this.age++;
   }
   bounce(): void {
     if (this.pos.y < 0.) {
-      this.vel.y = -this.vel.y
+      this.vel.y = -this.vel.y;
     }
   }
   tick(dt: f32): void {
-    this.step(dt)
-    this.bounce()
+    this.step(dt);
+    this.bounce();
   }
   speed(): f32 {
-    return length(this.vel)
+    return length(this.vel);
   }
 }
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  ps[gid.x].tick(0.5)
-  let p = ps[gid.x]
-  p.step(1.)
-  ps[gid.x].vel = vec2(p.speed(), f32(p.age))
+  ps[gid.x].tick(0.5);
+  let p = ps[gid.x];
+  p.step(1.);
+  ps[gid.x].vel = vec2(p.speed(), f32(p.age));
 }
 `
 
   // The same class with a local receiver only, so the GLSL path (which has no compute stage)
   // can show the `inout` spelling.
-  const RENDER_PARTICLES = `"use typeshade"
+  const RENDER_PARTICLES = `"use typeshade";
 class Particle {
-  pos: vec2
-  vel: vec2
-  age: u32 = 0
+  pos: vec2;
+  vel: vec2;
+  age: u32 = 0;
   step(dt: f32): void {
-    this.pos = this.pos + this.vel * dt
-    this.age++
+    this.pos = this.pos + this.vel * dt;
+    this.age++;
   }
 }
 @fragment
 export function fs(): vec4 {
-  let p = new Particle()
-  p.step(1.)
-  return vec4(p.pos, f32(p.age), 1.)
+  let p = new Particle();
+  p.step(1.);
+  return vec4(p.pos, f32(p.age), 1.);
 }
 `
 
@@ -418,27 +418,27 @@ export function fs(): vec4 {
   })
 
   it('a let local, a module variable and this inside a constructor are places', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 class C {
-  x: f32
+  x: f32;
   constructor(x: f32) {
-    this.x = x
-    this.bump()
+    this.x = x;
+    this.bump();
   }
   bump(): void {
-    this.x = this.x + 1.
+    this.x = this.x + 1.;
   }
   twice(): f32 {
-    return this.x * 2.
+    return this.x * 2.;
   }
 }
-let acc: C = { x: 10. }
+let acc: C = { x: 10. };
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  let c = new C(uv.x)
-  c.bump()
-  acc.bump()
-  return vec4(c.twice(), acc.x, 0., 1.)
+  let c = new C(uv.x);
+  c.bump();
+  acc.bump();
+  return vec4(c.twice(), acc.x, 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -495,21 +495,21 @@ export function fs(@location(0) uv: vec2): vec4 {
   // rule the reference made moot: the object comes back through its pointer, not the return.
   // The draw keeps the top 24 bits so it is exact in f32, and the three CPU paths can be held
   // to equality.
-  const RANDOM = `"use typeshade"
+  const RANDOM = `"use typeshade";
 class Random {
-  seed: u32
+  seed: u32;
   gen(): f32 {
-    this.seed = this.seed * 747796405 + 2891336453
-    return f32(this.seed >> 8) / 16777216.
+    this.seed = this.seed * 747796405 + 2891336453;
+    return f32(this.seed >> 8) / 16777216.;
   }
 }
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  let rng = new Random()
-  rng.seed = u32(uv.x * 1000.)
-  const a = rng.gen()
-  const b = rng.gen()
-  return vec4(a, b, 0., 1.)
+  let rng = new Random();
+  rng.seed = u32(uv.x * 1000.);
+  const a = rng.gen();
+  const b = rng.gen();
+  return vec4(a, b, 0., 1.);
 }
 `
   /** `gen`'s step on the host, in u32 arithmetic. */

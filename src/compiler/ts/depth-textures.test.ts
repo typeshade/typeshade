@@ -216,12 +216,12 @@ describe('a plain read of a depth texture is refused for now, with the reason', 
   })
 
   it('is not a module variable', () => {
-    const errors = errorsOf(`"use typeshade"
-let shadowMap: texture_depth_2d
-declare const shadowSmp: sampler_comparison
+    const errors = errorsOf(`"use typeshade";
+let shadowMap: texture_depth_2d;
+declare const shadowSmp: sampler_comparison;
 @fragment
 export function fs(@builtin("position") p: vec4): vec4 {
-  return vec4(textureSampleCompare(shadowMap, shadowSmp, p.xy, 0.5))
+  return vec4(textureSampleCompare(shadowMap, shadowSmp, p.xy, 0.5));
 }
 `)
     expect(errors[0]).toContain('a depth texture is a resource, declared bare with "declare const"')

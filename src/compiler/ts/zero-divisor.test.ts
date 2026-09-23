@@ -30,23 +30,23 @@ export function fs(@location(0) uv: vec2): vec4 {
 
 describe('division by a constant zero (#68)', () => {
   it('1: a negated vector const with a zero component, in a module const', () => {
-    const errors = errorsOf(`"use typeshade"
-const A: vec3 = vec3(1., 2., 3.)
-const Z: vec3 = vec3(1., 0., 1.)
-const Y: vec3 = A / -Z
+    const errors = errorsOf(`"use typeshade";
+const A: vec3 = vec3(1., 2., 3.);
+const Z: vec3 = vec3(1., 0., 1.);
+const Y: vec3 = A / -Z;
 @fragment
-export function fs(): vec4 { return vec4(Y, 1.) }
+export function fs(): vec4 { return vec4(Y, 1.); }
 `)
     expect(errors[0]).toBe(ZERO('-Z'))
   })
 
   it('2: vector arithmetic over consts, in a module const', () => {
-    const errors = errorsOf(`"use typeshade"
-const SIZE: vec3 = vec3(4., 0., 4.)
-const STEP: vec3 = SIZE * 0.5
-const Q: vec3 = vec3(1., 2., 3.) / STEP
+    const errors = errorsOf(`"use typeshade";
+const SIZE: vec3 = vec3(4., 0., 4.);
+const STEP: vec3 = SIZE * 0.5;
+const Q: vec3 = vec3(1., 2., 3.) / STEP;
 @fragment
-export function fs(): vec4 { return vec4(Q, 1.) }
+export function fs(): vec4 { return vec4(Q, 1.); }
 `)
     expect(errors[0]).toBe(ZERO('STEP'))
   })
@@ -54,10 +54,10 @@ export function fs(): vec4 { return vec4(Q, 1.) }
   it('3: in a function body, through a scalar const and through a vector const', () => {
     expect(errorsOf(fs('x = 1. / K', 'const K: f32 = 0.'))).toEqual([ZERO('K')])
     expect(
-      errorsOf(`"use typeshade"
-const Z: vec3 = vec3(1., 0., 1.)
+      errorsOf(`"use typeshade";
+const Z: vec3 = vec3(1., 0., 1.);
 @fragment
-export function fs(): vec4 { return vec4(vec3(1., 2., 3.) / Z, 1.) }
+export function fs(): vec4 { return vec4(vec3(1., 2., 3.) / Z, 1.); }
 `),
     ).toEqual([ZERO('Z')])
   })
@@ -72,10 +72,10 @@ export function fs(): vec4 { return vec4(vec3(1., 2., 3.) / Z, 1.) }
     // The collector writes `cpuValue: 0` beside a vector const's `valueExpr` as a placeholder.
     // Read as a value in the function's scope, it made every division by a vector const a
     // division by zero; the initializer is what the folder reads now.
-    const r = compile(`"use typeshade"
-const Z: vec3 = vec3(1., 2., 4.)
+    const r = compile(`"use typeshade";
+const Z: vec3 = vec3(1., 2., 4.);
 @fragment
-export function fs(): vec4 { return vec4(vec3(1., 2., 3.) / Z, 1.) }
+export function fs(): vec4 { return vec4(vec3(1., 2., 3.) / Z, 1.); }
 `)
     expect(r.diagnostics).toEqual([])
     expect(r.eval('fs', [])).toEqual([1, 1, 0.75, 1])
@@ -88,11 +88,11 @@ export function fs(): vec4 { return vec4(vec3(1., 2., 3.) / Z, 1.) }
   })
 
   it('4: a parameter that repeats a module const is TS8023 on the parameter', () => {
-    const src = `"use typeshade"
-const K: f32 = 2.
-function g(K: f32): f32 { return K + 1. }
+    const src = `"use typeshade";
+const K: f32 = 2.;
+function g(K: f32): f32 { return K + 1.; }
 @fragment
-export function fs(): vec4 { return vec4(g(1.), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(g(1.), 0., 0., 1.); }
 `
     const errors = compileTsSource(src).diagnostics.filter((d) => d.category === 'error')
     expect(errors.map((d) => `${d.code} ${d.message}`)).toEqual([

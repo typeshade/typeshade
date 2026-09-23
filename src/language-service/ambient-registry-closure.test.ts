@@ -141,12 +141,12 @@ const DECLARATION_FORMS: readonly string[] = [
   'diagnostic',
 ]
 
-const DECLARATION_WITNESS = `"use typeshade"
+const DECLARATION_WITNESS = `"use typeshade";
 interface U {
   k: f32;
 }
-declare const un: uniform<U>
-declare let out: storage<array<f32>>
+declare const un: uniform<U>;
+declare let out: storage<array<f32>>;
 class V {
   @builtin("position") @invariant pos: vec4;
   @location(0) uv: vec2;
@@ -158,17 +158,17 @@ class Dual {
 }
 @vertex
 export function vs(@builtin("vertex_index") i: u32): V {
-  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), id: i }
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), id: i };
 }
 @fragment
 @diagnostic("off", "derivative_uniformity")
 export function fs(v: V): Dual {
-  const c = vec4(un.k, 0., 0., 1.)
-  return { a: c, b: c }
+  const c = vec4(un.k, 0., 0., 1.);
+  return { a: c, b: c };
 }
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  out[gid.x] = un.k
+  out[gid.x] = un.k;
 }
 `
 
@@ -248,10 +248,10 @@ export function f(): f32 {
     // The instrument check: if an unknown call compiled clean, "declared ⊆ lowerable" would
     // be true of every possible name and this file would prove nothing.
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 export function f(): f32 {
-  const a = notAnIntrinsicAnywhere(0.5)
-  return 0.
+  const a = notAnIntrinsicAnywhere(0.5);
+  return 0.;
 }
 `),
     ).not.toEqual([])

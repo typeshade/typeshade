@@ -453,29 +453,29 @@ describe('getHover: class members (#86 step 3)', () => {
   // The TypeScript checker knows a class's members, so the service adds nothing for them; this
   // pins what an editor shows, so a change in the ambient lib or the hover path that broke it
   // would say so here rather than in a screenshot.
-  const source = `"use typeshade"
+  const source = `"use typeshade";
 class Ray {
-  origin: vec3
-  dir: vec3
+  origin: vec3;
+  dir: vec3;
   constructor(origin: vec3, dir: vec3) {
-    this.origin = origin
-    this.dir = dir
+    this.origin = origin;
+    this.dir = dir;
   }
   at(t: f32): vec3 {
-    return this.origin + this.dir * t
+    return this.origin + this.dir * t;
   }
   advance(t: f32): void {
-    this.origin = this.at(t)
+    this.origin = this.at(t);
   }
   static up(): vec3 {
-    return vec3(0., 1., 0.)
+    return vec3(0., 1., 0.);
   }
 }
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  let r = new Ray(vec3(uv, 0.), vec3(0., 0., 1.))
-  r.advance(1.)
-  return vec4(r.at(2.) + Ray.up(), 1.)
+  let r = new Ray(vec3(uv, 0.), vec3(0., 0., 1.));
+  r.advance(1.);
+  return vec4(r.at(2.) + Ray.up(), 1.);
 }
 `
   const service = createTypeshadeLanguageService()

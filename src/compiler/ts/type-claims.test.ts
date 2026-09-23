@@ -56,14 +56,14 @@ const K = 3. as const
 
   it('a non-null assertion on a binding read', () => {
     const r = compile(
-      `"use typeshade"
+      `"use typeshade";
 class P {
-  x: f32
+  x: f32;
 }
-declare const u: uniform<P>
+declare const u: uniform<P>;
 @fragment
 export function fs(): vec4 {
-  return vec4(u!.x, 0., 0., 1.)
+  return vec4(u!.x, 0., 0., 1.);
 }
 `,
     )

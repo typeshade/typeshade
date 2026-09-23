@@ -33,14 +33,14 @@ export function fs(): vec4 {
 
 describe('a tuple is a list of a length the type fixes, which is array<T, N>', () => {
   it('returns one, from both backends', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 function two(): [f32, f32] {
-  return [1., 2.]
+  return [1., 2.];
 }
 @fragment
 export function fs(): vec4 {
-  const t = two()
-  return vec4(t[0], t[1], 0., 1.)
+  const t = two();
+  return vec4(t[0], t[1], 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -52,13 +52,13 @@ export function fs(): vec4 {
   })
 
   it('takes one as a parameter, and a list written at the call site', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 function plus(p: [f32, f32]): f32 {
-  return p[0] + p[1]
+  return p[0] + p[1];
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(plus([1., 2.]), 0., 0., 1.)
+  return vec4(plus([1., 2.]), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -66,15 +66,15 @@ export function fs(): vec4 {
   })
 
   it('takes a list in a struct field that declares an array', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 class Box {
-  xs: array<f32, 2>
-  k: f32
+  xs: array<f32, 2>;
+  k: f32;
 }
 @fragment
 export function fs(): vec4 {
-  const b: Box = { xs: [1., 2.], k: 3. }
-  return vec4(b.xs[0], b.xs[1], b.k, 1.)
+  const b: Box = { xs: [1., 2.], k: 3. };
+  return vec4(b.xs[0], b.xs[1], b.k, 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -82,13 +82,13 @@ export function fs(): vec4 {
   })
 
   it('names its elements, the way TypeScript lets a tuple do', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 function span(): [lo: f32, hi: f32] {
-  return [0., 1.]
+  return [0., 1.];
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(span()[1], 0., 0., 1.)
+  return vec4(span()[1], 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -138,14 +138,14 @@ ${FS}`),
 
 describe('a union of members that name one type names it too', () => {
   it('integer literals are an i32, the way an enum member is', () => {
-    const r = compile(`"use typeshade"
-type Mode = 0 | 1 | 2
+    const r = compile(`"use typeshade";
+type Mode = 0 | 1 | 2;
 function pick(m: Mode): f32 {
-  return m === 1 ? 1. : 0.
+  return m === 1 ? 1. : 0.;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(pick(1), 0., 0., 1.)
+  return vec4(pick(1), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -156,14 +156,14 @@ export function fs(): vec4 {
   })
 
   it('a literal written as a float is an f32, and true | false is a bool', () => {
-    const r = compile(`"use typeshade"
-type Half = 0.5 | 1.5
+    const r = compile(`"use typeshade";
+type Half = 0.5 | 1.5;
 function f(h: Half, on: true | false): f32 {
-  return on ? h : 0.
+  return on ? h : 0.;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(f(0.5, true), 0., 0., 1.)
+  return vec4(f(0.5, true), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -171,14 +171,14 @@ export function fs(): vec4 {
   })
 
   it('two spellings of one type are that type', () => {
-    const r = compile(`"use typeshade"
-type Meters = f32
+    const r = compile(`"use typeshade";
+type Meters = f32;
 function f(x: Meters | f32): f32 {
-  return x
+  return x;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(f(1.), 0., 0., 1.)
+  return vec4(f(1.), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -187,13 +187,13 @@ export function fs(): vec4 {
 
   it('says what a union of two types would have to be, and nothing else', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 function f(x: f32 | vec3): f32 {
-  return 1.
+  return 1.;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(f(1.), 0., 0., 1.)
+  return vec4(f(1.), 0., 0., 1.);
 }
 `),
     ).toEqual([
@@ -228,15 +228,15 @@ ${FS}`)[0],
 
 describe('a symbol brand is erased, and a symbol value is not', () => {
   it('a branded alias is the type it brands', () => {
-    const r = compile(`"use typeshade"
-declare const brand: unique symbol
-type Meters = f32 & { readonly [brand]: 'm' }
+    const r = compile(`"use typeshade";
+declare const brand: unique symbol;
+type Meters = f32 & { readonly [brand]: 'm' };
 function half(m: Meters): f32 {
-  return m * 0.5
+  return m * 0.5;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(half(2. as Meters), 0., 0., 1.)
+  return vec4(half(2. as Meters), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -247,14 +247,14 @@ export function fs(): vec4 {
   })
 
   it('a brand written the other common way is erased too', () => {
-    const r = compile(`"use typeshade"
-type Meters = f32 & { readonly __brand: 'm' }
+    const r = compile(`"use typeshade";
+type Meters = f32 & { readonly __brand: 'm' };
 function half(m: Meters): f32 {
-  return m * 0.5
+  return m * 0.5;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(half(2. as Meters), 0., 0., 1.)
+  return vec4(half(2. as Meters), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -295,17 +295,17 @@ describe('instanceof and in ask what a value is at run time', () => {
     // Before this the operands were lowered first, so the message was "Unknown identifier B"
     // about the base class — the one part of the line that is spelled right.
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 class B {
-  x: f32
+  x: f32;
 }
 class D extends B {
-  y: f32
+  y: f32;
 }
 @fragment
 export function fs(): vec4 {
-  const d = new D()
-  return vec4(d instanceof B ? 1. : 0., 0., 0., 1.)
+  const d = new D();
+  return vec4(d instanceof B ? 1. : 0., 0., 0., 1.);
 }
 `),
     ).toEqual([
@@ -318,14 +318,14 @@ export function fs(): vec4 {
 
   it('in says the answer is already in the type', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 class B {
-  x: f32
+  x: f32;
 }
 @fragment
 export function fs(): vec4 {
-  const b = new B()
-  return vec4('x' in b ? 1. : 0., 0., 0., 1.)
+  const b = new B();
+  return vec4('x' in b ? 1. : 0., 0., 0., 1.);
 }
 `)[0],
     ).toContain('"in" asks which fields a value has at run time')
@@ -334,13 +334,13 @@ export function fs(): vec4 {
 
 describe('one mistake reads as one sentence', () => {
   it('a refused parameter annotation does not also say the parameter has none', () => {
-    const errs = errorsOf(`"use typeshade"
+    const errs = errorsOf(`"use typeshade";
 function f(x: f32 | vec3): f32 {
-  return 1.
+  return 1.;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(f(1.), 0., 0., 1.)
+  return vec4(f(1.), 0., 0., 1.);
 }
 `)
     expect(errs).toHaveLength(1)
@@ -359,13 +359,13 @@ ${FS}`)[0],
   })
 
   it('a refused return annotation does not also say the return is unsupported', () => {
-    const errs = errorsOf(`"use typeshade"
+    const errs = errorsOf(`"use typeshade";
 function f(): f32 | vec3 {
-  return 1.
+  return 1.;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(f(), 0., 0., 1.)
+  return vec4(f(), 0., 0., 1.);
 }
 `)
     expect(errs).toHaveLength(1)
@@ -373,12 +373,12 @@ export function fs(): vec4 {
   })
 
   it('a capturing local function does not also say the call has no callee', () => {
-    const errs = errorsOf(`"use typeshade"
+    const errs = errorsOf(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const k: f32 = 2.
-  const scale = (x: f32): f32 => x * k
-  return vec4(scale(1.), 0., 0., 1.)
+  const k: f32 = 2.;
+  const scale = (x: f32): f32 => x * k;
+  return vec4(scale(1.), 0., 0., 1.);
 }
 `)
     expect(errs).toHaveLength(1)
@@ -387,25 +387,25 @@ export function fs(): vec4 {
 
   it('a call to a name nothing declares still says so', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  return vec4(nowhere(1.), 0., 0., 1.)
+  return vec4(nowhere(1.), 0., 0., 1.);
 }
 `)[0],
     ).toContain('Unknown function "nowhere(1.)"')
   })
 
   it('a name refused inside one body is still unknown when called from another', () => {
-    const errs = errorsOf(`"use typeshade"
+    const errs = errorsOf(`"use typeshade";
 function other(): f32 {
-  return scale(1.)
+  return scale(1.);
 }
 @fragment
 export function fs(): vec4 {
-  const k: f32 = 2.
-  const scale = (x: f32): f32 => x * k
-  return vec4(other(), 0., 0., 1.)
+  const k: f32 = 2.;
+  const scale = (x: f32): f32 => x * k;
+  return vec4(other(), 0., 0., 1.);
 }
 `)
     expect(errs.join('\n')).toContain('Unknown function "scale(1.)"')
@@ -435,11 +435,11 @@ ${FS}`)[0],
 
   it('a string expression says why there is nothing for it to be', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const label = "hi"
-  return vec4(1.)
+  const label = "hi";
+  return vec4(1.);
 }
 `)[0],
     ).toContain('A string has no GPU representation')

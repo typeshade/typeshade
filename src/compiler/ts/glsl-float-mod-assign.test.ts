@@ -13,12 +13,12 @@ import { glslEs300Backend } from '../../core/backends/glsl.js'
 import { f32T } from '../../core/ir/types.js'
 import type { Expr, Stmt } from '../../core/ir/nodes.js'
 
-const SRC = `"use typeshade"
+const SRC = `"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  let x: f32 = uv.x
-  x %= 0.7
-  return vec4(x, 0., 0., 1.)
+  let x: f32 = uv.x;
+  x %= 0.7;
+  return vec4(x, 0., 0., 1.);
 }
 `
 
@@ -44,12 +44,12 @@ describe('a float %= on GLSL ES 3.00 (#20)', () => {
   })
 
   it('an integer %= stays the native operator on both', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  let i: i32 = i32(uv.x)
-  i %= 3
-  return vec4(f32(i), 0., 0., 1.)
+  let i: i32 = i32(uv.x);
+  i %= 3;
+  return vec4(f32(i), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])

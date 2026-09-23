@@ -710,29 +710,29 @@ const SOURCE_WITNESSES: Readonly<Partial<Record<Capability, string>>> = {
   // author WRITES, so all three are reachable and belong here rather than on the list below.
   // Measured: `reflect().requiredFeatures` is exactly `["clipDistances"]`, `["primitiveIndex"]`
   // and `["dualSourceBlending"]` for these three programs.
-  clipDistances: `"use typeshade"
+  clipDistances: `"use typeshade";
 class Clip {
   @builtin("position") pos: vec4;
   @builtin("clip_distances") cd: array<f32, 4>;
 }
 @vertex
 export function vs(@builtin("vertex_index") i: u32): Clip {
-  return { pos: vec4(0., 0., 0., 1.), cd: array<f32, 4>(1., 1., 1., 1.) }
+  return { pos: vec4(0., 0., 0., 1.), cd: array<f32, 4>(1., 1., 1., 1.) };
 }
 `,
-  primitiveIndex: `"use typeshade"
+  primitiveIndex: `"use typeshade";
 class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @fragment
 export function fs(v: V, @builtin("primitive_index") pi: u32): vec4 {
-  return vec4(f32(pi), 0., 0., 1.)
+  return vec4(f32(pi), 0., 0., 1.);
 }
 `,
   // Not a builtin id but an ATTRIBUTE pair: two `@location(0)` outputs distinguished by
   // `@blend_src`, which is the shape WGSL gives dual-source blending (#158, §53).
-  dualSourceBlending: `"use typeshade"
+  dualSourceBlending: `"use typeshade";
 class Dual {
   @location(0) @blend_src(0) a: vec4;
   @location(0) @blend_src(1) b: vec4;
@@ -743,104 +743,104 @@ class V {
 }
 @fragment
 export function fs(v: V): Dual {
-  const c = vec4(v.uv, 0., 1.)
-  return { a: c, b: c }
+  const c = vec4(v.uv, 0., 1.);
+  return { a: c, b: c };
 }
 `,
   // Both arrived with #164 and both are reachable, so they are witnesses rather than entries on
   // the list below: measured, `reflect().requiredFeatures` is exactly `["packed4x8Dot"]` for the
   // first and includes `"bgra8unormStorage"` for the second.
-  packed4x8Dot: `"use typeshade"
+  packed4x8Dot: `"use typeshade";
 interface U {
   a: u32;
   b: u32;
 }
-declare const u: uniform<U>
+declare const u: uniform<U>;
 class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @fragment
 export function fs(v: V): vec4 {
-  const d = dot4U8Packed(u.a, u.b)
-  return vec4(f32(d), 0., 0., 1.)
+  const d = dot4U8Packed(u.a, u.b);
+  return vec4(f32(d), 0., 0., 1.);
 }
 `,
   // The format is part of the TYPE, so the capability is reached by declaring the binding —
   // there is no builtin to call for it.
-  bgra8unormStorage: `"use typeshade"
-declare const dst: texture_storage_2d<"bgra8unorm", "write">
+  bgra8unormStorage: `"use typeshade";
+declare const dst: texture_storage_2d<"bgra8unorm", "write">;
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
+  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.));
 }
 `,
-  storageBuffer: `"use typeshade"
-declare let out: storage<array<f32>>
+  storageBuffer: `"use typeshade";
+declare let out: storage<array<f32>>;
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  out[gid.x] = 1.
+  out[gid.x] = 1.;
 }
 `,
-  compute: `"use typeshade"
-declare let out: storage<array<f32>>
+  compute: `"use typeshade";
+declare let out: storage<array<f32>>;
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  out[gid.x] = 1.
+  out[gid.x] = 1.;
 }
 `,
-  msaaTextureLoad: `"use typeshade"
-declare const ms: texture_multisampled_2d<f32>
+  msaaTextureLoad: `"use typeshade";
+declare const ms: texture_multisampled_2d<f32>;
 class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @fragment
 export function fs(v: V): vec4 {
-  return textureLoad(ms, vec2i(0, 0), 0)
+  return textureLoad(ms, vec2i(0, 0), 0);
 }
 `,
-  storageTexture: `"use typeshade"
-declare const dst: texture_storage_2d<"rgba8unorm", "write">
+  storageTexture: `"use typeshade";
+declare const dst: texture_storage_2d<"rgba8unorm", "write">;
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
+  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.));
 }
 `,
-  texture1d: `"use typeshade"
-declare const ramp: texture_1d<f32>
-declare const smp: sampler
+  texture1d: `"use typeshade";
+declare const ramp: texture_1d<f32>;
+declare const smp: sampler;
 class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @fragment
 export function fs(v: V): vec4 {
-  return textureSampleLevel(ramp, smp, v.uv.x, 0.)
+  return textureSampleLevel(ramp, smp, v.uv.x, 0.);
 }
 `,
-  textureCubeArray: `"use typeshade"
-declare const envs: texture_cube_array<f32>
-declare const smp: sampler
+  textureCubeArray: `"use typeshade";
+declare const envs: texture_cube_array<f32>;
+declare const smp: sampler;
 class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @fragment
 export function fs(v: V): vec4 {
-  return textureSampleLevel(envs, smp, vec3(0., 0., 1.), 0, 0.)
+  return textureSampleLevel(envs, smp, vec3(0., 0., 1.), 0, 0.);
 }
 `,
-  textureGather: `"use typeshade"
-declare const atlas: texture_2d<f32>
-declare const smp: sampler
+  textureGather: `"use typeshade";
+declare const atlas: texture_2d<f32>;
+declare const smp: sampler;
 class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @fragment
 export function fs(v: V): vec4 {
-  return textureGather(0, atlas, smp, v.uv)
+  return textureGather(0, atlas, smp, v.uv);
 }
 `,
 }
@@ -855,32 +855,32 @@ const NO_SOURCE_WITNESS: Readonly<
   f16: {
     reason:
       'no f16 value type — `Scalar` is f32|i32|u32|bool (ir/types.ts); deferred by docs/roadmap.md:245 (After 1.0) and filed as #153',
-    probe: `"use typeshade"
+    probe: `"use typeshade";
 export function f(): f32 {
-  const a: f16 = 1.
-  return f32(a)
+  const a: f16 = 1.;
+  return f32(a);
 }
 `,
   },
   subgroups: {
     reason:
       'no subgroup intrinsic in the registry; docs/roadmap.md:247 "A WebGPU extension with no WebGL2 equivalent and no oracle meaning yet"',
-    probe: `"use typeshade"
+    probe: `"use typeshade";
 export function f(x: f32): f32 {
-  return subgroupAdd(x)
+  return subgroupAdd(x);
 }
 `,
   },
   multiview: {
     reason:
       'directive-only — `@builtin("view_index")` has no spelling and `layout(num_views = N) in;` none at all; the builtin half rides #146',
-    probe: `"use typeshade"
+    probe: `"use typeshade";
 class Clip {
   @builtin("position") pos: vec4;
 }
 @vertex
 export function vs(@builtin("view_index") vi: u32): Clip {
-  return { pos: vec4(f32(vi), 0., 0., 1.) }
+  return { pos: vec4(f32(vi), 0., 0., 1.) };
 }
 `,
   },

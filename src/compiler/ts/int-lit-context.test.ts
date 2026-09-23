@@ -158,7 +158,7 @@ describe('the ten positions', () => {
   it('10. a module const keeps the declared type', () => {
     const r = compileTsSource(`
       "use typeshade";
-      const N: u32 = 16
+      const N: u32 = 16;
       export function f(): u32 {
         return N;
       }

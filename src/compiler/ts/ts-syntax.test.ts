@@ -164,7 +164,7 @@ describe('the bitwise compound assignments', () => {
     const c = compile(`
       "use typeshade";
       class Color {
-        @location(0) color: vec4
+        @location(0) color: vec4;
       }
       @fragment
       export function fs(@builtin("position") p: vec4): Color {

@@ -197,12 +197,12 @@ describe('vecN<T>(...) names the element, and vecN() is the zero', () => {
   })
 
   it('emits the element the type argument named, on both targets', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const u = vec3<u32>(1, 2, 3)
-  const z = vec3()
-  return vec4(f32(u.x) + z.x, 0., 0., 1.)
+  const u = vec3<u32>(1, 2, 3);
+  const z = vec3();
+  return vec4(f32(u.x) + z.x, 0., 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -274,12 +274,12 @@ describe('a scalar conversion takes a scalar, and a literal it can hold', () => 
     // `u32(-1)`, because an unsuffixed integer literal is an AbstractInt and an AbstractInt
     // must fit its target — a fact about the spelling, not about the program. So the surface
     // spells the conversion as the literal it yields, and no spelling Tint refuses is emitted.
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const k: i32 = -1
-  const m: u32 = u32(4294967295)
-  return vec4(f32(u32(k)) * 0., f32(i32(m)) * 0., 0., 1.)
+  const k: i32 = -1;
+  const m: u32 = u32(4294967295);
+  return vec4(f32(u32(k)) * 0., f32(i32(m)) * 0., 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -294,14 +294,14 @@ export function fs(): vec4 {
     // doubles gave two answers: `i32 100000 * 100000` is 1410065408 on both targets and
     // 10000000000 in an f64 fold, `i32 1 / 2` is 0 there and 0.5 here. A range rule built on
     // the second set refused programs that ran and admitted programs that did not.
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const a: i32 = 100000
-  const b: i32 = 100000
-  const p: i32 = 1
-  const q: i32 = 2
-  return vec4(f32(u32(a * b)) * 0., f32(u32(p / q - 1)) * 0., 0., 1.)
+  const a: i32 = 100000;
+  const b: i32 = 100000;
+  const p: i32 = 1;
+  const q: i32 = 2;
+  return vec4(f32(u32(a * b)) * 0., f32(u32(p / q - 1)) * 0., 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -341,11 +341,11 @@ ${body}
     // A mutable `let` has no compile-time value, so `u32(k)` stays a conversion: bit-preserving
     // on WGSL and bit-preserving on GLSL ES 3.00, one answer. This is the escape hatch, and the
     // reason nothing here refuses `u32` of a signed value on principle.
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  let k: i32 = -1
-  return vec4(f32(u32(k)) * 0., 0., 0., 1.)
+  let k: i32 = -1;
+  return vec4(f32(u32(k)) * 0., 0., 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -374,11 +374,11 @@ export function fs(): vec4 {
 describe('array(...) infers its element type and its count', () => {
   it('array(1., 2., 3.) infers array<f32, 3>', () => {
     expect(typeKey(lowerReturn('array(1., 2., 3.)[0]', '', 'f32').type)).toBe('f32')
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  const a = array(1., 2., 3.)
-  return vec4(a[0], a[1], a[2], 1.)
+  const a = array(1., 2., 3.);
+  return vec4(a[0], a[1], a[2], 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -387,12 +387,12 @@ export function fs(): vec4 {
   })
 
   it('infers a vector element too, and keeps the explicit form working', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  const a = array(uv, uv)
-  const b = array<f32, 2>(1., 2.)
-  return vec4(a[0], b[0], b[1])
+  const a = array(uv, uv);
+  const b = array<f32, 2>(1., 2.);
+  return vec4(a[0], b[0], b[1]);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])

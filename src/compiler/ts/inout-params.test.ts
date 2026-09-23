@@ -30,22 +30,22 @@ import { dispatchCompute } from '../../core/debug/dispatch.js'
 import { fnWrites } from '../../core/passes/effects.js'
 import type { CpuValue } from '../../core/cpu-runtime.js'
 
-const LOCAL = `"use typeshade"
+const LOCAL = `"use typeshade";
 class P {
-  v: f32
+  v: f32;
   bump(d: f32): void {
-    this.v = this.v + d
+    this.v = this.v + d;
   }
   doubled(): f32 {
-    return this.v * 2.
+    return this.v * 2.;
   }
 }
 @fragment
 export function fs(): vec4 {
-  let p = new P()
-  p.bump(0.25)
-  p.bump(0.5)
-  return vec4(p.doubled(), 0., 0., 1.)
+  let p = new P();
+  p.bump(0.25);
+  p.bump(0.5);
+  return vec4(p.doubled(), 0., 0., 1.);
 }
 `
 
@@ -62,22 +62,22 @@ describe('WGSL spells it as a pointer, and reads through it', () => {
   })
 
   it('a pointer the function already holds is passed on, not addressed again', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 class P {
-  v: f32
+  v: f32;
   bump(d: f32): void {
-    this.v = this.v + d
+    this.v = this.v + d;
   }
   twice(d: f32): void {
-    this.bump(d)
-    this.bump(d)
+    this.bump(d);
+    this.bump(d);
   }
 }
 @fragment
 export function fs(): vec4 {
-  let p = new P()
-  p.twice(0.25)
-  return vec4(p.v, 0., 0., 1.)
+  let p = new P();
+  p.twice(0.25);
+  return vec4(p.v, 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -101,22 +101,22 @@ describe('GLSL ES 3.00 spells it inout, with no pointer and one function', () =>
 })
 
 describe('one WGSL function per address space its calls use', () => {
-  const SPACES = `"use typeshade"
-declare let ps: storage<array<P>>
-let held: P = { v: 0. }
+  const SPACES = `"use typeshade";
+declare let ps: storage<array<P>>;
+let held: P = { v: 0. };
 class P {
-  v: f32
+  v: f32;
   bump(d: f32): void {
-    this.v = this.v + d
+    this.v = this.v + d;
   }
 }
 @compute([1, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  ps[gid.x].bump(0.25)
-  held.bump(0.5)
-  let local = new P()
-  local.bump(1.)
-  ps[gid.x].v = ps[gid.x].v + local.v + held.v
+  ps[gid.x].bump(0.25);
+  held.bump(0.5);
+  let local = new P();
+  local.bump(1.);
+  ps[gid.x].v = ps[gid.x].v + local.v + held.v;
 }
 `
 
@@ -160,17 +160,17 @@ describe('a write through a reference is an effect', () => {
   })
 
   it('the caller writes what the argument is rooted at, not the callee\'s word for it', () => {
-    const r = compile(`"use typeshade"
-declare let ps: storage<array<P>>
+    const r = compile(`"use typeshade";
+declare let ps: storage<array<P>>;
 class P {
-  v: f32
+  v: f32;
   bump(d: f32): void {
-    this.v = this.v + d
+    this.v = this.v + d;
   }
 }
 @compute([1, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  ps[gid.x].bump(0.25)
+  ps[gid.x].bump(0.25);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -186,22 +186,22 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 
 describe('both CPU backends see the write, as the GPU does', () => {
   it('the oracle and the codegen agree on a local receiver', () => {
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 class P {
-  v: f32
+  v: f32;
   bump(d: f32): void {
-    this.v = this.v + d
+    this.v = this.v + d;
   }
 }
 export function probe(): f32 {
-  let p = new P()
-  p.bump(0.25)
-  p.bump(0.5)
-  return p.v
+  let p = new P();
+  p.bump(0.25);
+  p.bump(0.5);
+  return p.v;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(probe(), 0., 0., 1.)
+  return vec4(probe(), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -211,20 +211,20 @@ export function fs(): vec4 {
   })
 
   it('a dispatch writes through to the storage buffer', () => {
-    const r = compile(`"use typeshade"
-declare let ps: storage<array<P>>
+    const r = compile(`"use typeshade";
+declare let ps: storage<array<P>>;
 class P {
-  v: f32
+  v: f32;
   bump(d: f32): void {
-    this.v = this.v + d
+    this.v = this.v + d;
   }
 }
 @compute([4, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= u32(arrayLength(ps))) {
-    return
+    return;
   }
-  ps[gid.x].bump(0.5)
+  ps[gid.x].bump(0.5);
 }
 `)
     expect(r.diagnostics).toEqual([])

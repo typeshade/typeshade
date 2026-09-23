@@ -55,19 +55,19 @@ describe('a uniform holding an array of a type narrower than 16 bytes (L15)', ()
   // Tint: "'uniform' storage requires that array elements are aligned to 16 bytes, but array
   // element of type 'f32' has a stride of 4 bytes. Consider using a vector or struct as the
   // element type instead." (wgsl.txt:16028-16041)
-  const src = `"use typeshade"
+  const src = `"use typeshade";
 interface U {
   xs: array<f32, 4>;
   k: f32;
 }
-declare const u: uniform<U>
+declare const u: uniform<U>;
 class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @fragment
 export function fs(v: V): vec4 {
-  return vec4(u.xs[0] + u.k, 0., 0., 1.)
+  return vec4(u.xs[0] + u.k, 0., 0., 1.);
 }
 `
 
@@ -91,19 +91,19 @@ describe('a shift whose right-hand side is not u32 (L38)', () => {
   // Tint: "no matching overload for 'operator << (i32, i32)' … 'operator << (T, u32) -> T'"
   // (wgsl.txt:10163-10173). The compound path already wraps the right-hand side in `u32(...)`
   // (`lower/statement.ts`); the binary path does not.
-  const src = `"use typeshade"
+  const src = `"use typeshade";
 interface U {
   x: i32;
   n: i32;
 }
-declare const u: uniform<U>
+declare const u: uniform<U>;
 class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @fragment
 export function fs(v: V): vec4 {
-  return vec4(f32(u.x << u.n), 0., 0., 1.)
+  return vec4(f32(u.x << u.n), 0., 0., 1.);
 }
 `
 
@@ -120,18 +120,18 @@ describe('an integer varying emitted without @interpolate(flat) (L53)', () => {
   // Tint: "integral user-defined vertex outputs must have a '@interpolate(flat)' attribute"
   // (wgsl.txt:14932-14933). The GLSL writer already adds `flat` (`backends/glsl.ts`), so the
   // two targets disagree: the WebGL2 leg links and the WebGPU one does not.
-  const src = `"use typeshade"
+  const src = `"use typeshade";
 class VsOut {
   @builtin("position") pos: vec4;
   @location(0) id: u32;
 }
 @vertex
 export function vs(@builtin("vertex_index") i: u32): VsOut {
-  return { pos: vec4(0., 0., 0., 1.), id: i }
+  return { pos: vec4(0., 0., 0., 1.), id: i };
 }
 @fragment
 export function fs(o: VsOut): vec4 {
-  return vec4(f32(o.id), 0., 0., 1.)
+  return vec4(f32(o.id), 0., 0., 1.);
 }
 `
 
@@ -141,18 +141,18 @@ export function fs(o: VsOut): vec4 {
     const wgsl = compilesClean(src)
     expect(wgsl).toContain('@location(0) @interpolate(flat) id: u32,')
     // A FLOAT varying must not pick it up: the rule is about integers, not about locations.
-    const float = compilesClean(`"use typeshade"
+    const float = compilesClean(`"use typeshade";
 class VsOut {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 @vertex
 export function vs(@builtin("vertex_index") i: u32): VsOut {
-  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };
 }
 @fragment
 export function fs(o: VsOut): vec4 {
-  return vec4(o.uv, 0., 1.)
+  return vec4(o.uv, 0., 1.);
 }
 `)
     expect(float).toContain('@location(0) uv: vec2<f32>,')
@@ -164,10 +164,10 @@ describe('a helper that assigns to its whole parameter (L25)', () => {
   // Tint: "cannot assign to parameter 'a'" (wgsl.txt:7469, 10896-10899). The surface document
   // admits the bug in its own text; a `var` shadowing the parameter on first write is the fix
   // the audit proposes.
-  const src = `"use typeshade"
+  const src = `"use typeshade";
 export function h(a: f32): f32 {
-  a = 1.
-  return a
+  a = 1.;
+  return a;
 }
 class V {
   @builtin("position") pos: vec4;
@@ -175,7 +175,7 @@ class V {
 }
 @fragment
 export function fs(v: V): vec4 {
-  return vec4(h(v.uv.x), 0., 0., 1.)
+  return vec4(h(v.uv.x), 0., 0., 1.);
 }
 `
 
@@ -193,11 +193,11 @@ export function fs(v: V): vec4 {
 
   // The remedy the message spells has to compile, or the refusal sends the author in a circle.
   it('takes the copy the message asks for, and emits it as a var', () => {
-    const fixed = `"use typeshade"
+    const fixed = `"use typeshade";
 export function h(a: f32): f32 {
-  let a_ = a
-  a_ = 1.
-  return a_
+  let a_ = a;
+  a_ = 1.;
+  return a_;
 }
 class V {
   @builtin("position") pos: vec4;
@@ -205,7 +205,7 @@ class V {
 }
 @fragment
 export function fs(v: V): vec4 {
-  return vec4(h(v.uv.x), 0., 0., 1.)
+  return vec4(h(v.uv.x), 0., 0., 1.);
 }
 `
     expect(compilesClean(fixed)).toContain('var a_: f32 = a;')

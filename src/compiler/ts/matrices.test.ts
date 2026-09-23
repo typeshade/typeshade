@@ -123,14 +123,14 @@ describe('the products', () => {
   it('m * s, s * m and v * m type per the spec table', () => {
     // wgsl.txt:9960-9995. Each line is a shape the table gives and the surface refused.
     expect(
-      errorsOf(`"use typeshade"
-export function a(m: mat3): mat3 { return m * 2. }
-export function b(m: mat3): mat3 { return 2. * m }
-export function c(m: mat3, v: vec3): vec3 { return v * m }
-export function d(m: mat2x3, v: vec3): vec2 { return v * m }
-export function e(m: mat2x3, v: vec2): vec3 { return m * v }
-export function f(x: mat3x2, y: mat2x3): mat2x2 { return x * y }
-export function g(x: mat2x3, y: mat3x2): mat3x3 { return x * y }
+      errorsOf(`"use typeshade";
+export function a(m: mat3): mat3 { return m * 2.; }
+export function b(m: mat3): mat3 { return 2. * m; }
+export function c(m: mat3, v: vec3): vec3 { return v * m; }
+export function d(m: mat2x3, v: vec3): vec2 { return v * m; }
+export function e(m: mat2x3, v: vec2): vec3 { return m * v; }
+export function f(x: mat3x2, y: mat2x3): mat2x2 { return x * y; }
+export function g(x: mat2x3, y: mat3x2): mat3x3 { return x * y; }
 `),
     ).toEqual([])
   })
@@ -140,16 +140,16 @@ export function g(x: mat2x3, y: mat3x2): mat3x3 { return x * y }
       errorsOf(`"use typeshade"\nexport function a(m: mat3, s: i32): mat3 { return m * s }\n`),
     ).not.toEqual([])
     // mat2x3 has 2 columns, so it takes a vec2; a vec3 does not meet it.
-    const bad = errorsOf(`"use typeshade"
-export function a(m: mat2x3, v: vec3): vec3 { return m * v }
+    const bad = errorsOf(`"use typeshade";
+export function a(m: mat2x3, v: vec3): vec3 { return m * v; }
 `)
     expect(bad).toHaveLength(1)
     expect(bad[0]).toContain('mat2x3<f32>')
   })
 
   it('the shared dimension cancels, and the CPU proves the orientation', () => {
-    const r = compile(`"use typeshade"
-export function mul(a: mat3x2, b: mat2x3): mat2x2 { return a * b }
+    const r = compile(`"use typeshade";
+export function mul(a: mat3x2, b: mat2x3): mat2x2 { return a * b; }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     // a is 3 columns of 2; b is 2 columns of 3. a * b is 2 columns of 2.
@@ -207,9 +207,9 @@ export function mul(a: mat3x2, b: mat2x3): mat2x2 { return a * b }
 describe('the operators a matrix does and does not have', () => {
   it('adds and subtracts two matrices of the SAME shape, and nothing else', () => {
     expect(
-      errorsOf(`"use typeshade"
-export function a(x: mat2x3, y: mat2x3): mat2x3 { return x + y }
-export function b(x: mat3, y: mat3): mat3 { return x - y }
+      errorsOf(`"use typeshade";
+export function a(x: mat2x3, y: mat2x3): mat2x3 { return x + y; }
+export function b(x: mat3, y: mat3): mat3 { return x - y; }
 `),
     ).toEqual([])
     // Different shapes do not add, in either order.
@@ -274,9 +274,9 @@ export function b(x: mat3, y: mat3): mat3 { return x - y }
   it('does not let a matrix constructor shadow a function the file declares', () => {
     // "An addition may not change what a program means" — the rule the vector constructors
     // already follow (#8 A6).
-    const r = compile(`"use typeshade"
-function mat3(x: f32): f32 { return x * 2. }
-export function f(x: f32): f32 { return mat3(x) }
+    const r = compile(`"use typeshade";
+function mat3(x: f32): f32 { return x * 2.; }
+export function f(x: f32): f32 { return mat3(x); }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(compileModule(r.module).fns.f!(3)).toBe(6)
@@ -286,22 +286,22 @@ export function f(x: f32): f32 { return mat3(x) }
 describe('the constructors', () => {
   it('build from columns, from components, from a larger matrix, and empty', () => {
     expect(
-      errorsOf(`"use typeshade"
-export function cols(a: vec3, b: vec3, c: vec3): mat3 { return mat3(a, b, c) }
-export function parts(): mat3 { return mat3(1.,0.,0., 0.,1.,0., 0.,0.,1.) }
-export function zero(): mat2 { return mat2() }
-export function trunc(m: mat4): mat3 { return mat3(m) }
-export function wide(a: vec3, b: vec3): mat2x3 { return mat2x3(a, b) }
+      errorsOf(`"use typeshade";
+export function cols(a: vec3, b: vec3, c: vec3): mat3 { return mat3(a, b, c); }
+export function parts(): mat3 { return mat3(1.,0.,0., 0.,1.,0., 0.,0.,1.); }
+export function zero(): mat2 { return mat2(); }
+export function trunc(m: mat4): mat3 { return mat3(m); }
+export function wide(a: vec3, b: vec3): mat2x3 { return mat2x3(a, b); }
 `),
     ).toEqual([])
   })
 
   it('the four forms agree with each other on the CPU', () => {
-    const r = compile(`"use typeshade"
-export function fromCols(a: vec3, b: vec3, c: vec3): mat3 { return mat3(a, b, c) }
-export function fromParts(): mat3 { return mat3(1.,2.,3., 4.,5.,6., 7.,8.,9.) }
-export function zero(): mat3 { return mat3() }
-export function truncated(m: mat4): mat3 { return mat3(m) }
+    const r = compile(`"use typeshade";
+export function fromCols(a: vec3, b: vec3, c: vec3): mat3 { return mat3(a, b, c); }
+export function fromParts(): mat3 { return mat3(1.,2.,3., 4.,5.,6., 7.,8.,9.); }
+export function zero(): mat3 { return mat3(); }
+export function truncated(m: mat4): mat3 { return mat3(m); }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     const cpu = compileModule(r.module)
@@ -318,8 +318,8 @@ export function truncated(m: mat4): mat3 { return mat3(m) }
       errorsOf(`"use typeshade"\nexport function f(m: mat2): mat4 { return mat4(m) }\n`)[0],
     ).toContain('truncates a matrix and does not grow one')
     expect(
-      errorsOf(`"use typeshade"
-export function f(a: vec2, b: vec2, c: vec2): mat3 { return mat3(a, b, c) }
+      errorsOf(`"use typeshade";
+export function f(a: vec2, b: vec2, c: vec2): mat3 { return mat3(a, b, c); }
 `)[0],
     ).toContain('takes 3 vec3 columns')
     expect(
@@ -361,9 +361,9 @@ describe('transpose and determinant', () => {
   })
 
   it('determinant of a 2 and a 3 agrees with the hand computation', () => {
-    const r = compile(`"use typeshade"
-export function d2(m: mat2): f32 { return determinant(m) }
-export function d3(m: mat3): f32 { return determinant(m) }
+    const r = compile(`"use typeshade";
+export function d2(m: mat2): f32 { return determinant(m); }
+export function d3(m: mat3): f32 { return determinant(m); }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     const cpu = compileModule(r.module)

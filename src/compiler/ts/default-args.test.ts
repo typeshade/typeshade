@@ -153,16 +153,16 @@ function f(a: f32 = g()): f32 {
     // recursion check walks the syntax tree, where that call is not written, so before this it
     // emitted WGSL Tint refuses and a CPU run that overflows.
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 function g(): f32 {
-  return f()
+  return f();
 }
 function f(a: f32 = g()): f32 {
-  return a * 2.
+  return a * 2.;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(g(), 0., 0., 1.)
+  return vec4(g(), 0., 0., 1.);
 }
 `),
     ).toEqual([
@@ -219,10 +219,10 @@ function f(a: f32, p: P = { a: 7. }): f32 {
 
   it('an entry parameter, which comes from the pipeline', () => {
     expect(
-      errorsOf(`"use typeshade"
+      errorsOf(`"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2 = vec2(0.)): vec4 {
-  return vec4(uv, 0., 1.)
+  return vec4(uv, 0., 1.);
 }
 `),
     ).toEqual([

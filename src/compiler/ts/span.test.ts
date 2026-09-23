@@ -21,45 +21,45 @@ import { stripSpans } from '../../core/testing/strip-spans.js'
 import { fn, Var, f32, f32T } from '../../core/ir/index.js'
 
 /** One source exercising every statement kind the source language can produce. */
-const SRC = `"use typeshade"
+const SRC = `"use typeshade";
 
 export function helper(x: f32): f32 {
-  return x * 2.
+  return x * 2.;
 }
 
 export function shapes(n: i32): f32 {
-  const base = 1.
-  let acc = 0.
-  acc = base
-  acc += helper(base)
+  const base = 1.;
+  let acc = 0.;
+  acc = base;
+  acc += helper(base);
   if (n > 0) {
-    acc = acc + 1.
+    acc = acc + 1.;
   } else {
-    acc = acc - 1.
+    acc = acc - 1.;
   }
   for (let i: i32 = 0; i < 4; i++) {
     if (i === 2) {
-      continue
+      continue;
     }
     if (i === 3) {
-      break
+      break;
     }
-    acc += 1.
+    acc += 1.;
   }
-  let w: i32 = 0
+  let w: i32 = 0;
   while (w < 4) {
-    w = w + 1
+    w = w + 1;
   }
   switch (n) {
     case 0:
-      acc = 0.
+      acc = 0.;
     default:
-      acc = acc * 1.
+      acc = acc * 1.;
   }
   for (let j: i32 = 0; j < 8; j += 2) {
-    acc += 1.
+    acc += 1.;
   }
-  return acc
+  return acc;
 }
 `
 
@@ -241,17 +241,17 @@ describe('source spans — every statement kind carries one', () => {
     const body = byName(module, 'shapes').body
     const at = (s: Stmt): string => textAt(text, sourceSpanOf(s)!)
     // Top-level, in source order.
-    expect(at(body[0]!)).toBe('const base = 1.')
-    expect(at(body[1]!)).toBe('let acc = 0.')
-    expect(at(body[2]!)).toBe('acc = base')
-    expect(at(body[3]!)).toBe('acc += helper(base)')
+    expect(at(body[0]!)).toBe('const base = 1.;')
+    expect(at(body[1]!)).toBe('let acc = 0.;')
+    expect(at(body[2]!)).toBe('acc = base;')
+    expect(at(body[3]!)).toBe('acc += helper(base);')
     expect(at(body[4]!)).toMatch(/^if \(n > 0\) \{/)
     expect(at(body[5]!)).toMatch(/^for \(let i: i32 = 0; i < 4; i\+\+\) \{/)
-    expect(at(body[6]!)).toBe('let w: i32 = 0')
+    expect(at(body[6]!)).toBe('let w: i32 = 0;')
     expect(at(body[7]!)).toMatch(/^while \(w < 4\) \{/)
     expect(at(body[8]!)).toMatch(/^switch \(n\) \{/)
     expect(at(body[9]!)).toMatch(/^for \(let j: i32 = 0; j < 8; j \+= 2\) \{/)
-    expect(at(body[10]!)).toBe('return acc')
+    expect(at(body[10]!)).toBe('return acc;')
   })
 
   it('one declarator spans the whole statement, several span one each', () => {
@@ -259,15 +259,15 @@ describe('source spans — every statement kind carries one', () => {
     // `const`/`let` keyword and a breakpoint on that line points at its start. With several,
     // one TypeScript statement lowers to one IR statement per declarator, and each must span
     // its own or stepping highlights the same line twice.
-    const { module, text } = compiled(`"use typeshade"
+    const { module, text } = compiled(`"use typeshade";
 export function f(): f32 {
-  const a = 1.
-  const b = 2., c = 3.
-  return a + b + c
+  const a = 1.;
+  const b = 2., c = 3.;
+  return a + b + c;
 }
 `)
     const body = byName(module, 'f').body
-    expect(textAt(text, sourceSpanOf(body[0]!)!)).toBe('const a = 1.')
+    expect(textAt(text, sourceSpanOf(body[0]!)!)).toBe('const a = 1.;')
     expect(textAt(text, sourceSpanOf(body[1]!)!)).toBe('b = 2.')
     expect(textAt(text, sourceSpanOf(body[2]!)!)).toBe('c = 3.')
   })
@@ -290,11 +290,11 @@ export function f(): f32 {
     const outer = sourceSpanOf(ifStmt)!
     const thenStmt = ifStmt.arms[0]!.body[0]!
     const inner = sourceSpanOf(thenStmt)!
-    expect(textAt(text, inner)).toBe('acc = acc + 1.')
+    expect(textAt(text, inner)).toBe('acc = acc + 1.;')
     // Inside, strictly: a debugger highlighting the inner statement never leaves the outer.
     expect(inner.start).toBeGreaterThan(outer.start)
     expect(inner.start + inner.length).toBeLessThan(outer.start + outer.length)
-    expect(textAt(text, sourceSpanOf(ifStmt.elseBody![0]!)!)).toBe('acc = acc - 1.')
+    expect(textAt(text, sourceSpanOf(ifStmt.elseBody![0]!)!)).toBe('acc = acc - 1.;')
   })
 
   it('`break` and `continue` inside a loop carry their own spans', () => {
@@ -302,7 +302,7 @@ export function f(): f32 {
     const spans = allStatements(byName(module, 'shapes').body)
       .filter((s) => s.s === 'break' || s.s === 'continue')
       .map((s) => textAt(text, sourceSpanOf(s)!))
-    expect(spans).toEqual(['continue', 'break'])
+    expect(spans).toEqual(['continue;', 'break;'])
   })
 
   it('a helper and an entry both carry a declaration span and a name span', () => {
@@ -316,10 +316,10 @@ export function f(): f32 {
   })
 
   it("an entry's span starts at its stage decorator", () => {
-    const { module, text } = compiled(`"use typeshade"
+    const { module, text } = compiled(`"use typeshade";
 @fragment
 export function fs(): vec4 {
-  return vec4(1., 0., 0., 1.)
+  return vec4(1., 0., 0., 1.);
 }
 `)
     expect(textAt(text, byName(module, 'fs').span!)).toMatch(/^@fragment\nexport function fs/)
@@ -337,12 +337,12 @@ describe('source spans — expressions', () => {
   })
 
   it('two calls in one statement get different spans', () => {
-    const { module, text } = compiled(`"use typeshade"
+    const { module, text } = compiled(`"use typeshade";
 export function g(x: f32): f32 {
-  return x + 1.
+  return x + 1.;
 }
 export function f(a: f32, b: f32): f32 {
-  return g(a) + g(b)
+  return g(a) + g(b);
 }
 `)
     const calls = allExpressions(byName(module, 'f').body).filter((e) => e.op === 'call')
@@ -356,9 +356,9 @@ export function f(a: f32, b: f32): f32 {
     // because there is nowhere to point at. Same for the array higher-order functions and the
     // `Math.*` expansions. NOT the same for a numeric cast, which the review found this
     // comment had wrong — see the test below.
-    const { module, text } = compiled(`"use typeshade"
+    const { module, text } = compiled(`"use typeshade";
 export function f(x: f32): f32 {
-  return random(x)
+  return random(x);
 }
 `)
     const calls = allExpressions(byName(module, 'f').body).filter((e) => e.op === 'call')
@@ -373,12 +373,12 @@ export function f(x: f32): f32 {
     // any other call. Only a cast of a LITERAL loses one, and not by being spanless: it folds
     // to a `lit`, and `lit` has no span field at all — which is the honest outcome, since
     // `f32(3)` and `3.` are the same IR and the second was never written.
-    const { module, text } = compiled(`"use typeshade"
+    const { module, text } = compiled(`"use typeshade";
 export function f(n: i32, x: f32): f32 {
-  const a = f32(n)
-  const b = f32(3)
-  const c = u32(x)
-  return a + b + f32(c)
+  const a = f32(n);
+  const b = f32(3);
+  const c = u32(x);
+  return a + b + f32(c);
 }
 `)
     const body = byName(module, 'f').body
@@ -397,9 +397,9 @@ export function f(n: i32, x: f32): f32 {
   })
 
   it('an intrinsic call carries one too', () => {
-    const { module, text } = compiled(`"use typeshade"
+    const { module, text } = compiled(`"use typeshade";
 export function f(x: f32): f32 {
-  return sin(x)
+  return sin(x);
 }
 `)
     const calls = allExpressions(byName(module, 'f').body).filter((e) => e.op === 'call')
@@ -438,11 +438,11 @@ export function f(x: f32): f32 {
   })
 
   it('an indexed assignment target spans the whole element access', () => {
-    const { module, text } = compiled(`"use typeshade"
-declare let out: storage<array<f32>>
+    const { module, text } = compiled(`"use typeshade";
+declare let out: storage<array<f32>>;
 @compute([1, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  out[gid.x] = 1.
+  out[gid.x] = 1.;
 }
 `)
     const write = byName(module, 'k').body[0]!
@@ -452,11 +452,11 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
   })
 
   it('a read of the same name carries none — only the write position does', () => {
-    const { module } = compiled(`"use typeshade"
+    const { module } = compiled(`"use typeshade";
 export function f(a: f32): f32 {
-  let acc = a
-  acc = acc + a
-  return acc
+  let acc = a;
+  acc = acc + a;
+  return acc;
 }
 `)
     const assign = byName(module, 'f').body[1]!
@@ -613,11 +613,11 @@ describe('source spans — survival through the passes that rebuild nodes', () =
 // against `span.file` — which is what `CompileOptions.fileName` is for.
 
 describe('naming the compiled file', () => {
-  const NAMED = `"use typeshade"
+  const NAMED = `"use typeshade";
 
 export function fs(): f32 {
-  const a = 1.
-  return a
+  const a = 1.;
+  return a;
 }
 `
 

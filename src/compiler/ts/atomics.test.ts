@@ -20,25 +20,25 @@ import { optimizeAt } from '../../core/passes/opt/optimize.js'
 import { emitModule } from '../../core/backends/wgsl.js'
 import type { CpuValue } from '../../core/cpu-runtime.js'
 
-const HISTOGRAM = `"use typeshade"
-declare const src: storage<array<f32>>
-declare let bins: storage<array<atomic<u32>>>
-declare let total: storage<atomic<u32>>
-class Stats { hits: atomic<u32>; peak: atomic<i32> }
-declare let stats: storage<Stats>
+const HISTOGRAM = `"use typeshade";
+declare const src: storage<array<f32>>;
+declare let bins: storage<array<atomic<u32>>>;
+declare let total: storage<atomic<u32>>;
+class Stats { hits: atomic<u32>; peak: atomic<i32>; }
+declare let stats: storage<Stats>;
 @compute([64, 1, 1])
 export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= arrayLength(src)) {
-    return
+    return;
   }
-  const bin = u32(src[gid.x] * 4.)
-  atomicAdd(bins[bin], 1)
-  const before = atomicAdd(total, 1)
-  atomicMax(stats.peak, i32(before))
+  const bin = u32(src[gid.x] * 4.);
+  atomicAdd(bins[bin], 1);
+  const before = atomicAdd(total, 1);
+  atomicMax(stats.peak, i32(before));
   if (before === 0) {
-    atomicStore(stats.hits, 7)
+    atomicStore(stats.hits, 7);
   }
-  atomicXor(stats.hits, 1)
+  atomicXor(stats.hits, 1);
 }
 `
 
@@ -85,12 +85,12 @@ describe('atomics: the WGSL', () => {
   })
 
   it('a bare integer literal takes the atomic element type, u32 or i32', () => {
-    const r = compile(`"use typeshade"
-declare let counts: storage<array<atomic<i32>>>
+    const r = compile(`"use typeshade";
+declare let counts: storage<array<atomic<i32>>>;
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  atomicSub(counts[gid.x], 3)
-  atomicStore(counts[0], -1)
+  atomicSub(counts[gid.x], 3);
+  atomicStore(counts[0], -1);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -131,19 +131,19 @@ describe('atomics: the CPU backends', () => {
   })
 
   it('every read-modify-write returns the old value and wraps or masks like the GPU', () => {
-    const src = `"use typeshade"
-declare let xs: storage<array<atomic<u32>>>
-declare let out: storage<array<u32>>
+    const src = `"use typeshade";
+declare let xs: storage<array<atomic<u32>>>;
+declare let out: storage<array<u32>>;
 @compute([1, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  out[0] = atomicLoad(xs[0])
-  out[1] = atomicExchange(xs[1], 42)
-  out[2] = atomicAnd(xs[2], 65280)
-  out[3] = atomicOr(xs[3], 8)
-  out[4] = atomicAdd(xs[4], 2)
-  out[5] = atomicSub(xs[5], 9)
-  out[6] = atomicMin(xs[0], 4)
-  out[7] = atomicMax(xs[1], 40)
+  out[0] = atomicLoad(xs[0]);
+  out[1] = atomicExchange(xs[1], 42);
+  out[2] = atomicAnd(xs[2], 65280);
+  out[3] = atomicOr(xs[3], 8);
+  out[4] = atomicAdd(xs[4], 2);
+  out[5] = atomicSub(xs[5], 9);
+  out[6] = atomicMin(xs[0], 4);
+  out[7] = atomicMax(xs[1], 40);
 }
 `
     for (const make of [compileModule, compileModuleJs]) {
@@ -158,12 +158,12 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
   })
 
   it('an atomic<i32> wraps as a signed integer', () => {
-    const src = `"use typeshade"
-declare let xs: storage<array<atomic<i32>>>
+    const src = `"use typeshade";
+declare let xs: storage<array<atomic<i32>>>;
 @compute([1, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  atomicAdd(xs[0], 1)
-  atomicSub(xs[1], 1)
+  atomicAdd(xs[0], 1);
+  atomicSub(xs[1], 1);
 }
 `
     for (const make of [compileModule, compileModuleJs]) {
@@ -176,12 +176,12 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 
 describe('atomics: the optimizer and the effect table', () => {
   it('keeps two atomicAdds on one location and never merges them', () => {
-    const r = compile(`"use typeshade"
-declare let bins: storage<array<atomic<u32>>>
+    const r = compile(`"use typeshade";
+declare let bins: storage<array<atomic<u32>>>;
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  atomicAdd(bins[gid.x], 1)
-  atomicAdd(bins[gid.x], 1)
+  atomicAdd(bins[gid.x], 1);
+  atomicAdd(bins[gid.x], 1);
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -192,12 +192,12 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
       compileModule,
       r.wgsl === undefined
         ? ''
-        : `"use typeshade"
-declare let bins: storage<array<atomic<u32>>>
+        : `"use typeshade";
+declare let bins: storage<array<atomic<u32>>>;
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  atomicAdd(bins[gid.x], 1)
-  atomicAdd(bins[gid.x], 1)
+  atomicAdd(bins[gid.x], 1);
+  atomicAdd(bins[gid.x], 1);
 }
 `,
       'k',
@@ -208,15 +208,15 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
   })
 
   it('never shares an atomicLoad across a store to the same location', () => {
-    const src = `"use typeshade"
-declare let bins: storage<array<atomic<u32>>>
-declare let out: storage<array<u32>>
+    const src = `"use typeshade";
+declare let bins: storage<array<atomic<u32>>>;
+declare let out: storage<array<u32>>;
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  const a = atomicLoad(bins[gid.x])
-  atomicStore(bins[gid.x], 5)
-  const b = atomicLoad(bins[gid.x])
-  out[gid.x] = a + b
+  const a = atomicLoad(bins[gid.x]);
+  atomicStore(bins[gid.x], 5);
+  const b = atomicLoad(bins[gid.x]);
+  out[gid.x] = a + b;
 }
 `
     const r = compile(src)
@@ -230,18 +230,18 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
   })
 
   it('names the binding an atomic writes, itself and through a helper; a load writes nothing', () => {
-    const r = compile(`"use typeshade"
-declare let bins: storage<array<atomic<u32>>>
+    const r = compile(`"use typeshade";
+declare let bins: storage<array<atomic<u32>>>;
 function bump(i: u32): void {
-  atomicAdd(bins[i], 1)
+  atomicAdd(bins[i], 1);
 }
 function peek(i: u32): u32 {
-  return atomicLoad(bins[i])
+  return atomicLoad(bins[i]);
 }
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  bump(gid.x)
-  atomicStore(bins[0], peek(gid.x))
+  bump(gid.x);
+  atomicStore(bins[0], peek(gid.x));
 }
 `)
     expect(r.diagnostics).toEqual([])
@@ -308,17 +308,17 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
       `${TS_CODES.UNSUPPORTED} atomic<u32> lives in storage or workgroup memory only: declare it inside a storage binding (declare let counters: storage<array<atomic<u32>>>) or a workgroup variable (let tile: workgroup<array<atomic<u32>, 64>>), not as ${w}.`
     expect(errorsOf(`${HEAD}  let a: atomic<u32> = 0\n}\n`)).toEqual([where('a local')])
     expect(
-      errorsOf(`"use typeshade"
-function f(a: atomic<u32>): u32 { return 1 }
+      errorsOf(`"use typeshade";
+function f(a: atomic<u32>): u32 { return 1; }
 @fragment
-export function fs(): vec4 { return vec4(1.) }
+export function fs(): vec4 { return vec4(1.); }
 `),
     ).toEqual([where('a parameter')])
     expect(
-      errorsOf(`"use typeshade"
-declare const u: uniform<array<atomic<u32>>>
+      errorsOf(`"use typeshade";
+declare const u: uniform<array<atomic<u32>>>;
 @fragment
-export function fs(): vec4 { return vec4(1.) }
+export function fs(): vec4 { return vec4(1.); }
 `),
     ).toEqual([
       `${TS_CODES.UNSUPPORTED} "u" holds an atomic<u32>, which lives in storage memory only: write "declare let u: storage<array<atomic<u32>>>".`,
@@ -326,10 +326,10 @@ export function fs(): vec4 { return vec4(1.) }
   })
 
   it('an element type that is not u32 or i32', () => {
-    const errors = errorsOf(`"use typeshade"
-declare let b: storage<array<atomic<f32>>>
+    const errors = errorsOf(`"use typeshade";
+declare let b: storage<array<atomic<f32>>>;
 @fragment
-export function fs(): vec4 { return vec4(1.) }
+export function fs(): vec4 { return vec4(1.); }
 `)
     expect(errors[0]).toContain('atomic<T> T must be u32 or i32.')
   })
@@ -360,13 +360,13 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
     ])
     // Every atomic builtin, not just the one: the set is read off the intrinsic catalogue.
     expect(
-      errorsOf(`"use typeshade"
-class Clip { @builtin("position") pos: vec4 }
-declare let total: storage<atomic<u32>>
+      errorsOf(`"use typeshade";
+class Clip { @builtin("position") pos: vec4; }
+declare let total: storage<atomic<u32>>;
 @vertex
 export function vs(@builtin("vertex_index") i: u32): Clip {
-  const n = atomicLoad(total)
-  return { pos: vec4(f32(n), 0., 0., 1.) }
+  const n = atomicLoad(total);
+  return { pos: vec4(f32(n), 0., 0., 1.) };
 }
 `),
     ).toEqual([
@@ -374,23 +374,23 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
     ])
     // A fragment entry is where an atomic is legal outside a compute one.
     expect(
-      errorsOf(`"use typeshade"
-class Color { @location(0) color: vec4 }
-declare let total: storage<atomic<u32>>
+      errorsOf(`"use typeshade";
+class Color { @location(0) color: vec4; }
+declare let total: storage<atomic<u32>>;
 @fragment
 export function fs(): Color {
-  atomicAdd(total, 1)
-  return { color: vec4(1., 0., 0., 1.) }
+  atomicAdd(total, 1);
+  return { color: vec4(1., 0., 0., 1.) };
 }
 `),
     ).toEqual([])
   })
 
   it('a function the file declares under an atomic name keeps winning the call', () => {
-    const r = compileTsSource(`"use typeshade"
-function atomicAdd(a: u32, b: u32): u32 { return a + b }
+    const r = compileTsSource(`"use typeshade";
+function atomicAdd(a: u32, b: u32): u32 { return a + b; }
 @fragment
-export function fs(): vec4 { return vec4(f32(atomicAdd(1, 2)), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(f32(atomicAdd(1, 2)), 0., 0., 1.); }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(r.wgsl).toContain('fn atomicAdd(a: u32, b: u32) -> u32 {')
@@ -402,14 +402,14 @@ export function fs(): vec4 { return vec4(f32(atomicAdd(1, 2)), 0., 0., 1.) }
 // that answers a STRUCT. Every rule below is one Tint states in its own words, measured with a
 // broken shader fed to the same instrument first.
 describe('atomicCompareExchangeWeak answers a struct WGSL will not let you name', () => {
-  const CAS = `"use typeshade"
-declare let lock: storage<atomic<u32>>
-declare let o: storage<array<u32>>
+  const CAS = `"use typeshade";
+declare let lock: storage<atomic<u32>>;
+declare let o: storage<array<u32>>;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  const r = atomicCompareExchangeWeak(lock, 0, 7)
-  o[0] = r.old_value
-  o[1] = r.exchanged ? 1 : 0
+  const r = atomicCompareExchangeWeak(lock, 0, 7);
+  o[0] = r.old_value;
+  o[1] = r.exchanged ? 1 : 0;
 }
 `
 
@@ -473,26 +473,26 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   })
 
   it('works on an i32 atomic too, and keeps the atomic rules it shares', () => {
-    const r = compile(`"use typeshade"
-declare let lock: storage<atomic<i32>>
-declare let o: storage<array<i32>>
+    const r = compile(`"use typeshade";
+declare let lock: storage<atomic<i32>>;
+declare let o: storage<array<i32>>;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  const r = atomicCompareExchangeWeak(lock, -1, 7)
-  o[0] = r.old_value
+  const r = atomicCompareExchangeWeak(lock, -1, 7);
+  o[0] = r.old_value;
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(r.wgsl).toContain('atomicCompareExchangeWeak(&lock, -1, 7)')
     // A `declare const` binding is read-only, and every atomic builtin needs read_write.
     expect(
-      compileTsSource(`"use typeshade"
-declare const lock: storage<atomic<u32>>
-declare let o: storage<array<u32>>
+      compileTsSource(`"use typeshade";
+declare const lock: storage<atomic<u32>>;
+declare let o: storage<array<u32>>;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  const r = atomicCompareExchangeWeak(lock, 0, 7)
-  o[0] = r.old_value
+  const r = atomicCompareExchangeWeak(lock, 0, 7);
+  o[0] = r.old_value;
 }
 `)
         .diagnostics.filter((d) => d.category === 'error')

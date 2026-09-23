@@ -11,15 +11,15 @@ import { TS_CODES } from './codes.js'
 import { compileModule } from '../../core/oracle.js'
 import { compileModuleJs } from '../../core/cpu-codegen.js'
 
-const KERNEL = `"use typeshade"
-declare const src: storage<array<f32>>
-declare let dst: storage<array<f32>>
+const KERNEL = `"use typeshade";
+declare const src: storage<array<f32>>;
+declare let dst: storage<array<f32>>;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= arrayLength(src)) {
-    return
+    return;
   }
-  dst[gid.x] = src[gid.x] * 2.
+  dst[gid.x] = src[gid.x] * 2.;
 }
 `
 
@@ -36,23 +36,23 @@ describe('arrayLength(xs)', () => {
   })
 
   it('takes a trailing array field of a storage struct', () => {
-    const r = compileTsSource(`"use typeshade"
-class Buf { n: u32; xs: array<f32> }
-declare const b: storage<Buf>
+    const r = compileTsSource(`"use typeshade";
+class Buf { n: u32; xs: array<f32>; }
+declare const b: storage<Buf>;
 @fragment
-export function fs(): vec4 { return vec4(f32(arrayLength(b.xs)), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(f32(arrayLength(b.xs)), 0., 0., 1.); }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(r.wgsl).toContain('arrayLength(&b.xs)')
   })
 
   it('follows a local that copies the binding', () => {
-    const r = compileTsSource(`"use typeshade"
-declare const src: storage<array<f32>>
+    const r = compileTsSource(`"use typeshade";
+declare const src: storage<array<f32>>;
 @fragment
 export function fs(): vec4 {
-  const a = src
-  return vec4(f32(arrayLength(a)), 0., 0., 1.)
+  const a = src;
+  return vec4(f32(arrayLength(a)), 0., 0., 1.);
 }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
@@ -62,10 +62,10 @@ export function fs(): vec4 {
   it('refuses an element: the pointee must be the runtime-sized array', () => {
     // Tint: `arrayLength(&src[0])` has no matching call. The front end says what it got.
     expect(
-      errorsOf(`"use typeshade"
-declare const src: storage<array<f32>>
+      errorsOf(`"use typeshade";
+declare const src: storage<array<f32>>;
 @fragment
-export function fs(): vec4 { return vec4(f32(arrayLength(src[0])), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(f32(arrayLength(src[0])), 0., 0., 1.); }
 `),
     ).toEqual([
       `${TS_CODES.TYPE_MISMATCH} arrayLength takes a runtime-sized storage array, not a f32.`,
@@ -74,10 +74,10 @@ export function fs(): vec4 { return vec4(f32(arrayLength(src[0])), 0., 0., 1.) }
 
   it('refuses a sized array and names the size it has', () => {
     expect(
-      errorsOf(`"use typeshade"
-declare const src: storage<array<f32, 8>>
+      errorsOf(`"use typeshade";
+declare const src: storage<array<f32, 8>>;
 @fragment
-export function fs(): vec4 { return vec4(f32(arrayLength(src)), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(f32(arrayLength(src)), 0., 0., 1.); }
 `),
     ).toEqual([
       `${TS_CODES.TYPE_MISMATCH} arrayLength takes a runtime-sized array; this one has a fixed size of 8. Write 8, or read ".length".`,
@@ -85,10 +85,10 @@ export function fs(): vec4 { return vec4(f32(arrayLength(src)), 0., 0., 1.) }
   })
 
   it('refuses an unsized array outside storage with the fix that works for it', () => {
-    const uniform = errorsOf(`"use typeshade"
-declare const u: uniform<array<f32>>
+    const uniform = errorsOf(`"use typeshade";
+declare const u: uniform<array<f32>>;
 @fragment
-export function fs(): vec4 { return vec4(f32(arrayLength(u)), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(f32(arrayLength(u)), 0., 0., 1.); }
 `)
     // Two independent problems, so both are reported: the `arrayLength` call below, and the
     // declaration itself — a runtime-sized array cannot live in the uniform address space at
@@ -99,8 +99,8 @@ export function fs(): vec4 { return vec4(f32(arrayLength(u)), 0., 0., 1.) }
     expect(lengthError).toHaveLength(1)
     expect(lengthError[0]).toContain('not in storage')
     expect(lengthError[0]).toContain('array<f32, 3>')
-    const param = errorsOf(`"use typeshade"
-export function n(xs: array<f32>): u32 { return arrayLength(xs) }
+    const param = errorsOf(`"use typeshade";
+export function n(xs: array<f32>): u32 { return arrayLength(xs); }
 `)
     expect(param).toHaveLength(1)
     expect(param[0]).toContain(TS_CODES.UNSIZED_ARRAY_LENGTH)
@@ -108,10 +108,10 @@ export function n(xs: array<f32>): u32 { return arrayLength(xs) }
 
   it('takes exactly one argument', () => {
     expect(
-      errorsOf(`"use typeshade"
-declare const src: storage<array<f32>>
+      errorsOf(`"use typeshade";
+declare const src: storage<array<f32>>;
 @fragment
-export function fs(): vec4 { return vec4(f32(arrayLength(src, 1)), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(f32(arrayLength(src, 1)), 0., 0., 1.); }
 `),
     ).toEqual([`${TS_CODES.ARITY_MISMATCH} arrayLength expects 1 argument, got 2.`])
   })
@@ -119,10 +119,10 @@ export function fs(): vec4 { return vec4(f32(arrayLength(src, 1)), 0., 0., 1.) }
   it('a function the file declares with that name keeps winning the call', () => {
     // The additivity rule the §10 names follow: a new builtin name never changes what a program
     // that declared the name already meant.
-    const r = compileTsSource(`"use typeshade"
-function arrayLength(x: f32): f32 { return x * 2. }
+    const r = compileTsSource(`"use typeshade";
+function arrayLength(x: f32): f32 { return x * 2.; }
 @fragment
-export function fs(): vec4 { return vec4(arrayLength(1.5), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(arrayLength(1.5), 0., 0., 1.); }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(r.wgsl).toContain('fn arrayLength(x: f32) -> f32 {')

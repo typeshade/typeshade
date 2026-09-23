@@ -18,26 +18,26 @@ import { reflect } from '../../core/reflect.js'
 import { fnWrites } from '../../core/passes/effects.js'
 import type { CpuValue } from '../../core/cpu-runtime.js'
 
-const KERNEL = `"use typeshade"
-declare const src: storage<array<f32>>
-declare let out: storage<array<f32>>
-const SCALE: f32 = 2.
-let tile: workgroup<array<f32, 64>>
-let seed: u32 = 7
-let acc: vec2 = vec2(SCALE, 0.)
-let counters: workgroup<array<atomic<u32>, 4>>
+const KERNEL = `"use typeshade";
+declare const src: storage<array<f32>>;
+declare let out: storage<array<f32>>;
+const SCALE: f32 = 2.;
+let tile: workgroup<array<f32, 64>>;
+let seed: u32 = 7;
+let acc: vec2 = vec2(SCALE, 0.);
+let counters: workgroup<array<atomic<u32>, 4>>;
 function bump(): u32 {
-  seed = seed + 1
-  return seed
+  seed = seed + 1;
+  return seed;
 }
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u, @builtin("local_invocation_id") lid: vec3u): void {
-  tile[lid.x] = src[gid.x] * SCALE
-  bump()
-  bump()
-  acc.x = acc.x + tile[lid.x]
-  atomicAdd(counters[0], 1)
-  out[gid.x] = tile[lid.x] + f32(seed) + acc.x
+  tile[lid.x] = src[gid.x] * SCALE;
+  bump();
+  bump();
+  acc.x = acc.x + tile[lid.x];
+  atomicAdd(counters[0], 1);
+  out[gid.x] = tile[lid.x] + f32(seed) + acc.x;
 }
 `
 
@@ -88,13 +88,13 @@ describe('module variables: the CPU backends', () => {
   })
 
   it('workgroup memory is one implicit workgroup for the module, zero at creation', () => {
-    const src = `"use typeshade"
-declare let out: storage<array<u32>>
-let hits: workgroup<u32>
+    const src = `"use typeshade";
+declare let out: storage<array<u32>>;
+let hits: workgroup<u32>;
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  hits = hits + 1
-  out[gid.x] = hits
+  hits = hits + 1;
+  out[gid.x] = hits;
 }
 `
     for (const make of [compileModule, compileModuleJs]) {
@@ -209,10 +209,10 @@ describe('module variables: what is refused, and what the fix is', () => {
 
   it('workgroup memory reached from a fragment entry', () => {
     expect(
-      only(`"use typeshade"
-let t: workgroup<f32>
+      only(`"use typeshade";
+let t: workgroup<f32>;
 @fragment
-export function fs(): vec4 { return vec4(t, 0., 0., 1.) }
+export function fs(): vec4 { return vec4(t, 0., 0., 1.); }
 `),
     ).toBe(
       `${TS_CODES.MODULE_VAR} "t" is workgroup memory, which only a compute entry has; a fragment entry cannot read or write it.`,
@@ -288,17 +288,17 @@ ${TAIL}`)
   })
 
   it('no initializer is zero; an array and a struct take a constant one', () => {
-    const src = `"use typeshade"
-declare let out: storage<array<f32>>
-class P { a: f32; b: vec2 }
-let hits: u32
-let a: array<f32, 2> = [1., 2.]
-let z: array<f32, 2> = [0., 0.]
-let p: P = { a: 1., b: vec2(2., 3.) }
+    const src = `"use typeshade";
+declare let out: storage<array<f32>>;
+class P { a: f32; b: vec2; }
+let hits: u32;
+let a: array<f32, 2> = [1., 2.];
+let z: array<f32, 2> = [0., 0.];
+let p: P = { a: 1., b: vec2(2., 3.) };
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  z[0] = a[0] + a[1] + p.b.y
-  out[gid.x] = z[0] + a[1] + f32(hits)
+  z[0] = a[0] + a[1] + p.b.y;
+  out[gid.x] = z[0] + a[1] + f32(hits);
 }
 `
     const r = compile(src)
@@ -323,18 +323,18 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
   })
 
   it('on GLSL ES 3.00 it is a plain global, and the oracle agrees', () => {
-    const r = compile(`"use typeshade"
-let seed: u32 = 7
+    const r = compile(`"use typeshade";
+let seed: u32 = 7;
 function next(): u32 {
-  seed = seed * 3 + 1
-  return seed
+  seed = seed * 3 + 1;
+  return seed;
 }
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
-  seed = u32(uv.x)
-  const a = next()
-  const b = next()
-  return vec4(f32(a), f32(b), f32(seed), 1.)
+  seed = u32(uv.x);
+  const a = next();
+  const b = next();
+  return vec4(f32(a), f32(b), f32(seed), 1.);
 }
 `)
     expect(r.diagnostics).toEqual([])

@@ -384,11 +384,11 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
   })
 
   it('is not a module variable', () => {
-    const errors = errorsOf(`"use typeshade"
-let dst: texture_storage_2d<"rgba8unorm", "write">
+    const errors = errorsOf(`"use typeshade";
+let dst: texture_storage_2d<"rgba8unorm", "write">;
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  textureStore(dst, vec2i(0, 0), vec4(1.))
+  textureStore(dst, vec2i(0, 0), vec4(1.));
 }
 `)
     expect(errors[0]).toContain(
@@ -586,15 +586,15 @@ ${body}
   textureStore(acc, vec2i(0, 0), v)`,
   )
 
-  const VERTEX_READ = `"use typeshade"
-declare const src: texture_storage_2d<"r32float", "read_write">
+  const VERTEX_READ = `"use typeshade";
+declare const src: texture_storage_2d<"r32float", "read_write">;
 class Clip {
   @builtin("position") pos: vec4;
 }
 @vertex
 export function vs(@builtin("vertex_index") i: u32): Clip {
-  const v = textureLoad(src, vec2i(0, 0))
-  return { pos: v }
+  const v = textureLoad(src, vec2i(0, 0));
+  return { pos: v };
 }
 `
 

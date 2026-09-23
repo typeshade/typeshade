@@ -63,9 +63,9 @@ describe('a vector module constant', () => {
   it('takes a declared type, a splat and an integer element kind', () => {
     const c = compile(`
       "use typeshade";
-      const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.)
-      const H = vec2(0.5)
-      const N = vec3u(u32(1), u32(2), u32(3))
+      const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.);
+      const H = vec2(0.5);
+      const N = vec3u(u32(1), u32(2), u32(3));
       export function a(): vec4 {
         return SKY;
       }
@@ -88,7 +88,7 @@ describe('a vector module constant', () => {
   it('takes arithmetic over literals, folded by the writers', () => {
     const c = compile(`
       "use typeshade";
-      const V = vec3(1. / 3., -2., 0.5 * 4.)
+      const V = vec3(1. / 3., -2., 0.5 * 4.);
       export function f(): vec3 {
         return V;
       }
@@ -101,8 +101,8 @@ describe('a vector module constant', () => {
   it('takes an earlier module const as a component', () => {
     const c = compile(`
       "use typeshade";
-      const K: f32 = 2.
-      const V = vec3(K, K, K)
+      const K: f32 = 2.;
+      const V = vec3(K, K, K);
       export function f(): vec3 {
         return V;
       }
@@ -115,7 +115,7 @@ describe('a vector module constant', () => {
   it('can be used in arithmetic like any other value', () => {
     const c = compile(`
       "use typeshade";
-      const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.)
+      const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.);
       export function f(): vec4 {
         return SKY * 2.;
       }
@@ -129,7 +129,7 @@ describe('an array module constant', () => {
   it('emits and indexes on both targets', () => {
     const c = compile(`
       "use typeshade";
-      const XS: array<f32, 3> = array<f32, 3>(1., 2., 3.)
+      const XS: array<f32, 3> = array<f32, 3>(1., 2., 3.);
       export function f(i: i32): f32 {
         return XS[i];
       }
@@ -143,7 +143,7 @@ describe('an array module constant', () => {
   it('holds vectors', () => {
     const c = compile(`
       "use typeshade";
-      const PAL = array<vec4, 2>(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.))
+      const PAL = array<vec4, 2>(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.));
       export function f(i: i32): vec4 {
         return PAL[i];
       }
@@ -155,7 +155,7 @@ describe('an array module constant', () => {
   it('reports its length, so it can bound a loop', () => {
     const c = compile(`
       "use typeshade";
-      const XS = array<f32, 4>(1., 2., 3., 4.)
+      const XS = array<f32, 4>(1., 2., 3., 4.);
       export function f(): f32 {
         let acc = 0.;
         for (let i: i32 = 0; i < XS.length; i++) {
@@ -225,7 +225,7 @@ describe('what a module constant still is not', () => {
     // A divisor that is merely not foldable is not proven anything, and a real one still works.
     const c = compile(`
       "use typeshade";
-      const Y = vec3(1. / 4., 0., 0.)
+      const Y = vec3(1. / 4., 0., 0.);
       export function f(): vec3 {
         return Y;
       }

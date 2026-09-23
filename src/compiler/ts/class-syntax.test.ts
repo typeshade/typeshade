@@ -74,23 +74,23 @@ const M = TS_CODES.CLASS_MEMBER
 const F = TS_CODES.STRUCT_FIELD
 
 describe('getters and setters (Rule 8.11)', () => {
-  const TEMP = `"use typeshade"
+  const TEMP = `"use typeshade";
 class Temperature {
-  #celsius: f32 = 0.
-  get celsius(): f32 { return this.#celsius }
-  set celsius(v: f32) { this.#celsius = max(v, -200.) }
-  get fahrenheit(): f32 { return this.#celsius * 1.8 + 32. }
-  set fahrenheit(v) { this.celsius = (v - 32.) / 1.8 }
+  #celsius: f32 = 0.;
+  get celsius(): f32 { return this.#celsius; }
+  set celsius(v: f32) { this.#celsius = max(v, -200.); }
+  get fahrenheit(): f32 { return this.#celsius * 1.8 + 32.; }
+  set fahrenheit(v) { this.celsius = (v - 32.) / 1.8; }
 }
 export function run(f: f32): f32 {
-  let t = new Temperature()
-  t.fahrenheit = f
-  t.celsius += 5.
-  t.celsius++
-  return t.celsius
+  let t = new Temperature();
+  t.fahrenheit = f;
+  t.celsius += 5.;
+  t.celsius++;
+  return t.celsius;
 }
 @fragment
-export function fs(): vec4 { return vec4(run(212.), 0., 0., 1.) }
+export function fs(): vec4 { return vec4(run(212.), 0., 0., 1.); }
 `
 
   it('each half is a function: the getter reads its object, the setter writes through it', () => {

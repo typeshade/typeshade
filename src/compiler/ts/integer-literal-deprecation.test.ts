@@ -9,14 +9,14 @@ import { describe, expect, it } from 'vitest'
 import { compile } from './compile.js'
 import { TS_CODES } from './codes.js'
 
-const SRC = `"use typeshade"
+const SRC = `"use typeshade";
 export function f(xs: array<f32, 4>): f32 {
-  let i = 0
-  const K = 5
-  const n = 2 + 3
-  let x = 5.
-  let y: f32 = 7
-  return xs[i32(i)] + K + f32(n) + x + y
+  let i = 0;
+  const K = 5;
+  const n = 2 + 3;
+  let x = 5.;
+  let y: f32 = 7;
+  return xs[i32(i)] + K + f32(n) + x + y;
 }`
 
 const warnings = (source: string, deprecations: boolean) =>
@@ -66,9 +66,9 @@ describe('the integer-literal deprecation, behind its flag', () => {
 
   it('reaches a module-scope const as well as a local', () => {
     const found = warnings(
-      `"use typeshade"
-const LEVELS = 4
-export function f(): f32 { return LEVELS }`,
+      `"use typeshade";
+const LEVELS = 4;
+export function f(): f32 { return LEVELS; }`,
       true,
     )
     expect(found).toHaveLength(1)

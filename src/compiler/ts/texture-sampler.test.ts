@@ -164,10 +164,10 @@ describe('override constants', () => {
   it('declares with a stated default, or the type zero without one', () => {
     const r = compileTsSource(`
       "use typeshade";
-      declare const quality: override<f32>
-      const steps: override<i32> = 8
-      const fancy: override<bool> = true
-      const bias: override<f32> = -0.5
+      declare const quality: override<f32>;
+      const steps: override<i32> = 8;
+      const fancy: override<bool> = true;
+      const bias: override<f32> = -0.5;
       export function f(): f32 {
         return quality;
       }
@@ -187,19 +187,19 @@ describe('override constants', () => {
     // constant, so it is worth asserting on the real stage rather than on the module form.
     const c = compile(`
       "use typeshade";
-      const quality: override<f32> = 0.5
+      const quality: override<f32> = 0.5;
       // A STRUCT uniform, not a loose scalar: GLSL ES 3.00 has no default-block home for the
       // latter and refuses the module, which would leave the GLSL half undefined for a reason
       // that has nothing to do with overrides.
       class U {
-        k: f32
+        k: f32;
       }
-      declare const camera: uniform<U>
+      declare const camera: uniform<U>;
       class VsOut {
-        @builtin("position") pos: vec4
+        @builtin("position") pos: vec4;
       }
       class Color {
-        @location(0) color: vec4
+        @location(0) color: vec4;
       }
       @vertex
       export function vs(@builtin("vertex_index") i: u32): VsOut {
@@ -220,7 +220,7 @@ describe('override constants', () => {
   it('reads as an overrideref, which no pass folds', () => {
     const r = compileTsSource(`
       "use typeshade";
-      const quality: override<f32> = 2.
+      const quality: override<f32> = 2.;
       export function f(): f32 {
         return quality * 2.;
       }
