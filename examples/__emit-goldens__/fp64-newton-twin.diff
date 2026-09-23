@@ -33,9 +33,8 @@
  @fragment
  fn fs_newton(vo: VsOut) -> @location(0) vec4<f32> {
    let _fp64_g = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
-   let _licm0 = vec2<f32>(2.0, 0.0);
    let _cse5 = bitcast<f32>(bitcast<u32>(0.0));
-   let _licm1 = vec2<f32>(_cse5, _cse5);
+   let _licm0 = vec2<f32>(_cse5, _cse5);
 -  let _v0 = pow(10.0, (-u.zoom_exp));
 -  let _v1 = (vo.uv.x * 2.0);
 +  let span = pow(10.0, (-u.zoom_exp));
@@ -99,35 +98,35 @@
 -    var _v21: vec2<f32> = df64_add(_cse2, vec2<f32>(_v4, 0.0), _fp64_g);
 +    var zx_1: vec2<f32> = df64_add(_cse1, vec2<f32>(dx, 0.0), _fp64_g);
 +    var zy_1: vec2<f32> = df64_add(_cse2, vec2<f32>(dy, 0.0), _fp64_g);
-     let _cse3 = df64_add(vec2<f32>(1.0, 0.0), _licm1, _fp64_g);
+     let _cse3 = df64_add(vec2<f32>(1.0, 0.0), _licm0, _fp64_g);
      let _cse4 = vec2<f32>(3.0, 0.0);
 -    for (var _v22: u32 = 0u; (_v22 < 48u); _v22 = (_v22 + 1u)) {
--      let _v23 = df64_sub(df64_mul(_v20, _v20, _fp64_g), df64_mul(_v21, _v21, _fp64_g), _fp64_g);
--      let _v24 = df64_mul(df64_mul(_v20, _v21, _fp64_g), _licm0, _fp64_g);
+-      let _v23 = df64_sub(df64_sqr(_v20, _fp64_g), df64_sqr(_v21, _fp64_g), _fp64_g);
+-      let _v24 = (df64_mul(_v20, _v21, _fp64_g) * 2.0);
 -      let _v25 = df64_sub(df64_sub(df64_mul(_v23, _v20, _fp64_g), df64_mul(_v24, _v21, _fp64_g), _fp64_g), _cse3, _fp64_g);
 -      let _v26 = df64_add(df64_mul(_v23, _v21, _fp64_g), df64_mul(_v24, _v20, _fp64_g), _fp64_g);
 -      let _v27 = df64_mul(_v23, _cse4, _fp64_g);
 -      let _v28 = df64_mul(_v24, _cse4, _fp64_g);
--      let _v29 = df64_div(_cse3, df64_add(df64_mul(_v27, _v27, _fp64_g), df64_mul(_v28, _v28, _fp64_g), _fp64_g), _fp64_g);
+-      let _v29 = df64_div(_cse3, df64_add(df64_sqr(_v27, _fp64_g), df64_sqr(_v28, _fp64_g), _fp64_g), _fp64_g);
 -      let _v30 = df64_mul(df64_add(df64_mul(_v25, _v27, _fp64_g), df64_mul(_v26, _v28, _fp64_g), _fp64_g), _v29, _fp64_g);
 -      let _v31 = df64_mul(df64_sub(df64_mul(_v26, _v27, _fp64_g), df64_mul(_v25, _v28, _fp64_g), _fp64_g), _v29, _fp64_g);
--      _v20 = df64_sub(df64_add(_v20, _licm1, _fp64_g), df64_add(_v30, _licm1, _fp64_g), _fp64_g);
--      _v21 = df64_sub(df64_add(_v21, _licm1, _fp64_g), df64_add(_v31, _licm1, _fp64_g), _fp64_g);
--      if ((df64_narrow(df64_add(df64_mul(_v30, _v30, _fp64_g), df64_mul(_v31, _v31, _fp64_g), _fp64_g)) > 1e-14)) {
+-      _v20 = df64_sub(df64_add(_v20, _licm0, _fp64_g), df64_add(_v30, _licm0, _fp64_g), _fp64_g);
+-      _v21 = df64_sub(df64_add(_v21, _licm0, _fp64_g), df64_add(_v31, _licm0, _fp64_g), _fp64_g);
+-      if ((df64_narrow(df64_add(df64_sqr(_v30, _fp64_g), df64_sqr(_v31, _fp64_g), _fp64_g)) > 1e-14)) {
 -        _v7 = (_v7 + 1.0);
 +    for (var j_1: u32 = 0u; (j_1 < 48u); j_1 = (j_1 + 1u)) {
-+      let z2x_1 = df64_sub(df64_mul(zx_1, zx_1, _fp64_g), df64_mul(zy_1, zy_1, _fp64_g), _fp64_g);
-+      let z2y_1 = df64_mul(df64_mul(zx_1, zy_1, _fp64_g), _licm0, _fp64_g);
++      let z2x_1 = df64_sub(df64_sqr(zx_1, _fp64_g), df64_sqr(zy_1, _fp64_g), _fp64_g);
++      let z2y_1 = (df64_mul(zx_1, zy_1, _fp64_g) * 2.0);
 +      let nx_1 = df64_sub(df64_sub(df64_mul(z2x_1, zx_1, _fp64_g), df64_mul(z2y_1, zy_1, _fp64_g), _fp64_g), _cse3, _fp64_g);
 +      let ny_1 = df64_add(df64_mul(z2x_1, zy_1, _fp64_g), df64_mul(z2y_1, zx_1, _fp64_g), _fp64_g);
 +      let gx_1 = df64_mul(z2x_1, _cse4, _fp64_g);
 +      let gy_1 = df64_mul(z2y_1, _cse4, _fp64_g);
-+      let inv_1 = df64_div(_cse3, df64_add(df64_mul(gx_1, gx_1, _fp64_g), df64_mul(gy_1, gy_1, _fp64_g), _fp64_g), _fp64_g);
++      let inv_1 = df64_div(_cse3, df64_add(df64_sqr(gx_1, _fp64_g), df64_sqr(gy_1, _fp64_g), _fp64_g), _fp64_g);
 +      let qx_1 = df64_mul(df64_add(df64_mul(nx_1, gx_1, _fp64_g), df64_mul(ny_1, gy_1, _fp64_g), _fp64_g), inv_1, _fp64_g);
 +      let qy_1 = df64_mul(df64_sub(df64_mul(ny_1, gx_1, _fp64_g), df64_mul(nx_1, gy_1, _fp64_g), _fp64_g), inv_1, _fp64_g);
-+      zx_1 = df64_sub(df64_add(zx_1, _licm1, _fp64_g), df64_add(qx_1, _licm1, _fp64_g), _fp64_g);
-+      zy_1 = df64_sub(df64_add(zy_1, _licm1, _fp64_g), df64_add(qy_1, _licm1, _fp64_g), _fp64_g);
-+      if ((df64_narrow(df64_add(df64_mul(qx_1, qx_1, _fp64_g), df64_mul(qy_1, qy_1, _fp64_g), _fp64_g)) > 1e-14)) {
++      zx_1 = df64_sub(df64_add(zx_1, _licm0, _fp64_g), df64_add(qx_1, _licm0, _fp64_g), _fp64_g);
++      zy_1 = df64_sub(df64_add(zy_1, _licm0, _fp64_g), df64_add(qy_1, _licm0, _fp64_g), _fp64_g);
++      if ((df64_narrow(df64_add(df64_sqr(qx_1, _fp64_g), df64_sqr(qy_1, _fp64_g), _fp64_g)) > 1e-14)) {
 +        it = (it + 1.0);
        }
      }
@@ -191,6 +190,13 @@
    return vec2<f32>(_v0, _v3);
  }
  
+ fn df64_twoSqr(a: f32, _fp64_g: f32) -> vec2<f32> {
+   let _v0 = (a * a);
+   let _v1 = df64_split(a, _fp64_g);
+   let _v2 = (((((_v1.x * _v1.x) - _v0) * _fp64_g) + (((_v1.x * _v1.y) * 2.0) * _fp64_g)) + ((_v1.y * _v1.y) * _fp64_g));
+   return vec2<f32>(_v0, _v2);
+ }
+ 
  fn df64_add(a: vec2<f32>, b: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
    var _v0: vec2<f32> = df64_twoSum(a.x, b.x, _fp64_g);
    let _v1 = df64_twoSum(a.y, b.y, _fp64_g);
@@ -210,6 +216,12 @@
    _v0.y = (_v0.y + (a.x * b.y));
    _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
    _v0.y = (_v0.y + (a.y * b.x));
+   return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
+ }
+ 
+ fn df64_sqr(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
+   var _v0: vec2<f32> = df64_twoSqr(a.x, _fp64_g);
+   _v0.y = (_v0.y + ((a.x * a.y) * 2.0));
    return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
  }
  

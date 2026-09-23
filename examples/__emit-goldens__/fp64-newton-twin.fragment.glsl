@@ -42,6 +42,13 @@ vec2 df64_twoProd(float a, float b, float _fp64_g) {
   return vec2(_v0, _v3);
 }
 
+vec2 df64_twoSqr(float a, float _fp64_g) {
+  float _v0 = (a * a);
+  vec2 _v1 = df64_split(a, _fp64_g);
+  float _v2 = (((((_v1.x * _v1.x) - _v0) * _fp64_g) + (((_v1.x * _v1.y) * 2.0) * _fp64_g)) + ((_v1.y * _v1.y) * _fp64_g));
+  return vec2(_v0, _v2);
+}
+
 vec2 df64_add(vec2 a, vec2 b, float _fp64_g) {
   vec2 _v0 = df64_twoSum(a.x, b.x, _fp64_g);
   vec2 _v1 = df64_twoSum(a.y, b.y, _fp64_g);
@@ -64,6 +71,12 @@ vec2 df64_mul(vec2 a, vec2 b, float _fp64_g) {
   return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
 }
 
+vec2 df64_sqr(vec2 a, float _fp64_g) {
+  vec2 _v0 = df64_twoSqr(a.x, _fp64_g);
+  _v0.y = (_v0.y + ((a.x * a.y) * 2.0));
+  return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
+}
+
 vec2 df64_div(vec2 a, vec2 b, float _fp64_g) {
   float _v0 = (_fp64_g / b.x);
   vec2 _v1 = (a * _v0);
@@ -80,9 +93,8 @@ layout(location = 0) out vec4 _ret;
 
 void main() {
   float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  vec2 _licm0 = vec2(2.0, 0.0);
   float _cse5 = uintBitsToFloat(floatBitsToUint(0.0));
-  vec2 _licm1 = vec2(_cse5, _cse5);
+  vec2 _licm0 = vec2(_cse5, _cse5);
   float span = pow(10.0, (-u.zoom_exp));
   float half_ = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
@@ -118,21 +130,21 @@ void main() {
   } else {
     vec2 zx_1 = df64_add(_cse1, vec2(dx, 0.0), _fp64_g);
     vec2 zy_1 = df64_add(_cse2, vec2(dy, 0.0), _fp64_g);
-    vec2 _cse3 = df64_add(vec2(1.0, 0.0), _licm1, _fp64_g);
+    vec2 _cse3 = df64_add(vec2(1.0, 0.0), _licm0, _fp64_g);
     vec2 _cse4 = vec2(3.0, 0.0);
     for (uint j_1 = 0u; (j_1 < 48u); j_1 = (j_1 + 1u)) {
-      vec2 z2x_1 = df64_sub(df64_mul(zx_1, zx_1, _fp64_g), df64_mul(zy_1, zy_1, _fp64_g), _fp64_g);
-      vec2 z2y_1 = df64_mul(df64_mul(zx_1, zy_1, _fp64_g), _licm0, _fp64_g);
+      vec2 z2x_1 = df64_sub(df64_sqr(zx_1, _fp64_g), df64_sqr(zy_1, _fp64_g), _fp64_g);
+      vec2 z2y_1 = (df64_mul(zx_1, zy_1, _fp64_g) * 2.0);
       vec2 nx_1 = df64_sub(df64_sub(df64_mul(z2x_1, zx_1, _fp64_g), df64_mul(z2y_1, zy_1, _fp64_g), _fp64_g), _cse3, _fp64_g);
       vec2 ny_1 = df64_add(df64_mul(z2x_1, zy_1, _fp64_g), df64_mul(z2y_1, zx_1, _fp64_g), _fp64_g);
       vec2 gx_1 = df64_mul(z2x_1, _cse4, _fp64_g);
       vec2 gy_1 = df64_mul(z2y_1, _cse4, _fp64_g);
-      vec2 inv_1 = df64_div(_cse3, df64_add(df64_mul(gx_1, gx_1, _fp64_g), df64_mul(gy_1, gy_1, _fp64_g), _fp64_g), _fp64_g);
+      vec2 inv_1 = df64_div(_cse3, df64_add(df64_sqr(gx_1, _fp64_g), df64_sqr(gy_1, _fp64_g), _fp64_g), _fp64_g);
       vec2 qx_1 = df64_mul(df64_add(df64_mul(nx_1, gx_1, _fp64_g), df64_mul(ny_1, gy_1, _fp64_g), _fp64_g), inv_1, _fp64_g);
       vec2 qy_1 = df64_mul(df64_sub(df64_mul(ny_1, gx_1, _fp64_g), df64_mul(nx_1, gy_1, _fp64_g), _fp64_g), inv_1, _fp64_g);
-      zx_1 = df64_sub(df64_add(zx_1, _licm1, _fp64_g), df64_add(qx_1, _licm1, _fp64_g), _fp64_g);
-      zy_1 = df64_sub(df64_add(zy_1, _licm1, _fp64_g), df64_add(qy_1, _licm1, _fp64_g), _fp64_g);
-      if ((df64_narrow(df64_add(df64_mul(qx_1, qx_1, _fp64_g), df64_mul(qy_1, qy_1, _fp64_g), _fp64_g)) > 1e-14)) {
+      zx_1 = df64_sub(df64_add(zx_1, _licm0, _fp64_g), df64_add(qx_1, _licm0, _fp64_g), _fp64_g);
+      zy_1 = df64_sub(df64_add(zy_1, _licm0, _fp64_g), df64_add(qy_1, _licm0, _fp64_g), _fp64_g);
+      if ((df64_narrow(df64_add(df64_sqr(qx_1, _fp64_g), df64_sqr(qy_1, _fp64_g), _fp64_g)) > 1e-14)) {
         it = (it + 1.0);
       }
     }
