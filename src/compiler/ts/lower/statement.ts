@@ -1175,9 +1175,9 @@ function lowerAssign(
  *
  * Kept apart from {@link lowerAssignOp} for one reason: the bitwise operators are defined
  * on integers only, and this is a form nothing accepted before, so refusing a float target
- * here rejects no source that compiles today. (`a & b` as an EXPRESSION has no such guard
- * and emits `(a & b)` for two `f32`s, which is not valid WGSL — a pre-existing hole that
- * tightening would break passing source, so it is left for its own change.)
+ * here rejects no source that compiles today. (`a & b` as an EXPRESSION refuses a float
+ * operand too, in `lowerBinary`, except two f32 whole numbers the front end folds: a module
+ * constant, an enum member and a `case` label take `1 | 2` as 3, so that stays accepted.)
  *
  * @returns the `assignOp` statement, or `undefined` after pushing a diagnostic.
  */

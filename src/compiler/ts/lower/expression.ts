@@ -720,6 +720,30 @@ function lowerBinary(
             : right;
       return { op: 'binop', type: left.type, bop: bit, a: left, b: amount };
     }
+    // `&`, `|` and `^` have no float overload on either target (Rule 7.1: WGSL's bit expressions
+    // take the integer kinds, and `&` and `|` bools; GLSL ES 3.00 §5.9 takes integers only), but
+    // this path compared only the two operand types. So `a & b` on two f32s emitted `(a & b)`,
+    // which Tint refuses with `no matching overload for 'operator & (f32, f32)'`, and two f64s
+    // came back from the fp64 pass as a span-less SD0041. A float operand is refused here, in
+    // the author's words (Rule 12.6), and before the equal-types rule below, whose remedy for
+    // `f32 & u32` begins with `f32(intVal)`: two floats, which is this refusal again.
+    //
+    // Two whole numbers the front end folds are the exception. `1 | 2`, or two flags declared
+    // `const A = 1`, are f32 only by Rule 5.1's default, and a module constant, an enum member
+    // and a `case` label fold them to the number (§12), which compiles; that is left as it was.
+    // Where such a pair is emitted instead (`const x = 1 | 2` in a function body), it still
+    // reaches the targets as `(1.0 | 2.0)`, as before.
+    const float = [left.type, right.type].find(isFloatBitOperand);
+    if (float !== undefined && !isWholeF32Pair(left, right, scope)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        bitwiseFloatMessage(bit, float),
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
     if (typeKey(left.type) !== typeKey(right.type)) {
       pushDiag(
         diagnostics,
@@ -825,6 +849,41 @@ function laneCount(t: ShaderType): 1 | 2 | 3 | 4 {
 function isFloatPowOperand(t: ShaderType): boolean {
   if (t.kind === 'vec') return t.elem === 'f32';
   return typeKey(t) === 'f32';
+}
+
+/** Whether `t` is a float that `&`, `|` and `^` have no overload for on either target: an f32,
+ *  a vector of f32, or an emulated double, scalar or vector. */
+function isFloatBitOperand(t: ShaderType): boolean {
+  if (t.kind === 'vec') return t.elem === 'f32';
+  return typeKey(t) === 'f32' || isF64(t) || isVec64(t);
+}
+
+/** Whether both operands are f32 whole numbers the front end folds (`foldConstNumber`): `1 | 2`,
+ *  or two flags declared `const A = 1`. A module constant, an enum member and a `case` label
+ *  hold the folded number, so no operator reaches a target there. */
+function isWholeF32Pair(a: Expr, b: Expr, scope: LoweringScope): boolean {
+  return [a, b].every((e) => {
+    if (typeKey(e.type) !== 'f32') return false;
+    const v = foldConstNumber(e, scope);
+    return v !== undefined && Number.isInteger(v);
+  });
+}
+
+/** The sentence `&`, `|` and `^` raise for a float operand (Rule 12.1): the kind, then the
+ *  conversion to write, which the surface has for each kind. An f32 may be reinterpreted
+ *  instead (`bitcast<u32>`, surface §44), and an emulated double narrows to f32 before any
+ *  integer conversion, as its casts require. */
+function bitwiseFloatMessage(bit: BinOp, t: ShaderType): string {
+  const fix =
+    t.kind === 'vec'
+      ? `Convert first, e.g. vec${String(t.n)}u(a) ${bit} vec${String(t.n)}u(b).`
+      : t.kind === 'vec64'
+        ? `Narrow and convert first, e.g. vec${String(t.n)}u(vec${String(t.n)}(a)) ${bit} ` +
+          `vec${String(t.n)}u(vec${String(t.n)}(b)).`
+        : isF64(t)
+          ? `Narrow and convert first, e.g. u32(f32(a)) ${bit} u32(f32(b)).`
+          : `Convert first, e.g. u32(a) ${bit} u32(b), or reinterpret the bits with bitcast<u32>(a).`;
+  return `Bitwise "${bit}" needs i32 or u32 operands, got ${typeKey(t)}. ${fix}`;
 }
 
 function pushDiag(
