@@ -210,7 +210,10 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   tarball runs `dist/src/cli/bin.js` under Node (`scripts/publish-manifest.ts` derives the `bin`
   by the rule it applies to `exports`); this tree and a submodule run
   `bun src/cli/bin.ts check <paths>`. What it inherits from the service it inherits whole: an
-  import from another shader file is `TS8004` (#187).
+  import from another shader file is `TS8004` (#187). The check is exported from
+  `typeshade/language-service` as `checkDocuments`, and as `checkOpenDocument` for a tool that
+  keeps its own service, so the MCP server in typeshade/vscode-typeshade can call it rather than
+  keep a copy that could drift (Rule 12.7).
 
 - **A user-journey gate, `bun run gate:journeys`, in CI as `user-journeys`.** It packs the
   tarball the way the publish workflow does and installs it into a fresh project, with the
@@ -1000,7 +1003,8 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   whole call, for every unknown function. The table is the MCP server's from
   typeshade/vscode-typeshade, moved into the compiler (`src/compiler/ts/foreign-names.ts`) with
   the two invariants its tests held: every target is a name TypeShade has, and no source is
-  one. No name is added: accepting `lerp` as a second spelling of `mix` is what Rules 2.1 and
+  one. It is exported from `typeshade/language-service` as `FOREIGN_NAMES`, so that server can
+  read it from the compiler it pins. No name is added: accepting `lerp` as a second spelling of `mix` is what Rules 2.1 and
   9.6 exclude, and an alias for `fmod` would change what a program means.
 
 - **One mistake reads as one diagnostic in the editor and in `typeshade check`** (Rule 12.4). A

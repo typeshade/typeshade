@@ -356,9 +356,16 @@ two rules, and only ever an error that another error already covers:
   function imported from another shader file is `TS8004` to the single-file compiler (#187),
   and TypeScript's TS2322 about what it returns stands.
 
-`typeshade check` reads the same merged list. A test whose subject is TypeScript's own view (the
-ambient lib, the filters of §6) reads the two halves unmerged, through
-`createTypeshadeLanguageServiceWith(host, analyze, { merge: false })`.
+`typeshade check` reads the same merged list, and adds from `compile()` only what the service
+cannot compute: the backends' `TS8015` and the opt-in `TS8053`. That check is exported from this
+subpath as `checkDocuments(docs, options)`, and as `checkOpenDocument(service, doc, options)` for
+a tool that keeps its own service and documents open across requests, such as the MCP server in
+typeshade/vscode-typeshade; calling it, rather than assembling the list again, is what keeps two
+tools from giving two answers about one file (Rule 12.7). `FOREIGN_NAMES`, the GLSL and HLSL
+names the compiler's refusals translate (#218), is exported beside it.
+
+A test whose subject is TypeScript's own view (the ambient lib, the filters of §6) reads the two
+halves unmerged, through `createTypeshadeLanguageServiceWith(host, analyze, { merge: false })`.
 
 | Method                                                                               | TypeScript Language Service (over the ambient lib)                                                                                      | TypeShade layer                                                                                                                                                                                                                                                                           |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -6,9 +6,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { SHADE_DTS } from '../language-service/ambient.js';
-import { checkDocuments, type CheckDocument } from './check.js';
-import { formatCheckReport } from './format.js';
+import { SHADE_DTS } from './ambient.js';
+import { checkDocuments, checkOpenDocument, type CheckDocument } from './check.js';
+import { createTypeshadeLanguageService } from './service.js';
 
 const PKG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -176,65 +176,32 @@ export function f(): f32 {
   });
 });
 
-describe('typeshade check output', () => {
-  const text = `"use typeshade";
-export function f(x: f32): f32 {
-  const y = x;
+describe('checkOpenDocument: the same check over a service the caller keeps', () => {
+  it('reports what checkDocuments reports, for the one document asked about', () => {
+    // A render module with a TypeScript mistake, a compiler mistake and a GLSL shortfall: every
+    // source the check draws on.
+    const text = `"use typeshade";
+declare const scale: uniform<f32>;
+
+@fragment
+export function fs(): vec4 {
+  const y = 1.;
   y = 2.;
-  return y;
+  return vec4(scale, colr, 0., 1.);
 }
 `;
-  const report = checkDocuments([doc('c.shade.ts', text)]);
-  const sources = new Map([['c.shade.ts', text]]);
-
-  it('text: the tsc --pretty layout, without colour', () => {
-    expect(formatCheckReport(report, 'text', sources)).toBe(
-      [
-        'c.shade.ts:4:3 - error TS8005: Cannot assign to "y" — it is declared with const.',
-        '',
-        '4   y = 2.;',
-        '    ~',
-        '',
-        'Found 1 error in 1 file (1 file checked).',
-        '',
-      ].join('\n'),
-    );
-  });
-
-  it('short: one line per diagnostic', () => {
-    expect(formatCheckReport(report, 'short', sources).split('\n')).toEqual([
-      'c.shade.ts:4:3 - error TS8005: Cannot assign to "y" — it is declared with const.',
-      'Found 1 error in 1 file (1 file checked).',
-      '',
-    ]);
-  });
-
-  it('json: the report as data, versioned', () => {
-    const parsed = JSON.parse(formatCheckReport(report, 'json', sources)) as Record<
-      string,
-      unknown
-    >;
-    expect(parsed['version']).toBe(1);
-    expect(parsed['summary']).toEqual({ errors: 1, warnings: 0, files: 1 });
-    expect(parsed['diagnostics']).toEqual([
-      {
-        file: 'c.shade.ts',
-        line: 4,
-        column: 3,
-        endLine: 4,
-        endColumn: 4,
-        offset: 67,
-        length: 1,
-        severity: 'error',
-        code: 'TS8005',
-        source: 'typeshade',
-        message: 'Cannot assign to "y" — it is declared with const.',
-      },
-    ]);
-  });
-
-  it('a clean check says so', () => {
-    const clean = checkDocuments([doc('valid.shade.ts', VALID)]);
-    expect(formatCheckReport(clean, 'text')).toBe('No problems found in 1 file.\n');
+    const other = `"use typeshade";
+export function g(x: f32): f32 {
+  return nope;
+}
+`;
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/p/a.shade.ts', text);
+    service.openDocument('/p/b.shade.ts', other);
+    const kept = checkOpenDocument(service, doc('a.shade.ts', text));
+    expect(kept).toEqual(checkDocuments([doc('a.shade.ts', text)]).diagnostics);
+    expect(kept.map((d) => `${d.severity} ${d.code}`)).toEqual(['error TS8005', 'error TS8022']);
+    // The service keeps the other document open, and its rows are not this one's.
+    expect(kept.every((d) => d.file === 'a.shade.ts')).toBe(true);
   });
 });

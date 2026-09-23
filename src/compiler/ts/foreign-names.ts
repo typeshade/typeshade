@@ -206,6 +206,8 @@ const possessive = (from: ForeignName['from']): string =>
  * @builtin("position") pos: vec4.` `undefined` for any other name, whose refusal keeps the
  * remedy it had. A name the file declares never reaches a refusal, so a helper the author
  * named `lerp` still wins (Rule 9.5).
+ *
+ * Exported from `typeshade/language-service`.
  */
 export function foreignNameRemedy(name: string): string | undefined {
   if (!Object.hasOwn(FOREIGN_NAMES, name)) return undefined;

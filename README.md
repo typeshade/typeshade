@@ -111,6 +111,8 @@ Found 1 error in 1 file (1 file checked).
 
 `--format short` prints one line per diagnostic, and `--format json` prints the report as data: one-based lines and columns, the UTF-16 span, and `source`, `"typeshade"` or `"typescript"`, for the half that raised it. `--deprecations` adds the warnings `compile(source, { deprecations: true })` reports. The exit status is 0 when no error was found, 1 when one was, and 2 when the command could not run. Over the 73 `.shade.ts` examples it reports no error and 5 warnings, each a GLSL ES 3.00 shortfall `compile()` also reports as `TS8015`.
 
+The same check is exported from `typeshade/language-service`, as `checkDocuments` and, for a tool that keeps its own language service open, `checkOpenDocument`, so a tool that reports on shader files gives the command's answer rather than one of its own.
+
 What it inherits from the language service, it inherits whole:
 
 - **Each file is analysed on its own**, so a function imported from another shader file is `TS8004` ([#187](https://github.com/typeshade/typeshade/issues/187)).

@@ -7,7 +7,7 @@
 // header alone, one line per diagnostic, for a log or a grep. `json` is the report itself, for
 // a tool.
 
-import type { CheckDiagnostic, CheckReport } from './check.js';
+import type { CheckDiagnostic, CheckReport } from '../language-service/check.js';
 
 /** The output formats `typeshade check --format` accepts. */
 export const CHECK_FORMATS = ['text', 'short', 'json'] as const;

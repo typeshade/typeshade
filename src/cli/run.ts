@@ -5,7 +5,7 @@
 // command host-free is what keeps `src/` free of host types (tsconfig.json `types: []`), which
 // the library has never needed and the command should not be the reason it starts to.
 
-import { checkDocuments, type CheckDocument } from './check.js';
+import { checkDocuments, type CheckDocument } from '../language-service/check.js';
 import { CHECK_FORMATS, formatCheckReport, type CheckFormat } from './format.js';
 
 /** What the command needs from its host. Paths are absolute, joined with `/`. */
