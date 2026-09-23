@@ -2,6 +2,7 @@
 precision highp float;
 precision highp int;
 
+const float[3] WEIGHTS = float[3](0.25, 0.5, 0.25);
 out vec2 uv;
 
 void main() {

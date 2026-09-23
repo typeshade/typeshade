@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Loops over data",
-  "blurb": "The three loops a program over data writes, through Tint and a real WebGL2 context: a `for` whose bound is a uniform the host sets, a `while` that walks an explicit stack until it is empty (the BVH traversal shape), and a `while (true)` iteration that leaves at a `break` once it has converged (Rule 7.5, #203).",
+  "blurb": "The three loops a program over data writes, through Tint and a real WebGL2 context: a `for` whose bound is a uniform the host sets, a `while` that walks an explicit stack until it is empty (the BVH traversal shape), and a `while (true)` iteration that leaves at a `break` once it has converged, and a `for…of` over a constant array (Rule 7.5, #203).",
   "renderable": true
 }
 */
@@ -19,6 +19,8 @@
 //   exit is "the stack is empty" and not a bound on a counter: an open loop.
 // - `isqrt` runs Newton's iteration for a square root until two steps agree, and leaves at a
 //   `break`. `while (true)` is refused only when nothing in its body can leave it.
+// - `fs` weighs three samples with `for (const w of WEIGHTS)`, the loop a TypeScript author
+//   writes over an array: a counted loop over its indices, with the element read each trip.
 
 class VsOut {
   @builtin("position") pos: vec4;
@@ -35,6 +37,8 @@ interface Frame {
 }
 
 declare const frame: uniform<Frame>;
+
+const WEIGHTS: array<f32, 3> = [0.25, 0.5, 0.25];
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): VsOut {
@@ -94,6 +98,11 @@ function isqrt(x: f32): f32 {
 export function fs(v: VsOut): Color {
   const ring = march(v.uv, frame.steps);
   const n = f32(leaves(frame.depth));
-  const s = isqrt(v.uv.x * 4.) * 0.5;
+  let s = 0.;
+  let k = 0.;
+  for (const w of WEIGHTS) {
+    s += w * isqrt(v.uv.x * 4. + k) * 0.5;
+    k += 1.;
+  }
   return { color: vec4(ring, fract(n / 7.), s, 1.) };
 }

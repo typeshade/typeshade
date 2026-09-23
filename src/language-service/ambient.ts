@@ -762,8 +762,11 @@ declare const arrayTag: unique symbol
 // '[arrayTag]' is missing") on a program the compiler accepts. \`length\` stays required and
 // stays \`N\`, which is what still separates the sizes — a three-element list is not an
 // \`array<f32, 2>\` in the editor either.
+// Iterable, so \`for (const x of xs)\` type-checks (Rule 7.5): the compiler lowers it to a counted
+// loop over the indices. The iterator's shape is written inline so it adds no global name.
 type array<T, N extends number = number> = { readonly [arrayTag]?: readonly [T, N]; readonly length: N } & {
   [index: number]: T
+  [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
 }
 ${renderJSDoc(FUNCTION_DOCS.array)}
 declare function array<T, N extends number>(...values: readonly T[]): array<T, N>
@@ -1465,7 +1468,15 @@ declare function compute(target: Function, context?: unknown): void
 interface Array<T> {
   readonly length: number
   [n: number]: T
+  // A list literal is an \`Array\` here, and it has to stay assignable to an iterable \`array<T, N>\`.
+  [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
 }
+// What \`[Symbol.iterator]\` above resolves through. \`Symbol\` itself stays a host API: the
+// compiler refuses it as a value (TS8012), so declaring it here gives an author nothing to write.
+interface SymbolConstructor {
+  readonly iterator: unique symbol
+}
+declare var Symbol: SymbolConstructor
 interface Boolean {}
 interface Function {}
 interface CallableFunction extends Function {}
