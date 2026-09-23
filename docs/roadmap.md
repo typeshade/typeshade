@@ -18,6 +18,11 @@ Two things, and both have to hold.
 The first is the compiler finishing its job. The second is a small layer on top of it, and
 its size is a rule, not an accident.
 
+What both are for is stated in [`docs/dx.md`](dx.md): the GPU is an optimization level of the
+TypeScript the developer wrote, the way `-O2` is of C, and the CPU oracle is what `-O0` means.
+That document also sets the bar the second half is measured against. The bar's checks are the
+items of "The DX bar" below.
+
 ## What makes it more than a shader compiler
 
 A typed compiler over a small language, with a CPU oracle that agrees with the GPU bit for
@@ -242,6 +247,21 @@ the whole arc, of which the three items below are what a 1.0 carries; the rest i
 | 21  | Bounds proofs: an index the compiler can bound from the loop and the array length compiles; one it cannot is refused with the range it could establish                                                                                                                         | M    |       | The loop analysis of 15 already computes the bounds.                                                         |
 | 22  | Determinism report: `compile()` lists the operations in a module whose result may differ by driver (the transcendentals, `fma` where a target has no fused form)                                                                                                               | S    |       | **Shipped** (surface §38, `compile().determinism`, #142). The table exists in the emitter; this surfaces it. |
 
+### The DX bar
+
+The checks of [`docs/dx.md`](dx.md), each built once the thing it measures exists. The order of
+work inside 0.5 follows from the first of them: item 16 is taken before item 15, since calling an
+imported function works on the CPU tier the day the plugin lands, and item 15 then makes the same
+call faster without changing it.
+
+| #   | Item                                                                                                                                                                  | Size | Issue | Notes                                                             |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ----- | ----------------------------------------------------------------- |
+| X1  | No GPU vocabulary in a compute program: a test scans the run-layer example application for device, buffer, bind group, pipeline, workgroup and WGSL, and fails on any | S    |       | Needs 15 and 16.                                                  |
+| X2  | Zero configuration: a test installs the package into a fresh project, writes the example and runs it                                                                  | S    |       | Needs 16.                                                         |
+| X3  | Every example runs without a GPU, on the run layer's CPU tier, under the test runner                                                                                  | S    |       | The compute runner's CPU tier covers portable kernels only today. |
+| X4  | `explain(f)`: where each call runs and why, what crosses the CPU/GPU boundary and how often, in the source's own terms, never in generated text                       | M    |       | Built from the facts 15 and B2 compute.                           |
+| X5  | `grad(f, 'k')` on an imported function returns a function; `grad(module, 'f', 'k')` stays the escape hatch                                                            | S    |       | Needs 16 and 18.                                                  |
+
 ### 0.8 Finish and freeze
 
 | #   | Item                                                                                                                                                                                                                                                                                                                             | Size | Issue                                                   | Notes                                                                                                                                                                                                                                                                                                                                               |
@@ -293,8 +313,8 @@ above.
 | 0.2.0   | Items 1 to 9.                                                                                                                                          |
 | 0.3.0   | Items T1 to T10.                                                                                                                                       |
 | 0.4.0   | Items 10 to 13.                                                                                                                                        |
-| 0.5.0   | Items 14 to 17.                                                                                                                                        |
-| 0.6.0   | Items B1 to B3.                                                                                                                                        |
-| 0.7.0   | Items 18 to 22.                                                                                                                                        |
+| 0.5.0   | Items 14 to 17, 16 first, and X1 to X3.                                                                                                                |
+| 0.6.0   | Items B1 to B3, and X4.                                                                                                                                |
+| 0.7.0   | Items 18 to 22, and X5.                                                                                                                                |
 | 0.8.0   | Items 23 to 25, then release candidates until nothing moves.                                                                                           |
 | 1.0.0   | The surface in `surface.md` at 0.8, with the two meanings above holding and the three things a shader library cannot do.                               |
