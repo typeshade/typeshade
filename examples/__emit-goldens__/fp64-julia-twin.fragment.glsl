@@ -100,14 +100,18 @@ void main() {
   if ((_cse0 || (u.fp64 < 0.5))) {
     float zx = (df64_narrow(_cse1) + dx);
     float zy = (df64_narrow(_cse2) + dy);
-    m2 = ((zx * zx) + (zy * zy));
+    float x2 = (zx * zx);
+    float y2 = (zy * zy);
+    m2 = (x2 + y2);
     for (uint j = 0u; (j < 128u); j = (j + 1u)) {
       if ((m2 <= 16.0)) {
-        float nzx = (((zx * zx) - (zy * zy)) + -0.8);
+        float nzx = ((x2 - y2) + -0.8);
         zy = (((zx * zy) * 2.0) + 0.156);
         zx = nzx;
         it = (it + 1.0);
-        m2 = ((zx * zx) + (zy * zy));
+        x2 = (zx * zx);
+        y2 = (zy * zy);
+        m2 = (x2 + y2);
       }
     }
   } else {

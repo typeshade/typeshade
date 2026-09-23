@@ -43,38 +43,42 @@ fn fs_julia(vo: VsOut) -> @location(0) vec4<f32> {
   if ((_cse0 || (u.fp64 < 0.5))) {
     var _v7: f32 = (df64_narrow(_cse1) + _v3);
     var _v8: f32 = (df64_narrow(_cse2) + _v4);
-    _v6 = ((_v7 * _v7) + (_v8 * _v8));
-    for (var _v9: u32 = 0u; (_v9 < 128u); _v9 = (_v9 + 1u)) {
+    var _v9: f32 = (_v7 * _v7);
+    var _v10: f32 = (_v8 * _v8);
+    _v6 = (_v9 + _v10);
+    for (var _v11: u32 = 0u; (_v11 < 128u); _v11 = (_v11 + 1u)) {
       if ((_v6 <= 16.0)) {
-        let _v10 = (((_v7 * _v7) - (_v8 * _v8)) + -0.8);
+        let _v12 = ((_v9 - _v10) + -0.8);
         _v8 = (((_v7 * _v8) * 2.0) + 0.156);
-        _v7 = _v10;
+        _v7 = _v12;
         _v5 = (_v5 + 1.0);
-        _v6 = ((_v7 * _v7) + (_v8 * _v8));
+        _v9 = (_v7 * _v7);
+        _v10 = (_v8 * _v8);
+        _v6 = (_v9 + _v10);
       }
     }
   } else {
-    var _v11: vec2<f32> = df64_add(_cse1, vec2<f32>(_v3, 0.0), _fp64_g);
-    var _v12: vec2<f32> = df64_add(_cse2, vec2<f32>(_v4, 0.0), _fp64_g);
-    let _v13 = df64_narrow(_v11);
-    let _v14 = df64_narrow(_v12);
-    _v6 = ((_v13 * _v13) + (_v14 * _v14));
-    for (var _v15: u32 = 0u; (_v15 < 128u); _v15 = (_v15 + 1u)) {
+    var _v13: vec2<f32> = df64_add(_cse1, vec2<f32>(_v3, 0.0), _fp64_g);
+    var _v14: vec2<f32> = df64_add(_cse2, vec2<f32>(_v4, 0.0), _fp64_g);
+    let _v15 = df64_narrow(_v13);
+    let _v16 = df64_narrow(_v14);
+    _v6 = ((_v15 * _v15) + (_v16 * _v16));
+    for (var _v17: u32 = 0u; (_v17 < 128u); _v17 = (_v17 + 1u)) {
       if ((_v6 <= 16.0)) {
-        let _v16 = df64_add(df64_sub(df64_sqr(_v11, _fp64_g), df64_sqr(_v12, _fp64_g), _fp64_g), _licm0, _fp64_g);
-        _v12 = df64_add((df64_mul(_v11, _v12, _fp64_g) * 2.0), _licm1, _fp64_g);
-        _v11 = _v16;
+        let _v18 = df64_add(df64_sub(df64_sqr(_v13, _fp64_g), df64_sqr(_v14, _fp64_g), _fp64_g), _licm0, _fp64_g);
+        _v14 = df64_add((df64_mul(_v13, _v14, _fp64_g) * 2.0), _licm1, _fp64_g);
+        _v13 = _v18;
         _v5 = (_v5 + 1.0);
-        let _v17 = df64_narrow(_v11);
-        let _v18 = df64_narrow(_v12);
-        _v6 = ((_v17 * _v17) + (_v18 * _v18));
+        let _v19 = df64_narrow(_v13);
+        let _v20 = df64_narrow(_v14);
+        _v6 = ((_v19 * _v19) + (_v20 * _v20));
       }
     }
   }
-  let _v19 = ((_v5 - log2(max(log2(max(_v6, 1.0001)), 0.0001))) + 1.0);
-  let _v20 = step(127.5, _v5);
-  let _v21 = (_v19 * 0.0078125);
-  return vec4<f32>((((vec3<f32>(0.5) + (cos(((vec3<f32>(0.0, 0.25, 0.6) + (_v21 * 5.5)) + 2.2)) * 0.5)) * mix(0.35, 1.0, _v21)) * (1.0 - _v20)), 1.0);
+  let _v21 = ((_v5 - log2(max(log2(max(_v6, 1.0001)), 0.0001))) + 1.0);
+  let _v22 = step(127.5, _v5);
+  let _v23 = (_v21 * 0.0078125);
+  return vec4<f32>((((vec3<f32>(0.5) + (cos(((vec3<f32>(0.0, 0.25, 0.6) + (_v23 * 5.5)) + 2.2)) * 0.5)) * mix(0.35, 1.0, _v23)) * (1.0 - _v22)), 1.0);
 }
 
 fn df64_twoSum(a: f32, b: f32, _fp64_g: f32) -> vec2<f32> {

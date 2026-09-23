@@ -43,14 +43,18 @@ fn fs_julia(vo: VsOut) -> @location(0) vec4<f32> {
   if ((_cse0 || (u.fp64 < 0.5))) {
     var zx: f32 = (df64_narrow(_cse1) + dx);
     var zy: f32 = (df64_narrow(_cse2) + dy);
-    m2 = ((zx * zx) + (zy * zy));
+    var x2: f32 = (zx * zx);
+    var y2: f32 = (zy * zy);
+    m2 = (x2 + y2);
     for (var j: u32 = 0u; (j < 128u); j = (j + 1u)) {
       if ((m2 <= 16.0)) {
-        let nzx = (((zx * zx) - (zy * zy)) + -0.8);
+        let nzx = ((x2 - y2) + -0.8);
         zy = (((zx * zy) * 2.0) + 0.156);
         zx = nzx;
         it = (it + 1.0);
-        m2 = ((zx * zx) + (zy * zy));
+        x2 = (zx * zx);
+        y2 = (zy * zy);
+        m2 = (x2 + y2);
       }
     }
   } else {

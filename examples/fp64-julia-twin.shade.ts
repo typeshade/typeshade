@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "fp64 Julia set (source twin)",
-  "blurb": "`fp64-julia.ts` written in the source language: the seed is fixed and the pixel becomes z₀, so the `if`/`else` split runs the same escape loop over an `f64` on one side and a plain `f32` on the other. The double half spells nothing the emulation does not already carry, a `vec2f64` lane read, `f64(dx)` widening the pixel offset, and the seed lifted to full doubles beside it (§39), and the two halves lower to `df64_add` / `df64_mul` against the very same f32 ops. The escape test reads an f32 |z|² on both halves: the double half narrows its words for it, since 48 bits move a value across 16 only from within an f32 rounding of it.",
+  "blurb": "`fp64-julia.ts` written in the source language: the seed is fixed and the pixel becomes z₀, so the `if`/`else` split runs the same escape loop over an `f64` on one side and a plain `f32` on the other. The double half spells nothing the emulation does not already carry, a `vec2f64` lane read, `f64(dx)` widening the pixel offset, and the seed lifted to full doubles beside it (§39), and the two halves lower to `df64_add` / `df64_mul` against plain f32 ops. The escape test reads an f32 |z|² on both halves: the double half narrows its words for it, since 48 bits move a value across 16 only from within an f32 rounding of it, and the f32 half carries its squares beside it, so no square is computed twice a trip.",
   "renderable": true,
   "twinOf": "fp64-julia"
 }
@@ -75,9 +75,9 @@ export function fs_julia(vo: VsOut): vec4 {
   // so a trip after escape costs that compare and the counter's own step.
   //
   // The test belongs in the loop condition, `j < 128 && m2 <= 16.0`, which exits
-  // where this skips. This surface does not accept it: a `for` is counted (§17,
-  // Rule 7.5 of docs/language-design.md), its condition is read as ONE
-  // comparison of the counter against a constant, and the conjunction is
+  // where this skips. This surface does not accept it: a `for` is counted
+  // (surface §17, Rule 7.5 of docs/language-design.md), its condition is read
+  // as ONE comparison of the counter against a constant, and the conjunction is
   // TS8006. The original could say it and spells what this file spells instead;
   // `fp64-julia.ts` records what exiting would and would not save.
   let it = 0.
@@ -85,31 +85,43 @@ export function fs_julia(vo: VsOut): vec4 {
   if (vo.uv.x < 0.5 || u.fp64 < 0.5) {
     // f32 twin: z0 built from the narrowed center. At deep zoom the pixel
     // coordinate quantizes to f32 ulps and whole columns collapse.
+    //
+    // The squares are carried as well, beside m2. The step needs zx^2 and zy^2,
+    // and the m2 refresh at the end of the trip before squared that same z;
+    // squaring it again in the step puts the two on opposite sides of the loop's
+    // back edge, where no CSE can share them (two multiplies a trip; the counts
+    // are in `fp64-julia.ts`).
     let zx = f32(u.center.x) + dx
     let zy = f32(u.center.y) + dy
-    m2 = zx * zx + zy * zy
+    let x2 = zx * zx
+    let y2 = zy * zy
+    m2 = x2 + y2
     for (let j: u32 = 0; j < 128; j++) {
       if (m2 <= 16.0) {
-        const nzx = zx * zx - zy * zy + -0.8
+        const nzx = x2 - y2 + -0.8
         zy = zx * zy * 2.0 + 0.156
         zx = nzx
         it = it + 1.0
-        m2 = zx * zx + zy * zy
+        x2 = zx * zx
+        y2 = zy * zy
+        m2 = x2 + y2
       }
     }
   } else {
     // f64: the same loop, z0 keeps its extended-precision position. The
     // literals beside an f64 are lifted to full doubles (§39), and `f64(dx)`
-    // widens the f32 pixel offset exactly. ONE thing differs from the f32 half,
-    // how m2 is taken. The escape test asks only which side of 16 |z|^2 lies
-    // on, and 48 bits change that answer only within an f32 rounding of the
-    // threshold, so m2 is squared in f32 from the narrowed words instead of in
-    // df64: two df64_mul, a df64_add and a df64_le fewer every trip. `f32(zx)`
-    // rounds hi + lo, which is the high word itself up to a half-ulp tie; the
-    // high word alone is not a name this surface has (§2.4 of
-    // docs/language-design.md). A pixel within an f32 rounding of |z|^2 = 16
-    // can escape one step earlier or later than a df64 test would have it, and
-    // the smooth colouring absorbs the step; the counts are in `fp64-julia.ts`.
+    // widens the f32 pixel offset exactly. m2 is taken differently. The escape
+    // test asks only which side of 16 |z|^2 lies on, and 48 bits change that
+    // answer only within an f32 rounding of the threshold, so m2 is squared in
+    // f32 from the narrowed words instead of in df64: two df64 squares, a
+    // df64_add and a df64_le fewer every trip. `f32(zx)` rounds hi + lo, which
+    // is the high word itself up to a half-ulp tie; the high word alone is not a
+    // name this surface has (the split is compiler-internal, Rule 2.2 of
+    // docs/language-design.md). So this half has no squares to carry: the step
+    // squares z in df64 and the refresh squares its narrowed words in f32, two
+    // different values. A pixel within an f32 rounding of |z|^2 = 16 can escape
+    // one step earlier or later than a df64 test would have it, and the smooth
+    // colouring absorbs the step; the counts are in `fp64-julia.ts`.
     let zx = u.center.x + f64(dx)
     let zy = u.center.y + f64(dy)
     const hx0 = f32(zx)
