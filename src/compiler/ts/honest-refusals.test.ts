@@ -523,7 +523,9 @@ export function f(x: f32): f32 {
     ]);
   });
 
-  it('a name read before its declaration is still unknown', () => {
+  it('a name read before its declaration says so, and names no other spelling', () => {
+    // TypeScript's TS2448: the name is declared, so a spelling guess would send the author to
+    // another name; the remedy is the order (Rule 12.1).
     expect(
       errorsOf(`"use typeshade";
 export function f(x: f32): f32 {
@@ -533,7 +535,7 @@ export function f(x: f32): f32 {
 }
 `),
     ).toEqual([
-      'Unknown identifier "w".',
+      '"w" is read before its declaration. Declare it above this line.',
       'Unknown function "nope". Declare it in this file, or import it from another shader module.',
     ]);
   });

@@ -175,10 +175,8 @@ export function fs(): vec4 { return vec4(0.) }`);
     const r = compileTsSource(`"use typeshade"\n"enable subgrops"\n@fragment
 export function fs(): vec4 { return vec4(0.) }`);
     const d = r.diagnostics.find((x) => x.code === TS_CODES.ENABLE_NAME);
-    expect(d?.message).toBe(
-      'Unknown WGSL extension "subgrops". "enable ..." takes one of: ' +
-        'clip_distances, dual_source_blending, f16, primitive_index, subgroups.',
-    );
+    // The extension it is spelled like (Rule 12.1); a name like none of them lists them all.
+    expect(d?.message).toBe('Unknown WGSL extension "subgrops". Did you mean "subgroups"?');
     expect(r.enables).toEqual([]);
   });
 

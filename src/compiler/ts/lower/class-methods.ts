@@ -41,6 +41,12 @@ import {
 import { pushTypeArguments } from '../generics.js';
 import { ambiguousNew, newInstanceName } from '../generic-structs.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import {
+  methodNames,
+  namespaceFunctionNames,
+  staticMemberNames,
+  unknownNameSentence,
+} from '../unknown-names.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
 import { retargetIntLitCtx } from '../lit-coerce.js';
@@ -176,6 +182,19 @@ export const classFunctionOf = (decl: FuncDecl): ClassFunction | undefined => re
 
 /** The `self_` a constructor builds and a method reads. */
 export const selfRef = (type: ShaderType): Expr => ({ op: 'varref', type, name: 'self_' });
+
+/** `"P" has no static function "mkae".`, with the static of `P` or of a class above it that the
+ *  name is spelled like (Rule 12.1). */
+function noStaticFunction(
+  name: string,
+  member: string,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): string {
+  return unknownNameSentence(`"${name}" has no static function "${member}".`, member, [
+    [name, ...scope.ancestorsOf(name)].flatMap((c) => staticMemberNames(c, sourceFile)),
+  ]);
+}
 
 function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
@@ -1733,15 +1752,33 @@ export function lowerClassCall(
         if (scope.isGenericFunction(qualified)) {
           return lowerGenericCall(node, qualified, shown, sourceFile, scope, diagnostics);
         }
-        pushDiag(diagnostics, sourceFile, callee, `"${name}" has no function "${member}".`);
+        // On the member, as TypeScript's TS2339 is, with the function it is spelled like.
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          callee.name,
+          unknownNameSentence(`"${name}" has no function "${member}".`, member, [
+            namespaceFunctionNames(name, sourceFile),
+          ]),
+        );
         return undefined;
       }
-      pushDiag(diagnostics, sourceFile, callee, `"${name}" has no static function "${member}".`);
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        callee.name,
+        noStaticFunction(name, member, scope, sourceFile),
+      );
       return undefined;
     }
     if (cf.member !== member || cf.accessor !== undefined) {
       if (isCollidedFunction(decl!)) return undefined;
-      pushDiag(diagnostics, sourceFile, callee, `"${name}" has no static function "${member}".`);
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        callee.name,
+        noStaticFunction(name, member, scope, sourceFile),
+      );
       return undefined;
     }
     if (
@@ -1775,16 +1812,20 @@ export function lowerClassCall(
     if (taken !== undefined && isCollidedFunction(taken)) return undefined;
     const accessor =
       memberFunctionOf(name, member, 'get', scope) ?? memberFunctionOf(name, member, 'set', scope);
+    const field = visibleField(name, member, callee.name, scope) !== undefined;
     pushDiag(
       diagnostics,
       sourceFile,
-      callee,
+      accessor !== undefined || field ? callee : callee.name,
       accessor !== undefined
         ? `"${shown}" is an accessor, not a method; read or assign it without the call: ` +
             `v.${member}.`
-        : visibleField(name, member, callee.name, scope) !== undefined
+        : field
           ? `"${member}" is a field of ${name}, not a method.`
-          : `"${name}" has no method "${member}".`,
+          : // On the member, as TypeScript's TS2339 is, with the method it is spelled like.
+            unknownNameSentence(`"${name}" has no method "${member}".`, member, [
+              [name, ...scope.ancestorsOf(name)].flatMap((c) => methodNames(c, sourceFile)),
+            ]),
     );
     return undefined;
   }

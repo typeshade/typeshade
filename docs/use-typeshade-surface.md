@@ -34,6 +34,10 @@ Host-owned. No initializer. Slot index = source order of `declare` in the file.
 ```ts
 "use typeshade";
 
+class Camera {
+  viewProj: mat4;
+}
+
 declare const camera: uniform<Camera>;
 declare const src: storage<f32>;
 declare let pixels: storage<f32>;

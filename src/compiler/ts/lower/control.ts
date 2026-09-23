@@ -18,12 +18,11 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { reportIntLitRange, retargetDeclaredIntLit } from '../lit-coerce.js';
-import { lowerExpression } from './expression.js';
+import { lowerExpression, unknownIdentifierSentence } from './expression.js';
 import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from './statement.js';
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { fallsIntoABody } from '../fallthrough.js';
-import { withForeignRemedy } from '../foreign-names.js';
 
 export function lowerFor(
   node: ts.ForStatement,
@@ -566,10 +565,10 @@ export function lowerUpdate(
           pushDiag(
             diagnostics,
             sourceFile,
-            expr,
-            withForeignRemedy(
+            targetExpr,
+            unknownIdentifierSentence(
+              targetExpr,
               `Cannot assign to unknown name "${targetExpr.text}".`,
-              targetExpr.text,
             ),
             TS_CODES.UNKNOWN_NAME,
           );

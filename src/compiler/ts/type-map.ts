@@ -43,7 +43,7 @@ import { makeDiagnostic } from './diagnostic.js';
 import { boundTypeArgument } from './generics.js';
 import { genericStructName, isGenericClass } from './generic-structs.js';
 import { TS_CODES, type TsCode } from './codes.js';
-import { foreignNameRemedy } from './foreign-names.js';
+import { namesInScope, unknownNameSentence } from './unknown-names.js';
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 
@@ -158,6 +158,18 @@ export const SUPPORTED_TYPE_NAMES: readonly string[] = [
   ...Object.keys(HANDLE_MAP),
   ...Object.keys(TEXTURE_DIM),
   ...Object.keys(STORAGE_TEXTURE_DIM),
+];
+
+/** Every type name the surface spells: the ones above, and the wrappers that take a type
+ *  argument. What a misspelled type is measured against (Rule 12.1). */
+export const BUILTIN_TYPE_NAMES: readonly string[] = [
+  ...SUPPORTED_TYPE_NAMES,
+  'array',
+  'uniform',
+  'storage',
+  'workgroup',
+  'atomic',
+  'override',
 ];
 
 /** The file's type aliases that are NOT object types, by name (roadmap 0.3 item T2, #92).
@@ -311,14 +323,18 @@ function mapType(
       if (dotted !== undefined && namespaceStructsOf(sourceFile).flattened.has(dotted)) {
         return structT(dotted);
       }
+      // A misspelled member names the class of a namespace it is spelled like (Rule 12.1).
       pushDiag(
         diagnostics,
         sourceFile,
         typeNode,
         dotted === undefined
           ? `Unsupported type reference.`
-          : `"${typeNode.getText(sourceFile)}" names no struct this file declares. A class ` +
-              `inside a namespace is written "${dotted.split('_').join('.')}".`,
+          : unknownNameSentence(
+              `"${typeNode.getText(sourceFile)}" names no struct this file declares.`,
+              dotted.split('_').join('.'),
+              [[...namespaceStructsOf(sourceFile).flattened].map((f) => f.split('_').join('.'))],
+            ),
       );
       return undefined;
     }
@@ -368,14 +384,25 @@ function mapType(
     // An interface that declares a method is a contract and never a value (Rule 6.9); it was
     // said so where it declares the method, once, and a type it names here names nothing.
     if (contractInterfaces(sourceFile).has(name)) return undefined;
-    if (/^[A-Z]/.test(name)) return structT(name);
+    // A name the file declares as a type, or imports, is a struct: a class or an interface,
+    // declared above or below the use, here or in the module it is imported from. A name
+    // declared nowhere was a struct too, and emitted as one, so `l: Lihgt` compiled in silence
+    // and died at Tint on a type the author never declared; it is an unknown type now, with the
+    // name it is spelled like (Rule 12.1).
+    const declared = namesInScope(typeNode, 'type');
+    if (declared.some((group) => group.includes(name))) return structT(name);
     pushDiag(
       diagnostics,
       sourceFile,
-      typeNode,
-      `Unknown type "${name}". ${
-        foreignNameRemedy(name) ?? `Supported names: ${SUPPORTED_TYPE_NAMES.join(', ')}.`
-      }`,
+      typeNode.typeName,
+      unknownNameSentence(
+        `Unknown type "${name}".`,
+        name,
+        [...declared, BUILTIN_TYPE_NAMES],
+        /^[A-Z]/.test(name)
+          ? 'Declare it in this file, or import it from another shader module.'
+          : `Supported names: ${SUPPORTED_TYPE_NAMES.join(', ')}.`,
+      ),
     );
     return undefined;
   }

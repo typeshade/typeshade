@@ -355,7 +355,7 @@ class D { y: f32; read(c: C): f32 { return c.#x } }${TAIL}`),
       only(`"use typeshade"
 class C { #x: f32 = 1. }
 export function run(c: C): f32 { return c.x }${TAIL}`),
-    ).toBe(`${TS_CODES.UNKNOWN_NAME} Unknown field "x" on struct:C.`);
+    ).toBe(`${TS_CODES.UNKNOWN_NAME} Unknown field "x" on C.`);
   });
 
   it('a body inherited from the class that declares it may use it', () => {

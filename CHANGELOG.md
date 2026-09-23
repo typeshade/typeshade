@@ -1189,9 +1189,9 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
   The same holds for `gl_Position = …` and `@numthreads`. `fmod` names the `%` operator and
   says that `mod` floors, since TypeScript's own guess for it, "Did you mean 'mod'?", is the
-  one spelling that compiles and answers differently for a negative operand; the editor now
-  shows the compiler's sentence in its place. `TS8004` quotes the callee's name rather than the
-  whole call, for every unknown function. The table is the MCP server's from
+  one spelling that compiles and answers differently for a negative operand; the editor shows
+  the compiler's sentence in its place. `TS8004` quotes the callee's name rather than the
+  whole call, for every unknown function, and sits on the name. The table is the MCP server's from
   typeshade/vscode-typeshade, moved into the compiler (`src/compiler/ts/foreign-names.ts`) with
   the two invariants its tests held: every target is a name TypeShade has, and no source is
   one. It is exported from `typeshade/language-service` as `FOREIGN_NAMES`, so that server can
@@ -1203,12 +1203,56 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   the compiler's `TS8005`, `g(x)` one argument short as TS2554 and `TS8019`, `colr` as TS2304
   and `TS8022`, `cross(v, w)` on a `vec2` `w` as TS2345 and `TS8036`. The language service now
   merges the two halves: where they report one mistake the compiler's diagnostic is kept, since
-  it is what `compile()` and the build report and names the remedy in the surface's words; the
-  one exception is TS2552, whose "Did you mean" TypeScript can name and the compiler cannot yet.
+  it is what `compile()` and the build report and names the remedy in the surface's words, with
+  no exception, a misspelled name included (below).
   TypeScript's own knock-on of a call it failed to resolve goes as well: `return max(v, w)` with
   a `vec2` `w` added a TS2322 on the `return`, and now reads as the compiler's `TS8036` alone.
   `typeshade check` no longer adds a compiler row the service merged away: from `compile()` it
   takes only what the service cannot compute, the backends' `TS8015` and the opt-in `TS8053`.
+
+- **A name the compiler cannot find names the one it is spelled like, in the build as in the
+  editor** (Rule 12.1). The editor showed TypeScript's "Did you mean 'albedo'?" for `albdo`,
+  and `compile()`, the build and an agent reading either said `Unknown identifier "albdo".` and
+  nothing more. The compiler names the fix itself now, at every place a name is written: a
+  value, a callee, a type, a field, a field of a struct literal, a `Math` member, a method, a
+  static, an enum member, a function of a namespace, an assignment target, an attribute, a
+  `@builtin` id, an `enable` extension and an import:
+
+  ```text
+  TS8022 Unknown identifier "albdo". Did you mean "albedo"?
+  TS8004 Unknown function "clmap". Did you mean "clamp"?
+  TS8002 Unknown type "vce3". Did you mean "vec3"?
+  TS8022 Unknown field "tiem" on Frame. Did you mean "time"?
+  TS8035 "P" has no method "lne". Did you mean "len"?
+  ```
+
+  One order holds everywhere: TypeShade's spelling of a GLSL or HLSL name first (`fmod` is the
+  `%` operator, not `mod`), then a name of the same kind that exists there and is spelled like
+  it, then the place's own remedy. The spelling rule is TypeScript's, so the editor loses no
+  suggestion it showed (a test holds the compiler to every one TypeScript makes over a sweep of
+  misspellings), with a swap of two adjacent letters counted as one edit, which finds `time` for
+  `tiem` and `vec3` for `vce3` where TypeScript finds nothing. A callee is measured against the
+  functions only, so `normailze(normal)` names `normalize` where TypeScript named the parameter
+  `normal`. A name read above its declaration says that it is read before its declaration, and
+  `discard()` that `discard` is a statement. The span is the name itself, and an unknown field
+  names its struct as the author wrote it, `Frame`, where it said `struct:Frame`. A call of an
+  unknown function still reports what its arguments get wrong, so
+  `g(colr)` is both mistakes in the build too. With that, the merge keeps no TypeScript side for
+  a misspelling: its TS2552 exception and the foreign-name check it needed are gone.
+
+- **A type the file declares nowhere is refused** (Rule 12.6). A capitalized type name that
+  named nothing became a struct of that name, so `l: Lihgt`, `uniform<Frmae>` and a `VsOt`
+  return compiled with no diagnostic and died at Tint on a struct the author never declared,
+  and `const v: Vec3 = …` read as a mismatch between `struct:Vec3` and `vec3<f32>`. Each is
+  `TS8002 Unknown type "Lihgt". Did you mean "Light"?` now. A class declared below its use, an
+  interface, an alias, an import and a type parameter stay the types they are, by TypeScript's
+  lexical rule. The surface document's first resource snippet, which bound a `Camera` it never
+  declared, declares one.
+
+- **A destructured name whose declaration was refused says nothing more** (Rule 12.4, #171).
+  `const { tiem } = frame` followed by a read of `tiem` added `Unknown identifier "tiem"` to the
+  refusal of the pattern; a refused declaration is found through a destructuring pattern now,
+  as through a plain name.
 
 - **A local declared with no type from vector arithmetic draws no TypeScript false positive.**
   `const lit = albedo * d` is the `number` the arithmetic is typed, to TypeScript, and the

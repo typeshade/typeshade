@@ -116,7 +116,7 @@ The same check is exported from `typeshade/language-service`, as `checkDocuments
 What it inherits from the language service, it inherits whole:
 
 - **Each file is analysed on its own**, so a function imported from another shader file is `TS8004` ([#187](https://github.com/typeshade/typeshade/issues/187)).
-- **A mistake both halves see is reported once**, as the editor shows it: a write to a `const` is the compiler's `TS8005`, not that and TypeScript's `TS2588` beside it. The one exception keeps TypeScript's side: an unknown name it can correct is `TS2552`, "Did you mean 'clamp'?".
+- **A mistake both halves see is reported once**, in the compiler's sentence, as the editor shows it: a write to a `const` is the compiler's `TS8005`, not that and TypeScript's `TS2588` beside it. A misspelled name is the compiler's too, which names the fix itself: `Unknown function "clmap". Did you mean "clamp"?`.
 
 ## Type-checking `.shade.ts` with tsc
 

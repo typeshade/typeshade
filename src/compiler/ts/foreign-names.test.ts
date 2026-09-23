@@ -200,9 +200,11 @@ describe('the editor shows the compiler sentence for a foreign name, and keeps a
     ]);
   });
 
-  it('keeps TypeScript spelling fix for a name that is only misspelled', () => {
+  it('names the spelling fix for a name that is only misspelled, in the same sentence', () => {
+    // The compiler's own "Did you mean" (Rule 12.1), after the foreign table and by TypeScript's
+    // spelling rule, so the editor shows the sentence the build prints (Rule 12.7).
     expect(shown('export function f(x: f32): f32 {\n  return clmap(x, 0., 1.);\n}')).toEqual([
-      "typescript 2552 Cannot find name 'clmap'. Did you mean 'clamp'?",
+      'typeshade TS8004 Unknown function "clmap". Did you mean "clamp"?',
     ]);
   });
 });

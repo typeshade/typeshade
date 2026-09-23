@@ -79,9 +79,10 @@ export function fogFactor(dist: f32, density: f32): f32 {
     expect(report.errors).toBe(2);
   });
 
-  it("keeps TypeScript's spelling fix for an unknown name, and the compiler's sentence goes", () => {
-    // The one pair the merge keeps TypeScript's side of: "Did you mean" is the remedy, and the
-    // compiler's TS8004 names none. The compiler's own run must not bring TS8004 back either,
+  it('prints the spelling fix for an unknown name once, in the sentence the build prints', () => {
+    // The compiler names the function a misspelled one is spelled like (Rule 12.1), so the
+    // merge keeps its sentence, the one `compile()` and the build print, and TypeScript's
+    // TS2552 says nothing more (Rule 12.4). The compiler's own run must not add a second copy,
     // which it did while the command added every compiler row the service lacked.
     const text = `"use typeshade";
 export function f(x: f32): f32 {
@@ -90,7 +91,7 @@ export function f(x: f32): f32 {
 `;
     const report = checkDocuments([doc('typo.shade.ts', text)]);
     expect(report.diagnostics.map((d) => `${d.source} ${d.code} ${d.message}`)).toEqual([
-      "typescript TS2552 Cannot find name 'clmap'. Did you mean 'clamp'?",
+      'typeshade TS8004 Unknown function "clmap". Did you mean "clamp"?',
     ]);
   });
 

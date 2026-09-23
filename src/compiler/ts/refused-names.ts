@@ -32,6 +32,13 @@ const rangeOf = (node: ts.Node, sourceFile: ts.SourceFile): Range => ({
   end: node.getEnd(),
 });
 
+/** Whether a binding names `name`: the name itself, or one a destructuring pattern binds, which
+ *  is a declaration of the name as much as a plain one (`const { t } = frame`). */
+function binds(pattern: ts.BindingName, name: string): boolean {
+  if (ts.isIdentifier(pattern)) return pattern.text === name;
+  return pattern.elements.some((e) => !ts.isOmittedExpression(e) && binds(e.name, name));
+}
+
 /** The range of the statement that declares `name` among `statements`, when one does. With
  *  `before` set, only a statement that ends before it counts (a block's `let` and `const` are
  *  not visible above their declaration). */
@@ -45,7 +52,7 @@ function declaringStatement(
     if (before !== undefined && s.getEnd() > before) continue;
     if (!ts.isVariableStatement(s)) continue;
     for (const d of s.declarationList.declarations) {
-      if (ts.isIdentifier(d.name) && d.name.text === name) return rangeOf(s, sourceFile);
+      if (binds(d.name, name)) return rangeOf(s, sourceFile);
     }
   }
   return undefined;
@@ -58,7 +65,7 @@ function declaringList(
 ): Range | undefined {
   if (list === undefined || !ts.isVariableDeclarationList(list)) return undefined;
   for (const d of list.declarations) {
-    if (ts.isIdentifier(d.name) && d.name.text === name) return rangeOf(list, sourceFile);
+    if (binds(d.name, name)) return rangeOf(list, sourceFile);
   }
   return undefined;
 }
@@ -77,7 +84,7 @@ function visibleDeclaration(
     } else if (ts.isForStatement(p) || ts.isForOfStatement(p) || ts.isForInStatement(p)) {
       found = declaringList(p.initializer, name, sourceFile);
     } else if (ts.isFunctionLike(p)) {
-      const param = p.parameters.find((q) => ts.isIdentifier(q.name) && q.name.text === name);
+      const param = p.parameters.find((q) => binds(q.name, name));
       if (param !== undefined) found = rangeOf(param, sourceFile);
     } else if (ts.isSourceFile(p)) {
       found = declaringStatement(p.statements, name, sourceFile);

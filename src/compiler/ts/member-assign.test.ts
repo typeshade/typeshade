@@ -458,7 +458,7 @@ describe('rejections', () => {
           return p.a;
         }
       `),
-    ).toBe('Unknown field "c" on struct:P.');
+    ).toBe('Unknown field "c" on P.');
   });
 
   it('rejects a component out of range on the target vector', () => {

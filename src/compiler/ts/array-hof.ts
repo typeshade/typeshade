@@ -7,6 +7,7 @@ import type { LoweringScope } from './context.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES, type TsCode } from './codes.js';
+import { namesInScope, unknownNameSentence } from './unknown-names.js';
 
 const MAX_UNROLL = 64;
 
@@ -59,8 +60,19 @@ export function lowerArrayHof(
   }
   const decl = scope.resolveCallee(fnArg.text);
   if (!decl) {
+    // The functions in scope are what may be passed here, so a misspelled one names the one it
+    // is spelled like (Rule 12.1).
     diagnostics.push(
-      err(sourceFile, fnArg, `Unknown function "${fnArg.text}".`, TS_CODES.UNKNOWN_FN),
+      err(
+        sourceFile,
+        fnArg,
+        unknownNameSentence(
+          `Unknown function "${fnArg.text}".`,
+          fnArg.text,
+          namesInScope(fnArg, 'callee'),
+        ),
+        TS_CODES.UNKNOWN_FN,
+      ),
     );
     return undefined;
   }

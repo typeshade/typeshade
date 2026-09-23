@@ -4,7 +4,6 @@ import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
-import { FOREIGN_NAMES } from '../compiler/ts/foreign-names.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
 import type { TypeshadeDiagnostic, TypeshadeSeverity, TypeshadeTextSpan } from './types.js';
@@ -978,89 +977,118 @@ function isFiltered(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic)
 // short as TS2554 and TS8019, `colr` as TS2304 and TS8022. A person reads past the second
 // sentence; a coding agent fixes both. The merged list keeps one, by two rules.
 
-/** A mistake both halves report, by code: TypeScript's `typescript`, the compiler's
- * `typeshade`, and which of the two the merged list keeps. */
+/** A mistake both halves report, by code: TypeScript's `typescript` and the compiler's
+ *  `typeshade`. The merged list keeps the compiler's. */
 interface SameMistake {
   readonly typescript: number;
   readonly typeshade: ReadonlySet<string>;
-  readonly keep: 'typeshade' | 'typescript';
   readonly reason: string;
 }
 
 /**
- * The pairs. The compiler's diagnostic is kept by default, for three reasons: it is what
+ * The pairs. The compiler's diagnostic is the one kept, for three reasons: it is what
  * `compile()` and the build report, so the editor, `typeshade check` and the build agree
  * (Rule 12.7); it is written in the surface's words and names the remedy (Rule 12.1), where
  * TypeScript's spells a brand's internals (`'{ readonly [vecTag]: readonly ["f32", 3]; }'`);
- * and it is the authority on what combines with what, as it already is for TS2365. TS2552 is
- * the one exception: TypeScript's "Did you mean" is the remedy for a misspelled name, and the
- * compiler's sentence does not name one yet. A GLSL or HLSL name is not a misspelling, and its
- * compiler sentence does name the remedy, so for one of those the compiler's is kept too.
+ * and it is the authority on what combines with what, as it already is for TS2365.
+ *
+ * That holds for a misspelled name too, so no pair is an exception. The compiler names the name
+ * a misspelled one is spelled like, by TypeScript's own rule (`src/compiler/ts/unknown-names.ts`),
+ * and TypeShade's spelling of a GLSL or HLSL name before any guess by letters, which for `fmod`
+ * would be `mod` (#218); TypeScript's "Did you mean" (TS2552, TS2551, TS2561) has nothing to add.
  */
 const SAME_MISTAKE: readonly SameMistake[] = [
   {
     typescript: 2304,
     typeshade: new Set(['TS8022', 'TS8004', 'TS8002', 'TS8012']),
-    keep: 'typeshade',
     reason: 'An unknown name: a value, a function, a type or a host API (`Date`).',
   },
   {
     typescript: 2552,
     typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
-    keep: 'typescript',
     reason:
-      "An unknown name TypeScript has a spelling fix for (`clmap`: Did you mean 'clamp'?), " +
-      'which the compiler sentence does not name. Not for a GLSL or HLSL name, whose compiler ' +
-      "sentence names TypeShade's spelling (`isForeignNameAt`).",
+      "The same, where TypeScript has a spelling to suggest (`clmap`: Did you mean 'clamp'?), " +
+      'which the compiler names as well.',
+  },
+  {
+    typescript: 2448,
+    typeshade: new Set(['TS8022']),
+    reason: 'A `let` or `const` read above its declaration.',
+  },
+  {
+    typescript: 2454,
+    typeshade: new Set(['TS8022']),
+    reason: 'The same read, which TypeScript also reports as used before it is assigned.',
   },
   {
     typescript: 2339,
-    typeshade: new Set(['TS8022']),
-    keep: 'typeshade',
-    reason: 'A member the value does not have: a swizzle out of range, a field not declared.',
+    typeshade: new Set(['TS8022', 'TS8035']),
+    reason:
+      'A member the value does not have: a swizzle out of range, a field, a method or a static ' +
+      'not declared.',
   },
   {
     typescript: 2551,
-    typeshade: new Set(['TS8022']),
-    keep: 'typeshade',
+    typeshade: new Set(['TS8022', 'TS8035']),
     reason:
-      "The same, with a suggestion that names a member the value has (`.xyzw` on a `vec3`: 'xyz')" +
-      ', where the compiler names what is out of range.',
+      "The same, with a suggestion (`.xyzw` on a `vec3`: 'xyz'), where the compiler names the " +
+      'member it is spelled like, or what is out of range.',
+  },
+  {
+    typescript: 2353,
+    typeshade: new Set(['TS8010']),
+    reason: 'An object literal that names a field its struct does not have.',
+  },
+  {
+    typescript: 2561,
+    typeshade: new Set(['TS8010']),
+    reason: 'The same, with a suggestion.',
+  },
+  {
+    typescript: 2694,
+    typeshade: new Set(['TS8002']),
+    reason: 'A dotted type that names no class of the namespace.',
+  },
+  {
+    typescript: 2749,
+    typeshade: new Set(['TS8002']),
+    reason:
+      "A value's name written as a type (`uniform<frame>` for `Frame`), where TypeScript offers " +
+      '`typeof frame`, which is no TypeShade type, and the compiler the type it is spelled like.',
+  },
+  {
+    typescript: 2349,
+    typeshade: new Set(['TS8004']),
+    reason: 'A call of a name that is not a function (`discard()`).',
   },
   {
     typescript: 2588,
     typeshade: new Set(['TS8005']),
-    keep: 'typeshade',
     reason: 'A write to a `const` local or a read-only resource.',
   },
   {
     typescript: 2540,
     typeshade: new Set(['TS8005']),
-    keep: 'typeshade',
     reason: 'A write to a `readonly` field outside its constructor.',
   },
   {
     typescript: 2554,
     typeshade: new Set(['TS8019']),
-    keep: 'typeshade',
     reason: 'The wrong number of arguments.',
   },
   {
     typescript: 2322,
     typeshade: new Set(['TS8003']),
-    keep: 'typeshade',
     reason: 'A value of the wrong type, assigned or declared.',
   },
   {
     typescript: 2345,
     typeshade: new Set(['TS8003', 'TS8019', 'TS8036']),
-    keep: 'typeshade',
     reason: 'An argument of the wrong type, or too few components for a vector constructor.',
   },
   {
     typescript: 2769,
     typeshade: new Set(['TS8003', 'TS8019', 'TS8036']),
-    keep: 'typeshade',
     reason: 'The same at an overloaded callee, the math builtins and the vector constructors.',
   },
 ];
@@ -1098,12 +1126,12 @@ function callOf(
  * argument, and a math builtin's mismatch on the argument (`TS8036` on `w`) where TypeScript
  * reports a failed overload on the callee (`max`).
  *
- * Otherwise TypeScript's span lies inside the compiler's and shares one of its ends: an unknown
- * name or a `const` write is the same span in both; an unknown function is the callee
- * TypeScript names at the start of the call the compiler names; a missing member is the name
- * TypeScript names at the end of the access the compiler names; a declared type mismatch is the
- * name at the start of the declaration. Inside alone is not enough, since a typo in an argument
- * of an unknown function (`colr` in `g(colr)`) is a second mistake inside the first's span.
+ * Otherwise TypeScript's span lies inside the compiler's and shares one of its ends: a name the
+ * compiler cannot find (a value, a callee, a type, a field, a method) is the name itself in
+ * both, and a `const` write the same target; a swizzle out of range is the member TypeScript
+ * names at the end of the access the compiler names; a declared type mismatch is the name at
+ * the start of the declaration. Inside alone is not enough, since a second mistake can sit
+ * inside the span of a first: a misspelled argument inside a call the compiler refuses whole.
  */
 function sameMistakeSpans(
   context: DiagnosticFilterContext,
@@ -1211,26 +1239,14 @@ function isKnockOn(
 }
 
 /**
- * Whether `span` covers a GLSL or HLSL name (`FOREIGN_NAMES`). TS2552's spelling suggestion is
- * kept for a typo because the compiler's sentence has none, but for a foreign name the
- * compiler's sentence names TypeShade's spelling, and TypeScript's nearest name is a guess by
- * letters that can mean something else: `fmod` is "Did you mean 'mod'?", and `mod` floors where
- * `fmod` truncates (#218).
- */
-function isForeignNameAt(sourceFile: ts.SourceFile, span: TypeshadeTextSpan): boolean {
-  return Object.hasOwn(FOREIGN_NAMES, sourceFile.text.slice(span.start, spanEnd(span)));
-}
-
-/**
  * The merged list for one document: `typescript` (already filtered by
  * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Two
  * rules drop a report, and each only ever drops an ERROR that another error already covers:
  *
  * - a TypeScript error that is TypeScript's own knock-on of a call it failed to resolve
  *   (`isKnockOn`) goes;
- * - a TypeScript error and a compiler error that `SAME_MISTAKE` pairs by code, and whose spans
- *   sit where one mistake would put them (`sameMistakeSpans`), are one mistake, and the pair's
- *   `keep` side stays.
+ * - a TypeScript error that `SAME_MISTAKE` pairs by code with a compiler error, and whose span
+ *   sits where one mistake would put the two (`sameMistakeSpans`), goes: the compiler's stays.
  *
  * Without `analysis` nothing is dropped: the service passes none when a test asks for the two
  * halves unmerged (`TypeshadeLanguageServiceTestOptions`).
@@ -1247,22 +1263,17 @@ export function mergeDiagnostics(
   }
   const context: DiagnosticFilterContext = { sourceFile, checker, declaredTypes: new Map() };
   const compilerErrors = typeshade.filter((d) => d.severity === 'error');
-  const droppedTypeshade = new Set<TypeshadeDiagnostic>();
   const keptTypescript = typescript.filter((diagnostic) => {
     if (diagnostic.severity !== 'error') return true;
     if (isKnockOn(context, diagnostic, typescript)) return false;
     const pair = SAME_MISTAKE.find((p) => p.typescript === diagnostic.code);
     if (pair === undefined) return true;
-    const twin = compilerErrors.find(
+    return !compilerErrors.some(
       (error) =>
         pair.typeshade.has(String(error.code)) && sameMistakeSpans(context, diagnostic, error),
     );
-    if (twin === undefined) return true;
-    if (pair.keep === 'typeshade' || isForeignNameAt(sourceFile, diagnostic.span)) return false;
-    droppedTypeshade.add(twin);
-    return true;
   });
-  return [...keptTypescript, ...typeshade.filter((d) => !droppedTypeshade.has(d))];
+  return [...keptTypescript, ...typeshade];
 }
 
 function severityOfTs(category: ts.DiagnosticCategory): TypeshadeSeverity {

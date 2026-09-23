@@ -522,14 +522,31 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       fn('  return clamp(v, 0., 1.)', 'v: vec3', 'vec3'),
       'typeshade TS8036',
     ],
-    // The one pair that keeps TypeScript's side: its "Did you mean" is the remedy.
+    // A misspelling too: the compiler names the name it is spelled like, so there is no
+    // exception for TypeScript's "Did you mean".
     'an unknown name TypeScript can correct (TS2552)': [
       fn('  return colr', 'color: f32'),
-      'typescript 2552',
+      'typeshade TS8022',
     ],
     'an unknown function TypeScript can correct (TS2552)': [
       fn('  return clmap(x, 0., 1.)'),
-      'typescript 2552',
+      'typeshade TS8004',
+    ],
+    'a field TypeScript can correct (TS2561)': [
+      '"use typeshade"\nclass C {\n  @location(0) color: vec4;\n}\n@fragment\nexport function fs(): C {\n  return { colr: vec4(0.) };\n}',
+      'typeshade TS8010',
+    ],
+    'a Math member TypeScript can correct (TS2551)': [
+      fn('  return Math.sqr(x)'),
+      'typeshade TS8022',
+    ],
+    'a method (TS2339)': [
+      '"use typeshade"\nclass P {\n  x: f32;\n  len(): f32 {\n    return this.x;\n  }\n}\nexport function f(p: P): f32 {\n  return p.lne();\n}',
+      'typeshade TS8035',
+    ],
+    'a name read above its declaration (TS2448)': [
+      fn('  const z = q * 2.\n  const q = x\n  return z'),
+      'typeshade TS8022',
     ],
   };
   for (const [name, [body, only]] of Object.entries(cases)) {
@@ -559,9 +576,9 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
   });
 
   it('keeps a typo inside a call to an unknown function as its own diagnostic', () => {
-    // Two mistakes, one per half: TypeScript names the unknown `g`, and the compiler, which
-    // lowers the argument first, names `colr` and says nothing more about the call.
-    expect(shown(fn('  return g(colr)'))).toEqual(['typescript 2304', 'typeshade TS8022']);
+    // Two mistakes, and the compiler names both, the unknown `g` and then the misspelled `colr`
+    // it still lowers, so the build reports what the editor does (Rule 12.7).
+    expect(shown(fn('  return g(colr)'))).toEqual(['typeshade TS8004', 'typeshade TS8022']);
   });
 });
 

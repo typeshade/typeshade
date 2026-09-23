@@ -333,20 +333,21 @@ past the second sentence, and a coding agent fixes both. `mergeDiagnostics` drop
 two rules, and only ever an error that another error already covers:
 
 - **The same mistake.** A TypeScript error and a compiler error that its table pairs by code
-  (TS2304 and TS2552 with the unknown-name codes `TS8022`, `TS8004`, `TS8002` and `TS8012`;
-  TS2339 and TS2551 with `TS8022`; TS2588 and TS2540 with `TS8005`; TS2554 with `TS8019`;
-  TS2322 with `TS8003`; TS2345 and TS2769 with `TS8003`, `TS8019` and `TS8036`), where one span
-  contains the other, are one mistake. TypeScript's span is widened to the whole call for a
-  code about a call, since TypeScript reports a failed overload on the callee (`max`) and the
-  compiler on the argument at fault (`w`). The compiler's report is kept: it is what
-  `compile()` and the build report, it names the remedy in the surface's words (Rule 12.1),
-  where TypeScript's spells a brand's internals, and it is already the authority on what
-  combines (TS2365 above). TS2552 is the one pair that keeps TypeScript's side, since its "Did
-  you mean 'clamp'?" is the remedy for a misspelled name and the compiler's sentence has none.
-  A GLSL or HLSL name (`FOREIGN_NAMES`, #218) is not a misspelling: its compiler sentence names
-  TypeShade's spelling, and TypeScript's nearest name is a guess by letters (`fmod` draws "Did
-  you mean 'mod'?", and `mod` floors where `fmod` truncates), so for one of those the
-  compiler's sentence is kept.
+  (TS2304, TS2552, TS2448 and TS2454 with the unknown-name codes `TS8022`, `TS8004`, `TS8002`
+  and `TS8012`; TS2339 and TS2551 with `TS8022` and `TS8035`; TS2353 and TS2561 with `TS8010`;
+  TS2694 and TS2749 with `TS8002`; TS2349 with `TS8004`; TS2588 and TS2540 with `TS8005`;
+  TS2554 with `TS8019`; TS2322 with `TS8003`; TS2345 and TS2769 with `TS8003`, `TS8019` and
+  `TS8036`), where one span contains the other, are one mistake. TypeScript's span is widened
+  to the whole call for a code about a call, since TypeScript reports a failed overload on the
+  callee (`max`) and the compiler on the argument at fault (`w`). The compiler's report is
+  kept, always: it is what `compile()` and the build report, it names the remedy in the
+  surface's words (Rule 12.1), where TypeScript's spells a brand's internals, and it is already
+  the authority on what combines (TS2365 above). That holds for a misspelled name too. The
+  compiler names the fix itself, at every place a name is written: TypeShade's spelling of a
+  GLSL or HLSL name first (`FOREIGN_NAMES`, #218; `fmod` is the `%` operator, where
+  TypeScript's guess by letters would be `mod`, which floors), then the name of the same kind
+  spelled like it, by TypeScript's own spelling rule with a swap of two letters as one edit
+  ("Did you mean "clamp"?"), so TypeScript's TS2552 has nothing to add.
 - **TypeScript's own knock-on.** When TypeScript fails to resolve a call (TS2769, TS2345,
   TS2554), it still types the call from a signature that did not match, and the place the
   value reaches reports again: `return max(v, w)` with a `vec2` `w` added a TS2322 on the

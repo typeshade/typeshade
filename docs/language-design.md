@@ -540,7 +540,7 @@ The check closes over the call graph, and `discard()` is not a call the surface 
 
 - Rationale: WGSL's `discard` is a statement of the fragment stage; TypeScript has no statement to borrow, so the ambient library declares `discard` as a constant of type `void` (§9.3, family 5) and the compiler lowers an expression statement that is exactly that identifier to the statement, with the stage rule kept.
 - Derives from: [Discard Statement](https://gpuweb.github.io/gpuweb/wgsl/#discard-statement) ("must only be used in a fragment shader stage"); surface §10; `declare const discard: void` in `src/language-service/ambient.ts`.
-- Enforced by: `src/compiler/ts/builtins.test.ts` (`discard`: lowers to the discard statement, emits it on both targets); `TS8099` names the entry, or the helper and the entry, on the wrong stage; `discard()` is `TS8004 Unknown function "discard"`.
+- Enforced by: `src/compiler/ts/builtins.test.ts` (`discard`: lowers to the discard statement, emits it on both targets); `TS8099` names the entry, or the helper and the entry, on the wrong stage; `discard()` is `TS8004`, which says that `discard` is a statement and is written without the parentheses (`src/compiler/ts/unknown-names.test.ts`).
 
 **Rule 7.8.** The refusals of surface §28 (a union of two GPU types, a string type, a nullable, a mixed tuple, a rest tuple, `symbol`, an intersection of carriers, `instanceof`, `in`) must apply to expressions as they do to types, each in one sentence.
 
@@ -1018,10 +1018,11 @@ A _diagnostic_ is one message the compiler reports for the author's benefit, wit
 ### 12.2. Rules
 
 **Rule 12.1.** A diagnostic must name the offending thing and the remedy in at most two sentences: the first states the mistake, and the second, when there is one, states the remedy or the reason.
+For a name the compiler cannot find (a value, a callee, a type, a field, a member, an assignment target, an attribute, a `@builtin` id, an extension, an import), the remedy is chosen in one order at every place a name is written: TypeShade's spelling of a GLSL or HLSL name; else the name of the same kind that exists at that place and is spelled like it, by TypeScript's own spelling rule with a swap of two adjacent letters counted as one edit ("Did you mean "clamp"?"); else the place's own remedy. The span is the name itself.
 
 - Rationale: an author reads it against the line they wrote, and a third sentence is where the remedy gets lost.
 - Derives from: [Diagnostics](https://gpuweb.github.io/gpuweb/wgsl/#diagnostics); surface §7 and §28 ("one mistake reads as one sentence"); the pinned sentences of the refusal tests under `src/compiler/ts/` (`TS8031 Recursive call: "a" -> "b" -> "a". WGSL has no call stack, so a function must not take part in a call cycle.`), which have that shape.
-- Enforced by: every refusal test asserts the code and the message text (Rule 12.5). A GLSL or HLSL name the compiler refuses names TypeShade's spelling as its remedy rather than "declare it in this file" (`lerp` is `mix`, `gl_FragCoord` a `@builtin("position")` parameter), from `FOREIGN_NAMES` in `src/compiler/ts/foreign-names.ts`, in `src/compiler/ts/foreign-names.test.ts` (#218); no name is added (Rules 2.1 and 9.6), and the table's targets are checked against the ambient library (Rule 12.7).
+- Enforced by: every refusal test asserts the code and the message text (Rule 12.5). A GLSL or HLSL name the compiler refuses names TypeShade's spelling as its remedy rather than "declare it in this file" (`lerp` is `mix`, `gl_FragCoord` a `@builtin("position")` parameter), from `FOREIGN_NAMES` in `src/compiler/ts/foreign-names.ts`, in `src/compiler/ts/foreign-names.test.ts` (#218); no name is added (Rules 2.1 and 9.6), and the table's targets are checked against the ambient library (Rule 12.7). The order for an unknown name is `unknownNameRemedy` in `src/compiler/ts/unknown-names.ts`, pinned at each place a name is written by `src/compiler/ts/unknown-names.test.ts`; that the compiler names every name TypeScript would suggest for a misspelling is `src/language-service/editor-parity.test.ts`.
 
 **Rule 12.2.** A code must be `TS8` followed by a sequential number in the order codes were added, or a number from a block handed to a parallel branch (Rule 3.7), whose unused numbers stay a gap.
 `TS8099` is the catch-all for a site that does not yet deserve its own code, and a refusal that has a reason must leave it.
@@ -1043,7 +1044,7 @@ A _diagnostic_ is one message the compiler reports for the author's benefit, wit
 
 - Rationale: a cascade hides the sentence that says what to do.
 - Derives from: surface §28 ("and one mistake reads as one sentence").
-- Enforced by: `honest-refusals.test.ts` (`one mistake reads as one sentence`), for the surface §28 shapes, and (`a refused declaration is the one diagnostic for its name`), for a refused declaration: a read of the name, an assignment to it or a write through it reports nothing more when an error stands inside the declaration the name resolves to, while a name read out of its scope, read before its declaration or declared nowhere still reports `TS8022` (`src/compiler/ts/refused-names.ts`, #171); and, across the language service's two halves, `mergeDiagnostics` (`src/language-service/diagnostics.ts`), which keeps one diagnostic where TypeScript and the compiler report one mistake and drops TypeScript's knock-on of a call it failed to resolve, in `src/language-service/diagnostics.test.ts` (`one mistake reads as one diagnostic across the two halves`).
+- Enforced by: `honest-refusals.test.ts` (`one mistake reads as one sentence`), for the surface §28 shapes, and (`a refused declaration is the one diagnostic for its name`), for a refused declaration: a read of the name, an assignment to it or a write through it reports nothing more when an error stands inside the declaration the name resolves to, while a name read out of its scope, read before its declaration or declared nowhere still reports `TS8022` (`src/compiler/ts/refused-names.ts`, #171); and, across the language service's two halves, `mergeDiagnostics` (`src/language-service/diagnostics.ts`), which keeps the compiler's diagnostic where TypeScript and the compiler report one mistake, with no exception (a misspelled name included, since the compiler names the fix itself under Rule 12.1), and drops TypeScript's knock-on of a call it failed to resolve, in `src/language-service/diagnostics.test.ts` (`one mistake reads as one diagnostic across the two halves`).
 
 **Rule 12.5.** The message text is part of the contract: a test that pins a refusal must assert the code and the text, and a change to the text is a change to the surface.
 
@@ -1055,7 +1056,7 @@ A _diagnostic_ is one message the compiler reports for the author's benefit, wit
 
 - Rationale: WGSL checks each requirement at the earliest opportunity, and for TypeShade the earliest opportunity is the source line.
 - Derives from: [Errors](https://gpuweb.github.io/gpuweb/wgsl/#errors) ("each requirement will be checked at the earliest opportunity"); surface §3 and §7.
-- Enforced by: `TS8029`, `TS8031`, `TS8036`, `TS8038`, `TS8068`, and the rest of the front-end codes; the debts of Appendix B are the requirements not yet moved forward.
+- Enforced by: `TS8029`, `TS8031`, `TS8036`, `TS8038`, `TS8068`, and the rest of the front-end codes, among them `TS8002` for a type the file declares nowhere, which used to be emitted as a struct of that name for Tint to refuse (`src/compiler/ts/unknown-names.test.ts`); the debts of Appendix B are the requirements not yet moved forward.
 
 **Rule 12.7.** The language service and the compiler must name one vocabulary: the ambient library's declarations are derived from the compiler's own tables and never retyped.
 
