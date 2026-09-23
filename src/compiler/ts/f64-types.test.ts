@@ -313,6 +313,124 @@ export function k(s: f64, t: f32): f64 {
   });
 });
 
+// ── The constructor ──
+
+describe('a vec64 built from an f32', () => {
+  // A vector of doubles takes f64 components only, and a constructor is not one of the places
+  // §39 retypes a literal: `vec3f64(0.5)` splats the f32 every bare literal lowers to. The
+  // refusals named neither that nor a remedy (Rule 12.1): the splat read "Vector constructor
+  // component count mismatch." to a count that was right, and the composing form "Vector
+  // constructor element type mismatch: expected f64." Each now names the f32 and f64() of it,
+  // which compiles. The codes stay.
+
+  /** The code and the text of each error, which a pin asserts together (Rule 12.5). */
+  const refused = (params: string, ret: string, body: string): string[] =>
+    compileTsSource(`"use typeshade";\nexport function k(${params}): ${ret} { return ${body}; }\n`)
+      .diagnostics.filter((d) => d.category === 'error')
+      .map((d) => `${d.code} ${d.message}`);
+
+  it('refuses an f32 splat, and names the f64() that compiles', () => {
+    expect(refused('', 'vec3f64', 'vec3f64(0.5)')).toEqual([
+      'TS8019 vec3f64 splats an f64; got f32. Widen the scalar first: vec3f64(f64(x)).',
+    ]);
+    const splat = (spelled: string, n: number): string =>
+      `TS8019 ${spelled} splats an f64; got f32. Widen the scalar first: vec${n}f64(f64(x)).`;
+    for (const [params, ret, body, want] of [
+      ['t: f32', 'vec3f64', 'vec3f64(t)', splat('vec3f64', 3)],
+      // A negated literal, Math.PI and a folded 1. / 3. are f32s here too, as is a vec3's lane.
+      ['', 'vec3f64', 'vec3f64(-0.5)', splat('vec3f64', 3)],
+      ['', 'vec3f64', 'vec3f64(Math.PI)', splat('vec3f64', 3)],
+      ['', 'vec3f64', 'vec3f64(1. / 3.)', splat('vec3f64', 3)],
+      ['p: vec3', 'vec3f64', 'vec3f64(p.y)', splat('vec3f64', 3)],
+      ['', 'vec2f64', 'vec2f64(0.5)', splat('vec2f64', 2)],
+      ['t: f32', 'vec4f64', 'vec4f64(t)', splat('vec4f64', 4)],
+      // The type-argument spelling is named as written; the remedy is the short name.
+      ['', 'vec3f64', 'vec3<f64>(0.5)', splat('vec3<f64>', 3)],
+    ] as const) {
+      expect(refused(params, ret, body), body).toEqual([want]);
+    }
+  });
+
+  it('refuses f32 components, and names f64() of each', () => {
+    expect(refused('', 'vec3f64', 'vec3f64(0.5, 0.5, 0.5)')).toEqual([
+      'TS8003 vec3f64 takes f64 components; got f32. Widen each f32 component first, e.g. ' +
+        'vec3f64(f64(x), f64(y), f64(z)).',
+    ]);
+    const compose = (spelled: string, lanes: string): string =>
+      `TS8003 ${spelled} takes f64 components; got f32. Widen each f32 component first, e.g. ` +
+      `vec${lanes.length}f64(${[...lanes].map((c) => `f64(${c})`).join(', ')}).`;
+    for (const [params, ret, body, want] of [
+      ['t: f32', 'vec3f64', 'vec3f64(t, t, t)', compose('vec3f64', 'xyz')],
+      // One f32 among doubles, and beside a vector of doubles on either side.
+      ['s: f64, t: f32', 'vec3f64', 'vec3f64(s, t, s)', compose('vec3f64', 'xyz')],
+      ['v: vec2f64', 'vec3f64', 'vec3f64(v, 0.5)', compose('vec3f64', 'xyz')],
+      ['v: vec2f64, t: f32', 'vec3f64', 'vec3f64(t, v)', compose('vec3f64', 'xyz')],
+      ['s: f64', 'vec2f64', 'vec2f64(s, 0.5)', compose('vec2f64', 'xy')],
+      ['', 'vec4f64', 'vec4f64(1., 2., 3., 4.)', compose('vec4f64', 'xyzw')],
+      ['', 'vec3f64', 'vec3<f64>(0.5, 0.5, 0.5)', compose('vec3<f64>', 'xyz')],
+    ] as const) {
+      expect(refused(params, ret, body), body).toEqual([want]);
+    }
+  });
+
+  it('keeps the plain sentences where f64() is not the fix', () => {
+    // An integer or a bool is not widened by f64(), which takes an f32. A vector of f32 is not
+    // a component list, and a count that is wrong stays wrong with every component widened.
+    // Nor is f64() the fix for an f32 given to a vector of integers, whose sentences are as
+    // they were.
+    const count = 'TS8019 Vector constructor component count mismatch.';
+    const element = (elem: string): string =>
+      `TS8003 Vector constructor element type mismatch: expected ${elem}.`;
+    for (const [params, ret, body, want] of [
+      ['i: i32', 'vec3f64', 'vec3f64(i)', count],
+      ['b: bool', 'vec3f64', 'vec3f64(b)', count],
+      ['v: vec2f64', 'vec3f64', 'vec3f64(v)', count],
+      ['', 'vec3f64', 'vec3f64(0.5, 0.5)', count],
+      ['i: i32', 'vec3f64', 'vec3f64(i, i, i)', element('f64')],
+      ['i: i32', 'vec3f64', 'vec3f64(i, 0.5, 0.5)', element('f64')],
+      ['v: vec3', 'vec3f64', 'vec3f64(v)', element('f64')],
+      ['v: vec2', 'vec3f64', 'vec3f64(v, 0.5)', element('f64')],
+      ['t: f32', 'vec3u', 'vec3u(t)', count],
+      ['t: f32', 'vec3i', 'vec3i(t, t, t)', element('i32')],
+    ] as const) {
+      expect(refused(params, ret, body), body).toEqual([want]);
+    }
+  });
+
+  it('compiles each spelling it names, on both targets and the oracle', () => {
+    // f64() of an f64 is that value, so widening every scalar component is harmless.
+    const r = clean(`"use typeshade";
+export function literal(): vec3f64 { return vec3f64(f64(0.5)); }
+export function single(t: f32): vec3f64 { return vec3f64(f64(t)); }
+export function each(t: f32, s: f64): vec3f64 { return vec3f64(f64(0.25), f64(t), f64(s)); }
+export function beside(v: vec2f64, t: f32): vec3f64 { return vec3f64(v, f64(t)); }
+export function narrow(t: f32): vec2f64 { return vec2f64(f64(t)); }
+export function wide(): vec4f64 { return vec4f64(f64(1.), f64(2.), f64(3.), f64(4.)); }
+export function written(): vec3f64 { return vec3<f64>(f64(0.5)); }
+`);
+    expect(r.wgsl).toBeDefined();
+    expect(r.glsl).toBeDefined();
+    expect(r.eval('literal', [])).toEqual([0.5, 0.5, 0.5]);
+    expect(r.eval('single', [0.75])).toEqual([0.75, 0.75, 0.75]);
+    expect(r.eval('each', [0.5, 0.75])).toEqual([0.25, 0.5, 0.75]);
+    expect(r.eval('beside', [[0.25, 0.5], 0.75])).toEqual([0.25, 0.5, 0.75]);
+    expect(r.eval('narrow', [0.75])).toEqual([0.75, 0.75]);
+    expect(r.eval('wide', [])).toEqual([1, 2, 3, 4]);
+    expect(r.eval('written', [])).toEqual([0.5, 0.5, 0.5]);
+  });
+
+  it('carries the whole double of the literal it widens, not its f32 rounding', () => {
+    // What f64() is for: 0.1 is not an f32, and the pair the splat carries is the double.
+    const { double, emulated } = bothWays(
+      `"use typeshade"\nexport function k(a: f64): f64 { const v = vec3f64(f64(0.1)); return v.y + a; }\n`,
+      [0],
+    );
+    expect(double).toBe(0.1);
+    expect(Math.abs(emulated - 0.1)).toBeLessThan(1e-16);
+    expect(Math.abs(Math.fround(0.1) - 0.1)).toBeGreaterThan(1e-9);
+  });
+});
+
 // ── Lanes ──
 
 describe('the components of a vec64', () => {

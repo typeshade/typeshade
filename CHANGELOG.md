@@ -1292,6 +1292,19 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A vector of doubles built from an `f32` says so, and names `f64()` of it** (Rule 12.1,
+  Rule 12.5, §39). `vec3f64(0.5)`, and `vec3f64(t)` with an `f32` `t`, read
+  `Vector constructor component count mismatch.`, though one argument is the right count for a
+  splat. A vector of doubles takes `f64` components only, and a constructor is not one of the
+  places §39 retypes a literal, so the `0.5` is an `f32`. The `TS8019` now reads
+  `vec3f64 splats an f64; got f32. Widen the scalar first: vec3f64(f64(x)).`
+  Written out, `vec3f64(0.5, 0.5, 0.5)` read `Vector constructor element type mismatch: expected f64.`,
+  which named no remedy. The `TS8003` now reads
+  `vec3f64 takes f64 components; got f32. Widen each f32 component first, e.g. vec3f64(f64(x), f64(y), f64(z)).`
+  Each sentence names the constructor as written, `vec3<f64>(0.5)` included, and the remedy
+  at its width. Where `f64()` is not the fix, the text is unchanged: an integer, a bool, a
+  vector of `f32`, a wrong count, and an `f32` given to a vector of integers. The constructor
+  still takes no literal and no `f32`, and the codes are unchanged.
 - **A loop can write the array whose length bounds it** (Rule 7.5). This loop over a
   runtime-sized storage array was `TS8006`, "for bound reads xs, which the loop body writes":
 
