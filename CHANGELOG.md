@@ -40,7 +40,8 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   relative error after 32 steps -13.50 against -13.53). A module whose only f64 work is
   comparison, widening, narrowing, negation or power-of-two scaling now reads no guard and
   gets no `_fp64` binding; bind what `reflect()` lists.
-- **`fp64-julia` escapes the way a practitioner writes it.** The loop carries |z|² beside z,
+- **`fp64-julia`, `fp64-mandelbrot` and `fp64-burning-ship` escape the way a practitioner
+  writes it.** The loop carries |z|² beside z,
   takes the escape test in f32 from the narrowed words on the double half (48 bits move a
   value across 16 only from within an f32 rounding of it; `f64Parts` is internal, Rule 2.2,
   so `f32(zx)` is the spelling), carries the f32 half's squares, and leaves with a `break` at
@@ -50,7 +51,10 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   128 trips. Over 256×256 samples
   a half at spans 1e-4 to 1e-13 no escape count moved; bisecting 560 count boundaries finds 3
   of 10,080 samples that escape one step later, and the true double sides with the f32 test
-  at one of them, which `fp64-twins.test.ts` now samples.
+  at one of them, which `fp64-twins.test.ts` now samples. `fp64-mandelbrot` (in its
+  `escape_f32` / `escape_f64` helpers) and `fp64-burning-ship` and its twin take the same shape;
+  their double halves lower to `df64_sqr` for the squares and an exact `* 2.0` for the
+  doubled cross term (after `df64_abs` on the burning ship).
 - **The fp64 guard is read once per function, and its redundant multiplies are gone** (§39).
   Every float `df64_*` helper fetched the `_fp64` guard texel itself, so every helper CALL
   fetched it again: the `fp64-mandelbrot` escape loop read the texture up to 40 times per
