@@ -235,6 +235,69 @@ function enumNamesOf(sourceFile: ts.SourceFile): ReadonlySet<string> {
 
 const ENUM_CACHE = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
 
+/** Every type name the file declares, wherever it declares it: a class, an interface, a type
+ *  alias, an enum and a namespace, at the top level, in a namespace or in a body. A capitalized
+ *  name none of them gives, and no other file of the module gives, is no type at all. */
+export function declaredTypeNamesOf(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const cached = DECLARED_TYPES.get(sourceFile);
+  if (cached) return cached;
+  const out = new Set<string>();
+  const walk = (n: ts.Node): void => {
+    if (
+      (ts.isClassDeclaration(n) ||
+        ts.isInterfaceDeclaration(n) ||
+        ts.isTypeAliasDeclaration(n) ||
+        ts.isEnumDeclaration(n) ||
+        ts.isModuleDeclaration(n)) &&
+      n.name !== undefined &&
+      ts.isIdentifier(n.name)
+    ) {
+      out.add(n.name.text);
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sourceFile);
+  DECLARED_TYPES.set(sourceFile, out);
+  return out;
+}
+
+const DECLARED_TYPES = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+
+/** The type names the other files of a multi-file program declare (`compileTsSources`), which a
+ *  file writes by their bare name: a struct is module scope, whichever file declares it (#74). */
+const MODULE_TYPES = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+
+/** Records the type names every file of the module declares, for `sourceFile` to resolve. */
+export function setModuleTypeNames(sourceFile: ts.SourceFile, names: ReadonlySet<string>): void {
+  MODULE_TYPES.set(sourceFile, names);
+}
+
+/** Whether `name` is a type parameter of a declaration around `node`. */
+function isTypeParameterAround(node: ts.Node, name: string): boolean {
+  for (let at: ts.Node | undefined = node.parent; at !== undefined; at = at.parent) {
+    const params = (at as { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> })
+      .typeParameters;
+    if (params?.some((p) => p.name.text === name)) return true;
+  }
+  return false;
+}
+
+/** The capitalized name `typeNode` writes, with no type argument, when nothing in the module
+ *  declares it: no class, interface, type alias, enum or namespace of any file, and no type
+ *  parameter around it. */
+export function undeclaredTypeName(
+  typeNode: ts.TypeNode,
+  sourceFile: ts.SourceFile,
+): string | undefined {
+  if (!ts.isTypeReferenceNode(typeNode) || !ts.isIdentifier(typeNode.typeName)) return undefined;
+  if ((typeNode.typeArguments?.length ?? 0) > 0) return undefined;
+  const name = typeNode.typeName.text;
+  if (!/^[A-Z]/.test(name) || lookupTypeName(name) !== undefined) return undefined;
+  if (declaredTypeNamesOf(sourceFile).has(name)) return undefined;
+  if (MODULE_TYPES.get(sourceFile)?.has(name) === true) return undefined;
+  return isTypeParameterAround(typeNode, name) ? undefined : name;
+}
+
 /** The retired module-variable wrapper, refused by name wherever it is written.
  *  `perInvocation<T>` (#83) was a second spelling of the variable a plain top-level `let`
  *  declares, and was removed (§24). It lives here rather than in module-vars.ts because
@@ -399,7 +462,15 @@ function mapType(
     // An interface that declares a method is a contract and never a value (Rule 6.9); it was
     // said so where it declares the method, once, and a type it names here names nothing.
     if (contractInterfaces(sourceFile).has(name)) return undefined;
-    if (/^[A-Z]/.test(name)) return structT(name);
+    // A struct the module declares, or a type parameter of the declaration around it, which an
+    // instantiation binds (T9, #92). A capitalized name nothing declares is unknown like any
+    // other: it used to become a struct of its own name, which the module never declared and
+    // Tint refused as an unresolved type (Rule 12.6).
+    if (/^[A-Z]/.test(name)) {
+      if (undeclaredTypeName(typeNode, sourceFile) === undefined) return structT(name);
+      pushDiag(diagnostics, sourceFile, typeNode, `Unknown type "${name}".`);
+      return undefined;
+    }
     pushDiag(
       diagnostics,
       sourceFile,

@@ -23,7 +23,27 @@ describe('swizzle', () => {
     if (rgba.ok) expect(typeKey(rgba.type)).toBe('vec4<f32>');
   });
 
-  it('lowers v.swizzle("yxz") to member', () => {
+  it('lowers v.yxz to member', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(a: f32): vec3 {
+        const v = vec3(a, 1, 2);
+        return v.yxz;
+      }
+    `);
+    expect(r.diagnostics).toEqual([]);
+    const ret = r.funcs[0]!.body[1];
+    expect(ret!.s).toBe('return');
+    expect(ret!.s === 'return' && ret.expr?.op === 'member' && ret.expr.field).toBe('yxz');
+    expect(ret!.s === 'return' && ret.expr !== undefined && typeKey(ret.expr.type)).toBe(
+      'vec3<f32>',
+    );
+  });
+
+  it('refuses v.swizzle("yxz"): a vector has no such method, and the IR builder is no source', () => {
+    // `.swizzle()` is the IR builder's method (src/core/ir/swizzle.test.ts). It is not WGSL, not
+    // ECMAScript and no §9.3 row, so it is no name an author writes (Rule 2.1, Rule 2.2), and the
+    // editor already said so (TS2339). It compiled here because a call was routed by its name.
     const r = compileTsSource(`
       "use typeshade";
       export function f(a: f32): vec3 {
@@ -31,13 +51,9 @@ describe('swizzle', () => {
         return v.swizzle("yxz");
       }
     `);
-    expect(r.diagnostics).toEqual([]);
-    const ret = r.funcs[0]!.body[1];
-    expect(ret!.s).toBe('return');
-    if (ret!.s === 'return' && ret.expr && ret.expr.op === 'member') {
-      expect(ret.expr.field).toBe('yxz');
-      expect(typeKey(ret.expr.type)).toBe('vec3<f32>');
-    }
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      `TS8022 vec3 has no method "swizzle": a vector's members are its components, v.x or v.xy.`,
+    ]);
   });
 
   it('diagnoses mixed swizzle in source', () => {

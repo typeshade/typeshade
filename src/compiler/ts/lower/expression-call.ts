@@ -19,7 +19,7 @@ import {
   voidT,
 } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, type LoweringScope } from '../context.js';
 import {
   USER_FIRST_BUILTINS,
   expectedArity,
@@ -50,7 +50,6 @@ import {
   lowerExpandCall,
   lowerRandomCall,
   lowerScalarCastCall,
-  lowerSwizzleCall,
   lowerGenericCall,
   lowerUserCall,
   mathResultType,
@@ -58,7 +57,6 @@ import {
 import { captureArguments, declaresFunction } from './local-functions.js';
 import { declarationOf, functionAround } from './closures.js';
 import { makeDiagnostic } from '../diagnostic.js';
-import { HOST_GLOBALS } from '../semantic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { checkMathArgs, mathTakesElem } from './math-args.js';
 import { isConsoleMethod } from '../../../core/console.js';
@@ -200,8 +198,6 @@ export function lowerCall(
         );
         return undefined;
       }
-    } else if (callee.name.text === 'swizzle') {
-      return lowerSwizzleCall(node, callee.expression, sourceFile, scope, diagnostics);
     } else {
       // A method of a class the file declares, or a static function on the class (#86); a
       // receiver that is not a struct falls through to the refusals below.
@@ -212,13 +208,30 @@ export function lowerCall(
       if (isArrayMethod(callee.name.text) && seen.recv !== undefined) {
         return lowerArrayMethod(node, callee, seen.recv, sourceFile, scope, diagnostics);
       }
-      if (JS_ARRAY_METHODS.has(callee.name.text)) {
+      // The sentence about an array's methods is said of an array; any other receiver is looked
+      // up as what it is (Rule 2.1).
+      if (JS_ARRAY_METHODS.has(callee.name.text) && seen.recv?.type.kind === 'array') {
         pushDiag(
           diagnostics,
           sourceFile,
           node,
           otherArrayMethod(callee.name.text),
           TS_CODES.UNSUPPORTED,
+        );
+        return undefined;
+      }
+      // A vector's members are its components, and it has no method. `v.swizzle("yxz")` was
+      // the IR builder's method reached by its name, which no source gives an author (Rule 2.2);
+      // a swizzle is written as a member, `v.yxz`.
+      if (seen.recv?.type.kind === 'vec' || seen.recv?.type.kind === 'vec64') {
+        const v = callee.expression.getText(sourceFile);
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          callee.name,
+          `${authorTypeText(seen.recv.type)} has no method "${callee.name.text}": a vector's ` +
+            `members are its components, ${v}.x or ${v}.xy.`,
+          TS_CODES.UNKNOWN_NAME,
         );
         return undefined;
       }
@@ -369,14 +382,22 @@ export function lowerCall(
         if (scope.isGenericFunction(name)) {
           return lowerGenericCall(node, name, name, sourceFile, scope, diagnostics);
         }
+        // No builtin, no function of the file and no local one: the callee is the mistake, and
+        // it is said before any argument is lowered, so an argument that fails (`nope(zzz)`, a
+        // string, a function name handed to it) cannot stand in for it (Rule 12.4). A function
+        // the file declares and refused said why on its declaration.
+        if (scope.declarationRefused(name)) return undefined;
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `Unknown function "${node.getText(sourceFile)}". Declare it in this file, or import it from another shader module.`,
+          TS_CODES.UNKNOWN_FN,
+        );
+        return undefined;
       }
     }
   }
-
-  // `Symbol('k')`, `fetch(url)`: the semantic pass already said the callee is a host API, and
-  // lowering the arguments adds a second complaint about the same line — one about a string
-  // that is only there because the call is (roadmap 0.3 item T10, #92).
-  if (ts.isIdentifier(callee) && HOST_GLOBALS.has(callee.text)) return undefined;
 
   const args: Expr[] = [];
   for (const arg of node.arguments) {

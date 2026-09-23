@@ -23,7 +23,7 @@ import type { Expr, ModuleVarDecl, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { structT, typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { LoweringScope } from './context.js';
+import { LoweringScope, refuseModuleName, refusedDeclarationsOf } from './context.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js';
@@ -33,7 +33,7 @@ import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
 import { lowerExpression } from './lower/expression.js';
 import { lowerArrayLiteral } from './lower/expression-array.js';
 import { isOverrideType } from './overrides.js';
-import { isFoldableConstExpr, staticConstName } from './module-const.js';
+import { declaredCallIn, isFoldableConstExpr, staticConstName } from './module-const.js';
 import { eachNamespaceStatement } from './namespaces.js';
 import {
   emittedMemberName,
@@ -355,6 +355,21 @@ function lowerPlain(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): ModuleVarDecl | undefined {
+  // A call of a function or a class the file declares is no constant, and has nothing to call
+  // yet: it is said here, before the initializer is lowered into "Unknown function" about a
+  // function the file declares (Rule 12.4).
+  if (decl.initializer !== undefined && declaredCallIn(decl.initializer, sourceFile)) {
+    const shown =
+      ts.isPropertyDeclaration(decl) && ts.isClassDeclaration(decl.parent)
+        ? `${decl.parent.name?.text ?? ''}.${decl.name.getText(sourceFile)}`
+        : name;
+    diagnostics.push(
+      diag(sourceFile, decl.initializer, notConstantMessage(shown, decl.initializer, sourceFile)),
+    );
+    refusedDeclarationsOf(scope.calleeTable()).add(name);
+    refuseModuleName(sourceFile, name);
+    return undefined;
+  }
   if (decl.type !== undefined) {
     // `let seed: perInvocation<u32> = 7` (#83, removed in §24). Refused here, at the
     // annotation and before `typeOf` runs, so it is the author's only diagnostic: `typeOf`
@@ -505,14 +520,14 @@ function finish(
     isFoldableConstExpr(init, scope);
   if (!folds) {
     diagnostics.push(
-      diag(
-        sourceFile,
-        decl.initializer,
-        `"${name}" needs a constant initializer (a literal, a module const, arithmetic or a math ` +
-          `builtin over those); "${decl.initializer.getText(sourceFile)}" is not one. Assign it inside the entry.`,
-      ),
+      diag(sourceFile, decl.initializer, notConstantMessage(name, decl.initializer, sourceFile)),
     );
     return undefined;
   }
   return { name, space, type, init };
 }
+
+/** The sentence for a module variable whose initializer is not a constant by §12's measure. */
+const notConstantMessage = (name: string, init: ts.Expression, sourceFile: ts.SourceFile): string =>
+  `"${name}" needs a constant initializer (a literal, a module const, arithmetic or a math ` +
+  `builtin over those); "${init.getText(sourceFile)}" is not one. Assign it inside the entry.`;

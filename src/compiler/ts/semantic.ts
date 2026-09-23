@@ -1,73 +1,12 @@
-// Ban host/JS surface inside "use typeshade" files.
+// Ban host/JS surface inside "use typeshade" files: host control flow and the runtime forms no
+// shader has. A NAME is not judged here by its spelling. It is resolved where it is used, and one
+// nothing declares is an unknown name of the code that owns its position (Rule 2.1).
 
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { isEnableDirective } from './enables.js';
-import { staticThisClass } from './class-names.js';
-
-export const HOST_GLOBALS: ReadonlySet<string> = new Set([
-  'window',
-  'document',
-  'globalThis',
-  'global',
-  'self',
-  'fetch',
-  'setTimeout',
-  'setInterval',
-  'clearTimeout',
-  'clearInterval',
-  'queueMicrotask',
-  'requestAnimationFrame',
-  'Promise',
-  'Date',
-  'JSON',
-  'process',
-  'require',
-  'module',
-  'exports',
-  'eval',
-  'Function',
-  'Array',
-  'Object',
-  'Map',
-  'Set',
-  'WeakMap',
-  'WeakSet',
-  'Symbol',
-  'Error',
-  'Proxy',
-  'Reflect',
-  'Atomics',
-  'SharedArrayBuffer',
-  'WebAssembly',
-  'navigator',
-  'performance',
-  'crypto',
-  'GPU',
-  'GPUBuffer',
-  'localStorage',
-  'sessionStorage',
-  'XMLHttpRequest',
-  'Worker',
-  'SharedWorker',
-  'MessageChannel',
-  'TextDecoder',
-  'TextEncoder',
-  'URL',
-  'Blob',
-  'atob',
-  'btoa',
-  'parseInt',
-  'parseFloat',
-  'isNaN',
-  'isFinite',
-  'Number',
-  'String',
-  'Boolean',
-  'RegExp',
-]);
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -79,98 +18,11 @@ function push(
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }
 
-/** What `new X(...)` names, so the refusal can say the real reason rather than blaming the
- *  allocation (#86, and the DX note on it). A class the file declares is built here, which is
- *  the ordinary case; the other three are each refused for their own reason, and TypeScript
- *  refuses two of them as well. */
-function newTarget(
-  node: ts.NewExpression,
-  sourceFile: ts.SourceFile,
-): 'class' | 'abstract' | 'type' | 'host' {
-  // `new this()` in a static member builds the class that declares the member (Rule 8.13).
-  if (node.expression.kind === ts.SyntaxKind.ThisKeyword) {
-    const cls = staticThisClass(node.expression);
-    if (cls === undefined) return 'host';
-    return cls.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)
-      ? 'abstract'
-      : 'class';
-  }
-  const written = newTargetName(node.expression);
-  if (written === undefined) return 'host';
-  // The name as written, and the short name a dotted one ends in: `new N.P()` names the class
-  // `P` inside `N`, which the class walk below finds under its own name (#107).
-  const short = written.slice(written.lastIndexOf('_') + 1);
-  let found: 'class' | 'abstract' | 'type' | undefined;
-  const walk = (statements: readonly ts.Statement[], inNamespace: boolean): void => {
-    for (const s of statements) {
-      if (ts.isModuleDeclaration(s) && s.body) {
-        if (ts.isModuleBlock(s.body)) walk(s.body.statements, true);
-        else if (ts.isModuleDeclaration(s.body)) walk([s.body], true);
-        continue;
-      }
-      // A namespace's class answers to its short name; a top-level one only to what was
-      // written, so `new N.P()` never resolves to a top-level `P`.
-      const want = inNamespace ? short : written;
-      if (ts.isClassDeclaration(s) && s.name?.text === want) {
-        found ??= s.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)
-          ? 'abstract'
-          : 'class';
-      }
-      if (ts.isInterfaceDeclaration(s) && s.name.text === want) found ??= 'type';
-      if (ts.isTypeAliasDeclaration(s) && s.name.text === want) found ??= 'type';
-    }
-  };
-  walk(sourceFile.statements, false);
-  return found ?? 'host';
-}
-
-/** The name of the class a node stands inside, the innermost one. */
-function enclosingClassName(node: ts.Node): string | undefined {
-  for (let at: ts.Node | undefined = node.parent; at !== undefined; at = at.parent) {
-    if (ts.isClassLike(at)) return at.name?.text;
-  }
-  return undefined;
-}
-
-/** The name a `new` writes, joined the way the module flattens it: `P`, `N_P`. */
-function newTargetName(expr: ts.Expression): string | undefined {
-  const parts: string[] = [];
-  let node: ts.Expression = expr;
-  for (;;) {
-    if (ts.isIdentifier(node)) {
-      parts.unshift(node.text);
-      return parts.join('_');
-    }
-    if (!ts.isPropertyAccessExpression(node)) return undefined;
-    parts.unshift(node.name.text);
-    node = node.expression;
-  }
-}
-
-function isPropertyName(node: ts.Identifier): boolean {
-  const p = node.parent;
-  if (!p) return false;
-  if (ts.isPropertyAccessExpression(p) && p.name === node) return true;
-  if (ts.isQualifiedName(p) && p.right === node) return true;
-  if (ts.isPropertyAssignment(p) && p.name === node) return true;
-  if (ts.isPropertySignature(p) && p.name === node) return true;
-  return false;
-}
-
 function visit(
   node: ts.Node,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
-  if (ts.isIdentifier(node) && HOST_GLOBALS.has(node.text) && !isPropertyName(node)) {
-    push(
-      diagnostics,
-      sourceFile,
-      node,
-      `"${node.text}" is a host/JS API. "use typeshade" files cannot touch the JS runtime.`,
-      TS_CODES.HOST_API,
-    );
-  }
   if (ts.isAwaitExpression(node)) {
     push(
       diagnostics,
@@ -209,56 +61,6 @@ function visit(
       'try/catch/throw are JS exceptions. TypeShade has no exception path.',
       TS_CODES.HOST_STMT,
     );
-  }
-  // `new Ray(...)` on a class the file declares is that class's constructor (#86). The other
-  // three each get their own reason: a message that leads with "`new` allocates a JS object"
-  // reads as a ban on `new` itself, which it is not, and sends a reader looking for a
-  // workaround they do not need.
-  if (ts.isNewExpression(node)) {
-    const shown = ts.isIdentifier(node.expression)
-      ? node.expression.text
-      : node.expression.kind === ts.SyntaxKind.ThisKeyword
-        ? (staticThisClass(node.expression)?.name?.text ?? 'this')
-        : node.expression.getText(sourceFile);
-    switch (newTarget(node, sourceFile)) {
-      case 'class':
-        break;
-      case 'abstract':
-        push(
-          diagnostics,
-          sourceFile,
-          node,
-          `"${shown}" is abstract, so there is no instance of it to build. Construct a class ` +
-            `that extends it.`,
-          TS_CODES.HOST_STMT,
-        );
-        break;
-      case 'type':
-        push(
-          diagnostics,
-          sourceFile,
-          node,
-          `"${shown}" is a type, not a value: an interface and a type alias declare a shape and ` +
-            `carry no constructor. Write the object literal, { field: value }, or declare ` +
-            `"${shown}" as a class to give it one.`,
-          TS_CODES.HOST_STMT,
-        );
-        break;
-      default:
-        push(
-          diagnostics,
-          sourceFile,
-          node,
-          node.expression.kind === ts.SyntaxKind.ThisKeyword
-            ? `"this" here is an object, not a class, so "new" cannot build one from it. Name ` +
-                `the class, "new ${enclosingClassName(node) ?? 'C'}(...)"; "new this()" builds ` +
-                `the class in a static member.`
-            : `A class this file declares is built with "new", and "${shown}" is not one of ` +
-                `them. "new" on anything else allocates a JS object, which a shader has no heap ` +
-                `for.`,
-          TS_CODES.HOST_STMT,
-        );
-    }
   }
   if (ts.isTaggedTemplateExpression(node) || ts.isTemplateExpression(node)) {
     push(

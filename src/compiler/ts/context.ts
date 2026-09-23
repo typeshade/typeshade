@@ -222,6 +222,23 @@ export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
 export const refusedDeclarationsOf = (callees: Map<string, FuncDecl>): Set<string> =>
   fileFunctionsOf(callees).refused;
 
+/** The module-scope names of a file whose declaration was refused before any function existed:
+ *  a module constant, a module variable, a static field or an enum member whose initializer calls
+ *  a function or builds a class the file declares. Every function's scope takes them as refused
+ *  declarations, so a use of one adds nothing to the sentence its declaration got (Rule 12.4). */
+const REFUSED_MODULE_NAMES = new WeakMap<ts.SourceFile, Set<string>>();
+
+/** Records `name`, as the module emits it (`K`, `S_K`, `E_A`), as refused in `sourceFile`. */
+export function refuseModuleName(sourceFile: ts.SourceFile, name: string): void {
+  const names = REFUSED_MODULE_NAMES.get(sourceFile) ?? new Set<string>();
+  names.add(name);
+  REFUSED_MODULE_NAMES.set(sourceFile, names);
+}
+
+/** The names {@link refuseModuleName} recorded for `sourceFile`. */
+export const refusedModuleNames = (sourceFile: ts.SourceFile): ReadonlySet<string> =>
+  REFUSED_MODULE_NAMES.get(sourceFile) ?? new Set();
+
 /** What a name in scope refers to.
  *
  *  `module` and `binding` were one kind until #14, and conflating them is what broke stage

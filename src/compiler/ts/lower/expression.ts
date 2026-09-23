@@ -21,12 +21,13 @@ import {
   shiftAmountMessage,
   shiftAmountOutOfRange,
 } from '../lit-coerce.js';
-import { mapTsTypeToShaderType } from '../type-map.js';
+import { mapTsTypeToShaderType, undeclaredTypeName } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral } from './expression-array.js';
 import { refuseBareAtomic } from './atomics.js';
 import { lowerCall } from './expression-call.js';
 import { lowerNew, lowerThis } from './class-methods.js';
+import { declarationOf } from './closures.js';
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
@@ -95,6 +96,18 @@ function lowerTypeClaim(
     ts.isIdentifier(typeNode.typeName) &&
     typeNode.typeName.text === 'const';
   const claimed = isConst ? undefined : mapTsTypeToShaderType(typeNode, sourceFile, /* quiet */ []);
+  // A claim of a type nothing declares claims nothing the program has (Rule 2.1).
+  const unknown = isConst ? undefined : undeclaredTypeName(typeNode, sourceFile);
+  if (unknown !== undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `Unknown type "${unknown}".`,
+      TS_CODES.UNKNOWN_TYPE,
+    );
+    return undefined;
+  }
   const lowered = lowerExpression(operand, sourceFile, scope, diagnostics, claimed ?? contextual);
   if (!lowered || claimed === undefined) return lowered;
   if (typeKey(lowered.type) !== typeKey(claimed)) {
@@ -262,6 +275,25 @@ export function lowerExpression(
   return undefined;
 }
 
+/** Whether `decl`, what the file declares under a name where it is read, declares a VALUE of
+ *  that name: anything {@link declarationOf} finds but a namespace that holds only types, which
+ *  TypeScript does not instantiate. An interface and a type alias declare no value and are not
+ *  found at all. */
+function declaresValue(decl: ts.Node | undefined): boolean {
+  if (decl === undefined) return false;
+  if (!ts.isModuleDeclaration(decl)) return true;
+  const body = decl.body;
+  if (body === undefined) return false;
+  if (ts.isModuleDeclaration(body)) return declaresValue(body);
+  if (!ts.isModuleBlock(body)) return false;
+  return body.statements.some(
+    (st) =>
+      !ts.isInterfaceDeclaration(st) &&
+      !ts.isTypeAliasDeclaration(st) &&
+      (!ts.isModuleDeclaration(st) || declaresValue(st)),
+  );
+}
+
 /** The two operators that ask what a value is at run time, and why neither can (roadmap 0.3
  *  item T10, #92). Both are read before the operands are lowered. */
 const RUNTIME_TYPE_TEST: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
@@ -284,12 +316,22 @@ function lowerIdentifier(
 ): Expr | undefined {
   const binding = scope.resolve(node.text);
   if (!binding) {
+    // A §9.3 constant is the ambient library's, and a name the file declares shadows it, as
+    // TypeScript resolves it: `enum E`, `namespace PI`, `class TAU` and `function PI` read as
+    // the file's, never as e, π or τ (Rule 2.1).
     const c = resolveLangConst(node.text);
-    if (c !== undefined) return { op: 'lit', type: f32T, value: c };
+    const declared = c === undefined ? undefined : declarationOf(node);
+    if (c !== undefined && !declaresValue(declared)) return { op: 'lit', type: f32T, value: c };
     // A function named where a value is read (Rule 8.17). A call of it is lowered where the call
     // is, and a function handed to a fold is read there, so what reaches here asks for the
     // function as a value: to hold, return, compare or choose at run time.
-    if (scope.resolveCallee(node.text) !== undefined || scope.isGenericFunction(node.text)) {
+    if (
+      scope.resolveCallee(node.text) !== undefined ||
+      scope.isGenericFunction(node.text) ||
+      (declared !== undefined &&
+        ts.isFunctionDeclaration(declared) &&
+        !scope.declarationRefused(node.text))
+    ) {
       pushDiag(
         diagnostics,
         sourceFile,

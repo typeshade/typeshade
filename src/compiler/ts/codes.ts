@@ -1,7 +1,7 @@
 // Stable diagnostic codes (Phase 10 / 12). Messages stay readable.
 //
 // Numbering: `TS8` + a zero-padded sequential number, assigned in the order a code was added.
-// A gap (8011 is retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
+// A gap (8011 and 8012 are retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
 // exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
 // deserve its own code, so it stays parked past the sequential range instead of at its head.
 //
@@ -25,7 +25,12 @@ export const TS_CODES = {
   LOOP_INDUCTION: 'TS8008',
   BREAK_OUTSIDE: 'TS8009',
   STRUCT_FIELD: 'TS8010',
-  HOST_API: 'TS8012',
+  // TS8012 was `HOST_API`, a list of JavaScript globals refused by their spelling. A name nothing
+  // declares is `UNKNOWN_NAME`, `UNKNOWN_FN` or `UNKNOWN_TYPE` by its position, and one the file
+  // declares is the file's (Rule 2.1).
+  /** Host control flow and the JavaScript runtime forms no shader has: `await`, `yield`, an
+   *  `async` or generator function, `try`/`catch`/`throw`, `for…in`, `var`, a spread outside an
+   *  object literal, and a template string. A `new` is a class rule, `CLASS_MEMBER`. */
   HOST_STMT: 'TS8013',
   TOP_LEVEL: 'TS8014',
   BACKEND: 'TS8015',
@@ -84,7 +89,7 @@ export const TS_CODES = {
    *  a value, since a barrier is a statement (roadmap 0.2 item 5, #82). */
   BARRIER_PLACEMENT: 'TS8034',
   /** A class member shape the surface does not take, or a use of a member the class rules
-   *  refuse (#86). Getters and setters, static fields and methods, overload signatures,
+   *  refuse (#86), and a `new` that builds no class (Rule 8.13). Getters and setters, static fields and methods, overload signatures,
    *  abstract members, `#` private names and methods that change their object all compile
    *  (#190), and so does a field holding a function, which is a method (Rule 8.16).
    *  What is refused, in the declaration: a field holding a function when the field is static,
@@ -101,9 +106,12 @@ export const TS_CODES = {
    *  assigned, or a setter with no getter read; a compound assignment through a getter and
    *  setter whose object would run twice; a method that changes its object called on
    *  something it cannot write (a parameter, a `const` whose value something else may hold, a
-   *  dropped value) or used as a value when it returns nothing; and `new` on a class that
-   *  declares only statics. A getter or setter missing its type is `UNKNOWN_TYPE`, a
-   *  `readonly` field written outside the constructor `CONST_ASSIGN`. */
+   *  dropped value) or used as a value when it returns nothing. In a `new`: a class that declares
+   *  only statics, an `abstract` class, `new this()` outside a static member, and a target the
+   *  file resolves to something other than a class — a WGSL constructor or cast (`new vec3f()`),
+   *  a function, an enum, a namespace, an interface or type alias, a type parameter, or a value.
+   *  A target nothing declares is `UNKNOWN_NAME`. A getter or setter missing its type is
+   *  `UNKNOWN_TYPE`, a `readonly` field written outside the constructor `CONST_ASSIGN`. */
   CLASS_MEMBER: 'TS8035',
   /** A math builtin called with arguments its signature does not take (#57, §10): two shapes
    *  that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` with a vector `v`), an element

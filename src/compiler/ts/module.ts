@@ -17,6 +17,7 @@ import { reportCrossDeclarationCollisions, type TsCompilerDiagnostic } from './s
 import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js';
 import { collectBindings } from './bindings.js';
 import { collectEnables } from './enables.js';
+import { declaredTypeNamesOf, setModuleTypeNames } from './type-map.js';
 import { collectOverrides } from './overrides.js';
 import { fillFunctionBody, parseSignature } from './lower/function.js';
 import { analyzeSemantics } from './semantic.js';
@@ -132,6 +133,11 @@ export function compileTsSources(
       symbols,
     };
   }
+
+  // A struct is module scope, so a file writes another file's class or interface by its bare
+  // name, and a type name any file declares is a type of every file (#74).
+  const moduleTypes = new Set([...parsed.values()].flatMap((sf) => [...declaredTypeNamesOf(sf)]));
+  for (const sf of parsed.values()) setModuleTypeNames(sf, moduleTypes);
 
   for (const [name, sf] of parsed) {
     // The statement-level check `compileTsSource` runs on a single file (a top-level `let`,

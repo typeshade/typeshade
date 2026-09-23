@@ -4,21 +4,22 @@ import { TS_CODES } from './codes.js';
 
 describe('Phase 12 semantic bans', () => {
   it('no longer bans console: the standard console is lowered, not refused', () => {
-    // `console` left HOST_GLOBALS when the JavaScript Console API became part of the surface
-    // (src/core/console.ts): a call is lowered to a `console.<method>` call statement that the
-    // CPU path delivers to the host's console sink. console.test.ts pins what it lowers to and
-    // which methods are refused; this pins only that the host-API ban is gone.
+    // `console` left the list of refused host names when the JavaScript Console API became part
+    // of the surface (src/core/console.ts): a call is lowered to a `console.<method>` call
+    // statement that the CPU path delivers to the host's console sink. console.test.ts pins what
+    // it lowers to and which methods are refused; this pins only that it compiles.
     const r = compileTsSource(`
       "use typeshade";
       export function f(): void {
         console.log(1.);
       }
     `);
-    expect(r.diagnostics.filter((d) => d.code === TS_CODES.HOST_API)).toEqual([]);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
   });
 
-  it('rejects fetch', () => {
+  it('rejects fetch, as a function nothing declares', () => {
+    // There is no list of host names (Rule 2.1): `fetch` is an unknown callee, said once, and
+    // the string handed to it is not lowered to say a second thing (host-names.test.ts).
     const r = compileTsSource(`
       "use typeshade";
       export function f(): f32 {
@@ -26,10 +27,12 @@ describe('Phase 12 semantic bans', () => {
         return 1.;
       }
     `);
-    expect(r.diagnostics.some((d) => d.code === TS_CODES.HOST_API)).toBe(true);
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      `${TS_CODES.UNKNOWN_FN} Unknown function "fetch("x")". Declare it in this file, or import it from another shader module.`,
+    ]);
   });
 
-  it('rejects Date / new', () => {
+  it('rejects Date / new, as a name nothing declares', () => {
     const r = compileTsSource(`
       "use typeshade";
       export function f(): f32 {
@@ -37,9 +40,9 @@ describe('Phase 12 semantic bans', () => {
         return 1.;
       }
     `);
-    expect(
-      r.diagnostics.some((d) => d.code === TS_CODES.HOST_API || d.code === TS_CODES.HOST_STMT),
-    ).toBe(true);
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      `${TS_CODES.UNKNOWN_NAME} Unknown identifier "Date".`,
+    ]);
   });
 
   it('rejects await and async', () => {
