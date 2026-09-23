@@ -819,8 +819,7 @@ So the precedence rule can hand the author a WGSL-only module, and the compiler 
 | f64              | `vec2d`                  | the short spelling of `vec2f64`, a type name and never a call                         |
 | f64              | `vec3d`                  | the short spelling of `vec3f64`, a type name and never a call                         |
 | f64              | `vec4d`                  | the short spelling of `vec4f64`, a type name and never a call                         |
-| f64              | `Vec64`                  | the brand shape the three `f64` vector types share                                    |
-| f64              | `vec64Tag`               | the brand symbol of `Vec64`                                                           |
+| f64              | `vec64Tag`               | the brand symbol of the three `f64` vector types                                      |
 | resources        | `uniform`                | declares a binding in WGSL's uniform address space                                    |
 | resources        | `storage`                | declares a binding in WGSL's storage address space                                    |
 | resources        | `workgroup`              | declares a module variable in WGSL's workgroup address space                          |
@@ -849,9 +848,6 @@ So the precedence rule can hand the author a WGSL-only module, and the compiler 
 | storage textures | `StorageTexel`           | the vector type a format reads and writes                                             |
 | storage textures | `StorageAccess`          | a storage texture's access mode: read, write, read_write                              |
 | type machinery   | `Numeric`                | the scalar-and-vector union the arithmetic overloads use                              |
-| type machinery   | `VecOf`                  | the vector shape, which gives a vector its `.x` and `.rgb` members                    |
-| type machinery   | `ScalarOf`               | a vector's element type, per its element kind                                         |
-| type machinery   | `ComponentKeys`          | which component members exist at each arity                                           |
 | type machinery   | `Mat`                    | the matrix brand shape                                                                |
 | type machinery   | `MatColumn`              | a matrix column's vector type, per its element                                        |
 | type machinery   | `LaneKeys`               | which constant indices a vector or a matrix takes at each arity                       |
@@ -1058,11 +1054,11 @@ For a name the compiler cannot find (a value, a callee, a type, a field, a membe
 - Derives from: [Errors](https://gpuweb.github.io/gpuweb/wgsl/#errors) ("each requirement will be checked at the earliest opportunity"); surface §3 and §7.
 - Enforced by: `TS8029`, `TS8031`, `TS8036`, `TS8038`, `TS8068`, and the rest of the front-end codes, among them `TS8002` for a type the file declares nowhere, which used to be emitted as a struct of that name for Tint to refuse (`src/compiler/ts/unknown-names.test.ts`); the debts of Appendix B are the requirements not yet moved forward.
 
-**Rule 12.7.** The language service and the compiler must name one vocabulary: the ambient library's declarations are derived from the compiler's own tables and never retyped.
+**Rule 12.7.** The language service and the compiler must name one vocabulary: the ambient library's declarations are derived from the compiler's own tables and never retyped, and a program the compiler accepts must draw no error in the editor or in `typeshade check`.
 
 - Rationale: an editor that accepts what the compiler refuses, or the reverse, is a second surface.
 - Derives from: the head of `src/language-service/ambient.ts`; #157 for the remaining gaps.
-- Enforced by: `src/language-service/ambient.test.ts` (among it `accepts an unsigned coordinate on textureLoad and textureStore`, the `vec2u` coordinate WGSL and the compiler take) and `surface-names.test.ts`.
+- Enforced by: `src/language-service/ambient.test.ts` (among it `accepts an unsigned coordinate on textureLoad and textureStore`, the `vec2u` coordinate WGSL and the compiler take, and every example with no diagnostic) and `surface-names.test.ts`; `src/language-service/editor-parity.test.ts`, over every swizzle of every vector type and the vector index; `src/compiler/ts/doc-snippets.test.ts`, which checks each documentation snippet in the editor as well as in the compiler.
 
 ## 13. Change control
 

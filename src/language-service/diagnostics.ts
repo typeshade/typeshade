@@ -103,12 +103,11 @@ const GPU_BRAND_TAG_NAMES: ReadonlySet<string> = new Set(GPU_BRAND_TAGS);
 /**
  * Whether `type` is one of the ambient lib's vector or matrix types, decided structurally: it
  * carries a property keyed by one of the unique symbols `GPU_BRAND_TAGS` names. Structural
- * rather than by type name because the checker hands back the resolved type (an intersection
- * of the brand with the swizzle members, printed as `VecOf<'f32', 3>`) rather than the `vec3`
- * a program spelled, and because a vector alias `ambient.ts` gains later is then covered with
- * no second list to keep in step. A union or intersection counts when any constituent does.
+ * rather than by type name because a type reaches here under any of its names (`vec3f` is
+ * `vec3`, a matrix column is `MatColumn<...>`), and because a vector type `ambient.ts` gains
+ * later is then covered with no second list to keep in step. A union or intersection counts when any constituent does.
  */
-function isGpuBrandedType(type: ts.Type): boolean {
+export function isGpuBrandedType(type: ts.Type): boolean {
   if (type.isUnionOrIntersection()) return type.types.some(isGpuBrandedType);
   return type.getProperties().some((property) => {
     const tag = UNIQUE_SYMBOL_PROPERTY.exec(property.getName())?.[1];
@@ -294,6 +293,52 @@ function assignedExpressionAt(
     node = node.parent;
   }
   return undefined;
+}
+
+/**
+ * TypeScript's TS2322, "Type 'X' is not assignable to type 'Y'", is reported under a code of
+ * its own when the only reason is members the source lacks: TS2741 for one, TS2739 for a few,
+ * TS2740 for many. A vector is an interface carrying every swizzle (`ambient.ts`), so a vector
+ * of the wrong size, and the `number` vector arithmetic is typed as, reach an assignment as
+ * one of these three. Each rule and pair that reads TS2322 reads them as TS2322.
+ */
+const MISSING_MEMBERS_CODES: ReadonlySet<number> = new Set([2739, 2740, 2741]);
+
+/** The code a rule or a pair is keyed on for a diagnostic of `code`. */
+const ruleCodeOf = (code: number | string): number | string =>
+  typeof code === 'number' && MISSING_MEMBERS_CODES.has(code) ? 2322 : code;
+
+/**
+ * An object literal typed as a class that declares methods, `let rng: Rng = { state: 1 }`,
+ * which TypeScript reports as TS2741 "Property 'next' is missing" (TS2739 and TS2740 for more).
+ * The value of a class is its fields (Rule 6.9), and its methods and accessors are functions of
+ * the module that take the value (Rules 8.10, 8.11), so the compiler builds it from a literal
+ * that names the fields and has nothing else for the literal to carry. Dropped only when every
+ * member TypeScript finds missing is a method or an accessor, so a literal that leaves out a
+ * field still reports, as the compiler does.
+ */
+function isFieldLiteralOfClass(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  const checker = context.checker;
+  if (checker === undefined || !MISSING_MEMBERS_CODES.has(diagnostic.code)) return false;
+  const value = assignedExpressionAt(context, diagnostic);
+  if (value === undefined) return false;
+  const literal = unparenthesized(value);
+  if (!ts.isObjectLiteralExpression(literal)) return false;
+  const target = checker.getContextualType(literal);
+  if (target === undefined) return false;
+  const given = new Set(
+    checker.getPropertiesOfType(checker.getTypeAtLocation(literal)).map((p) => p.getName()),
+  );
+  const missing = checker
+    .getPropertiesOfType(target)
+    .filter((p) => !given.has(p.getName()) && (p.flags & ts.SymbolFlags.Optional) === 0);
+  return (
+    missing.length > 0 &&
+    missing.every((p) => (p.flags & (ts.SymbolFlags.Method | ts.SymbolFlags.Accessor)) !== 0)
+  );
 }
 
 /**
@@ -918,6 +963,15 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
     when: isGpuArithmeticAssignment,
   },
   {
+    code: 2322,
+    reason:
+      'An object literal of a class that declares methods, as TS2741, TS2739 or TS2740: the ' +
+      "class's value is its fields (Rule 6.9), and its methods are functions of the module, so " +
+      'a literal that names every field is the value. Dropped only when each member TypeScript ' +
+      'finds missing is a method or an accessor.',
+    when: isFieldLiteralOfClass,
+  },
+  {
     code: 2345,
     reason:
       'The TS2322 case at a call: an argument position that wants a vector or matrix, handed ' +
@@ -966,7 +1020,7 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
 
 function isFiltered(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
   return TS_DIAGNOSTIC_FILTERS.some(
-    (rule) => rule.code === diagnostic.code && rule.when(context, diagnostic),
+    (rule) => rule.code === ruleCodeOf(diagnostic.code) && rule.when(context, diagnostic),
   );
 }
 
@@ -1158,7 +1212,7 @@ function subjectOf(
   context: DiagnosticFilterContext,
   diagnostic: TypeshadeDiagnostic,
 ): ts.Expression | undefined {
-  switch (diagnostic.code) {
+  switch (ruleCodeOf(diagnostic.code)) {
     case 2322:
       return assignedExpressionAt(context, diagnostic.span);
     case 2345:
@@ -1266,7 +1320,7 @@ export function mergeDiagnostics(
   const keptTypescript = typescript.filter((diagnostic) => {
     if (diagnostic.severity !== 'error') return true;
     if (isKnockOn(context, diagnostic, typescript)) return false;
-    const pair = SAME_MISTAKE.find((p) => p.typescript === diagnostic.code);
+    const pair = SAME_MISTAKE.find((p) => p.typescript === ruleCodeOf(diagnostic.code));
     if (pair === undefined) return true;
     return !compilerErrors.some(
       (error) =>

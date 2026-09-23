@@ -164,7 +164,8 @@ describe('a vector product used as a vector is clean in the editor (issue #43)',
   });
 });
 
-// Regression for the blocker where `VecOf`'s use of the standard-lib `Pick` helper resolved to
+// Regression for the blocker where the vector shape's use of the standard-lib `Pick` helper (a
+// matrix's lanes use it still) resolved to
 // an error type under `lib: []` (`Pick` is declared by `lib.es5.d.ts`, never loaded here), which
 // silently collapsed every vector type to `any` instead of raising a TypeScript error inside
 // the ambient lib itself. The zero-diagnostics suite above cannot catch this: it can only see
