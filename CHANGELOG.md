@@ -1352,6 +1352,24 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **Two refusals around a vector of doubles name the reason and a remedy that compiles**
+  (Rule 12.1, Rule 12.5, §27, §39). `select(a, b, m)` with `vec3f64` arms and a `vec3b` mask,
+  which a comparison of two `vec3f64` now gives, read
+  `select with a vec3<bool> condition picks per component and needs 3-component arms; got vec3<f64>.`
+  The arms had three. The fp64 pass picks a vector of doubles whole, by one bool, and has no
+  per-component pick over its hi/lo planes, so the `TS8003` now reads
+  `select with a vec3<bool> condition has no emulated-double form; got vec3<f64> arms. The fp64 pass picks a vector of doubles whole, by one bool — narrow the arms, select(vec3(a), vec3(b), m), or keep the doubles with min(a, b) or max(a, b) where the pick is a componentwise minimum or maximum.`
+  A mask of another width keeps the count sentence. A `vecNf64` compared with an `f64` or an
+  `f32`, `a < b` or `a < 0.5` (whose literal is lifted to `f64`), read
+  `Type mismatch: cannot compare vec3<f64> and f64. Types must match.` It now ends the way
+  `vec3 < f32` does:
+  `A vector of doubles combines with a scalar only through + - * /; splat the scalar with vec3f64(f64(x)) to get a vector.`
+  The splat wraps the scalar in `f64()` because the constructor takes `f64` components only, so
+  `vec3f64(0.5)` and `vec3f64(t)` with an `f32` `t` are `TS8019`, and `f64()` of an `f64` is
+  that value. A `vecNf64` declared, assigned or a field given such a scalar gets the same
+  sentence. Where a splat fixes nothing, the text is unchanged: `Types must match.` for an
+  integer, another width, a vector of `f32`, and a `vecNf64` given to a declared `f64`. No code
+  changes.
 - **`&`, `|` and `^` refuse a float operand where it is written** (Rules 7.1 and 12.6). The
   binary operators compared only the two operand types, so `a & b` on two `f32`s compiled with
   no diagnostic and emitted `return (a & b);`, which Tint refuses with
