@@ -24,6 +24,7 @@
 
 import ts from 'typescript';
 import { wgslBackend } from '../../core/backends/wgsl.js';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- `Capability` is the {@link} target below
 import type { Capability, DeclarableCapability } from '../../core/ir/nodes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';

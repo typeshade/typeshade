@@ -41,7 +41,8 @@ import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
 import { froundF32 } from './passes/precision.js';
 import type { CpuPrecision } from './oracle.js';
-import type { ConsoleSink } from './console.js';
+import type { ConsoleMethod, ConsoleSink } from './console.js';
+import type { SourceSpan } from './ir/span.js';
 import {
   type CpuValue,
   FIELD_IDX,
@@ -830,9 +831,9 @@ export function compileModuleJs(
     },
     console: (method, args, span) => {
       opts?.consoleSink?.({
-        method: method as any,
+        method: method as ConsoleMethod,
         args,
-        span: typeof span === 'string' ? JSON.parse(span) : (span as any),
+        span: typeof span === 'string' ? JSON.parse(span) : (span as SourceSpan | undefined),
       });
     },
   };
