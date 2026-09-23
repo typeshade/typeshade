@@ -79,6 +79,20 @@ rules first, in the same pull request, and only then moves the surface. A name a
 write comes from WGSL, from ECMAScript as TypeScript spells it, or from the enumerated
 extension table in that document's §9; a compiler-internal helper never becomes one.
 
+## Merging
+
+`main` is protected by a GitHub ruleset: a pull request, a Code Owner review (`.github/CODEOWNERS`)
+and the required checks (`typecheck + unit`, `traceability (Doorstop)`, `compile gate (Tint + WebGL2)`,
+`user journeys (packed tarball, WebGPU)`). The repository admin can bypass it, and an agent acting
+through the owner's account can too, so the rule is written here:
+
+- Merge only when every required check is green on the pull request's current head. A red
+  check is fixed, never bypassed.
+- Bypass only the review requirement, and only when the owner has said in the conversation to
+  merge that pull request. The owner cannot approve their own pull request, so their go-ahead
+  is the review.
+- Never push to `main` directly, and never force-push it.
+
 ## Everything else
 
 The gates, the golden and API-surface bake commands, the compile gate and the emit rules are
