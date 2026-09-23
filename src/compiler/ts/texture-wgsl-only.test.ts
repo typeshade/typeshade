@@ -236,7 +236,7 @@ describe('texture_cube_array: a cube with a layer', () => {
   it('is fragment-only in the implicit forms, under the name the author wrote', () => {
     const compute = (call: string): string => `"use typeshade"
 ${DECLS}
-declare let out: storage<array<vec4>>
+declare const out: storage<array<vec4>, "read_write">
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   const dir: vec3 = vec3(1., 0., 0.)
@@ -358,7 +358,7 @@ declare const smp: sampler`,
   it('is legal in a compute entry: no implicit derivative is taken', () => {
     const r = compile(`"use typeshade"
 ${DECLS}
-declare let out: storage<array<vec4>>
+declare const out: storage<array<vec4>, "read_write">
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[gid.x] = textureGather(0, atlas, smp, vec2(0.5)) + textureGatherCompare(shadow, shadowSmp, vec2(0.5), 0.5)

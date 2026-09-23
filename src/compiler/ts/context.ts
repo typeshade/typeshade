@@ -1,14 +1,17 @@
+// Implements: Rule 6.2, the remedy a read-only resource names (docs/language-design.md; traced in reqs/).
 // === Lowering context / symbol table ===
 
 import type ts from 'typescript';
 import type { ShaderType } from '../../core/ir/types.js';
-import { CAS_RESULT_STRUCTS } from '../../core/ir/types.js';
+import { CAS_RESULT_STRUCTS, typeKey } from '../../core/ir/types.js';
+import { authorTypeName } from './type-map.js';
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js';
 import type { FuncDecl, Stmt, StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import type { PrivateField, RestrictedField } from './structs.js';
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js';
 import type { FunctionShape } from './lower/function-types.js';
+import type { ClassFunction } from './lower/class-methods.js';
 
 /** Which fields of each struct are private, by struct and then by the member they are emitted
  *  as (Rule 8.12). */
@@ -102,6 +105,19 @@ export type Instantiator = (
   scope: LoweringScope,
 ) => FuncDecl | undefined;
 
+/** How a call of a method, a static method or a constructor that takes a function finds its copy
+ *  for the functions it hands over (Rule 8.18): the copy, and whether it takes its object by
+ *  reference, which it does when the method writes it or a function handed over writes the
+ *  variable `on` names. `on` is the object the call is on, undefined for a static or `new`. */
+export type MemberInstantiator = (
+  cf: ClassFunction,
+  node: ts.CallExpression | ts.NewExpression,
+  on: ts.Expression | undefined,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  scope: LoweringScope,
+) => { readonly decl: FuncDecl; readonly writes: boolean } | undefined;
+
 /** How an arrow function or a function expression written as an argument becomes a function of
  *  the module (Rule 8.18): named after the body it is written in and `hint`, typed by `shape`
  *  where it writes no types of its own, and taking what it captures there (Rule 8.17). */
@@ -113,6 +129,19 @@ export type ArgumentLifter = (
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ) => FuncDecl | undefined;
+
+/** How a function the front end builds itself joins the module: an array's method, one for
+ *  each array type and function a call hands it (Rule 8.18, surface §63). `key` says which two
+ *  calls may share one; `base` is the name it is made under, fresh; `shown` is how a message
+ *  names it; `captures` are the variables its first parameters stand for, which a call passes
+ *  as it passes a local function's (Rule 8.17). `build` makes it under the name it is given. */
+export type FunctionBuilder = (
+  key: string,
+  base: string,
+  shown: string,
+  captures: readonly CaptureKey[],
+  build: (name: string) => FuncDecl,
+) => FuncDecl;
 
 /** Whether a call of `decl` at `at` can be lowered now (Rule 8.19). A function that writes no
  *  return type says it in its body, so the first call that needs it before the body's turn
@@ -140,9 +169,13 @@ export interface FileFunctions {
    *  a call resolves to: each is made once per set of type and function arguments. */
   readonly generics: Set<string>;
   instantiate: Instantiator | undefined;
+  /** Makes the copy of a class's function that takes a function (Rule 8.18). */
+  instantiateMember: MemberInstantiator | undefined;
   /** For each function in {@link generics} that takes a function, which parameters do. */
   readonly fnParams: Map<string, ReadonlySet<number>>;
   lift: ArgumentLifter | undefined;
+  /** Adds a function the front end builds itself to the module (surface §63). */
+  build: FunctionBuilder | undefined;
   /** Lowers the body of a function whose return type the body says, when a call needs it
    *  first (Rule 8.19); undefined where every function writes its return type. */
   ensure: BodyFiller | undefined;
@@ -173,8 +206,10 @@ export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
     refused: new Set(),
     generics: new Set(),
     instantiate: undefined,
+    instantiateMember: undefined,
     fnParams: new Map(),
     lift: undefined,
+    build: undefined,
     ensure: undefined,
     declared: new Map(),
     captures: new Map(),
@@ -226,6 +261,114 @@ export function readOnlyPhrase(kind: BindingKind): string {
       throw new Error(`unhandled binding kind ${String(never)}`);
     }
   }
+}
+
+/** How a refusal spells a binding's value type back to the author. {@link typeKey} is the
+ *  COMPILER's key and is NOT a spelling: it writes a struct as `struct:Params`, an array with
+ *  no space after the comma, and a vector or a non-square matrix with a type argument the
+ *  ambient library does not declare (`vec4<f32>`, `mat2x3<f32>`). A remedy quoting any of
+ *  those goes red the moment the author pastes it — measured, `declare const a:
+ *  storage<array<vec4<f32>>, "read_write">` is TS2315 "Type 'vec4' is not generic" in the
+ *  editor while the compiler is clean.
+ *
+ *  So this spells the type in the SOURCE language, and every name it can produce comes from
+ *  {@link authorTypeName}, the inverse of the very table `type-map.ts` parses a declaration
+ *  with. A type spelled from its parts is composed here: a struct is its name, an array is
+ *  `array<E>` or `array<E, N>` with a space after the comma, an atomic is `atomic<u32>`.
+ *  `remedy-lines.test.ts` pastes every remedy back into its own program and is what keeps
+ *  this honest.
+ */
+export function authorTypeText(t: ShaderType): string {
+  switch (t.kind) {
+    case 'struct':
+      return t.name;
+    case 'array':
+      return t.size !== undefined
+        ? `array<${authorTypeText(t.elem)}, ${t.size}>`
+        : `array<${authorTypeText(t.elem)}>`;
+    // `atomic<u32>` is written exactly as WGSL writes it, and the element is a bare scalar
+    // name rather than a nested `ShaderType`, so it is composed here and not looked up.
+    case 'atomic':
+      return `atomic<${t.elem}>`;
+    default:
+      // A SQUARE `f64` matrix is the one shape with no row in the parse table (it goes through
+      // the generic `matN<f64>` arm), and `typeKey` already writes what an author writes for
+      // it, `mat3x3<f64>`. Every other type without a name of its own is a handle, which is
+      // never a storage binding's value type.
+      return authorTypeName(t) ?? typeKey(t);
+  }
+}
+
+/** The resource bindings a file wrote in the CALL form (`const xs = storage<T>(…)`) rather
+ *  than as a `declare const`. A remedy that names a declaration has to name the one the author
+ *  wrote: measured, pasting `declare const xs: storage<…>` into a file that already binds `xs`
+ *  by a call is `TS8023 Duplicate resource` on top of the refusal it was meant to close.
+ *
+ *  A WeakMap keyed by the source file, for the reason {@link fileFunctionsOf} is one: the
+ *  declaration FORM is a fact about the TypeScript source, not about the resource, so it does
+ *  not belong on `BindingDecl`, which is IR the EDSL builds too. */
+const CALL_FORM_BINDINGS = new WeakMap<ts.SourceFile, Map<string, string>>();
+
+/** Records that `name` was bound by a call in this file, with the argument list as the author
+ *  wrote it (`({ binding: 3 })`, `(0, 1)`, `()`). The arguments ride along because they carry
+ *  the slot: a remedy that dropped them would move the binding while it made it writable.
+ *  Called by `bindings.ts` as it collects, which is the one place that has read the
+ *  declaration's shape. */
+export function recordCallFormBinding(
+  sourceFile: ts.SourceFile,
+  name: string,
+  argsText: string,
+): void {
+  const found = CALL_FORM_BINDINGS.get(sourceFile);
+  if (found) found.set(name, argsText);
+  else CALL_FORM_BINDINGS.set(sourceFile, new Map([[name, argsText]]));
+}
+
+/** The bindings whose declared value type the compiler could NOT read, and recovered. A
+ *  remedy is a line to paste, and a line built from a type that was already refused is not one:
+ *  `storage<mat2x3<f64>>` recovers as `mat2x3` (the fp64 pass carries square matrices only) and
+ *  was answered with `Write "declare const mnd: storage<mat2x3, \"read_write\">"`, which drops
+ *  the `<f64>` the author wrote and is refused again the moment it is pasted; `storage<array<
+ *  vec2h>>` recovers as `struct:array` and was answered with `storage<array, "read_write">`,
+ *  which drops the type argument entirely. In both the FIRST sentence already names the mistake
+ *  the author has to fix, and a second sentence about a type the compiler could not read is
+ *  noise — so {@link writableRemedy} says nothing for these.
+ *
+ *  Recorded rather than derived, for the reason {@link CALL_FORM_BINDINGS} is: whether the
+ *  declaration READ is a fact about this TypeScript source, and the recovered `ShaderType` that
+ *  reaches the IR carries no trace of it. */
+const RECOVERED_BINDINGS = new WeakMap<ts.SourceFile, Set<string>>();
+
+/** Records that `name`'s declared value type drew a refusal and was recovered. Called by
+ *  `bindings.ts`, the one place that maps a binding's declared type. */
+export function recordRecoveredBinding(sourceFile: ts.SourceFile, name: string): void {
+  const found = RECOVERED_BINDINGS.get(sourceFile);
+  if (found) found.add(name);
+  else RECOVERED_BINDINGS.set(sourceFile, new Set([name]));
+}
+
+/** The second sentence of a "cannot assign" refusal: the declaration that WOULD permit the
+ *  write, or `''` where there is none. Design rule 6.2 puts a storage binding's access mode in
+ *  its second type argument, so the remedy names the TYPE and never the declaration keyword.
+ *  Empty for everything else on purpose: a uniform buffer is read-only in WGSL, a module const
+ *  and an override are fixed before the shader runs, and naming a keyword for any of them was
+ *  the stale advice this replaces.
+ *
+ *  It names the form the author WROTE, `declare const x: storage<T, "read_write">` or
+ *  `const x = storage<T, "read_write">()`, because a remedy is a line to paste into the file
+ *  it is about and the two forms do not substitute for each other.
+ */
+export function writableRemedy(binding: Binding, sourceFile?: ts.SourceFile): string {
+  if (binding.kind !== 'binding' || binding.space !== 'storage') return '';
+  // Nothing to say about a type the compiler could not read: see {@link RECOVERED_BINDINGS}.
+  if (sourceFile && RECOVERED_BINDINGS.get(sourceFile)?.has(binding.name)) return '';
+  const type = `storage<${authorTypeText(binding.type)}, \"read_write\">`;
+  const args = sourceFile && CALL_FORM_BINDINGS.get(sourceFile)?.get(binding.name);
+  const line =
+    args !== undefined
+      ? `const ${binding.name} = ${type}${args}`
+      : `declare const ${binding.name}: ${type}`;
+  return ` Write "${line}" to write to it.`;
 }
 
 /** The base constructor a `super(...)` runs, and the fields it decides (roadmap 0.3 item T5,
@@ -378,6 +521,18 @@ export class LoweringScope {
     return this.fns.instantiate?.(written, node, argTypes, sourceFile, diagnostics, this);
   }
 
+  /** The copy of the class's function `cf`, which takes a function, for the functions the call
+   *  `node` on `on` hands it (Rule 8.18); undefined, having said why, when it cannot be made. */
+  instantiateMember(
+    cf: ClassFunction,
+    node: ts.CallExpression | ts.NewExpression,
+    on: ts.Expression | undefined,
+    sourceFile: ts.SourceFile,
+    diagnostics: TsCompilerDiagnostic[],
+  ): { readonly decl: FuncDecl; readonly writes: boolean } | undefined {
+    return this.fns.instantiateMember?.(cf, node, on, sourceFile, diagnostics, this);
+  }
+
   /** Which parameters of the function `name` take a function (Rule 8.18), or undefined when
    *  none does: those arguments are resolved as functions rather than lowered as values. */
   functionParamsOf(name: string): ReadonlySet<number> | undefined {
@@ -397,6 +552,18 @@ export class LoweringScope {
     return this.fns.lift?.(node, shape, hint, this, sourceFile, diagnostics);
   }
 
+  /** The function the front end builds for `key` (an array's method, surface §63), made the
+   *  first time a call asks for it; undefined outside the lowering of a file's functions. */
+  buildFunction(
+    key: string,
+    base: string,
+    shown: string,
+    captures: readonly CaptureKey[],
+    build: (name: string) => FuncDecl,
+  ): FuncDecl | undefined {
+    return this.fns.build?.(key, base, shown, captures, build);
+  }
+
   /** Whether the call of `decl` at `at` can be lowered now: a function whose body says its
    *  return type has that body lowered first (Rule 8.19). False, having said why or leaving it
    *  to the recursion check, for a call back into a body still being lowered. */
@@ -410,6 +577,9 @@ export class LoweringScope {
   }
 
   private genericName(name: string): string | undefined {
+    // A local function that takes a function, named by the body that declares it (Rule 8.18).
+    const local = this.localFns?.get(name);
+    if (local !== undefined && this.fns.generics.has(local)) return local;
     if (this.fns.generics.has(name)) return name;
     for (const qualified of this.qualifiedNames(name)) {
       if (this.fns.generics.has(qualified)) return qualified;

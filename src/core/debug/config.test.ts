@@ -59,7 +59,7 @@ export function vs(@builtin("vertex_index") i: u32, vin: VsIn): Clip {
 
 const COMPUTE = `"use typeshade";
 declare const params: uniform<vec4u>;
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 @compute([8, 1, 1])
 export function k(
   @builtin("global_invocation_id") gid: vec3u,
@@ -392,7 +392,7 @@ export function fs(@builtin("position") pos: vec4, @builtin("front_facing") ff: 
 `;
 
 const NWG = `"use typeshade";
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 @compute([8])
 export function k(
   @builtin("global_invocation_id") gid: vec3u,

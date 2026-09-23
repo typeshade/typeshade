@@ -325,6 +325,11 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
     name: 'WriteOnlyStorageFormat',
     reason: 'the storage-texture formats a device stores to and never loads from',
   },
+  // The access mode moved out of the declaration keyword and into the type (design rule 6.2),
+  // and the read-only-ness of a read binding is a type the library has to name.
+  { name: 'StorageBufferAccess', reason: "a storage buffer's access mode: read, read_write" },
+  { name: 'ReadView', reason: "the read-only view a binding's value type takes, all the way down" },
+  { name: 'ArrayOps', reason: 'which members of `Array<T>` an author-facing array offers' },
 
   // Brand symbols. Each keeps one type from assigning to another; an author never writes one,
   // but each is a declared name and so is listed here rather than exempted by a pattern.
@@ -604,6 +609,19 @@ describe('the author-facing surface has three sources and no fourth', () => {
         ),
     ];
     expect(strays).toEqual([]);
+  });
+
+  it("an array's methods are members of ECMAScript's Array.prototype, and ArrayOps picks them", () => {
+    // The member site for an array (Rule 2.1(b), surface §63): `interface Array<T>` restates the
+    // methods from lib.es5.d.ts, and `array<T, N>` reaches the ones `ArrayOps` names. A method
+    // an ECMAScript array does not have would be a TypeShade name with no row of §9.3.
+    const arrayProto = new Set(Object.getOwnPropertyNames(Array.prototype));
+    const members = interfaceMembers(SHADE_DTS, 'Array');
+    expect(members.filter((name) => !arrayProto.has(name))).toEqual([]);
+    const picked = /^type ArrayOps = (.+)$/m.exec(SHADE_DTS)?.[1];
+    expect(picked).toBe("'map' | 'forEach' | 'some' | 'every' | 'reduce'");
+    const methods = picked!.split(' | ').map((m) => m.slice(1, -1));
+    expect(methods.filter((m) => !members.includes(m))).toEqual([]);
   });
 
   it('a free declaration is never credited to the member of the same name', () => {

@@ -26,7 +26,7 @@
 // the name on every gate run. A render module declaring the same field is refused with TS8068.
 
 declare const src: storage<array<f32>>;
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 
 // The two parts a scale of 2 is split into, named for what they hold.
 class Weights {

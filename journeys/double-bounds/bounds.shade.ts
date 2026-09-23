@@ -12,7 +12,7 @@ class Box {
 
 declare const box: uniform<Box>;
 declare const points: storage<array<vec3f64>>;
-declare let inside: storage<array<f32>>;
+declare const inside: storage<array<f32>, "read_write">;
 
 @compute([64])
 export function test(@builtin("global_invocation_id") gid: vec3u) {

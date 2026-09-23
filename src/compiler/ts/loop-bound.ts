@@ -5,7 +5,7 @@
 
 import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js';
 import { typeKey } from '../../core/ir/types.js';
-import { eachExpr } from '../../core/ir/visit.js';
+import { eachExpr, mapChildren } from '../../core/ir/visit.js';
 import type { LoweringScope } from './context.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { BUILTINS } from '../../core/cpu-runtime.js';
@@ -363,13 +363,28 @@ export function boundWrittenIn(
   const written = new Set<string>();
   collectMutatedRoots(body, written);
   let hit: string | undefined;
-  eachExpr(exit.bound, (x) => {
+  eachBoundRead(exit.bound, (x) => {
     if (hit !== undefined) return;
     if ((x.op === 'varref' || x.op === 'param' || x.op === 'externref') && written.has(x.name)) {
       hit = scope.resolveIr(x.name)?.name ?? x.name;
     }
   });
   return hit;
+}
+
+/** Every node of a loop bound whose value the loop body could move. A runtime-sized storage
+ *  array's length is not one: it is fixed when the host binds the buffer, so `arrayLength(xs)`
+ *  (what `xs.length` lowers to) reads no element of `xs`, and a body that writes `xs[i]` leaves
+ *  it where it was. Without this, `for (let i = 0; i < xs.length; i++) { xs[i] = ... }`, the
+ *  loop Rule 7.5 is written around, was refused as a loop whose body writes its bound. A
+ *  fixed-size array's `.length` is already a literal by the time it gets here. */
+function eachBoundRead(e: Expr, visit: (e: Expr) => void): void {
+  if (e.op === 'call' && e.fn === 'arrayLength') return;
+  visit(e);
+  mapChildren(e, (c) => {
+    eachBoundRead(c, visit);
+    return c;
+  });
 }
 
 /**

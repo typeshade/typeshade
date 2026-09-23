@@ -92,6 +92,109 @@ describe('a local built by vector arithmetic has its vector type in the editor',
   });
 });
 
+// A function that writes no return type returns what its body does (Rule 8.19), and TypeScript
+// types a return that does vector arithmetic `number`: `glow(uv).x` was TS2339, `tint(glow(uv))`
+// TS2345, completion after `glow(uv).` empty, on a program the compiler accepts. An arrow
+// function handed to a call was TS2322 on its body, beside a `Cannot find global type 'Promise'`
+// that TypeScript's elaboration asks for.
+const RETURNS = `"use typeshade";
+function glow(p: vec2) {
+  return p * 0.5;
+}
+class Orbit {
+  r: f32 = 1.;
+  at(t: f32) {
+    return vec2(cos(t), sin(t)) * this.r;
+  }
+  get twice() {
+    return vec2(this.r) * 2.;
+  }
+}
+function tint(c: vec2): f32 {
+  return c.x;
+}
+function apply(f: (x: vec2) => vec2, v: vec2): vec2 {
+  return f(v);
+}
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const o = new Orbit();
+  const half = (q: vec2) => q * 0.5;
+  const k = 2.;
+  const a = apply((x) => x * k, uv) + apply(x => x * k, uv);
+  const b = apply(function (x) { return x * k; }, uv);
+  const t = glow(uv).x + tint(glow(uv)) + o.at(1.).y + o.twice.x + half(uv).x;
+  return vec4(a.x + b.y + t, 0., 0., 1.);
+}
+`;
+const RLINES = RETURNS.split('\n');
+const rat = (line: number, text: string, plus = 0) => ({
+  line,
+  character: RLINES[line]!.indexOf(text) + plus,
+});
+
+describe('a function whose return does vector arithmetic has its vector type in the editor', () => {
+  const service = () => {
+    const s = createTypeshadeLanguageService();
+    s.openDocument('r.shade.ts', RETURNS);
+    return s;
+  };
+
+  it('reports nothing on a program the compiler accepts', () => {
+    expect(service().getDiagnostics('r.shade.ts')).toEqual([]);
+  });
+
+  it('writes the return type after the parameter list, and parenthesizes a bare parameter', () => {
+    const written = planInsertions(RETURNS, 'r.shade.ts').map(
+      (i) => `${RETURNS.slice(Math.max(0, i.at - 8), i.at)}|${i.text}`,
+    );
+    // The two locals are #217's, and their type is the one TypeScript gives them anyway.
+    expect(written).toEqual([
+      'p: vec2)|: vec2',
+      '(t: f32)|: vec2',
+      ' twice()|: vec2',
+      'q: vec2)|: vec2',
+      ' const a|: vec2',
+      'pply((x)|: vec2',
+      '+ apply(|(',
+      ' apply(x|): vec2',
+      ' const b|: vec2',
+      'tion (x)|: vec2',
+    ]);
+  });
+
+  it('hovers and completes the call as a vec2', () => {
+    const s = service();
+    const labels = s.getCompletions('r.shade.ts', rat(26, 'glow(uv).x', 9)).map((c) => c.label);
+    expect(labels).toEqual(expect.arrayContaining(['x', 'y', 'xy']));
+    const hover = s.getHover('r.shade.ts', rat(1, 'glow', 1));
+    expect(hover?.contents).toContain('vec2');
+    expect(hover?.contents).not.toContain('number');
+    expect(hover?.range).toEqual({ start: rat(1, 'glow'), end: rat(1, 'glow', 4) });
+  });
+
+  it('colours the text as written, and leaves alone a written type or a return with no arithmetic', () => {
+    const tokens = service()
+      .getSemanticTokens('r.shade.ts')
+      .filter((t) => t.line === 1)
+      .map((t) => RLINES[1]!.slice(t.character, t.character + t.length));
+    expect(tokens).not.toContain(': vec2');
+    expect(tokens).toEqual(expect.arrayContaining(['glow', 'p', 'vec2']));
+    const plain = `"use typeshade";
+function a(p: vec2): vec2 {
+  return p * 0.5;
+}
+function b(p: vec2) {
+  return vec2(p.y, p.x);
+}
+export function c(p: vec2) {
+  return length(p) * 2.;
+}
+`;
+    expect(planInsertions(plain, 'p.shade.ts')).toEqual([]);
+  });
+});
+
 describe('what is written in, and what is not', () => {
   const planned = (body: string): string[] => {
     const src = `"use typeshade";

@@ -30,7 +30,7 @@ describe('for-of over an array', () => {
   it('sums a runtime-sized storage array, on both CPU engines and in the editor', () => {
     const src = `"use typeshade";
 declare const data: storage<array<f32>>;
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 @compute([64])
 export function sum(@builtin("global_invocation_id") gid: vec3u) {
   let s = 0;

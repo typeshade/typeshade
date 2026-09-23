@@ -128,7 +128,7 @@ describe('builtin stage/direction compatibility (BUILTIN_STAGE)', () => {
 describe('@compute workgroup shape', () => {
   it('carries a two-dimensional shape to the emitted attribute and the reflection', () => {
     const r = compile(`"use typeshade";
-declare let dst: storage<array<u32>>;
+declare const dst: storage<array<u32>, "read_write">;
 @compute([8, 8])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   dst[gid.y * 64 + gid.x] = gid.x + gid.y;
@@ -143,7 +143,7 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
 
   it('carries a three-dimensional shape, keeping a y of 1 between x and z', () => {
     const r = compile(`"use typeshade";
-declare let dst: storage<array<u32>>;
+declare const dst: storage<array<u32>, "read_write">;
 @compute([4, 1, 2])
 export function cs(@builtin("local_invocation_index") i: u32): void {
   dst[i] = i;
@@ -157,7 +157,7 @@ export function cs(@builtin("local_invocation_index") i: u32): void {
   it('emits a one-dimensional shape as it always did', () => {
     for (const deco of ['@compute', '@compute([64])', '@compute([64, 1, 1])']) {
       const r = compile(`"use typeshade"
-declare let dst: storage<array<u32>>
+declare const dst: storage<array<u32>, "read_write">
 ${deco}
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   dst[gid.x] = gid.x

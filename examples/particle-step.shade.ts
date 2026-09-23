@@ -17,7 +17,7 @@
 // is what makes it a changing method too. `speed` reads its object and keeps the plain
 // parameter. WGSL-only: a storage buffer and a compute stage have no WebGL2 form.
 
-declare let ps: storage<array<Particle>>;
+declare const ps: storage<array<Particle>, "read_write">;
 declare const delta: uniform<f32>;
 
 class Particle {

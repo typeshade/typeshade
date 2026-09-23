@@ -1197,7 +1197,7 @@ export function fs(): vec4 {
 
   it('a read_write binding the helper reads, written in the arm, through the oracle', () => {
     const r = compile(`"use typeshade";
-declare let buf: storage<array<f32>>;
+declare const buf: storage<array<f32>, "read_write">;
 function load(i: u32): f32 {
   return buf[i] * 2.;
 }

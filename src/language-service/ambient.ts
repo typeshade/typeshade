@@ -26,6 +26,7 @@ import { SCALAR_CAST } from '../compiler/ts/numeric.js';
 import { MATH_FN_ARITY, MATH_EXPAND_ALIAS, LANG_CONST } from '../compiler/ts/math-alias.js';
 import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
 import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
+import { STORAGE_BUFFER_ACCESS as COMPILER_STORAGE_BUFFER_ACCESS } from '../compiler/ts/bindings.js';
 import { FUNCTION_DOCS, CONSTANT_DOCS, ATTRIBUTE_DOCS, MATH_MEMBER_DOCS } from './docs.js';
 
 // Renders a documentation string as a JSDoc block. Single line (single-line JSDoc) when
@@ -94,14 +95,32 @@ export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES;
  */
 export const ATTRIBUTE_NAMES: readonly string[] = COMPILER_ATTRIBUTE_NAMES;
 
+/**
+ * The two access modes a storage buffer may take, re-exported from `bindings.ts` for the reason
+ * `ATTRIBUTE_NAMES` above is re-exported from `builtin-check.ts`: the front end reads these
+ * words out of a declaration's second type argument, the library below declares the union an
+ * editor checks against, and one list is what keeps the two answers the same. The union's TEXT
+ * is generated from this array (`storageBufferAccessUnion`), so a word cannot reach one side
+ * and not the other.
+ */
+export const STORAGE_BUFFER_ACCESS: readonly string[] = COMPILER_STORAGE_BUFFER_ACCESS;
+
+/** `'read' | 'read_write'`, spelled as the library's `StorageBufferAccess` declares it. */
+const storageBufferAccessUnion = COMPILER_STORAGE_BUFFER_ACCESS.map((w) => `'${w}'`).join(' | ');
+
 /** The nine \`matCxR\` aliases plus the \`matN\` shorthand for a square one, each taking the
  * element as an optional type argument — the same names `type-map.ts` maps and
  * `expression-call.ts` builds, generated from one pair of loops so the three cannot drift.
- * Only a SQUARE matrix takes `f64`: the fp64 pass has one df64 body per dimension. */
+ * Only a SQUARE matrix takes `f64`: the fp64 pass has one df64 body per dimension.
+ *
+ * The element is keyed on `keyof` for the reason `VecElemOf` is: the scalar brands are
+ * optional properties, so `f32 extends f64` is true. Written as `T extends f64`, the default
+ * `mat4` resolved to an `'f64'` element, its column to `never`, and `m[3].xyz` was TS2339 on a
+ * program the compiler accepts. */
 const MAT_ARITIES = [2, 3, 4] as const;
 const matTypeAliases = MAT_ARITIES.flatMap((cols) =>
   MAT_ARITIES.flatMap((rows) => {
-    const elem = cols === rows ? "T extends f64 ? 'f64' : 'f32'" : "'f32'";
+    const elem = cols === rows ? "typeof f64Tag extends keyof T ? 'f64' : 'f32'" : "'f32'";
     const param = cols === rows ? '<T extends f32 | f64 = f32>' : '';
     const body = `Mat<${elem}, ${cols}, ${rows}>`;
     const lines = [`type mat${cols}x${rows}${param} = ${body}`];
@@ -372,11 +391,19 @@ const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
   // Roadmap 0.2 item 8: the shapes the generated "same type in, same type out" pair misses.
   // transpose(matCxR) -> matRxC on every shape (wgsl.txt:23397); determinant is square-only
   // (wgsl.txt:21842), so the non-square shapes get no overload and `tsc` says so first.
-  transpose: MAT_ARITIES.flatMap((cols) =>
-    MAT_ARITIES.map(
-      (rows) => `declare function transpose(m: mat${cols}x${rows}): mat${rows}x${cols}`,
+  // A square matrix of doubles transposes too, since the fp64 pass has a transpose body per
+  // dimension (surface §39), so it gets its own overload. Its determinant is refused (TS8036),
+  // so it gets none.
+  transpose: [
+    ...MAT_ARITIES.flatMap((cols) =>
+      MAT_ARITIES.map(
+        (rows) => `declare function transpose(m: mat${cols}x${rows}): mat${rows}x${cols}`,
+      ),
     ),
-  ).join('\n'),
+    ...MAT_ARITIES.map(
+      (n) => `declare function transpose(m: mat${n}x${n}<f64>): mat${n}x${n}<f64>`,
+    ),
+  ].join('\n'),
   determinant: MAT_ARITIES.map((n) => `declare function determinant(m: mat${n}x${n}): number`).join(
     '\n',
   ),
@@ -762,9 +789,29 @@ declare const arrayTag: unique symbol
 // '[arrayTag]' is missing") on a program the compiler accepts. \`length\` stays required and
 // stays \`N\`, which is what still separates the sizes — a three-element list is not an
 // \`array<f32, 2>\` in the editor either.
+//
+// WHERE AN ARRAY MEMBER GOES. \`Pick<Array<T>, ArrayOps>\` is how this type takes its members
+// from the \`interface Array<T>\` at the bottom of this file, the way dom.d.ts picks from the
+// standard library: that interface is the standard-library declaration this file restates for a
+// \`lib: []\` program (design rule 2.1(b)), and \`ArrayOps\` names the members of it an author may
+// reach. A name here must be a member the interface declares: \`ArrayOps = 'filter'\` against it
+// is TS2344 ("Type '\"filter\"' does not satisfy the constraint 'keyof T[]'"), measured against
+// the library's OWN diagnostics under \`noLib\`, which is the mechanism working. So an array
+// operation that becomes a METHOD (#177) is declared on that one interface and named here, and
+// \`ReadView\`'s function-type arm carries it into a read binding's view unchanged. That is why
+// the read view needs no array declaration of its own: one interface is what gets updated. The
+// five an array has (surface §63) are declared there with a \`this\` of \`array<T, N>\`, which is
+// how a member of \`Array<T>\` learns the size: \`map\` builds an \`array<U, N>\`.
+//
+// A MUTATING member must not simply ride that arm. The function arm copies a call signature
+// across without reading it, so \`src.fill(0.)\` would stay green on a read binding. When the
+// first mutating member lands, the read view takes that member's read-only signature or the
+// compiler refuses the call on a read binding; that decision belongs to #177 and not to this
+// declaration.
+type ArrayOps = 'map' | 'forEach' | 'some' | 'every' | 'reduce'
 // Iterable, so \`for (const x of xs)\` type-checks (Rule 7.5): the compiler lowers it to a counted
 // loop over the indices. The iterator's shape is written inline so it adds no global name.
-type array<T, N extends number = number> = { readonly [arrayTag]?: readonly [T, N]; readonly length: N } & {
+type array<T, N extends number = number> = Pick<Array<T>, ArrayOps> & { readonly [arrayTag]?: readonly [T, N]; readonly length: N } & {
   [index: number]: T
   [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
 }
@@ -773,30 +820,103 @@ declare function array<T, N extends number>(...values: readonly T[]): array<T, N
 ${renderJSDoc(FUNCTION_DOCS.fill)}
 declare function fill<T, N extends number>(value: T): array<T, N>
 
-/** Transparent: a binding's declared value type IS \`T\` everywhere it is referenced in a
- * function body (\`bindings.ts\` unwraps the wrapper once when collecting the binding), so the
- * type alias is an identity rather than an opaque wrapper. */
-type uniform<T> = T
-type storage<T> = T
-${renderJSDoc(FUNCTION_DOCS.uniform)}
-declare function uniform<T>(): T
-${renderJSDoc(FUNCTION_DOCS.storage)}
-declare function storage<T>(): T
+/** How a shader may touch a storage BUFFER, in WGSL's own two words: \`var<storage, read>\` and
+ * \`var<storage, read_write>\`. It is not {@link StorageAccess}, a storage TEXTURE's
+ * \`'write' | 'read' | 'read_write'\`: a storage buffer has no write-only mode, so the editor
+ * refuses \`storage<T, "write">\` here rather than leaving it for the compiler to answer.
+ * \`read\` is WGSL's own default for the address space, so it is the default here. The word list
+ * is the compiler's own (\`STORAGE_BUFFER_ACCESS\` in \`bindings.ts\`, which \`ambient.ts\`
+ * re-exports), so the words this union admits and the words the front end reads cannot drift. */
+type StorageBufferAccess = ${storageBufferAccessUnion}
 
-/** Specialization constants (#8 A7). Transparent for the same reason as \`uniform<T>\`: a
- * function body reads the override as a plain value of its type. */
+/** The READ-ONLY VIEW of a binding's value type: every named field, every numeric lane and
+ * every index signature is \`readonly\`, all the way down, and the brand keys are left exactly
+ * as declared.
+ *
+ * ONE homomorphic mapped type does the whole job. \`K in keyof T\` is what keeps it homomorphic,
+ * so an index signature stays an index signature (\`array<T, N>\`'s \`[index: number]: T\` becomes
+ * \`readonly [index: number]: ...\`, which is what draws TS2542 on \`src[0] = 1.\`) and an
+ * optional property stays optional (\`[arrayTag]?\`, so \`const xs: array<f32, 3> = [1., 2., 3.]\`
+ * still compiles). \`K extends string | number\` is what RECURSES: a named field, a numeric lane
+ * and an index signature each go through \`ReadView\` again, while the SYMBOL-keyed brand
+ * (\`[arrayTag]\`, \`[vecTag]\`, \`[vec64Tag]\`, \`[matTag]\`, \`[atomicTag]\`, the texture tags)
+ * passes through as \`T[K]\`. Mapping a brand rewrites the tuple inside it and the view stops
+ * being a view of its own type: measured, \`readonly [f32, 4]\` came back as an object with
+ * \`0\`/\`1\`/\`length\` keys, \`array<f32, 4>\` stopped being assignable to \`array<f32, 4>\` and
+ * \`length(p.offset)\` reported TS2345.
+ *
+ * The view goes ALL THE WAY DOWN because WGSL's access mode covers the whole binding: a
+ * struct's array field, an array's struct element, a vector component and a matrix column are
+ * each a place in the same buffer, so leaving one writable is a disagreement with the lowering
+ * and not a simplification. Measured, one level deep left six writes green that the compiler
+ * refuses: \`b.w[0] = 1.\`, \`xs[0].q = 1.\`, \`p.offset.x = 1.\`, \`src[0].x = 1.\`,
+ * \`bs[0].w[1] = 1.\` and \`ms[0][1].y = 1.\`.
+ *
+ * TWO ARMS STOP THE RECURSION, and each was measured rather than assumed.
+ * A scalar is a value, not a container: \`f32\` is \`number & { [f32Tag]?: true }\` and \`bool\` is
+ * \`boolean\`, and a mapped type over either drops the \`number\` and takes every arithmetic
+ * operator with it.
+ * A method is a call signature, which no mapped type preserves. Without this arm \`cam.scaled\`
+ * measured as \`{}\` with zero call signatures, and because \`lib: []\` leaves \`{}\` with no
+ * "not callable" error to report, \`cam.scaled(2.)\` typed silently as \`any\`: the "no false
+ * positives, but no real checking either" failure the \`Pick\` note above records. The view
+ * therefore stops at the method boundary; a method body that writes \`this\` is the compiler's
+ * to refuse, since the access mode belongs to the binding and not to the method. */
+type ReadView<T> = T extends number | boolean
+  ? T
+  : T extends (...args: never[]) => unknown
+    ? T
+    : { readonly [K in keyof T]: K extends string | number ? ReadView<T[K]> : T[K] }
+
+/** A uniform binding is read-only in WGSL and in the surface (\`"use typeshade"\` surface section
+ * 7), so its value type is always the read view: \`u.scale = 1.\` draws TS2540 in the editor and
+ * no longer waits for the compiler's TS8005. Still transparent where it matters: \`bindings.ts\`
+ * unwraps the wrapper once, and every read of a field, element or component types exactly as it
+ * did before. */
+type uniform<T> = ReadView<T>
+/** A storage binding takes its access mode as a TYPE ARGUMENT, the way WGSL spells it:
+ * \`storage<T>\` is \`var<storage, read>\` and \`storage<T, "read_write">\` is
+ * \`var<storage, read_write>\`. The declaration keyword does not carry it, because a \`const\`
+ * array in TypeScript forbids rebinding and permits \`arr[0] = 1\`, so \`declare let\` never meant
+ * read_write to a reader. \`read_write\` hands back \`T\` itself, which is why \`out[gid.x] = 1.\`
+ * in a compute kernel reports no TS2542 (ambient.test.ts, "a storage array is writable in the
+ * editor, as it is in the compiler"). */
+type storage<T, A extends StorageBufferAccess = 'read'> = A extends 'read_write' ? T : ReadView<T>
+/** THE SLOT THE CALL FORM MAY NAME. \`bindings.ts\` reads a bare number as the binding, two
+ * numbers as the group and the binding, and an object literal as \`{ group, binding }\`; these
+ * declarations took NO parameters, so every call form that named its slot was
+ * \`TS2554 Expected 0 arguments, but got 1\` in the editor on a program the compiler accepts —
+ * including the line the retired-\`{ access }\` refusal quotes back. The parameters are written
+ * inline rather than as a named type, because a name here is a name an author can write
+ * (\`surface-names.test.ts\`) and this is a shape, not a vocabulary word. */
+${renderJSDoc(FUNCTION_DOCS.uniform)}
+declare function uniform<T>(slot?: number | { group?: number; binding?: number }, binding?: number): ReadView<T>
+${renderJSDoc(FUNCTION_DOCS.storage)}
+declare function storage<T, A extends StorageBufferAccess = 'read'>(slot?: number | { group?: number; binding?: number }, binding?: number): A extends 'read_write' ? T : ReadView<T>
+
+/** Specialization constants (#8 A7). TRANSPARENT, which \`uniform<T>\` no longer is: an
+ * override's value arrives when the pipeline is built and a function body reads it as a plain
+ * value of its type, so there is nothing here to make read-only. A write to one is refused by
+ * the compiler alone, \`TS8005 Cannot assign to "x" — it is an override constant, set by the
+ * pipeline.\` */
 type override<T> = T
 
 declare const atomicTag: unique symbol
 /** An atomic integer in storage memory (roadmap 0.2 item 4). Opaque, like a texture handle:
  * the value is reached only through \`atomicLoad\`, \`atomicStore\` and the read-modify-write
  * builtins, which is what the compiler enforces. It is declared inside a storage binding
- * (\`declare let bins: storage<array<atomic<u32>>>\`), never as a local or a parameter. */
+ * (\`declare const bins: storage<array<atomic<u32>>, "read_write">\`), never as a local or a
+ * parameter. An atomic is written through a call, so a read binding's atomic is refused by the
+ * compiler and not by \`ReadView\`: the brand is a single symbol key, and the view of it is the
+ * type itself. */
 type atomic<T extends u32 | i32 = u32> = { readonly [atomicTag]: T }
 
 /** Workgroup memory (roadmap 0.2 item 5, #82). \`let tile: workgroup<array<f32, 64>>\` is one
  * workgroup's shared memory, zero at the start of each workgroup and shared by its invocations.
- * Transparent like \`storage<T>\`: a function body reads and writes the value as \`T\`. The other
+ * TRANSPARENT, which \`storage<T>\` no longer is: workgroup memory is always read_write — WGSL
+ * gives \`var<workgroup>\` no access mode to write — so the value type is \`T\` itself and a
+ * write to it is clean, where \`storage<T>\` is the read view and \`storage<T, "read_write">\` is
+ * the \`T\`. The other
  * module-variable space, a value each invocation owns, is a plain top-level \`let\`
  * (\`let seed: u32 = 7\`) and has no wrapper (§24). */
 type workgroup<T> = T
@@ -1465,11 +1585,28 @@ declare function compute(workgroupSize: readonly number[]): (target: Function, c
 ${renderJSDoc(ATTRIBUTE_DOCS.compute)}
 declare function compute(target: Function, context?: unknown): void
 
+// The whole \`Array\` a \`"use typeshade"\` program has: \`lib: []\` means \`lib.es5.d.ts\` is never
+// in the program, so this is the standard-library declaration the file restates (design rule
+// 2.1(b)). It is also the ONE place an author-facing array member is declared: \`array<T, N>\`
+// picks from it by name through \`ArrayOps\`, and the read view a binding resolves to carries
+// whatever is picked through \`ReadView\`'s function-type arm, so an operation that becomes a
+// method (#177) is added here and named there, and nowhere else. See the note above
+// \`ArrayOps\` for what a MUTATING member costs.
 interface Array<T> {
   readonly length: number
   [n: number]: T
   // A list literal is an \`Array\` here, and it has to stay assignable to an iterable \`array<T, N>\`.
   [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
+  // The five methods an array has (surface §63), as lib.es5.d.ts spells them, with two changes:
+  // \`this\` is the \`array<T, N>\` the call is on, so \`map\` builds an array of the same size, and
+  // \`index\` is an \`i32\`, the type an unannotated counter has (design rule 7.5). No \`thisArg\`:
+  // an arrow function reads the \`this\` around it already.
+  map<U, N extends number>(this: array<T, N>, callbackfn: (value: T, index: i32, array: array<T, N>) => U): array<U, N>
+  forEach<N extends number>(this: array<T, N>, callbackfn: (value: T, index: i32, array: array<T, N>) => void): void
+  some<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): bool
+  every<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): bool
+  reduce<N extends number>(this: array<T, N>, callbackfn: (previousValue: T, currentValue: T, currentIndex: i32, array: array<T, N>) => T): T
+  reduce<U, N extends number>(this: array<T, N>, callbackfn: (previousValue: U, currentValue: T, currentIndex: i32, array: array<T, N>) => U, initialValue: U): U
 }
 // What \`[Symbol.iterator]\` above resolves through. \`Symbol\` itself stays a host API: the
 // compiler refuses it as a value (TS8012), so declaring it here gives an author nothing to write.

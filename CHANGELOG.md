@@ -13,6 +13,149 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **A storage binding's access mode is its second type argument, and a binding is declared
+  `const`** (§1 and §7, design rules 6.1 and 6.2). `declare const src: storage<array<f32>>` is
+  `var<storage, read>` and `declare const dst: storage<array<f32>, "read_write">` is
+  `var<storage, read_write>`; the two words are `"read"` and `"read_write"`, WGSL's own
+  enumerants, spelled as string literal types the way a storage TEXTURE already spells them
+  (`texture_storage_2d<"r32float", "read_write">`). `declare let` no longer means anything: the
+  keyword never said what it was read as saying, because a TypeScript `const` array forbids
+  rebinding the name and permits `arr[0] = 1`, which is the opposite of what a `const` storage
+  buffer meant. `uniform<T>` keeps one type parameter, because a uniform buffer is read-only and
+  has no mode to ask for. The `{ access }` option of the call form is gone with it.
+  THIS BREAKS EVERY FILE THAT DECLARES A WRITABLE BUFFER, which is most shaders that compute
+  anything, and the migration is one substitution: `declare let x: storage<T>` becomes
+  `declare const x: storage<T, "read_write">` (a call form's `{ access: "read_write" }` becomes
+  the same second type argument), and nothing else in the file moves.
+  THE EMIT DOES NOT MOVE. Measured over 15 recorded cases (a read beside a read_write binding,
+  atomics, a uniform struct in a render pair, runtime-sized arrays with `arrayLength` on both
+  modes, a storage element passed by pointer, storage textures beside a read_write buffer) and
+  over all 66 authored examples: the diagnostics, `module.bindings`, the WGSL, both GLSL stages
+  and `reflect()` are identical, the 318 files under `examples/__emit-goldens__` did not move
+  (102 `.wgsl`, 172 `.glsl`, 22 `.diff`, 22 `.json`, counted with
+  `git ls-files examples/__emit-goldens__ | wc -l`; `compute-reduction-twin.semantic.json` pins
+  `space/access` explicitly), and the compile gate is 102 examples with 0 failures on Tint and
+  on WebGL2.
+  THE EDITOR NOW REFUSES WHAT THE COMPILER REFUSES. The ambient library resolves `uniform<T>`
+  and `storage<T>` to `ReadView<T>`, one homomorphic mapped type that makes every field, lane
+  and index signature `readonly` all the way down while passing the symbol-keyed brands through
+  untouched, and resolves `storage<T, "read_write">` to `T` itself. So `src[0] = 1.` on a read
+  binding is TS2542 and `u.scale = 1.` on a uniform is TS2540, where TypeScript used to be
+  silent and only `compile()` answered; `dst[0] = 1.` on a read_write binding stays clean, which
+  is the false positive the readonly index signature was removed for and which is now per
+  binding. A read stays a read: `length(p.offset)`, a struct copied out of a read array, a read
+  view handed to a mutable parameter and `array<f32, 3>` against `array<f32, 2>` all behave as
+  before, measured, and the view costs nothing measurable in the language service. `array<T, N>`
+  now picks its members from the surface's own `interface Array<T>` (`Pick<Array<T>, ArrayOps>`
+  with `ArrayOps = never`), so an array operation that becomes a method later is declared in one
+  place and reaches the read view through `ReadView`'s function-type arm.
+  WHAT IS REFUSED. `declare let x: storage<T>` and `declare let x: uniform<T>` are `TS8099`,
+  each naming the `declare const` line to write; both report and then COLLECT the binding
+  anyway, because dropping it trails `TS8022 Unknown identifier` at every use. An access word
+  outside the two is `TS8002` (`storage<T, Access> Access is "read" or "read_write"; got
+"write". A storage BUFFER has no write-only mode; that is a storage texture's,
+texture_storage_2d<Format, "write">.`) and recovers as `read_write`, which leaves exactly one
+  sentence on the program; the storage-TEXTURE half of that sentence is printed only for
+  `"write"`, the one mistake it answers, and not for every word outside the two. A second type
+  argument on a `uniform` is `TS8002`. The retired `{ access }` option is `TS8099` naming the
+  type-argument spelling to write, with its own sentence on a `uniform`
+  (`The { access } option is gone, and a uniform buffer is read-only: it has no access mode to
+ask for.`), which has no access mode to move into a type argument and no two-type-argument form
+  to be sent to. `uniform` and `storage` now DECLARE the slot the call form may name (a binding
+  number, a group and a binding, or `{ group, binding }`): every call form that named its slot
+  was `TS2554 Expected 0 arguments, but got 1` in the editor on a program the compiler accepts,
+  and the retired `{ access }` option is now `TS2353` there as well. A write to a read
+  binding is still `TS8005`, and its sentence now names the remedy
+  (`Cannot assign to "src" — it is a read-only resource. Write "declare const src:
+storage<array<f32>, "read_write">" to write to it.`); the atomics sentence, which used to read
+  `which is declared const; declare it with let`, names the mode and the declaration instead.
+  EVERY REMEDY NAMES A LINE THAT COMPILES. The type is spelled as an AUTHOR spells it and not
+  by the compiler's own key, so a vector is `vec4` and not `vec4<f32>`, a matrix `mat2x3`, an
+  emulated double `vec2f64` (the key was `TS2315 Type 'vec4' is not generic` in the editor the
+  moment it was pasted); the form is the one the file uses, so a call-form binding is answered
+  with `const src = storage<array<f32>, "read_write">()` rather than a `declare const` that
+  would be a second resource of the same name; the retired `{ access }` option's remedy
+  VALIDATES the word before naming it, so `{ access: "write" }` is answered with `"read_write"`
+  and not with a line the next compile refuses; a `declare let` with an explicit mode keeps it,
+  so `declare let x: storage<T, "read">` is answered with `"read"` and recovered as `read`; and
+  a write no mode would permit gets no remedy at all. The root's access is checked once the
+  target is known to be a place, and for both shapes of target: for a MEMBER after all three of
+  its refusals rather than after the first (`src.length = 2` is `TS8018`, `dv[0].x = f64(1.)` on
+  an emulated-double lane is `TS8018` and `v.xy = vec2(1., 2.)` on a swizzle is `TS8018`, each
+  the same sentence on either mode), and for an ELEMENT, so `md[0] = …` on a `storage<mat3<f64>>`
+  reads `TS8003 Cannot index mat3x3<f64>` — which is the sentence `main` gave the writable form
+  — on either mode.
+  Three more lines are named honestly, each measured by pasting it back. The `TS8033` that says
+  a resource type needs `declare` carries the mode the KEYWORD asked for, so `let dst:
+storage<array<f32>>` names `declare const dst: storage<array<f32>, "read_write">`: the same
+  reading of the same keyword `bindings.ts` makes (`isConst ? 'read' : 'read_write'`, because a
+  `let` author wanted to write), where quoting the author's text back named the READ form and
+  left a program that writes through the binding refused after the paste — one mistake in two
+  steps, where `main` closed it in one. A binding whose declared value TYPE was itself refused
+  names no line at all, because the line would be built from a type the compiler could not read:
+  `storage<mat2x3<f64>>` was answered with `storage<mat2x3, "read_write">`, the `<f64>` silently
+  dropped, and `storage<array<vec2h>>` with `storage<array, "read_write">`, the type argument
+  dropped entirely, and in both the FIRST sentence is the one the author has to act on. And a
+  resource with no type argument names a SHAPE rather than a line, `declare const s:
+storage<...>`, since the type is one only the author knows.
+  `src/compiler/ts/remedy-lines.test.ts` is the structural pin: it finds every refusal whose
+  sentence quotes a declaration, writes that declaration back into the program it came from,
+  and requires the result to compile clean AND to be clean in the editor. Pasting alone cannot
+  see everything, so two assertions stand beside it: a case may name the line it expects, because
+  the paste REPLACES the declaration and a `declare const` written over a call form looks clean
+  while an author would be ADDING a second resource of the same name (`TS8023`, measured in both
+  placements); and one declaration must draw ONE line, because a program whose refusals quoted
+  two different lines for one declaration had the second pasted over the first and only the last
+  was ever compiled.
+  Three names enter the surface with their §9.3 rows: `StorageBufferAccess`, `ReadView` and
+  `ArrayOps`. `declare let x: uniform<T>` closes both halves of the Appendix B row for Rule 6.1,
+  which is deleted. Appendix B GAINS a row for Rule 6.2, for the two writes to a read binding
+  that the compiler refuses alone: `atomicAdd(bins[0], 1)`, because an `atomic<T>` is one
+  symbol-keyed brand with no property to make `readonly` and is written through a call, and
+  `acc.add(1.)` on a class-typed read binding, because the view stops at the method boundary and
+  `Acc.add` is declared once for read and read_write bindings alike. Both are measured, both are
+  listed in §49, and the rule's normative sentence is left as it stands.
+  THE RULES MOVED FIRST, as design rule 13.2 requires. Rule 6.1 now says a resource is
+  `declare const` and that both `let` spellings are refused, Rule 6.2 says the access mode is
+  the second type argument and lists the codes each layer raises, Appendix A's binding row
+  carries all three spellings, and Appendix B's row for Rule 6.1 is DELETED: it recorded that
+  `declare let x: uniform<T>` compiled with no diagnostic and that the `TS8033` sentence named
+  `declare let` as its remedy, and this change closes both halves. Rule 3.6's rationale and
+  family 6's shape sentence name the mechanism the surface now uses rather than the one it was
+  going to.
+  THE TREE MOVED WITH IT, in the same commit: 11 example bindings across seven `.shade.ts`
+  files, the storage declarations of 31 of the 32 changed test files (`surface-names.test.ts` is
+  the one that is not, and carries the three new extension rows), the two doc comments in
+  `SHADE_DTS` that still called a binding transparent — `override<T>`'s "Transparent for the
+  same reason as `uniform<T>`" and `workgroup<T>`'s "Transparent like `storage<T>`", both of
+  which ship in `dist/shade.d.ts` and are what hover shows — the `README.md` sample and its
+  editor-coverage notes — where the TS2542 on a storage write was recorded as a FALSE POSITIVE
+  tracked as a fix to the declarations, and is now the correct refusal of a read binding — and
+  the north-star block plus the eleven sections of `docs/use-typeshade-surface.md` that carried
+  the old form (§1, §5, §7, §8, §9, §19, §20, §23, §24, §25 and §43). §1 and §7 gained the teaching:
+  the read form, the read_write form, the WGSL each emits, and every refusal quoted as the
+  author reads it; §49, which exists for the places the editor and the compiler disagree, gained
+  the row for this one, since the drift it closes runs the OTHER way from the four rows already
+  there — the editor was silent where the compiler refused, not noisy where it accepted — and
+  three sections more: the two writes only the compiler refuses; the three places the layers
+  still part on the second type argument (a non-literal one is `TS8002` and clean in the editor,
+  a third one is clean in the compiler and `TS2707` in the editor, and a recovered `declare let`
+  binding is one sentence to the compiler and two in the editor); and the two writes the EDITOR
+  refuses where the compiler does not, which is the direction §49 calls the worse failure. The
+  first of those two is this change's own price and is recorded rather than left to be found: a
+  WHOLE-binding write, `s = 1.` on a `storage<f32, "read_write">`, is `TS2588 Cannot assign to
+'s' because it is a constant` in the editor, because a binding is `declare const` now and no
+  value type can make a `const` assignable — it reaches only a scalar, vector, struct or
+  emulated double assigned as one, never the `out[gid.x] = …` a kernel writes, which is why no
+  example and no test met it until `remedy-lines.test.ts` pasted a remedy in and measured what
+  was left. The second is older and unchanged by the read view: a SQUARE matrix column
+  (`m[0] = vec4(1.)`) is `TS2322` on `never` on `main` too, since only the square aliases take
+  the element as a type parameter and resolve through a conditional. Appendix B's row for design
+  rule 12.7 carries both, and the README's "Not covered" list names the first. What
+  still reads `declare let` reads it on purpose: the two tests of the new refusal, the handle
+  and override refusals in `src/compiler/ts/texture-sampler.test.ts`, the rules and the
+  documentation rows that name the refusal, and the #74 entry below, which quotes the spelling
+  of the day it records and would become false if it were rewritten.
 - **`@compute([8, 8])` is a two-dimensional workgroup** (Rule 8.7, surface §3). The front end
   refused a `y` or `z` other than 1 with `TS8026`, because the IR carried the `x` extent alone.
   All three extents now reach the emitted `@workgroup_size(8, 8)`, the reflection, and the CPU
@@ -236,6 +379,66 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **An array's `map`, `forEach`, `some`, `every` and `reduce` take a function and run as
+  TypeScript runs them** (Rules 2.1, 7.2 and 8.18; surface §63, new, and §14; proposal 0005).
+  Every method of an array was refused with `TS8099` and the advice to use a fold. The five now
+  compile on an `array<T, N>`, and all but `map` on a runtime-sized storage array. Each call is a call of a function of the module made once for each
+  array type and function handed over, a counted loop over the indices (Rule 7.5) that hands the
+  function the element, its `i32` index and the array: `xs.map(sq)` calls `array_map_sq(xs)`, and
+  a call stands in an argument, beside `&&` or in a loop's condition. The function is handed over
+  as Rule 8.18 hands one, by its name or as an arrow function written in the call, and what it
+  captures the loop takes and passes on, by reference where it writes it. The array is read as it
+  goes, as TypeScript reads it: a binding, a module variable or a module constant in place, a
+  variable the function captures through the one reference both use, so
+  `xs.forEach((x, i) => { xs[i + 1] += x; })` adds each element into the next, and any other
+  array by value. `some` and `every` stop at the element that decides them, and `reduce`'s running
+  value takes its type from the function's first parameter or from the value to start from.
+  Refused, each with the fix: the other methods of `Array.prototype`, whose message names the
+  five and `for (const x of xs)`, `map` on a runtime-sized array, `reduce` with no value to start
+  from on one, a function that takes a runtime-sized array, a `thisArg`, and every refusal Rule
+  8.18 makes of a function handed over. The editor types the five: `interface Array<T>` declares
+  them with a `this` of `array<T, N>` and `index: i32`, and `array<T, N>` picks them through
+  `ArrayOps`. `src/compiler/ts/array-methods.test.ts` holds WGSL, GLSL ES 3.00, the CPU oracle,
+  the codegen and the debugger to one value for each; `examples/array-methods.shade.ts` joins the
+  compile gate, and the light-list journey runs them over a storage buffer on WebGPU.
+  `src/compiler/ts/array-hof.ts`, a sketch of a free `map` and `reduce` that nothing imported, is
+  gone.
+
+- **A method, a static method, a constructor, a field that holds a function and a local function
+  take a function, as a function of the file does** (Rule 8.18; Rules 7.2 and 8.10; surface §14
+  and §26; proposal 0002). A parameter of function type on any of them was refused with
+  `TS8020`, since only a function declared at the top of the file or of a namespace could take
+  a function. Each is now compiled once for each set of functions its calls hand it, as a function of the
+  file is: `s.each(sq)` calls `Swarm_each_sq(s)`, `new C(sq)` calls `C_new_sq()`, and a local
+  `twice` handed an arrow function calls `run_twice_run_f(k, x)`. A copy of a method takes its
+  object as the method does (Rule 8.10), and a copy of a local function its own captures. A
+  variable both the copy and the function handed over reach is one parameter, by reference
+  where either side writes it: a variable both capture, and the object the method is called on
+  when the function handed over writes it. So `w.sixteen((i) => { w.x += … })` is
+  `Walker_sixteen_walk_step(&rng, &w)`, and the steps move the walker `sixteen` reads, as in
+  TypeScript. A call through `super`, an inherited method and a parameter handed on to another
+  method copy the same way. Still refused, each with the fix: a parameter of function type on
+  an accessor, whose value an assignment gives it, and on an entry point (`TS8020`), and a call
+  that would take two references into one variable, one of them written, which WGSL's alias
+  analysis refuses (`TS8099`). `src/compiler/ts/higher-order.test.ts` holds WGSL, GLSL ES 3.00
+  and every CPU path to one value for each place and for the shared variable;
+  `examples/higher-order.shade.ts` draws a ring of dots through a method, and the random-walk
+  journey's `sixteen` is a method of `Walker`.
+
+- **A setter with no type takes the type its getter's body returns** (Rule 8.19; surface §14
+  and §26; proposal 0003). `get x() { return this.v * 2.; }` beside `set x(n) { this.v = n / 2.; }`
+  was `TS8002 The setter "Gauge.x" needs a type for "n": write "set x(n: T)", or give the getter a
+return type.` The value now takes what the getter returns, written or said by its body, as
+  TypeScript types it: `fn Gauge_set_x(self_: ptr<function, Gauge>, n: f32)` on WGSL and
+  `void Gauge_set_x(inout Gauge self_, float n)` on GLSL ES 3.00, for an instance and a static
+  pair. An assignment that needs the type before the getter's body is lowered lowers it first,
+  from any body and with the setter above its getter. Still refused with `TS8002`, once: a
+  setter whose value has no type and no getter (TypeScript's implicit `any`), where an
+  assignment to it used to add `TS8022 Unknown field` as well, and one beside a getter that
+  returns nothing. `examples/inferred-returns.shade.ts` sets its orbit's size through such a
+  pair; `src/compiler/ts/return-inference.test.ts` holds every CPU path to one value and to the
+  program that writes the types.
+
 - **A function that writes no return type returns what its body does, as TypeScript infers it**
   (Rule 8.19, new; Rules 7.2 and 8.16; surface §14 and §26). A helper with no annotation was
   `void` beside a `TS8021` "defaulting to void" warning, so one that returned a value was a type
@@ -251,8 +454,8 @@ return type`, and a field that holds a function with an expression body refused 
   function that returns nothing runs it as a statement; a method whose every `return` is
   `return this` chains as one written `this` does. A call cycle, whose type would wait on
   itself, is refused as one, once, with its path; so are returns of two types, a bare `return`
-  beside a value, a default parameter value that calls such a function, and a setter with no
-  type beside a getter with none. The warning is gone. `src/compiler/ts/return-inference.test.ts`
+  beside a value, and a default parameter value that calls such a function. The warning is
+  gone. `src/compiler/ts/return-inference.test.ts`
   holds WGSL, GLSL ES 3.00 and every CPU path to one value for each form and each form to the
   program that writes its types; `examples/inferred-returns.shade.ts` joins the compile gate.
 
@@ -1185,6 +1388,32 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   The `double-bounds` journey tests points against a box near 1e7 with
   `all(box.lo <= p) && all(p <= box.hi)` on `vec3f64`, whose quarter-unit margins an f32 cannot
   see; it compiled before this with no diagnostic and emitted the structs' `<=`.
+- **A vector of doubles built from an `f32` says so, and names `f64()` of it** (Rule 12.1,
+  Rule 12.5, §39). `vec3f64(0.5)`, and `vec3f64(t)` with an `f32` `t`, read
+  `Vector constructor component count mismatch.`, though one argument is the right count for a
+  splat. A vector of doubles takes `f64` components only, and a constructor is not one of the
+  places §39 retypes a literal, so the `0.5` is an `f32`. The `TS8019` now reads
+  `vec3f64 splats an f64; got f32. Widen the scalar first: vec3f64(f64(x)).`
+  Written out, `vec3f64(0.5, 0.5, 0.5)` read `Vector constructor element type mismatch: expected f64.`,
+  which named no remedy. The `TS8003` now reads
+  `vec3f64 takes f64 components; got f32. Widen each f32 component first, e.g. vec3f64(f64(x), f64(y), f64(z)).`
+  Each sentence names the constructor as written, `vec3<f64>(0.5)` included, and the remedy
+  at its width. Where `f64()` is not the fix, the text is unchanged: an integer, a bool, a
+  vector of `f32`, a wrong count, and an `f32` given to a vector of integers. The constructor
+  still takes no literal and no `f32`, and the codes are unchanged.
+- **A loop can write the array whose length bounds it** (Rule 7.5). This loop over a
+  runtime-sized storage array was `TS8006`, "for bound reads xs, which the loop body writes":
+
+  ```ts
+  for (let i = 0; i < xs.length; i++) { xs[i] = f32(i); }
+  ```
+
+  That is the loop the rule is written around, and the most common one over data. The bound
+  check treated a write to an element as a write to the name, and `xs.length` lowers to
+  `arrayLength(xs)`, which reads the name. A runtime array's length is fixed when the host binds
+  the buffer, so the check no longer looks inside `arrayLength`. A bound that reads an element,
+  or a field beside the array, is still refused when the body writes it.
+
 - **The four noise twins hash their lattice exactly** (#184). `domain-warp`, `ocean`,
   `kaleidoscope` and `starfield` hashed a lattice point with `fract(sin(dot(p, k)) * 43758.5453)`
   on both surfaces. WGSL bounds `sin` only to 2^-11 on [-π, π], and the multiply puts that
@@ -1203,6 +1432,23 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   digits, and emits the decimal it spells. A literal type in a union had the opposite defect:
   it read TypeScript's normalized text, in which `1.0` is `1`, so `type L = 1.0 | 2.0` was an
   `i32`. It is an `f32` now. Both read the source text through one helper, `isIntegerWritten`.
+- **The editor types a function whose return is vector arithmetic as the vector it returns**
+  (#162, surface §14, proposal 0004). A function that writes no return type returns what its
+  body does (Rule 8.19), and TypeScript typed `return p * 0.5` on a `vec2` as a `number`: on a
+  program the compiler accepts, `glow(uv).x` was TS2339, `tint(glow(uv))` TS2345, completion
+  after `glow(uv).` offered nothing, and an arrow function handed to a call whose parameter
+  returns a `vec2`, `apply((x) => x * k, uv)`, was TS2322 on its body beside a global
+  `Cannot find global type 'Promise'`. The language service now writes the return type the front
+  end gave the function into the text TypeScript reads, `: vec2` after the parameter list of a
+  function, a method, a getter, an arrow function or a function expression whose return does
+  arithmetic, with parentheses around an arrow function's bare parameter, and reads an arrow
+  function's expression body as the value its TS2322 rule is about. The front end records each
+  such type in a side table keyed by the function's node, so `CompileTsSourceResult` keeps its
+  shape. Plain `tsc` is unchanged, and the README lists its TS2339 on such a call. The plasma
+  journey's `toUv` returns a product with no type written, and the gate's editor check passes on
+  it; `examples/inferred-returns.shade.ts` returns one from `Orbit.at`, and the path tracer drops
+  the annotations it carried for the editor's sake.
+
 - **The editor types a local built by vector arithmetic as the vector it is** (#162).
   `const uv = p.xy * frame.scale` gave `uv` the type `number` in the language service, because
   TypeScript has no operator overloading. So on a program the compiler accepts, `uv.x` was

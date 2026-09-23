@@ -4,7 +4,7 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
-import { irNameOf, readOnlyPhrase, writeRules } from '../context.js';
+import { irNameOf, readOnlyPhrase, writableRemedy, writeRules } from '../context.js';
 import {
   analyzeCountedFor,
   boundWrittenIn,
@@ -695,7 +695,8 @@ export function lowerUpdate(
           diagnostics,
           sourceFile,
           expr,
-          `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(rules.kind)}.`,
+          `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(rules.kind)}.` +
+            writableRemedy(rules, sourceFile),
           TS_CODES.CONST_ASSIGN,
         );
         return undefined;

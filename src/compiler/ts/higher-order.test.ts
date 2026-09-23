@@ -482,6 +482,164 @@ describe('a fold takes an arrow function written in the call (Rule 8.18)', () =>
   });
 });
 
+describe('a method, a static method, a constructor, a field and a local function take a function (Rule 8.18)', () => {
+  it('a method: a copy for each function handed over, on its object', () => {
+    const src = RUN(`class Swarm {
+  base: f32 = 1.;
+  each(f: (i: i32) => void) {
+    for (let i = 0; i < 4; i++) f(i);
+  }
+  fold(f: (acc: f32, i: i32) => f32) {
+    let acc = this.base;
+    for (let i = 0; i < 4; i++) acc = f(acc, i);
+    return acc;
+  }
+}
+function add(acc: f32, i: i32): f32 {
+  return acc + f32(i);
+}
+export function run(k: f32): f32 {
+  const s = new Swarm();
+  let n = 0.;
+  s.each((i) => {
+    n += f32(i) * k;
+  });
+  return s.fold(add) + s.fold((acc, i) => acc * k + f32(i)) + n;
+}`);
+    // fold(add) = 1 + 0+1+2+3 = 7; fold(acc*2 + i) = (((1*2+0)*2+1)*2+2)*2+3 = 27; n = 12.
+    expect(run(src)).toBe(46);
+    const r = compile(src);
+    expect(r.wgsl).toContain('fn Swarm_each_run_f(n: ptr<function, f32>, k: f32, self_: Swarm) {');
+    expect(r.wgsl).toContain('fn Swarm_fold_add(self_: Swarm) -> f32 {');
+    expect(r.glsl!.fragment).toContain('float Swarm_fold_add(Swarm self_) {');
+  });
+
+  it('the object a function handed over writes is the one the method reads: one reference (Rule 8.10)', () => {
+    const src = RUN(`class Swarm {
+  total: f32 = 0.;
+  each(f: (i: i32) => void) {
+    for (let i = 0; i < 4; i++) f(i);
+  }
+  sum(k: f32) {
+    this.each((i) => {
+      this.total += f32(i) * k;
+    });
+  }
+}
+class G {
+  n: f32 = 0.;
+  twice(f: () => void) {
+    f();
+    f();
+    this.n += 100.;
+  }
+}
+export function run(k: f32): f32 {
+  let s = new Swarm();
+  s.sum(k);
+  let g = new G();
+  g.twice(() => {
+    g.n += k;
+  });
+  return s.total + g.n;
+}`);
+    // total = (0+1+2+3)*2 = 12; g.n = 2 + 2 + 100 = 104: `twice` reads what `f` wrote.
+    expect(run(src)).toBe(116);
+    const r = compile(src);
+    expect(r.wgsl).toContain('fn Swarm_each_Swarm_sum_f(k: f32, self_: ptr<function, Swarm>) {');
+    expect(r.wgsl).toContain('fn G_twice_run_f(k: f32, self_: ptr<function, G>) {');
+    expect(r.wgsl).toContain('G_twice_run_f(k, &g);');
+    expect(r.glsl!.fragment).toContain('void G_twice_run_f(float k, inout G self_) {');
+  });
+
+  it('through super, inherited, and handed on to another method that takes one', () => {
+    const src = RUN(`class Base {
+  n: f32 = 1.;
+  each(f: (i: i32) => void) {
+    for (let i = 0; i < 2; i++) f(i);
+  }
+}
+class Derived extends Base {
+  m: f32 = 5.;
+  each(f: (i: i32) => void) {
+    super.each(f);
+    f(10);
+  }
+  both(f: (i: i32) => void) {
+    this.each(f);
+    this.each(f);
+  }
+}
+class Plain extends Base {}
+export function run(k: f32): f32 {
+  const d = new Derived();
+  const p = new Plain();
+  let t = 0.;
+  d.both((i) => {
+    t += f32(i);
+  });
+  p.each((i) => {
+    t += f32(i) * k + d.m;
+  });
+  return t;
+}`);
+    // both: 2 * (0 + 1 + 10) = 22; Plain's inherited each: (0 + 5) + (2 + 5) = 12.
+    expect(run(src)).toBe(34);
+    const r = compile(src);
+    expect(r.wgsl).toContain(
+      'fn Derived_super_Base_each_run_f(t: ptr<function, f32>, self_: Derived) {',
+    );
+    expect(r.wgsl).toContain(
+      'fn Plain_each_run_f_1(t: ptr<function, f32>, k: f32, d: Derived, self_: Plain) {',
+    );
+  });
+
+  it('a static method, a constructor, and a field that holds a function', () => {
+    const src = RUN(`class Grid {
+  w: f32 = 0.;
+  k: f32 = 3.;
+  constructor(f: (x: f32) => f32, x: f32) {
+    this.w = f(x);
+  }
+  static twice(f: (x: f32) => f32, x: f32) {
+    return f(f(x));
+  }
+  scaled = (f: (x: f32) => f32, x: f32) => f(x) * this.k;
+}
+export function run(k: f32): f32 {
+  const g = new Grid((x) => x * k, 3.);
+  return g.w + Grid.twice((x) => x + k, 1.) + g.scaled((x) => x - 1., k);
+}`);
+    // w = 6; twice = 5; scaled = (2 - 1) * 3 = 3.
+    expect(run(src)).toBe(14);
+    const r = compile(src);
+    expect(r.wgsl).toContain('fn Grid_new_run_f(k: f32, x: f32) -> Grid {');
+    expect(r.wgsl).toContain('fn Grid_twice_run_f_1(k: f32, x: f32) -> f32 {');
+    expect(r.wgsl).toMatch(/fn Grid_scaled_run_f_2\(self_: Grid, x: f32\) -> f32 \{/);
+  });
+
+  it('a local function: its own captures and those of the function it is handed, once each', () => {
+    const src = RUN(`export function run(k: f32): f32 {
+  let total = 0.;
+  const twice = (f: (x: f32) => f32, x: f32) => f(f(x));
+  function each(f: (i: i32) => void) {
+    for (let i = 0; i < 3; i++) f(i);
+    total += 100.;
+  }
+  each((i) => {
+    total += f32(i) * k;
+  });
+  return twice((x) => x * k, 2.) + total;
+}`);
+    // each: 0 + 2 + 4 + 100 = 106; twice: 8.
+    expect(run(src)).toBe(114);
+    const r = compile(src);
+    // `total` is the local function's and the arrow function's both: one reference.
+    expect(r.wgsl).toContain('fn run_each_run_f(total: ptr<function, f32>, k: f32) {');
+    expect(r.wgsl).toContain('fn run_twice_run_f_1(k: f32, x: f32) -> f32 {');
+  });
+});
+
 describe('what a function that takes a function may not be handed, or be (Rule 8.18)', () => {
   const F = TS_CODES;
   it('a function that does not fit the parameter', () => {
@@ -593,31 +751,19 @@ export function run(k: f32): f32 {
     ).toBe(fnType);
   });
 
-  it('a parameter of function type on a method, a local function or an entry', () => {
+  it('a parameter of function type on a setter or an entry, and two references into one variable', () => {
     expect(
       only(
         RUN(`class G {
   n: f32 = 1.;
-  each(f: (i: i32) => void): void {
-    f(0);
-  }
+  set each(f: (i: i32) => void) {}
 }
 export function run(k: f32): f32 {
   return k;
 }`),
       ),
     ).toBe(
-      `${F.FUNCTION_SHAPE} "f" takes a function, which only a function declared at the top of the file or of a namespace may take (Rule 8.18): declare one there that takes it, and call that from "G.each".`,
-    );
-    expect(
-      only(
-        RUN(`export function run(k: f32): f32 {
-  const apply = (f: (x: f32) => f32, x: f32): f32 => f(x);
-  return k;
-}`),
-      ),
-    ).toBe(
-      `${F.FUNCTION_SHAPE} "f" takes a function, which only a function declared at the top of the file or of a namespace may take (Rule 8.18): declare one there that takes it, and call that from "apply" in "run".`,
+      `${F.FUNCTION_SHAPE} "f" takes a function, and "G.each" is a setter, whose value an assignment gives it: a shader has no function value to assign. Take the function in a method instead (Rule 8.18).`,
     );
     expect(
       only(`"use typeshade";
@@ -628,6 +774,35 @@ export function fs(f: (x: f32) => f32): vec4 {
 `),
     ).toBe(
       `${F.FUNCTION_SHAPE} An entry's parameters come from the pipeline, and a function is nothing the pipeline can supply: take the function in a helper the entry calls (Rule 8.18).`,
+    );
+    // `this.inner.each(...)` with a function that writes `this`: a reference to `this.inner`
+    // and one to `this`, into one variable (WGSL's alias analysis).
+    expect(
+      only(
+        RUN(`class Inner {
+  v: f32 = 1.;
+  each(f: (i: i32) => void) {
+    f(0);
+    this.v += 1.;
+  }
+}
+class Outer {
+  inner: Inner = new Inner();
+  total: f32 = 0.;
+  step() {
+    this.inner.each((i) => {
+      this.total += 1.;
+    });
+  }
+}
+export function run(k: f32): f32 {
+  let o = new Outer();
+  o.step();
+  return o.total + k;
+}`),
+      ),
+    ).toBe(
+      `${F.UNSUPPORTED} "f" of "Inner.each" reaches "this", which holds "this.inner", the object the call is on, so the call would take two references into one variable, which WGSL refuses where either is written. Call it on a copy in a let, and assign the copy back if the call changes it (Rule 8.18).`,
     );
   });
 
