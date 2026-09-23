@@ -1523,6 +1523,28 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   ported from WGSL, whose cases need no `break`, gains one per case. Appendix B's Rule 7.3 row
   is removed.
 
+- **`&`, `|` and `^` refuse a float operand where it is written** (Rules 7.1 and 12.6). The
+  binary operators compared only the two operand types, so `a & b` on two `f32`s compiled with
+  no diagnostic and emitted `return (a & b);`, which Tint refuses with
+  `no matching overload for 'operator & (f32, f32)'`. Two `vec3`s did the same, and two `f64`s
+  or two `vec3f64`s reached the fp64 pass and came back as a span-less
+  `TS8015 Backend emit failed: … [SD0041]`. Each is now one `TS8003` on the expression, naming
+  the conversion that compiles:
+
+  ```
+  Bitwise "&" needs i32 or u32 operands, got f32. Convert first, e.g. u32(a) & u32(b), or
+  reinterpret the bits with bitcast<u32>(a).
+  ```
+
+  A vector is told `vec3u(a)`, and an emulated double to narrow first, `u32(f32(a))` or
+  `vec3u(vec3(a))`. A float beside an integer (`u & a`) gets the same sentence; it was a type
+  mismatch whose remedy began with `f32(intVal)`, which makes two floats. Two whole numbers the
+  front end folds are kept: `1 | 2`, or flags declared `const A = 1`, are `f32` by Rule 5.1's
+  default, and an enum member, a module constant and a `case` label take the number (§12), as
+  before. Where such a pair is emitted rather than folded, as `const x = 1 | 2` is in a function
+  body, it still reaches the targets as `(1.0 | 2.0)`. The compound forms (`&=`, `|=`, `^=`)
+  already refused a float target, `f32` included.
+
 - **A comparison of two emulated-double vectors is a vector of bools** (Rule 7.1, §27, §39).
   `a < b` on two `vec3f64` was typed as one scalar `bool`, where every other vector comparison
   is the `vecN<bool>` of its width, as WGSL's typing table has it. So it was refused wherever a

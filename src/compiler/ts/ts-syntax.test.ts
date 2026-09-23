@@ -4,7 +4,8 @@
 // needed a new IR node — `Stmt.var.init` has always been optional, `assignOp` has always
 // taken a `BinOp`, `construct` does not care how a field was spelled, and `Stmt.switch` was
 // already lowered — so each is checked on the IR, on both emitted texts, and on the CPU
-// oracle, together with what each one still refuses.
+// oracle, together with what each one still refuses. Beside the compound forms sits the float
+// operand the binary `&`, `|` and `^` refuse, as the compound forms refuse a float target.
 
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
@@ -248,6 +249,189 @@ describe('the bitwise compound assignments', () => {
     expect(
       diagnose('export function f(i: i32): i32 {\n  let y: i32 = i;\n  y >>>= 1;\n  return y;\n}'),
     ).toBe('Unsigned right shift >>>= is not supported.');
+  });
+
+  it('refuse an f32 target for &=, |= and ^= as well as for a shift', () => {
+    for (const op of ['&=', '|=', '^=']) {
+      const r = compileTsSource(
+        `"use typeshade";\nexport function f(a: f32): f32 {\n  let y: f32 = a;\n  y ${op} 1.;\n  return y;\n}`,
+      );
+      expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([
+        ['TS8003', `Bitwise "${op}" needs an i32 or u32 target, got f32.`],
+      ]);
+    }
+  });
+});
+
+describe('a float operand of & | ^', () => {
+  // `&`, `|` and `^` have no float overload on either target (Rule 7.1), and the binary path
+  // compared only the two operand types, so each program below compiled with no diagnostic.
+  // Measured on main before this change, on SwiftShader through Chromium's WebGPU: Tint refused
+  // the f32 pair (`no matching overload for 'operator & (f32, f32)'`) and the vec3 pair
+  // (`'operator | (vec3<f32>, vec3<f32>)'`), and the two emulated doubles came back from the
+  // fp64 pass as a span-less TS8015 (SD0041). Each is one TS8003 on the expression now, naming
+  // the conversion to write (Rules 12.1, 12.5 and 12.6).
+  function refusal(source: string): { code?: string; message: string; at: string } {
+    const text = `"use typeshade";\n${source}`;
+    const errors = compile(text).diagnostics.filter((d) => d.category === 'error');
+    expect(errors).toHaveLength(1);
+    const d = errors[0]!;
+    return { code: d.code, message: d.message, at: text.slice(d.start, d.start + d.length) };
+  }
+
+  it('is refused on the expression, with the conversion for its kind', () => {
+    expect(refusal('export function k(a: f32, b: f32): f32 {\n  return a & b;\n}')).toEqual({
+      code: 'TS8003',
+      message:
+        'Bitwise "&" needs i32 or u32 operands, got f32. Convert first, e.g. u32(a) & u32(b), ' +
+        'or reinterpret the bits with bitcast<u32>(a).',
+      at: 'a & b',
+    });
+    expect(refusal('export function k(a: vec3, b: vec3): vec3 {\n  return a | b;\n}')).toEqual({
+      code: 'TS8003',
+      message:
+        'Bitwise "|" needs i32 or u32 operands, got vec3<f32>. Convert first, e.g. ' +
+        'vec3u(a) | vec3u(b).',
+      at: 'a | b',
+    });
+    expect(refusal('export function k(a: f64, b: f64): f64 {\n  return a & b;\n}')).toEqual({
+      code: 'TS8003',
+      message:
+        'Bitwise "&" needs i32 or u32 operands, got f64. Narrow and convert first, e.g. ' +
+        'u32(f32(a)) & u32(f32(b)).',
+      at: 'a & b',
+    });
+    expect(
+      refusal('export function k(a: vec3f64, b: vec3f64): vec3f64 {\n  return a ^ b;\n}'),
+    ).toEqual({
+      code: 'TS8003',
+      message:
+        'Bitwise "^" needs i32 or u32 operands, got vec3<f64>. Narrow and convert first, e.g. ' +
+        'vec3u(vec3(a)) ^ vec3u(vec3(b)).',
+      at: 'a ^ b',
+    });
+  });
+
+  it('is refused beside an integer too, where the mismatch said to cast into f32', () => {
+    // The equal-types rule used to answer first, and its remedy for this pair begins with
+    // f32(intVal): two floats, which the refusal above then turns away.
+    expect(refusal('export function k(u: u32, a: f32): u32 {\n  return u & a;\n}')).toEqual({
+      code: 'TS8003',
+      message:
+        'Bitwise "&" needs i32 or u32 operands, got f32. Convert first, e.g. u32(a) & u32(b), ' +
+        'or reinterpret the bits with bitcast<u32>(a).',
+      at: 'u & a',
+    });
+  });
+
+  it('compiles once converted the way each sentence says', () => {
+    const c = compiled(`
+      "use typeshade";
+      export function scalar(a: f32, b: f32): u32 {
+        return u32(a) & u32(b);
+      }
+      export function bits(a: f32, b: f32): u32 {
+        return bitcast<u32>(a) & bitcast<u32>(b);
+      }
+      export function lanes(a: vec3, b: vec3): vec3u {
+        return vec3u(a) | vec3u(b);
+      }
+      export function double(a: f64, b: f64): u32 {
+        return u32(f32(a)) & u32(f32(b));
+      }
+      export function doubleLanes(a: vec3f64, b: vec3f64): vec3u {
+        return vec3u(vec3(a)) ^ vec3u(vec3(b));
+      }
+      export function control(a: u32, b: u32): u32 {
+        return a & b;
+      }
+    `);
+    for (const line of [
+      'return (u32(a) & u32(b));',
+      'return (bitcast<u32>(a) & bitcast<u32>(b));',
+      'return (vec3<u32>(a) | vec3<u32>(b));',
+      'return (u32(df64_narrow(a)) & u32(df64_narrow(b)));',
+      'return (a & b);',
+    ]) {
+      expect(c.wgsl).toContain(line);
+    }
+    const bitsOf = (x: number): number => {
+      const view = new DataView(new ArrayBuffer(4));
+      view.setFloat32(0, x);
+      return view.getUint32(0);
+    };
+    expect(c.eval('scalar', [6, 3])).toBe(6 & 3);
+    expect(c.eval('bits', [1.5, 3])).toBe((bitsOf(1.5) & bitsOf(3)) >>> 0);
+    expect(
+      c.eval('lanes', [
+        [1, 2, 3],
+        [4, 4, 4],
+      ]),
+    ).toEqual([1 | 4, 2 | 4, 3 | 4]);
+    expect(c.eval('double', [12, 10])).toBe(12 & 10);
+    expect(
+      c.eval('doubleLanes', [
+        [1, 2, 3],
+        [4, 4, 4],
+      ]),
+    ).toEqual([1 ^ 4, 2 ^ 4, 3 ^ 4]);
+    expect(c.eval('control', [12, 10])).toBe(12 & 10);
+  });
+
+  it('is kept when it is two f32 whole numbers the front end folds', () => {
+    // `1 | 2` is two f32s by Rule 5.1's default. A bit-flag enum is the form surface §12
+    // documents, and a module constant and a `case` label fold the pair to the same number, so
+    // all of this compiled before the refusal and compiles after it.
+    const c = compiled(`
+      "use typeshade";
+      enum Flag {
+        Lit = 1,
+        Shadow = 2,
+        Both = 1 | 2,
+      }
+      const MASK: u32 = 1 | 2;
+      const A = 1;
+      const B = 4;
+      const AB = A | B;
+      export function tier(s: i32): i32 {
+        switch (s) {
+          case 1 | 2:
+            return 10;
+          default:
+            return 0;
+        }
+      }
+      export function both(): i32 {
+        return Flag.Both;
+      }
+      export function mask(): u32 {
+        return MASK;
+      }
+      export function ab(): f32 {
+        return AB;
+      }
+    `);
+    for (const line of [
+      'const Flag_Both: i32 = 3;',
+      'const MASK: u32 = 3u;',
+      'const AB: f32 = 5.0;',
+      'case 3: {',
+    ]) {
+      expect(c.wgsl).toContain(line);
+    }
+    expect(c.eval('tier', [3])).toBe(10);
+    expect(c.eval('tier', [1])).toBe(0);
+    expect(c.eval('both')).toBe(3);
+    expect(c.eval('mask')).toBe(3);
+    expect(c.eval('ab')).toBe(5);
+    // A number that is not whole has no bits to combine, so it is refused like any float.
+    expect(refusal('const M = 1.5 | 2;\nexport function k(): f32 {\n  return 1.;\n}')).toEqual({
+      code: 'TS8003',
+      message:
+        'Bitwise "|" needs i32 or u32 operands, got f32. Convert first, e.g. u32(a) | u32(b), ' +
+        'or reinterpret the bits with bitcast<u32>(a).',
+      at: '1.5 | 2',
+    });
   });
 });
 
