@@ -46,6 +46,7 @@ rendered as an ellipse. Every gate passed; only visual review caught it.
 | `fp64-rtc.ts`            | cartographic | Relative-to-center rendering: subtract in df64 FIRST, then narrow the small delta — the f32 half narrows first and its reticle quantizes to the 8-unit ulp grid.     |
 | `hillshade.ts`           | cartographic | Shaded relief — a reusable `terrain()` DSL function (called 3× for height + a finite-difference normal), Lambert-lit by a movable sun, hypsometrically tinted.       |
 | `color-ramp.ts`          | cartographic | A choropleth colour ramp — a reusable `ramp()` maps a value field through a 5-stop palette, with anti-aliased contour isolines.                                      |
+| `discard-cutout.ts`      | generic      | A circular cutout with a radial gradient — a fragment helper that can `discard` feeds the IO-struct constructor, the shape ANGLE's D3D11 backend miscompiles inline. |
 | `shadertoy-plasma.ts`    | generic      | The classic sum-of-sines plasma through an RGB palette — the "hello shader".                                                                                         |
 | `voronoi.ts`             | generic      | Animated Voronoi (cellular noise) — a 3×3 neighbour scan shades each fragment by `distance` to its nearest animated feature point; nested `Loop`.                    |
 | `julia.ts`               | generic      | Animated Julia set — escape-time fractal (`z ← z² + c`) coloured through a cosine palette; `Loop` + early `Break` + a mutable `var` accumulator.                     |
@@ -68,7 +69,9 @@ rendered as an ellipse. Every gate passed; only visual review caught it.
 | `fp64-mandelbrot-de.ts`  | generic      | Distance-estimate Mandelbrot with precision split mid-formula: orbit z in f64, derivative dz in f32 — glowing boundary filaments, depth-invariant shading.           |
 | `fp64-clock.ts`          | generic      | The long-uptime bug: fract(epoch + time) at epoch ≈ 1e8 s — the f32 dial freezes (ulp = 8 s), the f64 dial sweeps; epoch as an f64 literal, split at build time.     |
 | `fp64-cancellation.ts`   | generic      | The numerics-textbook plot: (x−1)⁷ EXPANDED near x = 1 — f32 returns 7000× noise, df64 hugs the curve, and the factored-form reference shows the real fix.           |
+| `fp64-sine-sweep.ts`     | generic      | sin(x) at a large base plus a small sweep — past ~2²⁴ the f32 wave collapses into an aliased staircase; the injected `df64_sin` keeps the curve smooth.              |
 | `gradient-pass.ts`       | generic      | A two-colour gradient with a biasable blend + the `If`/`elif` control-flow combinator.                                                                               |
+| `override-quality.ts`    | generic      | A pipeline-overridable `quality` constant: WGSL `override` + GLSL `#define` guard a branch the driver removes per variant. WGSL + reflection.                        |
 | `texture-array-lod.ts`   | generic      | A tile atlas as ONE `texture_2d_array<f32>` binding — per-sample layer, all three array reads. WGSL + reflection (the live runner binds no atlas).                   |
 | `compute-reduction.ts`   | compute      | A `@workgroup_size` compute kernel folding a window of a storage buffer with `reduce()`. WebGPU-only (GLSL ES 3.00 has no compute), so it emits WGSL + reflection.   |
 
@@ -80,20 +83,26 @@ rendered as an ellipse. Every gate passed; only visual review caught it.
 
 ## `"use typeshade"` source examples
 
-The seven `*.shade.ts` files are the OTHER authoring surface. Instead of building a graph with
+The 71 `*.shade.ts` files are the OTHER authoring surface. Instead of building a graph with
 `fn()` / `module()` calls, they are TypeScript source that opens with `"use typeshade"` and is
 compiled to the same IR by `compile()` — so `vec4`, `u32` and `uniform<T>` are the shader
 language's own names, and the `@vertex` / `@builtin(...)` decorators are attribute syntax. They
 are not importable TypeScript modules (nothing declares those names), which is why
 `tsconfig.tests.json` and `examples/tsconfig.json` both exclude the pattern from the type check.
 
-They are registered in [`_shade.ts`](./_shade.ts), which reads each file and compiles it into
-the same `ShaderExample` shape the EDSL corpus uses (`category: 'source'`). That array is
+Each one registers itself: a `/* @example { "title": …, "blurb": …, "renderable": … } */` JSON
+block directly after the directive carries what `compile()` cannot infer (and a `reason` when
+`renderable` is false, a `twinOf` for a twin). [`_shade.ts`](./_shade.ts) finds every file by
+its extension, in id order, reads that block and compiles the file into the same
+`ShaderExample` shape the EDSL corpus uses (`category: 'source'`). That array is
 `shadeExamples`, kept separate from `examples` because the site consumes `examples` at build
 time and three of its gates fail on a fourth category — the reasoning is written out in
-`_shade.ts`'s header. Adding a file here is: write `<id>.shade.ts`, add the id to `SHADE_ORDER`,
-bake the goldens. Forgetting the second step fails `shade-examples.test.ts` rather than leaving
-the file dangling.
+`_shade.ts`'s header. Adding a file here is: write `<id>.shade.ts` with its `@example` block, bake the goldens. A
+file whose block is missing, is not JSON or leaves out a field fails `shade-examples.test.ts`
+rather than going unregistered.
+
+The table lists the first seven, the hello programs and the first twin; every other file's
+title and blurb are in its own `@example` block.
 
 | File                              | Renderable | What it shows                                                                                                                                     |
 | --------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -123,8 +132,8 @@ entry-point signatures).
   `uint(gl_VertexID)` cast) and that the compute example stays WGSL-only.
 - **Source-corpus gate** — `shade-examples.test.ts` compiles every `*.shade.ts` file, pins its
   WGSL (and both GLSL stages, where it has them) in `__emit-goldens__/`, and checks the directory
-  against `SHADE_ORDER` in both directions so an unregistered file cannot go quiet.
-- **Compile gate** — `bun run gate:compile` emits all 43 registered examples (both corpora) and
+  against the registry in both directions so an unregistered file cannot go quiet.
+- **Compile gate** — `bun run gate:compile` emits all 107 registered examples (both corpora) and
   hands the WGSL to Tint and every renderable GLSL pair to a real WebGL2 context.
 - **Render gate** — `playground/e2e/_shader-dsl-examples-render.spec.ts` compiles + links + draws
   each renderable example on a real WebGL2 context (packing the UBO from `reflect()`) and reads

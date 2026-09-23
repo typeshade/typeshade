@@ -81,9 +81,9 @@ never published. Authentication needs nothing from you (§0).
    `--no-git-tag-version` matters: the tag is created in step 3, on a commit that is already on
    `main`, not by npm on your working copy.
 
-2. Move the `## Unreleased` entries in `CHANGELOG.md` under a new heading for the version, and
-   leave `## Unreleased` in place, empty, for what comes next. Everything below `### 2026-09`
-   is generated monorepo-era history, so do not touch it.
+2. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new heading for the version, and
+   leave `## [Unreleased]` in place, empty, for what comes next. The generated monorepo-era
+   history lives in `docs/HISTORY.md`, so do not touch it.
 
 3. Run the gates locally. The workflow runs them too, but finding a failure here costs a
    commit and finding it there costs a release:

@@ -215,12 +215,15 @@ call it is about to make, which is why §3 gives `call` expressions a span in mi
 
 **Derivatives and textures.** See §2.4; the answer is the same for A and B.
 
-**Compute workgroups.** A steps one invocation. That is not a limitation today, because the
-`"use typeshade"` grammar has no spelling for workgroup-shared memory or a barrier, so there
-is nothing for a second invocation to synchronise with. When those arrive, the generator
-design is what makes a cooperative scheduler possible: run N generators, advance each until
-it yields at a barrier, then release them together. That door stays open in A and is awkward
-in B.
+**Compute workgroups.** A steps one invocation. When this was written that was not a
+limitation, because the `"use typeshade"` grammar had no spelling for workgroup-shared memory
+or a barrier, so there was nothing for a second invocation to synchronise with. Both have
+since arrived (`docs/use-typeshade-surface.md` §24 and §25), and the generator design is what
+made the cooperative scheduler possible: `dispatch` (`src/core/debug/dispatch.ts`) runs N
+generators, advances each until it yields at a barrier, then releases them together. It runs a
+workgroup to completion and does not pause; a debug session still steps one invocation, and a
+barrier reached in one is an error that names `dispatch`. That door stays open in A and is
+awkward in B.
 
 **Performance.** One fragment invocation through a generator-based walk is microseconds; the
 generator overhead (roughly one allocation and one resume per statement) is irrelevant at that
@@ -352,11 +355,12 @@ Neither approach changes what the CPU can compute, so both need the same policy.
   existing stub value and marks it in the variables view as a stand-in rather than a computed
   value, so no one mistakes `0` for a result; quad evaluation becomes an opt-in
   `derivatives: "quad"` when someone has a derivative bug to chase. This is §5 decision 4.
-- **Texture sampling.** There is no texture memory in a CPU run, and, worth noting because
-  it decides the milestone, the `"use typeshade"` type map (`src/compiler/ts/type-map.ts`)
-  has no `texture` or `sampler` spelling at all today, so no `"use typeshade"` shader can
-  declare one. Textures are therefore **unsupported in this milestone**, because there is
-  nothing yet to support. §4.4 specifies the shape for when they arrive.
+- **Texture sampling.** There is no texture memory in a CPU run. When this was written the
+  `"use typeshade"` type map (`src/compiler/ts/type-map.ts`) had no `texture` or `sampler`
+  spelling at all, so no `"use typeshade"` shader could declare one, and that decided the
+  milestone: textures are **unsupported in this milestone**. The spellings have since landed
+  (`docs/use-typeshade-surface.md` §15), and the debugger still takes no texture value; §4.4
+  says what a session does with one and specifies the shape for when it takes them.
 
 ### 2.5 Interpreter duplication
 
@@ -392,12 +396,12 @@ measurement either way.
 **In this repository (`typeshade/typeshade`).** M1 is the Phase 10 work; M2 to M4 sit under
 Phase 21, per the note above the table of contents.
 
-| #   | What                                                                                                                                                                                                                                                         | Why it is separable                                                                    |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| M1  | Source spans on the IR (§3): `SourceSpan`, a `span?` field on every `Stmt` and `FuncDecl`, on an authored `call` expression and on an assignment's target, capture in the source compiler, propagation through the passes, a public `sourceSpanOf` read API. | Every approach needs it. It moves no emitted byte and nothing depends on the debugger. |
-| M2  | **Shipped.** The stepping mode of the CPU oracle (§2.1), on a `./debug` subpath: pauses at statement boundaries with the span, the frame environment as a readable snapshot, step over / in / out / continue, breakpoints by span.                           | Usable headlessly the day it lands; no editor work required to test it.                |
-| M3  | **Shipped.** The launch configuration (§4) as a published TypeScript type plus a baked JSON Schema, the invocation builder for the three stages, binding defaults from `zeroOf`, and a value formatter that renders `CpuValue` in shader types.              | This is what the two adapters share; baking it here is what stops them diverging.      |
-| M4  | Derivative policy (`derivatives: "zero" \| "quad"`) and, once the grammar has textures, the texture value shapes of §4.4.                                                                                                                                    | §5 decision 4 sets the first; the second waits on the language surface.                |
+| #   | What                                                                                                                                                                                                                                                                      | Why it is separable                                                                              |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| M1  | **Shipped.** Source spans on the IR (§3): `SourceSpan`, a `span?` field on every `Stmt` and `FuncDecl`, on an authored `call` expression and on an assignment's target, capture in the source compiler, propagation through the passes, a public `sourceSpanOf` read API. | Every approach needs it. It moves no emitted byte and nothing depends on the debugger.           |
+| M2  | **Shipped.** The stepping mode of the CPU oracle (§2.1), on a `./debug` subpath: pauses at statement boundaries with the span, the frame environment as a readable snapshot, step over / in / out / continue, breakpoints by span.                                        | Usable headlessly the day it lands; no editor work required to test it.                          |
+| M3  | **Shipped.** The launch configuration (§4) as a published TypeScript type plus a baked JSON Schema, the invocation builder for the three stages, binding defaults from `zeroOf`, and a value formatter that renders `CpuValue` in shader types.                           | This is what the two adapters share; baking it here is what stops them diverging.                |
+| M4  | Derivative policy (`derivatives: "zero" \| "quad"`) and the texture value shapes of §4.4, which the grammar can now declare.                                                                                                                                              | §5 decision 4 sets the first; the second waited on the language surface, which has textures now. |
 
 **In `typeshade/vscode-typeshade`** (not created by this work; it is the repository
 `docs/language-service-api.md` §1 already names for the language server):
@@ -666,9 +670,10 @@ perspective-divided value in a default run `NaN`, which reads as a bug in the sh
 never runs. Both are keyed by builtin id rather than by stage, so a struct field carrying
 `@builtin("position")` gets the same value a loose parameter does.
 
-Four builtins the front end accepts as an entry input have no row above: `sample_mask`
-(fragment), `subgroup_invocation_id` and `subgroup_size` (compute), and `clip_distances`, which
-`builtin-check.ts` leaves unconstrained. Nothing special happens to them. The resolver is keyed
+Four builtins the front end accepts as an entry input have no row above: `sample_mask` and
+`primitive_index` (fragment), and `subgroup_invocation_id` and `subgroup_size` (compute and
+fragment). (`clip_distances` is a vertex output only, `TS8025` as an input.) Nothing special
+happens to them. The resolver is keyed
 by the entry's OWN declarations rather than by this table, so each of the four is namable where
 an entry declares it, and each reads as the zero of its type when omitted, the same default
 every other omitted input gets. The table is what a reader needs, not what the resolver
@@ -710,7 +715,7 @@ JSON in the CPU value model, which is already the model the oracle and `compile(
 | ----------------------------------- | --------------------------------------------------------------- |
 | `f32` / `i32` / `u32`               | a number                                                        |
 | `bool`                              | a boolean                                                       |
-| `vecN` / `mat4`                     | a flat array of numbers, column-major for matrices as the IR is |
+| `vecN` / `matCxR`                   | a flat array of numbers, column-major for matrices as the IR is |
 | a struct                            | an object keyed by field name                                   |
 | `array<T, N>` / `storage<array<T>>` | an array of the element's form                                  |
 
@@ -721,13 +726,14 @@ the worst failure mode a reference can have.
 
 ### 4.4 Textures and samplers
 
-**Unsupported in this milestone**, because the `"use typeshade"` type map has no `texture` or
-`sampler` spelling: no shader written in the source language can declare one, so there is
-nothing for the configuration to fill. A shader that reaches a `textureSample` through some
-other route gets the stub value and the "this is a stand-in" marker of §2.4, never a silent
-zero.
+**Unsupported in this milestone.** The reason first given here, that the `"use typeshade"`
+type map had no `texture` or `sampler` spelling, no longer holds: the source language declares
+both (`docs/use-typeshade-surface.md` §15). What still holds is that a CPU run has no texture
+memory, so the configuration cannot fill one: a texture or sampler binding the entry reaches is
+a `DebugConfigError` naming the binding (`resolveBindings` in `src/core/debug/config.ts`), and
+the positional `startDebugSession` stops at the missing binding value in the same way.
 
-When the grammar gains them, the shape this document proposes is a binding value that is one
+When the configuration gains them, the shape this document proposes is a binding value that is one
 of three forms, so that the cheap case stays cheap:
 
 ```jsonc
@@ -803,9 +809,10 @@ recorded here as decisions rather than proposals, and the sections above follow 
 8. **The DAP server lives in `typeshade/vscode-typeshade`**, beside the LSP server that
    `docs/language-service-api.md` §1 and §10 already place there. This repository ships the
    engine and the schema and nothing editor-shaped.
-9. **Compute steps one invocation; there is no workgroup scheduler yet.** No barrier or
-   workgroup-shared spelling exists in the grammar, so there is nothing to schedule; the
-   generator design of §2.1 is what keeps the scheduler possible later.
+9. **Compute steps one invocation.** When this was decided no barrier or workgroup-shared
+   spelling existed in the grammar, so there was nothing to schedule; the generator design of
+   §2.1 kept the scheduler possible, and it has since landed as `dispatch`, which runs a
+   workgroup in lockstep without pausing (§2.1).
 10. **Approach B is not built now, and is not rejected.** Milestone 1's spans are exactly what
     a V3 map consumes, so the decision can be made later against a measurement of the stepping
     engine rather than a guess about it.
@@ -823,4 +830,4 @@ meets them, so they are not questions waiting on an answer but work waiting on a
 - **Whether the stepping engine's performance ever justifies approach B** (decision 10 keeps
   the door open, §2.2 says what it would buy and what it would give up).
 
-Last updated: 2026-09-14
+Last updated: 2026-09-23

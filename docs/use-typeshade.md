@@ -153,9 +153,9 @@ A file without `"use typeshade"` is a `TS8001` error from both entry points. Pas
 probe that only reads `hasDirective`.
 
 Bundling several files into one compilation unit is **not** on the public surface yet.
-`compileTsSources(files, { entry })` in `src/compiler/ts/sources.ts` does it — it takes a
-`Record<fileName, source>` — but it is reachable only by a deep import and is not exported
-from the package entry.
+`compileTsSources(files, entry)` in `src/compiler/ts/module.ts` does it — it takes a list of
+`{ fileName, source }` and the entry's file name — but it is reachable only by a deep import
+and is not exported from the package entry.
 
 ## Graphics
 
@@ -184,9 +184,9 @@ device.createShaderModule({ code: p.wgsl })
 
 Vite: `typeshadeVite()` turns `*.shade.ts` into `export default pack`.
 
-`packModule` (`src/compiler/ts/pack.ts`) and `typeshadeVite` (`src/compiler/ts/vite.ts`) are
-in the same state as `compileTsSources`: real, tested, but deep imports rather than package
-entry exports.
+`packModule` (`src/compiler/ts/pack.ts`) is exported from the package entry. `typeshadeVite`
+(`src/compiler/ts/vite.ts`) is in the same state as `compileTsSources`: real, tested, but a
+deep import rather than a package entry export.
 
 ## What this is not
 
