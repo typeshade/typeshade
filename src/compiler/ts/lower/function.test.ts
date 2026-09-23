@@ -104,6 +104,19 @@ describe('Phase 5 - function lowering', () => {
     expect(diagnostics.some((d) => /return type mismatch/i.test(d.message))).toBe(true);
   });
 
+  it('reports a return of the wrong type on that return, not on the name (Rule 12.1)', () => {
+    // The first return is right and the second is not, which the function's name cannot say.
+    // It is also where TypeScript reports the same mistake, so the editor reads it once.
+    const source =
+      'function pick(x: f32, v: vec3): vec3 {\n  if (x > 0.) {\n    return v;\n  }\n  return x;\n}';
+    const { node, sourceFile } = parseFn(source);
+    const diagnostics: TsCompilerDiagnostic[] = [];
+    lowerFunctionDeclaration(node, sourceFile, diagnostics);
+    expect(
+      diagnostics.map((d) => [d.line, d.character, source.slice(d.start, d.start + d.length)]),
+    ).toEqual([[5, 3, 'return x;']]);
+  });
+
   it('rejects optional parameters', () => {
     const { node, sourceFile } = parseFn('function bad(a?: f32): f32 { return 0; }');
     const diagnostics: TsCompilerDiagnostic[] = [];

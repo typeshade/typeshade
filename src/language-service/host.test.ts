@@ -8,7 +8,11 @@
 // repository's own source uses) was also never rewritten to `.ts`.
 
 import { describe, expect, it } from 'vitest';
-import { createTypeshadeLanguageService } from './service.js';
+import {
+  analyzeSourceFile,
+  createTypeshadeLanguageService,
+  createTypeshadeLanguageServiceWith,
+} from './service.js';
 
 describe('default resolveImport / multi-file resolution', () => {
   it('resolves a relative import across two file:///-shaped uris', () => {
@@ -88,9 +92,14 @@ describe('script versions follow the text (design doc §7)', () => {
       .getDiagnostics(uri)
       .filter((d) => d.source === 'typescript')
       .map((d) => d.code);
+  // TypeScript's half, read before the merge: the compiler reports `return true` in an `f32`
+  // function on the same `return`, and the merged list keeps its sentence in place of TS2322.
+  // What these tests are about is whether TypeScript itself saw the new text.
+  const unmerged = () =>
+    createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge: false });
 
   it('reflects a text change under the same version, reopened without a close', () => {
-    const service = createTypeshadeLanguageService();
+    const service = unmerged();
     service.openDocument('/b.ts', B_OK, 1);
     expect(tsErrors(service, '/b.ts')).toEqual([]);
     service.openDocument('/b.ts', B_BAD, 1);
@@ -98,7 +107,7 @@ describe('script versions follow the text (design doc §7)', () => {
   });
 
   it('reflects a text change when the version was given once and then omitted, in the document and its importer', () => {
-    const service = createTypeshadeLanguageService();
+    const service = unmerged();
     service.openDocument('/b.ts', B_OK, 1);
     service.openDocument('/a.ts', A, 1);
     expect(tsErrors(service, '/b.ts')).toEqual([]);

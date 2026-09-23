@@ -154,6 +154,15 @@ export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
   SQRT2: Math.SQRT2,
 };
 
+/** Every member `Math.` names on this surface: the function aliases, the expansions, the
+ *  constants and `random`. What a misspelled `Math.` member is measured against (Rule 12.1). */
+export const MATH_MEMBER_NAMES: readonly string[] = [
+  ...Object.keys(MATH_FN_ALIAS),
+  ...Object.keys(MATH_EXPAND_ALIAS),
+  ...Object.keys(MATH_CONST_ALIAS),
+  'random',
+];
+
 /** The bit-level builtins #150 made authorable: the ten pack/unpack ids the registry could
  *  already spell, plus `quantizeToF16` and `bitcast`. Listed here so a file that declares its
  *  own function under one of these names keeps the call, by the same additivity rule item 8's
