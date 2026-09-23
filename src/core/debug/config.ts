@@ -488,36 +488,47 @@ function declaredBuiltins(
   return out
 }
 
-/** Every non-builtin stage input, by the name an invocation spells it under. */
+/** Every non-builtin stage input, by the name an invocation spells it under.
+ *
+ *  The keys written here are the keys `resolveInvocation` reads back: `inputKey(param)` for a
+ *  bare `@location` parameter and `inputKey(param.field)` for a field of a struct parameter. */
 function declaredInputs(
   decl: FuncDecl,
   structs: ReadonlyMap<string, StructDecl>,
 ): ReadonlyMap<string, InputSlot> {
-  // Every slot gets a QUALIFIED spelling, `param.field`, which is always unambiguous. The bare
-  // field name is offered as well, and only when exactly one parameter declares it: two entry
-  // structs each with a `v` used to share the bare key, so one supplied `v` was checked
-  // against whichever type won the map and then written into BOTH parameters.
-  const slots: { owner: string; field: string; type: ShaderType }[] = []
+  // A bare `@location` parameter is spelled by its own name and nothing else. Parameter names
+  // are distinct, so that spelling is always unambiguous; it used to be keyed `uv.uv` (owner
+  // and field both the parameter's name), which the run never read back, so a documented
+  // `"inputs": { "uv": [0.5, 0.25] }` was accepted and then dropped.
+  //
+  // A struct field gets a QUALIFIED spelling, `param.field`, which is always unambiguous. The
+  // bare field name is offered as well, and only when exactly one struct parameter declares it
+  // and no parameter already has that name: two entry structs each with a `v` used to share
+  // the bare key, so one supplied `v` was checked against whichever type won the map and then
+  // written into BOTH parameters.
+  const out = new Map<string, InputSlot>()
+  const fields: { owner: string; field: string; type: ShaderType }[] = []
   for (const p of decl.params) {
     if (p.builtin) continue
     if (p.type.kind === 'struct') {
       for (const f of structs.get(p.type.name)?.fields ?? []) {
-        if (!f.builtin) slots.push({ owner: p.name, field: f.name, type: f.type })
+        if (!f.builtin) fields.push({ owner: p.name, field: f.name, type: f.type })
       }
       continue
     }
-    slots.push({ owner: p.name, field: p.name, type: p.type })
+    out.set(p.name, { key: inputKey(p.name), type: p.type })
   }
   const owners = new Map<string, string[]>()
-  for (const s of slots) owners.set(s.field, [...(owners.get(s.field) ?? []), s.owner])
+  for (const f of fields) owners.set(f.field, [...(owners.get(f.field) ?? []), f.owner])
 
-  const out = new Map<string, InputSlot>()
-  for (const s of slots) {
-    const key = inputKey(`${s.owner}.${s.field}`)
-    out.set(`${s.owner}.${s.field}`, { key, type: s.type })
-    const sharing = owners.get(s.field)!
-    if (sharing.length === 1) out.set(s.field, { key, type: s.type })
-    else out.set(s.field, { key, type: s.type, ambiguous: sharing })
+  for (const f of fields) {
+    const key = inputKey(`${f.owner}.${f.field}`)
+    out.set(`${f.owner}.${f.field}`, { key, type: f.type })
+    if (decl.params.some((p) => !p.builtin && p.type.kind !== 'struct' && p.name === f.field))
+      continue // the bare name is that parameter's own spelling
+    const sharing = owners.get(f.field)!
+    if (sharing.length === 1) out.set(f.field, { key, type: f.type })
+    else out.set(f.field, { key, type: f.type, ambiguous: sharing })
   }
   return out
 }

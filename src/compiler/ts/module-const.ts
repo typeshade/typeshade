@@ -20,6 +20,13 @@ import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 import { localFunctionOf } from './lower/local-functions.js'
 import { isMixinApplication } from './mixins.js'
+import {
+  emittedMemberName,
+  isStaticMember,
+  shadowedStaticFields,
+  writtenMemberName,
+  writtenStaticFields,
+} from './class-names.js'
 
 /** The module-constant name a class's static field or an enum's member takes: `K.PI` is
  *  `K_PI` and `Mode.Shaded` is `Mode_Shaded`, the same joining a method takes (`K_half`), so
@@ -177,29 +184,40 @@ export function collectModuleConsts(
     // writes before reaching for a top-level const. Collected in source order with the
     // top-level ones, so either may name the other by the rules already in force here.
     if (ts.isClassDeclaration(stmt) && stmt.name) {
+      const written = writtenStaticFields(sourceFile)
+      const shadowed = shadowedStaticFields(stmt)
       for (const member of stmt.members) {
-        if (!ts.isPropertyDeclaration(member) || !ts.isIdentifier(member.name)) continue
-        if (!member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) continue
+        if (!ts.isPropertyDeclaration(member) || !isStaticMember(member)) continue
+        if (shadowed.has(member)) continue
+        // `static #SCALE = 2.` is the constant `Cls_SCALE`: a private name is emitted without
+        // its `#`, and only the class's own body may read it (Rule 8.12).
+        const name = writtenMemberName(member.name)
+        if (name === undefined) continue
+        // A static field the file writes is a module variable, module-vars.ts's (Rule 8.13).
+        if (written.has(`${stmt.name.text}.${name}`)) continue
         if (!member.initializer) {
           diagnostics.push(
             makeDiagnostic(
               sourceFile,
               member,
-              `Static field "${stmt.name.text}.${member.name.text}" needs an initializer: it ` +
+              `Static field "${stmt.name.text}.${name}" needs an initializer: it ` +
                 `is a module constant, and a constant has a value.`,
               TS_CODES.TOP_LEVEL,
             ),
           )
           continue
         }
+        // `this` in a static initializer is the class (Rule 8.13): `static B = this.A * 2.`.
+        scope.setStaticClass(stmt.name.text)
         const c = lowerOne(
           member,
           sourceFile,
           scope,
           diagnostics,
           valueExprs,
-          staticConstName(stmt.name.text, member.name.text),
+          staticConstName(stmt.name.text, emittedMemberName(name)),
         )
+        scope.setStaticClass(undefined)
         if (!c) continue
         out.push(c)
         if (c.valueExpr) valueExprs.set(c.name, c.valueExpr)
@@ -412,7 +430,9 @@ function lowerOne(
    *  static field `PI` of a class `K` is the module constant `K_PI`. */
   irName?: string,
 ): ConstDecl | undefined {
-  if (!ts.isIdentifier(decl.name)) {
+  // A static field's private name is the one other name a constant may take here; it arrives
+  // with the name it is emitted as (Rule 8.12).
+  if (!ts.isIdentifier(decl.name) && !(ts.isPrivateIdentifier(decl.name) && irName !== undefined)) {
     diagnostics.push(
       makeDiagnostic(
         sourceFile,
@@ -423,7 +443,7 @@ function lowerOne(
     )
     return undefined
   }
-  const name = irName ?? decl.name.text
+  const name = irName ?? (decl.name as ts.Identifier).text
   if (scope.hasInCurrent(name)) {
     diagnostics.push(
       makeDiagnostic(

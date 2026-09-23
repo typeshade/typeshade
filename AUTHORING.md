@@ -1012,11 +1012,13 @@ each one carries.
 
 An IO struct is a group of fields that crosses a stage boundary: a vertex stage returns
 it and a fragment stage takes it as a parameter. `ioStruct` declares one from a name and a
-field map, and every field carries a stage attribute. `builtin(name, type)` declares a value
+field map, and every field carries a stage attribute. `builtin(name)` declares a value
 the hardware supplies, and takes a WGSL builtin id such as `'position'` or `'vertex_index'`,
 typed as a closed union, so a name WGSL does not define is a `tsc` error. `location(n, type)`
 declares a numbered slot, with an optional interpolation mode of `'flat'`, `'linear'` or
-`'perspective'`; `'flat'` is the mode both targets support.
+`'perspective'`. An integer field gets `flat` without asking, because WGSL requires it for an
+integer varying. `'flat'` and `'perspective'` are the modes both targets support; `'linear'`
+has no GLSL ES 3.00 form, so a module that uses it fails closed on that target.
 
 ```ts
 const VsOut = ioStruct('VsOut', {
@@ -1324,6 +1326,7 @@ r.vertex // { attributes: [{ name, location, type, offset }], arrayStride }
 r.entries // [{ name: 'vs', stage: 'vertex', inputs: ['u32'], output: 'struct:VsOut', io }, …]
 r.overrides // the pipeline constants a host supplies per variant
 r.requiredFeatures // the capabilities a host must have active before it creates a pipeline
+r.requiredLanguageFeatures // the WGSL language features the browser must implement
 r.requires // host-provided globals the module references and does not declare
 ```
 
@@ -1504,9 +1507,10 @@ Three things throw when a call reaches them. A `rawStmt` payload is target text 
 reads, so it has no evaluation here whichever spelling it carries. A placeholder that no
 composer swapped throws with its tag, which localizes the missing splice. The GPU-only
 intrinsics have nothing to compute from: the texture reads `textureSample`,
-`textureSampleLevel`, `textureLoad` and their array forms, the queries `textureDimensions` and
-`textureNumLayers`, and the derivatives `dpdx`, `dpdy` and `fwidth`. The set is exported as
-`ORACLE_GPU_STUB_NAMES`.
+`textureSampleLevel`, `textureLoad` and their array, bias, grad, gather and depth-comparison
+forms, `textureStore`, the queries `textureDimensions` and `textureNumLayers`, and the
+derivatives `dpdx`, `dpdy` and `fwidth` with their coarse and fine forms. The full set is
+exported as `ORACLE_GPU_STUB_NAMES`.
 
 Compiling with `{ gpuStubs: true }` turns those intrinsics into placeholder values: opaque
 black for a texture read, zero for a derivative, a 1 by 1 size for `textureDimensions` and
@@ -1905,8 +1909,9 @@ The bottom five rows are the ones nothing declares by hand. Writing
 `@builtin("clip_distances")`, `@builtin("primitive_index")` or `@blend_src(n)` derives the
 capability, because WGSL refuses each of those without the matching `enable`; a
 `"bgra8unorm"` storage texture and a call into the packed 4x8 family derive theirs from the
-binding and from the call. In a `"use typeshade"` file the two that no use can derive are
-spelled as a string directive beside `"use typeshade"`:
+binding and from the call. `f16`, which no use can derive, and `subgroups`, for a file that
+reads neither subgroup built-in value, are spelled as a string directive beside
+`"use typeshade"`:
 
 ```ts
 'use typeshade'
@@ -1931,21 +1936,22 @@ capabilityMatrix([wgslBackend, glslEs300Backend])
 //      declarable: true }]
 ```
 
-The result has one row per capability, in a fixed order, including the three a module never
-declares, which come back with `declarable: false`.
+The result has one row per capability, eighteen in a fixed order, including the nine a
+module's shape derives and never declares (`storageBuffer` through `textureGather`, then
+`bgra8unormStorage` and `packed4x8Dot`), which come back with `declarable: false`.
 
 Two notes before you trust a row.
 
 - Support is not the same as reachability. `f16` and `multiview` are supported on the target
   the table says and neither is authorable today, because there is no `f16` scalar type and
   no way to spell `layout(num_views = N) in;` or read `gl_ViewID_OVR`. A module declaring
-  `multiview` emits the directive and renders single-view. The other three are reachable:
+  `multiview` emits the directive and renders single-view. The other four are reachable:
   `clipDistances`, `primitiveIndex` and `dualSourceBlending` are what their attributes need,
   and `subgroups` is reached by `@builtin("subgroup_invocation_id")` or
   `@builtin("subgroup_size")` on a
   compute or fragment entry — the subgroup INTRINSICS (`subgroupAdd` and friends) are still
   absent, which is a separate gap from the capability. Whether a given adapter HAS one of the
-  three is what `reflect().requiredFeatures` is for, and a device only HAS an optional feature
+  four is what `reflect().requiredFeatures` is for, and a device only HAS an optional feature
   if `requestDevice` was asked for it — the compile gate does exactly that, deriving the list
   from the corpus, which is how `examples/clip-planes.shade.ts` compiles on its Tint. Its
   software adapter offers `clip-distances` and `subgroups` but not `primitive-index`, so that
@@ -1968,11 +1974,12 @@ that is not core, and a device refuses the bind group layout unless it requested
 capability carries the requirement to the host). `enables` is typed to exclude every derived
 id, so naming one is a compile error.
 
-A capability is not the only thing a host may have to check. A WGSL *language* feature is a
+A capability is not the only thing a host may have to check. A WGSL _language_ feature is a
 property of the browser's shading-language implementation rather than of the device, so it is
-not requested at `requestDevice` at all, and no directive announces it in the emitted module.
-`reflect().requiredLanguageFeatures` lists the ones a module's source uses, for
-`navigator.gpu.wgslLanguageFeatures` to answer.
+not requested at `requestDevice` at all. `reflect().requiredLanguageFeatures` lists the ones a
+module's source uses, for `navigator.gpu.wgslLanguageFeatures` to answer. The WGSL writer emits
+`requires readonly_and_readwrite_storage_textures;` for a storage texture bound `read` or
+`read_write`, and no directive for the packed 4x8 family, which compiles without one.
 
 One capability can also imply another. `float32Blend` pulls in `floatRenderTarget`, because
 blending into a float target needs that target to be renderable as a colour attachment
@@ -2009,7 +2016,7 @@ for (const ext of hostFeaturesFor(glslEs300Backend, reflect(m).requiredFeatures)
 
 // WebGPU: feed the same lookup into requestDevice, at boot.
 const device = await adapter.requestDevice({
-  requiredFeatures: hostFeaturesFor(wgslBackend, reflect(m).requiredFeatures),
+  requiredFeatures: hostFeaturesFor(wgslBackend, reflect(m).requiredFeatures) as GPUFeatureName[],
 })
 ```
 
@@ -2578,7 +2585,7 @@ budgets only the residue. Text-stage plugins explain nothing, because the compar
 sees emitted text, so declaring the whole production array is safe.
 
 Over the example corpus in this repository `obfuscate()` with `parens: 'minimal'` takes
-plain emit from 175,673 characters to 93,490, and two gates hold it to its properties.
+plain emit from 182,437 characters to 93,753, and two gates hold it to its properties.
 `examples/minify-safety.test.ts` asserts that the lexed token stream and every literal's
 f32 value survive minification and that the pass is idempotent.
 `examples/reserved-word-safety.test.ts` runs the corpus through `obfuscate()` and through

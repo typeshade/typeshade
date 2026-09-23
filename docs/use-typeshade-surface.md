@@ -49,6 +49,9 @@ declare let pixels: storage<f32>
 
 Writes to a read-only resource are a compile error.
 
+The last row is not enforced yet: `declare let x: uniform<T>` compiles as a read-only uniform
+binding with no diagnostic (the language design rules' Appendix B, Rule 6.1).
+
 Duplicate `@group @binding` is an error.
 
 Sketch form still exists and occupies the same slot sequence:
@@ -59,6 +62,10 @@ let xs = storage<f32>()
 ```
 
 Product code should use `declare`. Mixing `declare` and call form in one file shares one slot counter; collisions still error.
+
+Only the `const` half of the sketch form still compiles. Since a top-level `let` became a module
+variable (§24), `let xs = storage<f32>()` is read as one as well and draws `TS8004 Unknown
+function "storage<f32>()"`; write `declare let xs: storage<f32>`.
 
 `var` is not a resource declaration.
 
@@ -314,8 +321,9 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare`, a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
-| A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, inside an `if` or `switch` body, or used as a value (§25) |
-| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A getter or setter, a static field, an arrow-function field, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a method that changes its object called on a `const`, a parameter or a dropped value, or used as a value (§26) |
+| A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
+| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. An arrow-function field, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a method that changes its object called on a `const`, a parameter or a dropped value, one that returns nothing used as a value, or a write to `this` in a base's body called through `super` (§26) |
+| A call that writes in a `while` condition, anywhere but as one side of its comparison | `TS8006`. The condition runs on every iteration, so the call cannot move ahead of the loop to run in source order; compare the call alone, or call it into a `let` at the end of the body (§26, Rule 7.9) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 
 ---
@@ -378,15 +386,13 @@ pixels[i] = 1.            // an element
 | `declare let x: storage<T>` | yes |
 | `const` local | no: `TS8005` |
 | `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
-| a function parameter | no: `TS8018`; see the caveat below |
+| a function parameter | no: `TS8018` |
 | anything that is not a name (`vec3(0.).x`) | no: `TS8018` |
 
-The parameter row is about writing **through** a parameter: `p.x = 1.`, `p.xs[i] = 1.`.
-Writing a parameter **whole** (`p = 1.`, `p += 1.`, `p++`) is a different matter: WGSL rejects
-it too, but this surface has always accepted it and emitted `p = 1.0;`, so refusing it now
-would stop source that compiles today. Narrowing it needs a deprecation path and is on
-[issue #8](https://github.com/typeshade/typeshade/issues/8)'s "later" list; until then, a
-whole-parameter write is a bug the compiler does not catch yet.
+The parameter row covers writing **through** a parameter (`p.x = 1.`, `p.xs[i] = 1.`) and
+writing it **whole** (`p = 1.`, `p += 1.`, `p++`) alike. The whole write used to be accepted and
+emitted as `p = 1.0;`, which Tint refuses; it is `TS8018` now, naming the local to copy it into
+(§52).
 
 A swizzle target names exactly **one** component. `v.xy = …` and `c.rg = …` are rejected
 (`TS8018`), which is what WGSL does: assign each component, or build the whole vector and
@@ -439,7 +445,7 @@ carries. Beyond the set that was already there (`sin` … `clamp`, `mix`, `smoot
 | `a ** b` | `pow(a, b)`. Both operands must have one type; splat a scalar exponent |
 | `reflect(i, n)`, `refract(i, n, eta)`, `faceForward(n, i, nref)` | the geometry three; `faceforward` in GLSL. `eta` is a scalar |
 | `transpose(m)`, `determinant(m)` | on a `mat4`; `determinant` is an `f32` |
-| `ldexp(x, e)` | `x · 2ᵉ`; `e` is an `i32`, or an integer vector of `x`'s shape. A bare literal `e` is an `i32`. GLSL ES 3.00 has no `ldexp`, so it is `x * intBitsToFloat((e + 127) << 23)` there, exact from 2⁻¹²⁶ to 2¹²⁷ |
+| `ldexp(x, e)` | `x · 2ᵉ`; `e` is an `i32`, or an integer vector of `x`'s shape. A bare literal `e` is an `i32`. GLSL ES 3.00 has no `ldexp`, so it is `x * intBitsToFloat(((e >> 1) + 127) << 23) * intBitsToFloat(((e - (e >> 1)) + 127) << 23)` there, the scale built in two halves so that every legal exponent, -149 to 128, agrees with WGSL (§38) |
 | `countOneBits(x)`, `reverseBits(x)` | on a `u32` or `i32` or a vector of them; the `_popcnt` / `_brev` helpers in GLSL (see below) |
 | `countLeadingZeros(x)`, `countTrailingZeros(x)` | 32 for zero; the `_clz` / `_ctz` helpers in GLSL |
 | `firstLeadingBit(x)`, `firstTrailingBit(x)` | the result keeps `x`'s type (all ones for "none": `0xffffffff` on a `u32`, `-1` on an `i32`); the `_msb` / `_lsb` helpers in GLSL |
@@ -629,8 +635,9 @@ rule to `f32` components.
 This is the same declaration the EDSL's `constExpr(name, type, node)` produces — one
 `ConstDecl` with its `valueExpr` filled.
 
-A struct-valued and a matrix-valued constant are not accepted yet: the constant collector
-runs without the struct table, and the surface has no matrix constructor.
+A struct-valued constant is accepted as the next paragraph says, and a matrix-valued one with
+§40's constructors: `const M: mat2 = mat2(vec2(1., 0.), vec2(0., 1.))` emits
+`const M: mat2x2<f32> = mat2x2<f32>(…);`.
 
 ---
 
@@ -751,7 +758,11 @@ Three edges of the rule, each of which the diagnostics still cover:
   function is `return 5u;`, but `return 2.5 + 0.5` is a type mismatch — every leaf of the
   arithmetic has to be an integer literal.
 - **The value has to fit.** `return -1` in a `u32` function, or `2147483648` in an `i32` one,
-  is left exactly as written and reported as the mismatch it always was.
+  is not retyped, and is reported at the literal as TS8003 *The value has to fit: -1 is outside
+  u32, which holds 0 to 4294967295 (§13).* The same sentence covers every declared position
+  above: a declaration, an assignment, a `for` init, a return, an argument, a struct field, a
+  vector constructor's element and a conditional's arm. An array element keeps §18's element
+  message, and a module `const` its own range message.
 - **A written number in a builtin call's FIRST argument takes an integer peer's kind (#57).**
   An intrinsic's result type is its first argument's, and until roadmap 0.2 item 9 that position
   was never retargeted, so `min(1, i)` with an `i32` `i` typed the call `f32` and emitted
@@ -852,8 +863,8 @@ terminator; a `break` that leaves a case _early_ is kept and emitted. A case lab
 integer constant: a literal, a negative literal, or a module `const`. A label has to fit the
 selector, so `case -1:` is refused for a `u32` one, and a label may appear only once: two
 that fold to the same number (`case 2:` beside `case 1 + 1:`) is an error here rather than at
-the backend. Two labels on one body (`case 0: case 1:`) is still refused, and so is `continue`
-in a `switch` that no loop encloses.
+the backend. Two labels on one body (`case 0: case 1:`) are one clause with two selectors
+(§52), and `continue` in a `switch` that no loop encloses is refused.
 
 **A case body does not fall through, whatever TypeScript would do with it.** A body that does
 not end in `break` still ends its case here, since the IR switch has no fall-through and
@@ -1048,7 +1059,7 @@ export function fs(@location(0) uv: vec2): Color {
   const a = textureSample(tex, smp, uv)
   const b = textureSample(atlas, smp, uv, 1)
   const c = textureSampleLevel(tex, smp, uv, 0.)
-  const d = textureLoad(tex, vec2i(i32(0), i32(0)), 0) // vec2i(0, 0) is A3, not yet landed
+  const d = textureLoad(tex, vec2i(0, 0), 0)
   const size = textureDimensions(tex)
   const layers = textureNumLayers(atlas)
   const k = tint + bias + f32(size.x) + f32(layers)
@@ -1066,7 +1077,8 @@ or `u32`; the element decides both the WGSL spelling and which reads apply.
 which WGSL spells with the layer as its own argument and GLSL ES 3.00 folds into a `vec3`
 coordinate, which is the same choice the EDSL's overloads make. A **layer** is an `i32` and a
 `textureLoad` **level** is a `u32`, so `textureLoad(t, c, 0)` emits `textureLoad(t, c, 0u)`
-rather than the `0.0` that no backend accepts.
+rather than the `0.0` that no backend accepts. That is where a bare number lands; a layer or a
+level written as a variable may be either integer type (§42).
 
 Sampling is float-only: an integer texture has no filtering, so `textureSample` on one is
 refused and names `textureLoad` instead. On GLSL ES 3.00 the texture and the sampler fuse into
@@ -1090,13 +1102,12 @@ declaration; the WGSL was always fine, which is exactly why nothing caught it.
 refused rather than emitted: WGSL rejects it and GLSL ES 3.00 silently rounds, so the two
 targets would disagree about the same source. That is the rule the EDSL raises `SD0015` for.
 
-**These five names are reserved**: `textureSample`, `textureSampleLevel`, `textureLoad`,
-`textureDimensions`, `textureNumLayers`. A function you declare with one of those names is
-refused, the way `mod` and `clamp` have always been. A name that was *only* a user function
-before this item is the one thing that changes here.
+**A function you declare with one of these names keeps winning the call**, as §10 states for
+every builtin name: `textureSample`, `textureSampleLevel`, `textureLoad`, `textureDimensions`
+and `textureNumLayers` declared in the file are the author's functions, emitted under the name
+written.
 
-Left for later: `texture_2d_ms<f32>`, whose multisampled load neither backend here reaches, and
-the storage-texture forms.
+The multisampled texture is §37 and the storage texture §33.
 
 ## 16. Object literals take the declared struct
 
@@ -1312,9 +1323,12 @@ means:
   `row * width + column`.
 - A spread and a hole are refused: `[...xs]` would need the size of `xs` at lowering time.
 
-The call form is not the same in one respect: `array<i32, 3>(1, 2, 3)` still lowers each
-argument on its own and emits `array<i32, 3>(1.0, 2.0, 3.0)`, which neither target accepts.
-That is a gap in the call site, not in the list, and #8's A3 did not close it.
+The call form types its arguments by the same rule and the same check, so
+`array<i32, 3>(1, 2, 3)` emits `array<i32, 3>(1, 2, 3)` (GLSL `int[3](1, 2, 3)`) and
+`array<u32, 2>(1, 2)` emits `array<u32, 2>(1u, 2u)`, exactly what the list form emits, and
+`array<u32, 2>(-1, 2)` is refused with the list's element message. `array(1, 2, 3)`, which
+states no element type, infers `array<f32, 3>`: nothing declares an integer there, so §13 gives
+each literal `f32`.
 
 
 ---
@@ -1361,13 +1375,19 @@ statement is refused (TS8099) with the two ways out, assign the value or remove 
 
 **A call that writes a binding is the one impure expression the IR has**, and the optimizer
 knows it. The effect table (`src/core/passes/effects.ts`) names the bindings each function
-writes, itself or through the functions it calls. Dead-code elimination keeps a `call`
-statement exactly when its call has an effect. Common-subexpression elimination, value
+writes, itself or through the functions it calls, and a write through a method's object as the
+caller's receiver (§26). Dead-code elimination keeps a `call` statement exactly when its call
+has an effect, and a `let` nobody reads whose initializer writes becomes the call statement it
+amounts to: `const unused = next()` still calls `next`. Common-subexpression elimination, value
 numbering and loop-invariant motion leave a function that makes an effectful call alone, and
 a read of a binding some callee writes is never shared across the call: two `bump(i)` in a
-row stay two, and a `dst[i]` read after them is a second read. The linear inliner does not
-lift a helper whose prelude holds a call statement, since splicing it ahead of the `if` that
-guarded the call site would run the effect on a path that never called.
+row stay two, and a `dst[i]` read after them is a second read; nor is a copy taken before a
+method changes its object, `const before = p` ahead of `p.bump()`. A struct assembled field by
+field is not folded into a constructor when a field's value writes, since the constructor would
+evaluate the fields in declaration order rather than the order they were assigned. The linear
+inliner does not lift a helper whose prelude holds a call statement, since splicing it ahead of
+the `if` that guarded the call site would run the effect on a path that never called. Such a
+call inside a larger expression is put in source order before any of this runs (§26, Rule 7.9).
 
 **What this does not cover.** The portable compute tier (§ the `portable` kernel shape) refuses
 a call statement anywhere in the entry's reach: its single store is a plain assignment written
@@ -1712,11 +1732,13 @@ is TS8034. Both emit bare on WGSL, `workgroupBarrier();`, and never behind §19'
 assignment. GLSL ES 3.00 has no compute stage, so a module with one emits WGSL alone.
 
 **Where it stands.** WGSL requires a barrier in uniform control flow in the compute stage, and
-this surface states the same two rules at the call (TS8034): in a compute entry or a function it
-calls, never in a vertex or fragment entry, which has no workgroup; and never inside an `if` or
-`switch` body. A branch on a value the invocations do not share is how a workgroup waits
-forever. A `for` with §17's constant bound is uniform and allowed, which is the shape the
-reduction above needs: the loop steps by `/= 2`, one of §17's four counted steps. The optimizer
+this surface states the same two rules at the call: in a compute entry or a function it calls,
+never in a vertex or fragment entry, which has no workgroup (TS8034); and never under a branch
+on a value the invocations do not share, which is how a workgroup waits forever (TS8052). The
+second rule used to refuse every `if` and `switch` body; it is the uniformity analysis of §54
+now, so a branch on a uniform buffer value or on `workgroup_id` is accepted, and the `if` above,
+on `local_invocation_id`, holds no barrier. A `for` with §17's constant bound is uniform and
+allowed, which is the shape the reduction above needs: the loop steps by `/= 2`, one of §17's four counted steps. The optimizer
 treats a barrier as an effect (§19), so it is never dropped, merged or moved, and no read of
 workgroup memory crosses it.
 
@@ -1859,11 +1881,75 @@ void Particle_step(inout Particle self_, float dt) {
 The receiver has to be a place a function may write: a `let` local, a module variable, a storage
 element, or `this` inside a constructor or another changing method. Which methods change their
 object is read from their bodies, to a fixpoint: one that assigns to a field of `this` (or
-`++`/`--` on one), and one that calls such a method on `this`. Such a method returns nothing;
-one that returns a value reads its object only, and a write to `this` inside it is TS8035 with
-that rule. The effect table (§19) counts a write through a reference as it counts any other, and
-names it as the CALLER knows it: `ps[gid.x].step(dt)` writes `ps`, because `step` writes its
-receiver and the receiver is reached through `ps`.
+`++`/`--` on one), and one that calls such a method on `this`. The effect table (§19) counts a
+write through a reference as it counts any other, and names it as the CALLER knows it:
+`ps[gid.x].step(dt)` writes `ps`, because `step` writes its receiver and the receiver is reached
+through `ps`.
+
+**It may return a value** (Rule 8.10), as any method may. A random-number generator is the
+shape: `next()` advances the state and returns the draw. The reference is what carries the object
+back, so the return is free, and the emitted function is WGSL's own idiom for a generator,
+`fn Rng_next(self_: ptr<function, Rng>) -> f32`, and GLSL ES 3.00's, `float Rng_next(inout Rng
+self_)`. On its own line the value is dropped and the write kept; anywhere a value goes, it is
+one.
+
+```ts
+"use typeshade"
+class Rng {
+  state: u32
+  next(): f32 {
+    this.state = this.state * 747796405 + 2891336453
+    return f32(this.state >> 8) / 16777216.
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let rng: Rng = { state: u32(uv.x * 1000.) }
+  const grain = vec2(rng.next(), rng.next())
+  const spark = uv.y > 0.5 ? rng.next() : 0.
+  return vec4(grain, spark, 1.)
+}
+```
+
+```wgsl
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  var rng: Rng = Rng(u32((uv.x * 1000.0)));
+  let _seq0 = Rng_next(&rng);
+  let _seq1 = Rng_next(&rng);
+  let grain = vec2<f32>(_seq0, _seq1);
+  var _seq2: f32;
+  if ((uv.y > 0.5)) {
+    _seq2 = Rng_next(&rng);
+  } else {
+    _seq2 = 0.0;
+  }
+  let spark = _seq2;
+  return vec4<f32>(grain, spark, 1.0);
+}
+```
+
+**A call that writes runs in source order** (Rule 7.9). TypeScript evaluates `vec2(rng.next(),
+rng.next())` left to right, and so does WGSL; GLSL ES 3.00 fixes that order for a call's
+arguments and leaves it open for an operator's operands (§5.11). So a call that writes, inside a
+larger expression, is bound to a `let` of its own ahead of the statement, in the order the source
+evaluates it, and the statement reads the temporary: the two draws above are two lets, first to
+last, on both targets. An operand evaluated before such a call that reads what the call changes
+is bound ahead of it, so `rng.state + rng.next()` adds the state from before the draw. A call
+TypeScript runs conditionally keeps its condition: an arm of `?:` is an `if` rather than WGSL's
+`select`, which would evaluate both arms, and the right operand of `&&` or `||` is an `if` on the
+left one. A call that is the whole of its statement (`const a = rng.next()`, the value of an
+assignment or a `return`, a condition, a selector, a call statement) stays where it is. This is
+the same for a helper that writes a storage binding or a module variable and for an atomic, which
+could write from inside an expression before any of this (§19, §23, §24). A `while` condition
+runs on every iteration, so nothing
+in it can move ahead of the loop: a call that writes may be one side of its comparison,
+`while (rng.next() < 0.9)`, and anything deeper is TS8006 with the remedy.
+`examples/rng-method.shade.ts` is the gate's evidence, on Tint and on a real WebGL2 driver.
+
+It returned nothing while the struct itself was what came back, and until this a method that
+wrote `this` and returned a value was TS8035 at the write, "A method that changes its object
+returns nothing (§26)".
 
 **One WGSL function per address space.** The address space is part of a WGSL pointer's type:
 `ptr<function, T>` and `ptr<storage, T, read_write>` are different types, and a function
@@ -1882,22 +1968,28 @@ on a real WebGL2 driver; `examples/particle-step.shade.ts` for the compute one.
 
 **`this`.** Inside a method that reads, `this` is the read-only first parameter; inside a method
 that changes its object it is that parameter, written through; inside a constructor it is the
-local being built.
-`this` in a static function or a top-level function is TS8035.
+local being built. Inside a static member it is the class that declares the member (Rule 8.13),
+so `this.K`, `this.f()` and `this.count += 1.` name its statics; `this` as a value there, and
+`this` in a top-level function, is TS8035.
 
-**Access modifiers** `private`, `protected`, `public` and `readonly` on a field or a method are
-accepted and mean nothing to the shader; TypeScript enforces them.
+**Access modifiers.** `public`, `private` and `protected` on a field or a method are accepted and
+mean nothing to the shader; TypeScript's checker enforces the last two in the editor. `readonly`
+is enforced here (Rule 8.14), and a private name, `#x`, is enforced here too (Rule 8.12): the
+front end does not run the checker, and without these a program TypeScript refuses would
+compile.
 
-**Refused, with the fix (TS8035).** A getter or a setter (write a method), a static field (a
-module `const`), a field holding an arrow function (a method), a decorator on a method (an
-entry is a top-level function), an `async`, generator or `abstract` method, two constructors
-or two methods of one name (no overloads), a call of a method on the class or of a static
-function on a value, a member the class does not have, a field called as a method, a method
-that changes its object called on a `const`, a parameter or a value that is dropped, or used
-as a value, and a parameter named `self_`. A class with only static functions
-and no fields is not a struct (TS8010): write them as functions. `extends` is a struct's base
-since roadmap item T5. A `new` on anything but a class the file declares stays TS8013, and
-says which of the four reasons it is.
+**Refused, with the fix (TS8035).** A static block (give each static field its value where it
+is declared), a field holding an arrow function (a method), a decorator on a method (an entry is
+a top-level function), an `async` or generator method, two constructors or two
+methods of one name (no overloads), a call of a method on the class or of a static function on
+a value, a member the class does not have, a field called as a method and an accessor called as
+one, a method that changes its object called on a `const`, a parameter or a value that is
+dropped, one that returns nothing used as a value, a write to `this` in a base's body called
+through `super` (which reads its object only; move the write into a method no class overrides),
+and a parameter named `self_`. A class with only static functions and no fields is a namespace
+of functions (below). `abstract` and `extends` are a struct's base since roadmap item T5. A `new`
+on anything but a class the file declares stays TS8013, and says which of the four reasons it
+is.
 
 ### `new` is how a class is built, and the refusals say why
 
@@ -1926,7 +2018,157 @@ members, so the language service adds nothing for them and the compiler's symbol
 method under its class name.
 
 **Not yet.** A cycle through method calls in the recursion check (Tint still refuses it, as a
-backend diagnostic), and `return this` from a changing method (split the chain).
+backend diagnostic), and a chain through a changing method, `v.setX(1.).setY(2.)`: `return this`
+returns a copy of the object, since a struct is a value, so the second call would change the
+copy; call each on `v` in turn.
+
+### Getters and setters
+
+A `get` or a `set` accessor is a function of the module, one for each half: `get area()` is
+`Rect_get_area(self_: Rect)`, and `set width(v)` is `Rect_set_width(self_, v)` (Rule 8.11). A
+read `r.area` calls the getter; an assignment `r.width = 4.` calls the setter with the new value,
+and a compound assignment, `++` and `--` read the old value through the getter and write the new
+one through the setter. A setter that assigns a field changes its object, so it takes it by
+reference, as a method that does (§26 above); so does a getter that fills a cache.
+
+```ts
+"use typeshade"
+class Temperature {
+  #celsius: f32 = 0.
+  get celsius(): f32 {
+    return this.#celsius
+  }
+  set celsius(v: f32) {
+    this.#celsius = max(v, -273.15)
+  }
+  get fahrenheit(): f32 {
+    return this.#celsius * 1.8 + 32.
+  }
+  set fahrenheit(v) {
+    this.celsius = (v - 32.) / 1.8
+  }
+  static get boiling(): Temperature {
+    let t = new Temperature()
+    t.celsius = 100.
+    return t
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let t = new Temperature()
+  t.fahrenheit = 212. * uv.x
+  t.celsius += 5.
+  return vec4(t.celsius / Temperature.boiling.celsius, t.fahrenheit / 212., 0., 1.)
+}
+```
+
+```wgsl
+fn Temperature_get_celsius(self_: Temperature) -> f32 {
+  return self_.celsius;
+}
+fn Temperature_set_celsius(self_: ptr<function, Temperature>, v: f32) {
+  (*self_).celsius = max(v, -273.15);
+}
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  var t: Temperature = Temperature_new();
+  Temperature_set_fahrenheit(&t, (212.0 * uv.x));
+  Temperature_set_celsius(&t, (Temperature_get_celsius(t) + 5.0));
+  ...
+}
+```
+
+Either half's annotation types the other when one has none, as in TypeScript: `set
+fahrenheit(v)` takes the getter's `f32`. A static accessor is a function with no receiver, read
+on the class, `Temperature.boiling`. The nearest class of a chain that declares either half of
+an accessor owns both, so a class that overrides the getter alone has no setter, as in
+TypeScript.
+
+Refused, with the fix: a read of an accessor with no getter and a write of one with no setter
+(declare the other half), a getter with no type from either half (annotate it), and a write into
+what a getter returns, `t.pos.x = 1.` (TS8018): the getter hands back a copy, so the write would
+be lost where TypeScript changes the object; assign the whole property instead.
+
+### Private names
+
+A member written `#x` is private to its class (Rule 8.12). WGSL and GLSL ES 3.00 have no private
+member and no `#` in a name, so it is emitted without the `#`: the field `#count` is the struct
+member `count`, the method `#step` is `Cls_step`, the static `#K` the constant `Cls_K`. What keeps
+it private is the front end, which lets `#x` be named only inside the body of the class that
+declares it, TypeScript's own rule. A private field and a public accessor of one name is the
+ordinary pairing, and the two do not meet: `count` the member, `Counter_get_count` the getter.
+
+```ts
+"use typeshade"
+class Counter {
+  #count: u32 = 0
+  static #limit = 100
+  get count(): u32 {
+    return this.#count
+  }
+  increment(): void {
+    this.#count = this.#clamped(this.#count + 1)
+  }
+  #clamped(n: u32): u32 {
+    return min(n, u32(Counter.#limit))
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  let c = new Counter()
+  c.increment()
+  c.increment()
+  return vec4(f32(c.count) / 2., 0., 0., 1.)
+}
+```
+
+A public name never reaches a private member, so `c.count` above is the getter and never the
+field; an object literal cannot build a class with a private field (build it with `new`), and a
+spread and a destructuring pattern leave the private fields out, as TypeScript's do. Refused:
+`#x` named outside its class body (TS8035), and two members of one class chain that would share
+an emitted name, `#x` beside `x` or a `#x` a class and one it extends both declare (TS8010 for a
+field, TS8035 for a function).
+
+### Parameter properties, a field's type from its initializer, and `readonly`
+
+`constructor(public x: f32, public y: f32) {}` declares the fields `x` and `y` where the
+constructor stands, and the constructor assigns them from its parameters before the field
+initializers run (Rule 8.14). `private`, `protected` and `readonly` declare one too. A field
+written without a type takes the one its initializer names: a written number is an `f32` (Rule
+5.1), `true` and `false` a `bool`, `new P()` the struct `P`, `vec3(0.)` or `u32(1)` that type. One
+whose initializer names no type, `a = f(x)`, is TS8010 with the fix, `a: T = ...`; before this
+it was dropped from the struct with nothing said where it was declared, and every use of it read
+as an unknown field.
+
+```ts
+"use typeshade"
+class Particle {
+  age = 0.
+  alive = true
+  vel = vec2(0.)
+  constructor(
+    readonly id: u32,
+    public pos: vec2,
+  ) {}
+  step(dt: f32): void {
+    this.age += dt
+    this.pos += this.vel * dt
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let p = new Particle(7, uv)
+  p.vel = vec2(1., 0.)
+  p.step(0.5)
+  return vec4(p.pos, p.age, f32(p.id))
+}
+```
+
+A `readonly` field may be assigned in a constructor of the class that declares it and nowhere
+else (TS8005), which is TypeScript's rule; `readonly` is shallow, as TypeScript's is, so
+`p.pos.x = 1.` on a `readonly pos` writes into what the field holds and stands.
 
 ---
 
@@ -1955,6 +2197,30 @@ name a constant declared earlier and may bound a `for` loop, and it takes the sa
 top-level const does. A static field with no initializer is refused: it is a constant, and a
 constant has a value. Reading a name the class does not declare says so, and naming a static
 function without calling it says to call it.
+
+**A static field the file writes is a module variable** (Rule 8.13). `Stats.hits += 1` anywhere
+in the file, or `this.hits += 1` in a static member, makes `hits` the per-invocation variable a
+top-level `let` is (§24), `var<private> Stats_hits`, and every read of it reads the variable. Its
+initializer is a constant by §24's measure. A `readonly` static is never written, and a write to
+one is TS8005.
+
+```ts
+"use typeshade"
+class Stats {
+  static hits = 0.
+  static readonly WEIGHT = 0.5
+  static record(v: f32): void {
+    this.hits += v * this.WEIGHT
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  Stats.record(uv.x)
+  Stats.record(uv.y)
+  return vec4(Stats.hits, 0., 0., 1.)
+}
+```
 
 ### `namespace`
 
@@ -2058,8 +2324,9 @@ _ret = vec4(c, float(any(equal(m, bvec3(false, false, false)))));
   round to f32 first on the CPU, as the scalar form does (X-GIS #13). An ordering (`<`, `<=`,
   `>`, `>=`) on two bool vectors is TS8003 with the fix: `===`/`!==`, or `any`/`all`.
 - **`any(m)` and `all(m)`** reduce a vector of bools to one bool, the same builtins on both
-  targets. Over an array they stay the folds of §16, `any(xs, (x) => ...)`; a scalar or a
-  numeric vector is TS8003 naming both shapes.
+  targets. Over an array they stay the folds, `any(xs, pred)` with `pred` a function the file
+  declares (an arrow function written in the call is `TS8099`); a scalar or a numeric vector is
+  TS8003 naming both shapes.
 - **`select(f, t, m)`** with a vector-of-bools condition picks per component, and the arms are
   vectors of the mask's size (TS8003 otherwise). WGSL's `select` takes the mask as is; GLSL ES
   3.00 spells `mix(f, t, m)` for float vectors and a componentwise ternary through the vector's
@@ -2423,6 +2690,10 @@ with**.
 class Slot<T> {
   a: T
   b: T
+  constructor(a: T, b: T) {
+    this.a = a
+    this.b = b
+  }
   either(c: bool): T {
     return c ? this.a : this.b
   }
@@ -2755,8 +3026,8 @@ const heat = textureSample(ramp, smp, uv.x) // one number in
 const steps = textureDimensions(ramp) // u32: one wide
 const sky = textureSample(envs, smp, dir, layer) // the layer after the direction
 const reds = textureGather(0, albedo, smp, uv) // component FIRST: 0 is red, 3 is alpha
-const passes = textureGatherCompare(shadow, shadowSmp, uv, ref) // no component: one channel
-const lit = textureSampleCompare(pointShadows, shadowSmp, dir, layer, ref)
+const passes = textureGatherCompare(shadow, shadowSmp, uv, depthRef) // no component: one channel
+const lit = textureSampleCompare(pointShadows, shadowSmp, dir, layer, depthRef)
 ```
 
 ```wgsl
@@ -2819,8 +3090,9 @@ is the gate's evidence on the Tint half.
 
 **Not here, by the audit's word.** The offset variants of every sampling builtin,
 `textureNumLevels`, `textureSampleBaseClampToEdge`, `texture_external`, the storage 1d and 3d
-textures, and `u32` array indices and levels where WGSL takes either: the spec audit lists each
-with its portability, and they become their own items rather than riding this one.
+textures: the spec audit lists each with its portability, and they become their own items
+rather than riding this one. `u32` array indices and levels, where WGSL takes either integer,
+were on this list until §42 took them.
 `textureNumSamples` and `texture_depth_multisampled_2d` were on this list until §37 took them.
 
 ## 37. A multisampled texture, read one sample at a time
@@ -3087,10 +3359,10 @@ than a varying: the pair fits the single slot the attribute already is. A `vec3f
 would need two slots and is refused.
 
 (Carrying the words as two `@interpolate(flat)` varyings and rebuilding them transparently
-would be exact, since flat interpolation does no blending. It is not done, because this
-surface has no `@interpolate` attribute: an author can neither ask for a flat varying nor see
-that one was chosen, so a double silently made flat would change what the program draws with
-nothing to point at. If `@interpolate` lands, this is worth revisiting.)
+would be exact, since flat interpolation does no blending. It is not done: a double silently
+made flat would change what the program draws with nothing in the source to point at.
+`@interpolate("flat")` is an author attribute now (§53), but an `f64` varying is refused with it
+as without it; admitting the flat case is an open item.)
 
 **The guard.** A module that uses the emulation gets a `_fp64` binding injected at lowering: a
 1×1 `texture_2d<f32>` the host must fill with `1.0`. It is what stops a driver's fast-math from
@@ -3193,11 +3465,15 @@ column stride is `AlignOf(vecR<f32>)` — 8 when the matrix has two rows and 16 
 and so would every field after it:
 
 ```
-wgslLayout: mat2x2 in std140 is not supported — WGSL gives a two-row matrix a column
-stride of 8 and GLSL std140 rounds every column to 16, so the two targets would disagree
-on this field and every field after it; carry it as mat2x4 (measured: both targets stride
-16) or as 2 vec2 fields
+TS8051 (error): "U.m" is in a uniform: mat2x2 in std140 is not supported — WGSL gives a
+two-row matrix a column stride of 8 and GLSL std140 rounds every column to 16, so the two
+targets would disagree on this field and every field after it; carry it as mat2x4
+(measured: both targets stride 16) or as 2 vec2 fields.
 ```
+
+The refusal is an error at the binding's declaration (Rule 4.8), so neither target is emitted,
+for a compute-only module as for a render one; `reflect()` and the fn() EDSL's `wgslLayout`
+throw the same sentence for a std140 layout.
 
 It is refused rather than silently padded because padding would make the WGSL a module emits
 disagree with the offsets `reflect()` reports for it, and keeping those two the same is the
@@ -3215,9 +3491,9 @@ dimension rather than per shape. §39 has the rest of the `f64` surface.
 
 > **On the section numbers.** They are handed out in BLOCKS, one block per branch in flight,
 > the same way `src/compiler/ts/codes.ts` hands out diagnostic codes, so two sessions adding
-> sections at once cannot claim one number twice. That leaves gaps: §41 and §55 to §61 are
+> sections at once cannot claim one number twice. That leaves gaps: §41 and §56 to §61 are
 > blocks no landed branch has spent, while §50 to §54 are lane D's and are in this document
-> below. A gap is never reused: a number a block did not spend stays unspent, so a
+> below, as are §55 and §62. A gap is never reused: a number a block did not spend stays unspent, so a
 > cross-reference keeps pointing where it pointed.
 
 A texture read has one texture argument and several plain ones, and WGSL types each of the plain
@@ -3649,12 +3925,14 @@ for (const f of reflect(m).requiredLanguageFeatures) {
 }
 ```
 
-Today that is `readonly_and_readwrite_storage_textures`, reported when the module binds a
+Here that is `readonly_and_readwrite_storage_textures`, reported when the module binds a
 storage texture at `"read"` or `"read_write"`; a `"write"` one is core and needs nothing.
 Measured on Chromium: `navigator.gpu.wgslLanguageFeatures` reports the name, the module
 compiles with and without a `requires` directive, and a `requires` naming a feature the browser
-lacks is refused — so the check belongs at the host, before the module is built, and the
-emitted source carries no directive.
+lacks is refused — so the check belongs at the host, before the module is built. This item
+emitted no directive; §50 later made the WGSL writer lead with
+`requires readonly_and_readwrite_storage_textures;` for such a binding, and §47 adds a second
+row, `packed_4x8_integer_dot_product`, which is reported and not emitted.
 
 ### What the editor says
 
@@ -3808,9 +4086,9 @@ reaches for.
 
 The example above names its uniform load `agreed`, not `shared`, and the comment in it says why:
 `shared` is a WGSL reserved keyword, and this surface does not rename an author's local to avoid
-one. The compile gate caught `'shared' is a reserved keyword` from Tint with no diagnostic from
-the compiler first — the identifier sanitiser guards GENERATED names only. That is a real gap,
-and it is not this section's to close.
+one. When this section landed, the compile gate caught `'shared' is a reserved keyword` from
+Tint with no diagnostic from the compiler first — the identifier sanitiser guarded GENERATED
+names only. §62 closed that gap: a local named `shared` is now `TS8068` where it is written.
 
 ## 49. The editor and the compiler agree
 
@@ -3907,9 +4185,12 @@ fragment program; both stages are accepted.
 capabilities, so `emitGlslModule` throws `SD0030` naming it rather than emitting a varying a
 WebGL2 driver would reinterpret.
 
-**The author spelling for the rest: a string directive beside `"use typeshade"`.** The two
-extensions no use can derive — the ones whose surface is not one built-in value — are turned on
-by the file itself:
+**The author spelling for the rest: a string directive beside `"use typeshade"`.** An
+extension no use in the file derives is turned on by the file itself. `f16` is the one no use can
+derive, since its type is not on this surface yet (Rule 4.7). `subgroups` is derived by
+`subgroup_invocation_id` and `subgroup_size` (the table above), and the directive turns it on for
+a file that reads neither; the subgroup built-in functions (`subgroupAdd` and the rest) are not
+on this surface, so those two values are the only use there is to derive it from:
 
 ```ts
 "use typeshade"
@@ -3925,8 +4206,10 @@ it never asked for. A file with no directive emits the same bytes it always did.
 **The `requires` axis.** A WGSL *language* extension changes what the text may say and is
 checked by the host against `navigator.gpu.wgslLanguageFeatures`, not requested at
 `requestDevice`. `reflect().requiredLanguageFeatures` reports it and the WGSL writer emits the
-directive. One row today: a storage texture bound `read` or `read_write` needs
-`readonly_and_readwrite_storage_textures`, since core WGSL gives a storage texture `write` only.
+directive. One row is emitted today: a storage texture bound `read` or `read_write` needs
+`readonly_and_readwrite_storage_textures`, since core WGSL gives a storage texture `write` only
+(`textureBarrier` reports the same row, §48). The packed 4x8 builtins' feature,
+`packed_4x8_integer_dot_product`, is reported and carries no directive (§47).
 
 ```wgsl
 requires readonly_and_readwrite_storage_textures;
@@ -3952,19 +4235,22 @@ Tint of the Chromium the compile gate runs (2026-09-21):
 
 And four by design, with no measurement to take:
 
-- Two more WGSL extension names still have no capability of their own.
-  `packed_4x8_integer_dot_product` belongs with the WGSL-only builtins (`dot4x8`,
-  `pack4xI8`) that would use it, and `atomic_vec2u_min_max` waits on `atomic<vec2<u32>>`,
-  an After-1.0 row. Each is an extension whose whole surface is a feature this compiler
-  cannot spell yet, so a capability for it would gate nothing. (`dual_source_blending`
-  was the third; §53 gives it one, derived from `@blend_src`.)
+- One more WGSL name still has no capability of its own: `atomic_vec2u_min_max` waits on
+  `atomic<vec2<u32>>`, an After-1.0 row, an extension whose whole surface is a feature this
+  compiler cannot spell yet, so a capability for it would gate nothing.
+  (`dual_source_blending` was another; §53 gives it one, derived from `@blend_src`. And
+  `packed_4x8_integer_dot_product` was listed here as a third until §47 measured it to be a
+  language feature rather than an extension — Tint refuses `enable` on it — and gave its eight
+  builtins the derived `packed4x8Dot` capability.)
 - `var<immediate>`, `const_assert` and `@must_use` on a user function have no spelling here.
   The first two have no TypeScript shape to hang on; `@must_use` is an emit decision the
   writer makes, not an author one.
 - The `diagnostic(...)` directive is not written by hand. It is emitted where a rule this
-  compiler analyses asks for it, which is the uniformity item, not a free-form author control.
+  compiler analyses asks for it, which is the uniformity item, not a free-form author control:
+  the author writes `@diagnostic("off", "derivative_uniformity")` on an entry (§54).
 - Four declarable capabilities — `floatRenderTarget`, `float32Blend`, `float32Filterable` and
-  `multiview` — are still unspellable from a `"use typeshade"` source. `"enable ..."` takes the
+  `multiview` — are still unspellable from a `"use typeshade"` source. (`capabilityMatrix`
+  reports nine of its eighteen rows `declarable`; the other five are the extensions above.) `"enable ..."` takes the
   WGSL extension names, and none of those four is one: three are activated by the host at
   `requestDevice` or `gl.getExtension` and cost the shader no token at all, and the fourth is a
   GLSL `#extension`. A module that needs one is assembled with `module({ enables: [...] })`.
@@ -4212,9 +4498,10 @@ Three shapes stay refused, and two of them were silent miscompiles.
 A **trailing** empty clause has nothing below it to share, and neither target has a label with
 no body.
 
-An empty clause above **`default:`** has a body below it, but not one it may join: a WGSL
-selector list cannot carry `default`, so the selector has nowhere to go — and carrying it past
-the default is what this refusal exists to stop.
+An empty clause above **`default:`** has a body below it, but not one it may join: this
+compiler does not put `default` into a selector list (WGSL's grammar would take
+`case 1, default:`), so the selector has nowhere to go — and carrying it past the default is
+what this refusal exists to stop.
 `case 1: default: r = 10.; break; case 2: r = 20.; break;` lowered to `case 1, 2: { r = 20.0; }`
 with `default: { r = 10.0; }` beside it, so `f(1)` was 20 on both GPUs and in the oracle where
 TypeScript says 10 — with no diagnostic. It now reads:
@@ -4316,7 +4603,7 @@ class VsOut {
 
 **`@interpolate`, `@invariant` and `@blend_src` are attributes an author writes.** All three
 parse and reach the emitted struct; `@align`, `@size`, `@offset` and `@ignore` still do not
-(§4).
+(§2).
 
 | Written | WGSL | GLSL ES 3.00 |
 | --- | --- | --- |
@@ -4409,8 +4696,9 @@ flow depends on and the three ways out:
 textureSample() is reached under "VsOut.uv" (a fragment input at @location(0)), which WGSL's
 derivative_uniformity rule refuses: the implicit level of detail is a difference between
 neighbouring invocations, and one that did not run has no value to difference against. Hoist
-the call above the branch, use textureSampleLevel or textureSampleGrad, or write
-@diagnostic("off", "derivative_uniformity") on the entry to take the module as written.
+the call above the branch, or use textureSampleLevel or textureSampleGrad, whose level of
+detail is the one you wrote, or write @diagnostic("off", "derivative_uniformity") on the entry
+to take the module as written.
 ```
 
 **The analysis is three-valued, and that is the design, not a hedge.** A value is `uniform`,
@@ -4645,7 +4933,7 @@ declaration reads `random(seed: f32 | vec2 | vec3): f32`, which is what the comp
 | --- | --- |
 | `random(s)` on a `u32`, an `i32` or an `f64` | `TS8003 random(seed) seed must be f32, vec2, or vec3; got u32.` (and `i32`, `f64`) |
 | `random(v)` on a `vec4` | the same sentence with `vec4<f32>`, and TypeScript's own `Argument of type 'vec4' is not assignable to parameter of type 'f32 \| vec2 \| vec3'` |
-| `random(3)` | accepted: an integer literal in a float position is an `f32` (§5), so this is `random(3.)` |
+| `random(3)` | accepted: an integer literal in a float position is an `f32` (the language design rules' 5.1, and §13 here), so this is `random(3.)` |
 | `random()` | `TS8019`, one sentence naming the three shapes; `Math.random()` with no seed does not compile either |
 
 The `vec4` row is the only one TypeScript itself reports. **Measured** through the language

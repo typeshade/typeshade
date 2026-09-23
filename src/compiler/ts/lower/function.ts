@@ -15,7 +15,13 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import type { SourceSpan } from '../../../core/ir/span.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import { LoweringScope, fileFunctionsOf } from '../context.js'
+import {
+  LoweringScope,
+  fileFunctionsOf,
+  privateFieldTableOf,
+  readonlyFieldTableOf,
+  withheldTableOf,
+} from '../context.js'
 import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
@@ -36,7 +42,7 @@ import {
 } from './param-defaults.js'
 import { lowerStatements } from './statement.js'
 import { lowerExpression } from './expression.js'
-import { retargetIntLitCtx } from '../lit-coerce.js'
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js'
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
 import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -363,6 +369,9 @@ export function lowerSourceFunctions(
         vars,
         cf.receiver,
         cf.shown,
+        undefined,
+        undefined,
+        cf.staticOwner,
       )
       nodeByName.set(cf.stub.name, cf.node)
     } else if (cf.receiver !== undefined) {
@@ -676,6 +685,8 @@ export function lowerFunctionDeclaration(
 export type FunctionNode =
   | ts.FunctionDeclaration
   | ts.MethodDeclaration
+  /** A getter or a setter, which is a method of its class once lowered (Rule 8.11). */
+  | ts.AccessorDeclaration
   | ts.ConstructorDeclaration
   /** A local function: `const f = (x: f32): f32 => ...` and the `function (x) { ... }` spelling
    *  of it (roadmap 0.3 item T7, #92). Both carry `parameters`, an optional `type` and a
@@ -1269,6 +1280,9 @@ export function functionScope(
   const scope = new LoweringScope(callees, symbols)
   scope.setNamespacePrefix(nsPrefix)
   scope.setStructs(structs.map((s) => s.decl))
+  scope.setPrivateFields(privateFieldTableOf(structs))
+  scope.setWithheldFields(withheldTableOf(structs))
+  scope.setReadonlyFields(readonlyFieldTableOf(structs))
   scope.setBases(new Map(structs.filter((s) => s.bases).map((s) => [s.decl.name, s.bases!])))
   scope.setAbstractStructs(new Set(structs.filter((s) => s.abstract).map((s) => s.decl.name)))
   // The enum names, so a mistyped member reads as one rather than as an unknown identifier
@@ -1336,9 +1350,9 @@ function lowerArrowValue(
 ): Stmt[] {
   const lowered = lowerExpression(expr, sourceFile, scope, diagnostics, stub.ret)
   if (!lowered) return []
-  return [
-    withSpan({ s: 'return', expr: retargetIntLitCtx(lowered, expr, stub.ret) }, sourceFile, expr),
-  ]
+  const retargeted = retargetIntLitCtx(lowered, expr, stub.ret)
+  const ret = reportIntLitRange(retargeted, expr, stub.ret, sourceFile, diagnostics) ?? retargeted
+  return [withSpan({ s: 'return', expr: ret }, sourceFile, expr)]
 }
 
 /** Lower every default `stub`'s signature writes, in the module's scope (roadmap 0.3 item T7,
@@ -1438,6 +1452,8 @@ export function fillFunctionBody(
   /** The local functions this body declares, from the written name to the emitted one
    *  (roadmap 0.3 item T7, #92). */
   localFunctions?: ReadonlyMap<string, string>,
+  /** For a static member, the class that declares it: what `this` names (Rule 8.13). */
+  staticOwner?: string,
 ): void {
   const scope = functionScope(
     stub,
@@ -1457,6 +1473,7 @@ export function fillFunctionBody(
   // What `super.m(...)` names in this body (roadmap 0.3 item T5, #92).
   scope.setSuperMethods(receiver?.superMethods)
   scope.setLocalFunctions(localFunctions)
+  scope.setStaticClass(staticOwner)
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
   // and the receiver read the same name. A user parameter called `self_` was refused at the
   // signature (TS8035), and a local called `self_` is renamed as any shadowing local is.

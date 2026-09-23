@@ -12,9 +12,10 @@ import { numericMismatch } from '../numeric.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
-import { retargetDeclaredIntLit } from '../lit-coerce.js'
+import { reportIntLitRange, retargetDeclaredIntLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from './statement.js'
+import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js'
 
 export function lowerFor(
   node: ts.ForStatement,
@@ -143,6 +144,11 @@ function lowerForInit(
   // never matched — so the initializer kept the f32 the bare `1` was given and the loop emitted
   // `var j: i32 = -1.0`, with no diagnostic, which neither Tint nor ANGLE accepts (issue #40).
   init = retargetDeclaredIntLit(init, decl.initializer, annotated ?? i32T)
+  // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk below would
+  // otherwise add a second one about a start value the author has already been told about.
+  if (reportIntLitRange(init, decl.initializer, annotated ?? i32T, sourceFile, diagnostics)) {
+    return undefined
+  }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
     // The check statement.ts has always had at its own declaration site, and the reason this
     // one was silent rather than merely wrong: nothing compared the two.
@@ -435,12 +441,18 @@ export function lowerUpdate(
       return undefined
     }
     const targetExpr = expr.operand
+    // `o.x++` where `x` is an accessor reads through its getter and writes through its setter
+    // (Rule 8.11); the statement below is built on the getter's call and handed to the setter.
+    const accessor = lowerAccessorTarget(targetExpr, true, sourceFile, scope, diagnostics)
+    if (accessor === undefined) return undefined
     // A member or element target (`v.x++`, `ps[i].a++`) goes through lowerLValue, which owns
     // the writability and single-component-swizzle rules; a bare identifier keeps its own
     // path so its wording is unchanged.
     const viaName = ts.isIdentifier(targetExpr)
     let target: Expr | undefined
-    if (viaName && ts.isIdentifier(targetExpr)) {
+    if (accessor !== 'not-an-accessor') {
+      target = accessor.read
+    } else if (viaName && ts.isIdentifier(targetExpr)) {
       const binding = scope.resolve(targetExpr.text)
       // Two different failures, kept apart as origin/main split them: an UNKNOWN name reported
       // "it is declared with const", a statement about a declaration that does not exist.
@@ -482,6 +494,9 @@ export function lowerUpdate(
       )
     } else {
       target = lowerLValue(targetExpr, sourceFile, scope, diagnostics)
+      if (target && refuseReadonlyWrite(target, targetExpr, sourceFile, scope, diagnostics)) {
+        return undefined
+      }
     }
     if (!target) return undefined
     const token = op === ts.SyntaxKind.PlusPlusToken ? '++' : '--'
@@ -506,13 +521,16 @@ export function lowerUpdate(
     // emulated-double target keeps the binop form, since the fp64 pass lowers an assignOp on
     // a vec64 target only when the value is a vec64 too (SD0041).
     if (viaName || isVec64(target.type)) {
-      return {
-        s: 'assign',
-        target,
-        expr: { op: 'binop', type: target.type, bop, a: target, b: one },
-      }
+      return finishAccessorWrite(
+        {
+          s: 'assign',
+          target,
+          expr: { op: 'binop', type: target.type, bop, a: target, b: one },
+        },
+        accessor,
+      )
     }
-    return { s: 'assignOp', target, bop, expr: one }
+    return finishAccessorWrite({ s: 'assignOp', target, bop, expr: one }, accessor)
   }
   if (ts.isBinaryExpression(expr)) {
     // All four of FOR_UPDATE_OP, not just `+=` (#8 A15). `i *= 2` and `i /= 2` are ordinary

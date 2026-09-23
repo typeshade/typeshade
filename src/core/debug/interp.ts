@@ -74,6 +74,8 @@ import {
   selectComponents,
   TYPED_BIT_BUILTINS,
   bitBuiltin,
+  cloneValue,
+  isAggregateType,
 } from '../cpu-runtime.js'
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js'
 
@@ -576,6 +578,15 @@ function* setLValue(
   throw new Error(`typeshade/debug: bad assignment target ${target.op}`)
 }
 
+/** A value about to be STORED under a name, copied when it is an aggregate: the rule
+ *  `oracle.ts` (`bindValue`) and the codegen (`bindExpr`) apply at every `let`, `var` and
+ *  assignment, because both GPU targets store a copy. The stepper bound the same object
+ *  instead, so `const before = p` followed by `p.bump()`, a method that changes its object in
+ *  place (§26), showed `before` bumped here and not on the GPU or on the other two paths. */
+function bindValue(v: CpuValue, t: ShaderType): CpuValue {
+  return isAggregateType(t) ? cloneValue(v) : v
+}
+
 export function* execBody(
   body: readonly Stmt[],
   env: Map<string, CpuValue>,
@@ -588,19 +599,24 @@ export function* execBody(
     switch (s.s) {
       case 'let': {
         const before = ctx.stubHits
-        env.set(s.name, yield* evalExpr(s.expr, env, ctx))
+        env.set(s.name, bindValue(yield* evalExpr(s.expr, env, ctx), s.expr.type))
         markStub(frame, s.name, ctx.stubHits > before, true)
         break
       }
       case 'var': {
         const before = ctx.stubHits
-        env.set(s.name, s.init ? yield* evalExpr(s.init, env, ctx) : zeroOf(s.type, ctx.structs))
+        env.set(
+          s.name,
+          s.init
+            ? bindValue(yield* evalExpr(s.init, env, ctx), s.type)
+            : zeroOf(s.type, ctx.structs),
+        )
         markStub(frame, s.name, ctx.stubHits > before, true)
         break
       }
       case 'assign': {
         const before = ctx.stubHits
-        const value = yield* evalExpr(s.expr, env, ctx)
+        const value = bindValue(yield* evalExpr(s.expr, env, ctx), s.expr.type)
         // Measured across `setLValue` too, so the target's OWN base and index expressions
         // count: in `out[i] = 1.` the `1.` is real but, if `i` is a stand-in, the element it
         // landed in is fiction and `out` is no longer trustworthy. Marking it is the

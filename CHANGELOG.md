@@ -27,6 +27,17 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   and `z` to. `examples/workgroup-tile-2d.shade.ts`, an 8x8 tile blur through workgroup memory,
   compiles on the gate's Tint.
 
+- **A two-row matrix in a uniform is refused, as Rule 4.8 says** (§40). A `mat2x2`, `mat3x2`
+  or `mat4x2` (and `mat2`) in a uniform binding, directly or through a struct or an array, is
+  `TS8051` at the declaration with the remedy (`mat{C}x4`, or two `vec2` fields). It was a
+  `TS8015` warning that kept a WGSL whose layout disagreed with std140. Storage (std430) is
+  unaffected.
+- **An integer literal outside its declared type reports §13's sentence.** For
+  `const a: u32 = 4294967296` the compiler says
+  `TS8003 The value has to fit: 4294967296 is outside u32, which holds 0 to 4294967295 (§13).`
+  on the literal, in declarations, assignments, `for` inits, returns, arguments, struct fields,
+  vector constructors and conditional arms. It was an int/float mismatch the author never
+  wrote, and a refused `let` no longer leaves its name unbound.
 - **The fp64 guard is read once per function, and its redundant multiplies are gone** (§39).
   Every float `df64_*` helper fetched the `_fp64` guard texel itself, so every helper CALL
   fetched it again: the `fp64-mandelbrot` escape loop read the texture up to 40 times per
@@ -51,6 +62,23 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   on: round-to-nearest-even `f32` `+ - *`, which is hardware practice, while GLSL ES 3.00
   §4.5.1 leaves the rounding mode undefined and allows subnormal flush, and WGSL fixes no
   rounding mode.
+- **A call that writes, inside a larger expression, runs in source order** (Rule 7.9, §26). A
+  front-end pass, `src/compiler/ts/sequence.ts`, binds each such call (a method that changes its
+  object, a helper that writes a module variable or a storage binding, an atomic) to a `let` of
+  its own ahead of its statement, in the order TypeScript and WGSL evaluate it, and binds ahead
+  of it an operand evaluated before it that reads what it writes: `vec2(rng.next(), rng.next())`
+  is `let _seq0 = Rng_next(&rng); let _seq1 = Rng_next(&rng);` and a `vec2` of the two, and
+  `rng.state + rng.next()` adds the state from before the draw. An arm of `?:` and the right
+  operand of `&&` or `||` that hold one become an `if`, so the call runs only when it is chosen,
+  where WGSL's `select` evaluated both arms. A call that is the whole of its statement is left
+  where it is, and so is every registered example: no golden moved. What it fixes, measured
+  before it: GLSL ES 3.00 leaves the order of an operator's operands open (§5.11); the algebraic
+  pass folded `rng.bits() - rng.bits()` to `0u` and dropped both calls; GLSL's float `%` spelled
+  a call in its operand twice; and `xs[c.n] = c.bump()` stored into different elements on the two
+  targets, which evaluate the target first, and on the three CPU paths, which evaluated the value
+  first. A `while` condition runs on every iteration, so it may hold such a call only as one side
+  of its comparison, `while (rng.next() < 0.9)`; anywhere deeper is `TS8006` with the remedy.
+  The rule is new in `docs/language-design.md`, with Rule 7.2's table naming the lowering.
 - **`random` has a source, and the check that should have asked for one was reading the wrong
   thing** (§55, [#181](https://github.com/typeshade/typeshade/issues/181)). The free
   `declare function random(seed)` had no §9.3 row, no `TYPESHADE_EXTENSIONS` entry and no
@@ -136,6 +164,60 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **Hover documents every type name the compiler takes.** `TYPE_DOCS` has rows for
+  `sampler`, `sampler_comparison` and every `texture_*` name, each with its `declare const` form
+  and the capability that keeps it off GLSL ES 3.00 where one does. `DOCUMENTED_TYPE_NAMES` is
+  the documented rows, and a test holds it to every name the compiler supports.
+
+- **Hover documents every matrix type, not only `mat4`** (Rule 12.7, surface §40). The language
+  service's type table, which hover, completions and the reference pages read, had rows for
+  `mat4` and `mat4x4` alone, while the compiler takes all nine `matCxR` and the three square
+  `matN` shorthands; hovering `mat3x2` said nothing. The ten missing rows are there now, in the
+  same voice, and `src/language-service/docs.test.ts` requires a row for every matrix name
+  `SUPPORTED_TYPE_NAMES` holds.
+- **A method that changes its object may return a value** (§26, Rule 8.10). A generator's
+  `gen(): f32` that assigns `this.seed = …` and returns the draw was `TS8035 A method that
+changes its object returns nothing (§26)` at the assignment: the rule of the protocol that
+  returned the struct itself for the caller to store back. Since such a method takes its object
+  by reference, the return is free, and it is WGSL's own idiom for a generator:
+  `fn Random_gen(self_: ptr<function, Random>) -> f32` and `float Random_gen(inout Random
+self_)`, with `const a = rng.gen()` emitting `let a = Random_gen(&rng);` and `float a =
+Random_gen(rng);`. Called on its own line the value is dropped and the write kept. The
+  receiver rules are the `void` method's, in any position: a `const`, a parameter or a value
+  nothing holds is refused with the fix, and one that returns nothing still has no value to
+  give. A write to `this` is now refused only in a base's body called through `super`, which
+  reads its object only, and the message says that and names the `super` call, where it used to
+  tell a `void` method to be `void`. `examples/rng-method.shade.ts` draws inside a `vec3(...)`
+  and in an arm of `?:`; it compiles on Tint and links on a WebGL2 driver, and the CPU oracle,
+  the codegen and the debugger agree on the generator in `class-methods.test.ts`. Rule 8.10 is
+  new in `docs/language-design.md`, and Rule 8.8 says the object is not an authored parameter.
+- **Getters and setters, private names, parameter properties and the rest of an ordinary
+  TypeScript class** (§26, Rules 8.11 to 8.14). An accessor is a function of the module for each
+  half, `get area()` as `fn Rect_get_area(self_: Rect) -> f32` and `set width(v)` as
+  `fn Rect_set_width(self_: ptr<function, Rect>, v: f32)`: `r.area` calls the getter,
+  `r.width = 4.` the setter, and `r.width += 1.`, `++` and `--` read through the one and write
+  through the other; a static accessor is read on the class. A private name `#x` is emitted
+  without its `#` (the field `#count` is the member `count`, the method `#step` is `Cls_step`)
+  and may be named only inside the class that declares it, which the front end checks since it
+  does not run TypeScript's checker. `constructor(public x: f32)` declares the field and assigns
+  it before the initializers run; a field written without a type takes the one its initializer
+  names (`hits = 0` an `f32` by Rule 5.1, `on = false` a `bool`, `v = vec3(0.)`, `p = new P()`);
+  a static field the file writes is a `var<private>`, the variable a top-level `let` is, and
+  `this` in a static member is its class, so `this.hits += 1.` writes it; a `readonly` field
+  takes a write only in its class's constructor. Refused, each with the fix: a read of an accessor
+  with no getter and a write of one with no setter, a write into what a getter returns (a copy),
+  `#x` outside its class body, two members of one class chain that would share an emitted name,
+  an object literal of a class with a private field, a field whose initializer names no type, a
+  write to a `readonly` field, and a static block. What was measured before this: a getter or a
+  setter was `TS8035` with "write it as a method", `#x` was `TS8010` ("Field names must be plain
+  identifiers"), a parameter property declared no field (a class of them alone was `Struct has
+no fields`), a field written without a type was dropped from the struct with nothing said at
+  its declaration and `Unknown field` at every use, a static block was passed over in silence, a write to a static field was `Cannot assign to unknown name`, and a
+  write to a `readonly` field compiled. `examples/class-syntax.shade.ts` compiles on Tint and
+  links on a WebGL2 driver, and `class-syntax.test.ts` holds WGSL, GLSL ES 3.00, the CPU oracle,
+  the codegen and the debugger to one value for each form. The four rules are new in
+  `docs/language-design.md`, Rules 3.2 and 6.9 name private names and parameter properties, and
+  Rule 7.2's table gains the three lowerings.
 - **Each `.shade.ts` example registers itself** (#65). Every example used to be registered by
   appending an object literal to one hand-ordered array in `examples/_shade.ts`, so two branches
   that each added an example added adjacent lines to the same region and git could not tell the
@@ -822,6 +904,54 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **`array<i32, N>(…)` and `array<u32, N>(…)` emit integer literals** (§18). The call form
+  emitted `array<i32, 3>(1.0, 2.0, 3.0)`, which neither target accepts; it now types each
+  element the way the list form does, one helper for both, so `array<u32, 2>(-1, 2)` is refused
+  at the source.
+- **The documents and comments name what the class rules and the directives accept.** The
+  `TS8035` catalogue matches what #190 left refused, and surface §50 and AUTHORING.md no longer
+  call `subgroups` an extension no use can derive (the subgroup built-in values derive it).
+- **Test reasons cite roadmap rows by name, not line number**, and a test checks the cited row
+  exists; CI's actions run on Node 24 (`actions/checkout`, `actions/setup-node` v5).
+
+- **`capabilityMatrix` says `declarable: false` for all nine derived capabilities** (Rule 10.1,
+  §50). `bgra8unormStorage` (#147, derived from a storage texture's format) and `packed4x8Dot`
+  (#152, derived from the packed 4x8 calls) came back `declarable: true`, although
+  `DeclarableCapability` excludes both and `module({ enables })` refuses them at compile time:
+  the matrix read a hand list in `src/core/backend.ts` that still stopped at the seven kind- and
+  call-derived ids, and its JSDoc still said three. The list now lives once, in
+  `src/core/ir/derived-capabilities.ts`, private: `DeclarableCapability` is `Capability` minus
+  its members and the matrix reads the same array, so the type and the table cannot part
+  again. Measured after: eighteen rows, nine derived, nine declarable. `AUTHORING.md`'s
+  capabilities section said "the seven", and says nine now; surface §50 and
+  `docs/language-design.md` §10.1 state the same count. Pinned in
+  `src/core/capability-matrix.test.ts`, whose expected set is checked against the type.
+- **A bare `@location` parameter takes its value from a debug configuration** (`typeshade/debug`,
+  `docs/debugging.md` §4). `fs(@location(0) uv: vec2)` with `"inputs": { "uv": [0.5, 0.25] }`
+  ran on `[0, 0]` and returned `[0, 0, 0, 1]`: the resolver filed the value under `uv.uv`,
+  the spelling it builds for a struct field, and the run read the parameter back under `uv`.
+  A bare parameter is now spelled by its own name and nothing else, so the unknown-input
+  sentence names `uv` rather than `uv, uv.uv`, and beside a struct field of the same name the
+  bare name is the parameter and `s.uv` the field. The struct form is unchanged. Pinned in
+  `src/core/debug/config.test.ts` through `startDebugSessionFromConfig` from `typeshade/debug`.
+- **`TS8004` names what to do instead of a plan phase** (Rule 12.1, Rule 12.5). After
+  `Unknown function "foo(a)".`, a call to a name nothing declares read
+  `Function calls (Phase 6) need a visible callee.`, a pointer into a plan that finished long
+  ago. The second sentence is now the remedy,
+  `Declare it in this file, or import it from another shader module.`, and the code is the same.
+- **The optimizer keeps what a call writes, and the debugger copies what it stores** (§19,
+  §26). Each of these made the emitted shader, or the stepper, disagree with the CPU oracle:
+  dead-code elimination dropped an unread `let` whole, write and all, so `const unused = next()`
+  on a helper that bumps a module variable vanished from both emits while the oracle, which runs
+  no optimizer, ran it (it now keeps the call as a statement); the effect table named a method's
+  write by the callee's own `self_` instead of the receiver, so copy propagation read `p` where
+  `const before = p` was written before `p.bump()`, and the GPU returned the bumped value where
+  the oracle returned the one before; the struct-constructor fold turned `o.b = rng.next();
+o.a = rng.next(); return o` into a constructor that evaluates its fields in declaration order,
+  swapping the two draws, and now leaves a run with a call that has an effect as written; and the
+  debug stepper bound an aggregate at `let`, `var` and assignment by reference, where the oracle
+  and the codegen copy it as both targets do, so `before` showed the bumped value while stepping.
+  Each is pinned in `src/compiler/ts/sequence.test.ts`, which fails with the fix taken out.
 - **A product of two matrices of one non-square shape is refused at the operator**
   ([#169](https://github.com/typeshade/typeshade/issues/169)). WGSL's matrix product cancels
   the shared dimension, `matKxR * matCxK -> matCxR`, so the left operand's columns must equal
