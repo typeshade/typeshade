@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -18,15 +18,15 @@
 // uniform declaration ever reached the compile gate or the per-stage GLSL sweep.
 
 class Uniforms {
-  tint: vec4
-  gain: f32
+  tint: vec4;
+  gain: f32;
 }
 
-declare const u: uniform<Uniforms>
+declare const u: uniform<Uniforms>;
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 // Oversized fullscreen triangle — 3 verts, no vertex buffer. `u.gain` is applied HERE
@@ -36,9 +36,9 @@ class VsOut {
 // the triangle still covers the screen whatever the host sets `gain` to.
 @vertex
 export function vs(@builtin("vertex_index") idx: u32): VsOut {
-  const x = f32(idx & 1) * 4. - 1.
-  const y = f32(idx >> 1) * 4. - 1.
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, (y * 0.5 + 0.5) * u.gain) }
+  const x = f32(idx & 1) * 4. - 1.;
+  const y = f32(idx >> 1) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, (y * 0.5 + 0.5) * u.gain) };
 }
 
 @fragment
@@ -48,6 +48,6 @@ export function fs(vo: VsOut): vec4 {
   // which is why this local is annotated (issue #43). The language service now filters that
   // diagnostic, so the one-line form reads clean too; the annotated local stays because the
   // emitted WGSL and GLSL goldens are pinned to this shape.
-  const rgb: vec3 = u.tint.rgb * vo.uv.y
-  return vec4(rgb, u.tint.a)
+  const rgb: vec3 = u.tint.rgb * vo.uv.y;
+  return vec4(rgb, u.tint.a);
 }

@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -24,16 +24,16 @@
 // into it by probing the program for the Fp64Guard block.
 
 class Uniforms {
-  origin: f64 // occupies one vec2<f32> slot, the host packs the two words
-  span: f32 // world units swept across the screen
-  fp64: f32 // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  origin: f64; // occupies one vec2<f32> slot, the host packs the two words
+  span: f32; // world units swept across the screen
+  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
-declare const u: uniform<Uniforms>
+declare const u: uniform<Uniforms>;
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 // Oversized fullscreen triangle, the same pattern as gradient-pass.ts. The original reaches it
@@ -41,25 +41,25 @@ class VsOut {
 // because `==` is refused with TS8099.
 @vertex
 export function vs_full(@builtin("vertex_index") idx: u32): VsOut {
-  let pos = vec2(-1., -1.)
+  let pos = vec2(-1., -1.);
   if (idx === 1) {
-    pos = vec2(3., -1.)
+    pos = vec2(3., -1.);
   } else if (idx === 2) {
-    pos = vec2(-1., 3.)
+    pos = vec2(-1., 3.);
   }
-  return { pos: vec4(pos, 0., 1.), uv: vec2((pos.x + 1.) * 0.5, (pos.y + 1.) * 0.5) }
+  return { pos: vec4(pos, 0., 1.), uv: vec2((pos.x + 1.) * 0.5, (pos.y + 1.) * 0.5) };
 }
 
 @fragment
 export function fs_stripes(vo: VsOut): vec4 {
-  const sweep = vo.uv.x * u.span
+  const sweep = vo.uv.x * u.span;
   // f64 path: the full-precision world coordinate keeps its fraction. `f64(sweep)` widens the
   // f32 sweep exactly (§39), and `fract` is one of the ten builtins with a df64 body.
-  const stripes64 = f32(fract(u.origin + f64(sweep)))
+  const stripes64 = f32(fract(u.origin + f64(sweep)));
   // f32 twin, SAME formula, origin narrowed: the fraction is unrepresentable.
-  const stripes32 = fract(f32(u.origin) + sweep)
+  const stripes32 = fract(f32(u.origin) + sweep);
   // fp64 toggle off, and the WHOLE screen takes the f32 path: the right half collapses flat in
   // place, which is what makes the emulation's contribution tangible.
-  const v = (vo.uv.x < 0.5 || u.fp64 < 0.5) ? stripes32 : stripes64
-  return vec4(v, v, v, 1.0)
+  const v = (vo.uv.x < 0.5 || u.fp64 < 0.5) ? stripes32 : stripes64;
+  return vec4(v, v, v, 1.0);
 }

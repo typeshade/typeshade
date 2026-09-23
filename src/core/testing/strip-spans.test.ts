@@ -1,8 +1,8 @@
 // ═══ The span stripper must terminate on the graph it actually walks ═══
 
-import { describe, expect, it } from 'vitest'
-import { f32T, type FuncDecl } from '../ir/index.js'
-import { stripSpans } from './strip-spans.js'
+import { describe, expect, it } from 'vitest';
+import { f32T, type FuncDecl } from '../ir/index.js';
+import { stripSpans } from './strip-spans.js';
 
 describe('stripSpans', () => {
   it('terminates on a self-recursive function reached through declRef', () => {
@@ -15,8 +15,8 @@ describe('stripSpans', () => {
       params: [{ name: 'x', type: f32T }],
       ret: f32T,
       body: [] as unknown[],
-    } as unknown as FuncDecl
-    ;(decl as unknown as { body: unknown[] }).body = [
+    } as unknown as FuncDecl;
+    (decl as unknown as { body: unknown[] }).body = [
       {
         s: 'return',
         span: {
@@ -30,20 +30,20 @@ describe('stripSpans', () => {
         },
         expr: { op: 'call', type: f32T, fn: 'loop', args: [], declRef: decl },
       },
-    ]
+    ];
 
-    const out = stripSpans(decl)
-    expect(out.name).toBe('loop')
-    const ret = out.body[0] as { span?: unknown; expr: { declRef: unknown } }
-    expect(ret.span).toBeUndefined()
+    const out = stripSpans(decl);
+    expect(out.name).toBe('loop');
+    const ret = out.body[0] as { span?: unknown; expr: { declRef: unknown } };
+    expect(ret.span).toBeUndefined();
     // The cycle is preserved as a cycle rather than unrolled, so the copy is the same shape.
-    expect(ret.expr.declRef).toBe(out)
-  })
+    expect(ret.expr.declRef).toBe(out);
+  });
 
   it('shares a subtree in the copy when it was shared in the input', () => {
-    const shared = { op: 'lit', type: f32T, value: 1 }
-    const pair = { a: shared, b: shared }
-    const out = stripSpans(pair)
-    expect(out.a).toBe(out.b)
-  })
-})
+    const shared = { op: 'lit', type: f32T, value: 1 };
+    const pair = { a: shared, b: shared };
+    const out = stripSpans(pair);
+    expect(out.a).toBe(out.b);
+  });
+});

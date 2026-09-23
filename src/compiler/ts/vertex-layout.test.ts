@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { vertexLayoutOf } from './vertex-layout.js'
-import { vec3fT, vec2fT, vec4fT, u32T, structT } from '../../core/ir/types.js'
-import type { ModuleDecl } from '../../core/ir/nodes.js'
+import { describe, expect, it } from 'vitest';
+import { vertexLayoutOf } from './vertex-layout.js';
+import { vec3fT, vec2fT, vec4fT, u32T, structT } from '../../core/ir/types.js';
+import type { ModuleDecl } from '../../core/ir/nodes.js';
 
 describe('vertexLayout', () => {
   it('flattens VsIn @location fields into a tight GPU layout', () => {
@@ -31,16 +31,16 @@ describe('vertexLayout', () => {
           attrs: ['@vertex'],
         },
       ],
-    }
-    const layout = vertexLayoutOf(m)
+    };
+    const layout = vertexLayoutOf(m);
     expect(layout).toEqual({
       arrayStride: 20,
       attributes: [
         { name: 'position', location: 0, offset: 0, format: 'float32x3', type: 'vec3<f32>' },
         { name: 'uv', location: 1, offset: 12, format: 'float32x2', type: 'vec2<f32>' },
       ],
-    })
-  })
+    });
+  });
 
   it('skips @builtin vertex_index', () => {
     const m: ModuleDecl = {
@@ -57,7 +57,7 @@ describe('vertexLayout', () => {
           attrs: ['@vertex'],
         },
       ],
-    }
-    expect(vertexLayoutOf(m)).toBeUndefined()
-  })
-})
+    };
+    expect(vertexLayoutOf(m)).toBeUndefined();
+  });
+});

@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine.js'
+import type { LintRule } from '../engine.js';
 
 /** WGSL has no call stack — a function must not (directly) call itself. */
 export const noRecursion: LintRule = {
@@ -9,8 +9,8 @@ export const noRecursion: LintRule = {
   create: (ctx) => ({
     Expr(e, fn) {
       if (e.op === 'call' && e.fn === fn.name) {
-        ctx.report(`fn '${fn.name}' calls itself — WGSL has no recursion`, { fn: fn.name })
+        ctx.report(`fn '${fn.name}' calls itself — WGSL has no recursion`, { fn: fn.name });
       }
     },
   }),
-}
+};

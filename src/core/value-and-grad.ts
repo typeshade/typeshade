@@ -11,19 +11,19 @@
 // derivative per lane: for a function returning `f32` that is the gradient vector; for one
 // returning a vector, the Jacobian's columns.
 
-import type { ModuleDecl } from './ir/nodes.js'
-import type { CpuValue } from './cpu-runtime.js'
-import type { CpuPrecision } from './oracle.js'
-import { compileModuleJs } from './cpu-codegen.js'
-import { grad } from './passes/grad.js'
-import { dslError } from './diagnostics/error.js'
+import type { ModuleDecl } from './ir/nodes.js';
+import type { CpuValue } from './cpu-runtime.js';
+import type { CpuPrecision } from './oracle.js';
+import { compileModuleJs } from './cpu-codegen.js';
+import { grad } from './passes/grad.js';
+import { dslError } from './diagnostics/error.js';
 
 /** Options for {@link valueAndGrad}.
  *
  *  Exported from `typeshade`. */
 export interface ValueAndGradOptions {
   /** How f32 arithmetic is evaluated, as {@link compileModuleJs} takes it. Defaults to `'f64'`. */
-  readonly precision?: CpuPrecision
+  readonly precision?: CpuPrecision;
 }
 
 /** What a {@link valueAndGrad} function returns for one set of arguments.
@@ -31,10 +31,10 @@ export interface ValueAndGradOptions {
  *  Exported from `typeshade`. */
 export interface ValueAndGradResult<P extends string> {
   /** The function's own result at the arguments. */
-  readonly value: CpuValue
+  readonly value: CpuValue;
   /** The derivative of the result with respect to each requested parameter: a value of the
    *  result's type for a scalar parameter, one such value per lane for a vector parameter. */
-  readonly grad: { readonly [K in P]: CpuValue }
+  readonly grad: { readonly [K in P]: CpuValue };
 }
 
 /** The function {@link valueAndGrad} returns: called with the original function's arguments,
@@ -43,9 +43,9 @@ export interface ValueAndGradResult<P extends string> {
  *
  *  Exported from `typeshade`. */
 export type ValueAndGrad<P extends string> = ((...args: CpuValue[]) => ValueAndGradResult<P>) & {
-  readonly module: ModuleDecl
-  readonly names: { readonly [K in P]: string | readonly string[] }
-}
+  readonly module: ModuleDecl;
+  readonly names: { readonly [K in P]: string | readonly string[] };
+};
 
 /** Differentiate `fn` with respect to each of `params` and return one host function that
  *  computes its value and all of those derivatives at a point, on the CPU.
@@ -84,47 +84,47 @@ export function valueAndGrad<P extends string>(
   params: readonly P[],
   opts?: ValueAndGradOptions,
 ): ValueAndGrad<P> {
-  const f = m.funcs.find((g) => g.name === fn)
-  if (f === undefined) throw dslError('SD0118', `no function "${fn}" in the module`)
-  let module = m
-  const names = {} as Record<P, string | string[]>
-  const taken = new Set(m.funcs.map((g) => g.name))
+  const f = m.funcs.find((g) => g.name === fn);
+  if (f === undefined) throw dslError('SD0118', `no function "${fn}" in the module`);
+  let module = m;
+  const names = {} as Record<P, string | string[]>;
+  const taken = new Set(m.funcs.map((g) => g.name));
   const fresh = (base: string): string => {
-    let n = base
-    for (let i = 2; taken.has(n); i++) n = `${base}${i}`
-    taken.add(n)
-    return n
-  }
+    let n = base;
+    for (let i = 2; taken.has(n); i++) n = `${base}${i}`;
+    taken.add(n);
+    return n;
+  };
   for (const p of params) {
-    if (p in names) throw dslError('SD0118', `"${p}" is named twice in the parameter list`)
-    const decl = f.params.find((q) => q.name === p)
-    const t = decl?.type
+    if (p in names) throw dslError('SD0118', `"${p}" is named twice in the parameter list`);
+    const decl = f.params.find((q) => q.name === p);
+    const t = decl?.type;
     if (t !== undefined && t.kind === 'vec') {
-      const lanes: string[] = []
+      const lanes: string[] = [];
       for (let i = 0; i < t.n; i++) {
-        const direction = Array.from({ length: t.n }, (_, j) => (j === i ? 1 : 0))
-        const r = grad(module, fn, p, { direction, name: fresh(`${fn}_d_${p}_${'xyzw'[i]}`) })
-        module = r.module
-        lanes.push(r.name)
+        const direction = Array.from({ length: t.n }, (_, j) => (j === i ? 1 : 0));
+        const r = grad(module, fn, p, { direction, name: fresh(`${fn}_d_${p}_${'xyzw'[i]}`) });
+        module = r.module;
+        lanes.push(r.name);
       }
-      names[p] = lanes
+      names[p] = lanes;
     } else {
       // A scalar, or a name `grad` refuses with its own sentence (no such parameter, a type
       // with no derivative).
-      const r = grad(module, fn, p, { name: fresh(`${fn}_d_${p}`) })
-      module = r.module
-      names[p] = r.name
+      const r = grad(module, fn, p, { name: fresh(`${fn}_d_${p}`) });
+      module = r.module;
+      names[p] = r.name;
     }
   }
-  const cpu = compileModuleJs(module, opts?.precision ? { precision: opts.precision } : undefined)
-  const call = (name: string, args: CpuValue[]): CpuValue => cpu.fns[name]!(...args) as CpuValue
+  const cpu = compileModuleJs(module, opts?.precision ? { precision: opts.precision } : undefined);
+  const call = (name: string, args: CpuValue[]): CpuValue => cpu.fns[name]!(...args) as CpuValue;
   const run = (...args: CpuValue[]): ValueAndGradResult<P> => {
-    const g = {} as Record<P, CpuValue>
+    const g = {} as Record<P, CpuValue>;
     for (const p of params) {
-      const n = names[p]
-      g[p] = typeof n === 'string' ? call(n, args) : (n.map((x) => call(x, args)) as CpuValue)
+      const n = names[p];
+      g[p] = typeof n === 'string' ? call(n, args) : (n.map((x) => call(x, args)) as CpuValue);
     }
-    return { value: call(fn, args), grad: g }
-  }
-  return Object.assign(run, { module, names })
+    return { value: call(fn, args), grad: g };
+  };
+  return Object.assign(run, { module, names });
 }

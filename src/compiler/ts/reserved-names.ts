@@ -43,16 +43,16 @@
 // that half-table would refuse some kinds and miss others with no rule the reader could state,
 // so `compileTsSources` is left alone until every file has a table of its own.
 
-import type ts from 'typescript'
-import type { FuncDecl, ModuleVarDecl } from '../../core/ir/nodes.js'
-import { GLSL_ES300_RESERVED, WGSL_RESERVED } from '../../core/reserved-words.js'
-import { TS_CODES } from './codes.js'
-import { makeSpanDiagnostic } from './diagnostic.js'
-import type { TsCompilerDiagnostic } from './source-file.js'
-import type { DeclaredSymbol, DeclaredSymbolKind } from './symbols.js'
+import type ts from 'typescript';
+import type { FuncDecl, ModuleVarDecl } from '../../core/ir/nodes.js';
+import { GLSL_ES300_RESERVED, WGSL_RESERVED } from '../../core/reserved-words.js';
+import { TS_CODES } from './codes.js';
+import { makeSpanDiagnostic } from './diagnostic.js';
+import type { TsCompilerDiagnostic } from './source-file.js';
+import type { DeclaredSymbol, DeclaredSymbolKind } from './symbols.js';
 
 /** `a local`, `an override`: the article the noun takes, so the message reads as a sentence. */
-const withArticle = (noun: string): string => `${/^[aeiou]/.test(noun) ? 'an' : 'a'} ${noun}`
+const withArticle = (noun: string): string => `${/^[aeiou]/.test(noun) ? 'an' : 'a'} ${noun}`;
 
 /** What the author calls the thing they declared, for the message. */
 const NOUN: Record<DeclaredSymbolKind, string> = {
@@ -64,7 +64,7 @@ const NOUN: Record<DeclaredSymbolKind, string> = {
   struct: 'struct',
   field: 'field',
   override: 'override',
-}
+};
 
 /** The kinds the GLSL ES 3.00 writer spells verbatim. A `local`, a `param` and a `function`
  *  are absent because `sanitizeReservedIdents` renames those for that target on its own. */
@@ -74,20 +74,20 @@ const GLSL_VERBATIM: ReadonlySet<DeclaredSymbolKind> = new Set<DeclaredSymbolKin
   'const',
   'binding',
   'override',
-])
+]);
 
 /** The API each language is emitted for, as the message names it: the reader needs to know
  *  which of their two targets the name stops, not only which language spells it. */
-const WEBGPU = 'WebGPU'
-const WEBGL2 = 'WebGL2'
+const WEBGPU = 'WebGPU';
+const WEBGL2 = 'WebGL2';
 
 /** Why WGSL refuses this spelling, or `undefined` if it does not. The spec has three rules:
  *  a keyword or reserved word, the single `_`, and any name beginning with `__`. */
 function wgslRefusal(name: string): string | undefined {
-  if (WGSL_RESERVED.has(name)) return `is reserved in WGSL`
-  if (name.startsWith('__')) return `begins with two underscores, which WGSL reserves`
-  if (name === '_') return `is WGSL's phony assignment target, not an identifier`
-  return undefined
+  if (WGSL_RESERVED.has(name)) return `is reserved in WGSL`;
+  if (name.startsWith('__')) return `begins with two underscores, which WGSL reserves`;
+  if (name === '_') return `is WGSL's phony assignment target, not an identifier`;
+  return undefined;
 }
 
 /** Why GLSL ES 3.00 refuses this spelling, or `undefined` if it does not. Beside the word list
@@ -96,11 +96,11 @@ function wgslRefusal(name: string): string | undefined {
  *  underscores (__) are reserved as possible future keywords" — anywhere in the name, where
  *  WGSL's own rule is about the first two characters only. */
 function glslRefusal(name: string): string | undefined {
-  if (GLSL_ES300_RESERVED.has(name)) return `is reserved in GLSL ES 3.00`
-  if (name.startsWith('gl_')) return `begins with "gl_", which GLSL ES 3.00 keeps for built-ins`
+  if (GLSL_ES300_RESERVED.has(name)) return `is reserved in GLSL ES 3.00`;
+  if (name.startsWith('gl_')) return `begins with "gl_", which GLSL ES 3.00 keeps for built-ins`;
   if (name.includes('__'))
-    return `has two consecutive underscores, which GLSL ES 3.00 reserves for future keywords`
-  return undefined
+    return `has two consecutive underscores, which GLSL ES 3.00 reserves for future keywords`;
+  return undefined;
 }
 
 /**
@@ -125,34 +125,34 @@ export function reportReservedNames(
   // the list as well; only a compute kernel is exempt. Over-including costs a warning on a
   // module whose GLSL fails for some other reason, which is the same thing that module is
   // already told; under-including would let a reserved word through to a driver.
-  const emitsGlsl = !funcs.some((f) => f.stage === 'compute')
-  const varNames = new Set(vars.map((v) => v.name))
+  const emitsGlsl = !funcs.some((f) => f.stage === 'compute');
+  const varNames = new Set(vars.map((v) => v.name));
   // One declaration, one diagnostic: a generic struct is collected once per set of type
   // arguments the file writes it with, so its fields are recorded once per instantiation and
   // would otherwise draw one identical squiggle each.
-  const reported = new Set<string>()
+  const reported = new Set<string>();
   for (const sym of symbols) {
-    const emitted = sym.name
-    const written = sourceFile.text.slice(sym.start, sym.start + sym.length)
+    const emitted = sym.name;
+    const written = sourceFile.text.slice(sym.start, sym.start + sym.length);
     // A module variable is recorded as a `binding` (the editor spells both `let name: T`),
     // but the author knows the difference and the message should too.
     const noun =
-      sym.kind === 'binding' && varNames.has(emitted) ? 'module variable' : NOUN[sym.kind]
-    const wgsl = wgslRefusal(emitted)
-    const glsl = emitsGlsl && GLSL_VERBATIM.has(sym.kind) ? glslRefusal(emitted) : undefined
+      sym.kind === 'binding' && varNames.has(emitted) ? 'module variable' : NOUN[sym.kind];
+    const wgsl = wgslRefusal(emitted);
+    const glsl = emitsGlsl && GLSL_VERBATIM.has(sym.kind) ? glslRefusal(emitted) : undefined;
     const [why, api] =
-      wgsl !== undefined ? [wgsl, WEBGPU] : glsl !== undefined ? [glsl, WEBGL2] : [undefined, '']
-    if (why === undefined) continue
+      wgsl !== undefined ? [wgsl, WEBGPU] : glsl !== undefined ? [glsl, WEBGL2] : [undefined, ''];
+    if (why === undefined) continue;
     // The flattened name is what collides, and it is not always what the author typed: a
     // static field `K` of a class `S` is emitted `S_K`. Say both when they differ, or the
     // reader is sent to a line that does not contain the word the message quotes.
     const message =
       emitted === written
         ? `"${emitted}" ${why}, so ${withArticle(noun)} of that name cannot be emitted for the ${api} target. Rename it.`
-        : `"${written}" is emitted as "${emitted}", which ${why}, so this ${noun} cannot be emitted for the ${api} target. Rename it.`
-    const key = `${String(sym.start)}:${String(sym.length)}:${message}`
-    if (reported.has(key)) continue
-    reported.add(key)
+        : `"${written}" is emitted as "${emitted}", which ${why}, so this ${noun} cannot be emitted for the ${api} target. Rename it.`;
+    const key = `${String(sym.start)}:${String(sym.length)}:${message}`;
+    if (reported.has(key)) continue;
+    reported.add(key);
     diagnostics.push(
       makeSpanDiagnostic(
         sourceFile,
@@ -162,6 +162,6 @@ export function reportReservedNames(
         TS_CODES.RESERVED_NAME,
         wgsl !== undefined ? 'error' : 'warning',
       ),
-    )
+    );
   }
 }

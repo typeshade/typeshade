@@ -23,47 +23,47 @@ import {
   fwidth,
   Let,
   f32T,
-} from '../src/index.js'
-import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js';
+import type { ShaderExample } from './_shared.js';
 
-const U = fullscreenUniforms({ beat: f32T })
+const U = fullscreenUniforms({ beat: f32T });
 
 const fs = fn(
   'fs',
   { vo: VsOut },
   ({ vo }) => {
-    const t = U.field.time
-    const res = U.field.resolution
-    const p = screenCoords(vo.uv, res)
+    const t = U.field.time;
+    const res = U.field.resolution;
+    const p = screenCoords(vo.uv, res);
     // heartbeat: |sin|⁸ sharpens the sine into a thump per half-period
-    const beat = Let(pow(abs(sin(t.mul(3.14159).mul(U.field.beat))), 8).mul(0.12))
-    const s = Let(f32(0.72).add(beat))
-    const qx = Let(p.x.mul(1.3).div(s))
-    const qy = Let(p.y.add(0.08).mul(1.3).div(s))
+    const beat = Let(pow(abs(sin(t.mul(3.14159).mul(U.field.beat))), 8).mul(0.12));
+    const s = Let(f32(0.72).add(beat));
+    const qx = Let(p.x.mul(1.3).div(s));
+    const qy = Let(p.y.add(0.08).mul(1.3).div(s));
     // the sextic heart: (x² + y² − 1)³ − x²·y³
-    const xx = Let(qx.mul(qx))
-    const k = Let(xx.add(qy.mul(qy)).sub(1))
-    const f = Let(k.mul(k).mul(k).sub(xx.mul(qy).mul(qy).mul(qy)))
+    const xx = Let(qx.mul(qx));
+    const k = Let(xx.add(qy.mul(qy)).sub(1));
+    const f = Let(k.mul(k).mul(k).sub(xx.mul(qy).mul(qy).mul(qy)));
     // fill where f < 0, anti-aliased on the field's own screen gradient
-    const aa = Let(fwidth(f).mul(1.6))
-    const fill = f32(1).sub(smoothstep(aa.neg(), aa, f))
+    const aa = Let(fwidth(f).mul(1.6));
+    const fill = f32(1).sub(smoothstep(aa.neg(), aa, f));
     // inside: brighter toward the centre (f is most negative there)
-    const heart = mix(vec3(0.55, 0.03, 0.1), vec3(0.95, 0.15, 0.25), clamp(f.neg(), 0, 1))
+    const heart = mix(vec3(0.55, 0.03, 0.1), vec3(0.95, 0.15, 0.25), clamp(f.neg(), 0, 1));
     // outside: a soft glow that swells with the beat
-    const glow = exp(max(f, 0).mul(2.2).neg()).mul(beat.mul(3).add(0.35))
-    const bg = vec3(0.05, 0.04, 0.07).mul(f32(1).sub(vo.uv.y.mul(0.35)))
-    const col = mix(bg.add(vec3(0.7, 0.08, 0.16).mul(glow)), heart, fill)
-    return vec4(col, 1)
+    const glow = exp(max(f, 0).mul(2.2).neg()).mul(beat.mul(3).add(0.35));
+    const bg = vec3(0.05, 0.04, 0.07).mul(f32(1).sub(vo.uv.y.mul(0.35)));
+    const col = mix(bg.add(vec3(0.7, 0.08, 0.16).mul(glow)), heart, fill);
+    return vec4(col, 1);
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 const heartModule = module({
   structs: [U.struct, VsOut.decl],
   bindings: [U.binding],
   funcs: [vs, fs],
-})
+});
 
 export const heart: ShaderExample = {
   id: 'heart',
@@ -79,4 +79,4 @@ export const heart: ShaderExample = {
     resolution: { kind: 'resolution' },
     beat: { kind: 'slider', label: 'Beat rate', min: 0.2, max: 2, step: 0.1, value: 1 },
   },
-}
+};

@@ -15,8 +15,8 @@
 // so the projection math matches the f64 mirror, while the WGSL backend emits
 // the truncated shader constants — the two-tolerance reality, structural.
 
-import type { BinOp, ShaderType, StructDecl } from './ir/index.js'
-import type { CmpOp } from './ir/nodes.js'
+import type { BinOp, ShaderType, StructDecl } from './ir/index.js';
+import type { CmpOp } from './ir/nodes.js';
 
 /** A value as the CPU backends ({@link compileModule} and {@link compileModuleJs})
  *  represent it: a plain JavaScript value, never a typed array or a GPU buffer. A scalar
@@ -29,7 +29,7 @@ import type { CmpOp } from './ir/nodes.js'
  *
  *  Exported from `typeshade`.
  */
-export type CpuValue = number | boolean | number[] | boolean[] | CpuStruct
+export type CpuValue = number | boolean | number[] | boolean[] | CpuStruct;
 /** A struct value on the CPU: a plain object keyed by field name, holding one
  *  {@link CpuValue} per field. Calling a struct constructor in shader code
  *  (`MyStruct(a, b, …)`) produces one with its fields in declaration order; a struct-typed
@@ -40,12 +40,12 @@ export type CpuValue = number | boolean | number[] | boolean[] | CpuStruct
  *  Exported from `typeshade`.
  */
 export interface CpuStruct {
-  [k: string]: CpuValue
+  [k: string]: CpuValue;
 }
 
-export const FIELD_IDX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3, r: 0, g: 1, b: 2, a: 3 }
+export const FIELD_IDX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3, r: 0, g: 1, b: 2, a: 3 };
 
-export const isArr = Array.isArray
+export const isArr = Array.isArray;
 
 /** The numeric kind a binary op evaluates in. WGSL integer arithmetic is two's-complement
  *  modulo 2^32 with truncating `/` and `%` (`x / 0 = x`, `x % 0 = 0`, i32 `MIN / -1 = MIN`);
@@ -54,21 +54,21 @@ export const isArr = Array.isArray
  *  plain f64 JS arithmetic, the f64-algebra caveat in this file's header. Derived from the
  *  STATIC operand type by `numKindOf`; both CPU backends pass it (the codegen bakes it into
  *  the generated JS). */
-export type NumKind = 'f32' | 'i32' | 'u32'
+export type NumKind = 'f32' | 'i32' | 'u32';
 
 /** Every element kind a value can carry where {@link convertComponent} is asked about it:
  *  the three {@link NumKind}s, plus `'f64'` for an emulated double and `'bool'`, neither of
  *  which converts. Spelled out rather than left as `string` so a caller cannot pass a kind
  *  the conversion table has no arm for. */
-export type ElemKind = NumKind | 'f64' | 'bool'
+export type ElemKind = NumKind | 'f64' | 'bool';
 
 /** The `NumKind` of an IR type — its integer scalar/element kind, else `'f32'`. */
 export const numKindOf = (t: ShaderType): NumKind => {
-  if (t.kind === 'scalar') return t.scalar === 'i32' || t.scalar === 'u32' ? t.scalar : 'f32'
-  if (t.kind === 'vec') return t.elem === 'i32' || t.elem === 'u32' ? t.elem : 'f32'
-  if (t.kind === 'atomic') return t.elem
-  return 'f32'
-}
+  if (t.kind === 'scalar') return t.scalar === 'i32' || t.scalar === 'u32' ? t.scalar : 'f32';
+  if (t.kind === 'vec') return t.elem === 'i32' || t.elem === 'u32' ? t.elem : 'f32';
+  if (t.kind === 'atomic') return t.elem;
+  return 'f32';
+};
 
 /** One atomic builtin applied on the CPU (roadmap 0.2 item 4). The oracle runs invocations one
  *  after another, so an atomic is a plain read-modify-write of its location; this is the
@@ -96,33 +96,33 @@ export function atomicStep(
     // A device may answer `exchanged: false` where this answers true, and a shader that loops
     // until it succeeds — which is the shape WGSL documents — is correct on both.
     case 'atomicCompareExchangeWeak': {
-      const exchanged = old === arg
+      const exchanged = old === arg;
       return {
         next: exchanged ? wrapInt(store ?? 0, kind) : old,
         result: { old_value: old, exchanged },
-      }
+      };
     }
     case 'atomicLoad':
-      return { next: old, result: old }
+      return { next: old, result: old };
     case 'atomicStore':
     case 'atomicExchange':
-      return { next: wrapInt(arg, kind), result: old }
+      return { next: wrapInt(arg, kind), result: old };
     case 'atomicAdd':
-      return { next: wrapInt(old + arg, kind), result: old }
+      return { next: wrapInt(old + arg, kind), result: old };
     case 'atomicSub':
-      return { next: wrapInt(old - arg, kind), result: old }
+      return { next: wrapInt(old - arg, kind), result: old };
     case 'atomicMin':
-      return { next: Math.min(old, arg), result: old }
+      return { next: Math.min(old, arg), result: old };
     case 'atomicMax':
-      return { next: Math.max(old, arg), result: old }
+      return { next: Math.max(old, arg), result: old };
     case 'atomicAnd':
-      return { next: wrapInt(old & arg, kind), result: old }
+      return { next: wrapInt(old & arg, kind), result: old };
     case 'atomicOr':
-      return { next: wrapInt(old | arg, kind), result: old }
+      return { next: wrapInt(old | arg, kind), result: old };
     case 'atomicXor':
-      return { next: wrapInt(old ^ arg, kind), result: old }
+      return { next: wrapInt(old ^ arg, kind), result: old };
     default:
-      throw new Error(`typeshade/cpu: '${fn}' is not an atomic builtin`)
+      throw new Error(`typeshade/cpu: '${fn}' is not an atomic builtin`);
   }
 }
 
@@ -130,85 +130,85 @@ export function atomicStep(
  *  `| 0` for i32, `>>> 0` for u32 (ToInt32/ToUint32 are exact modulo-2^32 reductions for
  *  any finite double). Also normalises `-0` to `0`. Identity for the float kind. */
 export const wrapInt = (v: number, kind: NumKind): number =>
-  kind === 'i32' ? v | 0 : kind === 'u32' ? v >>> 0 : v
+  kind === 'i32' ? v | 0 : kind === 'u32' ? v >>> 0 : v;
 
 /** WGSL integer division: truncating; `x / 0 = x`; i32 `MIN / -1` wraps back to MIN. */
 export const intDiv = (a: number, b: number, kind: NumKind): number =>
-  b === 0 ? a : wrapInt(Math.trunc(a / b), kind)
+  b === 0 ? a : wrapInt(Math.trunc(a / b), kind);
 
 /** WGSL integer remainder: `x % 0 = 0`; i32 `MIN % -1 = 0`; otherwise JS `%` (trunc-rem,
  *  the same sign rule as C and WGSL: `-7 % 2 = -1`). */
 export const intRem = (a: number, b: number, kind: NumKind): number =>
-  b === 0 ? 0 : wrapInt(a % b, kind)
+  b === 0 ? 0 : wrapInt(a % b, kind);
 
 export function scalarBin(bop: BinOp, a: number, b: number, kind: NumKind = 'f32'): number {
-  const int = kind !== 'f32'
+  const int = kind !== 'f32';
   switch (bop) {
     case '+':
-      return int ? wrapInt(a + b, kind) : a + b
+      return int ? wrapInt(a + b, kind) : a + b;
     case '-':
-      return int ? wrapInt(a - b, kind) : a - b
+      return int ? wrapInt(a - b, kind) : a - b;
     case '*':
       // Math.imul is the wrapping 32-bit product; `a * b` in f64 loses bits above 2^53
       // and would wrap the WRONG value (the same rule const-fold's foldIntLit follows).
-      return int ? wrapInt(Math.imul(a, b), kind) : a * b
+      return int ? wrapInt(Math.imul(a, b), kind) : a * b;
     case '/':
-      return int ? intDiv(a, b, kind) : a / b
+      return int ? intDiv(a, b, kind) : a / b;
     case '%':
-      return int ? intRem(a, b, kind) : a % b
+      return int ? intRem(a, b, kind) : a % b;
     // Bitwise — JS `& | ^ <<` produce int32; the kind decides the sign of the result:
     // i32 keeps it (`-1 & -1` is -1), u32 normalises with `>>> 0`. The float kind is
     // unreachable here (validate's `mixed-scalar` rejects a float operand) and falls
     // into the u32 spelling, the historical default.
     case '&':
-      return kind === 'i32' ? a & b : (a & b) >>> 0
+      return kind === 'i32' ? a & b : (a & b) >>> 0;
     case '|':
-      return kind === 'i32' ? a | b : (a | b) >>> 0
+      return kind === 'i32' ? a | b : (a | b) >>> 0;
     case '^':
-      return kind === 'i32' ? a ^ b : (a ^ b) >>> 0
+      return kind === 'i32' ? a ^ b : (a ^ b) >>> 0;
     case '<<':
-      return kind === 'i32' ? a << b : (a << b) >>> 0
+      return kind === 'i32' ? a << b : (a << b) >>> 0;
     // i32 uses arithmetic shift (sign-preserving JS `>>`); u32 uses logical `>>>`.
     case '>>':
-      return kind === 'i32' ? a >> b : a >>> b
+      return kind === 'i32' ? a >> b : a >>> b;
   }
 }
 
 export function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, kind: NumKind = 'f32'): CpuValue {
   if (isArr(a) && isArr(b))
-    return a.map((x, i) => scalarBin(bop, x as number, b[i] as number, kind))
-  if (isArr(a)) return a.map((x) => scalarBin(bop, x as number, b as number, kind))
-  if (isArr(b)) return b.map((y) => scalarBin(bop, a as number, y as number, kind))
-  return scalarBin(bop, a as number, b as number, kind)
+    return a.map((x, i) => scalarBin(bop, x as number, b[i] as number, kind));
+  if (isArr(a)) return a.map((x) => scalarBin(bop, x as number, b as number, kind));
+  if (isArr(b)) return b.map((y) => scalarBin(bop, a as number, y as number, kind));
+  return scalarBin(bop, a as number, b as number, kind);
 }
 
 // WGSL min/max: "if one operand is a NaN, the other is returned" — where Math.min/Math.max
 // propagate the NaN (X-GIS #2274). GLSL ES 3.00 leaves NaN behaviour undefined; WGSL is the
 // canonical target.
-const minNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.min(a, b))
-const maxNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.max(a, b))
+const minNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.min(a, b));
+const maxNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.max(a, b));
 /** An integer clamped into a byte range, for the saturating packs (#152). Plain `Math` rather
  *  than the NaN-aware pair above: the operands are integers by the time they reach it. */
-const clampNum = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v)
+const clampNum = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
 // ── Builtins (vec-aware where WGSL is component-wise) ──
-type Builtin = (...args: CpuValue[]) => CpuValue
+type Builtin = (...args: CpuValue[]) => CpuValue;
 const map1 =
   (f: (x: number) => number): Builtin =>
   (x) =>
-    isArr(x) ? x.map((v) => f(v as number)) : f(x as number)
+    isArr(x) ? x.map((v) => f(v as number)) : f(x as number);
 
 // WGSL / GLSL-ES `round` rounds halfway cases to the nearest EVEN integer, unlike
 // JS `Math.round` (ties toward +∞). round(2.5)=2, round(3.5)=4, round(-2.5)=-2.
 const roundTiesToEven = (x: number): number => {
   const f = Math.floor(x),
-    d = x - f
-  if (d < 0.5) return f
-  if (d > 0.5) return f + 1
-  return f % 2 === 0 ? f : f + 1
-}
+    d = x - f;
+  if (d < 0.5) return f;
+  if (d > 0.5) return f + 1;
+  return f % 2 === 0 ? f : f + 1;
+};
 
-const _bitcastView = new DataView(new ArrayBuffer(4))
+const _bitcastView = new DataView(new ArrayBuffer(4));
 
 // ── f32 ↔ IEEE-754 binary16 (the pack2x16float/unpack2x16float per-component
 // conversion). Hand-rolled: Math.f16round/Float16Array are too new to rely on
@@ -216,85 +216,85 @@ const _bitcastView = new DataView(new ArrayBuffer(4))
 // the 13 dropped significand bits (the conversion real GPUs implement); decode
 // is exact (every binary16 value is exactly representable in f32/f64). ──
 const f32ToF16Bits = (x: number): number => {
-  _bitcastView.setFloat32(0, Math.fround(x), true)
-  const bits = _bitcastView.getUint32(0, true)
-  const sign = (bits >>> 16) & 0x8000
-  const exp = (bits >>> 23) & 0xff
-  const mant = bits & 0x7fffff
-  if (exp === 0xff) return sign | 0x7c00 | (mant !== 0 ? 0x200 : 0) // ±Inf / NaN (quieted)
-  const e = exp - 127 + 15 // re-bias 127 → 15
-  if (e >= 0x1f) return sign | 0x7c00 // overflow → ±Inf
+  _bitcastView.setFloat32(0, Math.fround(x), true);
+  const bits = _bitcastView.getUint32(0, true);
+  const sign = (bits >>> 16) & 0x8000;
+  const exp = (bits >>> 23) & 0xff;
+  const mant = bits & 0x7fffff;
+  if (exp === 0xff) return sign | 0x7c00 | (mant !== 0 ? 0x200 : 0); // ±Inf / NaN (quieted)
+  const e = exp - 127 + 15; // re-bias 127 → 15
+  if (e >= 0x1f) return sign | 0x7c00; // overflow → ±Inf
   if (e <= 0) {
     // Too small for a normal f16 → subnormal (or ±0 below 2^-25).
-    if (e < -10) return sign
-    const m = mant | 0x800000 // implicit leading 1
-    const shift = 14 - e // 14..24 — how many low bits fall off
-    const half = m >>> shift
-    const rem = m & ((1 << shift) - 1)
-    const halfway = 1 << (shift - 1)
-    if (rem > halfway || (rem === halfway && (half & 1) !== 0)) return sign | (half + 1)
-    return sign | half
+    if (e < -10) return sign;
+    const m = mant | 0x800000; // implicit leading 1
+    const shift = 14 - e; // 14..24 — how many low bits fall off
+    const half = m >>> shift;
+    const rem = m & ((1 << shift) - 1);
+    const halfway = 1 << (shift - 1);
+    if (rem > halfway || (rem === halfway && (half & 1) !== 0)) return sign | (half + 1);
+    return sign | half;
   }
-  const half = sign | (e << 10) | (mant >>> 13)
-  const rem = mant & 0x1fff
+  const half = sign | (e << 10) | (mant >>> 13);
+  const rem = mant & 0x1fff;
   // RTE carry may roll the significand into the exponent (…1111.1→10000.0) and,
   // at the top, into ±Inf — both are the correctly-rounded results.
-  if (rem > 0x1000 || (rem === 0x1000 && (half & 1) !== 0)) return half + 1
-  return half
-}
+  if (rem > 0x1000 || (rem === 0x1000 && (half & 1) !== 0)) return half + 1;
+  return half;
+};
 const f16BitsToF32 = (h: number): number => {
-  const sign = (h & 0x8000) << 16
-  const exp = (h >>> 10) & 0x1f
-  const mant = h & 0x3ff
-  let bits: number
+  const sign = (h & 0x8000) << 16;
+  const exp = (h >>> 10) & 0x1f;
+  const mant = h & 0x3ff;
+  let bits: number;
   if (exp === 0) {
     if (mant === 0)
-      bits = sign // ±0
+      bits = sign; // ±0
     else {
       // Subnormal: normalise the significand into f32's implicit-1 form.
-      let e = 0
-      let m = mant
+      let e = 0;
+      let m = mant;
       while ((m & 0x400) === 0) {
-        m <<= 1
-        e++
+        m <<= 1;
+        e++;
       }
-      bits = sign | ((127 - 15 - e + 1) << 23) | ((m & 0x3ff) << 13)
+      bits = sign | ((127 - 15 - e + 1) << 23) | ((m & 0x3ff) << 13);
     }
   } else if (exp === 0x1f) {
-    bits = sign | 0x7f800000 | (mant << 13) // ±Inf / NaN
+    bits = sign | 0x7f800000 | (mant << 13); // ±Inf / NaN
   } else {
-    bits = sign | ((exp - 15 + 127) << 23) | (mant << 13)
+    bits = sign | ((exp - 15 + 127) << 23) | (mant << 13);
   }
-  _bitcastView.setUint32(0, bits >>> 0, true)
-  return _bitcastView.getFloat32(0, true)
-}
+  _bitcastView.setUint32(0, bits >>> 0, true);
+  return _bitcastView.getFloat32(0, true);
+};
 
 /** `quantizeToF16` on a scalar or on any width of vector (#150): the f16 round trip applied
  *  per component. Shared by the four neutral ids, which differ only in how GLSL spells them. */
 const quantizeF16 = (x: CpuValue): CpuValue =>
   isArr(x)
     ? (x as number[]).map((c) => f16BitsToF32(f32ToF16Bits(c)))
-    : f16BitsToF32(f32ToF16Bits(x as number))
+    : f16BitsToF32(f32ToF16Bits(x as number));
 
 /** Whether a comparison of values of type `t` rounds to f32 first: an f32 scalar or a vector
  *  of f32. The GPU computes f32, so exact f64 equality would silently disagree with it. */
 export const comparesAsF32 = (t: ShaderType): boolean =>
-  (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32')
+  (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32');
 
 function compareScalars(cop: CmpOp, a: number, b: number, f32: boolean): boolean {
   switch (cop) {
     case '<':
-      return a < b
+      return a < b;
     case '>':
-      return a > b
+      return a > b;
     case '<=':
-      return a <= b
+      return a <= b;
     case '>=':
-      return a >= b
+      return a >= b;
     case '==':
-      return f32 ? Math.fround(a) === Math.fround(b) : a === b
+      return f32 ? Math.fround(a) === Math.fround(b) : a === b;
     case '!=':
-      return f32 ? Math.fround(a) !== Math.fround(b) : a !== b
+      return f32 ? Math.fround(a) !== Math.fround(b) : a !== b;
   }
 }
 
@@ -303,9 +303,9 @@ function compareScalars(cop: CmpOp, a: number, b: number, f32: boolean): boolean
  *  round to f32 first (X-GIS #13); the ordering ops keep f64. Bools compare as JS booleans. */
 export function compareValues(cop: CmpOp, a: CpuValue, b: CpuValue, f32: boolean): CpuValue {
   if (isArr(a) && isArr(b)) {
-    return a.map((v, i) => compareScalars(cop, v as number, b[i] as number, f32))
+    return a.map((v, i) => compareScalars(cop, v as number, b[i] as number, f32));
   }
-  return compareScalars(cop, a as number, b as number, f32)
+  return compareScalars(cop, a as number, b as number, f32);
 }
 
 /** `select(f, t, c)` with a vector-of-bools condition: the pick per component. */
@@ -314,9 +314,9 @@ export function selectComponents(
   ifTrue: CpuValue,
   ifFalse: CpuValue,
 ): CpuValue {
-  const t = ifTrue as CpuValue[]
-  const f = ifFalse as CpuValue[]
-  return cond.map((c, i) => (c ? t[i]! : f[i]!)) as unknown as CpuValue
+  const t = ifTrue as CpuValue[];
+  const f = ifFalse as CpuValue[];
+  return cond.map((c, i) => (c ? t[i]! : f[i]!)) as unknown as CpuValue;
 }
 
 /** Componentwise over a vector or on a scalar, with a second argument that may be a scalar
@@ -324,16 +324,16 @@ export function selectComponents(
 const zip2 =
   (f: (a: number, b: number) => number): Builtin =>
   (a, b) => {
-    const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number))
-    return isArr(a) ? (a as number[]).map((x, i) => f(x, at(b, i))) : f(a as number, at(b, 0))
-  }
+    const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number));
+    return isArr(a) ? (a as number[]).map((x, i) => f(x, at(b, i))) : f(a as number, at(b, 0));
+  };
 const dotOf = (a: CpuValue, b: CpuValue): number =>
   isArr(a)
     ? (a as number[]).reduce((s, v, i) => s + v * ((b as number[])[i] as number), 0)
-    : (a as number) * (b as number)
+    : (a as number) * (b as number);
 const scale = (v: CpuValue, k: number): CpuValue =>
-  isArr(v) ? (v as number[]).map((x) => x * k) : (v as number) * k
-const sub = zip2((a, b) => a - b)
+  isArr(v) ? (v as number[]).map((x) => x * k) : (v as number) * k;
+const sub = zip2((a, b) => a - b);
 
 /** The 32-bit integer builtins by the element kind of the argument (roadmap 0.2 item 8). Their
  *  result keeps the argument's type on the GPU, and for `reverseBits`, `firstLeadingBit`,
@@ -350,57 +350,57 @@ export const TYPED_BIT_BUILTINS: ReadonlySet<string> = new Set([
   'firstTrailingBit',
   'extractBits',
   'insertBits',
-])
-const asKind = (v: number, kind: 'u32' | 'i32'): number => (kind === 'i32' ? v | 0 : v >>> 0)
+]);
+const asKind = (v: number, kind: 'u32' | 'i32'): number => (kind === 'i32' ? v | 0 : v >>> 0);
 const bitOne = (fn: string, kind: 'u32' | 'i32', x: number, more: number[]): number => {
-  const u = x >>> 0
+  const u = x >>> 0;
   switch (fn) {
     case '~':
-      return asKind(~u, kind)
+      return asKind(~u, kind);
     case 'reverseBits': {
-      let r = 0
-      for (let i = 0; i < 32; i++) r = ((r << 1) | ((u >>> i) & 1)) >>> 0
-      return asKind(r, kind)
+      let r = 0;
+      for (let i = 0; i < 32; i++) r = ((r << 1) | ((u >>> i) & 1)) >>> 0;
+      return asKind(r, kind);
     }
     case 'firstLeadingBit': {
       if (kind === 'i32') {
-        const s = x | 0
-        if (s === 0 || s === -1) return -1
-        return 31 - Math.clz32(s < 0 ? ~s : s)
+        const s = x | 0;
+        if (s === 0 || s === -1) return -1;
+        return 31 - Math.clz32(s < 0 ? ~s : s);
       }
-      return u === 0 ? 0xffffffff : 31 - Math.clz32(u)
+      return u === 0 ? 0xffffffff : 31 - Math.clz32(u);
     }
     case 'firstTrailingBit': {
-      if (u === 0) return kind === 'i32' ? -1 : 0xffffffff
-      return 31 - Math.clz32(u & -u)
+      if (u === 0) return kind === 'i32' ? -1 : 0xffffffff;
+      return 31 - Math.clz32(u & -u);
     }
     case 'extractBits': {
-      const o = Math.min(more[0]! >>> 0, 32)
-      const c = Math.min(more[1]! >>> 0, 32 - o)
-      if (c === 0) return 0
-      const shifted = u >>> o
-      const field = c === 32 ? shifted : shifted & ((2 ** c - 1) >>> 0)
-      if (kind === 'i32' && c < 32 && (field >>> (c - 1)) & 1) return (field - 2 ** c) | 0
-      return asKind(field, kind)
+      const o = Math.min(more[0]! >>> 0, 32);
+      const c = Math.min(more[1]! >>> 0, 32 - o);
+      if (c === 0) return 0;
+      const shifted = u >>> o;
+      const field = c === 32 ? shifted : shifted & ((2 ** c - 1) >>> 0);
+      if (kind === 'i32' && c < 32 && (field >>> (c - 1)) & 1) return (field - 2 ** c) | 0;
+      return asKind(field, kind);
     }
     case 'insertBits': {
-      const nb = more[0]! >>> 0
-      const o = Math.min(more[1]! >>> 0, 32)
-      const c = Math.min(more[2]! >>> 0, 32 - o)
-      if (c === 0) return asKind(u, kind)
-      const mask = c === 32 ? 0xffffffff : (((2 ** c - 1) >>> 0) << o) >>> 0
-      const r = (((nb << o) >>> 0) & mask) | (u & ~mask)
-      return asKind(r >>> 0, kind)
+      const nb = more[0]! >>> 0;
+      const o = Math.min(more[1]! >>> 0, 32);
+      const c = Math.min(more[2]! >>> 0, 32 - o);
+      if (c === 0) return asKind(u, kind);
+      const mask = c === 32 ? 0xffffffff : (((2 ** c - 1) >>> 0) << o) >>> 0;
+      const r = (((nb << o) >>> 0) & mask) | (u & ~mask);
+      return asKind(r >>> 0, kind);
     }
   }
-  throw new Error(`typeshade/cpu: unknown bit builtin ${fn}`)
-}
+  throw new Error(`typeshade/cpu: unknown bit builtin ${fn}`);
+};
 /** Evaluate one of {@link TYPED_BIT_BUILTINS} on `args` for the element kind `kind`, componentwise
  *  over a vector; the extra arguments of `extractBits`/`insertBits` may be scalars or vectors. */
 export function bitBuiltin(fn: string, args: readonly CpuValue[], kind: 'u32' | 'i32'): CpuValue {
-  const x = args[0]!
-  const rest = args.slice(1)
-  const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number))
+  const x = args[0]!;
+  const rest = args.slice(1);
+  const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number));
   if (isArr(x)) {
     return (x as number[]).map((v, i) =>
       bitOne(
@@ -409,59 +409,59 @@ export function bitBuiltin(fn: string, args: readonly CpuValue[], kind: 'u32' | 
         v,
         rest.map((r) => at(r, i)),
       ),
-    )
+    );
   }
   return bitOne(
     fn,
     kind,
     x as number,
     rest.map((r) => at(r, 0)),
-  )
+  );
 }
 /** The determinant of a column-major n×n matrix by cofactor expansion. */
 function matDeterminant(m: number[]): number {
-  const n = Math.round(Math.sqrt(m.length))
-  if (n === 1) return m[0]!
-  if (n === 2) return m[0]! * m[3]! - m[2]! * m[1]!
-  let det = 0
+  const n = Math.round(Math.sqrt(m.length));
+  if (n === 1) return m[0]!;
+  if (n === 2) return m[0]! * m[3]! - m[2]! * m[1]!;
+  let det = 0;
   for (let col = 0; col < n; col++) {
-    const minor: number[] = []
+    const minor: number[] = [];
     for (let c = 0; c < n; c++) {
-      if (c === col) continue
-      for (let r = 1; r < n; r++) minor.push(m[c * n + r]!)
+      if (c === col) continue;
+      for (let r = 1; r < n; r++) minor.push(m[c * n + r]!);
     }
-    det += (col % 2 === 0 ? 1 : -1) * m[col * n]! * matDeterminant(minor)
+    det += (col % 2 === 0 ? 1 : -1) * m[col * n]! * matDeterminant(minor);
   }
-  return det
+  return det;
 }
 
 export const BUILTINS: Record<string, Builtin> = {
   // Geometry, matrices and exponents (roadmap 0.2 item 8).
   reflect: (i, nrm) => sub(i, scale(nrm, 2 * dotOf(nrm, i))),
   refract: (i, nrm, eta) => {
-    const e = eta as number
-    const d = dotOf(nrm, i)
-    const k = 1 - e * e * (1 - d * d)
-    if (k < 0) return isArr(i) ? (i as number[]).map(() => 0) : 0
-    return sub(scale(i, e), scale(nrm, e * d + Math.sqrt(k)))
+    const e = eta as number;
+    const d = dotOf(nrm, i);
+    const k = 1 - e * e * (1 - d * d);
+    if (k < 0) return isArr(i) ? (i as number[]).map(() => 0) : 0;
+    return sub(scale(i, e), scale(nrm, e * d + Math.sqrt(k)));
   },
   faceForward: (nrm, i, nref) => (dotOf(nref, i) < 0 ? nrm : scale(nrm, -1)),
   determinant: (m) => matDeterminant(m as number[]),
   ldexp: zip2((x, e) => x * 2 ** e),
   // The 32-bit integer builtins whose value is the same for u32 and i32 (a count fits both).
   countOneBits: map1((x) => {
-    let u = x >>> 0
-    let c = 0
+    let u = x >>> 0;
+    let c = 0;
     while (u !== 0) {
-      u &= u - 1
-      c++
+      u &= u - 1;
+      c++;
     }
-    return c
+    return c;
   }),
   countLeadingZeros: map1((x) => Math.clz32(x >>> 0)),
   countTrailingZeros: map1((x) => {
-    const u = x >>> 0
-    return u === 0 ? 32 : 31 - Math.clz32(u & -u)
+    const u = x >>> 0;
+    return u === 0 ? 32 : 31 - Math.clz32(u & -u);
   }),
   // The u32 forms of the kind-dependent ones; the CPU paths route by the static kind.
   '~': (x) => bitBuiltin('~', [x], 'u32'),
@@ -528,12 +528,12 @@ export const BUILTINS: Record<string, Builtin> = {
   // (WGSL x − y·⌊x/y⌋, GLSL mod()). Deliberately NOT JS `%` (trunc-mod).
   // Component-wise; y may be a scalar broadcast over a vector x.
   mod: (x, y) => {
-    const fm = (a: number, b: number): number => a - b * Math.floor(a / b)
+    const fm = (a: number, b: number): number => a - b * Math.floor(a / b);
     return isArr(x)
       ? (x as number[]).map((v, i) =>
           fm(v as number, isArr(y) ? ((y as number[])[i] as number) : (y as number)),
         )
-      : fm(x as number, y as number)
+      : fm(x as number, y as number);
   },
   min: (a, b) =>
     isArr(a) || isArr(b) ? applyMinMax(minNum, a, b) : minNum(a as number, b as number),
@@ -553,9 +553,9 @@ export const BUILTINS: Record<string, Builtin> = {
   // (JS array arithmetic). e0/e1 may be scalar broadcasts over a vector x.
   smoothstep: (e0, e1, x) => {
     const ss = (a: number, b: number, v: number): number => {
-      const t = Math.max(0, Math.min(1, (v - a) / (b - a)))
-      return t * t * (3 - 2 * t)
-    }
+      const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    };
     return isArr(x)
       ? (x as number[]).map((v, i) =>
           ss(
@@ -564,16 +564,16 @@ export const BUILTINS: Record<string, Builtin> = {
             v as number,
           ),
         )
-      : ss(e0 as number, e1 as number, x as number)
+      : ss(e0 as number, e1 as number, x as number);
   },
   // step(edge, x) — component-wise; edge may be a scalar broadcast over a vector x.
   step: (edge, x) => {
-    const s = (e: number, v: number): number => (v < e ? 0 : 1)
+    const s = (e: number, v: number): number => (v < e ? 0 : 1);
     return isArr(x)
       ? (x as number[]).map((v, i) =>
           s(isArr(edge) ? (edge[i] as number) : (edge as number), v as number),
         )
-      : s(edge as number, x as number)
+      : s(edge as number, x as number);
   },
   // WGSL gives `length` and `distance` a SCALAR overload as well as the vector ones, and
   // defines the scalar form as `abs(e)` / `abs(e1 - e2)` (wgsl.txt:22626). Both targets accept
@@ -589,24 +589,24 @@ export const BUILTINS: Record<string, Builtin> = {
     isArr(a)
       ? Math.sqrt(
           (a as number[]).reduce((s, c, i) => {
-            const d = (c as number) - ((b as number[])[i] as number)
-            return s + d * d
+            const d = (c as number) - ((b as number[])[i] as number);
+            return s + d * d;
           }, 0),
         )
       : Math.abs((a as number) - (b as number)),
   normalize: (v) => {
-    const a = v as number[]
-    const l = Math.sqrt(a.reduce((s, c) => s + (c as number) * (c as number), 0))
-    return a.map((c) => (c as number) / l)
+    const a = v as number[];
+    const l = Math.sqrt(a.reduce((s, c) => s + (c as number) * (c as number), 0));
+    return a.map((c) => (c as number) / l);
   },
   cross: (a, b) => {
     const u = a as number[],
-      w = b as number[]
+      w = b as number[];
     return [
       u[1]! * w[2]! - u[2]! * w[1]!,
       u[2]! * w[0]! - u[0]! * w[2]!,
       u[0]! * w[1]! - u[1]! * w[0]!,
-    ]
+    ];
   },
   // transpose(M) — a column-major n² matrix (used by the mat64 authoring path;
   // n is recovered from the flat length). Native for f32 matrices too.
@@ -624,8 +624,8 @@ export const BUILTINS: Record<string, Builtin> = {
   // hi/lo pair ↔ f64 (the DSFUN lane bridge): natively a sum / a fround split.
   f64FromParts: (hi, lo) => (hi as number) + (lo as number),
   f64Parts: (x) => {
-    const hi = Math.fround(x as number)
-    return [hi, Math.fround((x as number) - hi)]
+    const hi = Math.fround(x as number);
+    return [hi, Math.fround((x as number) - hi)];
   },
   // Integer-source conversions (float sources are routed to f32ToI32Sat / f32ToU32Sat by
   // both backends — see below): u32 ↔ i32 is a bit reinterpretation on both targets, so
@@ -649,16 +649,16 @@ export const BUILTINS: Record<string, Builtin> = {
   // Component-wise over vectors (WGSL fma is genType, and the authoring
   // signature admits vec keys) — the old scalar-cast body silently NaN'd there.
   fma: (a, b, c) => {
-    const f = (x: number, y: number, z: number): number => Math.fround(x * y + z)
-    const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number))
+    const f = (x: number, y: number, z: number): number => Math.fround(x * y + z);
+    const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number));
     return isArr(a)
       ? (a as number[]).map((x, i) => f(x as number, at(b, i), at(c, i)))
-      : f(a as number, b as number, c as number)
+      : f(a as number, b as number, c as number);
   },
   // unpack u32 RGBA8 → vec4<f32> in [0,1]; low byte → component 0 (pack4x8unorm inverse).
   unpack4x8unorm: (u) => {
-    const n = (u as number) >>> 0
-    return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) => b / 255)
+    const n = (u as number) >>> 0;
+    return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) => b / 255);
   },
   // `workgroupUniformLoad(w)` (#152): the VALUE workgroup memory holds. The builtin is a read
   // between two barriers, and the oracle models the read and not the barriers: it is an
@@ -674,12 +674,12 @@ export const BUILTINS: Record<string, Builtin> = {
   // dots accumulate in 32 bits the way the hardware does. Verified against a real device by
   // dispatching each one and reading the buffer back, not by reading the spec twice.
   unpack4xU8: (e) => {
-    const n = (e as number) >>> 0
-    return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff]
+    const n = (e as number) >>> 0;
+    return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
   },
   unpack4xI8: (e) => {
-    const n = (e as number) >>> 0
-    return [0, 8, 16, 24].map((sh) => (((n >>> sh) & 0xff) << 24) >> 24)
+    const n = (e as number) >>> 0;
+    return [0, 8, 16, 24].map((sh) => (((n >>> sh) & 0xff) << 24) >> 24);
   },
   pack4xU8: (v) => (v as number[]).reduce((acc, x, i) => acc | ((x & 0xff) << (8 * i)), 0) >>> 0,
   pack4xI8: (v) => (v as number[]).reduce((acc, x, i) => acc | ((x & 0xff) << (8 * i)), 0) >>> 0,
@@ -689,21 +689,21 @@ export const BUILTINS: Record<string, Builtin> = {
     (v as number[]).reduce((acc, x, i) => acc | ((clampNum(x, -128, 127) & 0xff) << (8 * i)), 0) >>>
     0,
   dot4U8Packed: (a, b) => {
-    const x = (a as number) >>> 0
-    const y = (b as number) >>> 0
-    let acc = 0
-    for (const sh of [0, 8, 16, 24]) acc = (acc + ((x >>> sh) & 0xff) * ((y >>> sh) & 0xff)) >>> 0
-    return acc >>> 0
+    const x = (a as number) >>> 0;
+    const y = (b as number) >>> 0;
+    let acc = 0;
+    for (const sh of [0, 8, 16, 24]) acc = (acc + ((x >>> sh) & 0xff) * ((y >>> sh) & 0xff)) >>> 0;
+    return acc >>> 0;
   },
   dot4I8Packed: (a, b) => {
-    const x = (a as number) >>> 0
-    const y = (b as number) >>> 0
-    let acc = 0
+    const x = (a as number) >>> 0;
+    const y = (b as number) >>> 0;
+    let acc = 0;
     for (const sh of [0, 8, 16, 24]) {
-      const p = Math.imul((((x >>> sh) & 0xff) << 24) >> 24, (((y >>> sh) & 0xff) << 24) >> 24)
-      acc = (acc + p) | 0
+      const p = Math.imul((((x >>> sh) & 0xff) << 24) >> 24, (((y >>> sh) & 0xff) << 24) >> 24);
+      acc = (acc + p) | 0;
     }
-    return acc | 0
+    return acc | 0;
   },
   // `abs` on an unsigned value is the identity, and the integer `dot` is the sum of the
   // component-wise products (#154). Their own ids because GLSL ES 3.00 spells neither.
@@ -719,24 +719,24 @@ export const BUILTINS: Record<string, Builtin> = {
   // and `dotI` matches WGSL's rule and the driver measured above rather than a guarantee GLSL
   // gives. The determinism report is where that asymmetry is recorded for an author.
   dotI: (a, b) => {
-    const xs = a as number[]
-    const ys = b as number[]
-    return xs.reduce((acc, v, i) => (acc + Math.imul(v, ys[i] as number)) | 0, 0)
+    const xs = a as number[];
+    const ys = b as number[];
+    return xs.reduce((acc, v, i) => (acc + Math.imul(v, ys[i] as number)) | 0, 0);
   },
   dotU: (a, b) => {
-    const xs = a as number[]
-    const ys = b as number[]
-    return xs.reduce((acc, v, i) => (acc + Math.imul(v, ys[i] as number)) >>> 0, 0) >>> 0
+    const xs = a as number[];
+    const ys = b as number[];
+    return xs.reduce((acc, v, i) => (acc + Math.imul(v, ys[i] as number)) >>> 0, 0) >>> 0;
   },
   // f32 bit-pattern reinterpreted as u32 (WGSL bitcast<u32> / GLSL floatBitsToUint).
   bitcastU32: (x) => {
-    _bitcastView.setFloat32(0, Math.fround(x as number), true)
-    return _bitcastView.getUint32(0, true)
+    _bitcastView.setFloat32(0, Math.fround(x as number), true);
+    return _bitcastView.getUint32(0, true);
   },
   // u32 bit-pattern reinterpreted as f32 (WGSL bitcast<f32> / GLSL uintBitsToFloat).
   bitcastF32: (x) => {
-    _bitcastView.setUint32(0, (x as number) >>> 0, true)
-    return _bitcastView.getFloat32(0, true)
+    _bitcastView.setUint32(0, (x as number) >>> 0, true);
+    return _bitcastView.getFloat32(0, true);
   },
   // pack a vec4<f32> (each in [0,1]) into u32 RGBA8; component 0 → low byte.
   // The length of the buffer the host bound (#46): the operand evaluates to the bound array
@@ -751,10 +751,10 @@ export const BUILTINS: Record<string, Builtin> = {
   // 206.5 and rounds to 206 where both targets answer 207. An oracle that agrees with NEITHER
   // target is the one thing it may not be.
   pack4x8unorm: (v) => {
-    const a = v as number[]
+    const a = v as number[];
     const q = (x: number): number =>
-      Math.round(Math.fround(Math.max(0, Math.min(1, x)) * 255)) & 0xff
-    return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
+      Math.round(Math.fround(Math.max(0, Math.min(1, x)) * 255)) & 0xff;
+    return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0;
   },
   // The signed twin (#150, WGSL §17.10): ⌊0.5 + 127 × clamp(e, -1, 1)⌋, low 8 bits of the
   // two's complement, component 0 in the low byte.
@@ -767,17 +767,17 @@ export const BUILTINS: Record<string, Builtin> = {
   // component packs as -127 on both targets; `Math.min`/`Math.max` propagate the NaN and
   // packed 0 instead.
   pack4x8snorm: (v) => {
-    const a = v as number[]
-    const q = (x: number): number => Math.round(Math.fround(maxNum(-1, minNum(1, x)) * 127)) & 0xff
-    return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
+    const a = v as number[];
+    const q = (x: number): number => Math.round(Math.fround(maxNum(-1, minNum(1, x)) * 127)) & 0xff;
+    return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0;
   },
   // Sign-extend each byte, then max(v / 127, -1): the -128 pattern is -1.0079 before the
   // clamp (WGSL §17.11).
   unpack4x8snorm: (u) => {
-    const n = (u as number) >>> 0
+    const n = (u as number) >>> 0;
     return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) =>
       Math.max(((b << 24) >> 24) / 127, -1),
-    )
+    );
   },
   // Round to what an IEEE-754 binary16 holds and come back as an f32 (#150, WGSL §17.7.28).
   // The same encode the 2×16 float pack uses, so a value that survives one survives the other.
@@ -795,39 +795,39 @@ export const BUILTINS: Record<string, Builtin> = {
   // both specs. Quantisation follows WGSL's ⌊0.5 + scale·clamp(e)⌋, which JS
   // Math.round IS (floor(0.5+x), including the toward-+∞ negative halves). ──
   pack2x16float: (v) => {
-    const a = v as number[]
-    return (f32ToF16Bits(a[0] as number) | (f32ToF16Bits(a[1] as number) << 16)) >>> 0
+    const a = v as number[];
+    return (f32ToF16Bits(a[0] as number) | (f32ToF16Bits(a[1] as number) << 16)) >>> 0;
   },
   unpack2x16float: (u) => {
-    const n = (u as number) >>> 0
-    return [f16BitsToF32(n & 0xffff), f16BitsToF32(n >>> 16)]
+    const n = (u as number) >>> 0;
+    return [f16BitsToF32(n & 0xffff), f16BitsToF32(n >>> 16)];
   },
   // `Math.fround` on the scale for the same reason as the 4x8 pair: the product is an f32 on
   // both targets and an f64 here without it.
   pack2x16unorm: (v) => {
-    const a = v as number[]
+    const a = v as number[];
     const q = (x: number): number =>
-      Math.round(Math.fround(Math.max(0, Math.min(1, x)) * 65535)) & 0xffff
-    return (q(a[0] as number) | (q(a[1] as number) << 16)) >>> 0
+      Math.round(Math.fround(Math.max(0, Math.min(1, x)) * 65535)) & 0xffff;
+    return (q(a[0] as number) | (q(a[1] as number) << 16)) >>> 0;
   },
   unpack2x16unorm: (u) => {
-    const n = (u as number) >>> 0
-    return [(n & 0xffff) / 65535, (n >>> 16) / 65535]
+    const n = (u as number) >>> 0;
+    return [(n & 0xffff) / 65535, (n >>> 16) / 65535];
   },
   pack2x16snorm: (v) => {
-    const a = v as number[]
+    const a = v as number[];
     const q = (x: number): number =>
-      Math.round(Math.fround(Math.max(-1, Math.min(1, x)) * 32767)) & 0xffff
-    return (q(a[0] as number) | (q(a[1] as number) << 16)) >>> 0
+      Math.round(Math.fround(Math.max(-1, Math.min(1, x)) * 32767)) & 0xffff;
+    return (q(a[0] as number) | (q(a[1] as number) << 16)) >>> 0;
   },
   unpack2x16snorm: (u) => {
-    const n = (u as number) >>> 0
+    const n = (u as number) >>> 0;
     // Sign-extend each 16-bit lane, then v/32767 clamped at −1 (WGSL: max(v/32767, −1);
     // GLSL's clamp(…, −1, 1) is identical — v ≤ 32767 so the upper clamp never binds).
-    const s = (bits: number): number => Math.max(((bits << 16) >> 16) / 32767, -1)
-    return [s(n & 0xffff), s(n >>> 16)]
+    const s = (bits: number): number => Math.max(((bits << 16) >> 16) / 32767, -1);
+    return [s(n & 0xffff), s(n >>> 16)];
   },
-}
+};
 
 // GPU-only stubs (X-GIS #763 O3). textureSample needs the GPU's sampler/atlas; fwidth
 // needs neighbouring fragments — neither is computable in this per-invocation
@@ -922,7 +922,7 @@ export const GPU_STUBS: Record<string, Builtin> = {
   // one: `textureStore` has type `void`, so the front end refuses every position that would
   // keep the result and the only place a call reaches is a statement.
   textureStore: () => 0,
-}
+};
 
 // ── WGSL's SATURATING float→integer conversions ──
 //
@@ -950,7 +950,7 @@ export function isAggregateType(t: ShaderType): boolean {
     t.kind === 'mat' ||
     t.kind === 'array' ||
     t.kind === 'struct'
-  )
+  );
 }
 
 /** A deep copy of a CPU value, for binding one aggregate to another name.
@@ -965,24 +965,24 @@ export function isAggregateType(t: ShaderType): boolean {
  *  interpreter and by the generated code alike, so the two stay bit-identical. A scalar
  *  binding is untouched, which is the overwhelming majority of them. */
 export function cloneValue(v: CpuValue): CpuValue {
-  if (Array.isArray(v)) return v.map(cloneValue) as CpuValue
+  if (Array.isArray(v)) return v.map(cloneValue) as CpuValue;
   if (typeof v === 'object' && v !== null) {
-    const out: Record<string, CpuValue> = {}
-    for (const [k, x] of Object.entries(v as Record<string, CpuValue>)) out[k] = cloneValue(x)
-    return out as CpuValue
+    const out: Record<string, CpuValue> = {};
+    for (const [k, x] of Object.entries(v as Record<string, CpuValue>)) out[k] = cloneValue(x);
+    return out as CpuValue;
   }
-  return v
+  return v;
 }
 
 export const f32ToU32Sat = (v: number): number =>
-  Number.isNaN(v) ? 0 : Math.min(4294967040, Math.max(0, Math.trunc(v)))
+  Number.isNaN(v) ? 0 : Math.min(4294967040, Math.max(0, Math.trunc(v)));
 export const f32ToI32Sat = (v: number): number =>
-  Number.isNaN(v) ? 0 : Math.min(2147483520, Math.max(-2147483648, Math.trunc(v)))
+  Number.isNaN(v) ? 0 : Math.min(2147483520, Math.max(-2147483648, Math.trunc(v)));
 
 /** A zero of the same shape as `v`: component-wise for a vector or matrix, the scalar 0
  *  otherwise. Used by the derivative stubs, which have no real value to give but must not
  *  change the shape the rest of the expression is typed for. */
-const zeroLike = (v: CpuValue): CpuValue => (isArr(v) ? (v as number[]).map(() => 0) : 0)
+const zeroLike = (v: CpuValue): CpuValue => (isArr(v) ? (v as number[]).map(() => 0) : 0);
 
 /** One component of an element-CONVERTING vector constructor, `vecN<T>(v: vecN<S>)`
  *  (`vec3<f32>(v)` in WGSL, `vec3(uv)` in GLSL ES 3.00). WGSL converts every component the
@@ -1000,26 +1000,26 @@ const zeroLike = (v: CpuValue): CpuValue => (isArr(v) ? (v as number[]).map(() =
  *  Tint, which is the target these rules come from. GLSL ES 3.00 agrees on in-range sources
  *  and promises nothing outside them (see the block above), so it is not a second oracle. */
 export const convertComponent = (v: number, from: ElemKind, to: ElemKind): number => {
-  if (from === to) return v
-  if (to === 'u32') return from === 'f32' || from === 'f64' ? f32ToU32Sat(v) : v >>> 0
-  if (to === 'i32') return from === 'f32' || from === 'f64' ? f32ToI32Sat(v) : v | 0
-  return Number(v)
-}
+  if (from === to) return v;
+  if (to === 'u32') return from === 'f32' || from === 'f64' ? f32ToU32Sat(v) : v >>> 0;
+  if (to === 'i32') return from === 'f32' || from === 'f64' ? f32ToI32Sat(v) : v | 0;
+  return Number(v);
+};
 
 /** Every component of `v` through {@link convertComponent}. The generated CPU code spreads
  *  the result where it would otherwise spread the source array. */
 export const convertComponents = (v: number[], from: ElemKind, to: ElemKind): number[] =>
-  from === to ? v : v.map((c) => convertComponent(c, from, to))
+  from === to ? v : v.map((c) => convertComponent(c, from, to));
 
 /** The element kind of a value of type `t` as {@link convertComponent} names it: a vector's
  *  element, a scalar's own kind, `'f64'` for an emulated double. `undefined` for a type with
  *  no single numeric element kind (a struct, an array, a matrix), where no conversion is
  *  defined and the components pass through. */
 export function elemKindOf(t: ShaderType): ElemKind | undefined {
-  if (t.kind === 'vec') return t.elem
-  if (t.kind === 'scalar') return t.scalar
-  if (t.kind === 'f64') return 'f64'
-  return undefined
+  if (t.kind === 'vec') return t.elem;
+  if (t.kind === 'scalar') return t.scalar;
+  if (t.kind === 'f64') return 'f64';
+  return undefined;
 }
 
 /** The names of every builtin function the CPU backends ({@link compileModule},
@@ -1031,7 +1031,7 @@ export function elemKindOf(t: ShaderType): ElemKind | undefined {
  *
  *  Exported from `typeshade`.
  */
-export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUILTINS))
+export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUILTINS));
 /** The names of every GPU-only intrinsic the CPU backends cannot genuinely evaluate, as a
  *  read-only set: `textureSample`, `textureSampleLevel`, `textureSampleBias`,
  *  `textureSampleGrad`, `textureLoad`, their 2d-array forms (`textureSampleArray`,
@@ -1051,44 +1051,44 @@ export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUI
  *
  *  Exported from `typeshade`.
  */
-export const ORACLE_GPU_STUB_NAMES: ReadonlySet<string> = new Set(Object.keys(GPU_STUBS))
+export const ORACLE_GPU_STUB_NAMES: ReadonlySet<string> = new Set(Object.keys(GPU_STUBS));
 
 function applyMinMax(f: (a: number, b: number) => number, a: CpuValue, b: CpuValue): number[] {
-  if (isArr(a) && isArr(b)) return a.map((x, i) => f(x as number, b[i] as number))
-  if (isArr(a)) return a.map((x) => f(x as number, b as number))
-  return (b as number[]).map((y) => f(a as number, y as number))
+  if (isArr(a) && isArr(b)) return a.map((x, i) => f(x as number, b[i] as number));
+  if (isArr(a)) return a.map((x) => f(x as number, b as number));
+  return (b as number[]).map((y) => f(a as number, y as number));
 }
 function clampVal(x: CpuValue, lo: CpuValue, hi: CpuValue): CpuValue {
   // Component-wise — lo/hi may be scalars (broadcast) or per-component vectors.
   if (isArr(x)) {
-    const loA = isArr(lo) ? (lo as number[]) : null
-    const hiA = isArr(hi) ? (hi as number[]) : null
+    const loA = isArr(lo) ? (lo as number[]) : null;
+    const hiA = isArr(hi) ? (hi as number[]) : null;
     return (x as number[]).map((v, i) =>
       minNum(
         maxNum(v as number, loA ? (loA[i] as number) : (lo as number)),
         hiA ? (hiA[i] as number) : (hi as number),
       ),
-    )
+    );
   }
-  return minNum(maxNum(x as number, lo as number), hi as number)
+  return minNum(maxNum(x as number, lo as number), hi as number);
 }
 // Component-wise — any of a/b/t may be a scalar (broadcast) or a per-component vector,
 // matching WGSL mix() semantics (including a vector interpolant t).
 function mixVal(a: CpuValue, b: CpuValue, t: CpuValue): CpuValue {
   if (isArr(a) || isArr(b) || isArr(t)) {
-    const n = (isArr(a) ? a : isArr(b) ? b : (t as number[])).length
-    const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number))
-    return Array.from({ length: n }, (_, i) => at(a, i) + (at(b, i) - at(a, i)) * at(t, i))
+    const n = (isArr(a) ? a : isArr(b) ? b : (t as number[])).length;
+    const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number));
+    return Array.from({ length: n }, (_, i) => at(a, i) + (at(b, i) - at(a, i)) * at(t, i));
   }
-  return (a as number) + ((b as number) - (a as number)) * (t as number)
+  return (a as number) + ((b as number) - (a as number)) * (t as number);
 }
 
 export function zeroOf(type: ShaderType, structs?: ReadonlyMap<string, StructDecl>): CpuValue {
   // vec64 evaluates natively as a plain number[] (like vec — JS numbers ARE f64).
-  if (type.kind === 'vec') return new Array(type.n).fill(type.elem === 'bool' ? false : 0)
-  if (type.kind === 'vec64') return new Array(type.n).fill(0)
+  if (type.kind === 'vec') return new Array(type.n).fill(type.elem === 'bool' ? false : 0);
+  if (type.kind === 'vec64') return new Array(type.n).fill(0);
   // Column-major, cols * rows components — square only when the shape is.
-  if (type.kind === 'mat') return new Array(type.cols * type.rows).fill(0)
+  if (type.kind === 'mat') return new Array(type.cols * type.rows).fill(0);
   // A STRUCT zero-initialises field by field, the way WGSL's `var s: S;` does. The bare `{}`
   // this used to return left every field absent, so an init-less `var s: S` read `s.a` as
   // `undefined` on both CPU backends while the GPU read 0 — the same family as the array arm
@@ -1096,11 +1096,11 @@ export function zeroOf(type: ShaderType, structs?: ReadonlyMap<string, StructDec
   // of structs. A caller with no struct table (a debug session filling in a missing argument)
   // keeps the old `{}`.
   if (type.kind === 'struct') {
-    const decl = structs?.get(type.name)
-    if (decl === undefined) return {}
-    const obj: Record<string, CpuValue> = {}
-    for (const f of decl.fields) obj[f.name] = zeroOf(f.type, structs)
-    return obj as CpuValue
+    const decl = structs?.get(type.name);
+    if (decl === undefined) return {};
+    const obj: Record<string, CpuValue> = {};
+    for (const f of decl.fields) obj[f.name] = zeroOf(f.type, structs);
+    return obj as CpuValue;
   }
   // An ARRAY needs its own elements, not the scalar 0 the fallthrough gave it: an init-less
   // `var xs: array<f32, 3>` bound the number 0, and the first `xs[0] = 1.` threw
@@ -1109,34 +1109,34 @@ export function zeroOf(type: ShaderType, structs?: ReadonlyMap<string, StructDec
   // the init-less declaration. A runtime-sized array has no length to build, so it starts
   // empty and grows the way a storage binding's does.
   if (type.kind === 'array') {
-    const n = type.size ?? 0
-    return Array.from({ length: n }, () => zeroOf(type.elem, structs)) as CpuValue
+    const n = type.size ?? 0;
+    return Array.from({ length: n }, () => zeroOf(type.elem, structs)) as CpuValue;
   }
   // WGSL zero-initialises a bool to `false`, and the oracle's comparisons take a boolean —
   // the scalar 0 read back as a number where every other backend has a bool.
-  if (type.kind === 'scalar' && type.scalar === 'bool') return false
-  return 0
+  if (type.kind === 'scalar' && type.scalar === 'bool') return false;
+  return 0;
 }
 
 /** matCxR (column-major) × vecC → vecR: the COLUMN-vector product. out[r] = Σ_c m[c*R+r]·v[c].
  *  The shape is passed rather than derived, because a flat list cannot tell a mat2x3 from a
  *  mat3x2 and the two multiply differently (#149). */
 export function matVecShaped(m: number[], v: number[], cols: number, rows: number): number[] {
-  const out = new Array<number>(rows).fill(0)
-  for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) out[r]! += m[c * rows + r]! * v[c]!
-  return out
+  const out = new Array<number>(rows).fill(0);
+  for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) out[r]! += m[c * rows + r]! * v[c]!;
+  return out;
 }
 
 /** vecR × matCxR → vecC: the ROW-vector product, which is `transpose(m) * v`. out[c] is the
  *  dot of v with column c (wgsl.txt:9960-9995). */
 export function vecMatShaped(v: number[], m: number[], cols: number, rows: number): number[] {
-  const out = new Array<number>(cols).fill(0)
+  const out = new Array<number>(cols).fill(0);
   for (let c = 0; c < cols; c++) {
-    let s = 0
-    for (let r = 0; r < rows; r++) s += m[c * rows + r]! * v[r]!
-    out[c] = s
+    let s = 0;
+    for (let r = 0; r < rows; r++) s += m[c * rows + r]! * v[r]!;
+    out[c] = s;
   }
-  return out
+  return out;
 }
 
 /** matKxR × matCxK → matCxR, both column-major. The shared dimension K is A's columns and B's
@@ -1148,14 +1148,14 @@ export function matMulShaped(
   aRows: number,
   bCols: number,
 ): number[] {
-  const out = new Array<number>(bCols * aRows).fill(0)
+  const out = new Array<number>(bCols * aRows).fill(0);
   for (let col = 0; col < bCols; col++)
     for (let row = 0; row < aRows; row++) {
-      let s = 0
-      for (let k = 0; k < aCols; k++) s += a[k * aRows + row]! * b[col * aCols + k]!
-      out[col * aRows + row] = s
+      let s = 0;
+      for (let k = 0; k < aCols; k++) s += a[k * aRows + row]! * b[col * aCols + k]!;
+      out[col * aRows + row] = s;
     }
-  return out
+  return out;
 }
 
 // matNxN (column-major) × vecN → vecN — the square entry point, kept for the callers that
@@ -1163,14 +1163,14 @@ export function matMulShaped(
 // hardcoded mat4 form read m[4+i]/m[8+i]/m[12+i] out of range on a mat2/mat3 and returned
 // silent NaNs.
 export function matVec(m: number[], v: number[]): number[] {
-  const n = v.length
-  return matVecShaped(m, v, n, n)
+  const n = v.length;
+  return matVecShaped(m, v, n, n);
 }
 
 // matNxN × matNxN (both column-major, flat n²), the square entry point.
 export function matMul(a: number[], b: number[]): number[] {
-  const n = Math.round(Math.sqrt(a.length))
-  return matMulShaped(a, b, n, n, n)
+  const n = Math.round(Math.sqrt(a.length));
+  return matMulShaped(a, b, n, n, n);
 }
 
 /** Column `j` of a column-major matrix of `rows` rows: the `vecR` WGSL's and GLSL's `m[j]`
@@ -1178,7 +1178,7 @@ export function matMul(a: number[], b: number[]): number[] {
  *  single component instead of a column — which is what every evaluator did before #149,
  *  silently, because `mat4x4` was the only float matrix and nothing indexed one. */
 export function matColumn(m: number[], j: number, rows: number): number[] {
-  return m.slice(j * rows, j * rows + rows)
+  return m.slice(j * rows, j * rows + rows);
 }
 
 /** Write column `j` of a column-major matrix in place — the twin of {@link matColumn}. A
@@ -1186,24 +1186,25 @@ export function matColumn(m: number[], j: number, rows: number): number[] {
  *  ARRAY into the list and leaves a nested value where `rows` numbers belong; every evaluator
  *  did that, and the GPU (which writes the column properly) disagreed with all three. */
 export function setMatColumn(m: number[], j: number, rows: number, v: readonly number[]): void {
-  for (let r = 0; r < rows; r++) m[j * rows + r] = v[r]!
+  for (let r = 0; r < rows; r++) m[j * rows + r] = v[r]!;
 }
 
 /** Transpose of a column-major matrix of `cols` columns and `rows` rows: the result has
  *  `rows` columns of `cols` components, and element (r, c) of the input becomes (c, r) of the
  *  output. `matTranspose` below keeps the square-only entry point the BUILTINS table uses. */
 export function matTransposeShaped(m: number[], cols: number, rows: number): number[] {
-  const out = new Array<number>(cols * rows).fill(0)
+  const out = new Array<number>(cols * rows).fill(0);
   // Input column c, row r lives at c * rows + r; it belongs at column r, row c of the
   // result, which has `cols` rows per column — so at r * cols + c.
-  for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) out[r * cols + c] = m[c * rows + r]!
-  return out
+  for (let c = 0; c < cols; c++)
+    for (let r = 0; r < rows; r++) out[r * cols + c] = m[c * rows + r]!;
+  return out;
 }
 
 // Transpose of a column-major n² matrix: out[i*n+j] = in[j*n+i]. A flat list cannot say
 // whether six numbers are a mat2x3 or a mat3x2, so only the SQUARE case can be recovered from
 // the length; the oracle reads the static type and calls matTransposeShaped for the rest.
 function matTranspose(m: number[]): number[] {
-  const n = Math.round(Math.sqrt(m.length))
-  return matTransposeShaped(m, n, n)
+  const n = Math.round(Math.sqrt(m.length));
+  return matTransposeShaped(m, n, n);
 }

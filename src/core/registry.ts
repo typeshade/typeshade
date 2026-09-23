@@ -27,11 +27,11 @@
 /** One discovered module, as the caller's scan found it. */
 export interface RegistryEntry {
   /** The stable id: the registry key, and what a pipeline cache or baked artifact names. */
-  readonly id: string
+  readonly id: string;
   /** Module specifier to import from, exactly as it should appear in the generated file. */
-  readonly importPath: string
+  readonly importPath: string;
   /** The exported binding to import from `importPath`. */
-  readonly exportName: string
+  readonly exportName: string;
 }
 
 /** Options for {@link buildRegistry}. */
@@ -39,36 +39,36 @@ export interface BuildRegistryOptions {
   /** The curated id order. When given, it must name every discovered id and no others:
    *  a new module nobody registered, or a registered id whose module was deleted, both make
    *  {@link buildRegistry} throw. Omit to use discovery order. */
-  readonly order?: readonly string[]
+  readonly order?: readonly string[];
   /** Name of the generated union type. Default `RegistryKey`. */
-  readonly typeName?: string
+  readonly typeName?: string;
   /** Name of the generated id → module record. Default `REGISTRY`. */
-  readonly recordName?: string
+  readonly recordName?: string;
   /** Type annotation for a registry value, e.g. `ShaderExample`. Default `unknown`. */
-  readonly valueType?: string
+  readonly valueType?: string;
   /** Extra import line(s) placed above the generated ones, where `valueType` comes from. */
-  readonly imports?: readonly string[]
+  readonly imports?: readonly string[];
   /** The command that regenerates this file. It is named in the generated file's banner and
    *  in the error message when `order` and the discovered set disagree, so a reader who hits
    *  that failure knows what to run. */
-  readonly regenerateWith?: string
+  readonly regenerateWith?: string;
   /** The emit identity the registry's shader artifacts were produced with; pass the string
    *  returned by {@link emitIdentity}. It is recorded in the generated file's banner, so a
    *  committed registry says which emit configuration wrote it. When two builds produce
    *  different output from the same modules, the first line of the diff then names the
    *  difference. */
-  readonly stamp?: string
+  readonly stamp?: string;
 }
 
 /** What {@link buildRegistry} produced. */
 export interface BuiltRegistry {
   /** The rendered TypeScript module. */
-  readonly source: string
+  readonly source: string;
   /** The ids, in the order they appear in the rendered file. */
-  readonly ids: readonly string[]
+  readonly ids: readonly string[];
 }
 
-const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 /**
  * Validate a discovered module set against a curated order and render a registry module
@@ -100,21 +100,21 @@ export function buildRegistry(
   entries: readonly RegistryEntry[],
   opts?: BuildRegistryOptions,
 ): BuiltRegistry {
-  const byId = new Map<string, RegistryEntry>()
+  const byId = new Map<string, RegistryEntry>();
   for (const e of entries) {
-    if (byId.has(e.id)) throw new Error(`typeshade: buildRegistry duplicate id '${e.id}'`)
+    if (byId.has(e.id)) throw new Error(`typeshade: buildRegistry duplicate id '${e.id}'`);
     if (!IDENT.test(e.exportName))
       throw new Error(
         `typeshade: buildRegistry export name '${e.exportName}' for '${e.id}' is not an identifier`,
-      )
-    byId.set(e.id, e)
+      );
+    byId.set(e.id, e);
   }
 
-  let ids: readonly string[] = [...byId.keys()]
+  let ids: readonly string[] = [...byId.keys()];
   if (opts?.order) {
-    const curated = new Set(opts.order)
-    const unknown = opts.order.filter((id) => !byId.has(id))
-    const unregistered = ids.filter((id) => !curated.has(id))
+    const curated = new Set(opts.order);
+    const unknown = opts.order.filter((id) => !byId.has(id));
+    const unregistered = ids.filter((id) => !curated.has(id));
     if (unknown.length || unregistered.length)
       throw new Error(
         `typeshade: buildRegistry order does not match the discovered modules.` +
@@ -123,14 +123,14 @@ export function buildRegistry(
             ? `\n  discovered but not curated: ${unregistered.join(', ')}`
             : '') +
           (opts.regenerateWith ? `\n  regenerate with: ${opts.regenerateWith}` : ''),
-      )
-    ids = opts.order
+      );
+    ids = opts.order;
   }
 
-  const typeName = opts?.typeName ?? 'RegistryKey'
-  const recordName = opts?.recordName ?? 'REGISTRY'
-  const valueType = opts?.valueType ?? 'unknown'
-  const rows = ids.map((id) => byId.get(id)!)
+  const typeName = opts?.typeName ?? 'RegistryKey';
+  const recordName = opts?.recordName ?? 'REGISTRY';
+  const valueType = opts?.valueType ?? 'unknown';
+  const rows = ids.map((id) => byId.get(id)!);
 
   const source = [
     `// GENERATED — DO NOT EDIT.`,
@@ -151,7 +151,7 @@ export function buildRegistry(
     ...rows.map((r) => `  ${JSON.stringify(r.id)}: ${r.exportName},`),
     `}`,
     ``,
-  ].join('\n')
+  ].join('\n');
 
-  return { source, ids }
+  return { source, ids };
 }

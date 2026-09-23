@@ -21,40 +21,40 @@
 //   • No entry points → can't compute reachability (a helper-only func list,
 //     e.g. the `emitFuncsCsed` parity-harness path) → no-op, keep everything.
 
-import { stageOf } from '../../ir/index.js'
-import type { ModuleDecl, FuncDecl } from '../../ir/index.js'
-import { collectFnRefs } from '../../ir/collect-refs.js'
-import { bodyHasRaw } from './dce.js'
+import { stageOf } from '../../ir/index.js';
+import type { ModuleDecl, FuncDecl } from '../../ir/index.js';
+import { collectFnRefs } from '../../ir/collect-refs.js';
+import { bodyHasRaw } from './dce.js';
 
 // Roots = pipeline entries via the shared stage predicate (X-GIS #763 S4) — the old
 // `attrs.length > 0` missed structured-only entries and mistook any attr'd
 // helper for a root.
-const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined
+const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined;
 
 /** Remove functions unreachable from the module's entry points. Pure (module -> module). */
 export function deadFnElim(m: ModuleDecl): ModuleDecl {
   // A raw WGSL stmt may textually call a helper this walk can't see → bail.
-  if (m.funcs.some((f) => bodyHasRaw(f.body))) return m
+  if (m.funcs.some((f) => bodyHasRaw(f.body))) return m;
 
-  const roots = m.funcs.filter(isEntry)
+  const roots = m.funcs.filter(isEntry);
   // Helper-only func list (no entry point) → reachability is undefined; keep all.
-  if (roots.length === 0) return m
+  if (roots.length === 0) return m;
 
-  const byName = new Map(m.funcs.map((f) => [f.name, f]))
-  const reachable = new Set<string>(roots.map((f) => f.name))
-  const stack: FuncDecl[] = [...roots]
+  const byName = new Map(m.funcs.map((f) => [f.name, f]));
+  const reachable = new Set<string>(roots.map((f) => f.name));
+  const stack: FuncDecl[] = [...roots];
   while (stack.length > 0) {
-    const f = stack.pop()!
+    const f = stack.pop()!;
     // Shared walk (ir/collect-refs — the walk SoT); only `calls` matters here.
-    const { calls } = collectFnRefs(f)
+    const { calls } = collectFnRefs(f);
     for (const name of calls) {
       if (byName.has(name) && !reachable.has(name)) {
-        reachable.add(name)
-        stack.push(byName.get(name)!)
+        reachable.add(name);
+        stack.push(byName.get(name)!);
       }
     }
   }
 
-  if (reachable.size === m.funcs.length) return m // nothing unreachable
-  return { ...m, funcs: m.funcs.filter((f) => reachable.has(f.name)) }
+  if (reachable.size === m.funcs.length) return m; // nothing unreachable
+  return { ...m, funcs: m.funcs.filter((f) => reachable.has(f.name)) };
 }

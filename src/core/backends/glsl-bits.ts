@@ -15,7 +15,7 @@
 // the signed `firstLeadingBit` as the highest bit that differs from the sign bit, and the
 // offset and count of `extractBits` and `insertBits` clamped to the 32 bits.
 
-import type { ShaderType } from '../ir/types.js'
+import type { ShaderType } from '../ir/types.js';
 
 /** The GLSL helper each WGSL builtin calls, keyed by the NEUTRAL id.
  *
@@ -38,7 +38,7 @@ export const BIT_HELPER_OF: Readonly<Record<string, string>> = {
   insertBits: '_ibits',
   dotI: '_idot',
   dotU: '_idot',
-}
+};
 
 /** Define-before-use order: a signed overload casts to the unsigned one of the same width,
  *  `_lsb` and `_clz` call `_msb`, `_ctz` calls `_popcnt`. `_idot` is a leaf over the
@@ -53,28 +53,28 @@ const HELPER_ORDER = [
   '_xbits',
   '_ibits',
   '_idot',
-]
-const TYPE_ORDER = ['uint', 'uvec2', 'uvec3', 'uvec4', 'int', 'ivec2', 'ivec3', 'ivec4']
+];
+const TYPE_ORDER = ['uint', 'uvec2', 'uvec3', 'uvec4', 'int', 'ivec2', 'ivec3', 'ivec4'];
 
 /** The GLSL type of a `u32`/`i32` scalar or vector, or `undefined` for anything else. */
 function integerGlslType(t: ShaderType): string | undefined {
   if (t.kind === 'scalar')
-    return t.scalar === 'u32' ? 'uint' : t.scalar === 'i32' ? 'int' : undefined
+    return t.scalar === 'u32' ? 'uint' : t.scalar === 'i32' ? 'int' : undefined;
   if (t.kind === 'vec')
-    return t.elem === 'u32' ? `uvec${t.n}` : t.elem === 'i32' ? `ivec${t.n}` : undefined
-  return undefined
+    return t.elem === 'u32' ? `uvec${t.n}` : t.elem === 'i32' ? `ivec${t.n}` : undefined;
+  return undefined;
 }
 
-const isSigned = (type: string): boolean => type.startsWith('i')
+const isSigned = (type: string): boolean => type.startsWith('i');
 /** `int` to `uint`, `ivec3` to `uvec3`. */
-const unsignedOf = (type: string): string => (type === 'int' ? 'uint' : `u${type.slice(1)}`)
-const isVector = (type: string): boolean => type.includes('vec')
+const unsignedOf = (type: string): string => (type === 'int' ? 'uint' : `u${type.slice(1)}`);
+const isVector = (type: string): boolean => type.includes('vec');
 
 /** `x >= c` as a `T` of 0s and 1s: GLSL compares vectors through `greaterThanEqual`. */
 const ge = (type: string, c: string): string =>
-  isVector(type) ? `${type}(greaterThanEqual(x, ${type}(${c})))` : `uint(x >= ${c})`
+  isVector(type) ? `${type}(greaterThanEqual(x, ${type}(${c})))` : `uint(x >= ${c})`;
 const eqZero = (type: string): string =>
-  isVector(type) ? `${type}(equal(x, ${type}(0u)))` : `uint(x == 0u)`
+  isVector(type) ? `${type}(equal(x, ${type}(0u)))` : `uint(x == 0u)`;
 
 /** The unsigned body of each helper; a signed overload is written by `signedDef`. */
 function unsignedDef(fn: string, T: string): string {
@@ -85,7 +85,7 @@ function unsignedDef(fn: string, T: string): string {
   x = (x & ${T}(0x33333333u)) + ((x >> 2u) & ${T}(0x33333333u));
   x = (x + (x >> 4u)) & ${T}(0x0F0F0F0Fu);
   return (x * ${T}(0x01010101u)) >> 24u;
-}`
+}`;
     case '_brev':
       return `${T} _brev(${T} x) {
   x = ((x >> 1u) & ${T}(0x55555555u)) | ((x & ${T}(0x55555555u)) << 1u);
@@ -93,7 +93,7 @@ function unsignedDef(fn: string, T: string): string {
   x = ((x >> 4u) & ${T}(0x0F0F0F0Fu)) | ((x & ${T}(0x0F0F0F0Fu)) << 4u);
   x = ((x >> 8u) & ${T}(0x00FF00FFu)) | ((x & ${T}(0x00FF00FFu)) << 8u);
   return (x >> 16u) | (x << 16u);
-}`
+}`;
     case '_msb':
       // A binary search for the highest set bit, componentwise and without a branch: each
       // step shifts a half away when the value reaches it and records the shift. A zero ends
@@ -110,35 +110,35 @@ function unsignedDef(fn: string, T: string): string {
   x >>= s; r |= s;
   r |= x >> 1u;
   return r - ${eqZero(T)};
-}`
+}`;
     case '_lsb':
       // The lowest set bit isolated, then its position; a zero stays zero and gets all ones.
       return `${T} _lsb(${T} x) {
   return _msb(x & (~x + 1u));
-}`
+}`;
     case '_clz':
       // 31 minus the position; for a zero, 31 minus all ones wraps to the 32 WGSL specifies.
       return `${T} _clz(${T} x) {
   return 31u - _msb(x);
-}`
+}`;
     case '_ctz':
       // The bits below the lowest set one, counted; a zero turns into all 32.
       return `${T} _ctz(${T} x) {
   return _popcnt(~x & (x - 1u));
-}`
+}`;
     default:
-      throw new Error(`typeshade: no unsigned GLSL helper ${fn}`)
+      throw new Error(`typeshade: no unsigned GLSL helper ${fn}`);
   }
 }
 
 /** A signed overload: the unsigned helper on the bits, cast back. `_msb` first flips a
  *  negative value so the search finds the highest bit that differs from the sign bit. */
 function signedDef(fn: string, T: string): string {
-  const U = unsignedOf(T)
-  const arg = fn === '_msb' ? `${U}(x ^ (x >> 31))` : `${U}(x)`
+  const U = unsignedOf(T);
+  const arg = fn === '_msb' ? `${U}(x ^ (x >> 31))` : `${U}(x)`;
   return `${T} ${fn}(${T} x) {
   return ${T}(${fn}(${arg}));
-}`
+}`;
 }
 
 /** `extractBits` and `insertBits`, one text for both signednesses: a right shift of a
@@ -151,7 +151,7 @@ function bitfieldDef(fn: string, T: string): string {
   c = min(c, 32u - o);
   if (c == 0u) return ${T}(0);
   return (e << (32u - o - c)) >> (32u - c);
-}`
+}`;
   }
   return `${T} _ibits(${T} e, ${T} n, uint o, uint c) {
   o = min(o, 32u);
@@ -159,7 +159,7 @@ function bitfieldDef(fn: string, T: string): string {
   if (c == 0u) return e;
   ${T} mask = ${T}((0xffffffffu >> (32u - c)) << o);
   return (e & ~mask) | ((n << o) & mask);
-}`
+}`;
 }
 
 /** The integer `dot` (#154): the sum of the component-wise products, which is what WGSL's
@@ -168,32 +168,32 @@ function bitfieldDef(fn: string, T: string): string {
  *  unsigned domain and a signed one in the signed, which is what both targets do to `*` and
  *  `+` anyway. A SCALAR never reaches here — `dot` takes vectors, and the front end says so. */
 function idotDef(T: string): string {
-  const elem = isSigned(T) ? 'int' : 'uint'
-  const n = Number(T.slice(-1))
+  const elem = isSigned(T) ? 'int' : 'uint';
+  const n = Number(T.slice(-1));
   const sum = ['x', 'y', 'z', 'w']
     .slice(0, n)
     .map((c) => `a.${c} * b.${c}`)
-    .join(' + ')
+    .join(' + ');
   return `${elem} _idot(${T} a, ${T} b) {
   return ${sum};
-}`
+}`;
 }
 
 function helperDef(fn: string, T: string): string {
-  if (fn === '_idot') return idotDef(T)
-  if (fn === '_xbits' || fn === '_ibits') return bitfieldDef(fn, T)
-  return isSigned(T) ? signedDef(fn, T) : unsignedDef(fn, T)
+  if (fn === '_idot') return idotDef(T);
+  if (fn === '_xbits' || fn === '_ibits') return bitfieldDef(fn, T);
+  return isSigned(T) ? signedDef(fn, T) : unsignedDef(fn, T);
 }
 
 /** The helpers `fn` on a `T` argument needs defined before it, itself included. */
 function closure(fn: string, T: string, out: Set<string>): void {
-  const key = `${fn} ${T}`
-  if (out.has(key)) return
+  const key = `${fn} ${T}`;
+  if (out.has(key)) return;
   if (fn !== '_xbits' && fn !== '_ibits' && fn !== '_idot' && isSigned(T))
-    closure(fn, unsignedOf(T), out)
-  if (fn === '_lsb' || fn === '_clz') closure('_msb', T, out)
-  if (fn === '_ctz') closure('_popcnt', T, out)
-  out.add(key)
+    closure(fn, unsignedOf(T), out);
+  if (fn === '_lsb' || fn === '_clz') closure('_msb', T, out);
+  if (fn === '_ctz') closure('_popcnt', T, out);
+  out.add(key);
 }
 
 /** The GLSL definitions a module calling the given bit builtins needs, in an order that
@@ -207,21 +207,21 @@ function closure(fn: string, T: string, out: Set<string>): void {
 export function bitHelperDefs(
   calls: Iterable<{ readonly fn: string; readonly argType: ShaderType }>,
 ): string[] {
-  const needed = new Set<string>()
+  const needed = new Set<string>();
   for (const c of calls) {
-    const helper = BIT_HELPER_OF[c.fn]
-    const T = integerGlslType(c.argType)
-    if (helper === undefined || T === undefined) continue
+    const helper = BIT_HELPER_OF[c.fn];
+    const T = integerGlslType(c.argType);
+    if (helper === undefined || T === undefined) continue;
     // `dot` takes vectors; a scalar would generate `int _idot(int a, int b)`, which nothing
     // calls and which the front end never lowers.
-    if (helper === '_idot' && !isVector(T)) continue
-    closure(helper, T, needed)
+    if (helper === '_idot' && !isVector(T)) continue;
+    closure(helper, T, needed);
   }
-  const defs: string[] = []
+  const defs: string[] = [];
   for (const fn of HELPER_ORDER) {
     for (const T of TYPE_ORDER) {
-      if (needed.has(`${fn} ${T}`)) defs.push(helperDef(fn, T))
+      if (needed.has(`${fn} ${T}`)) defs.push(helperDef(fn, T));
     }
   }
-  return defs
+  return defs;
 }

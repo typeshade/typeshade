@@ -14,7 +14,7 @@
 // contraction). That is the real-GPU known-answer e2e's job
 // (playground/e2e/_fp64-known-answer.spec.ts).
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest';
 import {
   fn,
   module,
@@ -30,11 +30,11 @@ import {
   f32T,
   f64FromParts,
   f64Parts,
-} from '../ir/index.js'
-import type { ModuleDecl } from '../ir/index.js'
-import { compileModule, type CpuValue } from '../oracle.js'
-import { fp64Lower } from '../passes/fp64-lower.js'
-import { splitF64 } from './df64-lib.js'
+} from '../ir/index.js';
+import type { ModuleDecl } from '../ir/index.js';
+import { compileModule, type CpuValue } from '../oracle.js';
+import { fp64Lower } from '../passes/fp64-lower.js';
+import { splitF64 } from './df64-lib.js';
 
 // ── The f32-rounding oracle ──
 
@@ -42,7 +42,7 @@ import { splitF64 } from './df64-lib.js'
  *  is what the GPU is. `precision: 'f32'` (X-GIS #2426) replaced a copy of this wrapper in each of
  *  these six files; it additionally rounds literals and parameters, which the copies did not. */
 const f32Oracle = (m: ModuleDecl, opts?: Parameters<typeof fp64Lower>[1]) =>
-  compileModule(fp64Lower(m, opts), { precision: 'f32' })
+  compileModule(fp64Lower(m, opts), { precision: 'f32' });
 
 // ── The kernel module (one fn per operation under test) ──
 
@@ -66,119 +66,119 @@ const m = module({
       f64Parts(f64FromParts(p.hi, p.lo).add(p.b)),
     ),
   ],
-})
+});
 
-const cpu = f32Oracle(m)
+const cpu = f32Oracle(m);
 const val = (r: CpuValue): number => {
-  const [hi, lo] = r as number[]
-  return hi! + lo!
-}
-const pair = (x: number): number[] => splitF64(x)
+  const [hi, lo] = r as number[];
+  return hi! + lo!;
+};
+const pair = (x: number): number[] => splitF64(x);
 
 describe('df64 known answers under f32 rounding (deep cancellation)', () => {
   it('(2^20 + 2^-20) − 2^20 == 2^-20 — 41 significand bits, impossible in f32', () => {
-    const a = 2 ** 20 + 2 ** -20
+    const a = 2 ** 20 + 2 ** -20;
     // Discriminative half: plain f32 loses the tail entirely.
-    expect(Math.fround(Math.fround(a) - 2 ** 20)).toBe(0)
-    const r = cpu.fns.k_add!(pair(a), pair(-(2 ** 20)))
-    expect(val(r)).toBe(2 ** -20)
-  })
+    expect(Math.fround(Math.fround(a) - 2 ** 20)).toBe(0);
+    const r = cpu.fns.k_add!(pair(a), pair(-(2 ** 20)));
+    expect(val(r)).toBe(2 ** -20);
+  });
 
   it('(1e8 + 0.5) − 1e8 == 0.5 — the classic deep-zoom coordinate case', () => {
-    const a = 1e8 + 0.5
-    expect(Math.fround(Math.fround(a) - 1e8)).toBe(0)
-    const r = cpu.fns.k_add!(pair(a), pair(-1e8))
-    expect(val(r)).toBe(0.5)
-  })
+    const a = 1e8 + 0.5;
+    expect(Math.fround(Math.fround(a) - 1e8)).toBe(0);
+    const r = cpu.fns.k_add!(pair(a), pair(-1e8));
+    expect(val(r)).toBe(0.5);
+  });
 
   it('f64FromParts / f64Parts bridge hi/lo lanes losslessly through arithmetic', () => {
-    const [hi, lo] = splitF64(2 ** 20 + 2 ** -20)
-    const r = cpu.fns.k_parts!(hi, lo, pair(-(2 ** 20)))
-    expect(val(r)).toBe(2 ** -20)
-  })
+    const [hi, lo] = splitF64(2 ** 20 + 2 ** -20);
+    const r = cpu.fns.k_parts!(hi, lo, pair(-(2 ** 20)));
+    expect(val(r)).toBe(2 ** -20);
+  });
 
   it('narrow(a) rounds to the nearest f32 — the DOCUMENTED precision loss of toF32', () => {
     // Under f32 rounding hi + lo collapses back to fround(x): narrowing IS lossy.
-    expect(cpu.fns.k_narrow!(pair(1e8 + 0.5))).toBe(Math.fround(1e8 + 0.5))
-  })
-})
+    expect(cpu.fns.k_narrow!(pair(1e8 + 0.5))).toBe(Math.fround(1e8 + 0.5));
+  });
+});
 
 describe('df64 known answers — multiplication / division / sqrt (~48-bit results)', () => {
   it('(1 + 2^-30)² carries the 2^-29 cross term f32 drops', () => {
-    const a = 1 + 2 ** -30
-    const exact = a * a // 1 + 2^-29 + 2^-60 (exact in f64)
-    expect(Math.fround(Math.fround(a) * Math.fround(a))).toBe(1) // f32 loses it all
-    const r = val(cpu.fns.k_mul!(pair(a), pair(a)))
-    expect(Math.abs(r - exact)).toBeLessThan(2 ** -45)
-  })
+    const a = 1 + 2 ** -30;
+    const exact = a * a; // 1 + 2^-29 + 2^-60 (exact in f64)
+    expect(Math.fround(Math.fround(a) * Math.fround(a))).toBe(1); // f32 loses it all
+    const r = val(cpu.fns.k_mul!(pair(a), pair(a)));
+    expect(Math.abs(r - exact)).toBeLessThan(2 ** -45);
+  });
 
   it('π × e to well past f32 precision', () => {
-    const exact = Math.PI * Math.E
-    const f32err = Math.abs(Math.fround(Math.fround(Math.PI) * Math.fround(Math.E)) - exact)
-    const r = val(cpu.fns.k_mul!(pair(Math.PI), pair(Math.E)))
-    const dfErr = Math.abs(r - exact)
-    expect(dfErr).toBeLessThan(exact * 2 ** -44)
-    expect(dfErr).toBeLessThan(f32err / 1e4) // orders of magnitude past f32
-  })
+    const exact = Math.PI * Math.E;
+    const f32err = Math.abs(Math.fround(Math.fround(Math.PI) * Math.fround(Math.E)) - exact);
+    const r = val(cpu.fns.k_mul!(pair(Math.PI), pair(Math.E)));
+    const dfErr = Math.abs(r - exact);
+    expect(dfErr).toBeLessThan(exact * 2 ** -44);
+    expect(dfErr).toBeLessThan(f32err / 1e4); // orders of magnitude past f32
+  });
 
   it('1 ÷ 3 to ~2^-44 relative', () => {
-    const exact = 1 / 3
-    const r = val(cpu.fns.k_div!(pair(1), pair(3)))
-    expect(Math.abs(r - exact)).toBeLessThan(2 ** -44)
-    expect(Math.abs(Math.fround(1 / 3) - exact)).toBeGreaterThan(2 ** -28)
-  })
+    const exact = 1 / 3;
+    const r = val(cpu.fns.k_div!(pair(1), pair(3)));
+    expect(Math.abs(r - exact)).toBeLessThan(2 ** -44);
+    expect(Math.abs(Math.fround(1 / 3) - exact)).toBeGreaterThan(2 ** -28);
+  });
 
   it('√2 to ~2^-44 relative', () => {
-    const r = val(cpu.fns.k_sqrt!(pair(2)))
-    expect(Math.abs(r - Math.SQRT2)).toBeLessThan(2 ** -44)
-    expect(Math.abs(Math.fround(Math.sqrt(2)) - Math.SQRT2)).toBeGreaterThan(2 ** -26)
-  })
+    const r = val(cpu.fns.k_sqrt!(pair(2)));
+    expect(Math.abs(r - Math.SQRT2)).toBeLessThan(2 ** -44);
+    expect(Math.abs(Math.fround(Math.sqrt(2)) - Math.SQRT2)).toBeGreaterThan(2 ** -26);
+  });
 
   it('√0 == 0 exactly (the zero guard)', () => {
-    expect(cpu.fns.k_sqrt!(pair(0))).toEqual([0, 0])
-  })
-})
+    expect(cpu.fns.k_sqrt!(pair(0))).toEqual([0, 0]);
+  });
+});
 
 describe('df64 known answers — comparisons / selection / floor family', () => {
   it('lexicographic compare distinguishes values f32 cannot', () => {
-    const a = pair(2 ** 20 + 2 ** -20)
-    const b = pair(2 ** 20)
-    expect(Math.fround(2 ** 20 + 2 ** -20)).toBe(2 ** 20) // f32-equal
-    expect(cpu.fns.k_lt!(b, a)).toBe(1) // b < a via the lo word
-    expect(cpu.fns.k_lt!(a, b)).toBe(0)
-    expect(val(cpu.fns.k_min!(a, b) as CpuValue)).toBe(2 ** 20)
-    expect(val(cpu.fns.k_max!(a, b) as CpuValue)).toBe(2 ** 20 + 2 ** -20)
-  })
+    const a = pair(2 ** 20 + 2 ** -20);
+    const b = pair(2 ** 20);
+    expect(Math.fround(2 ** 20 + 2 ** -20)).toBe(2 ** 20); // f32-equal
+    expect(cpu.fns.k_lt!(b, a)).toBe(1); // b < a via the lo word
+    expect(cpu.fns.k_lt!(a, b)).toBe(0);
+    expect(val(cpu.fns.k_min!(a, b) as CpuValue)).toBe(2 ** 20);
+    expect(val(cpu.fns.k_max!(a, b) as CpuValue)).toBe(2 ** 20 + 2 ** -20);
+  });
 
   it('abs negates the pair componentwise', () => {
-    expect(val(cpu.fns.k_abs!(pair(-(1e8 + 0.5))))).toBe(1e8 + 0.5)
-  })
+    expect(val(cpu.fns.k_abs!(pair(-(1e8 + 0.5))))).toBe(1e8 + 0.5);
+  });
 
   it('mix(a, b, 0.5) hits the midpoint at f64 resolution', () => {
     const a = 1e8,
-      b = 1e8 + 1
-    const r = val(cpu.fns.k_mix!(pair(a), pair(b), 0.5))
-    expect(r).toBe(1e8 + 0.5)
-  })
+      b = 1e8 + 1;
+    const r = val(cpu.fns.k_mix!(pair(a), pair(b), 0.5));
+    expect(r).toBe(1e8 + 0.5);
+  });
 
   it('floor: the lo word decides when hi is already integral', () => {
     // 2^30 + 0.5 splits as [2^30, 0.5] (0.5 < ulp(2^30)/2 in f32).
-    expect(val(cpu.fns.k_floor!(pair(2 ** 30 + 0.5)))).toBe(2 ** 30)
+    expect(val(cpu.fns.k_floor!(pair(2 ** 30 + 0.5)))).toBe(2 ** 30);
     // Negative side: floor(−2^30 − 0.5) = −2^30 − 1.
-    expect(val(cpu.fns.k_floor!(pair(-(2 ** 30) - 0.5)))).toBe(-(2 ** 30) - 1)
-  })
+    expect(val(cpu.fns.k_floor!(pair(-(2 ** 30) - 0.5)))).toBe(-(2 ** 30) - 1);
+  });
 
   it('fract survives a magnitude f32 cannot hold', () => {
-    expect(val(cpu.fns.k_fract!(pair(1e8 + 0.25)))).toBe(0.25)
-  })
-})
+    expect(val(cpu.fns.k_fract!(pair(1e8 + 0.25)))).toBe(0.25);
+  });
+});
 
 describe('metamorphic gate — oracle(fp64Lower(m)) ≈ oracle(m)', () => {
   // In EXACT arithmetic the EFT error terms vanish, so the lowered module must
   // reproduce the authored module's native-f64 oracle values (up to the lo·lo
   // cross terms df64 legitimately drops, ~2^-48 relative).
-  const authored = compileModule(m)
-  const lowered = compileModule(fp64Lower(m))
+  const authored = compileModule(m);
+  const lowered = compileModule(fp64Lower(m));
 
   const CASES: Array<[number, number]> = [
     [1e8 + 0.5, -1e8],
@@ -186,22 +186,22 @@ describe('metamorphic gate — oracle(fp64Lower(m)) ≈ oracle(m)', () => {
     [1 + 2 ** -30, 1 - 2 ** -30],
     [123456.789, 0.000123456],
     [-9876543.21, 3.14159],
-  ]
+  ];
 
   it.each(['k_add', 'k_mul', 'k_div'] as const)('%s agrees across the two paths', (name) => {
     for (const [a, b] of CASES) {
-      const exact = authored.fns[name]!(a, b) as number
-      const low = val(lowered.fns[name]!(pair(a), pair(b)))
-      expect(Math.abs(low - exact)).toBeLessThanOrEqual(Math.abs(exact) * 2 ** -40 + 2 ** -40)
+      const exact = authored.fns[name]!(a, b) as number;
+      const low = val(lowered.fns[name]!(pair(a), pair(b)));
+      expect(Math.abs(low - exact)).toBeLessThanOrEqual(Math.abs(exact) * 2 ** -40 + 2 ** -40);
     }
-  })
+  });
 
   it('k_sqrt agrees across the two paths', () => {
     for (const [a] of CASES) {
-      const x = Math.abs(a)
-      const exact = authored.fns.k_sqrt!(x) as number
-      const low = val(lowered.fns.k_sqrt!(pair(x)))
-      expect(Math.abs(low - exact)).toBeLessThanOrEqual(Math.abs(exact) * 2 ** -40)
+      const x = Math.abs(a);
+      const exact = authored.fns.k_sqrt!(x) as number;
+      const low = val(lowered.fns.k_sqrt!(pair(x)));
+      expect(Math.abs(low - exact)).toBeLessThanOrEqual(Math.abs(exact) * 2 ** -40);
     }
-  })
-})
+  });
+});

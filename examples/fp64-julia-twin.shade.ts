@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -39,79 +39,79 @@
 //   ITER     = 128
 
 class Uniforms {
-  center: vec2f64 // one DF64Vec2 slot, the host packs [hi.x, hi.y, lo.x, lo.y]
-  resolution: vec2
-  zoom_exp: f32 // view span = 10^-zoom_exp complex units
-  fp64: f32 // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  center: vec2f64; // one DF64Vec2 slot, the host packs [hi.x, hi.y, lo.x, lo.y]
+  resolution: vec2;
+  zoom_exp: f32; // view span = 10^-zoom_exp complex units
+  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
-declare const u: uniform<Uniforms>
+declare const u: uniform<Uniforms>;
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): VsOut {
-  const x = f32(vi & 1) * 4. - 1.
-  const y = f32(vi >> 1) * 4. - 1.
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) }
+  const x = f32(vi & 1) * 4. - 1.;
+  const y = f32(vi >> 1) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 @fragment
 export function fs_julia(vo: VsOut): vec4 {
-  const span = pow(10.0, -u.zoom_exp)
+  const span = pow(10.0, -u.zoom_exp);
   // Each half maps its own 0..1 sub-range onto the SAME complex window
   // (pan lives on the HOST in full double precision, see fp64-mandelbrot.ts).
-  const half = vo.uv.x * 2.0
-  const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0)
-  const dx = (sx - 0.5) * span
-  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2.0)
+  const half = vo.uv.x * 2.0;
+  const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
+  const dx = (sx - 0.5) * span;
+  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2.0);
 
-  let it = 0.
-  let m2 = 0. // |z|^2 at escape (frozen once the guard fails)
+  let it = 0.;
+  let m2 = 0.; // |z|^2 at escape (frozen once the guard fails)
   if (vo.uv.x < 0.5 || u.fp64 < 0.5) {
     // f32 twin: z0 built from the narrowed center. At deep zoom the pixel
     // coordinate quantizes to f32 ulps and whole columns collapse.
-    let zx = f32(u.center.x) + dx
-    let zy = f32(u.center.y) + dy
+    let zx = f32(u.center.x) + dx;
+    let zy = f32(u.center.y) + dy;
     for (let j: u32 = 0; j < 128; j++) {
       if (zx * zx + zy * zy <= 16.0) {
-        const nzx = zx * zx - zy * zy + -0.8
-        zy = zx * zy * 2.0 + 0.156
-        zx = nzx
-        it = it + 1.0
+        const nzx = zx * zx - zy * zy + -0.8;
+        zy = zx * zy * 2.0 + 0.156;
+        zx = nzx;
+        it = it + 1.0;
       }
     }
-    m2 = zx * zx + zy * zy
+    m2 = zx * zx + zy * zy;
   } else {
     // f64: identical authoring, z0 keeps its extended-precision position. The
     // literals beside an f64 are lifted to full doubles (§39), and `f64(dx)`
     // widens the f32 pixel offset exactly.
-    let zx = u.center.x + f64(dx)
-    let zy = u.center.y + f64(dy)
+    let zx = u.center.x + f64(dx);
+    let zy = u.center.y + f64(dy);
     for (let j: u32 = 0; j < 128; j++) {
       if (zx * zx + zy * zy <= 16.0) {
-        const nzx = zx * zx - zy * zy + -0.8
-        zy = zx * zy * 2.0 + 0.156
-        zx = nzx
-        it = it + 1.0
+        const nzx = zx * zx - zy * zy + -0.8;
+        zy = zx * zy * 2.0 + 0.156;
+        zx = nzx;
+        it = it + 1.0;
       }
     }
-    m2 = f32(zx * zx + zy * zy)
+    m2 = f32(zx * zx + zy * zy);
   }
 
   // Smooth escape time (the same log2 log2 treatment as fp64-mandelbrot.ts)
   // through a cool cosine palette; interior stays black.
-  const sn = it - log2(max(log2(max(m2, 1.0001)), 0.0001)) + 1.0
-  const inside = step(128. - 0.5, it)
-  const s = sn / 128.
-  const ph = vec3(0.0, 0.25, 0.6)
+  const sn = it - log2(max(log2(max(m2, 1.0001)), 0.0001)) + 1.0;
+  const inside = step(128. - 0.5, it);
+  const s = sn / 128.;
+  const ph = vec3(0.0, 0.25, 0.6);
   // Annotated for the EDITOR, not for the compiler. TypeScript types
   // `vec3 * scalar` as `number`, so `rgb` would lose its lanes and draw TS2345
   // at the `vec4(...)` that returns it, on a program that compiles (issue #43).
   // Emit-neutral: the WGSL and GLSL are byte-identical without it.
-  const rgb: vec3 = (vec3(0.5) + cos(ph + s * 5.5 + 2.2) * 0.5) * mix(0.35, 1.0, s) * (1. - inside)
-  return vec4(rgb, 1.)
+  const rgb: vec3 = (vec3(0.5) + cos(ph + s * 5.5 + 2.2) * 0.5) * mix(0.35, 1.0, s) * (1. - inside);
+  return vec4(rgb, 1.);
 }

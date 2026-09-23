@@ -34,12 +34,12 @@
 
 ## Core idea
 
-| Not this | This |
-|----------|------|
+| Not this                            | This                                      |
+| ----------------------------------- | ----------------------------------------- |
 | Giant compiler/runtime from day one | Incremental lowering into **existing** IR |
-| Parallel type system | Map TS types onto **existing** ShaderType |
-| Parallel call graph | Reuse `declRef` / module collection |
-| Early graph / kernel | **Phase 1–12 first**; graph from Phase 18 |
+| Parallel type system                | Map TS types onto **existing** ShaderType |
+| Parallel call graph                 | Reuse `declRef` / module collection       |
+| Early graph / kernel                | **Phase 1–12 first**; graph from Phase 18 |
 
 `"use typeshade";` means: this file is a **TypeShade program source**, not JS that happens to look like math.
 
@@ -47,31 +47,31 @@
 
 ## Phase map (0–22)
 
-| # | Name | Milestone |
-|---|------|-----------|
-| 0 | Language Contract | A |
-| 1 | Directive / Source Detection | A |
-| 2 | TS Type → TypeShade Type | A |
-| 3 | Expression Compiler | A |
-| 4 | Statement Compiler | A |
-| 5 | Function Compiler | A |
-| 6 | Module / Import / Export | B |
-| 7 | Intrinsic / Builtin | B |
-| 8 | Structured Types | B |
-| 9 | Control Flow | B |
-| 10 | Diagnostics / Source Map | B |
-| 11 | Existing Backend Integration | B |
-| 12 | Semantic Validation | B |
-| 13 | Static Analysis | C |
-| 14 | Compile-time Evaluation | C |
-| 15 | Specialization | C |
-| 16 | Kernel / Compute Entry | D |
-| 17 | Host ↔ TypeShade Boundary | D |
-| 18 | Execution Graph | D |
-| 19 | Optimization | E |
-| 20 | Runtime / CPU / GPU | E |
-| 21 | Verification / Debugging | F |
-| 22 | Tooling | F |
+| #   | Name                         | Milestone |
+| --- | ---------------------------- | --------- |
+| 0   | Language Contract            | A         |
+| 1   | Directive / Source Detection | A         |
+| 2   | TS Type → TypeShade Type     | A         |
+| 3   | Expression Compiler          | A         |
+| 4   | Statement Compiler           | A         |
+| 5   | Function Compiler            | A         |
+| 6   | Module / Import / Export     | B         |
+| 7   | Intrinsic / Builtin          | B         |
+| 8   | Structured Types             | B         |
+| 9   | Control Flow                 | B         |
+| 10  | Diagnostics / Source Map     | B         |
+| 11  | Existing Backend Integration | B         |
+| 12  | Semantic Validation          | B         |
+| 13  | Static Analysis              | C         |
+| 14  | Compile-time Evaluation      | C         |
+| 15  | Specialization               | C         |
+| 16  | Kernel / Compute Entry       | D         |
+| 17  | Host ↔ TypeShade Boundary    | D         |
+| 18  | Execution Graph              | D         |
+| 19  | Optimization                 | E         |
+| 20  | Runtime / CPU / GPU          | E         |
+| 21  | Verification / Debugging     | F         |
+| 22  | Tooling                      | F         |
 
 ---
 
@@ -170,7 +170,7 @@ export function foo(x: f32): f32 { return square(x) + 1; }
 ```
 
 Module graph + call graph via existing `declRef` / transitive collection.  
-*(Former “Phase 6b call” is the single-file subset of this.)*
+_(Former “Phase 6b call” is the single-file subset of this.)_
 
 **Status:** done (`module.ts` `compileTsSources(files, entry)`; `module.test.ts`). Relative named imports only; the resolver rejects
 default / namespace / bare-specifier imports and unexported names. Not yet on the package
@@ -181,7 +181,7 @@ entry surface — deep import only.
 `sin` `cos` `normalize` `dot` `mix` `mod` …  
 Constructors: `vec3f(...)`, `mat4x4(...)` (the `matCxRf` aliases are not spelled; `docs/language-design.md` Appendix A)  
 TS call → neutral intrinsic → existing WGSL/GLSL spelling registry.  
-*(Former “Phase 6a construct/member” overlaps here + Phase 8.)*
+_(Former “Phase 6a construct/member” overlaps here + Phase 8.)_
 
 **Status:** done (`math-alias.ts`, `math-expand.ts`, `lower/expression-call.ts` `VEC_CTOR`,
 `numeric.ts` scalar casts; `math-alias.test.ts`, `math-expand.test.ts`,
@@ -254,6 +254,7 @@ stage / builtin compatibility). Tests: `semantic.test.ts`, `bindings.test.ts`,
 ## Milestone C — “Compiler understands computation” (13–15)
 
 ### Phase 13 — Static Analysis 🟨 partial
+
 type, shape, constancy, uniformity, R/W, side effects, ranges
 
 Three pieces have landed: derivative and barrier uniformity
@@ -261,9 +262,11 @@ Three pieces have landed: derivative and barrier uniformity
 which binding (`passes/effects.ts`), and the determinism report (surface §38).
 
 ### Phase 14 — Compile-time Evaluation ⬜
+
 Fold what is static; bake static matrices/transforms
 
 ### Phase 15 — Specialization ⬜
+
 e.g. translation-only mat4; drop unused vector lanes
 
 ---
@@ -271,18 +274,21 @@ e.g. translation-only mat4; drop unused vector lanes
 ## Milestone D — “Computation platform” (16–18)
 
 ### Phase 16 — Kernel / Compute Entry ⬜
+
 `@kernel` vs `@compute` semantics; Kernel IR
 
 Not started. `@compute([x,y,z])` lowers to a WGSL compute entry (Phase 9 / 11), but there
 is no `@kernel` decorator and no Kernel IR in `src/compiler/ts/`.
 
 ### Phase 17 — Host ↔ TypeShade Boundary ⬜
+
 buffer upload/download, ownership, sync
 
-Not started. `pack.ts` emits the *slot table* the host binds against; upload / download,
+Not started. `pack.ts` emits the _slot table_ the host binds against; upload / download,
 ownership and sync stay entirely with the host application.
 
 ### Phase 18 — Execution Graph ⬜
+
 `map` / `sum` style pipelines → graph IR  
 **Do not start this before Phase 1–12 are solid.**
 
@@ -291,6 +297,7 @@ ownership and sync stay entirely with the host application.
 ## Milestone E — “Compiler decides how/where” (19–20)
 
 ### Phase 19 — Optimization 🟨 partial
+
 fusion, DCE, buffer reuse, layout, scheduling hints
 
 The IR optimizer (`src/core/passes/opt/`: constant folding and propagation, CSE, GVN, LICM,
@@ -298,6 +305,7 @@ DCE, unrolling) runs in every emit; fusion, buffer reuse and scheduling do not
 exist.
 
 ### Phase 20 — Runtime ⬜
+
 CPU executor + GPU dispatch + residency / pipeline cache
 
 ---
@@ -305,12 +313,14 @@ CPU executor + GPU dispatch + residency / pipeline cache
 ## Milestone F — “Verifiable system” (21–22)
 
 ### Phase 21 — Verification / Debugging 🟨 partial
+
 CPU oracle vs GPU; source → IR → kernel → run trace
 
 The f64 CPU oracle and a source-level stepper over it (`typeshade/debug`, `docs/debugging.md`)
 exist; a caller-facing GPU-versus-oracle comparison does not (roadmap 0.7 item 19).
 
 ### Phase 22 — Tooling 🟨 partial
+
 `typeshade build | check | inspect | profile | explain`
 
 `typeshadeVite()` (`vite.ts`, `vite.test.ts`) compiles `*.shade.ts` at build time and
@@ -322,9 +332,9 @@ fails the build on an error diagnostic, and the language service
 
 ## Development order (repo practice)
 
-1. **Never** build all 22 in parallel.  
-2. **Never** introduce Execution Graph before Milestone B closes.  
-3. Work **one phase (or tight sub-phase) at a time**, with tests.  
+1. **Never** build all 22 in parallel.
+2. **Never** introduce Execution Graph before Milestone B closes.
+3. Work **one phase (or tight sub-phase) at a time**, with tests.
 4. Prefer IR identity with `fn()` over “looks similar”.
 
 ```
@@ -340,31 +350,31 @@ Milestone F  (21–22) <- Phase 21 partial (oracle + stepper), Phase 22 partial 
 
 ## Current tracking (repo)
 
-| Phase | State | Notes |
-|-------|--------|--------|
-| 0 Contract | partial | policies in plan; full spec TBD |
-| 1 Directive | ✅ | `directive.ts`, `source-file.ts` |
-| 2 Types | ✅ min | `type-map.ts`; expand under same phase number later |
-| 3 Expr | ✅ | `lower/expression*.ts`; member/index/call landed with 7–8 |
-| 4 Stmt | ✅ | `lower/statement.ts` |
-| 5 Func | ✅ | + 5.1 IR equality (`ir-equality.test.ts`) |
-| 6 Module/Import | ✅ | `module.ts`; relative named imports, deep import only |
-| 7 Intrinsic | ✅ | `math-alias.ts`, `math-expand.ts`, `lower/expression-call.ts` (+ constructors) |
-| 8 Structured | ✅ | `structs.ts`, `lower/expression-prop.ts`, `lower/index-select.ts` |
-| 9 Control flow | ✅ | `lower/control.ts`, `loop-bound.ts`; `control-flow.test.ts` |
-| 10 Diagnostics | 🟨 partial | `codes.ts` `TS8001`–`TS8099` + spans on the IR; **no WGSL source map** |
-| 11 Backend | ✅ | `compile.ts`, `pack.ts` → WGSL / GLSL / CPU; usability gate passed |
-| 12 Semantic val | ✅ | `semantic.ts`, `bindings.ts`; host APIs, address space, stages |
-| 13 Static analysis | 🟨 partial | uniformity (§54), effect table, determinism report |
-| 14 Const eval | ⬜ | `lit-coerce.ts` folds numeric-literal arithmetic; the IR optimizer folds and propagates constants |
-| 15 Specialization | ⬜ | |
-| 16 Kernel | ⬜ | `@compute` exists; no `@kernel`, no Kernel IR |
-| 17 Host boundary | ⬜ | `pack.ts` gives the slot table; no upload/download/sync |
-| 18 Execution graph | ⬜ | blocked on Phase 10 closing Milestone B |
-| 19 Optimization | 🟨 partial | IR optimizer (`passes/opt/`); no fusion or buffer reuse |
-| 20 Runtime | ⬜ | |
-| 21 Verification | 🟨 partial | oracle + stepper (`typeshade/debug`); no GPU divergence report |
-| 22 Tooling | 🟨 partial | `vite.ts` Vite plugin, language service; no `typeshade` CLI |
+| Phase              | State      | Notes                                                                                             |
+| ------------------ | ---------- | ------------------------------------------------------------------------------------------------- |
+| 0 Contract         | partial    | policies in plan; full spec TBD                                                                   |
+| 1 Directive        | ✅         | `directive.ts`, `source-file.ts`                                                                  |
+| 2 Types            | ✅ min     | `type-map.ts`; expand under same phase number later                                               |
+| 3 Expr             | ✅         | `lower/expression*.ts`; member/index/call landed with 7–8                                         |
+| 4 Stmt             | ✅         | `lower/statement.ts`                                                                              |
+| 5 Func             | ✅         | + 5.1 IR equality (`ir-equality.test.ts`)                                                         |
+| 6 Module/Import    | ✅         | `module.ts`; relative named imports, deep import only                                             |
+| 7 Intrinsic        | ✅         | `math-alias.ts`, `math-expand.ts`, `lower/expression-call.ts` (+ constructors)                    |
+| 8 Structured       | ✅         | `structs.ts`, `lower/expression-prop.ts`, `lower/index-select.ts`                                 |
+| 9 Control flow     | ✅         | `lower/control.ts`, `loop-bound.ts`; `control-flow.test.ts`                                       |
+| 10 Diagnostics     | 🟨 partial | `codes.ts` `TS8001`–`TS8099` + spans on the IR; **no WGSL source map**                            |
+| 11 Backend         | ✅         | `compile.ts`, `pack.ts` → WGSL / GLSL / CPU; usability gate passed                                |
+| 12 Semantic val    | ✅         | `semantic.ts`, `bindings.ts`; host APIs, address space, stages                                    |
+| 13 Static analysis | 🟨 partial | uniformity (§54), effect table, determinism report                                                |
+| 14 Const eval      | ⬜         | `lit-coerce.ts` folds numeric-literal arithmetic; the IR optimizer folds and propagates constants |
+| 15 Specialization  | ⬜         |                                                                                                   |
+| 16 Kernel          | ⬜         | `@compute` exists; no `@kernel`, no Kernel IR                                                     |
+| 17 Host boundary   | ⬜         | `pack.ts` gives the slot table; no upload/download/sync                                           |
+| 18 Execution graph | ⬜         | blocked on Phase 10 closing Milestone B                                                           |
+| 19 Optimization    | 🟨 partial | IR optimizer (`passes/opt/`); no fusion or buffer reuse                                           |
+| 20 Runtime         | ⬜         |                                                                                                   |
+| 21 Verification    | 🟨 partial | oracle + stepper (`typeshade/debug`); no GPU divergence report                                    |
+| 22 Tooling         | 🟨 partial | `vite.ts` Vite plugin, language service; no `typeshade` CLI                                       |
 
 Docs follow the same rule as code: every `"use typeshade"` block in `README.md` and
 `docs/*.md` is compiled by `src/compiler/ts/doc-snippets.test.ts` and must produce zero
@@ -372,12 +382,12 @@ error diagnostics.
 
 ### Mapping from earlier short plan
 
-| Old | New |
-|-----|-----|
-| Phase 6 Call | ⊂ Phase 6 + 7 |
-| Phase 6a construct/member | ⊂ Phase 7 + 8 |
-| Phase 7 Backend | Phase 11 |
-| Phase 8 Test matrix | continuous; formalized in 11–12 + 21 |
+| Old                       | New                                  |
+| ------------------------- | ------------------------------------ |
+| Phase 6 Call              | ⊂ Phase 6 + 7                        |
+| Phase 6a construct/member | ⊂ Phase 7 + 8                        |
+| Phase 7 Backend           | Phase 11                             |
+| Phase 8 Test matrix       | continuous; formalized in 11–12 + 21 |
 
 ---
 

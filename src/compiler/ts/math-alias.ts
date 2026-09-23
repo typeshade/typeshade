@@ -1,7 +1,7 @@
 // Math.* 1:1 aliases + expansions + GLSL-style free names.
 
-import { isKnownIntrinsic } from '../../core/intrinsics.js'
-import type { ExpandId } from './math-expand.js'
+import { isKnownIntrinsic } from '../../core/intrinsics.js';
+import type { ExpandId } from './math-expand.js';
 
 export const MATH_FN_ALIAS: Readonly<Record<string, string>> = {
   abs: 'abs',
@@ -31,7 +31,7 @@ export const MATH_FN_ALIAS: Readonly<Record<string, string>> = {
   tan: 'tan',
   tanh: 'tanh',
   trunc: 'trunc',
-}
+};
 
 export const MATH_EXPAND_ALIAS: Readonly<Record<string, ExpandId>> = {
   log10: 'log10',
@@ -39,7 +39,7 @@ export const MATH_EXPAND_ALIAS: Readonly<Record<string, ExpandId>> = {
   expm1: 'expm1',
   cbrt: 'cbrt',
   hypot: 'hypot',
-}
+};
 
 export const MATH_FN_ARITY: Readonly<Record<string, number>> = {
   abs: 1,
@@ -115,7 +115,7 @@ export const MATH_FN_ARITY: Readonly<Record<string, number>> = {
   dpdyFine: 1,
   fwidthCoarse: 1,
   fwidthFine: 1,
-}
+};
 
 /** The builtins roadmap 0.2 item 8 added, as one list for the places that enumerate them. */
 export const BREADTH_BUILTINS: readonly string[] = [
@@ -139,7 +139,7 @@ export const BREADTH_BUILTINS: readonly string[] = [
   'dpdyFine',
   'fwidthCoarse',
   'fwidthFine',
-]
+];
 
 export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
   E: Math.E,
@@ -150,7 +150,7 @@ export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
   PI: Math.PI,
   SQRT1_2: Math.SQRT1_2,
   SQRT2: Math.SQRT2,
-}
+};
 
 /** The bit-level builtins #150 made authorable: the ten pack/unpack ids the registry could
  *  already spell, plus `quantizeToF16` and `bitcast`. Listed here so a file that declares its
@@ -179,7 +179,7 @@ export const BIT_BUILTIN_NAMES: readonly string[] = [
   'pack4xI8Clamp',
   'unpack4xU8',
   'unpack4xI8',
-]
+];
 
 /** The builtin names #8 A6 added to this surface, plus the two scalar casts it added.
  *
@@ -210,7 +210,7 @@ export const TEXTURE_BUILTIN_NAMES: readonly string[] = [
   'textureDimensions',
   'textureNumLayers',
   'textureNumSamples',
-]
+];
 
 export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
   // Item 8's builtins: a function the file declares under one of these names keeps the call.
@@ -250,34 +250,34 @@ export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
       cols === rows ? [`mat${cols}x${rows}`, `mat${cols}`] : [`mat${cols}x${rows}`],
     ),
   ),
-])
+]);
 
 export function resolveMathFn(jsName: string): string | undefined {
-  const id = MATH_FN_ALIAS[jsName]
-  if (!id) return undefined
-  if (id !== 'f32' && !isKnownIntrinsic(id) && id !== 'atan2' && id !== 'mod') return undefined
-  return id
+  const id = MATH_FN_ALIAS[jsName];
+  if (!id) return undefined;
+  if (id !== 'f32' && !isKnownIntrinsic(id) && id !== 'atan2' && id !== 'mod') return undefined;
+  return id;
 }
 
 export function resolveMathExpand(name: string): ExpandId | undefined {
-  return MATH_EXPAND_ALIAS[name]
+  return MATH_EXPAND_ALIAS[name];
 }
 
 export function resolveMathConst(jsName: string): number | undefined {
   return Object.prototype.hasOwnProperty.call(MATH_CONST_ALIAS, jsName)
     ? MATH_CONST_ALIAS[jsName]
-    : undefined
+    : undefined;
 }
 
 export function isCanonicalMathFn(name: string): boolean {
-  if (name === 'mod' || MATH_EXPAND_ALIAS[name]) return true
-  if (MATH_FN_ARITY[name] !== undefined && !MATH_FN_ALIAS[name]) return true
-  for (const id of Object.values(MATH_FN_ALIAS)) if (id === name) return true
-  return false
+  if (name === 'mod' || MATH_EXPAND_ALIAS[name]) return true;
+  if (MATH_FN_ARITY[name] !== undefined && !MATH_FN_ALIAS[name]) return true;
+  for (const id of Object.values(MATH_FN_ALIAS)) if (id === name) return true;
+  return false;
 }
 
 export function expectedArity(intrinsicId: string): number | undefined {
-  return MATH_FN_ARITY[intrinsicId]
+  return MATH_FN_ARITY[intrinsicId];
 }
 
 export const LANG_CONST: Readonly<Record<string, number>> = {
@@ -288,10 +288,10 @@ export const LANG_CONST: Readonly<Record<string, number>> = {
   LN10: Math.LN10,
   LOG2E: Math.LOG2E,
   LOG10E: Math.LOG10E,
-}
+};
 
 export function resolveLangConst(name: string): number | undefined {
-  return Object.prototype.hasOwnProperty.call(LANG_CONST, name) ? LANG_CONST[name] : undefined
+  return Object.prototype.hasOwnProperty.call(LANG_CONST, name) ? LANG_CONST[name] : undefined;
 }
 
 /** The intrinsics a module constant may call and a constant expression may fold: the math
@@ -300,7 +300,7 @@ export function resolveLangConst(name: string): number | undefined {
  *  builtin call over constant arguments, so a constant that calls one is emitted as the call
  *  and the GPU computes it; the CPU oracle computes the same call through `BUILTINS`. */
 export function isConstEvaluableMathFn(name: string): boolean {
-  return (name === 'mod' || isCanonicalMathFn(name)) && !DERIVATIVES.has(name)
+  return (name === 'mod' || isCanonicalMathFn(name)) && !DERIVATIVES.has(name);
 }
 
-const DERIVATIVES: ReadonlySet<string> = new Set(['fwidth', 'dpdx', 'dpdy'])
+const DERIVATIVES: ReadonlySet<string> = new Set(['fwidth', 'dpdx', 'dpdy']);

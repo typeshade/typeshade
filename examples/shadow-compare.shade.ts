@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -29,36 +29,36 @@
 // refused for now, with the reason: on GLSL the combined sampler's type is decided by the read,
 // so a texture read both ways needs WebGPU's separate samplers, which a later item adds.
 
-declare const shadowMap: texture_depth_2d
-declare const shadowSmp: sampler_comparison
+declare const shadowMap: texture_depth_2d;
+declare const shadowSmp: sampler_comparison;
 
 // A cascade: one depth texture per distance band, the layer picked per fragment.
-declare const cascades: texture_depth_2d_array
+declare const cascades: texture_depth_2d_array;
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): vec4 {
-  const xs: array<f32, 3> = [-1., 3., -1.]
-  const ys: array<f32, 3> = [-1., -1., 3.]
-  const i = i32(vi)
-  return vec4(xs[i], ys[i], 0., 1.)
+  const xs: array<f32, 3> = [-1., 3., -1.];
+  const ys: array<f32, 3> = [-1., -1., 3.];
+  const i = i32(vi);
+  return vec4(xs[i], ys[i], 0., 1.);
 }
 
 @fragment
 export function fs(@builtin("position") p: vec4): vec4 {
-  const uv: vec2 = fract(p.xy * 0.004)
+  const uv: vec2 = fract(p.xy * 0.004);
   // A stand-in for the light-space depth of this fragment.
-  const depthHere = 0.5 + 0.25 * sin(uv.x * 6.2831)
+  const depthHere = 0.5 + 0.25 * sin(uv.x * 6.2831);
 
   // How lit this fragment is: the fraction of the footprint whose stored depth is not nearer
   // than ours. The implicit LOD form, which is what a fragment stage is for.
-  const lit = textureSampleCompare(shadowMap, shadowSmp, uv, depthHere)
+  const lit = textureSampleCompare(shadowMap, shadowSmp, uv, depthHere);
 
   // The explicit-level form on the cascade array, layer first, then the reference.
-  const band = i32(floor(uv.y * f32(textureNumLayers(cascades))))
-  const litFar = textureSampleCompareLevel(cascades, shadowSmp, uv, band, depthHere)
+  const band = i32(floor(uv.y * f32(textureNumLayers(cascades))));
+  const litFar = textureSampleCompareLevel(cascades, shadowSmp, uv, band, depthHere);
 
-  const size = textureDimensions(shadowMap)
-  const texel = 1. / f32(size.x)
-  const shade = mix(0.15, 1., lit * 0.6 + litFar * 0.4)
-  return vec4(shade * (0.9 - texel), shade * 0.8, shade * 0.6, 1.)
+  const size = textureDimensions(shadowMap);
+  const texel = 1. / f32(size.x);
+  const shade = mix(0.15, 1., lit * 0.6 + litFar * 0.4);
+  return vec4(shade * (0.9 - texel), shade * 0.8, shade * 0.6, 1.);
 }

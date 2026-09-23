@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -37,34 +37,34 @@
 // the picture is the same one.
 
 class Tint {
-  rgb: vec4
+  rgb: vec4;
 }
 
-declare const albedo: texture_2d<f32>
-declare const smp: sampler
-declare const tint: uniform<Tint>
+declare const albedo: texture_2d<f32>;
+declare const smp: sampler;
+declare const tint: uniform<Tint>;
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.
-  const y = f32(vi >> u32(1)) * 4. - 1.
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) }
+  const x = f32(vi & u32(1)) * 4. - 1.;
+  const y = f32(vi >> u32(1)) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 // The two samples the branch below chooses between. Both are called from uniform control flow
 // inside this helper; what is not uniform is the branch in the entry that picks one.
 function sharp(uv: vec2): vec4 {
-  return textureSample(albedo, smp, uv)
+  return textureSample(albedo, smp, uv);
 }
 
 function wide(uv: vec2): vec4 {
-  const inner: vec2 = uv * 0.5
-  return textureSample(albedo, smp, inner)
+  const inner: vec2 = uv * 0.5;
+  return textureSample(albedo, smp, inner);
 }
 
 @diagnostic("off", "derivative_uniformity")
@@ -73,18 +73,18 @@ export function fs(v: VsOut): vec4 {
   // The sample under a NON-uniform condition — `v.uv` is a @location input, so the two sides
   // of this branch are taken by different invocations of the same quad. Legal only because
   // this entry carries the directive; delete that line and this is the refusal §54 is about.
-  let base: vec4 = vec4(0., 0., 0., 1.)
+  let base: vec4 = vec4(0., 0., 0., 1.);
   if (v.uv.x > 0.5) {
-    base = sharp(v.uv)
+    base = sharp(v.uv);
   } else {
-    base = wide(v.uv)
+    base = wide(v.uv);
   }
   // A UNIFORM condition: one value for the whole draw, so every invocation takes the same
   // side and the sample under it needs no directive.
   if (tint.rgb.w > 0.5) {
-    const near: vec2 = v.uv * 0.75
-    const warm: vec4 = textureSample(albedo, smp, near)
-    return vec4(base.xyz * tint.rgb.xyz + warm.xyz * 0.25, 1.)
+    const near: vec2 = v.uv * 0.75;
+    const warm: vec4 = textureSample(albedo, smp, near);
+    return vec4(base.xyz * tint.rgb.xyz + warm.xyz * 0.25, 1.);
   }
-  return vec4(base.xyz * tint.rgb.xyz, 1.)
+  return vec4(base.xyz * tint.rgb.xyz, 1.);
 }

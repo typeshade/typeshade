@@ -1,5 +1,5 @@
-import type { Stmt } from '../../../ir/index.js'
-import type { LintRule } from '../engine.js'
+import type { Stmt } from '../../../ir/index.js';
+import type { LintRule } from '../engine.js';
 
 function reportUnreachable(
   body: readonly Stmt[],
@@ -8,20 +8,20 @@ function reportUnreachable(
 ): void {
   body.forEach((s, i) => {
     const terminator =
-      s.s === 'return' || s.s === 'discard' || s.s === 'break' || s.s === 'continue'
+      s.s === 'return' || s.s === 'discard' || s.s === 'break' || s.s === 'continue';
     if (terminator && i < body.length - 1) {
-      report(`unreachable statement after '${s.s}' in fn '${fnName}'`, { fn: fnName })
+      report(`unreachable statement after '${s.s}' in fn '${fnName}'`, { fn: fnName });
     }
     if (s.s === 'if') {
-      for (const arm of s.arms) reportUnreachable(arm.body, fnName, report)
-      if (s.elseBody) reportUnreachable(s.elseBody, fnName, report)
+      for (const arm of s.arms) reportUnreachable(arm.body, fnName, report);
+      if (s.elseBody) reportUnreachable(s.elseBody, fnName, report);
     } else if (s.s === 'for') {
-      reportUnreachable(s.body, fnName, report)
+      reportUnreachable(s.body, fnName, report);
     } else if (s.s === 'switch') {
-      for (const c of s.cases) reportUnreachable(c.body, fnName, report)
-      if (s.defaultBody) reportUnreachable(s.defaultBody, fnName, report)
+      for (const c of s.cases) reportUnreachable(c.body, fnName, report);
+      if (s.defaultBody) reportUnreachable(s.defaultBody, fnName, report);
     }
-  })
+  });
 }
 
 /** No statements after a return / discard / break / continue in the same block. */
@@ -32,7 +32,7 @@ export const noUnreachable: LintRule = {
   category: 'correctness',
   create: (ctx) => ({
     Func(f) {
-      reportUnreachable(f.body, f.name, ctx.report)
+      reportUnreachable(f.body, f.name, ctx.report);
     },
   }),
-}
+};

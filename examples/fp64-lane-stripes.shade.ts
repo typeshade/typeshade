@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -35,25 +35,25 @@
 
 class Uniforms {
   // One vec2<f32> slot on both targets; the host writes splitF64(origin) into it.
-  origin: f64
+  origin: f64;
   // World units swept across the screen.
-  span: f32
+  span: f32;
 }
 
-declare const u: uniform<Uniforms>
+declare const u: uniform<Uniforms>;
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
   // No f64 here, and no words standing in for one: `@location(1) origin: f64` is refused at
   // this declaration, and the fragment stage reads `u.origin` instead.
 }
 
 @vertex
 export function vs(@builtin("vertex_index") idx: u32): VsOut {
-  const x = f32(idx & 1) * 4. - 1.
-  const y = f32(idx >> 1) * 4. - 1.
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) }
+  const x = f32(idx & 1) * 4. - 1.;
+  const y = f32(idx >> 1) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 // The whole numeric core, as a plain function so the CPU oracle can call it directly: the
@@ -64,10 +64,10 @@ export function vs(@builtin("vertex_index") idx: u32): VsOut {
 // f32 rounding (which is the arithmetic the GPU runs), and requires the two to agree.
 export function stripeAt(origin: f64, offset: f32): f64 {
   // An f32 beside an f64 widens exactly — the pass wraps it as vec2<f32>(x, 0.0).
-  const world = origin + offset
+  const world = origin + offset;
   // A literal in a declared f64 position keeps the double the author wrote.
-  const stripe: f64 = 0.125
-  return fract(world / stripe)
+  const stripe: f64 = 0.125;
+  return fract(world / stripe);
 }
 
 @fragment
@@ -75,25 +75,25 @@ export function fs(vo: VsOut): vec4 {
   // The uniform, read in the stage that needs it. A literal beside a scalar f64 is lifted to
   // an f64 literal carrying the full double, so the pass splits 2.5 rather than widening the
   // f32 rounding of it.
-  const origin: f64 = u.origin * 2.5
-  const offset = u.span * (vo.uv.x - 0.5)
-  const bands = stripeAt(origin, offset)
+  const origin: f64 = u.origin * 2.5;
+  const offset = u.span * (vo.uv.x - 0.5);
+  const bands = stripeAt(origin, offset);
 
   // A vec64 built from scalar doubles, then read lane by lane and as a whole. `round` on a
   // double goes through df64_round — ties to the EVEN integer, as WGSL defines `round` and as
   // the CPU oracle answers it; df64_nint, which the trig reduction uses, breaks them toward
   // +infinity instead.
-  const p = vec3f64(origin + offset, round(origin), bands)
-  const narrowed: vec3 = vec3(p)
+  const p = vec3f64(origin + offset, round(origin), bands);
+  const narrowed: vec3 = vec3(p);
 
   // Left half plain f32, right half emulated: the SAME expression, two precisions. Near 1e7
   // an f32 ulp is 1, so a coordinate a sixteenth of the way into a 0.125-wide stripe rounds
   // to the stripe boundary and the left half goes flat, while the right half — reading the
   // band back through an indexed lane of the vec64 — keeps striping.
-  const flat = fract(f32(origin + offset) / 0.125)
-  const shade = vo.uv.x < 0.5 ? flat : f32(p[2])
+  const flat = fract(f32(origin + offset) / 0.125);
+  const shade = vo.uv.x < 0.5 ? flat : f32(p[2]);
   // How far the two precisions have drifted apart, which is what the picture is about: 0
   // where f32 still holds the coordinate, and up to half a stripe once it cannot.
-  const drift = abs(narrowed.z - flat)
-  return vec4(shade, drift, fract(narrowed.y * 0.5), 1.)
+  const drift = abs(narrowed.z - flat);
+  return vec4(shade, drift, fract(narrowed.y * 0.5), 1.);
 }

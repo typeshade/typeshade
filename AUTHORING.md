@@ -1959,8 +1959,8 @@ reads neither subgroup built-in value, are spelled as a string directive beside
 `"use typeshade"`:
 
 ```ts
-'use typeshade'
-'enable subgroups'
+'use typeshade';
+'enable subgroups';
 ```
 
 A capability with a host half and no source half costs zero emitted bytes: declaring it

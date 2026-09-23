@@ -1,22 +1,22 @@
-import type { Stmt } from '../../../ir/index.js'
-import type { LintRule } from '../engine.js'
+import type { Stmt } from '../../../ir/index.js';
+import type { LintRule } from '../engine.js';
 
 function decisionPoints(body: readonly Stmt[]): number {
-  let n = 0
+  let n = 0;
   for (const s of body) {
     if (s.s === 'if') {
-      n += s.arms.length
-      for (const a of s.arms) n += decisionPoints(a.body)
-      if (s.elseBody) n += decisionPoints(s.elseBody)
+      n += s.arms.length;
+      for (const a of s.arms) n += decisionPoints(a.body);
+      if (s.elseBody) n += decisionPoints(s.elseBody);
     } else if (s.s === 'for') {
-      n += 1 + decisionPoints(s.body)
+      n += 1 + decisionPoints(s.body);
     } else if (s.s === 'switch') {
-      n += s.cases.length
-      for (const c of s.cases) n += decisionPoints(c.body)
-      if (s.defaultBody) n += decisionPoints(s.defaultBody)
+      n += s.cases.length;
+      for (const c of s.cases) n += decisionPoints(c.body);
+      if (s.defaultBody) n += decisionPoints(s.defaultBody);
     }
   }
-  return n
+  return n;
 }
 
 /** Cyclomatic complexity (decision points + 1) over options.max (default 20). */
@@ -27,9 +27,9 @@ export const cyclomaticComplexity: LintRule = {
   category: 'perf',
   create: (ctx) => ({
     Func(f) {
-      const max = (ctx.options?.max as number) ?? 20
-      const c = decisionPoints(f.body) + 1
-      if (c > max) ctx.report(`fn '${f.name}' cyclomatic complexity ${c} > ${max}`, { fn: f.name })
+      const max = (ctx.options?.max as number) ?? 20;
+      const c = decisionPoints(f.body) + 1;
+      if (c > max) ctx.report(`fn '${f.name}' cyclomatic complexity ${c} > ${max}`, { fn: f.name });
     },
   }),
-}
+};

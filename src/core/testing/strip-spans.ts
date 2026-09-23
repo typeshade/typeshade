@@ -23,24 +23,24 @@
  *  @internal
  */
 export function stripSpans<T>(value: T): T {
-  return strip(value, new Map<object, unknown>())
+  return strip(value, new Map<object, unknown>());
 }
 
 function strip<T>(value: T, seen: Map<object, unknown>): T {
-  if (value === null || typeof value !== 'object') return value
-  const hit = seen.get(value as object)
-  if (hit !== undefined) return hit as T
+  if (value === null || typeof value !== 'object') return value;
+  const hit = seen.get(value as object);
+  if (hit !== undefined) return hit as T;
   if (Array.isArray(value)) {
-    const out: unknown[] = []
-    seen.set(value as object, out)
-    for (const v of value) out.push(strip(v, seen))
-    return out as unknown as T
+    const out: unknown[] = [];
+    seen.set(value as object, out);
+    for (const v of value) out.push(strip(v, seen));
+    return out as unknown as T;
   }
-  const out: Record<string, unknown> = {}
-  seen.set(value as object, out)
+  const out: Record<string, unknown> = {};
+  seen.set(value as object, out);
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (k === 'span' || k === 'nameSpan') continue
-    out[k] = strip(v, seen)
+    if (k === 'span' || k === 'nameSpan') continue;
+    out[k] = strip(v, seen);
   }
-  return out as T
+  return out as T;
 }

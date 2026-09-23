@@ -46,8 +46,8 @@
 // `for`. The condition of an `if`, a `for` or a `switch` is evaluated as part of pausing on
 // that statement, never on its own: a shader statement is the unit the author wrote.
 
-import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt, StructDecl } from '../ir/index.js'
-import type { SourceSpan } from '../ir/span.js'
+import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt, StructDecl } from '../ir/index.js';
+import type { SourceSpan } from '../ir/span.js';
 import {
   type CpuValue,
   FIELD_IDX,
@@ -76,37 +76,37 @@ import {
   bitBuiltin,
   cloneValue,
   isAggregateType,
-} from '../cpu-runtime.js'
-import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js'
+} from '../cpu-runtime.js';
+import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js';
 
 /** One call frame of a paused run, innermost last. Mutable on purpose: the session reads a
  *  frame's `current` at each pause, and a snapshot is taken there rather than here. */
 export interface StepFrame {
-  readonly fnName: string
-  readonly fnSpan: SourceSpan | undefined
+  readonly fnName: string;
+  readonly fnSpan: SourceSpan | undefined;
   /** The span of the call that created this frame; absent on the entry frame. */
-  readonly callSpan: SourceSpan | undefined
-  readonly env: Map<string, CpuValue>
+  readonly callSpan: SourceSpan | undefined;
+  readonly env: Map<string, CpuValue>;
   /** The declared type of every name this frame can hold: its parameters, and every `let` or
    *  `var` its body declares. Without it a pause has values and no way to render them: a
    *  `vec3` and a three-element array are the same `number[]` at runtime. */
-  readonly types: ReadonlyMap<string, ShaderType>
+  readonly types: ReadonlyMap<string, ShaderType>;
   /** The names in THIS frame whose current value came, directly or through arithmetic, from a
    *  GPU stub rather than from the shader's own data — `docs/debugging.md` §2.4's "mark it in
    *  the variables view as a stand-in rather than a computed value". Maintained at every
    *  assignment: a name is added when the value assigned to it was stub-derived and removed
    *  when it is next assigned something that was not, so it describes the value a pause is
    *  showing, not the history of the run. */
-  readonly stubbed: Set<string>
+  readonly stubbed: Set<string>;
   /** The statement this frame is about to execute, set at every pause. */
-  current: Stmt | undefined
+  current: Stmt | undefined;
 }
 
 /** What the interpreter hands the driver at a statement boundary. */
 export interface StepEvent {
-  readonly stmt: Stmt
+  readonly stmt: Stmt;
   /** Frame stack, outermost first. Live, so read it before resuming. */
-  readonly frames: readonly StepFrame[]
+  readonly frames: readonly StepFrame[];
   /** Set on the event yielded when a CALLEE HAS JUST RETURNED and control is back in the
    *  caller, part-way through the statement that made the call. `stmt` is that caller's
    *  statement, and the callee's frame is already gone.
@@ -118,32 +118,32 @@ export interface StepEvent {
    *
    *  No other move stops here: `stepIn` and `stepOver` would otherwise stop twice on one
    *  statement, which is not what either means. */
-  readonly afterCall?: true
+  readonly afterCall?: true;
 }
 
 /** Everything the walk needs that is not the program: the module's declarations, the host's
  *  binding values, and the two switches `compileModule` takes. */
 export interface StepCtx {
-  readonly consts: Map<string, CpuValue>
-  readonly overrides: Map<string, CpuValue>
-  readonly decls: Map<string, FuncDecl>
-  readonly bindings: Record<string, CpuValue>
+  readonly consts: Map<string, CpuValue>;
+  readonly overrides: Map<string, CpuValue>;
+  readonly decls: Map<string, FuncDecl>;
+  readonly bindings: Record<string, CpuValue>;
   /** The workgroup variables (roadmap 0.2 item 5), zero from `makeCtx`, shared by every
    *  invocation of a workgroup that `dispatch` runs against one context. */
-  readonly vars: Record<string, CpuValue>
+  readonly vars: Record<string, CpuValue>;
   /** The per-invocation (`private`) variables, at their initializers from `makeCtx`: one
    *  table per invocation, which is why they are not in `vars`. */
-  readonly privates: Record<string, CpuValue>
+  readonly privates: Record<string, CpuValue>;
   /** Whether this run is one invocation of a workgroup `dispatch` holds in lockstep, which is
    *  the only run a barrier means anything in. `makeCtx` says no; `dispatch` says yes. */
-  readonly lockstep: boolean
-  readonly structs: Map<string, StructDecl>
+  readonly lockstep: boolean;
+  readonly structs: Map<string, StructDecl>;
   /** The module's declared uniform and storage names, so a binding nobody supplied is NAMED
    *  rather than reported as an unbound local. Since #18 a binding read is a `varref` like any
    *  other name, and this set is what tells the two apart. */
-  readonly bindingNames: Set<string>
-  readonly gpuStubs: boolean
-  readonly frames: StepFrame[]
+  readonly bindingNames: Set<string>;
+  readonly gpuStubs: boolean;
+  readonly frames: StepFrame[];
   /** The INTRINSICS that stood in at some point during this run, by name: `dpdx`,
    *  `textureSample`.
    *
@@ -152,17 +152,17 @@ export interface StepCtx {
    *  and cannot distinguish one local from another. For which of a frame's names is currently
    *  showing a stand-in VALUE, which is `docs/debugging.md` §2.4's other half, see
    *  {@link StepFrame.stubbed}. */
-  readonly stubbed: Set<string>
+  readonly stubbed: Set<string>;
   /** How many times a stub has produced a value, or a stub-derived name has been read, since
    *  the run began. Never read as a total: a statement reads it before and after evaluating an
    *  expression, and a change across those two reads means that expression touched a stub
    *  somewhere inside it, at any depth and through any number of calls. That is what makes
    *  taint propagate without threading a second return value through `evalExpr`. */
-  stubHits: number
+  stubHits: number;
 }
 
 /** A generator that yields statement pauses and finally produces `T`. */
-export type Step<T> = Generator<StepEvent, T, void>
+export type Step<T> = Generator<StepEvent, T, void>;
 
 /** The non-local exits a body can take, exactly as `oracle.ts` spells them. */
 export type Signal =
@@ -170,8 +170,8 @@ export type Signal =
   | { kind: 'return'; value: CpuValue | undefined }
   | { kind: 'break' }
   | { kind: 'continue' }
-  | { kind: 'discard' }
-const NORMAL: Signal = { kind: 'normal' }
+  | { kind: 'discard' };
+const NORMAL: Signal = { kind: 'normal' };
 
 /** A binding the module declares and the session was not given a value for. Named rather than
  *  read as a zero: a debugger that invents an input silently answers a question about a
@@ -179,16 +179,16 @@ const NORMAL: Signal = { kind: 'normal' }
 const noValueFor = (name: string): Error =>
   new Error(
     `typeshade/debug: no value supplied for binding '${name}'; pass it in the session's bindings`,
-  )
+  );
 
 export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): Step<CpuValue> {
   switch (e.op) {
     case 'lit':
-      return e.value
+      return e.value;
     case 'constref': {
-      const v = ctx.consts.get(e.name)
-      if (v === undefined) throw new Error(`typeshade/debug: unknown const ${e.name}`)
-      return v
+      const v = ctx.consts.get(e.name);
+      if (v === undefined) throw new Error(`typeshade/debug: unknown const ${e.name}`);
+      return v;
       // This arm once also resolved a BINDING named by a constref, because the front end
       // spelled a read of `declare const camera: uniform<Camera>` that way and the oracle
       // therefore threw `unknown const` on any source-compiled module with a binding. #18
@@ -199,27 +199,27 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       // `step-differential.test.ts` exists to prevent.
     }
     case 'overrideref': {
-      const v = ctx.overrides.get(e.name)
-      if (v === undefined) throw new Error(`typeshade/debug: unknown override ${e.name}`)
-      return v
+      const v = ctx.overrides.get(e.name);
+      if (v === undefined) throw new Error(`typeshade/debug: unknown override ${e.name}`);
+      return v;
     }
     case 'externref':
-      throw new Error(`typeshade/debug: host-provided global '${e.name}' has no CPU value`)
+      throw new Error(`typeshade/debug: host-provided global '${e.name}' has no CPU value`);
     case 'param':
     case 'varref': {
       if (env.has(e.name)) {
-        if (ctx.frames[ctx.frames.length - 1]?.stubbed.has(e.name)) ctx.stubHits++
-        return env.get(e.name) as CpuValue
+        if (ctx.frames[ctx.frames.length - 1]?.stubbed.has(e.name)) ctx.stubHits++;
+        return env.get(e.name) as CpuValue;
       }
-      if (e.name in ctx.bindings) return ctx.bindings[e.name]
-      if (e.name in ctx.privates) return ctx.privates[e.name]
-      if (e.name in ctx.vars) return ctx.vars[e.name]
-      if (ctx.bindingNames.has(e.name)) throw noValueFor(e.name)
-      throw new Error(`typeshade/debug: unbound ${e.name}`)
+      if (e.name in ctx.bindings) return ctx.bindings[e.name];
+      if (e.name in ctx.privates) return ctx.privates[e.name];
+      if (e.name in ctx.vars) return ctx.vars[e.name];
+      if (ctx.bindingNames.has(e.name)) throw noValueFor(e.name);
+      throw new Error(`typeshade/debug: unbound ${e.name}`);
     }
     case 'binop': {
-      const av = yield* evalExpr(e.a, env, ctx)
-      const bv = yield* evalExpr(e.b, env, ctx)
+      const av = yield* evalExpr(e.a, env, ctx);
+      const bv = yield* evalExpr(e.b, env, ctx);
       // The SHAPE comes from the static type, as it does in the interpreter and the codegen:
       // a flat column-major list cannot tell a mat2x3 from a mat3x2 (#149). All three
       // evaluators dispatch identically, which is what `debug-step.test.ts` checks.
@@ -228,7 +228,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
         e.a.type.kind === 'mat' &&
         (e.b.type.kind === 'vec' || e.b.type.kind === 'vec64')
       ) {
-        return matVecShaped(av as number[], bv as number[], e.a.type.cols, e.a.type.rows)
+        return matVecShaped(av as number[], bv as number[], e.a.type.cols, e.a.type.rows);
       }
       if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'mat') {
         return matMulShaped(
@@ -237,27 +237,27 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
           e.a.type.cols,
           e.a.type.rows,
           e.b.type.cols,
-        )
+        );
       }
       // vecR * matCxR — the row-vector product, `transpose(m) * v`.
       if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
-        return vecMatShaped(av as number[], bv as number[], e.b.type.cols, e.b.type.rows)
+        return vecMatShaped(av as number[], bv as number[], e.b.type.cols, e.b.type.rows);
       }
-      return applyBin(e.bop, av, bv, numKindOf(e.type))
+      return applyBin(e.bop, av, bv, numKindOf(e.type));
     }
     case 'unop': {
-      const a = yield* evalExpr(e.a, env, ctx)
-      return isArr(a) ? a.map((v) => -(v as number)) : -(a as number)
+      const a = yield* evalExpr(e.a, env, ctx);
+      return isArr(a) ? a.map((v) => -(v as number)) : -(a as number);
     }
     case 'compare': {
-      const a = yield* evalExpr(e.a, env, ctx)
-      const b = yield* evalExpr(e.b, env, ctx)
-      return compareValues(e.cop, a, b, comparesAsF32(e.a.type))
+      const a = yield* evalExpr(e.a, env, ctx);
+      const b = yield* evalExpr(e.b, env, ctx);
+      return compareValues(e.cop, a, b, comparesAsF32(e.a.type));
     }
     case 'logical': {
-      const a = (yield* evalExpr(e.a, env, ctx)) as boolean
-      if (e.lop === '&&') return a ? ((yield* evalExpr(e.b, env, ctx)) as boolean) : false
-      return a ? true : ((yield* evalExpr(e.b, env, ctx)) as boolean)
+      const a = (yield* evalExpr(e.a, env, ctx)) as boolean;
+      if (e.lop === '&&') return a ? ((yield* evalExpr(e.b, env, ctx)) as boolean) : false;
+      return a ? true : ((yield* evalExpr(e.b, env, ctx)) as boolean);
     }
     case 'call': {
       // A barrier is where `dispatch` holds the invocation, at the yield before this
@@ -266,78 +266,78 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       // no one to wait for, and the values past the barrier would be ones no workgroup
       // produces (the zeros the others never wrote), so it refuses as the oracle does.
       if (e.declRef === undefined && isBarrierIntrinsic(e.fn)) {
-        if (!ctx.lockstep) throw barrierOutsideDispatch(e.fn)
-        return 0
+        if (!ctx.lockstep) throw barrierOutsideDispatch(e.fn);
+        return 0;
       }
       // An atomic builtin takes its first argument as a LOCATION (roadmap 0.2 item 4); the
       // oracle's `evalAtomic` is mirrored here step for step so the two walks stay
       // bit-identical over a kernel that counts with `atomicAdd`.
-      if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return yield* evalAtomic(e, env, ctx)
-      const args: CpuValue[] = []
+      if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return yield* evalAtomic(e, env, ctx);
+      const args: CpuValue[] = [];
       // Measured per argument, so that stepping INTO the callee shows which of its parameters
       // is holding a stand-in. Without it a `dpdx` result crossing a call boundary would go
       // unmarked for the whole of the callee's frame.
-      const argStubbed: boolean[] = []
+      const argStubbed: boolean[] = [];
       for (const a of e.args) {
-        const before = ctx.stubHits
-        args.push(yield* evalExpr(a, env, ctx))
-        argStubbed.push(ctx.stubHits > before)
+        const before = ctx.stubHits;
+        args.push(yield* evalExpr(a, env, ctx));
+        argStubbed.push(ctx.stubHits > before);
       }
       if (e.fn === 'u32' || e.fn === 'i32') {
-        const src = e.args[0]!.type
+        const src = e.args[0]!.type;
         if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
-          return e.fn === 'u32' ? f32ToU32Sat(args[0] as number) : f32ToI32Sat(args[0] as number)
+          return e.fn === 'u32' ? f32ToU32Sat(args[0] as number) : f32ToI32Sat(args[0] as number);
         }
       }
       // `transpose` needs the matrix's shape, which a flat list cannot carry — the same arm
       // the interpreter has, so the stepper and the oracle stay bit-identical (#149).
       if (e.declRef === undefined && e.fn === 'transpose') {
-        const t = e.args[0]!.type
-        if (t.kind === 'mat') return matTransposeShaped(args[0] as number[], t.cols, t.rows)
+        const t = e.args[0]!.type;
+        if (t.kind === 'mat') return matTransposeShaped(args[0] as number[], t.cols, t.rows);
       }
       if (e.declRef === undefined && TYPED_BIT_BUILTINS.has(e.fn)) {
-        return bitBuiltin(e.fn, args, elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32')
+        return bitBuiltin(e.fn, args, elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32');
       }
-      const b = BUILTINS[e.fn]
-      if (b) return b(...args)
-      const stub = GPU_STUBS[e.fn]
+      const b = BUILTINS[e.fn];
+      if (b) return b(...args);
+      const stub = GPU_STUBS[e.fn];
       if (stub) {
         if (!ctx.gpuStubs) {
           throw new Error(
             `typeshade/debug: '${e.fn}' is GPU-only and not computable here; start the session with gpuStubs: true to accept placeholder values`,
-          )
+          );
         }
-        ctx.stubbed.add(e.fn)
-        ctx.stubHits++
-        return stub(...args)
+        ctx.stubbed.add(e.fn);
+        ctx.stubHits++;
+        return stub(...args);
       }
-      const decl = ctx.decls.get(e.fn)
-      if (decl) return yield* callFunction(decl, args, e.span, ctx, argStubbed)
-      throw new Error(`typeshade/debug: unknown fn ${e.fn}`)
+      const decl = ctx.decls.get(e.fn);
+      if (decl) return yield* callFunction(decl, args, e.span, ctx, argStubbed);
+      throw new Error(`typeshade/debug: unknown fn ${e.fn}`);
     }
     case 'member': {
-      const base = yield* evalExpr(e.base, env, ctx)
+      const base = yield* evalExpr(e.base, env, ctx);
       if (isArr(base)) {
-        if (e.field.length > 1) return [...e.field].map((c) => base[FIELD_IDX[c]!] as number)
-        return base[FIELD_IDX[e.field]] as CpuValue
+        if (e.field.length > 1) return [...e.field].map((c) => base[FIELD_IDX[c]!] as number);
+        return base[FIELD_IDX[e.field]] as CpuValue;
       }
-      return (base as Record<string, CpuValue>)[e.field]
+      return (base as Record<string, CpuValue>)[e.field];
     }
     case 'construct': {
       if (e.type.kind === 'array') {
-        const out: CpuValue[] = []
-        for (const a of e.args) out.push(yield* evalExpr(a, env, ctx))
-        return out as CpuValue
+        const out: CpuValue[] = [];
+        for (const a of e.args) out.push(yield* evalExpr(a, env, ctx));
+        return out as CpuValue;
       }
       if (e.type.kind === 'struct') {
-        const decl = ctx.structs.get(e.type.name)
+        const decl = ctx.structs.get(e.type.name);
         if (decl === undefined)
-          throw new Error(`typeshade/debug: struct '${e.type.name}' not declared`)
-        const obj: Record<string, CpuValue> = {}
+          throw new Error(`typeshade/debug: struct '${e.type.name}' not declared`);
+        const obj: Record<string, CpuValue> = {};
         for (let i = 0; i < decl.fields.length; i++) {
-          obj[decl.fields[i]!.name] = yield* evalExpr(e.args[i]!, env, ctx)
+          obj[decl.fields[i]!.name] = yield* evalExpr(e.args[i]!, env, ctx);
         }
-        return obj as CpuValue
+        return obj as CpuValue;
       }
       // Vector constructor. Each component is converted to the constructed vector's element
       // kind, exactly as `oracle.ts` does it and out of the same op library: for an ordinary
@@ -347,43 +347,43 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       //
       // Pushing the raw components instead is what the review caught: `vec2u(v)` skipped the
       // saturation, so a stepped `convert-grid:fs` answered -3 where the oracle answers 0.
-      const elem = e.type.kind === 'vec' ? e.type.elem : undefined
-      const out: number[] = []
+      const elem = e.type.kind === 'vec' ? e.type.elem : undefined;
+      const out: number[] = [];
       for (const a of e.args) {
-        const v = yield* evalExpr(a, env, ctx)
-        const from = elemKindOf(a.type)
+        const v = yield* evalExpr(a, env, ctx);
+        const from = elemKindOf(a.type);
         if (elem === undefined || from === undefined) {
-          if (isArr(v)) out.push(...(v as number[]))
-          else out.push(v as number)
-          continue
+          if (isArr(v)) out.push(...(v as number[]));
+          else out.push(v as number);
+          continue;
         }
-        if (isArr(v)) out.push(...convertComponents(v as number[], from, elem))
-        else out.push(convertComponent(v as number, from, elem))
+        if (isArr(v)) out.push(...convertComponents(v as number[], from, elem));
+        else out.push(convertComponent(v as number, from, elem));
       }
       if ((e.type.kind === 'vec' || e.type.kind === 'vec64') && out.length === 1)
-        return new Array(e.type.n as number).fill(out[0])
-      return out
+        return new Array(e.type.n as number).fill(out[0]);
+      return out;
     }
     case 'select': {
-      const c = yield* evalExpr(e.cond, env, ctx)
+      const c = yield* evalExpr(e.cond, env, ctx);
       if (isArr(c)) {
-        const t = yield* evalExpr(e.ifTrue, env, ctx)
-        const f = yield* evalExpr(e.ifFalse, env, ctx)
-        return selectComponents(c, t, f)
+        const t = yield* evalExpr(e.ifTrue, env, ctx);
+        const f = yield* evalExpr(e.ifFalse, env, ctx);
+        return selectComponents(c, t, f);
       }
-      return c ? yield* evalExpr(e.ifTrue, env, ctx) : yield* evalExpr(e.ifFalse, env, ctx)
+      return c ? yield* evalExpr(e.ifTrue, env, ctx) : yield* evalExpr(e.ifFalse, env, ctx);
     }
     case 'index': {
-      const base = (yield* evalExpr(e.base, env, ctx)) as CpuValue[]
-      const idx = (yield* evalExpr(e.idx, env, ctx)) as number
+      const base = (yield* evalExpr(e.base, env, ctx)) as CpuValue[];
+      const idx = (yield* evalExpr(e.idx, env, ctx)) as number;
       // `m[j]` is COLUMN j — see matColumn; the three evaluators must agree.
-      if (e.base.type.kind === 'mat') return matColumn(base as number[], idx, e.base.type.rows)
-      return base[idx]
+      if (e.base.type.kind === 'mat') return matColumn(base as number[], idx, e.base.type.rows);
+      return base[idx];
     }
     case 'matchExpr': {
-      const sv = (yield* evalExpr(e.scrutinee, env, ctx)) as number
-      const hit = e.cases.find(([v]) => v === sv)
-      return yield* evalExpr(hit ? hit[1] : e.default, env, ctx)
+      const sv = (yield* evalExpr(e.scrutinee, env, ctx)) as number;
+      const hit = e.cases.find(([v]) => v === sv);
+      return yield* evalExpr(hit ? hit[1] : e.default, env, ctx);
     }
   }
 }
@@ -398,15 +398,15 @@ export function* callFunction(
   ctx: StepCtx,
   stubbedArgs?: readonly boolean[],
 ): Step<CpuValue> {
-  const r = yield* runFunction(decl, args, callSpan, ctx, stubbedArgs)
+  const r = yield* runFunction(decl, args, callSpan, ctx, stubbedArgs);
   // The callee's frame has been popped by now (`runFunction`'s `finally`), so this event
   // reports the CALLER, stopped part-way through the statement that made the call. See
   // `StepEvent.afterCall`.
-  const caller = ctx.frames[ctx.frames.length - 1]
-  if (caller?.current) yield { stmt: caller.current, frames: ctx.frames, afterCall: true }
+  const caller = ctx.frames[ctx.frames.length - 1];
+  if (caller?.current) yield { stmt: caller.current, frames: ctx.frames, afterCall: true };
   // A void function invoked as a statement never has its value read, exactly as the oracle
   // bridges `undefined` here.
-  return r.kind === 'return' ? (r.value as CpuValue) : (undefined as unknown as CpuValue)
+  return r.kind === 'return' ? (r.value as CpuValue) : (undefined as unknown as CpuValue);
 }
 
 /** The same call, handing back the whole {@link Signal} rather than just a value, which is what an
@@ -419,8 +419,8 @@ export function* runFunction(
   ctx: StepCtx,
   stubbedArgs?: readonly boolean[],
 ): Step<Signal> {
-  const env = new Map<string, CpuValue>()
-  decl.params.forEach((p, i) => env.set(p.name, args[i] as CpuValue))
+  const env = new Map<string, CpuValue>();
+  decl.params.forEach((p, i) => env.set(p.name, args[i] as CpuValue));
   const frame: StepFrame = {
     fnName: decl.name,
     fnSpan: decl.span,
@@ -429,12 +429,12 @@ export function* runFunction(
     types: declaredTypes(decl),
     stubbed: new Set(decl.params.filter((_, i) => stubbedArgs?.[i]).map((p) => p.name)),
     current: undefined,
-  }
-  ctx.frames.push(frame)
+  };
+  ctx.frames.push(frame);
   try {
-    return yield* execBody(decl.body, env, ctx)
+    return yield* execBody(decl.body, env, ctx);
   } finally {
-    ctx.frames.pop()
+    ctx.frames.pop();
   }
 }
 
@@ -442,14 +442,14 @@ export function* runFunction(
  *  `out[i]`. `undefined` when the target bottoms out in something that is not a name, which
  *  `setLValue` rejects anyway. */
 function rootName(target: Expr): string | undefined {
-  let e = target
+  let e = target;
   for (;;) {
-    if (e.op === 'varref' || e.op === 'param') return e.name
+    if (e.op === 'varref' || e.op === 'param') return e.name;
     if (e.op === 'member' || e.op === 'index') {
-      e = e.base
-      continue
+      e = e.base;
+      continue;
     }
-    return undefined
+    return undefined;
   }
 }
 
@@ -460,7 +460,7 @@ function rootName(target: Expr): string | undefined {
  *  in the direction that cannot mislead — it may say "stand-in" about a value that has since
  *  become real, never the reverse. */
 function whole(target: Expr): boolean {
-  return target.op === 'varref' || target.op === 'param'
+  return target.op === 'varref' || target.op === 'param';
 }
 
 /** Add or remove one name from the frame's stub-derived set. */
@@ -470,9 +470,9 @@ function markStub(
   derived: boolean,
   canClear: boolean,
 ): void {
-  if (!frame || name === undefined) return
-  if (derived) frame.stubbed.add(name)
-  else if (canClear) frame.stubbed.delete(name)
+  if (!frame || name === undefined) return;
+  if (derived) frame.stubbed.add(name);
+  else if (canClear) frame.stubbed.delete(name);
 }
 
 /** The stepping twin of the oracle's `refOf`: one resolved read-and-write handle on an atomic
@@ -483,43 +483,44 @@ function* refOf(
   ctx: StepCtx,
 ): Step<{ readonly get: () => CpuValue; readonly set: (v: CpuValue) => void }> {
   if (target.op === 'varref' || target.op === 'param') {
-    const name = target.name
-    if (env.has(name)) return { get: () => env.get(name) as CpuValue, set: (v) => env.set(name, v) }
+    const name = target.name;
+    if (env.has(name))
+      return { get: () => env.get(name) as CpuValue, set: (v) => env.set(name, v) };
     for (const table of [ctx.privates, ctx.vars, ctx.bindings]) {
       if (name in table) {
         return {
           get: () => table[name] as CpuValue,
           set: (v) => {
-            table[name] = v
+            table[name] = v;
           },
-        }
+        };
       }
     }
-    if (ctx.bindingNames.has(name)) throw noValueFor(name)
-    throw new Error(`typeshade/debug: unbound ${name}`)
+    if (ctx.bindingNames.has(name)) throw noValueFor(name);
+    throw new Error(`typeshade/debug: unbound ${name}`);
   }
   if (target.op === 'member') {
-    const base = yield* evalExpr(target.base, env, ctx)
-    const key: string | number = isArr(base) ? FIELD_IDX[target.field]! : target.field
-    const obj = base as unknown as Record<string | number, CpuValue>
+    const base = yield* evalExpr(target.base, env, ctx);
+    const key: string | number = isArr(base) ? FIELD_IDX[target.field]! : target.field;
+    const obj = base as unknown as Record<string | number, CpuValue>;
     return {
       get: () => obj[key] as CpuValue,
       set: (v) => {
-        obj[key] = v
+        obj[key] = v;
       },
-    }
+    };
   }
   if (target.op === 'index') {
-    const base = (yield* evalExpr(target.base, env, ctx)) as CpuValue[]
-    const i = (yield* evalExpr(target.idx, env, ctx)) as number
+    const base = (yield* evalExpr(target.base, env, ctx)) as CpuValue[];
+    const i = (yield* evalExpr(target.idx, env, ctx)) as number;
     return {
       get: () => base[i] as CpuValue,
       set: (v) => {
-        base[i] = v
+        base[i] = v;
       },
-    }
+    };
   }
-  throw new Error(`typeshade/debug: bad atomic location ${target.op}`)
+  throw new Error(`typeshade/debug: bad atomic location ${target.op}`);
 }
 
 function* evalAtomic(
@@ -527,15 +528,15 @@ function* evalAtomic(
   env: Map<string, CpuValue>,
   ctx: StepCtx,
 ): Step<CpuValue> {
-  const loc = e.args[0]
-  if (loc === undefined) throw new Error(`typeshade/debug: ${e.fn} needs a location`)
-  const ref = yield* refOf(loc, env, ctx)
-  const arg = e.args[1] === undefined ? 0 : ((yield* evalExpr(e.args[1], env, ctx)) as number)
+  const loc = e.args[0];
+  if (loc === undefined) throw new Error(`typeshade/debug: ${e.fn} needs a location`);
+  const ref = yield* refOf(loc, env, ctx);
+  const arg = e.args[1] === undefined ? 0 : ((yield* evalExpr(e.args[1], env, ctx)) as number);
   const store =
-    e.args[2] === undefined ? undefined : ((yield* evalExpr(e.args[2], env, ctx)) as number)
-  const step = atomicStep(e.fn, ref.get() as number, arg, numKindOf(loc.type), store)
-  if (e.fn !== 'atomicLoad') ref.set(step.next)
-  return step.result
+    e.args[2] === undefined ? undefined : ((yield* evalExpr(e.args[2], env, ctx)) as number);
+  const step = atomicStep(e.fn, ref.get() as number, arg, numKindOf(loc.type), store);
+  if (e.fn !== 'atomicLoad') ref.set(step.next);
+  return step.result;
 }
 
 function* setLValue(
@@ -550,32 +551,32 @@ function* setLValue(
     if (!env.has(target.name)) {
       for (const table of [ctx.privates, ctx.vars, ctx.bindings]) {
         if (target.name in table) {
-          table[target.name] = value
-          return
+          table[target.name] = value;
+          return;
         }
       }
     }
-    env.set(target.name, value)
-    return
+    env.set(target.name, value);
+    return;
   }
   if (target.op === 'member') {
-    const base = yield* evalExpr(target.base, env, ctx)
-    if (isArr(base)) base[FIELD_IDX[target.field]] = value as number
-    else (base as Record<string, CpuValue>)[target.field] = value
-    return
+    const base = yield* evalExpr(target.base, env, ctx);
+    if (isArr(base)) base[FIELD_IDX[target.field]] = value as number;
+    else (base as Record<string, CpuValue>)[target.field] = value;
+    return;
   }
   if (target.op === 'index') {
-    const base = (yield* evalExpr(target.base, env, ctx)) as CpuValue[]
-    const idx = (yield* evalExpr(target.idx, env, ctx)) as number
+    const base = (yield* evalExpr(target.base, env, ctx)) as CpuValue[];
+    const idx = (yield* evalExpr(target.idx, env, ctx)) as number;
     // `m[j] = v` writes COLUMN j into the flat list — see setMatColumn.
     if (target.base.type.kind === 'mat') {
-      setMatColumn(base as number[], idx, target.base.type.rows, value as number[])
-      return
+      setMatColumn(base as number[], idx, target.base.type.rows, value as number[]);
+      return;
     }
-    base[idx] = value
-    return
+    base[idx] = value;
+    return;
   }
-  throw new Error(`typeshade/debug: bad assignment target ${target.op}`)
+  throw new Error(`typeshade/debug: bad assignment target ${target.op}`);
 }
 
 /** A value about to be STORED under a name, copied when it is an aggregate: the rule
@@ -584,7 +585,7 @@ function* setLValue(
  *  instead, so `const before = p` followed by `p.bump()`, a method that changes its object in
  *  place (§26), showed `before` bumped here and not on the GPU or on the other two paths. */
 function bindValue(v: CpuValue, t: ShaderType): CpuValue {
-  return isAggregateType(t) ? cloneValue(v) : v
+  return isAggregateType(t) ? cloneValue(v) : v;
 }
 
 export function* execBody(
@@ -592,112 +593,112 @@ export function* execBody(
   env: Map<string, CpuValue>,
   ctx: StepCtx,
 ): Step<Signal> {
-  const frame = ctx.frames[ctx.frames.length - 1]
+  const frame = ctx.frames[ctx.frames.length - 1];
   for (const s of body) {
-    if (frame) frame.current = s
-    yield { stmt: s, frames: ctx.frames }
+    if (frame) frame.current = s;
+    yield { stmt: s, frames: ctx.frames };
     switch (s.s) {
       case 'let': {
-        const before = ctx.stubHits
-        env.set(s.name, bindValue(yield* evalExpr(s.expr, env, ctx), s.expr.type))
-        markStub(frame, s.name, ctx.stubHits > before, true)
-        break
+        const before = ctx.stubHits;
+        env.set(s.name, bindValue(yield* evalExpr(s.expr, env, ctx), s.expr.type));
+        markStub(frame, s.name, ctx.stubHits > before, true);
+        break;
       }
       case 'var': {
-        const before = ctx.stubHits
+        const before = ctx.stubHits;
         env.set(
           s.name,
           s.init
             ? bindValue(yield* evalExpr(s.init, env, ctx), s.type)
             : zeroOf(s.type, ctx.structs),
-        )
-        markStub(frame, s.name, ctx.stubHits > before, true)
-        break
+        );
+        markStub(frame, s.name, ctx.stubHits > before, true);
+        break;
       }
       case 'assign': {
-        const before = ctx.stubHits
-        const value = bindValue(yield* evalExpr(s.expr, env, ctx), s.expr.type)
+        const before = ctx.stubHits;
+        const value = bindValue(yield* evalExpr(s.expr, env, ctx), s.expr.type);
         // Measured across `setLValue` too, so the target's OWN base and index expressions
         // count: in `out[i] = 1.` the `1.` is real but, if `i` is a stand-in, the element it
         // landed in is fiction and `out` is no longer trustworthy. Marking it is the
         // conservative direction.
-        yield* setLValue(s.target, value, env, ctx)
-        markStub(frame, rootName(s.target), ctx.stubHits > before, whole(s.target))
-        break
+        yield* setLValue(s.target, value, env, ctx);
+        markStub(frame, rootName(s.target), ctx.stubHits > before, whole(s.target));
+        break;
       }
       case 'assignOp': {
-        const before = ctx.stubHits
-        const cur = yield* evalExpr(s.target, env, ctx)
-        const kind = numKindOf(s.target.type)
-        const rhs = yield* evalExpr(s.expr, env, ctx)
+        const before = ctx.stubHits;
+        const cur = yield* evalExpr(s.target, env, ctx);
+        const kind = numKindOf(s.target.type);
+        const rhs = yield* evalExpr(s.expr, env, ctx);
         // The old value is an input here, so a `+=` onto a stub-derived name stays stub-derived
         // whatever the right-hand side is — which the read of `s.target` above already counted.
-        yield* setLValue(s.target, applyBin(s.bop, cur, rhs, kind), env, ctx)
-        markStub(frame, rootName(s.target), ctx.stubHits > before, whole(s.target))
-        break
+        yield* setLValue(s.target, applyBin(s.bop, cur, rhs, kind), env, ctx);
+        markStub(frame, rootName(s.target), ctx.stubHits > before, whole(s.target));
+        break;
       }
       case 'return':
-        return { kind: 'return', value: s.expr ? yield* evalExpr(s.expr, env, ctx) : undefined }
+        return { kind: 'return', value: s.expr ? yield* evalExpr(s.expr, env, ctx) : undefined };
       case 'break':
-        return { kind: 'break' }
+        return { kind: 'break' };
       case 'continue':
-        return { kind: 'continue' }
+        return { kind: 'continue' };
       case 'discard':
-        return { kind: 'discard' }
+        return { kind: 'discard' };
       case 'call':
         // Evaluated for its effect; the value is dropped. The callee's own statements step
         // through this same loop, so a binding it writes is marked there.
-        yield* evalExpr(s.expr, env, ctx)
-        break
+        yield* evalExpr(s.expr, env, ctx);
+        break;
       case 'if': {
-        let taken = false
+        let taken = false;
         for (const arm of s.arms) {
           if (yield* evalExpr(arm.cond, env, ctx)) {
-            const r = yield* execBody(arm.body, env, ctx)
-            if (r.kind !== 'normal') return r
-            taken = true
-            break
+            const r = yield* execBody(arm.body, env, ctx);
+            if (r.kind !== 'normal') return r;
+            taken = true;
+            break;
           }
         }
         if (!taken && s.elseBody) {
-          const r = yield* execBody(s.elseBody, env, ctx)
-          if (r.kind !== 'normal') return r
+          const r = yield* execBody(s.elseBody, env, ctx);
+          if (r.kind !== 'normal') return r;
         }
-        break
+        break;
       }
       case 'for': {
-        yield* execBody([s.init], env, ctx)
+        yield* execBody([s.init], env, ctx);
         while (yield* evalExpr(s.cond, env, ctx)) {
-          const r = yield* execBody(s.body, env, ctx)
-          if (r.kind === 'break') break
-          if (r.kind === 'return' || r.kind === 'discard') return r
-          yield* execBody([s.update], env, ctx)
+          const r = yield* execBody(s.body, env, ctx);
+          if (r.kind === 'break') break;
+          if (r.kind === 'return' || r.kind === 'discard') return r;
+          yield* execBody([s.update], env, ctx);
         }
-        break
+        break;
       }
       case 'switch': {
-        const v = (yield* evalExpr(s.scrut, env, ctx)) as number
+        const v = (yield* evalExpr(s.scrut, env, ctx)) as number;
         // A clause may hold SEVERAL selectors (`case 0, 1:` in WGSL), so the match is
         // membership, not equality.
-        const hit = s.cases.find((c) => c.values.includes(v))
-        const chosen = hit ? hit.body : s.defaultBody
+        const hit = s.cases.find((c) => c.values.includes(v));
+        const chosen = hit ? hit.body : s.defaultBody;
         if (chosen) {
-          const r = yield* execBody(chosen, env, ctx)
-          if (r.kind !== 'normal' && r.kind !== 'break') return r
+          const r = yield* execBody(chosen, env, ctx);
+          if (r.kind !== 'normal' && r.kind !== 'break') return r;
         }
-        break
+        break;
       }
       case 'placeholder':
         throw new Error(
           `typeshade/debug: placeholder Stmt reached the stepping backend; composer forgot to splice tag=${s.tag}`,
-        )
+        );
       case 'raw':
         throw new Error(
           'typeshade/debug: raw Stmt reached the stepping backend; raw passthrough is GPU-only',
-        )
+        );
     }
   }
-  return NORMAL
+  return NORMAL;
 }
 
 /** Build the evaluation context for `m`, with module constants already evaluated. The consts
@@ -718,9 +719,9 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
     stubHits: 0,
     frames: [],
     stubbed: new Set<string>(),
-  }
+  };
   for (const c of m.consts) {
-    ctx.consts.set(c.name, c.valueExpr ? drain(evalExpr(c.valueExpr, new Map(), ctx)) : c.cpuValue)
+    ctx.consts.set(c.name, c.valueExpr ? drain(evalExpr(c.valueExpr, new Map(), ctx)) : c.cpuValue);
   }
   // A session is one invocation of one workgroup: workgroup memory starts zero and a private
   // variable at its initializer, evaluated the way a const is. `dispatch` rebuilds the private
@@ -729,12 +730,12 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
     if (v.space === 'private') {
       ctx.privates[v.name] = v.init
         ? drain(evalExpr(v.init, new Map(), ctx))
-        : zeroOf(v.type, ctx.structs)
+        : zeroOf(v.type, ctx.structs);
     } else {
-      ctx.vars[v.name] = zeroOf(v.type, ctx.structs)
+      ctx.vars[v.name] = zeroOf(v.type, ctx.structs);
     }
   }
-  return ctx
+  return ctx;
 }
 
 /** Every name a call to `decl` can hold, with the type it was declared at: the parameters,
@@ -750,42 +751,42 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
  *  and happens once per call rather than once per pause.
  */
 function declaredTypes(decl: FuncDecl): ReadonlyMap<string, ShaderType> {
-  const out = new Map<string, ShaderType>()
-  for (const p of decl.params) out.set(p.name, p.type)
+  const out = new Map<string, ShaderType>();
+  for (const p of decl.params) out.set(p.name, p.type);
   const walk = (body: readonly Stmt[]): void => {
     for (const s of body) {
       switch (s.s) {
         case 'let':
-          out.set(s.name, s.expr.type)
-          break
+          out.set(s.name, s.expr.type);
+          break;
         case 'var':
-          out.set(s.name, s.type)
-          break
+          out.set(s.name, s.type);
+          break;
         case 'if':
-          for (const arm of s.arms) walk(arm.body)
-          if (s.elseBody) walk(s.elseBody)
-          break
+          for (const arm of s.arms) walk(arm.body);
+          if (s.elseBody) walk(s.elseBody);
+          break;
         case 'for':
-          walk([s.init])
-          walk([s.update])
-          walk(s.body)
-          break
+          walk([s.init]);
+          walk([s.update]);
+          walk(s.body);
+          break;
         case 'switch':
-          for (const c of s.cases) walk(c.body)
-          if (s.defaultBody) walk(s.defaultBody)
-          break
+          for (const c of s.cases) walk(c.body);
+          if (s.defaultBody) walk(s.defaultBody);
+          break;
         default:
-          break
+          break;
       }
     }
-  }
-  walk(decl.body)
-  return out
+  };
+  walk(decl.body);
+  return out;
 }
 
 /** Run a generator to completion, discarding its pauses. */
 export function drain<T>(g: Step<T>): T {
-  let r = g.next()
-  while (!r.done) r = g.next()
-  return r.value
+  let r = g.next();
+  while (!r.done) r = g.next();
+  return r.value;
 }

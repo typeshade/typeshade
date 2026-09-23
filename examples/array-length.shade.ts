@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -25,20 +25,20 @@
 // alone, so the compiler does not hold this field to the other target's list, and Tint takes
 // the name on every gate run. A render module declaring the same field is refused with TS8068.
 
-declare const src: storage<array<f32>>
-declare let dst: storage<array<f32>>
+declare const src: storage<array<f32>>;
+declare let dst: storage<array<f32>>;
 
 // The two parts a scale of 2 is split into, named for what they hold.
 class Weights {
-  half: f32
-  rest: f32
+  half: f32;
+  rest: f32;
 }
 
 @compute([64, 1, 1])
 export function scale_all(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= src.length) {
-    return
+    return;
   }
-  const w: Weights = { half: 0.5, rest: 1.5 }
-  dst[gid.x] = src[gid.x] * (w.half + w.rest)
+  const w: Weights = { half: 0.5, rest: 1.5 };
+  dst[gid.x] = src[gid.x] * (w.half + w.rest);
 }

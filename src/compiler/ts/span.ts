@@ -11,15 +11,15 @@
 // layer, which is zero-based throughout (`docs/language-service-api.md` §2), and changing the
 // diagnostic shape is a breaking change with nothing to do with debugging.
 
-import ts from 'typescript'
-import type { SourceSpan } from '../../core/ir/span.js'
+import ts from 'typescript';
+import type { SourceSpan } from '../../core/ir/span.js';
 
 /** The span of `node` in `sourceFile`: its first non-trivia character through its end. */
 export function spanOf(sourceFile: ts.SourceFile, node: ts.Node): SourceSpan {
-  const start = node.getStart(sourceFile)
-  const end = node.getEnd()
-  const startPos = sourceFile.getLineAndCharacterOfPosition(start)
-  const endPos = sourceFile.getLineAndCharacterOfPosition(end)
+  const start = node.getStart(sourceFile);
+  const end = node.getEnd();
+  const startPos = sourceFile.getLineAndCharacterOfPosition(start);
+  const endPos = sourceFile.getLineAndCharacterOfPosition(end);
   return {
     file: sourceFile.fileName,
     start,
@@ -28,7 +28,7 @@ export function spanOf(sourceFile: ts.SourceFile, node: ts.Node): SourceSpan {
     character: startPos.character,
     endLine: endPos.line,
     endCharacter: endPos.character,
-  }
+  };
 }
 
 /** Stamp `value` with `node`'s span and hand it back.
@@ -43,7 +43,7 @@ export function spanOf(sourceFile: ts.SourceFile, node: ts.Node): SourceSpan {
  * it alone.
  */
 export function withSpan<T extends object>(value: T, sourceFile: ts.SourceFile, node: ts.Node): T {
-  const target = value as { span?: SourceSpan }
-  if (target.span === undefined) target.span = spanOf(sourceFile, node)
-  return value
+  const target = value as { span?: SourceSpan };
+  if (target.span === undefined) target.span = spanOf(sourceFile, node);
+  return value;
 }

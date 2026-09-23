@@ -7,10 +7,10 @@ imports a TypeShade runtime — only emitted WGSL/GLSL and a slot table.
 ## Unit
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 export function add(a: f32, b: f32): f32 {
-  return a + b
+  return a + b;
 }
 ```
 
@@ -22,16 +22,16 @@ export function add(a: f32, b: f32): f32 {
 
 ```ts
 // math.ts
-"use typeshade"
+"use typeshade";
 export function square(x: f32): f32 {
-  return x * x
+  return x * x;
 }
 
 // app.ts
-"use typeshade"
-import { square } from "./math"
+"use typeshade";
+import { square } from "./math";
 export function foo(x: f32): f32 {
-  return square(x) + 1.
+  return square(x) + 1.;
 }
 ```
 
