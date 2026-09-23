@@ -5041,7 +5041,7 @@ names only. §62 closed that gap: a local named `shared` is now `TS8068` where i
 The ambient library is a second implementation of this surface's type rules, written in
 TypeScript's vocabulary rather than the compiler's, and two implementations drift. A rule the
 ambient lib states more NARROWLY than the compiler is the worse failure: red squiggles on a
-program that compiles, which stops an author who was right. Five such rows are closed:
+program that compiles, which stops an author who was right. Seven such rows are closed:
 
 | spelling | the editor used to say | now |
 | --- | --- | --- |
@@ -5050,6 +5050,8 @@ program that compiles, which stops an author who was right. Five such rows are c
 | `vec3(x, v2)`, `vec4(x, v2, w)`, `vec4(x, y, v2)` | "Argument of type 'f32' is not assignable to parameter of type 'vec2'" | clean |
 | `f32(true)`, `i32(true)`, `u32(true)` | "Argument of type 'boolean' is not assignable to parameter of type 'number'" | clean |
 | `m[3].xyz` and `m[0] = vec4(1.)` on a `mat4`, and the same on every square matrix | "Property 'xyz' does not exist on type 'never'"; "Type 'vec4' is not assignable to type 'never'" | clean |
+| `m[i]` on a `mat4` or a `mat2x3`, with `i: u32` or a `for` counter, and `m[0][1]` | "Element implicitly has an 'any' type because expression of type 'u32' can't be used to index type 'mat4<f32>'" | clean |
+| `v[0]` and `v[i]` on a `vec4`, read or written | the same, on type 'vec4' | clean |
 
 `select` takes any scalar or vector WGSL gives it, bools and emulated doubles included
 (wgsl.txt:21338-21352). The vector constructors take a component vector anywhere, not only
@@ -5058,7 +5060,12 @@ WIDENS an `f32` and takes nothing else. A square matrix's column is a `vecN`, as
 one's always was (§40). The square aliases take their element as a type argument, `mat4<f64>`
 being a matrix of emulated doubles (§39), and the argument used to be read by assignability,
 under which an `f32` passes for an `f64`. So the default `mat4` was a matrix of doubles to the
-editor, and a column of doubles is `never`, since the compiler refuses to index one.
+editor, and a column of doubles is `never`, since the compiler refuses to index one. A vector
+and an `f32` matrix take any integer index, a runtime one included, as WGSL indexes them, and the
+library gave both numeric LITERAL keys only, which is the emulated double's rule (§39): they
+take an index signature now, as `array<T, N>` does. A matrix of doubles still takes no runtime
+index (TS7053 beside `TS8003 Cannot index mat4x4<f64>.`), and what the signature admits and the
+compiler refuses is the section "An index only the compiler refuses" below.
 
 `src/language-service/ambient-parity.test.ts` asserts the AGREEMENT rather than either verdict,
 with rows on both sides: a row where both refuse is as much the subject as one where both
@@ -5119,6 +5126,20 @@ write (`Write "declare const bins: storage<array<atomic<u32>>, "read_write">" to
 it.`), so the remedy is the same one the indexed write gets; only the layer that says it
 differs. Recorded as the Appendix B row for design rule 6.2 in `docs/language-design.md`.
 
+### An index only the compiler refuses
+
+The index signature a vector and an `f32` matrix take admits what an array's does, and the
+compiler alone refuses the rest:
+
+| spelling | the compiler | the editor |
+| --- | --- | --- |
+| `m[4]` on a `mat4`, `v[4]` on a `vec4` | TS8016, "Index 4 is out of range for length 4." | the compiler's sentence alone |
+| `m[j]` with `j: f32` | TS8003, "Index must be i32 or u32." | the compiler's sentence alone |
+
+Each drew TS7053 beside the compiler's sentence while the two types took literal keys only, two
+sentences for one mistake, and now draws one. Plain `tsc` has no compiler beside it and says
+nothing about either, as it says nothing about `a[5]` on an `array<f32, 3>`.
+
 ### A write the editor refuses and the compiler takes
 
 Drift the other way, which §49 calls the worse failure: red on a program that runs.
@@ -5137,6 +5158,26 @@ The remedy it names is still the right line; the editor simply says one more thi
 Appendix B's row for design rule 12.7 carries it. A square matrix column, `m[0] = vec4(1.)` on
 a `storage<mat4, "read_write">`, was a second row here, and it is closed: the table at the head
 of this section has it.
+
+### A swizzle the editor does not take
+
+The compiler takes any pick of one to four letters from one set, repeats and any order included
+(`parseSwizzle`, `src/compiler/ts/swizzle.ts`), and emits it as written: `v.yx`, `p.xz`,
+`v.zw`, `v.zyx`, `c.bgra`, `v.xxx`. The ambient library declares the eight components and the
+six prefix swizzles (`xy`, `xyz`, `xyzw`, `rg`, `rgb`, `rgba`), so every other pick is red on a
+program that runs, in the editor and in plain `tsc`:
+
+| spelling | the compiler | the editor |
+| --- | --- | --- |
+| `v.yx` on a `vec2` | `v.yx` | TS2339, "Property 'yx' does not exist on type 'vec2'" |
+| `v.zyx` on a `vec4` | `v.zyx` | TS2339, "Property 'zyx' does not exist on type 'vec4'" |
+
+The library's own note and the README called this a false negative, a swizzle the editor did
+not see; it is a false positive. #210 closes it by declaring every pick the compiler takes, and
+until it lands, building the vector instead (`vec2(v.y, v.x)`) is clean in both layers.
+Appendix B's row for design rule 12.7 carries it. A pick that mixes the two sets (`v.xg`) or
+reaches past the vector (`v.xz` on a `vec2`) is refused by both layers, TS2339 beside the
+compiler's TS8022.
 
 ### The second type argument, where the two layers still part
 
