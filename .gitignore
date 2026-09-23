@@ -3,6 +3,7 @@ dist/
 coverage/
 node_modules
 bun.lock
-.claude/
+.claude/*
+!.claude/settings.json
 .codebase-memory/
 .omc/

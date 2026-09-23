@@ -1,3 +1,5 @@
+// Verifies: Rule 9.4 (docs/language-design.md; traced in reqs/).
+
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { resolveMathExpand, isCanonicalMathFn } from './math-alias.js';

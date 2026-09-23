@@ -4,6 +4,8 @@
 // and GLSL ES 3.00, the three CPU paths agreeing on a ray class, the zero struct a class
 // without a constructor starts from, a constructor with a bare return and a method call, the
 // symbols the editor gets, and every refusal with its fix.
+//
+// Verifies: Rule 8.10 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

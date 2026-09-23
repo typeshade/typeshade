@@ -8,6 +8,8 @@
 // static. A class inherits a method by lowering the base's node again with `this` typed as
 // itself, so an inherited body calls the override, as it does in TypeScript; a base-typed name
 // cannot hold a derived value, which is what makes the two dispatches agree.
+//
+// Verifies: Rule 6.9 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

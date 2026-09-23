@@ -2,6 +2,8 @@
 // compatibility, @compute workgroup shape, missing return annotation on an entry function, and
 // (optional) mat2/mat3 rejection. Each gets a positive (stays clean) and a negative (fires with
 // the right code) case.
+//
+// Verifies: Rule 6.6, Rule 8.7 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

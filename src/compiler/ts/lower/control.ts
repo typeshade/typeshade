@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { i32T, isVec, isVec64, typeKey } from '../../../core/ir/types.js';
+import { boolT, i32T, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
 import { irNameOf, readOnlyPhrase, writeRules } from '../context.js';
@@ -19,6 +19,7 @@ import { withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { reportIntLitRange, retargetDeclaredIntLit } from '../lit-coerce.js';
 import { lowerExpression, unknownIdentifierSentence } from './expression.js';
+import { arrayLengthOf } from './expression-prop.js';
 import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from './statement.js';
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
@@ -305,6 +306,142 @@ function bodyHasExit(body: ts.Statement): boolean {
     return ts.forEachChild(n, (c) => walk(c, nested) || undefined) === true;
   };
   return walk(body, true);
+}
+
+/**
+ * `for (const x of xs)` over an array: a counted loop over its indices (Rules 7.2, 7.5).
+ *
+ * `for (var _i: u32 = 0u; _i < len; _i = _i + 1u) { let x = xs[_i]; … }`, where `len` is the
+ * array's size for an `array<T, N>` and `arrayLength(&xs)` for a runtime-sized storage array.
+ * The element is read at the top of each trip, as TypeScript's array iterator reads it, and a
+ * `let x` is a copy the body may change without writing the array. The array must be a place,
+ * a name or a member or index path to one, since it is read on every trip and a place is the
+ * only expression both targets read twice for what it read once.
+ */
+export function lowerForOf(
+  node: ts.ForOfStatement,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  if (node.awaitModifier) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'for await iterates an async JS iterable. Shader functions are synchronous.',
+      TS_CODES.HOST_STMT,
+    );
+    return undefined;
+  }
+  const list = node.initializer;
+  const decl = ts.isVariableDeclarationList(list) ? list.declarations[0] : undefined;
+  if (
+    !ts.isVariableDeclarationList(list) ||
+    list.declarations.length !== 1 ||
+    !decl ||
+    !ts.isIdentifier(decl.name) ||
+    (list.flags & (ts.NodeFlags.Const | ts.NodeFlags.Let)) === 0
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      list,
+      'for-of declares one element: `for (const x of xs)` or `for (let x of xs)`.',
+      TS_CODES.LOOP_INDUCTION,
+    );
+    return undefined;
+  }
+  const array = lowerExpression(node.expression, sourceFile, scope, diagnostics);
+  if (!array) return undefined;
+  if (array.type.kind !== 'array') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.expression,
+      `for-of iterates an array; this is a ${typeKey(array.type)}. Index it with a counted ` +
+        `for, or write the value into an array<T, N>.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
+  if (!isPlace(array)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.expression,
+      'for-of reads its array on every trip, so the array has to be a name: bind it first, ' +
+        '`const xs = …; for (const x of xs)`.',
+      TS_CODES.LOOP_BOUND,
+    );
+    return undefined;
+  }
+  const length =
+    array.type.size !== undefined
+      ? ({ op: 'lit', type: u32T, value: array.type.size } as const)
+      : arrayLengthOf(array, node.expression, sourceFile, scope, diagnostics, '.length');
+  if (!length) return undefined;
+  const elemType = array.type.elem;
+  const mutable = (list.flags & ts.NodeFlags.Let) !== 0;
+  scope.push();
+  scope.enterLoop();
+  try {
+    const counter = scope.define({ kind: 'local', name: '_i', type: u32T, mutable: true });
+    const i = { op: 'varref' as const, type: u32T, name: irNameOf(counter) };
+    let element;
+    try {
+      element = scope.define({ kind: 'local', name: decl.name.text, type: elemType, mutable });
+    } catch (e) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl.name,
+        e instanceof Error ? e.message : String(e),
+        TS_CODES.DUPLICATE_SYMBOL,
+      );
+      return undefined;
+    }
+    scope.recordDeclaration(sourceFile, decl.name, {
+      name: decl.name.text,
+      kind: 'local',
+      type: elemType,
+      mutable,
+    });
+    const read: Expr = { op: 'index', type: elemType, base: array, idx: i };
+    const bind: Stmt = mutable
+      ? { s: 'var', name: irNameOf(element), type: elemType, init: read }
+      : { s: 'let', name: irNameOf(element), expr: read };
+    withSpan(bind, sourceFile, list);
+    const body = lowerBody(node.statement, sourceFile, scope, diagnostics);
+    const one = { op: 'lit' as const, type: u32T, value: 1 };
+    return {
+      s: 'for',
+      init: { s: 'var', name: i.name, type: u32T, init: { op: 'lit', type: u32T, value: 0 } },
+      cond: { op: 'compare', type: boolT, cop: '<', a: i, b: length },
+      update: { s: 'assign', target: i, expr: { op: 'binop', type: u32T, bop: '+', a: i, b: one } },
+      body: [bind, ...body],
+    };
+  } finally {
+    scope.exitLoop();
+    scope.pop();
+  }
+}
+
+/** A name, or a member or index path to one: what a for-of may read on every trip. */
+function isPlace(e: Expr): boolean {
+  switch (e.op) {
+    case 'varref':
+    case 'param':
+    case 'constref':
+    case 'externref':
+      return true;
+    case 'member':
+      return isPlace(e.base);
+    case 'index':
+      return isPlace(e.base) && (isPlace(e.idx) || e.idx.op === 'lit');
+    default:
+      return false;
+  }
 }
 
 export function lowerSwitch(

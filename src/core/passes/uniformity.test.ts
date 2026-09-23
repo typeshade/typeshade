@@ -19,6 +19,8 @@
 // Every one is reported by `createShaderModule`, NOT only by `createRenderPipeline` — so the
 // compile gate already runs Tint's own check on every example, and #161's acceptance item
 // asking for a pipeline leg rests on a premise the measurement disproves.
+//
+// Verifies: Rule 8.5 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';

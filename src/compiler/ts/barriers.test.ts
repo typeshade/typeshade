@@ -6,6 +6,8 @@
 // running a reduction to the right sums with the right number of barrier phases, the
 // divergence error, the direct-call refusal, the debugger stepping one invocation through,
 // the effect table keeping the barrier, and the void-value fix that rode along.
+//
+// Verifies: Rule 8.5 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

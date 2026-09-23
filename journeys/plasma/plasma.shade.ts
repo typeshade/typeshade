@@ -27,12 +27,7 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 
 @fragment
 export function fs(@builtin("position") p: vec4): Color {
-  // Workaround (#162): plain `tsc` types vector arithmetic as `number`, so an unannotated
-  // `uv` is a number there and `uv.x` is TS2339, though it compiles. The editor and
-  // `typeshade check` read the compiler's type for `uv` and report nothing; plain `tsc`,
-  // which the README's `tsconfig.shade.json` runs, still does, and TS2339 is not one of the
-  // codes the README documents it as reporting.
-  const uv: vec2 = p.xy * frame.scale;
+  const uv = p.xy * frame.scale;
   let v = 0;
   for (let i = 0; i < 4; i++) {
     const k = f32(i + 1);

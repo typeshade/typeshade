@@ -5,6 +5,8 @@
 // followed by an unknown identifier at every use. What is pinned here: the flattened names on
 // both targets and both CPU paths, TypeScript's own lookup inside a namespace body, nesting in
 // both spellings, the cycle check reaching a dotted call, and the refusals.
+//
+// Verifies: Rule 8.4 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

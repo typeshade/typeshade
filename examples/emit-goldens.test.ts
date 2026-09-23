@@ -18,6 +18,8 @@
 // moved to `_goldens.ts` when `shade-examples.test.ts` began pinning the `"use typeshade"`
 // corpus into the same directory: two copies of it is how one suite comes to be baked and
 // the other left red against the files that bake just rewrote.
+//
+// Verifies: Rule 3.2, Rule 7.2, Rule 11.4 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import { examples } from './index.js';

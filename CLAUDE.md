@@ -41,6 +41,27 @@ Indexing takes about ten seconds. Re-index after each commit.
 `.codebase-memory/` (the artifact the indexer may write at the root) is gitignored; never
 commit it.
 
+## The prose follows the code
+
+The graph covers code, not prose, so it cannot tell you which sentence your change made false.
+`AGENTS.md#docs-follow-the-code` is the procedure; in a Claude Code session it comes down to:
+
+<!-- LINT.IfChange(the-prose-follows-the-code) -->
+
+- Before committing, run `bun run docs:impact` and work through its list: fix every _must fix_
+  item, read every _review_ item and fix whatever is no longer true in the same commit. A path,
+  anchor, rule or script you name must exist (`bun run docs:refs`).
+- After editing `docs/language-design.md`, the surface document or a test that carries a
+  `Verifies: Rule N.M` tag, run `bun run reqs:sync` and `doorstop -C`, and work through what
+  it flags as `reqs/README.md` says. Install Doorstop once with `pip install doorstop==3.2`.
+- When you edit inside a `LINT.IfChange` block, edit its `ThenChange` targets too.
+- `.claude/settings.json` holds `git commit` until all of that is done. Open review items are
+  the one thing a message can answer, with a `Docs-Impact:` trailer that says what you read and
+  found. Never write the trailer, `NO_IFTTT=`, `doorstop review` or `doorstop clear` without
+  reading the listed locations: each is a claim a reviewer relies on.
+
+<!-- LINT.ThenChange() -->
+
 ## The language design rules are normative
 
 The language design rules are `docs/language-design.md`, and they are normative. Every change

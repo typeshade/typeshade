@@ -1,3 +1,6 @@
+// Verifies: Rule 12.7 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 12.1 (docs/language-design.md; traced in reqs/).
+
 // What the compiler accepts, the editor accepts, and what TypeScript would suggest for a
 // misspelled name, the compiler suggests too (Rule 12.7). Both are measured over generated
 // programs rather than a sample, so a name or a swizzle added later is covered by being one.

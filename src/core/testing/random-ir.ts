@@ -9,7 +9,7 @@
 // reproduced by its seed, which is what a regression test needs — and `describeCorpus`
 // exists so a green run can be checked for having generated anything at all. A generator
 // that silently stopped emitting integer division would report zero divergences forever
-// (CLAUDE.md §12 — validate the instrument against a known positive before believing a zero).
+// (AGENTS.md#gate-discipline — validate the instrument against a known positive before believing a zero).
 //
 // NOT generated, deliberately: `raw` / `placeholder` statements and `hostBlock` / `externVar`
 // (opaque by construction — they have no CPU semantics to differentiate against), textures

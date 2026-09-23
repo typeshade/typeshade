@@ -13,6 +13,8 @@
 // so the whole-parameter write is refused with the one-line fix named, rather than shadowed:
 // a WGSL function's parameters and its top-level locals share one scope, so the shadow the
 // issue proposed cannot be spelled without renaming what the author wrote.
+//
+// Verifies: Rule 8.6 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

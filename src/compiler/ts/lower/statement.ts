@@ -1,4 +1,6 @@
 // === Statement lowering ===
+//
+// Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
@@ -50,7 +52,7 @@ import {
 import { lowerExpression, unknownIdentifierSentence } from './expression.js';
 import { lowerCall } from './expression-call.js';
 import { lowerArrayLiteral } from './expression-array.js';
-import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js';
+import { lowerFor, lowerForOf, lowerSwitch, lowerUpdate, lowerWhile } from './control.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { foldNumericLit } from '../lit-coerce.js';
@@ -200,6 +202,7 @@ function lowerStatementKind(
   if (ts.isIfStatement(node)) return lowerIf(node, sourceFile, scope, diagnostics);
   if (ts.isForStatement(node)) return lowerFor(node, sourceFile, scope, diagnostics);
   if (ts.isWhileStatement(node)) return lowerWhile(node, sourceFile, scope, diagnostics);
+  if (ts.isForOfStatement(node)) return lowerForOf(node, sourceFile, scope, diagnostics);
   if (ts.isSwitchStatement(node)) return lowerSwitch(node, sourceFile, scope, diagnostics);
   if (ts.isBreakStatement(node)) {
     // The message has always said "loop or switch"; only the loop half was checked, so the

@@ -1,4 +1,6 @@
 // Math.* 1:1 aliases + expansions + GLSL-style free names.
+//
+// Implements: Rule 2.2 (docs/language-design.md; traced in reqs/).
 
 import { isKnownIntrinsic } from '../../core/intrinsics.js';
 import type { ExpandId } from './math-expand.js';

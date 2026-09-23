@@ -5,7 +5,7 @@
 // arm asserts both that the owning bucket names it AND that the other buckets stay
 // empty. A comparator that reported everything under one bucket, or that reported a
 // literal change as a control-flow change, would pass a plain "is it non-empty?" test
-// and fail these (CLAUDE.md §12).
+// and fail these (AGENTS.md#gate-discipline).
 //
 // The load-bearing arm is mangle invariance. It is what lets X-GIS #1715's "prod is dev,
 // optimized" claim be asserted rather than trusted, and it is why 'names'

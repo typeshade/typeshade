@@ -1,3 +1,7 @@
+// Verifies: Rule 12.1 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 12.6 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 7.7 (docs/language-design.md; traced in reqs/).
+
 // A name the compiler cannot find names the fix itself, at every place a name is written, in one
 // order: TypeShade's spelling of a GLSL or HLSL name, then the name of the same kind it is spelled
 // like, then the place's own remedy (Rule 12.1). The build prints the sentence the editor shows,

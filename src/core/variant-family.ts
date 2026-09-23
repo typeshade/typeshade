@@ -1,8 +1,8 @@
 // ═══ Shader DSL — variant families: the axes a HOST decides at runtime (X-GIS #1712) ═══
 //
-// AUTHORING.md §11 is right that a preprocessor is unnecessary when WE decide the variant:
+// AUTHORING.md#conditional-programs is right that a preprocessor is unnecessary when WE decide the variant:
 // a builder parameter plus a plain `if` is strictly better, because the losing arm is
-// never built and its bindings never declared. The case §11 does not cover is when the
+// never built and its bindings never declared. The case that section does not cover is when the
 // HOST decides — MapLibre sets TERRAIN3D and a family of OVERLAY_DRAPE_* per draw from map
 // state, and our shaders must agree with defines we do not own.
 //
@@ -28,7 +28,7 @@
 // (`selectGuardedArm` recovers it, and the tests assert that for every variant), so the
 // preprocessor buys the host its define without the WGSL path paying anything.
 //
-// The `key` is the part that outlives the rest. AUTHORING.md §11's identity rule — every
+// The `key` is the part that outlives the rest. AUTHORING.md#the-identity-of-a-specialized-program's rule — every
 // axis you specialise on must appear in every key that names the program — is prose today,
 // and `map/src/shaders/baked/ids.ts:64-70` records the near-miss it already cost. A key
 // DERIVED from the axes cannot omit one.

@@ -17,6 +17,8 @@
 // "possible values" list omits both), and `@builtin(frag_depth, less)` is refused by the same
 // Tint at the comma (`expected ')' for builtin attribute`). Admitting either would move the
 // failure further from the author, not closer.
+//
+// Verifies: Rule 6.6, Rule 10.1 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

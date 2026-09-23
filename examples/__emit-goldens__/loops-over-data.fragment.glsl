@@ -2,6 +2,7 @@
 precision highp float;
 precision highp int;
 
+const float[3] WEIGHTS = float[3](0.25, 0.5, 0.25);
 layout(std140) uniform Frame {
   int steps;
   int depth;
@@ -54,8 +55,15 @@ in vec2 uv;
 layout(location = 0) out vec4 color;
 
 void main() {
+  float _licm0 = (uv.x * 4.0);
   float ring = march(uv, frame.steps);
   float n = float(leaves(frame.depth));
-  float s = (isqrt((uv.x * 4.0)) * 0.5);
+  float s = 0.0;
+  float k = 0.0;
+  for (uint _i = 0u; (_i < 3u); _i = (_i + 1u)) {
+    float w = WEIGHTS[_i];
+    s += ((w * isqrt((_licm0 + k))) * 0.5);
+    k += 1.0;
+  }
   color = vec4(ring, fract((n / 7.0)), s, 1.0);
 }

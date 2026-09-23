@@ -91,7 +91,7 @@ Define what is TypeShade vs TypeScript:
   lowered, see Phase 12)
 - Compilation unit + module semantics (sketch)
 
-**Deliverable:** Language Spec draft (this doc + later `docs/use-typeshade-spec.md`).
+**Deliverable:** Language Spec draft (this doc; the spec it anticipated became `docs/language-design.md` and `docs/use-typeshade-surface.md`).
 
 **Status:** policies locked in-repo (directive, f32 default lit, `%` vs `mod`, const immutable, all top-level fns collected). Spec prose still thin.
 

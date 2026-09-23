@@ -356,6 +356,17 @@ f32)` called as `run_inc(&n, k)` in WGSL and `void run_inc(inout float n, float 
   editor error on correct code: `const uv = p.xy * frame.scale` is a `number` to the editor,
   so `uv.x` is TS2339 (#162). The journey carries the annotation and names the issue, and
   `journeys/README.md` requires that of every workaround.
+- **`for (const x of xs)` over an array** (Rules 7.2, 7.5). The other loop a TypeScript author
+  writes over data was `TS8013 for-of / for-in iterate JS objects`. Over an `array<T, N>` or a
+  runtime-sized storage array it is now a counted loop over the indices. The element is read at
+  the top of each trip, and `let x` is a copy the body may change. The bound is the array's size,
+  or `arrayLength(&xs)`. A vector (`TS8003`) and an array that is not a name or a path to one
+  (`TS8006`) are refused with the remedy. `for…in` stays `TS8013`, now with a message that names
+  both loops to use instead. The editor used to report TS2488 (the type "must have a
+  `[Symbol.iterator]()` method") on every such loop. The ambient `array<T, N>` and list types are now iterable: the
+  ambient file restates `Symbol` and `SymbolConstructor` as the standard library spells them,
+  and the compiler still refuses `Symbol` as a value. `examples/loops-over-data.shade.ts` weighs
+  its samples with one, on the compile gate.
 
 - **Hover documents every type name the compiler takes.** `TYPE_DOCS` has rows for
   `sampler`, `sampler_comparison` and every `texture_*` name, each with its `declare const` form
@@ -1299,6 +1310,18 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   end of the switch runs nothing more in TypeScript either, so it is not refused. A program
   ported from WGSL, whose cases need no `break`, gains one per case. Appendix B's Rule 7.3 row
   is removed.
+
+- **The editor types a local built by vector arithmetic as the vector it is** (#162).
+  `const uv = p.xy * frame.scale` gave `uv` the type `number` in the language service, because
+  TypeScript has no operator overloading. So on a program the compiler accepts, `uv.x` was
+  TS2339, `tint(uv)` was TS2345, completion after `uv.` offered nothing, and hover said
+  `number`. The TypeScript program now reads each open document with the front end's type
+  written in (`const uv: vec2 = …`), and every answer maps back to the text as written:
+  diagnostics, hover, completion, references, rename, semantic tokens and `positionAt`. Only
+  an unannotated `const` or `let` whose initializer does arithmetic and whose type is a vector
+  or an `f32` matrix is written into. Plain `tsc` is unchanged: the README now lists the TS2339
+  it reports on a swizzle of such a local among the documented classes. The plasma and ray-cast
+  journeys drop their annotations, and the gate's editor check passes on them as written.
 
 - **A local function or a parameter that takes a function is what its name means, whatever
   builtin shares it** (Rule 9.5). `step(i)` on a parameter `step: (i: i32) => void` reached

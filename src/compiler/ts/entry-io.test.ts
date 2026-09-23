@@ -13,6 +13,8 @@
 //   fragment returning a bare f32                Tint: missing entry point IO attribute
 //   fragment returning a bare vec3               Tint: missing entry point IO attribute
 //   vertex returning a bare vec4                 Tint accepts; GLSL refused it
+//
+// Verifies: Rule 8.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

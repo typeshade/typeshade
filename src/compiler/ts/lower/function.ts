@@ -1,4 +1,6 @@
 // === Function lowering: two-pass signatures then bodies ===
+//
+// Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import type {

@@ -1,5 +1,7 @@
 // Counted `for`, open `while` (Rule 7.5): an integer induction variable, a constant step, a
 // bound the body does not move; exact trip counts when the whole header is constant.
+//
+// Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js';
 import { typeKey } from '../../core/ir/types.js';

@@ -11,6 +11,8 @@
 // the in/out varyings, the gl_* builtin glue, a single main() per stage). The
 // REAL-WebGL2 `gl.compileShader` gate is the sibling Playwright spec
 // (playground/e2e/_glsl-compile-gate.spec.ts), which compiles these same strings.
+//
+// Verifies: Rule 10.3 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import {

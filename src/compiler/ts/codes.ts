@@ -11,6 +11,8 @@
 // the sequential range; `TEXTURE_ARGUMENT` (TS8041) and `RESERVED_NAME` (TS8068) were assigned
 // from blocks, and the numbers a block did not spend stay unspent. A block's unused codes stay
 // unused, exactly as 8011 does — a gap is never reused.
+//
+// Implements: Rule 3.7 (docs/language-design.md; traced in reqs/).
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',

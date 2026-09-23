@@ -1,5 +1,7 @@
 # Benchmark against the TypeScript project
 
+<!-- doc-refs: skip-file — a measurement of the tree at d5c7305 and of three other repositories; its paths name those trees, not this one -->
+
 This document measures TypeShade against the TypeScript project: what microsoft/TypeScript does as
 a language, a compiler, a language service, a tooling project, a testing and CI project, and a
 release and documentation project, and what of that TypeShade should adopt in its next phase. Three
@@ -976,13 +978,15 @@ are already precise and already carry spans.
 `{ description, edits, fixId? }`, backed by `src/language-service/codefixes/` with a
 `registerCodeFix({ codes, create })` multimap keyed by the TS8xxx string, mirroring
 `codeFixProvider.ts`, and export a `getSupportedFixCodes()` so an adapter can mark which diagnostics
-are actionable. Ship four fixes first, chosen because the message already names the edit: TS8028 and
-TS8024 spelling, replacing the token span with the suggestion the compiler already computed; TS8029
-insert `@location(n)` with the next free location on that struct; TS8003 int and float mismatch,
-wrapping the offending operand in `f32()`, `i32()` or `u32()`; and TS8021 insert the return type
-annotation the front end already inferred. Make `suggestBuiltinName` and `suggestAttributeName`
-return the suggestion to the fix directly instead of the fix re-parsing it out of the message text,
-and put the fix titles in the message table so they translate with everything else.
+are actionable. Ship four fixes first, chosen because the message already names the edit: the
+spelling of every unknown-name refusal (TS8022, TS8004, TS8002, TS8028, TS8024 and the rest), replacing
+the name's span with the suggestion the compiler already computed; TS8029 insert `@location(n)` with
+the next free location on that struct; TS8003 int and float mismatch, wrapping the offending operand
+in `f32()`, `i32()` or `u32()`; and TS8021 insert the return type annotation the front end already
+inferred. Make `unknownNameRemedy` (`src/compiler/ts/unknown-names.ts`), the one remedy every
+unknown-name refusal shares, return the suggestion to the fix directly instead of the fix re-parsing
+it out of the message text, and put the fix titles in the message table so they translate with
+everything else.
 
 ### Fix-all across a document
 

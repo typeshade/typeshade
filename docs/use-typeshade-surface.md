@@ -107,12 +107,13 @@ than a recursion. A builtin name wins over an alias of the same name, so `type v
 does not make `vec3` a scalar. A generic alias has no one target type and keeps its refusal;
 generics are roadmap 0.3 item T9.
 
-A struct is the members written in it, whichever of the three spellings declared it: a method
-or call signature, an index signature and an optional (`a?: f32`) member are each rejected,
-since a WGSL struct has no form for them and silently dropping one would change the buffer
-layout the host fills. The optional member is the one where the three spellings used to
-disagree: an interface refused it and a class emitted it as required. They refuse it alike
-now. An `extends` clause is inheritance (roadmap 0.3 item T5, §26): the base's fields come
+A struct is the members written in it, whichever of the three spellings declared it: a call
+signature, an index signature and an optional (`a?: f32`) member are each rejected, since a
+WGSL struct has no form for them and silently dropping one would change the buffer layout the
+host fills. An interface that declares a method is not a struct but a contract, which a class
+may name in `implements` and a type parameter may take as its constraint (§26, Rule 6.9). The
+optional member is the one where the three spellings used to disagree: an interface refused it
+and a class emitted it as required. They refuse it alike now. An `extends` clause is inheritance (roadmap 0.3 item T5, §26): the base's fields come
 first and the derived ones after, so nothing is dropped.
 
 Field metadata (`@location`, `@builtin`, `@interpolate`, `@invariant`, `@blend_src`, `@align`, `@size`, `@offset`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators, so a struct used as entry I/O — where WGSL requires `@builtin` or `@location` on every member — has to be a class.
@@ -329,6 +330,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
 | A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
 | A call that writes in a `while` condition, anywhere but as one side of its comparison | `TS8006`. The condition runs on every iteration, so the call cannot move ahead of the loop to run in source order; compare the call alone, or call it into a `let` at the end of the body (§26, Rule 7.9) |
+| A name the file does not declare: a value, a callee, a type, a field, a member, an assignment target, an attribute, a `@builtin` id, an `enable` extension, an import | `TS8022`, `TS8004`, `TS8002` and the rest, on the name, with the remedy in one order (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name (`lerp` is `mix`), else the name of the same kind it is spelled like (`Did you mean "clamp"?`), else the declaration it needs |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 
 ---
@@ -525,7 +527,8 @@ export function fs(@builtin("position") p: vec4): Color {
 It is allowed in a fragment entry, and in a helper as long as no `@vertex` or `@compute`
 entry can reach it: the check closes over the call graph, so `discard` inside a helper a
 vertex entry calls is rejected too, naming the helper and the entry. The three screen-space
-derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule.
+derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule. `discard()` is refused
+with the remedy: `discard` is a statement, written without the parentheses.
 
 `**` is float-only, as `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
 as `pow(i32, i32)`, which neither compiler accepts.
@@ -1490,6 +1493,43 @@ author's to end, as it is in WGSL, and one that spins on a GPU is ended by the d
 which loses the device. `examples/loops-over-data.shade.ts` holds all three loops, a
 uniform-bounded `for`, a stack walk and a converging `while (true)`, and the compile gate runs it
 on Tint and on WebGL2.
+
+**`for (const x of xs)` iterates an array.** It is the other loop a TypeScript author writes
+over data, and it was `TS8013 for-of / for-in iterate JS objects`. Over an `array<T, N>` or a
+runtime-sized storage array it is a counted loop over the indices: the trip count is the array's
+length, which the body cannot change, so there is nothing left to check.
+
+```ts
+"use typeshade";
+
+class Light {
+  pos: vec3;
+  power: f32;
+}
+class Scene {
+  lights: array<Light, 4>;
+}
+declare const scene: uniform<Scene>;
+
+export function lit(p: vec3): f32 {
+  let s = 0.;
+  for (const l of scene.lights) {
+    s += l.power / (1. + distance(p, l.pos));
+  }
+  return s;
+}
+```
+
+It lowers to `for (var _i: u32 = 0u; _i < 4u; _i = _i + 1u) { let l = scene.lights[_i]; … }`,
+with `arrayLength(&xs)` as the bound of a runtime-sized array. The element is read at the top
+of each trip, as TypeScript's array iterator reads it, and `for (let x of xs)` gives a copy the
+body may change without writing the array. `break` and `continue` do what they do in any loop.
+
+Three shapes are refused. A vector is not an array (`TS8003`): index it, or write it into an
+`array<T, N>`. The array has to be a name, or a member or index path to one (`TS8006`), because
+it is read on every trip: `const xs = make(); for (const x of xs)`. And `for…in` stays `TS8013`,
+since a shader value has no keys to enumerate. In the editor the ambient `array` and list types
+are iterable, so the loop type-checks there too.
 
 **Before #203**, three things about the counted loop changed, and they still hold.
 
@@ -3240,7 +3280,8 @@ has the rest of the operator surface.
 adds that it "requires a TypeShade type annotation", which it has; a return no longer adds
 "Unsupported return type"; a call to a function this file declares and could not lower no
 longer says "Unknown function", which was untrue — the function is there, and its declaration
-already said why. A call to a name nothing declares still says so.
+already said why. A call to a name nothing declares still says so, and names the function it
+is spelled like (§7).
 
 ## 29. The mixin pattern
 
@@ -3787,7 +3828,7 @@ WGSL row and no GLSL row, the pattern `storageTexture` set (§33): the gate fail
 closed on GLSL before any emit, `enables` cannot name them, and `reflect().requiredFeatures`
 tells the host which ones a module needs. Three capabilities rather than one because a module
 that uses a cube array and no gather should not be told about gather. On Tint every shape here
-was measured accepted, gather in a compute stage too (`scratchpad/item12-probe.mts`).
+was measured accepted, gather in a compute stage too (a one-off probe that was not kept in the tree).
 
 **The argument order is the spec's.** WGSL puts the **component first** on a colour texture and
 has **none** on a depth texture, whose texels have one channel; the layer follows the coordinate

@@ -135,7 +135,8 @@ entry-point signatures).
   against the registry in both directions so an unregistered file cannot go quiet.
 - **Compile gate** — `bun run gate:compile` emits all 107 registered examples (both corpora) and
   hands the WGSL to Tint and every renderable GLSL pair to a real WebGL2 context.
-- **Render gate** — `playground/e2e/_shader-dsl-examples-render.spec.ts` compiles + links + draws
+- **Render gate** — not run in this repository. It was
+  X-GIS's `playground/e2e/_shader-dsl-examples-render.spec.ts`, which compiles + links + draws
   each renderable example on a real WebGL2 context (packing the UBO from `reflect()`) and reads
   back a non-blank, varying frame.
 

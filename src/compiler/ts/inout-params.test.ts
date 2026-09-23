@@ -21,6 +21,8 @@
 // So the IR says WHICH parameters a callee writes through and nothing about how a target
 // spells it. GLSL writes one function with `inout`. WGSL writes one per address space its
 // calls use, which is the WGSL backend's own pass and reaches nothing above it.
+//
+// Verifies: Rule 8.10 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
