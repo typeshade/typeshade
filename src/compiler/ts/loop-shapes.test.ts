@@ -15,7 +15,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { compile } from './compile.js'
-import { MAX_LOOP_TRIPS } from './loop-bound.js'
 
 /** One loop, as a whole module, with `head` spliced into the `for`. */
 function loop(head: string): string {
@@ -41,15 +40,23 @@ function accepts(head: string): void {
   expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
 }
 
-describe('a loop that exits too late says so', () => {
-  it('names the trip count instead of claiming the loop does not exit', () => {
-    // 1024 exits, at 1024. The old walk gave up after 258 steps and said "does not exit",
-    // which is a statement about a different program than the one the author wrote.
-    expect(diagnose('let i: i32 = 0; i < 1024; i++')).toBe('for trip count 1024 exceeds 256.')
-    expect(diagnose('let i: u32 = u32(0); i < u32(100000); i++')).toBe(
-      'for trip count 100000 exceeds 256.',
-    )
-    expect(diagnose('let i: i32 = 0; i < 4096; i += 4')).toBe('for trip count 1024 exceeds 256.')
+/** How many times the loop's body runs, on the CPU, once the header is accepted. */
+function trips(head: string): unknown {
+  const c = compile(loop(head))
+  expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+  return c.eval('f', [])
+}
+
+describe('a trip count has no ceiling (Rule 7.5, #203)', () => {
+  it('accepts a loop of any length, where 256 trips used to be the most', () => {
+    // These were `for trip count N exceeds 256.` Neither target limits a trip count, and
+    // nothing downstream read the ceiling but the check itself (#203).
+    expect(trips('let i: i32 = 0; i < 1024; i++')).toBe(1024)
+    expect(trips('let i: u32 = u32(0); i < u32(100000); i++')).toBe(100000)
+    expect(trips('let i: i32 = 0; i < 4096; i += 4')).toBe(1024)
+    expect(trips('let i: i32 = 257; i > 0; i -= 1')).toBe(257)
+    // A loop whose condition is false at the start runs zero times and is not an error.
+    expect(trips('let i: i32 = 8; i < 4; i++')).toBe(0)
   })
 
   it('keeps "does not exit" for a loop that really does not', () => {
@@ -60,25 +67,6 @@ describe('a loop that exits too late says so', () => {
     expect(diagnose('let i: i32 = 0; i < 64; i *= 2')).toBe(
       'for (i = 0; i < 64; i *= 2) does not exit.',
     )
-  })
-
-  it('holds the policy boundary at 256, counting up and counting down', () => {
-    // The three `i++` lines are a REGRESSION GUARD and pass on the merge base too: the old
-    // 258-step walk could see this far, so the boundary is where it always was and the point
-    // is that the closed form did not move it.
-    accepts(`let i: i32 = 0; i < ${MAX_LOOP_TRIPS}; i++`)
-    accepts(`let i: i32 = 0; i <= ${MAX_LOOP_TRIPS - 1}; i++`)
-    expect(diagnose(`let i: i32 = 0; i < ${MAX_LOOP_TRIPS + 1}; i++`)).toBe(
-      `for trip count ${MAX_LOOP_TRIPS + 1} exceeds ${MAX_LOOP_TRIPS}.`,
-    )
-    // The same boundary counting DOWN, which does not pass on the merge base: `i -= 1` was
-    // "Unsupported for-update." there, so neither side of the boundary could be asserted.
-    accepts(`let i: i32 = ${MAX_LOOP_TRIPS}; i > 0; i -= 1`)
-    expect(diagnose(`let i: i32 = ${MAX_LOOP_TRIPS + 1}; i > 0; i -= 1`)).toBe(
-      `for trip count ${MAX_LOOP_TRIPS + 1} exceeds ${MAX_LOOP_TRIPS}.`,
-    )
-    // A loop whose condition is false at the start runs zero times and is not an error.
-    accepts('let i: i32 = 8; i < 4; i++')
   })
 })
 
@@ -197,20 +185,17 @@ describe('the exact count handles every comparison', () => {
     accepts('let i: i32 = 0; i <= 16; i += 3')
     accepts('let i: i32 = 16; i > 0; i -= 3')
     accepts('let i: i32 = 16; i >= 0; i -= 3')
-    // An exact count for each of the four thresholds, so no arm of the closed form can be
-    // wrong without a test saying so. `accepts` alone cannot do that: it passes whatever
-    // number the counter produces, as long as it is at most MAX_LOOP_TRIPS.
-    expect(diagnose('let i: i32 = 0; i <= 1024; i += 2')).toBe('for trip count 513 exceeds 256.')
-    expect(diagnose('let i: i32 = 0; i < 1024; i += 2')).toBe('for trip count 512 exceeds 256.')
-    // The two downward ones. Both walk to a negative bound, which the old sequence walk could
-    // not reach at all, and `>=` runs the extra trip that lands ON the bound.
-    expect(diagnose('let i: i32 = 0; i > -1024; i--')).toBe('for trip count 1024 exceeds 256.')
-    expect(diagnose('let i: i32 = 0; i >= -1024; i -= 1')).toBe('for trip count 1025 exceeds 256.')
+    // An exact count for each of the four thresholds, so the loop the closed form accepts is
+    // the loop that runs. `>=` and `<=` run the extra trip that lands ON the bound.
+    expect(trips('let i: i32 = 0; i <= 1024; i += 2')).toBe(513)
+    expect(trips('let i: i32 = 0; i < 1024; i += 2')).toBe(512)
+    expect(trips('let i: i32 = 0; i > -1024; i--')).toBe(1024)
+    expect(trips('let i: i32 = 0; i >= -1024; i -= 1')).toBe(1025)
   })
 
   it('counts !== as hitting a value, not as crossing a threshold', () => {
     accepts('let i: i32 = 0; i !== 16; i += 2')
-    expect(diagnose('let i: i32 = 0; i !== 1024; i++')).toBe('for trip count 1024 exceeds 256.')
+    expect(trips('let i: i32 = 0; i !== 1024; i++')).toBe(1024)
     // A bound the step steps straight over is never reached.
     // The message prints the IR's own comparison tag, which is WGSL's `!=`.
     expect(diagnose('let i: i32 = 0; i !== 9; i += 2')).toBe(

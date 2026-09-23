@@ -160,6 +160,28 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   compiles, a shape the walk cannot read keeps the refusal it had, and the code that moved is
   `TS8034` becoming `TS8052`.
 
+- **A loop over data compiles: a `for` bound may be a runtime value, the 256-trip ceiling is
+  gone, and a `while` is an open loop** (Rule 7.5, #203). A `for` still has to be counted: an
+  `i32` or `u32` induction variable, a constant step and an exit that compares the variable to
+  a bound. But the start and the bound may now be any integer expression the body does not
+  write: a uniform field, a parameter, `a.length`, `verts.length / 3`. The loop emits as
+  written on both targets, which #203 measured on Tint and on ANGLE. With a runtime part the
+  compiler still checks what the header proves. A step away from the bound, or a
+  multiplicative step from 0, is `TS8007`. `TS8006` covers `==` or `!=` against a runtime
+  bound, a runtime-headed multiplicative step whose factor is not a whole 2 or more, and a
+  bound the body writes. A constant header is still counted exactly. It has no ceiling:
+  `for trip count 1024 exceeds 256.` is gone, since neither target limits a trip count and
+  nothing read `MAX_LOOP_TRIPS` but the check. A `while` takes any `bool` condition. It is
+  refused only as `while (true)` with no `break` or `return` of its own in the body (`TS8007`),
+  where it used to need a comparison with a constant, which let `while (sp > 0)` and
+  `while (i < 100000)` through by accident and refused `while (i < data.length)`. The counter
+  the IR's one loop form gives a `while` is now an `i32` whatever the condition compares. It
+  used to take the type of the comparison's left side, so `while (a < 4.)` emitted
+  `var _w: f32`. The uniformity walk sees a runtime-bounded loop, so a barrier in a loop
+  bounded by `local_invocation_index` is `TS8052`. `examples/loops-over-data.shade.ts` holds a
+  uniform-bounded `for`, a stack walk and a converging `while (true)`, on the compile gate.
+  Language design Rule 7.5 and its two §14 rows, and surface §17, change with it.
+
 ### Removed
 
 - **`perInvocation<T>`, the second spelling of the per-invocation variable** (§24,

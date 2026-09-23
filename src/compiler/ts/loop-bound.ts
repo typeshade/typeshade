@@ -1,14 +1,19 @@
-// Counted for/while: constant exit, integer induction, finite trips.
+// Counted `for`, open `while` (Rule 7.5): an integer induction variable, a constant step, a
+// bound the body does not move; exact trip counts when the whole header is constant.
 
 import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js'
 import { typeKey } from '../../core/ir/types.js'
+import { eachExpr } from '../../core/ir/visit.js'
 import type { LoweringScope } from './context.js'
 import { TS_CODES, type TsCode } from './codes.js'
 import { BUILTINS } from '../../core/cpu-runtime.js'
 import { isConstEvaluableMathFn } from './math-alias.js'
-import { foldIntLit, intElemOf, wrapInt } from '../../core/passes/opt/expr-utils.js'
-
-export const MAX_LOOP_TRIPS = 256
+import {
+  collectMutatedRoots,
+  foldIntLit,
+  intElemOf,
+  wrapInt,
+} from '../../core/passes/opt/expr-utils.js'
 
 export function foldConstNumber(expr: Expr, scope: LoweringScope): number | undefined {
   if (expr.op === 'lit' && typeof expr.value === 'number') return expr.value
@@ -157,21 +162,34 @@ function flipCmp(cop: CmpOp): CmpOp {
 const isInduct = (e: Expr, name: string): boolean =>
   (e.op === 'varref' || e.op === 'param') && e.name === name
 
-function readCond(
-  cond: Expr,
-  name: string,
-  scope: LoweringScope,
-): { cop: CmpOp; bound: number } | undefined {
+/** The exit compare `i <cop> bound`, normalised so the induction variable is on the left.
+ *  `bound` is the expression as lowered, and `value` its folded number when it is a
+ *  compile-time constant; a bound that is not one is a runtime value (Rule 7.5). */
+interface ExitCompare {
+  readonly cop: CmpOp
+  readonly bound: Expr
+  readonly value: number | undefined
+}
+
+function readCond(cond: Expr, name: string, scope: LoweringScope): ExitCompare | undefined {
   if (cond.op !== 'compare') return undefined
-  if (isInduct(cond.a, name)) {
-    const bound = foldConstNumber(cond.b, scope)
-    return bound === undefined ? undefined : { cop: cond.cop, bound }
+  if (isInduct(cond.a, name) && !mentions(cond.b, name)) {
+    return { cop: cond.cop, bound: cond.b, value: foldConstNumber(cond.b, scope) }
   }
-  if (isInduct(cond.b, name)) {
-    const bound = foldConstNumber(cond.a, scope)
-    return bound === undefined ? undefined : { cop: flipCmp(cond.cop), bound }
+  if (isInduct(cond.b, name) && !mentions(cond.a, name)) {
+    return { cop: flipCmp(cond.cop), bound: cond.a, value: foldConstNumber(cond.a, scope) }
   }
   return undefined
+}
+
+/** Whether `e` reads the IR name `name` anywhere. `i < i * 2` compares the induction variable
+ *  to itself, which is not a bound. */
+function mentions(e: Expr, name: string): boolean {
+  let hit = false
+  eachExpr(e, (x) => {
+    if ((x.op === 'varref' || x.op === 'param') && x.name === name) hit = true
+  })
+  return hit
 }
 
 /** How a counted loop advances its induction variable: by ADDING a constant (`i++`,
@@ -231,25 +249,29 @@ function stepText(name: string, step: Step): string {
  *  caller branches on `ok` and lowers the `for` it already has. So this carries the numbers a
  *  reader would want and no more, and in particular not the step's OPERATION: a field for it
  *  would be one more thing written and never read. `step` is the addend for an additive loop
- *  and the factor for a multiplicative one. */
+ *  and the factor for a multiplicative one. `start`, `bound` and `trips` are present when the
+ *  header folds to constants, and absent when the start or the bound is a runtime value
+ *  (Rule 7.5): such a loop is still counted, by a count known only when it runs. */
 export interface CountedLoop {
   readonly name: string
-  readonly start: number
-  readonly bound: number
+  readonly start?: number
+  readonly bound?: number
   readonly step: number
-  readonly trips: number
+  readonly trips?: number
 }
+
+type Refusal = { ok: false; message: string; code: TsCode }
 
 export function analyzeCountedFor(
   init: Stmt,
   cond: Expr,
   update: Stmt,
   scope: LoweringScope,
-): { ok: true; loop: CountedLoop } | { ok: false; message: string; code: TsCode } {
+): { ok: true; loop: CountedLoop } | Refusal {
   if (init.s !== 'var' || !init.init) {
     return {
       ok: false,
-      message: 'for-init must be `let i: i32 = <const>` (or u32).',
+      message: 'for-init must be `let i: i32 = <start>` (or u32).',
       code: TS_CODES.LOOP_INDUCTION,
     }
   }
@@ -264,19 +286,16 @@ export function analyzeCountedFor(
   // Messages name the counter as the author spelled it; the IR name a second `i` carries is
   // `i_1` (#38), and `readCond`/`readStep` match on that one.
   const shown = scope.resolveIr(init.name)?.name ?? init.name
+  // The start runs once, before the first test, so any value of the counter's type will do:
+  // `for (let i = lid.x; i < n; i += 64u)` is the strided loop every compute kernel writes.
   const start = foldConstNumber(init.init, scope)
-  if (start === undefined) {
+  const exit = readCond(cond, init.name, scope)
+  if (!exit) {
     return {
       ok: false,
-      message: `for-init "${shown}" must start at a compile-time constant.`,
-      code: TS_CODES.LOOP_BOUND,
-    }
-  }
-  const condInfo = readCond(cond, init.name, scope)
-  if (!condInfo) {
-    return {
-      ok: false,
-      message: `for exit must compare "${shown}" to a constant bound (e.g. ${shown} < 16).`,
+      message:
+        `for exit must compare "${shown}" to a bound (e.g. ${shown} < 16, or ${shown} < n). ` +
+        `A loop that ends some other way is a while loop.`,
       code: TS_CODES.LOOP_BOUND,
     }
   }
@@ -296,9 +315,14 @@ export function analyzeCountedFor(
       code: TS_CODES.LOOP_INFINITE,
     }
   }
-  const trips = countTrips(start, condInfo.cop, condInfo.bound, step, k)
+  if (start === undefined || exit.value === undefined) {
+    const refused = runtimeHeader(shown, start, exit.cop, step)
+    return refused ?? { ok: true, loop: { name: init.name, start, step: step.by } }
+  }
+  const bound = exit.value
+  const trips = countTrips(start, exit.cop, bound, step, k)
   if (!trips.ok) {
-    const header = `for (${shown} = ${start}; ${shown} ${condInfo.cop} ${condInfo.bound}; ${stepText(shown, step)})`
+    const header = `for (${shown} = ${start}; ${shown} ${exit.cop} ${bound}; ${stepText(shown, step)})`
     // Two different mistakes, and they used to share the first sentence. A loop whose step
     // steps away from the bound never exits. A loop like `for (i = 1; i < 2147483647; i *= 3)`
     // does reach its bound, but only after `i` has left the range of `i32`, so what the
@@ -312,17 +336,108 @@ export function analyzeCountedFor(
         }
       : { ok: false, message: `${header} does not exit.`, code: TS_CODES.LOOP_INFINITE }
   }
-  if (trips.n > MAX_LOOP_TRIPS) {
+  // No ceiling on the count (Rule 7.5, #203): a trip count is a fact about the program, and
+  // neither target limits it. The exact count is what the unroller and a reader get.
+  return { ok: true, loop: { name: init.name, start, bound, step: step.by, trips: trips.n } }
+}
+
+/**
+ * The name the loop's bound reads and its body writes, or undefined when the body leaves the
+ * bound alone (Rule 7.5). A bound that moves inside the loop does not bound it: the loop is
+ * open, and the remedy is a `while`, which says so. Only the body's own writes are seen here;
+ * a write made by a function the body calls is not, because the functions of the file are
+ * lowered one at a time (Appendix B).
+ */
+export function boundWrittenIn(
+  cond: Expr,
+  name: string,
+  scope: LoweringScope,
+  body: readonly Stmt[],
+): string | undefined {
+  const exit = readCond(cond, name, scope)
+  if (!exit || exit.value !== undefined) return undefined
+  const written = new Set<string>()
+  collectMutatedRoots(body, written)
+  let hit: string | undefined
+  eachExpr(exit.bound, (x) => {
+    if (hit !== undefined) return
+    if ((x.op === 'varref' || x.op === 'param' || x.op === 'externref') && written.has(x.name)) {
+      hit = scope.resolveIr(x.name)?.name ?? x.name
+    }
+  })
+  return hit
+}
+
+/**
+ * What can still be proved about a header whose start or bound is a runtime value, or
+ * undefined when that is enough to count it by (Rule 7.5).
+ *
+ * The count is unknown, but the DIRECTION is not: the step is a constant, so whether it moves
+ * the counter toward the bound is a fact of the header. A step that moves away is the loop
+ * that does not exit, as it is with a constant bound. `==` and `!=` are refused because they
+ * exit only when the step lands on the bound exactly, which a runtime bound cannot promise. A
+ * multiplicative step moves toward a larger bound only from a positive start and toward a
+ * smaller one only while the counter is not yet 0, so its factor has to be a positive whole
+ * number, and a constant start of 0 is the loop that never moves.
+ *
+ * What this does not prove, because the value is not known before the loop runs: that the
+ * counter reaches the bound before it leaves its type. `i <= n` with `n` at the type's
+ * maximum never fails, `i += 4` wraps past a bound within 4 of it, and `i *= 2` from a runtime
+ * start of 0 never moves. Both targets and the
+ * CPU agree on what such a loop does; Appendix B of `docs/language-design.md` records it.
+ */
+function runtimeHeader(
+  shown: string,
+  start: number | undefined,
+  cop: CmpOp,
+  step: Step,
+): Refusal | undefined {
+  const text = stepText(shown, step)
+  if (cop === '==' || cop === '!=') {
     return {
       ok: false,
-      message: `for trip count ${trips.n} exceeds ${MAX_LOOP_TRIPS}.`,
+      message:
+        `for exit "${shown} ${cop} <bound>" with a runtime bound exits only if "${text}" lands ` +
+        `on it exactly. Compare with <, <=, > or >=.`,
       code: TS_CODES.LOOP_BOUND,
     }
   }
-  return {
-    ok: true,
-    loop: { name: init.name, start, bound: condInfo.bound, step: step.by, trips: trips.n },
+  const goingUp = cop === '<' || cop === '<='
+  if (step.op === 'add') {
+    if (goingUp !== step.by > 0) {
+      return {
+        ok: false,
+        message: `for step "${text}" moves "${shown}" away from a bound it compares with ${cop}, so the loop does not exit once it starts.`,
+        code: TS_CODES.LOOP_INFINITE,
+      }
+    }
+    return undefined
   }
+  if (!Number.isInteger(step.by) || step.by < 2) {
+    return {
+      ok: false,
+      message: `for step "${text}" with a runtime start or bound needs a whole factor of 2 or more, so its direction is known.`,
+      code: TS_CODES.LOOP_BOUND,
+    }
+  }
+  if (goingUp !== (step.op === 'mul')) {
+    return {
+      ok: false,
+      message: `for step "${text}" moves "${shown}" away from a bound it compares with ${cop}, so the loop does not exit once it starts.`,
+      code: TS_CODES.LOOP_INFINITE,
+    }
+  }
+  if (step.op === 'mul' && start !== undefined && start <= 0) {
+    return {
+      ok: false,
+      message:
+        start === 0
+          ? `for step "${text}" never advances "${shown}": multiplying pins it at 0.`
+          : `for step "${text}" from ${start} moves "${shown}" away from a bound it compares with ${cop}.`,
+      code: TS_CODES.LOOP_INFINITE,
+    }
+  }
+  return undefined
 }
 
 /** Why a step cannot move the induction variable, or undefined when it can. All four cases
@@ -431,33 +546,27 @@ function addTrips(
   return { ok: true, n: trips }
 }
 
-export function loopConditionError(
+/**
+ * Why a `while` cannot run as written, or undefined when it can (Rule 7.5).
+ *
+ * A `while` is an OPEN loop: it ends when its condition fails, or at a `break` or a `return`
+ * in its body, and nothing about it is counted. A BVH traversal (`while (sp > 0)`) and an
+ * iterative solver are written this way, and both targets accept it. What is refused is the
+ * one open loop that certainly never ends: a condition that is constantly true, with no
+ * `break` or `return` in the body to leave it by. `hasExit` answers the second half, since
+ * that is a question about the source body and not the condition.
+ */
+export function openLoopError(
   cond: Expr,
   scope: LoweringScope,
+  hasExit: boolean,
 ): { message: string; code: TsCode } | undefined {
-  const b = foldConstBool(cond, scope)
-  if (b === false) return undefined
-  if (b === true) {
-    return {
-      message:
-        'Infinite loop: condition is constantly true. Use a constant exit bound (e.g. i < 16).',
-      code: TS_CODES.LOOP_INFINITE,
-    }
-  }
-  if (cond.op === 'compare') {
-    if (
-      foldConstNumber(cond.a, scope) !== undefined ||
-      foldConstNumber(cond.b, scope) !== undefined
-    )
-      return undefined
-    return {
-      message: 'while/for exit bound must be a compile-time constant. `i < n` is not allowed.',
-      code: TS_CODES.LOOP_BOUND,
-    }
-  }
+  if (foldConstBool(cond, scope) !== true || hasExit) return undefined
   return {
-    message: 'Loop condition must compare against a compile-time constant bound (e.g. i < 16).',
-    code: TS_CODES.LOOP_BOUND,
+    message:
+      'while (true) has no break or return in its body, so it never ends. Leave it with a ' +
+      'break, or write the exit into the condition.',
+    code: TS_CODES.LOOP_INFINITE,
   }
 }
 

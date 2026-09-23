@@ -5,7 +5,7 @@ import { i32T, isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { irNameOf, readOnlyPhrase } from '../context.js'
-import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js'
+import { analyzeCountedFor, boundWrittenIn, foldConstNumber, openLoopError } from '../loop-bound.js'
 import { fitsTarget, isIntScalar } from '../lit-coerce.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { numericMismatch } from '../numeric.js'
@@ -28,7 +28,8 @@ export function lowerFor(
       diagnostics,
       sourceFile,
       node,
-      'for is missing an exit condition; infinite loops are not allowed.',
+      'for is missing an exit condition. A for loop is counted; a loop that ends at a break ' +
+        'is "while (true) { … }".',
       TS_CODES.LOOP_INFINITE,
     )
     return undefined
@@ -38,7 +39,7 @@ export function lowerFor(
       diagnostics,
       sourceFile,
       node,
-      'for-init must be `let i: i32 = <const>`.',
+      'for-init must be `let i: i32 = <start>`.',
       TS_CODES.LOOP_INDUCTION,
     )
     return undefined
@@ -82,13 +83,21 @@ export function lowerFor(
       pushDiag(diagnostics, sourceFile, node, counted.message, counted.code)
       return undefined
     }
-    return {
-      s: 'for',
-      init: initStmt,
-      cond,
-      update,
-      body: lowerBody(node.statement, sourceFile, scope, diagnostics),
+    const body = lowerBody(node.statement, sourceFile, scope, diagnostics)
+    // A runtime bound counts the loop only if the body leaves it alone (Rule 7.5).
+    const moved = boundWrittenIn(cond, initStmt.s === 'var' ? initStmt.name : '', scope, body)
+    if (moved !== undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.condition,
+        `for bound reads "${moved}", which the loop body writes, so it does not bound the ` +
+          `loop. Read it into a const before the loop, or write the loop as a while.`,
+        TS_CODES.LOOP_BOUND,
+      )
+      return undefined
     }
+    return { s: 'for', init: initStmt, cond, update, body }
   } finally {
     scope.exitLoop()
     scope.pop()
@@ -194,7 +203,7 @@ export function lowerWhile(
 ): Stmt | undefined {
   const cond = lowerExpression(node.expression, sourceFile, scope, diagnostics)
   if (!cond) return undefined
-  const err = loopConditionError(cond, scope)
+  const err = openLoopError(cond, scope, bodyHasExit(node.statement))
   if (err) {
     pushDiag(diagnostics, sourceFile, node, err.message, err.code)
     return undefined
@@ -202,22 +211,40 @@ export function lowerWhile(
   scope.enterLoop()
   try {
     const body = lowerBody(node.statement, sourceFile, scope, diagnostics)
-    const i32 = cond.op === 'compare' ? cond.a.type : cond.type
-    const w = { op: 'varref' as const, type: i32, name: '_w' }
+    // The IR has one loop statement, the `for`, so a `while` is a `for` whose counter nothing
+    // reads. The counter is an `i32` whatever the condition compares: it used to take the
+    // type of the condition's left operand, which made it an `f32` under `while (a < 4.)` and
+    // a `bool` under `while (true)`.
+    const w = { op: 'varref' as const, type: i32T, name: '_w' }
     return {
       s: 'for',
-      init: { s: 'var', name: '_w', type: i32, init: { op: 'lit', type: i32, value: 0 } },
+      init: { s: 'var', name: '_w', type: i32T, init: { op: 'lit', type: i32T, value: 0 } },
       cond,
       update: {
         s: 'assign',
         target: w,
-        expr: { op: 'binop', type: i32, bop: '+', a: w, b: { op: 'lit', type: i32, value: 1 } },
+        expr: { op: 'binop', type: i32T, bop: '+', a: w, b: { op: 'lit', type: i32T, value: 1 } },
       },
       body,
     }
   } finally {
     scope.exitLoop()
   }
+}
+
+/** Whether a `while` body can leave its loop: a `break` that belongs to it, or a `return`.
+ *  A `break` inside a nested loop or a `switch` leaves that statement instead, and a nested
+ *  function's `return` is its own; labels are refused (surface §17), so no `break` names an
+ *  outer loop. */
+function bodyHasExit(body: ts.Statement): boolean {
+  const walk = (n: ts.Node, ownsBreak: boolean): boolean => {
+    if (ts.isReturnStatement(n)) return true
+    if (ts.isBreakStatement(n)) return ownsBreak && n.label === undefined
+    if (ts.isFunctionLike(n) || ts.isClassLike(n)) return false
+    const nested = ts.isIterationStatement(n, false) || ts.isSwitchStatement(n) ? false : ownsBreak
+    return ts.forEachChild(n, (c) => walk(c, nested) || undefined) === true
+  }
+  return walk(body, true)
 }
 
 export function lowerSwitch(

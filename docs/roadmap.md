@@ -30,7 +30,7 @@ web today.
    when it cannot, it says which line stops it and runs the loop on the CPU. The words
    `@compute`, `storage`, `global_invocation_id` and workgroup size leave the caller's world.
 2. **Functions have derivatives.** `grad(f, 'k')` differentiates `f`'s IR and returns a
-   function. The language has no pointers, no recursion and only constant-bounded loops, so
+   function. The language has no pointers, no recursion and only structured loops, so
    forward mode is one IR pass, and the oracle checks every derivative against finite
    differences. Inverse rendering, texture fitting and parameter estimation run in the page.
 3. **Results are verified.** The oracle equality the test suite uses becomes a caller-facing
@@ -122,7 +122,8 @@ at the end of the chain.
 The proof is the compiler's, and its refusal is part of the product. A loop is parallel when
 every write goes through an index that differs between iterations and no iteration reads what
 another writes; the IR has no pointers, no aliasing beyond declared bindings and no recursion,
-and it already knows every loop's bound, so the analysis is on the IR it has. When the proof
+and every counted loop's step and bound are known from its header (Rule 7.5), so the analysis
+is on the IR it has. When the proof
 fails the diagnostic names the line: "this loop runs on the CPU because line 9 reads
 `out[i - 1]`". A loop with a reduction (`sum += x[i]`) is recognised as one and lowered to the
 workgroup reduction that item 4 and item 5 make possible.
