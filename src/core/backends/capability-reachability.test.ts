@@ -855,7 +855,7 @@ const NO_SOURCE_WITNESS: Readonly<
   f16: {
     reason:
       'no f16 value type — `Scalar` is f32|i32|u32|bool (ir/types.ts); deferred by docs/roadmap.md, After 1.0, row "`f16` and the `h` vectors", and filed as #153',
-    probe: `"use typeshade"
+    probe: `"use typeshade";
 export function f(): f32 {
   const a: f16 = 1.;
   return f32(a);
@@ -865,7 +865,7 @@ export function f(): f32 {
   subgroups: {
     reason:
       'no subgroup intrinsic in the registry; docs/roadmap.md, After 1.0, row "Subgroup operations": "A WebGPU extension with no WebGL2 equivalent and no oracle meaning yet"',
-    probe: `"use typeshade"
+    probe: `"use typeshade";
 export function f(x: f32): f32 {
   return subgroupAdd(x);
 }

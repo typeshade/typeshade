@@ -11,13 +11,13 @@
 // integer flavor's s word must equal fround(exact) EXACTLY (it computes the
 // true sum/product and rounds once).
 
-import { describe, it, expect } from 'vitest'
-import { fn, module, f64T, sqrt, abs, min, max, floor, fract } from '../ir/index.js'
-import type { ModuleDecl } from '../ir/index.js'
-import { compileModule, type CpuValue } from '../oracle.js'
-import { fp64Lower } from '../passes/fp64-lower.js'
-import { eachExpr, eachStmtExpr } from '../ir/visit.js'
-import { splitF64 } from './df64-lib.js'
+import { describe, it, expect } from 'vitest';
+import { fn, module, f64T, sqrt, abs, min, max, floor, fract } from '../ir/index.js';
+import type { ModuleDecl } from '../ir/index.js';
+import { compileModule, type CpuValue } from '../oracle.js';
+import { fp64Lower } from '../passes/fp64-lower.js';
+import { eachExpr, eachStmtExpr } from '../ir/visit.js';
+import { splitF64 } from './df64-lib.js';
 
 // ── The f32-rounding oracle, integer flavor ──
 
@@ -56,16 +56,16 @@ const cpu = intOracle(m);
  *  sweeps below compare against df64_mul, which they would equal trivially were the lowering
  *  to emit df64_mul again; this is what makes them about df64_sqr and the scale. */
 const helpersOf = (name: string): string[] => {
-  const k = fp64Lower(m, { flavor: 'integer' }).funcs.find((f) => f.name === name)!
-  const calls: string[] = []
+  const k = fp64Lower(m, { flavor: 'integer' }).funcs.find((f) => f.name === name)!;
+  const calls: string[] = [];
   for (const s of k.body)
     eachStmtExpr(s, (e) =>
       eachExpr(e, (x) => {
-        if (x.op === 'call' && x.fn.startsWith('df64_')) calls.push(x.fn)
+        if (x.op === 'call' && x.fn.startsWith('df64_')) calls.push(x.fn);
       }),
-    )
-  return calls
-}
+    );
+  return calls;
+};
 
 // ── Helpers (same conventions as the float suite) ──
 
@@ -167,33 +167,33 @@ describe('integer-flavor df64 arithmetic tracks f64 across random inputs', () =>
   it('sqr: worst error inside the multiply tolerance across 2^[-36, 60], both signs', async () => {
     // The float suite's range and bound (df64-property.test.ts): the square is the multiply's
     // accuracy, and below 2^-36 its lo word underflows as every df64 product's does.
-    expect(helpersOf('k_sqr')).toEqual(['df64_sqr'])
-    const r = sampler(0x5a5a, -36, 60)
-    let maxSqr = 0
+    expect(helpersOf('k_sqr')).toEqual(['df64_sqr']);
+    const r = sampler(0x5a5a, -36, 60);
+    let maxSqr = 0;
     await sweep(N, () => {
-      const a = asDf(r())
-      maxSqr = Math.max(maxSqr, relErr(val(cpu.fns.k_sqr!(a.pair)), a.val * a.val))
-    })
-    expect(maxSqr).toBeLessThan(2 ** -44)
-  })
+      const a = asDf(r());
+      maxSqr = Math.max(maxSqr, relErr(val(cpu.fns.k_sqr!(a.pair)), a.val * a.val));
+    });
+    expect(maxSqr).toBeLessThan(2 ** -44);
+  });
 
   it('power-of-two scaling is exact, and is the df64_mul it replaces bit for bit', async () => {
-    const r = sampler(0x7777, -60, 60)
+    const r = sampler(0x7777, -60, 60);
     const scales = [
       ['k_x2', 2],
       ['k_div4', 0.25],
       ['k_neg8', -8],
-    ] as const
-    for (const [name] of scales) expect(helpersOf(name), name).toEqual([])
+    ] as const;
+    for (const [name] of scales) expect(helpersOf(name), name).toEqual([]);
     await sweep(4000, () => {
-      const a = asDf(r())
+      const a = asDf(r());
       for (const [name, s] of scales) {
-        const got = cpu.fns[name]!(a.pair) as number[]
-        expect(val(got)).toBe(a.val * s)
-        expect(got).toEqual(cpu.fns.k_mul!(a.pair, [s, 0]))
+        const got = cpu.fns[name]!(a.pair) as number[];
+        expect(val(got)).toBe(a.val * s);
+        expect(got).toEqual(cpu.fns.k_mul!(a.pair, [s, 0]));
       }
-    })
-  })
+    });
+  });
 
   it('add/mul/sqr hi word is BIT-EXACT fround of the true result (single rounding)', () => {
     // Stronger than the float flavor can promise: the integer twoSum/twoProd
@@ -202,16 +202,16 @@ describe('integer-flavor df64 arithmetic tracks f64 across random inputs', () =>
     const r1 = sampler(0xbee1, -12, 12);
     const r2 = sampler(0xbee2, -12, 12);
     for (let i = 0; i < 4000; i++) {
-      const a = Math.fround(r1())
-      const b = Math.fround(r2())
-      const add = cpu.fns.k_add!([a, 0], [b, 0]) as number[]
-      expect(add[0]).toBe(Math.fround(a + b))
-      const mul = cpu.fns.k_mul!([a, 0], [b, 0]) as number[]
-      expect(mul[0]).toBe(Math.fround(a * b))
+      const a = Math.fround(r1());
+      const b = Math.fround(r2());
+      const add = cpu.fns.k_add!([a, 0], [b, 0]) as number[];
+      expect(add[0]).toBe(Math.fround(a + b));
+      const mul = cpu.fns.k_mul!([a, 0], [b, 0]) as number[];
+      expect(mul[0]).toBe(Math.fround(a * b));
       // The square of a pure f32 is the exact twoSqr, renormalized once: one rounding too.
-      const sqr = cpu.fns.k_sqr!([a, 0]) as number[]
-      expect(sqr[0]).toBe(Math.fround(a * a))
-      expect(sqr[0]! + sqr[1]!).toBe(a * a)
+      const sqr = cpu.fns.k_sqr!([a, 0]) as number[];
+      expect(sqr[0]).toBe(Math.fround(a * a));
+      expect(sqr[0]! + sqr[1]!).toBe(a * a);
     }
   });
 });

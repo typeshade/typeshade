@@ -10,9 +10,15 @@
 // A fn containing a raw Stmt is skipped (raw WGSL is opaque). Correctness is
 // pinned by oracle value-equality.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
-import { mapStmtExpr } from '../../ir/visit.js'
-import { bodyHasEffectfulCall, fnReads, fnWrites, type FnReads, type FnWrites } from '../effects.js'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js';
+import { mapStmtExpr } from '../../ir/visit.js';
+import {
+  bodyHasEffectfulCall,
+  fnReads,
+  fnWrites,
+  type FnReads,
+  type FnWrites,
+} from '../effects.js';
 import {
   keyOf,
   isCompound,
@@ -33,40 +39,40 @@ function gatherExpr(
   reads: FnReads,
 ): void {
   if (isCompound(e) && !refsLocal(e, locals, reads)) {
-    out.set(keyOf(e), e)
-    return
+    out.set(keyOf(e), e);
+    return;
   }
   switch (e.op) {
     case 'binop':
     case 'compare':
     case 'logical':
-      gatherExpr(e.a, locals, out, reads)
-      gatherExpr(e.b, locals, out, reads)
-      break
+      gatherExpr(e.a, locals, out, reads);
+      gatherExpr(e.b, locals, out, reads);
+      break;
     case 'unop':
-      gatherExpr(e.a, locals, out, reads)
-      break
+      gatherExpr(e.a, locals, out, reads);
+      break;
     case 'call':
     case 'construct':
-      for (const a of e.args) gatherExpr(a, locals, out, reads)
-      break
+      for (const a of e.args) gatherExpr(a, locals, out, reads);
+      break;
     case 'member':
-      gatherExpr(e.base, locals, out, reads)
-      break
+      gatherExpr(e.base, locals, out, reads);
+      break;
     case 'index':
-      gatherExpr(e.base, locals, out, reads)
-      gatherExpr(e.idx, locals, out, reads)
-      break
+      gatherExpr(e.base, locals, out, reads);
+      gatherExpr(e.idx, locals, out, reads);
+      break;
     case 'select':
-      gatherExpr(e.cond, locals, out, reads)
-      gatherExpr(e.ifTrue, locals, out, reads)
-      gatherExpr(e.ifFalse, locals, out, reads)
-      break
+      gatherExpr(e.cond, locals, out, reads);
+      gatherExpr(e.ifTrue, locals, out, reads);
+      gatherExpr(e.ifFalse, locals, out, reads);
+      break;
     case 'matchExpr':
-      gatherExpr(e.scrutinee, locals, out, reads)
-      for (const [, v] of e.cases) gatherExpr(v, locals, out, reads)
-      gatherExpr(e.default, locals, out, reads)
-      break
+      gatherExpr(e.scrutinee, locals, out, reads);
+      for (const [, v] of e.cases) gatherExpr(v, locals, out, reads);
+      gatherExpr(e.default, locals, out, reads);
+      break;
     default:
       break; // lit / constref / param / varref
   }
@@ -81,8 +87,8 @@ function gatherStmt(
   reads: FnReads,
 ): void {
   const ge = (e: Expr): void => {
-    if (inLoop) gatherExpr(e, locals, out, reads)
-  }
+    if (inLoop) gatherExpr(e, locals, out, reads);
+  };
   switch (s.s) {
     case 'let':
       ge(s.expr);
@@ -103,29 +109,29 @@ function gatherStmt(
       break;
     case 'if':
       for (const a of s.arms) {
-        ge(a.cond)
-        for (const b of a.body) gatherStmt(b, inLoop, locals, out, reads)
+        ge(a.cond);
+        for (const b of a.body) gatherStmt(b, inLoop, locals, out, reads);
       }
-      if (s.elseBody) for (const b of s.elseBody) gatherStmt(b, inLoop, locals, out, reads)
-      break
+      if (s.elseBody) for (const b of s.elseBody) gatherStmt(b, inLoop, locals, out, reads);
+      break;
     case 'for':
-      gatherExpr(s.cond, locals, out, reads) // the loop cond runs every iteration
-      gatherStmt(s.init, inLoop, locals, out, reads) // init runs once
-      gatherStmt(s.update, true, locals, out, reads)
-      for (const b of s.body) gatherStmt(b, true, locals, out, reads)
-      break
+      gatherExpr(s.cond, locals, out, reads); // the loop cond runs every iteration
+      gatherStmt(s.init, inLoop, locals, out, reads); // init runs once
+      gatherStmt(s.update, true, locals, out, reads);
+      for (const b of s.body) gatherStmt(b, true, locals, out, reads);
+      break;
     case 'switch':
-      ge(s.scrut)
-      for (const c of s.cases) for (const b of c.body) gatherStmt(b, inLoop, locals, out, reads)
-      if (s.defaultBody) for (const b of s.defaultBody) gatherStmt(b, inLoop, locals, out, reads)
-      break
+      ge(s.scrut);
+      for (const c of s.cases) for (const b of c.body) gatherStmt(b, inLoop, locals, out, reads);
+      if (s.defaultBody) for (const b of s.defaultBody) gatherStmt(b, inLoop, locals, out, reads);
+      break;
     default:
       break;
   }
 }
 
 function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
-  if (bodyHasRaw(f.body)) return f
+  if (bodyHasRaw(f.body)) return f;
   // A call that writes a binding is not invariant, however constant its arguments: hoisting
   // it out of the loop would write once where the loop wrote every iteration (issue #47).
   if (bodyHasEffectfulCall(f.body, writes)) return f;
@@ -135,9 +141,9 @@ function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
   collectLocals(f.body, noHoist);
   collectMutatedRoots(f.body, noHoist);
 
-  const invariants = new Map<string, Expr>()
-  for (const s of f.body) gatherStmt(s, false, noHoist, invariants, reads)
-  if (invariants.size === 0) return f
+  const invariants = new Map<string, Expr>();
+  for (const s of f.body) gatherStmt(s, false, noHoist, invariants, reads);
+  if (invariants.size === 0) return f;
 
   const temp = new Map<string, string>();
   const lets: Stmt[] = [];
@@ -167,7 +173,7 @@ function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
 
 /** Hoist loop-invariant input-only subexpressions. Pure (module -> module). */
 export function licm(m: ModuleDecl): ModuleDecl {
-  const writes = fnWrites(m)
-  const reads = fnReads(m)
-  return { ...m, funcs: m.funcs.map((f) => licmFn(f, writes, reads)) }
+  const writes = fnWrites(m);
+  const reads = fnReads(m);
+  return { ...m, funcs: m.funcs.map((f) => licmFn(f, writes, reads)) };
 }

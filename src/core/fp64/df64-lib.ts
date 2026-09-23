@@ -358,10 +358,10 @@ const df64_mul = fn('df64_mul', { a: vec2fT, b: vec2fT }, (p) => {
  *  The integer flavor overrides df64_twoSqr and df64_quickTwoSum by name (df64-int.ts), and
  *  this composition binds to those unchanged, guard-free, as df64_mul does. */
 const df64_sqr = fn('df64_sqr', { a: vec2fT }, (p) => {
-  const prod = Var(df64_twoSqr({ a: p.a.x }))
-  prod.y.assign(prod.y.add(p.a.x.mul(p.a.y).mul(2.0)))
-  return df64_quickTwoSum({ a: prod.x, b: prod.y })
-})
+  const prod = Var(df64_twoSqr({ a: p.a.x }));
+  prod.y.assign(prod.y.add(p.a.x.mul(p.a.y).mul(2.0)));
+  return df64_quickTwoSum({ a: prod.x, b: prod.y });
+});
 
 /** a ÷ b: f32-reciprocal seed + one Newton-Raphson correction (luma.gl form). */
 const df64_div = fn('df64_div', { a: vec2fT, b: vec2fT }, (p) => {

@@ -39,57 +39,57 @@ describe('the call form types its elements', () => {
   it('emits integer literals for an i32 or u32 element type, on both targets', () => {
     expect(wgslOf(src('  const xs = array<i32, 3>(1, 2, 3);\n  return xs[0];', 'i32'))).toContain(
       'array<i32, 3>(1, 2, 3)',
-    )
+    );
     expect(wgslOf(src('  const xs = array<u32, 2>(1, 2);\n  return xs[0];', 'u32'))).toContain(
       'array<u32, 2>(1u, 2u)',
-    )
+    );
     expect(wgslOf(src('  const xs = array<i32, 2>(-1, 2);\n  return xs[0];', 'i32'))).toContain(
       'array<i32, 2>(-1, 2)',
-    )
+    );
     const c = compile(`"use typeshade";
 class Out {
-  @location(0) color: vec4
+  @location(0) color: vec4;
 }
 @fragment
 export function fs(): Out {
   const xs = array<i32, 3>(1, 2, 3);
   const us = array<u32, 2>(4, 5);
   return { color: vec4(f32(xs[0]), f32(xs[2]), f32(us[1]), 1.) };
-}`)
-    expect(c.diagnostics).toEqual([])
-    expect(c.wgsl).toContain('array<i32, 3>(1, 2, 3)')
-    expect(c.wgsl).toContain('array<u32, 2>(4u, 5u)')
-    expect(c.glsl?.fragment).toContain('int[3](1, 2, 3)')
-    expect(c.glsl?.fragment).toContain('uint[2](4u, 5u)')
-  })
+}`);
+    expect(c.diagnostics).toEqual([]);
+    expect(c.wgsl).toContain('array<i32, 3>(1, 2, 3)');
+    expect(c.wgsl).toContain('array<u32, 2>(4u, 5u)');
+    expect(c.glsl?.fragment).toContain('int[3](1, 2, 3)');
+    expect(c.glsl?.fragment).toContain('uint[2](4u, 5u)');
+  });
 
   it('builds exactly what the list builds', () => {
-    const CALL = src('  const xs: array<i32, 3> = array<i32, 3>(1, 2, 3);\n  return xs[1];', 'i32')
-    const LIST = src('  const xs: array<i32, 3> = [1, 2, 3];\n  return xs[1];', 'i32')
-    expect(stripSpans(bodyOf(CALL))).toEqual(stripSpans(bodyOf(LIST)))
-    expect(compile(CALL).eval('f')).toBe(2)
-  })
+    const CALL = src('  const xs: array<i32, 3> = array<i32, 3>(1, 2, 3);\n  return xs[1];', 'i32');
+    const LIST = src('  const xs: array<i32, 3> = [1, 2, 3];\n  return xs[1];', 'i32');
+    expect(stripSpans(bodyOf(CALL))).toEqual(stripSpans(bodyOf(LIST)));
+    expect(compile(CALL).eval('f')).toBe(2);
+  });
 
   it('refuses an element the list refuses, with the same sentence', () => {
     expect(diagnose(src('  const xs = array<u32, 2>(-1, 2);\n  return xs[0];', 'u32'))).toBe(
       'array<u32, 2> element 0 must be u32, got f32. There is no implicit conversion; cast it.',
-    )
+    );
     expect(diagnose(src('  const xs = array<i32, 2>(1.5, 2);\n  return xs[0];', 'i32'))).toBe(
       'array<i32, 2> element 0 must be i32, got f32. There is no implicit conversion; cast it.',
-    )
-  })
+    );
+  });
 
   it('leaves the inferred form f32, as §13 types an undeclared literal', () => {
     // `array(1, 2, 3)` states no element type, so each literal is the f32 `const x = 1` gives
     // (#148's window); a typed element decides it.
     expect(wgslOf(src('  const xs = array(1, 2, 3);\n  return xs[0];'))).toContain(
       'array<f32, 3>(1.0, 2.0, 3.0)',
-    )
+    );
     expect(wgslOf(src('  const xs = array(i32(1), i32(2));\n  return xs[0];', 'i32'))).toContain(
       'array<i32, 2>(1, 2)',
-    )
-  })
-})
+    );
+  });
+});
 
 describe('a list initializes a local array', () => {
   const LIST = src('  const xs: array<f32, 3> = [1., 2., 3.];\n  return xs[0];');

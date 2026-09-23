@@ -3,8 +3,8 @@
 // Shared by `hover.ts` (a documentation lookup) and `completions.ts` (an item's
 // `documentation` field), so the two never describe the same name two different ways.
 
-import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js'
-import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js'
+import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
+import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
 
 // Re-export these tables so `ambient.ts` can import from `docs.ts` without an import cycle.
 export const ATTRIBUTE_NAMES = COMPILER_ATTRIBUTE_NAMES;
@@ -89,7 +89,7 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
     'A 2D storage texture, read and written by texel coordinate with `textureLoad` and `textureStore`, with no sampler. Its format and access mode are its type arguments, as in `declare const dst: texture_storage_2d<"rgba8unorm", "write">`; GLSL ES 3.00 has no form for it.',
   texture_storage_2d_array:
     'An array of 2D storage textures in one binding, read and written by texel coordinate and an integer layer. Declared with a format and an access mode, as in `declare const dst: texture_storage_2d_array<"rgba8unorm", "write">`; GLSL ES 3.00 has no form for it.',
-}
+};
 
 /** One Markdown sentence per attribute name in `ATTRIBUTE_NAMES`. */
 export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
@@ -473,7 +473,7 @@ export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
 
 /** Every documented type name: the rows of `TYPE_DOCS`, asserted in `docs.test.ts` to cover
  *  every name in the compiler's `SUPPORTED_TYPE_NAMES`. */
-export const DOCUMENTED_TYPE_NAMES: readonly string[] = Object.keys(TYPE_DOCS)
+export const DOCUMENTED_TYPE_NAMES: readonly string[] = Object.keys(TYPE_DOCS);
 /** Every documented attribute name, asserted in `docs.test.ts` to equal `ATTRIBUTE_NAMES`. */
 export const DOCUMENTED_ATTRIBUTE_NAMES: readonly string[] = ATTRIBUTE_NAMES;
 /** Every documented builtin name, asserted in `docs.test.ts` to equal `WGSL_BUILTIN_NAMES`. */

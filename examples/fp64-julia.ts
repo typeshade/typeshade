@@ -102,8 +102,8 @@ const fsJulia = fn(
     // (1272 at a 1e-10 span), and each drops trips that cost a u32 increment, two compares and
     // a branch. Measured on the GPU-like evaluator (the fp64-lowered module at f32 precision)
     // over the full 640×480 frame, the exit gives the same colour bit for bit on both halves.
-    const it = Var(f32(0))
-    const m2 = Var(f32(0))
+    const it = Var(f32(0));
+    const m2 = Var(f32(0));
     If(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)), () => {
       // f32 twin — z₀ built from the narrowed center: at deep zoom the pixel
       // coordinate quantizes to f32 ulps and whole columns collapse.
@@ -116,27 +116,27 @@ const fsJulia = fn(
       // well, but there the test dominates the step and a dominator-based CSE shares the
       // squares. `fp64-julia.test.ts` holds every loop here to one square of an operand a
       // trip.
-      const zx = Var(toF32(U.field.center.x).add(dx))
-      const zy = Var(toF32(U.field.center.y).add(dy))
-      const x2 = Var(zx.mul(zx))
-      const y2 = Var(zy.mul(zy))
-      m2.assign(x2.add(y2))
+      const zx = Var(toF32(U.field.center.x).add(dx));
+      const zy = Var(toF32(U.field.center.y).add(dy));
+      const x2 = Var(zx.mul(zx));
+      const y2 = Var(zy.mul(zy));
+      m2.assign(x2.add(y2));
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
           If(m2.gt(16.0), () => {
-            Break()
-          })
-          const nzx = Let(x2.sub(y2).add(C_RE))
-          zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
-          zx.assign(nzx)
-          it.assign(it.add(1.0))
-          x2.assign(zx.mul(zx))
-          y2.assign(zy.mul(zy))
-          m2.assign(x2.add(y2))
+            Break();
+          });
+          const nzx = Let(x2.sub(y2).add(C_RE));
+          zy.assign(zx.mul(zy).mul(2.0).add(C_IM));
+          zx.assign(nzx);
+          it.assign(it.add(1.0));
+          x2.assign(zx.mul(zx));
+          y2.assign(zy.mul(zy));
+          m2.assign(x2.add(y2));
         },
-      )
+      );
     }).else(() => {
       // f64 — the same loop, z₀ keeps its extended-precision position, and m2 is taken
       // differently. The escape test asks only which side of 16 |z|² lies on, and 48 bits
@@ -166,28 +166,28 @@ const fsJulia = fn(
       // step later, with `sn` moved by 0.027 and the colour by 0.11 of an 8-bit step. The
       // double does not side with either test there: it counts with this one at the first
       // (`fp64-twins.test.ts` samples it) and with the df64 test at the other two.
-      const zx = Var(U.field.center.x.add(toF64(dx)))
-      const zy = Var(U.field.center.y.add(toF64(dy)))
-      const hx0 = Let(toF32(zx))
-      const hy0 = Let(toF32(zy))
-      m2.assign(hx0.mul(hx0).add(hy0.mul(hy0)))
+      const zx = Var(U.field.center.x.add(toF64(dx)));
+      const zy = Var(U.field.center.y.add(toF64(dy)));
+      const hx0 = Let(toF32(zx));
+      const hy0 = Let(toF32(zy));
+      m2.assign(hx0.mul(hx0).add(hy0.mul(hy0)));
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
           If(m2.gt(16.0), () => {
-            Break()
-          })
-          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE))
-          zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
-          zx.assign(nzx)
-          it.assign(it.add(1.0))
-          const hx = Let(toF32(zx))
-          const hy = Let(toF32(zy))
-          m2.assign(hx.mul(hx).add(hy.mul(hy)))
+            Break();
+          });
+          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE));
+          zy.assign(zx.mul(zy).mul(2.0).add(C_IM));
+          zx.assign(nzx);
+          it.assign(it.add(1.0));
+          const hx = Let(toF32(zx));
+          const hy = Let(toF32(zy));
+          m2.assign(hx.mul(hx).add(hy.mul(hy)));
         },
-      )
-    })
+      );
+    });
 
     // Smooth escape time (same log₂ log₂ treatment as fp64-mandelbrot.ts)
     // through a cool cosine palette; interior stays black.

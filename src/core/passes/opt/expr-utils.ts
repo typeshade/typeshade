@@ -4,10 +4,10 @@
 // (CSE, LICM, …). Kept in one place so the two passes cannot drift (duplicated
 // traversal logic that must agree is this codebase's #1 bug archetype).
 
-import type { Expr, Stmt, ShaderType, BinOp } from '../../ir/index.js'
-import { typeKey } from '../../ir/index.js'
-import { eachExpr, eachStmtExpr, mapStmtExpr } from '../../ir/visit.js'
-import { callReadsAny, calleeWritesOf, type FnReads, type FnWrites } from '../effects.js'
+import type { Expr, Stmt, ShaderType, BinOp } from '../../ir/index.js';
+import { typeKey } from '../../ir/index.js';
+import { eachExpr, eachStmtExpr, mapStmtExpr } from '../../ir/visit.js';
+import { callReadsAny, calleeWritesOf, type FnReads, type FnWrites } from '../effects.js';
 
 // The IR walkers moved to `core/ir/visit.ts` — `core/ir` cannot import from
 // `passes/opt`, and the builder / fp64 / GLSL backends need them too (ADR-0013:
@@ -313,14 +313,14 @@ function rootName(e: Expr): string | undefined {
  *  returns 36. cse, cse-local, gvn and licm pass it; member-fold forwards no call-bearing
  *  argument at all, so it has nothing to ask. */
 export function refsLocal(e: Expr, locals: ReadonlySet<string>, reads?: FnReads): boolean {
-  let yes = false
+  let yes = false;
   eachExpr(e, (x) => {
-    if (yes) return
-    const name = rootName(x)
-    if (name !== undefined && locals.has(name)) yes = true
-    else if (callReadsAny(x, locals, reads)) yes = true
-  })
-  return yes
+    if (yes) return;
+    const name = rootName(x);
+    if (name !== undefined && locals.has(name)) yes = true;
+    else if (callReadsAny(x, locals, reads)) yes = true;
+  });
+  return yes;
 }
 
 /** The root name written by an assignment lvalue (`buf.v`/`arr[i]` -> `buf`/`arr`), for any

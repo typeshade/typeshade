@@ -93,10 +93,11 @@ const idsSpelling = (names: ReadonlySet<string>): string[] =>
 // The roadmap row the subgroup and quad entries rest on, cited by its name and not by a line
 // number: a line number goes stale as soon as a row above it moves, which is what happened to
 // the one written here before. The test below checks the row is still there and still says so.
-const SUBGROUP_ROW = 'Subgroup operations'
-const SUBGROUP_ROW_REASON = 'A WebGPU extension with no WebGL2 equivalent and no oracle meaning yet'
-const SUBGROUPS = `subgroup operations: docs/roadmap.md, After 1.0, row "${SUBGROUP_ROW}": "${SUBGROUP_ROW_REASON}"`
-const QUADS = `quad operations, part of the WGSL subgroups extension: docs/roadmap.md, After 1.0, row "${SUBGROUP_ROW}"`
+const SUBGROUP_ROW = 'Subgroup operations';
+const SUBGROUP_ROW_REASON =
+  'A WebGPU extension with no WebGL2 equivalent and no oracle meaning yet';
+const SUBGROUPS = `subgroup operations: docs/roadmap.md, After 1.0, row "${SUBGROUP_ROW}": "${SUBGROUP_ROW_REASON}"`;
+const QUADS = `quad operations, part of the WGSL subgroups extension: docs/roadmap.md, After 1.0, row "${SUBGROUP_ROW}"`;
 
 /** A staged `core.def` name this package has no catalogue id for. Each entry says why, and the
  *  list is shrink-only: the arm below fails a name that HAS gained an id but kept its entry. */
@@ -210,12 +211,12 @@ describe('the compiler stage sets equal the sets core.def states (S4)', () => {
     const roadmap = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'docs', 'roadmap.md'),
       'utf8',
-    )
-    const after = roadmap.slice(roadmap.indexOf('### After 1.0'))
-    const row = after.split('\n').find((l) => l.startsWith(`| ${SUBGROUP_ROW} `))
-    expect(row, `roadmap "After 1.0" has no "${SUBGROUP_ROW}" row`).toBeDefined()
-    expect(row).toContain(SUBGROUP_ROW_REASON)
-  })
+    );
+    const after = roadmap.slice(roadmap.indexOf('### After 1.0'));
+    const row = after.split('\n').find((l) => l.startsWith(`| ${SUBGROUP_ROW} `));
+    expect(row, `roadmap "After 1.0" has no "${SUBGROUP_ROW}" row`).toBeDefined();
+    expect(row).toContain(SUBGROUP_ROW_REASON);
+  });
 
   it('loses the NOT_IN_CATALOGUE entry of a name that has since gained an id', () => {
     const spelled = new Set(CATALOGUE.map(wgslNameOf).filter((n): n is string => n !== null));

@@ -19,66 +19,66 @@
 // calls no df64 comparison (48 bits change which side of 16 |z|² lies on only within an f32
 // rounding of the threshold; `fp64-julia.ts` has the measurement).
 
-import { describe, it, expect } from 'vitest'
-import { examples } from './index.js'
-import { shadeExamples } from './_shade.js'
-import { emitModule } from '../src/index.js'
+import { describe, it, expect } from 'vitest';
+import { examples } from './index.js';
+import { shadeExamples } from './_shade.js';
+import { emitModule } from '../src/index.js';
 
 /** The text between the brace at `open` and its partner. */
 function braced(src: string, open: number): string {
-  let depth = 0
+  let depth = 0;
   for (let i = open; i < src.length; i++) {
-    if (src[i] === '{') depth++
-    else if (src[i] === '}' && --depth === 0) return src.slice(open + 1, i)
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}' && --depth === 0) return src.slice(open + 1, i);
   }
-  throw new Error('unbalanced braces')
+  throw new Error('unbalanced braces');
 }
 
 /** The body of `fs_julia` in emitted WGSL. */
 function fsJulia(wgsl: string): string {
-  const at = wgsl.indexOf('fn fs_julia(')
-  expect(at, 'fs_julia is emitted').toBeGreaterThanOrEqual(0)
-  return braced(wgsl, wgsl.indexOf('{', at))
+  const at = wgsl.indexOf('fn fs_julia(');
+  expect(at, 'fs_julia is emitted').toBeGreaterThanOrEqual(0);
+  return braced(wgsl, wgsl.indexOf('{', at));
 }
 
 /** Each `for` body of a function, in source order: one trip's worth of code. */
 function loopBodies(body: string): string[] {
-  return [...body.matchAll(/\bfor \(/g)].map((m) => braced(body, body.indexOf('{', m.index)))
+  return [...body.matchAll(/\bfor \(/g)].map((m) => braced(body, body.indexOf('{', m.index)));
 }
 
 /** How many times one trip squares each operand: `(x * x)` in f32, `df64_mul(x, x, …)` or
  *  `df64_sqr(x, …)` in df64. Keyed by the operand's emitted name. */
 function squares(trip: string): Map<string, number> {
-  const counts = new Map<string, number>()
+  const counts = new Map<string, number>();
   for (const re of [/\((\w+) \* \1\)/g, /\bdf64_mul\((\w+), \1,/g, /\bdf64_sqr\((\w+),/g])
-    for (const m of trip.matchAll(re)) counts.set(m[1]!, (counts.get(m[1]!) ?? 0) + 1)
-  return counts
+    for (const m of trip.matchAll(re)) counts.set(m[1]!, (counts.get(m[1]!) ?? 0) + 1);
+  return counts;
 }
 
 const modules = [
   ['fp64-julia', examples.find((e) => e.id === 'fp64-julia')?.module],
   ['fp64-julia-twin', shadeExamples.find((e) => e.id === 'fp64-julia-twin')?.module],
-] as const
+] as const;
 
 describe('fp64-julia: the escape loop computes each square once a trip', () => {
   for (const [id, module] of modules) {
     it(`${id}: no loop in fs_julia squares the same operand twice`, () => {
-      expect(module, `${id} is registered`).toBeDefined()
-      const trips = loopBodies(fsJulia(emitModule(module!)))
+      expect(module, `${id} is registered`).toBeDefined();
+      const trips = loopBodies(fsJulia(emitModule(module!)));
       // One loop a half. Fewer would mean a half lost its loop and the check below read the
       // other half twice; more would mean a loop this file does not know how to read.
-      expect(trips).toHaveLength(2)
+      expect(trips).toHaveLength(2);
       for (const [half, trip] of trips.map((t, i) => [i === 0 ? 'f32' : 'f64', t] as const)) {
-        const sq = squares(trip)
+        const sq = squares(trip);
         // Not vacuous: each half squares both coordinates somewhere in its trip.
-        expect(sq.size, `${id} ${half} half: squares found`).toBeGreaterThanOrEqual(2)
+        expect(sq.size, `${id} ${half} half: squares found`).toBeGreaterThanOrEqual(2);
         for (const [operand, n] of sq)
-          expect(n, `${id} ${half} half: ${operand} squared ${n} times in one trip`).toBe(1)
+          expect(n, `${id} ${half} half: ${operand} squared ${n} times in one trip`).toBe(1);
       }
-    })
+    });
 
     it(`${id}: the escape test is taken in f32, not by a df64 comparison`, () => {
-      expect(fsJulia(emitModule(module!))).not.toMatch(/\bdf64_(lt|le|gt|ge|eq|ne)\(/)
-    })
+      expect(fsJulia(emitModule(module!))).not.toMatch(/\bdf64_(lt|le|gt|ge|eq|ne)\(/);
+    });
   }
-})
+});

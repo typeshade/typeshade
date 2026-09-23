@@ -1,20 +1,20 @@
-import ts from 'typescript'
-import { stageOf } from '../../../core/ir/nodes.js'
-import type { Expr, FuncDecl } from '../../../core/ir/nodes.js'
-import type { ShaderType } from '../../../core/ir/types.js'
-import { boolT, f32T, f64T, i32T, typeKey, u32T } from '../../../core/ir/types.js'
-import type { TsCompilerDiagnostic } from '../source-file.js'
-import type { LoweringScope } from '../context.js'
-import { resolveMathExpand } from '../math-alias.js'
-import { expandMath } from '../math-expand.js'
-import { parseSwizzle } from '../swizzle.js'
-import { lowerRandomHash } from '../random-hash.js'
-import { lowerScalarCast } from '../numeric.js'
-import { foldConstNumber } from '../loop-bound.js'
-import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js'
-import { lowerExpression } from './expression.js'
-import { makeDiagnostic } from '../diagnostic.js'
-import { TS_CODES, type TsCode } from '../codes.js'
+import ts from 'typescript';
+import { stageOf } from '../../../core/ir/nodes.js';
+import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
+import type { ShaderType } from '../../../core/ir/types.js';
+import { boolT, f32T, f64T, i32T, typeKey, u32T } from '../../../core/ir/types.js';
+import type { TsCompilerDiagnostic } from '../source-file.js';
+import type { LoweringScope } from '../context.js';
+import { resolveMathExpand } from '../math-alias.js';
+import { expandMath } from '../math-expand.js';
+import { parseSwizzle } from '../swizzle.js';
+import { lowerRandomHash } from '../random-hash.js';
+import { lowerScalarCast } from '../numeric.js';
+import { foldConstNumber } from '../loop-bound.js';
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
+import { lowerExpression } from './expression.js';
+import { makeDiagnostic } from '../diagnostic.js';
+import { TS_CODES, type TsCode } from '../codes.js';
 import {
   declaresParamDefault,
   noteFilledCall,
@@ -260,10 +260,10 @@ export function lowerUserCall(
   }
   for (let i = leading.length; i < supplied; i++) {
     // `g(1)` takes the parameter's type when it is i32 or u32 (#8 A3).
-    const argNode = written[i - leading.length]!
-    const want = decl.params[i]!.type
-    args[i] = retargetIntLitCtx(args[i]!, argNode, want)
-    args[i] = reportIntLitRange(args[i]!, argNode, want, sourceFile, diagnostics) ?? args[i]!
+    const argNode = written[i - leading.length]!;
+    const want = decl.params[i]!.type;
+    args[i] = retargetIntLitCtx(args[i]!, argNode, want);
+    args[i] = reportIntLitRange(args[i]!, argNode, want, sourceFile, diagnostics) ?? args[i]!;
     if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {
       pushDiag(
         diagnostics,

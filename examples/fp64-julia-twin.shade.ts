@@ -80,8 +80,8 @@ export function fs_julia(vo: VsOut): vec4 {
   // its condition is read as ONE comparison of the counter against a constant,
   // and the conjunction is TS8006. A `break` is the same program in the counted
   // form; `fp64-julia.ts` records what exiting does and does not save.
-  let it = 0.
-  let m2 = 0.
+  let it = 0.;
+  let m2 = 0.;
   if (vo.uv.x < 0.5 || u.fp64 < 0.5) {
     // f32 twin: z0 built from the narrowed center. At deep zoom the pixel
     // coordinate quantizes to f32 ulps and whole columns collapse.
@@ -91,22 +91,22 @@ export function fs_julia(vo: VsOut): vec4 {
     // squaring it again in the step puts the two on opposite sides of the loop's
     // back edge, where no CSE can share them (two multiplies a trip; the counts
     // are in `fp64-julia.ts`).
-    let zx = f32(u.center.x) + dx
-    let zy = f32(u.center.y) + dy
-    let x2 = zx * zx
-    let y2 = zy * zy
-    m2 = x2 + y2
+    let zx = f32(u.center.x) + dx;
+    let zy = f32(u.center.y) + dy;
+    let x2 = zx * zx;
+    let y2 = zy * zy;
+    m2 = x2 + y2;
     for (let j: u32 = 0; j < 128; j++) {
       if (m2 > 16.0) {
-        break
+        break;
       }
-      const nzx = x2 - y2 + -0.8
-      zy = zx * zy * 2.0 + 0.156
-      zx = nzx
-      it = it + 1.0
-      x2 = zx * zx
-      y2 = zy * zy
-      m2 = x2 + y2
+      const nzx = x2 - y2 + -0.8;
+      zy = zx * zy * 2.0 + 0.156;
+      zx = nzx;
+      it = it + 1.0;
+      x2 = zx * zx;
+      y2 = zy * zy;
+      m2 = x2 + y2;
     }
   } else {
     // f64: the same loop, z0 keeps its extended-precision position. The
@@ -123,22 +123,22 @@ export function fs_julia(vo: VsOut): vec4 {
     // different values. A pixel within an f32 rounding of |z|^2 = 16 can escape
     // one step earlier or later than a df64 test would have it, and the smooth
     // colouring absorbs the step; the counts are in `fp64-julia.ts`.
-    let zx = u.center.x + f64(dx)
-    let zy = u.center.y + f64(dy)
-    const hx0 = f32(zx)
-    const hy0 = f32(zy)
-    m2 = hx0 * hx0 + hy0 * hy0
+    let zx = u.center.x + f64(dx);
+    let zy = u.center.y + f64(dy);
+    const hx0 = f32(zx);
+    const hy0 = f32(zy);
+    m2 = hx0 * hx0 + hy0 * hy0;
     for (let j: u32 = 0; j < 128; j++) {
       if (m2 > 16.0) {
-        break
+        break;
       }
-      const nzx = zx * zx - zy * zy + -0.8
-      zy = zx * zy * 2.0 + 0.156
-      zx = nzx
-      it = it + 1.0
-      const hx = f32(zx)
-      const hy = f32(zy)
-      m2 = hx * hx + hy * hy
+      const nzx = zx * zx - zy * zy + -0.8;
+      zy = zx * zy * 2.0 + 0.156;
+      zx = nzx;
+      it = it + 1.0;
+      const hx = f32(zx);
+      const hy = f32(zy);
+      m2 = hx * hx + hy * hy;
     }
   }
 

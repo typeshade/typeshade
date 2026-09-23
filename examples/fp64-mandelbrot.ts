@@ -93,29 +93,29 @@ const escapeF32 = fn(
     // The escape loop is written as fp64-julia.ts's (which records why and what it saves):
     // |z|² is carried in m2 beside z, the squares beside it so none is computed twice a
     // trip, and the loop leaves at the first escaped z. z₀ = 0, so all three start at 0.
-    const zx = Var(f32(0))
-    const zy = Var(f32(0))
-    const x2 = Var(f32(0))
-    const y2 = Var(f32(0))
-    const m2 = Var(f32(0))
-    const it = Var(f32(0))
+    const zx = Var(f32(0));
+    const zy = Var(f32(0));
+    const x2 = Var(f32(0));
+    const y2 = Var(f32(0));
+    const m2 = Var(f32(0));
+    const it = Var(f32(0));
     Loop(
       u32(0),
       (j) => j.lt(iters),
       () => {
         If(m2.gt(16.0), () => {
-          Break()
-        })
-        const nzx = Let(x2.sub(y2).add(cx))
-        zy.assign(zx.mul(zy).mul(2.0).add(cy))
-        zx.assign(nzx)
-        it.assign(it.add(1.0))
-        x2.assign(zx.mul(zx))
-        y2.assign(zy.mul(zy))
-        m2.assign(x2.add(y2))
+          Break();
+        });
+        const nzx = Let(x2.sub(y2).add(cx));
+        zy.assign(zx.mul(zy).mul(2.0).add(cy));
+        zx.assign(nzx);
+        it.assign(it.add(1.0));
+        x2.assign(zx.mul(zx));
+        y2.assign(zy.mul(zy));
+        m2.assign(x2.add(y2));
       },
-    )
-    return vec2(it, m2)
+    );
+    return vec2(it, m2);
   },
 );
 const escapeF64 = fn(
@@ -127,27 +127,27 @@ const escapeF64 = fn(
     // fp64-julia.ts: 48 bits move |z|² across 16 only from within an f32 rounding of it.
     // So this helper carries no squares — the step squares z in df64, the test its
     // narrowed words in f32 — and it hands the colouring the f32 |z|² it already has.
-    const zx = Var(f64(0))
-    const zy = Var(f64(0))
-    const m2 = Var(f32(0))
-    const it = Var(f32(0))
+    const zx = Var(f64(0));
+    const zy = Var(f64(0));
+    const m2 = Var(f32(0));
+    const it = Var(f32(0));
     Loop(
       u32(0),
       (j) => j.lt(iters),
       () => {
         If(m2.gt(16.0), () => {
-          Break()
-        })
-        const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx))
-        zy.assign(zx.mul(zy).mul(2.0).add(cy))
-        zx.assign(nzx)
-        it.assign(it.add(1.0))
-        const hx = Let(toF32(zx))
-        const hy = Let(toF32(zy))
-        m2.assign(hx.mul(hx).add(hy.mul(hy)))
+          Break();
+        });
+        const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx));
+        zy.assign(zx.mul(zy).mul(2.0).add(cy));
+        zx.assign(nzx);
+        it.assign(it.add(1.0));
+        const hx = Let(toF32(zx));
+        const hy = Let(toF32(zy));
+        m2.assign(hx.mul(hx).add(hy.mul(hy)));
       },
-    )
-    return vec2(it, m2)
+    );
+    return vec2(it, m2);
   },
 );
 
@@ -206,12 +206,12 @@ const fsMandel = fn(
     }).else(() => {
       // f64 — the extended-precision add against the vec2<f64> center is where
       // the emulation earns its keep.
-      const cx = Let(U.field.center.x.add(toF64(dx)))
-      const cy = Let(U.field.center.y.add(toF64(dy)))
-      esc.assign(escapeF64({ cx, cy, iters }))
-    })
-    const it = Let(esc.x)
-    const m2 = Let(esc.y) // |z|² of the last z the loop reached
+      const cx = Let(U.field.center.x.add(toF64(dx)));
+      const cy = Let(U.field.center.y.add(toF64(dy)));
+      esc.assign(escapeF64({ cx, cy, iters }));
+    });
+    const it = Let(esc.x);
+    const m2 = Let(esc.y); // |z|² of the last z the loop reached
 
     // Smooth escape-time colouring (log₂ log₂ |z|² kills the discrete bands —
     // same treatment as mandelbrot.ts) so zooming reads as a continuous dive

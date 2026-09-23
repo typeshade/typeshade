@@ -9,13 +9,13 @@
 //
 // Seeded PRNG (not Math.random): a failure is reproducible and CI is deterministic.
 
-import { describe, it, expect } from 'vitest'
-import { fn, module, f64T, sqrt, abs, min, max, floor, fract } from '../ir/index.js'
-import type { ModuleDecl, ReadonlyNode } from '../ir/index.js'
-import { eachExpr, eachStmtExpr } from '../ir/visit.js'
-import { compileModule, type CpuValue } from '../oracle.js'
-import { fp64Lower } from '../passes/fp64-lower.js'
-import { splitF64 } from './df64-lib.js'
+import { describe, it, expect } from 'vitest';
+import { fn, module, f64T, sqrt, abs, min, max, floor, fract } from '../ir/index.js';
+import type { ModuleDecl, ReadonlyNode } from '../ir/index.js';
+import { eachExpr, eachStmtExpr } from '../ir/visit.js';
+import { compileModule, type CpuValue } from '../oracle.js';
+import { fp64Lower } from '../passes/fp64-lower.js';
+import { splitF64 } from './df64-lib.js';
 
 // ── The f32-rounding oracle (same mechanism as df64-known-answer.test.ts) ──
 
@@ -36,7 +36,7 @@ const SCALES: ReadonlyArray<
   ['k_neg8', -8, (a) => a.mul(-8.0)],
   ['k_big', 2 ** 20, (a) => a.mul(2 ** 20)],
   ['k_small', 2 ** -20, (a) => a.mul(2 ** -20)],
-]
+];
 
 const m = module({
   funcs: [
@@ -186,10 +186,10 @@ describe('df64 arithmetic tracks f64 across random inputs (and f32 cannot)', () 
       maxDf = Math.max(maxDf, relErr(val(cpu.fns.k_sqrt!(a.pair)), ref));
       maxF32 = Math.max(maxF32, relErr(Math.fround(Math.sqrt(Math.fround(a.val))), ref));
     }
-    expect(maxDf).toBeLessThan(2 ** -43)
-    expect(maxF32).toBeGreaterThan(maxDf * 1e3)
-    expect(maxF32).toBeGreaterThan(2 ** -30)
-  })
+    expect(maxDf).toBeLessThan(2 ** -43);
+    expect(maxF32).toBeGreaterThan(maxDf * 1e3);
+    expect(maxF32).toBeGreaterThan(2 ** -30);
+  });
 
   // df64_sqr against native f64 AND against the df64_mul(a, a) it replaces, on the same pairs.
   // Measured over this sweep: worst 2^-46.15 for the square, 2^-46.41 for df64_mul(a, a) (the
@@ -197,51 +197,51 @@ describe('df64 arithmetic tracks f64 across random inputs (and f32 cannot)', () 
   it('sqr: worst df64 error ≪ 2^-44 across 2^[-36, 60] and both signs, no worse than df64_mul(a, a)', () => {
     // Below 2^-36 the square's lo word leaves the normal f32 range and the pair loses bits to
     // underflow, as every df64 product does there; above 2^60 the square nears f32 overflow.
-    const r = sampler(0x5a5a, -36, 60)
+    const r = sampler(0x5a5a, -36, 60);
     let maxSqr = 0,
       maxMul = 0,
-      maxF32 = 0
+      maxF32 = 0;
     for (let i = 0; i < N; i++) {
-      const a = asDf(r())
-      const ref = a.val * a.val
-      maxSqr = Math.max(maxSqr, relErr(val(cpu.fns.k_sqr!(a.pair)), ref))
-      maxMul = Math.max(maxMul, relErr(val(cpu.fns.k_mul!(a.pair, a.pair)), ref))
-      maxF32 = Math.max(maxF32, relErr(Math.fround(Math.fround(a.val) ** 2), ref))
+      const a = asDf(r());
+      const ref = a.val * a.val;
+      maxSqr = Math.max(maxSqr, relErr(val(cpu.fns.k_sqr!(a.pair)), ref));
+      maxMul = Math.max(maxMul, relErr(val(cpu.fns.k_mul!(a.pair, a.pair)), ref));
+      maxF32 = Math.max(maxF32, relErr(Math.fround(Math.fround(a.val) ** 2), ref));
     }
-    expect(maxSqr).toBeLessThan(2 ** -44)
-    expect(maxSqr).toBeLessThan(maxMul * 2)
-    expect(maxF32).toBeGreaterThan(maxSqr * 1e3)
-  })
+    expect(maxSqr).toBeLessThan(2 ** -44);
+    expect(maxSqr).toBeLessThan(maxMul * 2);
+    expect(maxF32).toBeGreaterThan(maxSqr * 1e3);
+  });
 
   it('power-of-two scaling is exact, and is the df64_mul it replaces bit for bit', () => {
     // Non-vacuous: the scale kernels call no df64 helper at all.
-    const lowered = fp64Lower(m)
+    const lowered = fp64Lower(m);
     for (const [name] of SCALES) {
-      const k = lowered.funcs.find((f) => f.name === name)!
-      const calls: string[] = []
+      const k = lowered.funcs.find((f) => f.name === name)!;
+      const calls: string[] = [];
       for (const s of k.body)
         eachStmtExpr(s, (e) =>
           eachExpr(e, (x) => {
-            if (x.op === 'call' && x.fn.startsWith('df64_')) calls.push(x.fn)
+            if (x.op === 'call' && x.fn.startsWith('df64_')) calls.push(x.fn);
           }),
-        )
-      expect(calls, name).toEqual([])
+        );
+      expect(calls, name).toEqual([]);
     }
     // A quarter of N pairs, five scales each: 25,000 comparisons, and this file's longest
     // synchronous stretch stays near the others' (df64-int-property.test.ts's `sweep` note).
-    const r = sampler(0x7777, -60, 60)
+    const r = sampler(0x7777, -60, 60);
     for (let i = 0; i < N / 4; i++) {
-      const a = asDf(r())
+      const a = asDf(r());
       for (const [name, s] of SCALES) {
-        const got = cpu.fns[name]!(a.pair) as number[]
+        const got = cpu.fns[name]!(a.pair) as number[];
         // Exact: each word scaled by a power of two, and hi + lo is the scaled value.
-        expect(val(got)).toBe(a.val * s)
+        expect(val(got)).toBe(a.val * s);
         // …and the same two words the general multiply by the pair (s, 0) returns.
-        expect(got).toEqual(cpu.fns.k_mul!(a.pair, [s, 0]))
+        expect(got).toEqual(cpu.fns.k_mul!(a.pair, [s, 0]));
       }
     }
-  })
-})
+  });
+});
 
 // ── abs / min / max: exact selection at f64 resolution ──
 

@@ -34,8 +34,8 @@ export function lowerArrayCtor(
     // `mapped.elem` is the position each element sits in, so an object-literal element knows
     // which struct it builds: `array<A, 2>({ … }, { … })` is two DECLARED positions, spelled
     // in the constructor's own type argument rather than on a variable (#8 A11).
-    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, mapped.elem)
-    if (!lowered) return undefined
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, mapped.elem);
+    if (!lowered) return undefined;
     // Each argument takes the element type by the rule the list form uses, so the two
     // spellings stay one program: `array<i32, 3>(1, 2, 3)` emitted `(1.0, 2.0, 3.0)` before
     // this, which neither target accepts, while `array<i32, 3> = [1, 2, 3]` emitted integers.
@@ -47,9 +47,9 @@ export function lowerArrayCtor(
       args.length,
       sourceFile,
       diagnostics,
-    )
-    if (!typed) return undefined
-    args.push(typed)
+    );
+    if (!typed) return undefined;
+    args.push(typed);
   }
   if (n !== undefined && args.length !== n) {
     pushDiag(
@@ -206,8 +206,8 @@ export function lowerArrayLiteral(
       );
       return undefined;
     }
-    const lowered = lowerExpression(element, sourceFile, scope, diagnostics)
-    if (!lowered) return undefined
+    const lowered = lowerExpression(element, sourceFile, scope, diagnostics);
+    if (!lowered) return undefined;
     const typed = typeArrayElement(
       element,
       lowered,
@@ -216,9 +216,9 @@ export function lowerArrayLiteral(
       i,
       sourceFile,
       diagnostics,
-    )
-    if (!typed) return undefined
-    args.push(typed)
+    );
+    if (!typed) return undefined;
+    args.push(typed);
   }
   return { op: 'construct', type: target, args };
 }
@@ -243,14 +243,14 @@ function typeArrayElement(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  let out = retargetDeclaredIntLit(lowered, node, elem)
+  let out = retargetDeclaredIntLit(lowered, node, elem);
   if (isBareNumericLiteral(node) && isNumericScalar(elem)) {
     // Folded first, so a leading minus is part of the number: `-1.` reaches here as a unop
     // over a literal, and an f64 array would otherwise be told its element is an f32. Only
     // where the retarget above declined, which for a float element type is always.
-    const folded = foldNumericLit(out)
+    const folded = foldNumericLit(out);
     if (folded.op === 'lit' && typeof folded.value === 'number' && !isIntScalar(elem)) {
-      out = { op: 'lit', type: elem, value: folded.value }
+      out = { op: 'lit', type: elem, value: folded.value };
     }
   }
   if (typeKey(out.type) !== typeKey(elem)) {
@@ -260,10 +260,10 @@ function typeArrayElement(
       node,
       `array<${typeKey(elem)}${size === undefined ? '' : `, ${size}`}> element ${i} must be ${typeKey(elem)}, got ${typeKey(out.type)}. There is no implicit conversion; cast it.`,
       TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  return out
+  return out;
 }
 
 /** A number as written in the source — `1.`, `2`, `-3` — through parentheses and a leading

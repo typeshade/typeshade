@@ -18,23 +18,23 @@
 // strict, and the checker reports "Identifier expected" on `let seed: private<u32>`. The
 // parser alone accepts it, which is why that name survived to a measurement.
 
-import ts from 'typescript'
-import type { Expr, ModuleVarDecl, StructDecl } from '../../core/ir/nodes.js'
-import type { ShaderType } from '../../core/ir/types.js'
-import { structT, typeKey } from '../../core/ir/types.js'
-import type { TsCompilerDiagnostic } from './source-file.js'
-import { LoweringScope } from './context.js'
-import { TS_CODES } from './codes.js'
-import { makeDiagnostic } from './diagnostic.js'
-import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js'
-import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
-import { foldConstComponents } from './loop-bound.js'
-import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js'
-import { lowerExpression } from './lower/expression.js'
-import { lowerArrayLiteral } from './lower/expression-array.js'
-import { isOverrideType } from './overrides.js'
-import { isFoldableConstExpr, staticConstName } from './module-const.js'
-import { eachNamespaceStatement } from './namespaces.js'
+import ts from 'typescript';
+import type { Expr, ModuleVarDecl, StructDecl } from '../../core/ir/nodes.js';
+import type { ShaderType } from '../../core/ir/types.js';
+import { structT, typeKey } from '../../core/ir/types.js';
+import type { TsCompilerDiagnostic } from './source-file.js';
+import { LoweringScope } from './context.js';
+import { TS_CODES } from './codes.js';
+import { makeDiagnostic } from './diagnostic.js';
+import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js';
+import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
+import { foldConstComponents } from './loop-bound.js';
+import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
+import { lowerExpression } from './lower/expression.js';
+import { lowerArrayLiteral } from './lower/expression-array.js';
+import { isOverrideType } from './overrides.js';
+import { isFoldableConstExpr, staticConstName } from './module-const.js';
+import { eachNamespaceStatement } from './namespaces.js';
 import {
   emittedMemberName,
   isStaticMember,
@@ -446,10 +446,10 @@ function finish(
     lowered ??
     (ts.isArrayLiteralExpression(decl.initializer)
       ? lowerArrayLiteral(decl.initializer, type, sourceFile, scope, diagnostics)
-      : lowerExpression(decl.initializer, sourceFile, scope, diagnostics, type))
-  if (!init) return undefined
-  init = retargetDeclaredIntLit(init, decl.initializer, type)
-  init = reportIntLitRange(init, decl.initializer, type, sourceFile, diagnostics) ?? init
+      : lowerExpression(decl.initializer, sourceFile, scope, diagnostics, type));
+  if (!init) return undefined;
+  init = retargetDeclaredIntLit(init, decl.initializer, type);
+  init = reportIntLitRange(init, decl.initializer, type, sourceFile, diagnostics) ?? init;
   if (typeKey(init.type) !== typeKey(type)) {
     diagnostics.push(
       diag(

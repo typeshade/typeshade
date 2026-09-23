@@ -15,21 +15,21 @@
 // module's oracle bit-equality loop over every proj_* fn
 // (map/src/shaders/dsl/optimize.test.ts), and the examples emit-goldens byte gate.
 
-import type { ModuleDecl, FuncDecl } from '../../ir/index.js'
-import { fnReads, fnWrites, inheritEffects } from '../effects.js'
-import { constProp } from './const-prop.js'
-import { copyProp } from './copy-prop.js'
-import { constFold } from './const-fold.js'
-import { algebraicSimplify } from './algebraic.js'
-import { deadBranch } from './dead-branch.js'
-import { cse } from './cse.js'
-import { cseLocal } from './cse-local.js'
-import { gvn } from './gvn.js'
-import { licm } from './licm.js'
-import { dce } from './dce.js'
-import { duplicateLocalNames } from '../lint/rules/no-shadowed-local.js'
-import { dslError } from '../../diagnostics/error.js'
-import { structCtor } from './struct-ctor.js'
+import type { ModuleDecl, FuncDecl } from '../../ir/index.js';
+import { fnReads, fnWrites, inheritEffects } from '../effects.js';
+import { constProp } from './const-prop.js';
+import { copyProp } from './copy-prop.js';
+import { constFold } from './const-fold.js';
+import { algebraicSimplify } from './algebraic.js';
+import { deadBranch } from './dead-branch.js';
+import { cse } from './cse.js';
+import { cseLocal } from './cse-local.js';
+import { gvn } from './gvn.js';
+import { licm } from './licm.js';
+import { dce } from './dce.js';
+import { duplicateLocalNames } from '../lint/rules/no-shadowed-local.js';
+import { dslError } from '../../diagnostics/error.js';
+import { structCtor } from './struct-ctor.js';
 
 export type OptPass = (m: ModuleDecl) => ModuleDecl;
 
@@ -260,12 +260,12 @@ export function fixpoint(
   maxIters = 8,
   onPass?: PassSink,
 ): ModuleDecl {
-  for (const fn of m.funcs) assertUniqueLocalNames(fn)
+  for (const fn of m.funcs) assertUniqueLocalNames(fn);
   // Computed once for the whole module; every per-function view inherits both. A view holds one
   // function, so a table computed from it could not see what a helper writes or reads.
-  fnWrites(m)
-  fnReads(m)
-  return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters, onPass)) }
+  fnWrites(m);
+  fnReads(m);
+  return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters, onPass)) };
 }
 
 // ── Named optimization levels (C-compiler -O0/-O1/-O2) ──

@@ -37,16 +37,16 @@ import {
   paramDefaultNodes,
   recordParamDefaults,
   setParamDefault,
-} from './param-defaults.js'
-import { lowerStatements } from './statement.js'
-import { lowerExpression } from './expression.js'
-import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js'
-import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
-import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js'
-import { makeDiagnostic } from '../diagnostic.js'
-import { spanOf, withSpan } from '../span.js'
-import { TS_CODES, type TsCode } from '../codes.js'
-import { checkRecursion } from '../recursion.js'
+} from './param-defaults.js';
+import { lowerStatements } from './statement.js';
+import { lowerExpression } from './expression.js';
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
+import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
+import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js';
+import { makeDiagnostic } from '../diagnostic.js';
+import { spanOf, withSpan } from '../span.js';
+import { TS_CODES, type TsCode } from '../codes.js';
+import { checkRecursion } from '../recursion.js';
 import {
   eachNamespaceStatement,
   namespaceMemberName,
@@ -1342,11 +1342,11 @@ function lowerArrowValue(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt[] {
-  const lowered = lowerExpression(expr, sourceFile, scope, diagnostics, stub.ret)
-  if (!lowered) return []
-  const retargeted = retargetIntLitCtx(lowered, expr, stub.ret)
-  const ret = reportIntLitRange(retargeted, expr, stub.ret, sourceFile, diagnostics) ?? retargeted
-  return [withSpan({ s: 'return', expr: ret }, sourceFile, expr)]
+  const lowered = lowerExpression(expr, sourceFile, scope, diagnostics, stub.ret);
+  if (!lowered) return [];
+  const retargeted = retargetIntLitCtx(lowered, expr, stub.ret);
+  const ret = reportIntLitRange(retargeted, expr, stub.ret, sourceFile, diagnostics) ?? retargeted;
+  return [withSpan({ s: 'return', expr: ret }, sourceFile, expr)];
 }
 
 /** Lower every default `stub`'s signature writes, in the module's scope (roadmap 0.3 item T7,

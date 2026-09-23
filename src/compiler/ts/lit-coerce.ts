@@ -1,10 +1,10 @@
-import ts from 'typescript'
-import type { Expr } from '../../core/ir/nodes.js'
-import type { ShaderType } from '../../core/ir/types.js'
-import { f64T, isF64, typeKey } from '../../core/ir/types.js'
-import type { TsCompilerDiagnostic } from './source-file.js'
-import { makeDiagnostic } from './diagnostic.js'
-import { TS_CODES } from './codes.js'
+import ts from 'typescript';
+import type { Expr } from '../../core/ir/nodes.js';
+import type { ShaderType } from '../../core/ir/types.js';
+import { f64T, isF64, typeKey } from '../../core/ir/types.js';
+import type { TsCompilerDiagnostic } from './source-file.js';
+import { makeDiagnostic } from './diagnostic.js';
+import { TS_CODES } from './codes.js';
 
 export function isIntegerLiteralNode(node: ts.Expression): boolean {
   if (ts.isParenthesizedExpression(node)) return isIntegerLiteralNode(node.expression);
@@ -192,9 +192,9 @@ export function retargetDeclaredIntLit(expr: Expr, node: ts.Expression, target: 
  *  declares: "The value has to fit." One wording for every declared position, so
  *  `const a: u32 = 4294967296` is not told it mixed a u32 with an f32 when it wrote no f32. */
 export function intLiteralRangeMessage(value: number, target: ShaderType): string {
-  const k = typeKey(target)
-  const range = k === 'u32' ? '0 to 4294967295' : '-2147483648 to 2147483647'
-  return `The value has to fit: ${String(value)} is outside ${k}, which holds ${range} (§13).`
+  const k = typeKey(target);
+  const range = k === 'u32' ? '0 to 4294967295' : '-2147483648 to 2147483647';
+  return `The value has to fit: ${String(value)} is outside ${k}, which holds ${range} (§13).`;
 }
 
 /** The literal {@link retargetIntLitCtx} declined for its RANGE alone: written as an integer
@@ -207,19 +207,19 @@ export function outOfRangeIntLit(
   node: ts.Expression,
   target: ShaderType,
 ): { readonly value: number; readonly node: ts.Expression } | undefined {
-  if (!isIntScalar(target)) return undefined
-  const inner = stripParens(node)
+  if (!isIntScalar(target)) return undefined;
+  const inner = stripParens(node);
   if (expr.op === 'select' && ts.isConditionalExpression(inner)) {
     return (
       outOfRangeIntLit(expr.ifTrue, inner.whenTrue, target) ??
       outOfRangeIntLit(expr.ifFalse, inner.whenFalse, target)
-    )
+    );
   }
-  if (!isIntegerLiteralTree(inner)) return undefined
-  const folded = foldNumericLit(expr)
-  if (folded.op !== 'lit' || typeof folded.value !== 'number') return undefined
-  if (!Number.isInteger(folded.value) || fitsTarget(folded.value, target)) return undefined
-  return { value: folded.value, node: inner }
+  if (!isIntegerLiteralTree(inner)) return undefined;
+  const folded = foldNumericLit(expr);
+  if (folded.op !== 'lit' || typeof folded.value !== 'number') return undefined;
+  if (!Number.isInteger(folded.value) || fitsTarget(folded.value, target)) return undefined;
+  return { value: folded.value, node: inner };
 }
 
 /** Reports {@link outOfRangeIntLit} with {@link intLiteralRangeMessage} (TS8003, the code the
@@ -234,8 +234,8 @@ export function reportIntLitRange(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const bad = outOfRangeIntLit(expr, node, target)
-  if (!bad) return undefined
+  const bad = outOfRangeIntLit(expr, node, target);
+  if (!bad) return undefined;
   diagnostics.push(
     makeDiagnostic(
       sourceFile,
@@ -243,10 +243,10 @@ export function reportIntLitRange(
       intLiteralRangeMessage(bad.value, target),
       TS_CODES.TYPE_MISMATCH,
     ),
-  )
+  );
   return expr.op === 'select'
     ? { ...expr, type: target }
-    : { op: 'lit', type: target, value: bad.value }
+    : { op: 'lit', type: target, value: bad.value };
 }
 
 /** The width a shift amount has to fit under, on both targets: WGSL's `i32`/`u32` and GLSL ES

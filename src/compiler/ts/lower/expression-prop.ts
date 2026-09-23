@@ -13,14 +13,14 @@ import {
   staticFieldBinding,
   staticOwnerOf,
   visibleField,
-} from './class-access.js'
-import { parseSwizzle } from '../swizzle.js'
-import { numericMismatch } from '../numeric.js'
-import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js'
-import { lowerExpression } from './expression.js'
-import { refuseBareAtomic } from './atomics.js'
-import { makeDiagnostic } from '../diagnostic.js'
-import { TS_CODES, type TsCode } from '../codes.js'
+} from './class-access.js';
+import { parseSwizzle } from '../swizzle.js';
+import { numericMismatch } from '../numeric.js';
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
+import { lowerExpression } from './expression.js';
+import { refuseBareAtomic } from './atomics.js';
+import { makeDiagnostic } from '../diagnostic.js';
+import { TS_CODES, type TsCode } from '../codes.js';
 
 const JS_ARRAY_METHODS = new Set([
   'map',
@@ -446,14 +446,14 @@ export function lowerObjectLiteral(
     // context this item passes down: that decides which STRUCT a nested literal builds, this
     // retypes an integer literal once the field's own type is known. Both need the struct
     // resolved first, which is why they sit on the same side of that decision.
-    const named = byName.get(field.name)
-    const namedNode = nodeByName.get(field.name)
-    const retargeted = named && namedNode ? retargetIntLitCtx(named, namedNode, field.type) : named
+    const named = byName.get(field.name);
+    const namedNode = nodeByName.get(field.name);
+    const retargeted = named && namedNode ? retargetIntLitCtx(named, namedNode, field.type) : named;
     const expr =
       retargeted && namedNode
         ? (reportIntLitRange(retargeted, namedNode, field.type, sourceFile, diagnostics) ??
           retargeted)
-        : retargeted
+        : retargeted;
     if (!expr) {
       pushDiag(
         diagnostics,

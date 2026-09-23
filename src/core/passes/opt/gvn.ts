@@ -109,9 +109,15 @@ import {
   refsLocal,
   isWorthHoisting,
   mapStmtValue,
-} from './expr-utils.js'
-import { eachStmtExpr } from '../../ir/visit.js'
-import { bodyHasEffectfulCall, fnReads, fnWrites, type FnReads, type FnWrites } from '../effects.js'
+} from './expr-utils.js';
+import { eachStmtExpr } from '../../ir/visit.js';
+import {
+  bodyHasEffectfulCall,
+  fnReads,
+  fnWrites,
+  type FnReads,
+  type FnWrites,
+} from '../effects.js';
 
 /** The root names an expression reads: every op that names a storage location (a local,
  *  a parameter, a binding, a host global — the set `refsLocal` in expr-utils treats as one),
@@ -128,20 +134,20 @@ import { bodyHasEffectfulCall, fnReads, fnWrites, type FnReads, type FnWrites } 
  *  `load` returns `buf[i] * 2.` reads `buf` as surely as `buf[j] * 2.` does, and a temp for
  *  it that crossed `buf[j] = 10.` into the arm returned 4 where O0 returns 22. */
 function rootsOf(e: Expr, reads: FnReads): Set<string> {
-  const out = new Set<string>()
+  const out = new Set<string>();
   eachExpr(e, (x) => {
     if (x.op === 'varref' || x.op === 'param' || x.op === 'constref' || x.op === 'externref')
-      out.add(x.name)
-    else if (x.op === 'call') for (const n of reads.get(x.fn) ?? []) out.add(n)
-  })
-  return out
+      out.add(x.name);
+    else if (x.op === 'call') for (const n of reads.get(x.fn) ?? []) out.add(n);
+  });
+  return out;
 }
 
 /** Does `mut` (a statement's mutated names) write any of `roots`? */
 function touches(mut: ReadonlySet<string>, roots: ReadonlySet<string>): boolean {
-  if (mut.size === 0) return false
-  for (const r of roots) if (mut.has(r)) return true
-  return false
+  if (mut.size === 0) return false;
+  for (const r of roots) if (mut.has(r)) return true;
+  return false;
 }
 
 /** The exprs of a statement this block evaluates UNCONDITIONALLY (never the lvalue
@@ -205,11 +211,11 @@ function valueExprs(s: Stmt): readonly Expr[] {
  *  `i_1`), so neither redeclaration occurs in the corpus; they are here because a temp that
  *  crosses into a nested block is only as sound as this set is complete. */
 function mutatedBy(s: Stmt): Set<string> {
-  const out = new Set<string>()
-  collectMutatedRoots([s], out)
-  if (s.s === 'let' || s.s === 'var') out.add(s.name)
-  else if (s.s === 'for' && (s.init.s === 'let' || s.init.s === 'var')) out.add(s.init.name)
-  return out
+  const out = new Set<string>();
+  collectMutatedRoots([s], out);
+  if (s.s === 'let' || s.s === 'var') out.add(s.name);
+  else if (s.s === 'for' && (s.init.s === 'let' || s.init.s === 'var')) out.add(s.init.name);
+  return out;
 }
 
 /** Rewrite every position of `s` that reads the temps in scope: the value positions
@@ -218,9 +224,9 @@ function mutatedBy(s: Stmt): Set<string> {
  *  no temp is minted FROM one — but every condition runs before any arm body and after
  *  nothing else, so a temp bound before the `if` holds at each of them. */
 function mapReads(s: Stmt, f: (e: Expr) => Expr): Stmt {
-  const t = mapStmtValue(s, f)
-  if (t.s !== 'if' || t.arms.length < 2) return t
-  return { ...t, arms: t.arms.map((a, i) => (i === 0 ? a : { ...a, cond: f(a.cond) })) }
+  const t = mapStmtValue(s, f);
+  if (t.s !== 'if' || t.arms.length < 2) return t;
+  return { ...t, arms: t.arms.map((a, i) => (i === 0 ? a : { ...a, cond: f(a.cond) })) };
 }
 
 /** The positions `mapReads` rewrites, listed rather than rebuilt: `valueExprs` (which names
@@ -228,18 +234,18 @@ function mapReads(s: Stmt, f: (e: Expr) => Expr): Stmt {
  *  conditions `mapReads` adds. The reach check below walks these for every candidate key in
  *  every nested block, so it must not allocate a statement per look. */
 function readExprs(s: Stmt): readonly Expr[] {
-  const own = valueExprs(s)
-  if (s.s !== 'if' || s.arms.length < 2) return own
-  return [...own, ...s.arms.slice(1).map((a) => a.cond)]
+  const own = valueExprs(s);
+  if (s.s !== 'if' || s.arms.length < 2) return own;
+  return [...own, ...s.arms.slice(1).map((a) => a.cond)];
 }
 
 /** Does `e` hold a subexpression keyed `k`? */
 function mentions(e: Expr, k: string): boolean {
-  let found = false
+  let found = false;
   eachExpr(e, (x) => {
-    if (!found && keyOf(x) === k) found = true
-  })
-  return found
+    if (!found && keyOf(x) === k) found = true;
+  });
+  return found;
 }
 
 interface Occur {
@@ -260,7 +266,7 @@ function tally(
   reads: FnReads,
 ): void {
   if (isCompound(e) && isWorthHoisting(e, loadRoots) && refsLocal(e, localSet, reads)) {
-    const k = keyOf(e)
+    const k = keyOf(e);
     if (cond) {
       condKeys.add(k);
     } else {
@@ -271,38 +277,38 @@ function tally(
   }
   switch (e.op) {
     case 'logical':
-      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots, reads)
-      tally(e.b, idx, true, localSet, occ, condKeys, loadRoots, reads)
-      break
+      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots, reads);
+      tally(e.b, idx, true, localSet, occ, condKeys, loadRoots, reads);
+      break;
     case 'select':
-      tally(e.cond, idx, cond, localSet, occ, condKeys, loadRoots, reads)
-      tally(e.ifTrue, idx, true, localSet, occ, condKeys, loadRoots, reads)
-      tally(e.ifFalse, idx, true, localSet, occ, condKeys, loadRoots, reads)
-      break
+      tally(e.cond, idx, cond, localSet, occ, condKeys, loadRoots, reads);
+      tally(e.ifTrue, idx, true, localSet, occ, condKeys, loadRoots, reads);
+      tally(e.ifFalse, idx, true, localSet, occ, condKeys, loadRoots, reads);
+      break;
     case 'matchExpr':
-      tally(e.scrutinee, idx, cond, localSet, occ, condKeys, loadRoots, reads)
-      for (const [, v] of e.cases) tally(v, idx, true, localSet, occ, condKeys, loadRoots, reads)
-      tally(e.default, idx, true, localSet, occ, condKeys, loadRoots, reads)
-      break
+      tally(e.scrutinee, idx, cond, localSet, occ, condKeys, loadRoots, reads);
+      for (const [, v] of e.cases) tally(v, idx, true, localSet, occ, condKeys, loadRoots, reads);
+      tally(e.default, idx, true, localSet, occ, condKeys, loadRoots, reads);
+      break;
     case 'binop':
     case 'compare':
-      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots, reads)
-      tally(e.b, idx, cond, localSet, occ, condKeys, loadRoots, reads)
-      break
+      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots, reads);
+      tally(e.b, idx, cond, localSet, occ, condKeys, loadRoots, reads);
+      break;
     case 'unop':
-      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots, reads)
-      break
+      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots, reads);
+      break;
     case 'call':
     case 'construct':
-      for (const a of e.args) tally(a, idx, cond, localSet, occ, condKeys, loadRoots, reads)
-      break
+      for (const a of e.args) tally(a, idx, cond, localSet, occ, condKeys, loadRoots, reads);
+      break;
     case 'member':
-      tally(e.base, idx, cond, localSet, occ, condKeys, loadRoots, reads)
-      break
+      tally(e.base, idx, cond, localSet, occ, condKeys, loadRoots, reads);
+      break;
     case 'index':
-      tally(e.base, idx, cond, localSet, occ, condKeys, loadRoots, reads)
-      tally(e.idx, idx, cond, localSet, occ, condKeys, loadRoots, reads)
-      break
+      tally(e.base, idx, cond, localSet, occ, condKeys, loadRoots, reads);
+      tally(e.idx, idx, cond, localSet, occ, condKeys, loadRoots, reads);
+      break;
     default:
       break; // leaf
   }
@@ -332,11 +338,11 @@ interface Avail {
  *  whose arm reads zx*zx and THEN writes zx: the write anywhere in the arm dropped the temp
  *  from the arm entirely. */
 function availableIn(s: Stmt, live: ReadonlyMap<string, Avail>): Map<string, Avail> {
-  if (live.size === 0) return new Map()
-  const mut = mutatedBy(s)
-  const out = new Map<string, Avail>()
-  for (const [k, a] of live) if (!touches(mut, a.roots)) out.set(k, a)
-  return out
+  if (live.size === 0) return new Map();
+  const mut = mutatedBy(s);
+  const out = new Map<string, Avail>();
+  for (const [k, a] of live) if (!touches(mut, a.roots)) out.set(k, a);
+  return out;
 }
 
 // ─── The reach check: would a temp bound before statement `from` be READ inside? ───
@@ -357,81 +363,81 @@ function readInside(s: Stmt, k: string, roots: ReadonlySet<string>): boolean {
       return (
         s.arms.some((a, i) => (i > 0 && mentions(a.cond, k)) || readIn(a.body, k, roots)) ||
         (s.elseBody !== undefined && readIn(s.elseBody, k, roots))
-      )
+      );
     case 'switch':
       return (
         s.cases.some((c) => readIn(c.body, k, roots)) ||
         (s.defaultBody !== undefined && readIn(s.defaultBody, k, roots))
-      )
+      );
     case 'for':
-      return !touches(mutatedBy(s), roots) && readIn(s.body, k, roots)
+      return !touches(mutatedBy(s), roots) && readIn(s.body, k, roots);
     default:
-      return false
+      return false;
   }
 }
 
 /** Is a temp for `k`, live on entry to the nested block `body`, read before it retires? */
 function readIn(body: readonly Stmt[], k: string, roots: ReadonlySet<string>): boolean {
   for (const s of body) {
-    if (readExprs(s).some((e) => mentions(e, k)) || readInside(s, k, roots)) return true
-    if (touches(mutatedBy(s), roots)) return false
+    if (readExprs(s).some((e) => mentions(e, k)) || readInside(s, k, roots)) return true;
+    if (touches(mutatedBy(s), roots)) return false;
   }
-  return false
+  return false;
 }
 
 /** Every key an `if`'s later condition or a nested block of `body` mentions at all — the
  *  cheap filter in front of `readInside`, which only the keys in it have to pay for. */
 function keysInside(body: readonly Stmt[]): Set<string> {
-  const out = new Set<string>()
-  const add = (e: Expr): void => eachExpr(e, (x) => void out.add(keyOf(x)))
+  const out = new Set<string>();
+  const add = (e: Expr): void => eachExpr(e, (x) => void out.add(keyOf(x)));
   const inBody = (b: readonly Stmt[]): void => {
     for (const s of b) {
-      for (const e of readExprs(s)) add(e)
-      inside(s)
+      for (const e of readExprs(s)) add(e);
+      inside(s);
     }
-  }
+  };
   const inside = (s: Stmt): void => {
     if (s.s === 'if') {
       s.arms.forEach((a, i) => {
-        if (i > 0) add(a.cond)
-        inBody(a.body)
-      })
-      if (s.elseBody) inBody(s.elseBody)
-    } else if (s.s === 'for') inBody(s.body)
+        if (i > 0) add(a.cond);
+        inBody(a.body);
+      });
+      if (s.elseBody) inBody(s.elseBody);
+    } else if (s.s === 'for') inBody(s.body);
     else if (s.s === 'switch') {
-      for (const c of s.cases) inBody(c.body)
-      if (s.defaultBody) inBody(s.defaultBody)
+      for (const c of s.cases) inBody(c.body);
+      if (s.defaultBody) inBody(s.defaultBody);
     }
-  }
-  for (const s of body) inside(s)
-  return out
+  };
+  for (const s of body) inside(s);
+  return out;
 }
 
 /** Per-function state shared by every block `gvnFn` numbers in one attempt. */
 interface Ctx {
-  readonly localSet: ReadonlySet<string>
-  readonly loadRoots: ReadonlySet<string>
+  readonly localSet: ReadonlySet<string>;
+  readonly loadRoots: ReadonlySet<string>;
   /** The module's read table: a call's roots include what its callee reads. */
-  readonly reads: FnReads
-  readonly next: { n: number }
+  readonly reads: FnReads;
+  readonly next: { n: number };
   /** Keys a previous attempt minted in that block and found read fewer than twice. */
-  readonly deny: ReadonlyMap<readonly Stmt[], ReadonlySet<string>>
+  readonly deny: ReadonlyMap<readonly Stmt[], ReadonlySet<string>>;
   /** Every temp this attempt minted: its name, the block it was minted in, its key. */
-  readonly minted: Map<string, { readonly block: readonly Stmt[]; readonly key: string }>
+  readonly minted: Map<string, { readonly block: readonly Stmt[]; readonly key: string }>;
 }
 
 /** The candidates not nested inside another candidate's exemplar. */
 function maximal(cands: ReadonlyArray<[string, Occur]>): Array<[string, Occur]> {
-  const candSet = new Set(cands.map(([k]) => k))
-  const nested = new Set<string>()
+  const candSet = new Set(cands.map(([k]) => k));
+  const nested = new Set<string>();
   for (const [, o] of cands) {
     eachExpr(o.exemplar, (sub) => {
-      if (sub === o.exemplar) return
-      const sk = keyOf(sub)
-      if (candSet.has(sk)) nested.add(sk)
-    })
+      if (sub === o.exemplar) return;
+      const sk = keyOf(sub);
+      if (candSet.has(sk)) nested.add(sk);
+    });
   }
-  return cands.filter(([k]) => !nested.has(k))
+  return cands.filter(([k]) => !nested.has(k));
 }
 
 /** GVN one straight-line block: its OWN statements, then each nested block with the
@@ -448,7 +454,7 @@ function gvnBlock(
   ctx: Ctx,
   env: ReadonlyMap<string, Avail> = new Map(),
 ): Stmt[] {
-  const { localSet, loadRoots, reads } = ctx
+  const { localSet, loadRoots, reads } = ctx;
   // 1. Tally cross-statement candidates over this block's value exprs. Recursion now
   //    happens in step 7 instead, so the temps minted here are in scope for it;
   //    `valueExprs` reads only this block's own statements, which recursion never
@@ -457,11 +463,11 @@ function gvnBlock(
   const occ = new Map<string, Occur>();
   const condKeys = new Set<string>();
   rec.forEach((s, idx) => {
-    for (const e of valueExprs(s)) tally(e, idx, false, localSet, occ, condKeys, loadRoots, reads)
-  })
-  const muts = rec.map(mutatedBy)
-  const denied = ctx.deny.get(body)
-  const first = (o: Occur): number => Math.min(...o.stmts)
+    for (const e of valueExprs(s)) tally(e, idx, false, localSet, occ, condKeys, loadRoots, reads);
+  });
+  const muts = rec.map(mutatedBy);
+  const denied = ctx.deny.get(body);
+  const first = (o: Occur): number => Math.min(...o.stmts);
 
   // 2. A key an enclosing temp still holds at its first occurrence here is READ, not
   //    re-minted: step 7 rewrites every occurrence to the enclosing temp until a root moves,
@@ -469,37 +475,37 @@ function gvnBlock(
   //    received `live` unfiltered this was rare enough to leave to the next fixpoint round,
   //    which rewrites the duplicate `let` to a copy for copy-prop and DCE to remove.)
   const inherited = (k: string, o: Occur): boolean => {
-    const a = env.get(k)
-    if (a === undefined) return false
-    const f = first(o)
-    for (let m = 0; m < f; m++) if (touches(muts[m]!, a.roots)) return false
-    return true
-  }
+    const a = env.get(k);
+    if (a === undefined) return false;
+    const f = first(o);
+    for (let m = 0; m < f; m++) if (touches(muts[m]!, a.roots)) return false;
+    return true;
+  };
 
   // 3. Every key unconditional here that neither a previous attempt denied nor an
   //    enclosing temp already holds. No early return when empty: a block that mints nothing
   //    must still recurse, and with `env` it may now be the block that USES an enclosing temp.
   const eligible = [...occ.entries()].filter(
     ([k, o]) => !condKeys.has(k) && denied?.has(k) !== true && !inherited(k, o),
-  )
+  );
 
   // 4. SAME-BLOCK repeats: keys in >= 2 distinct statements, maximal only — drop a key nested
   //    inside another candidate's exemplar (the outer temp subsumes it; a later fixpoint pass
   //    picks up any standalone inner repeat).
-  const repeats = maximal(eligible.filter(([, o]) => o.stmts.size >= 2))
+  const repeats = maximal(eligible.filter(([, o]) => o.stmts.size >= 2));
 
   // 5. Reassignment check: drop a key if any statement in [first, last) mutates a root it reads.
   const chosen = new Set(
     repeats
       .filter(([, o]) => {
-        const idxs = [...o.stmts].sort((a, b) => a - b)
-        const last = idxs[idxs.length - 1]!
-        const roots = rootsOf(o.exemplar, reads)
-        for (let m = idxs[0]!; m < last; m++) if (touches(muts[m]!, roots)) return false
-        return true
+        const idxs = [...o.stmts].sort((a, b) => a - b);
+        const last = idxs[idxs.length - 1]!;
+        const roots = rootsOf(o.exemplar, reads);
+        for (let m = idxs[0]!; m < last; m++) if (touches(muts[m]!, roots)) return false;
+        return true;
       })
       .map(([k]) => k),
-  )
+  );
 
   // 5b. DOMINANCE: a key whose first occurrence here is read again by a nested block or a
   //     later `if` condition before a root moves (the reach check above). It must not
@@ -518,46 +524,46 @@ function gvnBlock(
   //     Only a block with a nested statement pays for any of it: `keysInside` is empty
   //     otherwise, and it is the cheap filter every candidate meets first.
   if (rec.some((s) => s.s === 'if' || s.s === 'for' || s.s === 'switch')) {
-    const inside = keysInside(rec)
+    const inside = keysInside(rec);
     const reusedInside = (k: string, o: Occur): boolean => {
-      const roots = rootsOf(o.exemplar, reads)
+      const roots = rootsOf(o.exemplar, reads);
       for (let j = first(o); j < rec.length; j++) {
-        if (readInside(rec[j]!, k, roots)) return true
-        if (touches(muts[j]!, roots)) return false
+        if (readInside(rec[j]!, k, roots)) return true;
+        if (touches(muts[j]!, roots)) return false;
       }
-      return false
-    }
-    const claimed = new Set<string>()
+      return false;
+    };
+    const claimed = new Set<string>();
     for (const [k, o] of repeats)
       if (chosen.has(k))
         eachExpr(o.exemplar, (sub) => {
-          if (sub !== o.exemplar) claimed.add(keyOf(sub))
-        })
+          if (sub !== o.exemplar) claimed.add(keyOf(sub));
+        });
     const holdsChosen = (o: Occur): boolean => {
-      let yes = false
+      let yes = false;
       eachExpr(o.exemplar, (sub) => {
-        if (!yes && sub !== o.exemplar && chosen.has(keyOf(sub))) yes = true
-      })
-      return yes
-    }
+        if (!yes && sub !== o.exemplar && chosen.has(keyOf(sub))) yes = true;
+      });
+      return yes;
+    };
     const dominating = eligible.filter(
       ([k, o]) =>
         inside.has(k) && !chosen.has(k) && !claimed.has(k) && !holdsChosen(o) && reusedInside(k, o),
-    )
-    for (const [k] of maximal(dominating)) chosen.add(k)
+    );
+    for (const [k] of maximal(dominating)) chosen.add(k);
   }
   // In tally order, so the `_gvN` sequence reads top-down as it always has.
-  const safe = eligible.filter(([k]) => chosen.has(k))
+  const safe = eligible.filter(([k]) => chosen.has(k));
 
   // 6. Assign a temp per safe key + record where its `let` lands (before its first stmt).
-  const insertBefore = new Map<number, Array<{ name: string; expr: Expr }>>()
+  const insertBefore = new Map<number, Array<{ name: string; expr: Expr }>>();
   for (const [k, o] of safe) {
-    const at = first(o)
-    const lets = insertBefore.get(at) ?? []
-    const name = `_gv${ctx.next.n++}`
-    lets.push({ name, expr: o.exemplar })
-    ctx.minted.set(name, { block: body, key: k })
-    insertBefore.set(at, lets)
+    const at = first(o);
+    const lets = insertBefore.get(at) ?? [];
+    const name = `_gv${ctx.next.n++}`;
+    lets.push({ name, expr: o.exemplar });
+    ctx.minted.set(name, { block: body, key: k });
+    insertBefore.set(at, lets);
   }
 
   // 7. ONE ordered walk: splice each `let` in, rewrite the statement against everything
@@ -566,29 +572,29 @@ function gvnBlock(
   //    statement moved on from. Order matters: a temp minted AT idx is live for
   //    statement idx itself — which is how an `if` whose condition holds the first
   //    occurrence can offer it to its own arms.
-  const live = new Map<string, Avail>(env)
-  const out: Stmt[] = []
+  const live = new Map<string, Avail>(env);
+  const out: Stmt[] = [];
   const replace = (e: Expr): Expr => {
-    const a = live.get(keyOf(e))
-    if (a !== undefined) return { op: 'varref', type: e.type, name: a.name }
-    return mapChildren(e, replace)
-  }
+    const a = live.get(keyOf(e));
+    if (a !== undefined) return { op: 'varref', type: e.type, name: a.name };
+    return mapChildren(e, replace);
+  };
   rec.forEach((s, idx) => {
     for (const l of insertBefore.get(idx) ?? []) {
       // The temp's own initialiser reads what is already bound (its CHILDREN — the whole
       // expression is the key being defined). Without this a temp minted here for
       // `k + 1` recomputed an enclosing `k` until the next fixpoint round, and the use
       // count `gvnFn` takes would miss that read.
-      out.push({ s: 'let', name: l.name, expr: mapChildren(l.expr, replace) })
-      live.set(keyOf(l.expr), { name: l.name, roots: rootsOf(l.expr, reads) })
+      out.push({ s: 'let', name: l.name, expr: mapChildren(l.expr, replace) });
+      live.set(keyOf(l.expr), { name: l.name, roots: rootsOf(l.expr, reads) });
     }
     // The RHS of an assign is evaluated BEFORE the write, so rewriting statement idx
     // against the pre-statement `live` is right; the retirement below is for idx+1 on.
-    out.push(mapReads(recurseBlocks(s, ctx, live), replace))
-    const mut = muts[idx]!
-    if (mut.size > 0) for (const [k, a] of [...live]) if (touches(mut, a.roots)) live.delete(k)
-  })
-  return out
+    out.push(mapReads(recurseBlocks(s, ctx, live), replace));
+    const mut = muts[idx]!;
+    if (mut.size > 0) for (const [k, a] of [...live]) if (touches(mut, a.roots)) live.delete(k);
+  });
+  return out;
 }
 
 // Rebuild a control-flow statement with each nested body GVN'd as its own block. An `if`
@@ -601,15 +607,15 @@ function recurseBlocks(s: Stmt, ctx: Ctx, live: ReadonlyMap<string, Avail>): Stm
         ...s,
         arms: s.arms.map((a) => ({ cond: a.cond, body: gvnBlock(a.body, ctx, live) })),
         elseBody: s.elseBody ? gvnBlock(s.elseBody, ctx, live) : undefined,
-      }
+      };
     case 'for':
-      return { ...s, body: gvnBlock(s.body, ctx, availableIn(s, live)) }
+      return { ...s, body: gvnBlock(s.body, ctx, availableIn(s, live)) };
     case 'switch':
       return {
         ...s,
         cases: s.cases.map((c) => ({ values: c.values, body: gvnBlock(c.body, ctx, live) })),
         defaultBody: s.defaultBody ? gvnBlock(s.defaultBody, ctx, live) : undefined,
-      }
+      };
     default:
       return s;
   }
@@ -620,13 +626,13 @@ function readCounts(
   body: readonly Stmt[],
   names: ReadonlyMap<string, unknown>,
 ): Map<string, number> {
-  const out = new Map<string, number>()
+  const out = new Map<string, number>();
   const visit = (e: Expr): void =>
     eachExpr(e, (x) => {
-      if (x.op === 'varref' && names.has(x.name)) out.set(x.name, (out.get(x.name) ?? 0) + 1)
-    })
-  for (const s of body) eachStmtExpr(s, visit)
-  return out
+      if (x.op === 'varref' && names.has(x.name)) out.set(x.name, (out.get(x.name) ?? 0) + 1);
+    });
+  for (const s of body) eachStmtExpr(s, visit);
+  return out;
 }
 
 /** GVN one function.
@@ -648,7 +654,7 @@ function gvnFn(
   writes: FnWrites,
   reads: FnReads,
 ): FuncDecl {
-  if (bodyHasRaw(f.body)) return f // raw WGSL is opaque
+  if (bodyHasRaw(f.body)) return f; // raw WGSL is opaque
   // A call that writes a binding is not a value to number: two `store(i)` are two writes,
   // and a read between them sees the first (issue #47).
   if (bodyHasEffectfulCall(f.body, writes)) return f;
@@ -661,29 +667,29 @@ function gvnFn(
     const mm = /^_gv(\d+)$/.exec(n);
     if (mm) base = Math.max(base, Number(mm[1]) + 1);
   }
-  const deny = new Map<readonly Stmt[], Set<string>>()
+  const deny = new Map<readonly Stmt[], Set<string>>();
   for (;;) {
-    const minted: Ctx['minted'] = new Map()
-    const body = gvnBlock(f.body, { localSet, loadRoots, reads, next: { n: base }, deny, minted })
-    if (minted.size === 0) return { ...f, body }
-    const counts = readCounts(body, minted)
-    let again = false
+    const minted: Ctx['minted'] = new Map();
+    const body = gvnBlock(f.body, { localSet, loadRoots, reads, next: { n: base }, deny, minted });
+    if (minted.size === 0) return { ...f, body };
+    const counts = readCounts(body, minted);
+    let again = false;
     for (const [name, m] of minted) {
-      if ((counts.get(name) ?? 0) >= 2) continue
-      let set = deny.get(m.block)
-      if (set === undefined) deny.set(m.block, (set = new Set()))
-      set.add(m.key)
-      again = true
+      if ((counts.get(name) ?? 0) >= 2) continue;
+      let set = deny.get(m.block);
+      if (set === undefined) deny.set(m.block, (set = new Set()));
+      set.add(m.key);
+      again = true;
     }
-    if (!again) return { ...f, body }
+    if (!again) return { ...f, body };
   }
 }
 
 /** Cross-statement value numbering of local-touching repeats. Pure (module → module). */
 export function gvn(m: ModuleDecl): ModuleDecl {
   // Indexing one of these is a memory load, not free addressing (X-GIS #1886).
-  const loadRoots = new Set(m.bindings.map((b) => b.name))
-  const writes = fnWrites(m)
-  const reads = fnReads(m)
-  return { ...m, funcs: m.funcs.map((f) => gvnFn(f, loadRoots, writes, reads)) }
+  const loadRoots = new Set(m.bindings.map((b) => b.name));
+  const writes = fnWrites(m);
+  const reads = fnReads(m);
+  return { ...m, funcs: m.funcs.map((f) => gvnFn(f, loadRoots, writes, reads)) };
 }

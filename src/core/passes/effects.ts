@@ -23,10 +23,10 @@
 // Building the table is 35-40 ms of that, over 861 builds, one for each module object the
 // write table is also built for (which takes 71-88 ms); the rest is the passes asking it.
 
-import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/index.js'
-import { eachExpr, eachStmtExpr } from '../ir/visit.js'
-import { ATOMIC_INTRINSICS, BARRIER_INTRINSICS, isAtomicIntrinsic } from '../intrinsics.js'
-import { bodyHasRaw, collectLocals } from './opt/expr-utils.js'
+import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/index.js';
+import { eachExpr, eachStmtExpr } from '../ir/visit.js';
+import { ATOMIC_INTRINSICS, BARRIER_INTRINSICS, isAtomicIntrinsic } from '../intrinsics.js';
+import { bodyHasRaw, collectLocals } from './opt/expr-utils.js';
 
 /** Intrinsic ids whose call has an effect beyond its value: the atomic builtins, `atomicLoad`
  *  included, since two loads must not be shared across a store to the same location; the
@@ -53,18 +53,18 @@ export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>([
 const SYNC_INTRINSICS: ReadonlySet<string> = new Set<string>([
   ...BARRIER_INTRINSICS,
   'workgroupUniformLoad',
-])
+]);
 
 /** What a function that synchronises the workgroup WRITES, in the table: the memory the other
  *  invocations share, which a barrier is where their writes land. No program can spell the
  *  name, so it never meets a root, and its only work is to make the function's write set
  *  non-empty — which is what {@link exprHasEffect} reads for every call to it, and what the
  *  call-graph fixpoint below carries to every caller. */
-export const SYNC_WRITE = '<workgroup sync>'
+export const SYNC_WRITE = '<workgroup sync>';
 
 /** The module-level names each function writes, itself or through the functions it calls, and
  *  {@link SYNC_WRITE} for one that synchronises the workgroup. */
-export type FnWrites = ReadonlyMap<string, ReadonlySet<string>>
+export type FnWrites = ReadonlyMap<string, ReadonlySet<string>>;
 
 const memo = new WeakMap<ModuleDecl, FnWrites>();
 
@@ -112,11 +112,11 @@ function directWrites(f: FuncDecl, out: Set<string>): void {
         s,
         (e) => {
           eachExpr(e, (x) => {
-            const root = atomicWriteRoot(x)
-            if (root !== undefined && !owned.has(root)) out.add(root)
+            const root = atomicWriteRoot(x);
+            if (root !== undefined && !owned.has(root)) out.add(root);
             if (x.op === 'call' && x.declRef === undefined && SYNC_INTRINSICS.has(x.fn))
-              out.add(SYNC_WRITE)
-          })
+              out.add(SYNC_WRITE);
+          });
         },
         () => {},
       );
@@ -196,17 +196,17 @@ function calleesOf(f: FuncDecl, declared: ReadonlySet<string>, out: Set<string>)
  *  carrying it forward is safe. The read table ({@link fnReads}) rides along the same way and
  *  for the same reason: a view cannot see what `h` reads, only that it is called. */
 export function inheritEffects(from: ModuleDecl, to: ModuleDecl): void {
-  if (to === from) return
-  const table = memo.get(from)
-  if (table !== undefined && !memo.has(to)) memo.set(to, table)
-  const reads = readMemo.get(from)
-  if (reads !== undefined && !readMemo.has(to)) readMemo.set(to, reads)
+  if (to === from) return;
+  const table = memo.get(from);
+  if (table !== undefined && !memo.has(to)) memo.set(to, table);
+  const reads = readMemo.get(from);
+  if (reads !== undefined && !readMemo.has(to)) readMemo.set(to, reads);
 }
 
 /** The module-level names each function READS, itself or through the functions it calls. */
-export type FnReads = ReadonlyMap<string, ReadonlySet<string>>
+export type FnReads = ReadonlyMap<string, ReadonlySet<string>>;
 
-const readMemo = new WeakMap<ModuleDecl, FnReads>()
+const readMemo = new WeakMap<ModuleDecl, FnReads>();
 
 /** The names each function of `m` reads that it does not own, transitively: every name a
  *  `varref`, `constref` or `externref` in its body spells that is neither one of its
@@ -222,20 +222,20 @@ const readMemo = new WeakMap<ModuleDecl, FnReads>()
  *  a local of its own over-approximates (a write to the local retires the call too), which is
  *  the safe direction. */
 export function fnReads(m: ModuleDecl): FnReads {
-  const hit = readMemo.get(m)
-  if (hit !== undefined) return hit
-  const declared = new Set(m.funcs.map((f) => f.name))
+  const hit = readMemo.get(m);
+  if (hit !== undefined) return hit;
+  const declared = new Set(m.funcs.map((f) => f.name));
   const opaque = [
     ...m.bindings.map((b) => b.name),
     ...(m.vars ?? []).map((v) => v.name),
     ...(m.externs ?? []).map((v) => v.name),
-  ]
-  const reads = new Map<string, Set<string>>()
-  const callees = new Map<string, Set<string>>()
+  ];
+  const reads = new Map<string, Set<string>>();
+  const callees = new Map<string, Set<string>>();
   for (const f of m.funcs) {
-    const owned = new Set<string>(f.params.map((p) => p.name))
-    collectLocals(f.body, owned)
-    const r = new Set<string>()
+    const owned = new Set<string>(f.params.map((p) => p.name));
+    collectLocals(f.body, owned);
+    const r = new Set<string>();
     for (const s of f.body)
       eachStmtExpr(s, (e) =>
         eachExpr(e, (x) => {
@@ -243,27 +243,27 @@ export function fnReads(m: ModuleDecl): FnReads {
             (x.op === 'varref' || x.op === 'constref' || x.op === 'externref') &&
             !owned.has(x.name)
           )
-            r.add(x.name)
+            r.add(x.name);
         }),
-      )
-    if (bodyHasRaw(f.body)) for (const n of opaque) r.add(n)
-    reads.set(f.name, r)
-    const c = new Set<string>()
-    calleesOf(f, declared, c)
-    callees.set(f.name, c)
+      );
+    if (bodyHasRaw(f.body)) for (const n of opaque) r.add(n);
+    reads.set(f.name, r);
+    const c = new Set<string>();
+    calleesOf(f, declared, c);
+    callees.set(f.name, c);
   }
-  let changed = true
+  let changed = true;
   while (changed) {
-    changed = false
+    changed = false;
     for (const f of m.funcs) {
-      const r = reads.get(f.name)!
-      const before = r.size
-      for (const callee of callees.get(f.name)!) for (const n of reads.get(callee) ?? []) r.add(n)
-      if (r.size !== before) changed = true
+      const r = reads.get(f.name)!;
+      const before = r.size;
+      for (const callee of callees.get(f.name)!) for (const n of reads.get(callee) ?? []) r.add(n);
+      if (r.size !== before) changed = true;
     }
   }
-  readMemo.set(m, reads)
-  return reads
+  readMemo.set(m, reads);
+  return reads;
 }
 
 /** Does `x`, a call, read any of `names` through its callee (the module names the callee
@@ -274,11 +274,11 @@ export function callReadsAny(
   names: ReadonlySet<string>,
   reads: FnReads | undefined,
 ): boolean {
-  if (x.op !== 'call' || reads === undefined || names.size === 0) return false
-  const r = reads.get(x.fn)
-  if (r === undefined) return false
-  for (const n of r) if (names.has(n)) return true
-  return false
+  if (x.op !== 'call' || reads === undefined || names.size === 0) return false;
+  const r = reads.get(x.fn);
+  if (r === undefined) return false;
+  for (const n of r) if (names.has(n)) return true;
+  return false;
 }
 
 /** The names each function of `m` writes, transitively. Cached per module object; the IR is

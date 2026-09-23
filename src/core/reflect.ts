@@ -28,9 +28,9 @@ import {
   typeKey,
   stageOf,
   workgroupSizeOf,
-} from './ir/index.js'
-import { entryIo, type IoField } from './ir/entry-io.js'
-import { twoRowStd140Reason } from './std140.js'
+} from './ir/index.js';
+import { entryIo, type IoField } from './ir/entry-io.js';
+import { twoRowStd140Reason } from './std140.js';
 import {
   requiredCaps,
   requiredLanguageFeatures,
@@ -170,7 +170,7 @@ export function typeLayout(
       // to prevent. (The earlier note here said "mat2", on the recorded ground that a 2×2 or
       // 3×3 both diverge; the measurement says a 3×3 does not — X-GIS #763 P7.)
       if (layout === 'std140' && t.rows === 2) {
-        throw new Error(`wgslLayout: ${twoRowStd140Reason(t.cols)}`)
+        throw new Error(`wgslLayout: ${twoRowStd140Reason(t.cols)}`);
       }
       // matCxR<f32>: C columns of vecR; column stride = round(size, align) of the column vec.
       const col =

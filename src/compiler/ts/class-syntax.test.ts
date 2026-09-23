@@ -12,13 +12,13 @@
 // codegen and the debugger agreeing on one program that uses them all, and every refusal with
 // its code and its text (Rule 12.5), each one diagnostic for one mistake (Rule 12.4).
 
-import { describe, expect, it } from 'vitest'
-import { compile } from './compile.js'
-import { TS_CODES } from './codes.js'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { compileModuleJs } from '../../core/cpu-codegen.js'
-import { startDebugSession } from '../../core/debug/session.js'
+import { describe, expect, it } from 'vitest';
+import { compile } from './compile.js';
+import { TS_CODES } from './codes.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { startDebugSession } from '../../core/debug/session.js';
 
 const TAIL = `\n@fragment\nexport function fs(): vec4 { return vec4(1.) }\n`;
 
@@ -578,9 +578,9 @@ describe('the example', () => {
     // Between the rings: the background, scaled the same way.
     expect(runAll(src, [{ pos: [0, 0, 0, 1], uv: [0, 0] }], 'fs')).toEqual({
       color: [0.07, 0.08, 0.14, 1],
-    })
-  })
-})
+    });
+  });
+});
 
 describe('TS8035 refuses what its catalogue entry says, and nothing that compiles', () => {
   // The CLASS_MEMBER comment in codes.ts listed a getter or setter, an overload, a static field
@@ -604,7 +604,7 @@ export function f(a: A): f32 { return a.m() }`,
 export function f(a: A): f32 { return a.m() }`,
     'a method that changes its object': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
 export function f(): f32 { let a: A = { x: 1. }; a.bump(); return a.x }`,
-  }
+  };
   const REFUSED: Record<string, string> = {
     'a field holding a function': `class A { x: f32; m = (a: f32): f32 => a }
 export function f(a: A): f32 { return a.x }`,
@@ -636,33 +636,33 @@ export function f(): f32 { let a: A = { x: 1. }; a.y = 2.; return a.x }`,
 export function f(a: A): f32 { a.bump(); return a.x }`,
     'new on a class of statics only': `class A { static k(): f32 { return 1. } }
 export function f(): f32 { const a = new A(); return 1. }`,
-  }
+  };
 
   it.each(Object.entries(COMPILES))('compiles %s', (_what, body) => {
-    expect(compile(`"use typeshade"\n${body}`).diagnostics).toEqual([])
-  })
+    expect(compile(`"use typeshade"\n${body}`).diagnostics).toEqual([]);
+  });
 
   it.each(Object.entries(REFUSED))('refuses %s as TS8035', (_what, body) => {
-    const codes = compile(`"use typeshade"\n${body}`).diagnostics.map((d) => d.code)
-    expect(codes[0]).toBe(TS_CODES.CLASS_MEMBER)
-  })
+    const codes = compile(`"use typeshade"\n${body}`).diagnostics.map((d) => d.code);
+    expect(codes[0]).toBe(TS_CODES.CLASS_MEMBER);
+  });
 
   it('does not list a shape that compiles among the refused ones', () => {
-    const CODES_TS = fileURLToPath(new URL('./codes.ts', import.meta.url))
-    const src = readFileSync(CODES_TS, 'utf8')
+    const CODES_TS = fileURLToPath(new URL('./codes.ts', import.meta.url));
+    const src = readFileSync(CODES_TS, 'utf8');
     const doc = src.slice(
       src.lastIndexOf('/**', src.indexOf("CLASS_MEMBER: 'TS8035'")),
       src.indexOf("CLASS_MEMBER: 'TS8035'"),
-    )
-    const refused = doc.slice(doc.indexOf('What is refused'))
-    expect(doc).toContain('What is refused')
+    );
+    const refused = doc.slice(doc.indexOf('What is refused'));
+    expect(doc).toContain('What is refused');
     for (const phrase of [
       'a static field',
       'a getter or setter',
       'an overload',
       'assigns to `this`',
     ]) {
-      expect(refused.replace(/\s*\*\s*/g, ' ')).not.toContain(phrase)
+      expect(refused.replace(/\s*\*\s*/g, ' ')).not.toContain(phrase);
     }
-  })
-})
+  });
+});

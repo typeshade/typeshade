@@ -22,16 +22,16 @@ import {
   type Expr,
   type ModuleDecl,
   type Stmt,
-} from '../../ir/index.js'
-import { eachExpr, eachStmtExpr } from '../../ir/visit.js'
-import { emitModule, emitModuleAt } from '../../backends/wgsl.js'
-import { compileModule } from '../../oracle.js'
-import type { CpuValue } from '../../cpu-runtime.js'
-import { structDecl, storageBuffer } from '../../sot.js'
-import { fp64Lower } from '../fp64-lower.js'
-import { compile } from '../../../compiler/ts/compile.js'
-import { gvn } from './gvn.js'
-import { optimizeAt } from './optimize.js'
+} from '../../ir/index.js';
+import { eachExpr, eachStmtExpr } from '../../ir/visit.js';
+import { emitModule, emitModuleAt } from '../../backends/wgsl.js';
+import { compileModule } from '../../oracle.js';
+import type { CpuValue } from '../../cpu-runtime.js';
+import { structDecl, storageBuffer } from '../../sot.js';
+import { fp64Lower } from '../fp64-lower.js';
+import { compile } from '../../../compiler/ts/compile.js';
+import { gvn } from './gvn.js';
+import { optimizeAt } from './optimize.js';
 
 // gvn numbers a compound, local-touching subexpr that repeats ACROSS statements in a
 // straight-line block — the redundancy cse (input-only) and cse-local (within one
@@ -420,10 +420,10 @@ describe('gvn — indexing a binding (X-GIS #1886)', () => {
           b.ret(p.add(q));
         }),
       ],
-    })
-    expect(emitModule(gvn(m))).not.toMatch(/_gv\d+ = gvn_rw\[/)
-  })
-})
+    });
+    expect(emitModule(gvn(m))).not.toMatch(/_gv\d+ = gvn_rw\[/);
+  });
+});
 
 // ═══ Cross-block dominance: an `if` condition and the arms it dominates ═══
 //
@@ -442,56 +442,56 @@ describe('gvn — indexing a binding (X-GIS #1886)', () => {
 
 /** Reads of each `_gvN` temp in the module. A temp read once is a `let` moved for nothing. */
 function gvReads(m: ModuleDecl): Map<string, number> {
-  const out = new Map<string, number>()
+  const out = new Map<string, number>();
   const decl = (body: readonly Stmt[]): void => {
     for (const s of body) {
-      if ((s.s === 'let' || s.s === 'var') && /^_gv\d+$/.test(s.name)) out.set(s.name, 0)
+      if ((s.s === 'let' || s.s === 'var') && /^_gv\d+$/.test(s.name)) out.set(s.name, 0);
       eachStmtExpr(
         s,
         () => {},
         (b) => decl([b]),
-      )
+      );
     }
-  }
-  for (const f of m.funcs) decl(f.body)
+  };
+  for (const f of m.funcs) decl(f.body);
   const visit = (e: Expr): void =>
     eachExpr(e, (x) => {
-      if (x.op === 'varref' && out.has(x.name)) out.set(x.name, out.get(x.name)! + 1)
-    })
-  for (const f of m.funcs) for (const s of f.body) eachStmtExpr(s, visit)
-  return out
+      if (x.op === 'varref' && out.has(x.name)) out.set(x.name, out.get(x.name)! + 1);
+    });
+  for (const f of m.funcs) for (const s of f.body) eachStmtExpr(s, visit);
+  return out;
 }
 
 function expectEveryTempReadTwice(m: ModuleDecl): void {
   for (const [name, n] of gvReads(m))
-    expect(n, `${name} is read ${n} time(s)`).toBeGreaterThanOrEqual(2)
+    expect(n, `${name} is read ${n} time(s)`).toBeGreaterThanOrEqual(2);
 }
 
 /** Call sites of `callee` inside function `name`. */
 function callsTo(m: ModuleDecl, name: string, callee: string): number {
-  let n = 0
-  const f = m.funcs.find((g) => g.name === name)!
+  let n = 0;
+  const f = m.funcs.find((g) => g.name === name)!;
   for (const s of f.body)
     eachStmtExpr(s, (e) =>
       eachExpr(e, (x) => {
-        if (x.op === 'call' && x.fn === callee) n++
+        if (x.op === 'call' && x.fn === callee) n++;
       }),
-    )
-  return n
+    );
+  return n;
 }
 
 /** `(a * a)` products in a function's WGSL, emitted at O0 so the text is gvn's output alone. */
 function squares(m: ModuleDecl, name: string): number {
-  const wgsl = emitModuleAt(m, 'O0')
-  const body = wgsl.slice(wgsl.indexOf(`fn ${name}(`)).split('\nfn ')[0]!
-  return (body.match(/\((\w+) \* \1\)/g) ?? []).length
+  const wgsl = emitModuleAt(m, 'O0');
+  const body = wgsl.slice(wgsl.indexOf(`fn ${name}(`)).split('\nfn ')[0]!;
+  return (body.match(/\((\w+) \* \1\)/g) ?? []).length;
 }
 
 const oracleStableN = (m: ModuleDecl, name: string, argSets: readonly CpuValue[][]): void => {
-  const before = compileModule(m).fns[name]!
-  const after = compileModule(gvn(m)).fns[name]!
-  for (const args of argSets) expect(after(...args), JSON.stringify(args)).toEqual(before(...args))
-}
+  const before = compileModule(m).fns[name]!;
+  const after = compileModule(gvn(m)).fns[name]!;
+  for (const args of argSets) expect(after(...args), JSON.stringify(args)).toEqual(before(...args));
+};
 
 describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
   // The escape loop of fp64-julia.ts, f32 half, verbatim in shape.
@@ -499,31 +499,31 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     module({
       funcs: [
         fn('jf', { cx: f32T, cy: f32T }, f32T, ({ cx, cy }, b) => {
-          const zx = Var(cx)
-          const zy = Var(cy)
-          const it = Var(f32(0))
+          const zx = Var(cx);
+          const zy = Var(cy);
+          const it = Var(f32(0));
           Loop(16, () => {
             If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-              const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(-0.8))
-              zy.assign(zx.mul(zy).mul(2.0).add(0.156))
-              zx.assign(nzx)
-              it.assign(it.add(1.0))
-            })
-          })
-          b.ret(it)
+              const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(-0.8));
+              zy.assign(zx.mul(zy).mul(2.0).add(0.156));
+              zx.assign(nzx);
+              it.assign(it.add(1.0));
+            });
+          });
+          b.ret(it);
         }),
       ],
-    })
+    });
 
   it('binds zx*zx and zy*zy once, before the `if`, and the arm reads them (f32)', () => {
-    const m = juliaF32()
+    const m = juliaF32();
     expect(squares(m, 'jf'), 'the shape under test: two squares in the test, two in the arm').toBe(
       4,
-    )
-    const out = gvn(m)
-    expect(squares(out, 'jf')).toBe(2)
-    expect(gvTempCount(out)).toBe(2)
-    expectEveryTempReadTwice(out)
+    );
+    const out = gvn(m);
+    expect(squares(out, 'jf')).toBe(2);
+    expect(gvTempCount(out)).toBe(2);
+    expectEveryTempReadTwice(out);
     // Points that escape at once, after a few iterations, and never (the interior).
     oracleStableN(m, 'jf', [
       [0.1, 0.2],
@@ -531,45 +531,45 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
       [-0.4, 0.6],
       [2.5, -2.5],
       [0, 0],
-    ])
-  })
+    ]);
+  });
 
   it('binds the two df64 squares once, through the lowered df64_sqr calls (fp64)', () => {
     // The same loop over f64, lowered as every emit lowers it. The squares are
     // `df64_sqr(zx, f64Guard())` here; the guard fetch is a leaf to the key, so the two
     // occurrences are one value.
     const jd = fn('jd', { cx: f64T, cy: f64T }, f32T, ({ cx, cy }, b) => {
-      const zx = Var(cx)
-      const zy = Var(cy)
-      const it = Var(f32(0))
+      const zx = Var(cx);
+      const zy = Var(cy);
+      const it = Var(f32(0));
       Loop(16, () => {
         If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(-0.8))
-          zy.assign(zx.mul(zy).mul(2.0).add(0.156))
-          zx.assign(nzx)
-          it.assign(it.add(1.0))
-        })
-      })
-      b.ret(it)
-    })
-    const m = fp64Lower(module({ funcs: [jd] }))
+          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(-0.8));
+          zy.assign(zx.mul(zy).mul(2.0).add(0.156));
+          zx.assign(nzx);
+          it.assign(it.add(1.0));
+        });
+      });
+      b.ret(it);
+    });
+    const m = fp64Lower(module({ funcs: [jd] }));
     // zx², zy² in the test and again in the arm; zx*zy once in the arm, its doubling an
     // exact scale rather than a second multiply.
-    expect(callsTo(m, 'jd', 'df64_sqr')).toBe(4)
-    expect(callsTo(m, 'jd', 'df64_mul')).toBe(1)
-    const out = gvn(m)
-    expect(callsTo(out, 'jd', 'df64_sqr')).toBe(2)
-    expect(callsTo(out, 'jd', 'df64_mul')).toBe(1)
-    expect(gvTempCount(out)).toBe(2)
-    expectEveryTempReadTwice(out)
-    const df = (x: number): number[] => [x, 0]
+    expect(callsTo(m, 'jd', 'df64_sqr')).toBe(4);
+    expect(callsTo(m, 'jd', 'df64_mul')).toBe(1);
+    const out = gvn(m);
+    expect(callsTo(out, 'jd', 'df64_sqr')).toBe(2);
+    expect(callsTo(out, 'jd', 'df64_mul')).toBe(1);
+    expect(gvTempCount(out)).toBe(2);
+    expectEveryTempReadTwice(out);
+    const df = (x: number): number[] => [x, 0];
     oracleStableN(m, 'jd', [
       [df(0.1), df(0.2)],
       [df(1.2), df(0.3)],
       [df(-0.4), df(0.6)],
       [df(1.5255044073468653), df(-0.07591217756271362)],
-    ])
-  })
+    ]);
+  });
 
   it('the `else if` conditions and the `else` arm read the temp as well', () => {
     // Every condition runs before any arm and after nothing else, so a temp bound before
@@ -578,28 +578,28 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const m = module({
       funcs: [
         fn('ei', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), 1))
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x.mul(2), 1));
+          const r = Var(f32(0));
           b.if(normalize(v).x.gt(0.5), () => {
-            r.assign(f32(1))
+            r.assign(f32(1));
           })
             .elif(normalize(v).y.gt(0.5), () => {
-              r.assign(f32(2))
+              r.assign(f32(2));
             })
             .else(() => {
-              r.assign(normalize(v).z)
-            })
-          b.ret(r)
+              r.assign(normalize(v).z);
+            });
+          b.ret(r);
         }),
       ],
-    })
-    const out = gvn(m)
-    const wgsl = emitModuleAt(out, 'O0')
-    const fbody = wgsl.slice(wgsl.indexOf('fn ei('))
-    expect((fbody.match(/normalize\(/g) ?? []).length, fbody).toBe(1)
-    expectEveryTempReadTwice(out)
-    oracleStable(m, 'ei', [1, -2, 0.25, 3, -0.1])
-  })
+    });
+    const out = gvn(m);
+    const wgsl = emitModuleAt(out, 'O0');
+    const fbody = wgsl.slice(wgsl.indexOf('fn ei('));
+    expect((fbody.match(/normalize\(/g) ?? []).length, fbody).toBe(1);
+    expectEveryTempReadTwice(out);
+    oracleStable(m, 'ei', [1, -2, 0.25, 3, -0.1]);
+  });
 
   it('a `switch` case reads a temp bound before the `switch`', () => {
     // No `switch` in the corpus has this shape; it is here because a case body has the same
@@ -607,54 +607,54 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const m = module({
       funcs: [
         fn('sw', { x: f32T, sel: u32T }, f32T, ({ x, sel }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), 1))
-          const p = b.let('p', normalize(v).x)
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x.mul(2), 1));
+          const p = b.let('p', normalize(v).x);
+          const r = Var(f32(0));
           Switch(sel)
             .case(0, () => {
-              r.assign(normalize(v).y)
+              r.assign(normalize(v).y);
             })
             .default(() => {
-              r.assign(f32(3))
-            })
-          b.ret(p.add(r))
+              r.assign(f32(3));
+            });
+          b.ret(p.add(r));
         }),
       ],
-    })
-    const out = gvn(m)
-    expect(gvTempCount(out)).toBe(1)
-    expectEveryTempReadTwice(out)
+    });
+    const out = gvn(m);
+    expect(gvTempCount(out)).toBe(1);
+    expectEveryTempReadTwice(out);
     oracleStableN(m, 'sw', [
       [1, 0],
       [1, 1],
       [-2, 0],
-    ])
-  })
+    ]);
+  });
 
   it('a loop body that leaves the roots alone reads a temp bound before the loop', () => {
     const m = module({
       funcs: [
         fn('lr', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), 1))
-          const p = b.let('p', normalize(v).x)
-          const acc = b.var('acc', f32T, f32(0))
+          const v = b.let('v', vec3(x, x.mul(2), 1));
+          const p = b.let('p', normalize(v).x);
+          const acc = b.var('acc', f32T, f32(0));
           b.forRange(
             'i',
             i32(0),
             (i) => i.lt(i32(3)),
             (cb) => {
-              cb.addAssign(acc, normalize(v).y)
+              cb.addAssign(acc, normalize(v).y);
             },
-          )
-          b.ret(p.add(acc))
+          );
+          b.ret(p.add(acc));
         }),
       ],
-    })
-    const out = gvn(m)
-    expect(gvTempCount(out)).toBe(1)
-    expectEveryTempReadTwice(out)
-    oracleStable(m, 'lr', [1, -2, 0.25])
-  })
+    });
+    const out = gvn(m);
+    expect(gvTempCount(out)).toBe(1);
+    expectEveryTempReadTwice(out);
+    oracleStable(m, 'lr', [1, -2, 0.25]);
+  });
 
   it('does not mint a second temp for a value an enclosing temp still holds', () => {
     // normalize(v) repeats in the outer block (a temp) AND in two statements of the arm. The
@@ -663,24 +663,24 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const m = module({
       funcs: [
         fn('ih', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), 1))
-          const p = b.let('p', normalize(v).x)
-          const q = b.let('q', normalize(v).y)
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x.mul(2), 1));
+          const p = b.let('p', normalize(v).x);
+          const q = b.let('q', normalize(v).y);
+          const r = Var(f32(0));
           b.if(x.gt(0), () => {
-            const a = Let(normalize(v).mul(2))
-            r.assign(a.z.add(normalize(v).z))
-          })
-          b.ret(p.add(q).add(r))
+            const a = Let(normalize(v).mul(2));
+            r.assign(a.z.add(normalize(v).z));
+          });
+          b.ret(p.add(q).add(r));
         }),
       ],
-    })
-    const out = gvn(m)
-    expect(gvTempCount(out)).toBe(1)
-    expect(callsTo(out, 'ih', 'normalize')).toBe(1)
-    expectEveryTempReadTwice(out)
-    oracleStable(m, 'ih', [1, -2, 0.25])
-  })
+    });
+    const out = gvn(m);
+    expect(gvTempCount(out)).toBe(1);
+    expect(callsTo(out, 'ih', 'normalize')).toBe(1);
+    expectEveryTempReadTwice(out);
+    oracleStable(m, 'ih', [1, -2, 0.25]);
+  });
 
   it('a dominance temp does not split a same-block repeat', () => {
     // normalize(v) repeats in `p` and `q`; normalize(v).x is also read by the arm. Binding the
@@ -689,23 +689,23 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const m = module({
       funcs: [
         fn('sp', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), 1))
-          const p = b.let('p', normalize(v).x)
-          const q = b.let('q', normalize(v).y)
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x.mul(2), 1));
+          const p = b.let('p', normalize(v).x);
+          const q = b.let('q', normalize(v).y);
+          const r = Var(f32(0));
           b.if(x.gt(0), () => {
-            r.assign(normalize(v).x.mul(2))
-          })
-          b.ret(p.add(q).add(r))
+            r.assign(normalize(v).x.mul(2));
+          });
+          b.ret(p.add(q).add(r));
         }),
       ],
-    })
-    const out = gvn(m)
-    expect(gvTempCount(out)).toBe(1)
-    expect(callsTo(out, 'sp', 'normalize')).toBe(1)
-    expectEveryTempReadTwice(out)
-    oracleStable(m, 'sp', [1, -2, 0.25])
-  })
+    });
+    const out = gvn(m);
+    expect(gvTempCount(out)).toBe(1);
+    expect(callsTo(out, 'sp', 'normalize')).toBe(1);
+    expectEveryTempReadTwice(out);
+    oracleStable(m, 'sp', [1, -2, 0.25]);
+  });
 
   it('a temp minted in an arm reads the enclosing temp in its own initialiser', () => {
     // normalize(v) is bound in the outer block (`p` and `q`); the arm repeats
@@ -715,26 +715,26 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const m = module({
       funcs: [
         fn('ai', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), 1))
-          const p = b.let('p', normalize(v).x)
-          const q = b.let('q', normalize(v).y)
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x.mul(2), 1));
+          const p = b.let('p', normalize(v).x);
+          const q = b.let('q', normalize(v).y);
+          const r = Var(f32(0));
           b.if(x.gt(0), () => {
-            const a = Let(normalize(v).z.mul(x))
-            r.assign(a.add(normalize(v).z.mul(x).mul(2)))
-          })
-          b.ret(p.add(q).add(r))
+            const a = Let(normalize(v).z.mul(x));
+            r.assign(a.add(normalize(v).z.mul(x).mul(2)));
+          });
+          b.ret(p.add(q).add(r));
         }),
       ],
-    })
-    const out = gvn(m)
-    expect(gvTempCount(out)).toBe(2)
-    expect(callsTo(out, 'ai', 'normalize')).toBe(1)
-    const wgsl = emitModuleAt(out, 'O0')
-    expect(wgsl).toContain('let _gv1 = (_gv0.z * x);')
-    expectEveryTempReadTwice(out)
-    oracleStable(m, 'ai', [1, -2, 0.25])
-  })
+    });
+    const out = gvn(m);
+    expect(gvTempCount(out)).toBe(2);
+    expect(callsTo(out, 'ai', 'normalize')).toBe(1);
+    const wgsl = emitModuleAt(out, 'O0');
+    expect(wgsl).toContain('let _gv1 = (_gv0.z * x);');
+    expectEveryTempReadTwice(out);
+    oracleStable(m, 'ai', [1, -2, 0.25]);
+  });
 
   it('binds a value, not a part of it too: the path that skips the arm pays what it did', () => {
     // The condition computes normalize(v).x, and the arm reads both normalize(v).x and
@@ -745,35 +745,35 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const m = module({
       funcs: [
         fn('mx', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), 1))
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x.mul(2), 1));
+          const r = Var(f32(0));
           b.if(normalize(v).x.gt(0.5), () => {
-            r.assign(normalize(v).x.add(normalize(v).y))
-            r.assign(r.add(normalize(v).z))
-          })
-          b.ret(r)
+            r.assign(normalize(v).x.add(normalize(v).y));
+            r.assign(r.add(normalize(v).z));
+          });
+          b.ret(r);
         }),
       ],
-    })
-    const out = gvn(m)
-    const f = out.funcs[0]!
-    const outside = f.body.filter((s) => s.s !== 'if')
-    const cond = f.body.find((s) => s.s === 'if')!
-    let before = 0
+    });
+    const out = gvn(m);
+    const f = out.funcs[0]!;
+    const outside = f.body.filter((s) => s.s !== 'if');
+    const cond = f.body.find((s) => s.s === 'if')!;
+    let before = 0;
     for (const s of outside)
       eachStmtExpr(s, (e) =>
         eachExpr(e, (x) => {
-          if (x.op === 'call' && x.fn === 'normalize') before++
+          if (x.op === 'call' && x.fn === 'normalize') before++;
         }),
-      )
+      );
     if (cond.s === 'if')
       eachExpr(cond.arms[0]!.cond, (x) => {
-        if (x.op === 'call' && x.fn === 'normalize') before++
-      })
-    expect(before, emitModuleAt(out, 'O0')).toBe(1)
-    expectEveryTempReadTwice(out)
-    oracleStable(m, 'mx', [1, -2, 0.25, 0.01])
-  })
+        if (x.op === 'call' && x.fn === 'normalize') before++;
+      });
+    expect(before, emitModuleAt(out, 'O0')).toBe(1);
+    expectEveryTempReadTwice(out);
+    oracleStable(m, 'mx', [1, -2, 0.25, 0.01]);
+  });
 
   it('a `for` counter that shadows a root is a write to it, even when the update is not', () => {
     // The loop's own counter is spelled `i`, like the outer local the key reads. The update
@@ -783,27 +783,27 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const m = module({
       funcs: [
         fn('fc', { x: f32T }, f32T, ({ x }, b) => {
-          const i = b.let('i', i32(2))
-          const p = b.let('p', normalize(vec3(i.f32(), x, 1)).x)
-          const k = b.var('k', i32T, i32(0))
-          const acc = b.var('acc', f32T, f32(0))
+          const i = b.let('i', i32(2));
+          const p = b.let('p', normalize(vec3(i.f32(), x, 1)).x);
+          const k = b.var('k', i32T, i32(0));
+          const acc = b.var('acc', f32T, f32(0));
           b.forRange(
             'i',
             i32(0),
             (j) => j.lt(i32(3)),
             (cb, j) => {
-              cb.addAssign(acc, normalize(vec3(j.f32(), x, 1)).x)
+              cb.addAssign(acc, normalize(vec3(j.f32(), x, 1)).x);
             },
-          )
-          b.ret(p.add(acc).add(k.f32()))
+          );
+          b.ret(p.add(acc).add(k.f32()));
         }),
       ],
-    })
+    });
     // Point the loop's update at `k`, leaving the counter unwritten.
-    const f = m.funcs[0]!
+    const f = m.funcs[0]!;
     const body = f.body.map((s): Stmt => {
-      if (s.s !== 'for') return s
-      const kref: Expr = { op: 'varref', type: i32T, name: 'k' }
+      if (s.s !== 'for') return s;
+      const kref: Expr = { op: 'varref', type: i32T, name: 'k' };
       return {
         ...s,
         update: {
@@ -811,15 +811,15 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
           target: kref,
           expr: { op: 'binop', type: i32T, bop: '+', a: kref, b: i32(1).expr },
         },
-      }
-    })
-    const shadowed: ModuleDecl = { ...m, funcs: [{ ...f, body }] }
-    const loop = body.find((s) => s.s === 'for')!
-    expect(loop.s === 'for' && loop.init.s === 'var' && loop.init.name).toBe('i')
-    const out = gvn(shadowed)
-    expect(gvTempCount(out)).toBe(0)
-    expect(callsTo(out, 'fc', 'normalize')).toBe(2)
-  })
+      };
+    });
+    const shadowed: ModuleDecl = { ...m, funcs: [{ ...f, body }] };
+    const loop = body.find((s) => s.s === 'for')!;
+    expect(loop.s === 'for' && loop.init.s === 'var' && loop.init.name).toBe('i');
+    const out = gvn(shadowed);
+    expect(gvTempCount(out)).toBe(0);
+    expect(callsTo(out, 'fc', 'normalize')).toBe(2);
+  });
 
   it('a write to a `constref` or `externref` root retires a temp, as it does a local', () => {
     // `collectMutatedRoots` counts both ops as assignable roots (expr-utils `rootName`), so
@@ -829,9 +829,9 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     // built by hand, and the check is structural: the oracle refuses the assignment too
     // ("bad assignment target constref").
     for (const op of ['constref', 'externref'] as const) {
-      const g: Expr = { op, type: f32T, name: 'G' }
-      const x: Expr = { op: 'param', type: f32T, name: 'x' }
-      const r: Expr = { op: 'varref', type: f32T, name: 'r' }
+      const g: Expr = { op, type: f32T, name: 'G' };
+      const x: Expr = { op: 'param', type: f32T, name: 'x' };
+      const r: Expr = { op: 'varref', type: f32T, name: 'r' };
       const key: Expr = {
         op: 'member',
         type: f32T,
@@ -842,7 +842,7 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
           fn: 'normalize',
           args: [{ op: 'construct', type: vec3fT, args: [g, x, f32(1).expr] }],
         },
-      }
+      };
       const m: ModuleDecl = {
         consts: [],
         structs: [],
@@ -870,12 +870,12 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
             ],
           },
         ],
-      }
-      const out = gvn(m)
-      expect(gvTempCount(out), op).toBe(0)
-      expect(callsTo(out, 'cr', 'normalize'), op).toBe(2)
+      };
+      const out = gvn(m);
+      expect(gvTempCount(out), op).toBe(0);
+      expect(callsTo(out, 'cr', 'normalize'), op).toBe(2);
     }
-  })
+  });
 
   it('every temp is read at least twice — a reuse the rewrite masks is denied, not left behind', () => {
     // The reach check sees normalize(v).x inside the nested `if` and proposes a temp for it in
@@ -886,28 +886,28 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const m = module({
       funcs: [
         fn('mk', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), 1))
-          const a = b.let('a', normalize(v).x.add(1))
-          const a2 = b.let('a2', normalize(v).x.add(1).mul(3))
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x.mul(2), 1));
+          const a = b.let('a', normalize(v).x.add(1));
+          const a2 = b.let('a2', normalize(v).x.add(1).mul(3));
+          const r = Var(f32(0));
           b.if(x.gt(0), () => {
-            const c = Let(normalize(v).x.mul(3))
+            const c = Let(normalize(v).x.mul(3));
             If(x.gt(1), () => {
-              r.assign(normalize(v).x.add(1))
-            })
-            r.assign(r.add(c))
-          })
-          b.ret(a.add(a2).add(r))
+              r.assign(normalize(v).x.add(1));
+            });
+            r.assign(r.add(c));
+          });
+          b.ret(a.add(a2).add(r));
         }),
       ],
-    })
-    const out = gvn(m)
-    expect(gvTempCount(out)).toBe(1) // the outer `normalize(v).x + 1`, nothing in the arm
-    expectEveryTempReadTwice(out)
+    });
+    const out = gvn(m);
+    expect(gvTempCount(out)).toBe(1); // the outer `normalize(v).x + 1`, nothing in the arm
+    expectEveryTempReadTwice(out);
     // …and the numbering stays dense: the denied attempt's `_gv1` is not skipped over.
-    expect([...gvReads(out).keys()]).toEqual(['_gv0'])
-    oracleStable(m, 'mk', [2, 0.5, -1])
-  })
+    expect([...gvReads(out).keys()]).toEqual(['_gv0']);
+    oracleStable(m, 'mk', [2, 0.5, -1]);
+  });
 
   it('does NOT reuse in an arm past the statement that writes the root', () => {
     // The arm's own walk retires the temp at the write: a read before it shares, a read after
@@ -916,28 +916,28 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
       module({
         funcs: [
           fn('wb', { x: f32T }, f32T, ({ x }, b) => {
-            const zx = Var(x)
-            const r = Var(f32(0))
+            const zx = Var(x);
+            const r = Var(f32(0));
             If(zx.mul(zx).gt(1.0), () => {
-              if (before) r.assign(zx.mul(zx)) // the pre-write value: the temp
-              zx.assign(zx.add(1.0))
-              r.assign(r.add(zx.mul(zx))) // the post-write value: recomputed
-            })
-            b.ret(r)
+              if (before) r.assign(zx.mul(zx)); // the pre-write value: the temp
+              zx.assign(zx.add(1.0));
+              r.assign(r.add(zx.mul(zx))); // the post-write value: recomputed
+            });
+            b.ret(r);
           }),
         ],
-      })
-    const shared = gvn(escape(true))
-    expect(gvTempCount(shared)).toBe(1)
-    expect(squares(shared, 'wb')).toBe(2) // the temp's own, and the post-write one
-    expectEveryTempReadTwice(shared)
-    oracleStable(escape(true), 'wb', [2, 0.5, -3])
+      });
+    const shared = gvn(escape(true));
+    expect(gvTempCount(shared)).toBe(1);
+    expect(squares(shared, 'wb')).toBe(2); // the temp's own, and the post-write one
+    expectEveryTempReadTwice(shared);
+    oracleStable(escape(true), 'wb', [2, 0.5, -3]);
 
-    const alone = gvn(escape(false))
-    expect(gvTempCount(alone)).toBe(0)
-    expect(squares(alone, 'wb')).toBe(2)
-    oracleStable(escape(false), 'wb', [2, 0.5, -3])
-  })
+    const alone = gvn(escape(false));
+    expect(gvTempCount(alone)).toBe(0);
+    expect(squares(alone, 'wb')).toBe(2);
+    oracleStable(escape(false), 'wb', [2, 0.5, -3]);
+  });
 
   it('does NOT reuse from outside a loop whose body writes the root, even after the use', () => {
     // The use comes first in the body, which is exactly what makes an `if` arm safe — and a
@@ -945,25 +945,25 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const m = module({
       funcs: [
         fn('lw', { x: f32T }, f32T, ({ x }, b) => {
-          const v = Var(vec3(x, x.mul(2), 1))
-          const p = b.let('p', normalize(v).x)
-          const acc = b.var('acc', f32T, f32(0))
+          const v = Var(vec3(x, x.mul(2), 1));
+          const p = b.let('p', normalize(v).x);
+          const acc = b.var('acc', f32T, f32(0));
           b.forRange(
             'i',
             i32(0),
             (i) => i.lt(i32(3)),
             (cb) => {
-              cb.addAssign(acc, normalize(v).y)
-              v.assign(v.add(vec3(1, 0, 0)))
+              cb.addAssign(acc, normalize(v).y);
+              v.assign(v.add(vec3(1, 0, 0)));
             },
-          )
-          b.ret(p.add(acc))
+          );
+          b.ret(p.add(acc));
         }),
       ],
-    })
-    expect(gvTempCount(gvn(m))).toBe(0)
-    oracleStable(m, 'lw', [1, -2, 0.25])
-  })
+    });
+    expect(gvTempCount(gvn(m))).toBe(0);
+    oracleStable(m, 'lw', [1, -2, 0.25]);
+  });
 
   it('does NOT mint from an `else if` condition, even for its own arm', () => {
     // A temp before the `if` would evaluate normalize(v) on the x > 0 path, where the
@@ -972,73 +972,73 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const m = module({
       funcs: [
         fn('ee', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), 1))
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x.mul(2), 1));
+          const r = Var(f32(0));
           b.if(x.gt(0), () => {
-            r.assign(f32(1))
+            r.assign(f32(1));
           }).elif(normalize(v).x.lt(0.5), () => {
-            r.assign(normalize(v).y)
-          })
-          b.ret(r)
+            r.assign(normalize(v).y);
+          });
+          b.ret(r);
         }),
       ],
-    })
-    expect(gvTempCount(gvn(m))).toBe(0)
-    oracleStable(m, 'ee', [1, -2, 0])
-  })
+    });
+    expect(gvTempCount(gvn(m))).toBe(0);
+    oracleStable(m, 'ee', [1, -2, 0]);
+  });
 
   it('does NOT mint from a key the condition evaluates only under `||`', () => {
     const m = module({
       funcs: [
         fn('oc', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), 1))
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x.mul(2), 1));
+          const r = Var(f32(0));
           b.if(x.gt(0).or(normalize(v).x.lt(0.5)), () => {
-            r.assign(normalize(v).y)
-          })
-          b.ret(r)
+            r.assign(normalize(v).y);
+          });
+          b.ret(r);
         }),
       ],
-    })
-    expect(gvTempCount(gvn(m))).toBe(0)
-    oracleStable(m, 'oc', [1, -2, 0])
-  })
+    });
+    expect(gvTempCount(gvn(m))).toBe(0);
+    oracleStable(m, 'oc', [1, -2, 0]);
+  });
 
   it('does NOT reuse across a write to a read_write binding in the arm', () => {
     // `rw[i] * x + 1` is bound before the `if`; the arm reads it once before storing to `rw`
     // (the store's right-hand side runs first) and once after, where it is a different value.
-    const rw = storageBuffer('gvn_arm', f32T, { group: 0, binding: 2, access: 'read_write' })
+    const rw = storageBuffer('gvn_arm', f32T, { group: 0, binding: 2, access: 'read_write' });
     const m = module({
       uses: [rw],
       funcs: [
         fn('sa', { x: f32T }, f32T, ({ x }, b) => {
-          const i = b.let('i', u32(1))
-          const s = b.let('s', rw.at(i).mul(x).add(1))
+          const i = b.let('i', u32(1));
+          const s = b.let('s', rw.at(i).mul(x).add(1));
           b.if(s.gt(2), () => {
-            rw.at(u32(2)).assign(rw.at(i).mul(x).add(1)) // before any store lands: the temp
-            rw.at(i).assign(f32(5))
-            rw.at(u32(3)).assign(rw.at(i).mul(x).add(1)) // reads the 5 just stored
-          })
-          b.ret(s)
+            rw.at(u32(2)).assign(rw.at(i).mul(x).add(1)); // before any store lands: the temp
+            rw.at(i).assign(f32(5));
+            rw.at(u32(3)).assign(rw.at(i).mul(x).add(1)); // reads the 5 just stored
+          });
+          b.ret(s);
         }),
       ],
-    })
-    const out = gvn(m)
-    expect(gvTempCount(out)).toBe(1)
-    const wgsl = emitModuleAt(out, 'O0')
-    const fbody = wgsl.slice(wgsl.indexOf('fn sa('))
-    expect((fbody.match(/\(gvn_arm\[i\] \* x\)/g) ?? []).length, fbody).toBe(2)
+    });
+    const out = gvn(m);
+    expect(gvTempCount(out)).toBe(1);
+    const wgsl = emitModuleAt(out, 'O0');
+    const fbody = wgsl.slice(wgsl.indexOf('fn sa('));
+    expect((fbody.match(/\(gvn_arm\[i\] \* x\)/g) ?? []).length, fbody).toBe(2);
     // The values, return and buffer both, from the same starting buffer: x = 2 and x = 3 take
     // the arm (s = 3, 4), x = 0.5 does not (s = 1.5).
     const run = (mod: ModuleDecl, x: number): [CpuValue, number[]] => {
-      const buf = [1, 1, 1, 1]
-      const cm = compileModule(mod)
-      cm.setBinding('gvn_arm', buf)
-      return [cm.fns['sa']!(x), buf]
-    }
-    expect(run(m, 3)).toEqual([4, [1, 5, 4, 16]])
-    for (const x of [2, 0.5, 3]) expect(run(out, x), `x=${x}`).toEqual(run(m, x))
-  })
+      const buf = [1, 1, 1, 1];
+      const cm = compileModule(mod);
+      cm.setBinding('gvn_arm', buf);
+      return [cm.fns['sa']!(x), buf];
+    };
+    expect(run(m, 3)).toEqual([4, [1, 5, 4, 16]]);
+    for (const x of [2, 0.5, 3]) expect(run(out, x), `x=${x}`).toEqual(run(m, x));
+  });
 
   it('does NOT reuse past a `let` in the arm that shadows a root', () => {
     // The validator refuses a shadowed local at emit (SD0112), and so does the oracle, so no
@@ -1047,23 +1047,23 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     const m = module({
       funcs: [
         fn('sl', { x: f32T }, f32T, ({ x }, b) => {
-          const v = b.let('v', vec3(x, x.mul(2), 1))
-          const r = Var(f32(0))
+          const v = b.let('v', vec3(x, x.mul(2), 1));
+          const r = Var(f32(0));
           b.if(normalize(v).x.gt(0.1), () => {
-            r.assign(normalize(v).y) // the outer `v`: the temp
-            const w = Let('v', vec3(x, x.neg(), 3))
-            r.assign(r.add(normalize(w).z)) // the inner `v`: recomputed
-          })
-          b.ret(r)
+            r.assign(normalize(v).y); // the outer `v`: the temp
+            const w = Let('v', vec3(x, x.neg(), 3));
+            r.assign(r.add(normalize(w).z)); // the inner `v`: recomputed
+          });
+          b.ret(r);
         }),
       ],
-    })
-    expect(callsTo(m, 'sl', 'normalize')).toBe(3)
-    const out = gvn(m)
-    expect(gvTempCount(out)).toBe(1)
-    expect(callsTo(out, 'sl', 'normalize')).toBe(2) // the temp's own, and the shadowed one
-    expectEveryTempReadTwice(out)
-  })
+    });
+    expect(callsTo(m, 'sl', 'normalize')).toBe(3);
+    const out = gvn(m);
+    expect(gvTempCount(out)).toBe(1);
+    expect(callsTo(out, 'sl', 'normalize')).toBe(2); // the temp's own, and the shadowed one
+    expectEveryTempReadTwice(out);
+  });
 
   it('an `inout` argument: the call is an effect, so the function is left alone', () => {
     // `p.bump(1.)` writes `p` through an `inout` parameter. `collectMutatedRoots` does NOT
@@ -1072,41 +1072,41 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
     // keeps a stale `p.v * p.v` temp out of the arm is `bodyHasEffectfulCall` — the callee
     // writes something, so gvn does not touch the function. This arm fails if that bail-out
     // is ever narrowed without the argument root being counted.
-    const r = compile(`"use typeshade"
+    const r = compile(`"use typeshade";
 class P {
-  v: f32
+  v: f32;
   bump(d: f32): void {
-    this.v = this.v + d
+    this.v = this.v + d;
   }
 }
 export function f(x: f32): f32 {
-  let p = new P()
-  p.v = x
-  let r = 0.
+  let p = new P();
+  p.v = x;
+  let r = 0.;
   if (p.v * p.v > 0.5) {
-    p.bump(1.)
-    r = p.v * p.v
+    p.bump(1.);
+    r = p.v * p.v;
   }
-  return r
+  return r;
 }
 @fragment
 export function fs(): vec4 {
-  return vec4(f(1.), 0., 0., 1.)
+  return vec4(f(1.), 0., 0., 1.);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    const m = r.module
-    const f = m.funcs.find((g) => g.name === 'f')!
-    expect(f.params.length).toBe(1)
-    expect(m.funcs.find((g) => g.name === 'P_bump')!.params[0]!.mode).toBe('inout')
-    const out = gvn(m)
-    expect(out.funcs.find((g) => g.name === 'f')).toBe(f)
-    const before = compileModule(m).fns['f']!
-    const after = compileModule(out).fns['f']!
-    expect(before(1)).toBe(4) // (1 + 1)², read after the write
-    for (const x of [1, 0.25, -3]) expect(after(x)).toEqual(before(x))
-  })
-})
+`);
+    expect(r.diagnostics).toEqual([]);
+    const m = r.module;
+    const f = m.funcs.find((g) => g.name === 'f')!;
+    expect(f.params.length).toBe(1);
+    expect(m.funcs.find((g) => g.name === 'P_bump')!.params[0]!.mode).toBe('inout');
+    const out = gvn(m);
+    expect(out.funcs.find((g) => g.name === 'f')).toBe(f);
+    const before = compileModule(m).fns['f']!;
+    const after = compileModule(out).fns['f']!;
+    expect(before(1)).toBe(4); // (1 + 1)², read after the write
+    for (const x of [1, 0.25, -3]) expect(after(x)).toEqual(before(x));
+  });
+});
 
 // ═══ A call reads what its callee reads ═══
 //
@@ -1116,28 +1116,28 @@ export function fs(): vec4 {
 // and minted one for the purpose, so the condition-plus-arm shape it exists for reached the
 // hole: `let _gv0 = h(b); if (_gv0 > 0.) { gp = 5.; r = _gv0; }`, 4 where O0 returns 20.
 describe('gvn — a call reads the module names its callee reads', () => {
-  const PRIV = `"use typeshade"
-let gp: f32 = 1.
+  const PRIV = `"use typeshade";
+let gp: f32 = 1.;
 function h(q: f32): f32 {
-  return q * gp
+  return q * gp;
 }
-`
+`;
   const FS = `
 @fragment
 export function fs(): vec4 {
   return vec4(f(3.), 0., 0., 1.)
 }
-`
+`;
   const privModule = (body: string): ModuleDecl => {
-    const r = compile(PRIV + body + FS)
-    expect(r.diagnostics).toEqual([])
-    return r.module
-  }
+    const r = compile(PRIV + body + FS);
+    expect(r.diagnostics).toEqual([]);
+    return r.module;
+  };
 
   /** gvn alone, and the O1 and O2 pipelines (one function per view, with the module's read
    *  table handed to each), return what O0 returns. */
   const agrees = (m: ModuleDecl, xs: number[]): void => {
-    const o0 = compileModule(m).fns['f']!
+    const o0 = compileModule(m).fns['f']!;
     // A fresh module object for each: the read table is cached per object, and the pipelines
     // must compute it for the whole module themselves, not find one `gvn(m)` left behind.
     for (const [name, out] of [
@@ -1145,10 +1145,10 @@ export function fs(): vec4 {
       ['O1', optimizeAt({ ...m }, 'O1')],
       ['O2', optimizeAt({ ...m }, 'O2')],
     ] as const) {
-      const g = compileModule(out).fns['f']!
-      for (const x of xs) expect(g(x), `${name} x=${x}`).toEqual(o0(x))
+      const g = compileModule(out).fns['f']!;
+      for (const x of xs) expect(g(x), `${name} x=${x}`).toEqual(o0(x));
     }
-  }
+  };
 
   it('an arm that writes a `var<private>` the helper reads calls the helper again', () => {
     const m = privModule(`export function f(x: f32): f32 {
@@ -1159,13 +1159,13 @@ export function fs(): vec4 {
     r = h(b)
   }
   return r
-}`)
-    expect(compileModule(m).fns['f']!(3)).toBe(20) // (3 + 1) * 5, read after the write
-    const out = gvn(m)
-    expect(gvTempCount(out)).toBe(0)
-    expect(callsTo(out, 'f', 'h')).toBe(2)
-    agrees(m, [3, -3, 0.5])
-  })
+}`);
+    expect(compileModule(m).fns['f']!(3)).toBe(20); // (3 + 1) * 5, read after the write
+    const out = gvn(m);
+    expect(gvTempCount(out)).toBe(0);
+    expect(callsTo(out, 'f', 'h')).toBe(2);
+    agrees(m, [3, -3, 0.5]);
+  });
 
   it('a statement that writes it keeps a later arm from reading the value from before', () => {
     const m = privModule(`export function f(x: f32): f32 {
@@ -1176,11 +1176,11 @@ export function fs(): vec4 {
     r = h(b)
   }
   return r
-}`)
-    expect(compileModule(m).fns['f']!(3)).toBe(16) // gp = 4, then 4 * 4
-    expect(gvTempCount(gvn(m))).toBe(0)
-    agrees(m, [3, -3, 0.5])
-  })
+}`);
+    expect(compileModule(m).fns['f']!(3)).toBe(16); // gp = 4, then 4 * 4
+    expect(gvTempCount(gvn(m))).toBe(0);
+    agrees(m, [3, -3, 0.5]);
+  });
 
   it('the same-block repeat across the write is two values', () => {
     const m = privModule(`export function f(x: f32): f32 {
@@ -1189,43 +1189,43 @@ export function fs(): vec4 {
   gp = 5.
   let z = h(b)
   return y + z
-}`)
-    expect(compileModule(m).fns['f']!(3)).toBe(24) // 4 + 20
-    expect(gvTempCount(gvn(m))).toBe(0)
-    agrees(m, [3, -3, 0.5])
-  })
+}`);
+    expect(compileModule(m).fns['f']!(3)).toBe(24); // 4 + 20
+    expect(gvTempCount(gvn(m))).toBe(0);
+    agrees(m, [3, -3, 0.5]);
+  });
 
   it('a read_write binding the helper reads, written in the arm, through the oracle', () => {
-    const r = compile(`"use typeshade"
-declare let buf: storage<array<f32>>
+    const r = compile(`"use typeshade";
+declare let buf: storage<array<f32>>;
 function load(i: u32): f32 {
-  return buf[i] * 2.
+  return buf[i] * 2.;
 }
 export function f(i: u32): f32 {
-  let j = i * u32(1)
-  let r = load(j)
+  let j = i * u32(1);
+  let r = load(j);
   if (r > 0.) {
-    buf[j] = 10.
-    r = r + load(j)
+    buf[j] = 10.;
+    r = r + load(j);
   }
-  return r
+  return r;
 }
 @compute([1, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  buf[gid.x + 1] = f(gid.x)
+  buf[gid.x + 1] = f(gid.x);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    const m = r.module
+`);
+    expect(r.diagnostics).toEqual([]);
+    const m = r.module;
     const run = (mod: ModuleDecl, i: number): [CpuValue, number[]] => {
-      const buf = [1, 2, -3, 4]
-      const cm = compileModule(mod)
-      cm.setBinding('buf', buf)
-      return [cm.fns['f']!(i), buf]
-    }
-    expect(run(m, 0)).toEqual([22, [10, 2, -3, 4]]) // 1 * 2, then 10 * 2 after the store
-    expect(callsTo(gvn(m), 'f', 'load')).toBe(2)
+      const buf = [1, 2, -3, 4];
+      const cm = compileModule(mod);
+      cm.setBinding('buf', buf);
+      return [cm.fns['f']!(i), buf];
+    };
+    expect(run(m, 0)).toEqual([22, [10, 2, -3, 4]]); // 1 * 2, then 10 * 2 after the store
+    expect(callsTo(gvn(m), 'f', 'load')).toBe(2);
     for (const out of [gvn({ ...m }), optimizeAt({ ...m }, 'O1'), optimizeAt({ ...m }, 'O2')])
-      for (const i of [0, 2]) expect(run(out, i), `i=${i}`).toEqual(run(m, i))
-  })
-})
+      for (const i of [0, 2]) expect(run(out, i), `i=${i}`).toEqual(run(m, i));
+  });
+});

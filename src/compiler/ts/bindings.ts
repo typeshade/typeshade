@@ -2,17 +2,17 @@
 //   const scale = uniform<f32>()
 //   declare const camera: uniform<Camera>
 
-import ts from 'typescript'
-import type { BindingDecl, StructDecl } from '../../core/ir/nodes.js'
-import { structT, type ShaderType } from '../../core/ir/types.js'
-import type { TsCompilerDiagnostic } from './source-file.js'
-import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES } from './type-map.js'
-import { atomicWithin } from './lower/atomics.js'
-import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
-import { isOverrideType } from './overrides.js'
-import { TS_CODES } from './codes.js'
-import { makeDiagnostic } from './diagnostic.js'
-import { twoRowStd140Reason } from '../../core/std140.js'
+import ts from 'typescript';
+import type { BindingDecl, StructDecl } from '../../core/ir/nodes.js';
+import { structT, type ShaderType } from '../../core/ir/types.js';
+import type { TsCompilerDiagnostic } from './source-file.js';
+import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES } from './type-map.js';
+import { atomicWithin } from './lower/atomics.js';
+import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
+import { isOverrideType } from './overrides.js';
+import { TS_CODES } from './codes.js';
+import { makeDiagnostic } from './diagnostic.js';
+import { twoRowStd140Reason } from '../../core/std140.js';
 
 /** The type names that are a resource HANDLE rather than a buffer: written bare in a
  *  `declare const`, with no address-space wrapper. `sampler` and the texture names are the
@@ -352,8 +352,8 @@ function checkHostShareable(
       // render module shipped a uniform the two targets lay out at different offsets.
       diagnostics.push(
         layoutDiag(sourceFile, node, `"${path}" is in a uniform: ${twoRowStd140Reason(t.cols)}.`),
-      )
-      return
+      );
+      return;
     }
     if (t.kind === 'array') {
       if (t.size === undefined && space === 'uniform') {

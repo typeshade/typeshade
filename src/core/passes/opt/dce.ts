@@ -132,11 +132,11 @@ function dropDead(body: readonly Stmt[], used: ReadonlySet<string>, writes: FnWr
       // the call sits deeper. An effect that writes nothing — `workgroupUniformLoad`
       // synchronises — keeps the declaration: WGSL's @must_use builtins cannot stand alone as
       // a call statement, and an unread `let old = atomicAdd(cnt, 1u)` still counts either way.
-      const init = s.s === 'let' ? s.expr : s.init
-      if (init === undefined || !exprHasEffect(init, writes)) continue
+      const init = s.s === 'let' ? s.expr : s.init;
+      if (init === undefined || !exprHasEffect(init, writes)) continue;
       if (init.op === 'call' && exprWrites(init, writes)) {
-        out.push({ s: 'call', expr: init, ...(s.span !== undefined ? { span: s.span } : {}) })
-        continue
+        out.push({ s: 'call', expr: init, ...(s.span !== undefined ? { span: s.span } : {}) });
+        continue;
       }
     }
     // A call kept for its effect stays; one with none (`max(a, b);`, or a call a pass folded
