@@ -13,6 +13,7 @@ surface:
 - 7
 - 8
 - 9
+- 17
 - 19
 - 20
 - 23
@@ -109,7 +110,8 @@ goldens.
     carry no rule paragraph of their own.
 - **Surface sections.** Each has a binding in its prose or its fences.
   - **§1 and §7:** define the spelling and the refusals.
-  - **§5, §8 and §9:** show a writable binding.
+  - **§5, §8, §9 and §17:** show a writable binding (§17's runtime-bounded loop, which
+    `main` added after #188 was written, writes a buffer).
   - **§19, §20 and §23 to §25:** are the call-statement, `.length`, atomics, module-variable
     and barrier sections, whose programs write a buffer.
   - **§43:** names the atomic-on-a-read-binding stage rule.
@@ -126,7 +128,7 @@ goldens.
   under `journeys/`.
 - **Tests that will pin it:**
   - `src/compiler/ts/declare-bind.test.ts`: the mode each spelling collects.
-  - `src/compiler/ts/remedy-lines.test.ts`: every refusal that quotes a declaration has that
+  - `src/compiler/ts/remedy-lines.test.ts`: every refusal that quotes a declaration has that <!-- doc-refs: skip — lands with the implementation, on #188's branch -->
     line written back into its own program, which must then be clean in both the compiler and
     the editor.
   - the language-service tests: `TS2542` and `TS2540` on a read binding, and no new diagnostic
@@ -152,21 +154,21 @@ substitution: `declare let x: storage<T>` becomes `declare const x: storage<T, "
   - **Pages:** `LanguagePage.astro` (3), `LanguageResourcesPage.astro` (2, one of them the
     Declaration / Space / Access table, whose rows become the two type arguments),
     `LanguageGpuTypesPage.astro` and `ConceptsPipelinePage.astro`.
-  - **Examples in the site's code:** `src/lib/error-codes.ts` (10, the TS8003, TS8005 and
-    TS8006 examples among them), `src/lib/target-mapping.ts` (6) and
-    `src/lib/typescript-lowering.ts` (2).
-  - **Copy:** the "Do not use `declare let x: uniform<T>`" line in `src/i18n/en.ts` and its
+  - **Examples in the site's code:** `src/lib/error-codes.ts` (10, the TS8003, TS8005 and <!-- doc-refs: skip — a file in typeshade.github.io -->
+    TS8006 examples among them), `src/lib/target-mapping.ts` (6) and <!-- doc-refs: skip — a file in typeshade.github.io -->
+    `src/lib/typescript-lowering.ts` (2). <!-- doc-refs: skip — a file in typeshade.github.io -->
+  - **Copy:** the "Do not use `declare let x: uniform<T>`" line in `src/i18n/en.ts` and its <!-- doc-refs: skip — a file in typeshade.github.io -->
     `ko.ts` counterpart, which become the general rule "a binding is `declare const`".
   - **Guide:** the `{ access: 'read_write' }` call in
-    `content/guide/ko/capabilities-extensions.md` is the IR authoring layer's
+    `content/guide/ko/capabilities-extensions.md` is the IR authoring layer's <!-- doc-refs: skip — a file in typeshade.github.io -->
     `storageBuffer()`, not the `"use typeshade"` call form, and stays.
 - **vscode-typeshade:**
-  - **The skill's rule:** `plugins/typeshade/skills/typeshade/references/language.md` says
+  - **The skill's rule:** `plugins/typeshade/skills/typeshade/references/language.md` says <!-- doc-refs: skip — a file in vscode-typeshade -->
     "`declare let s: storage<T>` is read-write". That line and the atomics line below it change.
-  - **The skill's examples:** `SKILL.md` and `references/examples.md` each have one
+  - **The skill's examples:** `SKILL.md` and `references/examples.md` each have one <!-- doc-refs: skip — a file in vscode-typeshade -->
     `declare let` binding. `skill.test.ts` compiles both against the pin, so the pin bump that
     carries this change fails until they move.
-  - **The MCP server:** the `KERNEL` fixture in `packages/mcp-server/src/fixtures.ts` declares
+  - **The MCP server:** the `KERNEL` fixture in `packages/mcp-server/src/fixtures.ts` declares <!-- doc-refs: skip — a file in vscode-typeshade -->
     `pixels` with `declare let`. Its tests quote line numbers, and the substitution keeps them.
   - Both repositories record `0002` in their `compiler-changes.md` when they pin a compiler
     that carries it (`scripts/downstream-impact.ts`).
