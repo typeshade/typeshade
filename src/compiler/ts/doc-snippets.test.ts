@@ -26,10 +26,10 @@
 //
 // and the reason is required, so a skip always carries its justification in the doc itself.
 //
-// WHY ERRORS ONLY. `diagnostics` also carries warnings, and the compiler warns on a missing
-// return type annotation (defaulting to void). Docs elide return types for brevity in places;
-// an error, by contrast, means the example cannot become shader code at all. Asserting on
-// errors is the claim the docs actually make.
+// WHY ERRORS ONLY. `diagnostics` also carries warnings, which say how an example could be
+// written better; an error, by contrast, means the example cannot become shader code at all.
+// Asserting on errors is the claim the docs actually make. (A return type an example leaves off
+// is the body's to say, Rule 8.19; it was a "defaulting to void" warning before.)
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';

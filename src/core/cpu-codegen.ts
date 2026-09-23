@@ -36,7 +36,16 @@
 // `unsafe-eval` host) throws so the caller can fall the whole module back to the
 // interpreter.
 
-import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType, BinOp, CmpOp } from './ir/index.js';
+import type {
+  Expr,
+  Stmt,
+  ModuleDecl,
+  StructDecl,
+  ShaderType,
+  BinOp,
+  CmpOp,
+  FuncDecl,
+} from './ir/index.js';
 import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
 import { froundF32 } from './passes/precision.js';
@@ -64,6 +73,8 @@ import {
   intRem,
   type NumKind,
   cloneValue,
+  copiedParams,
+  inoutReturn,
   isAggregateType,
   convertComponent,
   convertComponents,
@@ -78,6 +89,7 @@ import {
 } from './cpu-runtime.js';
 import { compileModule, type CpuModule } from './oracle.js';
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js';
+import { fnWrites } from './passes/effects.js';
 import { dispatchCompute } from './debug/dispatch.js';
 
 /** Sentinel: a per-fn body used an IR construct the codegen can't emit
@@ -150,6 +162,9 @@ interface ModCtx {
   /** The resource bindings, so a write to one that no local shadows lands in `$.bindings`
    *  where the host reads it, the way the interpreter's `setLValue` writes it. */
   bindingNames: Set<string>;
+  /** Each declared function's parameters, for a call to store back what its `inout`
+   *  parameters hold as it returns (`inoutReturn`, cpu-runtime.ts). */
+  params: Map<string, FuncDecl['params']>;
 }
 
 /** Per-fn codegen state: the flat env → JS locals mapping + the hoist list. */
@@ -163,6 +178,35 @@ interface FnCtx {
   /** `$v` locals to declare at the top of the fn body (function-scope, flat). */
   hoisted: string[];
   n: number;
+  /** For a function with an `inout` parameter, the statement that publishes what its
+   *  parameters hold as it returns (`$.inout.values = [...]`), run at every return. */
+  inoutPublish?: string;
+}
+
+/** A fresh JS temporary for the function, declared with the others at its top. */
+function tempVar(S: FnCtx): string {
+  const id = `$t${S.n++}`;
+  S.hoisted.push(id);
+  return id;
+}
+
+/** A call's source, followed by storing what each of the callee's `inout` parameters holds as
+ *  it returned into the variable passed there, as the interpreter's `storeBack` does. Only a
+ *  variable: a field or an element reaches a struct the callee wrote in place. */
+function storeBackJs(call: Expr & { op: 'call' }, callSrc: string, S: FnCtx): string {
+  const params = S.mod.params.get(call.fn);
+  if (params === undefined || !params.some((p) => p.mode === 'inout')) return callSrc;
+  const stores: string[] = [];
+  params.forEach((p, i) => {
+    const arg = call.args[i];
+    if (p.mode !== 'inout' || arg === undefined) return;
+    if (arg.op === 'varref' || arg.op === 'param') {
+      stores.push(emitAssignExpr(arg, `$.inout.values[${i}]`, S));
+    }
+  });
+  if (stores.length === 0) return callSrc;
+  const t = tempVar(S);
+  return `(${t} = ${callSrc}, ${stores.join(', ')}, ${t})`;
 }
 
 function declareVar(name: string, S: FnCtx): string {
@@ -284,13 +328,13 @@ function emitExpr(e: Expr, S: FnCtx): string {
       // function, which is what the emitted shader calls; the interpreter makes the same
       // choice, so the two stay bit-identical. An intrinsic call has no declRef.
       if (e.declRef !== undefined && S.mod.fnNames.has(e.fn)) {
-        return `$.F[${q(e.fn)}](${args.join(', ')})`;
+        return storeBackJs(e, `$.F[${q(e.fn)}](${args.join(', ')})`, S);
       }
       if (BUILTINS[e.fn]) return `$.B[${q(e.fn)}](${args.join(', ')})`;
       if (GPU_STUBS[e.fn]) return `$.gpuStub(${[q(e.fn), ...args].join(', ')})`;
       // User fn — dispatched through $.F so a compiled fn can call a fn that fell
       // back to the interpreter (and vice versa).
-      return `$.F[${q(e.fn)}](${args.join(', ')})`;
+      return storeBackJs(e, `$.F[${q(e.fn)}](${args.join(', ')})`, S);
     }
     case 'member': {
       const base = emitExpr(e.base, S);
@@ -512,6 +556,11 @@ function emitStmt(s: Stmt, S: FnCtx): string {
       return `${emitAssignExpr(s.target, val, S)};`;
     }
     case 'return':
+      if (S.inoutPublish !== undefined) {
+        if (!s.expr) return `return void (${S.inoutPublish});`;
+        const t = tempVar(S);
+        return `return (${t} = ${emitExpr(s.expr, S)}, ${S.inoutPublish}, ${t});`;
+      }
       return s.expr ? `return ${emitExpr(s.expr, S)};` : `return undefined;`;
     case 'break':
       return `break;`;
@@ -642,6 +691,7 @@ interface CodegenRuntime {
   intRem: typeof intRem;
   /** Aggregate copy at a `let` / `var` binding — the SAME helper the interpreter calls. */
   clone: typeof cloneValue;
+  inout: typeof inoutReturn;
   /** Element-converting vector constructor components — the SAME helpers the interpreter's
    *  `construct` case calls, so the two CPU backends convert identically. */
   cvt: typeof convertComponent;
@@ -713,6 +763,7 @@ export function compileModuleJs(
     fnNames: new Set(mv.funcs.map((f) => f.name)),
     varNames: new Set((mv.vars ?? []).map((v) => v.name)),
     bindingNames: new Set(mv.bindings.map((b) => b.name)),
+    params: new Map(mv.funcs.map((f) => [f.name, f.params])),
   };
 
   // ── Module-scope decls (consts + overrides) as factory-local `const`s ──
@@ -754,6 +805,7 @@ export function compileModuleJs(
     );
     fnSrcs.push(`"$initPrivates": function() {\n${lines.join('\n')}\n}`);
   }
+  const writes = fnWrites(mv);
   for (const f of mv.funcs) {
     try {
       const S: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0 };
@@ -762,9 +814,23 @@ export function compileModuleJs(
         S.varId.set(p.name, id);
         return id;
       });
+      // The interpreter's entry, line for line: an aggregate by-value parameter of a function
+      // that writes anything is a copy, and a function with an `inout` parameter publishes
+      // what its parameters hold at every return (cpu-runtime.ts).
+      const copies = copiedParams(f.params, (writes.get(f.name)?.size ?? 0) > 0);
+      const entry = params
+        .filter((_, i) => copies[i])
+        .map((id) => `${id} = $.clone(${id});\n`)
+        .join('');
+      if (f.params.some((p) => p.mode === 'inout')) {
+        S.inoutPublish = `$.inout.values = [${params.join(', ')}]`;
+      }
       const bodySrc = emitBody(f.body, S);
+      const exit = S.inoutPublish !== undefined ? `\n${S.inoutPublish};` : '';
       const hoist = S.hoisted.length ? `let ${S.hoisted.join(', ')};\n` : '';
-      fnSrcs.push(`${q(f.name)}: function(${params.join(', ')}) {\n${hoist}${bodySrc}\n}`);
+      fnSrcs.push(
+        `${q(f.name)}: function(${params.join(', ')}) {\n${hoist}${entry}${bodySrc}${exit}\n}`,
+      );
     } catch (err) {
       if (err instanceof CodegenUnsupported) {
         fallbackNames.push(f.name);
@@ -818,6 +884,7 @@ export function compileModuleJs(
       throw barrierOutsideDispatch(fn);
     },
     clone: cloneValue,
+    inout: inoutReturn,
     cvt: convertComponent,
     cvtVec: convertComponents,
     intDiv,

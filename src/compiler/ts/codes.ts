@@ -36,7 +36,7 @@ export const TS_CODES = {
   ARITY_MISMATCH: 'TS8019',
   /** A function declaration or parameter shape TypeShade does not support (missing name or body, optional/rest/destructured parameter). */
   FUNCTION_SHAPE: 'TS8020',
-  /** A `return` shape problem: bare `return` where a value is required, or a function with no return type annotation. */
+  /** A `return` shape problem: bare `return` where a value is required, or an entry function with no return type annotation that returns a value. */
   RETURN_SHAPE: 'TS8021',
   /** Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`). */
   UNKNOWN_NAME: 'TS8022',
@@ -84,20 +84,24 @@ export const TS_CODES = {
   /** A class member shape the surface does not take, or a use of a member the class rules
    *  refuse (#86). Getters and setters, static fields and methods, overload signatures,
    *  abstract members, `#` private names and methods that change their object all compile
-   *  (#190). What is refused, in the declaration: a field holding a function (an arrow
-   *  function), a static block, an index signature, a second constructor, a decorator on a
-   *  method or on a parameter property, an `async` or generator method, one name declared as
-   *  two kinds of member, two members that would emit one function or constant name (a
+   *  (#190), and so does a field holding a function, which is a method (Rule 8.16).
+   *  What is refused, in the declaration: a field holding a function when the field is static,
+   *  or when the function takes type parameters, is `async` or a generator, or is an
+   *  expression body with no return type; a static block, an index signature, a second
+   *  constructor, a decorator on a method or on a parameter property, an `async` or generator
+   *  method, one name declared as two kinds of member, or as another kind than the class it
+   *  extends declares it, two members that would emit one function or constant name (a
    *  private name loses its `#`), and a parameter named `self_`, the name the emitted function
    *  gives its object. In a use: `this` outside a method, or naming an instance field in a
-   *  static one; `super.m` with no body above to name; an instance method called on the class
-   *  or a static one on a value; a member the class does not have; a `#` member reached
-   *  outside its class body; a getter with no setter assigned, or a setter with no getter
-   *  read; a compound assignment through a getter and setter whose object would run twice; a
-   *  method that changes its object called on something it cannot write (a parameter, a
-   *  `const`, a dropped value) or used as a value when it returns nothing; and `new` on a
-   *  class that declares only statics. A getter or setter missing its type is `UNKNOWN_TYPE`,
-   *  a `readonly` field written outside the constructor `CONST_ASSIGN`. */
+   *  static one; `super.m` with no body above to name, or naming a field holding a function;
+   *  an instance method called on the class or a static one on a value; a member the class
+   *  does not have; a `#` member reached outside its class body; a getter with no setter
+   *  assigned, or a setter with no getter read; a compound assignment through a getter and
+   *  setter whose object would run twice; a method that changes its object called on
+   *  something it cannot write (a parameter, a `const` whose value something else may hold, a
+   *  dropped value) or used as a value when it returns nothing; and `new` on a class that
+   *  declares only statics. A getter or setter missing its type is `UNKNOWN_TYPE`, a
+   *  `readonly` field written outside the constructor `CONST_ASSIGN`. */
   CLASS_MEMBER: 'TS8035',
   /** A math builtin called with arguments its signature does not take (#57, §10): two shapes
    *  that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` with a vector `v`), an element

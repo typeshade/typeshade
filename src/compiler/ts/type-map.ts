@@ -216,6 +216,23 @@ export const retiredWrapperMessage = (fix: string): string =>
   `${RETIRED_VAR_WRAPPER}<T> was removed: a top-level let is already the per-invocation ` +
   `variable. ${fix}`;
 
+const CONTRACTS = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+
+/** The interfaces of the file that declare a method: contracts a class implements, which a
+ *  shader value cannot be, since a call through one would need to pick its body at run time. */
+function contractInterfaces(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const cached = CONTRACTS.get(sourceFile);
+  if (cached !== undefined) return cached;
+  const out = new Set<string>();
+  const walk = (n: ts.Node): void => {
+    if (ts.isInterfaceDeclaration(n) && n.members.some(ts.isMethodSignature)) out.add(n.name.text);
+    ts.forEachChild(n, walk);
+  };
+  walk(sourceFile);
+  CONTRACTS.set(sourceFile, out);
+  return out;
+}
+
 export function mapTsTypeToShaderType(
   typeNode: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
@@ -347,6 +364,9 @@ function mapType(
         return undefined;
       }
     }
+    // An interface that declares a method is a contract and never a value (Rule 6.9); it was
+    // said so where it declares the method, once, and a type it names here names nothing.
+    if (contractInterfaces(sourceFile).has(name)) return undefined;
     if (/^[A-Z]/.test(name)) return structT(name);
     pushDiag(
       diagnostics,
@@ -382,6 +402,22 @@ function mapType(
       sourceFile,
       typeNode,
       KEYWORD_ADVICE[typeNode.kind] ?? `Keyword type "${text}" is not a TypeShade type.`,
+    );
+    return undefined;
+  }
+
+  // A function type anywhere but on a parameter of a function (Rule 8.18): a return, a field, a
+  // variable, an element. A parameter that takes one is read before its type is mapped
+  // (lower/function-types.ts), so what reaches here would be a value holding a function.
+  if (ts.isFunctionTypeNode(typeNode)) {
+    const text = typeNode.getText(sourceFile);
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `"${text}" is a function type, and nothing a shader holds is a function: a function ` +
+        `takes one as a parameter, "f: ${text}", and a call hands it a function by its name ` +
+        `or as an arrow function written there (Rule 8.18).`,
     );
     return undefined;
   }
