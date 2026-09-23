@@ -17,11 +17,27 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`);
+
+/** The compiler's errors for `src`, after asserting that the editor shows the same ones and
+ *  nothing beside them: TypeScript's report of each mistake is merged into the compiler's
+ *  (Rule 12.4). */
+const bothHalves = (src: string): string[] => {
+  const errors = errorsOf(src);
+  const service = createTypeshadeLanguageService();
+  service.openDocument('a.ts', src);
+  const editor = service
+    .getDiagnostics('a.ts')
+    .filter((d) => d.severity === 'error')
+    .map((d) => `${d.code} ${d.message}`);
+  expect(editor.sort(), `the editor, for\n${src}`).toEqual([...errors].sort());
+  return errors;
+};
 
 const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
   for (const make of [compileModule, compileModuleJs]) {
@@ -421,6 +437,8 @@ export function fs(): vec4 {
 });
 
 describe('an abstract member is checked where it is declared', () => {
+  // TypeScript refuses each of these too (TS1244, TS1245, TS1253, TS1267, TS1318, TS2515,
+  // TS2654), and the editor shows the compiler's sentence in place of its report (`bothHalves`).
   const M = TS_CODES.CLASS_MEMBER;
   const FS = `@fragment
 export function fs(): vec4 { return vec4(1.) }
@@ -434,35 +452,38 @@ export function fs(): vec4 { return vec4(1.) }
     const body = `"B.m" is abstract and has a body; remove "abstract", or remove the body and let each class that extends "B" write it.`;
     const B = `abstract class B { x: f32; abstract m(): f32 { return 1. } }\n`;
     const call = `export function g(d: D): f32 { return d.m() }\n`;
-    expect(errorsOf(`"use typeshade"\n${B}class D extends B { y: f32 }\n${call}${FS}`)).toEqual([
+    expect(bothHalves(`"use typeshade"\n${B}class D extends B { y: f32 }\n${call}${FS}`)).toEqual([
       `${M} ${body}`,
     ]);
     expect(
-      errorsOf(
+      bothHalves(
         `"use typeshade"\n${B}class D extends B { y: f32; m(): f32 { return 2. } }\n${call}${FS}`,
       ),
     ).toEqual([`${M} ${body}`]);
     // Nothing extends it, and a generic class says it once, whatever it is instantiated with.
-    expect(errorsOf(`"use typeshade"\n${B}${FS}`)).toEqual([`${M} ${body}`]);
+    expect(bothHalves(`"use typeshade"\n${B}${FS}`)).toEqual([`${M} ${body}`]);
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 abstract class B<T> { x: T; abstract m(): f32 { return 1. } }
 class D extends B<f32> { y: f32 }
 class E extends B<vec2> { y: f32 }
 ${FS}`),
     ).toEqual([`${M} ${body}`]);
-    // An accessor is a member too (TS1318), and a class that is not abstract has one remedy.
-    expect(
-      errorsOf(`"use typeshade"
-abstract class B { x: f32; abstract get g(): f32 { return 1. } }
+    // An accessor is a member too (TS1318), beside a setter that is not abstract (TS2676) or
+    // alone, and a class that is not abstract has one remedy.
+    for (const setter of ['', ' set g(v: f32) { this.x = v }']) {
+      expect(
+        bothHalves(`"use typeshade"
+abstract class B { x: f32; abstract get g(): f32 { return 1. }${setter} }
 class D extends B { y: f32 }
 export function g(d: D): f32 { return d.g }
 ${FS}`),
-    ).toEqual([
-      `${M} "B.g" is abstract and has a body; remove "abstract", or remove the body and let each class that extends "B" write it.`,
-    ]);
+      ).toEqual([
+        `${M} "B.g" is abstract and has a body; remove "abstract", or remove the body and let each class that extends "B" write it.`,
+      ]);
+    }
     expect(
-      errorsOf(`"use typeshade"\nclass B { x: f32; abstract m(): f32 { return 1. } }\n${FS}`),
+      bothHalves(`"use typeshade"\nclass B { x: f32; abstract m(): f32 { return 1. } }\n${FS}`),
     ).toEqual([`${M} "B.m" is abstract and has a body; remove "abstract".`]);
   });
 
@@ -471,19 +492,19 @@ ${FS}`),
     // called the member, and a call was `"D" has no method "m"`, at the call.
     const B = `abstract class B { x: f32; abstract m(): f32; abstract get g(): f32; n(): f32 { return this.m() } }\n`;
     const unimplemented = `${M} "D" does not implement "m" and "g", which "B" declares abstract; write each in "D".`;
-    expect(errorsOf(`"use typeshade"\n${B}class D extends B { y: f32 }\n${FS}`)).toEqual([
+    expect(bothHalves(`"use typeshade"\n${B}class D extends B { y: f32 }\n${FS}`)).toEqual([
       unimplemented,
     ]);
     // A call, a read and an inherited body that calls it add nothing.
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 ${B}class D extends B { y: f32 }
 export function f(d: D): f32 { return d.m() + d.g + d.n() }
 ${FS}`),
     ).toEqual([unimplemented]);
     // Through a class between, which declares nothing of it.
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 abstract class A { x: f32; abstract m(): f32 }
 abstract class B extends A { y: f32 }
 class D extends B { z: f32 }
@@ -492,14 +513,14 @@ ${FS}`),
     // What TypeScript takes compiles: the member written in the class, in a class between, as
     // a field that holds a function, and a field over an abstract accessor.
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 ${B}class D extends B { y: f32; m(): f32 { return 2. } g: f32 = 1. }
 abstract class C extends B { m = (): f32 => 3. }
 class E extends C { get g(): f32 { return 4. } }
 export function f(d: D, e: E): f32 { return d.n() + d.g + e.n() + e.g }
 ${FS}`),
     ).toEqual([]);
-    // A class in a function body is refused whole, and that is the one sentence it gets.
+    // A class in a function body is refused whole, and the compiler says nothing more of it.
     expect(
       errorsOf(`"use typeshade"
 abstract class B { x: f32; abstract m(): f32 }
@@ -520,16 +541,16 @@ ${FS}`),
     const B = `abstract class B { x: f32; abstract m = (): f32 => this.x }\n`;
     const call = `export function g(d: D): f32 { return d.m() }\n`;
     const arrow = `${M} "B.m" is abstract and has a body; remove "abstract".`;
-    expect(errorsOf(`"use typeshade"\n${B}class D extends B { y: f32 }\n${call}${FS}`)).toEqual([
+    expect(bothHalves(`"use typeshade"\n${B}class D extends B { y: f32 }\n${call}${FS}`)).toEqual([
       arrow,
     ]);
     expect(
-      errorsOf(
+      bothHalves(
         `"use typeshade"\n${B}class D extends B { y: f32; m = (): f32 => this.y }\n${call}${FS}`,
       ),
     ).toEqual([arrow]);
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 abstract class B { abstract x: f32 = 1.; y: f32 }
 class D extends B { x: f32 = 2. }
 export function g(d: D): f32 { return d.x }
@@ -537,6 +558,13 @@ ${FS}`),
     ).toEqual([
       `${M} "B.x" is abstract and has an initializer; remove "abstract", or remove the initializer and let each class that extends "B" write it.`,
     ]);
+    // In a class that is not abstract (TS1253 beside TS1267), the same one sentence.
+    expect(
+      bothHalves(`"use typeshade"
+class B { x: f32; abstract m = (): f32 => this.x }
+export function g(b: B): f32 { return b.m() }
+${FS}`),
+    ).toEqual([arrow]);
   });
 
   it('one with no body in a class that is not abstract, at the member, once', () => {
@@ -547,7 +575,7 @@ ${FS}`),
     const shown = (m: string): string =>
       `${M} "B.${m}" is abstract, and "B" is not; mark "B" abstract, or remove "abstract" and give "${m}" a body.`;
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 class B { x: f32; abstract m(): f32; abstract get g(): f32 }
 class D extends B { y: f32 }
 export function f(b: B, d: D): f32 { return b.m() + d.m() + b.g + d.g }
@@ -555,14 +583,14 @@ ${FS}`),
     ).toEqual([shown('m'), shown('g')]);
     // Two overload signatures are one member.
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 class B { x: f32; abstract m(a: f32): f32; abstract m(a: vec2): vec2 }
 ${FS}`),
     ).toEqual([shown('m')]);
     // A mixin's class expression cannot be abstract at all: said where it is written, once,
     // however many classes apply it.
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 class Disc { r: f32 }
 function Tinted<TBase extends AnyClass>(Base: TBase) {
   return class extends Base { tint: vec3; abstract lit(): f32 }
@@ -580,7 +608,7 @@ ${FS}`),
     // Until proposal 0008 this was said once for each class that applied the mixin, under that
     // class's name, `"TD.lit" is abstract; ...`, though neither class wrote the member.
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 class Disc { r: f32 }
 class Ring { r: f32; w: f32 }
 function Tinted<TBase extends AnyClass>(Base: TBase) {
@@ -593,7 +621,7 @@ ${FS}`),
     ).toEqual([`${M} "Tinted(…).lit" is abstract and has a body; remove "abstract".`]);
     // A generic class with no field says it once, and no instance adds that it is empty.
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 abstract class B<T> { abstract m(a: T): T { return a } }
 function g(a: B<f32>, b: B<vec2>): f32 { return 1. }
 ${FS}`),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 describe('Phase 12 semantic bans', () => {
   it('no longer bans console: the standard console is lowered, not refused', () => {
@@ -121,10 +122,23 @@ describe('a statement at the top level is named by its keyword', () => {
   // Every diagnostic, not those of one code: a statement refused whole is one sentence, and
   // what it is and holds adds nothing (Rule 12.4). A `try`, a `throw` and a `for…in` were also
   // told they are host forms, `TS8013`, on the same span.
-  const topLevel = (stmt: string): string[] =>
-    compileTsSource(
-      `"use typeshade";\n${stmt}\n@fragment\nexport function fs(): vec4 { return vec4(1.); }\n`,
-    ).diagnostics.map((d) => `${d.code} ${d.message}`);
+  // The editor shows the same list: TypeScript refuses a `return`, a `break`, a `continue`, an
+  // `import x = require(...)`, an `export as namespace` and a `with` there too, and its report
+  // is merged into the compiler's sentence.
+  const topLevel = (stmt: string): string[] => {
+    const src = `"use typeshade";\n${stmt}\n@fragment\nexport function fs(): vec4 { return vec4(1.); }\n`;
+    const said = compileTsSource(src).diagnostics.map((d) => `${d.code} ${d.message}`);
+    const service = createTypeshadeLanguageService();
+    // The module a CommonJS import below names, so that the editor finds it.
+    service.openDocument(
+      '/p/lib.ts',
+      '"use typeshade";\nexport function f(): f32 { return 1.; }\n',
+    );
+    service.openDocument('/p/a.ts', src);
+    const editor = service.getDiagnostics('/p/a.ts').map((d) => `${d.code} ${d.message}`);
+    expect(editor.sort(), 'the editor').toEqual([...said].sort());
+    return said;
+  };
   const moves = (what: string): string =>
     `${TS_CODES.TOP_LEVEL} ${what} at the top level runs nowhere; ${HOLDS} Move it into a function.`;
   const stays = (what: string, fix = ''): string =>
@@ -158,6 +172,10 @@ describe('a statement at the top level is named by its keyword', () => {
     [
       'export as namespace Lib;',
       `${TS_CODES.TOP_LEVEL} "export as namespace Lib" has no place at the top level; ${HOLDS}`,
+    ],
+    [
+      'with ({}) { }',
+      `${TS_CODES.TOP_LEVEL} "with ({}) { }" has no place at the top level; ${HOLDS}`,
     ],
   ];
 

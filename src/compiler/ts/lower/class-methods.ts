@@ -1875,11 +1875,11 @@ export function lowerClassCall(
   const shown = `${name}.${member}`;
   const found = memberFunctionOf(name, member, 'method', scope);
   if (found === undefined) {
-    const taken = scope.resolveCallee(methodFnName(name, emittedMemberName(member)));
-    if (taken !== undefined && isCollidedFunction(taken)) return undefined;
     // A member the class was refused at its declaration for, an abstract one it leaves
     // unimplemented among them (structs.ts); a call of it adds nothing (Rule 12.4).
     if (scope.isWithheld(name, emittedMemberName(member))) return undefined;
+    const taken = scope.resolveCallee(methodFnName(name, emittedMemberName(member)));
+    if (taken !== undefined && isCollidedFunction(taken)) return undefined;
     const accessor =
       memberFunctionOf(name, member, 'get', scope) ?? memberFunctionOf(name, member, 'set', scope);
     const field = visibleField(name, member, callee.name, scope) !== undefined;

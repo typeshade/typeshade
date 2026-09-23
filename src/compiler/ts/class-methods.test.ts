@@ -16,6 +16,7 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { compileModule } from '../../core/oracle.js';
 import { fnWrites } from '../../core/passes/effects.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const RAY = `"use typeshade";
 class Ray {
@@ -50,6 +51,21 @@ const errorsOf = (src: string) =>
   compileTsSource(src)
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`);
+
+/** The compiler's errors for `src`, after asserting that the editor shows the same ones and
+ *  nothing beside them: TypeScript's report of each mistake is merged into the compiler's
+ *  (Rule 12.4). */
+const bothHalves = (src: string): string[] => {
+  const errors = errorsOf(src);
+  const service = createTypeshadeLanguageService();
+  service.openDocument('a.ts', src);
+  const editor = service
+    .getDiagnostics('a.ts')
+    .filter((d) => d.severity === 'error')
+    .map((d) => `${d.code} ${d.message}`);
+  expect(editor.sort(), `the editor, for\n${src}`).toEqual([...errors].sort());
+  return errors;
+};
 
 const TAIL = `
 @fragment
@@ -267,25 +283,35 @@ export function run(): f32 { let b = new B(); b.bump(); return b.x }${TAIL}`);
     expect(r.diagnostics).toEqual([]);
     expect(r.eval('run', [])).toBe(9);
     // A field that holds a function is a method (Rule 8.16), so beside one it is a second body.
-    expect(only(C('  f(): f32 { return 1. }\n  f = (): f32 => 2.'))).toBe(twice('C', 'f'));
+    expect(bothHalves(C('  f(): f32 { return 1. }\n  f = (): f32 => 2.'))).toEqual([
+      twice('C', 'f'),
+    ]);
+    // TypeScript reports each body (TS2393), and each constructor (TS2392); the editor shows the
+    // compiler's one sentence.
+    expect(bothHalves(C('  f(): f32 { return 1. }\n  f(): f32 { return 2. }'))).toEqual([
+      twice('C', 'f'),
+    ]);
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(C('  constructor() { this.x = 1. }\n  constructor(a: f32) { this.x = a }')),
+    ).toEqual([`${M} "C" declares two constructors; a shader function has one body.`]);
+    expect(
+      bothHalves(`"use typeshade"
 class P<T> { x: T; m(): f32 { return 1. } m(): f32 { return 2. } }
 function g(a: P<f32>, b: P<vec2>): f32 { return a.m() + b.m() }${TAIL}`),
     ).toEqual([twice('P', 'm')]);
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 class P<T> { x: T; get g(): f32 { return 1. } get g(): f32 { return 2. } }
 function g(a: P<f32>, b: P<vec2>): f32 { return a.g + b.g }${TAIL}`),
     ).toEqual([`${M} "P.g" has two getters; an accessor has one body.`]);
     expect(
-      errorsOf(
+      bothHalves(
         `"use typeshade"\nnamespace N { export class C { x: f32; m(): f32 { return 1. } m(): f32 { return 2. } } }${TAIL}`,
       ),
     ).toEqual([twice('C', 'm')]);
     // A generic class with no field is said once too, and no instance adds that it is empty.
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 class P<T> { m(a: T): T { return a } m(a: T): T { return a } }
 function g(a: P<f32>, b: P<vec2>): f32 { return 1. }${TAIL}`),
     ).toEqual([twice('P', 'm')]);
@@ -300,7 +326,7 @@ function Tinted<TBase extends AnyClass>(Base: TBase) {
 class TD extends Tinted(Disc) { s: f32 }
 class TR extends Tinted(Disc) { w: f32 }
 export function g(t: TD, u: TR): f32 { return t.lit() + u.lit() }${TAIL}`;
-    expect(errorsOf(tinted('lit(): f32 { return 1. } lit(): f32 { return 2. }'))).toEqual([
+    expect(bothHalves(tinted('lit(): f32 { return 1. } lit(): f32 { return 2. }'))).toEqual([
       twice('Tinted(…)', 'lit'),
     ]);
   });
@@ -311,27 +337,27 @@ export function g(t: TD, u: TR): f32 { return t.lit() + u.lit() }${TAIL}`;
     // generic class's instance or a namespaced class's struct, "P_f32" or "N_C" (Rule 12.1).
     const one = (a: string, b: string): string =>
       `${M} ${a} and ${b} would be emitted under one name. Rename one of them.`;
-    expect(only(C('  f(): f32 { return 1. }\n  static f(): f32 { return 2. }'))).toBe(
+    expect(bothHalves(C('  f(): f32 { return 1. }\n  static f(): f32 { return 2. }'))).toEqual([
       one('"C.f"', 'the static "C.f"'),
-    );
+    ]);
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 class P<T> { x: T; f(): f32 { return 1. } static f(): f32 { return 2. } }
 function g(a: P<f32>, b: P<vec2>): f32 { return 1. }${TAIL}`),
     ).toEqual([one('"P.f"', 'the static "P.f"')]);
     expect(
-      errorsOf(
+      bothHalves(
         `"use typeshade"\nnamespace N { export class C { x: f32; f(): f32 { return 1. } static f(): f32 { return 2. } } }${TAIL}`,
       ),
     ).toEqual([one('"C.f"', 'the static "C.f"')]);
     expect(
-      errorsOf(`"use typeshade"
+      bothHalves(`"use typeshade"
 class P<T> { v: T; #m(): T { return this.v } m(): T { return this.#m() } }
 function g(a: P<f32>, b: P<vec2>): f32 { return a.m() + b.m().x }${TAIL}`),
     ).toEqual([one('"P.#m"', '"P.m"')]);
-    expect(only(C('  get g(): f32 { return 1. }\n  static get g(): f32 { return 2. }'))).toBe(
-      one('The getter "C.g"', 'the static getter "C.g"'),
-    );
+    expect(
+      bothHalves(C('  get g(): f32 { return 1. }\n  static get g(): f32 { return 2. }')),
+    ).toEqual([one('The getter "C.g"', 'the static getter "C.g"')]);
   });
 
   it('a call on the wrong side, a member the class lacks, a field called', () => {

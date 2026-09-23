@@ -353,6 +353,15 @@ two rules, and only ever an error that another error already covers:
   TS2322 by the table and the filters of §6. A return of the wrong type is one of these: the
   compiler reports it on the `return` it is about, as TypeScript does, not on the function's
   name, which with two returns would not say which.
+  A class is paired by the member or the class a report is about. TypeScript reports a member
+  on its name or on a modifier (TS1244, TS1245, TS1253, TS1267, TS1318 and TS2676, an
+  `abstract` member written where it cannot be), a name declared twice on each of its
+  declarations (TS2300, TS2392 and TS2393), and a class that leaves an abstract member
+  unimplemented on the class (TS2515 and TS2654). The compiler's `TS8035` names the member
+  once, on one of its declarations, and the class, or the member of a base that is `abstract`
+  and has a body, which each class below it inherits. A `return`, a `break`, a `continue`, a
+  `with`, an `import x = require("./m")` and an `export as namespace` at the top level
+  (TS1108, TS1105, TS1104, TS1101 and TS2410, TS1202, TS1315) are the compiler's `TS8014`.
 - **TypeScript's own knock-on.** When TypeScript cannot type something itself, it still gives
   the value a type, and the place the value reaches reports again. A call it fails to resolve
   (TS2769, TS2345, TS2554) it types from a signature that did not match: `return max(v, w)`
