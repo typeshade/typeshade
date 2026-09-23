@@ -4220,9 +4220,10 @@ Three shapes stay refused, and two of them were silent miscompiles.
 A **trailing** empty clause has nothing below it to share, and neither target has a label with
 no body.
 
-An empty clause above **`default:`** has a body below it, but not one it may join: a WGSL
-selector list cannot carry `default`, so the selector has nowhere to go — and carrying it past
-the default is what this refusal exists to stop.
+An empty clause above **`default:`** has a body below it, but not one it may join: this
+compiler does not put `default` into a selector list (WGSL's grammar would take
+`case 1, default:`), so the selector has nowhere to go — and carrying it past the default is
+what this refusal exists to stop.
 `case 1: default: r = 10.; break; case 2: r = 20.; break;` lowered to `case 1, 2: { r = 20.0; }`
 with `default: { r = 10.0; }` beside it, so `f(1)` was 20 on both GPUs and in the oracle where
 TypeScript says 10 — with no diagnostic. It now reads:
