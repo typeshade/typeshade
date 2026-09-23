@@ -1,3 +1,5 @@
+// Verifies: Rule 9.1 (docs/language-design.md; traced in reqs/).
+
 import { describe, it, expect } from 'vitest';
 import {
   INTRINSICS,

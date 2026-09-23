@@ -32,6 +32,8 @@
 // which is this package's existing answer for "the second target cannot take this module"
 // (`compile.ts`): `wgsl` stays, `glsl` comes back undefined, and `sanitizeReservedIdents`
 // fails the GLSL emit closed on the same names so nothing illegal is ever handed to a driver.
+//
+// Verifies: Rule 3.2, Rule 3.3, Rule 3.4, Rule 12.3 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

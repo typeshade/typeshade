@@ -11,6 +11,8 @@
 // What is pinned here: what each form lowers to on WGSL and GLSL ES 3.00, the oracle, the CPU
 // codegen and the debugger agreeing on one program that uses them all, and every refusal with
 // its code and its text (Rule 12.5), each one diagnostic for one mistake (Rule 12.4).
+//
+// Verifies: Rule 8.1 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

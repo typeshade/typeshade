@@ -21,13 +21,7 @@ import {
   scannedFiles,
   slug,
 } from '../scripts/doc-refs.js';
-import {
-  changedRules,
-  declaredDependencies,
-  declaredNames,
-  globMatch,
-  surface,
-} from '../scripts/doc-impact.js';
+import { changedRules, declaredNames, surface } from '../scripts/doc-impact.js';
 
 const FLOORS = { path: 400, rule: 250, code: 200, section: 40, script: 25, anchor: 15 } as const;
 
@@ -166,23 +160,5 @@ describe('the impact reader', () => {
     ].join('\n');
     expect([...changedRules(text, new Set([3]))]).toEqual(['2.1']);
     expect([...changedRules(text, new Set([4, 6]))]).toEqual(['2.2']);
-  });
-
-  it('reads a doc-depends line under its heading, and not one quoted in a sentence', () => {
-    const text = [
-      '## fp64',
-      '<!-- doc-depends: src/core/fp64/**, src/core/passes/fp64-lower.ts -->',
-      'Write `<!-- doc-depends: src/x.ts -->` under a heading.',
-    ].join('\n');
-    expect(declaredDependencies('AUTHORING.md', text)).toEqual([
-      { line: 2, heading: 'fp64', globs: ['src/core/fp64/**', 'src/core/passes/fp64-lower.ts'] },
-    ]);
-  });
-
-  it('matches globs by segment', () => {
-    expect(globMatch('src/core/fp64/**', 'src/core/fp64/df64-lib.ts')).toBe(true);
-    expect(globMatch('src/core/*.ts', 'src/core/emit.ts')).toBe(true);
-    expect(globMatch('src/core/*.ts', 'src/core/ir/node.ts')).toBe(false);
-    expect(globMatch('src/core/passes/fp64-lower.ts', 'src/core/passes/fp64-lower.ts')).toBe(true);
   });
 });

@@ -11,6 +11,8 @@
 // rest of this surface. Until `forRange` takes a step operation, the CPU count below is what
 // stands in for that: the interpreter and the generator both run the emitted loop and both
 // have to agree with the sequence written out beside the assertion.
+//
+// Verifies: Rule 7.5 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';

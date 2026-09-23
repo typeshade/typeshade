@@ -1,4 +1,6 @@
 // Counted for/while: constant exit, integer induction, finite trips.
+//
+// Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js';
 import { typeKey } from '../../core/ir/types.js';

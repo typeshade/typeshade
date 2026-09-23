@@ -30,6 +30,8 @@
 // return type annotation (defaulting to void). Docs elide return types for brevity in places;
 // an error, by contrast, means the example cannot become shader code at all. Asserting on
 // errors is the claim the docs actually make.
+//
+// Verifies: Rule 13.8 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';

@@ -53,6 +53,8 @@ export const HISTORY_FILES: ReadonlySet<string> = new Set(['CHANGELOG.md', 'docs
 
 /** Generated files: their content is a bake, checked by their own test, not prose. */
 const GENERATED_FILES: ReadonlySet<string> = new Set(['src/__api__/surface.md']);
+/** The Doorstop items, derived from docs/language-design.md by `scripts/reqs-sync.ts`. */
+const GENERATED_DIRS: readonly string[] = ['reqs/rules/', 'reqs/surface/'];
 
 export type RefKind = 'path' | 'anchor' | 'section' | 'rule' | 'code' | 'script';
 
@@ -79,7 +81,14 @@ export const outsideCode = (line: string): string => line.replace(/`[^`\n]*`/g, 
 const MARKER_WITHOUT_REASON = /<!--\s*doc-refs:\s*(skip|skip-file)\s*(-->|—\s*-->)/;
 
 export const git = (...args: string[]): string =>
-  execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
+  execFileSync('git', args, {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 64 << 20,
+    // A caller that probes (`git show base:path` for a file the base lacks) handles the throw;
+    // git's own "fatal:" line would only be noise on the terminal.
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
 
 let trackedCache: string[] | undefined;
 /** Every tracked file, plus files added but not yet committed (a new file is part of the tree). */
@@ -93,7 +102,11 @@ export function trackedFiles(): string[] {
 /** The prose this repository ships and its agents read: every Markdown file but the bakes. */
 export function markdownFiles(): string[] {
   return trackedFiles().filter(
-    (f) => f.endsWith('.md') && !GENERATED_FILES.has(f) && !f.startsWith('node_modules/'),
+    (f) =>
+      f.endsWith('.md') &&
+      !GENERATED_FILES.has(f) &&
+      !GENERATED_DIRS.some((d) => f.startsWith(d)) &&
+      !f.startsWith('node_modules/'),
   );
 }
 
@@ -102,6 +115,8 @@ const SELF: ReadonlySet<string> = new Set([
   'scripts/doc-refs.ts',
   'scripts/doc-impact.ts',
   'src/doc-references.test.ts',
+  'scripts/ifchange.ts',
+  'src/ifchange.test.ts',
 ]);
 
 /** TypeScript whose comments may cite the prose. */

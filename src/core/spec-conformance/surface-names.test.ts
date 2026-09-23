@@ -48,6 +48,8 @@
 // stray (the classifier reads names) and not a leak (`f64` has its row), so the last describe
 // below pins each of its constructors to the forms WGSL gives the type it stands in for
 // (docs/language-design.md Rule 9.2, Rule 2.2).
+//
+// Verifies: Rule 2.4, Rule 3.6, Rule 4.1, Rule 6.7, Rule 12.7, Rule 13.6, Rule 13.7 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -207,6 +209,7 @@ function ecmascriptSource(name: string, kind: string): string | undefined {
  * the f64 family, Rule 4.4, add a CHANGELOG entry, and only then write the row. An internal
  * helper is never a row: that is the case this test exists for.
  */
+// LINT.IfChange(extensions)
 const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   // The f64 family (docs/language-design.md Rule 4.4). WGSL has one floating-point type an
   // author can rely on; TypeShade carries a second, emitted as a pair of f32 and checked against
@@ -334,6 +337,7 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'LOG2E', reason: 'the base-2 logarithm of e; ECMAScript spells it `Math.LOG2E`' },
   { name: 'LOG10E', reason: 'the base-10 logarithm of e; ECMAScript spells it `Math.LOG10E`' },
 ];
+// LINT.ThenChange(docs/language-design.md:extensions)
 
 const extensionRows = new Map(TYPESHADE_EXTENSIONS.map((row) => [row.name, row]));
 

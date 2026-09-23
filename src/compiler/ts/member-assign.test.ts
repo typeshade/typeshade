@@ -2,6 +2,8 @@
 // `ps[i].a = 1.` and `v.x += 1.` write through a field, a single vector component or an
 // element, as WGSL, GLSL ES 3.00 and the fn() EDSL's `v.x.assign(…)` do. A swizzle naming
 // more than one component is rejected, as WGSL rejects it.
+//
+// Verifies: Rule 6.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';

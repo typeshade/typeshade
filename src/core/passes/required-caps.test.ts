@@ -1,3 +1,5 @@
+// Verifies: Rule 10.2, Rule 10.3 (docs/language-design.md; traced in reqs/).
+
 import { describe, it, expect } from 'vitest';
 import { requiredCaps, assertCaps } from './required-caps.js';
 import { wgslBackend } from '../backends/wgsl.js';

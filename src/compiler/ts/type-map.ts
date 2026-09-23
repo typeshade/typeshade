@@ -1,4 +1,6 @@
 // === TypeScript type node -> TypeShade ShaderType (Phase 2+) ===
+//
+// Implements: Rule 4.1, Rule 4.8 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import { typeKey, type ShaderType } from '../../core/ir/types.js';

@@ -16,6 +16,8 @@
 //
 // The other half is the rules a struct HIDES, which the type map cannot see and the backend
 // meets only as emitted text: a `bool` field, an empty list, and the two runtime-array rules.
+//
+// Verifies: Rule 6.8 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';

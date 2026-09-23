@@ -4,6 +4,8 @@
 // out_color[gid.x], one uniform u_count) lowers to a @fragment GPGPU pass under the
 // `emulateCompute` opt-in, instead of fail-closing. WGSL is untouched; the default
 // (no opt-in) still throws. See X-GIS render-graph-pass-scheduler.md §6.5 + the M2 design.
+//
+// Verifies: Rule 10.3 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import { emitGlslModule, UnsupportedFeatureError } from 'typeshade';

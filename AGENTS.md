@@ -56,6 +56,8 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
 
 ## Tests
 
+<!-- LINT.IfChange(tests) -->
+
 - `bun run build`: `tsc --build` (dist and `.d.ts`), then `tsc -p tsconfig.tests.json`, the
   noEmit pass over tests, examples and scripts.
 - `bun run lint` (ESLint) and `bun run format:check` (Prettier, then the shader-source `;`).
@@ -67,6 +69,11 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
   service, the README's `tsconfig.shade.json` <!-- doc-refs: skip — the file a user writes, not one in this tree -->, WebGPU and the CPU oracle against the journey's
   own JavaScript reference. A change that improves what a user can write adds its journey
   (`journeys/README.md`).
+- CI's traceability job: `doorstop -C -e -F` over `reqs/` and the traceability matrix as an
+  artifact (`reqs/README.md`). On a pull request, the `check` job also runs `docs:impact --check`
+  and `ifchange.ts` against the base.
+
+<!-- LINT.ThenChange() -->
 
 ## Gate discipline
 
@@ -88,32 +95,46 @@ around one of its rules.
 ## Docs follow the code
 
 A change is not finished while a sentence anywhere in the tree still describes the code before
-it. The prose is large (the guide, the design rules, the surface, these maps), so this is a
-step with tools, not a memory:
+it. The prose is large (the guide, the design rules, the surface, these maps), so keeping it
+true is a set of steps with tools, each an industry practice, not a memory:
 
-- **Before you commit, read the impact.** `bun run docs:impact` lists, for the working tree
-  against `main`, what the prose owes the change. _Must fix_: a name or file the change removes
-  that a sentence still names on a line the change did not touch. _Review_: every sentence
-  that names a file the change modifies, a public export whose shape changed in
-  `src/__api__/surface.md`, or a rule of `docs/language-design.md` whose text changed. Read
-  each one and fix what is no longer true, in the same commit. `CHANGELOG.md` and
-  `docs/HISTORY.md` record the past and are exempt.
-- **Every reference resolves.** `src/doc-references.test.ts`, part of `bun run test`, fails on
-  a path, a heading anchor, a numbered section, a `Rule N.M`, a diagnostic code or a `bun run`
-  script that the prose or a code comment names and the tree does not have;
-  `bun run docs:refs` prints the same list. Cite a document without numbered headings by its heading slug
-  (`AUTHORING.md#fp64`), never as "§11": a count is true only until a section is inserted
-  above it. A sentence that must name something absent says why:
-  `<!-- doc-refs: skip — reason -->`.
-- **Declare what no name reveals.** When a section describes behaviour without naming the
-  file that implements it, put a line such as
-  `<!-- doc-depends: src/core/fp64/**, src/core/passes/fp64-lower.ts -->` under its heading, and the impact list will name the section whenever one of those files
-  changes.
+<!-- LINT.IfChange(docs-follow-the-code) -->
+
+- **Read the impact before you commit.** `bun run docs:impact` lists what the prose owes the
+  working tree against `main`. _Must fix_: a name or file the change removes that a sentence
+  still names on a line the change did not touch. _Review_: every sentence that names a file
+  the change modifies, a public export whose shape changed in `src/__api__/surface.md`, or a
+  rule of `docs/language-design.md` whose text changed. Read each one and fix what is no longer
+  true, in the same commit. `CHANGELOG.md` and `docs/HISTORY.md` record the past and are exempt.
+- **Every reference resolves.** `src/doc-references.test.ts` (in `bun run test`; the same list
+  is `bun run docs:refs`) fails on a path, a heading anchor, a numbered section, a `Rule N.M`,
+  a diagnostic code or a `bun run` script that the prose or a code comment names and the tree
+  does not have. Cite a document without numbered headings by its heading slug
+  (`AUTHORING.md#fp64`), never as "§11": a count is true only until a section is inserted above
+  it. A sentence that must name something absent says why: `<!-- doc-refs: skip — reason -->`.
+- **Rules are traced, and a changed rule makes what depends on it suspect.** `reqs/` holds the
+  design rules as [Doorstop](https://doorstop.readthedocs.io) items, derived by
+  `bun run reqs:sync`. Each rule names the files that verify it, and each of those files names
+  the rule back (`Verifies: Rule N.M`). A change to a rule's text marks the rule unreviewed and
+  the surface sections that explain it suspect, and `doorstop -C` fails until each one is read
+  and reviewed or cleared. `reqs/README.md` has the steps.
+- **Mark the pairs no name reveals.** Two places that must change together (an allowlist and the
+  table that lists the same rows, the CI jobs and the list of gates above) are marked with
+  Google's `LINT.IfChange(label)` / `LINT.ThenChange(path:label)` comments. A diff that changes
+  one block and not its targets fails `scripts/ifchange.ts`, unless the commit message says why
+  with `NO_IFTTT=<reason>`.
 - **Claude Code enforces it.** `.claude/settings.json` runs `bun scripts/doc-impact.ts --hook`
-  before every `git commit`: a must-fix blocks the commit; open review items block it until
-  the message carries a `Docs-Impact:` trailer saying what you found
+  before every `git commit`. The hook blocks the commit on a must-fix, an unmet `ThenChange`,
+  stale `reqs/`, or a Doorstop error (when `doorstop` is installed). It also blocks on open
+  review items until the message carries a `Docs-Impact:` trailer saying what you found
   (`Docs-Impact: reviewed, AUTHORING.md#fp64 still holds`, or `Docs-Impact: none, test-only`).
-  CI runs `docs:impact --check` on every pull request and writes the list to the job summary.
+  The trailer answers only the review list; a must-fix or a suspect link is fixed or reviewed,
+  never declared away.
+- **CI enforces it for everyone.** On a pull request, the `check` job runs
+  `docs:impact --check` and `ifchange.ts`, and the traceability job runs `doorstop -C -e -F`.
+  `.github/CODEOWNERS` puts the normative documents, `reqs/` and these tools under review.
+
+<!-- LINT.ThenChange() -->
 
 ## Patterns
 

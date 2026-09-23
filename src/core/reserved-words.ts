@@ -7,6 +7,8 @@
 // language reserves, underscores and digits included. `RESERVED_WORDS` below, the blocklist
 // for identifiers the emit-prod passes INVENT, is built from them, so the two questions can
 // never be answered from two lists that have drifted apart.
+//
+// Implements: Rule 3.3 (docs/language-design.md; traced in reqs/).
 
 /** Every spelling WGSL refuses as an identifier: the 26 keywords of the spec's Keyword
  *  Summary and the 146 tokens of its Reserved Words section, transcribed from the spec

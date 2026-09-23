@@ -43,6 +43,8 @@
 // Usage:  bun scripts/compile-gate.ts             (from the package root)
 //         TYPESHADE_CHROMIUM=/path/to/headless_shell bun scripts/compile-gate.ts
 //         — the executable is playwright's installed chromium-headless-shell unless named.
+//
+// Verifies: Rule 1.1, Rule 11.3, Rule 13.3 (docs/language-design.md; traced in reqs/).
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { chromium } from 'playwright';

@@ -12,6 +12,8 @@
 //
 // Split out of glsl.ts (which exceeded the 500-LOC ratchet) — emit is unchanged;
 // emitGlslModule imports sanitizeReservedIdents from here.
+//
+// Implements: Rule 3.4 (docs/language-design.md; traced in reqs/).
 
 import type { ModuleDecl, FuncDecl, Expr, Stmt } from '../ir/index.js';
 import { mapChildren, mapStmtExpr } from '../ir/visit.js';

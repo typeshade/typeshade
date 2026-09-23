@@ -710,6 +710,8 @@ So the precedence rule can hand the author a WGSL-only module, and the compiler 
 - Derives from: PR #166's body, section "A design rule this lane settled"; the allowlist `TYPESHADE_EXTENSIONS`.
 - Enforced by: `surface-names.test.ts` (`the TypeShade allowlist shrinks`), which fails on a row the library no longer declares and on a row WGSL or ECMAScript now covers.
 
+<!-- LINT.IfChange(extensions) -->
+
 | Family           | Name                     | Reason                                                                                |
 | ---------------- | ------------------------ | ------------------------------------------------------------------------------------- |
 | f64 (Rule 4.4)   | `f64`                    | the double-precision scalar WGSL has no type for                                      |
@@ -785,6 +787,8 @@ So the precedence rule can hand the author a WGSL-only module, and the compiler 
 | constants        | `LN10`                   | the natural logarithm of 10; ECMAScript spells it `Math.LN10`                         |
 | constants        | `LOG2E`                  | the base-2 logarithm of e; ECMAScript spells it `Math.LOG2E`                          |
 | constants        | `LOG10E`                 | the base-10 logarithm of e; ECMAScript spells it `Math.LOG10E`                        |
+
+<!-- LINT.ThenChange(src/core/spec-conformance/surface-names.test.ts:extensions) -->
 
 Nine families, and the shape of each is itself a rule:
 

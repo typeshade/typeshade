@@ -36,6 +36,8 @@
 // NON-VACUITY (X-GIS #996 / AGENTS.md#gate-discipline — "the authority itself is seen"): the resolver is
 // probed per kind with BOTH a known-good and a known-bad witness, so a resolver that
 // broke into always-true or always-false cannot carry the two ratchet arms above.
+//
+// Verifies: Rule 4.7, Rule 9.3, Rule 10.4, Rule 10.5 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import * as IR from '../ir/index.js';

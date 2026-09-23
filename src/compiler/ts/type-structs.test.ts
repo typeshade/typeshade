@@ -8,6 +8,8 @@
 // collected only when something USES it. A "use typeshade" file may hold host-shaped
 // declarations that are not shader types at all, and collecting those would turn each into a
 // type error and put an unreferenced shape into the emit.
+//
+// Verifies: Rule 6.9 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';

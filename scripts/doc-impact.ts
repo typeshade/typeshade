@@ -23,10 +23,7 @@
 //   changed file     a file the diff modifies
 //   changed rule     a `**Rule N.M.**` paragraph of `docs/language-design.md` with a changed line:
 //                    every citation of `Rule N.M`, in prose and in code, is listed for review
-//   declared dep     a doc section that says `<!-- doc-depends: <path or glob>, ... -->` below its
-//                    heading, for a dependency no name or path in its text reveals ("this
-//                    section describes what the fp64 lowering does"): listed when a file it
-//                    names changes
+//   (a dependency no name or path reveals is a `LINT.IfChange` block: `scripts/ifchange.ts`)
 //
 // Usage:
 //   bun scripts/doc-impact.ts                     working tree against the merge base with main
@@ -36,17 +33,10 @@
 //   bun scripts/doc-impact.ts --markdown          GitHub Markdown, for a job summary
 //   bun scripts/doc-impact.ts --hook              a Claude Code PreToolUse hook (stdin: the call)
 
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  HISTORY_FILES,
-  ROOT,
-  extractRefs,
-  git,
-  markdownFiles,
-  outsideCode,
-  sourceFiles,
-} from './doc-refs.js';
+import { HISTORY_FILES, ROOT, extractRefs, git, markdownFiles, sourceFiles } from './doc-refs.js';
 
 export interface Mention {
   readonly file: string;
@@ -74,8 +64,10 @@ export interface Diff {
   readonly added: readonly string[];
   /** Per file, the head-side line numbers the diff added or changed. */
   readonly touched: ReadonlyMap<string, ReadonlySet<number>>;
-  /** Per file, the removed (`-`) lines. */
+  /** Per base-side file, the removed (`-`) lines. */
   readonly removedLines: ReadonlyMap<string, readonly string[]>;
+  /** Per base-side file, the base-side line numbers the diff removed. */
+  readonly removedAt: ReadonlyMap<string, ReadonlySet<number>>;
 }
 
 function diffArgs(base: string, staged: boolean): string[] {
@@ -102,35 +94,43 @@ export function readDiff(base: string, staged: boolean): Diff {
   }
   const touched = new Map<string, Set<number>>();
   const removedLines = new Map<string, string[]>();
-  let file = '';
+  const removedAt = new Map<string, Set<number>>();
+  // A removed line belongs to the base-side path (a deleted file's `+++` is /dev/null); an
+  // added line to the head-side path.
+  let oldFile = '';
+  let newFile = '';
   let at = 0;
+  let oldAt = 0;
   for (const line of git('diff', '-U0', '-M', ...diffArgs(base, staged)).split('\n')) {
-    if (line.startsWith('+++ ')) {
-      file = line.slice(4).replace(/^b\//, '');
-      continue;
-    }
     if (line.startsWith('--- ')) {
-      file = line.slice(4).replace(/^a\//, '');
+      oldFile = line.slice(4).replace(/^a\//, '');
       continue;
     }
-    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (line.startsWith('+++ ')) {
+      newFile = line.slice(4).replace(/^b\//, '');
+      continue;
+    }
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
     if (hunk) {
-      at = Number(hunk[1]);
+      oldAt = Number(hunk[1]);
+      at = Number(hunk[2]);
       continue;
     }
     if (line.startsWith('+')) {
-      if (!touched.has(file)) touched.set(file, new Set());
-      touched.get(file)!.add(at++);
+      if (!touched.has(newFile)) touched.set(newFile, new Set());
+      touched.get(newFile)!.add(at++);
     } else if (line.startsWith('-')) {
-      if (!removedLines.has(file)) removedLines.set(file, []);
-      removedLines.get(file)!.push(line.slice(1));
+      if (!removedLines.has(oldFile)) removedLines.set(oldFile, []);
+      removedLines.get(oldFile)!.push(line.slice(1));
+      if (!removedAt.has(oldFile)) removedAt.set(oldFile, new Set());
+      removedAt.get(oldFile)!.add(oldAt++);
     }
   }
-  return { base, staged, deleted, renamed, modified, added, touched, removedLines };
+  return { base, staged, deleted, renamed, modified, added, touched, removedLines, removedAt };
 }
 
 /** A file's text on the base side of the diff, or `''` when it did not exist there. */
-function atBase(diff: Diff, file: string): string {
+export function atBase(diff: Diff, file: string): string {
   try {
     return git('show', `${diff.base}:${file}`);
   } catch {
@@ -139,7 +139,7 @@ function atBase(diff: Diff, file: string): string {
 }
 
 /** A file's text on the head side: the index when staged, the working tree otherwise. */
-function atHead(diff: Diff, file: string): string {
+export function atHead(diff: Diff, file: string): string {
   if (diff.staged) {
     try {
       return git('show', `:${file}`);
@@ -193,32 +193,6 @@ export function changedRules(text: string, touched: ReadonlySet<number>): Set<st
     if (current && touched.has(i + 1)) out.add(current);
   });
   return out;
-}
-
-/** `<!-- doc-depends: a, b/** -->` declarations: the section they sit in and the globs they name. */
-export function declaredDependencies(
-  file: string,
-  text: string,
-): { line: number; heading: string; globs: string[] }[] {
-  const out: { line: number; heading: string; globs: string[] }[] = [];
-  let heading = '(top of file)';
-  text.split('\n').forEach((line, i) => {
-    if (/^#{1,6} /.test(line)) heading = line.replace(/^#+ /, '');
-    const m = /^\s*<!--\s*doc-depends:\s*(.+?)\s*-->\s*$/.exec(outsideCode(line));
-    if (m) out.push({ line: i + 1, heading, globs: m[1]!.split(/[,\s]+/).filter(Boolean) });
-  });
-  void file;
-  return out;
-}
-
-/** `**` any depth, `*` within one segment. */
-export function globMatch(glob: string, path: string): boolean {
-  const re = glob
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*\/?/g, '\u0000')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\u0000/g, '.*');
-  return new RegExp(`^${re}$`).test(path);
 }
 
 // ─── where the prose names a thing ─────────────────────────────────────────────────────────
@@ -364,24 +338,12 @@ export function impactOf(diff: Diff): Impact[] {
     }
   }
 
-  // 5. Files that changed, and the sections that declared they depend on them.
+  // 5. Files that changed. (A dependency no name reveals is a LINT.IfChange block: scripts/ifchange.ts.)
   const changed = [...diff.modified, ...diff.renamed.map(([, b]) => b), ...diff.added].filter(
     (f) => !f.endsWith('.md') && !f.includes('__emit-goldens__') && f !== SURFACE,
   );
-  const declared = proseFiles().flatMap((file) =>
-    declaredDependencies(file, linesOf(file).join('\n')).map((d) => ({ file, ...d })),
-  );
   for (const path of changed) {
     const mentions = /\.test\.ts$/.test(path) ? [] : fileMentions(path);
-    for (const d of declared) {
-      if (d.globs.some((g) => globMatch(g, path))) {
-        mentions.push({
-          file: d.file,
-          line: d.line,
-          text: `§ "${d.heading}" declares doc-depends on it`,
-        });
-      }
-    }
     if (mentions.length)
       impacts.push({ subject: `\`${path}\` changed`, severity: 'review', mentions });
   }
@@ -440,19 +402,26 @@ function defaultBase(): string {
 
 // ─── the Claude Code hook ──────────────────────────────────────────────────────────────────
 //
+// LINT.IfChange(hook)
 // Registered in `.claude/settings.json` as a PreToolUse hook on Bash. It does nothing unless the
-// call is a `git commit`. Then it computes the impact of what the commit takes, and:
+// call is a `git commit`. Then it checks what the commit takes, reports every problem at once,
+// and blocks the call (exit 2, the report goes to the agent) when any remains:
 //
-//   a must-fix remains                     → the call is blocked (exit 2), the list goes to the agent
-//   review items in docs the commit leaves
-//   alone, and no `Docs-Impact:` trailer   → blocked once, with the list and what to do
-//   otherwise                              → allowed
+//   must-fix             a removed name or file that the prose still names on an untouched line
+//   IfChange unmet       a LINT.IfChange block changed and a ThenChange target did not, and the
+//                        message carries no `NO_IFTTT=<reason>` (scripts/ifchange.ts)
+//   traceability         reqs/ is stale (`bun run reqs:sync`), or Doorstop, when installed, finds
+//                        an unreviewed rule, a suspect link or a lost reference (reqs/README.md)
+//   open review items    prose that describes what the commit changes, in files it leaves alone,
+//                        and no `Docs-Impact:` trailer
 //
 // The trailer is the agent's statement that it read the listed prose and found it still true
 // (`Docs-Impact: reviewed, AUTHORING.md#fp64 still describes the lowering`), or that the change
 // has none (`Docs-Impact: none, test-only`). It stays in the history, where a reviewer sees it.
+// The trailer answers only the review list: nothing in a message waives a must-fix or a suspect
+// link, which are fixed or reviewed, never declared.
 
-function hook(): number {
+async function hook(): Promise<number> {
   let input: { tool_input?: { command?: string } };
   try {
     input = JSON.parse(readFileSync(0, 'utf8')) as typeof input;
@@ -466,8 +435,49 @@ function hook(): number {
   if (file && existsSync(file)) message += readFileSync(file, 'utf8');
   const all = /\scommit\b[^|;&]*\s(-a|--all|-\w*a\w*)\b/.test(command);
   const diff = all ? readDiff('HEAD', false) : readDiff('HEAD', true);
+  const report: string[] = [];
+
   const impacts = impactOf(diff);
   const mustFix = impacts.filter((i) => i.severity === 'must-fix');
+  if (mustFix.length) {
+    report.push(
+      `${render(mustFix, diff, false)}\n\nThe prose above still names what this commit removes, on lines it leaves ` +
+        'alone. Update or delete each sentence (CHANGELOG.md and docs/HISTORY.md are exempt).',
+    );
+  }
+
+  const { unmet, describeUnmet, waiver, staticProblems } = await import('./ifchange.js');
+  const misses = unmet(diff);
+  const broken = staticProblems();
+  if (broken.length) {
+    report.push(
+      `LINT.IfChange blocks that are malformed:\n${broken.map((p) => `    ${p.file}:${p.line}  ${p.message}`).join('\n')}`,
+    );
+  }
+  if (misses.length && !waiver(message)) {
+    report.push(
+      `LINT.IfChange blocks this commit changes without their ThenChange targets:\n${misses.map((u) => `    ${describeUnmet(u)}`).join('\n')}\n\n` +
+        'Change each target to match, or, if it truly needs no change, say why in the message: `NO_IFTTT=<reason>`.',
+    );
+  }
+
+  const { stale } = await import('./reqs-sync.js');
+  const drift = stale();
+  if (drift.length) {
+    report.push(
+      `reqs/ is stale:\n${drift.map((d) => `    ${d}`).join('\n')}\n\nRun \`bun run reqs:sync\`, then \`doorstop -C\` (reqs/README.md).`,
+    );
+  } else {
+    const ds = spawnSync('doorstop', ['-C', '-e', '-F'], { cwd: ROOT, encoding: 'utf8' });
+    if (!ds.error && ds.status !== 0) {
+      const errors = `${ds.stdout}${ds.stderr}`.split('\n').filter((l) => /ERROR|WARNING/.test(l));
+      report.push(
+        `Doorstop:\n${errors.map((l) => `    ${l}`).join('\n')}\n\nRead each flagged item, bring it in line, then ` +
+          '`doorstop review <RULE>` / `doorstop clear <SURF>` (reqs/README.md). Never clear what you have not read.',
+      );
+    }
+  }
+
   const committedDocs = new Set([
     ...diff.modified,
     ...diff.added,
@@ -476,27 +486,23 @@ function hook(): number {
   const openReview = impacts.filter(
     (i) => i.severity === 'review' && i.mentions.some((m) => !committedDocs.has(m.file)),
   );
-  if (mustFix.length) {
-    process.stderr.write(
-      `${render(mustFix, diff, false)}\n\nThis commit removes names or files that the prose above still names on lines the commit leaves alone. ` +
-        'Update or delete each sentence (CHANGELOG.md and docs/HISTORY.md are exempt), then commit again.\n',
-    );
-    return 2;
-  }
   if (openReview.length && !/^\s*Docs-Impact:\s*\S/m.test(message)) {
-    process.stderr.write(
+    report.push(
       `${render(openReview, diff, false)}\n\nThe prose above describes what this commit changes, and the commit leaves it alone. ` +
-        'Read each location. Fix what is no longer true and stage it; then commit with a trailer that says what you found, ' +
-        'for example `Docs-Impact: reviewed, the listed sections still hold` or `Docs-Impact: none, internal refactor`.\n',
+        'Read each location and fix what is no longer true; then add a trailer that says what you found, ' +
+        'for example `Docs-Impact: reviewed, the listed sections still hold` or `Docs-Impact: none, internal refactor`.',
     );
-    return 2;
   }
-  return 0;
+
+  if (!report.length) return 0;
+  process.stderr.write(`${report.join('\n\n────────\n\n')}\n`);
+  return 2;
 }
+// LINT.ThenChange(AGENTS.md:docs-follow-the-code, CLAUDE.md:the-prose-follows-the-code)
 
 if (import.meta.main) {
   const args = process.argv.slice(2);
-  if (args.includes('--hook')) process.exit(hook());
+  if (args.includes('--hook')) process.exit(await hook());
   const staged = args.includes('--staged');
   const baseAt = args.indexOf('--base');
   const base =

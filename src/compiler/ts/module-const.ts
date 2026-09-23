@@ -1,4 +1,6 @@
 // Top-level `const` → ModuleDecl.consts (foldable scalars).
+//
+// Implements: Rule 6.3, Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import type { ConstDecl, Expr, StructDecl } from '../../core/ir/nodes.js';
