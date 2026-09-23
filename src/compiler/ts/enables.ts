@@ -29,6 +29,7 @@ import type { Capability, DeclarableCapability } from '../../core/ir/nodes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import { unknownNameSentence } from './unknown-names.js';
 
 /** The prefix a `"enable ..."` string directive carries. */
 const ENABLE_PREFIX = 'enable ';
@@ -80,8 +81,12 @@ export function collectEnables(
         makeDiagnostic(
           sourceFile,
           stmt,
-          `Unknown WGSL extension "${name}". "enable ..." takes one of: ` +
-            `${enableExtensionNames().join(', ')}.`,
+          unknownNameSentence(
+            `Unknown WGSL extension "${name}".`,
+            name,
+            [enableExtensionNames()],
+            `"enable ..." takes one of: ${enableExtensionNames().join(', ')}.`,
+          ),
           TS_CODES.ENABLE_NAME,
         ),
       );

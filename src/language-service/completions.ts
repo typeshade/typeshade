@@ -4,6 +4,7 @@ import ts from 'typescript';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js';
 import { nodeAtPosition } from './positions.js';
+import { isGpuBrandedType } from './diagnostics.js';
 import type { TypeshadeCompletionItem, TypeshadeCompletionKind } from './types.js';
 
 /** The `@builtin(...)` names valid for a parameter of a function decorated with each stage.
@@ -111,6 +112,52 @@ function kindOfTsCompletion(kind: ts.ScriptElementKind): TypeshadeCompletionKind
   return 'variable';
 }
 
+/** The members a vector's completion lists: its components and the prefix swizzles. The
+ *  ambient library declares every swizzle the compiler accepts (Rule 12.7), which is 680 names
+ *  on a `vec4`; the list keeps the ones an author starts from, and any other is still accepted
+ *  where it is written. */
+const LISTED_SWIZZLES: ReadonlySet<string> = new Set([
+  'x',
+  'y',
+  'z',
+  'w',
+  'r',
+  'g',
+  'b',
+  'a',
+  'xy',
+  'xyz',
+  'xyzw',
+  'rg',
+  'rgb',
+  'rgba',
+]);
+const SWIZZLE = /^(?:[xyzw]{1,4}|[rgba]{1,4})$/;
+
+/** Whether the completion at `offset` lists the members of a vector: the receiver of the
+ *  member access being written is one of the ambient library's GPU types. */
+function completesVectorMembers(
+  languageService: ts.LanguageService,
+  uri: string,
+  offset: number,
+): boolean {
+  const program = languageService.getProgram();
+  const sourceFile = program?.getSourceFile(uri);
+  if (program === undefined || sourceFile === undefined) return false;
+  let receiver: ts.Expression | undefined;
+  const visit = (node: ts.Node): void => {
+    if (node.getFullStart() > offset || node.getEnd() < offset) return;
+    if (ts.isPropertyAccessExpression(node) && node.expression.getEnd() < offset) {
+      receiver = node.expression;
+    }
+    node.forEachChild(visit);
+  };
+  visit(sourceFile);
+  return (
+    receiver !== undefined && isGpuBrandedType(program.getTypeChecker().getTypeAtLocation(receiver))
+  );
+}
+
 function tsCompletions(
   languageService: ts.LanguageService,
   uri: string,
@@ -118,11 +165,14 @@ function tsCompletions(
 ): TypeshadeCompletionItem[] {
   const result = languageService.getCompletionsAtPosition(uri, offset, {});
   if (!result) return [];
-  return result.entries.map((entry) => ({
-    label: entry.name,
-    kind: kindOfTsCompletion(entry.kind),
-    sortText: entry.sortText,
-  }));
+  const vector = result.isMemberCompletion && completesVectorMembers(languageService, uri, offset);
+  return result.entries
+    .filter((entry) => !vector || !SWIZZLE.test(entry.name) || LISTED_SWIZZLES.has(entry.name))
+    .map((entry) => ({
+      label: entry.name,
+      kind: kindOfTsCompletion(entry.kind),
+      sortText: entry.sortText,
+    }));
 }
 
 /** What the syntax tree says about the position a completion was requested at. */

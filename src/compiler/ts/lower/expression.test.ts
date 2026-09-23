@@ -191,7 +191,7 @@ describe('Phase 3 - expression lowering', () => {
     // added calls ("Function calls (Phase 6) need a visible callee.").
     expect(diagnostics[0]!.code).toBe('TS8004');
     expect(diagnostics[0]!.message).toBe(
-      'Unknown function "foo(a)". Declare it in this file, or import it from another shader module.',
+      'Unknown function "foo". Declare it in this file, or import it from another shader module.',
     );
     expect(diagnostics[0]!.message).not.toContain('Phase');
   });
