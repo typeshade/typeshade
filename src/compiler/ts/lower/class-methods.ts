@@ -49,6 +49,8 @@ import { lowerGenericCall, lowerUserCall } from './expression-misc.js';
 import { lowerLValue } from './statement.js';
 import { parseParams, parseReturnType } from './function.js';
 import { recordParamDefaults } from './param-defaults.js';
+import { functionParams } from './function-types.js';
+import { captureArguments } from './local-functions.js';
 import {
   accessorFnName,
   emittedMemberName,
@@ -150,6 +152,10 @@ export interface ClassFunction {
   /** A setter whose value writes no type beside a getter that writes none: the value takes
    *  what the getter's body returns, known once that body is lowered (Rule 8.19). */
   readonly valueFromGetter?: true;
+  /** A method, a static method or a constructor that takes a function: the indices of those
+   *  parameters among the written ones. It is compiled once for each set of functions its calls
+   *  hand it (Rule 8.18), so its own stub, whose parameters are the others, is never emitted. */
+  readonly takesFunctions?: ReadonlySet<number>;
 }
 
 /** The emitted name of a method or a static function: `Ray_at`. */
@@ -176,6 +182,18 @@ export const isCollidedFunction = (decl: FuncDecl): boolean => collided.has(decl
 
 /** The class function a callee is, or `undefined` for a top-level function. */
 export const classFunctionOf = (decl: FuncDecl): ClassFunction | undefined => registry.get(decl);
+
+/** Record `copy`, the copy of `cf` a call made for the functions it hands over (Rule 8.18), as a
+ *  class function of its own: `cf`'s, taking its object by reference where `writes` says so. */
+export function registerClassCopy(copy: FuncDecl, cf: ClassFunction, writes: boolean): void {
+  const receiver: Receiver | undefined =
+    cf.receiver === undefined || cf.receiver.mode === 'ctor'
+      ? cf.receiver
+      : { ...cf.receiver, mode: writes ? 'inout' : 'param' };
+  const made: ClassFunction = { ...cf, stub: copy, mutates: writes, receiver };
+  delete (made as { takesFunctions?: unknown }).takesFunctions;
+  registry.set(copy, made);
+}
 
 /** The `self_` a constructor builds and a method reads. */
 export const selfRef = (type: ShaderType): Expr => ({ op: 'varref', type, name: 'self_' });
@@ -885,8 +903,11 @@ function methodSignature(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
+  /** The parameters that take a function, which a copy of the method takes in their place. */
+  skip: ReadonlySet<number> = new Set(),
 ): { params: FuncDecl['params'][number][]; ret: ShaderType; infers?: true } | undefined {
-  const params = parseParams(method.parameters, sourceFile, diagnostics, structs, undefined, {
+  const written = method.parameters.filter((_, i) => !skip.has(i));
+  const params = parseParams(written, sourceFile, diagnostics, structs, undefined, {
     owner: shown,
     forbidSelf: !isStatic,
   });
@@ -1070,9 +1091,22 @@ export function collectClassFunctions(
           );
           continue;
         }
+        // A parameter of function type makes the method a template, copied for each set of
+        // functions its calls hand it (Rule 8.18); an accessor's value is refused where it is
+        // parsed.
+        const fnAt = half === undefined ? functionParams(method) : new Set<number>();
         const signature =
           half === undefined
-            ? methodSignature(method, shown, isStatic, selfT, sourceFile, diagnostics, structs)
+            ? methodSignature(
+                method,
+                shown,
+                isStatic,
+                selfT,
+                sourceFile,
+                diagnostics,
+                structs,
+                fnAt,
+              )
             : accessorSignature(
                 method as ts.AccessorDeclaration,
                 half,
@@ -1131,7 +1165,7 @@ export function collectClassFunctions(
         (stub as { nameSpan?: SourceSpan }).nameSpan = spanOf(sourceFile, method.name);
         // A method's stub carries `self_` ahead of the written parameters, so the defaults sit
         // one index along (roadmap 0.3 item T7, #92); a static method's do not.
-        recordParamDefaults(stub, method.parameters, isStatic ? 0 : 1);
+        if (fnAt.size === 0) recordParamDefaults(stub, method.parameters, isStatic ? 0 : 1);
         const cf: ClassFunction = {
           stub,
           kind: isStatic ? 'static' : 'method',
@@ -1162,6 +1196,7 @@ export function collectClassFunctions(
           ...('fromGetter' in signature && signature.fromGetter === true
             ? { valueFromGetter: true as const }
             : {}),
+          ...(fnAt.size > 0 ? { takesFunctions: fnAt } : {}),
         };
         registry.set(stub, cf);
         if (
@@ -1188,15 +1223,22 @@ export function collectClassFunctions(
       if (struct.abstract && ctor === undefined) continue;
       if (ctor === undefined && fieldInits.length === 0 && !constructed.has(name)) continue;
       const shown = `new ${name}`;
+      // A constructor that takes a function is copied for each set of functions `new` hands it
+      // (Rule 8.18), as a method is.
+      const ctorFnAt = ctor ? functionParams(ctor) : new Set<number>();
       const params = ctor
-        ? parseParams(ctor.parameters, sourceFile, diagnostics, structs, undefined, {
-            owner: shown,
-            forbidSelf: true,
-          })
+        ? parseParams(
+            ctor.parameters.filter((_, i) => !ctorFnAt.has(i)),
+            sourceFile,
+            diagnostics,
+            structs,
+            undefined,
+            { owner: shown, forbidSelf: true },
+          )
         : [];
       if (!params) continue;
       const stub: FuncDecl = { name: ctorFnName(name), params, ret: selfT, body: [] };
-      if (ctor) recordParamDefaults(stub, ctor.parameters);
+      if (ctor && ctorFnAt.size === 0) recordParamDefaults(stub, ctor.parameters);
       // The parameter properties of the constructor this class runs, which may be a base's: the
       // fields they declare are this struct's too, and they are assigned before anything else
       // (Rule 8.14). One whose field was refused at the declaration assigns nothing.
@@ -1267,6 +1309,7 @@ export function collectClassFunctions(
           ...(below.length > 0 ? { afterBody: below } : {}),
         },
         mutates: false,
+        ...(ctorFnAt.size > 0 ? { takesFunctions: ctorFnAt } : {}),
       };
       registry.set(stub, cf);
       out.push(cf);
@@ -1565,7 +1608,11 @@ export function lowerNew(
     );
     return undefined;
   }
-  const call = lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown: `new ${name}` });
+  // A constructor that takes a function: the copy for the functions this `new` hands it.
+  const call =
+    cf.takesFunctions !== undefined
+      ? lowerCopyCall(node, cf, undefined, undefined, false, sourceFile, scope, diagnostics)
+      : lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown: `new ${name}` });
   return call?.op === 'call' ? withSpan(call, sourceFile, node) : call;
 }
 
@@ -1650,6 +1697,21 @@ function lowerSuperMethodCall(
       ? { op: 'param', type: self.type, name: irNameOf(self) }
       : { op: 'varref', type: self.type, name: irNameOf(self) },
   ];
+  // A base body that takes a function: its copy for the functions this call hands it, on this
+  // body's own object (Rule 8.18).
+  if (cf?.takesFunctions !== undefined) {
+    return lowerCopyCall(
+      node,
+      cf,
+      callee.expression,
+      leading[0],
+      true,
+      sourceFile,
+      scope,
+      diagnostics,
+      true,
+    );
+  }
   return lowerUserCall(node, decl, sourceFile, scope, diagnostics, {
     leading,
     shown: `super.${member}`,
@@ -1765,6 +1827,9 @@ export function lowerClassCall(
       );
       return undefined;
     }
+    if (cf.takesFunctions !== undefined) {
+      return lowerCopyCall(node, cf, undefined, undefined, false, sourceFile, scope, diagnostics);
+    }
     return lowerUserCall(node, decl!, sourceFile, scope, diagnostics, { shown });
   }
   const recv = lowerExpression(obj, sourceFile, scope, diagnostics);
@@ -1804,6 +1869,10 @@ export function lowerClassCall(
     );
     return undefined;
   }
+  // A method that takes a function: the copy for the functions this call hands it (Rule 8.18).
+  if (cf.takesFunctions !== undefined) {
+    return lowerCopyCall(node, cf, obj, recv, false, sourceFile, scope, diagnostics);
+  }
   if (cf.mutates) {
     // A method that changes its object and returns a value is a value like any call (§26):
     // `const x = rng.next()`, `vec2(rng.next(), rng.next())`. Its receiver is still the place
@@ -1831,6 +1900,66 @@ export function lowerClassCall(
  *  name is private (Rule 8.12). */
 const declaringClassOf = (cf: ClassFunction): ts.ClassLikeDeclaration | undefined =>
   cf.node !== undefined && ts.isClassLike(cf.node.parent) ? cf.node.parent : undefined;
+
+/**
+ * A call of a class's function that takes a function (Rule 8.18): the copy made for the
+ * functions the call hands over, called with what those functions capture, then its object,
+ * then the other arguments. `on` is the object the call is on, and `recv` that object lowered as
+ * a value when the caller has it already; both are undefined for a static function or `new`.
+ * `asStatement` when the call is a whole statement, the one place a copy that writes its object
+ * and returns nothing may stand.
+ */
+function lowerCopyCall(
+  node: ts.CallExpression | ts.NewExpression,
+  cf: ClassFunction,
+  on: ts.Expression | undefined,
+  recv: Expr | undefined,
+  asStatement: boolean,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  /** `super.m(...)`: the object is this body's own, `recv`, whichever way the copy takes it,
+   *  as a base's body reached through `super` is (Rule 8.10). */
+  throughSuper = false,
+): Expr | undefined {
+  const made = scope.instantiateMember(cf, node, on, sourceFile, diagnostics);
+  if (made === undefined) return undefined;
+  const { decl, writes } = made;
+  const leading = captureArguments(decl, cf.shown, node, sourceFile, scope, diagnostics);
+  if (leading === undefined) return undefined;
+  if (throughSuper && recv !== undefined) {
+    leading.push(recv);
+  } else if (on !== undefined && cf.kind === 'method') {
+    if (writes) {
+      if (!asStatement) {
+        if (!scope.calleeReady(decl, node, sourceFile, diagnostics)) return undefined;
+        if (typeKey(decl.ret) === 'void') {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            node,
+            `"${cf.shown}" changes its object and returns nothing; call it on its own line.`,
+          );
+          return undefined;
+        }
+      }
+      const target = mutatingReceiver(node, on, cf.shown, sourceFile, scope, diagnostics);
+      if (!target) return undefined;
+      leading.push(target);
+    } else {
+      const value = recv ?? lowerExpression(on, sourceFile, scope, diagnostics);
+      if (!value) return undefined;
+      leading.push(value);
+    }
+  }
+  const fnAt = cf.takesFunctions ?? new Set<number>();
+  const written = (node.arguments ?? []).filter((_, i) => !fnAt.has(i));
+  return lowerUserCall(node, decl, sourceFile, scope, diagnostics, {
+    shown: cf.shown,
+    leading,
+    written,
+  });
+}
 
 /** The receiver of a method that changes its object, lowered as the place the method writes
  *  through, or `undefined` having said why it is not one: a parameter, a `const`, or a value
@@ -1937,13 +2066,23 @@ export function lowerMutatingCall(
   if (!peek || peek.type.kind !== 'struct') return 'not-a-mutating-call';
   const name = peek.type.name;
   const found = memberFunctionOf(name, member, 'method', scope);
-  if (found === undefined || !found.cf.mutates || found.cf.kind === 'static') {
+  // A method that takes a function is this path's whatever its copy turns out to be: one that
+  // writes its object and returns nothing stands here, on its own line (Rule 8.18).
+  if (
+    found === undefined ||
+    found.cf.kind === 'static' ||
+    (!found.cf.mutates && found.cf.takesFunctions === undefined)
+  ) {
     return 'not-a-mutating-call';
   }
   const { decl, cf } = found;
   if (!checkPrivateAccess(member, declaringClassOf(cf), name, callee.name, sourceFile, diagnostics))
     return undefined;
   if (!checkFunctionAccess(cf, name, callee.name, sourceFile, scope, diagnostics)) return undefined;
+  if (cf.takesFunctions !== undefined) {
+    const copied = lowerCopyCall(node, cf, obj, undefined, true, sourceFile, scope, diagnostics);
+    return copied === undefined ? undefined : { s: 'call', expr: copied };
+  }
   const shown = cf.shown;
   const target = mutatingReceiver(node, obj, shown, sourceFile, scope, diagnostics);
   if (!target) return undefined;

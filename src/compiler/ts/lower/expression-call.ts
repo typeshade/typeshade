@@ -243,6 +243,18 @@ export function lowerCall(
     if (local === undefined && declared !== undefined && scope.declarationRefused(name)) {
       return undefined;
     }
+    // One that takes a function is copied for the functions this call hands it (Rule 8.18),
+    // and wins over a builtin of its name as any local function does (Rule 9.5).
+    if (
+      local === undefined &&
+      declared !== undefined &&
+      functionAround(declared) !== undefined &&
+      declaresFunction(declared) &&
+      scope.localFunctions()?.has(name) === true &&
+      scope.isGenericFunction(name)
+    ) {
+      return lowerGenericCall(node, name, name, sourceFile, scope, diagnostics);
+    }
     if (local !== undefined) {
       const leading = captureArguments(local, name, node, sourceFile, scope, diagnostics);
       if (leading === undefined) return undefined;

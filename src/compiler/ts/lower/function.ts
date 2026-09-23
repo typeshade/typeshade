@@ -46,6 +46,7 @@ import {
   capturedName,
   collectLocalFunctions,
   declarationsIn,
+  declaresFunction,
   liftCaptures,
   propagateCaptureRefs,
   type CaptureBinding,
@@ -85,10 +86,12 @@ import {
   collectClassFunctions,
   ctorParts,
   ctorPrologue,
+  registerClassCopy,
   selfRef,
   type ClassFunction,
   type Receiver,
 } from './class-methods.js';
+import { closureUse, declarationOf } from './closures.js';
 import {
   builtinDecoratorArg,
   checkAttributeName,
@@ -240,6 +243,8 @@ export function lowerSourceFunctions(
   // every body around it, as TypeScript's scopes do, so a helper may call its sibling.
   const lifted: Lifted[] = [];
   const aliasesOf = new Map<string, Map<string, string>>();
+  // The local functions that take a function, by emitted name: each call makes a copy.
+  const localTemplates = new Map<string, { fn: LocalFunction; self: LiftedThis | undefined }>();
   const seeLocals = (
     decls: readonly LocalFunctionDecl[],
     ownerName: string,
@@ -253,6 +258,19 @@ export function lowerSourceFunctions(
     const alias = new Map(outer);
     const kept: LocalFunction[] = [];
     for (const fn of found) {
+      // One that takes a function is a pattern a call copies (Rule 8.18): named in its body, and
+      // made where a call hands it its functions, with its own local functions per copy.
+      if (fn.takesFunctions !== undefined) {
+        alias.set(fn.localName, fn.stub.name);
+        fns.generics.add(fn.stub.name);
+        fns.fnParams.set(fn.stub.name, fn.takesFunctions);
+        const selfHere =
+          self === undefined
+            ? undefined
+            : { ...self, bindsThis: self.bindsThis && ts.isArrowFunction(fn.node) };
+        localTemplates.set(fn.stub.name, { fn, self: selfHere });
+        continue;
+      }
       if (callees.has(fn.stub.name)) {
         pushDiag(
           said,
@@ -328,7 +346,9 @@ export function lowerSourceFunctions(
     return said;
   };
   for (const cf of classFns) {
-    if (cf.node?.body) {
+    // A class's function that takes a function is lowered once for each copy a call makes, and
+    // its local functions with it (Rule 8.18).
+    if (cf.node?.body && cf.takesFunctions === undefined) {
       // Inside a method, an arrow function's `this` is the method's object, and inside a static
       // member the class the call names (Rule 8.13).
       const self: LiftedThis | undefined =
@@ -579,7 +599,7 @@ export function lowerSourceFunctions(
     funcs.push(cf.stub);
   };
   for (const cf of classFns) {
-    if (cf.infers !== true || cf.node === undefined) continue;
+    if (cf.infers !== true || cf.node === undefined || cf.takesFunctions !== undefined) continue;
     const node = cf.node;
     pendingFill.set(cf.stub, () => {
       withTypeArguments(undefined, () => fillClassFunction(cf, node, true));
@@ -764,7 +784,10 @@ export function lowerSourceFunctions(
   };
   fns.instantiate = (name, node, argTypes, sf, diags, scope): FuncDecl | undefined => {
     const generic = generics.get(name);
-    if (generic === undefined) return undefined;
+    if (generic === undefined) {
+      const local = localTemplates.get(name);
+      return local === undefined ? undefined : copyLocal(name, local, node, sf, diags, scope);
+    }
     const fnAt = fns.fnParams.get(name) ?? new Set<number>();
     const order = (generic.node.typeParameters ?? []).map((p) => p.name.text);
     // A function handed over by its name says what the type parameters in its parameter's type
@@ -930,6 +953,443 @@ export function lowerSourceFunctions(
       return stub;
     });
   };
+  // A local function that takes a function (Rule 8.18): one copy for each set of functions its
+  // calls hand it, lifted into the body the call is in as an arrow function written as an
+  // argument is. It takes what its own body captures there, by reference once it writes it, and
+  // what the functions handed over capture, which it only hands on.
+  const localCopies = new Map<string, FuncDecl>();
+  const copyLocal = (
+    name: string,
+    t: { fn: LocalFunction; self: LiftedThis | undefined },
+    node: ts.CallExpression,
+    sf: ts.SourceFile,
+    diags: TsCompilerDiagnostic[],
+    scope: LoweringScope,
+  ): FuncDecl | undefined => {
+    const fn = t.fn;
+    const fnAt = fn.takesFunctions!;
+    const owner = scope.owner();
+    if (owner === undefined) return undefined;
+    const targets: { param: ts.ParameterDeclaration; fn: FuncDecl }[] = [];
+    for (const i of [...fnAt].sort((a, b) => a - b)) {
+      const param = fn.node.parameters[i]!;
+      const shape = shapeOf(functionTypeOf(param.type)!, sf, diags);
+      if (shape === undefined) return undefined;
+      const handedFn = functionArgument(node, i, param, shape, fn.localName, scope, sf, diags);
+      if (handedFn === undefined) return undefined;
+      targets.push({ param, fn: handedFn });
+    }
+    const key = [name, owner.name, ...targets.map((x) => x.fn.name)].join('|');
+    const had = localCopies.get(key);
+    if (had !== undefined) return had;
+    if (making.includes(name)) {
+      pushDiag(
+        diags,
+        sf,
+        node,
+        `"${fn.localName}" calls itself, through the functions it is handed, with a function ` +
+          `made anew for each call, so there is no last copy of it to compile. WGSL has no call ` +
+          `stack, so a function must not take part in a call cycle (Rule 8.4).`,
+        TS_CODES.RECURSION,
+      );
+      return undefined;
+    }
+    // What its body reads from the functions around it, `this` in an arrow function inside a
+    // method, and what the local functions it calls capture; not a call of its own parameters.
+    const use = closureUse(fn.node, declaresFunction);
+    const mine: CaptureKey[] = use.captures.map((c) => c.decl);
+    const add = (list: CaptureKey[], k: CaptureKey): void => {
+      if (list.includes(k)) return;
+      if (k === THIS_CAPTURE) list.unshift(k);
+      else list.push(k);
+    };
+    if (use.usesThis && ts.isArrowFunction(fn.node) && scope.resolve('this') !== undefined) {
+      add(mine, THIS_CAPTURE);
+    }
+    for (const d of use.calls) {
+      if ((fn.node.parameters as readonly ts.Node[]).includes(d)) continue;
+      const n = (d as { name?: ts.Node }).name;
+      const called =
+        n !== undefined && ts.isIdentifier(n) ? scope.resolveCallee(n.text) : undefined;
+      for (const k of called === undefined ? [] : (file.captures.get(called.name) ?? [])) {
+        add(mine, k);
+      }
+    }
+    const keys = [...mine];
+    for (const x of targets) for (const k of file.captures.get(x.fn.name) ?? []) add(keys, k);
+    const emitted = freshName([name, ...targets.map((x) => x.fn.name)].join('_'));
+    const stub: FuncDecl = {
+      name: emitted,
+      params: fn.stub.params.map((p) => ({ ...p })),
+      ret: fn.stub.ret,
+      body: [],
+    };
+    (stub as { span?: unknown }).span = spanOf(sf, fn.node);
+    const taken = new Set(stub.params.map((p) => p.name));
+    taken.add('self_');
+    const captures: CaptureBinding[] = [];
+    let receiver: Receiver | undefined;
+    const hidden: FuncDecl['params'][number][] = [];
+    for (const k of keys) {
+      const held =
+        k === THIS_CAPTURE
+          ? (scope.bindingOfDeclaration(k) ?? scope.resolve('this'))
+          : scope.bindingOfDeclaration(k);
+      if (held === undefined) {
+        // Read before its declaration, where TypeScript throws: the call runs the function now.
+        pushDiag(
+          diags,
+          sf,
+          node,
+          `"${fn.localName}" reads "${keyName(k)}", which is not declared yet where ` +
+            `"${fn.localName}" is called: a let or a const is not there before its declaration, ` +
+            `and TypeScript throws. Call "${fn.localName}" after "${keyName(k)}" is declared.`,
+          TS_CODES.UNKNOWN_NAME,
+        );
+        return undefined;
+      }
+      if (k === THIS_CAPTURE) {
+        hidden.unshift({
+          name: 'self_',
+          type: held.type,
+          ...(held.mutable ? { mode: 'inout' as const } : {}),
+        });
+        receiver = {
+          type: held.type,
+          mode: held.mutable ? 'inout' : 'param',
+          fieldInits: [],
+          shown: owner.name,
+          ...(scope.superMethods() !== undefined ? { superMethods: scope.superMethods() } : {}),
+        };
+        continue;
+      }
+      const base = capturedName(k);
+      let pname = base;
+      for (let n = 1; taken.has(pname); n++) pname = `${base}_${String(n)}`;
+      taken.add(pname);
+      const param: FuncDecl['params'][number] = { name: pname, type: held.type };
+      hidden.push(param);
+      if (!mine.includes(k)) {
+        // Captured by a function handed over and named nowhere in this body: handed on.
+        captures.push({
+          key: k,
+          byName: false,
+          binding: { kind: 'param', name: pname, type: held.type, mutable: true },
+        });
+        continue;
+      }
+      const of = writeRules(held);
+      captures.push({
+        key: k,
+        byName: true,
+        binding: {
+          kind: 'param',
+          name: base,
+          type: held.type,
+          mutable: of.mutable,
+          ...(of.constValue !== undefined ? { constValue: of.constValue } : {}),
+          irName: pname,
+          capture: {
+            of,
+            byRef: () => {
+              (param as { mode?: 'inout' }).mode = 'inout';
+            },
+          },
+        },
+      });
+    }
+    (stub as { params: FuncDecl['params'] }).params = [...hidden, ...stub.params];
+    if (keys.length > 0) file.captures.set(emitted, keys);
+    // Registered BEFORE the body is lowered, so a copy that calls itself with the same functions
+    // finds this one rather than making another forever.
+    localCopies.set(key, stub);
+    callees.set(emitted, stub);
+    writtenAs.set(emitted, fn.localName);
+    making.push(name);
+    try {
+      // In the body, a parameter of function type names the function handed over.
+      const handed = new Map<string, string>();
+      for (const x of targets) {
+        if (ts.isIdentifier(x.param.name)) handed.set(x.param.name.text, x.fn.name);
+      }
+      const outer = new Map([...(scope.localFunctions() ?? new Map<string, string>()), ...handed]);
+      const lifts: Lifted[] = [];
+      if (fn.node.body !== undefined) {
+        seeLocals(
+          declarationsIn(fn.node.body),
+          emitted,
+          new Map([[fn.node, stub]]),
+          t.self,
+          outer,
+          lifts,
+          diags,
+        );
+        liftCaptures(lifts, callees, file, new Map(targets.map((x) => [x.param as ts.Node, x.fn])));
+        holdLifted(lifts, sf, diags);
+      }
+      const arrow = ts.isArrowFunction(fn.node);
+      track(stub, fn.infers, diags, () =>
+        fillFunctionBody(
+          fn.node,
+          stub,
+          sf,
+          diags,
+          callees,
+          consts,
+          bindings,
+          structs,
+          symbols,
+          overrides,
+          vars,
+          receiver,
+          undefined,
+          scope.namespaceOf(),
+          aliasesOf.get(emitted) ?? outer,
+          arrow ? scope.staticClass() : undefined,
+          arrow && receiver === undefined ? scope.superMethods() : undefined,
+          captures,
+          fn.node.parameters.filter((_, i) => !fnAt.has(i)),
+          fn.infers,
+        ),
+      );
+      funcs.push(stub);
+      nodeByName.set(emitted, fn.node);
+      fillLifted(lifts, sf, diags);
+    } finally {
+      making.pop();
+    }
+    return stub;
+  };
+  // A method, a static method or a constructor that takes a function (Rule 8.18): one copy for
+  // each set of functions its calls hand it, as a function of the file is, and made where a
+  // call asks for it. The copy takes what the functions handed over capture ahead of its own
+  // parameters, then its object, then the rest.
+  //
+  // One variable, one reference. When a function handed over captures the very variable the
+  // call is on (`this.each((i) => { this.total += … })`, `g.each(() => g.n++)`), TypeScript
+  // has one object where the copy would have two: the copy's object stands for that capture
+  // too, by reference when the caller may write it, so the method reads what the function
+  // wrote. A capture of the variable that HOLDS the object, through a field or an element of it,
+  // would be a second reference into one variable, which WGSL refuses when either is written
+  // (Alias Analysis); that call is refused first (Rule 12.6).
+  const memberCopies = new Map<string, { decl: FuncDecl; writes: boolean }>();
+  const makingMembers: string[] = [];
+  /** The capture key of the variable `e` names: `this` in a method, or a local or a parameter. */
+  const placeKey = (e: ts.Expression, scope: LoweringScope): CaptureKey | undefined => {
+    let x = e;
+    while (ts.isParenthesizedExpression(x)) x = x.expression;
+    // `super.m(...)` runs on this body's own object.
+    if (x.kind === ts.SyntaxKind.ThisKeyword || x.kind === ts.SyntaxKind.SuperKeyword) {
+      return scope.resolve('this') !== undefined ? THIS_CAPTURE : undefined;
+    }
+    return ts.isIdentifier(x) ? declarationOf(x) : undefined;
+  };
+  /** The capture key of the variable a field or element path `e` starts from. */
+  const rootKey = (e: ts.Expression, scope: LoweringScope): CaptureKey | undefined => {
+    let x = e;
+    for (;;) {
+      while (ts.isParenthesizedExpression(x)) x = x.expression;
+      if (ts.isPropertyAccessExpression(x) || ts.isElementAccessExpression(x)) x = x.expression;
+      else break;
+    }
+    return x === e ? undefined : placeKey(x, scope);
+  };
+  const keyName = (k: CaptureKey): string => (k === THIS_CAPTURE ? 'this' : capturedName(k));
+  const keyId = (k: CaptureKey): string => (k === THIS_CAPTURE ? 'this' : String(k.pos));
+  fns.instantiateMember = (cf, node, on, sf, diags, scope) => {
+    const fnAt = cf.takesFunctions;
+    const member = cf.node;
+    if (fnAt === undefined || member === undefined) return undefined;
+    const targets: { param: ts.ParameterDeclaration; fn: FuncDecl }[] = [];
+    for (const i of [...fnAt].sort((a, b) => a - b)) {
+      const param = member.parameters[i]!;
+      const shape = shapeOf(functionTypeOf(param.type)!, sf, diags);
+      if (shape === undefined) return undefined;
+      const fn = functionArgument(
+        node as ts.CallExpression,
+        i,
+        param,
+        shape,
+        cf.shown,
+        scope,
+        sf,
+        diags,
+      );
+      if (fn === undefined) return undefined;
+      targets.push({ param, fn });
+    }
+    // What the functions handed over capture, once each, in the order they are met.
+    const keys: CaptureKey[] = [];
+    for (const t of targets) {
+      for (const k of file.captures.get(t.fn.name) ?? []) if (!keys.includes(k)) keys.push(k);
+    }
+    const holderOf = (k: CaptureKey) =>
+      k === THIS_CAPTURE ? scope.resolve('this') : scope.bindingOfDeclaration(k);
+    const method = cf.kind === 'method' && on !== undefined;
+    const share = method ? placeKey(on, scope) : undefined;
+    const root = method && share === undefined ? rootKey(on, scope) : undefined;
+    if (root !== undefined && keys.includes(root) && (cf.mutates || holderOf(root)?.mutable)) {
+      const t = targets.find((x) => (file.captures.get(x.fn.name) ?? []).includes(root))!;
+      const pname = ts.isIdentifier(t.param.name) ? t.param.name.text : 'f';
+      pushDiag(
+        diags,
+        sf,
+        node,
+        `"${pname}" of "${cf.shown}" reaches "${keyName(root)}", which holds ` +
+          `"${on!.getText(sf)}", the object the call is on, so the call would take two ` +
+          `references into one variable, which WGSL refuses where either is written. Call it on ` +
+          `a copy in a let, and assign the copy back if the call changes it (Rule 8.18).`,
+        TS_CODES.UNSUPPORTED,
+      );
+      return undefined;
+    }
+    const shared = share !== undefined && keys.includes(share);
+    const writes = method && (cf.mutates || (shared && holderOf(share)?.mutable === true));
+    const own = keys.filter((k) => !(shared && k === share));
+    const key = [
+      cf.stub.name,
+      ...targets.map((t) => t.fn.name),
+      writes ? 'w' : 'r',
+      shared ? keyId(share) : '-',
+    ].join('|');
+    const had = memberCopies.get(key);
+    if (had !== undefined) return had;
+    if (makingMembers.includes(cf.stub.name)) {
+      pushDiag(
+        diags,
+        sf,
+        node,
+        `"${cf.shown}" calls itself, through the functions it is handed, with a function made ` +
+          `anew for each call, so there is no last copy of it to compile. WGSL has no call ` +
+          `stack, so a function must not take part in a call cycle (Rule 8.4).`,
+        TS_CODES.RECURSION,
+      );
+      return undefined;
+    }
+    const emitted = freshName([cf.stub.name, ...targets.map((t) => t.fn.name)].join('_'));
+    const receiverParams = cf.kind === 'method' ? cf.stub.params.slice(0, 1) : [];
+    const ownParams = cf.stub.params.slice(receiverParams.length);
+    // A method's object and a constructor's object under construction are both `self_`.
+    const taken = new Set(ownParams.map((p) => p.name));
+    if (cf.kind !== 'static') taken.add('self_');
+    const captures: CaptureBinding[] = [];
+    const hidden = own.map((k): FuncDecl['params'][number] => {
+      const type = holderOf(k)?.type ?? voidT;
+      // `this` of the calling body, which is not the copy's own object: a name of its own.
+      const base = k === THIS_CAPTURE ? (cf.kind === 'static' ? 'self_' : 'this_') : keyName(k);
+      let pname = base;
+      for (let n = 1; taken.has(pname); n++) pname = `${base}_${String(n)}`;
+      taken.add(pname);
+      captures.push({
+        key: k,
+        byName: false,
+        binding: { kind: 'param', name: pname, type, mutable: true },
+      });
+      return { name: pname, type };
+    });
+    const stub: FuncDecl = {
+      name: emitted,
+      params: [
+        ...hidden,
+        ...receiverParams.map((p) => ({
+          name: p.name,
+          type: p.type,
+          ...(writes ? { mode: 'inout' as const } : {}),
+        })),
+        ...ownParams.map((p) => ({ ...p })),
+      ],
+      ret: cf.stub.ret,
+      body: [],
+    };
+    (stub as { span?: SourceSpan }).span = spanOf(sf, member);
+    if (own.length > 0) file.captures.set(emitted, own);
+    const made = { decl: stub, writes };
+    // Registered BEFORE the body is lowered, so a copy that calls itself with the same functions
+    // finds this one rather than making another forever.
+    memberCopies.set(key, made);
+    callees.set(emitted, stub);
+    writtenAs.set(emitted, cf.shown);
+    registerClassCopy(stub, cf, writes);
+    const receiver: Receiver | undefined =
+      cf.receiver === undefined || cf.receiver.mode === 'ctor'
+        ? cf.receiver
+        : { ...cf.receiver, mode: writes ? 'inout' : 'param' };
+    const said = saidFor(cf);
+    makingMembers.push(cf.stub.name);
+    try {
+      // In the body, a parameter of function type names the function handed over.
+      const handed = new Map<string, string>();
+      for (const t of targets) {
+        if (ts.isIdentifier(t.param.name)) handed.set(t.param.name.text, t.fn.name);
+      }
+      // Its own local functions, one set per copy, as the body around them is.
+      const self: LiftedThis | undefined =
+        receiver !== undefined
+          ? {
+              receiver: {
+                type: receiver.type,
+                mode: receiver.mode === 'param' ? 'param' : 'inout',
+                superMethods: receiver.superMethods,
+              },
+              bindsThis: true,
+              shown: cf.shown,
+            }
+          : cf.staticOwner !== undefined
+            ? {
+                staticOwner: cf.staticOwner,
+                staticSuper: cf.staticSuper,
+                bindsThis: true,
+                shown: cf.shown,
+              }
+            : undefined;
+      const mine: Lifted[] = [];
+      if (member.body !== undefined) {
+        seeLocals(
+          declarationsIn(member.body),
+          emitted,
+          new Map([[member, stub]]),
+          self,
+          handed,
+          mine,
+          said,
+        );
+        liftCaptures(mine, callees, file, new Map(targets.map((t) => [t.param as ts.Node, t.fn])));
+        holdLifted(mine, sf, said);
+      }
+      const infers = cf.infers === true;
+      track(stub, infers, said, () =>
+        fillFunctionBody(
+          member,
+          stub,
+          sf,
+          said,
+          callees,
+          consts,
+          bindings,
+          structs,
+          symbols,
+          overrides,
+          vars,
+          receiver,
+          cf.shown,
+          undefined,
+          aliasesOf.get(emitted) ?? handed,
+          cf.staticOwner,
+          cf.staticSuper,
+          captures,
+          member.parameters.filter((_, i) => !fnAt.has(i)),
+          infers,
+          shared ? [share] : undefined,
+        ),
+      );
+      funcs.push(stub);
+      nodeByName.set(emitted, member);
+      fillLifted(mine, sf, said);
+    } finally {
+      makingMembers.pop();
+    }
+    return made;
+  };
   // An arrow function or a function expression written as an argument (Rule 8.18): a local
   // function of the body the call is in, lifted where the call is lowered, once for each body
   // lowered, since its captures are that body's.
@@ -1089,6 +1549,8 @@ export function lowerSourceFunctions(
   // where something calls it and nothing where nothing does (Rule 8.13), which is decided once
   // every body is lowered and the calls are known.
   for (const cf of classFns) {
+    // One that takes a function has no body of its own: each call made the copy it needs.
+    if (cf.takesFunctions !== undefined) continue;
     // One whose body says its return type, or a setter whose value takes its getter's, and that
     // a call lowered already, is not lowered again.
     if ((cf.infers === true || cf.valueFromGetter === true) && cf.node !== undefined) {
@@ -1522,17 +1984,17 @@ export function parseParams(
       );
       return undefined;
     }
-    // A function a top-level function takes is the function a call hands it, one instance per
-    // function (Rule 8.18); a method, a constructor and a local function have no instances to
-    // make, and a top-level function that takes one never reaches here with it.
+    // A function, a method, a constructor and a local function that take a function are copied
+    // for each function a call hands them (Rule 8.18), and skip that parameter before here. What
+    // is left is a setter's value, which an assignment gives it: no call hands it a function.
     if (functionTypeOf(p.type) !== undefined) {
       pushDiag(
         diagnostics,
         sourceFile,
         p.type ?? p,
-        `"${p.name.text}" takes a function, which only a function declared at the top of the ` +
-          `file or of a namespace may take (Rule 8.18): declare one there that takes it, and ` +
-          `call that from ${opts.owner === undefined ? 'here' : `"${opts.owner}"`}.`,
+        `"${p.name.text}" takes a function, and ${opts.owner === undefined ? 'this' : `"${opts.owner}"`} ` +
+          `is a setter, whose value an assignment gives it: a shader has no function value to ` +
+          `assign. Take the function in a method instead (Rule 8.18).`,
         TS_CODES.FUNCTION_SHAPE,
       );
       return undefined;
@@ -2263,6 +2725,9 @@ export function fillFunctionBody(
    *  where nothing says what it returns (Rule 8.18). An expression body returns its value, and
    *  a block what its `return`s do. */
   inferRet?: boolean,
+  /** The variables the body's object stands for as well as `this`: in the copy of a method a
+   *  call made on one, the capture of it a function handed over takes (Rule 8.18). */
+  receiverKeys?: readonly CaptureKey[],
 ): void {
   const scope = functionScope(
     stub,
@@ -2354,7 +2819,10 @@ export function fillFunctionBody(
   // name, unless one of its own parameters took that name first. One the body does not read by
   // name is bound under a name no source can write, `#n`, and reached through its declaration.
   const self = scope.resolve('this');
-  if (self !== undefined) scope.bindDeclaration(THIS_CAPTURE, self);
+  if (self !== undefined) {
+    scope.bindDeclaration(THIS_CAPTURE, self);
+    for (const k of receiverKeys ?? []) scope.bindDeclaration(k, self);
+  }
   for (const c of captures ?? []) {
     const named = c.byName && !scope.hasInCurrent(c.binding.name);
     const ir = c.binding.irName ?? c.binding.name;

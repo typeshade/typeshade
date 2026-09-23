@@ -236,6 +236,27 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A method, a static method, a constructor, a field that holds a function and a local function
+  take a function, as a function of the file does** (Rule 8.18; Rules 7.2 and 8.10; surface §14
+  and §26; proposal 0002). A parameter of function type on any of them was refused with
+  `TS8020`, since only a function declared at the top of the file or of a namespace could take
+  a function. Each is now compiled once for each set of functions its calls hand it, as a function of the
+  file is: `s.each(sq)` calls `Swarm_each_sq(s)`, `new C(sq)` calls `C_new_sq()`, and a local
+  `twice` handed an arrow function calls `run_twice_run_f(k, x)`. A copy of a method takes its
+  object as the method does (Rule 8.10), and a copy of a local function its own captures. A
+  variable both the copy and the function handed over reach is one parameter, by reference
+  where either side writes it: a variable both capture, and the object the method is called on
+  when the function handed over writes it. So `w.sixteen((i) => { w.x += … })` is
+  `Walker_sixteen_walk_step(&rng, &w)`, and the steps move the walker `sixteen` reads, as in
+  TypeScript. A call through `super`, an inherited method and a parameter handed on to another
+  method copy the same way. Still refused, each with the fix: a parameter of function type on
+  an accessor, whose value an assignment gives it, and on an entry point (`TS8020`), and a call
+  that would take two references into one variable, one of them written, which WGSL's alias
+  analysis refuses (`TS8099`). `src/compiler/ts/higher-order.test.ts` holds WGSL, GLSL ES 3.00
+  and every CPU path to one value for each place and for the shared variable;
+  `examples/higher-order.shade.ts` draws a ring of dots through a method, and the random-walk
+  journey's `sixteen` is a method of `Walker`.
+
 - **A setter with no type takes the type its getter's body returns** (Rule 8.19; surface §14
   and §26; proposal 0003). `get x() { return this.v * 2.; }` beside `set x(n) { this.v = n / 2.; }`
   was `TS8002 The setter "Gauge.x" needs a type for "n": write "set x(n: T)", or give the getter a

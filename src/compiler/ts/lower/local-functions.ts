@@ -34,7 +34,7 @@ import {
 import { parseParams, parseReturnType } from './function.js';
 import type { Receiver } from './class-methods.js';
 import { closureUse, functionAround, type ClosureUse } from './closures.js';
-import { functionTypeOf } from './function-types.js';
+import { functionParams, functionTypeOf } from './function-types.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
 
 /** Whether `decl` declares a function a body calls by name: a local function, or a parameter
@@ -65,6 +65,10 @@ export interface LocalFunction {
   readonly decl: LocalFunctionDecl;
   /** Whether it writes no return type, which its body then says (Rule 8.19). */
   readonly infers: boolean;
+  /** The parameters that take a function, when some do: then it is compiled once for each set
+   *  of functions its calls hand it, and its stub, whose parameters are the others, is only the
+   *  pattern each copy is made from (Rule 8.18). */
+  readonly takesFunctions?: ReadonlySet<number>;
 }
 
 /** The emitted name of a local function: `fs_f` for `f` inside `fs`, and `f` at the top level,
@@ -144,9 +148,17 @@ export function collectLocalFunctions(
       continue;
     }
     const name = localFnName(ownerName, local);
-    const params = parseParams(node.parameters, sourceFile, diagnostics, structs, undefined, {
-      owner: shown,
-    });
+    // A parameter of function type makes it a pattern for copies, one for each set of functions
+    // its calls hand it (Rule 8.18); the other parameters are its own.
+    const fnAt = functionParams(node);
+    const params = parseParams(
+      node.parameters.filter((_, i) => !fnAt.has(i)),
+      sourceFile,
+      diagnostics,
+      structs,
+      undefined,
+      { owner: shown },
+    );
     if (!params) {
       refuse();
       continue;
@@ -160,7 +172,15 @@ export function collectLocalFunctions(
     const stub: FuncDecl = { name, params, ret, body: [] };
     (stub as { span?: unknown }).span = spanOf(sourceFile, node);
     (stub as { nameSpan?: unknown }).nameSpan = spanOf(sourceFile, decl.name);
-    out.push({ node, stub, localName: local, ownerName, decl, infers: node.type === undefined });
+    out.push({
+      node,
+      stub,
+      localName: local,
+      ownerName,
+      decl,
+      infers: node.type === undefined,
+      ...(fnAt.size > 0 ? { takesFunctions: fnAt } : {}),
+    });
   }
   return out;
 }

@@ -1132,13 +1132,20 @@ called, or handed on to another such parameter (`twice(f)` calling `apply(f, x)`
 The folds take the same arguments: `any(xs, pred)`, `all`, `none` and `zip(xs, ys, f)` accept an
 arrow function, typed by the arrays, and one `zip` is handed returns what its body does.
 
+A local function takes a function the same way, and so do a method, a static method, a
+constructor and a field that holds a function (§26): `const twice = (f: (x: f32) => f32, x: f32)
+=> f(f(x))` in `run`, handed `(x) => x * k`, is `run_twice_run_f(k, x)`. A copy takes what its
+own body captures and what the functions handed over capture, and a variable both reach once:
+a local function that writes `total` and is handed an arrow function that writes it too takes
+one `total`, by reference.
+
 Refused, each with the reason: a function that does not fit the parameter's type (`"add" takes 2
 argument(s), and "(x: f32) => f32" passes 1`); an argument that would choose a function at run
 time (`c ? sq : cube`); a builtin or a generic function by its name, for which an arrow function
-that calls it is the fix; a parameter of function type on a method, a constructor, an accessor, a
-local function or an entry point, which have no copies to make; a function type anywhere else, a
-return, a field, a variable; and a function that hands itself a function it builds anew on every
-call, whose copies would never end.
+that calls it is the fix; a parameter of function type on a setter, whose value an assignment
+gives it, or on an entry point, whose parameters the pipeline supplies; a function type anywhere
+else, a return, a field, a variable; and a function that hands itself a function it builds anew
+on every call, whose copies would never end.
 
 ### A return type left off is the body's to say
 
@@ -2948,6 +2955,61 @@ object's own. An accessor over an abstract field is refused too, although TypeSc
 abstract field is a member of every struct below the class that declares it, so a body that class
 wrote would read the member and never the accessor, 0 where TypeScript computes the getter's value.
 The fix is named, `abstract get f(): f32`, which means the same and reaches the accessor.
+
+### A method that takes a function
+
+A method, a static method, a constructor and a field that holds a function take a function as a
+function of the file does (Rule 8.18, §14): each is compiled once for each set of functions its
+calls hand it, and in each copy a call of the parameter calls the function handed over. The
+copy takes what the functions handed over capture, then its object, then the rest.
+
+```ts
+"use typeshade";
+class Swarm {
+  total: f32 = 0.;
+  each(f: (i: i32) => void) {
+    for (let i = 0; i < 4; i++) f(i);
+  }
+  sum(k: f32) {
+    this.each((i) => {
+      this.total += f32(i) * k;
+    });
+  }
+  static twice(f: (x: f32) => f32, x: f32) {
+    return f(f(x));
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let s = new Swarm();
+  s.sum(uv.x);
+  let n = 0.;
+  s.each((i) => {
+    n += f32(i);
+  });
+  return vec4(s.total, n, Swarm.twice((x) => x * 0.5, uv.y), 1.);
+}
+```
+
+```wgsl
+fn Swarm_each_Swarm_sum_f(k: f32, self_: ptr<function, Swarm>) { … }
+fn Swarm_each_fs_f(n: ptr<function, f32>, self_: Swarm) { … }
+fn Swarm_twice_fs_f_1(x: f32) -> f32 { … }
+```
+
+`each` writes nothing of its own object, and the arrow function in `sum` writes `this.total`. In
+TypeScript that is one object, so the copy of `each` takes its object by reference and hands the
+same reference to the arrow function (Rule 8.10): what `each` reads is what the function wrote.
+The same holds for a local named as the object, `g.each(() => { g.n += k; })`. The call through
+`super`, `super.each(f)`, runs the base's copy on this body's object, and a method a class
+inherits is copied for the class that calls it.
+
+Refused, with the fix: a function handed to a call on a field or an element of a variable that
+the function reaches, when either may write it (`this.inner.each((i) => { this.total += 1.; })`),
+since the call would take two references into one variable, which WGSL refuses where either is
+written: call it on a copy in a let, and assign the copy back if the call changes it. A setter
+takes no function (§14).
 
 ### An interface with methods is a contract
 
