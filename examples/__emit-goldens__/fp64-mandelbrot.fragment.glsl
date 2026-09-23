@@ -20,41 +20,16 @@ vec2 escape_f32(float cx, float cy, uint iters) {
   float _v1 = 0.0;
   float _v2 = 0.0;
   for (uint _v3 = 0u; (_v3 < iters); _v3 = (_v3 + 1u)) {
-    if ((((_v0 * _v0) + (_v1 * _v1)) <= 16.0)) {
-      float _v4 = (((_v0 * _v0) - (_v1 * _v1)) + cx);
+    float _gv0 = (_v0 * _v0);
+    float _gv1 = (_v1 * _v1);
+    if (((_gv0 + _gv1) <= 16.0)) {
+      float _v4 = ((_gv0 - _gv1) + cx);
       _v1 = (((_v0 * _v1) * 2.0) + cy);
       _v0 = _v4;
       _v2 = (_v2 + 1.0);
     }
   }
   return vec2(_v2, ((_v0 * _v0) + (_v1 * _v1)));
-}
-
-bool df64_le(vec2 a, vec2 b) {
-  return ((a.x < b.x) || ((a.x == b.x) && (a.y <= b.y)));
-}
-
-vec2 df64_twoSum(float a, float b, float _fp64_g) {
-  float _v0 = (a + b);
-  float _v1 = (((_v0 * _fp64_g) - a) * _fp64_g);
-  float _v2 = (((a - ((_v0 - _v1) * _fp64_g)) * _fp64_g) + (b - _v1));
-  return vec2(_v0, _v2);
-}
-
-vec2 df64_quickTwoSum(float a, float b, float _fp64_g) {
-  float _v0 = ((a + b) * _fp64_g);
-  float _v1 = (b - ((_v0 - a) * _fp64_g));
-  return vec2(_v0, _v1);
-}
-
-vec2 df64_add(vec2 a, vec2 b, float _fp64_g) {
-  vec2 _v0 = df64_twoSum(a.x, b.x, _fp64_g);
-  vec2 _v1 = df64_twoSum(a.y, b.y, _fp64_g);
-  _v0.y = (_v0.y + _v1.x);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
-  _v0.y = (_v0.y + _v1.y);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
-  return _v0;
 }
 
 vec2 df64_split(float a, float _fp64_g) {
@@ -72,12 +47,39 @@ vec2 df64_twoProd(float a, float b, float _fp64_g) {
   return vec2(_v0, _v3);
 }
 
+vec2 df64_quickTwoSum(float a, float b, float _fp64_g) {
+  float _v0 = ((a + b) * _fp64_g);
+  float _v1 = (b - ((_v0 - a) * _fp64_g));
+  return vec2(_v0, _v1);
+}
+
 vec2 df64_mul(vec2 a, vec2 b, float _fp64_g) {
   vec2 _v0 = df64_twoProd(a.x, b.x, _fp64_g);
   _v0.y = (_v0.y + (a.x * b.y));
   _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
   _v0.y = (_v0.y + (a.y * b.x));
   return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
+}
+
+bool df64_le(vec2 a, vec2 b) {
+  return ((a.x < b.x) || ((a.x == b.x) && (a.y <= b.y)));
+}
+
+vec2 df64_twoSum(float a, float b, float _fp64_g) {
+  float _v0 = (a + b);
+  float _v1 = (((_v0 * _fp64_g) - a) * _fp64_g);
+  float _v2 = (((a - ((_v0 - _v1) * _fp64_g)) * _fp64_g) + (b - _v1));
+  return vec2(_v0, _v2);
+}
+
+vec2 df64_add(vec2 a, vec2 b, float _fp64_g) {
+  vec2 _v0 = df64_twoSum(a.x, b.x, _fp64_g);
+  vec2 _v1 = df64_twoSum(a.y, b.y, _fp64_g);
+  _v0.y = (_v0.y + _v1.x);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
+  _v0.y = (_v0.y + _v1.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
+  return _v0;
 }
 
 vec2 df64_sub(vec2 a, vec2 b, float _fp64_g) {
@@ -97,8 +99,10 @@ vec2 escape_f64(vec2 cx, vec2 cy, uint iters) {
   vec2 _v1 = _cse0;
   float _v2 = 0.0;
   for (uint _v3 = 0u; (_v3 < iters); _v3 = (_v3 + 1u)) {
-    if (df64_le(df64_add(df64_mul(_v0, _v0, _fp64_g), df64_mul(_v1, _v1, _fp64_g), _fp64_g), _licm0)) {
-      vec2 _v4 = df64_add(df64_sub(df64_mul(_v0, _v0, _fp64_g), df64_mul(_v1, _v1, _fp64_g), _fp64_g), cx, _fp64_g);
+    vec2 _gv0 = df64_mul(_v0, _v0, _fp64_g);
+    vec2 _gv1 = df64_mul(_v1, _v1, _fp64_g);
+    if (df64_le(df64_add(_gv0, _gv1, _fp64_g), _licm0)) {
+      vec2 _v4 = df64_add(df64_sub(_gv0, _gv1, _fp64_g), cx, _fp64_g);
       _v1 = df64_add(df64_mul(df64_mul(_v0, _v1, _fp64_g), _licm1, _fp64_g), cy, _fp64_g);
       _v0 = _v4;
       _v2 = (_v2 + 1.0);

@@ -46,8 +46,10 @@ fn fs_ship(vo: VsOut) -> @location(0) vec4<f32> {
     var _v9: f32 = 0.0;
     var _v10: f32 = 0.0;
     for (var _v11: u32 = 0u; (_v11 < 128u); _v11 = (_v11 + 1u)) {
-      if ((((_v9 * _v9) + (_v10 * _v10)) <= 16.0)) {
-        let _v12 = (((_v9 * _v9) - (_v10 * _v10)) + _v7);
+      let _gv1 = (_v9 * _v9);
+      let _gv2 = (_v10 * _v10);
+      if (((_gv1 + _gv2) <= 16.0)) {
+        let _v12 = ((_gv1 - _gv2) + _v7);
         _v10 = ((abs((_v9 * _v10)) * 2.0) + _v8);
         _v9 = _v12;
         _v5 = (_v5 + 1.0);
@@ -61,8 +63,10 @@ fn fs_ship(vo: VsOut) -> @location(0) vec4<f32> {
     var _v15: vec2<f32> = _cse3;
     var _v16: vec2<f32> = _cse3;
     for (var _v17: u32 = 0u; (_v17 < 128u); _v17 = (_v17 + 1u)) {
-      if (df64_le(df64_add(df64_mul(_v15, _v15, _fp64_g), df64_mul(_v16, _v16, _fp64_g), _fp64_g), _licm0)) {
-        let _v18 = df64_add(df64_sub(df64_mul(_v15, _v15, _fp64_g), df64_mul(_v16, _v16, _fp64_g), _fp64_g), _v13, _fp64_g);
+      let _gv3 = df64_mul(_v15, _v15, _fp64_g);
+      let _gv4 = df64_mul(_v16, _v16, _fp64_g);
+      if (df64_le(df64_add(_gv3, _gv4, _fp64_g), _licm0)) {
+        let _v18 = df64_add(df64_sub(_gv3, _gv4, _fp64_g), _v13, _fp64_g);
         _v16 = df64_add(df64_mul(df64_abs(df64_mul(_v15, _v16, _fp64_g)), _licm1, _fp64_g), _v14, _fp64_g);
         _v15 = _v18;
         _v5 = (_v5 + 1.0);

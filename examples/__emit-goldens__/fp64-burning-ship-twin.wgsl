@@ -46,8 +46,10 @@ fn fs_ship(vo: VsOut) -> @location(0) vec4<f32> {
     var zx: f32 = 0.0;
     var zy: f32 = 0.0;
     for (var j: u32 = 0u; (j < 128u); j = (j + 1u)) {
-      if ((((zx * zx) + (zy * zy)) <= 16.0)) {
-        let nzx = (((zx * zx) - (zy * zy)) + cx);
+      let _gv1 = (zx * zx);
+      let _gv2 = (zy * zy);
+      if (((_gv1 + _gv2) <= 16.0)) {
+        let nzx = ((_gv1 - _gv2) + cx);
         zy = ((abs((zx * zy)) * 2.0) + cy);
         zx = nzx;
         it = (it + 1.0);
@@ -61,8 +63,10 @@ fn fs_ship(vo: VsOut) -> @location(0) vec4<f32> {
     var zx_1: vec2<f32> = _cse3;
     var zy_1: vec2<f32> = _cse3;
     for (var j_1: u32 = 0u; (j_1 < 128u); j_1 = (j_1 + 1u)) {
-      if (df64_le(df64_add(df64_mul(zx_1, zx_1, _fp64_g), df64_mul(zy_1, zy_1, _fp64_g), _fp64_g), _licm0)) {
-        let nzx_1 = df64_add(df64_sub(df64_mul(zx_1, zx_1, _fp64_g), df64_mul(zy_1, zy_1, _fp64_g), _fp64_g), cx_1, _fp64_g);
+      let _gv3 = df64_mul(zx_1, zx_1, _fp64_g);
+      let _gv4 = df64_mul(zy_1, zy_1, _fp64_g);
+      if (df64_le(df64_add(_gv3, _gv4, _fp64_g), _licm0)) {
+        let nzx_1 = df64_add(df64_sub(_gv3, _gv4, _fp64_g), cx_1, _fp64_g);
         zy_1 = df64_add(df64_mul(df64_abs(df64_mul(zx_1, zy_1, _fp64_g)), _licm1, _fp64_g), cy_1, _fp64_g);
         zx_1 = nzx_1;
         it = (it + 1.0);

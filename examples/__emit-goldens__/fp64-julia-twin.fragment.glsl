@@ -94,8 +94,10 @@ void main() {
     float zx = (df64_narrow(_cse1) + dx);
     float zy = (df64_narrow(_cse2) + dy);
     for (uint j = 0u; (j < 128u); j = (j + 1u)) {
-      if ((((zx * zx) + (zy * zy)) <= 16.0)) {
-        float nzx = (((zx * zx) - (zy * zy)) + -0.8);
+      float _gv0 = (zx * zx);
+      float _gv1 = (zy * zy);
+      if (((_gv0 + _gv1) <= 16.0)) {
+        float nzx = ((_gv0 - _gv1) + -0.8);
         zy = (((zx * zy) * 2.0) + 0.156);
         zx = nzx;
         it = (it + 1.0);
@@ -106,8 +108,10 @@ void main() {
     vec2 zx_1 = df64_add(_cse1, vec2(dx, 0.0), _fp64_g);
     vec2 zy_1 = df64_add(_cse2, vec2(dy, 0.0), _fp64_g);
     for (uint j_1 = 0u; (j_1 < 128u); j_1 = (j_1 + 1u)) {
-      if (df64_le(df64_add(df64_mul(zx_1, zx_1, _fp64_g), df64_mul(zy_1, zy_1, _fp64_g), _fp64_g), _licm0)) {
-        vec2 nzx_1 = df64_add(df64_sub(df64_mul(zx_1, zx_1, _fp64_g), df64_mul(zy_1, zy_1, _fp64_g), _fp64_g), _licm1, _fp64_g);
+      vec2 _gv2 = df64_mul(zx_1, zx_1, _fp64_g);
+      vec2 _gv3 = df64_mul(zy_1, zy_1, _fp64_g);
+      if (df64_le(df64_add(_gv2, _gv3, _fp64_g), _licm0)) {
+        vec2 nzx_1 = df64_add(df64_sub(_gv2, _gv3, _fp64_g), _licm1, _fp64_g);
         zy_1 = df64_add(df64_mul(df64_mul(zx_1, zy_1, _fp64_g), _licm2, _fp64_g), _licm3, _fp64_g);
         zx_1 = nzx_1;
         it = (it + 1.0);

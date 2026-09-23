@@ -47,11 +47,13 @@ fn fs_de(vo: VsOut) -> @location(0) vec4<f32> {
     var _v11: f32 = 0.0;
     var _v12: f32 = 0.0;
     for (var _v13: u32 = 0u; (_v13 < 160u); _v13 = (_v13 + 1u)) {
-      if ((((_v9 * _v9) + (_v10 * _v10)) <= 1000000.0)) {
+      let _gv1 = (_v9 * _v9);
+      let _gv2 = (_v10 * _v10);
+      if (((_gv1 + _gv2) <= 1000000.0)) {
         let _v14 = ((((_v9 * _v11) - (_v10 * _v12)) * 2.0) + 1.0);
         _v12 = (((_v9 * _v12) + (_v10 * _v11)) * 2.0);
         _v11 = _v14;
-        let _v15 = (((_v9 * _v9) - (_v10 * _v10)) + _v7);
+        let _v15 = ((_gv1 - _gv2) + _v7);
         _v10 = (((_v9 * _v10) * 2.0) + _v8);
         _v9 = _v15;
       }
@@ -67,13 +69,15 @@ fn fs_de(vo: VsOut) -> @location(0) vec4<f32> {
     var _v20: f32 = 0.0;
     var _v21: f32 = 0.0;
     for (var _v22: u32 = 0u; (_v22 < 160u); _v22 = (_v22 + 1u)) {
-      if ((df64_narrow(df64_add(df64_mul(_v18, _v18, _fp64_g), df64_mul(_v19, _v19, _fp64_g), _fp64_g)) <= 1000000.0)) {
+      let _gv3 = df64_mul(_v18, _v18, _fp64_g);
+      let _gv4 = df64_mul(_v19, _v19, _fp64_g);
+      if ((df64_narrow(df64_add(_gv3, _gv4, _fp64_g)) <= 1000000.0)) {
         let _v23 = df64_narrow(_v18);
         let _v24 = df64_narrow(_v19);
         let _v25 = ((((_v23 * _v20) - (_v24 * _v21)) * 2.0) + 1.0);
         _v21 = (((_v23 * _v21) + (_v24 * _v20)) * 2.0);
         _v20 = _v25;
-        let _v26 = df64_add(df64_sub(df64_mul(_v18, _v18, _fp64_g), df64_mul(_v19, _v19, _fp64_g), _fp64_g), _v16, _fp64_g);
+        let _v26 = df64_add(df64_sub(_gv3, _gv4, _fp64_g), _v16, _fp64_g);
         _v19 = df64_add(df64_mul(df64_mul(_v18, _v19, _fp64_g), _licm0, _fp64_g), _v17, _fp64_g);
         _v18 = _v26;
       }

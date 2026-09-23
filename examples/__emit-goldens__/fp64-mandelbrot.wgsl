@@ -24,8 +24,10 @@ fn escape_f32(cx: f32, cy: f32, iters: u32) -> vec2<f32> {
   var _v1: f32 = 0.0;
   var _v2: f32 = 0.0;
   for (var _v3: u32 = 0u; (_v3 < iters); _v3 = (_v3 + 1u)) {
-    if ((((_v0 * _v0) + (_v1 * _v1)) <= 16.0)) {
-      let _v4 = (((_v0 * _v0) - (_v1 * _v1)) + cx);
+    let _gv0 = (_v0 * _v0);
+    let _gv1 = (_v1 * _v1);
+    if (((_gv0 + _gv1) <= 16.0)) {
+      let _v4 = ((_gv0 - _gv1) + cx);
       _v1 = (((_v0 * _v1) * 2.0) + cy);
       _v0 = _v4;
       _v2 = (_v2 + 1.0);
@@ -43,8 +45,10 @@ fn escape_f64(cx: vec2<f32>, cy: vec2<f32>, iters: u32) -> vec2<f32> {
   var _v1: vec2<f32> = _cse0;
   var _v2: f32 = 0.0;
   for (var _v3: u32 = 0u; (_v3 < iters); _v3 = (_v3 + 1u)) {
-    if (df64_le(df64_add(df64_mul(_v0, _v0, _fp64_g), df64_mul(_v1, _v1, _fp64_g), _fp64_g), _licm0)) {
-      let _v4 = df64_add(df64_sub(df64_mul(_v0, _v0, _fp64_g), df64_mul(_v1, _v1, _fp64_g), _fp64_g), cx, _fp64_g);
+    let _gv0 = df64_mul(_v0, _v0, _fp64_g);
+    let _gv1 = df64_mul(_v1, _v1, _fp64_g);
+    if (df64_le(df64_add(_gv0, _gv1, _fp64_g), _licm0)) {
+      let _v4 = df64_add(df64_sub(_gv0, _gv1, _fp64_g), cx, _fp64_g);
       _v1 = df64_add(df64_mul(df64_mul(_v0, _v1, _fp64_g), _licm1, _fp64_g), cy, _fp64_g);
       _v0 = _v4;
       _v2 = (_v2 + 1.0);

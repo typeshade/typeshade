@@ -46,8 +46,10 @@ fn fs_julia(vo: VsOut) -> @location(0) vec4<f32> {
     var _v7: f32 = (df64_narrow(_cse1) + _v3);
     var _v8: f32 = (df64_narrow(_cse2) + _v4);
     for (var _v9: u32 = 0u; (_v9 < 128u); _v9 = (_v9 + 1u)) {
-      if ((((_v7 * _v7) + (_v8 * _v8)) <= 16.0)) {
-        let _v10 = (((_v7 * _v7) - (_v8 * _v8)) + -0.8);
+      let _gv0 = (_v7 * _v7);
+      let _gv1 = (_v8 * _v8);
+      if (((_gv0 + _gv1) <= 16.0)) {
+        let _v10 = ((_gv0 - _gv1) + -0.8);
         _v8 = (((_v7 * _v8) * 2.0) + 0.156);
         _v7 = _v10;
         _v5 = (_v5 + 1.0);
@@ -58,8 +60,10 @@ fn fs_julia(vo: VsOut) -> @location(0) vec4<f32> {
     var _v11: vec2<f32> = df64_add(_cse1, vec2<f32>(_v3, 0.0), _fp64_g);
     var _v12: vec2<f32> = df64_add(_cse2, vec2<f32>(_v4, 0.0), _fp64_g);
     for (var _v13: u32 = 0u; (_v13 < 128u); _v13 = (_v13 + 1u)) {
-      if (df64_le(df64_add(df64_mul(_v11, _v11, _fp64_g), df64_mul(_v12, _v12, _fp64_g), _fp64_g), _licm0)) {
-        let _v14 = df64_add(df64_sub(df64_mul(_v11, _v11, _fp64_g), df64_mul(_v12, _v12, _fp64_g), _fp64_g), _licm1, _fp64_g);
+      let _gv2 = df64_mul(_v11, _v11, _fp64_g);
+      let _gv3 = df64_mul(_v12, _v12, _fp64_g);
+      if (df64_le(df64_add(_gv2, _gv3, _fp64_g), _licm0)) {
+        let _v14 = df64_add(df64_sub(_gv2, _gv3, _fp64_g), _licm1, _fp64_g);
         _v12 = df64_add(df64_mul(df64_mul(_v11, _v12, _fp64_g), _licm2, _fp64_g), _licm3, _fp64_g);
         _v11 = _v14;
         _v5 = (_v5 + 1.0);

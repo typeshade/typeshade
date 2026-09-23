@@ -47,11 +47,13 @@ fn fs_de(vo: VsOut) -> @location(0) vec4<f32> {
     var ux: f32 = 0.0;
     var uy: f32 = 0.0;
     for (var j: u32 = 0u; (j < 160u); j = (j + 1u)) {
-      if ((((zx * zx) + (zy * zy)) <= 1000000.0)) {
+      let _gv1 = (zx * zx);
+      let _gv2 = (zy * zy);
+      if (((_gv1 + _gv2) <= 1000000.0)) {
         let nux = ((((zx * ux) - (zy * uy)) * 2.0) + 1.0);
         uy = (((zx * uy) + (zy * ux)) * 2.0);
         ux = nux;
-        let nzx = (((zx * zx) - (zy * zy)) + cx);
+        let nzx = ((_gv1 - _gv2) + cx);
         zy = (((zx * zy) * 2.0) + cy);
         zx = nzx;
       }
@@ -67,13 +69,15 @@ fn fs_de(vo: VsOut) -> @location(0) vec4<f32> {
     var ux_1: f32 = 0.0;
     var uy_1: f32 = 0.0;
     for (var j_1: u32 = 0u; (j_1 < 160u); j_1 = (j_1 + 1u)) {
-      if ((df64_narrow(df64_add(df64_mul(zx_1, zx_1, _fp64_g), df64_mul(zy_1, zy_1, _fp64_g), _fp64_g)) <= 1000000.0)) {
+      let _gv3 = df64_mul(zx_1, zx_1, _fp64_g);
+      let _gv4 = df64_mul(zy_1, zy_1, _fp64_g);
+      if ((df64_narrow(df64_add(_gv3, _gv4, _fp64_g)) <= 1000000.0)) {
         let zx32 = df64_narrow(zx_1);
         let zy32 = df64_narrow(zy_1);
         let nux_1 = ((((zx32 * ux_1) - (zy32 * uy_1)) * 2.0) + 1.0);
         uy_1 = (((zx32 * uy_1) + (zy32 * ux_1)) * 2.0);
         ux_1 = nux_1;
-        let nzx_1 = df64_add(df64_sub(df64_mul(zx_1, zx_1, _fp64_g), df64_mul(zy_1, zy_1, _fp64_g), _fp64_g), cx_1, _fp64_g);
+        let nzx_1 = df64_add(df64_sub(_gv3, _gv4, _fp64_g), cx_1, _fp64_g);
         zy_1 = df64_add(df64_mul(df64_mul(zx_1, zy_1, _fp64_g), _licm0, _fp64_g), cy_1, _fp64_g);
         zx_1 = nzx_1;
       }
