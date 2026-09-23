@@ -847,15 +847,24 @@ workgroupSizeOf
 WRITE_ONLY_STORAGE_FORMATS
 ```
 
-## `./language-service` — 34 exports
+## `./language-service` — 43 exports
 
 ```
 AMBIENT_LIB_URI
 ATTRIBUTE_DOCS
 ATTRIBUTE_NAMES
 BUILTIN_DOCS
+CheckDiagnostic
+CheckDocument
+checkDocuments
+checkOpenDocument
+CheckOptions
+CheckReport
 CONSTANT_DOCS
 createTypeshadeLanguageService
+FOREIGN_NAMES
+ForeignName
+foreignNameRemedy
 FUNCTION_DOCS
 MATH_MEMBER_DOCS
 offsetAt
@@ -886,7 +895,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 572 definitions
+## Shapes — 581 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string }
@@ -896,6 +905,9 @@ src/compiler/ts/directive.ts#USE_TYPESHADE  const  "use typeshade"
 src/compiler/ts/directive.ts#findUseTypeshadeDirective  function  (sourceFile: SourceFile) => ExpressionStatement
 src/compiler/ts/directive.ts#hasUseTypeshadeDirective  function  (sourceFile: SourceFile) => boolean
 src/compiler/ts/directive.ts#isUseTypeshadeDirective  function  (node: Node) => boolean
+src/compiler/ts/foreign-names.ts#FOREIGN_NAMES  const  Readonly<Record<string, ForeignName>>
+src/compiler/ts/foreign-names.ts#ForeignName  interface  { from: "GLSL and HLSL" | "GLSL" | "HLSL"; io?: "either" | "input" | "output"; kind: "address space" | "attribute" | "builtin" | "function" | "operator" | "statement" | "type"; name?: string; note?: string }
+src/compiler/ts/foreign-names.ts#foreignNameRemedy  function  (name: string) => string
 src/compiler/ts/pack.ts#Pack  interface  { bindings: readonly PackBinding[]; entries: readonly PackEntry[]; glsl?: { readonly vertex: string; readonly fragment: string; }; structs: readonly { readonly name: string; readonly fields: readonly { name: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
 src/compiler/ts/pack.ts#PackBinding  interface  { access?: "read" | "read_write"; binding: number; group: number; name: string; space: string; type: string }
 src/compiler/ts/pack.ts#PackEntry  interface  { name: string; stage: string }
@@ -1430,6 +1442,12 @@ src/language-service.ts#TypeshadeTextSpan  interface  { length: number; start: n
 src/language-service/ambient.ts#ATTRIBUTE_NAMES  const  readonly string[]
 src/language-service/ambient.ts#SHADE_DTS  const  string
 src/language-service/ambient.ts#WGSL_BUILTIN_NAMES  const  readonly string[]
+src/language-service/check.ts#CheckDiagnostic  interface  { code: string; column: number; endColumn: number; endLine: number; file: string; length: number; line: number; message: string; offset: number; severity: "error" | "info" | "warning"; source: "typescript" | "typeshade" }
+src/language-service/check.ts#CheckDocument  interface  { path: string; text: string; uri: string }
+src/language-service/check.ts#CheckOptions  interface  { deprecations?: boolean; readDocument?: (uri: string) => string }
+src/language-service/check.ts#CheckReport  interface  { diagnostics: readonly CheckDiagnostic[]; errors: number; files: readonly string[]; warnings: number }
+src/language-service/check.ts#checkDocuments  function  (docs: readonly CheckDocument[], options?: CheckOptions) => CheckReport
+src/language-service/check.ts#checkOpenDocument  function  (service: TypeshadeLanguageService, doc: CheckDocument, options?: Pick<CheckOptions, "deprecations">) => CheckDiagnostic[]
 src/language-service/docs.ts#ATTRIBUTE_DOCS  const  Readonly<Record<string, string>>
 src/language-service/docs.ts#BUILTIN_DOCS  const  Readonly<Record<string, string>>
 src/language-service/docs.ts#CONSTANT_DOCS  const  Readonly<Record<string, string>>

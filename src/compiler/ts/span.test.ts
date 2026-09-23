@@ -53,6 +53,7 @@ export function shapes(n: i32): f32 {
   switch (n) {
     case 0:
       acc = 0.;
+      break;
     default:
       acc = acc * 1.;
   }

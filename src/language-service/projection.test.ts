@@ -1,9 +1,11 @@
+// Verifies: Rule 12.7 (docs/language-design.md; traced in reqs/).
 // The program the service builds reads each open document with the types TypeScript cannot
 // infer written in, and answers in the document as written (#162, projection.ts).
 //
 // TypeScript types every arithmetic result as `number`, so `const uv = p.xy * frame.scale` gave
 // `uv` the type `number`: `uv.x` was TS2339 in the editor, completion after `uv.` offered
-// nothing, and hover said `number`, on a program the compiler accepts.
+// nothing, and hover said `number`, on a program the compiler accepts. A comparison of two
+// vectors is a `boolean` to TypeScript the same way, where the compiler has a mask.
 
 import { describe, expect, it } from 'vitest';
 import { createTypeshadeLanguageService } from './service.js';
@@ -59,6 +61,32 @@ describe('a local built by vector arithmetic has its vector type in the editor',
       at(8, 'uv.x'),
       at(8, 'uv.y'),
     ]);
+  });
+
+  it('reads a mask, a bitwise result, a double and a module constant as the compiler types them', () => {
+    const src = `"use typeshade";
+const A = vec3(1., 2., 3.);
+const Y = A * 2.;
+export function f(a: vec3, b: vec3, u: vec3u, d: vec3f64, md: mat3<f64>): f32 {
+  const m = a < b;
+  const k = u & u;
+  const w = d * f64(2.);
+  const t = md * md;
+  return select(0., 1., m.x) + f32(k.y) + f32(w.z) + Y.x;
+}
+`;
+    const service = open(src);
+    expect(service.getDiagnostics('a.shade.ts')).toEqual([]);
+    const lines = src.split('\n');
+    const hover = (line: number, name: string): string | undefined =>
+      service
+        .getHover('a.shade.ts', { line, character: lines[line]!.indexOf(`${name} =`) })
+        ?.contents.split('\n')[1];
+    expect(hover(4, 'm')).toBe('const m: vec3<bool>');
+    expect(hover(5, 'k')).toBe('const k: vec3<u32>');
+    expect(hover(6, 'w')).toBe('const w: vec3<f64>');
+    expect(hover(7, 't')).toBe('const t: mat3x3<f64>');
+    expect(hover(2, 'Y')).toBe('const Y: vec3<f32>');
   });
 
   it('colours the text as written and nothing the service inserted', () => {
@@ -193,12 +221,34 @@ export function c(p: vec2) {
 `;
     expect(planInsertions(plain, 'p.shade.ts')).toEqual([]);
   });
+
+  it('writes the return type of a function that returns a mask or a bitwise result', () => {
+    // A return reads the operator table a local does (`ERASING_OPERATORS`): a comparison is a
+    // `boolean` to TypeScript and a mask to the compiler, and `~` a `number` and a `vec3u`.
+    const src = `"use typeshade";
+function inside(p: vec3, lo: vec3) {
+  return lo <= p;
+}
+function flip(a: vec3u) {
+  return ~a;
+}
+export function f(p: vec3, a: vec3u): f32 {
+  return select(0., 1., all(inside(p, vec3(0.)))) + f32(flip(a).x);
+}
+`;
+    expect(
+      planInsertions(src, 'm.shade.ts').map((i) => `${src.slice(i.at - 8, i.at)}|${i.text}`),
+    ).toEqual(['o: vec3)|: vec3b', ': vec3u)|: vec3u']);
+    const s = createTypeshadeLanguageService();
+    s.openDocument('m.shade.ts', src);
+    expect(s.getDiagnostics('m.shade.ts')).toEqual([]);
+  });
 });
 
 describe('what is written in, and what is not', () => {
   const planned = (body: string): string[] => {
     const src = `"use typeshade";
-export function f(a: vec3, b: vec3, s: f32, m: mat4x4, q: vec4, vi: vec2i): f32 {
+export function f(a: vec3, b: vec3, s: f32, m: mat4x4, q: vec4, vi: vec2i, vu: vec3u, vb: vec3b, d: vec3f64, md: mat3<f64>): f32 {
 ${body}
   return 0;
 }
@@ -212,6 +262,37 @@ ${body}
     expect(planned('  const mq = m * q;')).toEqual(['q: vec4']);
     expect(planned('  const mm = m * m;')).toEqual(['m: mat4x4']);
     expect(planned('  const w = vi + vec2i(1, 2);')).toEqual(['w: vec2i']);
+  });
+
+  it('writes the type of every other operation TypeScript types as a number or a boolean', () => {
+    // A comparison is a `boolean` to TypeScript and a mask to the compiler; the bitwise and shift
+    // operators, `**` and the unary ones a `number`, as arithmetic is (`ERASING_OPERATORS`).
+    expect(planned('  const lt = a < b;')).toEqual(['t: vec3b']);
+    expect(planned('  const ne = a !== b;')).toEqual(['e: vec3b']);
+    expect(planned('  const x = vu & vu;')).toEqual(['x: vec3u']);
+    expect(planned('  const sh = vu << vu;')).toEqual(['h: vec3u']);
+    expect(planned('  const p = a ** b;')).toEqual(['p: vec3']);
+    expect(planned('  const nb = !vb;')).toEqual(['b: vec3b']);
+    expect(planned('  const t = ~vu;')).toEqual(['t: vec3u']);
+    expect(planned('  const pa = +a;')).toEqual(['a: vec3']);
+  });
+
+  it('spells an emulated double and a matrix of doubles as the ambient library does', () => {
+    expect(planned('  const w = d * f64(2.);')).toEqual(['w: vec3f64']);
+    expect(planned('  const mt = md * md;')).toEqual(['t: mat3x3<f64>']);
+  });
+
+  it('writes the type of a module constant', () => {
+    const src = `"use typeshade";
+const A = vec3(1., 2., 3.);
+const Y = A * 2.;
+export function f(): vec3 {
+  return Y;
+}
+`;
+    expect(
+      planInsertions(src, 'a.shade.ts').map((i) => `${src.slice(i.at - 1, i.at)}${i.text}`),
+    ).toEqual(['Y: vec3']);
   });
 
   it('leaves alone what TypeScript already types: an annotation, a call, a scalar', () => {

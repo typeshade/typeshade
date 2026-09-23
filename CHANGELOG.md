@@ -379,6 +379,29 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **`typeshade check`: the editor's answer and the backends', from the command line** (Rule
+  12.7, Rule 12.3). The package gains a `typeshade` command whose `check` reports, for every
+  `*.shade.ts` under the given paths, the language service's merged list (TypeScript over the
+  ambient lib, with the false positives it filters, and the TypeShade front end) together with
+  what `compile()` adds that the service never computes: a WGSL emitter that throws (`TS8015`,
+  an error) and a GLSL ES 3.00 shortfall on a render module (`TS8015`, a warning). It exits 0
+  with no error, 1 with one and 2 when it cannot run, and prints `tsc --pretty`'s layout
+  without colour (`--format text`), one line per diagnostic (`--format short`) or the report as
+  versioned JSON (`--format json`); `--deprecations` adds `TS8053`. Each file is analysed on its
+  own, so two `"use typeshade"` files with no import or export, which TypeScript reads as
+  scripts sharing one global scope, do not report each other's names. Measured over the 73
+  `.shade.ts` examples: no error and 5 warnings, each a GLSL shortfall `compile()` also reports,
+  where plain `tsc` configured as the README describes reports 542 errors on the same files,
+  none of them real. It is the check CI and a coding agent should run, since an agent treats a
+  compiler's errors as the truth and rewrites correct code to silence false ones. The npm
+  tarball runs `dist/src/cli/bin.js` under Node (`scripts/publish-manifest.ts` derives the `bin`
+  by the rule it applies to `exports`); this tree and a submodule run
+  `bun src/cli/bin.ts check <paths>`. What it inherits from the service it inherits whole: an
+  import from another shader file is `TS8004` (#187). The check is exported from
+  `typeshade/language-service` as `checkDocuments`, and as `checkOpenDocument` for a tool that
+  keeps its own service, so the MCP server in typeshade/vscode-typeshade can call it rather than
+  keep a copy that could drift (Rule 12.7).
+
 - **An array's `map`, `forEach`, `some`, `every` and `reduce` take a function and run as
   TypeScript runs them** (Rules 2.1, 7.2 and 8.18; surface §63, new, and §14; proposal 0005).
   Every method of an array was refused with `TS8099` and the advice to use a fold. The five now
@@ -1352,6 +1375,183 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A refused declaration is the one diagnostic for its name** (Rule 12.4, #171). A declaration
+  the front end refuses binds no name, so every later read of it added a
+  `TS8022 Unknown identifier` to the refusal, naming a symbol the author did declare: `const y: f32 = g(x)` with
+  a mismatched argument, `const r = g(x)` with one missing, `const c = a + b` on two vector
+  sizes, `declare const x: f32`, a top-level `let x: uniform<f32>`, each reported once and then
+  once per use. An assignment to the name, a compound assignment and a write through it
+  (`y.x = 1.`) added `Cannot assign to unknown name` the same way, and `Date.now()` was
+  `TS8012` and `TS8022` on the same identifier. The unknown-name report is now dropped only when
+  an error stands inside the declaration the name resolves to, or on the name itself, and that
+  is checked rather than assumed, so a declaration that was dropped without a diagnostic still
+  has every use reported. The name is resolved by TypeScript's lexical rule, so a name read
+  outside the block that refused it, read before its declaration, or declared nowhere is still
+  `TS8022`. Appendix B's Rule 12.4 row is removed.
+
+- **A GLSL or HLSL name is refused with TypeShade's spelling as the remedy** (#218, Rule 12.1).
+  Models, and authors coming from those languages, write the names they know, and the
+  compiler refuses them, which is right, but the second sentence pointed the wrong way: for
+  `lerp(a, b, 0.5)` it was "Declare it in this file, or import it from another shader module."
+  The refusal now names TypeShade's spelling, for the 112 names of the table:
+
+  ```text
+  TS8004 Unknown function "lerp". HLSL's lerp is mix here.
+  TS8002 Unknown type "float3". HLSL's float3 is vec3 here.
+  TS8022 Unknown identifier "gl_FragCoord". GLSL's gl_FragCoord is a parameter here: @builtin("position") pos: vec4.
+  ```
+
+  The same holds for `gl_Position = …` and `@numthreads`. `fmod` names the `%` operator and
+  says that `mod` floors, since TypeScript's own guess for it, "Did you mean 'mod'?", is the
+  one spelling that compiles and answers differently for a negative operand; the editor shows
+  the compiler's sentence in its place. `TS8004` quotes the callee's name rather than the
+  whole call, for every unknown function, and sits on the name. The table is the MCP server's from
+  typeshade/vscode-typeshade, moved into the compiler (`src/compiler/ts/foreign-names.ts`) with
+  the two invariants its tests held: every target is a name TypeShade has, and no source is
+  one. It is exported from `typeshade/language-service` as `FOREIGN_NAMES`, so that server can
+  read it from the compiler it pins. No name is added: accepting `lerp` as a second spelling of `mix` is what Rules 2.1 and
+  9.6 exclude, and an alias for `fmod` would change what a program means.
+
+- **One mistake reads as one diagnostic in the editor and in `typeshade check`** (Rule 12.4). A
+  mistake both halves see was reported by both: `y = 2.` on a `const` as TypeScript's TS2588 and
+  the compiler's `TS8005`, `g(x)` one argument short as TS2554 and `TS8019`, `colr` as TS2304
+  and `TS8022`, `cross(v, w)` on a `vec2` `w` as TS2345 and `TS8036`. The language service now
+  merges the two halves: where they report one mistake the compiler's diagnostic is kept, since
+  it is what `compile()` and the build report and names the remedy in the surface's words, with
+  no exception, a misspelled name included (below).
+  TypeScript's own knock-on of a value it could not type goes as well: `return max(v, w)` with
+  a `vec2` `w` added a TS2322 on the `return`, and now reads as the compiler's `TS8036` alone.
+  The same holds for a name or a field TypeScript cannot find, which it types `any`, and for
+  what is computed from it: after `const c = lerp(a, b, t)`, `vec4(c * x, 1.)` added a TS2345,
+  and after `const t = frame.tiem * 2.`, a `vec3` declared from `t` a TS2322. A return of the
+  wrong type was two diagnostics as well, the compiler's on the function's name and
+  TypeScript's on the `return`; the compiler reports it on the `return` now, which also says
+  which of two returns is wrong, and it reads once.
+  `typeshade check` no longer adds a compiler row the service merged away: from `compile()` it
+  takes only what the service cannot compute, the backends' `TS8015` and the opt-in `TS8053`.
+
+- **A name the compiler cannot find names the one it is spelled like, in the build as in the
+  editor** (Rule 12.1). The editor showed TypeScript's "Did you mean 'albedo'?" for `albdo`,
+  and `compile()`, the build and an agent reading either said `Unknown identifier "albdo".` and
+  nothing more. The compiler names the fix itself now, at every place a name is written: a
+  value, a callee, a type, a field, a field of a struct literal, a `Math` member, a method, a
+  static, an enum member, a function of a namespace, an assignment target, an attribute, a
+  `@builtin` id, an `enable` extension and an import:
+
+  ```text
+  TS8022 Unknown identifier "albdo". Did you mean "albedo"?
+  TS8004 Unknown function "clmap". Did you mean "clamp"?
+  TS8002 Unknown type "vce3". Did you mean "vec3"?
+  TS8022 Unknown field "tiem" on Frame. Did you mean "time"?
+  TS8035 "P" has no method "lne". Did you mean "len"?
+  ```
+
+  One order holds everywhere: TypeShade's spelling of a GLSL or HLSL name first (`fmod` is the
+  `%` operator, not `mod`), then a name of the same kind that exists there and is spelled like
+  it, then the place's own remedy. The spelling rule is TypeScript's, so the editor loses no
+  suggestion it showed (a test holds the compiler to every one TypeScript makes over a sweep of
+  misspellings), with a swap of two adjacent letters counted as one edit, which finds `time` for
+  `tiem` and `vec3` for `vce3` where TypeScript finds nothing. A callee is measured against the
+  functions only, so `normailze(normal)` names `normalize` where TypeScript named the parameter
+  `normal`. A name read above its declaration says that it is read before its declaration, and
+  `discard()` that `discard` is a statement. The span is the name itself, and an unknown field
+  names its struct as the author wrote it, `Frame`, where it said `struct:Frame`. A call of an
+  unknown function still reports what its arguments get wrong, so
+  `g(colr)` is both mistakes in the build too. With that, the merge keeps no TypeScript side for
+  a misspelling: its TS2552 exception and the foreign-name check it needed are gone.
+
+- **A type the file declares nowhere is refused** (Rule 12.6). A capitalized type name that
+  named nothing became a struct of that name, so `l: Lihgt`, `uniform<Frmae>` and a `VsOt`
+  return compiled with no diagnostic and died at Tint on a struct the author never declared,
+  and `const v: Vec3 = …` read as a mismatch between `struct:Vec3` and `vec3<f32>`. Each is
+  `TS8002 Unknown type "Lihgt". Did you mean "Light"?` now. A class declared below its use, an
+  interface, an alias, an import and a type parameter stay the types they are, by TypeScript's
+  lexical rule. The surface document's first resource snippet, which bound a `Camera` it never
+  declared, declares one.
+
+- **Every swizzle draws no error in the editor or in `typeshade check`** (Rule 12.7). The
+  ambient library declared a vector's components and its prefix swizzles only, so `v.yx`,
+  `v.xx`, `v.zyx`, `c.bgra` and `v.xyzz`, all ordinary WGSL the compiler takes, were TS2339 (the
+  last with a wrong "Did you mean 'xyz'?"), so `typeshade check` failed each such program. Each
+  vector type is now an interface with every swizzle its size admits, typed by its length, and
+  keeps the index signature a native vector takes (below).
+  The members are written out rather than generated by a mapped type: that form made every
+  check about twice as slow, measured over the examples, and this one costs nothing measurable
+  (3.1 s for the 81 examples, against 3.2 s before). A completion still lists the components
+  and the prefix swizzles only. `VecOf`, `ScalarOf`, `ComponentKeys` and `Vec64`, the type
+  machinery the old shape needed, are gone from the ambient library and from the extension
+  table of the language design rules (§9.3), which is shrink-only.
+
+- **An object literal of a class that declares methods draws no TypeScript error.** A local
+  `let rng: Rng = { state: 1 }` was TS2741 "Property 'next' is missing" in the editor, the
+  surface document's own `Rng` snippet among the programs, while the compiler builds the value from
+  its fields (Rule 6.9). The diagnostic is dropped when every member TypeScript finds missing
+  is a method or an accessor, and a literal that leaves out a field still reports. Each
+  documentation snippet is now checked in the editor as well as compiled.
+
+- **A destructured name whose declaration was refused says nothing more** (Rule 12.4, #171).
+  `const { tiem } = frame` followed by a read of `tiem` added `Unknown identifier "tiem"` to the
+  refusal of the pattern; a refused declaration is found through a destructuring pattern now,
+  as through a plain name.
+
+- **A local declared from a refused one says nothing more either** (Rule 12.4, #171).
+  `const u = t * 2.` after a refused `const t = a * b` binds no `u`, since its read of `t` is one
+  of the reads kept quiet, so `return u` read `Unknown identifier "u"` beside the one mistake in
+  `t`. A declaration that reads a name whose own declaration was refused is now refused with it,
+  and says nothing more.
+
+- **A comparison, a bitwise or shift operator, a power or a unary operator on a vector draws no
+  TypeScript error** (Rule 12.7). TypeScript types `a < b` on two vectors as a `boolean`, and
+  `a & b`, `a << b`, `a ** b`, `~a` and `!m` as a `number` or a `boolean`, where the compiler has
+  a mask, an integer vector or a vector of floats. On programs the compiler accepts,
+  `return a < b` in a function that returns a `vec3b` was TS2322, `(a < b).x` was TS2339, and
+  `select(a, b, (a < b) & (b > a))` was TS2447 and TS2345. The filters that drop arithmetic's
+  false positives now read the operator table the projection reads (`ERASING_OPERATORS`), a
+  comparison's shape being the `bool` vector of its operands' width, and a local declared from
+  such an operation, or a function that returns one with no type written, is written into like
+  one declared from arithmetic. A comparison of vectors of
+  two sizes, or of a vector and a scalar, is one diagnostic, the compiler's `TS8003`: TypeScript's
+  TS2365 and TS2367 are paired with it. The uses of a local whose operation the compiler
+  refused, which has no type to write in, draw nothing beside the compiler's report either. `&`,
+  `|` and `^` on two scalar booleans, which the compiler takes too, still draw TS2447.
+
+- **A `case` that runs on into the next one is refused** (Rule 7.3, #202). WGSL's `switch` has
+  no fall-through, so the lowering ended every clause where its statements ended, and a body
+  with no `break` compiled to a different program than the one TypeScript runs, with no
+  diagnostic: `case 0: x = 1.` above `case 1: x += 2.; break` gave `k = 0` the value 3 in
+  TypeScript and 1 on the GPU. Such a clause, a `case` or a `default:`, is now `TS8017` at its
+  label, and the message names the two fixes: end it with `break`, or repeat the shared
+  statements in each case. Whether a body falls through is TypeScript's own reachability, the
+  analysis `tsc` applies
+  with `noFallthroughCasesInSwitch`: an `if` with no `else` leaves on one path only, and a
+  `break` inside a loop leaves the loop. A clause that runs on only into empty clauses at the
+  end of the switch runs nothing more in TypeScript either, so it is not refused. A program
+  ported from WGSL, whose cases need no `break`, gains one per case. Appendix B's Rule 7.3 row
+  is removed.
+
+- **A read of workgroup memory no longer shows as unassigned in the editor on TypeScript 5.7 and
+  later** (`docs/language-service-api.md` §6, surface §24). `let tile: workgroup<array<f32, 64>>`
+  takes no initializer, and a kernel writes it through an element (`tile[i] = x`), so
+  TypeScript 5.7 and later reported every read of it as TS2454,
+  `Variable 'tile' is used before being assigned.` TypeScript 5.6, the version this repository
+  installs, never reports it. The site's Playground bundles TypeScript 5.9, where
+  `workgroup-scratch`, `workgroup-reduce`, `compute-sync` and `workgroup-tile-2d` showed the
+  error and would not compile. The language service now drops TS2454 when the name resolves to
+  a top-level `let` annotated `workgroup<T>`. A per-invocation module `let` that nothing
+  assigns, and a local read before its first assignment, still report it. Measured over the
+  Playground's 82 examples under TypeScript 5.9.3: 4 with an error before, 0 after.
+
+- **The editor indexes a vector and an `f32` matrix by a runtime value** (Rule 12.7, surface
+  §49). `m[i]` on a `mat4` or a `mat2x3` with an `i: u32`, a `for` counter as the index, `v[i]`
+  and `v[0]` on a vector, and `m[0][1]` were `TS7053` in the language service on programs the
+  compiler lowers, because the ambient library gave both types numeric literal keys only, the
+  rule of an emulated double's constant lane. Both take an index signature now, as
+  `array<T, N>` does. A `mat4<f64>` still takes no runtime index in either layer. An index past
+  the end (`m[4]`) and an `f32` index are the compiler's to refuse (`TS8016`, `TS8003`), as on
+  an array, and no longer draw a `TS7053` beside its sentence. A swizzle outside the components
+  and the prefix swizzles (`v.yx`, `v.zyx`), which the README and the ambient library had called a
+  false negative, was a false positive; every swizzle is declared now (above).
+
 - **Two refusals around a vector of doubles name the reason and a remedy that compiles**
   (Rule 12.1, Rule 12.5, §27, §39). `select(a, b, m)` with `vec3f64` arms and a `vec3b` mask,
   which a comparison of two `vec3f64` now gives, read
@@ -1370,6 +1570,7 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   sentence. Where a splat fixes nothing, the text is unchanged: `Types must match.` for an
   integer, another width, a vector of `f32`, and a `vecNf64` given to a declared `f64`. No code
   changes.
+
 - **`&`, `|` and `^` refuse a float operand where it is written** (Rules 7.1 and 12.6). The
   binary operators compared only the two operand types, so `a & b` on two `f32`s compiled with
   no diagnostic and emitted `return (a & b);`, which Tint refuses with
@@ -1423,6 +1624,7 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   at its width. Where `f64()` is not the fix, the text is unchanged: an integer, a bool, a
   vector of `f32`, a wrong count, and an `f32` given to a vector of integers. The constructor
   still takes no literal and no `f32`, and the codes are unchanged.
+
 - **A loop can write the array whose length bounds it** (Rule 7.5). This loop over a
   runtime-sized storage array was `TS8006`, "for bound reads xs, which the loop body writes":
 
@@ -1446,6 +1648,7 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   oracle and the generated CPU code against a JavaScript reference bit for bit, negative
   lattice points included. The twins still reflect identically to their originals. The emit
   goldens of the eight files moved.
+
 - **A hex literal with an `e` in it is an integer** (#182, Rule 5.1). `x * 0x9e3779b9` on a
   `u32` was `TS8003`, because the classifier took any `e` or `E` in a literal's text for a
   decimal exponent, prefix or not. `0xE` was the smallest case. Every standard hash constant
@@ -1478,8 +1681,10 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   `number`. The TypeScript program now reads each open document with the front end's type
   written in (`const uv: vec2 = …`), and every answer maps back to the text as written:
   diagnostics, hover, completion, references, rename, semantic tokens and `positionAt`. Only
-  an unannotated `const` or `let` whose initializer does arithmetic and whose type is a vector
-  or an `f32` matrix is written into. Plain `tsc` is unchanged: the README now lists the TS2339
+  an unannotated `const` or `let`, a local or a module constant, is written into, when its
+  initializer applies an operator TypeScript types as a `number` or a `boolean` and its type
+  is a vector (of `f32`, `i32`, `u32`, `bool` or emulated doubles) or a matrix (of `f32` or
+  `f64`). Plain `tsc` is unchanged: the README now lists the TS2339
   it reports on a swizzle of such a local among the documented classes. The plasma and ray-cast
   journeys drop their annotations, and the gate's editor check passes on them as written.
 

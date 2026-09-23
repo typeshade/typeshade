@@ -12,6 +12,7 @@ import {
   fromCompilerDiagnostic,
   getTypeScriptDiagnostics,
   getTypeshadeDiagnostics,
+  mergeDiagnostics,
 } from './diagnostics.js';
 import { getCompletions } from './completions.js';
 import { getHover } from './hover.js';
@@ -184,15 +185,26 @@ export function createTypeshadeLanguageService(
   return createTypeshadeLanguageServiceWith(host, analyzeSourceFile);
 }
 
+/** How a service built by `createTypeshadeLanguageServiceWith` differs from the production one. */
+export interface TypeshadeLanguageServiceTestOptions {
+  /** `false` to leave the two halves unmerged, so `getDiagnostics` lists every TypeScript
+   *  diagnostic the filters keep beside every compiler diagnostic, a mistake both report
+   *  included (`mergeDiagnostics`). What a test of the ambient lib or the filters reads, since
+   *  its subject is TypeScript's own view. Defaults to `true`. */
+  readonly merge?: boolean;
+}
+
 /**
  * `createTypeshadeLanguageService` with the front-end analysis function supplied by the
  * caller. Not exported from the `./language-service` subpath: it exists so a test can wrap
  * `analyzeSourceFile` in a counter and assert the front end runs once per document version
- * (§8) without mocking the compiler module.
+ * (§8) without mocking the compiler module, and read the two halves unmerged
+ * (`TypeshadeLanguageServiceTestOptions`).
  */
 export function createTypeshadeLanguageServiceWith(
   host: TypeshadeLanguageServiceHost,
   analyze: AnalyzeSourceFile,
+  options: TypeshadeLanguageServiceTestOptions = {},
 ): TypeshadeLanguageService {
   const tsHost = new TypeshadeHost(host);
   const languageService = ts.createLanguageService(tsHost, ts.createDocumentRegistry());
@@ -252,10 +264,13 @@ export function createTypeshadeLanguageServiceWith(
   /** `uri`'s merged TypeScript and TypeShade diagnostics, computed once per cache entry. */
   function diagnosticsOf(uri: string, sourceFile: ts.SourceFile): readonly TypeshadeDiagnostic[] {
     const entry = entryOf(uri, sourceFile);
-    entry.diagnostics ??= [
-      ...getTypeScriptDiagnostics(languageService, sourceFile, uri),
-      ...getTypeshadeDiagnostics(entry.analysis, sourceFile, uri),
-    ].sort(byDocumentOrder);
+    entry.diagnostics ??= mergeDiagnostics(
+      sourceFile,
+      getTypeScriptDiagnostics(languageService, sourceFile, uri),
+      getTypeshadeDiagnostics(entry.analysis, sourceFile, uri),
+      options.merge === false ? undefined : entry.analysis,
+      languageService.getProgram()?.getTypeChecker(),
+    ).sort(byDocumentOrder);
     return entry.diagnostics;
   }
 

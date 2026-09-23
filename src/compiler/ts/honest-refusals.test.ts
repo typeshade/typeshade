@@ -395,7 +395,7 @@ export function fs(): vec4 {
   return vec4(nowhere(1.), 0., 0., 1.);
 }
 `)[0],
-    ).toContain('Unknown function "nowhere(1.)"');
+    ).toContain('Unknown function "nowhere"');
   });
 
   it('a name refused inside one body is still unknown when called from another', () => {
@@ -410,7 +410,164 @@ export function fs(): vec4 {
   return vec4(other(), 0., 0., 1.);
 }
 `);
-    expect(errs.join('\n')).toContain('Unknown function "scale(1.)"');
+    expect(errs.join('\n')).toContain('Unknown function "scale"');
+  });
+});
+
+// #171: a refused DECLARATION binds no name, and every later read of the name used to add a
+// `TS8022 Unknown identifier` to the one refusal, naming a symbol the author did declare. The
+// report is dropped only when an error stands inside the declaration the name resolves to, or
+// inside a declaration that one reads, so each row below is one mistake and one sentence, and
+// the last three are the reports that must survive: a name out of scope, a name read before its
+// declaration, a name nobody declared.
+describe('a refused declaration is the one diagnostic for its name (Rule 12.4, #171)', () => {
+  const one = (src: string, message: string) => {
+    const errs = errorsOf(src);
+    expect(errs, errs.join('\n')).toHaveLength(1);
+    expect(errs[0]).toContain(message);
+  };
+
+  it('an annotated local whose initializer is refused', () => {
+    one(
+      `"use typeshade";
+export function g(v: f32): f32 { return v; }
+export function f(x: f64): f32 {
+  const y: f32 = g(x);
+  return y + y;
+}
+`,
+      'Argument 1 of "g" type mismatch.',
+    );
+  });
+
+  it('an unannotated local whose initializer is refused', () => {
+    one(
+      `"use typeshade";
+export function g(a: f32, b: f32): f32 { return a + b; }
+export function f(x: f32): f32 {
+  const r = g(x);
+  return r * r;
+}
+`,
+      '"g" expects 2 argument(s), got 1.',
+    );
+    one(
+      `"use typeshade";
+export function f(a: vec3, b: vec2): vec3 {
+  const c = a + b;
+  return c * 2.;
+}
+`,
+      'Vectors must have the same size.',
+    );
+  });
+
+  it('a local declared from a refused one', () => {
+    // `u` reads `t`, whose product was refused, so `u` is not lowered either and binds no name;
+    // the one mistake is still the product, and `return u` is not an unknown identifier.
+    one(
+      `"use typeshade";
+export function f(a: vec3, b: vec2): vec3 {
+  const t = a * b;
+  const u = t * 2.;
+  const w = u + t;
+  return w;
+}
+`,
+      'Vectors must have the same size.',
+    );
+  });
+
+  it('a declare that is not a binding type, and a binding type on a top-level let', () => {
+    one(
+      `"use typeshade";
+declare const x: f32;
+export function f(): f32 {
+  return x * 2.;
+}
+`,
+      'declare "x" must be uniform<T>',
+    );
+    one(
+      `"use typeshade";
+let x: uniform<f32>;
+export function f(): f32 {
+  return x * 2.;
+}
+`,
+      'needs declare: write "declare const x: uniform<f32>".',
+    );
+  });
+
+  it('a refused local that is then assigned, compound-assigned and written through', () => {
+    one(
+      `"use typeshade";
+export function f(x: f32): vec3 {
+  let y = nope(x);
+  y = vec3(2.);
+  y += vec3(1.);
+  y.x = 1.;
+  return y;
+}
+`,
+      'Unknown function "nope"',
+    );
+  });
+
+  it('a host API is refused once, not also as an unknown identifier', () => {
+    one(
+      `"use typeshade";
+export function f(x: f32): f32 {
+  const t = Date.now();
+  return t + x;
+}
+`,
+      '"Date" is a host/JS API.',
+    );
+  });
+
+  it('a name read outside the block that refused it is still unknown', () => {
+    expect(
+      errorsOf(`"use typeshade";
+export function f(x: f32): f32 {
+  if (x > 0.) {
+    const y = nope(x);
+  }
+  return y;
+}
+`),
+    ).toEqual([
+      'Unknown function "nope". Declare it in this file, or import it from another shader module.',
+      'Unknown identifier "y".',
+    ]);
+  });
+
+  it('a name read before its declaration says so, and names no other spelling', () => {
+    // TypeScript's TS2448: the name is declared, so a spelling guess would send the author to
+    // another name; the remedy is the order (Rule 12.1).
+    expect(
+      errorsOf(`"use typeshade";
+export function f(x: f32): f32 {
+  const z = w * 2.;
+  const w = nope(x);
+  return z;
+}
+`),
+    ).toEqual([
+      '"w" is read before its declaration. Declare it above this line.',
+      'Unknown function "nope". Declare it in this file, or import it from another shader module.',
+    ]);
+  });
+
+  it('a name nobody declared is still unknown beside a clean declaration', () => {
+    expect(
+      errorsOf(`"use typeshade";
+export function f(x: f32): f32 {
+  const y = x * 2.;
+  return yy;
+}
+`),
+    ).toEqual(['Unknown identifier "yy".']);
   });
 });
 
