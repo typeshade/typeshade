@@ -1412,8 +1412,82 @@ an argument count known only at run time, and `[...xs]` a list that grows.
 
 ## 17. What a `for` loop may say, and what it is told
 
-A `for` must be **counted**: an integer induction variable, a constant bound, a constant step,
-and at most 256 trips. That has not changed. Three things about it have.
+A `for` must be **counted**: an integer induction variable, a constant step, and an exit that
+compares the variable to a bound the body does not write (Rule 7.5). The start and the bound
+may be runtime values, and a trip count has no ceiling: #203 removed the 256-trip limit and the
+constant bound, and made `while` an open loop. The first part of this section says what that
+means; the rest is the counted loop's older detail, which still holds.
+
+**A bound may be a value the program learns at run time.** A count from a uniform, an array's
+length, a parameter, an `override`: any integer expression the body does not write.
+
+```ts
+"use typeshade";
+
+declare const verts: storage<array<vec3f>>;
+declare let hits: storage<array<u32>>;
+
+@compute([64])
+export function main(@builtin("global_invocation_id") gid: vec3u): void {
+  let count: u32 = 0;
+  for (let t = 0; t < verts.length / 3; t++) {
+    if (verts[t * 3].y > f32(gid.x)) {
+      count += 1;
+    }
+  }
+  hits[gid.x] = count;
+}
+```
+
+The counter needs no annotation. `verts.length` is a `u32`, and an unannotated counter whose
+start is a non-negative integer literal takes the type of a `u32` bound, so `t` is a `u32` here.
+Otherwise it is an `i32`, as it always was: with an annotation, a negative or computed start, or
+an `i32` bound. Before this, the loop above was `TS8003 cannot compare i32 and u32`, about a type
+the author never wrote.
+
+The start may be a runtime value too, which is how a kernel strides over data:
+`for (let i: u32 = lid; i < params.count; i += 64)`. Both targets accept the loop as written;
+#203 measured `for (…; i < arrayLength(&data); …)` and a uniform-bounded `for` and `while` on
+Tint and on ANGLE.
+
+The step is still a constant, so the compiler still knows which way the counter moves, and
+refuses the header that moves it away from its bound:
+
+| Header | Answer |
+| --- | --- |
+| `let i: i32 = 0; i < n; i -= 1` | `TS8007 for step "i -= 1" moves "i" away from a bound it compares with <, so the loop does not exit once it starts.` |
+| `let i: i32 = 0; i < n; i *= 2` | `TS8007 for step "i *= 2" never advances "i": multiplying pins it at 0.` |
+| `let i: i32 = 0; i !== n; i += 2` | `TS8006`: against a runtime bound, `!=` exits only if the step lands on it exactly, so the remedy is `<`. |
+| `let i: i32 = 1; i < n; i *= -2` | `TS8006`: with a runtime bound, a factor has to be a whole number of 2 or more, or its direction is unknown. |
+| a body that writes `n` | `TS8006 for bound reads "n", which the loop body writes, so it does not bound the loop.` Read it into a `const` first, or write a `while`. |
+
+What is not checked, because the value is not known before the loop runs: that the counter
+reaches a runtime bound before it leaves its type. `i <= n` with `n` at the type's maximum never
+fails, and `i += 4` wraps past a bound within 4 of it. All three engines run such a loop the same
+way; Appendix B of the language design records it.
+
+**No trip count is too many.** `for (let i: i32 = 0; i < 100000; i++)` compiles; it was
+`for trip count 100000 exceeds 256.` Neither target limits a trip count, and nothing downstream
+read the ceiling but the check itself, which is why #203 removed it. A constant header is still
+counted exactly, and a count that leaves its type or never ends is still refused, as below.
+
+**A `while` is an open loop.** It ends when its condition fails, or at a `break` or a `return`,
+and its condition may be anything of type `bool`: `while (sp > 0)` over a stack, which is how a
+BVH is traversed, or `while (true)` with a `break` once an iteration has converged. The one
+`while` refused is the one that certainly never ends, a constant `true` with nothing in its body
+that leaves it:
+`TS8007 while (true) has no break or return in its body, so it never ends.` A `break` inside a
+nested loop or a `switch` leaves that statement, not this loop, and is not counted as a way out.
+A `for` with no condition says to write this form: `for (;;)` is refused and points at
+`while (true) { … }`.
+
+The compiler does not check that a `while` body moves toward its exit. An open loop is the
+author's to end, as it is in WGSL, and one that spins on a GPU is ended by the device's watchdog,
+which loses the device. `examples/loops-over-data.shade.ts` holds all three loops, a
+uniform-bounded `for`, a stack walk and a converging `while (true)`, and the compile gate runs it
+on Tint and on WebGL2.
+
+**Before #203**, three things about the counted loop changed, and they still hold.
 
 **The step may scale, not only add.** The four update forms are `+=`, `-=`, `*=` and `/=`:
 
@@ -1446,11 +1520,11 @@ computed rather than walked, so the answer is exact at any size:
 
 | | before | after |
 | --- | --- | --- |
-| `for (let i: i32 = 0; i < 1024; i++)` | `for (i = 0; i < 1024; step 1) does not exit.` | `for trip count 1024 exceeds 256.` |
+| `for (let i: i32 = 0; i < 1024; i++)` | `for (i = 0; i < 1024; step 1) does not exit.` | `for trip count 1024 exceeds 256.`, and since #203 no error |
 | `for (let i: i32 = 0; i < 16; i--)` | `for (i = 0; i < 16; step -1) does not exit.` | `for (i = 0; i < 16; i -= 1) does not exit.` |
 
 The old counter walked the sequence and could only look 258 steps ahead, so a policy violation
-and a non-terminating loop shared one message. They are different mistakes and the fix for each
+(the ceiling #203 later removed) and a non-terminating loop shared one message. They are different mistakes and the fix for each
 is different: the first wants a smaller bound, the second a step that moves toward it. The
 second row is the loop that really does not exit, so it keeps its sentence; what changes there
 is only how the step is spelled back, since `i--` and `i -= 1` reach the counter as one step.
@@ -1473,10 +1547,7 @@ the counter's type that only the backend could refuse, naming a number the sourc
 contain. A step **written** as a float but valued as a whole number (`i += 2.0`) is still
 accepted, exactly as §13 accepts `let y: i32 = 0.`
 
-**What this does not cover.** A `while` is not trip-counted. It needs a compile-time-constant
-bound in its condition, but nothing checks that its body moves toward that bound, so
-`let w: i32 = 0; while (w < 4) { a += 1. }` compiles today with no diagnostic and spins on the
-device. And the multiplicative step has no `fn()` EDSL spelling, so `ir-equality.test.ts` has
+**What this does not cover.** The multiplicative step has no `fn()` EDSL spelling, so `ir-equality.test.ts` has
 no twin to pin `i *= 2` against; the CPU trip count in `loop-shapes.test.ts` stands in for that
 until `forRange` takes a step operation.
 
@@ -1641,9 +1712,10 @@ array (`.length()` on one is GLSL ES 3.10), so a module with a runtime-sized sto
 WGSL alone, as it did before this. The `array-length` example is registered WGSL-only for that
 reason, like `compute-reduction-twin`.
 
-**A loop over such an array is still not written as `for (…; i < src.length; …)`**: §17 asks a
-`for` to compare its counter to a constant bound, and a runtime length is not one. Guard the
-invocation with `if` and index by `gid.x`, as the example does.
+**A loop over such an array is written `for (…; i < src.length; …)`** since #203: §17 takes a
+runtime bound, and the length reaches the header as `arrayLength(&src)`. When this section was
+written §17 wanted a constant bound, and the remedy was to guard the invocation with `if` and
+index by `gid.x`, as the example still does.
 
 A function you declare with the name `arrayLength` keeps winning the call, the way the names
 §10 added do, so no program that compiled before this section compiles differently.
@@ -1937,8 +2009,9 @@ never in a vertex or fragment entry, which has no workgroup (TS8034); and never 
 on a value the invocations do not share, which is how a workgroup waits forever (TS8052). The
 second rule used to refuse every `if` and `switch` body; it is the uniformity analysis of §54
 now, so a branch on a uniform buffer value or on `workgroup_id` is accepted, and the `if` above,
-on `local_invocation_id`, holds no barrier. A `for` with §17's constant bound is uniform and
-allowed, which is the shape the reduction above needs: the loop steps by `/= 2`, one of §17's four counted steps. The optimizer
+on `local_invocation_id`, holds no barrier. A `for` whose bound every invocation shares (a constant, a
+uniform, `workgroup_id`) is uniform and allowed; one bounded by `local_invocation_id` is not, and
+a barrier in it is TS8052, which is the shape the reduction above needs: the loop steps by `/= 2`, one of §17's four counted steps. The optimizer
 treats a barrier as an effect (§19), so it is never dropped, merged or moved, and no read of
 workgroup memory crosses it.
 
