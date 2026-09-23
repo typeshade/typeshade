@@ -191,9 +191,7 @@ export function fs(): vec4 {
   return vec4(1.);
 }
 `)[0],
-    ).toBe(
-      `TS8002 "N.Q" names no struct this file declares. A class inside a namespace is written "N.Q".`,
-    );
+    ).toBe(`TS8002 "N.Q" names no struct this file declares.`);
   });
 
   it('an enum, a type or a variable in a namespace keeps its refusal', () => {

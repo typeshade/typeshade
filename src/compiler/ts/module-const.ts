@@ -417,6 +417,10 @@ function valueExprConst(
   // (`A / -Z`) is folded componentwise where the division is lowered, with the sentence that
   // names the divisor (#68).
   scope.define({ kind: 'module', name, type, mutable: false, valueExpr: init });
+  // Recorded as the scalar arm below records its const, so the editor reads a vector or an array
+  // const as the type the compiler gave it: a hover names it, and the program TypeScript reads
+  // has it written in where TypeScript would type the arithmetic `number` (#162).
+  scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'const', type });
   return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: init };
 }
 
