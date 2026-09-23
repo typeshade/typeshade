@@ -38,6 +38,7 @@ import {
 } from './diagnostic-directive.js';
 import { uniformityViolations, type UniformityViolation } from '../../core/passes/uniformity.js';
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js';
+import { authorTypeText, useWrittenStructs, withWrittenStructs } from './context.js';
 
 /** Options controlling compilation of a TypeShade TypeScript source string. */
 export interface CompileTsSourceOptions {
@@ -154,6 +155,12 @@ export function compileTsSource(
   source: string,
   options: CompileTsSourceOptions = {},
 ): CompileTsSourceResult {
+  // A message names a struct as the author wrote it, `N.P` and `Slot<f32>`, for this compile's
+  // structs and no other's (see `useWrittenStructs`).
+  return withWrittenStructs(() => compileOneSource(source, options));
+}
+
+function compileOneSource(source: string, options: CompileTsSourceOptions): CompileTsSourceResult {
   const sourceFile =
     options.sourceFile ??
     ts.createSourceFile(
@@ -213,6 +220,7 @@ export function compileTsSource(
   const enables = collectEnables(sourceFile, diagnostics);
   const directives = collectDiagnosticDirectives(sourceFile, diagnostics);
   const structs = collectStructs(sourceFile, diagnostics, symbols);
+  useWrittenStructs(structs);
   // The structs, so a buffer binding's host-shareable rules can be read through its struct
   // type (§51) — collected first, which this order already guaranteed.
   const bindings = collectBindings(
@@ -275,7 +283,7 @@ export function compileTsSource(
   // CORE lint rule answers the same question on the IR, so every authoring surface is covered
   // at every emit; this runs the same function here because it can point at the fragment
   // declaration the author wrote, and a backend throw cannot.
-  for (const m of interstageMismatches(emittedStructDecls(structs), funcs)) {
+  for (const m of interstageMismatches(emittedStructDecls(structs), funcs, authorTypeText)) {
     diagnostics.push(
       makeDiagnostic(
         sourceFile,

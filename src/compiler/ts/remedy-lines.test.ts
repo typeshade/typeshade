@@ -533,6 +533,9 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 // declared type drew a refusal and records the binding as RECOVERED; `writableRemedy` then says
 // nothing. The first sentence already names the mistake the author has to fix, and a second one
 // built from a type the compiler could not read is noise at best and a wrong line at worst.
+// Nor does a READ of such a binding say anything: what it holds is the mapper's placeholder,
+// `storage<array<vec2h>>` a struct called `array`, and "Cannot index array" named that
+// placeholder as a type the author wrote, one that is indexable (Rule 12.4).
 //
 // A TARGET THAT IS NO PLACE ON EITHER MODE ANSWERS THE SAME ON BOTH. The read-only check runs
 // AFTER the target is known to be a place, for element targets as it already did for member
@@ -560,14 +563,14 @@ describe('a refusal names no line when it could not make the line good', () => {
       read: 'declare const mnd: storage<mat2x3<f64>>',
       writable: 'declare const mnd: storage<mat2x3<f64>, "read_write">',
       body: 'mnd[0] = vec3f64(f64(1.), f64(2.), f64(3.))',
-      says: ['TS8027 mat2x3<f64> has no emulated-double form', 'TS8003 Cannot index mat2x3.'],
+      says: ['TS8027 mat2x3<f64> has no emulated-double form'],
     },
     {
       what: 'an array of an unknown element type, recovered',
       read: 'declare const vh: storage<array<vec2h>>',
       writable: 'declare const vh: storage<array<vec2h>, "read_write">',
       body: 'vh[0] = vec2h(1., 2.)',
-      says: ['TS8002 Unknown type "vec2h"', 'TS8003 Cannot index array.'],
+      says: ['TS8002 Unknown type "vec2h"'],
     },
     {
       what: 'a lane of an emulated-double vector, which is a read on either mode',

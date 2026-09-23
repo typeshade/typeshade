@@ -910,7 +910,7 @@ function readField(
         diagnostics,
         sourceFile,
         at,
-        `"${base.type.name}" has no field "${field}".`,
+        `"${authorTypeText(base.type)}" has no field "${field}".`,
         TS_CODES.UNKNOWN_NAME,
       );
       return undefined;

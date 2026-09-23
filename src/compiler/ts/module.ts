@@ -24,7 +24,7 @@ import { collectModuleConsts } from './module-const.js';
 import { collectModuleVars } from './module-vars.js';
 import { TS_CODES } from './codes.js';
 import { checkRecursion, type RecursionNode } from './recursion.js';
-import { fileFunctionsOf } from './context.js';
+import { fileFunctionsOf, useWrittenStructs, withWrittenStructs } from './context.js';
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
 import type { DeclaredSymbol } from './symbols.js';
 
@@ -90,6 +90,14 @@ function resolveSpecifier(fromFile: string, spec: string): string {
 export function compileTsSources(
   files: readonly TsSourceFileInput[],
   entry?: string,
+): CompileTsSourcesResult {
+  // A message names a struct as the author wrote it (see `useWrittenStructs`).
+  return withWrittenStructs(() => compileAllSources(files, entry));
+}
+
+function compileAllSources(
+  files: readonly TsSourceFileInput[],
+  entry: string | undefined,
 ): CompileTsSourcesResult {
   const diagnostics: TsCompilerDiagnostic[] = [];
   const symbols: DeclaredSymbol[] = [];
@@ -312,6 +320,7 @@ export function compileTsSources(
     });
   }
   const merged = mergeDeclarations(perFile, diagnostics);
+  useWrittenStructs(merged.structs);
 
   // BEFORE the bodies are filled, not after. `fillFunctionBody` takes the module constants as
   // a parameter and defines each one in the lowering scope; collect them afterwards and every

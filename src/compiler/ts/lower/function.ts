@@ -15,7 +15,7 @@ import type {
 import { toWorkgroupShape, workgroupSizeAttr } from '../../../core/ir/workgroup.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import type { SourceSpan } from '../../../core/ir/span.js';
-import { voidT, typeKey } from '../../../core/ir/types.js';
+import { structT, voidT, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
@@ -3087,6 +3087,8 @@ function checkStructBuiltinFields(
 ): void {
   const collected = structs.find((s) => s.decl.name === structName);
   if (!collected) return;
+  // The struct as the author wrote it, `N.VOut` for the `N_VOut` a namespace's class emits as.
+  const shown = authorTypeText(structT(structName));
   // Only a class can carry the decorator the message asks for: writing `@location(0)` on an
   // interface or type-literal member is a TypeScript syntax error, so telling that author to
   // add one names a fix they cannot apply. Say what they can do instead.
@@ -3110,7 +3112,7 @@ function checkStructBuiltinFields(
         diagnostics,
         sourceFile,
         node,
-        `Struct "${structName}" field "${field.name}" is at a @location and "${structName}" is ` +
+        `Struct "${shown}" field "${field.name}" is at a @location and "${shown}" is ` +
           `a compute entry ${direction}, which has no user IO: a compute shader reads its work ` +
           `from resources and the @builtin invocation ids.`,
         TS_CODES.STRUCT_FIELD_MISSING_ATTR,
@@ -3122,7 +3124,7 @@ function checkStructBuiltinFields(
         diagnostics,
         sourceFile,
         node,
-        `Struct "${structName}" field "${field.name}" is used as a ${stage} ${direction} but ` +
+        `Struct "${shown}" field "${field.name}" is used as a ${stage} ${direction} but ` +
           `has neither @builtin(...) nor @location(...): ${remedy}`,
         TS_CODES.STRUCT_FIELD_MISSING_ATTR,
       );
@@ -3132,7 +3134,7 @@ function checkStructBuiltinFields(
       field.location !== undefined &&
       refuseF64EntryIo(
         field.type,
-        `Struct "${structName}" field "${field.name}", a ${stage} ${direction},`,
+        `Struct "${shown}" field "${field.name}", a ${stage} ${direction},`,
         'io-struct-field',
         node,
         sourceFile,

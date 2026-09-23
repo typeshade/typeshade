@@ -1,14 +1,14 @@
 // Implements: Rule 6.2, the remedy a read-only resource names (docs/language-design.md; traced in reqs/).
 // === Lowering context / symbol table ===
 
-import type ts from 'typescript';
+import ts from 'typescript';
 import type { ShaderType } from '../../core/ir/types.js';
 import { CAS_RESULT_STRUCTS, typeKey } from '../../core/ir/types.js';
 import { authorTypeName } from './type-map.js';
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js';
 import type { FuncDecl, Stmt, StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import type { PrivateField, RestrictedField } from './structs.js';
+import type { CollectedStruct, PrivateField, RestrictedField } from './structs.js';
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js';
 import type { FunctionShape } from './lower/function-types.js';
 import type { ClassFunction } from './lower/class-methods.js';
@@ -263,8 +263,61 @@ export function readOnlyPhrase(kind: BindingKind): string {
   }
 }
 
-/** How a diagnostic spells a type back to the author: every message that names a type names it
- *  through this (Rule 12.1, Rule 12.7). {@link typeKey} is the COMPILER's key and is NOT a
+/** A struct the module emits under a name the author did not write, and what they wrote: a
+ *  class inside a namespace is emitted `N_P` and written `N.P` (#107), an instance of a generic
+ *  class is emitted `Slot_f32` and written `Slot<f32>` (T9, #92). The emitted name is one the
+ *  editor does not know (TS2304 "Cannot find name 'N_P'"), so a message that printed it named
+ *  a type the author cannot find. */
+interface WrittenStruct {
+  /** The class's name behind the namespaces that hold it, dotted: `N.P`. */
+  readonly name: string;
+  /** What its type parameters are bound to, in the order it declares them; empty for a class
+   *  that is not generic. */
+  readonly args: readonly ShaderType[];
+}
+
+/** The written form of each struct of the module being compiled whose emitted name is not what
+ *  the author wrote. Dynamically scoped, for the reason `generics.ts` binds type arguments that
+ *  way: every message that names a type reaches {@link authorTypeText} many frames below the
+ *  compile that collected the structs, and threading the table down would touch every lowering
+ *  signature. {@link withWrittenStructs} restores what it found. */
+let WRITTEN_STRUCTS: ReadonlyMap<string, WrittenStruct> | undefined;
+
+/** Run `f`, one compile, with no struct's written form in force until {@link useWrittenStructs}
+ *  binds the ones it collects, and restore whatever was in force before. */
+export function withWrittenStructs<R>(f: () => R): R {
+  const saved = WRITTEN_STRUCTS;
+  WRITTEN_STRUCTS = undefined;
+  try {
+    return f();
+  } finally {
+    WRITTEN_STRUCTS = saved;
+  }
+}
+
+/** Binds the written form of every class in `structs` whose emitted name differs from it, for
+ *  the rest of the compile {@link withWrittenStructs} is running. Read off the declaration the
+ *  struct was collected from, not off its emitted name, which cannot be split back: a
+ *  top-level class may be called `N_P` itself. */
+export function useWrittenStructs(structs: readonly CollectedStruct[]): void {
+  const written = new Map<string, WrittenStruct>();
+  for (const s of structs) {
+    const node = s.classNode;
+    if (node?.name === undefined) continue;
+    const path = [node.name.text];
+    for (let at: ts.Node = node.parent; !ts.isSourceFile(at); at = at.parent) {
+      if (ts.isModuleDeclaration(at)) path.unshift(at.name.text);
+    }
+    const args = (node.typeParameters ?? []).flatMap((p) => s.binding?.get(p.name.text) ?? []);
+    const name = path.join('.');
+    if (name !== s.decl.name || args.length > 0) written.set(s.decl.name, { name, args });
+  }
+  WRITTEN_STRUCTS = written;
+}
+
+/** How a diagnostic spells a type back to the author: every message the front end writes that
+ *  names a type names it through this (Rule 12.1, Rule 12.7), and so does the interstage check
+ *  it runs from `src/core`. {@link typeKey} is the COMPILER's key and is NOT a
  *  spelling: it writes a struct as `struct:Params`, an array with no space after the comma, and
  *  a vector or a non-square matrix with a type argument the ambient library does not declare
  *  (`vec4<f32>`, `mat2x3<f32>`). A remedy quoting any of those goes red the moment the author
@@ -274,16 +327,31 @@ export function readOnlyPhrase(kind: BindingKind): string {
  *
  *  So this spells the type in the SOURCE language, and every name it can produce comes from
  *  {@link authorTypeName}, the inverse of the very table `type-map.ts` parses a declaration
- *  with. A type spelled from its parts is composed here: a struct is its name, an array is
- *  `array<E>` or `array<E, N>` with a space after the comma, an atomic is `atomic<u32>`, a
- *  storage texture takes its format and access as the string literals the author writes.
+ *  with. A type spelled from its parts is composed here: a struct is its name as written
+ *  ({@link useWrittenStructs}: `N.P`, `Slot<f32>`), an array is `array<E>` or `array<E, N>`
+ *  with a space after the comma, an atomic is `atomic<u32>`, a storage texture takes its
+ *  format and access as the string literals the author writes.
  *  `remedy-lines.test.ts` pastes every remedy back into its own program and is what keeps
  *  this honest.
  */
 export function authorTypeText(t: ShaderType): string {
   switch (t.kind) {
-    case 'struct':
+    case 'struct': {
+      const written = WRITTEN_STRUCTS?.get(t.name);
+      if (written !== undefined) {
+        return written.args.length > 0
+          ? `${written.name}<${written.args.map(authorTypeText).join(', ')}>`
+          : written.name;
+      }
+      // What `atomicCompareExchangeWeak` returns is a struct WGSL predeclares and no one
+      // writes; the ambient library declares the call to return this object type, and it is
+      // what the editor shows for it.
+      const cas = CAS_RESULT_STRUCTS.find((c) => c.name === t.name);
+      if (cas !== undefined) {
+        return `{ ${cas.fields.map((f) => `${f.name}: ${authorTypeText(f.type)}`).join('; ')} }`;
+      }
       return t.name;
+    }
     case 'array':
       return t.size !== undefined
         ? `array<${authorTypeText(t.elem)}, ${t.size}>`
@@ -353,6 +421,13 @@ export function recordRecoveredBinding(sourceFile: ts.SourceFile, name: string):
   else RECOVERED_BINDINGS.set(sourceFile, new Set([name]));
 }
 
+/** Whether `name`'s declared value type drew a refusal and was recovered: what the binding
+ *  holds is then a placeholder the mapper made (`storage<mat2x3<f64>>` holds a struct called
+ *  `mat2x3`), and a sentence about it would name a type the author never declared. */
+export function isRecoveredBinding(sourceFile: ts.SourceFile, name: string): boolean {
+  return RECOVERED_BINDINGS.get(sourceFile)?.has(name) ?? false;
+}
+
 /** The second sentence of a "cannot assign" refusal: the declaration that WOULD permit the
  *  write, or `''` where there is none. Design rule 6.2 puts a storage binding's access mode in
  *  its second type argument, so the remedy names the TYPE and never the declaration keyword.
@@ -367,7 +442,7 @@ export function recordRecoveredBinding(sourceFile: ts.SourceFile, name: string):
 export function writableRemedy(binding: Binding, sourceFile?: ts.SourceFile): string {
   if (binding.kind !== 'binding' || binding.space !== 'storage') return '';
   // Nothing to say about a type the compiler could not read: see {@link RECOVERED_BINDINGS}.
-  if (sourceFile && RECOVERED_BINDINGS.get(sourceFile)?.has(binding.name)) return '';
+  if (sourceFile && isRecoveredBinding(sourceFile, binding.name)) return '';
   const type = `storage<${authorTypeText(binding.type)}, \"read_write\">`;
   const args = sourceFile && CALL_FORM_BINDINGS.get(sourceFile)?.get(binding.name);
   const line =

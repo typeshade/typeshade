@@ -30,6 +30,7 @@ import {
 } from './builtin-check.js';
 import { applyMixins, isMixinHeritage, mixedMembers, type MixinApplication } from './mixins.js';
 import { pushTypeArguments } from './generics.js';
+import { authorTypeText } from './context.js';
 import {
   genericClasses,
   genericStructName,
@@ -1382,9 +1383,9 @@ function applyInheritance(
         diag(
           sourceFile,
           at(name),
-          `"${from}" declares "${f.name}" as ${typeKeyOf(f.type)}, and "${prior.from}" declares ` +
-            `it as ${typeKeyOf(prior.field.type)}. A struct has one layout, so a field cannot ` +
-            `change type on the way down.`,
+          `"${from}" declares "${f.name}" as ${authorTypeText(f.type)}, and "${prior.from}" ` +
+            `declares it as ${authorTypeText(prior.field.type)}. A struct has one layout, so a ` +
+            `field cannot change type on the way down.`,
         ),
       );
     };

@@ -524,7 +524,9 @@ function lowerOne(
       makeDiagnostic(
         sourceFile,
         decl,
-        `Module const "${name}" is ${k}, but its initializer is ${authorTypeText(init.type)}. Cast it, e.g. ${k}(...), or change the annotation.`,
+        `Module const "${name}" is ${authorTypeText(type)}, but its initializer is ` +
+          `${authorTypeText(init.type)}. Cast it, e.g. ${authorTypeText(type)}(...), or change ` +
+          `the annotation.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     );

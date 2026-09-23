@@ -1475,8 +1475,8 @@ function lowerDepthTextureCall(
         sourceFile,
         node,
         `${id} compares through a sampler_comparison; got ` +
-          `${smp === undefined ? 'nothing' : typeKey(smp.type)}. An ordinary sampler filters a ` +
-          `texel and has no reference to compare against. Declare the sampler ` +
+          `${smp === undefined ? 'nothing' : authorTypeText(smp.type)}. An ordinary sampler ` +
+          `filters a texel and has no reference to compare against. Declare the sampler ` +
           `"declare const smp: sampler_comparison".`,
         TS_CODES.TYPE_MISMATCH,
       );
@@ -2053,9 +2053,9 @@ function lowerGatherCall(
       node,
       compare
         ? `textureGatherCompare compares through a sampler_comparison; got ` +
-            `${smp === undefined ? 'nothing' : typeKey(smp.type)}.`
+            `${smp === undefined ? 'nothing' : authorTypeText(smp.type)}.`
         : `textureGather reads through an ordinary sampler; got ` +
-            `${smp === undefined ? 'nothing' : typeKey(smp.type)}. A sampler_comparison ` +
+            `${smp === undefined ? 'nothing' : authorTypeText(smp.type)}. A sampler_comparison ` +
             `compares instead, with textureGatherCompare.`,
       TS_CODES.TYPE_MISMATCH,
     );

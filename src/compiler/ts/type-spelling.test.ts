@@ -5,8 +5,12 @@
 // `array<f32,4>` with no space. `vec3<f32>` is a spelling the editor refuses (TS2315, "Type
 // 'vec3' is not generic"), so the compiler named a type the editor says does not exist. Every
 // message now spells a type through `authorTypeText`, whose names come from the table
-// `type-map.ts` parses a declaration with, and the last describe below pastes each of those
+// `type-map.ts` parses a declaration with, and the describes below paste each of those
 // spellings back into the editor.
+//
+// A class is named as it is written, not as it is emitted: `N.P` for the struct `N_P` a class
+// inside a namespace becomes, `Slot<f32>` for the struct `Slot_f32` a generic class becomes.
+// Both emitted names are TS2304 "Cannot find name" in the editor.
 //
 // Verifies: Rule 12.7 (docs/language-design.md; traced in reqs/).
 
@@ -17,6 +21,7 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 import {
   arrayT,
   atomicU32T,
+  casResultT,
   mat3f64T,
   mat4x4fT,
   structT,
@@ -158,6 +163,7 @@ describe('every spelling a message uses is a type the editor reads', () => {
       format: 'rgba8unorm',
       access: 'write',
     } as ShaderType,
+    casResultT('u32'),
   ];
 
   it('prints the source spelling, never the IR key', () => {
@@ -174,6 +180,7 @@ describe('every spelling a message uses is a type the editor reads', () => {
       'array<A>',
       'atomic<u32>',
       'texture_storage_2d_array<"rgba8unorm", "write">',
+      '{ old_value: u32; exchanged: bool }',
     ]);
   });
 
@@ -187,5 +194,177 @@ describe('every spelling a message uses is a type the editor reads', () => {
         .filter((d) => d.source === 'typescript')
         .map((d) => `TS${String(d.code)}: ${d.message}`),
     ).toEqual([]);
+  });
+});
+
+describe('a message names a class in a namespace, and a generic one, as written', () => {
+  const decls = [
+    '"use typeshade";',
+    'namespace N {',
+    '  export class P { x: f32 = 0.; }',
+    '  export class Pair<T> { v: T; constructor(v: T) { this.v = v; } }',
+    '}',
+    'namespace A.B { export class Q { x: f32 = 0.; } }',
+    'class Slot<T> { v: T; constructor(v: T) { this.v = v; } }',
+    '',
+  ].join('\n');
+  const saidOf = (body: string): string[] =>
+    compile(`${decls}${body}\n`).diagnostics.map((d) => `${d.code} ${d.message}`);
+
+  it('the namespace path, dotted, for the struct N_P', () => {
+    expect(saidOf('export function k(): N.P { return new A.B.Q(); }')).toEqual([
+      'TS8003 Function "k" return type mismatch: declared N.P, got A.B.Q.',
+    ]);
+  });
+
+  it('the type arguments, for the struct Slot_f32', () => {
+    expect(saidOf('export function k(): Slot<f32> { return new Slot<i32>(1); }')).toEqual([
+      'TS8003 Function "k" return type mismatch: declared Slot<f32>, got Slot<i32>.',
+    ]);
+    expect(
+      saidOf(
+        'export function k(c: bool): f32 { const s = c ? new Slot<f32>(1.) : new Slot<i32>(1); return 1.; }',
+      ),
+    ).toEqual(['TS8003 Ternary arm type mismatch: Slot<f32> vs Slot<i32>.']);
+  });
+
+  it('both at once, with a class as the type argument', () => {
+    expect(
+      saidOf(
+        'export function k(): f32 { const p = new N.Pair<N.P>(new N.P()); if (p) { return 1.; } return 0.; }',
+      ),
+    ).toEqual(['TS8003 if condition must be bool, got N.Pair<N.P>.']);
+    expect(
+      saidOf('export function k(): f32 { const s = new Slot<vec3u>(vec3u(u32(1))); return s[0]; }'),
+    ).toEqual(['TS8003 Cannot index Slot<vec3u>.']);
+  });
+
+  it('a field a pattern reads, and a stage struct, of a class in a namespace', () => {
+    expect(saidOf('export function k(): f32 { const { y } = new N.P(); return y; }')).toContain(
+      'TS8022 "N.P" has no field "y".',
+    );
+    expect(
+      compile(
+        [
+          '"use typeshade";',
+          'namespace S {',
+          '  export class VOut { @builtin("position") pos: vec4 = vec4(0.); uv: vec2 = vec2(0.); }',
+          '}',
+          '@vertex export function vs(): S.VOut { return new S.VOut(); }',
+          '',
+        ].join('\n'),
+      ).diagnostics.map((d) => `${d.code} ${d.message}`),
+    ).toEqual([
+      'TS8029 Struct "S.VOut" field "uv" is used as a vertex output but has neither ' +
+        '@builtin(...) nor @location(...): WGSL requires every entry output struct member to ' +
+        'declare one.',
+    ]);
+  });
+
+  it('each of those names is a type the editor reads', () => {
+    const shown = ['N.P', 'A.B.Q', 'Slot<f32>', 'Slot<i32>', 'N.Pair<N.P>', 'Slot<vec3u>'];
+    const params = shown.map((t, i) => `p${String(i)}: ${t}`).join(', ');
+    const service = createTypeshadeLanguageService();
+    service.openDocument('t.ts', `${decls}export declare function f(${params}): void;\n`);
+    expect(
+      service
+        .getDiagnostics('t.ts')
+        .filter((d) => d.source === 'typescript')
+        .map((d) => `TS${String(d.code)}: ${d.message}`),
+    ).toEqual([]);
+  });
+});
+
+describe('the messages round one left on the key', () => {
+  it('a module const whose call is not its type, and the cast it names compiles', () => {
+    expect(said('const K: vec3 = sin(1.);\nexport function k(): vec3 { return K; }')).toContain(
+      'TS8003 Module const "K" is vec3, but its initializer is f32. Cast it, e.g. vec3(...), ' +
+        'or change the annotation.',
+    );
+    const pasted = compile(
+      `${classes}const K: vec3 = vec3(sin(1.));\nexport function k(): vec3 { return K; }\n`,
+    );
+    expect(pasted.diagnostics).toEqual([]);
+  });
+
+  it('a sampler argument that is not a sampler', () => {
+    const fragment = (call: string): string[] =>
+      said(
+        [
+          'declare const dt: texture_depth_2d;',
+          'declare const smp: sampler;',
+          `@fragment export function fs(@builtin("position") p: vec4): vec4 { return ${call}; }`,
+        ].join('\n'),
+      );
+    expect(fragment('vec4(textureSampleCompare(dt, p.xy, p.xy, 0.5))')).toEqual([
+      'TS8003 textureSampleCompare compares through a sampler_comparison; got vec2. An ordinary ' +
+        'sampler filters a texel and has no reference to compare against. Declare the sampler ' +
+        '"declare const smp: sampler_comparison".',
+    ]);
+    expect(fragment('textureGather(dt, p, p.xy)')).toEqual([
+      'TS8003 textureGather reads through an ordinary sampler; got vec4. A sampler_comparison ' +
+        'compares instead, with textureGatherCompare.',
+    ]);
+  });
+
+  it('an interstage slot of two types, with a vertex struct inside a namespace', () => {
+    const pair = (out: string, vs: string): string[] =>
+      said(
+        [
+          out,
+          'class FIn { @location(0) uv: vec2 = vec2(0.); }',
+          `@vertex export function vs(): ${vs} { return new ${vs}(); }`,
+          '@fragment export function fs(i: FIn): vec4 { return vec4(i.uv, 0., 1.); }',
+        ].join('\n'),
+      );
+    const vout = '{ @builtin("position") pos: vec4 = vec4(0.); @location(0) uv: vec3 = vec3(0.); }';
+    expect(pair(`class VOut ${vout}`, 'VOut')).toEqual([
+      'TS8010 @location(0) leaves "vs" as vec3 (VOut.uv) and enters "fs" as vec2 (FIn.uv); ' +
+        'an interstage slot is one type on both sides.',
+    ]);
+    expect(pair(`namespace N { export class VOut ${vout} }`, 'N.VOut')).toEqual([
+      'TS8010 @location(0) leaves "vs" as vec3 (N.VOut.uv) and enters "fs" as vec2 (FIn.uv); ' +
+        'an interstage slot is one type on both sides.',
+    ]);
+  });
+
+  it('a field whose type a derived class changes', () => {
+    expect(
+      said(
+        'class D extends A { x: vec3 = vec3(0.); }\nexport function k(d: D): f32 { return 1.; }',
+      ),
+    ).toEqual([
+      'TS8010 "D" declares "x" as vec3, and "A" declares it as f32. A struct has one layout, so ' +
+        'a field cannot change type on the way down.',
+    ]);
+  });
+
+  it('what atomicCompareExchangeWeak returns, as the ambient library declares it', () => {
+    expect(
+      said(
+        [
+          'declare const at: storage<array<atomic<u32>>, "read_write">;',
+          '@compute([1, 1, 1]) export function cs(): void {',
+          '  const r = atomicCompareExchangeWeak(at[0], u32(0), u32(1));',
+          '  if (r) { return; }',
+          '}',
+        ].join('\n'),
+      ),
+    ).toEqual(['TS8003 if condition must be bool, got { old_value: u32; exchanged: bool }.']);
+  });
+
+  it('a read of a binding whose type was refused says nothing about the placeholder', () => {
+    // `storage<array<vec2h>>` recovers as a struct called `array`, which printed as `array`
+    // would call an indexable array unindexable. The refusal is the one mistake (Rule 12.4).
+    for (const read of ['vh[0]', 'vh.length']) {
+      const messages = said(
+        [
+          'declare const vh: storage<array<vec2h>, "read_write">;',
+          `@compute([1, 1, 1]) export function cs(): void { const y = ${read}; }`,
+        ].join('\n'),
+      );
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatch(/^TS8002 Unknown type "vec2h"\./);
+    }
   });
 });

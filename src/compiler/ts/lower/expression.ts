@@ -6,7 +6,7 @@ import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, boolT, i32T, u32T, isF64, isVec64, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { authorTypeText, irNameOf, type LoweringScope } from '../context.js';
+import { authorTypeText, irNameOf, isRecoveredBinding, type LoweringScope } from '../context.js';
 import { resolveLangConst } from '../math-alias.js';
 import { foldConstComponents, foldConstNumber } from '../loop-bound.js';
 import {
@@ -341,6 +341,13 @@ function lowerIdentifier(
     }
     case 'binding':
     case 'local':
+      // A binding whose declared type was refused holds the mapper's placeholder, not a type the
+      // author wrote: `storage<array<vec2h>>` holds a struct called `array`. A sentence about a
+      // use of it would name that placeholder as theirs, "Cannot index array", and the refusal
+      // at the declaration is already the one mistake to fix (Rule 12.4).
+      if (binding.kind === 'binding' && isRecoveredBinding(sourceFile, binding.name)) {
+        return undefined;
+      }
       // A `storage<atomic<u32>>` binding is a location, not a value (lower/atomics.ts).
       if (refuseBareAtomic(binding.type, node, sourceFile, scope, diagnostics)) return undefined;
       return { op: 'varref', type: binding.type, name: irNameOf(binding) };
