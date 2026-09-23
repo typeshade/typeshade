@@ -42,6 +42,7 @@ import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js';
 import { lowerAtomicCall } from './atomics.js';
 import { lowerWorkgroupUniformLoad } from './barriers.js';
 import { lowerClassCall } from './class-methods.js';
+import { isArrayMethod, lowerArrayMethod, otherArrayMethod } from './array-methods.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic, PACKED_4X8_IDS } from '../../../core/intrinsics.js';
 import { divergentIntegerId } from '../../../core/ir/divergent-int.js';
 import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js';
@@ -204,14 +205,19 @@ export function lowerCall(
     } else {
       // A method of a class the file declares, or a static function on the class (#86); a
       // receiver that is not a struct falls through to the refusals below.
-      const viaClass = lowerClassCall(node, callee, sourceFile, scope, diagnostics);
+      const seen: { recv?: Expr } = {};
+      const viaClass = lowerClassCall(node, callee, sourceFile, scope, diagnostics, seen);
       if (viaClass !== 'not-a-class-call') return viaClass;
+      // `xs.map(f)` and the other four an array has (Rule 8.18, surface §63).
+      if (isArrayMethod(callee.name.text) && seen.recv !== undefined) {
+        return lowerArrayMethod(node, callee, seen.recv, sourceFile, scope, diagnostics);
+      }
       if (JS_ARRAY_METHODS.has(callee.name.text)) {
         pushDiag(
           diagnostics,
           sourceFile,
           node,
-          `JS Array method ".${callee.name.text}" is not a shader op. Use sum/min/any/all/zip/fill.`,
+          otherArrayMethod(callee.name.text),
           TS_CODES.UNSUPPORTED,
         );
         return undefined;
@@ -242,6 +248,18 @@ export function lowerCall(
     // One refused where it is declared said why there.
     if (local === undefined && declared !== undefined && scope.declarationRefused(name)) {
       return undefined;
+    }
+    // One that takes a function is copied for the functions this call hands it (Rule 8.18),
+    // and wins over a builtin of its name as any local function does (Rule 9.5).
+    if (
+      local === undefined &&
+      declared !== undefined &&
+      functionAround(declared) !== undefined &&
+      declaresFunction(declared) &&
+      scope.localFunctions()?.has(name) === true &&
+      scope.isGenericFunction(name)
+    ) {
+      return lowerGenericCall(node, name, name, sourceFile, scope, diagnostics);
     }
     if (local !== undefined) {
       const leading = captureArguments(local, name, node, sourceFile, scope, diagnostics);

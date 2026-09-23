@@ -404,7 +404,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   vec4f64:
     'Builds a `vec4f64` from four `f64` scalars, a `vec3f64` and a scalar, a `vec2f64` and two scalars, or broadcasts a single `f64` scalar; emulated in software on both GPU targets.',
   array:
-    'Builds an `array<T, N>` from exactly N values of type T; requires type arguments `array<T, N>(v1, v2, ..., vN)`.',
+    'Builds an `array<T, N>` from exactly N values of type T; requires type arguments `array<T, N>(v1, v2, ..., vN)`. An array has the methods `map`, `forEach`, `some`, `every` and `reduce`, each a counted loop over its elements that calls the function it is handed with the element, its `i32` index and the array.',
   fill: 'Creates an `array<T, N>` where every element is the given value; requires type arguments `fill<T, N>(value)`.',
   uniform:
     'Declares a uniform binding of type T; use `declare const name: uniform<T>` or `const name = uniform<T>()`.',

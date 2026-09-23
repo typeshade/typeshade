@@ -735,10 +735,10 @@ describe('every refusal that names a line is pinned above', () => {
       note: 'quotes the member access to write instead (`Base.x`, `this.x`), an expression and not a declaration',
     },
     {
-      file: 'lower/class-methods.ts',
+      file: 'lower/function.ts',
       sites: 1,
       lines: 0,
-      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open',
+      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open, for a setter whose value has no type and no getter that returns one',
     },
     {
       file: 'lower/function-types.ts',

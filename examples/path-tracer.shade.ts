@@ -18,12 +18,12 @@
 // The host fills `u` each frame: the resolution, a frame counter that reseeds the samples, and
 // the camera position. Progressive accumulation across frames (averaging this frame into the
 // last) needs a second pass that reads the previous image, which is host work today; #204 is the
-// design for that half. A BVH over a mesh needs a loop over a runtime-length buffer, which the
-// loop rule refuses today; #203 is the decision for that.
+// design for that half. A BVH over a mesh is a loop over a runtime-length buffer, which a `for`
+// or a `while` may run since #209 (surface §17); this scene is a constant array.
 //
-// A local built from vector arithmetic carries its type (`const oc: vec3 = ro - s.center`). The
-// compiler infers it without one, but TypeScript types `a - b` on two objects as `number`, so
-// the editor needs the annotation to stay green (#162, the ambient-DX row).
+// A local built from vector arithmetic writes no type (`const oc = ro - s.center`): the compiler
+// infers it, and the language service writes the type it inferred into what the editor's
+// TypeScript reads, which on its own types `a - b` on two vectors `number` (#162).
 
 class Sphere {
   center: vec3;
@@ -47,7 +47,7 @@ const SPHERES: array<Sphere, 4> = [
 ];
 
 function hitSphere(s: Sphere, ro: vec3, rd: vec3): f32 {
-  const oc: vec3 = ro - s.center;
+  const oc = ro - s.center;
   const b = dot(oc, rd);
   const c = dot(oc, oc) - s.radius * s.radius;
   const h = b * b - c;
@@ -88,8 +88,8 @@ function trace(ro0: vec3, rd0: vec3, seed0: f32): vec3 {
       break;
     }
     const s = SPHERES[hit];
-    const p: vec3 = ro + rd * tMin;
-    const n: vec3 = normalize(p - s.center);
+    const p = ro + rd * tMin;
+    const n = normalize(p - s.center);
     radiance += throughput * s.emission;
     throughput = throughput * s.albedo;
     ro = p + n * 0.001;
@@ -108,12 +108,12 @@ export function vs(@builtin("vertex_index") vi: u32): vec4 {
 
 @fragment
 export function fs(@builtin("position") pos: vec4): vec4 {
-  const uv: vec2 = (pos.xy - u.resolution * 0.5) / u.resolution.y;
+  const uv = (pos.xy - u.resolution * 0.5) / u.resolution.y;
   const rd = normalize(vec3(uv.x, -uv.y, -1.));
   let color = vec3(0.);
   for (let s: i32 = 0; s < 16; s++) {
     color += trace(u.camPos, rd, dot(pos.xy, vec2(12.9898, 78.233)) + u.frame * 7.31 + f32(s) * 3.7);
   }
-  const c: vec3 = color / 16.;
+  const c = color / 16.;
   return vec4(pow(c / (c + 1.), vec3(1. / 2.2)), 1.);
 }

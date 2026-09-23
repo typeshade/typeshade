@@ -11,6 +11,7 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import type { PrivateField, RestrictedField } from './structs.js';
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js';
 import type { FunctionShape } from './lower/function-types.js';
+import type { ClassFunction } from './lower/class-methods.js';
 
 /** Which fields of each struct are private, by struct and then by the member they are emitted
  *  as (Rule 8.12). */
@@ -104,6 +105,19 @@ export type Instantiator = (
   scope: LoweringScope,
 ) => FuncDecl | undefined;
 
+/** How a call of a method, a static method or a constructor that takes a function finds its copy
+ *  for the functions it hands over (Rule 8.18): the copy, and whether it takes its object by
+ *  reference, which it does when the method writes it or a function handed over writes the
+ *  variable `on` names. `on` is the object the call is on, undefined for a static or `new`. */
+export type MemberInstantiator = (
+  cf: ClassFunction,
+  node: ts.CallExpression | ts.NewExpression,
+  on: ts.Expression | undefined,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  scope: LoweringScope,
+) => { readonly decl: FuncDecl; readonly writes: boolean } | undefined;
+
 /** How an arrow function or a function expression written as an argument becomes a function of
  *  the module (Rule 8.18): named after the body it is written in and `hint`, typed by `shape`
  *  where it writes no types of its own, and taking what it captures there (Rule 8.17). */
@@ -115,6 +129,19 @@ export type ArgumentLifter = (
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ) => FuncDecl | undefined;
+
+/** How a function the front end builds itself joins the module: an array's method, one for
+ *  each array type and function a call hands it (Rule 8.18, surface §63). `key` says which two
+ *  calls may share one; `base` is the name it is made under, fresh; `shown` is how a message
+ *  names it; `captures` are the variables its first parameters stand for, which a call passes
+ *  as it passes a local function's (Rule 8.17). `build` makes it under the name it is given. */
+export type FunctionBuilder = (
+  key: string,
+  base: string,
+  shown: string,
+  captures: readonly CaptureKey[],
+  build: (name: string) => FuncDecl,
+) => FuncDecl;
 
 /** Whether a call of `decl` at `at` can be lowered now (Rule 8.19). A function that writes no
  *  return type says it in its body, so the first call that needs it before the body's turn
@@ -142,9 +169,13 @@ export interface FileFunctions {
    *  a call resolves to: each is made once per set of type and function arguments. */
   readonly generics: Set<string>;
   instantiate: Instantiator | undefined;
+  /** Makes the copy of a class's function that takes a function (Rule 8.18). */
+  instantiateMember: MemberInstantiator | undefined;
   /** For each function in {@link generics} that takes a function, which parameters do. */
   readonly fnParams: Map<string, ReadonlySet<number>>;
   lift: ArgumentLifter | undefined;
+  /** Adds a function the front end builds itself to the module (surface §63). */
+  build: FunctionBuilder | undefined;
   /** Lowers the body of a function whose return type the body says, when a call needs it
    *  first (Rule 8.19); undefined where every function writes its return type. */
   ensure: BodyFiller | undefined;
@@ -175,8 +206,10 @@ export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
     refused: new Set(),
     generics: new Set(),
     instantiate: undefined,
+    instantiateMember: undefined,
     fnParams: new Map(),
     lift: undefined,
+    build: undefined,
     ensure: undefined,
     declared: new Map(),
     captures: new Map(),
@@ -488,6 +521,18 @@ export class LoweringScope {
     return this.fns.instantiate?.(written, node, argTypes, sourceFile, diagnostics, this);
   }
 
+  /** The copy of the class's function `cf`, which takes a function, for the functions the call
+   *  `node` on `on` hands it (Rule 8.18); undefined, having said why, when it cannot be made. */
+  instantiateMember(
+    cf: ClassFunction,
+    node: ts.CallExpression | ts.NewExpression,
+    on: ts.Expression | undefined,
+    sourceFile: ts.SourceFile,
+    diagnostics: TsCompilerDiagnostic[],
+  ): { readonly decl: FuncDecl; readonly writes: boolean } | undefined {
+    return this.fns.instantiateMember?.(cf, node, on, sourceFile, diagnostics, this);
+  }
+
   /** Which parameters of the function `name` take a function (Rule 8.18), or undefined when
    *  none does: those arguments are resolved as functions rather than lowered as values. */
   functionParamsOf(name: string): ReadonlySet<number> | undefined {
@@ -507,6 +552,18 @@ export class LoweringScope {
     return this.fns.lift?.(node, shape, hint, this, sourceFile, diagnostics);
   }
 
+  /** The function the front end builds for `key` (an array's method, surface §63), made the
+   *  first time a call asks for it; undefined outside the lowering of a file's functions. */
+  buildFunction(
+    key: string,
+    base: string,
+    shown: string,
+    captures: readonly CaptureKey[],
+    build: (name: string) => FuncDecl,
+  ): FuncDecl | undefined {
+    return this.fns.build?.(key, base, shown, captures, build);
+  }
+
   /** Whether the call of `decl` at `at` can be lowered now: a function whose body says its
    *  return type has that body lowered first (Rule 8.19). False, having said why or leaving it
    *  to the recursion check, for a call back into a body still being lowered. */
@@ -520,6 +577,9 @@ export class LoweringScope {
   }
 
   private genericName(name: string): string | undefined {
+    // A local function that takes a function, named by the body that declares it (Rule 8.18).
+    const local = this.localFns?.get(name);
+    if (local !== undefined && this.fns.generics.has(local)) return local;
     if (this.fns.generics.has(name)) return name;
     for (const qualified of this.qualifiedNames(name)) {
       if (this.fns.generics.has(qualified)) return qualified;
