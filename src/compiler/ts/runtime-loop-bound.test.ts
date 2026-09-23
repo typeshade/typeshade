@@ -123,6 +123,44 @@ export function fs(@builtin("position") p: vec4f): vec4f {
     expect(r.glsl?.fragment).toContain('for (int i = 0; (i < _licm0); i = (i + 1)) {')
   })
 
+  it('gives an unannotated counter the type of a u32 bound, the loop a TypeScript author writes', () => {
+    // `data.length` is a u32. An unannotated counter was always an i32, so the first loop a
+    // TypeScript author writes was `TS8003 cannot compare i32 and u32`.
+    const kernel = (head: string): string => `"use typeshade"
+class Params { count: u32 }
+declare const params: uniform<Params>
+declare const data: storage<array<f32>>
+declare let out: storage<array<f32>>
+@compute([64])
+export function sum(@builtin("global_invocation_id") gid: vec3u) {
+  let s = 0
+  for (${head}) {
+    s += data[i]
+  }
+  out[gid.x] = s
+}`
+    const byLength = compile(kernel('let i = 0; i < data.length; i++'))
+    expect(byLength.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(byLength.wgsl).toContain('for (var i: u32 = 0u; ')
+    expect(errorsOf(kernel('let i = 0; i < params.count; i++'))).toEqual([])
+    expect(errorsOf(kernel('let i = 0; params.count > i; i++'))).toEqual([])
+    // The author's annotation wins, and a negative start is not a u32: both keep the i32 the
+    // counter always had, so the comparison says what is wrong.
+    expect(errorsOf(kernel('let i: i32 = 0; i < data.length; i++')).map((d) => d.code)).toEqual([
+      'TS8003',
+    ])
+    expect(errorsOf(kernel('let i = -1; i < data.length; i++')).map((d) => d.code)).toEqual([
+      'TS8003',
+    ])
+    // The bound is read once to learn its type; its own error is still reported once.
+    expect(errorsOf(kernel('let i = 0; i < nope.length; i++'))).toEqual([
+      { code: 'TS8022', message: 'Unknown identifier "nope".' },
+    ])
+    // An i32 bound keeps the i32 counter.
+    const byParam = compile(header('let i = 0; i < n; i++'))
+    expect(byParam.wgsl).toContain('for (var i: i32 = 0; (i < n); i = (i + 1)) {')
+  })
+
   it('holds a barrier in a runtime-bounded loop to the uniformity rule', () => {
     // A bound every invocation shares keeps the loop uniform, so a barrier in it is legal. A
     // bound from the invocation's own index makes the trip count differ between invocations,

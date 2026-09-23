@@ -180,6 +180,13 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   `var _w: f32`. The uniformity walk sees a runtime-bounded loop, so a barrier in a loop
   bounded by `local_invocation_index` is `TS8052`. `examples/loops-over-data.shade.ts` holds a
   uniform-bounded `for`, a stack walk and a converging `while (true)`, on the compile gate.
+  An unannotated counter whose start is a non-negative integer literal takes the type of a
+  `u32` bound, so `for (let i = 0; i < data.length; i++)`, the loop a TypeScript author writes
+  first, compiles as written instead of `TS8003 cannot compare i32 and u32`. Checked end to
+  end from the packed tarball in a fresh project: a mesh ray cast over `verts.length / 3`
+  triangles, a stack walk with a converging `while (true)`, and a strided sum to a uniform
+  count, compiled with `compile()`, run on WebGPU (SwiftShader), and matched to plain
+  JavaScript and to the CPU oracle within 1.2e-6.
   Language design Rule 7.5 and its two §14 rows, and surface §17, change with it.
 
 ### Removed

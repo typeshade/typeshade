@@ -57,7 +57,8 @@ export function lowerFor(
   scope.push()
   scope.enterLoop()
   try {
-    const initStmt = lowerForInit(node.initializer, sourceFile, scope, diagnostics)
+    const hint = counterTypeFromBound(node, node.initializer, sourceFile, scope)
+    const initStmt = lowerForInit(node.initializer, sourceFile, scope, diagnostics, hint)
     if (!initStmt) return undefined
     // The `for` header's own two statements never pass through `lowerStatement`, so the
     // blanket stamp there does not reach them; give each the span of the clause it came from
@@ -104,11 +105,60 @@ export function lowerFor(
   }
 }
 
+/**
+ * The type an unannotated counter takes from the bound it is compared with (Rule 7.5).
+ *
+ * `for (let i = 0; i < data.length; i++)` is the loop a TypeScript author writes first, and
+ * `data.length` is a `u32`. An unannotated counter was always an `i32`, so the comparison was
+ * `TS8003 cannot compare i32 and u32`, a type the author never wrote. A counter whose initializer
+ * is a plain non-negative integer literal and whose bound is a `u32` is a `u32`, which is the one
+ * type the loop can have. Anything else keeps the `i32` default: an annotation, a negative or
+ * computed start, an `i32` or float bound.
+ *
+ * The bound is lowered once here into a scratch list, to read its type, and again where the
+ * condition is lowered, which reports its diagnostics. Lowering an expression declares nothing.
+ */
+function counterTypeFromBound(
+  node: ts.ForStatement,
+  list: ts.VariableDeclarationList,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+): ShaderType | undefined {
+  const decl = list.declarations[0]
+  if (!decl || list.declarations.length !== 1 || decl.type || !ts.isIdentifier(decl.name)) {
+    return undefined
+  }
+  let start = decl.initializer
+  while (start && ts.isParenthesizedExpression(start)) start = start.expression
+  if (!start || !ts.isNumericLiteral(start) || !/^\d+$/.test(start.text)) return undefined
+  let cond = node.condition
+  while (cond && ts.isParenthesizedExpression(cond)) cond = cond.expression
+  if (!cond || !ts.isBinaryExpression(cond) || !COMPARISONS.has(cond.operatorToken.kind)) {
+    return undefined
+  }
+  const name = decl.name.text
+  const isCounter = (e: ts.Expression): boolean => ts.isIdentifier(e) && e.text === name
+  const bound = isCounter(cond.left) ? cond.right : isCounter(cond.right) ? cond.left : undefined
+  if (!bound) return undefined
+  const lowered = lowerExpression(bound, sourceFile, scope, [])
+  return lowered && typeKey(lowered.type) === 'u32' ? lowered.type : undefined
+}
+
+const COMPARISONS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+])
+
 function lowerForInit(
   list: ts.VariableDeclarationList,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  hint: ShaderType | undefined,
 ): Stmt | undefined {
   const decl = list.declarations[0]
   if (!decl || list.declarations.length !== 1 || !ts.isIdentifier(decl.name)) {
@@ -152,10 +202,11 @@ function lowerForInit(
   // rather than a NumericLiteral, which the `init.op === 'lit'` special case this replaces
   // never matched — so the initializer kept the f32 the bare `1` was given and the loop emitted
   // `var j: i32 = -1.0`, with no diagnostic, which neither Tint nor ANGLE accepts (issue #40).
-  init = retargetDeclaredIntLit(init, decl.initializer, annotated ?? i32T)
+  const counterType = annotated ?? hint ?? i32T
+  init = retargetDeclaredIntLit(init, decl.initializer, counterType)
   // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk below would
   // otherwise add a second one about a start value the author has already been told about.
-  if (reportIntLitRange(init, decl.initializer, annotated ?? i32T, sourceFile, diagnostics)) {
+  if (reportIntLitRange(init, decl.initializer, counterType, sourceFile, diagnostics)) {
     return undefined
   }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {

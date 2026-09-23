@@ -1218,7 +1218,7 @@ declare let hits: storage<array<u32>>
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u): void {
   let count: u32 = 0
-  for (let t: u32 = 0; t < verts.length / 3; t++) {
+  for (let t = 0; t < verts.length / 3; t++) {
     if (verts[t * 3].y > f32(gid.x)) {
       count += 1
     }
@@ -1227,7 +1227,13 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void {
 }
 ```
 
-The start may be one too, which is how a kernel strides over data:
+The counter needs no annotation. `verts.length` is a `u32`, and an unannotated counter whose
+start is a non-negative integer literal takes the type of a `u32` bound, so `t` is a `u32` here.
+Otherwise it is an `i32`, as it always was: with an annotation, a negative or computed start, or
+an `i32` bound. Before this, the loop above was `TS8003 cannot compare i32 and u32`, about a type
+the author never wrote.
+
+The start may be a runtime value too, which is how a kernel strides over data:
 `for (let i: u32 = lid; i < params.count; i += 64)`. Both targets accept the loop as written;
 #203 measured `for (…; i < arrayLength(&data); …)` and a uniform-bounded `for` and `while` on
 Tint and on ANGLE.
