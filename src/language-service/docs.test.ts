@@ -8,6 +8,7 @@ import {
   DOCUMENTED_FUNCTION_NAMES,
   DOCUMENTED_CONSTANT_NAMES,
   TYPE_DOCS,
+  DOCUMENTED_TYPE_NAMES,
 } from './docs.js'
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
 
@@ -190,6 +191,36 @@ describe('TYPE_DOCS: every matrix name the compiler takes has a row', () => {
       const doc = TYPE_DOCS[n]!
       expect(doc.endsWith('.'), n).toBe(true)
       expect(doc.includes('\u2014') || doc.includes('\u2013'), n).toBe(false)
+    }
+  })
+})
+
+describe('TYPE_DOCS: every type name the compiler takes has a row', () => {
+  // Regression: `DOCUMENTED_TYPE_NAMES` was `SUPPORTED_TYPE_NAMES` itself, so nothing checked
+  // that a name the compiler takes had a TYPE_DOCS row, and `sampler`, `sampler_comparison` and
+  // every `texture_*` name went without one: hover said nothing on them and semantic tokens
+  // left them without the `gpu` modifier. The list is read from the compiler, not copied.
+  it('the compiler list includes the handle types, so the check below is not vacuous', () => {
+    expect(SUPPORTED_TYPE_NAMES).toContain('sampler')
+    expect(SUPPORTED_TYPE_NAMES).toContain('texture_2d')
+    expect(SUPPORTED_TYPE_NAMES).toContain('texture_storage_2d')
+  })
+
+  it('no supported type name is missing a row', () => {
+    const missing = SUPPORTED_TYPE_NAMES.filter((n) => TYPE_DOCS[n] === undefined)
+    expect(missing).toEqual([])
+  })
+
+  it('DOCUMENTED_TYPE_NAMES is the set of rows, and covers the compiler list', () => {
+    expect([...DOCUMENTED_TYPE_NAMES].sort()).toEqual(Object.keys(TYPE_DOCS).sort())
+    for (const n of SUPPORTED_TYPE_NAMES) expect(DOCUMENTED_TYPE_NAMES, n).toContain(n)
+  })
+
+  it('each row reads like the rest of the table', () => {
+    for (const [n, doc] of Object.entries(TYPE_DOCS)) {
+      expect(doc.endsWith('.'), n).toBe(true)
+      expect(doc.includes('—') || doc.includes('–'), n).toBe(false)
+      expect(doc.includes('*/'), n).toBe(false)
     }
   })
 })
