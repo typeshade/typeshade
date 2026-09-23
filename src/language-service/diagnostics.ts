@@ -148,7 +148,7 @@ function binaryExpressionAt(
  */
 function binaryExpressionSpanning(
   context: DiagnosticFilterContext,
-  diagnostic: ts.Diagnostic,
+  diagnostic: DiagnosticSpan,
 ): ts.BinaryExpression | undefined {
   const pos = diagnostic.start ?? 0;
   const end = pos + (diagnostic.length ?? 0);
@@ -1313,7 +1313,8 @@ function sameMistakeSpans(
 /**
  * The expression a TypeScript diagnostic finds fault with the type of: the value TS2322 found
  * unassignable, the argument TS2345 or TS2769 names (or the call, when TS2769 is on its
- * callee), and the object whose member TS2339 or TS2551 did not find.
+ * callee), the object whose member TS2339 or TS2551 did not find, and the operation TS2365 or
+ * TS2367 could not apply to its operands.
  */
 function subjectOf(
   context: DiagnosticFilterContext,
@@ -1327,6 +1328,9 @@ function subjectOf(
       return (
         argumentAt(context, diagnostic.span)?.argument ?? calleeCallAt(context, diagnostic.span)
       );
+    case 2365:
+    case 2367:
+      return binaryExpressionSpanning(context, diagnostic.span);
     case 2339:
     case 2551: {
       let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
@@ -1341,39 +1345,118 @@ function subjectOf(
 }
 
 /**
- * The call a value comes from: the value itself, when it is a call, or the initializer of the
- * local it names, when that local is declared with no type, so that TypeScript typed it from the
- * call. `undefined` for anything else, and without a checker.
+ * The TypeScript codes that say TypeScript could not type the node they sit on: a name it cannot
+ * find (TS2304, and TS2552 with a suggestion), a member it cannot find (TS2339, TS2551), and a
+ * callee it cannot call (TS2349). TypeScript types the value there `any`.
  */
-function callBehind(
+const UNTYPED_CODES: ReadonlySet<number> = new Set([2304, 2552, 2339, 2551, 2349]);
+
+/** Whether one of `failures` says TypeScript could not type `node` itself (`UNTYPED_CODES`). */
+function failedAt(
   context: DiagnosticFilterContext,
-  value: ts.Expression,
-): ts.CallExpression | undefined {
-  const inner = unparenthesized(value);
-  if (ts.isCallExpression(inner)) return inner;
-  if (!ts.isIdentifier(inner) || context.checker === undefined) return undefined;
-  const declaration = context.checker.getSymbolAtLocation(inner)?.valueDeclaration;
-  if (
-    declaration === undefined ||
-    !ts.isVariableDeclaration(declaration) ||
-    declaration.type !== undefined ||
-    declaration.initializer === undefined
-  ) {
-    return undefined;
-  }
-  const initializer = unparenthesized(declaration.initializer);
-  return ts.isCallExpression(initializer) ? initializer : undefined;
+  node: ts.Node,
+  failures: readonly TypeshadeDiagnostic[],
+): boolean {
+  const span = spanOfNode(node, context.sourceFile);
+  return failures.some(
+    (failure) =>
+      typeof failure.code === 'number' &&
+      UNTYPED_CODES.has(failure.code) &&
+      failure.span.start === span.start &&
+      failure.span.length === span.length,
+  );
 }
 
 /**
- * Whether a TypeScript diagnostic is TypeScript's own knock-on of a call it failed to resolve.
+ * The initializer TypeScript typed the local `name` reads from: that of a local declared with no
+ * type. `undefined` for anything else (a parameter, a declared type), and without a checker.
+ */
+function initializerBehind(
+  context: DiagnosticFilterContext,
+  name: ts.Identifier,
+): ts.Expression | undefined {
+  const declaration = context.checker?.getSymbolAtLocation(name)?.valueDeclaration;
+  return declaration !== undefined &&
+    ts.isVariableDeclaration(declaration) &&
+    declaration.type === undefined
+    ? declaration.initializer
+    : undefined;
+}
+
+/** Whether TypeScript chose the signature of `call` among several, as it does for a builtin
+ * declared once per shape (`normalize` on a `vec2`, a `vec3` and a `vec4`). */
+function overloaded(context: DiagnosticFilterContext, call: ts.CallExpression): boolean {
+  const callee = context.checker?.getTypeAtLocation(call.expression);
+  return callee !== undefined && callee.getCallSignatures().length > 1;
+}
+
+/**
+ * Whether TypeScript typed `value` from something it could not type itself, so that the type it
+ * judges `value` by is its guess, not the program's:
+ *
+ * - a name or a member it cannot find, or a callee it cannot call (`UNTYPED_CODES`), all `any`,
+ *   and a member or an element of such a value;
+ * - a call it failed to resolve (`CALL_CODES`), which it types from a signature that did not
+ *   match, a call of a callee it could not type, and a call of an overloaded function with an
+ *   argument it could not type, where it takes the first overload that admits `any`;
+ * - a local declared with no type, whose initializer is such a value;
+ * - an operation of `ERASING_OPERATORS` or `ERASING_UNARY_OPERATORS` on such a value, which it
+ *   types `number` or `boolean` from an `any` operand as readily as from a scalar.
+ *
+ * `failures` are the TypeScript errors to consult, the one being judged left out.
+ */
+function typedFromFailure(
+  context: DiagnosticFilterContext,
+  value: ts.Expression,
+  failures: readonly TypeshadeDiagnostic[],
+  seen: Set<ts.Node> = new Set(),
+): boolean {
+  const inner = unparenthesized(value);
+  if (seen.has(inner)) return false;
+  seen.add(inner);
+  const from = (e: ts.Expression): boolean => typedFromFailure(context, e, failures, seen);
+  if (failedAt(context, inner, failures)) return true;
+  if (ts.isIdentifier(inner)) {
+    const initializer = initializerBehind(context, inner);
+    return initializer !== undefined && from(initializer);
+  }
+  if (ts.isPropertyAccessExpression(inner)) {
+    return failedAt(context, inner.name, failures) || from(inner.expression);
+  }
+  if (ts.isElementAccessExpression(inner)) return from(inner.expression);
+  if (ts.isCallExpression(inner)) {
+    return (
+      failures.some(
+        (failure) =>
+          typeof failure.code === 'number' &&
+          CALL_CODES.has(failure.code) &&
+          callOf(context, failure.span) === inner,
+      ) ||
+      from(inner.expression) ||
+      (overloaded(context, inner) && inner.arguments.some(from))
+    );
+  }
+  if (ts.isBinaryExpression(inner) && ERASING_OPERATORS.has(inner.operatorToken.kind)) {
+    return from(inner.left) || from(inner.right);
+  }
+  if (ts.isPrefixUnaryExpression(inner) && ERASING_UNARY_OPERATORS.has(inner.operator)) {
+    return from(inner.operand);
+  }
+  return false;
+}
+
+/**
+ * Whether a TypeScript diagnostic is TypeScript's own knock-on of something it could not type.
  * When no overload of a call matches (TS2769), or an argument fails (TS2345) or the count does
- * (TS2554), TypeScript still gives the call a type, from a signature that did not match, and
- * every place the value then reaches is judged by that type. `return max(v, w)` with a `vec2`
- * `w` is the shape: the failed `max` is `number`, and the `return` reports TS2322 about a value
- * whose only fault is the call already reported. The fault is the call's, so the report about
- * the value goes, directly (`return max(v, w)`) or through a local declared with no type
- * (`const c = max(v, w)` and then `return c`, `c.x`, `cross(c, n)`).
+ * (TS2554), TypeScript still gives the call a type, from a signature that did not match; a name
+ * it cannot find (`lerp`, TS2304) or a field (`frame.tiem`, TS2551) it types `any`, and an
+ * arithmetic operation on an `any` `number`. Every place the value then reaches is judged by
+ * that guess. `return max(v, w)` with a `vec2` `w` is the shape: the failed `max` is `number`,
+ * and the `return` reports TS2322 about a value whose only fault is the call already reported.
+ * The fault is the call's, so the report about the value goes (`typedFromFailure`): directly,
+ * through a local declared with no type (`const c = max(v, w)` and then `return c`, `c.x`,
+ * `cross(c, n)`), and through an operation (`const c = lerp(a, b, t)` and then
+ * `vec4(c * x, 1.)`).
  *
  * TypeScript's own failure is the test, never a compiler error inside the value: the compiler
  * refuses things TypeScript types correctly (a function imported from another shader file is
@@ -1387,16 +1470,8 @@ function isKnockOn(
 ): boolean {
   const subject = subjectOf(context, diagnostic);
   if (subject === undefined) return false;
-  const call = callBehind(context, subject);
-  if (call === undefined) return false;
-  return typescript.some(
-    (other) =>
-      other !== diagnostic &&
-      other.severity === 'error' &&
-      typeof other.code === 'number' &&
-      CALL_CODES.has(other.code) &&
-      callOf(context, other.span) === call,
-  );
+  const failures = typescript.filter((other) => other !== diagnostic && other.severity === 'error');
+  return typedFromFailure(context, subject, failures);
 }
 
 /**

@@ -350,15 +350,22 @@ two rules, and only ever an error that another error already covers:
   spelled like it, by TypeScript's own spelling rule with a swap of two letters as one edit
   ("Did you mean "clamp"?"), so TypeScript's TS2552 has nothing to add. TS2741, TS2739 and
   TS2740 are TS2322 reported under the reason, members the value lacks, and are read as
-  TS2322 by the table and the filters of §6.
-- **TypeScript's own knock-on.** When TypeScript fails to resolve a call (TS2769, TS2345,
-  TS2554), it still types the call from a signature that did not match, and the place the
-  value reaches reports again: `return max(v, w)` with a `vec2` `w` added a TS2322 on the
-  `return`. A TypeScript error about a value that comes from such a call, directly or through
-  a local declared with no type, goes. TypeScript's own failure is the test, never a compiler
-  error inside the value, because the compiler refuses what TypeScript types correctly: a
-  function imported from another shader file is `TS8004` to the single-file compiler (#187),
-  and TypeScript's TS2322 about what it returns stands.
+  TS2322 by the table and the filters of §6. A return of the wrong type is one of these: the
+  compiler reports it on the `return` it is about, as TypeScript does, not on the function's
+  name, which with two returns would not say which.
+- **TypeScript's own knock-on.** When TypeScript cannot type something itself, it still gives
+  the value a type, and the place the value reaches reports again. A call it fails to resolve
+  (TS2769, TS2345, TS2554) it types from a signature that did not match: `return max(v, w)`
+  with a `vec2` `w` added a TS2322 on the `return`. A name or a member it cannot find (TS2304,
+  TS2552, TS2339, TS2551, and TS2349 for a callee it cannot call) it types `any`, and an
+  arithmetic operation on an `any` a `number`: after `const c = lerp(a, b, t)`, which the
+  compiler refuses, `vec4(c * x, 1.)` added a TS2345. A TypeScript error about a value that
+  comes from such a failure goes: directly, through a local declared with no type, through an
+  operation or a member or an element of it, and through an overloaded call it was handed to,
+  where TypeScript picks an overload by the `any`. TypeScript's own failure is the test, never
+  a compiler error inside the value, because the compiler refuses what TypeScript types
+  correctly: a function imported from another shader file is `TS8004` to the single-file
+  compiler (#187), and TypeScript's TS2322 about what it returns stands.
 
 `typeshade check` reads the same merged list, and adds from `compile()` only what the service
 cannot compute: the backends' `TS8015` and the opt-in `TS8053`. That check is exported from this

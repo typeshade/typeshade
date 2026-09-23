@@ -1419,8 +1419,14 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   merges the two halves: where they report one mistake the compiler's diagnostic is kept, since
   it is what `compile()` and the build report and names the remedy in the surface's words, with
   no exception, a misspelled name included (below).
-  TypeScript's own knock-on of a call it failed to resolve goes as well: `return max(v, w)` with
+  TypeScript's own knock-on of a value it could not type goes as well: `return max(v, w)` with
   a `vec2` `w` added a TS2322 on the `return`, and now reads as the compiler's `TS8036` alone.
+  The same holds for a name or a field TypeScript cannot find, which it types `any`, and for
+  what is computed from it: after `const c = lerp(a, b, t)`, `vec4(c * x, 1.)` added a TS2345,
+  and after `const t = frame.tiem * 2.`, a `vec3` declared from `t` a TS2322. A return of the
+  wrong type was two diagnostics as well, the compiler's on the function's name and
+  TypeScript's on the `return`; the compiler reports it on the `return` now, which also says
+  which of two returns is wrong, and it reads once.
   `typeshade check` no longer adds a compiler row the service merged away: from `compile()` it
   takes only what the service cannot compute, the backends' `TS8015` and the opt-in `TS8053`.
 

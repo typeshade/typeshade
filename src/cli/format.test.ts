@@ -73,6 +73,25 @@ export function f(x: f32): f32 {
     ]);
   });
 
+  it('text: a tab-indented line keeps the underline under the span', () => {
+    // A terminal draws a tab to its next stop, 4 or 8 columns on, and the underline pads with
+    // one space per character, so under a tab it drifted off the name. tsc --pretty prints each
+    // tab as one space, which keeps the two lines in step at any tab width.
+    const tabbed =
+      '"use typeshade";\nexport function f(v: vec3): vec3 {\n\treturn normailze(v);\n}\n';
+    const lines = formatCheckReport(
+      checkDocuments([doc('t.shade.ts', tabbed)]),
+      'text',
+      new Map([['t.shade.ts', tabbed]]),
+    ).split('\n');
+    expect(lines.slice(0, 4)).toEqual([
+      't.shade.ts:3:9 - error TS8004: Unknown function "normailze". Did you mean "normalize"?',
+      '',
+      '3  return normailze(v);',
+      '          ~~~~~~~~~',
+    ]);
+  });
+
   it('a clean check says so', () => {
     const clean = checkDocuments([doc('valid.shade.ts', VALID)]);
     expect(formatCheckReport(clean, 'text')).toBe('No problems found in 1 file.\n');

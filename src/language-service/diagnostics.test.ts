@@ -540,6 +540,19 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'class S {\n  a: f32\n}\nexport function f(s: S): f32 {\n  return s.b\n}',
       'typeshade TS8022',
     ],
+    // The compiler reports a return of the wrong type on the `return`, where TypeScript does.
+    'a scalar returned for a vector (TS2322)': [
+      fn('  return length(v)', 'v: vec3', 'vec3'),
+      'typeshade TS8003',
+    ],
+    'the second of two returns (TS2740)': [
+      fn('  if (x > 0.) {\n    return v\n  }\n  return x', 'x: f32, v: vec3', 'vec3'),
+      'typeshade TS8003',
+    ],
+    'a vector returned for an entry output struct (TS2741)': [
+      '"use typeshade"\nclass C {\n  @location(0) color: vec4;\n}\n@fragment\nexport function fs(): C {\n  return vec4(1.)\n}',
+      'typeshade TS8003',
+    ],
     'a vector declared as a scalar (TS2322)': [
       fn('  let s: f32 = v\n  return s'),
       'typeshade TS8003',
@@ -564,6 +577,48 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
     'the same through a local declared with no type': [
       fn('  const c = max(v, w)\n  return c', 'v: vec3, w: vec2', 'vec3'),
       'typeshade TS8036',
+    ],
+    // TypeScript cannot find `lerp`, so `c` is `any`, and `c * x` is `number`: every place the
+    // product then reaches is judged by a type TypeScript guessed. Each is the one unknown name.
+    'a value from an unknown function, through an operation, into a constructor (TS2345)': [
+      fn('  const c = lerp(v, vec3(1.), 0.5)\n  return vec4(c * x, 1.)', 'x: f32, v: vec3', 'vec4'),
+      'typeshade TS8004',
+    ],
+    'the same into a declared local (TS2322)': [
+      fn(
+        '  const c = lerp(v, vec3(1.), 0.5)\n  const e: vec3 = c * 2.\n  return e',
+        'v: vec3',
+        'vec3',
+      ),
+      'typeshade TS8004',
+    ],
+    'the same returned (TS2322)': [
+      fn('  const c = lerp(v, vec3(1.), 0.5)\n  return c * x', 'x: f32, v: vec3', 'vec3'),
+      'typeshade TS8004',
+    ],
+    'the same swizzled through a second local (TS2339)': [
+      fn(
+        '  const c = lerp(v, vec3(1.), 0.5)\n  const m = c * x\n  return m.xy',
+        'x: f32, v: vec3',
+        'vec2',
+      ),
+      'typeshade TS8004',
+    ],
+    'the same as a builtin argument (TS2345)': [
+      fn('  const c = lerp(v, vec3(1.), 0.5)\n  return cross(c * 2., v)', 'v: vec3', 'vec3'),
+      'typeshade TS8004',
+    ],
+    'the same compared with a vector (TS2365)': [
+      fn('  const c = lerp(v, vec3(1.), 0.5)\n  return (c * 2.) < v', 'v: vec3', 'vec3b'),
+      'typeshade TS8004',
+    ],
+    'a value from an unknown field, through an operation (TS2322)': [
+      '"use typeshade"\nclass Frame {\n  time: f32\n}\ndeclare const frame: uniform<Frame>\nexport function f(): vec3 {\n  const t = frame.tiem * 2.\n  const u: vec3 = t\n  return u\n}',
+      'typeshade TS8022',
+    ],
+    'a value from a call one argument short, through an operation (TS2345)': [
+      fn('  const c = clamp(x, 0.)\n  return vec4(c * 2., 1.)', 'x: f32', 'vec4'),
+      'typeshade TS8019',
     ],
     'a scalar where a builtin wants the vector (TS2769, TS2322)': [
       fn('  return clamp(v, 0., 1.)', 'v: vec3', 'vec3'),
@@ -647,6 +702,20 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8005',
       'typescript 2552',
     ]);
+  });
+
+  it('keeps a second mistake that no failed value reaches', () => {
+    // `c` is typed from the unknown `lerp`, and `x` is not: the declaration of `bad` is its own
+    // mistake, and both halves report it, so it reads once, beside the unknown name.
+    expect(
+      shown(
+        fn(
+          '  const c = lerp(v, vec3(1.), 0.5)\n  const bad: vec3 = x\n  return c',
+          'x: f32, v: vec3',
+          'vec3',
+        ),
+      ),
+    ).toEqual(['typeshade TS8004', 'typeshade TS8003']);
   });
 
   it('keeps a typo inside a call to an unknown function as its own diagnostic', () => {

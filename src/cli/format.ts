@@ -41,7 +41,9 @@ function frame(d: CheckDiagnostic, text: string): string[] {
       out.push(`${'.'.repeat(gutter)}`);
       continue;
     }
-    const src = (lines[n - 1] ?? '').replace(/\r$/, '');
+    // A tab prints as one space, as tsc --pretty prints it: the underline pads with one space
+    // per character, and a tab drawn to its stop would move the line out from under it.
+    const src = (lines[n - 1] ?? '').replace(/\r$/, '').replace(/\t/g, ' ');
     const from = n === d.line ? d.column - 1 : src.search(/\S|$/);
     const to = n === last ? (d.length === 0 ? from + 1 : d.endColumn - 1) : src.length;
     out.push(`${String(n).padStart(gutter)} ${src}`.trimEnd());
