@@ -1223,15 +1223,24 @@ called, or handed on to another such parameter (`twice(f)` calling `apply(f, x)`
 `apply_…` for whatever `f` was).
 
 The folds take the same arguments: `any(xs, pred)`, `all`, `none` and `zip(xs, ys, f)` accept an
-arrow function, typed by the arrays, and one `zip` is handed returns what its body does.
+arrow function, typed by the arrays, and one `zip` is handed returns what its body does. So do an
+array's own methods, `xs.map(f)`, `xs.forEach(f)`, `xs.some(p)`, `xs.every(p)` and
+`xs.reduce(f, init)`, each a counted loop the call runs (§63).
+
+A local function takes a function the same way, and so do a method, a static method, a
+constructor and a field that holds a function (§26): `const twice = (f: (x: f32) => f32, x: f32)
+=> f(f(x))` in `run`, handed `(x) => x * k`, is `run_twice_run_f(k, x)`. A copy takes what its
+own body captures and what the functions handed over capture, and a variable both reach once:
+a local function that writes `total` and is handed an arrow function that writes it too takes
+one `total`, by reference.
 
 Refused, each with the reason: a function that does not fit the parameter's type (`"add" takes 2
 argument(s), and "(x: f32) => f32" passes 1`); an argument that would choose a function at run
 time (`c ? sq : cube`); a builtin or a generic function by its name, for which an arrow function
-that calls it is the fix; a parameter of function type on a method, a constructor, an accessor, a
-local function or an entry point, which have no copies to make; a function type anywhere else, a
-return, a field, a variable; and a function that hands itself a function it builds anew on every
-call, whose copies would never end.
+that calls it is the fix; a parameter of function type on a setter, whose value an assignment
+gives it, or on an entry point, whose parameters the pipeline supplies; a function type anywhere
+else, a return, a field, a variable; and a function that hands itself a function it builds anew
+on every call, whose copies would never end.
 
 ### A return type left off is the body's to say
 
@@ -1278,17 +1287,23 @@ nothing: `const inc = () => n += k` adds, where TypeScript would also return the
 7.2). A method whose every `return` is `return this` returns its object, so a chain goes on from
 it (§26). `return g()`, where `g` returns nothing, calls `g` and returns nothing, in any function.
 
-In the editor, TypeScript types an operator on a vector as `number`, as it does for a `const` that
-holds one (`docs/language-service-api.md`, [#162](https://github.com/typeshade/typeshade/issues/162)), so a function whose return is `v * 2.` is `number`
-there and a caller that reads `.x` off it is underlined: write its return type, `: vec2`, which is
-the one the compiler infers anyway. A return of a call, a constructor or a field keeps its type.
+TypeScript types an operator on a vector as `number`, so on its own it would type a function
+whose return is `v * 2.` a `number` and underline a caller that reads `.x` off it. The language
+service writes the type the compiler infers into the text TypeScript reads, as it does for a
+`const` that holds such a product (`docs/language-service-api.md`,
+[#162](https://github.com/typeshade/typeshade/issues/162)): `: vec2` after the parameter list of
+a function, a method, a getter or an arrow function that writes no return type, handed to a call
+or not, so the editor completes `glow(uv).` and reports nothing. Plain `tsc` has no service in
+front of it and still types the function `number`; there the return type, written, is the fix. A
+return of a call, a constructor or a field keeps its type either way.
 
 Refused, each with the reason: a function whose type waits on itself, which is a call cycle and
 refused as one (§4); `return`s of two types (`Function "f" returns f32 at its first "return" and
 vec2<f32> at another`); a bare `return` beside one with a value; a default parameter value that
 calls such a function, since every default is lowered before any body; and a setter's value with
-no type beside a getter with none, since no call says what it takes. An entry point writes its
-return type, which is its output (§3).
+no type and no getter, or beside a getter that returns nothing, since nothing says what it takes.
+A setter's value that writes no type beside a getter takes what the getter returns, written or
+said by its body (§26). An entry point writes its return type, which is its output (§3).
 
 ### Triple-slash directives
 
@@ -2478,15 +2493,41 @@ fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 ```
 
 Either half's annotation types the other when one has none, as in TypeScript: `set
-fahrenheit(v)` takes the getter's `f32`. A static accessor is a function with no receiver, read
-on the class, `Temperature.boiling`. The nearest class of a chain that declares either half of
-an accessor owns both, so a class that overrides the getter alone has no setter, as in
-TypeScript.
+fahrenheit(v)` takes the getter's `f32`. When neither half writes a type, the getter's body says
+it (Rule 8.19, §14) and the setter's value takes it, as TypeScript types it: `v` below is an `f32`
+because `level` returns one, and an assignment that needs the type before the getter's body is
+lowered lowers it first.
+
+```ts
+"use typeshade";
+class Gauge {
+  #raw: f32 = 0.;
+  get level() {
+    return this.#raw * 0.5;
+  }
+  set level(v) {
+    this.#raw = v * 2.;
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let g = new Gauge();
+  g.level = uv.x;
+  g.level += 0.25;
+  return vec4(g.level, 0., 0., 1.);
+}
+```
+
+A static accessor is a function with no receiver, read on the class, `Temperature.boiling`. The
+nearest class of a chain that declares either half of an accessor owns both, so a class that
+overrides the getter alone has no setter, as in TypeScript.
 
 Refused, with the fix: a read of an accessor with no getter and a write of one with no setter
-(declare the other half), a getter with no type from either half (annotate it), and a write into
-what a getter returns, `t.pos.x = 1.` (TS8018): the getter hands back a copy, so the write would
-be lost where TypeScript changes the object; assign the whole property instead.
+(declare the other half); a setter's value with no type and no getter, which TypeScript would
+type `any`, or beside a getter that returns nothing (write `set x(v: T)`); and a write into what
+a getter returns, `t.pos.x = 1.` (TS8018): the getter hands back a copy, so the write would be
+lost where TypeScript changes the object; assign the whole property instead.
 
 ### Private names
 
@@ -3009,6 +3050,61 @@ object's own. An accessor over an abstract field is refused too, although TypeSc
 abstract field is a member of every struct below the class that declares it, so a body that class
 wrote would read the member and never the accessor, 0 where TypeScript computes the getter's value.
 The fix is named, `abstract get f(): f32`, which means the same and reaches the accessor.
+
+### A method that takes a function
+
+A method, a static method, a constructor and a field that holds a function take a function as a
+function of the file does (Rule 8.18, §14): each is compiled once for each set of functions its
+calls hand it, and in each copy a call of the parameter calls the function handed over. The
+copy takes what the functions handed over capture, then its object, then the rest.
+
+```ts
+"use typeshade";
+class Swarm {
+  total: f32 = 0.;
+  each(f: (i: i32) => void) {
+    for (let i = 0; i < 4; i++) f(i);
+  }
+  sum(k: f32) {
+    this.each((i) => {
+      this.total += f32(i) * k;
+    });
+  }
+  static twice(f: (x: f32) => f32, x: f32) {
+    return f(f(x));
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let s = new Swarm();
+  s.sum(uv.x);
+  let n = 0.;
+  s.each((i) => {
+    n += f32(i);
+  });
+  return vec4(s.total, n, Swarm.twice((x) => x * 0.5, uv.y), 1.);
+}
+```
+
+```wgsl
+fn Swarm_each_Swarm_sum_f(k: f32, self_: ptr<function, Swarm>) { … }
+fn Swarm_each_fs_f(n: ptr<function, f32>, self_: Swarm) { … }
+fn Swarm_twice_fs_f_1(x: f32) -> f32 { … }
+```
+
+`each` writes nothing of its own object, and the arrow function in `sum` writes `this.total`. In
+TypeScript that is one object, so the copy of `each` takes its object by reference and hands the
+same reference to the arrow function (Rule 8.10): what `each` reads is what the function wrote.
+The same holds for a local named as the object, `g.each(() => { g.n += k; })`. The call through
+`super`, `super.each(f)`, runs the base's copy on this body's object, and a method a class
+inherits is copied for the class that calls it.
+
+Refused, with the fix: a function handed to a call on a field or an element of a variable that
+the function reaches, when either may write it (`this.inner.each((i) => { this.total += 1.; })`),
+since the call would take two references into one variable, which WGSL refuses where either is
+written: call it on a copy in a let, and assign the copy back if the call changes it. A setter
+takes no function (§14).
 
 ### An interface with methods is a contract
 
@@ -4957,7 +5053,7 @@ names only. §62 closed that gap: a local named `shared` is now `TS8068` where i
 The ambient library is a second implementation of this surface's type rules, written in
 TypeScript's vocabulary rather than the compiler's, and two implementations drift. A rule the
 ambient lib states more NARROWLY than the compiler is the worse failure: red squiggles on a
-program that compiles, which stops an author who was right. Four such rows are closed:
+program that compiles, which stops an author who was right. Five such rows are closed:
 
 | spelling | the editor used to say | now |
 | --- | --- | --- |
@@ -4965,11 +5061,16 @@ program that compiles, which stops an author who was right. Four such rows are c
 | `select(vec2b(…), vec2b(…), c)` | the same, about `vec2b` | clean |
 | `vec3(x, v2)`, `vec4(x, v2, w)`, `vec4(x, y, v2)` | "Argument of type 'f32' is not assignable to parameter of type 'vec2'" | clean |
 | `f32(true)`, `i32(true)`, `u32(true)` | "Argument of type 'boolean' is not assignable to parameter of type 'number'" | clean |
+| `m[3].xyz` and `m[0] = vec4(1.)` on a `mat4`, and the same on every square matrix | "Property 'xyz' does not exist on type 'never'"; "Type 'vec4' is not assignable to type 'never'" | clean |
 
 `select` takes any scalar or vector WGSL gives it, bools and emulated doubles included
 (wgsl.txt:21338-21352). The vector constructors take a component vector anywhere, not only
 first (20889/20987). A cast takes a `bool`, which is 1 or 0 (20207) — except `f64`, which
-WIDENS an `f32` and takes nothing else.
+WIDENS an `f32` and takes nothing else. A square matrix's column is a `vecN`, as a non-square
+one's always was (§40). The square aliases take their element as a type argument, `mat4<f64>`
+being a matrix of emulated doubles (§39), and the argument used to be read by assignability,
+under which an `f32` passes for an `f64`. So the default `mat4` was a matrix of doubles to the
+editor, and a column of doubles is `never`, since the compiler refuses to index one.
 
 `src/language-service/ambient-parity.test.ts` asserts the AGREEMENT rather than either verdict,
 with rows on both sides: a row where both refuse is as much the subject as one where both
@@ -5030,27 +5131,24 @@ write (`Write "declare const bins: storage<array<atomic<u32>>, "read_write">" to
 it.`), so the remedy is the same one the indexed write gets; only the layer that says it
 differs. Recorded as the Appendix B row for design rule 6.2 in `docs/language-design.md`.
 
-### Two writes the editor refuses and the compiler takes
+### A write the editor refuses and the compiler takes
 
 Drift the other way, which §49 calls the worse failure: red on a program that runs.
 
 | spelling | the compiler | the editor |
 | --- | --- | --- |
 | `s = 1.` on `declare const s: storage<f32, "read_write">` | `var<storage, read_write> s: f32;` then `s = 1.0` | TS2588, "Cannot assign to 's' because it is a constant" |
-| `m[0] = vec4(1.)` on `declare const m: storage<mat4, "read_write">` | the column is assigned | TS2322, "Type 'vec4' is not assignable to type 'never'" |
 
-The first is the price of the keyword. A binding is `declare const` (§1), and TypeScript will
+It is the price of the keyword. A binding is `declare const` (§1), and TypeScript will
 not assign to a `const` whatever its value type is: no ambient declaration can close it,
 because `const` is the keyword's meaning and not the type's. It reaches only a WHOLE-binding
 write — a scalar, a vector, a struct or an emulated double assigned as one — and a compute
 kernel's `out[gid.x] = …` or `p.scale = …` is untouched, which is why no example and no test in
 the tree met it before `remedy-lines.test.ts` pasted a remedy in and measured what was left.
 The remedy it names is still the right line; the editor simply says one more thing about it.
-
-The second is older than the read view and unchanged by it. Only the SQUARE matrix aliases take
-their element as a type parameter (`mat4<T extends f32 | f64 = f32>`) and resolve through a
-conditional, which is what loses the column's type; `mat2x3[0] = vec3(1.)` is clean in both
-layers, and so is every read of a column. Appendix B's row for design rule 12.7 carries both.
+Appendix B's row for design rule 12.7 carries it. A square matrix column, `m[0] = vec4(1.)` on
+a `storage<mat4, "read_write">`, was a second row here, and it is closed: the table at the head
+of this section has it.
 
 ### The second type argument, where the two layers still part
 
@@ -6011,6 +6109,128 @@ one merged vocabulary. `buffer` and `shared` become GLSL keywords in ES 3.10 and
 reserved in ES 1.00, so refusing any of them at 300 would refuse a program a WebGL2 driver
 compiles — while `shared` and `with` are WGSL reserved words, which is what the WGSL column
 says and what Tint enforces.
+
+## 63. An array's methods
+
+An array has five of the methods of ECMAScript's `Array.prototype`, and each runs as TypeScript
+runs it (Rule 8.18). They work on an `array<T, N>`, and all but `map` on a runtime-sized storage
+array too. Before this section every method of an array was `TS8099 JS Array method ".map" is
+not a shader op`.
+
+| Written              | Its value          | What it does                                                          |
+| -------------------- | ------------------ | --------------------------------------------------------------------- |
+| `xs.map(f)`          | `array<R, N>`      | `f(value, index, array)` for each element; `R` is what `f` returns    |
+| `xs.forEach(f)`      | nothing            | `f(value, index, array)` for each element, as a statement             |
+| `xs.some(p)`         | `bool`             | whether `p` holds for an element, stopping at the first that passes   |
+| `xs.every(p)`        | `bool`             | whether `p` holds for every element, stopping at the first that fails |
+| `xs.reduce(f, init)` | the type of `init` | `acc = f(acc, value, index, array)` from `init`, left to right        |
+| `xs.reduce(f)`       | `T`                | the same, starting from the first element, on an `array<T, N>`        |
+
+```ts
+"use typeshade";
+
+class Light {
+  pos: vec2;
+  radius: f32;
+  power: f32;
+}
+declare const lights: storage<array<Light>>;
+declare const out: storage<array<f32>, "read_write">;
+
+function sq(x: f32): f32 {
+  return x * x;
+}
+
+@compute([64])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  const p = vec2(f32(gid.x) / 64., 0.5);
+  const weights: array<f32, 4> = [0.1, 0.2, 0.3, 0.4];
+  const scaled = weights.map((w, i) => w * f32(i + 1));
+  const total = scaled.map(sq).reduce((acc, w) => acc + w, 0.);
+  const lit = lights.some((l) => distance(l.pos, p) < l.radius);
+  let glow = 0.;
+  lights.forEach((l) => {
+    glow += l.power / (1. + distance(l.pos, p));
+  });
+  out[gid.x] = glow * total + (lit ? 1. : 0.);
+}
+```
+
+**The function.** A method takes its function the way a function that takes a function does
+(§14): by its name, or as an arrow function or a function expression written in the call. It is
+handed the element (`value`), the element's `index`, an `i32`, which is the type an unannotated
+counter has (Rule 7.5), and the `array` itself, and for `reduce` the running value first. It
+may leave parameters off at the end, as TypeScript allows, and a function the file declares may
+take fewer than the method passes: `scaled.map(sq)` hands `sq` the element alone. One that
+writes no return type returns what its body does (Rule 8.19). What it captures, the call passes,
+by reference where it writes it: `glow` above. `reduce`'s running value has the type of the
+function's first parameter where that is written, and otherwise the type of the value to start
+from, where a `0` nothing declares an integer is an `f32` (Rule 5.1).
+
+**What it lowers to.** Each call is a call of a function of the module, made once for each array
+type and function handed over: a counted loop over the indices that calls the function, which
+`some` and `every` leave at the first element that decides them.
+
+```wgsl
+fn array_map_sq(scaled: array<f32, 4>) -> array<f32, 4> {
+  var out: array<f32, 4>;
+  for (var i: i32 = 0; (i < 4); i = (i + 1)) {
+    out[i] = sq(scaled[i]);
+  }
+  return out;
+}
+
+fn array_forEach_main_f_2(glow: ptr<function, f32>, p: vec2<f32>) {
+  for (var i: i32 = 0; (i < i32(arrayLength(&lights))); i = (i + 1)) {
+    main_f_2(glow, p, lights[i]);
+  }
+}
+```
+
+A method call is an expression and a loop is a statement. A function is a call anywhere a call
+may stand, in an argument, on the right of `&&`, or in a loop's condition, where no loop could
+be written in place, and every target and the CPU oracle run one already.
+
+**The array is read as it goes, as TypeScript reads it.** An element the function writes before
+the loop reaches it is read with the write:
+
+- a module variable, a module constant or a binding is read in place, `lights[i]` above;
+- a variable the function captures is read through the parameter the loop takes for it, which
+  is the one the function writes through when it writes it (Rule 8.18): a running sum
+  `xs.forEach((x, i) => { xs[i + 1] += x; })` adds each element into the next, as in TypeScript;
+- any other array is passed by value, since nothing can write it while the loop runs.
+
+An index on the way to the array, `cells[k].xs.some(…)`, is read once before the loop, as
+TypeScript reads the receiver once.
+
+**Where it differs from TypeScript** (Rule 7.2): `index` is an `i32` where TypeScript passes a
+`number`, and `map`'s value is an array value that a `const` holds a copy of, as every array
+here is, where TypeScript builds a new array object.
+
+**Refused, each naming what to write:**
+
+- the other methods of `Array.prototype` (`filter`, `find`, `slice`, `push`, `sort`, …): an
+  array's length is fixed, so a search, a copy or a change of length is a loop,
+  `for (const x of xs)` (§17);
+- `map` on a runtime-sized array, whose value would be an array with no size, which exists only
+  in storage: `forEach` storing into a storage binding is the fix;
+- `reduce` with no value to start from on a runtime-sized array, which may be empty, where
+  TypeScript throws a `TypeError` and a shader cannot throw;
+- a function that takes the array itself from a runtime-sized one, which no function can take:
+  it reads the binding by its name instead;
+- a second argument to `map`, `forEach`, `some` or `every` (`thisArg`), since an arrow function
+  reads the `this` around it already;
+- every refusal Rule 8.18 makes of a function handed over: one that does not fit, a builtin or a
+  generic function by its name, and a choice at run time; and a `map` whose function returns
+  nothing, and a `forEach` whose value is used.
+
+The folds of §27 (`sum`, `any`, `all`, `none`, `zip`) stay as they are: unrolled, and shorter
+to write where they fit.
+
+**The editor types all of it.** `interface Array<T>` in the ambient library declares the five,
+as `lib.es5.d.ts` spells them with a `this` of `array<T, N>` and `index: i32`, and
+`array<T, N>` picks them by name (Rule 3.6), so `scaled` above is an `array<f32, 4>` and
+`glow`'s arrow function is checked against the element type.
 
 ---
 

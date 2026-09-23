@@ -402,6 +402,66 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   keeps its own service, so the MCP server in typeshade/vscode-typeshade can call it rather than
   keep a copy that could drift (Rule 12.7).
 
+- **An array's `map`, `forEach`, `some`, `every` and `reduce` take a function and run as
+  TypeScript runs them** (Rules 2.1, 7.2 and 8.18; surface §63, new, and §14; proposal 0005).
+  Every method of an array was refused with `TS8099` and the advice to use a fold. The five now
+  compile on an `array<T, N>`, and all but `map` on a runtime-sized storage array. Each call is a call of a function of the module made once for each
+  array type and function handed over, a counted loop over the indices (Rule 7.5) that hands the
+  function the element, its `i32` index and the array: `xs.map(sq)` calls `array_map_sq(xs)`, and
+  a call stands in an argument, beside `&&` or in a loop's condition. The function is handed over
+  as Rule 8.18 hands one, by its name or as an arrow function written in the call, and what it
+  captures the loop takes and passes on, by reference where it writes it. The array is read as it
+  goes, as TypeScript reads it: a binding, a module variable or a module constant in place, a
+  variable the function captures through the one reference both use, so
+  `xs.forEach((x, i) => { xs[i + 1] += x; })` adds each element into the next, and any other
+  array by value. `some` and `every` stop at the element that decides them, and `reduce`'s running
+  value takes its type from the function's first parameter or from the value to start from.
+  Refused, each with the fix: the other methods of `Array.prototype`, whose message names the
+  five and `for (const x of xs)`, `map` on a runtime-sized array, `reduce` with no value to start
+  from on one, a function that takes a runtime-sized array, a `thisArg`, and every refusal Rule
+  8.18 makes of a function handed over. The editor types the five: `interface Array<T>` declares
+  them with a `this` of `array<T, N>` and `index: i32`, and `array<T, N>` picks them through
+  `ArrayOps`. `src/compiler/ts/array-methods.test.ts` holds WGSL, GLSL ES 3.00, the CPU oracle,
+  the codegen and the debugger to one value for each; `examples/array-methods.shade.ts` joins the
+  compile gate, and the light-list journey runs them over a storage buffer on WebGPU.
+  `src/compiler/ts/array-hof.ts`, a sketch of a free `map` and `reduce` that nothing imported, is
+  gone.
+
+- **A method, a static method, a constructor, a field that holds a function and a local function
+  take a function, as a function of the file does** (Rule 8.18; Rules 7.2 and 8.10; surface §14
+  and §26; proposal 0002). A parameter of function type on any of them was refused with
+  `TS8020`, since only a function declared at the top of the file or of a namespace could take
+  a function. Each is now compiled once for each set of functions its calls hand it, as a function of the
+  file is: `s.each(sq)` calls `Swarm_each_sq(s)`, `new C(sq)` calls `C_new_sq()`, and a local
+  `twice` handed an arrow function calls `run_twice_run_f(k, x)`. A copy of a method takes its
+  object as the method does (Rule 8.10), and a copy of a local function its own captures. A
+  variable both the copy and the function handed over reach is one parameter, by reference
+  where either side writes it: a variable both capture, and the object the method is called on
+  when the function handed over writes it. So `w.sixteen((i) => { w.x += … })` is
+  `Walker_sixteen_walk_step(&rng, &w)`, and the steps move the walker `sixteen` reads, as in
+  TypeScript. A call through `super`, an inherited method and a parameter handed on to another
+  method copy the same way. Still refused, each with the fix: a parameter of function type on
+  an accessor, whose value an assignment gives it, and on an entry point (`TS8020`), and a call
+  that would take two references into one variable, one of them written, which WGSL's alias
+  analysis refuses (`TS8099`). `src/compiler/ts/higher-order.test.ts` holds WGSL, GLSL ES 3.00
+  and every CPU path to one value for each place and for the shared variable;
+  `examples/higher-order.shade.ts` draws a ring of dots through a method, and the random-walk
+  journey's `sixteen` is a method of `Walker`.
+
+- **A setter with no type takes the type its getter's body returns** (Rule 8.19; surface §14
+  and §26; proposal 0003). `get x() { return this.v * 2.; }` beside `set x(n) { this.v = n / 2.; }`
+  was `TS8002 The setter "Gauge.x" needs a type for "n": write "set x(n: T)", or give the getter a
+return type.` The value now takes what the getter returns, written or said by its body, as
+  TypeScript types it: `fn Gauge_set_x(self_: ptr<function, Gauge>, n: f32)` on WGSL and
+  `void Gauge_set_x(inout Gauge self_, float n)` on GLSL ES 3.00, for an instance and a static
+  pair. An assignment that needs the type before the getter's body is lowered lowers it first,
+  from any body and with the setter above its getter. Still refused with `TS8002`, once: a
+  setter whose value has no type and no getter (TypeScript's implicit `any`), where an
+  assignment to it used to add `TS8022 Unknown field` as well, and one beside a getter that
+  returns nothing. `examples/inferred-returns.shade.ts` sets its orbit's size through such a
+  pair; `src/compiler/ts/return-inference.test.ts` holds every CPU path to one value and to the
+  program that writes the types.
+
 - **A function that writes no return type returns what its body does, as TypeScript infers it**
   (Rule 8.19, new; Rules 7.2 and 8.16; surface §14 and §26). A helper with no annotation was
   `void` beside a `TS8021` "defaulting to void" warning, so one that returned a value was a type
@@ -417,8 +477,8 @@ return type`, and a field that holds a function with an expression body refused 
   function that returns nothing runs it as a statement; a method whose every `return` is
   `return this` chains as one written `this` does. A call cycle, whose type would wait on
   itself, is refused as one, once, with its path; so are returns of two types, a bare `return`
-  beside a value, a default parameter value that calls such a function, and a setter with no
-  type beside a getter with none. The warning is gone. `src/compiler/ts/return-inference.test.ts`
+  beside a value, and a default parameter value that calls such a function. The warning is
+  gone. `src/compiler/ts/return-inference.test.ts`
   holds WGSL, GLSL ES 3.00 and every CPU path to one value for each form and each form to the
   program that writes its types; `examples/inferred-returns.shade.ts` joins the compile gate.
 
@@ -1442,7 +1502,8 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   `select(a, b, (a < b) & (b > a))` was TS2447 and TS2345. The filters that drop arithmetic's
   false positives now read the operator table the projection reads (`ERASING_OPERATORS`), a
   comparison's shape being the `bool` vector of its operands' width, and a local declared from
-  such an operation is written into like one declared from arithmetic. A comparison of vectors of
+  such an operation, or a function that returns one with no type written, is written into like
+  one declared from arithmetic. A comparison of vectors of
   two sizes, or of a vector and a scalar, is one diagnostic, the compiler's `TS8003`: TypeScript's
   TS2365 and TS2367 are paired with it. The uses of a local whose operation the compiler
   refused, which has no type to write in, draw nothing beside the compiler's report either. `&`,
@@ -1461,6 +1522,38 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   end of the switch runs nothing more in TypeScript either, so it is not refused. A program
   ported from WGSL, whose cases need no `break`, gains one per case. Appendix B's Rule 7.3 row
   is removed.
+
+- **A comparison of two emulated-double vectors is a vector of bools** (Rule 7.1, §27, §39).
+  `a < b` on two `vec3f64` was typed as one scalar `bool`, where every other vector comparison
+  is the `vecN<bool>` of its width, as WGSL's typing table has it. So it was refused wherever a
+  mask goes (`TS8003` returned as a `vec3b` or passed to a `vec3b` parameter, `TS8022` on `.x`)
+  and accepted where a bool goes: `if (a < b)` compiled with no diagnostic and reached Tint as a
+  `<` on two `DF64Vec3` structs, `no matching overload for 'operator < (DF64Vec3, DF64Vec3)'`.
+  All six comparisons of two `vecNf64` of one width now yield `vecNb`, which `any`, `all` and
+  `!` take, and `if (a < b)` is the `TS8003` two `vec3` operands get. The fp64 pass lowers them
+  to `df64_vN_lt` through `df64_vN_ne`, which run the scalar comparator on each lane, so each
+  operand is evaluated once. Like the scalar comparisons they read no guard, and a module whose
+  only f64 work is comparing vectors gets no `_fp64` binding. A vec64 beside a scalar, another
+  width or a vector of `f32` is still `TS8003`. Measured on SwiftShader: all six comparisons at
+  widths 2 to 4, in both flavors, compile on Tint (module and render pipeline) and on WebGL2
+  (both stages, linked). `f64-types.test.ts` holds the double on the CPU oracle and the lowered
+  module on the f32-rounding oracle to one answer, lane by lane, where only the low word decides.
+  The `double-bounds` journey tests points against a box near 1e7 with
+  `all(box.lo <= p) && all(p <= box.hi)` on `vec3f64`, whose quarter-unit margins an f32 cannot
+  see; it compiled before this with no diagnostic and emitted the structs' `<=`.
+- **A vector of doubles built from an `f32` says so, and names `f64()` of it** (Rule 12.1,
+  Rule 12.5, §39). `vec3f64(0.5)`, and `vec3f64(t)` with an `f32` `t`, read
+  `Vector constructor component count mismatch.`, though one argument is the right count for a
+  splat. A vector of doubles takes `f64` components only, and a constructor is not one of the
+  places §39 retypes a literal, so the `0.5` is an `f32`. The `TS8019` now reads
+  `vec3f64 splats an f64; got f32. Widen the scalar first: vec3f64(f64(x)).`
+  Written out, `vec3f64(0.5, 0.5, 0.5)` read `Vector constructor element type mismatch: expected f64.`,
+  which named no remedy. The `TS8003` now reads
+  `vec3f64 takes f64 components; got f32. Widen each f32 component first, e.g. vec3f64(f64(x), f64(y), f64(z)).`
+  Each sentence names the constructor as written, `vec3<f64>(0.5)` included, and the remedy
+  at its width. Where `f64()` is not the fix, the text is unchanged: an integer, a bool, a
+  vector of `f32`, a wrong count, and an `f32` given to a vector of integers. The constructor
+  still takes no literal and no `f32`, and the codes are unchanged.
 
 - **A loop can write the array whose length bounds it** (Rule 7.5). This loop over a
   runtime-sized storage array was `TS8006`, "for bound reads xs, which the loop body writes":
@@ -1494,6 +1587,22 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   digits, and emits the decimal it spells. A literal type in a union had the opposite defect:
   it read TypeScript's normalized text, in which `1.0` is `1`, so `type L = 1.0 | 2.0` was an
   `i32`. It is an `f32` now. Both read the source text through one helper, `isIntegerWritten`.
+- **The editor types a function whose return is vector arithmetic as the vector it returns**
+  (#162, surface §14, proposal 0004). A function that writes no return type returns what its
+  body does (Rule 8.19), and TypeScript typed `return p * 0.5` on a `vec2` as a `number`: on a
+  program the compiler accepts, `glow(uv).x` was TS2339, `tint(glow(uv))` TS2345, completion
+  after `glow(uv).` offered nothing, and an arrow function handed to a call whose parameter
+  returns a `vec2`, `apply((x) => x * k, uv)`, was TS2322 on its body beside a global
+  `Cannot find global type 'Promise'`. The language service now writes the return type the front
+  end gave the function into the text TypeScript reads, `: vec2` after the parameter list of a
+  function, a method, a getter, an arrow function or a function expression whose return does
+  arithmetic, with parentheses around an arrow function's bare parameter, and reads an arrow
+  function's expression body as the value its TS2322 rule is about. The front end records each
+  such type in a side table keyed by the function's node, so `CompileTsSourceResult` keeps its
+  shape. Plain `tsc` is unchanged, and the README lists its TS2339 on such a call. The plasma
+  journey's `toUv` returns a product with no type written, and the gate's editor check passes on
+  it; `examples/inferred-returns.shade.ts` returns one from `Orbit.at`, and the path tracer drops
+  the annotations it carried for the editor's sake.
 
 - **The editor types a local built by vector arithmetic as the vector it is** (#162).
   `const uv = p.xy * frame.scale` gave `uv` the type `number` in the language service, because

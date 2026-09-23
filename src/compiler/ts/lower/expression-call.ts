@@ -46,6 +46,7 @@ import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js';
 import { lowerAtomicCall } from './atomics.js';
 import { lowerWorkgroupUniformLoad } from './barriers.js';
 import { lowerClassCall } from './class-methods.js';
+import { isArrayMethod, lowerArrayMethod, otherArrayMethod } from './array-methods.js';
 import {
   ATOMIC_INTRINSICS,
   BARRIER_INTRINSICS,
@@ -218,14 +219,19 @@ export function lowerCall(
     } else {
       // A method of a class the file declares, or a static function on the class (#86); a
       // receiver that is not a struct falls through to the refusals below.
-      const viaClass = lowerClassCall(node, callee, sourceFile, scope, diagnostics);
+      const seen: { recv?: Expr } = {};
+      const viaClass = lowerClassCall(node, callee, sourceFile, scope, diagnostics, seen);
       if (viaClass !== 'not-a-class-call') return viaClass;
+      // `xs.map(f)` and the other four an array has (Rule 8.18, surface §63).
+      if (isArrayMethod(callee.name.text) && seen.recv !== undefined) {
+        return lowerArrayMethod(node, callee, seen.recv, sourceFile, scope, diagnostics);
+      }
       if (JS_ARRAY_METHODS.has(callee.name.text)) {
         pushDiag(
           diagnostics,
           sourceFile,
           node,
-          `JS Array method ".${callee.name.text}" is not a shader op. Use sum/min/any/all/zip/fill.`,
+          otherArrayMethod(callee.name.text),
           TS_CODES.UNSUPPORTED,
         );
         return undefined;
@@ -256,6 +262,18 @@ export function lowerCall(
     // One refused where it is declared said why there.
     if (local === undefined && declared !== undefined && scope.declarationRefused(name)) {
       return undefined;
+    }
+    // One that takes a function is copied for the functions this call hands it (Rule 8.18),
+    // and wins over a builtin of its name as any local function does (Rule 9.5).
+    if (
+      local === undefined &&
+      declared !== undefined &&
+      functionAround(declared) !== undefined &&
+      declaresFunction(declared) &&
+      scope.localFunctions()?.has(name) === true &&
+      scope.isGenericFunction(name)
+    ) {
+      return lowerGenericCall(node, name, name, sourceFile, scope, diagnostics);
     }
     if (local !== undefined) {
       const leading = captureArguments(local, name, node, sourceFile, scope, diagnostics);
@@ -455,6 +473,8 @@ export function lowerCall(
       ctor = { n: ctor.n, elem: named };
     }
     const vc: { readonly n: 2 | 3 | 4; readonly elem: VecCtorElem } = ctor;
+    /** The constructor as the author wrote it, for the refusals that name it. */
+    const spelled = written === undefined ? ctorName : `${ctorName}<${written}>`;
     // `vec3()` is the ZERO value (wgsl.txt:20015-20030): every component the element's zero.
     // It was "Vector constructor component count mismatch.", which is true of nothing the
     // author wrote — there are no components to count.
@@ -464,7 +484,6 @@ export function lowerCall(
         // Name the spelling the AUTHOR wrote. `vec4<f64>()` reaches here as much as `vec4f64()`
         // does, and a refusal that answers about `vec4f64()` is about a call that is not on the
         // line. The fix stays the short name, which is the one form that takes the f64 zero.
-        const spelled = written === undefined ? ctorName : `${ctorName}<${written}>`;
         pushDiag(
           diagnostics,
           sourceFile,
@@ -499,6 +518,23 @@ export function lowerCall(
         type: vectorCtorType(vc.n, vc.elem),
         args: Array.from({ length: vc.n }, () => splat),
       };
+    }
+    // `vec3f64(0.5)`, and `vec3f64(t)` with an f32 `t`. A vector of doubles takes f64
+    // components only, and a constructor is not one of the places §39 retypes a literal, so
+    // the 0.5 is the f32 every bare literal lowers to: the count is right for a splat, and the
+    // type is not. This got the count sentence below, which named neither that nor a remedy
+    // (Rule 12.1). The remedy is f64() of the scalar, which compiles for a literal and for an
+    // f32. The code stays the TS8019 a native constructor gives a lone scalar of another kind
+    // (`vec3f(n)` with a u32 `n`), and every other lone argument keeps the count sentence.
+    if (vc.elem === 'f64' && args.length === 1 && isVectorCtorScalar(args[0]!.type, 'f32')) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${spelled} splats an f64; got f32. Widen the scalar first: vec${vc.n}f64(f64(x)).`,
+        TS_CODES.ARITY_MISMATCH,
+      );
+      return undefined;
     }
     // vecN<T>(v: vecN<S>) — WGSL's element-converting constructor (`vec3f(v)`, `vec3u(v)`,
     // `vec2(gid.xy)`), which GLSL ES 3.00 spells the same way (`vec3(uv)`) and which the
@@ -568,11 +604,28 @@ export function lowerCall(
     }
     const badArg = ctorArgs.find((arg) => !isVectorCtorArg(arg.type, vc.elem));
     if (badArg) {
+      // `vec3f64(0.5, 0.5, 0.5)`: the splat's mistake, with every component written out. When
+      // each component the constructor refuses is an f32 scalar, f64() of each one is the
+      // spelling that compiles, so the sentence names it. f64() does not fix an integer, a
+      // bool or a vector of f32, so a call with one of those keeps the plain sentence.
+      const widens =
+        vc.elem === 'f64' &&
+        ctorArgs.every(
+          (arg) => isVectorCtorArg(arg.type, 'f64') || isVectorCtorScalar(arg.type, 'f32'),
+        );
+      const widened = 'xyzw'
+        .slice(0, vc.n)
+        .split('')
+        .map((c) => `f64(${c})`)
+        .join(', ');
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        `Vector constructor element type mismatch: expected ${vc.elem}.`,
+        widens
+          ? `${spelled} takes f64 components; got f32. ` +
+              `Widen each f32 component first, e.g. vec${vc.n}f64(${widened}).`
+          : `Vector constructor element type mismatch: expected ${vc.elem}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;

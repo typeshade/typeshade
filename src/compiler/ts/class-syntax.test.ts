@@ -257,12 +257,19 @@ export function run(): f32 { return new Sq(3.).describe() }${TAIL}`;
     ).toBe(
       `${M} "C.y" has a setter and no getter, so there is nothing for this assignment to read. Declare "get y()" beside the setter, or assign it with "=".`,
     );
-    // A getter that writes no type says it in its body (Rule 8.19); a setter's value, whose
-    // type no call can say, takes the getter's written one or its own.
+    // A getter that writes no type says it in its body, and a setter's value that writes none
+    // takes what the getter returns (Rule 8.19); with no getter, nothing says its type, and an
+    // assignment to it adds nothing to the one refusal (Rule 12.4).
     expect(errorsOf(C('  get y() { return this.x }'))).toEqual([]);
-    expect(only(C('  set y(v) { this.x = v }'))).toBe(
-      `${TS_CODES.UNKNOWN_TYPE} The setter "C.y" needs a type for "v": write "set y(v: T)", or give the getter a return type.`,
-    );
+    expect(errorsOf(C('  get y() { return this.x }\n  set y(v) { this.x = v }'))).toEqual([]);
+    expect(
+      only(
+        C(
+          '  set y(v) { this.x = v }',
+          'export function run(): f32 { let c = new C(); c.y = 2.; return c.x }',
+        ),
+      ),
+    ).toBe(`${TS_CODES.UNKNOWN_TYPE} The setter "C.y" needs a type for "v": write "set y(v: T)".`);
     expect(
       only(
         C('  get y(): f32 { return this.x }', 'export function run(): f32 { return new C().y() }'),

@@ -25,9 +25,14 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
   return { pos: vec4(x, y, 0, 1) };
 }
 
+/** Where a pixel is in the pattern: a product of vectors, returned with no type written. */
+function toUv(p: vec4) {
+  return p.xy * frame.scale;
+}
+
 @fragment
 export function fs(@builtin("position") p: vec4): Color {
-  const uv = p.xy * frame.scale;
+  const uv = toUv(p);
   let v = 0;
   for (let i = 0; i < 4; i++) {
     const k = f32(i + 1);

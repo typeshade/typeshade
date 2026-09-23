@@ -164,6 +164,11 @@ describe('every place a name is written names the one it is spelled like (Rule 1
       `${TS_CODES.ATTRIBUTE_NAME} Unknown attribute "@fragmnet". Did you mean "@fragment"?`,
       '@fragmnet',
     ],
+    'a function handed to an array method': [
+      'function square(x: f32): f32 {\n  return x * x;\n}\nexport function f(xs: array<f32, 4>): array<f32, 4> {\n  return xs.map(sqaure);\n}',
+      `${TS_CODES.TYPE_MISMATCH} "sqaure" is no function this file declares, and "xs.map" takes one. Did you mean "square"?`,
+      'sqaure',
+    ],
     'a builtin value': [
       '@fragment\nexport function f(@builtin("positon") p: vec4): vec4 {\n  return p;\n}',
       `${TS_CODES.BUILTIN_NAME} Unknown builtin "positon". Did you mean "position"?`,

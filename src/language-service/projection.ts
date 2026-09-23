@@ -9,13 +9,21 @@
 // builds reads the document with that type written in, `const uv: vec2 = p.xy * frame.scale`,
 // and every answer the service gives maps back to the document the author wrote (#162).
 //
-// Only a declaration TypeScript would get wrong is written into: a `const` or `let` with no
-// annotation, a local or a module const, whose initializer applies an operator TypeScript types
-// as a `number` or a `boolean` (arithmetic, a bitwise operator, a comparison, a unary one), and
-// whose front-end type is a vector or a matrix: `const c = a < b` on two `vec3` is a `vec3b`,
-// and `const w = v * f64(2.)` a `vec3f64`. Everything else is served as written. An insertion
-// never spans a line break, so the two texts have the same lines and differ only in the columns
-// after an insertion on its own line.
+// Only a declaration TypeScript would get wrong is written into, when its front-end type is a
+// vector or a matrix TypeScript can spell and the value it is declared from applies an operator
+// TypeScript types as a `number` or a `boolean` (arithmetic, a bitwise operator, a comparison, a
+// unary one):
+//
+//   - a `const` or `let` with no annotation, a local or a module const: `: vec2` after its name.
+//     `const c = a < b` on two `vec3` is a `vec3b`, and `const w = v * f64(2.)` a `vec3f64`;
+//   - a function that writes no return type and whose `return`, or an arrow function's
+//     expression body, applies such an operator (Rule 8.19): `: vec2` after its parameter list,
+//     and a pair of parentheses around an arrow function's one bare parameter. A function, a
+//     method, a getter, a field that holds a function, an arrow function or a function
+//     expression, local or handed to a call.
+//
+// Everything else is served as written. An insertion never spans a line break, so the two texts
+// have the same lines and differ only in the columns after an insertion on its own line.
 //
 // This is the one place a lost vector type is restored, and it restores it for every answer the
 // service gives, hover and completion as much as diagnostics. The diagnostics filters read no
@@ -27,6 +35,7 @@
 import ts from 'typescript';
 import type { ShaderType } from '../core/ir/types.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
+import { inferredReturnAt } from '../compiler/ts/symbols.js';
 import { clampPosition } from './positions.js';
 import type { TypeshadePosition } from './types.js';
 
@@ -126,14 +135,16 @@ export function ambientSpelling(type: ShaderType): string | undefined {
 
 /**
  * The insertions for `text`: a `: <type>` after the name of every unannotated local or module
- * const whose initializer applies an operator TypeScript types as a `number` or a `boolean`,
- * and whose front-end type is a vector or a matrix. Reads the front
- * end's own record of what it declared, so the type written in is the type the compiler uses.
- * A document the front end cannot read, or one without the directive, gets none.
+ * const whose initializer applies an operator TypeScript types as a `number` or a `boolean`, and
+ * after the parameter list of every function that writes no return type and whose return
+ * applies one, when the front-end type is a vector or a matrix. Reads the front end's own record
+ * of what it declared and what each function returns, so the type written in is the type the
+ * compiler uses. A document the front end cannot read, or one without the directive, gets none.
  */
 export function planInsertions(text: string, fileName: string): Insertion[] {
   // The front end is the expensive half; a document with no candidate declaration skips it.
-  if (candidates(ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true)).length === 0) {
+  const syntax = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
+  if (candidates(syntax).length === 0 && functionCandidates(syntax).length === 0) {
     return [];
   }
   let analysis: ReturnType<typeof compileTsSource>;
@@ -154,7 +165,72 @@ export function planInsertions(text: string, fileName: string): Insertion[] {
     const spelled = type === undefined ? undefined : ambientSpelling(type);
     if (spelled !== undefined) out.push({ at: name.getEnd(), text: `: ${spelled}` });
   }
+  const sf = analysis.sourceFile;
+  for (const fn of functionCandidates(sf)) {
+    const type = inferredReturnAt(sf, fn.getStart(sf));
+    const spelled = type === undefined ? undefined : ambientSpelling(type);
+    if (spelled === undefined) continue;
+    const close = fn.getChildren(sf).find((c) => c.kind === ts.SyntaxKind.CloseParenToken);
+    if (close !== undefined) {
+      out.push({ at: close.getEnd(), text: `: ${spelled}` });
+      continue;
+    }
+    // `x => x * k`: a return type needs the parameter in parentheses, `(x): vec2 => x * k`.
+    const only = fn.parameters[0];
+    if (only === undefined) continue;
+    out.push({ at: only.getStart(sf), text: '(' });
+    out.push({ at: only.getEnd(), text: `): ${spelled}` });
+  }
   return out.sort((a, b) => a.at - b.at);
+}
+
+/** A function that writes no return type: what TypeScript infers a return type for. */
+type FunctionCandidate =
+  | ts.FunctionDeclaration
+  | ts.MethodDeclaration
+  | ts.GetAccessorDeclaration
+  | ts.ArrowFunction
+  | ts.FunctionExpression;
+
+/** The values a function returns, its own and not a nested function's: an arrow function's
+ *  expression body, or the expression of each `return` in its block. */
+function returnedValues(fn: FunctionCandidate): ts.Expression[] {
+  const body = fn.body;
+  if (body === undefined) return [];
+  if (!ts.isBlock(body)) return [body];
+  const out: ts.Expression[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isReturnStatement(node)) {
+      if (node.expression !== undefined) out.push(node.expression);
+      return;
+    }
+    if (ts.isFunctionLike(node) || ts.isClassLike(node)) return;
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(body, visit);
+  return out;
+}
+
+/** Every function TypeScript may type wrongly: one that writes no return type and returns a
+ *  value that applies such an operator (Rule 8.19). */
+function functionCandidates(sourceFile: ts.SourceFile): FunctionCandidate[] {
+  const out: FunctionCandidate[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isFunctionDeclaration(node) ||
+        ts.isMethodDeclaration(node) ||
+        ts.isGetAccessorDeclaration(node) ||
+        ts.isArrowFunction(node) ||
+        ts.isFunctionExpression(node)) &&
+      node.type === undefined &&
+      returnedValues(node).some(hasOperator)
+    ) {
+      out.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return out;
 }
 
 /** The name of every declaration TypeScript may type wrongly: a `const` or `let` with no

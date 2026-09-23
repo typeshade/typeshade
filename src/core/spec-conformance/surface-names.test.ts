@@ -607,6 +607,19 @@ describe('the author-facing surface has three sources and no fourth', () => {
     expect(strays).toEqual([]);
   });
 
+  it("an array's methods are members of ECMAScript's Array.prototype, and ArrayOps picks them", () => {
+    // The member site for an array (Rule 2.1(b), surface §63): `interface Array<T>` restates the
+    // methods from lib.es5.d.ts, and `array<T, N>` reaches the ones `ArrayOps` names. A method
+    // an ECMAScript array does not have would be a TypeShade name with no row of §9.3.
+    const arrayProto = new Set(Object.getOwnPropertyNames(Array.prototype));
+    const members = interfaceMembers(SHADE_DTS, 'Array');
+    expect(members.filter((name) => !arrayProto.has(name))).toEqual([]);
+    const picked = /^type ArrayOps = (.+)$/m.exec(SHADE_DTS)?.[1];
+    expect(picked).toBe("'map' | 'forEach' | 'some' | 'every' | 'reduce'");
+    const methods = picked!.split(' | ').map((m) => m.slice(1, -1));
+    expect(methods.filter((m) => !members.includes(m))).toEqual([]);
+  });
+
   it('a free declaration is never credited to the member of the same name', () => {
     // The `random` case, which is what tightened the classifier (#181): a free top-level
     // declaration named after a `Math` member used to be sourced to that member, so a name with

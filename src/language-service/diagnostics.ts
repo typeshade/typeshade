@@ -344,7 +344,9 @@ function hasGpuArithmetic(
  * `return` keyword of a return statement, the name of a variable declaration, the property name
  * of an object literal member, or the left-hand side of an assignment (`out[idx] = v * s`
  * included). Only a position ahead of the value itself is accepted, so a TS2322 raised inside
- * the value is never mistaken for one about the value.
+ * the value is never mistaken for one about the value. The one exception is an arrow function's
+ * expression body, which is its return with no keyword to point at: TypeScript reports it on
+ * the body itself, so the diagnostic has to cover exactly that body (#162).
  */
 function assignedExpressionAt(
   context: DiagnosticFilterContext,
@@ -354,6 +356,11 @@ function assignedExpressionAt(
   let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos);
   while (node !== undefined) {
     if (ts.isReturnStatement(node)) return node.expression;
+    if (ts.isArrowFunction(node) && !ts.isBlock(node.body)) {
+      const body = node.body;
+      const start = body.getStart(context.sourceFile);
+      return pos === start && diagnostic.length === body.getEnd() - start ? body : undefined;
+    }
     if (ts.isVariableDeclaration(node)) {
       const initializer = node.initializer;
       return initializer !== undefined && pos < initializer.getStart() ? initializer : undefined;

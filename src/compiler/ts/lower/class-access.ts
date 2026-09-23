@@ -615,6 +615,8 @@ function superAccessorTarget(
   if (getter !== undefined && !scope.calleeReady(getter, node, sourceFile, diagnostics)) {
     return undefined;
   }
+  // A value with no type takes what the getter's body returns, known once it is lowered.
+  if (!scope.calleeReady(setter, node, sourceFile, diagnostics)) return undefined;
   for (const half of [setter, getter]) {
     const cf = half === undefined ? undefined : classFunctionOf(half);
     if (
@@ -758,6 +760,9 @@ export function lowerAccessorTarget(
   ) {
     return undefined;
   }
+  // A value with no type takes what the getter's body returns (Rule 8.19), known once that body
+  // is lowered: ask for it before reading the type.
+  if (!scope.calleeReady(set.decl, node, sourceFile, diagnostics)) return undefined;
   const type = set.decl.params[set.decl.params.length - 1]!.type;
   // The object each half is called on: the place for one that changes its object, the value
   // for one that only reads it.

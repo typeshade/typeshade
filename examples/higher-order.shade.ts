@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Functions that take a function",
-  "blurb": "`cover` and `around4` take a distance field as a function, `f: Field`, and are compiled once for each function a call hands them, as a generic function is once per set of type arguments (Rule 8.18): `cover_circle`, `around4_fs_petal`. A call hands one over by its name, a local function included, or as an arrow function written there, which reads and writes the variables of the body it is written in (Rule 8.17): `petal` reads `r`, and the arrow `times3` is handed adds to `glow` through a pointer. `any(bands, (b) => …)` hands a fold its test the same way. Renders a disc, four petals, three rings and a glow.",
+  "blurb": "`cover` and `around4` take a distance field as a function, `f: Field`, and are compiled once for each function a call hands them, as a generic function is once per set of type arguments (Rule 8.18): `cover_circle`, `around4_fs_petal`. A call hands one over by its name, a local function included, or as an arrow function written there, which reads and writes the variables of the body it is written in (Rule 8.17): `petal` reads `r`, and the arrow `times3` is handed adds to `glow` through a pointer. A method takes a function the same way, and its copy takes the object it is called on: `ring.each` becomes `Ring_each_fs_dot`. `any(bands, (b) => …)` hands a fold its test the same way. Renders a disc, four petals, a glow, six dots and three rings.",
   "renderable": true
 }
 */
@@ -14,6 +14,7 @@
 // - a call hands one over by its name, or as an arrow function written in the call, which is a
 //   local function of the calling body and takes its types from the parameter's type;
 // - what that function captures, the copy takes and passes on, by reference where it writes;
+// - a method takes one the same way, and its copy takes the object: `Ring_each_fs_dot`;
 // - a fold takes an arrow function the same way.
 
 class VsOut {
@@ -63,6 +64,25 @@ function circle(p: vec2): f32 {
   return length(p) - 0.2;
 }
 
+/** `n` dots evenly spaced on a circle of radius `radius`. */
+class Ring {
+  n: i32;
+  radius: f32;
+
+  constructor(n: i32, radius: f32) {
+    this.n = n;
+    this.radius = radius;
+  }
+
+  /** Hands `dot` the centre of each dot. */
+  each(dot: (c: vec2) => void) {
+    for (let i = 0; i < this.n; i++) {
+      const a = (f32(i) * 6.2831855) / f32(this.n);
+      dot(vec2(cos(a), sin(a)) * this.radius);
+    }
+  }
+}
+
 @fragment
 export function fs(v: VsOut): FsOut {
   const p = v.uv;
@@ -78,6 +98,14 @@ export function fs(v: VsOut): FsOut {
     glow += 0.15 / (1. + 40. * abs(length(p) - 0.3 - 0.05 * f32(i)));
   });
   col += vec3(glow * 0.3, glow * 0.2, glow * 0.6);
+  // A method takes a function the same way: `ring.each` is copied for the arrow it is handed,
+  // which reads `p` and writes `dots`.
+  const ring = new Ring(6, 0.7);
+  let dots = 0.;
+  ring.each((c) => {
+    dots = max(dots, 1. - smoothstep(0.03, 0.04, length(p - c)));
+  });
+  col = mix(col, vec3(0.9, 0.3, 0.5), dots);
   // A fold's test, written as an arrow that reads `p`.
   const bands = array<f32, 3>(0.8, 0.88, 0.96);
   if (any(bands, (b) => abs(length(p) - b) < 0.012)) {

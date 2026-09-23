@@ -803,9 +803,12 @@ function lowerBinary(
       return undefined;
     }
     // Two vectors compare componentwise and yield a vector of bools (§27), which `any`, `all`
-    // and `select` take. An ordering on bools has no meaning on either target.
-    if (left.type.kind === 'vec') {
-      if (left.type.elem === 'bool' && cmp !== '==' && cmp !== '!=') {
+    // and `select` take. A vector of emulated doubles is one too: §39 gives it the six
+    // comparisons, and the fp64 pass lowers them lane by lane. Typed as one scalar bool, as it
+    // was, `a < b` on two `vec3f64` was refused wherever a mask goes and reached WGSL as a `<`
+    // on two structs wherever a bool does. An ordering on bools has no meaning on either target.
+    if (left.type.kind === 'vec' || isVec64(left.type)) {
+      if (left.type.kind === 'vec' && left.type.elem === 'bool' && cmp !== '==' && cmp !== '!=') {
         pushDiag(
           diagnostics,
           sourceFile,
