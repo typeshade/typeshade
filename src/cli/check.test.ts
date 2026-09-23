@@ -69,15 +69,29 @@ export function fogFactor(dist: f32, density: f32): f32 {
 `;
     const report = checkDocuments([doc('fog.shade.ts', text)]);
     const rows = report.diagnostics.map((d) => `${d.line}:${d.column} ${d.source} ${d.code}`);
-    expect(rows).toEqual([
-      '4:3 typescript TS2588',
-      '4:3 typeshade TS8005',
-      '4:7 typescript TS2552',
-    ]);
+    // The write to the `const` is one mistake both halves see: TypeScript's TS2588 and the
+    // compiler's TS8005, merged to the compiler's (Rule 12.4). The typo only TypeScript sees,
+    // since the compiler refused the statement at the write.
+    expect(rows).toEqual(['4:3 typeshade TS8005', '4:7 typescript TS2552']);
     const typo = report.diagnostics.find((d) => d.code === 'TS2552')!;
     expect(typo.message).toBe("Cannot find name 'clmap'. Did you mean 'clamp'?");
     expect(typo).toMatchObject({ file: 'fog.shade.ts', endLine: 4, endColumn: 12, length: 5 });
-    expect(report.errors).toBe(3);
+    expect(report.errors).toBe(2);
+  });
+
+  it("keeps TypeScript's spelling fix for an unknown name, and the compiler's sentence goes", () => {
+    // The one pair the merge keeps TypeScript's side of: "Did you mean" is the remedy, and the
+    // compiler's TS8004 names none. The compiler's own run must not bring TS8004 back either,
+    // which it did while the command added every compiler row the service lacked.
+    const text = `"use typeshade";
+export function f(x: f32): f32 {
+  return clmap(x, 0., 1.);
+}
+`;
+    const report = checkDocuments([doc('typo.shade.ts', text)]);
+    expect(report.diagnostics.map((d) => `${d.source} ${d.code} ${d.message}`)).toEqual([
+      "typescript TS2552 Cannot find name 'clmap'. Did you mean 'clamp'?",
+    ]);
   });
 
   it("carries the backends' verdict, which the language service never computes (Rule 12.3)", () => {
@@ -176,17 +190,12 @@ export function f(x: f32): f32 {
   it('text: the tsc --pretty layout, without colour', () => {
     expect(formatCheckReport(report, 'text', sources)).toBe(
       [
-        `c.shade.ts:4:3 - error TS2588: Cannot assign to 'y' because it is a constant.`,
-        '',
-        '4   y = 2.;',
-        '    ~',
-        '',
         'c.shade.ts:4:3 - error TS8005: Cannot assign to "y" — it is declared with const.',
         '',
         '4   y = 2.;',
         '    ~',
         '',
-        'Found 2 errors in 1 file (1 file checked).',
+        'Found 1 error in 1 file (1 file checked).',
         '',
       ].join('\n'),
     );
@@ -194,9 +203,8 @@ export function f(x: f32): f32 {
 
   it('short: one line per diagnostic', () => {
     expect(formatCheckReport(report, 'short', sources).split('\n')).toEqual([
-      `c.shade.ts:4:3 - error TS2588: Cannot assign to 'y' because it is a constant.`,
       'c.shade.ts:4:3 - error TS8005: Cannot assign to "y" — it is declared with const.',
-      'Found 2 errors in 1 file (1 file checked).',
+      'Found 1 error in 1 file (1 file checked).',
       '',
     ]);
   });
@@ -207,21 +215,8 @@ export function f(x: f32): f32 {
       unknown
     >;
     expect(parsed['version']).toBe(1);
-    expect(parsed['summary']).toEqual({ errors: 2, warnings: 0, files: 1 });
+    expect(parsed['summary']).toEqual({ errors: 1, warnings: 0, files: 1 });
     expect(parsed['diagnostics']).toEqual([
-      {
-        file: 'c.shade.ts',
-        line: 4,
-        column: 3,
-        endLine: 4,
-        endColumn: 4,
-        offset: 67,
-        length: 1,
-        severity: 'error',
-        code: 'TS2588',
-        source: 'typescript',
-        message: "Cannot assign to 'y' because it is a constant.",
-      },
       {
         file: 'c.shade.ts',
         line: 4,

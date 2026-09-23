@@ -14,8 +14,9 @@
 // on the six programs below, the diagnostics are IDENTICAL before and after the declaration
 // changed: the `TS8003` comes from the compile the service runs, and TypeScript contributes
 // nothing. The vector arm is different, because `vecTag` is a REQUIRED property carrying the
-// arity: a `vec4` seed draws `typescript 2345` on top of the `TS8003`, which is what the scalar
-// arm would look like if the brands were required. Making them required is a change to every
+// arity: a `vec4` seed draws `typescript 2345` beside the `TS8003`, which is what the scalar
+// arm would look like if the brands were required. (The editor then shows the compiler's
+// sentence alone, the two being one mistake: `mergeDiagnostics`, Rule 12.4.) Making them required is a change to every
 // scalar on the surface and is not this one; this file pins what is true today so that the
 // change which does it turns these cases red.
 //
@@ -23,7 +24,11 @@
 // already right.
 
 import { describe, expect, it } from 'vitest';
-import { createTypeshadeLanguageService } from './service.js';
+import {
+  analyzeSourceFile,
+  createTypeshadeLanguageService,
+  createTypeshadeLanguageServiceWith,
+} from './service.js';
 import { SHADE_DTS } from './ambient.js';
 import { compile } from '../compiler/ts/compile.js';
 
@@ -32,8 +37,9 @@ const URI = 'random-seed.ts';
 interface Verdict {
   /** Every diagnostic the editor shows, `<source> <code>` and the first line of the message. */
   readonly editor: string[];
-  /** The diagnostics an editor attributes to TypeScript itself, which is the half the
-   *  declaration's parameter type governs. */
+  /** The diagnostics TypeScript itself reports, which is the half the declaration's parameter
+   *  type governs, read before the merge shows the compiler's sentence in place of one that
+   *  reports the same mistake. `<code>` and the first line of the message. */
   readonly typescript: string[];
   readonly compiler: string[];
   readonly emits: boolean;
@@ -43,10 +49,15 @@ function measure(source: string): Verdict {
   const service = createTypeshadeLanguageService();
   service.openDocument(URI, source);
   const shown = service.getDiagnostics(URI);
+  const halves = createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge: false });
+  halves.openDocument(URI, source);
   const result = compile(source);
   return {
     editor: shown.map((d) => `${d.source ?? '?'} ${String(d.code)} ${d.message.split('\n')[0]!}`),
-    typescript: shown.filter((d) => d.source === 'typescript').map((d) => `TS${String(d.code)}`),
+    typescript: halves
+      .getDiagnostics(URI)
+      .filter((d) => d.source === 'typescript')
+      .map((d) => `TS${String(d.code)} ${d.message.split('\n')[0]!}`),
     compiler: result.diagnostics.map((d) => `${d.code} ${d.message}`),
     emits: result.wgsl !== undefined,
   };
@@ -95,10 +106,15 @@ describe('a seed the compiler refuses', () => {
     expect(verdict.compiler).toEqual([
       'TS8003 random(seed) seed must be f32, vec2, or vec3; got vec4<f32>.',
     ]);
-    expect(verdict.typescript).toEqual(['TS2345']);
-    expect(verdict.editor[1]).toContain(
+    expect(verdict.typescript.map((d) => d.split(' ')[0])).toEqual(['TS2345']);
+    expect(verdict.typescript[0]).toContain(
       "is not assignable to parameter of type 'f32 | vec2 | vec3'",
     );
+    // One mistake, one diagnostic in the editor (Rule 12.4): the compiler's sentence, which
+    // names the three types a seed may have in the surface's own words.
+    expect(verdict.editor).toEqual([
+      'typeshade TS8003 random(seed) seed must be f32, vec2, or vec3; got vec4<f32>.',
+    ]);
     expect(verdict.emits).toBe(false);
   });
 });

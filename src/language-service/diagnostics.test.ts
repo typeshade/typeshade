@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
-import { createTypeshadeLanguageService } from './service.js';
+import { analyzeSourceFile, createTypeshadeLanguageServiceWith } from './service.js';
 import { TypeshadeHost } from './host.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
@@ -8,19 +8,25 @@ import type { TypeshadeDiagnostic } from './types.js';
 
 const URI = 'a.ts';
 
-function diagnosticsOf(source: string): readonly TypeshadeDiagnostic[] {
-  const service = createTypeshadeLanguageService();
+/** What the editor shows: both halves, merged to one diagnostic per mistake. With `merge`
+ * false, the two halves as they are before that merge (`mergeDiagnostics`). */
+function diagnosticsOf(source: string, merge = true): readonly TypeshadeDiagnostic[] {
+  const service = createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge });
   service.openDocument(URI, source);
   return service.getDiagnostics(URI);
 }
 
-/** The diagnostics an editor would attribute to TypeScript itself, which is what §6's "zero
- * false positives on a valid program" is about; a `"use typeshade"` diagnostic is the compiler
- * front end speaking and is asserted on separately below. */
+/** Every TypeScript diagnostic the filters keep, which is what §6's "zero false positives on a
+ * valid program" is about, read before the merge: where the compiler reports the same mistake,
+ * the merge shows its sentence in place of TypeScript's, and these tests are about TypeScript's.
+ * A `"use typeshade"` diagnostic is the compiler front end speaking and is asserted on
+ * separately below. */
+function typeScriptHalfOf(source: string): readonly TypeshadeDiagnostic[] {
+  return diagnosticsOf(source, false).filter((d) => d.source === 'typescript');
+}
+
 function typeScriptDiagnosticsOf(source: string): string[] {
-  return diagnosticsOf(source)
-    .filter((d) => d.source === 'typescript')
-    .map((d) => `TS${d.code}: ${d.message}`);
+  return typeScriptHalfOf(source).map((d) => `TS${d.code}: ${d.message}`);
 }
 
 const entry = (
@@ -121,7 +127,7 @@ describe('vector arithmetic reaching a call draws no TypeScript diagnostic (issu
 describe('an argument that is not vector arithmetic still reports (issue #43)', () => {
   const stillReports = (source: string, code: number): void => {
     expect(
-      diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === code),
+      typeScriptHalfOf(source).some((d) => d.code === code),
       source,
     ).toBe(true);
   };
@@ -191,9 +197,7 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
   const ARGUMENT_MISMATCH_CODES: ReadonlySet<string | number> = new Set([2345, 2769]);
   const keepsReporting = (source: string): void => {
     expect(
-      diagnosticsOf(source).some(
-        (d) => d.source === 'typescript' && ARGUMENT_MISMATCH_CODES.has(d.code),
-      ),
+      typeScriptHalfOf(source).some((d) => ARGUMENT_MISMATCH_CODES.has(d.code)),
       source,
     ).toBe(true);
   };
@@ -273,16 +277,12 @@ describe('a program that is genuinely wrong still reports', () => {
     const source = '"use typeshade"\nexport function f(v: vec3): vec3 {\n  return v * "x"\n}\n';
     // TS2363 is the right-hand operand's, so filtering per operand (rather than dropping the
     // whole expression because ONE operand is a vector) is what leaves this visible.
-    expect(diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === 2363)).toBe(
-      true,
-    );
+    expect(typeScriptHalfOf(source).some((d) => d.code === 2363)).toBe(true);
   });
 
   it('1 * "x", with no vector anywhere, is untouched', () => {
     const source = '"use typeshade"\nexport function f(): f32 {\n  return 1 * "x"\n}\n';
-    expect(diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === 2363)).toBe(
-      true,
-    );
+    expect(typeScriptHalfOf(source).some((d) => d.code === 2363)).toBe(true);
   });
 
   it('a vector assigned into a scalar keeps TS2322', () => {
@@ -290,9 +290,7 @@ describe('a program that is genuinely wrong still reports', () => {
       '"use typeshade"\nexport function f(v: vec3): f32 {\n  let n: f32 = v\n  return n\n}\n';
     // The target is `f32`, which IS a `number` to TypeScript, so the mismatch is not the
     // brand's doing and the TS2322 rule must not reach it.
-    expect(diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === 2322)).toBe(
-      true,
-    );
+    expect(typeScriptHalfOf(source).some((d) => d.code === 2322)).toBe(true);
   });
 });
 
@@ -364,27 +362,27 @@ describe('GPU_BRAND_TAGS is exactly what SHADE_DTS brands vectors and matrices w
 // below, and the only way to quiet them was to annotate the local by hand. The filters now read the type
 // the front end gave the name (`CompileTsSourceResult.symbols`).
 describe('a name declared with no type from vector arithmetic draws no TypeScript diagnostic', () => {
-  const USES = `"use typeshade"
+  const USES = `"use typeshade";
 export function shade(n: vec3, l: vec3, albedo: vec3, d: f32): vec3 {
-  const lit = albedo * d + albedo * 0.1
-  const a = normalize(lit)
-  const b = dot(lit, n)
-  const c = dot(n, lit)
-  const e = max(lit, vec3(0.))
-  const f = mix(n, lit, 0.5)
-  const g = vec4(lit, 1.)
-  const h = lit.x + lit.y
-  const i = lit.xy
-  let j: vec3 = lit
-  const k = lit
-  const m = normalize(k)
-  const p = cross(lit, n)
-  const r = clamp(lit, vec3(0.), vec3(1.))
-  const s = length(lit) + distance(lit, n)
-  const t = normalize(n * 2. - 1.)
-  const u = dot(t, l)
-  const w = (n * 2.).xy
-  return lit
+  const lit = albedo * d + albedo * 0.1;
+  const a = normalize(lit);
+  const b = dot(lit, n);
+  const c = dot(n, lit);
+  const e = max(lit, vec3(0.));
+  const f = mix(n, lit, 0.5);
+  const g = vec4(lit, 1.);
+  const h = lit.x + lit.y;
+  const i = lit.xy;
+  let j: vec3 = lit;
+  const k = lit;
+  const m = normalize(k);
+  const p = cross(lit, n);
+  const r = clamp(lit, vec3(0.), vec3(1.));
+  const s = length(lit) + distance(lit, n);
+  const t = normalize(n * 2. - 1.);
+  const u = dot(t, l);
+  const w = (n * 2.).xy;
+  return lit;
 }
 `;
 
@@ -439,5 +437,130 @@ export function f(a: ${type}): ${type} {
     // No brand was lost here, so TypeScript's own member check stands.
     const source = entry('  const p = a.w\n');
     expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2339:']);
+  });
+});
+
+// Both halves check a `"use typeshade"` file, and a mistake both can see used to read as two
+// diagnostics, one per half. The merge keeps one (`mergeDiagnostics`, Rule 12.4): the
+// compiler's, which is what `compile()` and the build report, except where TypeScript names a
+// spelling fix the compiler's sentence does not.
+describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)', () => {
+  /** `body` as the body of `f(signature): ret`, or, when it declares its own functions, as the
+   * whole program. */
+  const fn = (body: string, signature = 'x: f32, v: vec3, w: vec2', ret = 'f32'): string =>
+    body.includes('function ')
+      ? `"use typeshade"\n${body}\n`
+      : `"use typeshade"\nexport function f(${signature}): ${ret} {\n${body}\n}\n`;
+  const shown = (source: string): string[] =>
+    diagnosticsOf(source).map((d) => `${d.source} ${String(d.code)}`);
+
+  const cases: Readonly<Record<string, readonly [string, string]>> = {
+    'a write to a const (TS2588)': [fn('  const y = x\n  y = 2.\n  return y'), 'typeshade TS8005'],
+    'a write to a read-only resource (TS2588)': [
+      'declare const u: uniform<f32>\nexport function f(): f32 {\n  u = 2.\n  return u\n}',
+      'typeshade TS8005',
+    ],
+    'a write to a readonly field (TS2540)': [
+      'class S {\n  readonly a: f32\n}\nexport function f(s: S): f32 {\n  let t = s\n  t.a = 1.\n  return t.a\n}',
+      'typeshade TS8005',
+    ],
+    'one argument short (TS2554)': [
+      'function g(a: f32, b: f32): f32 {\n  return a + b\n}\nexport function f(x: f32): f32 {\n  return g(x)\n}',
+      'typeshade TS8019',
+    ],
+    'one argument too many (TS2554)': [
+      'function g(a: f32): f32 {\n  return a\n}\nexport function f(x: f32): f32 {\n  return g(x, x)\n}',
+      'typeshade TS8019',
+    ],
+    'a builtin one argument short (TS2554)': [fn('  return dot(v)'), 'typeshade TS8019'],
+    'a vector constructor short of components (TS2769)': [
+      fn('  return vec4(v)', 'v: vec3', 'vec4'),
+      'typeshade TS8019',
+    ],
+    'an unknown name (TS2304)': [fn('  return colr'), 'typeshade TS8022'],
+    'an unknown function (TS2304)': [fn('  return foo(x)'), 'typeshade TS8004'],
+    'an unknown type (TS2304)': [
+      'export function f(v: vec5): f32 {\n  return 1.\n}',
+      'typeshade TS8002',
+    ],
+    'a host API (TS2304)': [fn('  return Date.now()'), 'typeshade TS8012'],
+    'a swizzle out of range (TS2339)': [fn('  return v.w'), 'typeshade TS8022'],
+    'a swizzle out of range with a suggestion (TS2551)': [
+      fn('  return v.xyzw', 'v: vec3', 'vec4'),
+      'typeshade TS8022',
+    ],
+    'a field the struct does not declare (TS2339)': [
+      'class S {\n  a: f32\n}\nexport function f(s: S): f32 {\n  return s.b\n}',
+      'typeshade TS8022',
+    ],
+    'a vector declared as a scalar (TS2322)': [
+      fn('  let s: f32 = v\n  return s'),
+      'typeshade TS8003',
+    ],
+    'an argument of the wrong size to a user function (TS2345)': [
+      'function g(p: vec3): vec3 {\n  return p\n}\nexport function f(w: vec2): vec3 {\n  return g(w)\n}',
+      'typeshade TS8003',
+    ],
+    'an argument of the wrong size to a math builtin (TS2345)': [
+      fn('  return cross(v, w)', 'v: vec3, w: vec2', 'vec3'),
+      'typeshade TS8036',
+    ],
+    'the same at an overloaded builtin (TS2769)': [
+      fn('  return mix(v, w, 0.5)', 'v: vec3, w: vec2', 'vec3'),
+      'typeshade TS8036',
+    ],
+    // TypeScript fails `max` and types it `number`, so the `return` adds a TS2322 of its own.
+    'a failed overload and the return it poisons (TS2769, TS2322)': [
+      fn('  return max(v, w)', 'v: vec3, w: vec2', 'vec3'),
+      'typeshade TS8036',
+    ],
+    'the same through a local declared with no type': [
+      fn('  const c = max(v, w)\n  return c', 'v: vec3, w: vec2', 'vec3'),
+      'typeshade TS8036',
+    ],
+    'a scalar where a builtin wants the vector (TS2769, TS2322)': [
+      fn('  return clamp(v, 0., 1.)', 'v: vec3', 'vec3'),
+      'typeshade TS8036',
+    ],
+    // The one pair that keeps TypeScript's side: its "Did you mean" is the remedy.
+    'an unknown name TypeScript can correct (TS2552)': [
+      fn('  return colr', 'color: f32'),
+      'typescript 2552',
+    ],
+    'an unknown function TypeScript can correct (TS2552)': [
+      fn('  return clmap(x, 0., 1.)'),
+      'typescript 2552',
+    ],
+  };
+  for (const [name, [body, only]] of Object.entries(cases)) {
+    it(`${name}: ${only}`, () => {
+      const source = body.startsWith('"use typeshade"') ? body : fn(body);
+      expect(shown(source), source).toEqual([only]);
+    });
+  }
+
+  it('each half still reports on its own when the halves are read unmerged', () => {
+    // The merge is the editor's view; the two checks it merges are both still run.
+    const source = fn('  const y = x\n  y = 2.\n  return y');
+    expect(
+      diagnosticsOf(source, false)
+        .map((d) => `${d.source} ${String(d.code)}`)
+        .sort(),
+    ).toEqual(['typescript 2588', 'typeshade TS8005']);
+  });
+
+  it('keeps two mistakes as two diagnostics', () => {
+    // The write is both halves' mistake and reads once; the typo in the call only TypeScript
+    // sees, since the compiler refused the statement at the write.
+    expect(shown(fn('  const f = x\n  f = clmap(f, 0., 1.)\n  return f'))).toEqual([
+      'typeshade TS8005',
+      'typescript 2552',
+    ]);
+  });
+
+  it('keeps a typo inside a call to an unknown function as its own diagnostic', () => {
+    // Two mistakes, one per half: TypeScript names the unknown `g`, and the compiler, which
+    // lowers the argument first, names `colr` and says nothing more about the call.
+    expect(shown(fn('  return g(colr)'))).toEqual(['typescript 2304', 'typeshade TS8022']);
   });
 });

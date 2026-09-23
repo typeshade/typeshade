@@ -940,7 +940,7 @@ A _diagnostic_ is one message the compiler reports for the author's benefit, wit
 
 - Rationale: a cascade hides the sentence that says what to do.
 - Derives from: surface §28 ("and one mistake reads as one sentence").
-- Enforced by: `honest-refusals.test.ts` (`one mistake reads as one sentence`), for the surface §28 shapes, and (`a refused declaration is the one diagnostic for its name`), for a refused declaration: a read of the name, an assignment to it or a write through it reports nothing more when an error stands inside the declaration the name resolves to, while a name read out of its scope, read before its declaration or declared nowhere still reports `TS8022` (`src/compiler/ts/refused-names.ts`, #171).
+- Enforced by: `honest-refusals.test.ts` (`one mistake reads as one sentence`), for the surface §28 shapes, and (`a refused declaration is the one diagnostic for its name`), for a refused declaration: a read of the name, an assignment to it or a write through it reports nothing more when an error stands inside the declaration the name resolves to, while a name read out of its scope, read before its declaration or declared nowhere still reports `TS8022` (`src/compiler/ts/refused-names.ts`, #171); and, across the language service's two halves, `mergeDiagnostics` (`src/language-service/diagnostics.ts`), which keeps one diagnostic where TypeScript and the compiler report one mistake and drops TypeScript's knock-on of a call it failed to resolve, in `src/language-service/diagnostics.test.ts` (`one mistake reads as one diagnostic across the two halves`).
 
 **Rule 12.5.** The message text is part of the contract: a test that pins a refusal must assert the code and the text, and a change to the text is a change to the surface.
 

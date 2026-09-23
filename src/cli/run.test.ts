@@ -64,9 +64,8 @@ describe('typeshade (command line)', () => {
     expect(bad.status).toBe(1);
     expect(bad.stdout).toBe(
       [
-        "src/b.shade.ts:3:10 - error TS2304: Cannot find name 'colr'.",
         'src/b.shade.ts:3:10 - error TS8022: Unknown identifier "colr".',
-        'Found 2 errors in 1 file (2 files checked).',
+        'Found 1 error in 1 file (2 files checked).',
         '',
       ].join('\n'),
     );
@@ -125,7 +124,7 @@ describe('typeshade (command line)', () => {
       expect(r.status, r.stderr).toBe(1);
       const report = JSON.parse(r.stdout) as { files: string[]; summary: Record<string, number> };
       expect(report.files).toEqual(['src/b.shade.ts']);
-      expect(report.summary).toEqual({ errors: 2, warnings: 0, files: 1 });
+      expect(report.summary).toEqual({ errors: 1, warnings: 0, files: 1 });
       const version = spawnSync('bun', [join(PKG_DIR, 'src/cli/bin.ts'), '--version'], {
         encoding: 'utf8',
       });

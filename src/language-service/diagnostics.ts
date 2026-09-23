@@ -6,7 +6,7 @@ import type { ShaderType } from '../core/ir/types.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
-import type { TypeshadeDiagnostic, TypeshadeSeverity } from './types.js';
+import type { TypeshadeDiagnostic, TypeshadeSeverity, TypeshadeTextSpan } from './types.js';
 
 /**
  * One TypeScript diagnostic code the ambient lib cannot silence, and the rule that decides
@@ -23,6 +23,11 @@ interface DiagnosticFilterRule {
    * dropped; `false` lets it through as a real diagnostic. */
   readonly when: (context: DiagnosticFilterContext, diagnostic: ts.Diagnostic) => boolean;
 }
+
+/** The part of a diagnostic the locators below read: where it starts and how long it is. A
+ * `ts.Diagnostic` is one, and so is a merged diagnostic's span, which is how the merge step
+ * (`mergeDiagnostics`) asks the same questions of a diagnostic that is no longer TypeScript's. */
+type DiagnosticSpan = Pick<ts.Diagnostic, 'start' | 'length'>;
 
 /**
  * What a rule may consult about the document one diagnostic came from: the parsed source file,
@@ -128,7 +133,7 @@ function isGpuExpression(context: DiagnosticFilterContext, expression: ts.Expres
  */
 function binaryExpressionAt(
   context: DiagnosticFilterContext,
-  diagnostic: ts.Diagnostic,
+  diagnostic: DiagnosticSpan,
 ): ts.BinaryExpression | undefined {
   let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
   while (node !== undefined) {
@@ -270,7 +275,7 @@ function hasGpuArithmetic(context: DiagnosticFilterContext, node: ts.Node): bool
  */
 function assignedExpressionAt(
   context: DiagnosticFilterContext,
-  diagnostic: ts.Diagnostic,
+  diagnostic: DiagnosticSpan,
 ): ts.Expression | undefined {
   const pos = diagnostic.start ?? 0;
   let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos);
@@ -334,7 +339,7 @@ interface ArgumentPosition {
  */
 function argumentAt(
   context: DiagnosticFilterContext,
-  diagnostic: ts.Diagnostic,
+  diagnostic: DiagnosticSpan,
 ): ArgumentPosition | undefined {
   const pos = diagnostic.start ?? 0;
   const end = pos + (diagnostic.length ?? 0);
@@ -489,6 +494,13 @@ function gpuShapeOfExpression(
   return lostBrandShape(context, expression);
 }
 
+/** `expression` with any parentheses around it taken off: `(lit)` is the name `lit`. */
+function unparenthesized(expression: ts.Expression): ts.Expression {
+  let inner = expression;
+  while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+  return inner;
+}
+
 /**
  * The brand shape key (`gpuShapeKeysOfType`'s spelling) the ambient declaration of `type`
  * carries: `vecTag:readonly ["f32", 3]` for a `vec3<f32>`, `vec64Tag:3` for a `vec3f64`,
@@ -530,7 +542,7 @@ function lostBrandShape(
 ): string | undefined {
   const checker = context.checker;
   if (checker === undefined) return undefined;
-  const name = ts.skipParentheses(expression);
+  const name = unparenthesized(expression);
   if (!ts.isIdentifier(name)) return undefined;
   const declaration = checker.getSymbolAtLocation(name)?.valueDeclaration;
   if (
@@ -768,7 +780,7 @@ function overloadFitsRestoredShapes(
  */
 function calleeCallAt(
   context: DiagnosticFilterContext,
-  diagnostic: ts.Diagnostic,
+  diagnostic: DiagnosticSpan,
 ): ts.CallExpression | undefined {
   const pos = diagnostic.start ?? 0;
   const end = pos + (diagnostic.length ?? 0);
@@ -849,7 +861,13 @@ function isLostBrandMember(context: DiagnosticFilterContext, diagnostic: ts.Diag
   while (node !== undefined && !ts.isPropertyAccessExpression(node)) node = node.parent;
   if (node === undefined || node.name.getStart(context.sourceFile) !== pos) return false;
   const object = node.expression;
-  if (isGpuExpression(context, object)) return false;
+  // A lost brand shows as the `number` the arithmetic is typed (or the `any` of an erroneous
+  // one). An object TypeScript types as anything else, a struct included, is measured by
+  // TypeScript's own member check.
+  const checker = context.checker;
+  if (checker === undefined) return false;
+  const flags = checker.getTypeAtLocation(object).flags;
+  if ((flags & (ts.TypeFlags.NumberLike | ts.TypeFlags.Any)) === 0) return false;
   const shape = gpuValueShape(context, object);
   return shape !== undefined && !shape.startsWith(MATRIX_SHAPE_PREFIX);
 }
@@ -950,6 +968,287 @@ function isFiltered(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic)
   return TS_DIAGNOSTIC_FILTERS.some(
     (rule) => rule.code === diagnostic.code && rule.when(context, diagnostic),
   );
+}
+
+// === One mistake, one diagnostic, across the two halves (Rule 12.4) ===
+//
+// TypeScript and the compiler front end both check a `"use typeshade"` file, and a mistake both
+// can see was reported by both: `y = 2.` on a `const` as TS2588 and TS8005, `g(x)` one argument
+// short as TS2554 and TS8019, `colr` as TS2304 and TS8022. A person reads past the second
+// sentence; a coding agent fixes both. The merged list keeps one, by two rules.
+
+/** A mistake both halves report, by code: TypeScript's `typescript`, the compiler's
+ * `typeshade`, and which of the two the merged list keeps. */
+interface SameMistake {
+  readonly typescript: number;
+  readonly typeshade: ReadonlySet<string>;
+  readonly keep: 'typeshade' | 'typescript';
+  readonly reason: string;
+}
+
+/**
+ * The pairs. The compiler's diagnostic is kept by default, for three reasons: it is what
+ * `compile()` and the build report, so the editor, `typeshade check` and the build agree
+ * (Rule 12.7); it is written in the surface's words and names the remedy (Rule 12.1), where
+ * TypeScript's spells a brand's internals (`'{ readonly [vecTag]: readonly ["f32", 3]; }'`);
+ * and it is the authority on what combines with what, as it already is for TS2365. TS2552 is
+ * the one exception: TypeScript's "Did you mean" is the remedy for an unknown name, and the
+ * compiler's sentence does not name one yet.
+ */
+const SAME_MISTAKE: readonly SameMistake[] = [
+  {
+    typescript: 2304,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002', 'TS8012']),
+    keep: 'typeshade',
+    reason: 'An unknown name: a value, a function, a type or a host API (`Date`).',
+  },
+  {
+    typescript: 2552,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    keep: 'typescript',
+    reason:
+      "An unknown name TypeScript has a spelling fix for (`clmap`: Did you mean 'clamp'?), " +
+      'which the compiler sentence does not name.',
+  },
+  {
+    typescript: 2339,
+    typeshade: new Set(['TS8022']),
+    keep: 'typeshade',
+    reason: 'A member the value does not have: a swizzle out of range, a field not declared.',
+  },
+  {
+    typescript: 2551,
+    typeshade: new Set(['TS8022']),
+    keep: 'typeshade',
+    reason:
+      "The same, with a suggestion that names a member the value has (`.xyzw` on a `vec3`: 'xyz')" +
+      ', where the compiler names what is out of range.',
+  },
+  {
+    typescript: 2588,
+    typeshade: new Set(['TS8005']),
+    keep: 'typeshade',
+    reason: 'A write to a `const` local or a read-only resource.',
+  },
+  {
+    typescript: 2540,
+    typeshade: new Set(['TS8005']),
+    keep: 'typeshade',
+    reason: 'A write to a `readonly` field outside its constructor.',
+  },
+  {
+    typescript: 2554,
+    typeshade: new Set(['TS8019']),
+    keep: 'typeshade',
+    reason: 'The wrong number of arguments.',
+  },
+  {
+    typescript: 2322,
+    typeshade: new Set(['TS8003']),
+    keep: 'typeshade',
+    reason: 'A value of the wrong type, assigned or declared.',
+  },
+  {
+    typescript: 2345,
+    typeshade: new Set(['TS8003', 'TS8019', 'TS8036']),
+    keep: 'typeshade',
+    reason: 'An argument of the wrong type, or too few components for a vector constructor.',
+  },
+  {
+    typescript: 2769,
+    typeshade: new Set(['TS8003', 'TS8019', 'TS8036']),
+    keep: 'typeshade',
+    reason: 'The same at an overloaded callee, the math builtins and the vector constructors.',
+  },
+];
+
+/** The TypeScript codes reported about a CALL, on its callee or on one of its arguments. */
+const CALL_CODES: ReadonlySet<number> = new Set([2345, 2554, 2769]);
+
+const spanEnd = (span: TypeshadeTextSpan): number => span.start + span.length;
+
+/** Whether `inner` lies inside `outer`, ends included. */
+const within = (inner: TypeshadeTextSpan, outer: TypeshadeTextSpan): boolean =>
+  inner.start >= outer.start && spanEnd(inner) <= spanEnd(outer);
+
+const spanOfNode = (node: ts.Node, sourceFile: ts.SourceFile): TypeshadeTextSpan => {
+  const start = node.getStart(sourceFile);
+  return { start, length: node.getEnd() - start };
+};
+
+/** The call a TypeScript diagnostic in `CALL_CODES` is about: the one whose argument it covers,
+ * or whose callee (TypeScript's span for a failed overload on a later argument, and for too few
+ * arguments). */
+function callOf(
+  context: DiagnosticFilterContext,
+  span: TypeshadeTextSpan,
+): ts.CallExpression | undefined {
+  return argumentAt(context, span)?.call ?? calleeCallAt(context, span);
+}
+
+/**
+ * Whether a TypeScript diagnostic and a compiler one that `SAME_MISTAKE` pairs by code sit where
+ * one mistake would put them.
+ *
+ * For a code about a call, anywhere in the same call: the compiler reports an argument count on
+ * the call (`TS8019` on `g(x)`) where TypeScript reports it on the callee or on the first extra
+ * argument, and a math builtin's mismatch on the argument (`TS8036` on `w`) where TypeScript
+ * reports a failed overload on the callee (`max`).
+ *
+ * Otherwise TypeScript's span lies inside the compiler's and shares one of its ends: an unknown
+ * name or a `const` write is the same span in both; an unknown function is the callee
+ * TypeScript names at the start of the call the compiler names; a missing member is the name
+ * TypeScript names at the end of the access the compiler names; a declared type mismatch is the
+ * name at the start of the declaration. Inside alone is not enough, since a typo in an argument
+ * of an unknown function (`colr` in `g(colr)`) is a second mistake inside the first's span.
+ */
+function sameMistakeSpans(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  error: TypeshadeDiagnostic,
+): boolean {
+  if (typeof diagnostic.code === 'number' && CALL_CODES.has(diagnostic.code)) {
+    const call = callOf(context, diagnostic.span);
+    const region = call === undefined ? diagnostic.span : spanOfNode(call, context.sourceFile);
+    return within(error.span, region) || within(diagnostic.span, error.span);
+  }
+  return (
+    within(diagnostic.span, error.span) &&
+    (diagnostic.span.start === error.span.start || spanEnd(diagnostic.span) === spanEnd(error.span))
+  );
+}
+
+/**
+ * The expression a TypeScript diagnostic finds fault with the type of: the value TS2322 found
+ * unassignable, the argument TS2345 or TS2769 names (or the call, when TS2769 is on its
+ * callee), and the object whose member TS2339 or TS2551 did not find.
+ */
+function subjectOf(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+): ts.Expression | undefined {
+  switch (diagnostic.code) {
+    case 2322:
+      return assignedExpressionAt(context, diagnostic.span);
+    case 2345:
+    case 2769:
+      return (
+        argumentAt(context, diagnostic.span)?.argument ?? calleeCallAt(context, diagnostic.span)
+      );
+    case 2339:
+    case 2551: {
+      let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+      while (node !== undefined && !ts.isPropertyAccessExpression(node)) node = node.parent;
+      return node !== undefined && node.name.getStart(context.sourceFile) === diagnostic.span.start
+        ? node.expression
+        : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * The call a value comes from: the value itself, when it is a call, or the initializer of the
+ * local it names, when that local is declared with no type, so that TypeScript typed it from the
+ * call. `undefined` for anything else, and without a checker.
+ */
+function callBehind(
+  context: DiagnosticFilterContext,
+  value: ts.Expression,
+): ts.CallExpression | undefined {
+  const inner = unparenthesized(value);
+  if (ts.isCallExpression(inner)) return inner;
+  if (!ts.isIdentifier(inner) || context.checker === undefined) return undefined;
+  const declaration = context.checker.getSymbolAtLocation(inner)?.valueDeclaration;
+  if (
+    declaration === undefined ||
+    !ts.isVariableDeclaration(declaration) ||
+    declaration.type !== undefined ||
+    declaration.initializer === undefined
+  ) {
+    return undefined;
+  }
+  const initializer = unparenthesized(declaration.initializer);
+  return ts.isCallExpression(initializer) ? initializer : undefined;
+}
+
+/**
+ * Whether a TypeScript diagnostic is TypeScript's own knock-on of a call it failed to resolve.
+ * When no overload of a call matches (TS2769), or an argument fails (TS2345) or the count does
+ * (TS2554), TypeScript still gives the call a type, from a signature that did not match, and
+ * every place the value then reaches is judged by that type. `return max(v, w)` with a `vec2`
+ * `w` is the shape: the failed `max` is `number`, and the `return` reports TS2322 about a value
+ * whose only fault is the call already reported. The fault is the call's, so the report about
+ * the value goes, directly (`return max(v, w)`) or through a local declared with no type
+ * (`const c = max(v, w)` and then `return c`, `c.x`, `cross(c, n)`).
+ *
+ * TypeScript's own failure is the test, never a compiler error inside the value: the compiler
+ * refuses things TypeScript types correctly (a function imported from another shader file is
+ * `TS8004` to the single-file compiler, #187), and TypeScript's report about such a value
+ * stands.
+ */
+function isKnockOn(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  typescript: readonly TypeshadeDiagnostic[],
+): boolean {
+  const subject = subjectOf(context, diagnostic);
+  if (subject === undefined) return false;
+  const call = callBehind(context, subject);
+  if (call === undefined) return false;
+  return typescript.some(
+    (other) =>
+      other !== diagnostic &&
+      other.severity === 'error' &&
+      typeof other.code === 'number' &&
+      CALL_CODES.has(other.code) &&
+      callOf(context, other.span) === call,
+  );
+}
+
+/**
+ * The merged list for one document: `typescript` (already filtered by
+ * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Two
+ * rules drop a report, and each only ever drops an ERROR that another error already covers:
+ *
+ * - a TypeScript error that is TypeScript's own knock-on of a call it failed to resolve
+ *   (`isKnockOn`) goes;
+ * - a TypeScript error and a compiler error that `SAME_MISTAKE` pairs by code, and whose spans
+ *   sit where one mistake would put them (`sameMistakeSpans`), are one mistake, and the pair's
+ *   `keep` side stays.
+ *
+ * Without `analysis` nothing is dropped: the service passes none when a test asks for the two
+ * halves unmerged (`TypeshadeLanguageServiceTestOptions`).
+ */
+export function mergeDiagnostics(
+  sourceFile: ts.SourceFile,
+  typescript: readonly TypeshadeDiagnostic[],
+  typeshade: readonly TypeshadeDiagnostic[],
+  analysis: CompileTsSourceResult | undefined,
+  checker: ts.TypeChecker | undefined,
+): TypeshadeDiagnostic[] {
+  if (analysis === undefined || analysis.sourceFile.text !== sourceFile.text) {
+    return [...typescript, ...typeshade];
+  }
+  const context: DiagnosticFilterContext = { sourceFile, checker, declaredTypes: new Map() };
+  const compilerErrors = typeshade.filter((d) => d.severity === 'error');
+  const droppedTypeshade = new Set<TypeshadeDiagnostic>();
+  const keptTypescript = typescript.filter((diagnostic) => {
+    if (diagnostic.severity !== 'error') return true;
+    if (isKnockOn(context, diagnostic, typescript)) return false;
+    const pair = SAME_MISTAKE.find((p) => p.typescript === diagnostic.code);
+    if (pair === undefined) return true;
+    const twin = compilerErrors.find(
+      (error) =>
+        pair.typeshade.has(String(error.code)) && sameMistakeSpans(context, diagnostic, error),
+    );
+    if (twin === undefined) return true;
+    if (pair.keep === 'typeshade') return false;
+    droppedTypeshade.add(twin);
+    return true;
+  });
+  return [...keptTypescript, ...typeshade.filter((d) => !droppedTypeshade.has(d))];
 }
 
 function severityOfTs(category: ts.DiagnosticCategory): TypeshadeSeverity {

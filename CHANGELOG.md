@@ -969,6 +969,18 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   outside the block that refused it, read before its declaration, or declared nowhere is still
   `TS8022`. Appendix B's Rule 12.4 row is removed.
 
+- **One mistake reads as one diagnostic in the editor and in `typeshade check`** (Rule 12.4). A
+  mistake both halves see was reported by both: `y = 2.` on a `const` as TypeScript's TS2588 and
+  the compiler's `TS8005`, `g(x)` one argument short as TS2554 and `TS8019`, `colr` as TS2304
+  and `TS8022`, `cross(v, w)` on a `vec2` `w` as TS2345 and `TS8036`. The language service now
+  merges the two halves: where they report one mistake the compiler's diagnostic is kept, since
+  it is what `compile()` and the build report and names the remedy in the surface's words; the
+  one exception is TS2552, whose "Did you mean" TypeScript can name and the compiler cannot yet.
+  TypeScript's own knock-on of a call it failed to resolve goes as well: `return max(v, w)` with
+  a `vec2` `w` added a TS2322 on the `return`, and now reads as the compiler's `TS8036` alone.
+  `typeshade check` no longer adds a compiler row the service merged away: from `compile()` it
+  takes only what the service cannot compute, the backends' `TS8015` and the opt-in `TS8053`.
+
 - **A local declared with no type from vector arithmetic draws no TypeScript false positive.**
   `const lit = albedo * d` is the `number` the arithmetic is typed, to TypeScript, and the
   `vec3` it is, to the compiler, so every use of `lit` reported what the arithmetic itself is

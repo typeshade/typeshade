@@ -146,15 +146,18 @@ export function checkDocuments(
     service.openDocument(doc.uri, doc.text);
     const found = service.getDiagnostics(doc.uri).map((d) => fromService(doc, d));
     service.closeDocument(doc.uri);
-    // The compiler's own run adds what the service does not compute: the backends' verdict and
-    // the opt-in deprecations. A parse error is already here as TypeScript's own `TS1005`-style
-    // row, which the service keeps in place of the compiler's `TS8030` copy of it.
+    // The compiler's own run adds what the service does not compute, and nothing else: the
+    // backends' verdict (`TS8015`, which an analysis with `emit: false` never reaches) and the
+    // opt-in deprecations (`TS8053`). Every other front-end diagnostic is already in the
+    // service's list, or was merged out of it on purpose: an unknown name TypeScript has a
+    // spelling fix for is its `TS2552` alone (`mergeDiagnostics`), and a parse error is
+    // TypeScript's own `TS1005`-style row in place of the compiler's `TS8030` copy of it.
     const compiled = compile(doc.text, {
       fileName: doc.path,
       ...(options.deprecations === true ? { deprecations: true } : {}),
     });
     for (const d of compiled.diagnostics) {
-      if (d.code === TS_CODES.SYNTAX) continue;
+      if (d.code !== TS_CODES.BACKEND && d.code !== TS_CODES.INT_LITERAL_DEPRECATION) continue;
       const row = fromCompiler(doc, d);
       if (!found.some((f) => sameReport(f, row))) found.push(row);
     }

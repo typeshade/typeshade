@@ -114,7 +114,7 @@ Found 1 error in 1 file (1 file checked).
 What it inherits from the language service, it inherits whole:
 
 - **Each file is analysed on its own**, so a function imported from another shader file is `TS8004` ([#187](https://github.com/typeshade/typeshade/issues/187)).
-- **A mistake both halves see is reported by both**, as the editor shows it: an arity error is `TS2554` and `TS8019`, a write to a `const` is `TS2588` and `TS8005`.
+- **A mistake both halves see is reported once**, as the editor shows it: a write to a `const` is the compiler's `TS8005`, not that and TypeScript's `TS2588` beside it. The one exception keeps TypeScript's side: an unknown name it can correct is `TS2552`, "Did you mean 'clamp'?".
 
 ## Type-checking `.shade.ts` with tsc
 

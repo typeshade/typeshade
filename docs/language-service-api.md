@@ -326,6 +326,36 @@ The merged list `getDiagnostics` returns is in document order: by span start, th
 then source. The two halves interleave by position, so an editor's problem list never jumps
 backwards from a TypeShade row to an earlier TypeScript one.
 
+The merged list reads one diagnostic per mistake (Rule 12.4). A mistake both halves see used to
+be reported by both: `y = 2.` on a `const` as TypeScript's TS2588 and the compiler's `TS8005`,
+`g(x)` one argument short as TS2554 and `TS8019`, `colr` as TS2304 and `TS8022`. A person reads
+past the second sentence, and a coding agent fixes both. `mergeDiagnostics` drops a report by
+two rules, and only ever an error that another error already covers:
+
+- **The same mistake.** A TypeScript error and a compiler error that its table pairs by code
+  (TS2304 and TS2552 with the unknown-name codes `TS8022`, `TS8004`, `TS8002` and `TS8012`;
+  TS2339 and TS2551 with `TS8022`; TS2588 and TS2540 with `TS8005`; TS2554 with `TS8019`;
+  TS2322 with `TS8003`; TS2345 and TS2769 with `TS8003`, `TS8019` and `TS8036`), where one span
+  contains the other, are one mistake. TypeScript's span is widened to the whole call for a
+  code about a call, since TypeScript reports a failed overload on the callee (`max`) and the
+  compiler on the argument at fault (`w`). The compiler's report is kept: it is what
+  `compile()` and the build report, it names the remedy in the surface's words (Rule 12.1),
+  where TypeScript's spells a brand's internals, and it is already the authority on what
+  combines (TS2365 above). TS2552 is the one pair that keeps TypeScript's side, since its "Did
+  you mean 'clamp'?" is the remedy for an unknown name and the compiler's sentence has none.
+- **TypeScript's own knock-on.** When TypeScript fails to resolve a call (TS2769, TS2345,
+  TS2554), it still types the call from a signature that did not match, and the place the
+  value reaches reports again: `return max(v, w)` with a `vec2` `w` added a TS2322 on the
+  `return`. A TypeScript error about a value that comes from such a call, directly or through
+  a local declared with no type, goes. TypeScript's own failure is the test, never a compiler
+  error inside the value, because the compiler refuses what TypeScript types correctly: a
+  function imported from another shader file is `TS8004` to the single-file compiler (#187),
+  and TypeScript's TS2322 about what it returns stands.
+
+`typeshade check` reads the same merged list. A test whose subject is TypeScript's own view (the
+ambient lib, the filters of §6) reads the two halves unmerged, through
+`createTypeshadeLanguageServiceWith(host, analyze, { merge: false })`.
+
 | Method                                                                               | TypeScript Language Service (over the ambient lib)                                                                                      | TypeShade layer                                                                                                                                                                                                                                                                           |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `getDiagnostics`                                                                     | syntax and semantic diagnostics, filtered (§6)                                                                                          | `compileTsSource`-style analysis of the front-end only (no emit), with `range` from `node.getStart()`/`node.getEnd()`; stage-3 checks: builtin name allow-list (`WgslBuiltinName`), builtin-to-stage compatibility, `@compute` workgroup shape, missing return annotation as an error     |
