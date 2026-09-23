@@ -778,14 +778,14 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
 }
 `,
   storageBuffer: `"use typeshade";
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[gid.x] = 1.;
 }
 `,
   compute: `"use typeshade";
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[gid.x] = 1.;

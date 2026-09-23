@@ -689,7 +689,7 @@ export function fs(): vec4 {
 describe('an arrow function whose body is a barrier', () => {
   it('runs it as a statement and returns nothing', () => {
     const r = compile(`"use typeshade";
-declare let buf: storage<array<f32>>;
+declare const buf: storage<array<f32>, "read_write">;
 @compute([64])
 export function cs(@builtin("local_invocation_index") li: u32) {
   const sync = () => workgroupBarrier();

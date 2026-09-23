@@ -22,7 +22,7 @@ import { reflect } from '../../core/reflect.js';
 
 const REDUCE = `"use typeshade";
 declare const src: storage<array<f32>>;
-declare let sums: storage<array<f32>>;
+declare const sums: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
 @compute([64, 1, 1])
 export function reduce(
@@ -50,7 +50,7 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`);
 
 const HEAD = `"use typeshade";
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 `;
 const kernel = (body: string) => `${HEAD}@compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
@@ -98,8 +98,8 @@ describe('barriers: dispatch runs a workgroup in lockstep', () => {
 
   it('fills every compute builtin and hands a scalar binding back', () => {
     const src = `"use typeshade";
-declare let out: storage<array<u32>>;
-declare let last: storage<u32>;
+declare const out: storage<array<u32>, "read_write">;
+declare const last: storage<u32, "read_write">;
 @compute([4, 1, 1])
 export function k(
   @builtin("global_invocation_id") gid: vec3u,
@@ -131,8 +131,8 @@ export function k(
     // wid * size + lid per axis, and local_invocation_index is lid.x + lid.y * 2.
     const src = `"use typeshade";
 declare const img: storage<array<u32>>;
-declare let out: storage<array<u32>>;
-declare let ids: storage<array<u32>>;
+declare const out: storage<array<u32>, "read_write">;
+declare const ids: storage<array<u32>, "read_write">;
 let tile: workgroup<array<u32, 4>>;
 @compute([2, 2])
 export function box(
@@ -264,7 +264,7 @@ describe('barriers: where one may stand', () => {
 
   it('inside a branch on a value the whole workgroup shares, it may', () => {
     const uniform = `"use typeshade";
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 declare const k: uniform<f32>;
 @compute([64, 1, 1])
 export function g(@builtin("global_invocation_id") gid: vec3u): void {
@@ -278,7 +278,7 @@ export function g(@builtin("global_invocation_id") gid: vec3u): void {
     // `@builtin("workgroup_id")` is one of the four WGSL declares uniform, so a branch on it
     // is the same answer for every invocation of the group.
     const byGroup = `"use typeshade";
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 @compute([64, 1, 1])
 export function g(@builtin("workgroup_id") wg: vec3u, @builtin("local_invocation_id") id: vec3u): void {
   if (wg.x > u32(1)) {
@@ -367,7 +367,7 @@ describe("textureBarrier and workgroupUniformLoad carry a barrier's rules", () =
       .map((d) => d.message);
 
   const CS = (decls: string, body: string): string => `"use typeshade"
-declare let o: storage<array<u32>>
+declare const o: storage<array<u32>, "read_write">
 ${decls}
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {

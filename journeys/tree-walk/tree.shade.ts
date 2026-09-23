@@ -13,8 +13,8 @@ class Params {
 
 declare const params: uniform<Params>;
 declare const values: storage<array<f32>>;
-declare let sums: storage<array<f32>>;
-declare let partial: storage<array<f32>>;
+declare const sums: storage<array<f32>, "read_write">;
+declare const partial: storage<array<f32>, "read_write">;
 
 @compute([64])
 export function subtree(@builtin("global_invocation_id") gid: vec3u) {

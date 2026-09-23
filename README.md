@@ -76,7 +76,7 @@ class Camera {
 }
 
 declare const camera: uniform<Camera>;
-declare let pixels: storage<array<f32>>;
+declare const pixels: storage<array<f32>, "read_write">;
 
 @compute([64, 1, 1])
 export function paint(@builtin("global_invocation_id") gid: vec3u) {
@@ -128,8 +128,8 @@ There are 214 of those across the 71 files. The second is arithmetic on a vector
 
 TS1206 fires on `@vertex` / `@fragment` / `@compute` and on `@builtin(...)` parameters, because TypeScript does not allow decorators on function declarations or their parameters at all. No `.d.ts` can turn that off, because it is a grammar rule rather than a resolution failure. The language service drops it for exactly those positions, since the TypeShade grammar defines them; `tsc` on its own cannot. So the practical shape of this subpath is:
 
-- **Covered.** Every type, resource and builtin name resolves: `f32`, `vec4`, `mat4`, `array<T>`, `uniform<T>`, `storage<T>`, the `Math` aliases, `@builtin(...)` ids. Wrong types, misspelled fields and wrong arities are caught.
-- **Not covered.** TS1206 on stage and `@builtin` decorators. Expect it on every entry point, and filter it in your build if the noise matters. Arithmetic operators on vector and matrix values: the compiler accepts `a + b` on two `vec3`s, and `tsc` reports it, because the ambient types cannot overload an operator. The language service does better: it reads the local, and a function that writes no return type, with the type the compiler gave it, so the editor shows no error there and completes `uv.` and `glow(uv).` (#162). Swizzles outside the `x`/`y`/`z`/`w`, `r`/`g`/`b`/`a` and `xy`/`xyz`/`xyzw`/`rg`/`rgb`/`rgba` set are not type-checked (they compile correctly; the editor just does not see them).
+- **Covered.** Every type, resource and builtin name resolves: `f32`, `vec4`, `mat4`, `array<T>`, `uniform<T>`, `storage<T>`, `storage<T, "read_write">`, the `Math` aliases, `@builtin(...)` ids. Wrong types, misspelled fields and wrong arities are caught, and so is a write to a resource that is read-only: `src[i] = x` on a `declare const src: storage<array<f32>>` is TS2542 and `camera.fov = 1.` on a `uniform<Camera>` is TS2540, which is the write `compile()` refuses with `TS8005`. A `storage<T, "read_write">` binding is writable in the editor exactly as it is in the compiler.
+- **Not covered.** TS1206 on stage and `@builtin` decorators. Expect it on every entry point, and filter it in your build if the noise matters. Arithmetic operators on vector and matrix values: the compiler accepts `a + b` on two `vec3`s, and `tsc` reports it, because the ambient types cannot overload an operator. The language service does better: it reads the local, and a function that writes no return type, with the type the compiler gave it, so the editor shows no error there and completes `uv.` and `glow(uv).` (#162). A WHOLE-binding write — `s = 1.` on a `declare const s: storage<f32, "read_write">`, as opposed to the `out[i] = x` and `p.field = x` a kernel actually writes — is TS2588 in the editor, because a binding is `declare const` and TypeScript will not assign to a const whatever its value type is; the compiler emits it, and `"use typeshade"` surface §49 has the row. Swizzles outside the `x`/`y`/`z`/`w`, `r`/`g`/`b`/`a` and `xy`/`xyz`/`xyzw`/`rg`/`rgb`/`rgba` set are not type-checked (they compile correctly; the editor just does not see them).
 - **The authority is still the compiler.** `compile()` reports what TypeShade actually accepts, and the compile gate gives the emitted WGSL and GLSL to real drivers. `typeshade/shade` is an editor and CI convenience layered on top, never a second definition of the language.
 
 The file is generated from `SHADE_DTS` in `src/language-service/ambient.ts` at build time, so the declarations the service loads and the ones `tsc` reads are the same bytes.

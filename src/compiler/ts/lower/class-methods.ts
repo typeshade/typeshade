@@ -34,6 +34,7 @@ import type { CollectedStruct, FieldInit } from '../structs.js';
 import {
   irNameOf,
   readOnlyPhrase,
+  writableRemedy,
   type LoweringScope,
   type SuperCtor,
   writeRules,
@@ -2005,7 +2006,12 @@ export function mutatingReceiver(
           ? `"${shown}" changes its object, and "${bare.text}" is a const whose value may be ` +
               `one something else holds, which TypeScript would change with it and a copy here ` +
               `would not. Declare it with let to change a copy, or call it on the value itself.`
-          : `"${shown}" changes its object, and "${bare.text}" is ${readOnlyPhrase(b.kind)}; ` +
+          : b.kind === 'binding'
+            ? // A RESOURCE's remedy is its declared type, not the keyword (design rule 6.2): a
+              // binding is `const`, so "declare it with let" would name the refused spelling.
+              `"${shown}" changes its object, and "${bare.text}" is ` +
+              `${readOnlyPhrase(b.kind)}.${writableRemedy(b, sourceFile)}`
+            : `"${shown}" changes its object, and "${bare.text}" is ${readOnlyPhrase(b.kind)}; ` +
               `declare it with let.`,
       );
       return undefined;
