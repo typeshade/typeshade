@@ -10,14 +10,15 @@
 // type it mirrors; `ambient.test.ts` additionally cross-checks that array against the type
 // itself by parsing `core/sot.ts` with the TypeScript compiler API.
 //
-// GPU scalar types are branded nominal types: `type f32 = number & { readonly [tag]: true }`,
-// with a REQUIRED (not optional) unique-symbol property, so `f32` and `u32` are not assignable
-// to each other while a plain numeric literal — which every "use typeshade" program passes to
-// `vec4(...)`, an `if`, or a `let` with no annotation — still widens to `number` and flows
-// anywhere a `number` is accepted. Vector types are branded the same way, keyed by a
+// GPU scalar types are branded nominal types: `type f32 = number & { readonly [tag]?: true }`,
+// with an OPTIONAL unique-symbol property (the note above `scalarBrands` says why), so a plain
+// numeric literal — which every "use typeshade" program passes to `vec4(...)`, an `if`, or a
+// `let` with no annotation — still widens to `number` and flows anywhere a `number` is
+// accepted. Vector types are branded with a required tag, keyed by an
 // `[elementKind, arity]` tuple so `vec2`/`vec3`/`vec4` and their `i`/`u`/`f64` variants are all
 // distinct, and each is an interface carrying every component and every swizzle the compiler
-// takes, so member access type-checks as the compiler does (see `vecInterfaces`).
+// takes, and a native one an index signature, so member access and `v[i]` type-check as the
+// compiler does (see `vecInterfaces`).
 
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
 import { F64_VEC_TWIN_KIND } from '../core/fp64/twins.js';
@@ -306,9 +307,11 @@ function swizzleMembers(n: 2 | 3 | 4, lane: string, elem: VecElem): string[] {
  * the examples: the checker rebuilds the key unions, and the members of an intersection, in each
  * program. An interface's members are bound once, with the file.
  *
- * A native vector is indexed as WGSL indexes it, by a constant or by a value (`v[i]`), and a
- * constant out of range is the compiler's TS8016. An emulated-double vector takes a constant lane
- * only, as numeric keys (see `LaneKeys`).
+ * A native vector is indexed as WGSL indexes it, by a constant or by a value (`v[i]`, with an
+ * `i: u32` or a `for` counter), so it takes an index signature, as `array<T, N>` does. The
+ * signature admits what an array's admits, which the compiler alone refuses: a constant past the
+ * last lane (`v[4]`, TS8016) and an `f32` index (TS8003), each one diagnostic in the editor. An
+ * emulated-double vector takes a constant lane only, as numeric keys (see `LaneKeys`).
  */
 const vecInterfaces = (elem: VecElem): string =>
   VEC_ARITIES.map((n) => {
@@ -484,10 +487,10 @@ const SCALAR_CAST_NAMES = Object.keys(SCALAR_CAST);
 // number literal (returned from an `f32`-annotated function, assigned to an `f32`-typed local,
 // passed to a `dot`/`length` result typed `number`) a TS2322 false positive on ordinary valid
 // "use typeshade" programs, because nothing in the authoring surface ever produces a literal
-// value already carrying the brand. An optional brand keeps `f32`/`u32`/... mutually
-// unassignable (the tradeoff §6 already makes for swizzles: false negatives over false
-// positives) while letting a plain `number` widen into any scalar type, matching how these
-// values actually flow through a real program.
+// value already carrying the brand. An optional brand gives up keeping `f32`/`u32`/... apart
+// from one another (they are mutually assignable, a false negative the compiler's own type
+// checks catch) and lets a plain `number` widen into any scalar type, matching how these values
+// actually flow through a real program: a false negative chosen over a false positive.
 const scalarBrands = ['f32', 'i32', 'u32', 'f64']
   .map(
     (name) =>
@@ -747,14 +750,23 @@ declare const matTag: unique symbol
 /** A matrix of \`C\` columns and \`R\` rows (§40), column-major as both targets are: \`m[j]\` is
  * column j, a \`vecR\`. The tag carries the element and BOTH dimensions, so \`mat2x3\` and
  * \`mat3x2\` are not interchangeable — they transpose into each other rather than being the
- * same type. The lane keys are numeric literals for the reason \`Vec64\`'s are: they accept
- * \`m[1]\` and refuse \`m[7]\`. */
+ * same type.
+ *
+ * An f32 matrix takes any integer column index, a runtime one included (\`m[i]\` with an
+ * \`i: u32\`), which WGSL allows and the compiler lowers, so it carries an index signature the
+ * way a native vector does, and admits what that one admits (\`m[4]\` is the compiler's TS8016
+ * alone). An emulated-double matrix takes none, because the compiler refuses to index one at
+ * all (\`TS8003 Cannot index mat4x4<f64>.\`), so \`m[i]\` stays TS7053 on it. The literal lane
+ * keys stay on both: a constant index reads through them as it always has, and they keep the
+ * intersection two types wide, which is what keeps \`mat4<f64>\` its name in a message rather
+ * than the bare tag it prints as without them. */
 type Mat<E extends string, C extends 2 | 3 | 4, R extends 2 | 3 | 4> = {
   readonly [matTag]: readonly [E, C, R]
 } & Pick<
   { 0: MatColumn<E, R>; 1: MatColumn<E, R>; 2: MatColumn<E, R>; 3: MatColumn<E, R> },
   LaneKeys<C>
->
+> &
+  (E extends 'f32' ? { [column: number]: MatColumn<E, R> } : {})
 /** A column of a matrix: a \`vecR\` of its element. An emulated-double matrix has no column
  * type an author can hold — the compiler refuses indexing one — so it resolves to \`never\`
  * rather than quietly reading as a vector of f32. */
