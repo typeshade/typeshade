@@ -119,6 +119,13 @@ const glslDepthSampler = (t: Extract<ShaderType, { kind: 'depth-texture' }>): st
   }
 }
 
+/** A binding's own precision qualifier and its trailing space, or nothing. A declaration that
+ *  names one keeps it whatever default precision is in scope: the stage default (GLSL ES 3.00
+ *  §4.5.4 gives `sampler2D` and `samplerCube` `lowp` in BOTH stages), a preamble line, or a
+ *  host program's preamble when the module is composed into one. The fp64 guard texture
+ *  declares `highp`, so its read never depends on the value it holds fitting in `lowp`. */
+const qualified = (b: BindingDecl): string => (b.precision ? `${b.precision} ` : '')
+
 function glslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
@@ -585,7 +592,7 @@ export const glslEs300Backend: Backend = {
   },
   emitBinding: (b) => {
     if (b.type.kind === 'texture' || b.type.kind === 'sampler')
-      return `uniform ${glslType(b.type)} ${b.name};`
+      return `uniform ${qualified(b)}${glslType(b.type)} ${b.name};`
     if (b.space === 'storage')
       throw new UnsupportedFeatureError(
         'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',
@@ -2065,10 +2072,11 @@ function assembleGlslParts(
     // stage (the other stage still declares it; GL uniform lookups link by name
     // across the program, so hosts bind unchanged).
     if (scope !== null && !scope.bindings.has(b.name)) continue
-    if (b.type.kind === 'texture') bindingLines.push(`uniform ${glslType(b.type)} ${b.name};`)
+    if (b.type.kind === 'texture')
+      bindingLines.push(`uniform ${qualified(b)}${glslType(b.type)} ${b.name};`)
     // A depth texture is the shadow sampler its comparison sampler fuses into (item 11).
     else if (b.type.kind === 'depth-texture')
-      bindingLines.push(`uniform ${glslDepthSampler(b.type)} ${b.name};`)
+      bindingLines.push(`uniform ${qualified(b)}${glslDepthSampler(b.type)} ${b.name};`)
     // A standalone WGSL sampler binding is FUSED into the texture's combined
     // sampler2D (textureSample(tex,samp,uv) → texture(tex,uv)), so it emits no
     // separate GLSL uniform. The host reflection maps the texture binding to a
@@ -2102,9 +2110,7 @@ function assembleGlslParts(
       (b.owner === 'host' || opts?.emulateCompute) &&
       (b.type.kind === 'scalar' || b.type.kind === 'vec' || b.type.kind === 'mat')
     )
-      bindingLines.push(
-        `uniform ${b.precision ? b.precision + ' ' : ''}${glslType(b.type)} ${b.name};`,
-      )
+      bindingLines.push(`uniform ${qualified(b)}${glslType(b.type)} ${b.name};`)
     else
       throw new UnsupportedFeatureError(
         `glsl-es300: uniform binding '${b.name}' must be a struct (a std140 UBO block)`,

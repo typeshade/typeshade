@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { fn, module, f64T, f32T, sqrt, toF32, stageOf } from '../ir/index.js'
 import type { ModuleDecl } from '../ir/index.js'
 import { compileModule, type CpuValue } from '../oracle.js'
-import { fp64Lower } from './fp64-lower.js'
+import { fp64Lower, hoistGuardFetch } from './fp64-lower.js'
 import { fixpoint } from './opt/index.js'
 import { splitF64 } from '../fp64/df64-lib.js'
 import { forceInline, type InlineDecision } from './force-inline.js'
@@ -55,8 +55,15 @@ const guarded = module({
 })
 
 /** The pinned arithmetic-op count of the force-inlined `guarded` kernel. Measured, and it
- *  is the number a guard-deleting fold moves: a member-of-construct fold takes it to 400. */
-const FLATTENED_OPS = 408
+ *  is the number a guard-deleting fold moves: a member-of-construct fold takes it to 400.
+ *
+ *  408 -> 376 was a deliberate drop, and every op it removed is accounted for: the kernel
+ *  flattens sixteen twoSums, and each one's error term was `(a - (s - v) * G) * G * G * G`.
+ *  The last two multiplies re-guard a value that already rides the guard; `guard(guard(x))`
+ *  is `guard(x)` (fp64-lower's `foldGuardChain`), so the term is now `(…) * G` and the kernel
+ *  carries 16 × 2 = 32 fewer multiplies. Diffing the flattened WGSL with the guard's name
+ *  normalised shows those lines and no other op moving. */
+const FLATTENED_OPS = 376
 
 const BASE = fixpoint(fp64Lower(kernel))
 const SIZE_WIN = forceInline(BASE, 'single-call')
@@ -125,7 +132,9 @@ describe('forceInline — the fast-math guard survives the flattening', () => {
   // explain — "which guard did this delete, and is it one X-GIS #915 paid for?" — before anyone
   // re-baselines it. A RISE is ordinary (a new helper, a wider lowering) and just re-pins.
   it('pins the flattened arithmetic-op count — a DROP means a guard was optimized away', () => {
-    const flat = forceInline(fixpoint(fp64Lower(guarded)), 'all')
+    // The emit path's order: lowerForBackend (optimizer, then the once-per-function guard
+    // read) and only then the inline plugin.
+    const flat = forceInline(hoistGuardFetch(fixpoint(fp64Lower(guarded))), 'all')
     let ops = 0
     const walkE = (e: unknown): void => {
       if (!e || typeof e !== 'object') return

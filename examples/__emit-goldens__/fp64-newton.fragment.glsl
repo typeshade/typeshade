@@ -13,66 +13,63 @@ layout(std140) uniform Uniforms {
   float fp64;
 } u;
 
-uniform sampler2D _fp64;
-vec2 df64_twoSum(float a, float b) {
+uniform highp sampler2D _fp64;
+vec2 df64_twoSum(float a, float b, float _fp64_g) {
   float _v0 = (a + b);
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  float _v1 = (((_v0 * _cse0) - a) * _cse0);
-  float _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
+  float _v1 = (((_v0 * _fp64_g) - a) * _fp64_g);
+  float _v2 = (((a - ((_v0 - _v1) * _fp64_g)) * _fp64_g) + (b - _v1));
   return vec2(_v0, _v2);
 }
 
-vec2 df64_quickTwoSum(float a, float b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  float _v0 = ((a + b) * _cse0);
-  float _v1 = (b - ((_v0 - a) * _cse0));
+vec2 df64_quickTwoSum(float a, float b, float _fp64_g) {
+  float _v0 = ((a + b) * _fp64_g);
+  float _v1 = (b - ((_v0 - a) * _fp64_g));
   return vec2(_v0, _v1);
 }
 
-vec2 df64_split(float a) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  float _v0 = (a * (_cse0 * 4097.0));
-  float _v1 = ((_v0 * _cse0) - (_v0 - a));
-  float _v2 = ((a * _cse0) - _v1);
+vec2 df64_split(float a, float _fp64_g) {
+  float _v0 = (a * (_fp64_g * 4097.0));
+  float _v1 = ((_v0 * _fp64_g) - (_v0 - a));
+  float _v2 = ((a * _fp64_g) - _v1);
   return vec2(_v1, _v2);
 }
 
-vec2 df64_twoProd(float a, float b) {
+vec2 df64_twoProd(float a, float b, float _fp64_g) {
   float _v0 = (a * b);
-  vec2 _v1 = df64_split(a);
-  vec2 _v2 = df64_split(b);
+  vec2 _v1 = df64_split(a, _fp64_g);
+  vec2 _v2 = df64_split(b, _fp64_g);
   float _v3 = (((((_v1.x * _v2.x) - _v0) + (_v1.x * _v2.y)) + (_v1.y * _v2.x)) + (_v1.y * _v2.y));
   return vec2(_v0, _v3);
 }
 
-vec2 df64_add(vec2 a, vec2 b) {
-  vec2 _v0 = df64_twoSum(a.x, b.x);
-  vec2 _v1 = df64_twoSum(a.y, b.y);
+vec2 df64_add(vec2 a, vec2 b, float _fp64_g) {
+  vec2 _v0 = df64_twoSum(a.x, b.x, _fp64_g);
+  vec2 _v1 = df64_twoSum(a.y, b.y, _fp64_g);
   _v0.y = (_v0.y + _v1.x);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
   _v0.y = (_v0.y + _v1.y);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
   return _v0;
 }
 
-vec2 df64_sub(vec2 a, vec2 b) {
-  return df64_add(a, (-b));
+vec2 df64_sub(vec2 a, vec2 b, float _fp64_g) {
+  return df64_add(a, (-b), _fp64_g);
 }
 
-vec2 df64_mul(vec2 a, vec2 b) {
-  vec2 _v0 = df64_twoProd(a.x, b.x);
+vec2 df64_mul(vec2 a, vec2 b, float _fp64_g) {
+  vec2 _v0 = df64_twoProd(a.x, b.x, _fp64_g);
   _v0.y = (_v0.y + (a.x * b.y));
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
   _v0.y = (_v0.y + (a.y * b.x));
-  return df64_quickTwoSum(_v0.x, _v0.y);
+  return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
 }
 
-vec2 df64_div(vec2 a, vec2 b) {
-  float _v0 = (texelFetch(_fp64, ivec2(0, 0), 0).x / b.x);
+vec2 df64_div(vec2 a, vec2 b, float _fp64_g) {
+  float _v0 = (_fp64_g / b.x);
   vec2 _v1 = (a * _v0);
-  float _v2 = df64_sub(a, df64_mul(b, _v1)).x;
-  vec2 _v3 = df64_twoProd(_v0, _v2);
-  return df64_add(_v1, _v3);
+  float _v2 = df64_sub(a, df64_mul(b, _v1, _fp64_g), _fp64_g).x;
+  vec2 _v3 = df64_twoProd(_v0, _v2, _fp64_g);
+  return df64_add(_v1, _v3, _fp64_g);
 }
 
 float df64_narrow(vec2 a) {
@@ -82,6 +79,7 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
+  float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;
   vec2 _licm0 = vec2(2.0, 0.0);
   float _cse5 = uintBitsToFloat(floatBitsToUint(0.0));
   vec2 _licm1 = vec2(_cse5, _cse5);
@@ -118,23 +116,23 @@ void main() {
     _v5 = _v8;
     _v6 = _v9;
   } else {
-    vec2 _v20 = df64_add(_cse1, vec2(_v3, 0.0));
-    vec2 _v21 = df64_add(_cse2, vec2(_v4, 0.0));
-    vec2 _cse3 = df64_add(vec2(1.0, 0.0), _licm1);
+    vec2 _v20 = df64_add(_cse1, vec2(_v3, 0.0), _fp64_g);
+    vec2 _v21 = df64_add(_cse2, vec2(_v4, 0.0), _fp64_g);
+    vec2 _cse3 = df64_add(vec2(1.0, 0.0), _licm1, _fp64_g);
     vec2 _cse4 = vec2(3.0, 0.0);
     for (uint _v22 = 0u; (_v22 < 48u); _v22 = (_v22 + 1u)) {
-      vec2 _v23 = df64_sub(df64_mul(_v20, _v20), df64_mul(_v21, _v21));
-      vec2 _v24 = df64_mul(df64_mul(_v20, _v21), _licm0);
-      vec2 _v25 = df64_sub(df64_sub(df64_mul(_v23, _v20), df64_mul(_v24, _v21)), _cse3);
-      vec2 _v26 = df64_add(df64_mul(_v23, _v21), df64_mul(_v24, _v20));
-      vec2 _v27 = df64_mul(_v23, _cse4);
-      vec2 _v28 = df64_mul(_v24, _cse4);
-      vec2 _v29 = df64_div(_cse3, df64_add(df64_mul(_v27, _v27), df64_mul(_v28, _v28)));
-      vec2 _v30 = df64_mul(df64_add(df64_mul(_v25, _v27), df64_mul(_v26, _v28)), _v29);
-      vec2 _v31 = df64_mul(df64_sub(df64_mul(_v26, _v27), df64_mul(_v25, _v28)), _v29);
-      _v20 = df64_sub(df64_add(_v20, _licm1), df64_add(_v30, _licm1));
-      _v21 = df64_sub(df64_add(_v21, _licm1), df64_add(_v31, _licm1));
-      if ((df64_narrow(df64_add(df64_mul(_v30, _v30), df64_mul(_v31, _v31))) > 1e-14)) {
+      vec2 _v23 = df64_sub(df64_mul(_v20, _v20, _fp64_g), df64_mul(_v21, _v21, _fp64_g), _fp64_g);
+      vec2 _v24 = df64_mul(df64_mul(_v20, _v21, _fp64_g), _licm0, _fp64_g);
+      vec2 _v25 = df64_sub(df64_sub(df64_mul(_v23, _v20, _fp64_g), df64_mul(_v24, _v21, _fp64_g), _fp64_g), _cse3, _fp64_g);
+      vec2 _v26 = df64_add(df64_mul(_v23, _v21, _fp64_g), df64_mul(_v24, _v20, _fp64_g), _fp64_g);
+      vec2 _v27 = df64_mul(_v23, _cse4, _fp64_g);
+      vec2 _v28 = df64_mul(_v24, _cse4, _fp64_g);
+      vec2 _v29 = df64_div(_cse3, df64_add(df64_mul(_v27, _v27, _fp64_g), df64_mul(_v28, _v28, _fp64_g), _fp64_g), _fp64_g);
+      vec2 _v30 = df64_mul(df64_add(df64_mul(_v25, _v27, _fp64_g), df64_mul(_v26, _v28, _fp64_g), _fp64_g), _v29, _fp64_g);
+      vec2 _v31 = df64_mul(df64_sub(df64_mul(_v26, _v27, _fp64_g), df64_mul(_v25, _v28, _fp64_g), _fp64_g), _v29, _fp64_g);
+      _v20 = df64_sub(df64_add(_v20, _licm1, _fp64_g), df64_add(_v30, _licm1, _fp64_g), _fp64_g);
+      _v21 = df64_sub(df64_add(_v21, _licm1, _fp64_g), df64_add(_v31, _licm1, _fp64_g), _fp64_g);
+      if ((df64_narrow(df64_add(df64_mul(_v30, _v30, _fp64_g), df64_mul(_v31, _v31, _fp64_g), _fp64_g)) > 1e-14)) {
         _v7 = (_v7 + 1.0);
       }
     }

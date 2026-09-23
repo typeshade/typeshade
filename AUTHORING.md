@@ -2099,6 +2099,11 @@ the same as f32, and only the declared type differs. Before emit, the `fp64Lower
 rewrites every f64 into a `vec2<f32>` and injects the emulation functions the shader now
 calls. WGSL, GLSL and the CPU oracle agree on the results.
 
+The 48 bits assume the GPU rounds f32 `+`, `-` and `*` to nearest, ties to even. Every shipping
+GPU does, but neither specification promises it: GLSL ES 3.00 leaves the rounding mode undefined
+and lets a subnormal flush to zero, and WGSL fixes no rounding mode. The figure rests on that
+hardware practice; §39 of `docs/use-typeshade-surface.md` has the detail.
+
 ### Declaring an f64 value
 
 Write `f64T` where you would write `f32T`: in a uniform field, in an `fn` parameter, in a
@@ -2177,6 +2182,12 @@ host binds a 1 by 1 texture whose texel reads exactly 1.0, white RGBA8 or R32F h
 The value lives in a texture because some drivers specialize a pipeline on the uniform
 values they observe and re-optimize it, which folds the correction terms away again; no
 compiler treats a texel as a constant.
+
+Each function that does f64 arithmetic reads the texel once, at the top of its body, and
+passes it to the helpers as a parameter, so a loop reads it before it starts rather than on
+every iteration. On GLSL the texture is declared `uniform highp sampler2D _fp64;`: GLSL ES
+3.00 gives `sampler2D` a default precision of lowp in both stages, and a texel fetch returns
+its sampler's precision.
 
 Two things to do at the host. If the bind group layout is fixed, pin the slot with
 `fp64Guard({ group, binding })` in the module's `uses`. And on Apple GPUs the guard is not

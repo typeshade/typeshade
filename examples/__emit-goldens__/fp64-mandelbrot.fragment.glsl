@@ -14,7 +14,7 @@ layout(std140) uniform Uniforms {
   float max_iter;
 } u;
 
-uniform sampler2D _fp64;
+uniform highp sampler2D _fp64;
 vec2 escape_f32(float cx, float cy, uint iters) {
   float _v0 = 0.0;
   float _v1 = 0.0;
@@ -34,57 +34,54 @@ bool df64_le(vec2 a, vec2 b) {
   return ((a.x < b.x) || ((a.x == b.x) && (a.y <= b.y)));
 }
 
-vec2 df64_twoSum(float a, float b) {
+vec2 df64_twoSum(float a, float b, float _fp64_g) {
   float _v0 = (a + b);
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  float _v1 = (((_v0 * _cse0) - a) * _cse0);
-  float _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
+  float _v1 = (((_v0 * _fp64_g) - a) * _fp64_g);
+  float _v2 = (((a - ((_v0 - _v1) * _fp64_g)) * _fp64_g) + (b - _v1));
   return vec2(_v0, _v2);
 }
 
-vec2 df64_quickTwoSum(float a, float b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  float _v0 = ((a + b) * _cse0);
-  float _v1 = (b - ((_v0 - a) * _cse0));
+vec2 df64_quickTwoSum(float a, float b, float _fp64_g) {
+  float _v0 = ((a + b) * _fp64_g);
+  float _v1 = (b - ((_v0 - a) * _fp64_g));
   return vec2(_v0, _v1);
 }
 
-vec2 df64_add(vec2 a, vec2 b) {
-  vec2 _v0 = df64_twoSum(a.x, b.x);
-  vec2 _v1 = df64_twoSum(a.y, b.y);
+vec2 df64_add(vec2 a, vec2 b, float _fp64_g) {
+  vec2 _v0 = df64_twoSum(a.x, b.x, _fp64_g);
+  vec2 _v1 = df64_twoSum(a.y, b.y, _fp64_g);
   _v0.y = (_v0.y + _v1.x);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
   _v0.y = (_v0.y + _v1.y);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
   return _v0;
 }
 
-vec2 df64_split(float a) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  float _v0 = (a * (_cse0 * 4097.0));
-  float _v1 = ((_v0 * _cse0) - (_v0 - a));
-  float _v2 = ((a * _cse0) - _v1);
+vec2 df64_split(float a, float _fp64_g) {
+  float _v0 = (a * (_fp64_g * 4097.0));
+  float _v1 = ((_v0 * _fp64_g) - (_v0 - a));
+  float _v2 = ((a * _fp64_g) - _v1);
   return vec2(_v1, _v2);
 }
 
-vec2 df64_twoProd(float a, float b) {
+vec2 df64_twoProd(float a, float b, float _fp64_g) {
   float _v0 = (a * b);
-  vec2 _v1 = df64_split(a);
-  vec2 _v2 = df64_split(b);
+  vec2 _v1 = df64_split(a, _fp64_g);
+  vec2 _v2 = df64_split(b, _fp64_g);
   float _v3 = (((((_v1.x * _v2.x) - _v0) + (_v1.x * _v2.y)) + (_v1.y * _v2.x)) + (_v1.y * _v2.y));
   return vec2(_v0, _v3);
 }
 
-vec2 df64_mul(vec2 a, vec2 b) {
-  vec2 _v0 = df64_twoProd(a.x, b.x);
+vec2 df64_mul(vec2 a, vec2 b, float _fp64_g) {
+  vec2 _v0 = df64_twoProd(a.x, b.x, _fp64_g);
   _v0.y = (_v0.y + (a.x * b.y));
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
   _v0.y = (_v0.y + (a.y * b.x));
-  return df64_quickTwoSum(_v0.x, _v0.y);
+  return df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
 }
 
-vec2 df64_sub(vec2 a, vec2 b) {
-  return df64_add(a, (-b));
+vec2 df64_sub(vec2 a, vec2 b, float _fp64_g) {
+  return df64_add(a, (-b), _fp64_g);
 }
 
 float df64_narrow(vec2 a) {
@@ -92,6 +89,7 @@ float df64_narrow(vec2 a) {
 }
 
 vec2 escape_f64(vec2 cx, vec2 cy, uint iters) {
+  float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;
   vec2 _licm0 = vec2(16.0, 0.0);
   vec2 _licm1 = vec2(2.0, 0.0);
   vec2 _cse0 = vec2(0.0, 0.0);
@@ -99,19 +97,20 @@ vec2 escape_f64(vec2 cx, vec2 cy, uint iters) {
   vec2 _v1 = _cse0;
   float _v2 = 0.0;
   for (uint _v3 = 0u; (_v3 < iters); _v3 = (_v3 + 1u)) {
-    if (df64_le(df64_add(df64_mul(_v0, _v0), df64_mul(_v1, _v1)), _licm0)) {
-      vec2 _v4 = df64_add(df64_sub(df64_mul(_v0, _v0), df64_mul(_v1, _v1)), cx);
-      _v1 = df64_add(df64_mul(df64_mul(_v0, _v1), _licm1), cy);
+    if (df64_le(df64_add(df64_mul(_v0, _v0, _fp64_g), df64_mul(_v1, _v1, _fp64_g), _fp64_g), _licm0)) {
+      vec2 _v4 = df64_add(df64_sub(df64_mul(_v0, _v0, _fp64_g), df64_mul(_v1, _v1, _fp64_g), _fp64_g), cx, _fp64_g);
+      _v1 = df64_add(df64_mul(df64_mul(_v0, _v1, _fp64_g), _licm1, _fp64_g), cy, _fp64_g);
       _v0 = _v4;
       _v2 = (_v2 + 1.0);
     }
   }
-  return vec2(_v2, df64_narrow(df64_add(df64_mul(_v0, _v0), df64_mul(_v1, _v1))));
+  return vec2(_v2, df64_narrow(df64_add(df64_mul(_v0, _v0, _fp64_g), df64_mul(_v1, _v1, _fp64_g), _fp64_g)));
 }
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
+  float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
@@ -127,8 +126,8 @@ void main() {
     float _v8 = (df64_narrow(_cse2) + _v4);
     _v6 = escape_f32(_v7, _v8, _v5);
   } else {
-    vec2 _v9 = df64_add(_cse1, vec2(_v3, 0.0));
-    vec2 _v10 = df64_add(_cse2, vec2(_v4, 0.0));
+    vec2 _v9 = df64_add(_cse1, vec2(_v3, 0.0), _fp64_g);
+    vec2 _v10 = df64_add(_cse2, vec2(_v4, 0.0), _fp64_g);
     _v6 = escape_f64(_v9, _v10, _v5);
   }
   float _v11 = _v6.x;
