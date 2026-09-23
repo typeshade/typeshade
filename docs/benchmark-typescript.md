@@ -16,6 +16,11 @@ adoption step with its size. Sizes are S, M and L. Priorities are `now`, `next`,
 `skip`; the skipped practices are collected in the last section with the reason each one does not
 transfer to a shader compiler.
 
+The TypeShade half is a measurement of the tree this document was written against (no later than
+`d5c7305`), and its counts and line references describe that tree: `src/compiler/ts/codes.ts`, for
+one, has since grown from 30 codes to 44 (TS8001 to TS8038 with TS8011 retired, TS8041, TS8050 to
+TS8053, TS8068 and TS8099).
+
 ## Diagnostics
 
 ### One authoritative message table
@@ -1122,8 +1127,7 @@ diagnostics, both of them errors and warnings.
 
 **Gap.** A shader compiler has an unusually rich supply of advice that is not an error: a dynamically
 indexed array that will be lowered to a branch chain, an unused varying that still costs an
-interpolator slot, a `mat3` that will not compile, which is already TS8027 and correctly an error,
-against a `pow(x, 2.0)` that should be a multiply. Putting those in `getDiagnostics` would make the
+interpolator slot, or a `pow(x, 2.0)` that should be a multiply. Putting those in `getDiagnostics` would make the
 error count wrong and would make the Playground's "zero errors, now compile" gate unreliable, since
 that gate reads the same list.
 
@@ -1472,7 +1476,7 @@ from TypeScript and what the compiler produces, and there is one concept page fo
 
 **Gap.** TypeShade's three plausible arrivals need opposite things and get the same page. A
 TypeScript developer who has never written a shader needs what a fragment entry point is and why
-there is no `console.log`. A WGSL or GLSL author needs a translation table and a straight answer on
+`console.log` prints only when the shader runs on the CPU. A WGSL or GLSL author needs a translation table and a straight answer on
 what is missing. A three.js, deck.gl or PixiJS user needs where the emitted string goes in a
 renderer they already have. Today the WGSL author reads an introduction that explains TypeScript to
 them, and the renderer user has to infer the integration from the Quick start.
