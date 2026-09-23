@@ -24,11 +24,11 @@
 // `numeric.ts` retarget it there today, so the flip does not move it and warning about it
 // would be noise the author cannot act on.
 
-import ts from 'typescript'
-import { isIntegerLiteralTree } from './lit-coerce.js'
-import { makeDiagnostic } from './diagnostic.js'
-import { TS_CODES } from './codes.js'
-import type { TsCompilerDiagnostic } from './source-file.js'
+import ts from 'typescript';
+import { isIntegerLiteralTree } from './lit-coerce.js';
+import { makeDiagnostic } from './diagnostic.js';
+import { TS_CODES } from './codes.js';
+import type { TsCompilerDiagnostic } from './source-file.js';
 
 /** Every `let`/`const` declaration in `sourceFile`, at module scope or inside a function,
  *  whose initialiser is an integer-written literal tree and which declares no type.
@@ -47,14 +47,14 @@ export function reportIntegerLiteralDeprecations(
       node.initializer !== undefined
     ) {
       if (ts.isIdentifier(node.name) && isIntegerLiteralTree(node.initializer)) {
-        const name = node.name.text
+        const name = node.name.text;
         // A BARE literal has a one-character fix, so the message writes it out. A TREE of them
         // (`2 + 3`) does not — a decimal point on one leaf is enough, which reads as a typo —
         // so that one is told to annotate, which says the same thing and keeps the arithmetic
         // legible.
         const fix = ts.isNumericLiteral(node.initializer)
           ? `Write "${name} = ${node.initializer.getText(sourceFile)}." to keep f32`
-          : `Annotate it — "${name}: f32 = ${node.initializer.getText(sourceFile)}" — to keep f32`
+          : `Annotate it — "${name}: f32 = ${node.initializer.getText(sourceFile)}" — to keep f32`;
         diagnostics.push(
           makeDiagnostic(
             sourceFile,
@@ -64,10 +64,10 @@ export function reportIntegerLiteralDeprecations(
             TS_CODES.INT_LITERAL_DEPRECATION,
             'warning',
           ),
-        )
+        );
       }
     }
-    ts.forEachChild(node, visit)
-  }
-  ts.forEachChild(sourceFile, visit)
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
 }

@@ -6,8 +6,8 @@
 // labels with TypeShade type names with no extra work — this file is the thin, testable seam
 // design doc §5's "signature help" row names, not a re-implementation.
 
-import ts from 'typescript'
-import type { TypeshadeSignatureHelp } from './types.js'
+import ts from 'typescript';
+import type { TypeshadeSignatureHelp } from './types.js';
 
 /** Signature help for the call expression at `offset` in `uri`, or `undefined` when `offset`
  * is not inside a call. */
@@ -16,8 +16,8 @@ export function getSignatureHelp(
   uri: string,
   offset: number,
 ): TypeshadeSignatureHelp | undefined {
-  const items = languageService.getSignatureHelpItems(uri, offset, undefined)
-  if (!items) return undefined
+  const items = languageService.getSignatureHelpItems(uri, offset, undefined);
+  if (!items) return undefined;
   return {
     signatures: items.items.map((item) => ({
       label:
@@ -34,5 +34,5 @@ export function getSignatureHelp(
     })),
     activeSignature: items.selectedItemIndex,
     activeParameter: items.argumentIndex,
-  }
+  };
 }

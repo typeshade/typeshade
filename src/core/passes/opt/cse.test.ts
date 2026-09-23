@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { cse } from './index.js'
+import { describe, it, expect } from 'vitest';
+import { cse } from './index.js';
 import {
   module,
   fn,
@@ -13,9 +13,9 @@ import {
   type Expr,
   type ModuleDecl,
   type ShaderType,
-} from '../../ir/index.js'
-import { emitModule } from '../../backends/wgsl.js'
-import { compileModule } from '../../oracle.js'
+} from '../../ir/index.js';
+import { emitModule } from '../../backends/wgsl.js';
+import { compileModule } from '../../oracle.js';
 
 // P2 — common-subexpression elimination (as a PASS over the IR, not an authoring
 // change). Safe subset: hoist a compound subexpression that (a) occurs >= 2x and
@@ -27,36 +27,36 @@ describe('optimize — common-subexpression elimination', () => {
     const m = module({
       funcs: [
         fn('k', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(sin(x).add(sin(x)))
+          b.ret(sin(x).add(sin(x)));
         }),
       ],
-    })
-    const wgsl = emitModule(cse(m))
-    expect(wgsl).toContain('_cse') // a hoisted temp was introduced
-    expect((wgsl.match(/sin\(x\)/g) ?? []).length).toBe(1) // sin(x) computed once
-  })
+    });
+    const wgsl = emitModule(cse(m));
+    expect(wgsl).toContain('_cse'); // a hoisted temp was introduced
+    expect((wgsl.match(/sin\(x\)/g) ?? []).length).toBe(1); // sin(x) computed once
+  });
 
   it('does not hoist a non-repeated expr', () => {
     const m = module({
       funcs: [
         fn('k', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(sin(x).add(1))
+          b.ret(sin(x).add(1));
         }),
       ],
-    })
-    expect(emitModule(cse(m))).not.toContain('_cse')
-  })
+    });
+    expect(emitModule(cse(m))).not.toContain('_cse');
+  });
 
   it('preserves oracle value-equality', () => {
     const m = module({
       funcs: [
         fn('k', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(sin(x).add(sin(x)))
+          b.ret(sin(x).add(sin(x)));
         }),
       ],
-    })
-    expect(compileModule(cse(m)).fns.k(0.5)).toBeCloseTo(compileModule(m).fns.k(0.5) as number, 10)
-  })
+    });
+    expect(compileModule(cse(m)).fns.k(0.5)).toBeCloseTo(compileModule(m).fns.k(0.5) as number, 10);
+  });
 
   it('skips a fn containing a raw Stmt (does not crash, leaves it alone)', () => {
     const m: ModuleDecl = module({
@@ -68,10 +68,10 @@ describe('optimize — common-subexpression elimination', () => {
           body: [{ s: 'raw', wgsl: 'return sin(1.0) + sin(1.0);' } as Stmt],
         },
       ],
-    })
-    expect(() => emitModule(cse(m))).not.toThrow()
-    expect(emitModule(cse(m))).not.toContain('_cse')
-  })
+    });
+    expect(() => emitModule(cse(m))).not.toThrow();
+    expect(emitModule(cse(m))).not.toContain('_cse');
+  });
 
   it('a second cse pass does not redeclare _cse0 (idempotent temp naming)', () => {
     // sin(cos(x)) twice + cos(x) once: cse#1 hoists the maximal sin(cos(x)) to
@@ -85,16 +85,16 @@ describe('optimize — common-subexpression elimination', () => {
             sin(cos(x))
               .add(sin(cos(x)))
               .add(cos(x)),
-          )
+          );
         }),
       ],
-    })
-    const twice = cse(cse(m))
-    const wgsl = emitModule(twice)
-    expect((wgsl.match(/let _cse0\b/g) ?? []).length).toBe(1) // _cse0 declared exactly once
-    expect(compileModule(twice).fns.k(0.5)).toBeCloseTo(compileModule(m).fns.k(0.5) as number, 10)
-  })
-})
+    });
+    const twice = cse(cse(m));
+    const wgsl = emitModule(twice);
+    expect((wgsl.match(/let _cse0\b/g) ?? []).length).toBe(1); // _cse0 declared exactly once
+    expect(compileModule(twice).fns.k(0.5)).toBeCloseTo(compileModule(m).fns.k(0.5) as number, 10);
+  });
+});
 
 // ── Placement: the shallowest point that still dominates every use ──
 //
@@ -106,17 +106,17 @@ describe('optimize — common-subexpression elimination', () => {
 // fragment cost over an identical raster draw). These assertions pin the placement
 // rule itself; the oracle checks pin that placement never changes a VALUE.
 describe('optimize — CSE placement', () => {
-  const P: Expr = { op: 'param', type: f32T, name: 'x' }
-  const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value })
-  const varref = (name: string): Expr => ({ op: 'varref', type: f32T, name })
-  const add = (a: Expr, b: Expr): Expr => ({ op: 'binop', type: f32T, bop: '+', a, b })
+  const P: Expr = { op: 'param', type: f32T, name: 'x' };
+  const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value });
+  const varref = (name: string): Expr => ({ op: 'varref', type: f32T, name });
+  const add = (a: Expr, b: Expr): Expr => ({ op: 'binop', type: f32T, bop: '+', a, b });
   // A RUNTIME condition (x > 0). A literal one would be folded away by dead-branch —
   // emitModule runs the whole optimizer fixpoint, not cse alone — and there would be
   // no block left to observe placement against.
-  const XGT0: Expr = { op: 'compare', type: boolT, cop: '>', a: P, b: lit(0) }
+  const XGT0: Expr = { op: 'compare', type: boolT, cop: '>', a: P, b: lit(0) };
   // sin(x) built as raw IR so the arms can be hand-placed.
-  const sinX: Expr = { op: 'call', type: f32T, fn: 'sin', args: [P] }
-  const letS = (name: string, expr: Expr): Stmt => ({ s: 'let', name, expr })
+  const sinX: Expr = { op: 'call', type: f32T, fn: 'sin', args: [P] };
+  const letS = (name: string, expr: Expr): Stmt => ({ s: 'let', name, expr });
 
   const emitOf = (body: Stmt[]): string =>
     emitModule(
@@ -125,8 +125,9 @@ describe('optimize — CSE placement', () => {
           funcs: [{ name: 'k', params: [{ name: 'x', type: f32T }], ret: f32T, body }],
         }) as ModuleDecl,
       ),
-    )
-  const lineOf = (wgsl: string, re: RegExp): number => wgsl.split('\n').findIndex((l) => re.test(l))
+    );
+  const lineOf = (wgsl: string, re: RegExp): number =>
+    wgsl.split('\n').findIndex((l) => re.test(l));
 
   it('binds inside the arm when every use is in that one arm', () => {
     // sin(x) twice, both inside the `if` arm — hoisting to fn top would make the
@@ -147,14 +148,14 @@ describe('optimize — CSE placement', () => {
         elseBody: [{ s: 'assign', target: varref('r'), expr: lit(1) }],
       },
       { s: 'return', expr: varref('r') },
-    ])
-    expect(wgsl).toContain('_cse') // it was still deduped
+    ]);
+    expect(wgsl).toContain('_cse'); // it was still deduped
     // The temp must be declared INSIDE the if block, i.e. after the `if (` line.
-    const cseLine = lineOf(wgsl, /let _cse\d+ =/)
-    const ifLine = lineOf(wgsl, /^\s*if \(/)
-    expect(ifLine).toBeGreaterThanOrEqual(0)
-    expect(cseLine).toBeGreaterThan(ifLine)
-  })
+    const cseLine = lineOf(wgsl, /let _cse\d+ =/);
+    const ifLine = lineOf(wgsl, /^\s*if \(/);
+    expect(ifLine).toBeGreaterThanOrEqual(0);
+    expect(cseLine).toBeGreaterThan(ifLine);
+  });
 
   it('binds at the fn body when uses straddle two arms (common dominator)', () => {
     const wgsl = emitOf([
@@ -165,12 +166,12 @@ describe('optimize — CSE placement', () => {
         elseBody: [{ s: 'assign', target: varref('r'), expr: sinX }],
       },
       { s: 'return', expr: varref('r') },
-    ])
-    const cseLine = lineOf(wgsl, /let _cse\d+ =/)
-    const ifLine = lineOf(wgsl, /^\s*if \(/)
-    expect(cseLine).toBeGreaterThanOrEqual(0)
-    expect(cseLine).toBeLessThan(ifLine) // hoisted ABOVE the branch, as it must be
-  })
+    ]);
+    const cseLine = lineOf(wgsl, /let _cse\d+ =/);
+    const ifLine = lineOf(wgsl, /^\s*if \(/);
+    expect(cseLine).toBeGreaterThanOrEqual(0);
+    expect(cseLine).toBeLessThan(ifLine); // hoisted ABOVE the branch, as it must be
+  });
 
   it('never binds inside a loop body (LICM owns loop-invariant motion)', () => {
     const wgsl = emitOf([
@@ -193,13 +194,13 @@ describe('optimize — CSE placement', () => {
         body: [{ s: 'assign', target: varref('r'), expr: add(sinX, sinX) }],
       },
       { s: 'return', expr: varref('r') },
-    ])
-    const cseLine = lineOf(wgsl, /let _cse\d+ =/)
-    const forLine = lineOf(wgsl, /^\s*for \(/)
-    expect(cseLine).toBeGreaterThanOrEqual(0)
-    expect(forLine).toBeGreaterThanOrEqual(0)
-    expect(cseLine).toBeLessThan(forLine) // outside the loop, not re-evaluated per iteration
-  })
+    ]);
+    const cseLine = lineOf(wgsl, /let _cse\d+ =/);
+    const forLine = lineOf(wgsl, /^\s*for \(/);
+    expect(cseLine).toBeGreaterThanOrEqual(0);
+    expect(forLine).toBeGreaterThanOrEqual(0);
+    expect(cseLine).toBeLessThan(forLine); // outside the loop, not re-evaluated per iteration
+  });
 
   it('preserves oracle value-equality across a branchy function', () => {
     const build = (): ModuleDecl =>
@@ -207,15 +208,15 @@ describe('optimize — CSE placement', () => {
         funcs: [
           fn('k', { x: f32T }, f32T, ({ x }, b) => {
             // Two arms with their own repeats + one repeat shared by both.
-            b.ret(sin(x).add(sin(x)).add(cos(x)).add(cos(x)))
+            b.ret(sin(x).add(sin(x)).add(cos(x)).add(cos(x)));
           }),
         ],
-      })
-    const m = build()
+      });
+    const m = build();
     for (const v of [0, 0.5, -1.25, 3.75]) {
-      expect(compileModule(cse(m)).fns.k(v)).toBeCloseTo(compileModule(m).fns.k(v) as number, 12)
+      expect(compileModule(cse(m)).fns.k(v)).toBeCloseTo(compileModule(m).fns.k(v) as number, 12);
     }
-  })
+  });
 
   // X-GIS #2408 — a literal's TYPE is part of its identity. `keyOf` used to spell a literal as
   // `typeof e.value` (always 'number') plus its value, so `u32(-1.0)` and `u32(-1)` shared a
@@ -228,7 +229,7 @@ describe('optimize — CSE placement', () => {
       type: u32T,
       fn: 'u32',
       args: [{ op: 'lit', type, value }],
-    })
+    });
     const m: ModuleDecl = {
       consts: [],
       structs: [],
@@ -255,23 +256,23 @@ describe('optimize — CSE placement', () => {
           ],
         },
       ],
-    }
+    };
     // 0 - 4294967295 wraps to 1 in u32. Merging the two makes it 0.
-    expect(compileModule(m).fns.both!()).toBe(1)
-    expect(compileModule(cse(m)).fns.both!()).toBe(1)
+    expect(compileModule(m).fns.both!()).toBe(1);
+    expect(compileModule(cse(m)).fns.both!()).toBe(1);
     // and the emitted text keeps the two apart, which is where the damage was visible. The
     // int->uint one is now the LITERAL its conversion yields rather than the call: an
     // unsuffixed `-1` in WGSL is an AbstractInt, and `u32(-1)` is a shader-creation error on
     // Tint where `u32(-1i)` is not, so const-fold spells the conversion as its own result
     // (#154). Distinct from the float one either way, which is this test's subject.
-    const wgsl = emitModule(cse(m))
-    expect(wgsl).toContain('u32(-1.0)')
-    expect(wgsl).toContain('4294967295u')
-  })
+    const wgsl = emitModule(cse(m));
+    expect(wgsl).toContain('u32(-1.0)');
+    expect(wgsl).toContain('4294967295u');
+  });
 
   // The same key loss on the other side: `String(-0)` is `"0"`.
   it('X-GIS #2408: does not merge -0.0 with 0.0', () => {
-    const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value })
+    const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value });
     const add = (name: string, value: number): Stmt => ({
       s: 'var',
       name,
@@ -283,7 +284,7 @@ describe('optimize — CSE placement', () => {
         a: { op: 'param', type: f32T, name: 'x' },
         b: lit(value),
       },
-    })
+    });
     const m: ModuleDecl = {
       consts: [],
       structs: [],
@@ -310,12 +311,12 @@ describe('optimize — CSE placement', () => {
           ],
         },
       ],
-    }
+    };
     // At x = -0: `x + 0.0` is +0 and `x + -0.0` is -0. Reciprocals are the cheapest way to
     // SEE that sign — +Infinity vs -Infinity — because comparing the zeros themselves is
     // blind (`+0 - -0` is `+0` either way, which is how the first version of this test
     // passed against the very key it was written to reject).
-    expect(compileModule(m).fns.k!(-0)).toBe(-Infinity)
-    expect(compileModule(cse(m)).fns.k!(-0)).toBe(-Infinity)
-  })
-})
+    expect(compileModule(m).fns.k!(-0)).toBe(-Infinity);
+    expect(compileModule(cse(m)).fns.k!(-0)).toBe(-Infinity);
+  });
+});

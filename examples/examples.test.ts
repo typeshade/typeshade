@@ -6,42 +6,42 @@
 // and with the int→uint cast on gl_VertexID. The real-WebGL2 compile+render of these same
 // modules is the sibling Playwright spec (playground/e2e/_shader-dsl-examples-render.spec.ts).
 
-import { describe, it, expect } from 'vitest'
-import { examples } from './index.js'
-import { emitGlslModule, reflect } from '../src/index.js'
+import { describe, it, expect } from 'vitest';
+import { examples } from './index.js';
+import { emitGlslModule, reflect } from '../src/index.js';
 
 describe('shader-dsl examples', () => {
   it('every example reflects a pipeline', () => {
-    expect(examples.length).toBeGreaterThan(0)
+    expect(examples.length).toBeGreaterThan(0);
     for (const ex of examples) {
       // WGSL emit bytes are pinned exactly by emit-goldens.test.ts (X-GIS #763 V3) — the old
       // `.length > 50` check here was near-vacuous and is superseded by that gate.
-      expect(reflect(ex.module), ex.id).toBeTruthy()
+      expect(reflect(ex.module), ex.id).toBeTruthy();
     }
-  })
+  });
 
   it('renderable examples emit WebGL2-valid GLSL ES 3.00 (no WGSL-ism leaks)', () => {
-    const renderable = examples.filter((e) => e.renderable)
-    expect(renderable.length).toBeGreaterThan(0)
+    const renderable = examples.filter((e) => e.renderable);
+    expect(renderable.length).toBeGreaterThan(0);
     for (const ex of renderable) {
-      const vs = emitGlslModule(ex.module, 'vertex')
-      const fs = emitGlslModule(ex.module, 'fragment')
+      const vs = emitGlslModule(ex.module, 'vertex');
+      const fs = emitGlslModule(ex.module, 'fragment');
       for (const src of [vs, fs]) {
-        expect(src.startsWith('#version 300 es'), ex.id).toBe(true)
+        expect(src.startsWith('#version 300 es'), ex.id).toBe(true);
         // scalar casts must be GLSL-spelled (float/int/uint), never the WGSL f32()/i32()/u32()
-        expect(src, ex.id).not.toMatch(/\b(f32|i32|u32)\(/)
+        expect(src, ex.id).not.toMatch(/\b(f32|i32|u32)\(/);
         // `in` is a GLSL reserved word — never emitted as a bare identifier
-        expect(src, ex.id).not.toMatch(/\b(VsOut|vec[234]|float) in\b/)
+        expect(src, ex.id).not.toMatch(/\b(VsOut|vec[234]|float) in\b/);
       }
       // gl_VertexID is `int`; a u32 vertex_index param must be cast for overload resolution
-      expect(vs, ex.id).toContain('uint(gl_VertexID)')
+      expect(vs, ex.id).toContain('uint(gl_VertexID)');
     }
-  })
+  });
 
   it('the compute example stays WGSL-only (no GLSL ES compute/SSBO)', () => {
-    const compute = examples.find((e) => e.category === 'compute')
-    expect(compute).toBeTruthy()
-    expect(compute!.renderable).toBe(false)
-    expect(() => emitGlslModule(compute!.module, 'fragment')).toThrow()
-  })
-})
+    const compute = examples.find((e) => e.category === 'compute');
+    expect(compute).toBeTruthy();
+    expect(compute!.renderable).toBe(false);
+    expect(() => emitGlslModule(compute!.module, 'fragment')).toThrow();
+  });
+});

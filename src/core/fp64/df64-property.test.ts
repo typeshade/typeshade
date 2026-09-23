@@ -9,20 +9,20 @@
 //
 // Seeded PRNG (not Math.random): a failure is reproducible and CI is deterministic.
 
-import { describe, it, expect } from 'vitest'
-import { fn, module, f64T, sqrt, abs, min, max, floor, fract } from '../ir/index.js'
-import type { ModuleDecl, ReadonlyNode } from '../ir/index.js'
-import { eachExpr, eachStmtExpr } from '../ir/visit.js'
-import { compileModule, type CpuValue } from '../oracle.js'
-import { fp64Lower } from '../passes/fp64-lower.js'
-import { splitF64 } from './df64-lib.js'
+import { describe, it, expect } from 'vitest';
+import { fn, module, f64T, sqrt, abs, min, max, floor, fract } from '../ir/index.js';
+import type { ModuleDecl, ReadonlyNode } from '../ir/index.js';
+import { eachExpr, eachStmtExpr } from '../ir/visit.js';
+import { compileModule, type CpuValue } from '../oracle.js';
+import { fp64Lower } from '../passes/fp64-lower.js';
+import { splitF64 } from './df64-lib.js';
 
 // ── The f32-rounding oracle (same mechanism as df64-known-answer.test.ts) ──
 
 /** The f32 oracle: `fp64Lower`'s output evaluated as a correctly-rounding f32 machine,
  *  which is what the GPU is. `precision: 'f32'` (X-GIS #2426) replaced a copy of this wrapper in
  *  each of six files; it additionally rounds literals and parameters, which they did not. */
-const f32Oracle = (m: ModuleDecl) => compileModule(fp64Lower(m), { precision: 'f32' })
+const f32Oracle = (m: ModuleDecl) => compileModule(fp64Lower(m), { precision: 'f32' });
 
 // ── Kernels: one fn per operation under test ──
 
@@ -36,7 +36,7 @@ const SCALES: ReadonlyArray<
   ['k_neg8', -8, (a) => a.mul(-8.0)],
   ['k_big', 2 ** 20, (a) => a.mul(2 ** 20)],
   ['k_small', 2 ** -20, (a) => a.mul(2 ** -20)],
-]
+];
 
 const m = module({
   funcs: [
@@ -61,52 +61,52 @@ const m = module({
     fn('k_sqr', { a: f64T }, (p) => p.a.mul(p.a)),
     ...SCALES.map(([name, , build]) => fn(name, { a: f64T }, (p) => build(p.a))),
   ],
-})
-const cpu = f32Oracle(m)
+});
+const cpu = f32Oracle(m);
 
 // ── Helpers ──
 
 // mulberry32: a tiny, fast, well-distributed seeded PRNG (deterministic).
 function mulberry32(seed: number): () => number {
-  let s = seed >>> 0
+  let s = seed >>> 0;
   return () => {
-    s = (s + 0x6d2b79f5) | 0
-    let t = Math.imul(s ^ (s >>> 15), 1 | s)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 // A df64 value near a random f64: (hi, lo) pair and its EXACT real value hi+lo
 // (df64 spans ~48 bits, so hi+lo is exactly representable in f64 — a faithful
 // reference input, not the wider double we sampled).
-type Df = { pair: number[]; val: number }
+type Df = { pair: number[]; val: number };
 const asDf = (x: number): Df => {
-  const [hi, lo] = splitF64(x)
-  return { pair: [hi, lo], val: hi! + lo! }
-}
+  const [hi, lo] = splitF64(x);
+  return { pair: [hi, lo], val: hi! + lo! };
+};
 const val = (r: CpuValue): number => {
-  const [hi, lo] = r as number[]
-  return hi! + lo!
-}
+  const [hi, lo] = r as number[];
+  return hi! + lo!;
+};
 
 // Random f64 with a controllable exponent range and a full 53-bit-ish mantissa.
 const sampler = (seed: number, expLo: number, expHi: number) => {
-  const rnd = mulberry32(seed)
+  const rnd = mulberry32(seed);
   return (): number => {
-    const sign = rnd() < 0.5 ? -1 : 1
-    const exp = expLo + Math.floor(rnd() * (expHi - expLo + 1))
+    const sign = rnd() < 0.5 ? -1 : 1;
+    const exp = expLo + Math.floor(rnd() * (expHi - expLo + 1));
     // two draws → ~44 random mantissa bits in [1, 2)
-    const mant = 1 + rnd() + rnd() * 2 ** -26 // ~44 random mantissa bits in [1, 2)
-    return sign * mant * 2 ** exp
-  }
-}
+    const mant = 1 + rnd() + rnd() * 2 ** -26; // ~44 random mantissa bits in [1, 2)
+    return sign * mant * 2 ** exp;
+  };
+};
 
 // Relative error against a reference, robust at ref ≈ 0 (cancellation).
 const relErr = (got: number, ref: number): number =>
-  ref === 0 ? Math.abs(got) : Math.abs(got - ref) / Math.abs(ref)
+  ref === 0 ? Math.abs(got) : Math.abs(got - ref) / Math.abs(ref);
 
-const N = 20000
+const N = 20000;
 
 // ── Arithmetic: df64 tracks f64; f32 on the same inputs does not ──
 
@@ -116,12 +116,12 @@ const N = 20000
 //   add 2^-47.2 | 2^-16.9   sub 2^-47.2 | 2^-15.1   mul 2^-46.2 | 2^-22.7
 //   div 2^-45.5 | 2^-22.7   sqrt 2^-45.3 | 2^-23.5  — df64 is 24–32 bits ahead.
 type Binop = {
-  name: string
-  kind: 'k_add' | 'k_sub' | 'k_mul' | 'k_div'
-  ref: (a: number, b: number) => number
-  f32: (a: number, b: number) => number
-  tol: number
-}
+  name: string;
+  kind: 'k_add' | 'k_sub' | 'k_mul' | 'k_div';
+  ref: (a: number, b: number) => number;
+  f32: (a: number, b: number) => number;
+  tol: number;
+};
 const BINOPS: Binop[] = [
   {
     name: 'add',
@@ -151,45 +151,45 @@ const BINOPS: Binop[] = [
     f32: (a, b) => Math.fround(Math.fround(a) / Math.fround(b)),
     tol: 2 ** -43,
   },
-]
+];
 
 describe('df64 arithmetic tracks f64 across random inputs (and f32 cannot)', () => {
   it.each(BINOPS)('$name: worst df64 error ≪ tol, worst f32 error ≫ df64', (op) => {
-    const ra = sampler(0x1234 ^ op.name.charCodeAt(0), -28, 28)
-    const rb = sampler(0x9abc ^ op.name.charCodeAt(1), -28, 28)
+    const ra = sampler(0x1234 ^ op.name.charCodeAt(0), -28, 28);
+    const rb = sampler(0x9abc ^ op.name.charCodeAt(1), -28, 28);
     let maxDf = 0,
-      maxF32 = 0
+      maxF32 = 0;
     for (let i = 0; i < N; i++) {
       const a = asDf(ra()),
-        b = asDf(rb())
-      if (op.kind === 'k_div' && b.val === 0) continue
-      const ref = op.ref(a.val, b.val)
-      if (!isFinite(ref)) continue
-      maxDf = Math.max(maxDf, relErr(val(cpu.fns[op.kind]!(a.pair, b.pair)), ref))
-      maxF32 = Math.max(maxF32, relErr(op.f32(a.val, b.val), ref))
+        b = asDf(rb());
+      if (op.kind === 'k_div' && b.val === 0) continue;
+      const ref = op.ref(a.val, b.val);
+      if (!isFinite(ref)) continue;
+      maxDf = Math.max(maxDf, relErr(val(cpu.fns[op.kind]!(a.pair, b.pair)), ref));
+      maxF32 = Math.max(maxF32, relErr(op.f32(a.val, b.val), ref));
     }
     // Correctness: df64 stays inside df64 precision on EVERY sample.
-    expect(maxDf).toBeLessThan(op.tol)
+    expect(maxDf).toBeLessThan(op.tol);
     // Non-vacuous: somewhere in the sweep, plain f32 is orders of magnitude worse.
-    expect(maxF32).toBeGreaterThan(maxDf * 1e3)
-    expect(maxF32).toBeGreaterThan(2 ** -30)
-  })
+    expect(maxF32).toBeGreaterThan(maxDf * 1e3);
+    expect(maxF32).toBeGreaterThan(2 ** -30);
+  });
 
   it('sqrt: worst df64 error ≪ 2^-43, worst f32 error ≫ df64', () => {
-    const r = sampler(0x5eed, -24, 40)
+    const r = sampler(0x5eed, -24, 40);
     let maxDf = 0,
-      maxF32 = 0
+      maxF32 = 0;
     for (let i = 0; i < N; i++) {
-      const a = asDf(Math.abs(r()))
-      const ref = Math.sqrt(a.val)
-      if (!isFinite(ref) || ref === 0) continue
-      maxDf = Math.max(maxDf, relErr(val(cpu.fns.k_sqrt!(a.pair)), ref))
-      maxF32 = Math.max(maxF32, relErr(Math.fround(Math.sqrt(Math.fround(a.val))), ref))
+      const a = asDf(Math.abs(r()));
+      const ref = Math.sqrt(a.val);
+      if (!isFinite(ref) || ref === 0) continue;
+      maxDf = Math.max(maxDf, relErr(val(cpu.fns.k_sqrt!(a.pair)), ref));
+      maxF32 = Math.max(maxF32, relErr(Math.fround(Math.sqrt(Math.fround(a.val))), ref));
     }
-    expect(maxDf).toBeLessThan(2 ** -43)
-    expect(maxF32).toBeGreaterThan(maxDf * 1e3)
-    expect(maxF32).toBeGreaterThan(2 ** -30)
-  })
+    expect(maxDf).toBeLessThan(2 ** -43);
+    expect(maxF32).toBeGreaterThan(maxDf * 1e3);
+    expect(maxF32).toBeGreaterThan(2 ** -30);
+  });
 
   // df64_sqr against native f64 AND against the df64_mul(a, a) it replaces, on the same pairs.
   // Measured over this sweep: worst 2^-46.15 for the square, 2^-46.41 for df64_mul(a, a) (the
@@ -197,67 +197,67 @@ describe('df64 arithmetic tracks f64 across random inputs (and f32 cannot)', () 
   it('sqr: worst df64 error ≪ 2^-44 across 2^[-36, 60] and both signs, no worse than df64_mul(a, a)', () => {
     // Below 2^-36 the square's lo word leaves the normal f32 range and the pair loses bits to
     // underflow, as every df64 product does there; above 2^60 the square nears f32 overflow.
-    const r = sampler(0x5a5a, -36, 60)
+    const r = sampler(0x5a5a, -36, 60);
     let maxSqr = 0,
       maxMul = 0,
-      maxF32 = 0
+      maxF32 = 0;
     for (let i = 0; i < N; i++) {
-      const a = asDf(r())
-      const ref = a.val * a.val
-      maxSqr = Math.max(maxSqr, relErr(val(cpu.fns.k_sqr!(a.pair)), ref))
-      maxMul = Math.max(maxMul, relErr(val(cpu.fns.k_mul!(a.pair, a.pair)), ref))
-      maxF32 = Math.max(maxF32, relErr(Math.fround(Math.fround(a.val) ** 2), ref))
+      const a = asDf(r());
+      const ref = a.val * a.val;
+      maxSqr = Math.max(maxSqr, relErr(val(cpu.fns.k_sqr!(a.pair)), ref));
+      maxMul = Math.max(maxMul, relErr(val(cpu.fns.k_mul!(a.pair, a.pair)), ref));
+      maxF32 = Math.max(maxF32, relErr(Math.fround(Math.fround(a.val) ** 2), ref));
     }
-    expect(maxSqr).toBeLessThan(2 ** -44)
-    expect(maxSqr).toBeLessThan(maxMul * 2)
-    expect(maxF32).toBeGreaterThan(maxSqr * 1e3)
-  })
+    expect(maxSqr).toBeLessThan(2 ** -44);
+    expect(maxSqr).toBeLessThan(maxMul * 2);
+    expect(maxF32).toBeGreaterThan(maxSqr * 1e3);
+  });
 
   it('power-of-two scaling is exact, and is the df64_mul it replaces bit for bit', () => {
     // Non-vacuous: the scale kernels call no df64 helper at all.
-    const lowered = fp64Lower(m)
+    const lowered = fp64Lower(m);
     for (const [name] of SCALES) {
-      const k = lowered.funcs.find((f) => f.name === name)!
-      const calls: string[] = []
+      const k = lowered.funcs.find((f) => f.name === name)!;
+      const calls: string[] = [];
       for (const s of k.body)
         eachStmtExpr(s, (e) =>
           eachExpr(e, (x) => {
-            if (x.op === 'call' && x.fn.startsWith('df64_')) calls.push(x.fn)
+            if (x.op === 'call' && x.fn.startsWith('df64_')) calls.push(x.fn);
           }),
-        )
-      expect(calls, name).toEqual([])
+        );
+      expect(calls, name).toEqual([]);
     }
     // A quarter of N pairs, five scales each: 25,000 comparisons, and this file's longest
     // synchronous stretch stays near the others' (df64-int-property.test.ts's `sweep` note).
-    const r = sampler(0x7777, -60, 60)
+    const r = sampler(0x7777, -60, 60);
     for (let i = 0; i < N / 4; i++) {
-      const a = asDf(r())
+      const a = asDf(r());
       for (const [name, s] of SCALES) {
-        const got = cpu.fns[name]!(a.pair) as number[]
+        const got = cpu.fns[name]!(a.pair) as number[];
         // Exact: each word scaled by a power of two, and hi + lo is the scaled value.
-        expect(val(got)).toBe(a.val * s)
+        expect(val(got)).toBe(a.val * s);
         // …and the same two words the general multiply by the pair (s, 0) returns.
-        expect(got).toEqual(cpu.fns.k_mul!(a.pair, [s, 0]))
+        expect(got).toEqual(cpu.fns.k_mul!(a.pair, [s, 0]));
       }
     }
-  })
-})
+  });
+});
 
 // ── abs / min / max: exact selection at f64 resolution ──
 
 describe('df64 selection is exact across random inputs', () => {
   it('abs / min / max reproduce the f64 result exactly', () => {
     const ra = sampler(0xa11, -28, 28),
-      rb = sampler(0xb22, -28, 28)
+      rb = sampler(0xb22, -28, 28);
     for (let i = 0; i < N; i++) {
       const a = asDf(ra()),
-        b = asDf(rb())
-      expect(val(cpu.fns.k_abs!(a.pair))).toBe(Math.abs(a.val))
-      expect(val(cpu.fns.k_min!(a.pair, b.pair))).toBe(Math.min(a.val, b.val))
-      expect(val(cpu.fns.k_max!(a.pair, b.pair))).toBe(Math.max(a.val, b.val))
+        b = asDf(rb());
+      expect(val(cpu.fns.k_abs!(a.pair))).toBe(Math.abs(a.val));
+      expect(val(cpu.fns.k_min!(a.pair, b.pair))).toBe(Math.min(a.val, b.val));
+      expect(val(cpu.fns.k_max!(a.pair, b.pair))).toBe(Math.max(a.val, b.val));
     }
-  })
-})
+  });
+});
 
 // ── Comparisons: agree with f64 ordering, including f32-indistinguishable pairs ──
 
@@ -269,53 +269,53 @@ describe('df64 comparisons agree with f64 ordering across random inputs', () => 
     ['k_ge', (a: number, b: number) => a >= b],
     ['k_eq', (a: number, b: number) => a === b],
     ['k_ne', (a: number, b: number) => a !== b],
-  ] as const
+  ] as const;
 
   it('all six comparators match the f64 predicate on random pairs', () => {
     const ra = sampler(0xc33, -28, 28),
-      rb = sampler(0xd44, -28, 28)
+      rb = sampler(0xd44, -28, 28);
     for (let i = 0; i < N; i++) {
       const a = asDf(ra()),
-        b = asDf(rb())
+        b = asDf(rb());
       for (const [k, pred] of CMP) {
-        expect(cpu.fns[k]!(a.pair, b.pair)).toBe(pred(a.val, b.val) ? 1 : 0)
+        expect(cpu.fns[k]!(a.pair, b.pair)).toBe(pred(a.val, b.val) ? 1 : 0);
       }
     }
-  })
+  });
 
   it('near-equal pairs f32 conflates are still ordered by the lo word', () => {
     // b = a + one ulp(hi)/… so fround(a) === fround(b) but a.val < b.val.
-    const r = sampler(0xe55, 4, 26)
-    let exercised = 0
+    const r = sampler(0xe55, 4, 26);
+    let exercised = 0;
     for (let i = 0; i < N; i++) {
-      const base = r()
-      const a = asDf(base)
-      const b = asDf(base + Math.abs(base) * 2 ** -34) // sub-f32-ulp bump
-      if (Math.fround(a.val) !== Math.fround(b.val) || a.val === b.val) continue
-      exercised++
+      const base = r();
+      const a = asDf(base);
+      const b = asDf(base + Math.abs(base) * 2 ** -34); // sub-f32-ulp bump
+      if (Math.fround(a.val) !== Math.fround(b.val) || a.val === b.val) continue;
+      exercised++;
       // f32-indistinguishable, yet df64 orders them by the low word:
-      expect(cpu.fns.k_lt!(a.pair, b.pair)).toBe(1)
-      expect(cpu.fns.k_lt!(b.pair, a.pair)).toBe(0)
-      expect(cpu.fns.k_eq!(a.pair, b.pair)).toBe(0)
+      expect(cpu.fns.k_lt!(a.pair, b.pair)).toBe(1);
+      expect(cpu.fns.k_lt!(b.pair, a.pair)).toBe(0);
+      expect(cpu.fns.k_eq!(a.pair, b.pair)).toBe(0);
     }
-    expect(exercised).toBeGreaterThan(1000) // the case is actually hit, not skipped away
-  })
-})
+    expect(exercised).toBeGreaterThan(1000); // the case is actually hit, not skipped away
+  });
+});
 
 // ── floor / fract: the lo word decides at magnitudes f32 cannot hold ──
 
 describe('df64 floor / fract track f64 across random inputs', () => {
   it('floor(x) and fract(x) match f64 for |x| up to 2^40', () => {
-    const r = sampler(0xf66, -6, 40)
-    let maxFractErr = 0
+    const r = sampler(0xf66, -6, 40);
+    let maxFractErr = 0;
     for (let i = 0; i < N; i++) {
-      const a = asDf(r())
-      const refFloor = Math.floor(a.val)
-      expect(val(cpu.fns.k_floor!(a.pair))).toBe(refFloor)
+      const a = asDf(r());
+      const refFloor = Math.floor(a.val);
+      expect(val(cpu.fns.k_floor!(a.pair))).toBe(refFloor);
       // fract = x − ⌊x⌋ ∈ [0, 1); exact when the result is representable.
-      const refFract = a.val - refFloor
-      maxFractErr = Math.max(maxFractErr, Math.abs(val(cpu.fns.k_fract!(a.pair)) - refFract))
+      const refFract = a.val - refFloor;
+      maxFractErr = Math.max(maxFractErr, Math.abs(val(cpu.fns.k_fract!(a.pair)) - refFract));
     }
-    expect(maxFractErr).toBeLessThan(2 ** -45) // observed 2^-49 (EFT subtraction keeps the low word)
-  })
-})
+    expect(maxFractErr).toBeLessThan(2 ** -45); // observed 2^-49 (EFT subtraction keeps the low word)
+  });
+});

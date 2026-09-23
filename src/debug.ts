@@ -18,7 +18,7 @@ export {
   type DebugSession,
   type DebugSessionOptions,
   type DebugStackFrame,
-} from './core/debug/session.js'
+} from './core/debug/session.js';
 
 // The launch configuration: one shape for an IDE's launch.json, the Playground's form and a
 // headless test, with the resolver that turns it into a started session.
@@ -31,7 +31,7 @@ export {
   type DebugLaunchConfig,
   type DebugInvocation,
   type DebugInputs,
-} from './core/debug/config.js'
+} from './core/debug/config.js';
 
 // Watch expressions: what is this expression, here, now. The engine half of a DAP `evaluate`
 // and of a Playground watch box, compiled by the real front end against the paused frame.
@@ -40,14 +40,14 @@ export {
   DebugWatchError,
   type CompiledWatch,
   type DebugWatchValue,
-} from './core/debug/watch.js'
+} from './core/debug/watch.js';
 
 // Reading a shader value back out in the types the author wrote.
-export { formatCpuValue, createValueFormatter } from './core/debug/value.js'
+export { formatCpuValue, createValueFormatter } from './core/debug/value.js';
 
 // The span an author's breakpoint resolves against, and the reader for it, re-exported here
 // so a debug adapter needs one import, not two.
-export { sourceSpanOf, type SourceSpan } from './core/ir/span.js'
+export { sourceSpanOf, type SourceSpan } from './core/ir/span.js';
 // The value model every local, parameter and binding is spelled in.
-export type { CpuValue, CpuStruct } from './core/cpu-runtime.js'
-export type { CpuPrecision } from './core/oracle.js'
+export type { CpuValue, CpuStruct } from './core/cpu-runtime.js';
+export type { CpuPrecision } from './core/oracle.js';

@@ -17,36 +17,36 @@
 // a vertex mismatch. This is the gate the WGSL/GLSL goldens cannot give — they pin what
 // `emitGlslModule` produces, not that the shared-lowering path agrees with it.
 
-import { describe, it, expect } from 'vitest'
-import { examples } from './index.js'
-import { shadeExamples } from './_shade.js'
-import { emitGlslModule, emitGlslStages } from '../src/index.js'
+import { describe, it, expect } from 'vitest';
+import { examples } from './index.js';
+import { shadeExamples } from './_shade.js';
+import { emitGlslModule, emitGlslStages } from '../src/index.js';
 
 describe('emitGlslStages — shared lowering is byte-identical to per-stage lowering', () => {
-  const renderable = examples.filter((e) => e.renderable)
+  const renderable = examples.filter((e) => e.renderable);
 
   it('covers a real corpus (a registry that stops being renderable must not silently skip)', () => {
-    expect(renderable.length).toBeGreaterThanOrEqual(2)
-  })
+    expect(renderable.length).toBeGreaterThanOrEqual(2);
+  });
 
   for (const ex of renderable) {
     it(`${ex.id}: both stages match emitGlslModule byte-for-byte`, () => {
-      const both = emitGlslStages(ex.module)
-      expect(both.vertex).toBe(emitGlslModule(ex.module, 'vertex'))
-      expect(both.fragment).toBe(emitGlslModule(ex.module, 'fragment'))
-    })
+      const both = emitGlslStages(ex.module);
+      expect(both.vertex).toBe(emitGlslModule(ex.module, 'vertex'));
+      expect(both.fragment).toBe(emitGlslModule(ex.module, 'fragment'));
+    });
   }
 
   it('is idempotent — a second call over the same authored module emits the same bytes', () => {
     // Guards the other direction of the mutation hazard: `lowerForGlsl` must not edit
     // the AUTHORED module either, or the second pipeline built from a memoised module
     // (exactly what a draper does for its pick variant) would diverge from the first.
-    const ex = renderable[0]!
-    const a = emitGlslStages(ex.module)
-    const b = emitGlslStages(ex.module)
-    expect(b.vertex).toBe(a.vertex)
-    expect(b.fragment).toBe(a.fragment)
-  })
+    const ex = renderable[0]!;
+    const a = emitGlslStages(ex.module);
+    const b = emitGlslStages(ex.module);
+    expect(b.vertex).toBe(a.vertex);
+    expect(b.fragment).toBe(a.fragment);
+  });
 
   // X-GIS #1673 — the float-precision emit option reaches BOTH stage strings. emitGlslStages
   // spells the shared lowered module twice (assembleGlsl per stage), so an option read
@@ -55,25 +55,25 @@ describe('emitGlslStages — shared lowering is byte-identical to per-stage lowe
   // so a family whose vertex is shared across variants cannot hide it.
   for (const ex of renderable) {
     it(`${ex.id}: floatPrecision threads through emitGlslStages into both stages`, () => {
-      const both = emitGlslStages(ex.module, { floatPrecision: 'mediump' })
-      expect(both.vertex).toContain('precision mediump float;')
-      expect(both.fragment).toContain('precision mediump float;')
-      expect(both.vertex).not.toContain('precision highp float;')
-      expect(both.fragment).not.toContain('precision highp float;')
+      const both = emitGlslStages(ex.module, { floatPrecision: 'mediump' });
+      expect(both.vertex).toContain('precision mediump float;');
+      expect(both.fragment).toContain('precision mediump float;');
+      expect(both.vertex).not.toContain('precision highp float;');
+      expect(both.fragment).not.toContain('precision highp float;');
       // BYTE-NEUTRALITY of the default, over the same real corpus the goldens cover:
       // an explicit 'highp' must reproduce the option-free bytes exactly, and the only
       // difference to the mediump emit is that one token.
-      const def = emitGlslStages(ex.module)
-      expect(emitGlslStages(ex.module, { floatPrecision: 'highp' })).toEqual(def)
+      const def = emitGlslStages(ex.module);
+      expect(emitGlslStages(ex.module, { floatPrecision: 'highp' })).toEqual(def);
       expect(both.vertex.replace('precision mediump float;', 'precision highp float;')).toBe(
         def.vertex,
-      )
+      );
       expect(both.fragment.replace('precision mediump float;', 'precision highp float;')).toBe(
         def.fragment,
-      )
-    })
+      );
+    });
   }
-})
+});
 
 // ═══ A fragment local that shadows an input varying is correct only because of ORDER (#62) ═══
 //
@@ -108,97 +108,97 @@ describe('emitGlslStages — shared lowering is byte-identical to per-stage lowe
 describe('a fragment local that shadows an input varying reads the varying first (#62)', () => {
   /** `in vec2 uv;`, with the interpolation and precision qualifiers GLSL ES 3.00 allows. */
   const IN_DECL =
-    /^\s*(?:flat\s+|smooth\s+|centroid\s+)*in\s+(?:lowp\s+|mediump\s+|highp\s+)?\w+\s+(\w+)\s*;/gm
+    /^\s*(?:flat\s+|smooth\s+|centroid\s+)*in\s+(?:lowp\s+|mediump\s+|highp\s+)?\w+\s+(\w+)\s*;/gm;
 
   /** The text between `void main() {` and its matching brace. Brace-matched rather than
    *  regexed: a `main()` containing an `if` block would defeat a lazy `[\s\S]*?}`. */
   function mainBodyOf(text: string): string {
-    const at = text.indexOf('void main()')
-    if (at < 0) return ''
-    const open = text.indexOf('{', at)
-    let depth = 0
+    const at = text.indexOf('void main()');
+    if (at < 0) return '';
+    const open = text.indexOf('{', at);
+    let depth = 0;
     for (let i = open; i < text.length; i++) {
-      if (text[i] === '{') depth++
+      if (text[i] === '{') depth++;
       else if (text[i] === '}') {
-        depth--
-        if (depth === 0) return text.slice(open + 1, i)
+        depth--;
+        if (depth === 0) return text.slice(open + 1, i);
       }
     }
-    return ''
+    return '';
   }
 
   /** Where `main()` declares a local called `name`, or `-1`. */
   const localDeclOf = (body: string, name: string): number =>
     new RegExp(
       `(?:^|\\n)\\s*(?:lowp |mediump |highp )?\\w+(?:\\s*\\[\\s*\\d*\\s*\\])?\\s+${name}\\s*(?:=|;)`,
-    ).exec(body)?.index ?? -1
+    ).exec(body)?.index ?? -1;
 
   /** Every mention of `name` as an identifier of its own — a `.name` is a FIELD of some other
    *  value (`vo.uv`), not a read of the varying, and counting it would hide the real one. */
   const bareUses = (text: string, name: string): number =>
-    [...text.matchAll(new RegExp(`(^|[^.\\w])${name}\\b`, 'g'))].length
+    [...text.matchAll(new RegExp(`(^|[^.\\w])${name}\\b`, 'g'))].length;
 
   /** Every example whose fragment stage emits the shadowing shape, by re-emitting it. */
   const shadowed = (): { id: string; name: string; body: string; decl: number }[] => {
-    const found: { id: string; name: string; body: string; decl: number }[] = []
+    const found: { id: string; name: string; body: string; decl: number }[] = [];
     for (const ex of [...examples, ...shadeExamples]) {
-      if (!ex.renderable) continue
-      let fragment: string
+      if (!ex.renderable) continue;
+      let fragment: string;
       try {
-        fragment = emitGlslModule(ex.module, 'fragment')
+        fragment = emitGlslModule(ex.module, 'fragment');
       } catch {
-        continue
+        continue;
       }
-      const body = mainBodyOf(fragment)
+      const body = mainBodyOf(fragment);
       for (const m of fragment.matchAll(IN_DECL)) {
-        const name = m[1] ?? ''
-        const decl = localDeclOf(body, name)
-        if (decl >= 0) found.push({ id: ex.id, name, body, decl })
+        const name = m[1] ?? '';
+        const decl = localDeclOf(body, name);
+        if (decl >= 0) found.push({ id: ex.id, name, body, decl });
       }
     }
-    return found
-  }
+    return found;
+  };
 
   it('finds the shape in the corpus, so the arm below is asserting over something', () => {
     // Measured 2026-09-21: exactly three, all porting twins that spell `const uv = vo.uv`.
     // If this ever reaches zero the emitter has stopped producing the shape — which is a fine
     // outcome, and the moment to decide whether this suite still has a job.
-    const cases = shadowed()
+    const cases = shadowed();
     expect(cases.map((c) => `${c.id}:${c.name}`).sort()).toEqual([
       'hillshade-twin:uv',
       'julia-twin:uv',
       'plasma-twin:uv',
-    ])
-  })
+    ]);
+  });
 
   it('reads the varying into the aggregate BEFORE the local that shadows it is declared', () => {
     for (const { id, name, body, decl } of shadowed()) {
-      const before = body.slice(0, decl)
-      const gather = [...before.matchAll(new RegExp(`\\w+\\.\\w+\\s*=\\s*${name}\\s*;`, 'g'))]
+      const before = body.slice(0, decl);
+      const gather = [...before.matchAll(new RegExp(`\\w+\\.\\w+\\s*=\\s*${name}\\s*;`, 'g'))];
       // The read exists and is in front. If it moved after the declaration it would still
       // compile, still link and read the LOCAL — the silent miscompile this pins.
       expect(
         gather.length,
         `${id}: no read of the varying "${name}" precedes its shadowing local`,
-      ).toBeGreaterThan(0)
+      ).toBeGreaterThan(0);
       // …and it is the ONLY use in front, so nothing else is quietly depending on the order.
       expect(
         bareUses(before, name),
         `${id}: "${name}" is used before its shadowing local for something other than the gather`,
-      ).toBe(gather.length)
+      ).toBe(gather.length);
     }
-  })
+  });
 
   it('reads nothing but the LOCAL after the declaration, which is what makes the order load-bearing', () => {
     // The other half of the pair: after the shadowing declaration every mention resolves to the
     // local, so the emitter gets no second chance to read the varying. That is precisely why the
     // prelude's position is the whole invariant rather than a detail of layout.
     for (const { id, name, body, decl } of shadowed()) {
-      const after = body.slice(decl)
+      const after = body.slice(decl);
       expect(
         [...after.matchAll(new RegExp(`\\w+\\.\\w+\\s*=\\s*${name}\\s*;`, 'g'))],
         `${id}: the varying "${name}" is read again after the local shadows it`,
-      ).toEqual([])
+      ).toEqual([]);
     }
-  })
-})
+  });
+});

@@ -19,28 +19,28 @@
 // STRUCTURED DATA in `preamble`, never silently dropped and never left for a regex. A
 // composer merges and de-duplicates those lines across the fragments it assembles.
 
-import { collectFnRefs, emptyRefSet } from './ir/collect-refs.js'
-import { isKnownIntrinsic } from './intrinsics.js'
-import type { FuncDecl, ModuleDecl } from './ir/nodes.js'
+import { collectFnRefs, emptyRefSet } from './ir/collect-refs.js';
+import { isKnownIntrinsic } from './intrinsics.js';
+import type { FuncDecl, ModuleDecl } from './ir/nodes.js';
 
 /** What a fragment declares in the program it is composed into: the manifest a composer
  *  checks its host prelude against. Names are the emitted spellings, so they are the ones
  *  a host actually collides with. */
 export interface FragmentDeclares {
   /** Helper functions defined in the fragment (entry points are listed separately). */
-  readonly functions: readonly string[]
+  readonly functions: readonly string[];
   /** Plain struct types. A struct consumed as a uniform or storage binding is emitted as
    *  a block, so its name appears under `bindings` instead. */
-  readonly structs: readonly string[]
+  readonly structs: readonly string[];
   /** Resource bindings the fragment declares, by binding name. */
-  readonly bindings: readonly string[]
+  readonly bindings: readonly string[];
   /** Module constants. */
-  readonly consts: readonly string[]
+  readonly consts: readonly string[];
   /** Pipeline specialization constants (`overrideConst`). */
-  readonly overrides: readonly string[]
+  readonly overrides: readonly string[];
   /** Stage entry points. Listed whether or not they were emitted, so a composer that asked
    *  for declarations only still knows what it excluded. */
-  readonly entryPoints: readonly string[]
+  readonly entryPoints: readonly string[];
 }
 
 /** A module emitted without its stage wrapper, plus everything the host must supply or
@@ -48,18 +48,18 @@ export interface FragmentDeclares {
  *  {@link emitGlslFragment} (GLSL). */
 export interface EmitFragment {
   /** The header-less source: declarations, helpers, and (unless excluded) entry points. */
-  readonly source: string
+  readonly source: string;
   /** Directive and precision lines the host must place ahead of `source`, in order. They
    *  are returned as data so a composer can merge and de-duplicate them across fragments. */
-  readonly preamble: readonly string[]
+  readonly preamble: readonly string[];
   /** The manifest of what `source` declares. */
-  readonly declares: FragmentDeclares
+  readonly declares: FragmentDeclares;
   /** Symbols the fragment references but does not define: functions declared with
    *  {@link externFn}, and variables declared with {@link externVar}, spelled for the
    *  target. A composer can check this list against what the host actually provides.
    *  Function names come from call sites that resolve to neither a module function nor a
    *  known intrinsic. Sorted and de-duplicated. */
-  readonly requires: readonly string[]
+  readonly requires: readonly string[];
 }
 
 /** Call ids referenced by `walk` that name neither a module function nor a known
@@ -74,9 +74,9 @@ export function externCallNames(
   walk: readonly FuncDecl[],
   moduleFns: ReadonlySet<string>,
 ): readonly string[] {
-  const refs = emptyRefSet()
-  for (const f of walk) collectFnRefs(f, refs)
-  return [...refs.calls].filter((n) => !moduleFns.has(n) && !isKnownIntrinsic(n)).sort()
+  const refs = emptyRefSet();
+  for (const f of walk) collectFnRefs(f, refs);
+  return [...refs.calls].filter((n) => !moduleFns.has(n) && !isKnownIntrinsic(n)).sort();
 }
 
 /** Everything a fragment expects its host to provide: the extern FUNCTIONS it calls
@@ -88,8 +88,8 @@ export function fragmentRequires(
   walk: readonly FuncDecl[],
   target: 'wgsl' | 'glsl',
 ): readonly string[] {
-  const out = new Set(externCallNames(walk, new Set(m.funcs.map((f) => f.name))))
+  const out = new Set(externCallNames(walk, new Set(m.funcs.map((f) => f.name))));
   for (const e of m.externs ?? [])
-    out.add((target === 'wgsl' ? e.spelling?.wgsl : e.spelling?.glsl) ?? e.name)
-  return [...out].sort()
+    out.add((target === 'wgsl' ? e.spelling?.wgsl : e.spelling?.glsl) ?? e.name);
+  return [...out].sort();
 }

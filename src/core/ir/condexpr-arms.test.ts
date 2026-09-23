@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { fn, when, f32, f32T } from './index.js'
-import { emitFunc } from '../backends/wgsl.js'
+import { describe, it, expect } from 'vitest';
+import { fn, when, f32, f32T } from './index.js';
+import { emitFunc } from '../backends/wgsl.js';
 
 // Regression gate for the condExpr/ifExpr arm-routing bug (introduced by 6017f125,
 // "infer combinator/Var types"). The combinators capture `const b = currentBuilder()`
@@ -30,19 +30,19 @@ describe('condExpr / ifExpr — arm assignments land INSIDE the branches', () =>
           [sel.lt(f32(6.5)), () => f32(20)],
         ],
         () => f32(30),
-      )
-    })
-    const wgsl = emitFunc(pick)
+      );
+    });
+    const wgsl = emitFunc(pick);
 
     // Each arm body holds its own assignment — `{ _vN = <val>; } else if … else { … }`.
     // With the bug the arms were EMPTY (`{ } else if { } else { }`) and the assigns were
     // hoisted unconditionally outside.
-    expect(wgsl).toMatch(/\{\s*_v\d+ = 10\.0;\s*\} else if/s)
-    expect(wgsl).toMatch(/\{\s*_v\d+ = 20\.0;\s*\} else \{/s)
-    expect(wgsl).toMatch(/else \{\s*_v\d+ = 30\.0;\s*\}/s)
+    expect(wgsl).toMatch(/\{\s*_v\d+ = 10\.0;\s*\} else if/s);
+    expect(wgsl).toMatch(/\{\s*_v\d+ = 20\.0;\s*\} else \{/s);
+    expect(wgsl).toMatch(/else \{\s*_v\d+ = 30\.0;\s*\}/s);
     // The empty-then-before-else shape must be ABSENT.
-    expect(wgsl).not.toMatch(/\)\s*\{\s*\}\s*else/)
-  })
+    expect(wgsl).not.toMatch(/\)\s*\{\s*\}\s*else/);
+  });
 
   it('ifExpr emits then/else assignments inside the branches (not empty arms)', () => {
     const pick = fn('pick2', { sel: f32T }, f32T, ({ sel }) => {
@@ -50,11 +50,11 @@ describe('condExpr / ifExpr — arm assignments land INSIDE the branches', () =>
         sel.lt(f32(0.5)),
         () => f32(11),
         () => f32(22),
-      )
-    })
-    const wgsl = emitFunc(pick)
-    expect(wgsl).toMatch(/\{\s*_v\d+ = 11\.0;\s*\} else \{/s)
-    expect(wgsl).toMatch(/else \{\s*_v\d+ = 22\.0;\s*\}/s)
-    expect(wgsl).not.toMatch(/\)\s*\{\s*\}\s*else/)
-  })
-})
+      );
+    });
+    const wgsl = emitFunc(pick);
+    expect(wgsl).toMatch(/\{\s*_v\d+ = 11\.0;\s*\} else \{/s);
+    expect(wgsl).toMatch(/else \{\s*_v\d+ = 22\.0;\s*\}/s);
+    expect(wgsl).not.toMatch(/\)\s*\{\s*\}\s*else/);
+  });
+});

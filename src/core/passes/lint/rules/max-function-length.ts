@@ -1,21 +1,21 @@
-import type { Stmt } from '../../../ir/index.js'
-import type { LintRule } from '../engine.js'
+import type { Stmt } from '../../../ir/index.js';
+import type { LintRule } from '../engine.js';
 
 function countStmts(body: readonly Stmt[]): number {
-  let n = 0
+  let n = 0;
   for (const s of body) {
-    n += 1
+    n += 1;
     if (s.s === 'if') {
-      for (const a of s.arms) n += countStmts(a.body)
-      if (s.elseBody) n += countStmts(s.elseBody)
+      for (const a of s.arms) n += countStmts(a.body);
+      if (s.elseBody) n += countStmts(s.elseBody);
     } else if (s.s === 'for') {
-      n += countStmts(s.body)
+      n += countStmts(s.body);
     } else if (s.s === 'switch') {
-      for (const c of s.cases) n += countStmts(c.body)
-      if (s.defaultBody) n += countStmts(s.defaultBody)
+      for (const c of s.cases) n += countStmts(c.body);
+      if (s.defaultBody) n += countStmts(s.defaultBody);
     }
   }
-  return n
+  return n;
 }
 
 /** A function body with more statements than options.max (default 60) is hard to follow. */
@@ -26,9 +26,9 @@ export const maxFunctionLength: LintRule = {
   category: 'style',
   create: (ctx) => ({
     Func(f) {
-      const max = (ctx.options?.max as number) ?? 60
-      const n = countStmts(f.body)
-      if (n > max) ctx.report(`fn '${f.name}' has ${n} statements > ${max}`, { fn: f.name })
+      const max = (ctx.options?.max as number) ?? 60;
+      const n = countStmts(f.body);
+      if (n > max) ctx.report(`fn '${f.name}' has ${n} statements > ${max}`, { fn: f.name });
     },
   }),
-}
+};

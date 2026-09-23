@@ -36,12 +36,12 @@
 // reader cannot apply by copying one line over another is a remedy this test should not be able
 // to apply either.
 
-import { describe, expect, it } from 'vitest'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { compileTsSource } from './source-file.js'
-import { createTypeshadeLanguageService } from '../../language-service/service.js'
+import { describe, expect, it } from 'vitest';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { compileTsSource } from './source-file.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 /** The quoted declarations in one message. The closing quote is the one followed by the end of
  *  the sentence, because the line itself contains quotes: `storage<array<f32>, "read_write">`.
@@ -50,34 +50,34 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 const remedyLines = (message: string): string[] =>
   [...message.matchAll(/[Ww]rite "((?:declare )?(?:const|let) .+?)"(?=\.| to write to it\.)/g)]
     .map((m) => m[1])
-    .filter((line) => !line.includes('...') && !line.includes('…'))
+    .filter((line) => !line.includes('...') && !line.includes('…'));
 
 /** The name a quoted line declares, which is the declaration it replaces. */
 const declaredNameOf = (line: string): string | undefined =>
-  /^(?:declare\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)/.exec(line)?.[1]
+  /^(?:declare\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)/.exec(line)?.[1];
 
 /** The program with `line` written over the declaration of the name it declares. */
 function applyRemedy(program: string, line: string): string {
-  const name = declaredNameOf(line)
-  expect(name, `the remedy "${line}" declares no name`).toBeDefined()
-  const at = new RegExp(`^([ \\t]*)(?:declare\\s+)?(?:const|let)\\s+${name!}\\b.*$`, 'm')
-  expect(at.test(program), `no declaration of "${name!}" in the program to replace`).toBe(true)
+  const name = declaredNameOf(line);
+  expect(name, `the remedy "${line}" declares no name`).toBeDefined();
+  const at = new RegExp(`^([ \\t]*)(?:declare\\s+)?(?:const|let)\\s+${name!}\\b.*$`, 'm');
+  expect(at.test(program), `no declaration of "${name!}" in the program to replace`).toBe(true);
   return program.replace(at, (whole, indent: string) =>
     whole.trimEnd().endsWith(';') ? `${indent}${line};` : `${indent}${line}`,
-  )
+  );
 }
 
 const errorsOf = (source: string): string[] =>
   compileTsSource(source)
     .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => `${d.code} ${d.message}`)
+    .map((d) => `${d.code} ${d.message}`);
 
 /** Every diagnostic the editor reports, TypeScript's and TypeShade's alike. A remedy that is
  *  clean to `compile()` and red in the editor is still a line an author cannot write. */
 function editorDiagnostics(source: string): string[] {
-  const service = createTypeshadeLanguageService()
-  service.openDocument('remedy.ts', source)
-  return service.getDiagnostics('remedy.ts').map((d) => `${d.source} ${d.code} ${d.message}`)
+  const service = createTypeshadeLanguageService();
+  service.openDocument('remedy.ts', source);
+  return service.getDiagnostics('remedy.ts').map((d) => `${d.source} ${d.code} ${d.message}`);
 }
 
 /** The lines a program's refusals name, asserted non-empty — a case whose program stopped being
@@ -95,16 +95,16 @@ function editorDiagnostics(source: string): string[] {
 function remediesOf(program: string): string[] {
   const lines = [
     ...new Set(compileTsSource(program).diagnostics.flatMap((d) => remedyLines(d.message))),
-  ]
-  expect(lines, 'the program is refused by no sentence that names a line').not.toEqual([])
+  ];
+  expect(lines, 'the program is refused by no sentence that names a line').not.toEqual([]);
   for (const name of new Set(lines.map(declaredNameOf))) {
     expect(
       lines.filter((line) => declaredNameOf(line) === name),
       `two refusals name two different lines for "${String(name)}": an author pastes one of ` +
         'them, and this test would measure only the last',
-    ).toHaveLength(1)
+    ).toHaveLength(1);
   }
-  return lines
+  return lines;
 }
 
 /** What the editor still says once a remedy has been applied, and why that is not the remedy's
@@ -112,21 +112,21 @@ function remediesOf(program: string): string[] {
  *  pins the exact residue, so the day the hole closes this test says so rather than staying
  *  quietly green on a sentence that no longer needs the excuse. */
 interface EditorHole {
-  readonly diagnostics: readonly string[]
-  readonly why: string
+  readonly diagnostics: readonly string[];
+  readonly why: string;
 }
 
 /** Applies every line a program's refusals name, then requires both layers to be clean — the
  *  compiler always, the editor except for a recorded hole. */
 function checkRemedies(program: string, hole?: EditorHole): string[] {
-  const lines = remediesOf(program)
-  const fixed = lines.reduce(applyRemedy, program)
-  expect(errorsOf(fixed), `after writing ${JSON.stringify(lines)}`).toEqual([])
+  const lines = remediesOf(program);
+  const fixed = lines.reduce(applyRemedy, program);
+  expect(errorsOf(fixed), `after writing ${JSON.stringify(lines)}`).toEqual([]);
   expect(
     editorDiagnostics(fixed),
     hole === undefined ? `after writing ${JSON.stringify(lines)}` : hole.why,
-  ).toEqual(hole?.diagnostics ?? [])
-  return lines
+  ).toEqual(hole?.diagnostics ?? []);
+  return lines;
 }
 
 /** The one editor hole this change opens, and the one it inherits.
@@ -151,14 +151,14 @@ const constWholeWrite = (name: string): EditorHole => ({
   why:
     `a whole-binding write is TS2588 in the editor because a binding is declared const; ` +
     `the compiler takes it, and surface §49 has the row`,
-})
+});
 
 const matrixColumnWrite = (elem: string): EditorHole => ({
   diagnostics: [`typescript 2322 Type '${elem}' is not assignable to type 'never'.`],
   why:
     `writing a matrix COLUMN is TS2322 on 'never' in the editor on either access mode, ` +
     `unchanged from main: the ambient matrix declares no writable column (surface §49)`,
-})
+});
 
 // ── The type a remedy spells is the type an author writes ──
 //
@@ -175,15 +175,15 @@ ${decl}
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
   ${body}
 }
-`
+`;
 
 describe('the type a remedy spells is the one an author writes', () => {
   const shapes: readonly {
-    what: string
-    decl: string
-    body: string
-    names: string
-    hole?: EditorHole
+    what: string;
+    decl: string;
+    body: string;
+    names: string;
+    hole?: EditorHole;
   }[] = [
     {
       what: 'a scalar',
@@ -260,24 +260,24 @@ describe('the type a remedy spells is the one an author writes', () => {
       body: 'atomicAdd(bins[gid.x], 1)',
       names: 'declare const bins: storage<array<atomic<u32>>, "read_write">',
     },
-  ]
+  ];
 
   for (const shape of shapes) {
     it(`${shape.what}: ${shape.names}`, () => {
-      const program = write(shape.decl, shape.body)
-      expect(remediesOf(program)).toEqual([shape.names])
-      checkRemedies(program, shape.hole)
-    })
+      const program = write(shape.decl, shape.body);
+      expect(remediesOf(program)).toEqual([shape.names]);
+      checkRemedies(program, shape.hole);
+    });
   }
-})
+});
 
 // ── Every other refusal that names a line ──
 
 describe('every refusal that names a line names one that compiles', () => {
   const cases: readonly {
-    what: string
-    site: string
-    program: string
+    what: string;
+    site: string;
+    program: string;
     /** The line the refusal must name, where WHICH line it is is the point of the case and
      *  pasting it back cannot show that. {@link applyRemedy} REPLACES the declaration, so a
      *  remedy that names the wrong FORM of the same declaration still produces a program that
@@ -286,8 +286,8 @@ describe('every refusal that names a line names one that compiles', () => {
      *  xs = storage<…>(…)` and came back clean, and the whole call-form remedy was pinned by
      *  nothing. An author does not replace their declaration with a `declare` line — they add
      *  one, and that is `TS8023 Duplicate resource`, which the case after the loop measures. */
-    names?: string
-    hole?: EditorHole
+    names?: string;
+    hole?: EditorHole;
   }[] = [
     {
       what: 'a write through a read binding',
@@ -308,15 +308,15 @@ describe('every refusal that names a line names one that compiles', () => {
     {
       what: 'a mutating method on a class-typed read binding',
       site: 'context.ts writableRemedy, reached from lower/class-methods.ts',
-      program: `"use typeshade"
+      program: `"use typeshade";
 class Acc {
-  total: f32 = 0. as f32
-  add(x: f32): void { this.total = this.total + x }
+  total: f32 = 0. as f32;
+  add(x: f32): void { this.total = this.total + x; }
 }
-declare const acc: storage<Acc>
+declare const acc: storage<Acc>;
 @compute([64, 1, 1])
 export function k(): void {
-  acc.add(1.)
+  acc.add(1.);
 }
 `,
     },
@@ -400,23 +400,23 @@ export function k(): void {
     {
       what: 'a sampler wrapped in an address space',
       site: 'bindings.ts fromType, the handle arm',
-      program: `"use typeshade"
-declare const tex: texture_2d<f32>
-declare const smp: uniform<sampler>
+      program: `"use typeshade";
+declare const tex: texture_2d<f32>;
+declare const smp: uniform<sampler>;
 @fragment
 export function f(@builtin("position") pos: vec4): vec4 {
-  return textureSample(tex, smp, pos.xy)
+  return textureSample(tex, smp, pos.xy);
 }
 `,
     },
     {
       what: 'a resource type on a plain top-level let, which needs declare',
       site: 'module-vars.ts lowerPlain',
-      program: `"use typeshade"
-let src: storage<array<f32>>
+      program: `"use typeshade";
+let src: storage<array<f32>>;
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  let n = src[gid.x]
+  let n = src[gid.x];
 }
 `,
       names: 'declare const src: storage<array<f32>, "read_write">',
@@ -430,11 +430,11 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
       // top-level `let`, and `bindings.ts` reads the same keyword the same way.
       what: 'a resource type on a plain top-level let, WRITTEN through',
       site: 'module-vars.ts lowerPlain, the access mode the keyword asked for',
-      program: `"use typeshade"
-let dst: storage<array<f32>>
+      program: `"use typeshade";
+let dst: storage<array<f32>>;
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  dst[gid.x] = 1.
+  dst[gid.x] = 1.;
 }
 `,
       names: 'declare const dst: storage<array<f32>, "read_write">',
@@ -445,11 +445,11 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
       // with its own sentence (`TS8005`) and its own line.
       what: 'a plain top-level let that already named its access mode',
       site: 'module-vars.ts lowerPlain, quoting the author back',
-      program: `"use typeshade"
-let src: storage<array<f32>, "read">
+      program: `"use typeshade";
+let src: storage<array<f32>, "read">;
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  let n = src[gid.x]
+  let n = src[gid.x];
 }
 `,
       names: 'declare const src: storage<array<f32>, "read">',
@@ -457,22 +457,22 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
     {
       what: 'a uniform on a plain top-level let, which has no mode to name',
       site: 'module-vars.ts lowerPlain',
-      program: `"use typeshade"
-let gain: uniform<f32>
+      program: `"use typeshade";
+let gain: uniform<f32>;
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
-  let n = gain * 2.
+  let n = gain * 2.;
 }
 `,
       names: 'declare const gain: uniform<f32>',
     },
-  ]
+  ];
 
   for (const c of cases) {
     it(`${c.what} (${c.site})`, () => {
-      const lines = checkRemedies(c.program, c.hole)
-      if (c.names !== undefined) expect(lines).toEqual([c.names])
-    })
+      const lines = checkRemedies(c.program, c.hole);
+      if (c.names !== undefined) expect(lines).toEqual([c.names]);
+    });
   }
 
   // WHY THE CALL FORM IS NAMED AT ALL, which pasting cannot show. `applyRemedy` REPLACES the
@@ -480,54 +480,54 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
   // const xs: …` — a declaration is a line they ADD. Added, it is a second resource of the same
   // name. So the call form is pinned by the line the case above asserts, and by this.
   it('names the call form because the declare form is a second resource beside it', () => {
-    const call = 'const xs = storage<array<f32>>({ binding: 3 })'
-    const decl = 'declare const xs: storage<array<f32>, "read_write">'
-    const program = write(call, 'xs[gid.x] = 1.')
+    const call = 'const xs = storage<array<f32>>({ binding: 3 })';
+    const decl = 'declare const xs: storage<array<f32>, "read_write">';
+    const program = write(call, 'xs[gid.x] = 1.');
     // Added ABOVE the call and added BELOW it, because a reader adds a declaration wherever
     // the file's declarations are and neither placement closes the program.
     expect(errorsOf(program.replace(call, `${decl}\n${call}`))).toEqual([
       'TS8023 Duplicate resource "xs".',
-    ])
+    ]);
     expect(errorsOf(program.replace(call, `${call}\n${decl}`))).toEqual([
       'TS8023 Duplicate resource "xs".',
       'TS8005 Cannot assign to "xs" — it is a read-only resource. Write ' +
         '"const xs = storage<array<f32>, "read_write">({ binding: 3 })" to write to it.',
-    ])
-  })
+    ]);
+  });
 
   // The other half of the promise: a refusal that a writable declaration would NOT close must
   // not name one. `.length` is a read of the array's size on every target, so no access mode
   // makes it a place, and the read-only sentence used to be appended to it anyway — with the
   // named declaration the program is still refused, `TS8018`.
   it('names no line for a write no access mode would permit', () => {
-    const program = write('declare const src: storage<array<f32>>', 'src.length = 2')
+    const program = write('declare const src: storage<array<f32>>', 'src.length = 2');
     const messages = compileTsSource(program)
       .diagnostics.filter((d) => d.category === 'error')
-      .map((d) => `${d.code} ${d.message}`)
+      .map((d) => `${d.code} ${d.message}`);
     expect(messages).toEqual([
       'TS8018 Cannot assign to "src.length" — it is not a field, component or element.',
-    ])
-    expect(messages.flatMap(remedyLines)).toEqual([])
-  })
+    ]);
+    expect(messages.flatMap(remedyLines)).toEqual([]);
+  });
 
   // And the third: a declaration the compiler cannot COMPLETE. `let s: storage` needs `declare`
   // and a type argument, and the type argument is one only the author knows. Quoting their text
   // back named `declare const s: storage`, which the next compile refuses — so the sentence
   // quotes the SHAPE, with the ellipsis this surface uses for one, and names no line.
   it('names a shape, not a line, for a resource with no type argument', () => {
-    const storage = errorsOf(write('let s: storage', 'let n = 1.'))
+    const storage = errorsOf(write('let s: storage', 'let n = 1.'));
     expect(storage).toEqual([
       'TS8033 "s" is a storage binding the host provides, and needs declare: write ' +
         '"declare const s: storage<...>".',
-    ])
-    const uniform = errorsOf(write('let u: uniform', 'let n = 1.'))
+    ]);
+    const uniform = errorsOf(write('let u: uniform', 'let n = 1.'));
     expect(uniform).toEqual([
       'TS8033 "u" is a uniform binding the host provides, and needs declare: write ' +
         '"declare const u: uniform<...>".',
-    ])
-    expect([...storage, ...uniform].flatMap(remedyLines)).toEqual([])
-  })
-})
+    ]);
+    expect([...storage, ...uniform].flatMap(remedyLines)).toEqual([]);
+  });
+});
 
 // ── A line the compiler could not make good on is not named at all ──
 //
@@ -551,11 +551,11 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 
 describe('a refusal names no line when it could not make the line good', () => {
   const noPlace: readonly {
-    what: string
-    read: string
-    writable: string
-    body: string
-    says: readonly string[]
+    what: string;
+    read: string;
+    writable: string;
+    body: string;
+    says: readonly string[];
   }[] = [
     {
       what: 'an f64 matrix, which no access mode makes indexable',
@@ -595,20 +595,20 @@ describe('a refusal names no line when it could not make the line good', () => {
       body: 'v.xy = vec2(1., 2.)',
       says: ['TS8018 Cannot assign to the swizzle ".xy"'],
     },
-  ]
+  ];
 
   for (const row of noPlace) {
     it(`${row.what}: the same sentences on either mode, and no line`, () => {
-      const messages = errorsOf(write(row.read, row.body))
-      expect(messages).toHaveLength(row.says.length)
-      row.says.forEach((open, i) => expect(messages[i]).toContain(open))
-      expect(messages.flatMap(remedyLines), 'a line the pasted program would refuse').toEqual([])
+      const messages = errorsOf(write(row.read, row.body));
+      expect(messages).toHaveLength(row.says.length);
+      row.says.forEach((open, i) => expect(messages[i]).toContain(open));
+      expect(messages.flatMap(remedyLines), 'a line the pasted program would refuse').toEqual([]);
       // The mode is not what is wrong with this program, so the mode does not change what it
       // is told. This is the assertion that fails if the read-only check moves back ahead of
       // the "is this a place" one: the read form then answers `TS8005` and the writable form
       // answers the sentence above.
-      expect(errorsOf(write(row.writable, row.body))).toEqual(messages)
-    })
+      expect(errorsOf(write(row.writable, row.body))).toEqual(messages);
+    });
   }
 
   const recovered: readonly { what: string; decl: string; body: string; first: string }[] = [
@@ -630,33 +630,33 @@ describe('a refusal names no line when it could not make the line good', () => {
       body: 'nn++',
       first: 'TS8002 Unknown type "u64"',
     },
-  ]
+  ];
 
   for (const row of recovered) {
     it(`${row.what}: the read-only sentence, and no line built from it`, () => {
-      const name = /const (\w+)/.exec(row.decl)![1]!
-      const messages = errorsOf(write(row.decl, row.body))
-      expect(messages).toHaveLength(2)
-      expect(messages[0]).toContain(row.first)
+      const name = /const (\w+)/.exec(row.decl)![1]!;
+      const messages = errorsOf(write(row.decl, row.body));
+      expect(messages).toHaveLength(2);
+      expect(messages[0]).toContain(row.first);
       // Ends at the em-dash clause: no second sentence, because there is no line to name.
-      expect(messages[1]).toBe(`TS8005 Cannot assign to "${name}" — it is a read-only resource.`)
-      expect(messages.flatMap(remedyLines)).toEqual([])
-    })
+      expect(messages[1]).toBe(`TS8005 Cannot assign to "${name}" — it is a read-only resource.`);
+      expect(messages.flatMap(remedyLines)).toEqual([]);
+    });
   }
-})
+});
 
 // ── Every site that names a line is covered, or says why it cannot be ──
 
-const HERE = dirname(fileURLToPath(import.meta.url))
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** Every non-test source of the front end, read rather than listed so a new file joins by
  *  existing — the same reason `ambient.test.ts` reads the examples directory. */
 function frontEndSources(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
-    const path = join(dir, name)
-    if (statSync(path).isDirectory()) return frontEndSources(path)
-    return name.endsWith('.ts') && !name.endsWith('.test.ts') ? [path] : []
-  })
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return frontEndSources(path);
+    return name.endsWith('.ts') && !name.endsWith('.test.ts') ? [path] : [];
+  });
 }
 
 /** The sentences a file builds that quote something after "write". Comments are stripped first
@@ -668,8 +668,8 @@ function remedySitesIn(path: string): string[] {
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
     .replace(/`\s*\+\s*`/g, '')
-    .replace(/\s*\n\s*/g, ' ')
-  return [...source.matchAll(/[Ww]rite \\?"[^`]{0,80}/g)].map((m) => m[0])
+    .replace(/\s*\n\s*/g, ' ');
+  return [...source.matchAll(/[Ww]rite \\?"[^`]{0,80}/g)].map((m) => m[0]);
 }
 
 describe('every refusal that names a line is pinned above', () => {
@@ -733,13 +733,13 @@ describe('every refusal that names a line is pinned above', () => {
       lines: 0,
       note: 'the destructuring refusal quotes two EXAMPLE lines (`const x = v.x`) that name no declaration in the program',
     },
-  ]
+  ];
 
   it('finds the sites this test was written against, and no others', () => {
     const found = frontEndSources(HERE)
       .map((path) => ({ file: path.slice(HERE.length + 1), sites: remedySitesIn(path) }))
       .filter((row) => row.sites.length > 0)
-      .sort((a, b) => a.file.localeCompare(b.file))
+      .sort((a, b) => a.file.localeCompare(b.file));
     expect(
       found.map((row) => `${row.file} x${row.sites.length}`),
       'a refusal names a line to write and nothing above pastes it back: add a case, or a row ' +
@@ -748,8 +748,8 @@ describe('every refusal that names a line is pinned above', () => {
       [...expected]
         .sort((a, b) => a.file.localeCompare(b.file))
         .map((row) => `${row.file} x${row.sites}`),
-    )
-  })
+    );
+  });
 
   // A sentence can OFFER a line without quoting one, and then this test cannot see it. There is
   // exactly one, pinned here so that rewriting it as a quoted remedy asks for a case above:
@@ -760,25 +760,25 @@ describe('every refusal that names a line is pinned above', () => {
   // there is nothing to paste over even by hand: the author moves the variable, which is a
   // rewrite and not a substitution.
   it('sees no quoted line in the refusal that offers one in parentheses', () => {
-    const offer = compileTsSource(`"use typeshade"
+    const offer = compileTsSource(`"use typeshade";
 export function f(): u32 {
-  let c: atomic<u32> = 0
-  return 1
+  let c: atomic<u32> = 0;
+  return 1;
 }
-`).diagnostics.map((d) => d.message)
+`).diagnostics.map((d) => d.message);
     expect(offer).toEqual([
       'atomic<u32> lives in storage or workgroup memory only: declare it inside a storage ' +
         'binding (declare const counters: storage<array<atomic<u32>>, "read_write">) or a ' +
         'workgroup variable (let tile: workgroup<array<atomic<u32>, 64>>), not as a local.',
-    ])
-    expect(offer.flatMap(remedyLines)).toEqual([])
-    expect(remedySitesIn(join(HERE, 'lower', 'atomics.ts'))).toEqual([])
-  })
+    ]);
+    expect(offer.flatMap(remedyLines)).toEqual([]);
+    expect(remedySitesIn(join(HERE, 'lower', 'atomics.ts'))).toEqual([]);
+  });
 
   it('pastes back every sentence that quotes a whole declaration', () => {
     // The two halves have to add up: the cases above cover the `lines` column, and the rest are
     // accounted for by name. A row that claimed a line was unpasteable while the extractor
     // would have taken it is the drift this arm catches.
-    expect(expected.reduce((n, row) => n + row.lines, 0)).toBe(8)
-  })
-})
+    expect(expected.reduce((n, row) => n + row.lines, 0)).toBe(8);
+  });
+});

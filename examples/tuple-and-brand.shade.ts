@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -22,40 +22,40 @@
 // the parameter is an f32. Nothing about either shape reaches the emitted code, which is the
 // point: `tsc` enforces them and the GPU never hears about them.
 
-declare const m: unique symbol
-type Meters = f32 & { readonly [m]: 'm' }
+declare const m: unique symbol;
+type Meters = f32 & { readonly [m]: 'm' };
 
-const HORIZON: f32 = 8.
+const HORIZON: f32 = 8.;
 
 /** The near and far distance a ray is marched between, as a pair. */
 function bounds(scale: Meters): [near: f32, far: f32] {
-  return [0.05 * scale, HORIZON * scale]
+  return [0.05 * scale, HORIZON * scale];
 }
 
 /** The midpoint of a pair, which is where this shader samples. */
 function mid(span: [f32, f32]): f32 {
-  return (span[0] + span[1]) * 0.5
+  return (span[0] + span[1]) * 0.5;
 }
 
 /** The corner of the fullscreen triangle at `i`, as an x and a y. */
 function corner(i: i32): [x: f32, y: f32] {
-  const xs: array<f32, 3> = [-1., 3., -1.]
-  const ys: array<f32, 3> = [-1., -1., 3.]
-  return [xs[i], ys[i]]
+  const xs: array<f32, 3> = [-1., 3., -1.];
+  const ys: array<f32, 3> = [-1., -1., 3.];
+  return [xs[i], ys[i]];
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): vec4 {
-  const c = corner(i32(vi))
-  return vec4(c[0], c[1], 0., 1.)
+  const c = corner(i32(vi));
+  return vec4(c[0], c[1], 0., 1.);
 }
 
 @fragment
 export function fs(@builtin("position") p: vec4): vec4 {
-  const uv: vec2 = fract(p.xy * 0.01)
-  const span = bounds(uv.x as Meters)
+  const uv: vec2 = fract(p.xy * 0.01);
+  const span = bounds(uv.x as Meters);
   // A list written straight into a parameter that declares `[f32, f32]`, which is the one
   // position that used to need `array<f32, 2>(...)` spelled out.
-  const depth = mid([span[0], span[1]])
-  return vec4(uv.x, uv.y, depth / HORIZON, 1.)
+  const depth = mid([span[0], span[1]]);
+  return vec4(uv.x, uv.y, depth / HORIZON, 1.);
 }

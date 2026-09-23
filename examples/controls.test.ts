@@ -11,9 +11,9 @@
 //   3. kind/type agreement for the auto controls: time → f32, resolution →
 //      vec2<f32>, mouse → vec4<f32> (the [x, y, down, used] pointer contract).
 
-import { describe, it, expect } from 'vitest'
-import { examples } from './index.js'
-import { reflect } from '../src/index.js'
+import { describe, it, expect } from 'vitest';
+import { examples } from './index.js';
+import { reflect } from '../src/index.js';
 
 const AUTO_KIND_TYPE: Record<string, string> = {
   time: 'f32',
@@ -21,14 +21,14 @@ const AUTO_KIND_TYPE: Record<string, string> = {
   mouse: 'vec4<f32>',
   toggle: 'f32',
   pan2d: 'vec2<f64>', // host packs the DF64Vec2 hi/lo planes via splitF64
-}
+};
 
 describe('shader-dsl examples — controls ↔ reflection', () => {
   for (const ex of examples.filter((e) => e.renderable)) {
     it(`${ex.id}: control keys and uniform fields agree`, () => {
-      const u = reflect(ex.module).uniforms[0]
-      const fields = new Map((u?.fields ?? []).map((f) => [f.name, f.type]))
-      const controls = ex.controls ?? {}
+      const u = reflect(ex.module).uniforms[0];
+      const fields = new Map((u?.fields ?? []).map((f) => [f.name, f.type]));
+      const controls = ex.controls ?? {};
       // `logmag*` controls pack `base·10^s + offset` where s is the live value
       // of a shared driver slider named by `magField`. That driver is a
       // host-side-only input (it packs no uniform of its own), so gather the
@@ -37,28 +37,28 @@ describe('shader-dsl examples — controls ↔ reflection', () => {
         Object.values(controls)
           .filter((c) => c.kind === 'logmag2d' || c.kind === 'logmag1d')
           .map((c) => (c as { magField: string }).magField),
-      )
+      );
       // every `magField` must name a real control (a typo packs nothing)
       for (const key of drivers) {
-        expect(controls[key], `magField '${key}' names no control`).toBeTruthy()
+        expect(controls[key], `magField '${key}' names no control`).toBeTruthy();
       }
       // 1. no orphan control (typo'd key packs nothing) — driver sliders excepted
       for (const key of Object.keys(controls)) {
         if (drivers.has(key)) {
-          expect(fields.has(key), `driver '${key}' must not shadow a uniform field`).toBe(false)
-          continue
+          expect(fields.has(key), `driver '${key}' must not shadow a uniform field`).toBe(false);
+          continue;
         }
-        expect(fields.has(key), `control '${key}' names no uniform field`).toBe(true)
+        expect(fields.has(key), `control '${key}' names no uniform field`).toBe(true);
       }
       // 2. no dead field (a field without a control renders as a permanent 0)
       for (const name of fields.keys()) {
-        expect(controls[name], `uniform field '${name}' has no control`).toBeTruthy()
+        expect(controls[name], `uniform field '${name}' has no control`).toBeTruthy();
       }
       // 3. the auto controls fill a fixed type — a mismatch would mis-pack bytes
       for (const [key, c] of Object.entries(controls)) {
-        const want = AUTO_KIND_TYPE[c.kind]
-        if (want) expect(fields.get(key), `'${key}' (${c.kind})`).toBe(want)
+        const want = AUTO_KIND_TYPE[c.kind];
+        if (want) expect(fields.get(key), `'${key}' (${c.kind})`).toBe(want);
       }
-    })
+    });
   }
-})
+});

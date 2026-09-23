@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -20,18 +20,18 @@
 // GLSL ES 3.00 has no workgroup memory (WebGL2 has no compute stage), so like `array-length`
 // this module is WGSL-only.
 
-declare const src: storage<array<f32>>
-declare const dst: storage<array<f32>, "read_write">
-declare const counts: storage<array<u32>, "read_write">
+declare const src: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
+declare const counts: storage<array<u32>, "read_write">;
 
-let tile: workgroup<array<f32, 64>>
-let seen: workgroup<array<atomic<u32>, 2>>
-let calls: u32
+let tile: workgroup<array<f32, 64>>;
+let seen: workgroup<array<atomic<u32>, 2>>;
+let calls: u32;
 
 function tally(x: f32): void {
-  calls = calls + 1
-  const bin: u32 = x < 0. ? 0 : 1
-  atomicAdd(seen[bin], 1)
+  calls = calls + 1;
+  const bin: u32 = x < 0. ? 0 : 1;
+  atomicAdd(seen[bin], 1);
 }
 
 @compute([64, 1, 1])
@@ -40,11 +40,11 @@ export function scratch(
   @builtin("local_invocation_id") lid: vec3u,
 ): void {
   if (gid.x >= arrayLength(src)) {
-    return
+    return;
   }
-  tile[lid.x] = src[gid.x] * src[gid.x]
-  tally(src[gid.x])
-  tally(tile[lid.x] - 1.)
-  dst[gid.x] = tile[lid.x]
-  counts[gid.x] = calls
+  tile[lid.x] = src[gid.x] * src[gid.x];
+  tally(src[gid.x]);
+  tally(tile[lid.x] - 1.);
+  dst[gid.x] = tile[lid.x];
+  counts[gid.x] = calls;
 }

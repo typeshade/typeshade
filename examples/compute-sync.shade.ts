@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -29,28 +29,28 @@
 // WGSL's `__atomic_compare_exchange_result<T>` is built in and has no writable name, so this
 // surface types the struct, reads its fields, and declares nothing.
 
-declare const claimed: storage<atomic<u32>, "read_write">
-declare const out: storage<array<u32>, "read_write">
+declare const claimed: storage<atomic<u32>, "read_write">;
+declare const out: storage<array<u32>, "read_write">;
 
 // Workgroup memory: one value every invocation of the workgroup agrees on.
-let leader: workgroup<u32>
-let tile: workgroup<array<u32, 64>>
+let leader: workgroup<u32>;
+let tile: workgroup<array<u32, 64>>;
 
 @compute([64, 1, 1])
 export function cs(
   @builtin("global_invocation_id") gid: vec3u,
   @builtin("local_invocation_id") lid: vec3u,
 ): void {
-  tile[lid.x] = out[gid.x]
-  workgroupBarrier()
+  tile[lid.x] = out[gid.x];
+  workgroupBarrier();
 
   // One invocation wins the claim; the others learn they lost from the same call. The result
   // struct is bound by inference — its type has no name to write.
-  const claim = atomicCompareExchangeWeak(claimed, 0, gid.x + 1)
+  const claim = atomicCompareExchangeWeak(claimed, 0, gid.x + 1);
   if (claim.exchanged) {
-    leader = lid.x
+    leader = lid.x;
   }
-  workgroupBarrier()
+  workgroupBarrier();
 
   // Every invocation reads the SAME leader, with a barrier on each side of the read. Outside
   // any branch, because that is what "uniform control flow" means.
@@ -58,12 +58,12 @@ export function cs(
   // NOT named `shared`: that is a WGSL reserved keyword, and this surface does not rename an
   // author's local to avoid one — the compile gate caught `'shared' is a reserved keyword`
   // from Tint with no diagnostic from the compiler first. See the note in the CHANGELOG.
-  const agreed: u32 = workgroupUniformLoad(leader)
+  const agreed: u32 = workgroupUniformLoad(leader);
 
   // Orders this workgroup's writes to the texture address space. Nothing here writes a
   // texture; the barrier is legal and meaningful on its own, which is what the surface has to
   // allow, and Tint compiles it in a compute entry with no storage texture in sight.
-  textureBarrier()
+  textureBarrier();
 
-  out[gid.x] = tile[lid.x] + agreed + claim.old_value
+  out[gid.x] = tile[lid.x] + agreed + claim.old_value;
 }

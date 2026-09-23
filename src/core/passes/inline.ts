@@ -11,51 +11,51 @@
 // captured result) is a later step. Pure (module -> module), pinned by oracle
 // value-equality.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../ir/index.js'
-import { mapExpr, mapStmt } from './opt/ir-transform.js'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../ir/index.js';
+import { mapExpr, mapStmt } from './opt/ir-transform.js';
 
 /** Substitute param/varref names in `e` with their mapped argument expr. */
 function substParams(e: Expr, subst: ReadonlyMap<string, Expr>): Expr {
   return mapExpr(e, (x) =>
     (x.op === 'param' || x.op === 'varref') && subst.has(x.name) ? subst.get(x.name)! : x,
-  )
+  );
 }
 
 /** True iff `body` contains a call to `name`. */
 function callsFn(body: readonly Stmt[], name: string): boolean {
-  let found = false
+  let found = false;
   const probe = (e: Expr): Expr => {
-    if (e.op === 'call' && e.fn === name) found = true
-    return e
-  }
-  for (const s of body) mapStmt(s, probe)
-  return found
+    if (e.op === 'call' && e.fn === name) found = true;
+    return e;
+  };
+  for (const s of body) mapStmt(s, probe);
+  return found;
 }
 
 export function inlineFn(m: ModuleDecl, fnName: string): ModuleDecl {
-  const target = m.funcs.find((f) => f.name === fnName)
-  if (!target) return m
-  const only = target.body.length === 1 ? target.body[0] : undefined
-  if (!only || only.s !== 'return' || only.expr === undefined) return m // v1: single-return only
-  const retExpr = only.expr
+  const target = m.funcs.find((f) => f.name === fnName);
+  if (!target) return m;
+  const only = target.body.length === 1 ? target.body[0] : undefined;
+  if (!only || only.s !== 'return' || only.expr === undefined) return m; // v1: single-return only
+  const retExpr = only.expr;
 
   const inlineCall = (e: Expr): Expr => {
     if (e.op === 'call' && e.fn === fnName) {
-      const subst = new Map<string, Expr>()
+      const subst = new Map<string, Expr>();
       // args are already inlined (mapExpr is bottom-up), so substitution is one-shot.
       target.params.forEach((p, i) => {
-        if (e.args[i] !== undefined) subst.set(p.name, e.args[i])
-      })
-      return substParams(retExpr, subst)
+        if (e.args[i] !== undefined) subst.set(p.name, e.args[i]);
+      });
+      return substParams(retExpr, subst);
     }
-    return e
-  }
+    return e;
+  };
 
   const others = m.funcs
     .filter((f) => f.name !== fnName)
-    .map((f): FuncDecl => ({ ...f, body: f.body.map((s) => mapStmt(s, inlineCall)) }))
+    .map((f): FuncDecl => ({ ...f, body: f.body.map((s) => mapStmt(s, inlineCall)) }));
 
   // Keep the target only if something still calls it (e.g. a recursive use we skipped).
-  const stillCalled = others.some((f) => callsFn(f.body, fnName))
-  return { ...m, funcs: stillCalled ? [target, ...others] : others }
+  const stillCalled = others.some((f) => callsFn(f.body, fnName));
+  return { ...m, funcs: stillCalled ? [target, ...others] : others };
 }

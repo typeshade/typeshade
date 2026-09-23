@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -16,12 +16,12 @@
 // does not.
 
 type Camera = {
-  view: mat4
-  pos: vec3
-}
+  view: mat4;
+  pos: vec3;
+};
 
-declare const camera: uniform<Camera>
+declare const camera: uniform<Camera>;
 
 export function origin(): vec3 {
-  return camera.pos
+  return camera.pos;
 }

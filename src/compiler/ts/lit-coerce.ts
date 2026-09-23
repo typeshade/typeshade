@@ -1,23 +1,23 @@
-import ts from 'typescript'
-import type { Expr } from '../../core/ir/nodes.js'
-import type { ShaderType } from '../../core/ir/types.js'
-import { f64T, isF64, typeKey } from '../../core/ir/types.js'
-import type { TsCompilerDiagnostic } from './source-file.js'
-import { makeDiagnostic } from './diagnostic.js'
-import { TS_CODES } from './codes.js'
+import ts from 'typescript';
+import type { Expr } from '../../core/ir/nodes.js';
+import type { ShaderType } from '../../core/ir/types.js';
+import { f64T, isF64, typeKey } from '../../core/ir/types.js';
+import type { TsCompilerDiagnostic } from './source-file.js';
+import { makeDiagnostic } from './diagnostic.js';
+import { TS_CODES } from './codes.js';
 
 export function isIntegerLiteralNode(node: ts.Expression): boolean {
-  if (ts.isParenthesizedExpression(node)) return isIntegerLiteralNode(node.expression)
+  if (ts.isParenthesizedExpression(node)) return isIntegerLiteralNode(node.expression);
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
-    return isIntegerLiteralNode(node.operand)
+    return isIntegerLiteralNode(node.operand);
   }
-  if (!ts.isNumericLiteral(node)) return false
-  return !/[.eE]/.test(node.getText())
+  if (!ts.isNumericLiteral(node)) return false;
+  return !/[.eE]/.test(node.getText());
 }
 
 export function isIntScalar(t: ShaderType): boolean {
-  const k = typeKey(t)
-  return k === 'i32' || k === 'u32'
+  const k = typeKey(t);
+  return k === 'i32' || k === 'u32';
 }
 
 /** Whether every leaf of `node` is an integer literal — the literal itself, one behind
@@ -28,20 +28,20 @@ export function isIntScalar(t: ShaderType): boolean {
  *  without this check `return 2.5 + 0.5` in a `u32` function emitted `return 3u;` — floats
  *  written as floats, silently retyped, which is the opposite of what §13 says the rule is. */
 export function isIntegerLiteralTree(node: ts.Expression): boolean {
-  if (ts.isParenthesizedExpression(node)) return isIntegerLiteralTree(node.expression)
+  if (ts.isParenthesizedExpression(node)) return isIntegerLiteralTree(node.expression);
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
-    return isIntegerLiteralTree(node.operand)
+    return isIntegerLiteralTree(node.operand);
   }
   if (ts.isBinaryExpression(node)) {
-    const k = node.operatorToken.kind
+    const k = node.operatorToken.kind;
     const arith =
       k === ts.SyntaxKind.PlusToken ||
       k === ts.SyntaxKind.MinusToken ||
       k === ts.SyntaxKind.AsteriskToken ||
-      k === ts.SyntaxKind.SlashToken
-    return arith && isIntegerLiteralTree(node.left) && isIntegerLiteralTree(node.right)
+      k === ts.SyntaxKind.SlashToken;
+    return arith && isIntegerLiteralTree(node.left) && isIntegerLiteralTree(node.right);
   }
-  return isIntegerLiteralNode(node)
+  return isIntegerLiteralNode(node);
 }
 
 /** Whether `v` is exactly representable in `target`. The retarget produced the literal by
@@ -50,20 +50,22 @@ export function isIntegerLiteralTree(node: ts.Expression): boolean {
  *  that only the backend refused. Out of range, the expression is left exactly as it was and
  *  the type check that always covered it fires again. */
 export function fitsTarget(v: number, target: ShaderType): boolean {
-  if (!Number.isInteger(v)) return false
-  return typeKey(target) === 'u32' ? v >= 0 && v <= 4294967295 : v >= -2147483648 && v <= 2147483647
+  if (!Number.isInteger(v)) return false;
+  return typeKey(target) === 'u32'
+    ? v >= 0 && v <= 4294967295
+    : v >= -2147483648 && v <= 2147483647;
 }
 
 export function foldNumericLit(expr: Expr): Expr {
   if (expr.op === 'unop' && expr.a.op === 'lit' && typeof expr.a.value === 'number') {
-    return { op: 'lit', type: expr.type, value: -expr.a.value }
+    return { op: 'lit', type: expr.type, value: -expr.a.value };
   }
   if (
     expr.op === 'binop' &&
     (expr.bop === '+' || expr.bop === '-' || expr.bop === '*' || expr.bop === '/')
   ) {
-    const a = foldNumericLit(expr.a)
-    const b = foldNumericLit(expr.b)
+    const a = foldNumericLit(expr.a);
+    const b = foldNumericLit(expr.b);
     if (
       a.op === 'lit' &&
       b.op === 'lit' &&
@@ -79,27 +81,27 @@ export function foldNumericLit(expr: Expr): Expr {
               ? a.value * b.value
               : b.value === 0
                 ? undefined
-                : a.value / b.value
-      if (v !== undefined) return { op: 'lit', type: expr.type, value: v }
+                : a.value / b.value;
+      if (v !== undefined) return { op: 'lit', type: expr.type, value: v };
     }
   }
-  return expr
+  return expr;
 }
 
 export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
-  const folded = foldNumericLit(expr)
-  if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded
-  if (!isIntScalar(peer)) return folded
-  if (!isIntegerLiteralNode(node) && folded === expr) return folded
-  if (!isIntegerLiteralNode(node) && !Number.isInteger(folded.value)) return folded
-  if (!isIntegerLiteralNode(node) && expr.op !== 'unop' && expr.op !== 'binop') return folded
-  if (!isIntegerLiteralNode(node) && expr.op === 'lit') return folded
-  if (!fitsTarget(folded.value, peer)) return expr
-  return { op: 'lit', type: peer, value: folded.value }
+  const folded = foldNumericLit(expr);
+  if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded;
+  if (!isIntScalar(peer)) return folded;
+  if (!isIntegerLiteralNode(node) && folded === expr) return folded;
+  if (!isIntegerLiteralNode(node) && !Number.isInteger(folded.value)) return folded;
+  if (!isIntegerLiteralNode(node) && expr.op !== 'unop' && expr.op !== 'binop') return folded;
+  if (!isIntegerLiteralNode(node) && expr.op === 'lit') return folded;
+  if (!fitsTarget(folded.value, peer)) return expr;
+  return { op: 'lit', type: peer, value: folded.value };
 }
 
 function stripParens(node: ts.Expression): ts.Expression {
-  return ts.isParenthesizedExpression(node) ? stripParens(node.expression) : node
+  return ts.isParenthesizedExpression(node) ? stripParens(node.expression) : node;
 }
 
 /** The f64 arm of {@link retargetIntLitCtx}: a literal WRITTEN as a number, in a position
@@ -107,11 +109,11 @@ function stripParens(node: ts.Expression): ts.Expression {
  *  a literal (a call, a parameter, arithmetic that does not fold) is returned untouched and
  *  keeps whatever mismatch it had. */
 function retargetF64DeclaredLit(expr: Expr, node: ts.Expression): Expr {
-  if (ts.isCallExpression(stripParens(node))) return expr
-  const folded = foldNumericLit(expr)
-  if (folded.op !== 'lit' || typeof folded.value !== 'number') return expr
-  if (typeKey(folded.type) !== 'f32') return expr
-  return { op: 'lit', type: f64T, value: folded.value }
+  if (ts.isCallExpression(stripParens(node))) return expr;
+  const folded = foldNumericLit(expr);
+  if (folded.op !== 'lit' || typeof folded.value !== 'number') return expr;
+  if (typeKey(folded.type) !== 'f32') return expr;
+  return { op: 'lit', type: f64T, value: folded.value };
 }
 
 /** A bare integer literal takes the type the context around it declares (#8 A3).
@@ -145,18 +147,18 @@ export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: Shade
   // `lowerScalarCast` folds the cast's literal argument at full precision — so this is about
   // the spelling, not the value. Only a literal is retyped; a call says which precision it
   // means and is left alone, as it is beside an f64 operand.
-  if (isF64(target)) return retargetF64DeclaredLit(expr, node)
-  if (!isIntScalar(target)) return expr
-  const inner = stripParens(node)
-  if (!ts.isConditionalExpression(inner) && !isIntegerLiteralTree(inner)) return expr
+  if (isF64(target)) return retargetF64DeclaredLit(expr, node);
+  if (!isIntScalar(target)) return expr;
+  const inner = stripParens(node);
+  if (!ts.isConditionalExpression(inner) && !isIntegerLiteralTree(inner)) return expr;
   if (expr.op === 'select' && ts.isConditionalExpression(inner)) {
-    const ifTrue = retargetIntLitCtx(expr.ifTrue, inner.whenTrue, target)
-    const ifFalse = retargetIntLitCtx(expr.ifFalse, inner.whenFalse, target)
-    if (ifTrue === expr.ifTrue && ifFalse === expr.ifFalse) return expr
-    if (typeKey(ifTrue.type) !== typeKey(ifFalse.type)) return expr
-    return { ...expr, type: ifTrue.type, ifTrue, ifFalse }
+    const ifTrue = retargetIntLitCtx(expr.ifTrue, inner.whenTrue, target);
+    const ifFalse = retargetIntLitCtx(expr.ifFalse, inner.whenFalse, target);
+    if (ifTrue === expr.ifTrue && ifFalse === expr.ifFalse) return expr;
+    if (typeKey(ifTrue.type) !== typeKey(ifFalse.type)) return expr;
+    return { ...expr, type: ifTrue.type, ifTrue, ifFalse };
   }
-  return retargetIntLit(expr, node, target)
+  return retargetIntLit(expr, node, target);
 }
 
 /** The DECLARATION-site retarget: {@link retargetIntLitCtx}, and where that declines, the
@@ -176,23 +178,23 @@ export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: Shade
  *  return, an argument and a field never had the acceptance, so there is nothing there to
  *  preserve. */
 export function retargetDeclaredIntLit(expr: Expr, node: ts.Expression, target: ShaderType): Expr {
-  const byContext = retargetIntLitCtx(expr, node, target)
-  if (byContext !== expr || !isIntScalar(target)) return byContext
+  const byContext = retargetIntLitCtx(expr, node, target);
+  if (byContext !== expr || !isIntScalar(target)) return byContext;
   // The lowered expression itself, NOT a folded one: `-1.` lowers to a `unop` and `2. + 3.` to
   // a `binop`, and neither matched `init.op === 'lit'` before this item, so neither is accepted
   // now. Folding first widened the rule to ten shapes that had always been a mismatch.
-  if (expr.op !== 'lit' || typeof expr.value !== 'number') return expr
-  if (!fitsTarget(expr.value, target)) return expr
-  return { op: 'lit', type: target, value: expr.value }
+  if (expr.op !== 'lit' || typeof expr.value !== 'number') return expr;
+  if (!fitsTarget(expr.value, target)) return expr;
+  return { op: 'lit', type: target, value: expr.value };
 }
 
 /** §13's sentence for an integer literal that does not fit the integer type its position
  *  declares: "The value has to fit." One wording for every declared position, so
  *  `const a: u32 = 4294967296` is not told it mixed a u32 with an f32 when it wrote no f32. */
 export function intLiteralRangeMessage(value: number, target: ShaderType): string {
-  const k = typeKey(target)
-  const range = k === 'u32' ? '0 to 4294967295' : '-2147483648 to 2147483647'
-  return `The value has to fit: ${String(value)} is outside ${k}, which holds ${range} (§13).`
+  const k = typeKey(target);
+  const range = k === 'u32' ? '0 to 4294967295' : '-2147483648 to 2147483647';
+  return `The value has to fit: ${String(value)} is outside ${k}, which holds ${range} (§13).`;
 }
 
 /** The literal {@link retargetIntLitCtx} declined for its RANGE alone: written as an integer
@@ -205,19 +207,19 @@ export function outOfRangeIntLit(
   node: ts.Expression,
   target: ShaderType,
 ): { readonly value: number; readonly node: ts.Expression } | undefined {
-  if (!isIntScalar(target)) return undefined
-  const inner = stripParens(node)
+  if (!isIntScalar(target)) return undefined;
+  const inner = stripParens(node);
   if (expr.op === 'select' && ts.isConditionalExpression(inner)) {
     return (
       outOfRangeIntLit(expr.ifTrue, inner.whenTrue, target) ??
       outOfRangeIntLit(expr.ifFalse, inner.whenFalse, target)
-    )
+    );
   }
-  if (!isIntegerLiteralTree(inner)) return undefined
-  const folded = foldNumericLit(expr)
-  if (folded.op !== 'lit' || typeof folded.value !== 'number') return undefined
-  if (!Number.isInteger(folded.value) || fitsTarget(folded.value, target)) return undefined
-  return { value: folded.value, node: inner }
+  if (!isIntegerLiteralTree(inner)) return undefined;
+  const folded = foldNumericLit(expr);
+  if (folded.op !== 'lit' || typeof folded.value !== 'number') return undefined;
+  if (!Number.isInteger(folded.value) || fitsTarget(folded.value, target)) return undefined;
+  return { value: folded.value, node: inner };
 }
 
 /** Reports {@link outOfRangeIntLit} with {@link intLiteralRangeMessage} (TS8003, the code the
@@ -232,8 +234,8 @@ export function reportIntLitRange(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const bad = outOfRangeIntLit(expr, node, target)
-  if (!bad) return undefined
+  const bad = outOfRangeIntLit(expr, node, target);
+  if (!bad) return undefined;
   diagnostics.push(
     makeDiagnostic(
       sourceFile,
@@ -241,15 +243,15 @@ export function reportIntLitRange(
       intLiteralRangeMessage(bad.value, target),
       TS_CODES.TYPE_MISMATCH,
     ),
-  )
+  );
   return expr.op === 'select'
     ? { ...expr, type: target }
-    : { op: 'lit', type: target, value: bad.value }
+    : { op: 'lit', type: target, value: bad.value };
 }
 
 /** The width a shift amount has to fit under, on both targets: WGSL's `i32`/`u32` and GLSL ES
  *  3.00's `int`/`uint` are all 32 bits. */
-const SHIFT_BITS = 32
+const SHIFT_BITS = 32;
 
 /** The ONE sentence both shift paths raise for an amount outside `0 .. 31` (#71).
  *
@@ -264,10 +266,10 @@ export function shiftAmountMessage(amount: number): string {
   return (
     `A shift amount must be between 0 and ${String(SHIFT_BITS - 1)}, got ${String(amount)}: ` +
     `a ${String(SHIFT_BITS)}-bit integer has no bit to shift into.`
-  )
+  );
 }
 
 /** Whether `amount` is outside the range {@link shiftAmountMessage} describes. */
 export function shiftAmountOutOfRange(amount: number): boolean {
-  return amount < 0 || amount >= SHIFT_BITS
+  return amount < 0 || amount >= SHIFT_BITS;
 }

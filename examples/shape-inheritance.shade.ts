@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -21,77 +21,77 @@
 // Tint and a WebGL2 context.
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 abstract class Shape {
-  center: vec2
+  center: vec2;
   constructor(center: vec2) {
-    this.center = center
+    this.center = center;
   }
-  abstract sdf(p: vec2): f32
+  abstract sdf(p: vec2): f32;
   // Inherited, not overridden: lowered once per concrete class, where `this.sdf` is that
   // class's own.
   coverage(p: vec2): f32 {
-    return 1. - smoothstep(0., 0.02, this.sdf(p))
+    return 1. - smoothstep(0., 0.02, this.sdf(p));
   }
 }
 
 class Circle extends Shape {
-  radius: f32
+  radius: f32;
   constructor(center: vec2, radius: f32) {
-    super(center)
-    this.radius = radius
+    super(center);
+    this.radius = radius;
   }
   sdf(p: vec2): f32 {
-    const d: vec2 = p - this.center
-    return length(d) - this.radius
+    const d: vec2 = p - this.center;
+    return length(d) - this.radius;
   }
 }
 
 class Square extends Shape {
-  extent: f32
+  extent: f32;
   constructor(center: vec2, extent: f32) {
-    super(center)
-    this.extent = extent
+    super(center);
+    this.extent = extent;
   }
   sdf(p: vec2): f32 {
-    const d: vec2 = abs(p - this.center) - vec2(this.extent)
-    return length(max(d, vec2(0.))) + min(max(d.x, d.y), 0.)
+    const d: vec2 = abs(p - this.center) - vec2(this.extent);
+    return length(max(d, vec2(0.))) + min(max(d.x, d.y), 0.);
   }
 }
 
 class Ring extends Circle {
-  thickness: f32
+  thickness: f32;
   constructor(center: vec2, radius: f32, thickness: f32) {
-    super(center, radius)
-    this.thickness = thickness
+    super(center, radius);
+    this.thickness = thickness;
   }
   // An override that wants the base's answer: `super.sdf` is `Circle`'s body, lowered against
   // `Ring`.
   sdf(p: vec2): f32 {
-    return abs(super.sdf(p)) - this.thickness
+    return abs(super.sdf(p)) - this.thickness;
   }
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): VsOut {
-  const xs: array<f32, 3> = [-1., 3., -1.]
-  const ys: array<f32, 3> = [-1., -1., 3.]
-  const i = i32(vi)
-  const p: vec2 = vec2(xs[i], ys[i])
-  return { pos: vec4(p, 0., 1.), uv: p }
+  const xs: array<f32, 3> = [-1., 3., -1.];
+  const ys: array<f32, 3> = [-1., -1., 3.];
+  const i = i32(vi);
+  const p: vec2 = vec2(xs[i], ys[i]);
+  return { pos: vec4(p, 0., 1.), uv: p };
 }
 
 @fragment
 export function fs(v: VsOut): vec4 {
-  const circle = new Circle(vec2(-0.45, 0.), 0.3)
-  const square = new Square(vec2(0.45, 0.), 0.26)
-  const ring = new Ring(vec2(0., 0.55), 0.22, 0.05)
+  const circle = new Circle(vec2(-0.45, 0.), 0.3);
+  const square = new Square(vec2(0.45, 0.), 0.26);
+  const ring = new Ring(vec2(0., 0.55), 0.22, 0.05);
   const lit: vec3 =
     vec3(0.95, 0.42, 0.3) * circle.coverage(v.uv) +
     vec3(0.36, 0.7, 0.98) * square.coverage(v.uv) +
-    vec3(0.98, 0.86, 0.4) * ring.coverage(v.uv)
-  return vec4(lit + vec3(0.05, 0.05, 0.08), 1.)
+    vec3(0.98, 0.86, 0.4) * ring.coverage(v.uv);
+  return vec4(lit + vec3(0.05, 0.05, 0.08), 1.);
 }

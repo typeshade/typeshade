@@ -16,39 +16,39 @@
 // a corpus check and not a compiler one: what it protects is that someone learning from the
 // examples meets more than one way to declare a struct.
 
-import { describe, it, expect } from 'vitest'
-import { readdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { describe, it, expect } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const DIR = dirname(fileURLToPath(import.meta.url))
+const DIR = dirname(fileURLToPath(import.meta.url));
 
 function sources(): { name: string; text: string }[] {
   return readdirSync(DIR)
     .filter((f) => f.endsWith('.shade.ts'))
-    .map((name) => ({ name, text: readFileSync(join(DIR, name), 'utf8') }))
+    .map((name) => ({ name, text: readFileSync(join(DIR, name), 'utf8') }));
 }
 
 describe('the example corpus shows each way to declare a struct', () => {
   it('reads a corpus big enough to be worth checking', () => {
-    expect(sources().length).toBeGreaterThan(20)
-  })
+    expect(sources().length).toBeGreaterThan(20);
+  });
 
   it.each([
     ['class', /^(abstract )?class \w+/m],
     ['interface', /^interface \w+/m],
     ['type alias', /^type \w+ = \{/m],
   ])('at least one example declares a struct with %s', (_spelling, pattern) => {
-    const hits = sources().filter((s) => pattern.test(s.text))
-    expect(hits.map((h) => h.name).join(', ') || '(none)').not.toBe('(none)')
-  })
+    const hits = sources().filter((s) => pattern.test(s.text));
+    expect(hits.map((h) => h.name).join(', ') || '(none)').not.toBe('(none)');
+  });
 
   it('the struct §2 illustrates is written the way §2 writes it', () => {
     // The document's own example of plain data is `type Camera = { view: mat4; pos: vec3 }`.
     // The example file of the same name declared a class, so the two disagreed about one
     // struct, by name.
-    const camera = sources().find((s) => s.name === 'hello-camera.shade.ts')
-    expect(camera, 'hello-camera.shade.ts is missing from the corpus').toBeDefined()
-    expect(camera!.text).toContain('type Camera = {')
-  })
-})
+    const camera = sources().find((s) => s.name === 'hello-camera.shade.ts');
+    expect(camera, 'hello-camera.shade.ts is missing from the corpus').toBeDefined();
+    expect(camera!.text).toContain('type Camera = {');
+  });
+});

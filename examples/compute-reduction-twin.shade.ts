@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -24,24 +24,24 @@
 //
 // The diff goldens in `shade-twins.test.ts` pin what the remaining differences cost.
 
-declare const input: storage<array<f32>>
-declare const output: storage<array<f32>, "read_write">
+declare const input: storage<array<f32>>;
+declare const output: storage<array<f32>, "read_write">;
 // .x = number of output elements (one reduced window each).
-declare const params: uniform<vec4u>
+declare const params: uniform<vec4u>;
 
 @compute([64, 1, 1])
 export function reduce_windows(@builtin("global_invocation_id") gid: vec3u): void {
-  const idx = gid.x
+  const idx = gid.x;
   if (idx >= params.x) {
-    return
+    return;
   }
 
   // Fold 8 (the original's WINDOW) elements: sum starts at 0, j in [0, 8), accumulate.
-  const base = idx * 8
-  let sum = 0.
+  const base = idx * 8;
+  let sum = 0.;
   for (let j: u32 = 0; j < 8; j++) {
-    sum = sum + input[base + j]
+    sum = sum + input[base + j];
   }
 
-  output[idx] = sum
+  output[idx] = sum;
 }

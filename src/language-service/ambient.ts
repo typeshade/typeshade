@@ -20,27 +20,28 @@
 // the `xy`/`xyz`/`xyzw` and `rg`/`rgb`/`rgba` prefix swizzles) so member access type-checks;
 // see the "Known limitation" note below `VecOf` for what this does not cover.
 
-import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
-import { F64_VEC_TWIN_KIND } from '../core/fp64/twins.js'
-import { SCALAR_CAST } from '../compiler/ts/numeric.js'
-import { MATH_FN_ARITY, MATH_EXPAND_ALIAS, LANG_CONST } from '../compiler/ts/math-alias.js'
-import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js'
-import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js'
-import { STORAGE_BUFFER_ACCESS as COMPILER_STORAGE_BUFFER_ACCESS } from '../compiler/ts/bindings.js'
-import { FUNCTION_DOCS, CONSTANT_DOCS, ATTRIBUTE_DOCS, MATH_MEMBER_DOCS } from './docs.js'
+import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
+import { F64_VEC_TWIN_KIND } from '../core/fp64/twins.js';
+import { SCALAR_CAST } from '../compiler/ts/numeric.js';
+import { MATH_FN_ARITY, MATH_EXPAND_ALIAS, LANG_CONST } from '../compiler/ts/math-alias.js';
+import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
+import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
+import { STORAGE_BUFFER_ACCESS as COMPILER_STORAGE_BUFFER_ACCESS } from '../compiler/ts/bindings.js';
+import { FUNCTION_DOCS, CONSTANT_DOCS, ATTRIBUTE_DOCS, MATH_MEMBER_DOCS } from './docs.js';
 
 // Renders a documentation string as a JSDoc block. Single line (single-line JSDoc) when
 // it fits in 100 columns, otherwise a multi-line block with ` * ` prefixes. Throws if the
 // text contains the string `*/`.
 function renderJSDoc(text: string): string {
-  if (text.includes('*/')) throw new Error(`JSDoc text contains '*/' which is not allowed: ${text}`)
-  const singleLine = `/** ${text} */`
-  if (singleLine.length <= 100) return singleLine
-  const lines = text.split('\n')
-  return `/**\n${lines.map((line) => ` * ${line}`).join('\n')}\n */`
+  if (text.includes('*/'))
+    throw new Error(`JSDoc text contains '*/' which is not allowed: ${text}`);
+  const singleLine = `/** ${text} */`;
+  if (singleLine.length <= 100) return singleLine;
+  const lines = text.split('\n');
+  return `/**\n${lines.map((line) => ` * ${line}`).join('\n')}\n */`;
 }
 
-type VecElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool'
+type VecElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool';
 
 /** Every `vecN`/`vecNf`/`vecNi`/`vecNu`/`vecNf64` name in `SUPPORTED_TYPE_NAMES`, mapped to its
  * element kind — derived by pattern, not retyped, so a new vector alias in `type-map.ts` is
@@ -48,11 +49,11 @@ type VecElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool'
  * accounted for by this map or the scalar/mat handling below, so a name that fits no pattern is
  * never silently skipped). `vecNd` is a bare alias for the same `vecNf64` brand, not a
  * constructor name — see `VEC_CTOR_NAMES` below. */
-const VEC_TYPE_ELEM = new Map<string, VecElem>()
+const VEC_TYPE_ELEM = new Map<string, VecElem>();
 for (const name of SUPPORTED_TYPE_NAMES) {
-  const m = /^vec([234])(f64|f|i|u|d|b)?$/.exec(name)
-  if (!m) continue
-  const suffix = m[2]
+  const m = /^vec([234])(f64|f|i|u|d|b)?$/.exec(name);
+  if (!m) continue;
+  const suffix = m[2];
   const elem: VecElem =
     suffix === undefined || suffix === 'f'
       ? 'f32'
@@ -62,8 +63,8 @@ for (const name of SUPPORTED_TYPE_NAMES) {
           ? 'u32'
           : suffix === 'b'
             ? 'bool'
-            : 'f64'
-  VEC_TYPE_ELEM.set(name, elem)
+            : 'f64';
+  VEC_TYPE_ELEM.set(name, elem);
 }
 
 /** The subset of `VEC_TYPE_ELEM` keys that are also valid *constructor* call names — the
@@ -71,12 +72,12 @@ for (const name of SUPPORTED_TYPE_NAMES) {
  * because it carries no vocabulary `type-map.ts` does not already have) accepts `vec2`/`vec3`/
  * `vec4` and their `f`/`i`/`u`/`f64` suffixes but never the bare `d` suffix — `vec2d(...)` is
  * not a function, only a type name. */
-const VEC_CTOR_NAMES = [...VEC_TYPE_ELEM.keys()].filter((name) => !/d$/.test(name))
+const VEC_CTOR_NAMES = [...VEC_TYPE_ELEM.keys()].filter((name) => !/d$/.test(name));
 
 /** WGSL builtin ids `@builtin(...)` accepts — `core/sot.ts`'s own runtime array (the compiler
  * front end's `@builtin(...)` allow-list check reads the same one), re-exported here as a
  * completion/hover data source too — see `completions.ts`. */
-export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES
+export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES;
 
 /**
  * The attribute names the compiler parses as decorators, per `lower/function.ts`'s
@@ -92,7 +93,7 @@ export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES
  * so the language service and the compiler's own diagnostics can never name two different
  * vocabularies.
  */
-export const ATTRIBUTE_NAMES: readonly string[] = COMPILER_ATTRIBUTE_NAMES
+export const ATTRIBUTE_NAMES: readonly string[] = COMPILER_ATTRIBUTE_NAMES;
 
 /**
  * The two access modes a storage buffer may take, re-exported from `bindings.ts` for the reason
@@ -102,35 +103,35 @@ export const ATTRIBUTE_NAMES: readonly string[] = COMPILER_ATTRIBUTE_NAMES
  * is generated from this array (`storageBufferAccessUnion`), so a word cannot reach one side
  * and not the other.
  */
-export const STORAGE_BUFFER_ACCESS: readonly string[] = COMPILER_STORAGE_BUFFER_ACCESS
+export const STORAGE_BUFFER_ACCESS: readonly string[] = COMPILER_STORAGE_BUFFER_ACCESS;
 
 /** `'read' | 'read_write'`, spelled as the library's `StorageBufferAccess` declares it. */
-const storageBufferAccessUnion = COMPILER_STORAGE_BUFFER_ACCESS.map((w) => `'${w}'`).join(' | ')
+const storageBufferAccessUnion = COMPILER_STORAGE_BUFFER_ACCESS.map((w) => `'${w}'`).join(' | ');
 
 /** The nine \`matCxR\` aliases plus the \`matN\` shorthand for a square one, each taking the
  * element as an optional type argument — the same names `type-map.ts` maps and
  * `expression-call.ts` builds, generated from one pair of loops so the three cannot drift.
  * Only a SQUARE matrix takes `f64`: the fp64 pass has one df64 body per dimension. */
-const MAT_ARITIES = [2, 3, 4] as const
+const MAT_ARITIES = [2, 3, 4] as const;
 const matTypeAliases = MAT_ARITIES.flatMap((cols) =>
   MAT_ARITIES.flatMap((rows) => {
-    const elem = cols === rows ? "T extends f64 ? 'f64' : 'f32'" : "'f32'"
-    const param = cols === rows ? '<T extends f32 | f64 = f32>' : ''
-    const body = `Mat<${elem}, ${cols}, ${rows}>`
-    const lines = [`type mat${cols}x${rows}${param} = ${body}`]
-    if (cols === rows) lines.push(`type mat${cols}${param} = mat${cols}x${rows}<T>`)
-    return lines
+    const elem = cols === rows ? "T extends f64 ? 'f64' : 'f32'" : "'f32'";
+    const param = cols === rows ? '<T extends f32 | f64 = f32>' : '';
+    const body = `Mat<${elem}, ${cols}, ${rows}>`;
+    const lines = [`type mat${cols}x${rows}${param} = ${body}`];
+    if (cols === rows) lines.push(`type mat${cols}${param} = mat${cols}x${rows}<T>`);
+    return lines;
   }),
-).join('\n')
+).join('\n');
 
 /** Every matrix constructor: from columns, from components, from a larger matrix, and the
  * zero form — the four `lowerMatrixCtor` accepts, in the same order. */
 const matCtorOverloads = MAT_ARITIES.flatMap((cols) =>
   MAT_ARITIES.flatMap((rows) => {
-    const name = `mat${cols}x${rows}`
-    const t = `mat${cols}x${rows}`
-    const columns = Array.from({ length: cols }, (_, i) => `c${i}: vec${rows}`).join(', ')
-    const comps = Array.from({ length: cols * rows }, (_, i) => `e${i}: number`).join(', ')
+    const name = `mat${cols}x${rows}`;
+    const t = `mat${cols}x${rows}`;
+    const columns = Array.from({ length: cols }, (_, i) => `c${i}: vec${rows}`).join(', ');
+    const comps = Array.from({ length: cols * rows }, (_, i) => `e${i}: number`).join(', ');
     // Every source at least this size, the EQUAL one included: `lowerMatrixCtor` refuses only
     // `src.cols < cols || src.rows < rows`, so `mat3(m3)` is a legal identity construction and
     // the editor has to agree (it reported "No overload matches this call" on a program the
@@ -139,34 +140,34 @@ const matCtorOverloads = MAT_ARITIES.flatMap((cols) =>
       MAT_ARITIES.flatMap((r2) =>
         c2 >= cols && r2 >= rows ? [`declare function NAME(m: mat${c2}x${r2}): ${t}`] : [],
       ),
-    )
+    );
     const forms = [
       `declare function NAME(): ${t}`,
       `declare function NAME(${columns}): ${t}`,
       `declare function NAME(${comps}): ${t}`,
       ...bigger,
-    ]
-    const names = cols === rows ? [name, `mat${cols}`] : [name]
+    ];
+    const names = cols === rows ? [name, `mat${cols}`] : [name];
     // Every `declare function` carries JSDoc — `docs.test.ts` requires it, and an editor
     // with no hover text on a constructor is the gap that rule exists to close.
     return names.flatMap((n) => {
-      const doc = FUNCTION_DOCS[n]
+      const doc = FUNCTION_DOCS[n];
       return forms.map((f) => {
-        const line = f.replace(/NAME/g, n)
-        return doc ? `${renderJSDoc(doc)}\n${line}` : line
-      })
-    })
+        const line = f.replace(/NAME/g, n);
+        return doc ? `${renderJSDoc(doc)}\n${line}` : line;
+      });
+    });
   }),
-).join('\n')
+).join('\n');
 
 const vecCtorOverloads = (name: string, elem: VecElem): string => {
-  const n = Number(name.match(/\d/)![0]) as 2 | 3 | 4
+  const n = Number(name.match(/\d/)![0]) as 2 | 3 | 4;
   // The PLAIN `vecN` names take WGSL's type argument, `vec3<u32>(1, 2, 3)` (#150). The short
   // names (`vec3u`) name their element already and the compiler refuses a second one, so they
   // stay ungeneric and the editor's "Expected 0 type arguments" is the right answer for them.
-  const generic = /^vec[234]$/.test(name)
-  const type = generic ? `VecFor${n}<T>` : vecTypeName(elem, n)
-  const head = generic ? `declare function ${name}<T = f32>` : `declare function ${name}`
+  const generic = /^vec[234]$/.test(name);
+  const type = generic ? `VecFor${n}<T>` : vecTypeName(elem, n);
+  const head = generic ? `declare function ${name}<T = f32>` : `declare function ${name}`;
   // A component of a bool vector (§27) is a bool; of every other vector, a number.
   //
   // PARAMETER types stay concrete even on the generic names, and only the RETURN rides on T.
@@ -176,30 +177,30 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
   // no brand, so `vec4(c * 2., 1.)` — a shape every example uses — started reporting TS2345.
   // The bool components get overloads of their own below instead of widening this one, which
   // would stop `vec3(1., true, 2.)` reporting.
-  const c = elem === 'bool' ? 'bool' : 'number'
-  const shorter = (k: 2 | 3): string => vecTypeName(elem, k)
-  const lines: string[] = []
+  const c = elem === 'bool' ? 'bool' : 'number';
+  const shorter = (k: 2 | 3): string => vecTypeName(elem, k);
+  const lines: string[] = [];
   // `vec3()` is the ZERO value (wgsl.txt:20015-20030). Not on the emulated double, whose zero
   // is a pair the fp64 pass assembles rather than a literal the constructor can write — the
   // compiler refuses `vec3f64()` for the same reason.
-  if (elem !== 'f64') lines.push(`${head}(): ${type}`)
+  if (elem !== 'f64') lines.push(`${head}(): ${type}`);
   if (n === 2) {
-    lines.push(`${head}(x: ${c}, y: ${c}): ${type}`)
+    lines.push(`${head}(x: ${c}, y: ${c}): ${type}`);
   } else if (n === 3) {
-    lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}): ${type}`)
-    lines.push(`${head}(v: ${shorter(2)}, z: ${c}): ${type}`)
+    lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}): ${type}`);
+    lines.push(`${head}(v: ${shorter(2)}, z: ${c}): ${type}`);
     // The composition WGSL allows in the other order (wgsl.txt:20889/20987). Only the
     // vector-FIRST forms were declared, so `vec3(x, v2)` was red in the editor and green in
     // the compiler — the editor reading the vector as the scalar the first parameter names
     // ("Argument of type 'f32' is not assignable to parameter of type 'vec2'"). #157.
-    lines.push(`${head}(x: ${c}, v: ${shorter(2)}): ${type}`)
+    lines.push(`${head}(x: ${c}, v: ${shorter(2)}): ${type}`);
   } else {
-    lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}, w: ${c}): ${type}`)
-    lines.push(`${head}(v: ${shorter(3)}, w: ${c}): ${type}`)
-    lines.push(`${head}(v: ${shorter(2)}, z: ${c}, w: ${c}): ${type}`)
+    lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}, w: ${c}): ${type}`);
+    lines.push(`${head}(v: ${shorter(3)}, w: ${c}): ${type}`);
+    lines.push(`${head}(v: ${shorter(2)}, z: ${c}, w: ${c}): ${type}`);
     // The same gap at width 4, for the THREE-argument compositions.
-    lines.push(`${head}(x: ${c}, v: ${shorter(2)}, w: ${c}): ${type}`)
-    lines.push(`${head}(x: ${c}, y: ${c}, v: ${shorter(2)}): ${type}`)
+    lines.push(`${head}(x: ${c}, v: ${shorter(2)}, w: ${c}): ${type}`);
+    lines.push(`${head}(x: ${c}, y: ${c}, v: ${shorter(2)}): ${type}`);
     // NOT declared, and the omission is measured rather than an oversight: `vec4(x, v3)` and
     // `vec4(v2, v2)` are real WGSL and the compiler accepts both, but adding a SECOND
     // two-argument overload costs TypeScript the contextual type it uses to infer through
@@ -211,14 +212,14 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
     // can restore a shape through a NESTED call. Tracked on #157.
     // The same gap at width 4: a vec2 or a vec3 anywhere but first, and the two-vector form.
   }
-  lines.push(`${head}(scalar: ${c}): ${type}`)
+  lines.push(`${head}(scalar: ${c}): ${type}`);
   // `vec3<bool>(true, false, true)` and `vec3<bool>(true)`. Generic with NO default, so the
   // type argument has to be written: an inferable `T` here would make the bare
   // `vec3(true, false, true)` legal in the editor, which the compiler refuses.
   if (generic) {
-    const bools = Array.from({ length: n }, (_, i) => `${'xyzw'[i]!}: bool`).join(', ')
-    lines.push(`declare function ${name}<T>(${bools}): VecFor${n}<T>`)
-    lines.push(`declare function ${name}<T>(scalar: bool): VecFor${n}<T>`)
+    const bools = Array.from({ length: n }, (_, i) => `${'xyzw'[i]!}: bool`).join(', ');
+    lines.push(`declare function ${name}<T>(${bools}): VecFor${n}<T>`);
+    lines.push(`declare function ${name}<T>(scalar: bool): VecFor${n}<T>`);
   }
   // The element-CONVERTING form (#8 A8): one whole vector of this constructor's own size and
   // a different element kind. The compiler's rule (`isConvertibleVector`) is exactly "native
@@ -227,8 +228,8 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
   // fp64 pass assembles rather than a component list to reinterpret.
   if (elem !== 'f64') {
     for (const other of NATIVE_VEC_ELEMS) {
-      if (other === elem) continue
-      lines.push(`${head}(v: ${vecTypeName(other, n)}): ${type}`)
+      if (other === elem) continue;
+      lines.push(`${head}(v: ${vecTypeName(other, n)}): ${type}`);
     }
   }
   // The NARROWING form (§39): `vec3(v)` on a `vec3f64` takes each lane's (hi, lo) pair down
@@ -242,24 +243,24 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
     // ("Cannot find name 'T'", caught by the d.ts self-check when the two lanes merged). The
     // narrowing always yields the FLOAT vector whatever the constructor is called, so naming
     // that is both correct and the reason the overload needs no type parameter of its own.
-    lines.push(`declare function ${name}(v: ${vecTypeName('f64', n)}): ${vecTypeName('f32', n)}`)
+    lines.push(`declare function ${name}(v: ${vecTypeName('f64', n)}): ${vecTypeName('f32', n)}`);
   }
-  return lines.join('\n')
-}
+  return lines.join('\n');
+};
 
 /** The element kinds a converting constructor accepts on either side. `f64` is deliberately
  *  absent — see {@link vecCtorOverloads}. */
-const NATIVE_VEC_ELEMS: readonly VecElem[] = ['f32', 'i32', 'u32', 'bool']
+const NATIVE_VEC_ELEMS: readonly VecElem[] = ['f32', 'i32', 'u32', 'bool'];
 
 /** The canonical brand-type name for one (element, arity) pair — `vec2`/`vec3`/`vec4` for
  * `f32` (the default element every bare `vecN` name maps to), `vecNi`/`vecNu`/`vecNf64`
  * otherwise. Used both to declare the type aliases and to reference them from constructor
  * and swizzle signatures, so the two can never name two different types for one pair. */
 function vecTypeName(elem: VecElem, n: 2 | 3 | 4): string {
-  if (elem === 'f32') return `vec${n}`
-  if (elem === 'f64') return `vec${n}f64`
-  if (elem === 'bool') return `vec${n}b`
-  return `vec${n}${elem === 'i32' ? 'i' : 'u'}`
+  if (elem === 'f32') return `vec${n}`;
+  if (elem === 'f64') return `vec${n}f64`;
+  if (elem === 'bool') return `vec${n}b`;
+  return `vec${n}${elem === 'i32' ? 'i' : 'u'}`;
 }
 
 /** Math free functions callable without a `Math.` prefix (GLSL-style), from `MATH_FN_ARITY` —
@@ -267,10 +268,10 @@ function vecTypeName(elem: VecElem, n: 2 | 3 | 4): string {
  * scalar cast id; the callable name `f32` is the cast declared separately below, and the
  * compiler's own call lowering checks `SCALAR_CAST` before it ever reaches the canonical-math
  * path, so a second `f32` overload here would be dead vocabulary, never a real ambiguity). */
-const FREE_MATH_NAMES = Object.keys(MATH_FN_ARITY).filter((name) => name !== 'f32')
+const FREE_MATH_NAMES = Object.keys(MATH_FN_ARITY).filter((name) => name !== 'f32');
 
 /** The vector arities every native GPU vector type comes in, in order. */
-const VEC_ARITIES: readonly (2 | 3 | 4)[] = [2, 3, 4]
+const VEC_ARITIES: readonly (2 | 3 | 4)[] = [2, 3, 4];
 
 /** The two vector families `mix` declares a vector-with-scalar overload for, and nothing else.
  *
@@ -294,10 +295,10 @@ const VEC_ARITIES: readonly (2 | 3 | 4)[] = [2, 3, 4]
  * in `diagnostics.ts` is never consulted about it. Nothing on the declaration side can close any
  * of the four; the front-end argument check for the math builtins is where they belong (#57).
  * `ambient.test.ts` pins all four as known silent, so a later fix flips them deliberately. */
-const F32_VEC_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('f32', n))
+const F32_VEC_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('f32', n));
 
 /** The `f64` vector names, the second family {@link mixSignature} declares an overload for. */
-const VEC64_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('f64', n))
+const VEC64_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('f64', n));
 
 /**
  * `mix(a, b, t)`, whose `t` is a BLEND FACTOR rather than a third value of `a`'s type: WGSL
@@ -334,22 +335,22 @@ const VEC64_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('
  * a TS2769 that says only "no overload matches", and `diagnostics.test.ts` pins the TS2345 on
  * `dot(vec3, vec2)` as the diagnostic an author can act on. */
 function vec64Reduction(name: string, arity: 1 | 2): string {
-  const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ')
+  const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ');
   return (
     `declare function ${name}<T extends Numeric | Vec64Any>(${params}): ` +
     `T extends Vec64Any ? f64 : number`
-  )
+  );
 }
 
 function mixSignature(): string {
   const vectorWithScalar = (v: string): string =>
-    `declare function mix(a: ${v}, b: ${v}, t: number): ${v}`
+    `declare function mix(a: ${v}, b: ${v}, t: number): ${v}`;
   return [
     ...F32_VEC_TYPE_NAMES.map(vectorWithScalar),
     ...VEC64_TYPE_NAMES.map(vectorWithScalar),
     scalarMathOverload('mix', 3),
     'declare function mix<T extends Numeric>(a: T, b: T, t: T): T',
-  ].join('\n')
+  ].join('\n');
 }
 
 /**
@@ -365,8 +366,8 @@ function mixSignature(): string {
  * so the overload cannot swallow a vector call: those still resolve to the generic one.
  */
 function scalarMathOverload(name: string, arity: number): string {
-  const params = Array.from({ length: arity }, (_, i) => `a${i}: number`).join(', ')
-  return `declare function ${name}(${params}): number`
+  const params = Array.from({ length: arity }, (_, i) => `a${i}: number`).join(', ');
+  return `declare function ${name}(${params}): number`;
 }
 
 /** Real GLSL semantics for the handful of free math functions whose signature is not simply
@@ -399,26 +400,26 @@ const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
     'declare function extractBits<T extends Numeric>(e: T, offset: number, count: number): T',
   insertBits:
     'declare function insertBits<T extends Numeric>(e: T, newbits: T, offset: number, count: number): T',
-}
+};
 
 function freeMathSignature(name: string): string {
-  const special = SPECIAL_MATH_SIGNATURES[name]
-  if (special) return special
-  const arity = MATH_FN_ARITY[name]!
-  const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ')
+  const special = SPECIAL_MATH_SIGNATURES[name];
+  if (special) return special;
+  const arity = MATH_FN_ARITY[name]!;
+  const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ');
   // A componentwise builtin the fp64 pass has a `df64_vN_*` body for takes an emulated-double
   // vector too, and the editor has to say so or it red-squiggles a program the compiler
   // accepts — `abs(v)`, `round(v)`, `min(a, b)` on a `vec3f64` were eight such shapes. The set
   // is read from the pass's own table, so the editor cannot drift from it: a builtin with NO
   // body keeps the `Numeric` constraint and stays refused here, exactly as
   // `checkMathArgs` refuses it (§39).
-  const constraint = F64_VEC_TWIN_KIND[name] === undefined ? 'Numeric' : 'Numeric | Vec64Any'
-  return `${scalarMathOverload(name, arity)}\ndeclare function ${name}<T extends ${constraint}>(${params}): T`
+  const constraint = F64_VEC_TWIN_KIND[name] === undefined ? 'Numeric' : 'Numeric | Vec64Any';
+  return `${scalarMathOverload(name, arity)}\ndeclare function ${name}<T extends ${constraint}>(${params}): T`;
 }
 
-const EXPAND_NAMES = Object.keys(MATH_EXPAND_ALIAS)
-const LANG_CONST_NAMES = Object.keys(LANG_CONST)
-const SCALAR_CAST_NAMES = Object.keys(SCALAR_CAST)
+const EXPAND_NAMES = Object.keys(MATH_EXPAND_ALIAS);
+const LANG_CONST_NAMES = Object.keys(LANG_CONST);
+const SCALAR_CAST_NAMES = Object.keys(SCALAR_CAST);
 
 // The brand property is OPTIONAL, not required: a required unique-symbol brand made a bare
 // number literal (returned from an `f32`-annotated function, assigned to an `f32`-typed local,
@@ -433,85 +434,85 @@ const scalarBrands = ['f32', 'i32', 'u32', 'f64']
     (name) =>
       `declare const ${name}Tag: unique symbol\ntype ${name} = number & { readonly [${name}Tag]?: true }`,
   )
-  .join('\n')
+  .join('\n');
 
 const vecTypeAliases = [...VEC_TYPE_ELEM.entries()]
   .map(([name, elem]) => {
-    const n = Number(name.match(/\d/)![0]) as 2 | 3 | 4
-    const canonical = vecTypeName(elem, n)
-    return name === canonical ? '' : `type ${name} = ${canonical}`
+    const n = Number(name.match(/\d/)![0]) as 2 | 3 | 4;
+    const canonical = vecTypeName(elem, n);
+    return name === canonical ? '' : `type ${name} = ${canonical}`;
   })
   .filter(Boolean)
-  .join('\n')
+  .join('\n');
 
 const vecCtors = VEC_CTOR_NAMES.map((name) => {
-  const overloads = vecCtorOverloads(name, VEC_TYPE_ELEM.get(name)!)
-  const doc = FUNCTION_DOCS[name]
-  if (!doc) return overloads
+  const overloads = vecCtorOverloads(name, VEC_TYPE_ELEM.get(name)!);
+  const doc = FUNCTION_DOCS[name];
+  if (!doc) return overloads;
   // Add JSDoc before every overload
   return overloads
     .split('\n')
     .map((line) => {
-      const match = line.match(/^declare function (\w+)/)
-      if (!match) return line
-      return `${renderJSDoc(doc)}\n${line}`
+      const match = line.match(/^declare function (\w+)/);
+      if (!match) return line;
+      return `${renderJSDoc(doc)}\n${line}`;
     })
-    .join('\n')
-}).join('\n')
+    .join('\n');
+}).join('\n');
 
 const scalarCasts = SCALAR_CAST_NAMES.map((name) => {
   // A conversion, and — for every name but `f64`, whose zero is the pair the fp64 pass
   // assembles — the ZERO-value form WGSL also spells (#150): `f32()`, `i32()`, `u32()`,
   // `bool()`. `bool` converts from a number and returns a boolean, so its argument is not
   // `number` in the general case; the generated line below is the numeric one it already had.
-  const zero = name === 'f64' ? '' : `declare function ${name}(): ${name}\n`
+  const zero = name === 'f64' ? '' : `declare function ${name}(): ${name}\n`;
   // A cast takes a `bool` too (wgsl.txt:20207): `u32(b)` is 1 or 0, and the compiler has
   // always lowered it. The editor read `f32(true)` as "Argument of type 'boolean' is not
   // assignable to parameter of type 'number'", which is the false POSITIVE this file exists to
   // prevent. `f64` is the exception: it WIDENS an f32 and the compiler refuses anything else,
   // so admitting a bool there would be the opposite mistake (#157).
-  const arg = name === 'f64' ? 'number' : 'number | bool'
-  const line = `${zero}declare function ${name}(x: ${arg}): ${name}`
-  const doc = FUNCTION_DOCS[name]
-  if (!doc) return line
+  const arg = name === 'f64' ? 'number' : 'number | bool';
+  const line = `${zero}declare function ${name}(x: ${arg}): ${name}`;
+  const doc = FUNCTION_DOCS[name];
+  if (!doc) return line;
   return line
     .split('\n')
     .map((l) => `${renderJSDoc(doc)}\n${l}`)
-    .join('\n')
-}).join('\n')
+    .join('\n');
+}).join('\n');
 
 const freeMath = FREE_MATH_NAMES.map((name) => {
-  const sig = freeMathSignature(name)
+  const sig = freeMathSignature(name);
   return sig
     .split('\n')
     .map((line) => {
-      const match = line.match(/^declare function (\w+)/)
-      if (!match) return line
-      const doc = FUNCTION_DOCS[match[1]]
-      if (!doc) return line
-      return `${renderJSDoc(doc)}\n${line}`
+      const match = line.match(/^declare function (\w+)/);
+      if (!match) return line;
+      const doc = FUNCTION_DOCS[match[1]];
+      if (!doc) return line;
+      return `${renderJSDoc(doc)}\n${line}`;
     })
-    .join('\n')
-}).join('\n')
+    .join('\n');
+}).join('\n');
 
 const expandFns = EXPAND_NAMES.map((name) => {
-  const line = `declare function ${name}<T extends Numeric>(...args: T[]): T`
-  const doc = FUNCTION_DOCS[name]
-  if (!doc) return line
-  return `${renderJSDoc(doc)}\n${line}`
-}).join('\n')
+  const line = `declare function ${name}<T extends Numeric>(...args: T[]): T`;
+  const doc = FUNCTION_DOCS[name];
+  if (!doc) return line;
+  return `${renderJSDoc(doc)}\n${line}`;
+}).join('\n');
 
 // Add the random function declaration with JSDoc
 const randomDeclaration = FUNCTION_DOCS.random
   ? `${renderJSDoc(FUNCTION_DOCS.random)}\ndeclare function random(seed: f32 | vec2 | vec3): f32`
-  : 'declare function random(seed: f32 | vec2 | vec3): f32'
+  : 'declare function random(seed: f32 | vec2 | vec3): f32';
 
 const langConsts = LANG_CONST_NAMES.map((name) => {
-  const line = `declare const ${name}: number`
-  const doc = CONSTANT_DOCS[name]
-  if (!doc) return line
-  return `${renderJSDoc(doc)}\n${line}`
-}).join('\n')
+  const line = `declare const ${name}: number`;
+  const doc = CONSTANT_DOCS[name];
+  if (!doc) return line;
+  return `${renderJSDoc(doc)}\n${line}`;
+}).join('\n');
 
 // Build MathObject interface members with JSDoc
 const mathMethodNames = [
@@ -538,15 +539,15 @@ const mathMethodNames = [
   'tan',
   'tanh',
   'trunc',
-]
+];
 const mathMethods = mathMethodNames
   .map((name) => {
-    const line = `  ${name}(x: number): number`
-    const doc = MATH_MEMBER_DOCS[name]
-    if (!doc) return line
-    return `  ${renderJSDoc(doc).split('\n').join('\n  ')}\n${line}`
+    const line = `  ${name}(x: number): number`;
+    const doc = MATH_MEMBER_DOCS[name];
+    if (!doc) return line;
+    return `  ${renderJSDoc(doc).split('\n').join('\n  ')}\n${line}`;
   })
-  .join('\n')
+  .join('\n');
 
 const mathSpecialMethods = [
   `  ${renderJSDoc(MATH_MEMBER_DOCS.atan2).split('\n').join('\n  ')}\n  atan2(y: number, x: number): number`,
@@ -554,16 +555,16 @@ const mathSpecialMethods = [
   `  ${renderJSDoc(MATH_MEMBER_DOCS.min).split('\n').join('\n  ')}\n  min(a: number, b: number): number`,
   `  ${renderJSDoc(MATH_MEMBER_DOCS.pow).split('\n').join('\n  ')}\n  pow(base: number, exponent: number): number`,
   `  ${renderJSDoc(MATH_MEMBER_DOCS.random).split('\n').join('\n  ')}\n  random(): number`,
-].join('\n')
+].join('\n');
 
 const mathConstants = ['E', 'LN10', 'LN2', 'LOG10E', 'LOG2E', 'PI', 'SQRT1_2', 'SQRT2']
   .map((name) => {
-    const line = `  readonly ${name}: number`
-    const doc = MATH_MEMBER_DOCS[name]
-    if (!doc) return line
-    return `  ${renderJSDoc(doc).split('\n').join('\n  ')}\n${line}`
+    const line = `  readonly ${name}: number`;
+    const doc = MATH_MEMBER_DOCS[name];
+    if (!doc) return line;
+    return `  ${renderJSDoc(doc).split('\n').join('\n  ')}\n${line}`;
   })
-  .join('\n')
+  .join('\n');
 
 /**
  * The unique-symbol tags `SHADE_DTS` brands the vector and matrix types with: `vecTag` on the
@@ -576,7 +577,7 @@ const mathConstants = ['E', 'LN10', 'LN2', 'LOG10E', 'LOG2E', 'PI', 'SQRT1_2', '
  * same treatment. `diagnostics.test.ts` asserts this list against the tags `SHADE_DTS`
  * actually declares, so a new brand cannot appear without a decision about its arithmetic.
  */
-export const GPU_BRAND_TAGS: readonly string[] = ['vecTag', 'vec64Tag', 'matTag']
+export const GPU_BRAND_TAGS: readonly string[] = ['vecTag', 'vec64Tag', 'matTag'];
 
 /**
  * The ambient declarations for every TypeShade global: the GPU scalar and vector/matrix types,
@@ -1572,4 +1573,4 @@ interface Number {}
 interface Object {}
 interface RegExp {}
 interface String {}
-`
+`;

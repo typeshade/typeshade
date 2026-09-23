@@ -68,20 +68,20 @@ Used that way the package resolves to TypeScript source, so the consuming build 
 A minimal file-level shader starts with `"use typeshade"`. Resources are declared with `declare`, metadata lives on class fields, and shader stages are top-level exported functions. GPU builtins are explicit function parameters, so a shader never depends on an implicit `gid`, `vid`, or `pid` global.
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 class Camera {
-  view: mat4
-  pos: vec3
+  view: mat4;
+  pos: vec3;
 }
 
-declare const camera: uniform<Camera>
-declare const pixels: storage<array<f32>, "read_write">
+declare const camera: uniform<Camera>;
+declare const pixels: storage<array<f32>, "read_write">;
 
 @compute([64, 1, 1])
 export function paint(@builtin("global_invocation_id") gid: vec3u) {
-  const i = gid.x
-  pixels[i] = pixels[i] + camera.pos.x
+  const i = gid.x;
+  pixels[i] = pixels[i] + camera.pos.x;
 }
 ```
 

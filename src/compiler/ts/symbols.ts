@@ -12,8 +12,8 @@
 // sink is optional at every call site, so a caller that does not ask for symbols pays one
 // `undefined` check per declaration.
 
-import type ts from 'typescript'
-import type { ShaderType } from '../../core/ir/types.js'
+import type ts from 'typescript';
+import type { ShaderType } from '../../core/ir/types.js';
 
 /** What kind of declaration a {@link DeclaredSymbol} records. `const` is a module-level
  *  constant (`const K: f32 = 2.`), `binding` a resource (`uniform<T>` / `storage<T>`), `struct`
@@ -28,12 +28,12 @@ export type DeclaredSymbolKind =
   | 'field'
   // A specialization constant (#8 A7). Its own kind rather than 'const': its value is not
   // known until a pipeline is built, so an editor should not offer it as a folded number.
-  | 'override'
+  | 'override';
 
 /** One parameter of a declared function, in declaration order. */
 export interface DeclaredParam {
-  readonly name: string
-  readonly type: ShaderType
+  readonly name: string;
+  readonly type: ShaderType;
 }
 
 /**
@@ -50,29 +50,29 @@ export interface DeclaredParam {
  * `sourceFile`, never to an imported document.
  */
 export interface DeclaredSymbol {
-  readonly name: string
-  readonly kind: DeclaredSymbolKind
+  readonly name: string;
+  readonly kind: DeclaredSymbolKind;
   /** UTF-16 offset where the declared name identifier begins. */
-  readonly start: number
+  readonly start: number;
   /** Length of the declared name identifier, in UTF-16 code units. */
-  readonly length: number
+  readonly length: number;
   /** The type the front end gave this declaration; for a `function`, its RETURN type. */
-  readonly type: ShaderType
+  readonly type: ShaderType;
   /** A `function`'s parameters, in declaration order. Absent for every other kind. */
-  readonly params?: readonly DeclaredParam[]
+  readonly params?: readonly DeclaredParam[];
   /** Whether the declaration may be written to. For a `local` it is the keyword, `let`
    *  (`true`) or `const` (`false`). For a `binding` it is the ACCESS MODE the declared type
    *  asked for, `true` only for `storage<T, "read_write">`: a binding is always declared
    *  `const` (design rule 6.1), so the keyword says nothing about it. Absent for every other
    *  kind. */
-  readonly mutable?: boolean
+  readonly mutable?: boolean;
   /** The name of the struct that owns a `field`. Absent for every other kind. */
-  readonly struct?: string
+  readonly struct?: string;
 }
 
 /** The growable table lowering appends to. `undefined` at a call site means the caller did not
  *  ask for symbols, and every recording helper is then a no-op. */
-export type DeclaredSymbolSink = DeclaredSymbol[]
+export type DeclaredSymbolSink = DeclaredSymbol[];
 
 /**
  * Append `symbol` to `sink`, taking its span from `nameNode` (the identifier the declaration
@@ -84,7 +84,7 @@ export function recordDeclaration(
   nameNode: ts.Node,
   symbol: Omit<DeclaredSymbol, 'start' | 'length'>,
 ): void {
-  if (sink === undefined) return
-  const start = nameNode.getStart(sourceFile)
-  sink.push({ ...symbol, start, length: nameNode.getEnd() - start })
+  if (sink === undefined) return;
+  const start = nameNode.getStart(sourceFile);
+  sink.push({ ...symbol, start, length: nameNode.getEnd() - start });
 }

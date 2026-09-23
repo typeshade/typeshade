@@ -8,7 +8,7 @@
 // recovers each field's std140 byte offset from `reflect(module)` — so the same
 // reflection that documents the pipeline also drives the live uniform packing.
 
-import type { ModuleDecl } from '../src/index.js'
+import type { ModuleDecl } from '../src/index.js';
 
 /** How a host fills one uniform-struct field each frame. */
 export type Control =
@@ -27,14 +27,14 @@ export type Control =
   | { readonly kind: 'mouse' }
   | { readonly kind: 'const'; readonly value: readonly number[] } // fixed scalar / vec value
   | {
-      readonly kind: 'slider'
-      readonly label: string
-      readonly min: number
-      readonly max: number
-      readonly step: number
-      readonly value: number
+      readonly kind: 'slider';
+      readonly label: string;
+      readonly min: number;
+      readonly max: number;
+      readonly step: number;
+      readonly value: number;
       /** Also drive this slider from the mouse wheel over the canvas (zoom UX). */
-      readonly wheel?: boolean
+      readonly wheel?: boolean;
     }
   // On/off switch → an f32 field (1 / 0). `value` is the default state — it is
   // what thumbnails, render gates, and an untouched page all see.
@@ -47,10 +47,10 @@ export type Control =
   // moves the center by `unitsPerWidth × 10^(−v)` where v is the live value of
   // the `zoomExpField` control (the wheel-zoom slider).
   | {
-      readonly kind: 'pan2d'
-      readonly value: readonly [number, number]
-      readonly zoomExpField: string
-      readonly unitsPerWidth: number
+      readonly kind: 'pan2d';
+      readonly value: readonly [number, number];
+      readonly zoomExpField: string;
+      readonly unitsPerWidth: number;
     }
   // Log-magnitude sweep → a vec2<f64> uniform field. The coordinate is
   // `base·10^s + offset` for s = the live value of the `magField` slider, packed
@@ -59,23 +59,23 @@ export type Control =
   // the ~2^24 threshold where it collapses (large s) — so the f32 half visibly
   // shatters at a threshold the viewer controls, while the f64 half holds.
   | {
-      readonly kind: 'logmag2d'
-      readonly magField: string
-      readonly base: readonly [number, number]
-      readonly offset: readonly [number, number]
+      readonly kind: 'logmag2d';
+      readonly magField: string;
+      readonly base: readonly [number, number];
+      readonly offset: readonly [number, number];
     }
   // Scalar twin of logmag2d → a SCALAR f64 uniform field (`base·10^s + offset`).
   | {
-      readonly kind: 'logmag1d'
-      readonly magField: string
-      readonly base: number
-      readonly offset: number
-    }
+      readonly kind: 'logmag1d';
+      readonly magField: string;
+      readonly base: number;
+      readonly offset: number;
+    };
 
 export interface ShaderExample {
-  readonly id: string
-  readonly title: string
-  readonly blurb: string
+  readonly id: string;
+  readonly title: string;
+  readonly blurb: string;
   /**
    * What the example is FOR, and — for `source` — what surface it is authored on.
    *
@@ -91,15 +91,15 @@ export interface ShaderExample {
    * These entries live in `shadeExamples` (`_shade.ts`), NOT in `examples` (`index.ts`) —
    * see that file's header for the three site gates that decide it.
    */
-  readonly category: 'cartographic' | 'generic' | 'compute' | 'source'
+  readonly category: 'cartographic' | 'generic' | 'compute' | 'source';
   /** Source-file basename — lets the site pair this example with its `?raw` source for display. */
-  readonly file: string
-  readonly module: ModuleDecl
+  readonly file: string;
+  readonly module: ModuleDecl;
   /** WebGL2-renderable? Compute kernels are WGSL/WebGPU-only (GLSL ES 3.00 has no compute) → false. */
-  readonly renderable: boolean
+  readonly renderable: boolean;
   /** Per-uniform-field fill strategy, keyed by the uniform struct's field name. */
-  readonly controls?: Readonly<Record<string, Control>>
+  readonly controls?: Readonly<Record<string, Control>>;
   /** For split-screen comparison examples: on-canvas badges naming the halves
    *  ([left, right]) — the host overlays them so the comparison reads at a glance. */
-  readonly splitLabels?: readonly [string, string]
+  readonly splitLabels?: readonly [string, string];
 }

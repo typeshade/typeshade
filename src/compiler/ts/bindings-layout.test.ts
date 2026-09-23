@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import ts from 'typescript'
-import { collectBindings } from './bindings.js'
+import { describe, expect, it } from 'vitest';
+import ts from 'typescript';
+import { collectBindings } from './bindings.js';
 
 function collect(src: string) {
-  const sf = ts.createSourceFile('t.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  const diagnostics: { message: string }[] = []
-  return { bindings: collectBindings(sf, diagnostics as never), diagnostics }
+  const sf = ts.createSourceFile('t.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const diagnostics: { message: string }[] = [];
+  return { bindings: collectBindings(sf, diagnostics as never), diagnostics };
 }
 
 describe('binding layout', () => {
@@ -13,24 +13,24 @@ describe('binding layout', () => {
     const r = collect(`
       const a = uniform<f32>(0);
       const b = uniform<f32>(0);
-    `)
-    expect(r.diagnostics.some((d) => /used by "a" and "b"/.test(d.message))).toBe(true)
-  })
+    `);
+    expect(r.diagnostics.some((d) => /used by "a" and "b"/.test(d.message))).toBe(true);
+  });
 
   it('errors when auto fills a slot already taken', () => {
     const r = collect(`
       const xs = storage<f32, "read_write">();
       const scale = uniform<f32>(0);
-    `)
-    expect(r.diagnostics.some((d) => /@binding\(0\)/.test(d.message))).toBe(true)
-  })
+    `);
+    expect(r.diagnostics.some((d) => /@binding\(0\)/.test(d.message))).toBe(true);
+  });
 
   it('allows a hole after an explicit high slot', () => {
     const r = collect(`
       const camera = uniform<f32>(2);
       const xs = storage<f32, "read_write">();
-    `)
-    expect(r.diagnostics).toEqual([])
-    expect(r.bindings.map((b) => b.binding)).toEqual([2, 3])
-  })
-})
+    `);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.bindings.map((b) => b.binding)).toEqual([2, 3]);
+  });
+});

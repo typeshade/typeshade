@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -22,30 +22,30 @@
 // one after another, so its atomics are plain reads and writes in that order.
 
 class Summary {
-  count: atomic<u32>
-  maxBin: atomic<i32>
+  count: atomic<u32>;
+  maxBin: atomic<i32>;
 }
 
-declare const src: storage<array<f32>>
-declare const bins: storage<array<atomic<u32>>, "read_write">
-declare const summary: storage<Summary, "read_write">
-declare const firstValue: storage<atomic<u32>, "read_write">
+declare const src: storage<array<f32>>;
+declare const bins: storage<array<atomic<u32>>, "read_write">;
+declare const summary: storage<Summary, "read_write">;
+declare const firstValue: storage<atomic<u32>, "read_write">;
 
-const BINS: f32 = 8.
+const BINS: f32 = 8.;
 
 @compute([64, 1, 1])
 export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= arrayLength(src)) {
-    return
+    return;
   }
   // A value in [0, 1) lands in one of eight bins; anything else is clamped to the edges.
-  const bin = u32(clamp(src[gid.x], 0., 0.999) * BINS)
-  atomicAdd(bins[bin], 1)
+  const bin = u32(clamp(src[gid.x], 0., 0.999) * BINS);
+  atomicAdd(bins[bin], 1);
   // The count before this invocation's own: 0 exactly once, for whichever invocation gets
   // there first. That one records the bits of its value.
-  const before = atomicAdd(summary.count, 1)
+  const before = atomicAdd(summary.count, 1);
   if (before === 0) {
-    atomicStore(firstValue, u32(src[gid.x] * 1000.))
+    atomicStore(firstValue, u32(src[gid.x] * 1000.));
   }
-  atomicMax(summary.maxBin, i32(bin))
+  atomicMax(summary.maxBin, i32(bin));
 }

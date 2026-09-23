@@ -18,13 +18,13 @@
 // so the gate independently proves the JSONC reader recovers known witnesses from a
 // commented config.
 
-import { describe, it, expect } from 'vitest'
-import { readFileSync, existsSync } from 'node:fs'
-import { dirname, resolve, relative, isAbsolute } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { describe, it, expect } from 'vitest';
+import { readFileSync, existsSync } from 'node:fs';
+import { dirname, resolve, relative, isAbsolute } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-const PKG_DIR = resolve(HERE, '..')
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PKG_DIR = resolve(HERE, '..');
 
 /** Every tsconfig this package owns. Listed explicitly (not globbed) so ADDING one
  *  without adding it here is visible in review — and the existence assertion below
@@ -35,130 +35,130 @@ const PACKAGE_TSCONFIGS = [
   'tsconfig.tests.json',
   'tsconfig.base.json',
   'examples/tsconfig.json',
-]
+];
 
 /** Strip JSONC comments. String-aware: a `//` inside a string literal (e.g. a URL in
  *  `$schema`) must survive, and an escaped quote must not end the string. */
 function stripJsonComments(text: string): string {
-  let out = ''
-  let inString = false
-  let inLine = false
-  let inBlock = false
+  let out = '';
+  let inString = false;
+  let inLine = false;
+  let inBlock = false;
   for (let i = 0; i < text.length; i++) {
-    const c = text[i]!
-    const next = text[i + 1]
+    const c = text[i]!;
+    const next = text[i + 1];
     if (inLine) {
       if (c === '\n') {
-        inLine = false
-        out += c
+        inLine = false;
+        out += c;
       }
-      continue
+      continue;
     }
     if (inBlock) {
       if (c === '*' && next === '/') {
-        inBlock = false
-        i++
+        inBlock = false;
+        i++;
       }
-      continue
+      continue;
     }
     if (inString) {
-      out += c
+      out += c;
       if (c === '\\') {
         // copy the escaped char verbatim so `\"` cannot close the string
         if (next !== undefined) {
-          out += next
-          i++
+          out += next;
+          i++;
         }
       } else if (c === '"') {
-        inString = false
+        inString = false;
       }
-      continue
+      continue;
     }
     if (c === '"') {
-      inString = true
-      out += c
-      continue
+      inString = true;
+      out += c;
+      continue;
     }
     if (c === '/' && next === '/') {
-      inLine = true
-      i++
-      continue
+      inLine = true;
+      i++;
+      continue;
     }
     if (c === '/' && next === '*') {
-      inBlock = true
-      i++
-      continue
+      inBlock = true;
+      i++;
+      continue;
     }
-    out += c
+    out += c;
   }
-  return out
+  return out;
 }
 
 type Tsconfig = {
-  extends?: string
-  compilerOptions?: Record<string, unknown>
-  include?: string[]
-  exclude?: string[]
-}
+  extends?: string;
+  compilerOptions?: Record<string, unknown>;
+  include?: string[];
+  exclude?: string[];
+};
 
 function readTsconfig(path: string): Tsconfig {
-  return JSON.parse(stripJsonComments(readFileSync(path, 'utf8'))) as Tsconfig
+  return JSON.parse(stripJsonComments(readFileSync(path, 'utf8'))) as Tsconfig;
 }
 
 describe('X-GIS #1681 B1 — tsconfig self-containment', () => {
   it('every tsconfig this package owns exists at the listed path', () => {
-    const missing = PACKAGE_TSCONFIGS.filter((p) => !existsSync(resolve(PKG_DIR, p)))
-    expect(missing, `listed package tsconfig(s) not found: ${missing.join(', ')}`).toEqual([])
-    expect(PACKAGE_TSCONFIGS.length).toBeGreaterThanOrEqual(4)
-  })
+    const missing = PACKAGE_TSCONFIGS.filter((p) => !existsSync(resolve(PKG_DIR, p)));
+    expect(missing, `listed package tsconfig(s) not found: ${missing.join(', ')}`).toEqual([]);
+    expect(PACKAGE_TSCONFIGS.length).toBeGreaterThanOrEqual(4);
+  });
 
   it('no tsconfig in the package extends outside the package', () => {
-    const escapes: string[] = []
+    const escapes: string[] = [];
     for (const rel of PACKAGE_TSCONFIGS) {
-      const file = resolve(PKG_DIR, rel)
-      const ext = readTsconfig(file).extends
-      if (ext === undefined) continue
+      const file = resolve(PKG_DIR, rel);
+      const ext = readTsconfig(file).extends;
+      if (ext === undefined) continue;
       // A bare package specifier (`@tsconfig/…`) would be a dependency, not a path —
       // this package has none, so treat anything non-relative as an escape too.
       if (!ext.startsWith('.')) {
-        escapes.push(`${rel} extends non-relative '${ext}'`)
-        continue
+        escapes.push(`${rel} extends non-relative '${ext}'`);
+        continue;
       }
-      const target = resolve(dirname(file), ext)
-      const inside = relative(PKG_DIR, target)
+      const target = resolve(dirname(file), ext);
+      const inside = relative(PKG_DIR, target);
       if (inside.startsWith('..') || isAbsolute(inside))
-        escapes.push(`${rel} extends '${ext}' → ${target} (outside the package)`)
+        escapes.push(`${rel} extends '${ext}' → ${target} (outside the package)`);
     }
     expect(
       escapes,
       `a vendored copy of shader-dsl/ cannot compile — extends chain(s) leave the package:\n  ${escapes.join('\n  ')}`,
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('the JSONC reader recovers known witnesses from a COMMENTED config', () => {
     // tsconfig.json carries both a leading `//` block and a trailing one; if the
     // stripper were broken this parse throws, and if it were over-eager these
     // witnesses would be gone. Without this arm a silently-empty reader would green
     // every assertion above.
-    const cfg = readTsconfig(resolve(PKG_DIR, 'tsconfig.json'))
-    expect(cfg.compilerOptions?.['composite']).toBe(true)
-    expect(cfg.compilerOptions?.['outDir']).toBe('./dist')
-    expect(cfg.include).toEqual(['src/**/*.ts', 'examples/**/*.ts'])
+    const cfg = readTsconfig(resolve(PKG_DIR, 'tsconfig.json'));
+    expect(cfg.compilerOptions?.['composite']).toBe(true);
+    expect(cfg.compilerOptions?.['outDir']).toBe('./dist');
+    expect(cfg.include).toEqual(['src/**/*.ts', 'examples/**/*.ts']);
     // The three PATTERNS, not the whole list: the per-file `examples/*.ts` entries beside
     // them are "everything unreachable from examples/index.ts", and repeating them here
     // would make this arm a second copy of a list `src/publish-manifest.test.ts` D4 already
     // recomputes from the closure. Witnesses, not an authority.
-    expect(cfg.exclude).toContain('src/**/*.test.ts')
-    expect(cfg.exclude).toContain('examples/**/*.test.ts')
-    expect(cfg.exclude).toContain('examples/**/*.shade.ts')
-    expect(cfg.exclude!.length).toBeGreaterThan(3)
-    expect(cfg.extends).toBe('./tsconfig.base.json')
+    expect(cfg.exclude).toContain('src/**/*.test.ts');
+    expect(cfg.exclude).toContain('examples/**/*.test.ts');
+    expect(cfg.exclude).toContain('examples/**/*.shade.ts');
+    expect(cfg.exclude!.length).toBeGreaterThan(3);
+    expect(cfg.extends).toBe('./tsconfig.base.json');
     // a `//` sequence inside a string must survive the stripper
     expect(JSON.parse(stripJsonComments('{"a":"http://x"} // trailing'))).toEqual({
       a: 'http://x',
-    })
+    });
     expect(JSON.parse(stripJsonComments('{"a":"q\\"//not-a-comment"}'))).toEqual({
       a: 'q"//not-a-comment',
-    })
-  })
-})
+    });
+  });
+});
