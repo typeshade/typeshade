@@ -230,6 +230,9 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   fma: 'Returns `a * b + c`, componentwise over vectors. GLSL ES 3.00 has no `fma`, so the product and sum are inlined there.',
   any: 'Whether any component of a vector of bools is true: `any(a < b)`. A scalar bool passes through. Over an array, `any(xs, (x) => ...)` is the fold.',
   all: 'Whether every component of a vector of bools is true: `all(a === b)`. A scalar bool passes through. Over an array, `all(xs, (x) => ...)` is the fold.',
+  none: 'Whether no element of a fixed-size array passes the test: `none(xs, (x) => x < 0.)`, the negation of `any(xs, pred)`. Unrolled into one call per element, stopping at the first that passes.',
+  sum: 'The sum of the elements of a fixed-size array of numbers or vectors, `sum(xs)`, unrolled into one addition per element.',
+  zip: 'A fixed-size array built from two of one length, element by element: `zip(xs, ys, (a, b) => a * b)`. Unrolled into one call per element; the function may read the variables around it.',
   select:
     "Returns `trueValue` where `cond` is true and `falseValue` where it is false, in WGSL's argument order: the condition comes last. Compiles to the same code as a ternary over `cond`.",
   bool: 'Converts a numeric scalar to `bool`: true where `x` is not zero, spelled as the compare `x != 0`. A `bool` argument is returned as it is.',

@@ -50,9 +50,12 @@ import {
   lowerRandomCall,
   lowerScalarCastCall,
   lowerSwizzleCall,
+  lowerGenericCall,
   lowerUserCall,
   mathResultType,
 } from './expression-misc.js';
+import { captureArguments, declaresFunction } from './local-functions.js';
+import { declarationOf, functionAround } from './closures.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { HOST_GLOBALS } from '../semantic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -226,6 +229,33 @@ export function lowerCall(
     }
   } else if (ts.isIdentifier(callee)) {
     const name = callee.text;
+    // A local function, or a parameter that takes a function, is a name the body declares, and
+    // TypeScript's lookup finds it before any global: it wins over a builtin of its name (Rule
+    // 9.5). `step(i)` on a parameter `step` calls the function handed over, not WGSL's `step`.
+    const declared = declarationOf(callee);
+    const local =
+      declared !== undefined &&
+      functionAround(declared) !== undefined &&
+      declaresFunction(declared) &&
+      scope.localFunctions()?.has(name) === true
+        ? scope.resolveCallee(name)
+        : undefined;
+    // One refused where it is declared said why there.
+    if (local === undefined && declared !== undefined && scope.declarationRefused(name)) {
+      return undefined;
+    }
+    if (local !== undefined) {
+      const leading = captureArguments(local, name, node, sourceFile, scope, diagnostics);
+      if (leading === undefined) return undefined;
+      return lowerUserCall(
+        node,
+        local,
+        sourceFile,
+        scope,
+        diagnostics,
+        leading.length > 0 ? { leading, shown: name } : {},
+      );
+    }
     if (name === 'array') return lowerArrayCtor(node, sourceFile, scope, diagnostics);
     if (name === 'fill') return lowerFill(node, sourceFile, scope, diagnostics);
     if (
@@ -301,13 +331,26 @@ export function lowerCall(
         intrinsicId = name;
       else {
         const decl = scope.resolveCallee(name);
-        if (decl) return lowerUserCall(node, decl, sourceFile, scope, diagnostics);
+        if (decl) {
+          // A local function that captures variables of the function around it takes each
+          // ahead of its own parameters, as this body holds it (Rule 8.17).
+          const leading = captureArguments(decl, name, node, sourceFile, scope, diagnostics);
+          if (leading === undefined) return undefined;
+          return lowerUserCall(
+            node,
+            decl,
+            sourceFile,
+            scope,
+            diagnostics,
+            leading.length > 0 ? { leading, shown: name } : {},
+          );
+        }
         // A generic function is compiled once per set of argument types the file calls it
         // with (roadmap 0.3 item T9, #92). The instance does not exist until a call asks for
         // it, so the arguments are lowered here, the type arguments read off them, and the
         // instance made before `lowerUserCall` checks the call against it.
         if (scope.isGenericFunction(name)) {
-          return lowerGenericCall(node, name, sourceFile, scope, diagnostics);
+          return lowerGenericCall(node, name, name, sourceFile, scope, diagnostics);
         }
       }
     }
@@ -2368,35 +2411,4 @@ function pushDiag(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
-}
-
-/** Lower a call to a generic function: lower its arguments, ask the file's lowering for the
- *  instance those types name, then check the call against it the way any other call is checked
- *  (roadmap 0.3 item T9, #92). The arguments are lowered ONCE and handed on, since lowering
- *  them again inside `lowerUserCall` would report every diagnostic in them twice. */
-function lowerGenericCall(
-  node: ts.CallExpression,
-  name: string,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): Expr | undefined {
-  const lowered: Expr[] = [];
-  for (const arg of node.arguments) {
-    // No contextual type: the parameter's is what the instantiation is about to decide. A bare
-    // integer literal therefore lowers as f32 and reads T as f32; `pick<i32>(…)` is how a call
-    // says otherwise.
-    const one = lowerExpression(arg, sourceFile, scope, diagnostics);
-    if (!one) return undefined;
-    lowered.push(one);
-  }
-  const decl = scope.instantiateGeneric(
-    name,
-    node,
-    lowered.map((e) => e.type),
-    sourceFile,
-    diagnostics,
-  );
-  if (!decl) return undefined;
-  return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { lowered, shown: name });
 }

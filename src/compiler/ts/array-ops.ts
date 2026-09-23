@@ -41,7 +41,14 @@ export function unrollMinMax(fn: 'min' | 'max', xs: Expr): Expr | string {
   return acc;
 }
 
-export function unrollPred(xs: Expr, pred: FuncDecl, join: '&&' | '||'): Expr | string {
+/** `leading` are the arguments every call of `pred` passes ahead of the element: what it
+ *  captures, when it is a local function that reads the body around it (Rule 8.17). */
+export function unrollPred(
+  xs: Expr,
+  pred: FuncDecl,
+  join: '&&' | '||',
+  leading: readonly Expr[] = [],
+): Expr | string {
   const n = arraySize(xs.type);
   if (n === undefined) return 'predicate fold needs a fixed-size array.';
   const elem = xs.type.kind === 'array' ? xs.type.elem : undefined;
@@ -52,7 +59,10 @@ export function unrollPred(xs: Expr, pred: FuncDecl, join: '&&' | '||'): Expr | 
       op: 'call',
       type: pred.ret,
       fn: pred.name,
-      args: [{ op: 'index', type: elem, base: xs, idx: { op: 'lit', type: i32T, value: i } }],
+      args: [
+        ...leading,
+        { op: 'index', type: elem, base: xs, idx: { op: 'lit', type: i32T, value: i } },
+      ],
       declRef: pred,
     });
   }
@@ -63,7 +73,13 @@ export function unrollPred(xs: Expr, pred: FuncDecl, join: '&&' | '||'): Expr | 
   return acc;
 }
 
-export function unrollZip(xs: Expr, ys: Expr, fn: FuncDecl): Expr | string {
+/** `leading` as for {@link unrollPred}. */
+export function unrollZip(
+  xs: Expr,
+  ys: Expr,
+  fn: FuncDecl,
+  leading: readonly Expr[] = [],
+): Expr | string {
   const nx = arraySize(xs.type);
   const ny = arraySize(ys.type);
   if (nx === undefined || ny === undefined) return 'zip needs fixed-size arrays.';
@@ -78,6 +94,7 @@ export function unrollZip(xs: Expr, ys: Expr, fn: FuncDecl): Expr | string {
       type: fn.ret,
       fn: fn.name,
       args: [
+        ...leading,
         { op: 'index', type: xe, base: xs, idx: { op: 'lit', type: i32T, value: i } },
         { op: 'index', type: ye, base: ys, idx: { op: 'lit', type: i32T, value: i } },
       ],

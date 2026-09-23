@@ -365,16 +365,34 @@ describe('rejections', () => {
     expect(code(src)).toBe('TS8018');
   });
 
-  it('rejects a write through a const local', () => {
+  it('rejects a write through a const local that may hold another value', () => {
+    // `const v = vec3(0.)` holds a value nothing else does, and is written through as
+    // TypeScript's `const` is (Rule 6.10); `const v = w` may be one `w` holds, which TypeScript
+    // would change with it and a copy here would not.
     const src = `
+      export function f(a: f32): vec3 {
+        let w = vec3(0.);
+        const v = w;
+        v.x = a;
+        return v;
+      }
+    `;
+    expect(diagnose(src)).toBe(
+      '"v" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to write a copy, or write through the value itself.',
+    );
+    expect(code(src)).toBe('TS8005');
+  });
+
+  it('writes through a const local that holds a fresh value, which becomes a var', () => {
+    const r = compileTsSource(`"use typeshade";
       export function f(a: f32): vec3 {
         const v = vec3(0.);
         v.x = a;
         return v;
       }
-    `;
-    expect(diagnose(src)).toBe('Cannot assign to "v" — it is declared with const.');
-    expect(code(src)).toBe('TS8005');
+    `);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.funcs[0]!.body[0]!.s).toBe('var');
   });
 
   it('rejects a write through a read-only resource', () => {

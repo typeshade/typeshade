@@ -196,7 +196,7 @@ export const CODES = {
   SD0111: {
     code: 'SD0111',
     summary: 'portable kernel outside the gather-only tier',
-    hint: 'the portable tier is out[gid.x] = f(reads): 1-D gid, one u32 storage output written once at the invocation index, a vec4<u32> dispatch uniform, no raw statements — restructure or drop `portable` to keep the kernel WebGPU-only',
+    hint: 'the portable tier is out[gid.x] = f(reads): a 1-D gid and workgroup, one u32 storage output written once at the invocation index, a vec4<u32> dispatch uniform, no raw statements — restructure or drop `portable` to keep the kernel WebGPU-only',
   },
 
   // The optimizer's per-function maps are keyed on a binding's NAME alone, so a duplicate
@@ -247,6 +247,14 @@ export const CODES = {
     code: 'SD0117',
     summary: 'a one-argument .at(i) on a node that is not an array',
     hint: 'only an array node carries its element type — pass the element explicitly as .at(i, elemType)',
+  },
+  // `grad` (roadmap 0.7 item 18) differentiates a function's IR in forward mode. A construct it
+  // has no derivative rule for is refused by name rather than given a zero derivative, since a
+  // silent zero is a wrong answer that looks like a right one.
+  SD0118: {
+    code: 'SD0118',
+    summary: 'grad cannot differentiate this function',
+    hint: 'the detail names the construct and what to write instead; grad differentiates f32, float-vector and float-matrix arithmetic, the component-wise builtins, if, switch and for, and calls to other functions of the module',
   },
 } as const satisfies Record<string, ErrorCodeDef>;
 

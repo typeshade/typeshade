@@ -31,7 +31,13 @@ import type { SourceSpan } from '../../../core/ir/span.js';
 import { boolT, f32T, i32T, structT, typeKey, u32T, voidT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { CollectedStruct, FieldInit } from '../structs.js';
-import { irNameOf, readOnlyPhrase, type LoweringScope, type SuperCtor } from '../context.js';
+import {
+  irNameOf,
+  readOnlyPhrase,
+  type LoweringScope,
+  type SuperCtor,
+  writeRules,
+} from '../context.js';
 import { pushTypeArguments } from '../generics.js';
 import { ambiguousNew, newInstanceName } from '../generic-structs.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -39,7 +45,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
 import { retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
-import { lowerUserCall } from './expression-misc.js';
+import { lowerGenericCall, lowerUserCall } from './expression-misc.js';
 import { lowerLValue } from './statement.js';
 import { parseParams, parseReturnType } from './function.js';
 import { recordParamDefaults } from './param-defaults.js';
@@ -48,10 +54,18 @@ import {
   emittedMemberName,
   isPrivateName,
   isStaticMember,
+  returnsThis,
+  staticThisClass,
   writtenMemberName,
 } from '../class-names.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
-import { checkPrivateAccess, memberFunctionOf, visibleField } from './class-access.js';
+import {
+  checkFunctionAccess,
+  checkInheritedPrivateStatic,
+  checkPrivateAccess,
+  memberFunctionOf,
+  visibleField,
+} from './class-access.js';
 
 /** What `this` is while a member's body is lowered: the struct type; whether it is the
  *  read-only first parameter of a method (`param`), the local a constructor builds from the
@@ -75,6 +89,20 @@ export interface Receiver {
   /** A constructor's parameter properties, which it assigns from their parameters before the
    *  field initializers run (Rule 8.14), the order TypeScript's own constructor keeps. */
   readonly paramProps?: readonly { readonly name: string; readonly type: ShaderType }[];
+  /** What a constructor whose `super(...)` runs a base's constructor does right after that call
+   *  returns: its parameter properties, then its class's own field initializers, which
+   *  TypeScript runs there and not before the base's constructor (Rule 8.14). */
+  readonly afterSuper?: {
+    readonly paramProps: readonly { readonly name: string; readonly type: ShaderType }[];
+    readonly fieldInits: readonly FieldInit[];
+  };
+  /** The initializers of the classes below the one that declared this constructor, down to the
+   *  class being built, which run when its body returns, as their implicit constructors would. */
+  readonly afterBody?: readonly FieldInit[];
+  /** A constructor's own class's initializers when no base constructor runs first: after its
+   *  parameter properties, and after the initializers of `fieldInits`, which are the classes
+   *  above it (Rule 8.14). */
+  readonly ownInits?: readonly FieldInit[];
 }
 
 /** A member that becomes a function of the module: a method, or one half of an accessor. */
@@ -103,9 +131,22 @@ export interface ClassFunction {
   readonly member?: string;
   /** Which half of an accessor this is (Rule 8.11); absent on a method. */
   readonly accessor?: 'get' | 'set';
-  /** For a static member, the class whose body declared it: what `this` names inside it
-   *  (Rule 8.13). */
+  /** For a static member, the class it is emitted for, which is the class a call of it names:
+   *  what `this` names inside it (Rule 8.13). A static a class inherits is lowered again for each
+   *  class that extends it, with `this` as that class, which is how TypeScript binds it. */
   readonly staticOwner?: string;
+  /** For a static member, what `super.k()`, `super.x` and `super.K` name in its body: in a
+   *  static member `super` is the class above the one that wrote it (Rule 8.13). */
+  readonly staticSuper?: ReadonlyMap<string, string>;
+  /** A body lowered for a class that inherits it, not for the class that wrote it. What it says
+   *  the declaring class's body has said already (Rule 12.4), and a static one that fails only
+   *  for this class is said where something calls it (Rule 8.13). */
+  readonly inherited?: true;
+  /** A method whose every `return` is `return this`, typed as its class: it hands back its own
+   *  object, so a chain `v.setX(1.).setY(2.)` continues on `v` (Rule 8.10). */
+  readonly returnsThis?: true;
+  /** A method or a getter that writes no return type, which its body says (Rule 8.19). */
+  readonly infers?: true;
 }
 
 /** The emitted name of a method or a static function: `Ray_at`. */
@@ -146,19 +187,79 @@ function pushDiag(
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }
 
-/** Every identifier the file writes `new X(...)` on. */
-function namesConstructed(sourceFile: ts.SourceFile): Set<string> {
+/** Every identifier the file writes `new X(...)` on, and the classes a `new this()` in a static
+ *  member builds: the class that declares the member, and each class that inherits it, for which
+ *  the member is lowered again with `this` as that class (Rule 8.13). */
+function namesConstructed(
+  sourceFile: ts.SourceFile,
+  structs: readonly CollectedStruct[],
+  byName: ReadonlyMap<string, CollectedStruct>,
+): Set<string> {
   const out = new Set<string>();
+  const throughThis = new Set<string>();
   const walk = (n: ts.Node): void => {
     if (ts.isNewExpression(n) && ts.isIdentifier(n.expression)) {
       // `new Pair<f32>()` constructs the INSTANCE struct (T9, #92), which is the name a
       // synthesised constructor has to be registered under.
       out.add(newInstanceName(n, n.expression.text, sourceFile) ?? n.expression.text);
     }
+    if (ts.isNewExpression(n) && n.expression.kind === ts.SyntaxKind.ThisKeyword) {
+      const cls = staticThisClass(n.expression)?.name?.text;
+      if (cls !== undefined) {
+        out.add(newInstanceName(n, cls, sourceFile) ?? cls);
+        throughThis.add(cls);
+      }
+    }
     ts.forEachChild(n, walk);
   };
   walk(sourceFile);
+  for (const s of structs) {
+    if (ancestorsOf(s.decl.name, byName).some((a) => throughThis.has(a.decl.name))) {
+      out.add(s.decl.name);
+    }
+  }
   return out;
+}
+
+/** Whether a constructor body calls `super(...)`. */
+function callsSuper(node: ts.Node): boolean {
+  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.SuperKeyword) return true;
+  if (ts.isFunctionLike(node) && !ts.isArrowFunction(node)) return false;
+  return ts.forEachChild(node, callsSuper) ?? false;
+}
+
+/** Whether every `return` of a body returns what `new this(...)` built: the expression itself,
+ *  or a name the body declared from one. A body that returns anything else, on any path, keeps
+ *  the type it declares. */
+function returnsBuiltThis(node: MemberFunction): boolean {
+  const isNewThis = (e: ts.Expression): boolean => {
+    const x = unparen(e);
+    return ts.isNewExpression(x) && x.expression.kind === ts.SyntaxKind.ThisKeyword;
+  };
+  const built = new Set<string>();
+  let returns = 0;
+  let others = 0;
+  const walk = (n: ts.Node): void => {
+    if (ts.isFunctionLike(n) && !ts.isArrowFunction(n)) return;
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer !== undefined &&
+      isNewThis(n.initializer)
+    ) {
+      built.add(n.name.text);
+    }
+    if (ts.isReturnStatement(n)) {
+      returns++;
+      const e = n.expression !== undefined ? unparen(n.expression) : undefined;
+      if (!(e !== undefined && (isNewThis(e) || (ts.isIdentifier(e) && built.has(e.text))))) {
+        others++;
+      }
+    }
+    ts.forEachChild(n, walk);
+  };
+  if (node.body !== undefined) ts.forEachChild(node.body, walk);
+  return returns > 0 && others === 0;
 }
 
 function unparen(e: ts.Expression): ts.Expression {
@@ -186,8 +287,44 @@ const memberKeyOf = (node: MemberFunction): string | undefined => {
 
 /** Whether a member's body writes its object: an assignment or `++`/`--` rooted in `this`, a
  *  call of one of `mutating` (the class's members already known to write) on `this`, or a read
- *  of `this.x` whose getter is one of them (Rule 8.11). */
-function writesThis(body: ts.Block, mutating: ReadonlySet<string>): boolean {
+ *  of `this.x` whose getter is one of them (Rule 8.11). A call on a chain rooted in `this`,
+ *  through methods that return `this` (`chainable`), is a call on `this` (Rule 8.10). */
+function writesThis(
+  body: ts.Block,
+  self: string,
+  table: MutationTable,
+  byName: ReadonlyMap<string, CollectedStruct>,
+): boolean {
+  /** The type of a place reached from `this`: a field, an element, or what a method that
+   *  returns `this` hands back, which is its receiver. Undefined for anything not rooted in
+   *  `this`, which a write through cannot change. */
+  const placeType = (e: ts.Expression): ShaderType | undefined => {
+    const x = unparen(e);
+    if (x.kind === ts.SyntaxKind.ThisKeyword) return structT(self);
+    if (ts.isPropertyAccessExpression(x)) {
+      const base = placeType(x.expression);
+      if (base?.kind !== 'struct') return undefined;
+      const field = emittedMemberName(x.name.text);
+      return byName.get(base.name)?.decl.fields.find((f) => f.name === field)?.type;
+    }
+    if (ts.isElementAccessExpression(x)) {
+      const base = placeType(x.expression);
+      return base?.kind === 'array' ? base.elem : undefined;
+    }
+    if (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression)) {
+      const base = placeType(x.expression.expression);
+      return base?.kind === 'struct' && table.chainable(base.name).has(x.expression.name.text)
+        ? base
+        : undefined;
+    }
+    return undefined;
+  };
+  /** Whether `key` names a member of the class a place rooted in `this` holds that changes its
+   *  object: `this.m()`, and `this.inner.m()` or `this.items[i].m()` on a field's class. */
+  const changes = (receiver: ts.Expression, key: string): boolean => {
+    const t = placeType(receiver);
+    return t?.kind === 'struct' && table.keys(t.name).has(key);
+  };
   let found = false;
   const walk = (n: ts.Node): void => {
     if (found) return;
@@ -212,17 +349,12 @@ function writesThis(body: ts.Block, mutating: ReadonlySet<string>): boolean {
     if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
-      unparen(n.expression.expression).kind === ts.SyntaxKind.ThisKeyword &&
-      mutating.has(n.expression.name.text)
+      changes(n.expression.expression, n.expression.name.text)
     ) {
       found = true;
       return;
     }
-    if (
-      ts.isPropertyAccessExpression(n) &&
-      unparen(n.expression).kind === ts.SyntaxKind.ThisKeyword &&
-      mutating.has(`get ${n.name.text}`)
-    ) {
+    if (ts.isPropertyAccessExpression(n) && changes(n.expression, `get ${n.name.text}`)) {
       found = true;
       return;
     }
@@ -232,25 +364,72 @@ function writesThis(body: ts.Block, mutating: ReadonlySet<string>): boolean {
   return found;
 }
 
-/** The members of a class that change their object, to a fixpoint: one that writes a field
- *  directly, and one that calls such a method, or reads such a getter, on `this`. Keyed as
- *  {@link memberKeyOf} keys them. */
-function mutatingMembersOf(members: readonly MemberFunction[]): Set<string> {
-  const out = new Set<string>();
-  const candidates = members.filter(
-    (m) => m.body !== undefined && memberKeyOf(m) !== undefined && !isStaticMember(m),
-  );
+/** Which members of each class change their object, by the key a call names them with
+ *  (`step`, `get x`, `set x`), and which hand back `this`: what a body in one class needs to
+ *  know about a field's class to tell whether `this.inner.bump()` writes its own object. */
+interface MutationTable {
+  keys(struct: string): ReadonlySet<string>;
+  chainable(struct: string): ReadonlySet<string>;
+}
+
+/** The bodies each class emits that change their object, by the function each is emitted as,
+ *  to a fixpoint over every class of the file at once: one that writes a field directly, one
+ *  that calls such a method or reads such a getter on `this` or on a field or an element of it,
+ *  whatever class that field is, and one that reaches such a base body through `super`, which
+ *  runs on the same object (Rule 8.10). A call on `this` resolves to the class's own member, so
+ *  only a body the class emits under its own name answers to one. */
+function mutatingBodiesOfAll(
+  classes: readonly { readonly name: string; readonly bodies: readonly ClassBody[] }[],
+  byName: ReadonlyMap<string, CollectedStruct>,
+): Map<string, Set<string>> {
+  const fns = new Map<string, Set<string>>();
+  const keys = new Map<string, Set<string>>();
+  const chainable = new Map<string, Set<string>>();
+  const candidatesOf = new Map<string, ClassBody[]>();
+  for (const { name, bodies } of classes) {
+    const candidates = bodies.filter(
+      (b) => !b.isStatic && b.node.body !== undefined && memberKeyOf(b.node) !== undefined,
+    );
+    candidatesOf.set(name, candidates);
+    fns.set(name, new Set());
+    keys.set(name, new Set());
+    // The class's own methods that hand back `this`, which a chain runs through.
+    chainable.set(
+      name,
+      new Set(
+        candidates
+          .filter((b) => !b.isSuper && b.accessor === undefined && returnsThis(b.node.body))
+          .map((b) => b.member),
+      ),
+    );
+  }
+  const none: ReadonlySet<string> = new Set();
+  const table: MutationTable = {
+    keys: (struct) => keys.get(struct) ?? none,
+    chainable: (struct) => chainable.get(struct) ?? none,
+  };
+  const throughSuper = (b: ClassBody, own: ReadonlySet<string>): boolean => {
+    let found = false;
+    eachSuperRef(b.node.body!, (ref) => {
+      const fn = b.superMethods.get(superKey(ref));
+      if (fn !== undefined && own.has(fn)) found = true;
+    });
+    return found;
+  };
   for (;;) {
     let grew = false;
-    for (const m of candidates) {
-      const key = memberKeyOf(m)!;
-      if (out.has(key)) continue;
-      if (writesThis(m.body!, out)) {
-        out.add(key);
-        grew = true;
+    for (const { name } of classes) {
+      const own = fns.get(name)!;
+      for (const b of candidatesOf.get(name)!) {
+        if (own.has(b.fnName)) continue;
+        if (writesThis(b.node.body!, name, table, byName) || throughSuper(b, own)) {
+          own.add(b.fnName);
+          if (!b.isSuper) keys.get(name)!.add(memberKeyOf(b.node)!);
+          grew = true;
+        }
       }
     }
-    if (!grew) return out;
+    if (!grew) return fns;
   }
 }
 
@@ -324,19 +503,125 @@ function ownMethod(
   return undefined;
 }
 
-/** Every `super.<name>(` written under `node`. */
-function eachSuperMember(node: ts.Node, f: (member: string) => void): void {
+/** A member a body names through `super`: a method it calls, `super.m(...)`, or one half of
+ *  an accessor, `super.x` read (`get`) or assigned (`set`). A compound assignment and `++` or
+ *  `--` name both halves. */
+export interface SuperRef {
+  readonly kind: 'method' | 'get' | 'set';
+  readonly member: string;
+}
+
+/** What a body's `superMethods` holds for an accessor half the class above declares only the
+ *  other half of: nothing to call, and the reason is not that nothing is there. */
+export const MISSING_HALF = '';
+
+/** The key a {@link SuperRef} takes in a body's `superMethods`: the method's name, or `get x`
+ *  and `set x` for the halves of an accessor. */
+export const superKey = (ref: SuperRef): string =>
+  ref.kind === 'method' ? ref.member : `${ref.kind} ${ref.member}`;
+
+/** Every member named through `super` under `node`. */
+function eachSuperRef(node: ts.Node, f: (ref: SuperRef) => void): void {
+  const isSuper = (e: ts.Expression): boolean => e.kind === ts.SyntaxKind.SuperKeyword;
   const walk = (n: ts.Node): void => {
-    if (
-      ts.isCallExpression(n) &&
-      ts.isPropertyAccessExpression(n.expression) &&
-      n.expression.expression.kind === ts.SyntaxKind.SuperKeyword
-    ) {
-      f(n.expression.name.text);
+    if (ts.isPropertyAccessExpression(n) && isSuper(n.expression)) {
+      const member = n.name.text;
+      const parent = n.parent;
+      if (ts.isCallExpression(parent) && parent.expression === n) {
+        f({ kind: 'method', member });
+      } else if (
+        ts.isBinaryExpression(parent) &&
+        parent.left === n &&
+        parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+      ) {
+        if (parent.operatorToken.kind !== ts.SyntaxKind.EqualsToken) f({ kind: 'get', member });
+        f({ kind: 'set', member });
+      } else if (
+        (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) &&
+        (parent.operator === ts.SyntaxKind.PlusPlusToken ||
+          parent.operator === ts.SyntaxKind.MinusMinusToken)
+      ) {
+        f({ kind: 'get', member });
+        f({ kind: 'set', member });
+      } else {
+        f({ kind: 'get', member });
+      }
     }
     ts.forEachChild(n, walk);
   };
   walk(node);
+}
+
+/** The accessor half `half` a class declares itself under the name `member`, static or not. */
+function ownAccessor(
+  struct: CollectedStruct | undefined,
+  member: string,
+  half: 'get' | 'set',
+  isStatic: boolean,
+): ts.AccessorDeclaration | undefined {
+  return struct?.members?.accessors.find(
+    (a) =>
+      a.body !== undefined &&
+      accessorHalf(a) === half &&
+      isStaticMember(a) === isStatic &&
+      writtenMemberName(a.name) === member,
+  );
+}
+
+/** Whether a class declares the static field `member` itself. */
+const ownStaticField = (struct: CollectedStruct, member: string): boolean =>
+  struct.classNode?.members.some(
+    (m) => ts.isPropertyDeclaration(m) && isStaticMember(m) && writtenMemberName(m.name) === member,
+  ) ?? false;
+
+/** The key under which a static body's `superMethods` holds the class whose static field
+ *  `super.K` reads: in a static member `super` is the class above, and a static field is one of
+ *  its members (Rule 8.13). */
+export const superFieldKey = (member: string): string => `field ${member}`;
+
+/** The body `ref`, written in a body `declaredIn` declared, names: the nearest class above
+ *  `declaredIn` that declares it, and the function that body is emitted as for `target`. For an
+ *  accessor, the nearest class that declares either half owns both, as it does for a read on the
+ *  object (Rule 8.11); a half it does not declare names nothing. */
+function superTargetOf(
+  target: string,
+  declaredIn: string,
+  ref: SuperRef,
+  byName: ReadonlyMap<string, CollectedStruct>,
+  isStatic = false,
+):
+  | { node: MemberFunction; owner: string; fnName: string }
+  | { field: string }
+  | typeof MISSING_HALF
+  | undefined {
+  for (const a of ancestorsOf(declaredIn, byName)) {
+    if (ref.kind === 'method') {
+      const hit = ownMethod(a, ref.member, isStatic);
+      if (hit === undefined) continue;
+      return {
+        node: hit,
+        owner: a.decl.name,
+        fnName: superFnName(target, a.decl.name, emittedMemberName(ref.member)),
+      };
+    }
+    const either =
+      ownAccessor(a, ref.member, 'get', isStatic) ?? ownAccessor(a, ref.member, 'set', isStatic);
+    if (either === undefined) {
+      // A static field is a member of the class above, as a static accessor is; an instance
+      // field is the object's own, and `super` does not reach it.
+      if (isStatic && ownStaticField(a, ref.member)) return { field: a.decl.name };
+      continue;
+    }
+    const hit = ownAccessor(a, ref.member, ref.kind, isStatic);
+    if (hit === undefined) return MISSING_HALF;
+    return {
+      node: hit,
+      owner: a.decl.name,
+      fnName: superFnName(target, a.decl.name, `${ref.kind}_${emittedMemberName(ref.member)}`),
+    };
+  }
+  return undefined;
 }
 
 /** A class's own methods and accessors with a body, in declaration order. */
@@ -428,31 +713,58 @@ function effectiveMembers(
       see(m, owner.decl.name, fnName, written, false);
     }
   }
-  /** The body `super.member` names from a body written by `declaredIn`. */
-  const above = (declaredIn: string, member: string): ts.MethodDeclaration | undefined => {
-    for (const a of ancestorsOf(declaredIn, byName)) {
-      const hit = ownMethod(a, member, false);
-      if (hit) return hit;
+  // A static field of this class is the module value `C_x` (Rule 8.13), and a function of the
+  // same name would declare `C_x` a second time: `static #n` beside `n()`, or a static field
+  // beside an instance method of its name, which TypeScript keeps on two sides of the class
+  // (Rule 8.12). A generic class's instance carries no static of its own.
+  if (struct.binding === undefined) {
+    for (const f of struct.classNode?.members ?? []) {
+      if (!ts.isPropertyDeclaration(f) || !isStaticMember(f)) continue;
+      const written = writtenMemberName(f.name);
+      if (written === undefined) continue;
+      const fnName = methodFnName(target, emittedMemberName(written));
+      const prior = claimed.get(fnName);
+      if (prior === undefined) continue;
+      const why =
+        isPrivateName(written) || isPrivateName(prior.written)
+          ? ': a private name is emitted without its "#"'
+          : ', where a class names its functions and its statics alike';
+      collisions.push({
+        at: f.name,
+        fnName,
+        message:
+          `The static field "${target}.${written}" and the function "${prior.shown}" would both ` +
+          `be "${fnName}"${why}. Rename one of them.`,
+      });
     }
-    return undefined;
+  }
+  /** Each member `body` names through `super`, to the function its base body is emitted as,
+   *  queueing that body. */
+  const follow = (body: ts.Node, declaredIn: string, isStatic = false): Map<string, string> => {
+    const superMethods = new Map<string, string>();
+    eachSuperRef(body, (ref) => {
+      const found = superTargetOf(target, declaredIn, ref, byName, isStatic);
+      if (found === undefined) return;
+      if (found === MISSING_HALF) {
+        superMethods.set(superKey(ref), MISSING_HALF);
+        return;
+      }
+      if ('field' in found) {
+        superMethods.set(superFieldKey(ref.member), found.field);
+        return;
+      }
+      superMethods.set(superKey(ref), found.fnName);
+      see(found.node, found.owner, found.fnName, ref.member, true);
+    });
+    return superMethods;
   };
-  const superOwner = (declaredIn: string, member: string): string | undefined => {
-    for (const a of ancestorsOf(declaredIn, byName)) {
-      if (ownMethod(a, member, false)) return a.decl.name;
-    }
-    return undefined;
-  };
+  // The constructor this class runs names base bodies through `super` too: `super.reset()`
+  // after `super(...)`. They are emitted here, beside the ones methods name.
+  const ctor = effectiveCtor(struct, byName);
+  if (ctor?.node.body !== undefined) follow(ctor.node.body, ctor.owner.decl.name);
   while (pending.length > 0) {
     const { node, declaredIn, fnName, member, isSuper } = pending.shift()!;
-    const superMethods = new Map<string, string>();
-    eachSuperMember(node.body!, (called) => {
-      const owner = superOwner(declaredIn, called);
-      const base = above(declaredIn, called);
-      if (!owner || !base) return;
-      const name = superFnName(target, owner, called);
-      superMethods.set(called, name);
-      see(base, owner, name, called, true);
-    });
+    const superMethods = follow(node.body!, declaredIn, isStaticMember(node));
     const half = accessorHalf(node);
     bodies.push({
       node,
@@ -468,16 +780,14 @@ function effectiveMembers(
   // A field initializer runs base first, so a derived class that initializes an inherited
   // field wins, the way its assignment would.
   const fieldInits: FieldInit[] = [];
-  const initNames = new Set<string>();
+  // Every one of them runs, a class's own after its base's, so one a derived class writes for
+  // an inherited field lands last, as TypeScript's does. The first one alone used to be kept,
+  // which gave the field the base's value (Rule 8.14).
   const initsOf = (s: CollectedStruct | undefined, seen: Set<string>): void => {
     if (!s || seen.has(s.decl.name)) return;
     seen.add(s.decl.name);
     for (const base of s.bases ?? []) initsOf(byName.get(base), seen);
-    for (const f of s.members?.fieldInits ?? []) {
-      if (initNames.has(f.name)) continue;
-      initNames.add(f.name);
-      fieldInits.push(f);
-    }
+    for (const f of s.members?.fieldInits ?? []) fieldInits.push(f);
   };
   initsOf(struct, new Set());
   return { bodies, fieldInits, collisions };
@@ -492,12 +802,10 @@ function ctorSuperMethods(
 ): ReadonlyMap<string, string> {
   const out = new Map<string, string>();
   if (!ctor?.body) return out;
-  eachSuperMember(ctor.body, (member) => {
-    for (const a of ancestorsOf(declaredIn, byName)) {
-      if (ownMethod(a, member, false)) {
-        out.set(member, superFnName(struct.decl.name, a.decl.name, member));
-        return;
-      }
+  eachSuperRef(ctor.body, (ref) => {
+    const found = superTargetOf(struct.decl.name, declaredIn, ref, byName);
+    if (found !== undefined && !(typeof found === 'object' && 'field' in found)) {
+      out.set(superKey(ref), found === MISSING_HALF ? MISSING_HALF : found.fnName);
     }
   });
   return out;
@@ -564,7 +872,8 @@ function inheritedBinding(
 }
 
 /** A method's parameters and return type. A return written `this` is the class's own struct:
- *  the method hands back its object, a copy of it here, since a struct is a value. */
+ *  the method hands back its object, a copy of it here, since a struct is a value. One written
+ *  nowhere is the body's to say (Rule 8.19): `infers`, and `void` until the body is lowered. */
 function methodSignature(
   method: MemberFunction,
   shown: string,
@@ -573,24 +882,16 @@ function methodSignature(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
-): { params: FuncDecl['params'][number][]; ret: ShaderType } | undefined {
+): { params: FuncDecl['params'][number][]; ret: ShaderType; infers?: true } | undefined {
   const params = parseParams(method.parameters, sourceFile, diagnostics, structs, undefined, {
     owner: shown,
     forbidSelf: !isStatic,
   });
   if (!params) return undefined;
   if (method.type?.kind === ts.SyntaxKind.ThisType) return { params, ret: selfT };
-  const ret = parseReturnType(
-    method.type,
-    shown,
-    method,
-    sourceFile,
-    diagnostics,
-    structs,
-    undefined,
-  );
+  const ret = parseReturnType(method.type, sourceFile, diagnostics, structs, undefined);
   if (!ret) return undefined;
-  return { params, ret };
+  return method.type === undefined ? { params, ret, infers: true } : { params, ret };
 }
 
 /** The other half of the accessor `node` declares, in the same class body, or `undefined`. */
@@ -618,7 +919,7 @@ function accessorSignature(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
-): { params: FuncDecl['params'][number][]; ret: ShaderType } | undefined {
+): { params: FuncDecl['params'][number][]; ret: ShaderType; infers?: true } | undefined {
   const pair = otherHalf(node);
   const written = writtenMemberName(node.name) ?? 'x';
   const pairType = (): ShaderType | undefined => {
@@ -632,25 +933,11 @@ function accessorSignature(
     if (node.type === undefined) {
       const inferred = pairType();
       if (inferred !== undefined) return { params: [], ret: inferred };
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node.name,
-        `The getter "${shown}" needs a return type: write "get ${written}(): T".`,
-        TS_CODES.UNKNOWN_TYPE,
-      );
-      return undefined;
+      // Neither half writes the property's type: the getter's body says it (Rule 8.19).
+      return { params: [], ret: voidT, infers: true };
     }
     if (node.type.kind === ts.SyntaxKind.ThisType) return { params: [], ret: selfT };
-    const ret = parseReturnType(
-      node.type,
-      shown,
-      node,
-      sourceFile,
-      diagnostics,
-      structs,
-      undefined,
-    );
+    const ret = parseReturnType(node.type, sourceFile, diagnostics, structs, undefined);
     return ret === undefined ? undefined : { params: [], ret };
   }
   const value = node.parameters[0];
@@ -695,9 +982,29 @@ export function collectClassFunctions(
   diagnostics: TsCompilerDiagnostic[],
 ): ClassFunction[] {
   const out: ClassFunction[] = [];
-  const constructed = namesConstructed(sourceFile);
   const byName = new Map(structs.map((s) => [s.decl.name, s]));
+  const constructed = namesConstructed(sourceFile, structs, byName);
   const reported = new Set<string>();
+  // The bodies each class emits, found for every class before any is lowered: whether a method
+  // changes its object can depend on another class's, `this.inner.bump()` on `Inner.bump`.
+  const effectiveOf = new Map(structs.map((s) => [s.decl.name, effectiveMembers(s, byName)]));
+  const bodiesOf = (struct: CollectedStruct): readonly ClassBody[] => {
+    const effective = effectiveOf.get(struct.decl.name)!;
+    // A generic class's INSTANCE contributes no static: a static cannot mention the class's
+    // type parameters, so it is one function however many instances there are, carried once
+    // by the collection under the class's own name (T9, #92). Keeping it here would emit one
+    // dead copy per instance, under a name no call site can reach.
+    const own =
+      struct.binding !== undefined ? effective.bodies.filter((b) => !b.isStatic) : effective.bodies;
+    // An abstract class is a base and never a value, so it contributes no instance method and
+    // no constructor of its own; its bodies are lowered into each concrete class below. Its
+    // statics are functions like any other and are kept.
+    return struct.abstract ? own.filter((b) => b.isStatic) : own;
+  };
+  const mutatingOf = mutatingBodiesOfAll(
+    structs.map((s) => ({ name: s.decl.name, bodies: bodiesOf(s) })),
+    byName,
+  );
   for (const struct of structs) {
     // A generic class's instance carries what its type parameters are bound to (roadmap 0.3
     // item T9, #92): its methods are written in terms of `T`, so their signatures are parsed
@@ -709,20 +1016,9 @@ export function collectClassFunctions(
       const name = struct.decl.name;
       const selfT = structT(name);
       const members = struct.members;
-      const effective = effectiveMembers(struct, byName);
-      // A generic class's INSTANCE contributes no static: a static cannot mention the class's
-      // type parameters, so it is one function however many instances there are, carried once
-      // by the collection under the class's own name (T9, #92). Keeping it here would emit one
-      // dead copy per instance, under a name no call site can reach.
-      const own =
-        struct.binding !== undefined
-          ? effective.bodies.filter((b) => !b.isStatic)
-          : effective.bodies;
-      // An abstract class is a base and never a value, so it contributes no instance method and
-      // no constructor of its own; its bodies are lowered into each concrete class below. Its
-      // statics are functions like any other and are kept.
-      const bodies = struct.abstract ? own.filter((b) => b.isStatic) : own;
-      const mutating = mutatingMembersOf(bodies.map((b) => b.node));
+      const effective = effectiveOf.get(name)!;
+      const bodies = bodiesOf(struct);
+      const mutating = mutatingOf.get(name)!;
       // The function names a member of the chain lost to another, already reported where the
       // two were declared (structs.ts); a call that misses because of it adds nothing.
       const lost = new Set(
@@ -787,18 +1083,39 @@ export function collectClassFunctions(
                 structs,
               );
         if (!signature) continue;
-        const { params, ret } = signature;
+        const { params } = signature;
+        // A method whose every `return` is `return this` hands back the object it runs on. Its
+        // return type names the class that wrote it, and lowered for a class that inherits it
+        // that object is the derived one: `setY(y: f32): V { …; return this }` in `W extends V`
+        // returns a `W`, as it does at run time in TypeScript. Read as `V`, the inherited body
+        // was a type mismatch against its own `return this` (Rule 8.10).
+        //
+        // A static is the same when it builds its object with `new this(...)`: lowered for a
+        // class that inherits it, `this` is that class (Rule 8.13), so `Derived.make()` builds and
+        // returns a `Derived`, as TypeScript does at run time where its type says `Base`.
+        const declaresOwnClass = typeKey(signature.ret) === typeKey(structT(body.declaredIn));
+        // One that writes no return type and whose every `return` is `return this` returns its
+        // object, as one written `this` does; any other says its type in its body (Rule 8.19).
+        const thisReturning =
+          signature.infers === true && half === undefined && !isStatic && returnsThis(method.body);
+        const infers = signature.infers === true && !thisReturning;
+        const ret =
+          thisReturning ||
+          (declaresOwnClass &&
+            ((half === undefined && !isStatic && returnsThis(method.body)) ||
+              (isStatic && body.declaredIn !== name && returnsBuiltThis(method))))
+            ? selfT
+            : signature.ret;
         // A method that changes its object takes it BY REFERENCE: `mode: 'inout'` on the
         // receiver, which GLSL ES 3.00 spells `inout Particle self_` and WGSL as a pointer. What
         // it returns is its own business (§26): the reference, not the return, carries the
-        // object back. A body reached through `super` is read-only: it has no receiver of its
-        // own to write through, and a write inside it is refused where it stands (statement.ts).
-        // An accessor half is a method in this (Rule 8.11): a setter that assigns a field takes
-        // its object by reference, and so does a getter that caches into one.
-        const writes =
-          !isStatic &&
-          !isSuperBody &&
-          mutating.has(half === undefined ? member : `${half} ${member}`);
+        // object back. A body reached through `super` is the same: it runs on the object of the
+        // body that called it, which hands its own reference on, so `super.bump()` inside an
+        // override that writes is a call like any other (Rule 8.10). It was read-only until
+        // this, and a write inside it was refused. An accessor half is a method in this (Rule
+        // 8.11): a setter that assigns a field takes its object by reference, and so does a
+        // getter that caches into one.
+        const writes = !isStatic && mutating.has(body.fnName);
         const stub: FuncDecl = {
           name: body.fnName,
           params: isStatic
@@ -833,7 +1150,15 @@ export function collectClassFunctions(
           mutates: writes,
           member,
           ...(half !== undefined ? { accessor: half } : {}),
-          ...(isStatic ? { staticOwner: body.declaredIn } : {}),
+          ...(isStatic ? { staticOwner: name, staticSuper: body.superMethods } : {}),
+          ...(body.declaredIn !== name ? { inherited: true as const } : {}),
+          ...(half === undefined &&
+          !isStatic &&
+          returnsThis(method.body) &&
+          typeKey(ret) === typeKey(selfT)
+            ? { returnsThis: true as const }
+            : {}),
+          ...(infers ? { infers: true as const } : {}),
         };
         registry.set(stub, cf);
         if (
@@ -888,6 +1213,35 @@ export function collectClassFunctions(
         .map((p) => ({ name: p.name, type: p.type }));
       const at = ctor ?? members?.node;
       if (at !== undefined) (stub as { span?: SourceSpan }).span = spanOf(sourceFile, at);
+      // Relative to the class that DECLARED this body: an inherited constructor's `super` still
+      // names ITS base, not the base of the class being built.
+      const superCtor = found ? superCtorOf(found.owner, byName) : undefined;
+      // Which class wrote an initializer decides when it runs, as in TypeScript (Rule 8.14).
+      // The classes above the one that declared this constructor run theirs first: in the base
+      // constructor `super(...)` calls, when there is one, and before the body when there is
+      // not. That class runs its parameter properties and its own after its `super(...)`
+      // returns. The classes below it, down to this one, run theirs when its body returns, as
+      // their implicit constructors would. An initializer whose class is not in the chain (a
+      // mixin's) runs first, as every one did before.
+      const chain: readonly (ts.ClassLikeDeclaration | undefined)[] = [
+        struct,
+        ...ancestorsOf(name, byName),
+      ].map((c) => c.classNode);
+      const ownerAt = found?.owner.classNode ? chain.indexOf(found.owner.classNode) : -1;
+      const afterSuperRuns =
+        superCtor !== undefined && ctor?.body !== undefined && callsSuper(ctor.body);
+      const first: FieldInit[] = [];
+      const atOwner: FieldInit[] = [];
+      const below: FieldInit[] = [];
+      for (const f of fieldInits) {
+        const cls = ts.findAncestor(f.init, ts.isClassLike);
+        const depth = ownerAt < 0 || cls === undefined ? -1 : chain.indexOf(cls);
+        if (depth < 0) first.push(f);
+        else if (depth > ownerAt) {
+          if (superCtor === undefined) first.push(f);
+        } else if (depth === ownerAt) atOwner.push(f);
+        else below.push(f);
+      }
       const cf: ClassFunction = {
         stub,
         kind: 'ctor',
@@ -897,13 +1251,17 @@ export function collectClassFunctions(
         receiver: {
           type: selfT,
           mode: 'ctor',
-          fieldInits,
+          fieldInits: first,
           shown,
-          // Relative to the class that DECLARED this body: an inherited constructor's `super`
-          // still names ITS base, not the base of the class being built.
-          ...(found ? { superCtor: superCtorOf(found.owner, byName) } : {}),
+          ...(superCtor !== undefined ? { superCtor } : {}),
           superMethods: ctorSuperMethods(struct, found?.owner.decl.name ?? name, byName, ctor),
-          ...(paramProps.length > 0 ? { paramProps } : {}),
+          ...(paramProps.length > 0 && !afterSuperRuns ? { paramProps } : {}),
+          ...(afterSuperRuns
+            ? { afterSuper: { paramProps, fieldInits: atOwner } }
+            : atOwner.length > 0
+              ? { ownInits: atOwner }
+              : {}),
+          ...(below.length > 0 ? { afterBody: below } : {}),
         },
         mutates: false,
       };
@@ -967,6 +1325,87 @@ export function ctorPrologue(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt[] {
+  const parts = ctorParts(receiver, scope, sourceFile, diagnostics);
+  return [...parts.prologue, ...parts.afterSuper, ...parts.afterBody];
+}
+
+/** A constructor's statements that are not its body's: what starts it (`self_` at the zero
+ *  struct, and what runs before the body), what runs right after its `super(...)`, and what
+ *  runs when its body returns (Rule 8.14). All are lowered here, before the body and its
+ *  parameters are in scope, since an initializer is written in the class and sees neither. */
+export function ctorParts(
+  receiver: Receiver,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): { prologue: Stmt[]; afterSuper: Stmt[]; afterBody: Stmt[] } {
+  const prologue = ctorStart(receiver, scope, sourceFile, diagnostics);
+  if (receiver.mode === 'inout') return { prologue, afterSuper: [], afterBody: [] };
+  const after = receiver.afterSuper;
+  return {
+    prologue,
+    afterSuper:
+      after === undefined
+        ? []
+        : [
+            ...paramPropAssigns(after.paramProps, receiver.type),
+            ...initAssigns(after.fieldInits, receiver.type, scope, sourceFile, diagnostics),
+          ],
+    afterBody: initAssigns(receiver.afterBody ?? [], receiver.type, scope, sourceFile, diagnostics),
+  };
+}
+
+/** `self_.x = x` for each parameter property. */
+function paramPropAssigns(
+  props: readonly { readonly name: string; readonly type: ShaderType }[],
+  type: ShaderType,
+): Stmt[] {
+  return props.map((p) => ({
+    s: 'assign',
+    target: { op: 'member', type: p.type, base: selfRef(type), field: p.name },
+    expr: { op: 'param', type: p.type, name: p.name },
+  }));
+}
+
+/** `self_.f = init` for each field initializer, in order, each checked against its field. */
+function initAssigns(
+  inits: readonly FieldInit[],
+  type: ShaderType,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] {
+  const out: Stmt[] = [];
+  for (const f of inits) {
+    const lowered = lowerExpression(f.init, sourceFile, scope, diagnostics, f.type);
+    if (!lowered) continue;
+    const init = retargetIntLitCtx(lowered, f.init, f.type);
+    if (typeKey(init.type) !== typeKey(f.type)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        f.init,
+        `Field "${f.name}" is ${typeKey(f.type)} but its initializer is ${typeKey(init.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      continue;
+    }
+    out.push({
+      s: 'assign',
+      target: { op: 'member', type: f.type, base: selfRef(type), field: f.name },
+      expr: init,
+    });
+  }
+  return out;
+}
+
+/** `self_` at the zero struct, then what runs before the body. */
+function ctorStart(
+  receiver: Receiver,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] {
   const self = scope.define({
     kind: 'local',
     name: 'this',
@@ -984,36 +1423,16 @@ export function ctorPrologue(
       ? { s: 'var', name: irNameOf(self), type: receiver.type, init: zero }
       : { s: 'var', name: irNameOf(self), type: receiver.type },
   ];
-  // `constructor(public x: f32)`: the field takes its parameter first, then the initializers
-  // run, so one written `y = this.x * 2.` reads the value passed in (Rule 8.14). A parameter is
-  // named as the signature wrote it; the scope defines the parameters after this prologue.
-  for (const p of receiver.paramProps ?? []) {
-    out.push({
-      s: 'assign',
-      target: { op: 'member', type: p.type, base: selfRef(receiver.type), field: p.name },
-      expr: { op: 'param', type: p.type, name: p.name },
-    });
-  }
-  for (const f of receiver.fieldInits) {
-    const lowered = lowerExpression(f.init, sourceFile, scope, diagnostics, f.type);
-    if (!lowered) continue;
-    const init = retargetIntLitCtx(lowered, f.init, f.type);
-    if (typeKey(init.type) !== typeKey(f.type)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        f.init,
-        `Field "${f.name}" is ${typeKey(f.type)} but its initializer is ${typeKey(init.type)}.`,
-        TS_CODES.TYPE_MISMATCH,
-      );
-      continue;
-    }
-    out.push({
-      s: 'assign',
-      target: { op: 'member', type: f.type, base: selfRef(receiver.type), field: f.name },
-      expr: init,
-    });
-  }
+  // The initializers of the classes above the one that declared this constructor come first,
+  // as their implicit constructors run them. Then `constructor(public x: f32)`: the field takes
+  // its parameter, then this class's initializers run, so one written `y = this.x * 2.` reads the
+  // value passed in (Rule 8.14). A parameter is named as the signature wrote it; the scope
+  // defines the parameters after this prologue.
+  out.push(
+    ...initAssigns(receiver.fieldInits, receiver.type, scope, sourceFile, diagnostics),
+    ...paramPropAssigns(receiver.paramProps ?? [], receiver.type),
+    ...initAssigns(receiver.ownInits ?? [], receiver.type, scope, sourceFile, diagnostics),
+  );
   return out;
 }
 
@@ -1071,8 +1490,14 @@ export function lowerNew(
 ): Expr | undefined {
   // `new P(...)`, and `new N.P(...)` for a class inside a namespace, which the module emits as
   // `N_P` (#107). A bare name inside that namespace's own bodies reaches it too, through the
-  // scope's namespace chain.
-  const written = newTargetName(node.expression);
+  // scope's namespace chain. `new this()` in a static member builds the class that declares the
+  // member (Rule 8.13).
+  const written =
+    node.expression.kind === ts.SyntaxKind.ThisKeyword
+      ? scope.resolve('this') === undefined
+        ? scope.staticClass()
+        : undefined
+      : newTargetName(node.expression);
   if (written === undefined) return undefined;
   // `new Pair<f32>()` builds the instance struct the file collected for that set of type
   // arguments (roadmap 0.3 item T9, #92), and a bare `new Pair()` the one instance the file
@@ -1188,13 +1613,11 @@ function lowerSuperMethodCall(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   const self = scope.resolve('this');
+  if (!self && scope.staticClass() !== undefined) {
+    return lowerStaticSuperCall(node, callee, member, sourceFile, scope, diagnostics);
+  }
   if (!self || self.type.kind !== 'struct') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      callee,
-      '"super" names the base of a method\'s class; a static function and a top-level function have none.',
-    );
+    pushDiag(diagnostics, sourceFile, callee, NO_SUPER);
     return undefined;
   }
   // Which base body this names was decided by the collector, from the class that WROTE the
@@ -1210,6 +1633,15 @@ function lowerSuperMethodCall(
     );
     return undefined;
   }
+  // A base's `private` method is not the derived class's to call, through `super` or not
+  // (Rule 8.15).
+  const cf = classFunctionOf(decl);
+  if (
+    cf !== undefined &&
+    !checkFunctionAccess(cf, self.type.name, callee.name, sourceFile, scope, diagnostics)
+  ) {
+    return undefined;
+  }
   const leading: Expr[] = [
     self.kind === 'param'
       ? { op: 'param', type: self.type, name: irNameOf(self) }
@@ -1219,6 +1651,42 @@ function lowerSuperMethodCall(
     leading,
     shown: `super.${member}`,
   });
+}
+
+/** What `super` is refused with outside a class body's own members. */
+export const NO_SUPER =
+  '"super" names the class above the one whose body it is written in; a top-level function has none.';
+
+/** `super.k(...)` in a static member: the static body the class above declares, lowered for
+ *  this class so that `this` in it is this class, as TypeScript binds it (Rule 8.13). */
+function lowerStaticSuperCall(
+  node: ts.CallExpression,
+  callee: ts.PropertyAccessExpression,
+  member: string,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const fn = scope.superMethods()?.get(member);
+  const decl = fn === undefined || fn === MISSING_HALF ? undefined : scope.resolveCallee(fn);
+  if (!decl) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      callee,
+      `Nothing above this class declares a static function "${member}", so "super.${member}" ` +
+        `names no body.`,
+    );
+    return undefined;
+  }
+  const cf = classFunctionOf(decl);
+  if (
+    cf !== undefined &&
+    !checkFunctionAccess(cf, undefined, callee.name, sourceFile, scope, diagnostics)
+  ) {
+    return undefined;
+  }
+  return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown: `super.${member}` });
 }
 
 export function lowerClassCall(
@@ -1259,6 +1727,12 @@ export function lowerClassCall(
       if (scope.isNamespace(name)) {
         if (decl !== undefined)
           return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown });
+        // A generic member, or one that takes a function: made for this call (T9, #92; Rule
+        // 8.18).
+        const qualified = methodFnName(name, emittedMemberName(member));
+        if (scope.isGenericFunction(qualified)) {
+          return lowerGenericCall(node, qualified, shown, sourceFile, scope, diagnostics);
+        }
         pushDiag(diagnostics, sourceFile, callee, `"${name}" has no function "${member}".`);
         return undefined;
       }
@@ -1274,6 +1748,11 @@ export function lowerClassCall(
       !checkPrivateAccess(member, declaringClassOf(cf), name, callee.name, sourceFile, diagnostics)
     )
       return undefined;
+    // `this.#h()` in a static body a class inherits: `#h` is the declaring class's own.
+    if (!checkInheritedPrivateStatic(cf, name, callee, sourceFile, diagnostics)) return undefined;
+    if (!checkFunctionAccess(cf, undefined, callee.name, sourceFile, scope, diagnostics)) {
+      return undefined;
+    }
     if (cf.kind !== 'static') {
       pushDiag(
         diagnostics,
@@ -1312,6 +1791,7 @@ export function lowerClassCall(
   const { decl, cf } = found;
   if (!checkPrivateAccess(member, declaringClassOf(cf), name, callee.name, sourceFile, diagnostics))
     return undefined;
+  if (!checkFunctionAccess(cf, name, callee.name, sourceFile, scope, diagnostics)) return undefined;
   if (cf.kind === 'static') {
     pushDiag(
       diagnostics,
@@ -1325,7 +1805,9 @@ export function lowerClassCall(
     // A method that changes its object and returns a value is a value like any call (§26):
     // `const x = rng.next()`, `vec2(rng.next(), rng.next())`. Its receiver is still the place
     // it writes, and `sequence.ts` puts the call in source order among what is around it. One
-    // that returns nothing has no value to give.
+    // that returns nothing has no value to give; one that writes no return type says which in
+    // its body, lowered first (Rule 8.19).
+    if (!scope.calleeReady(decl, node, sourceFile, diagnostics)) return undefined;
     if (typeKey(cf.stub.ret) === 'void') {
       pushDiag(
         diagnostics,
@@ -1360,8 +1842,14 @@ export function mutatingReceiver(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   const bare = unparen(obj);
+  // A call a chain already ran stands for the object the chain runs on (chains.ts).
+  const alias = scope.chainAlias(bare);
+  if (alias !== undefined) return alias();
   if (ts.isIdentifier(bare)) {
-    const b = scope.resolve(bare.text);
+    // A captured variable's parameter keeps the variable's rules (Rule 8.17); `lowerLValue`
+    // below makes it a reference.
+    const found = scope.resolve(bare.text);
+    const b = found === undefined ? undefined : writeRules(found);
     if (b !== undefined && b.kind === 'param') {
       pushDiag(
         diagnostics,
@@ -1372,13 +1860,41 @@ export function mutatingReceiver(
       );
       return undefined;
     }
+    // `const v = new V(); v.setX(1.)`: a `const` that holds a value nothing else does is
+    // written through as TypeScript's is, and becomes a `var` (Rule 6.10).
+    if (b !== undefined && !b.mutable && b.toVar !== undefined) b.toVar();
     if (b !== undefined && !b.mutable) {
+      const copy = b.kind === 'local' && b.type.kind === 'struct';
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        `"${shown}" changes its object, and "${bare.text}" is ${readOnlyPhrase(b.kind)}; ` +
-          `declare it with let.`,
+        copy
+          ? `"${shown}" changes its object, and "${bare.text}" is a const whose value may be ` +
+              `one something else holds, which TypeScript would change with it and a copy here ` +
+              `would not. Declare it with let to change a copy, or call it on the value itself.`
+          : `"${shown}" changes its object, and "${bare.text}" is ${readOnlyPhrase(b.kind)}; ` +
+              `declare it with let.`,
+      );
+      return undefined;
+    }
+  }
+  // A chain inside a larger expression: what a method that returns `this` hands back is a copy
+  // there, since a struct is a value, and a change to it would be dropped (chains.ts).
+  if (ts.isCallExpression(bare) && ts.isPropertyAccessExpression(bare.expression)) {
+    const inner = lowerExpression(bare.expression.expression, sourceFile, scope, []);
+    const link =
+      inner?.type.kind === 'struct'
+        ? memberFunctionOf(inner.type.name, bare.expression.name.text, 'method', scope)
+        : undefined;
+    if (link?.cf.returnsThis === true) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${shown}" changes its object, and inside this expression it would change the copy ` +
+          `"${bare.getText(sourceFile)}" hands back. Make the chain a statement of its own, ` +
+          `or call each method on the object itself.`,
       );
       return undefined;
     }
@@ -1393,7 +1909,8 @@ export function mutatingReceiver(
     );
     return undefined;
   }
-  return lowerLValue(obj, sourceFile, scope, diagnostics);
+  // The method writes into its receiver, which is then the place however it is reached.
+  return lowerLValue(obj, sourceFile, scope, diagnostics, true);
 }
 
 /** A call statement of a method that changes its object, `r.advance(2.)`: the receiver is
@@ -1423,6 +1940,7 @@ export function lowerMutatingCall(
   const { decl, cf } = found;
   if (!checkPrivateAccess(member, declaringClassOf(cf), name, callee.name, sourceFile, diagnostics))
     return undefined;
+  if (!checkFunctionAccess(cf, name, callee.name, sourceFile, scope, diagnostics)) return undefined;
   const shown = cf.shown;
   const target = mutatingReceiver(node, obj, shown, sourceFile, scope, diagnostics);
   if (!target) return undefined;

@@ -974,6 +974,33 @@ export function cloneValue(v: CpuValue): CpuValue {
   return v;
 }
 
+/** Which of a function's by-value parameters it copies as it is entered: an aggregate one (a
+ *  vector, a matrix, an array, a struct) of a function that writes anything, itself or through
+ *  a function it calls (`writesAnything`). Both GPU targets hand such a parameter a copy. A
+ *  JavaScript value is the caller's own array or object, so a write the function makes to what
+ *  the caller passed (a module variable, or the object an `inout` parameter reaches) showed
+ *  through the parameter: `f(g)` with `f` writing `g.x` read the new value on the CPU paths and
+ *  the old one on the GPU, and so did `a.add(a)` with `add` writing its object. A function that
+ *  writes nothing cannot tell a copy from the caller's value, and pays for none. */
+export function copiedParams(
+  params: readonly { readonly type: ShaderType; readonly mode?: 'inout' }[],
+  writesAnything: boolean,
+): readonly boolean[] {
+  return params.map((p) => writesAnything && p.mode !== 'inout' && isAggregateType(p.type));
+}
+
+/** What a function's `inout` parameters hold as it returns, by parameter index, for its caller
+ *  to store back into each variable it passed there. A struct reached through one is the
+ *  caller's own object and is written in place, but a scalar, or a value the callee assigns
+ *  whole (`n += 1.` on a variable a local function captured, Rule 8.17), is not, and without
+ *  the store the caller kept its old value where both GPU targets write through.
+ *
+ *  One slot for the process, shared by the interpreter and the generated code (a compiled
+ *  function may call one that fell back to the interpreter): the callee writes it as it returns
+ *  and the caller reads it before anything else runs. The stepper, which may yield to another
+ *  invocation between the two, hands the values back through the call instead. */
+export const inoutReturn: { values: readonly CpuValue[] } = { values: [] };
+
 export const f32ToU32Sat = (v: number): number =>
   Number.isNaN(v) ? 0 : Math.min(4294967040, Math.max(0, Math.trunc(v)));
 export const f32ToI32Sat = (v: number): number =>
