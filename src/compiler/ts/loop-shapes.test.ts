@@ -359,14 +359,37 @@ describe('i = i + c is the step i += c spelled out (Rule 7.5)', () => {
     expect(compileTsSource(loop('let i: i32 = 0; i < 8; i = i + 1')).wgsl).toContain('i = (i + 1)');
   });
 
-  it('refuses what i += c refuses, spelling the update as written', () => {
-    expect(errorsOf(loop('let i: i32 = 0; i < 16; i = i + 2.5'))).toEqual([
-      {
-        code: 'TS8003',
-        message:
-          'for step "i = i + 2.5" does not fit "i", which is i32: 2.5 is not a whole number.',
-      },
-    ]);
+  it('types i + c as the same assignment in a body is typed (Rule 7.1)', () => {
+    // Only the step was lowered, then retyped to the counter's type, so each of these compiled
+    // in the header, the conversion the author wrote dropped from the emit, while the same
+    // assignment in the body was TS8003.
+    const mismatch = (a: string, b: string): { code: string; message: string } => ({
+      code: 'TS8003',
+      message:
+        b === 'u32'
+          ? `Type mismatch: cannot + ${a} and ${b} — WGSL has no implicit integer conversion. ` +
+            'Cast one side: i32(…) or u32(…), e.g. a + i32(b).'
+          : `Type mismatch: cannot + ${a} and ${b} — no implicit int/float conversion. Cast ` +
+            'explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
+    });
+    for (const [step, top, error] of [
+      ['i + 2.', '', mismatch('i32', 'f32')],
+      ['i + 2.5', '', mismatch('i32', 'f32')],
+      ['i + f32(2)', '', mismatch('i32', 'f32')],
+      ['f32(2) + i', '', mismatch('f32', 'i32')],
+      ['i + u32(1)', '', mismatch('i32', 'u32')],
+      ['i + s', 'const s: u32 = 2;', mismatch('i32', 'u32')],
+    ] as const) {
+      const header = kernel(`for (let i: i32 = 0; i < 8; i = ${step}) { out[0] = 5.; }`, top);
+      const body = kernel(`let i: i32 = 0; i = ${step};`, top);
+      expect(errorsOf(header), step).toEqual([error]);
+      expect(errorsOf(body), step).toEqual([error]);
+    }
+    // A step of the counter's own type is the step, as it is in `i += c`.
+    expect(trips('let i: u32 = 0; i < 16; i = i + u32(4)')).toBe(4);
+  });
+
+  it('refuses what i += c refuses', () => {
     expect(errorsOf(loop('let i: i32 = 0; i < 16; i = i - 1'))).toEqual([
       { code: 'TS8007', message: 'for (i = 0; i < 16; i -= 1) does not exit.' },
     ]);
@@ -395,6 +418,30 @@ describe('an && exit names the clause that is not the bound (Rules 7.5, 12.1)', 
     expect(errorsOf(loop('let i: i32 = 0; i < 8 && a < 4.; i++'))[0]?.message).toContain(
       '"if (!(a < 4.)) { break; }"',
     );
+    expect(errorsOf(loop('let i: i32 = 0; i < 8 && !(a > 4.); i++'))[0]?.message).toContain(
+      '"if (a > 4.) { break; }"',
+    );
+  });
+
+  it('keeps the parentheses that make a clause one clause', () => {
+    // The clauses were joined bare: "a > 0 || b > 0 && c > 0" is `a > 0 || (b > 0 && c > 0)`,
+    // not the test the author wrote, and its `break` ran 8 trips where the header ran none.
+    const src = `"use typeshade";
+      export function f(a: i32, b: i32, c: i32): i32 {
+        let n: i32 = 0;
+        for (let i: i32 = 0; i < 8 && (a > 0 || b > 0) && c > 0; i++) { n++; }
+        return n;
+      }
+    `;
+    expect(errorsOf(src)).toEqual([
+      {
+        code: 'TS8006',
+        message:
+          'for exit joins the bound "i < 8" with "(a > 0 || b > 0) && c > 0", and a counted ' +
+          'loop\'s exit is its bound alone. Make "if (!((a > 0 || b > 0) && c > 0)) { break; }" ' +
+          "the body's first statement, or write the loop as a while.",
+      },
+    ]);
   });
 
   it('types an unannotated counter from the clause that compares it', () => {
@@ -420,18 +467,58 @@ describe('an && exit names the clause that is not the bound (Rules 7.5, 12.1)', 
   });
 
   it('offers a remedy that compiles and runs the trips the header meant', () => {
-    const c = compile(`"use typeshade";
-      export function f(): f32 {
-        let a = 0.;
-        for (let i: i32 = 0; i < 8; i++) {
-          if (i === 3) { break; }
-          a += 1.;
+    // The header as the while it is, beside the for loop the diagnostic writes, on the CPU:
+    // the two count the same trips for every input.
+    for (const exit of [
+      'i < 8 && i !== a + 2',
+      'i !== b + 1 && i < 8',
+      'i < 8 && i < a + 3',
+      'i < 8 && (a > 0 || b > 0) && c > 0',
+      'i < 8 && (a > 0 ? b > 0 : c > 0) && b > 0',
+      'i < 8 && (a > 0 || b > 0) && (c > 0 || a > 1)',
+      'i < 8 && !(a > 0 && b > 0)',
+    ]) {
+      const refused = `"use typeshade";
+        export function f(a: i32, b: i32, c: i32): i32 {
+          let n: i32 = 0;
+          for (let i: i32 = 0; ${exit}; i++) { n++; }
+          return n;
         }
-        return a;
+      `;
+      const [error] = errorsOf(refused);
+      const remedy = /Make "(if \(.*\) \{ break; \})" the body's first statement/.exec(
+        error?.message ?? '',
+      )?.[1];
+      expect(remedy, exit).toBeDefined();
+      const bound = /joins the bound "([^"]*)"/.exec(error!.message)![1];
+      const c = compile(`"use typeshade";
+        export function header(a: i32, b: i32, c: i32): i32 {
+          let n: i32 = 0;
+          let i: i32 = 0;
+          while (${exit}) { n++; i++; }
+          return n;
+        }
+        export function remedy(a: i32, b: i32, c: i32): i32 {
+          let n: i32 = 0;
+          for (let i: i32 = 0; ${bound}; i++) { ${remedy} n++; }
+          return n;
+        }
+      `);
+      expect(
+        c.diagnostics.filter((d) => d.category === 'error'),
+        exit,
+      ).toEqual([]);
+      for (const a of [0, 1, 2]) {
+        for (const b of [0, 1, 2]) {
+          for (const k of [0, 1]) {
+            const args = [a, b, k];
+            expect(c.eval('remedy', args), `${exit} at ${args.join(',')}`).toBe(
+              c.eval('header', args),
+            );
+          }
+        }
       }
-    `);
-    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(c.eval('f', [])).toBe(3); // 0 1 2
+    }
   });
 });
 
@@ -455,21 +542,33 @@ describe('while on a constant that is true (Rule 7.5)', () => {
     expect(
       errorsOf(kernel('while (N.ON) { out[0] = 5.; }', 'namespace N { export const ON = true; }')),
     ).toEqual([never('N.ON')]);
-    // A const copied from one holds the same value, in a body and at the top of the file.
+    // A const copied from one holds the same value.
     expect(
       errorsOf(kernel('const go = ON; while (go) { out[0] = 5.; }', 'const ON = true;')),
     ).toEqual([never('go')]);
-    expect(
-      errorsOf(kernel('while (GO) { out[0] = 5.; }', 'const ON = true; const GO = ON;')),
-    ).toEqual([never('GO')]);
+  });
+
+  it('refuses a condition that is true through !, && or a comparison', () => {
+    // Each read as a runtime condition, as `while (ON)` did.
+    const top = 'const ON = true; const OFF = false; const PAUSED = false; const N = 4;';
+    for (const cond of ['!OFF', '!false', '!PAUSED', 'ON && ON', 'OFF || ON', 'N > 0']) {
+      expect(errorsOf(kernel(`while (${cond}) { out[0] = 5.; }`, top)), cond).toEqual([
+        never(cond),
+      ]);
+    }
   });
 
   it('accepts one with a way out, and one that is false', () => {
-    const top = 'const ON = true; const OFF = false;';
+    const top = 'const ON = true; const OFF = false; const N = 4;';
     expect(
       errorsOf(kernel('while (ON) { if (out[0] > 3.) { break; } out[0] += 1.; }', top)),
     ).toEqual([]);
-    expect(errorsOf(kernel('while (OFF) { out[0] = 5.; }', top))).toEqual([]);
+    expect(
+      errorsOf(kernel('while (!OFF) { if (out[0] > 3.) { break; } out[0] += 1.; }', top)),
+    ).toEqual([]);
+    for (const cond of ['OFF', '!ON', 'ON && OFF', 'N < 0', 'ON && out[0] < 3.']) {
+      expect(errorsOf(kernel(`while (${cond}) { out[0] += 1.; }`, top)), cond).toEqual([]);
+    }
   });
 });
 
@@ -515,5 +614,37 @@ describe("a loop's hidden counter is the compiler's own name (Rule 2.2)", () => 
         }
       `),
     ).toEqual([{ code: 'TS8022', message: 'Unknown identifier "_i".' }]);
+  });
+
+  it('is not the name of a function or a struct the loop uses', () => {
+    // The counter took the name `_w` or `_i` while a function or a struct of the file had it,
+    // so the call or the type in the body reached the counter: Tint refused each module,
+    // `cannot use 'var _w' as call target` or `as type`, and the compiler said nothing.
+    const c = compile(`"use typeshade";
+      function _w(x: f32): f32 { return x * 2.; }
+      function _i(x: f32): f32 { return x + 1.; }
+      export function f(): f32 {
+        let k = 0.;
+        while (k < 4.) { k = _w(k) + 1.; }
+        let xs: array<f32, 2> = [1., 2.];
+        for (const y of xs) { k += _i(y); }
+        return k;
+      }
+    `);
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(c.wgsl).toContain('for (var _w_1: i32 = 0;');
+    expect(c.wgsl).toContain('for (var _i_1: u32 = 0u;');
+    expect(c.eval('f', [])).toBe(12); // 0 → 1 → 3 → 7, then 7 + 2 + 3
+    const struct = compile(`"use typeshade";
+      class _w { a: f32 = 0.; }
+      export function f(): f32 {
+        let k = 0.;
+        while (k < 4.) { const q = new _w(); q.a = k; k = q.a + 1.; }
+        return k;
+      }
+    `);
+    expect(struct.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(struct.wgsl).toContain('for (var _w_1: i32 = 0;');
+    expect(struct.eval('f', [])).toBe(4);
   });
 });

@@ -263,13 +263,34 @@ function extraExitClause(
   if (at === undefined) return undefined;
   const text = (w: ts.Expression): string => w.getText(sourceFile);
   const rest = clauses.filter((_, k) => k !== at);
+  // `split` took the author's parentheses off each clause, and a clause that binds looser than
+  // `&&` needs them back to stay one clause beside another: `(a || b) && c` joined bare read
+  // as `a || (b && c)`, a different test and a `break` that ran other trips.
+  const joined =
+    rest.length === 1
+      ? text(rest[0]!)
+      : rest.map((w) => (loose(w) ? `(${text(w)})` : text(w))).join(' && ');
   const test =
     rest.length === 1 ? negated(rest[0]!, lowered[at === 0 ? 1 : 0]!, sourceFile) : undefined;
-  const leave = test ?? `!(${rest.map(text).join(' && ')})`;
+  const leave = test ?? `!(${joined})`;
   return (
-    `for exit joins the bound "${text(clauses[at]!)}" with "${rest.map(text).join(' && ')}", ` +
+    `for exit joins the bound "${text(clauses[at]!)}" with "${joined}", ` +
     `and a counted loop's exit is its bound alone. Make "if (${leave}) { break; }" the body's ` +
     `first statement, or write the loop as a while.`
+  );
+}
+
+/** Whether `w`'s own operator binds looser than `&&`, so that it takes parentheses to stand as
+ *  one operand of it: `||`, `??`, `?:`, an assignment or a comma. */
+function loose(w: ts.Expression): boolean {
+  if (ts.isConditionalExpression(w)) return true;
+  if (!ts.isBinaryExpression(w)) return false;
+  const k = w.operatorToken.kind;
+  return (
+    k === ts.SyntaxKind.BarBarToken ||
+    k === ts.SyntaxKind.QuestionQuestionToken ||
+    k === ts.SyntaxKind.CommaToken ||
+    (k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment)
   );
 }
 
@@ -286,9 +307,14 @@ const NEGATED: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
 };
 
 /** `clause` negated, as the author would write it: one comparison flipped where that is exact
- *  (see {@link extraExitClause}), else `!` over the whole of it. */
+ *  (see {@link extraExitClause}), `!ok` read as `ok`, else `!` over the whole of it. */
 function negated(clause: ts.Expression, lowered: Expr, sourceFile: ts.SourceFile): string {
   const text = clause.getText(sourceFile);
+  if (ts.isPrefixUnaryExpression(clause) && clause.operator === ts.SyntaxKind.ExclamationToken) {
+    let operand: ts.Expression = clause.operand;
+    while (ts.isParenthesizedExpression(operand)) operand = operand.expression;
+    return operand.getText(sourceFile);
+  }
   if (ts.isBinaryExpression(clause) && lowered.op === 'compare') {
     const flip = NEGATED[clause.operatorToken.kind];
     const exact = lowered.cop === '==' || lowered.cop === '!=' || isIntScalar(lowered.a.type);
@@ -298,6 +324,8 @@ function negated(clause: ts.Expression, lowered: Expr, sourceFile: ts.SourceFile
   }
   const bare =
     ts.isIdentifier(clause) ||
+    clause.kind === ts.SyntaxKind.TrueKeyword ||
+    clause.kind === ts.SyntaxKind.FalseKeyword ||
     ts.isCallExpression(clause) ||
     ts.isPropertyAccessExpression(clause) ||
     ts.isElementAccessExpression(clause);
@@ -952,8 +980,19 @@ export function lowerUpdate(
         );
         return undefined;
       }
-      let rhs = lowerExpression(step.by, sourceFile, scope, diagnostics);
-      if (!rhs) return undefined;
+      let rhs: Expr | undefined;
+      if (step.sum === undefined) {
+        rhs = lowerExpression(step.by, sourceFile, scope, diagnostics);
+        if (!rhs) return undefined;
+      } else {
+        // `i = i + c` is typed as the same assignment in a body is (Rule 7.1): `i + 2.` on an
+        // i32 counter is `TS8003` in both. Lowering `c` alone and retyping it below took any
+        // number as the step, and dropped an `f32(2)` or a `u32(1)` the author wrote.
+        const sum = lowerExpression(step.sum, sourceFile, scope, diagnostics);
+        if (!sum) return undefined;
+        if (sum.op !== 'binop') return refuse();
+        rhs = step.first ? sum.a : sum.b;
+      }
       // Any COMPILE-TIME-CONSTANT step is rebuilt as a literal of the induction variable's own
       // type, not just a bare one. Retyping only a `lit` left `i *= (1 + 1)` and `i += -2` as
       // f32 — `i *= 2.0` and `i += -2.0` into an i32 loop, which Tint and ANGLE both reject.
@@ -975,18 +1014,11 @@ export function lowerUpdate(
           isIntScalar(binding.type) &&
           !fitsTarget(folded, binding.type)
         ) {
-          const n = left.text;
-          const by = String(folded);
-          const written = !step.spelled
-            ? `${n} ${bop}= ${by}`
-            : step.first
-              ? `${n} = ${by} ${bop} ${n}`
-              : `${n} = ${n} ${bop} ${by}`;
           pushDiag(
             diagnostics,
             sourceFile,
             expr,
-            `for step "${written}" does not fit "${left.text}", ` +
+            `for step "${left.text} ${bop}= ${String(folded)}" does not fit "${left.text}", ` +
               `which is ${typeKey(binding.type)}: ${String(folded)} ` +
               `${Number.isInteger(folded) ? 'is outside its range' : 'is not a whole number'}.`,
             TS_CODES.TYPE_MISMATCH,
@@ -1026,7 +1058,7 @@ export function lowerUpdate(
         left,
       );
       // `i = i + 1` is the assign-of-binop `i++` builds, which the counter reads the same way.
-      if (step.spelled) {
+      if (step.sum) {
         const [a, b] = step.first ? [rhs, target] : [target, rhs];
         return { s: 'assign', target, expr: { op: 'binop', type: binding.type, bop, a, b } };
       }
@@ -1039,15 +1071,18 @@ export function lowerUpdate(
 /**
  * The step a `for` update is written with, or undefined when it is none of the forms: a
  * compound assignment of {@link FOR_UPDATE_OP}, or `i = i + c`, `i = c + i` or `i = i - c`,
- * which is `i += c` or `i -= c` spelled out (Rule 7.5). `by` is the step as written, `spelled`
- * marks the spelled-out form, and `first` marks `c + i`, whose step comes first.
+ * which is `i += c` or `i -= c` spelled out (Rule 7.5). `by` is the step as written; `sum`, set
+ * for the spelled-out form only, is its right side, `i + c`; and `first` marks `c + i`, whose
+ * step comes first.
  */
 function stepOf(
   expr: ts.BinaryExpression,
-): { bop: BinOp; by: ts.Expression; spelled: boolean; first: boolean } | undefined {
+):
+  | { bop: BinOp; by: ts.Expression; sum: ts.BinaryExpression | undefined; first: boolean }
+  | undefined {
   const compound = FOR_UPDATE_OP[expr.operatorToken.kind];
   if (compound !== undefined) {
-    return { bop: compound, by: expr.right, spelled: false, first: false };
+    return { bop: compound, by: expr.right, sum: undefined, first: false };
   }
   if (expr.operatorToken.kind !== ts.SyntaxKind.EqualsToken || !ts.isIdentifier(expr.left)) {
     return undefined;
@@ -1064,9 +1099,9 @@ function stepOf(
   const kind = right.operatorToken.kind;
   if (kind === ts.SyntaxKind.PlusToken || kind === ts.SyntaxKind.MinusToken) {
     const bop = kind === ts.SyntaxKind.PlusToken ? '+' : '-';
-    if (isName(right.left)) return { bop, by: right.right, spelled: true, first: false };
+    if (isName(right.left)) return { bop, by: right.right, sum: right, first: false };
     if (bop === '+' && isName(right.right)) {
-      return { bop, by: right.left, spelled: true, first: true };
+      return { bop, by: right.left, sum: right, first: true };
     }
   }
   return undefined;

@@ -125,18 +125,9 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
 
 export function foldConstBool(expr: Expr, scope: LoweringScope): boolean | undefined {
   if (expr.op === 'lit' && typeof expr.value === 'boolean') return expr.value;
-  // A module constant, a namespace's or a static readonly (`ON`, `N.ON`, `C.ON`) too, as
-  // `foldConstNumber` folds a numeric one: `while (ON)` for `const ON = true` read as a
-  // runtime condition, so the loop that never ends compiled with no diagnostic (Rule 7.5).
-  // A function's scope binds a `bool` module constant to the value the module carries, 1 or
-  // 0, and a `const` copied from one (`const go = ON`) takes that number from the fold.
-  if (expr.op === 'constref' || expr.op === 'varref' || expr.op === 'param') {
+  if (expr.op === 'varref' || expr.op === 'param') {
     const b = scope.resolveIr(expr.name);
-    if (!b || typeKey(b.type) !== 'bool' || (expr.op !== 'constref' && b.mutable)) {
-      return undefined;
-    }
-    const v = b.constValue;
-    return typeof v === 'boolean' ? v : v === 1 ? true : v === 0 ? false : undefined;
+    if (b && !b.mutable && typeof b.constValue === 'boolean') return b.constValue;
   }
   return undefined;
 }
@@ -589,6 +580,49 @@ function addTrips(
 }
 
 /**
+ * The value a `while` condition has on every trip, or undefined when it is not constant.
+ *
+ * {@link foldConstBool}, and what the loop's question needs beyond it: a module constant, a
+ * namespace's or a static readonly (`ON`, `N.ON`, `C.ON`), and `!`, `&&`, `||` and a comparison
+ * over constants (`!PAUSED`, `ON && ON`, `N > 0`). Each of those read as a runtime condition,
+ * so the loop that never ends compiled with no diagnostic. It is kept apart from
+ * {@link foldConstValue}, which gives a `const` its value and so decides what a module constant
+ * emits. A function's scope binds a `bool` module constant to the 1 or 0 the module carries,
+ * and a `const` copied from one (`const go = ON`) takes that number from the fold.
+ */
+function foldConstCond(expr: Expr, scope: LoweringScope): boolean | undefined {
+  const known = foldConstBool(expr, scope);
+  if (known !== undefined) return known;
+  if (expr.op === 'constref' || expr.op === 'varref' || expr.op === 'param') {
+    const b = scope.resolveIr(expr.name);
+    if (!b || typeKey(b.type) !== 'bool' || (expr.op !== 'constref' && b.mutable)) {
+      return undefined;
+    }
+    const v = b.constValue;
+    return typeof v === 'boolean' ? v : v === 1 ? true : v === 0 ? false : undefined;
+  }
+  // `a || true` holds whatever `a` is, and `a && false` fails whatever it is.
+  if (expr.op === 'logical') {
+    const a = foldConstCond(expr.a, scope);
+    const b = foldConstCond(expr.b, scope);
+    const decides = expr.lop === '||';
+    if (a === decides || b === decides) return decides;
+    return a === undefined || b === undefined ? undefined : !decides;
+  }
+  // `!x` is `x == false` in the IR, so a negation is a comparison of two bools.
+  if (expr.op === 'compare' && typeKey(expr.type) === 'bool') {
+    const side = (e: Expr): number | undefined => {
+      const b = foldConstCond(e, scope);
+      return b === undefined ? foldConstNumber(e, scope) : Number(b);
+    };
+    const a = side(expr.a);
+    const b = side(expr.b);
+    return a === undefined || b === undefined ? undefined : cmpHolds(expr.cop, a, b);
+  }
+  return undefined;
+}
+
+/**
  * Why a `while` cannot run as written, or undefined when it can (Rule 7.5).
  *
  * A `while` is an OPEN loop: it ends when its condition fails, or at a `break` or a `return`
@@ -605,7 +639,7 @@ export function openLoopError(
   hasExit: boolean,
   written: string,
 ): { message: string; code: TsCode } | undefined {
-  if (foldConstBool(cond, scope) !== true || hasExit) return undefined;
+  if (foldConstCond(cond, scope) !== true || hasExit) return undefined;
   return {
     message:
       `while (${written}) has no break or return in its body, so it never ends. Leave it ` +

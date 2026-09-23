@@ -1551,7 +1551,10 @@ refuses the header that moves it away from its bound:
 **The update is one of the counted forms, or the loop is refused.** `i++`, `i--`, `i += c`,
 `i -= c`, `i *= c` and `i /= c` step the counter, and so do `i = i + c`, `i = c + i` and
 `i = i - c`, which are `i += c` and `i -= c` spelled out (Rule 7.5); those three were
-`TS8099 Unsupported for-update.` Every other update gets the sentence an update of another
+`TS8099 Unsupported for-update.` The sum is typed as the same assignment in the body is
+(Rule 7.1): `i = i + 2.` and `i = i + u32(1)` on an `i32` counter are
+`TS8003 Type mismatch: cannot + i32 and f32 …` and `… cannot + i32 and u32 …` in the header as
+there. Every other update gets the sentence an update of another
 variable (`j += 1`) gets: `i <<= 1`, `i %= 3`, `i = i * 2`, `i++, j++`, and a compound assignment
 to a member or an element (`v.x += 1.`, `xs[0] += 1`) are each
 `TS8008 for-update must be i++ / i += <const>, or i *= / /= <const>.`, and one to a name nothing
@@ -1565,8 +1568,11 @@ to a bound, and it was told it must. The other clause is the refused part, and t
 it with the loop that says the same thing:
 `TS8006 for exit joins the bound "i < 8" with "i !== 3", and a counted loop's exit is its bound alone. Make "if (i === 3) { break; }" the body's first statement, or write the loop as a while.`
 The test is written as one comparison where that is its exact negation (an equality, or an
-ordering of integers) and as `!(…)` otherwise, since `!(x > 0.)` is not `x <= 0.` for a NaN.
-The bound may stand on either side of the `&&`, and an unannotated counter takes its type from
+ordering of integers), as `ok` for a clause `!ok`, and as `!(…)` otherwise, since `!(x > 0.)` is
+not `x <= 0.` for a NaN. A clause keeps the parentheses that make it one clause:
+`i < 8 && (a > 0 || b > 0) && c > 0` is told `"(a > 0 || b > 0) && c > 0"` and
+`if (!((a > 0 || b > 0) && c > 0)) { break; }`; the clauses joined bare read as
+`a > 0 || (b > 0 && c > 0)`, a different test. The bound may stand on either side of the `&&`, and an unannotated counter takes its type from
 it, so `i < data.length && data[i] > 0.` is told this and not `cannot compare i32 and u32`.
 
 What is not checked, because the value is not known before the loop runs: that the counter
@@ -1587,8 +1593,10 @@ that leaves it:
 `TS8007 while (true) has no break or return in its body, so it never ends.` A constant that
 holds `true` is the same loop: `const ON = true;` then `while (ON) { … }` is
 `TS8007 while (ON) has no break or return in its body, so it never ends.`, and so is a namespace's
-constant or a static readonly (`while (C.ON)`). It used to compile, and never end. A `break` inside a
-nested loop or a `switch` leaves that statement, not this loop, and is not counted as a way out.
+constant or a static readonly (`while (C.ON)`), and `!`, `&&`, `||` or a comparison over constants
+(`while (!PAUSED)`, `while (N > 0)`). Each used to compile, and never end. A `?:`, a call, or a
+local `const` holding one of those (`const go = !OFF`) is still read as a runtime condition
+(Appendix B of the language design). A `break` inside a nested loop or a `switch` leaves that statement, not this loop, and is not counted as a way out.
 A `for` with no condition says to write this form: `for (;;)` is refused and points at
 `while (true) { … }`.
 
@@ -1630,9 +1638,10 @@ of each trip, as TypeScript's array iterator reads it, and `for (let x of xs)` g
 body may change without writing the array. `break` and `continue` do what they do in any loop.
 The counter `_i`, like the `_w` a `while` counts with, is a name of the compiler's own, and the
 source cannot reach it (Rule 2.2): an `_i` the body reads is the author's, and a counter whose
-name is taken takes the next free one, `_i_1` or `_w_1`. An author's `_i` read in the body used
-to read the counter, silently, and an author's `_w` beside a `while`, or a second `while` in the
-function, failed in the backend.
+name a local, a module constant, a binding, a function or a struct already has takes the next free
+one, `_i_1` or `_w_1`. An author's `_i` read in the body used to read the counter, silently; an
+author's `_w` beside a `while`, or a second `while` in the function, failed in the backend; and a
+call in the body to an author's `function _w` reached the counter, which Tint refused.
 
 Three shapes are refused. A vector is not an array (`TS8003`): index it, or write it into an
 `array<T, N>`. The array has to be a name, or a member or index path to one (`TS8006`), because

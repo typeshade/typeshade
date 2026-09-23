@@ -1101,12 +1101,23 @@ export class LoweringScope {
   /** An internal local the lowering needs and the source never named: the value a
    *  destructuring declaration reads from, lowered once (roadmap 0.3 item T7, #92). It takes an
    *  IR name no other local can take and binds no source name, so two of them in one block do
-   *  not collide with each other and neither collides with a name the program declares. Returns
-   *  the IR name to write into the statement. */
+   *  not collide with each other and neither collides with a name the program declares. Nor is
+   *  it the name of a function or a struct of the module: a loop's counter named `_w` hid the
+   *  author's `function _w` from the loop's body, and Tint refused the call to it. Returns the
+   *  IR name to write into the statement. */
   defineTemp(prefix: string, type: ShaderType, mutable = false): string {
-    const ir = this.allocIrName(prefix);
+    const ir = this.allocIrName(prefix, (n) => this.namesModuleDecl(n));
     this.byIr.set(ir, { kind: 'local', name: ir, type, mutable });
     return ir;
+  }
+
+  /** Whether the module emits a function or a struct as `name`. The module's constants,
+   *  bindings, overrides and variables are in {@link takenIr} already, defined in each
+   *  function's scope; these are not, since a source name reaches them by a call or a type. */
+  private namesModuleDecl(name: string): boolean {
+    if (this.structs.has(name) || this.callees.has(name)) return true;
+    for (const fn of this.callees.values()) if (fn.name === name) return true;
+    return false;
   }
 
   /** What an expression node stands for once a chain has run the calls before it (Rule 8.10):
@@ -1120,14 +1131,17 @@ export class LoweringScope {
     return this.chainAliases.get(node);
   }
 
-  private allocIrName(name: string): string {
-    if (!this.takenIr.has(name)) {
+  /** `name`, or the first of `name_1`, `name_2`, ... that no `define` has handed out and
+   *  `reserved` does not hold, marked taken. */
+  private allocIrName(name: string, reserved: (n: string) => boolean = () => false): string {
+    const free = (n: string): boolean => !this.takenIr.has(n) && !reserved(n);
+    if (free(name)) {
       this.takenIr.add(name);
       return name;
     }
     for (let n = 1; ; n++) {
       const candidate = `${name}_${n}`;
-      if (!this.takenIr.has(candidate)) {
+      if (free(candidate)) {
         this.takenIr.add(candidate);
         return candidate;
       }
