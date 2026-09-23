@@ -15,6 +15,7 @@ import { voidT, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
+  THIS_CAPTURE,
   fileFunctionsOf,
   privateFieldTableOf,
   readonlyFieldTableOf,
@@ -28,10 +29,16 @@ import { isMixinDeclaration } from '../mixins.js';
 import { inferFrom, instanceName, typeSuffix, withTypeArguments } from '../generics.js';
 import { refuseAtomicDeclaration } from './atomics.js';
 import {
-  boundNamesOf,
+  captureBindings,
   collectLocalFunctions,
   declarationsIn,
+  liftCaptures,
+  propagateCaptureRefs,
+  type CaptureBinding,
+  type Lifted,
+  type LiftedThis,
   type LocalFunction,
+  type LocalFunctionDecl,
 } from './local-functions.js';
 import {
   filledCallsOf,
@@ -188,33 +195,26 @@ export function lowerSourceFunctions(
   // A local function is a function of the module, named after the body that declares it
   // (roadmap 0.3 item T7, #92). Collected before any body is lowered, so a call to one
   // resolves; the alias from the written name to the emitted one rides on the scope, which is
-  // what lets two bodies each declare an `f`.
-  const localFns: LocalFunction[] = [];
+  // what lets two bodies each declare an `f`. A body sees its own local functions and those of
+  // every body around it, as TypeScript's scopes do, so a helper may call its sibling.
+  const lifted: Lifted[] = [];
   const aliasesOf = new Map<string, Map<string, string>>();
   const seeLocals = (
-    decls: readonly ts.VariableDeclaration[],
+    decls: readonly LocalFunctionDecl[],
     ownerName: string,
-    bound: ReadonlySet<string>,
+    around: ReadonlyMap<ts.Node, FuncDecl>,
+    self: LiftedThis | undefined,
+    outer: ReadonlyMap<string, string>,
+    into: Lifted[] = lifted,
+    said: TsCompilerDiagnostic[] = diagnostics,
   ): void => {
-    const found = collectLocalFunctions(
-      decls,
-      ownerName,
-      bound,
-      sourceFile,
-      diagnostics,
-      structs,
-      refused,
-    );
-    if (found.length === 0) return;
-    let alias = aliasesOf.get(ownerName);
-    if (!alias) {
-      alias = new Map<string, string>();
-      aliasesOf.set(ownerName, alias);
-    }
+    const found = collectLocalFunctions(decls, ownerName, sourceFile, said, structs, refused);
+    const alias = new Map(outer);
+    const kept: LocalFunction[] = [];
     for (const fn of found) {
       if (callees.has(fn.stub.name)) {
         pushDiag(
-          diagnostics,
+          said,
           sourceFile,
           fn.decl,
           `"${fn.stub.name}" is both a function of this module and the emitted name of the ` +
@@ -225,16 +225,29 @@ export function lowerSourceFunctions(
       }
       callees.set(fn.stub.name, fn.stub);
       alias.set(fn.localName, fn.stub.name);
-      localFns.push(fn);
+      kept.push(fn);
+    }
+    aliasesOf.set(ownerName, alias);
+    for (const fn of kept) {
+      // An arrow function's `this` is the one around it; any other function's is its own,
+      // though it may still hand the method's object on to an arrow it calls.
+      const selfHere =
+        self === undefined
+          ? undefined
+          : { ...self, bindsThis: self.bindsThis && ts.isArrowFunction(fn.node) };
+      into.push({ fn, around, self: selfHere, ...(said !== diagnostics ? { said } : {}) });
       // A local function's own body is an owner in turn, so a helper inside a helper works.
-      seeLocals(
-        declarationsIn(fn.node.body),
-        fn.stub.name,
-        boundNamesOf(
-          fn.node,
-          fn.stub.params.map((p) => p.name),
-        ),
-      );
+      if (fn.node.body !== undefined) {
+        seeLocals(
+          declarationsIn(fn.node.body),
+          fn.stub.name,
+          new Map([...around, [fn.node, fn.stub]]),
+          selfHere,
+          alias,
+          into,
+          said,
+        );
+      }
     }
   };
   // The module top level, and each namespace body, where a `const f = (…) => …` is already a
@@ -247,30 +260,68 @@ export function lowerSourceFunctions(
     into.push(...stmt.declarationList.declarations);
     topDecls.set(prefix, into);
   });
-  for (const [prefix, decls] of topDecls) seeLocals(decls, prefix, new Set());
+  for (const [prefix, decls] of topDecls) seeLocals(decls, prefix, new Map(), undefined, new Map());
   for (const { node, stub } of ready) {
-    if (node.body)
+    if (node.body) {
       seeLocals(
         declarationsIn(node.body),
         stub.name,
-        boundNamesOf(
-          node,
-          stub.params.map((p) => p.name),
-        ),
-      );
-  }
-  for (const cf of classFns) {
-    if (cf.node?.body) {
-      seeLocals(
-        declarationsIn(cf.node.body),
-        cf.stub.name,
-        boundNamesOf(
-          cf.node,
-          cf.stub.params.map((p) => p.name),
-        ),
+        new Map([[node, stub]]),
+        undefined,
+        new Map(),
       );
     }
   }
+  // What a body a class inherits says goes to a list of its own, which `sayInherited` reads once
+  // every body is lowered; its local functions' diagnostics go there too.
+  const inheritedSaid: { cf: ClassFunction; said: TsCompilerDiagnostic[] }[] = [];
+  const saidOf = new Map<ClassFunction, TsCompilerDiagnostic[]>();
+  const saidFor = (cf: ClassFunction): TsCompilerDiagnostic[] => {
+    if (cf.inherited !== true) return diagnostics;
+    let said = saidOf.get(cf);
+    if (said === undefined) {
+      said = [];
+      saidOf.set(cf, said);
+      inheritedSaid.push({ cf, said });
+    }
+    return said;
+  };
+  for (const cf of classFns) {
+    if (cf.node?.body) {
+      // Inside a method, an arrow function's `this` is the method's object, and inside a static
+      // member the class the call names (Rule 8.13).
+      const self: LiftedThis | undefined =
+        cf.receiver !== undefined
+          ? {
+              receiver: {
+                type: cf.receiver.type,
+                mode: cf.receiver.mode === 'param' ? 'param' : 'inout',
+                superMethods: cf.receiver.superMethods,
+              },
+              bindsThis: true,
+              shown: cf.shown,
+            }
+          : cf.staticOwner !== undefined
+            ? {
+                staticOwner: cf.staticOwner,
+                staticSuper: cf.staticSuper,
+                bindsThis: true,
+                shown: cf.shown,
+              }
+            : undefined;
+      seeLocals(
+        declarationsIn(cf.node.body),
+        cf.stub.name,
+        new Map([[cf.node, cf.stub]]),
+        self,
+        new Map(),
+        lifted,
+        saidFor(cf),
+      );
+    }
+  }
+  const file = fileFunctionsOf(callees);
+  liftCaptures(lifted, callees, file);
   // Every default, lowered before any body, since a body may call a function declared after it
   // and the call needs the default already in hand (roadmap 0.3 item T7, #92). The scope is the
   // module's, with no parameters in it, which is why a default that reads one was refused at
@@ -306,6 +357,44 @@ export function lowerSourceFunctions(
   lowerAll(diagnostics, true);
   const funcs: FuncDecl[] = [];
   const nodeByName = new Map<string, FunctionNode>();
+  // Each local function's body after the bodies around it, whose declarations say what each
+  // variable it captures is (Rule 8.17); then a capture handed on to a local function that
+  // writes it is made the caller's to write back.
+  const fillLifted = (
+    list: readonly Lifted[],
+    sf: ts.SourceFile,
+    said: TsCompilerDiagnostic[],
+  ): void => {
+    for (const l of list) {
+      const fn = l.fn;
+      const bound = captureBindings(l, file);
+      // A variable it reads never lowered where it is declared, which said why there.
+      if (bound === undefined) continue;
+      fillFunctionBody(
+        fn.node,
+        fn.stub,
+        sf,
+        l.said ?? said,
+        callees,
+        consts,
+        bindings,
+        structs,
+        symbols,
+        overrides,
+        vars,
+        bound.receiver,
+        undefined,
+        undefined,
+        aliasesOf.get(fn.stub.name),
+        l.self?.bindsThis === true ? l.self.staticOwner : undefined,
+        l.self?.bindsThis === true ? l.self.staticSuper : undefined,
+        bound.captures,
+      );
+      funcs.push(fn.stub);
+      nodeByName.set(fn.stub.name, fn.node);
+    }
+    propagateCaptureRefs(list, callees, file);
+  };
   // One instance of a generic function per set of argument types (roadmap 0.3 item T9, #92).
   // Made where a call asks for it rather than in a pass of its own, because a call is the only
   // thing that says which types: `pick(1., 2.)` is what decides that `pick_f32` exists.
@@ -341,6 +430,21 @@ export function lowerSourceFunctions(
     callees.set(emitted, stub);
     writtenAs.set(emitted, name);
     withTypeArguments(bound, () => {
+      // The instance's own local functions, whose types may name the type parameters: one set
+      // per instance, as the body around them is (`pick_f32_sw`).
+      const mine: Lifted[] = [];
+      if (generic.node.body !== undefined) {
+        seeLocals(
+          declarationsIn(generic.node.body),
+          emitted,
+          new Map([[generic.node, stub]]),
+          undefined,
+          new Map(),
+          mine,
+          diags,
+        );
+        liftCaptures(mine, callees, file);
+      }
       fillFunctionBody(
         generic.node,
         stub,
@@ -356,10 +460,12 @@ export function lowerSourceFunctions(
         undefined,
         name,
         generic.prefix === '' ? undefined : generic.prefix,
+        aliasesOf.get(emitted),
       );
+      funcs.push(stub);
+      nodeByName.set(emitted, generic.node);
+      fillLifted(mine, sf, diags);
     });
-    funcs.push(stub);
-    nodeByName.set(emitted, generic.node);
     return stub;
   };
   // A body lowered for a class that inherits it says what it says into a list of its own. What
@@ -367,11 +473,9 @@ export function lowerSourceFunctions(
   // static that fails only for the inheriting class, where `this` is that class, is an error
   // where something calls it and nothing where nothing does (Rule 8.13), which is decided once
   // every body is lowered and the calls are known.
-  const inheritedSaid: { cf: ClassFunction; said: TsCompilerDiagnostic[] }[] = [];
   for (const cf of classFns) {
     if (cf.node !== undefined) {
-      const said = cf.inherited === true ? [] : diagnostics;
-      if (said !== diagnostics) inheritedSaid.push({ cf, said });
+      const said = saidFor(cf);
       fillFunctionBody(
         cf.node,
         cf.stub,
@@ -387,7 +491,7 @@ export function lowerSourceFunctions(
         cf.receiver,
         cf.shown,
         undefined,
-        undefined,
+        aliasesOf.get(cf.stub.name),
         cf.staticOwner,
         cf.staticSuper,
       );
@@ -434,27 +538,7 @@ export function lowerSourceFunctions(
     funcs.push(stub);
     nodeByName.set(stub.name, stmt);
   }
-  for (const fn of localFns) {
-    fillFunctionBody(
-      fn.node,
-      fn.stub,
-      sourceFile,
-      diagnostics,
-      callees,
-      consts,
-      bindings,
-      structs,
-      symbols,
-      overrides,
-      vars,
-      undefined,
-      undefined,
-      undefined,
-      aliasesOf.get(fn.stub.name),
-    );
-    funcs.push(fn.stub);
-    nodeByName.set(fn.stub.name, fn.node);
-  }
+  fillLifted(lifted, sourceFile, diagnostics);
   sayInherited(inheritedSaid, funcs, new Set(classFns.map((cf) => cf.stub)), diagnostics);
   // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
   // downstream of here was looking for one. In a single file a function is called by the name
@@ -1553,6 +1637,8 @@ export function fillFunctionBody(
   staticOwner?: string,
   /** For a static member, what `super` names in its body (Rule 8.13). */
   staticSuper?: ReadonlyMap<string, string>,
+  /** For a local function, the parameters it takes for what it captures (Rule 8.17). */
+  captures?: readonly CaptureBinding[],
 ): void {
   const scope = functionScope(
     stub,
@@ -1617,8 +1703,23 @@ export function fillFunctionBody(
       );
       return;
     }
-    scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true });
+    const stored = scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true });
+    // What a local function in this body that captures the parameter passes for it (Rule 8.17).
+    const declared = node.parameters[i - offset];
+    if (declared !== undefined) scope.bindDeclaration(declared, stored);
   });
+  // The method's object, which an arrow function in this body captures as `this`, and what a
+  // local function takes for each variable it captures (Rule 8.17): under the variable's own
+  // name, unless one of its own parameters took that name first. One the body does not read by
+  // name is bound under a name no source can write, `#n`, and reached through its declaration.
+  const self = scope.resolve('this');
+  if (self !== undefined) scope.bindDeclaration(THIS_CAPTURE, self);
+  for (const c of captures ?? []) {
+    const named = c.byName && !scope.hasInCurrent(c.binding.name);
+    const ir = c.binding.irName ?? c.binding.name;
+    const stored = scope.define(named ? c.binding : { ...c.binding, name: `#${ir}`, irName: ir });
+    scope.bindDeclaration(c.key, stored);
+  }
   if (node.name !== undefined && ts.isIdentifier(node.name)) {
     recordDeclaration(symbols, sourceFile, node.name, {
       name: shown ?? stub.name,

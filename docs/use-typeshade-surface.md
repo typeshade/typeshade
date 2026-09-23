@@ -251,7 +251,8 @@ entry may also return nothing, which is what a program that only writes to stora
 | `class Scene { @compute paint() {} }` | `this` is not a GPU instance |
 | Static class as bind group | Extra ban list; emit `.d.ts` instead |
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
-| JS `Array` / lambdas / `filter` length change | IR + WGSL constraints |
+| JS `Array` / `filter` length change | IR + WGSL constraints |
+| A function held in a variable, returned, or chosen at run time | Neither target has a function value; a local function and a closure's variables are §14's, and every call of one is written where it is in scope (Rule 8.17) |
 | Implicit `gid` / `vid` / `pid` globals | Hidden stage inputs make dependencies less explicit |
 | Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright. The check reads the calls as written, and a method call, an accessor and `new` as they lower, before the optimizer runs, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
 
@@ -985,14 +986,75 @@ function may declare one of its own (`fs_outer_inner`), and one written at the m
 is a module function already, under its own name; inside a `namespace` it takes the flattened
 one, `N_twice`.
 
-**A local function may not capture.** A shader function takes its arguments and reads the
-module; there is no environment for it to carry a name in, and no closure to allocate one. A
-name read from the body around it is refused where it is written, with the parameter to add
-instead. That is the one rule separating a local function from a function declaration.
+**A local function reads and writes the variables around it**, as a TypeScript closure does
+(Rule 8.17). Neither target has an environment to carry them in, and none is needed: a function
+is no value here, so every call of a local function is written where the variables it reads are
+in scope. Each variable it reads from a function around it is a parameter the emitted function
+takes ahead of its own, and every call passes it. One it writes, or that a local function it
+calls writes, is passed by reference, a pointer in WGSL and an `inout` parameter in GLSL ES
+3.00, so the write lands in the variable itself and the next call sees it:
 
-Three more shapes are refused: an expression body with no return type, since there is nothing to
-infer it from here; a `let`, which would let the name point at another function; and a type
-written on the const rather than on the function itself.
+```ts
+"use typeshade";
+
+export function accumulate(k: f32): f32 {
+  let total = 0.;
+  const add = (v: f32): void => {     // fn accumulate_add(total: ptr<function, f32>, k: f32, v: f32)
+    total += v * k;                   //   (*total) += (v * k);
+  };
+  add(1.);                            // accumulate_add(&total, k, 1.0);
+  add(2.);
+  return total;                       // 1.5 for k = 0.5
+}
+
+class Meter {
+  level: f32 = 0.;
+  gain: f32 = 2.;
+  feed(xs: array<f32, 3>): f32 {
+    // `this` in an arrow function is the method's object; `push` writes it, so `feed` takes it
+    // by reference (Rule 8.10) and hands it on: Meter_feed_push(self_, xs[0]).
+    const push = (x: f32): void => {
+      this.level += x * this.gain;
+    };
+    push(xs[0]);
+    push(xs[1]);
+    push(xs[2]);
+    return this.level;
+  }
+}
+
+export function hoisted(x: f32): f32 {
+  let steps = 0.;
+  bump();                             // a function declaration is hoisted, as TypeScript's is
+  bump();
+  return steps * x;
+  function bump(): void {
+    steps += 1.;
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  let m = new Meter();
+  return vec4(accumulate(0.5), m.feed(array<f32, 3>(1., 2., 3.)), hoisted(2.), 1.);
+}
+```
+
+A variable is read when the call runs, not when the function is declared, so a write between
+the two is seen. A write through a capture follows the variable's own declaration: a `let` may be
+written, a `const` only through the object it built (Rule 6.10), and a parameter not at all, as in
+the body around it. A function named as a fold's callback (`any(xs, near)`, `zip(xs, ys, f)`)
+passes what it captures to every call the fold makes. A local function inside a generic function
+is made once per instance, `pick_f32_swap`.
+
+Refused, each with the reason: a call at a point where a variable the function reads is not
+declared yet, since TypeScript throws there (`"f" reads "y", which is not declared yet where
+"f" is called`); and a function named as a value rather than called (`const g = f`, `return f`),
+since nothing at run time can hold a function.
+
+Three shapes of the declaration itself are refused too: an expression body with no return type,
+since there is nothing to infer it from here; a `let`, which would let the name point at another
+function; and a type written on the const rather than on the function itself.
 
 ### Triple-slash directives
 
@@ -2774,8 +2836,9 @@ _ret = vec4(c, float(any(equal(m, bvec3(false, false, false)))));
   `>`, `>=`) on two bool vectors is TS8003 with the fix: `===`/`!==`, or `any`/`all`.
 - **`any(m)` and `all(m)`** reduce a vector of bools to one bool, the same builtins on both
   targets. Over an array they stay the folds, `any(xs, pred)` with `pred` a function the file
-  declares (an arrow function written in the call is `TS8099`); a scalar or a numeric vector is
-  TS8003 naming both shapes.
+  declares, a local one included, which hands each call what it captures (Rule 8.17; an arrow
+  function written in the call is `TS8099`); a scalar or a numeric vector is TS8003 naming both
+  shapes.
 - **`select(f, t, m)`** with a vector-of-bools condition picks per component, and the arms are
   vectors of the mask's size (TS8003 otherwise). WGSL's `select` takes the mask as is; GLSL ES
   3.00 spells `mix(f, t, m)` for float vectors and a componentwise ternary through the vector's

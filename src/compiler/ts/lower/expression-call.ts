@@ -53,6 +53,7 @@ import {
   lowerUserCall,
   mathResultType,
 } from './expression-misc.js';
+import { captureArguments } from './local-functions.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { HOST_GLOBALS } from '../semantic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -300,7 +301,20 @@ export function lowerCall(
         intrinsicId = name;
       else {
         const decl = scope.resolveCallee(name);
-        if (decl) return lowerUserCall(node, decl, sourceFile, scope, diagnostics);
+        if (decl) {
+          // A local function that captures variables of the function around it takes each
+          // ahead of its own parameters, as this body holds it (Rule 8.17).
+          const leading = captureArguments(decl, name, node, sourceFile, scope, diagnostics);
+          if (leading === undefined) return undefined;
+          return lowerUserCall(
+            node,
+            decl,
+            sourceFile,
+            scope,
+            diagnostics,
+            leading.length > 0 ? { leading, shown: name } : {},
+          );
+        }
         // A generic function is compiled once per set of argument types the file calls it
         // with (roadmap 0.3 item T9, #92). The instance does not exist until a call asks for
         // it, so the arguments are lowered here, the type arguments read off them, and the

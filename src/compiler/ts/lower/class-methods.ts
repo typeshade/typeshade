@@ -31,7 +31,13 @@ import type { SourceSpan } from '../../../core/ir/span.js';
 import { boolT, f32T, i32T, structT, typeKey, u32T, voidT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { CollectedStruct, FieldInit } from '../structs.js';
-import { irNameOf, readOnlyPhrase, type LoweringScope, type SuperCtor } from '../context.js';
+import {
+  irNameOf,
+  readOnlyPhrase,
+  type LoweringScope,
+  type SuperCtor,
+  writeRules,
+} from '../context.js';
 import { pushTypeArguments } from '../generics.js';
 import { ambiguousNew, newInstanceName } from '../generic-structs.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -1844,7 +1850,10 @@ export function mutatingReceiver(
   const alias = scope.chainAlias(bare);
   if (alias !== undefined) return alias();
   if (ts.isIdentifier(bare)) {
-    const b = scope.resolve(bare.text);
+    // A captured variable's parameter keeps the variable's rules (Rule 8.17); `lowerLValue`
+    // below makes it a reference.
+    const found = scope.resolve(bare.text);
+    const b = found === undefined ? undefined : writeRules(found);
     if (b !== undefined && b.kind === 'param') {
       pushDiag(
         diagnostics,

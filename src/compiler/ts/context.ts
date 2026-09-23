@@ -110,7 +110,22 @@ export interface FileFunctions {
   /** The generic functions, under the emitted name a call resolves to. */
   readonly generics: Set<string>;
   instantiate: Instantiator | undefined;
+  /** Each function's declarations as lowered so far, by the node that declares them (a `let`, a
+   *  `const`, a parameter, and {@link THIS_CAPTURE} for its object), to the binding each made
+   *  there. What a call to a local function passes for a variable the function captures (Rule
+   *  8.17), and the type the function's parameter for it takes. */
+  readonly declared: Map<FuncDecl, Map<CaptureKey, Binding>>;
+  /** The variables each local function captures, by its emitted name, in the order of the
+   *  parameters it takes for them, which lead its own (Rule 8.17). */
+  readonly captures: Map<string, readonly CaptureKey[]>;
 }
+
+/** What a local function captures: the declaration of a variable, or the object of the method
+ *  around it, `this` (Rule 8.17). */
+export type CaptureKey = ts.Node | typeof THIS_CAPTURE;
+
+/** The key {@link FileFunctions.declared} holds a method's object under. */
+export const THIS_CAPTURE = 'this' as const;
 
 const FILE_FUNCTIONS = new WeakMap<Map<string, FuncDecl>, FileFunctions>();
 
@@ -118,7 +133,13 @@ const FILE_FUNCTIONS = new WeakMap<Map<string, FuncDecl>, FileFunctions>();
 export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
   const found = FILE_FUNCTIONS.get(callees);
   if (found !== undefined) return found;
-  const made: FileFunctions = { refused: new Set(), generics: new Set(), instantiate: undefined };
+  const made: FileFunctions = {
+    refused: new Set(),
+    generics: new Set(),
+    instantiate: undefined,
+    declared: new Map(),
+    captures: new Map(),
+  };
   FILE_FUNCTIONS.set(callees, made);
   return made;
 }
@@ -210,7 +231,17 @@ export interface Binding {
    *  bindings share an IR name (#38). Absent for a first declaration, whose IR name is its
    *  source name. */
   readonly irName?: string;
+  /** For the parameter a local function takes for a variable it captures (Rule 8.17): `of`,
+   *  the binding the variable has where it is declared, whose rules a write through this one
+   *  keeps (a `let` is written, a `const` only through what it holds, a parameter never), and
+   *  `byRef`, which makes the parameter a reference to the variable, the way a closure writes
+   *  the variable itself, the first time something writes it. */
+  readonly capture?: { readonly of: Binding; readonly byRef: () => void };
 }
+
+/** The binding whose rules a write to `b` keeps: the variable's own, for a local function's
+ *  parameter that captures it (Rule 8.17), and `b` itself otherwise. */
+export const writeRules = (b: Binding): Binding => b.capture?.of ?? b;
 
 /** The name an IR node for `b` carries: its {@link Binding.irName} when the source name was
  *  already taken in the function, its source name otherwise. Every site that builds a
@@ -694,6 +725,31 @@ export class LoweringScope {
 
   owner(): FuncDecl | undefined {
     return this.ownerDecl;
+  }
+
+  /** Record the binding `node` made in this function's body, a `let`, a `const` or a
+   *  parameter, for a local function that captures it (Rule 8.17). */
+  bindDeclaration(node: CaptureKey, binding: Binding): void {
+    if (this.ownerDecl === undefined) return;
+    const file = fileFunctionsOf(this.callees);
+    let mine = file.declared.get(this.ownerDecl);
+    if (mine === undefined) {
+      mine = new Map();
+      file.declared.set(this.ownerDecl, mine);
+    }
+    mine.set(node, binding);
+  }
+
+  /** The binding `node` made in this function, or undefined when nothing lowered so far made
+   *  one here: a variable read before its declaration, which TypeScript throws on (Rule 8.17). */
+  bindingOfDeclaration(node: CaptureKey): Binding | undefined {
+    if (this.ownerDecl === undefined) return undefined;
+    return fileFunctionsOf(this.callees).declared.get(this.ownerDecl)?.get(node);
+  }
+
+  /** The variables the local function `fn` captures, which a call to it passes first. */
+  capturesOf(fn: string): readonly CaptureKey[] {
+    return fileFunctionsOf(this.callees).captures.get(fn) ?? [];
   }
 
   defineCallee(fn: FuncDecl): void {

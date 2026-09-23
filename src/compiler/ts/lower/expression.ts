@@ -284,6 +284,22 @@ function lowerIdentifier(
   if (!binding) {
     const c = resolveLangConst(node.text);
     if (c !== undefined) return { op: 'lit', type: f32T, value: c };
+    // A function named where a value is read (Rule 8.17). A call of it is lowered where the call
+    // is, and a function handed to a fold is read there, so what reaches here asks for the
+    // function as a value: to hold, return, compare or choose at run time.
+    if (scope.resolveCallee(node.text) !== undefined || scope.isGenericFunction(node.text)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${node.text}" is a function, and a shader has no function values: nothing at run ` +
+          `time can hold one, return one or choose between two. Call it where its value is ` +
+          `needed, "${node.text}(...)".`,
+        TS_CODES.UNSUPPORTED,
+      );
+      return undefined;
+    }
+    if (scope.declarationRefused(node.text)) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,

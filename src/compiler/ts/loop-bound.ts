@@ -27,7 +27,9 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
     if (b && typeof b.constValue === 'number') return b.constValue;
     return undefined;
   }
-  if (expr.op === 'varref') {
+  // A `param` too: a local function's parameter for a `const` it captures carries the
+  // constant (Rule 8.17); a declared parameter is never one.
+  if (expr.op === 'varref' || expr.op === 'param') {
     const b = scope.resolveIr(expr.name);
     if (b && !b.mutable && typeof b.constValue === 'number') return b.constValue;
     return undefined;
@@ -116,7 +118,7 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
 
 export function foldConstBool(expr: Expr, scope: LoweringScope): boolean | undefined {
   if (expr.op === 'lit' && typeof expr.value === 'boolean') return expr.value;
-  if (expr.op === 'varref') {
+  if (expr.op === 'varref' || expr.op === 'param') {
     const b = scope.resolveIr(expr.name);
     if (b && !b.mutable && typeof b.constValue === 'boolean') return b.constValue;
   }

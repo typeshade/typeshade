@@ -5,7 +5,7 @@ import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { isF64, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { LoweringScope, irNameOf, readOnlyPhrase, type Binding } from '../context.js';
+import { LoweringScope, irNameOf, readOnlyPhrase, writeRules, type Binding } from '../context.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { parseSwizzle } from '../swizzle.js';
 import { staticThisClass } from '../class-names.js';
@@ -32,6 +32,7 @@ import {
 } from './class-access.js';
 import { lowerUserCall } from './expression-misc.js';
 import { localFunctionOf } from './local-functions.js';
+import { declaringNode } from './closures.js';
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js';
 import {
   broadcastResultType,
@@ -229,6 +230,9 @@ function lowerStatementKind(
   // could carry it; what is missing is an IR node for a bottom-tested loop, and adding one
   // means a new `Stmt` kind through all three backends and the trip-count analysis. A
   // recorded deferral, not a target constraint.
+  // A `function` declaration inside a body is a local function (Rule 8.17): lifted out as a
+  // function of the module before the body is lowered, so the statement itself runs nothing.
+  if (ts.isFunctionDeclaration(node) && node.body !== undefined) return [];
   if (ts.isDoStatement(node)) {
     pushDiag(
       diagnostics,
@@ -937,6 +941,8 @@ function defineLocal(
   // here rather than at the one call site it had, so the declaration WITHOUT an initializer
   // (`let x: f32;`) is recorded too — the editor should know a name the language now accepts.
   scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable });
+  // What a local function that captures it passes for it (Rule 8.17).
+  scope.bindDeclaration(declaringNode(decl, name), bound);
   return bound;
 }
 
@@ -1455,26 +1461,34 @@ export function lowerLValue(
     );
     return undefined;
   }
-  if (!binding.mutable && into && binding.toVar !== undefined) binding.toVar();
-  if (!binding.mutable) {
-    const ro = readOnlyPhrase(binding.kind);
+  // A local function's parameter for a variable it captures keeps the variable's rules, and a
+  // write that stands makes it a reference to the variable (Rule 8.17).
+  const rules = writeRules(binding);
+  if (!rules.mutable && into && rules.toVar !== undefined) rules.toVar();
+  if (!rules.mutable) {
+    const ro = readOnlyPhrase(rules.kind);
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      into && binding.kind === 'local' && isComposite(binding.type)
+      into && rules.kind === 'local' && isComposite(rules.type)
         ? constCopyWrite(node.text)
         : `Cannot assign to "${node.text}" — it is ${ro}.`,
       TS_CODES.CONST_ASSIGN,
     );
     return undefined;
   }
-  if (binding.kind === 'param') {
+  if (rules.kind === 'param') {
     refuseParamWrite(node, node.text, sourceFile, diagnostics);
     return undefined;
   }
+  binding.capture?.byRef();
   return withSpan(
-    { op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr,
+    {
+      op: binding.kind === 'param' ? 'param' : 'varref',
+      type: binding.type,
+      name: irNameOf(binding),
+    } as Expr,
     sourceFile,
     node,
   );
@@ -1632,7 +1646,9 @@ function checkRootWritable(
     );
     return false;
   }
-  if (binding.kind === 'param') {
+  // A captured variable's parameter keeps the variable's rules (Rule 8.17).
+  const rules = writeRules(binding);
+  if (rules.kind === 'param') {
     pushDiag(
       diagnostics,
       sourceFile,
@@ -1642,11 +1658,12 @@ function checkRootWritable(
     );
     return false;
   }
-  if (!binding.mutable) {
+  if (!rules.mutable) {
     // A write INTO a local `const`, not to the name: TypeScript allows it (Rule 6.10).
     const through = into || !ts.isIdentifier(unwrapParens(node));
-    if (through && binding.toVar !== undefined) {
-      binding.toVar();
+    if (through && rules.toVar !== undefined) {
+      rules.toVar();
+      binding.capture?.byRef();
       return true;
     }
     // readOnlyPhrase, not a local ternary: #18 gave a binding its own BindingKind, so the
@@ -1656,13 +1673,14 @@ function checkRootWritable(
       diagnostics,
       sourceFile,
       node,
-      through && binding.kind === 'local' && isComposite(binding.type)
+      through && rules.kind === 'local' && isComposite(rules.type)
         ? constCopyWrite(rootName)
-        : `Cannot assign to "${rootName}" — it is ${readOnlyPhrase(binding.kind)}.`,
+        : `Cannot assign to "${rootName}" — it is ${readOnlyPhrase(rules.kind)}.`,
       TS_CODES.CONST_ASSIGN,
     );
     return false;
   }
+  binding.capture?.byRef();
   return true;
 }
 

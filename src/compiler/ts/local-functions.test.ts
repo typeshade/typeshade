@@ -4,8 +4,8 @@
 // "(x: f32): f32 => x * 2."` and then `TS8004 Unknown function "f(uv.x)"`.
 //
 // Neither target has a function value, so a local function is a function of the module named
-// after the body that declares it, and the one rule that separates it from a function
-// declaration is that it may not capture.
+// after the body that declares it. It reads and writes the variables of the body around it as a
+// TypeScript closure does (Rule 8.17), which closures.test.ts pins form by form.
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
@@ -118,21 +118,25 @@ export function fs(): vec4 {
   });
 });
 
-describe('what a local function may not do', () => {
-  it('capture a name from the body around it', () => {
-    expect(
-      errorsOf(`"use typeshade";
+describe('a local function reads the body around it (Rule 8.17)', () => {
+  it('an entry parameter, which every call passes', () => {
+    const r = compile(`"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
   const f = (x: f32): f32 => x * uv.x;
   return vec4(f(2.), 0., 0., 1.);
 }
-`)[0],
-    ).toBe(
-      `${TS_CODES.UNSUPPORTED} "f" reads "uv" from the function around it. A shader function takes its arguments and reads the module; there is no environment for it to carry one in. Pass "uv" as a parameter.`,
-    );
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('fn fs_f(uv: vec2<f32>, x: f32) -> f32 {');
+    expect(r.wgsl).toContain('fs_f(uv, 2.0)');
+    for (const make of [compileModule, compileModuleJs]) {
+      expect(make(r.module).fns['fs']!([0.25, 0]), make.name).toEqual([0.5, 0, 0, 1]);
+    }
   });
+});
 
+describe('what a local function may not do', () => {
   it('leave its return type off an expression body, or be a let', () => {
     expect(
       errorsOf(`"use typeshade";

@@ -11,6 +11,7 @@ import { USER_FIRST_BUILTINS, isCanonicalMathFn } from '../math-alias.js';
 import { lowerExpression } from './expression.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { captureArguments } from './local-functions.js';
 
 export function lowerArrayCtor(
   node: ts.CallExpression,
@@ -337,6 +338,9 @@ export function lowerArrayFold(
   }
   const args: Expr[] = [];
   const predDecls: FuncDecl[] = [];
+  // What each call of the function passes ahead of its own arguments: the variables a local
+  // function captures (Rule 8.17).
+  let leading: Expr[] = [];
   for (const arg of node.arguments) {
     if (ts.isIdentifier(arg)) {
       const decl = scope.resolveCallee(arg.text);
@@ -358,7 +362,10 @@ export function lowerArrayFold(
         return undefined;
       }
       if (decl) {
+        const captured = captureArguments(decl, arg.text, arg, sourceFile, scope, diagnostics);
+        if (captured === undefined) return undefined;
         predDecls.push(decl);
+        leading = captured;
         continue;
       }
     }
@@ -399,7 +406,7 @@ export function lowerArrayFold(
       );
       return undefined;
     }
-    const out = unrollPred(first, predDecls[0]!, name === 'all' ? '&&' : '||');
+    const out = unrollPred(first, predDecls[0]!, name === 'all' ? '&&' : '||', leading);
     if (typeof out === 'string') {
       pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH);
       return undefined;
@@ -417,7 +424,7 @@ export function lowerArrayFold(
       );
       return undefined;
     }
-    const out = unrollZip(args[0]!, args[1]!, predDecls[0]!);
+    const out = unrollZip(args[0]!, args[1]!, predDecls[0]!, leading);
     if (typeof out === 'string') {
       pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH);
       return undefined;

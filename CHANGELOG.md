@@ -192,6 +192,25 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A local function reads and writes the variables around it, as a TypeScript closure does**
+  (Rule 8.17, new; Rule 8.8; surface §14). A local function that read a name from the body
+  around it was `TS8099 "f" reads "k" from the function around it. … Pass "k" as a parameter.`,
+  and a `function` declaration inside a body was an unsupported statement. Each variable a local
+  function reads from a function around it is now a parameter the emitted function takes ahead
+  of its own, and every call passes it: by value while nothing writes it, and by reference once
+  the function, or a local function it calls, writes it, `fn run_inc(n: ptr<function, f32>, k:
+f32)` called as `run_inc(&n, k)` in WGSL and `void run_inc(inout float n, float k)` in GLSL
+  ES 3.00. `this` in an arrow function is the method's object, written through as the method's
+  own `this` is (Rule 8.10); a `function` declaration is hoisted; a local function in a method,
+  and one in a generic function, made once per instance, compile where each was "Unknown
+  function" at its call; and a fold's
+  callback (`any(xs, near)`, `zip(xs, ys, f)`) passes what it captures to each call. A call at a
+  point where a variable the function reads is not declared yet is refused, as TypeScript throws
+  there, and a function named as a value (`const g = f`) is refused where it was "Unknown
+  identifier". `src/compiler/ts/closures.test.ts` holds the oracle and the codegen at both
+  precisions, the debugger, and the oracle over the optimized module to one value for each form;
+  `examples/closures.shade.ts` is in the compile gate.
+
 - **Hover documents every type name the compiler takes.** `TYPE_DOCS` has rows for
   `sampler`, `sampler_comparison` and every `texture_*` name, each with its `declare const` form
   and the capability that keeps it off GLSL ES 3.00 where one does. `DOCUMENTED_TYPE_NAMES` is
@@ -996,6 +1015,17 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **The CPU paths hand a function a copy of an aggregate it takes by value, as both GPU targets
+  do.** A JavaScript vector, matrix, array or struct is the caller's own object, so a function
+  that wrote what its caller passed changed its by-value parameter too: `a.add(a)`, with `add`
+  writing its object, computed 4 on the oracle, the codegen and the debugger where WGSL and GLSL
+  ES 3.00 compute 3, and `f(g)`, with `f` writing the module variable `g`, read 5 where both
+  targets read 1. A function that writes anything now copies such a parameter as it is entered,
+  and one that writes nothing, which cannot tell the two apart, pays for no copy. What an `inout`
+  parameter holds as a function returns is stored back into the variable passed there, which a
+  scalar a closure writes needs. The f32 rounding the debugger runs by default no longer wraps a
+  parameter taken by reference, which is storage it would have made `__fround(n) = …` of.
+  `src/core/cpu-aliasing.test.ts` pins both cases on every path.
 - **`this` in a static a derived class inherits is the class the call names** (Rule 8.13, §26).
   It was the class that wrote the member, silently: `Derived.twice()` read `Base.K` where
   `Derived` declares its own `K` (6 where TypeScript computes 10), an overridden `this.k()` ran
