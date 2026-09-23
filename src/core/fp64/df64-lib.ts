@@ -66,6 +66,9 @@ import {
   vec2fT,
   vec3fT,
   vec4fT,
+  vec2bT,
+  vec3bT,
+  vec4bT,
   texture2dfT,
   f64GuardOne,
   type Node,
@@ -678,11 +681,13 @@ const df64_cos = fn(
 // The EFTs are valid PER LANE, so the vector arithmetic runs the exact scalar
 // formulas on whole vecN hi/lo planes (one twoSum for all lanes — no unroll).
 // A vecN<f64> value lowers to `struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }`;
-// these helpers take/return that struct. dot/length/distance are NOT here —
+// these helpers take/return that struct, except the comparisons, which return
+// the vecN<bool> a vector comparison is. dot/length/distance are NOT here —
 // they need cross-lane accumulation and are composed from the SCALAR df64 fns
 // by the lowering pass (numerically the standard approach anyway).
 
 const VEC_F32_T = { 2: vec2fT, 3: vec3fT, 4: vec4fT } as const;
+const VEC_BOOL_T = { 2: vec2bT, 3: vec3bT, 4: vec4bT } as const;
 
 /** DF64VecN struct decls, keyed by lane count — injected by fp64-lower
  *  alongside the helpers whenever a module carries a vecN<f64>. */
@@ -837,6 +842,25 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
     return gather(ls.map((l) => Let(df64_div({ a: l, b: len }))));
   });
 
+  // ── Componentwise comparisons ──
+  // `a < b` on two vecN<f64> is a vecN<bool> (§27): the verified scalar comparator on each
+  // lane, as the builtins above compose theirs. The comparators carry no error term and read
+  // no guard, so a module whose only f64 work is comparing vectors gets no `_fp64` binding,
+  // as one comparing scalars does not.
+  const compareLanes = (name: string, lane: typeof df64_lt) =>
+    fn(`df64_v${n}_${name}`, { a: sT, b: sT }, (p) =>
+      construct(
+        VEC_BOOL_T[n],
+        LANES.map((c) => lane({ a: laneOf(p.a, c), b: laneOf(p.b, c) })),
+      ),
+    );
+  const vLt = compareLanes('lt', df64_lt);
+  const vGt = compareLanes('gt', df64_gt);
+  const vLe = compareLanes('le', df64_le);
+  const vGe = compareLanes('ge', df64_ge);
+  const vEq = compareLanes('eq', df64_eq);
+  const vNe = compareLanes('ne', df64_ne);
+
   return [
     twoSum.decl,
     quickTwoSum.decl,
@@ -856,6 +880,12 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
     vSin.decl,
     vCos.decl,
     vNormalize.decl,
+    vLt.decl,
+    vGt.decl,
+    vLe.decl,
+    vGe.decl,
+    vEq.decl,
+    vNe.decl,
   ];
 }
 

@@ -32,6 +32,7 @@ import { checkRecursion, type RecursionNode } from './recursion.js';
 import { fileFunctionsOf } from './context.js';
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
 import type { DeclaredSymbol } from './symbols.js';
+import { unknownNameSentence } from './unknown-names.js';
 
 export interface TsSourceFileInput {
   readonly fileName: string;
@@ -256,11 +257,17 @@ export function compileTsSources(
           continue;
         }
         if (!rec) {
+          // On the imported name, as TypeScript's TS2305 is, with the export it is spelled like.
+          const exported = [...targetTable]
+            .filter(([, r]) => (r.stub as { exported?: boolean } | undefined)?.exported !== false)
+            .map(([n]) => n);
           diagnostics.push(
             makeDiagnostic(
               sf,
-              el,
-              `"${target}" has no function "${imported}".`,
+              el.propertyName ?? el.name,
+              unknownNameSentence(`"${target}" has no function "${imported}".`, imported, [
+                exported,
+              ]),
               TS_CODES.UNSUPPORTED,
             ),
           );

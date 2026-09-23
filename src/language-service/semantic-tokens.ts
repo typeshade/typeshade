@@ -187,9 +187,17 @@ export function getSemanticTokens(
 
     const modifiers = decodeModifiers(encoded & TOKEN_MODIFIER_MASK);
     const text = sourceFile.text.slice(start, start + length);
-    if (baseType === 'type' && TYPE_DOCS[text] !== undefined) modifiers.push('gpu');
+    // A GPU type is a `type` with the `gpu` modifier whatever TypeScript classifies it as: the
+    // vectors are interfaces in the ambient library (each swizzle is a member), and the only
+    // `struct` a program has is one it declares.
+    const gpu = (baseType === 'type' || baseType === 'struct') && TYPE_DOCS[text] !== undefined;
+    if (gpu) modifiers.push('gpu');
     if (baseType === 'function' && overlay.entryNameStarts.has(start)) modifiers.push('entry');
-    const type = baseType === 'variable' && bindingNames.has(text) ? 'resource' : baseType;
+    const type = gpu
+      ? 'type'
+      : baseType === 'variable' && bindingNames.has(text)
+        ? 'resource'
+        : baseType;
     tokens.push({ start, length, type, modifiers });
   }
 

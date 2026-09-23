@@ -11,7 +11,10 @@ import {
   f32,
   f32T,
   i32,
+  boolT,
   vec4fT,
+  vec3bT,
+  vec2f64T,
   vec3f64T,
   mat3f64T,
   toF32,
@@ -38,6 +41,7 @@ import {
   type FuncDecl,
   type ModuleDecl,
   type ReadonlyNode,
+  type ShaderType,
 } from '../ir/index.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
 import { fp64Guard, FP64_GUARD_NAME, DF64_ORDER } from '../fp64/df64-lib.js';
@@ -46,6 +50,35 @@ import { fp64Lower, foldGuardChain, hoistGuardFetch } from './fp64-lower.js';
 import { emitModule, emitModuleAt } from '../backends/wgsl.js';
 import { emitGlslModule } from '../backends/glsl.js';
 import { compile } from '../../compiler/ts/compile.js';
+
+/** `k(a, b) = a < b`, typed `type`, built by hand: the fn() EDSL has no vector comparison
+ *  (SD0002), so a vec64 comparison reaches the pass from the `"use typeshade"` front end, or
+ *  from IR written as this is. */
+const vec64Compare = (a: ShaderType, b: ShaderType, type: ShaderType): ModuleDecl =>
+  module({
+    funcs: [
+      {
+        name: 'k',
+        params: [
+          { name: 'a', type: a },
+          { name: 'b', type: b },
+        ],
+        ret: type,
+        body: [
+          {
+            s: 'return',
+            expr: {
+              op: 'compare',
+              type,
+              cop: '<',
+              a: { op: 'param', type: a, name: 'a' },
+              b: { op: 'param', type: b, name: 'b' },
+            },
+          },
+        ],
+      },
+    ],
+  });
 
 describe('identity for non-f64 modules', () => {
   it('returns the SAME module object when no f64 appears anywhere', () => {
@@ -134,6 +167,25 @@ describe('rewrite shapes', () => {
     expect(names).toContain('df64_v3_sin');
     // The vec twin composes the SCALAR df64_sin per lane, so that is pulled in too.
     expect(names).toContain('df64_sin');
+  });
+
+  it('a vec64 comparison lowers to the per-lane df64_vN_* comparator, a vector of bools', () => {
+    for (const flavor of ['float', 'integer'] as const) {
+      const lowered = fp64Lower(vec64Compare(vec3f64T, vec3f64T, vec3bT), { flavor });
+      expect(lowered.funcs[0]!.body[0], flavor).toMatchObject({
+        s: 'return',
+        expr: { op: 'call', fn: 'df64_v3_lt', type: vec3bT },
+      });
+      // Each lane goes through the SCALAR comparator, which is declared first (GLSL declares
+      // before use). A comparator carries no error term: no guard parameter, no `_fp64`.
+      const names = lowered.funcs.map((f) => f.name);
+      expect(names.indexOf('df64_lt'), flavor).toBeGreaterThan(0);
+      expect(names.indexOf('df64_lt'), flavor).toBeLessThan(names.indexOf('df64_v3_lt'));
+      const helper = lowered.funcs.find((f) => f.name === 'df64_v3_lt')!;
+      expect(helper.params.map((p) => p.name)).toEqual(['a', 'b']);
+      expect(helper.ret).toEqual(vec3bT);
+      expect(lowered.bindings, flavor).toEqual([]);
+    }
   });
 
   it('f64 params/returns become vec2<f32>; no f64 token survives lowering', () => {
@@ -608,6 +660,18 @@ describe('fail-loud gates', () => {
     // @ts-expect-error — exp's key domain is FloatKey (no f64)
     const k = fn('k', { a: f64T }, (p) => exp(p.a));
     expect(() => fp64Lower(module({ funcs: [k] }))).toThrow(/SD0041/);
+  });
+
+  it('SD0041 — a vec64 comparison typed as one bool, or over two widths', () => {
+    // Typed as one bool is what the front end built before a vec64 comparison was a vector of
+    // bools, and it reached WGSL as a `<` on two DF64Vec3 structs.
+    expect(() => fp64Lower(vec64Compare(vec3f64T, vec3f64T, boolT))).toThrow(
+      "[SD0041]: unsupported operation on f64 operands — compare '<' of vec3<f64> and " +
+        'vec3<f64> typed bool; two vec64s of one width compare into a vector of bools',
+    );
+    expect(() => fp64Lower(vec64Compare(vec3f64T, vec2f64T, vec3bT))).toThrow(
+      "compare '<' of vec3<f64> and vec2<f64> typed vec3<bool>",
+    );
   });
 
   it("SD0043 — authored fn names must not squat the reserved 'df64_' prefix", () => {

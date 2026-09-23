@@ -56,7 +56,7 @@ import {
   shiftAmountMessage,
   shiftAmountOutOfRange,
 } from '../lit-coerce.js';
-import { lowerExpression } from './expression.js';
+import { lowerExpression, unknownIdentifierSentence } from './expression.js';
 import { lowerCall } from './expression-call.js';
 import { lowerArrayLiteral, refuseListSpread, spreadListType } from './expression-array.js';
 import { lowerFor, lowerForOf, lowerSwitch, lowerUpdate, lowerWhile } from './control.js';
@@ -66,6 +66,9 @@ import { withSpan } from '../span.js';
 import { foldNumericLit } from '../lit-coerce.js';
 import { foldConstNumber, foldConstComponents, foldConstValue } from '../loop-bound.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { unknownNameAlreadyReported } from '../refused-names.js';
+import { unknownNameSentence } from '../unknown-names.js';
+import { publicFieldNames } from './expression-prop.js';
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusEqualsToken]: '+',
@@ -922,7 +925,9 @@ function readField(
         diagnostics,
         sourceFile,
         at,
-        `"${base.type.name}" has no field "${field}".`,
+        unknownNameSentence(`"${base.type.name}" has no field "${field}".`, field, [
+          publicFieldNames(base.type.name, scope),
+        ]),
         TS_CODES.UNKNOWN_NAME,
       );
       return undefined;
@@ -1190,9 +1195,9 @@ function lowerAssign(
  *
  * Kept apart from {@link lowerAssignOp} for one reason: the bitwise operators are defined
  * on integers only, and this is a form nothing accepted before, so refusing a float target
- * here rejects no source that compiles today. (`a & b` as an EXPRESSION has no such guard
- * and emits `(a & b)` for two `f32`s, which is not valid WGSL — a pre-existing hole that
- * tightening would break passing source, so it is left for its own change.)
+ * here rejects no source that compiles today. (`a & b` as an EXPRESSION refuses a float
+ * operand too, in `lowerBinary`, except two f32 whole numbers the front end folds: a module
+ * constant, an enum member and a `case` label take `1 | 2` as 3, so that stays accepted.)
  *
  * @returns the `assignOp` statement, or `undefined` after pushing a diagnostic.
  */
@@ -1540,11 +1545,16 @@ export function lowerLValue(
   }
   const binding = scope.resolve(node.text);
   if (!binding) {
+    // A refused declaration already said why the name is unbound (Rule 12.4, #171).
+    if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `Cannot assign to unknown name "${node.text}".`,
+      // `gl_Position = …` is how a GLSL vertex shader ends; here it is a field of the entry's
+      // return, which is what the remedy says (#218). A misspelled name names the one in scope
+      // it is spelled like (Rule 12.1).
+      unknownIdentifierSentence(node, `Cannot assign to unknown name "${node.text}".`),
       // UNKNOWN_NAME, not ASSIGN_TARGET: the name does not resolve, which is what every
       // other unresolved-identifier site in the lowerer reports (expression.ts, the property
       // and call lowerers). ASSIGN_TARGET is about the SHAPE of the target — "must be an
@@ -1724,13 +1734,17 @@ function checkRootNamed(
   }
   const binding = scope.resolve(rootName);
   if (!binding) {
+    // A refused declaration already said why the root is unbound (Rule 12.4, #171).
+    if (rootName !== 'this' && unknownNameAlreadyReported(node, rootName, sourceFile, diagnostics))
+      return false;
     pushDiag(
       diagnostics,
       sourceFile,
-      node,
-      rootName === 'this'
-        ? '"this" names a method\'s object; a static function and a top-level function have none.'
-        : `Cannot assign to unknown name "${rootName}".`,
+      // On the root, the name that names nothing, as a bare target's refusal is.
+      ts.isIdentifier(root) ? root : node,
+      ts.isIdentifier(root)
+        ? unknownIdentifierSentence(root, `Cannot assign to unknown name "${rootName}".`)
+        : '"this" names a method\'s object; a static function and a top-level function have none.',
       // The same code as the bare-identifier arm above, for the same sentence: the root of a
       // chain that names nothing is an unresolved identifier, not a target of the wrong shape.
       TS_CODES.UNKNOWN_NAME,

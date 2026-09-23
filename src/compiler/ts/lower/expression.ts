@@ -7,7 +7,7 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, boolT, i32T, u32T, isF64, isVec64, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { irNameOf, type LoweringScope } from '../context.js';
-import { resolveLangConst } from '../math-alias.js';
+import { LANG_CONST, resolveLangConst } from '../math-alias.js';
 import { refusedBySemantics } from '../semantic.js';
 import { foldConstComponents, foldConstNumber } from '../loop-bound.js';
 import {
@@ -26,12 +26,15 @@ import { mapTsTypeToShaderType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
 import { refuseBareAtomic } from './atomics.js';
-import { lowerCall } from './expression-call.js';
+import { builtinCalleeNames, lowerCall } from './expression-call.js';
+import { declarationOf } from './closures.js';
 import { lowerNew, lowerThis } from './class-methods.js';
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { unknownNameAlreadyReported } from '../refused-names.js';
+import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -283,6 +286,38 @@ const RUNTIME_TYPE_TEST: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
     'write the field access.',
 };
 
+/** The builtin values a name may be meant as: the language constants, `Math` and `console`, and
+ *  every builtin function, which TypeScript's own suggestion offers for a value too. */
+let builtinValues: readonly string[] | undefined;
+const builtinValueNames = (): readonly string[] =>
+  (builtinValues ??= [...Object.keys(LANG_CONST), 'Math', 'console', ...builtinCalleeNames()]);
+
+/** The candidates for a misspelled value where `node` is written: the names in scope there,
+ *  innermost first, then the builtins. */
+export const valueScopes = (node: ts.Node): NameScopes => [
+  ...namesInScope(node, 'value'),
+  builtinValueNames(),
+];
+
+/**
+ * The sentence for an identifier that names no binding, `mistake` followed by its remedy
+ * (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name, or the name in scope a misspelled
+ * one is spelled like. A name the file declares is not misspelled, and a spelling guess would
+ * send the author to another name: when its declaration is further down the same scope, the
+ * mistake is the order, which is TypeScript's TS2448 too, and the sentence says so.
+ */
+export function unknownIdentifierSentence(node: ts.Identifier, mistake: string): string {
+  const declared = declarationOf(node);
+  if (declared === undefined) return unknownNameSentence(mistake, node.text, valueScopes(node));
+  if (
+    (ts.isVariableDeclaration(declared) || ts.isBindingElement(declared)) &&
+    declared.getStart() > node.getStart()
+  ) {
+    return `"${node.text}" is read before its declaration. Declare it above this line.`;
+  }
+  return mistake;
+}
+
 function lowerIdentifier(
   node: ts.Identifier,
   sourceFile: ts.SourceFile,
@@ -310,11 +345,14 @@ function lowerIdentifier(
       return undefined;
     }
     if (scope.declarationRefused(node.text)) return undefined;
+    // A name whose declaration was refused, or one an error already covers, says nothing
+    // more: the refusal is the one diagnostic for the one mistake (Rule 12.4, #171).
+    if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `Unknown identifier "${node.text}".`,
+      unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`),
       TS_CODES.UNKNOWN_NAME,
     );
     return undefined;
@@ -727,6 +765,30 @@ function lowerBinary(
             : right;
       return { op: 'binop', type: left.type, bop: bit, a: left, b: amount };
     }
+    // `&`, `|` and `^` have no float overload on either target (Rule 7.1: WGSL's bit expressions
+    // take the integer kinds, and `&` and `|` bools; GLSL ES 3.00 §5.9 takes integers only), but
+    // this path compared only the two operand types. So `a & b` on two f32s emitted `(a & b)`,
+    // which Tint refuses with `no matching overload for 'operator & (f32, f32)'`, and two f64s
+    // came back from the fp64 pass as a span-less SD0041. A float operand is refused here, in
+    // the author's words (Rule 12.6), and before the equal-types rule below, whose remedy for
+    // `f32 & u32` begins with `f32(intVal)`: two floats, which is this refusal again.
+    //
+    // Two whole numbers the front end folds are the exception. `1 | 2`, or two flags declared
+    // `const A = 1`, are f32 only by Rule 5.1's default, and a module constant, an enum member
+    // and a `case` label fold them to the number (§12), which compiles; that is left as it was.
+    // Where such a pair is emitted instead (`const x = 1 | 2` in a function body), it still
+    // reaches the targets as `(1.0 | 2.0)`, as before.
+    const float = [left.type, right.type].find(isFloatBitOperand);
+    if (float !== undefined && !isWholeF32Pair(left, right, scope)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        bitwiseFloatMessage(bit, float),
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
     if (typeKey(left.type) !== typeKey(right.type)) {
       pushDiag(
         diagnostics,
@@ -772,9 +834,12 @@ function lowerBinary(
       return undefined;
     }
     // Two vectors compare componentwise and yield a vector of bools (§27), which `any`, `all`
-    // and `select` take. An ordering on bools has no meaning on either target.
-    if (left.type.kind === 'vec') {
-      if (left.type.elem === 'bool' && cmp !== '==' && cmp !== '!=') {
+    // and `select` take. A vector of emulated doubles is one too: §39 gives it the six
+    // comparisons, and the fp64 pass lowers them lane by lane. Typed as one scalar bool, as it
+    // was, `a < b` on two `vec3f64` was refused wherever a mask goes and reached WGSL as a `<`
+    // on two structs wherever a bool does. An ordering on bools has no meaning on either target.
+    if (left.type.kind === 'vec' || isVec64(left.type)) {
+      if (left.type.kind === 'vec' && left.type.elem === 'bool' && cmp !== '==' && cmp !== '!=') {
         pushDiag(
           diagnostics,
           sourceFile,
@@ -832,6 +897,41 @@ function laneCount(t: ShaderType): 1 | 2 | 3 | 4 {
 function isFloatPowOperand(t: ShaderType): boolean {
   if (t.kind === 'vec') return t.elem === 'f32';
   return typeKey(t) === 'f32';
+}
+
+/** Whether `t` is a float that `&`, `|` and `^` have no overload for on either target: an f32,
+ *  a vector of f32, or an emulated double, scalar or vector. */
+function isFloatBitOperand(t: ShaderType): boolean {
+  if (t.kind === 'vec') return t.elem === 'f32';
+  return typeKey(t) === 'f32' || isF64(t) || isVec64(t);
+}
+
+/** Whether both operands are f32 whole numbers the front end folds (`foldConstNumber`): `1 | 2`,
+ *  or two flags declared `const A = 1`. A module constant, an enum member and a `case` label
+ *  hold the folded number, so no operator reaches a target there. */
+function isWholeF32Pair(a: Expr, b: Expr, scope: LoweringScope): boolean {
+  return [a, b].every((e) => {
+    if (typeKey(e.type) !== 'f32') return false;
+    const v = foldConstNumber(e, scope);
+    return v !== undefined && Number.isInteger(v);
+  });
+}
+
+/** The sentence `&`, `|` and `^` raise for a float operand (Rule 12.1): the kind, then the
+ *  conversion to write, which the surface has for each kind. An f32 may be reinterpreted
+ *  instead (`bitcast<u32>`, surface §44), and an emulated double narrows to f32 before any
+ *  integer conversion, as its casts require. */
+function bitwiseFloatMessage(bit: BinOp, t: ShaderType): string {
+  const fix =
+    t.kind === 'vec'
+      ? `Convert first, e.g. vec${String(t.n)}u(a) ${bit} vec${String(t.n)}u(b).`
+      : t.kind === 'vec64'
+        ? `Narrow and convert first, e.g. vec${String(t.n)}u(vec${String(t.n)}(a)) ${bit} ` +
+          `vec${String(t.n)}u(vec${String(t.n)}(b)).`
+        : isF64(t)
+          ? `Narrow and convert first, e.g. u32(f32(a)) ${bit} u32(f32(b)).`
+          : `Convert first, e.g. u32(a) ${bit} u32(b), or reinterpret the bits with bitcast<u32>(a).`;
+  return `Bitwise "${bit}" needs i32 or u32 operands, got ${typeKey(t)}. ${fix}`;
 }
 
 function pushDiag(

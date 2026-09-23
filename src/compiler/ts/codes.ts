@@ -30,7 +30,7 @@ export const TS_CODES = {
   TOP_LEVEL: 'TS8014',
   BACKEND: 'TS8015',
   INDEX_OOB: 'TS8016',
-  /** Invalid `switch` case: a label that is not an integer constant, does not fit the selector, or repeats another; an empty clause with no body below it to share (a trailing one, or one above `default:`); or `continue` in a switch no loop encloses. */
+  /** Invalid `switch` case: a label that is not an integer constant, does not fit the selector, or repeats another; an empty clause with no body below it to share (a trailing one, or one above `default:`); a body whose end is reachable above a clause with a body, which TypeScript would run on into and WGSL does not (Rule 7.3, #202); or `continue` in a switch no loop encloses. */
   SWITCH_CASE: 'TS8017',
   /** An assignment or `++`/`--` target that is not a writable name (not an identifier, unknown, or a non-writable parameter). Assigning to a known immutable binding is `CONST_ASSIGN` instead. */
   ASSIGN_TARGET: 'TS8018',
