@@ -329,7 +329,7 @@ declare const U_: uniform<U>
     [
       'a bool in a storage struct',
       `interface S { flag: bool }
-declare let S_: storage<array<S>>
+declare const S_: storage<array<S>, "read_write">
 @compute export function cs(@builtin("global_invocation_id") g: vec3u): void {
   S_[g.x].flag = true
 }`,
@@ -472,7 +472,7 @@ declare const u: uniform<U>
     }
     const s = compile(`"use typeshade";
 class S { m: mat2x2; }
-declare let s: storage<S, "read_write">;
+declare const s: storage<S, "read_write">;
 @compute([64]) export function cs() { s.m = mat2x2(1., 0., 0., 1.); }`);
     expect(s.diagnostics.filter((d) => d.code === TS_CODES.LAYOUT)).toEqual([]);
   });

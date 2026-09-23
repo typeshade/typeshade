@@ -185,7 +185,7 @@ declare const shadowSmp: sampler_comparison`,
 describe('what is fragment-only, and what is not', () => {
   const compute = (call: string): string => `"use typeshade"
 ${DECLS}
-declare let out: storage<array<f32>>
+declare const out: storage<array<f32>, "read_write">
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[gid.x] = ${call}

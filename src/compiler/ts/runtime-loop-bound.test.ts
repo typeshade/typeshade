@@ -47,7 +47,7 @@ describe('a for loop takes a runtime bound', () => {
   it('loops over a mesh from its vertex buffer, the #203 program', () => {
     const src = `"use typeshade";
 declare const verts: storage<array<vec3f>>;
-declare let hits: storage<array<u32>>;
+declare const hits: storage<array<u32>, "read_write">;
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u): void {
   let count: u32 = 0;
@@ -87,7 +87,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void {
 interface Params { count: u32 }
 declare const params: uniform<Params>;
 declare const src: storage<array<f32>>;
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 @compute([64])
 export function main(@builtin("local_invocation_index") lid: u32): void {
   let s = 0.;
@@ -130,7 +130,7 @@ export function fs(@builtin("position") p: vec4f): vec4f {
 class Params { count: u32 }
 declare const params: uniform<Params>
 declare const data: storage<array<f32>>
-declare let out: storage<array<f32>>
+declare const out: storage<array<f32>, "read_write">
 @compute([64])
 export function sum(@builtin("global_invocation_id") gid: vec3u) {
   let s = 0
@@ -168,7 +168,7 @@ export function sum(@builtin("global_invocation_id") gid: vec3u) {
     const kernel = (bound: string): string => `"use typeshade";
 interface Params { rounds: u32 }
 declare const params: uniform<Params>;
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 let tile: workgroup<array<f32, 64>>;
 @compute([64])
 export function main(@builtin("local_invocation_index") lid: u32): void {
@@ -259,8 +259,8 @@ export function main(@builtin("local_invocation_index") lid: u32): void {
   it('writes the array it counts over, whose length the body cannot move', () => {
     const kernel = (body: string): string => `"use typeshade";
 interface Field { scale: f32; data: array<f32> }
-declare let xs: storage<array<f32>>;
-declare let field: storage<Field>;
+declare const xs: storage<array<f32>, "read_write">;
+declare const field: storage<Field, "read_write">;
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u): void {
   ${body}

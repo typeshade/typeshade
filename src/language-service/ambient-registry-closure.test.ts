@@ -150,7 +150,7 @@ interface U {
   k: f32;
 }
 declare const un: uniform<U>;
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 class V {
   @builtin("position") @invariant pos: vec4;
   @location(0) uv: vec2;

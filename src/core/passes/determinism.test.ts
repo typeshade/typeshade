@@ -302,7 +302,7 @@ describe('the pack and quantize rows say what the emitted code actually does', (
     // than the 4x8 pair, describing a divergence the report could not report. Measured before
     // the fix, this module reported an EMPTY list.
     const r = moduleOf(`"use typeshade";
-declare let out: storage<array<u32>>;
+declare const out: storage<array<u32>, "read_write">;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[0] = pack4x8unorm(vec4(0.5, 0.5, 0.5, 0.5));
@@ -336,7 +336,7 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     const r = moduleOf(`"use typeshade";
 declare const tex: texture_2d<u32>;
 declare const smp: sampler;
-declare let out: storage<array<u32>>;
+declare const out: storage<array<u32>, "read_write">;
 @compute([1, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[0] = textureGather(0, tex, smp, vec2(0.5, 0.5)).x;

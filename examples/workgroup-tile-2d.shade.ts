@@ -25,7 +25,7 @@
 
 declare const size: uniform<vec2u>;
 declare const src: storage<array<f32>>;
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 
 let tile: workgroup<array<f32, 64>>;
 

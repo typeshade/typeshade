@@ -34,7 +34,7 @@ class Params {
 }
 
 declare const params: uniform<Params>;
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 
 /** Takes sixteen steps, handing each its number. */
 function sixteen(step: (i: i32) => void) {

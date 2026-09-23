@@ -29,8 +29,8 @@
 // WGSL's `__atomic_compare_exchange_result<T>` is built in and has no writable name, so this
 // surface types the struct, reads its fields, and declares nothing.
 
-declare let claimed: storage<atomic<u32>>;
-declare let out: storage<array<u32>>;
+declare const claimed: storage<atomic<u32>, "read_write">;
+declare const out: storage<array<u32>, "read_write">;
 
 // Workgroup memory: one value every invocation of the workgroup agrees on.
 let leader: workgroup<u32>;

@@ -187,7 +187,7 @@ describe('bias and gradients', () => {
 
   const compute = (call: string): string => `"use typeshade"
 ${DECLS}
-declare let out: storage<array<vec4>>
+declare const out: storage<array<vec4>, "read_write">
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   const dir: vec3 = vec3(1., 0., 0.)
@@ -503,7 +503,7 @@ declare const shadowSmp: sampler_comparison`;
   it('is fragment-only in the implicit form, as the 2d one is', () => {
     const errors = errorsOf(`"use typeshade"
 ${D}
-declare let out: storage<array<f32>>
+declare const out: storage<array<f32>, "read_write">
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[gid.x] = textureSampleCompare(pointShadow, shadowSmp, vec3(1., 0., 0.), 0.5)

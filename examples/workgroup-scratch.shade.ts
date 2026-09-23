@@ -21,8 +21,8 @@
 // this module is WGSL-only.
 
 declare const src: storage<array<f32>>;
-declare let dst: storage<array<f32>>;
-declare let counts: storage<array<u32>>;
+declare const dst: storage<array<f32>, "read_write">;
+declare const counts: storage<array<u32>, "read_write">;
 
 let tile: workgroup<array<f32, 64>>;
 let seen: workgroup<array<atomic<u32>, 2>>;

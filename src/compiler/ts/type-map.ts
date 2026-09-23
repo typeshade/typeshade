@@ -98,13 +98,42 @@ const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   vec3b: vec3bT,
   vec4b: vec4bT,
   ...MAT_TYPE_NAMES,
-  vec2d: vec2f64T,
-  vec3d: vec3f64T,
-  vec4d: vec4f64T,
+  // The `f64` spelling before the `d` shorthand, and `vec2` before `vec2f`, because the FIRST
+  // key that names a type is the one {@link authorTypeName} quotes back (every example in the
+  // tree writes `vec2f64`). Two names for one type is otherwise a matter of taste.
   vec2f64: vec2f64T,
   vec3f64: vec3f64T,
   vec4f64: vec4f64T,
+  vec2d: vec2f64T,
+  vec3d: vec3f64T,
+  vec4d: vec4f64T,
 };
+
+/** The spelling an AUTHOR writes for a type this file parses: the inverse of
+ *  {@link SCALAR_AND_VEC_MAP}, built from that map rather than retyped beside it, so a name a
+ *  refusal quotes is a name this file reads back. Where several names give one type
+ *  (`vec2`/`vec2f`, `mat2x2`/`mat2`, `vec2f64`/`vec2d`) the first key in the map wins.
+ *
+ *  Keyed by {@link typeKey} because that is what makes two structurally equal types one entry.
+ *  It is NOT itself an author spelling: `typeKey` writes `vec2<f32>` and `mat2x3<f32>`, and
+ *  neither is authorable — the ambient `vec2` alias takes no type argument and a NON-SQUARE
+ *  matrix alias takes none either, so a remedy that quoted the key was refused by the editor
+ *  the moment it was pasted (TS2315, "Type 'vec4' is not generic"). */
+const AUTHOR_NAME_BY_KEY: ReadonlyMap<string, string> = (() => {
+  const out = new Map<string, string>();
+  for (const [name, t] of Object.entries(SCALAR_AND_VEC_MAP)) {
+    const key = typeKey(t);
+    if (!out.has(key)) out.set(key, name);
+  }
+  return out;
+})();
+
+/** The author's spelling of a type with a name of its own — every scalar, vector, matrix and
+ *  emulated double — or `undefined` for a type that is spelled from its parts (a struct, an
+ *  array, an atomic), which {@link authorTypeText} composes. */
+export function authorTypeName(t: ShaderType): string | undefined {
+  return AUTHOR_NAME_BY_KEY.get(typeKey(t));
+}
 
 /** The resource-handle types, which carry no value and appear only in a `declare const`
  *  (#8 A7). `sampler` takes no type argument, so it lives here beside the scalars; the
