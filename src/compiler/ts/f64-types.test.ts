@@ -385,21 +385,27 @@ export function declared(a: vec3f64, b: f64): vec3b { const v: vec3f64 = vec3f64
         `${TS_CODES.TYPE_MISMATCH} Type mismatch: cannot compare vec3<f64> and ${peer}. Types must match.`,
       ]);
     }
-    // Nor is the splat offered where it fixes nothing: a bitwise operator, which a vector of
-    // doubles has none of, and a vec64 given to a declared or assigned f64, where the scalar is
-    // the type the author asked for.
-    for (const [ret, body, want] of [
-      ['vec3f64', 'return a & b;', 'cannot bitwise vec3<f64> and f64'],
-      ['f64', 'const s: f64 = a; return b;', 'cannot let/const s f64 and vec3<f64>'],
-      ['f64', 'let s = b; s = a; return s;', 'cannot assign to f64 f64 and vec3<f64>'],
+    // Nor is the splat offered where it fixes nothing: a vec64 given to a declared or assigned
+    // f64, where the scalar is the type the author asked for.
+    for (const [body, want] of [
+      ['const s: f64 = a; return b;', 'cannot let/const s f64 and vec3<f64>'],
+      ['let s = b; s = a; return s;', 'cannot assign to f64 f64 and vec3<f64>'],
     ] as const) {
       expect(
-        codedErrorsOf(
-          `"use typeshade";\nexport function k(a: vec3f64, b: f64): ${ret} { ${body} }\n`,
-        ),
+        codedErrorsOf(`"use typeshade";\nexport function k(a: vec3f64, b: f64): f64 { ${body} }\n`),
         body,
       ).toEqual([`${TS_CODES.TYPE_MISMATCH} Type mismatch: ${want}. Types must match.`]);
     }
+    // Or to a bitwise operator, which a vector of doubles has none of: its float operand is
+    // refused first, with the narrow and the conversion (#236).
+    expect(
+      codedErrorsOf(
+        `"use typeshade";\nexport function k(a: vec3f64, b: f64): vec3f64 { return a & b; }\n`,
+      ),
+    ).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} Bitwise "&" needs i32 or u32 operands, got vec3<f64>. Narrow ` +
+        `and convert first, e.g. vec3u(vec3(a)) & vec3u(vec3(b)).`,
+    ]);
   });
 
   it('refuses a select of vec64 arms by a mask with the reason, not a count the arms meet', () => {

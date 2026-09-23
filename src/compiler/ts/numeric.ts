@@ -171,11 +171,12 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
   // either operand of a comparison, and for the scalar given to a vec64 that is declared,
   // assigned or a field (`left` is the declared type there). The splat wraps the scalar in
   // f64(): the constructor takes f64 components only, so `vec3f64(0.5)` and `vec3f64(t)` with
-  // an f32 `t` are TS8019, and f64() of an f64 is that value. No splat fixes a bitwise
-  // operator, which a vector of doubles has none of, or a vector given to a declared scalar.
+  // an f32 `t` are TS8019, and f64() of an f64 is that value. No splat fixes a vector given to
+  // a declared scalar. A bitwise operator never brings a vec64 here: `lowerBinary` refuses a
+  // float operand of `& | ^` before it compares the two types.
   const splatted = (t: ShaderType): boolean => isF64(t) || (isScalar(t) && t.scalar === 'f32');
   const vec64 =
-    isVec64(left) && splatted(right) && op !== 'bitwise'
+    isVec64(left) && splatted(right)
       ? left
       : isVec64(right) && splatted(left) && op === 'compare'
         ? right
