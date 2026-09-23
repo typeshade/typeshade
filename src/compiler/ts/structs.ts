@@ -28,7 +28,13 @@ import {
   hasInvariantDecorator,
   interpolateDecoratorArg,
 } from './builtin-check.js';
-import { applyMixins, isMixinHeritage, mixedMembers, type MixinApplication } from './mixins.js';
+import {
+  applyMixins,
+  isMixinHeritage,
+  mixedMembers,
+  mixinShown,
+  type MixinApplication,
+} from './mixins.js';
 import { pushTypeArguments } from './generics.js';
 import {
   genericClasses,
@@ -84,8 +90,9 @@ export type CollectedStruct = {
   readonly privateFields?: ReadonlyMap<string, PrivateField>;
   /** Fields the class writes and the struct does not carry, by the member they would be: one
    *  refused where it is declared (no type, `?`, a name another field already takes), and an
-   *  abstract member the class leaves unimplemented, refused at the class. A read or a call of
-   *  one says nothing more, since its declaration already said why (Rule 12.4). */
+   *  abstract member with no body the class leaves unimplemented, refused at the class, or
+   *  declares though it is not abstract, refused at the member. A read or a call of one says
+   *  nothing more, since its declaration already said why (Rule 12.4). */
   readonly withheld?: ReadonlySet<string>;
   /** The functions the class declared that lost their emitted name to another member, by what
    *  follows `Cls_` in it (`step` for a refused `#step` beside `step`): the pair was reported,
@@ -302,6 +309,9 @@ export function collectStructs(
   eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt, prefix) => {
     seen.push({ stmt, prefix });
   });
+  // A sentence about how a member is written is said of the member, once: each instance of a
+  // generic class, and each class that applies a mixin, reaches the same member again.
+  const said = new Set<ts.Node>();
   for (const { stmt, prefix } of seen) {
     const candidate = candidateOf(stmt);
     if (candidate) {
@@ -413,6 +423,31 @@ export function collectStructs(
         // which a method `get_x` would be too (Rule 8.11, Rule 8.12).
         const functionNames = new Map<string, string>();
         const withheldFunctions = new Set<string>();
+        // Sentences an earlier instance, or an earlier class applying the same mixin, said of a
+        // member this one carries too. `add` counts them as this one's, so its empty-struct test
+        // reads every instance alike (Rule 12.4).
+        let saidBefore = 0;
+        const sayOnce = (at: ts.Node, message: string): void => {
+          if (said.has(at)) {
+            saidBefore++;
+            return;
+          }
+          said.add(at);
+          diagnostics.push(classDiag(sourceFile, at, message));
+        };
+        // The class a member is written in, as the author names it: this one, or for a member a
+        // mixin gives it, the mixin's call, "Tinted(…)".
+        const ownerOf = (member: ts.ClassElement): string =>
+          member.parent === stmt ? declared.text : mixinShown(member.parent);
+        // A member as a sentence names it: `"C.f"`, `the static "C.f"`, `the getter "C.x"`.
+        const shownMember = (
+          member: ts.ClassElement,
+          name: string,
+          half?: 'get' | 'set',
+        ): string => {
+          const kind = `${isStaticMember(member) ? 'static ' : ''}${half ? `${half}ter ` : ''}`;
+          return `${kind === '' ? '' : `the ${kind}`}"${ownerOf(member)}.${name}"`;
+        };
         const claimFunction = (
           suffix: string,
           shownAs: string,
@@ -425,45 +460,65 @@ export function collectStructs(
             return true;
           }
           withheldFunctions.add(suffix);
-          // Said of the declaration, so once, however many instances a generic class has.
-          if (instance !== cases[0]) return false;
-          diagnostics.push(
-            classDiag(
-              sourceFile,
-              at,
-              prior === shownAs
-                ? twice
-                : `"${structName}.${prior}" and "${structName}.${shownAs}" would both be the ` +
-                    `function "${structName}_${suffix}". Rename one of them.`,
-            ),
+          sayOnce(
+            at,
+            prior === shownAs
+              ? twice
+              : `${prior.replace(/^the/, 'The')} and ${shownAs} would be emitted under one ` +
+                  `name. Rename one of them.`,
           );
           return false;
         };
-        // Two bodies for one method, said of the class as it is written (Rule 12.1). An overload
+        // Two bodies for one method, said of the class it is written in (Rule 12.1). An overload
         // signature has no body and is not one of them.
-        const twoBodies = (member: string): string =>
-          `"${declared.text}.${member}" has two bodies; a method has one body, with overload ` +
+        const twoBodies = (member: ts.ClassElement, name: string): string =>
+          `"${ownerOf(member)}.${name}" has two bodies; a method has one body, with overload ` +
           `signatures above it for each shape it takes.`;
-        // An `abstract` member written with a body (TypeScript's TS1245 and TS1318), said once,
-        // on the class that declares it. The body is kept, so a class that inherits it and a
-        // call of it say nothing more (Rule 12.4).
-        const abstractWithBody = (
-          member: ts.MethodDeclaration | ts.AccessorDeclaration,
-          name: string,
-        ): void => {
-          if (instance !== cases[0]) return;
-          if (!member.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)) return;
-          const cls = declared.text;
-          diagnostics.push(
-            classDiag(
-              sourceFile,
-              member.name,
-              `"${cls}.${name}" is abstract and has a body; remove "abstract"` +
-                (isAbstract
-                  ? `, or remove the body and let each class that extends "${cls}" write it.`
-                  : '.'),
-            ),
+        // An `abstract` member TypeScript refuses where it is written, said there once. One with
+        // a body (TS1245, TS1318) or an initializer (TS1267) keeps it, so a class that inherits
+        // it and a call of it say nothing more. One with neither, in a class that is not
+        // abstract (TS1244), a mixin's class expression among them, has nothing to call, so the
+        // class withholds it and a call says nothing more either (Rule 12.4). Answers whether it
+        // is that last one.
+        const refusedAbstract = new Set<string>();
+        const abstractRefused = (member: ts.ClassElement, name: string): boolean => {
+          if (!(ts.getCombinedModifierFlags(member) & ts.ModifierFlags.Abstract)) return false;
+          const owner = ownerOf(member);
+          const inClass = member.parent === stmt;
+          const body = ts.isPropertyDeclaration(member)
+            ? member.initializer
+            : (member as ts.FunctionLikeDeclaration).body;
+          if (body !== undefined) {
+            const field = ts.isPropertyDeclaration(member);
+            const plain = field && !holdsFunction(member);
+            // A field that holds a function is a method (Rule 8.16), and the function its body.
+            // Written without it, `abstract m: () => f32` is a field of function type, which no
+            // struct holds, so its one remedy is the first.
+            const or =
+              isAbstract && inClass && (plain || !field)
+                ? `, or remove the ${plain ? 'initializer' : 'body'} and let each class that ` +
+                  `extends "${owner}" write it.`
+                : '.';
+            sayOnce(
+              member.name ?? member,
+              `"${owner}.${name}" is abstract and has ${plain ? 'an initializer' : 'a body'}; ` +
+                `remove "abstract"${or}`,
+            );
+            return false;
+          }
+          if ((isAbstract && inClass) || ts.isPropertyDeclaration(member)) return false;
+          withheld.add(emittedMemberName(name));
+          if (refusedAbstract.has(name)) return true;
+          refusedAbstract.add(name);
+          sayOnce(
+            member.name ?? member,
+            inClass
+              ? `"${owner}.${name}" is abstract, and "${owner}" is not; mark "${owner}" abstract, ` +
+                  `or remove "abstract" and give "${name}" a body.`
+              : `"${owner}.${name}" is abstract, and the class a mixin returns cannot be; remove ` +
+                  `"abstract" and give "${name}" a body.`,
           );
+          return true;
         };
         // Every field by the member it is emitted as, with the name it was written under: `#n`
         // and `n` are one struct member `n`, which TypeScript counts as two (Rule 8.12).
@@ -569,19 +624,24 @@ export function collectStructs(
             continue;
           }
           if (ts.isMethodDeclaration(member)) {
-            if (!member.body) continue; // an overload signature
+            const memberName = writtenMemberName(member.name);
+            // An overload signature, or an abstract method each class that extends this one
+            // writes.
+            if (!member.body) {
+              if (memberName !== undefined) abstractRefused(member, memberName);
+              continue;
+            }
             const isStatic = isStaticMember(member);
             if (isStatic) staticFunctions++;
-            const memberName = writtenMemberName(member.name);
             if (memberName === undefined) {
               diagnostics.push(memberNameDiag(sourceFile, member, structName));
               continue;
             }
-            abstractWithBody(member, memberName);
+            abstractRefused(member, memberName);
             // A static and an instance method of one name are two members, which would be one
             // function, not one member with two bodies.
-            const shownAs = `${isStatic ? 'static ' : ''}${memberName}`;
-            const twice = twoBodies(memberName);
+            const shownAs = shownMember(member, memberName);
+            const twice = twoBodies(member, memberName);
             if (!claimFunction(emittedMemberName(memberName), shownAs, member.name, twice))
               continue;
             if (
@@ -599,18 +659,22 @@ export function collectStructs(
           // A getter and a setter are two functions of the module, `Cls_get_x` and `Cls_set_x`
           // (Rule 8.11); `o.x` calls the one and `o.x = v` the other.
           if (ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
-            if (!member.body) continue; // an abstract accessor: the class that implements it has the body
+            const memberName = writtenMemberName(member.name);
+            // An abstract accessor: the class that implements it has the body.
+            if (!member.body) {
+              if (memberName !== undefined) abstractRefused(member, memberName);
+              continue;
+            }
             const isStatic = isStaticMember(member);
             if (isStatic) staticFunctions++;
-            const memberName = writtenMemberName(member.name);
             if (memberName === undefined) {
               diagnostics.push(memberNameDiag(sourceFile, member, structName));
               continue;
             }
-            abstractWithBody(member, memberName);
+            abstractRefused(member, memberName);
             const half = ts.isGetAccessorDeclaration(member) ? 'get' : 'set';
-            const shownAs = `${isStatic ? 'static ' : ''}${half} ${memberName}`;
-            const twice = `"${declared.text}.${memberName}" has two ${half}ters; an accessor has one body.`;
+            const shownAs = shownMember(member, memberName, half);
+            const twice = `"${ownerOf(member)}.${memberName}" has two ${half}ters; an accessor has one body.`;
             if (
               !claimFunction(
                 `${half}_${emittedMemberName(memberName)}`,
@@ -677,6 +741,8 @@ export function collectStructs(
             );
             continue;
           }
+          // `abstract x: f32 = 1.` and `abstract m = (): f32 => 1.` (TS1267).
+          abstractRefused(member, memberName);
           // A static field is a module constant named `Cls_Field` (T3, #92); `module-const.ts`
           // collects and folds it, exactly as it does a top-level `const`. Before this it was
           // refused, and the fix it named was to write the const by hand. One the file writes is
@@ -689,8 +755,9 @@ export function collectStructs(
               diagnostics.push(classDiag(sourceFile, why.at, why.message));
               continue;
             }
-            const twice = twoBodies(memberName);
-            if (!claimFunction(emittedMemberName(memberName), memberName, member.name, twice))
+            const twice = twoBodies(member, memberName);
+            const shownAs = shownMember(member, memberName);
+            if (!claimFunction(emittedMemberName(memberName), shownAs, member.name, twice))
               continue;
             if (!claimKind(memberName, 'method', member.name, memberName)) continue;
             methods.push(methodOfField(member, fn));
@@ -873,7 +940,7 @@ export function collectStructs(
           declared,
           fields,
           'class',
-          before,
+          before - saidBefore,
           members,
           isNamespace,
           bases,
@@ -1075,8 +1142,10 @@ function checkOverrideKinds(sourceFile: ts.SourceFile, diagnostics: TsCompilerDi
  *  with no body unimplemented, which TypeScript refuses (TS2515): said once, at the class, and
  *  the member joins the ones it withholds, so a call or a read of it says nothing more (Rule
  *  12.4). Before this the class compiled while nothing called the member, and a call was
- *  `"D" has no method "m"`. A chain through a mixin, or a base the file does not resolve, is not
- *  followed, and an abstract field is a member of every struct below it and needs nothing. */
+ *  `"D" has no method "m"`. Only a class collected as a struct is read: one the lowering refuses
+ *  whole, a class in a function body, has said why. A chain through a mixin, or a base the file
+ *  does not resolve, is not followed, and an abstract field is a member of every struct below it
+ *  and needs nothing. */
 function withUnimplementedAbstracts(
   structs: readonly CollectedStruct[],
   sourceFile: ts.SourceFile,
@@ -1085,13 +1154,12 @@ function withUnimplementedAbstracts(
   const isAbstract = (n: ts.Node): boolean =>
     (ts.getCombinedModifierFlags(n as ts.Declaration) & ts.ModifierFlags.Abstract) !== 0;
   const missing = new Map<ts.ClassDeclaration, Set<string>>();
-  const visit = (node: ts.Node): void => {
-    ts.forEachChild(node, visit);
-    if (!ts.isClassDeclaration(node) || node.name === undefined || isAbstract(node)) return;
+  const check = (node: ts.ClassDeclaration): void => {
+    if (node.name === undefined || isAbstract(node) || missing.has(node)) return;
     const cls = node.name.text;
     // Each member once, with the class of the declaration `cls` sees, the nearest in its chain:
-    // one with a body is implemented, and an abstract one with a body was refused where it is
-    // written.
+    // one with a body is implemented, and an abstract one with a body, or in a class that is not
+    // abstract, was refused where it is written.
     const names = new Set<string>();
     const owners = new Set<string>();
     const seen = new Set<ts.ClassDeclaration>([node]);
@@ -1105,13 +1173,14 @@ function withUnimplementedAbstracts(
         const nearest = memberDeclarationInChain(node, name, false);
         if (nearest === undefined || !isAbstract(nearest) || nearest.parent === node) continue;
         if ((nearest as ts.FunctionLikeDeclaration).body !== undefined) continue;
+        if (!isAbstract(nearest.parent)) continue;
         names.add(name);
         owners.add((nearest.parent as ts.ClassDeclaration).name?.text ?? '');
       }
       above = baseClassOf(above);
     }
-    if (names.size === 0) return;
     missing.set(node, names);
+    if (names.size === 0) return;
     const list = (xs: Set<string>): string =>
       [...xs]
         .map((x) => `"${x}"`)
@@ -1127,11 +1196,10 @@ function withUnimplementedAbstracts(
       ),
     );
   };
-  visit(sourceFile);
-  if (missing.size === 0) return [...structs];
+  for (const s of structs) if (s.classNode !== undefined) check(s.classNode);
   return structs.map((s): CollectedStruct => {
     const names = s.classNode === undefined ? undefined : missing.get(s.classNode);
-    if (names === undefined) return s;
+    if (names === undefined || names.size === 0) return s;
     return {
       ...s,
       withheld: new Set([...(s.withheld ?? []), ...[...names].map(emittedMemberName)]),

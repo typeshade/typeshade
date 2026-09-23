@@ -4,6 +4,7 @@ import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
+import { statementRefusal } from './namespaces.js';
 import { isEnableDirective } from './enables.js';
 import { staticThisClass } from './class-names.js';
 
@@ -335,60 +336,6 @@ const TOP_LEVEL_HOLDS =
   'a shader file declares functions, classes, types, enums, namespaces, constants, module ' +
   'variables and resources';
 
-/** The sentence for a statement the top level cannot hold, naming it by the keyword it is
- *  written with (Rule 12.1): TypeScript's name for the node, `IfStatement` (or `LastStatement`
- *  for a `debugger`), is no word the author wrote. A statement a function body runs is told to
- *  move there; one a body refuses too says only why it is refused here. */
-function topLevelRefusal(stmt: ts.Statement, sourceFile: ts.SourceFile): string {
-  const runs = (what: string, fix = ' Move it into a function.'): string =>
-    `${what} at the top level runs nowhere; ${TOP_LEVEL_HOLDS}.${fix}`;
-  switch (stmt.kind) {
-    case ts.SyntaxKind.IfStatement:
-      return runs('An "if" statement');
-    case ts.SyntaxKind.SwitchStatement:
-      return runs('A "switch" statement');
-    case ts.SyntaxKind.ForStatement:
-      return runs('A "for" loop');
-    case ts.SyntaxKind.ForOfStatement:
-      return runs('A "for…of" loop');
-    case ts.SyntaxKind.WhileStatement:
-      return runs('A "while" loop');
-    case ts.SyntaxKind.Block:
-      return runs('A block, "{ … }",');
-    case ts.SyntaxKind.ReturnStatement:
-      return runs('A "return" statement');
-    case ts.SyntaxKind.DoStatement:
-      return runs('A "do…while" loop', '');
-    case ts.SyntaxKind.ForInStatement:
-      return runs('A "for…in" loop', '');
-    case ts.SyntaxKind.TryStatement:
-      return runs('A "try" statement', '');
-    case ts.SyntaxKind.ThrowStatement:
-      return runs('A "throw" statement', '');
-    case ts.SyntaxKind.BreakStatement:
-      return runs('A "break" statement', '');
-    case ts.SyntaxKind.ContinueStatement:
-      return runs('A "continue" statement', '');
-    case ts.SyntaxKind.LabeledStatement:
-      return runs(`A labelled statement, "${(stmt as ts.LabeledStatement).label.text}:",`, '');
-    case ts.SyntaxKind.DebuggerStatement:
-      return runs('A "debugger" statement', ' Remove it.');
-    case ts.SyntaxKind.EmptyStatement:
-      return runs('An empty statement, ";",', ' Remove it.');
-  }
-  const written = stmt.getText(sourceFile).replace(/\s+/g, ' ').replace(/;$/, '');
-  const shown = written.length <= 60 ? written : `${written.slice(0, 60)}…`;
-  if (ts.isImportEqualsDeclaration(stmt)) {
-    const ref = stmt.moduleReference;
-    return ts.isExternalModuleReference(ref)
-      ? `"${shown}" is a CommonJS import; a shader file imports each function by name, ` +
-          `import { f } from ${ref.expression.getText(sourceFile)}.`
-      : `"${shown}" is an import alias; a shader file names "${ref.getText(sourceFile)}" ` +
-          `where it reads it.`;
-  }
-  return `"${shown}" has no place at the top level; ${TOP_LEVEL_HOLDS}.`;
-}
-
 export function analyzeSemantics(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -430,8 +377,16 @@ export function analyzeSemantics(
       continue;
     }
     if (!ALLOWED_TOP.has(stmt.kind)) {
-      push(diagnostics, sourceFile, stmt, topLevelRefusal(stmt, sourceFile), TS_CODES.TOP_LEVEL);
+      const said = statementRefusal(stmt, sourceFile, 'at the top level', TOP_LEVEL_HOLDS);
+      push(diagnostics, sourceFile, stmt, said, TS_CODES.TOP_LEVEL);
     }
   }
-  visit(sourceFile, sourceFile, diagnostics);
+  // A statement the loop above refuses by its kind is refused whole: what it is and what it holds
+  // add nothing to that sentence, so a `try`, a `throw` or a `for…in` there is not told again
+  // that it is a host form (Rule 12.4).
+  for (const stmt of sourceFile.statements) {
+    if (ALLOWED_TOP.has(stmt.kind) || ts.isVariableStatement(stmt)) {
+      visit(stmt, sourceFile, diagnostics);
+    }
+  }
 }

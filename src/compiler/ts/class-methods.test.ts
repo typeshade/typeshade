@@ -283,10 +283,54 @@ function g(a: P<f32>, b: P<vec2>): f32 { return a.g + b.g }${TAIL}`),
         `"use typeshade"\nnamespace N { export class C { x: f32; m(): f32 { return 1. } m(): f32 { return 2. } } }${TAIL}`,
       ),
     ).toEqual([twice('C', 'm')]);
-    // A static and an instance method of one name are two members, as TypeScript has them,
-    // and one emitted function; that is the sentence they get, not "two bodies".
+    // A generic class with no field is said once too, and no instance adds that it is empty.
+    expect(
+      errorsOf(`"use typeshade"
+class P<T> { m(a: T): T { return a } m(a: T): T { return a } }
+function g(a: P<f32>, b: P<vec2>): f32 { return 1. }${TAIL}`),
+    ).toEqual([twice('P', 'm')]);
+    // A mixin's class expression is where its members are written: said there, once, however
+    // many classes apply it. Keeping the first body compiled the second one silently, which is
+    // the one JavaScript runs.
+    const tinted = (body: string): string => `"use typeshade"
+class Disc { r: f32 }
+function Tinted<TBase extends AnyClass>(Base: TBase) {
+  return class extends Base { tint: vec3; ${body} }
+}
+class TD extends Tinted(Disc) { s: f32 }
+class TR extends Tinted(Disc) { w: f32 }
+export function g(t: TD, u: TR): f32 { return t.lit() + u.lit() }${TAIL}`;
+    expect(errorsOf(tinted('lit(): f32 { return 1. } lit(): f32 { return 2. }'))).toEqual([
+      twice('Tinted(…)', 'lit'),
+    ]);
+  });
+
+  it('two members that would be emitted under one name, said in the words they are written in', () => {
+    // A static and an instance method of one name are two members, as TypeScript has them, and
+    // one emitted function. Until proposal 0008 the sentence named that function, "C_f", and a
+    // generic class's instance or a namespaced class's struct, "P_f32" or "N_C" (Rule 12.1).
+    const one = (a: string, b: string): string =>
+      `${M} ${a} and ${b} would be emitted under one name. Rename one of them.`;
     expect(only(C('  f(): f32 { return 1. }\n  static f(): f32 { return 2. }'))).toBe(
-      `${M} "C.f" and "C.static f" would both be the function "C_f". Rename one of them.`,
+      one('"C.f"', 'the static "C.f"'),
+    );
+    expect(
+      errorsOf(`"use typeshade"
+class P<T> { x: T; f(): f32 { return 1. } static f(): f32 { return 2. } }
+function g(a: P<f32>, b: P<vec2>): f32 { return 1. }${TAIL}`),
+    ).toEqual([one('"P.f"', 'the static "P.f"')]);
+    expect(
+      errorsOf(
+        `"use typeshade"\nnamespace N { export class C { x: f32; f(): f32 { return 1. } static f(): f32 { return 2. } } }${TAIL}`,
+      ),
+    ).toEqual([one('"C.f"', 'the static "C.f"')]);
+    expect(
+      errorsOf(`"use typeshade"
+class P<T> { v: T; #m(): T { return this.v } m(): T { return this.#m() } }
+function g(a: P<f32>, b: P<vec2>): f32 { return a.m() + b.m().x }${TAIL}`),
+    ).toEqual([one('"P.#m"', '"P.m"')]);
+    expect(only(C('  get g(): f32 { return 1. }\n  static get g(): f32 { return 2. }'))).toBe(
+      one('The getter "C.g"', 'the static getter "C.g"'),
     );
   });
 

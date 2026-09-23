@@ -118,12 +118,13 @@ describe('a statement at the top level is named by its keyword', () => {
   // namespaces and module variables (Rule 12.1).
   const HOLDS =
     'a shader file declares functions, classes, types, enums, namespaces, constants, module variables and resources.';
+  // Every diagnostic, not those of one code: a statement refused whole is one sentence, and
+  // what it is and holds adds nothing (Rule 12.4). A `try`, a `throw` and a `for…in` were also
+  // told they are host forms, `TS8013`, on the same span.
   const topLevel = (stmt: string): string[] =>
     compileTsSource(
       `"use typeshade";\n${stmt}\n@fragment\nexport function fs(): vec4 { return vec4(1.); }\n`,
-    )
-      .diagnostics.filter((d) => d.code === TS_CODES.TOP_LEVEL)
-      .map((d) => `${d.code} ${d.message}`);
+    ).diagnostics.map((d) => `${d.code} ${d.message}`);
   const moves = (what: string): string =>
     `${TS_CODES.TOP_LEVEL} ${what} at the top level runs nowhere; ${HOLDS} Move it into a function.`;
   const stays = (what: string, fix = ''): string =>
@@ -164,6 +165,35 @@ describe('a statement at the top level is named by its keyword', () => {
     expect(topLevel(stmt)).toEqual([expected]);
   });
 
+  // In a namespace a statement was `A namespace holds functions, constants, classes and
+  // namespaces; this inside "N" has no flattened form. Declare it at the top level of the
+  // file.`, which named nothing, and whose remedy the top level refuses.
+  const NS = 'a namespace holds functions, constants, classes and namespaces.';
+  const inside = (what: string, ns = 'N', fix = ' Move it into a function.'): string =>
+    `${TS_CODES.TOP_LEVEL} ${what} inside "${ns}" runs nowhere; ${NS}${fix}`;
+  const F = 'export function f(): f32 { return 1.; }';
+  const inNamespace: readonly (readonly [string, string])[] = [
+    ['namespace N { if (true) { } }', inside('An "if" statement')],
+    ['namespace N { for (let i = 0; i < 2; i++) { } }', inside('A "for" loop')],
+    [`namespace N { ${F} { } }`, inside('A block, "{ … }",')],
+    [`namespace N { ${F} f(); }`, inside('"f()"')],
+    ['namespace A { namespace B { while (false) { } } }', inside('A "while" loop', 'A.B')],
+    ['namespace N { debugger; }', inside('A "debugger" statement', 'N', ' Remove it.')],
+    [
+      'namespace M { export const k = 1.; }\nnamespace N { import k = M.k; }',
+      `${TS_CODES.TOP_LEVEL} "import k = M.k" is an import alias; a shader file names "M.k" where it reads it.`,
+    ],
+    // Refused wherever it stands, and in a namespace that sentence is the one.
+    [
+      'namespace N { try { } catch { } }',
+      `${TS_CODES.HOST_STMT} try/catch/throw are JS exceptions. TypeShade has no exception path.`,
+    ],
+  ];
+
+  it.each(inNamespace)('%s', (stmt, expected) => {
+    expect(topLevel(stmt)).toEqual([expected]);
+  });
+
   it('and what it is told to move compiles in a function', () => {
     const r = compileTsSource(`"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
@@ -178,8 +208,16 @@ function g(): void {
   { out[1] = 3.; }
   return;
 }
+namespace N {
+  export function h(): f32 {
+    let s = 0.;
+    for (let i = 0; i < 2; i++) { s += 1.; }
+    { s += 1.; }
+    return s;
+  }
+}
 @compute([1])
-export function main(): void { g(); }
+export function main(): void { g(); out[4] = N.h(); }
 `);
     expect(r.diagnostics).toEqual([]);
   });

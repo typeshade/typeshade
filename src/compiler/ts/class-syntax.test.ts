@@ -279,7 +279,7 @@ export function run(): f32 { return new Sq(3.).describe() }${TAIL}`;
       `${M} "C.y" has two getters; an accessor has one body.`,
     );
     expect(only(C('  get y(): f32 { return 1. }\n  get_y(): f32 { return 2. }'))).toBe(
-      `${M} "C.get y" and "C.get_y" would both be the function "C_get_y". Rename one of them.`,
+      `${M} The getter "C.y" and "C.get_y" would be emitted under one name. Rename one of them.`,
     );
     expect(only(C('  y: f32\n  get y(): f32 { return 2. }'))).toBe(
       `${M} "C.y" is declared as a field and as an accessor; a class member has one kind. Rename one of them.`,
