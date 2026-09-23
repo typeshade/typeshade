@@ -8,17 +8,17 @@
 // direction the compiler still checks; a `while` is an open loop, refused only when it
 // certainly never ends.
 
-import { describe, expect, it } from 'vitest'
-import { compile } from './compile.js'
-import { compileTsSource } from './source-file.js'
-import { compileModule } from '../../core/oracle.js'
-import { compileModuleJs } from '../../core/cpu-codegen.js'
-import type { CpuValue } from '../../core/cpu-runtime.js'
+import { describe, expect, it } from 'vitest';
+import { compile } from './compile.js';
+import { compileTsSource } from './source-file.js';
+import { compileModule } from '../../core/oracle.js';
+import { compileModuleJs } from '../../core/cpu-codegen.js';
+import type { CpuValue } from '../../core/cpu-runtime.js';
 
 const errorsOf = (src: string): { code?: string; message: string }[] =>
   compileTsSource(src)
     .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => ({ code: d.code, message: d.message }))
+    .map((d) => ({ code: d.code, message: d.message }));
 
 /** One `for` in a function of `n: i32` that counts its trips. */
 function header(head: string): string {
@@ -30,19 +30,19 @@ function header(head: string): string {
       }
       return a;
     }
-  `
+  `;
 }
 
 describe('a for loop takes a runtime bound', () => {
   it('counts to a parameter on both CPU engines', () => {
-    const r = compile(header('let i: i32 = 0; i < n; i++'))
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    const r = compile(header('let i: i32 = 0; i < n; i++'));
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     for (const make of [compileModule, compileModuleJs]) {
-      const f = make(r.module).fns['f']!
-      expect([f(0), f(1), f(1000), f(-3)], make.name).toEqual([0, 1, 1000, 0])
+      const f = make(r.module).fns['f']!;
+      expect([f(0), f(1), f(1000), f(-3)], make.name).toEqual([0, 1, 1000, 0]);
     }
-    expect(r.wgsl).toContain('for (var i: i32 = 0; (i < n); i = (i + 1)) {')
-  })
+    expect(r.wgsl).toContain('for (var i: i32 = 0; (i < n); i = (i + 1)) {');
+  });
 
   it('loops over a mesh from its vertex buffer, the #203 program', () => {
     const src = `"use typeshade";
@@ -58,27 +58,27 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void {
   }
   hits[gid.x] = count;
 }
-`
-    const r = compile(src)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.wgsl).toContain('arrayLength(&verts) / 3u')
+`;
+    const r = compile(src);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('arrayLength(&verts) / 3u');
     for (const make of [compileModule, compileModuleJs]) {
-      const cm = make(r.module)
+      const cm = make(r.module);
       // Four triangles whose first vertices sit at y = 0, 1, 2 and 3.
       const verts = [0, 1, 2, 3].flatMap((y) => [
         [0, y, 0],
         [0, 0, 0],
         [0, 0, 0],
-      ])
-      const hits = [0, 0]
+      ]);
+      const hits = [0, 0];
       // An array of vec3 is an array of arrays on the CPU, which `CpuValue` does not spell.
-      cm.setBinding('verts', verts as unknown as CpuValue)
-      cm.setBinding('hits', hits)
-      cm.fns['main']!([0, 0, 0])
-      cm.fns['main']!([1, 0, 0])
-      expect(hits, make.name).toEqual([3, 2])
+      cm.setBinding('verts', verts as unknown as CpuValue);
+      cm.setBinding('hits', hits);
+      cm.fns['main']!([0, 0, 0]);
+      cm.fns['main']!([1, 0, 0]);
+      expect(hits, make.name).toEqual([3, 2]);
     }
-  })
+  });
 
   it('takes its bound from a uniform and its start from the invocation', () => {
     // The strided loop every compute kernel writes: each invocation starts at its own index and
@@ -96,13 +96,13 @@ export function main(@builtin("local_invocation_index") lid: u32): void {
   }
   dst[lid] = s;
 }
-`
-    const r = compile(src)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+`;
+    const r = compile(src);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // licm reads the count once, ahead of the loop, since nothing in the body writes it.
-    expect(r.wgsl).toContain('let _licm0 = params.count;')
-    expect(r.wgsl).toContain('for (var i: u32 = lid; (i < _licm0); i += 64u) {')
-  })
+    expect(r.wgsl).toContain('let _licm0 = params.count;');
+    expect(r.wgsl).toContain('for (var i: u32 = lid; (i < _licm0); i += 64u) {');
+  });
 
   it('emits a uniform-bounded loop in GLSL ES 3.00 as written', () => {
     const src = `"use typeshade";
@@ -116,12 +116,12 @@ export function fs(@builtin("position") p: vec4f): vec4f {
   }
   return vec4f(a, 0., 0., 1.);
 }
-`
-    const r = compile(src)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.glsl?.fragment).toMatch(/_licm0 = \w+\.steps;/)
-    expect(r.glsl?.fragment).toContain('for (int i = 0; (i < _licm0); i = (i + 1)) {')
-  })
+`;
+    const r = compile(src);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.glsl?.fragment).toMatch(/_licm0 = \w+\.steps;/);
+    expect(r.glsl?.fragment).toContain('for (int i = 0; (i < _licm0); i = (i + 1)) {');
+  });
 
   it('gives an unannotated counter the type of a u32 bound, the loop a TypeScript author writes', () => {
     // `data.length` is a u32. An unannotated counter was always an i32, so the first loop a
@@ -138,28 +138,28 @@ export function sum(@builtin("global_invocation_id") gid: vec3u) {
     s += data[i]
   }
   out[gid.x] = s
-}`
-    const byLength = compile(kernel('let i = 0; i < data.length; i++'))
-    expect(byLength.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(byLength.wgsl).toContain('for (var i: u32 = 0u; ')
-    expect(errorsOf(kernel('let i = 0; i < params.count; i++'))).toEqual([])
-    expect(errorsOf(kernel('let i = 0; params.count > i; i++'))).toEqual([])
+}`;
+    const byLength = compile(kernel('let i = 0; i < data.length; i++'));
+    expect(byLength.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(byLength.wgsl).toContain('for (var i: u32 = 0u; ');
+    expect(errorsOf(kernel('let i = 0; i < params.count; i++'))).toEqual([]);
+    expect(errorsOf(kernel('let i = 0; params.count > i; i++'))).toEqual([]);
     // The author's annotation wins, and a negative start is not a u32: both keep the i32 the
     // counter always had, so the comparison says what is wrong.
     expect(errorsOf(kernel('let i: i32 = 0; i < data.length; i++')).map((d) => d.code)).toEqual([
       'TS8003',
-    ])
+    ]);
     expect(errorsOf(kernel('let i = -1; i < data.length; i++')).map((d) => d.code)).toEqual([
       'TS8003',
-    ])
+    ]);
     // The bound is read once to learn its type; its own error is still reported once.
     expect(errorsOf(kernel('let i = 0; i < nope.length; i++'))).toEqual([
       { code: 'TS8022', message: 'Unknown identifier "nope".' },
-    ])
+    ]);
     // An i32 bound keeps the i32 counter.
-    const byParam = compile(header('let i = 0; i < n; i++'))
-    expect(byParam.wgsl).toContain('for (var i: i32 = 0; (i < n); i = (i + 1)) {')
-  })
+    const byParam = compile(header('let i = 0; i < n; i++'));
+    expect(byParam.wgsl).toContain('for (var i: i32 = 0; (i < n); i = (i + 1)) {');
+  });
 
   it('holds a barrier in a runtime-bounded loop to the uniformity rule', () => {
     // A bound every invocation shares keeps the loop uniform, so a barrier in it is legal. A
@@ -178,10 +178,10 @@ export function main(@builtin("local_invocation_index") lid: u32): void {
   }
   out[lid] = tile[u32(63) - lid];
 }
-`
-    expect(errorsOf(kernel('params.rounds'))).toEqual([])
-    expect(errorsOf(kernel('lid')).map((d) => d.code)).toEqual(['TS8052'])
-  })
+`;
+    expect(errorsOf(kernel('params.rounds'))).toEqual([]);
+    expect(errorsOf(kernel('lid')).map((d) => d.code)).toEqual(['TS8052']);
+  });
 
   it('refuses the runtime headers whose exit it can prove is never reached', () => {
     expect(errorsOf(header('let i: i32 = 0; i < n; i -= 1'))).toEqual([
@@ -191,16 +191,16 @@ export function main(@builtin("local_invocation_index") lid: u32): void {
           'for step "i -= 1" moves "i" away from a bound it compares with <, so the loop does ' +
           'not exit once it starts.',
       },
-    ])
-    expect(errorsOf(header('let i: i32 = n; i > 0; i /= 2'))).toEqual([])
-    expect(errorsOf(header('let i: i32 = n; i < 64; i /= 2'))[0]?.code).toBe('TS8007')
+    ]);
+    expect(errorsOf(header('let i: i32 = n; i > 0; i /= 2'))).toEqual([]);
+    expect(errorsOf(header('let i: i32 = n; i < 64; i /= 2'))[0]?.code).toBe('TS8007');
     expect(errorsOf(header('let i: i32 = 0; i < n; i *= 2'))).toEqual([
       {
         code: 'TS8007',
         message: 'for step "i *= 2" never advances "i": multiplying pins it at 0.',
       },
-    ])
-    expect(errorsOf(header('let i: i32 = 1; i < n; i *= 2'))).toEqual([])
+    ]);
+    expect(errorsOf(header('let i: i32 = 1; i < n; i *= 2'))).toEqual([]);
     expect(errorsOf(header('let i: i32 = 1; i < n; i *= -2'))).toEqual([
       {
         code: 'TS8006',
@@ -208,7 +208,7 @@ export function main(@builtin("local_invocation_index") lid: u32): void {
           'for step "i *= -2" with a runtime start or bound needs a whole factor of 2 or more, ' +
           'so its direction is known.',
       },
-    ])
+    ]);
     expect(errorsOf(header('let i: i32 = 0; i !== n; i += 2'))).toEqual([
       {
         code: 'TS8006',
@@ -216,14 +216,14 @@ export function main(@builtin("local_invocation_index") lid: u32): void {
           'for exit "i != <bound>" with a runtime bound exits only if "i += 2" lands on it ' +
           'exactly. Compare with <, <=, > or >=.',
       },
-    ])
-  })
+    ]);
+  });
 
   it('refuses a bound that is not one: the counter itself, or a name the body writes', () => {
     expect(errorsOf(header('let i: i32 = 1; i < i * 2; i++'))[0]?.message).toBe(
       'for exit must compare "i" to a bound (e.g. i < 16, or i < n). A loop that ends some ' +
         'other way is a while loop.',
-    )
+    );
     const moved = `"use typeshade";
       export function f(n0: i32): i32 {
         let s: i32 = 0;
@@ -234,7 +234,7 @@ export function main(@builtin("local_invocation_index") lid: u32): void {
         }
         return s;
       }
-    `
+    `;
     expect(errorsOf(moved)).toEqual([
       {
         code: 'TS8006',
@@ -242,7 +242,7 @@ export function main(@builtin("local_invocation_index") lid: u32): void {
           'for bound reads "n", which the loop body writes, so it does not bound the loop. ' +
           'Read it into a const before the loop, or write the loop as a while.',
       },
-    ])
+    ]);
     // The same loop as a while is an open loop, and says what it does.
     expect(
       errorsOf(
@@ -250,8 +250,8 @@ export function main(@builtin("local_invocation_index") lid: u32): void {
           .replace('for (let i: i32 = 0; i < n; i++)', 'let i: i32 = 0;\n while (i < n)')
           .replace('s += i;', 's += i; i++;'),
       ),
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('counts a long loop, and a nest whose product passes 256, as ordinary loops', () => {
     const r = compile(`"use typeshade";
@@ -263,11 +263,11 @@ export function main(@builtin("local_invocation_index") lid: u32): void {
         }
         return a;
       }
-    `)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.eval('f', [])).toBe(100000 + 4096)
-  })
-})
+    `);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.eval('f', [])).toBe(100000 + 4096);
+  });
+});
 
 describe('a while loop is an open loop', () => {
   it('walks a stack until it is empty, the BVH traversal shape', () => {
@@ -289,15 +289,15 @@ describe('a while loop is an open loop', () => {
         }
         return visited;
       }
-    `)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    `);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     for (const make of [compileModule, compileModuleJs]) {
-      const f = make(r.module).fns['f']!
+      const f = make(r.module).fns['f']!;
       // A full binary tree of depth 3 has 15 nodes.
-      expect([f(0), f(1), f(3)], make.name).toEqual([1, 3, 15])
+      expect([f(0), f(1), f(3)], make.name).toEqual([1, 3, 15]);
     }
-    expect(r.wgsl).toContain('for (var _w: i32 = 0; (sp > 0); _w = (_w + 1)) {')
-  })
+    expect(r.wgsl).toContain('for (var _w: i32 = 0; (sp > 0); _w = (_w + 1)) {');
+  });
 
   it('leaves while (true) by a break or a return', () => {
     const r = compile(`"use typeshade";
@@ -318,13 +318,13 @@ describe('a while loop is an open loop', () => {
         }
         return -1;
       }
-    `)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.eval('solve', [1])).toBeCloseTo(Math.SQRT2, 5)
-    expect(r.eval('first', [50])).toBe(8)
+    `);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.eval('solve', [1])).toBeCloseTo(Math.SQRT2, 5);
+    expect(r.eval('first', [50])).toBe(8);
     // The counter the IR's one loop form carries is an i32, never the condition's bool.
-    expect(r.wgsl).toContain('for (var _w: i32 = 0; true; _w = (_w + 1)) {')
-  })
+    expect(r.wgsl).toContain('for (var _w: i32 = 0; true; _w = (_w + 1)) {');
+  });
 
   it('refuses while (true) with nothing that leaves it', () => {
     expect(
@@ -342,16 +342,16 @@ describe('a while loop is an open loop', () => {
           'while (true) has no break or return in its body, so it never ends. Leave it with a ' +
           'break, or write the exit into the condition.',
       },
-    ])
-  })
+    ]);
+  });
 
   it('gives the counter an i32 under a float condition', () => {
     const r = compile(`"use typeshade";
       export function f(): f32 { let a = 0.; while (a < 4.) { a += 1.; } return a; }
-    `)
-    expect(r.wgsl).toContain('for (var _w: i32 = 0; (a < 4.0); _w = (_w + 1)) {')
-    expect(r.eval('f', [])).toBe(4)
-  })
+    `);
+    expect(r.wgsl).toContain('for (var _w: i32 = 0; (a < 4.0); _w = (_w + 1)) {');
+    expect(r.eval('f', [])).toBe(4);
+  });
 
   it('points a for with no condition at the while form', () => {
     expect(
@@ -365,6 +365,6 @@ describe('a while loop is an open loop', () => {
           'for is missing an exit condition. A for loop is counted; a loop that ends at a ' +
           'break is "while (true) { … }".',
       },
-    ])
-  })
-})
+    ]);
+  });
+});

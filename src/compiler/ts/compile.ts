@@ -1,12 +1,12 @@
-import type { ModuleDecl } from '../../core/ir/nodes.js'
-import { emitModule } from '../../core/backends/wgsl.js'
-import { emitGlslStages } from '../../core/backends/glsl.js'
-import { determinismReport, type DeterminismEntry } from '../../core/passes/determinism.js'
-import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js'
-import { backendDiagnostic } from './diagnostic.js'
-import { evalEntry } from './eval-entry.js'
-import type { ConsoleSink } from '../../core/console.js'
-import { emittedStructDecls } from './structs.js'
+import type { ModuleDecl } from '../../core/ir/nodes.js';
+import { emitModule } from '../../core/backends/wgsl.js';
+import { emitGlslStages } from '../../core/backends/glsl.js';
+import { determinismReport, type DeterminismEntry } from '../../core/passes/determinism.js';
+import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js';
+import { backendDiagnostic } from './diagnostic.js';
+import { evalEntry } from './eval-entry.js';
+import type { ConsoleSink } from '../../core/console.js';
+import { emittedStructDecls } from './structs.js';
 
 /**
  * What `compile()` returns. The one rule behind every optional field: shader text and a
@@ -24,21 +24,21 @@ export interface CompileResult {
    * vertex+fragment module (a compute entry next to the render pair, a storage binding the
    * GLSL emulation cannot spell). A program with no `error` entry compiled.
    */
-  readonly diagnostics: readonly TsCompilerDiagnostic[]
+  readonly diagnostics: readonly TsCompilerDiagnostic[];
   /**
    * The lowered IR module: the consts, structs, bindings and functions the front end built.
    * Always present. When `diagnostics` has an error the module is partial (the front end
    * stops lowering a declaration at its first error and may drop it), so it is for inspection
    * and diagnostics tooling, not for emitting.
    */
-  readonly module: ModuleDecl
+  readonly module: ModuleDecl;
   /**
    * The module's WGSL. `undefined` when any diagnostic has category `error`, including a
    * `BACKEND` error from a WGSL emitter that threw. Present otherwise, even for a module with
    * no functions (a file of consts or structs emits their declarations), and kept when only
    * the GLSL emitter failed: the WGSL is the program, GLSL a second target of it.
    */
-  readonly wgsl?: string
+  readonly wgsl?: string;
   /**
    * The module's GLSL ES 3.00 vertex and fragment programs. Present when no diagnostic has
    * category `error` and the GLSL emitter took the module; a module with only one render
@@ -47,7 +47,7 @@ export interface CompileResult {
    * compute-only module, which GLSL ES 3.00 has no stage for, and with the throw recorded as a
    * `BACKEND` warning for a module with a `@vertex` or `@fragment` entry.
    */
-  readonly glsl?: { readonly vertex: string; readonly fragment: string }
+  readonly glsl?: { readonly vertex: string; readonly fragment: string };
   /**
    * The operations in `module` whose result may differ by driver: a builtin WGSL §15.7.4 gives
    * a ULP or absolute bound (`sin`, `exp`, `atan2`, `/`), one inherited from a formula the
@@ -60,7 +60,7 @@ export interface CompileResult {
    * `diagnostics` has an error, since a partial module still says what it uses. See
    * {@link determinismReport}.
    */
-  readonly determinism: readonly DeterminismEntry[]
+  readonly determinism: readonly DeterminismEntry[];
   /**
    * Run one function of the module on the CPU oracle: `eval('fs')` calls the fragment entry
    * with no arguments, `eval('add', [1, 2])` a helper with two. When `diagnostics` has an
@@ -68,7 +68,7 @@ export interface CompileResult {
    * message), so a host that ignores `diagnostics` cannot run a broken shader on the oracle.
    * It also throws for a function name the module does not have.
    */
-  readonly eval: (name: string, args?: readonly unknown[]) => unknown
+  readonly eval: (name: string, args?: readonly unknown[]) => unknown;
 }
 
 /**
@@ -94,9 +94,9 @@ export interface CompileOptions {
    * as `C:/shaders/a.ts`. An adapter does not have to care: a `DebugBreakpoint`'s path is
    * normalized the same way before it is compared, so either spelling matches.
    */
-  readonly fileName?: string
+  readonly fileName?: string;
   /** Host sink for `console.*` calls made by CPU/debug evaluation. */
-  readonly consoleSink?: ConsoleSink
+  readonly consoleSink?: ConsoleSink;
   /**
    * Report DEPRECATION warnings for spellings whose meaning is scheduled to change. One
    * today: an integer-written literal in a declaration that declares no type still types as
@@ -107,7 +107,7 @@ export interface CompileOptions {
    * byte-identical with it on and with it off. It is how a build finds the lines the flip
    * will move, one release ahead of it.
    */
-  readonly deprecations?: boolean
+  readonly deprecations?: boolean;
 }
 
 /**
@@ -134,7 +134,7 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
   const r = compileTsSource(source, {
     fileName: options.fileName,
     ...(options.deprecations === true ? { deprecations: true } : {}),
-  })
+  });
   const module: ModuleDecl = {
     consts: [...r.consts],
     structs: emittedStructDecls(r.structs),
@@ -144,18 +144,18 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
     vars: [...r.vars],
     enables: [...r.enables],
     ...(r.directives.length > 0 ? { diagnostics: [...r.directives] } : {}),
-  }
-  const diagnostics = [...r.diagnostics]
+  };
+  const diagnostics = [...r.diagnostics];
   const firstError = (): TsCompilerDiagnostic | undefined =>
-    diagnostics.find((d) => d.category === 'error')
+    diagnostics.find((d) => d.category === 'error');
 
-  let wgsl: string | undefined
-  let glsl: CompileResult['glsl']
+  let wgsl: string | undefined;
+  let glsl: CompileResult['glsl'];
   if (!firstError()) {
     try {
-      wgsl = r.wgsl ?? emitModule(module)
+      wgsl = r.wgsl ?? emitModule(module);
     } catch (e) {
-      diagnostics.push(backendDiagnostic(r.sourceFile, e))
+      diagnostics.push(backendDiagnostic(r.sourceFile, e));
     }
   }
   // GLSL is a second target of a module whose WGSL exists. Its emitter has no compute stage
@@ -164,11 +164,11 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
   // that would unsay the compile. A compute-only module has nothing GLSL ES 3.00 could serve,
   // so its refusal is not news and gets no diagnostic.
   if (wgsl !== undefined) {
-    const hasRenderEntry = module.funcs.some((f) => f.stage === 'vertex' || f.stage === 'fragment')
+    const hasRenderEntry = module.funcs.some((f) => f.stage === 'vertex' || f.stage === 'fragment');
     try {
-      glsl = emitGlslStages(module)
+      glsl = emitGlslStages(module);
     } catch (e) {
-      if (hasRenderEntry) diagnostics.push(backendDiagnostic(r.sourceFile, e, 'warning'))
+      if (hasRenderEntry) diagnostics.push(backendDiagnostic(r.sourceFile, e, 'warning'));
     }
   }
 
@@ -179,15 +179,15 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
     glsl,
     determinism: determinismReport(module),
     eval: (name, args = []) => {
-      const err = firstError()
+      const err = firstError();
       if (err) {
-        const code = err.code ? ` ${err.code}` : ''
+        const code = err.code ? ` ${err.code}` : '';
         throw new Error(
           `Cannot evaluate "${name}": the module did not compile. ` +
             `${err.fileName}:${err.line}:${err.character}${code} ${err.message}`,
-        )
+        );
       }
-      return evalEntry(module, name, args, options.consoleSink)
+      return evalEntry(module, name, args, options.consoleSink);
     },
-  }
+  };
 }

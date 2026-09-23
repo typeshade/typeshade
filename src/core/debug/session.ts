@@ -7,18 +7,25 @@
 // both adapters over this, which is the same split `docs/language-service-api.md` §1 makes
 // for the language service.
 
-import type { CpuValue } from '../cpu-runtime.js'
-import { zeroOf } from '../cpu-runtime.js'
-import type { FuncDecl, ModuleDecl, ShaderType, Stmt } from '../ir/index.js'
-import type { SourceSpan } from '../ir/span.js'
-import { sourceSpanOf } from '../ir/span.js'
-import type { CpuPrecision } from '../oracle.js'
-import { validate } from '../passes/validate.js'
-import { autoVars } from '../passes/opt/index.js'
-import { froundF32 } from '../passes/precision.js'
-import { sameFileName } from './file-name.js'
-import { compileWatch, watchCacheKey, type CompiledWatch, type DebugWatchValue } from './watch.js'
-import { evalExpr, makeCtx, runFunction, type Signal, type Step, type StepFrame } from './interp.js'
+import type { CpuValue } from '../cpu-runtime.js';
+import { zeroOf } from '../cpu-runtime.js';
+import type { FuncDecl, ModuleDecl, ShaderType, Stmt } from '../ir/index.js';
+import type { SourceSpan } from '../ir/span.js';
+import { sourceSpanOf } from '../ir/span.js';
+import type { CpuPrecision } from '../oracle.js';
+import { validate } from '../passes/validate.js';
+import { autoVars } from '../passes/opt/index.js';
+import { froundF32 } from '../passes/precision.js';
+import { sameFileName } from './file-name.js';
+import { compileWatch, watchCacheKey, type CompiledWatch, type DebugWatchValue } from './watch.js';
+import {
+  evalExpr,
+  makeCtx,
+  runFunction,
+  type Signal,
+  type Step,
+  type StepFrame,
+} from './interp.js';
 
 /** A breakpoint, as an editor sets one: a zero-based line, optionally in a named file.
  *
@@ -38,9 +45,9 @@ export interface DebugBreakpoint {
    *  given (`C:\shaders\a.ts` is stored as `C:/shaders/a.ts`) while a breakpoint's path
    *  arrives exactly as the editor spelled it. Neither side is resolved against a directory
    *  or looked up on disk, so a relative path and an absolute one are still two files. */
-  readonly file?: string
+  readonly file?: string;
   /** Zero-based line, the same convention `SourceSpan` and the language service use. */
-  readonly line: number
+  readonly line: number;
 }
 
 /** One frame of a paused call stack.
@@ -49,13 +56,13 @@ export interface DebugBreakpoint {
  */
 export interface DebugStackFrame {
   /** The function's declared name. */
-  readonly fnName: string
+  readonly fnName: string;
   /** Where that function was declared, when it came from `"use typeshade"` source. */
-  readonly fnSpan: SourceSpan | undefined
+  readonly fnSpan: SourceSpan | undefined;
   /** Where the call that created this frame was written; absent on the entry frame. */
-  readonly callSpan: SourceSpan | undefined
+  readonly callSpan: SourceSpan | undefined;
   /** The statement this frame is stopped on. */
-  readonly span: SourceSpan | undefined
+  readonly span: SourceSpan | undefined;
   /** The names this frame holds and their current values, copied at the pause.
    *
    *  The copy is one level deep, which is what the CPU value model makes meaningful: a vector
@@ -69,11 +76,11 @@ export interface DebugStackFrame {
    *  once control has left. Per-block scopes would be the fix and are not M2's; until then a
    *  variables view showing this map is showing what the frame HAS, which is a superset of
    *  what the next statement can name. */
-  readonly locals: ReadonlyMap<string, CpuValue>
+  readonly locals: ReadonlyMap<string, CpuValue>;
   /** The declared type of every name this frame can hold, so {@link formatCpuValue} can render
    *  a local the way its author spelled it. A name absent from `locals` but present here has
    *  not been declared yet at this pause. */
-  readonly localTypes: ReadonlyMap<string, ShaderType>
+  readonly localTypes: ReadonlyMap<string, ShaderType>;
   /** The names in {@link locals} whose value is a **stand-in**, not a computed result: it came
    *  from a GPU-only intrinsic that `gpuStubs` let stand in, or from arithmetic on one. Empty
    *  unless the session was started with `gpuStubs: true`, since without it a stub throws
@@ -89,7 +96,7 @@ export interface DebugStackFrame {
    *  under-reports: a helper that calls `dpdx` and does not use the result still marks what
    *  the call returned, and writing one clean component of a marked vector leaves the vector
    *  marked. Assigning a whole name something clean clears it. */
-  readonly stubbedLocals: ReadonlySet<string>
+  readonly stubbedLocals: ReadonlySet<string>;
 }
 
 /** A stopped run: where it is, and everything visible from there.
@@ -99,7 +106,7 @@ export interface DebugStackFrame {
 export interface DebugPause {
   /** Why the run stopped: the first statement of the entry, a completed step, or a
    *  breakpoint. */
-  readonly reason: 'entry' | 'step' | 'breakpoint'
+  readonly reason: 'entry' | 'step' | 'breakpoint';
   /** Where the statement about to execute was written.
    *
    *  Always present. A statement the compiler synthesised, such as the counter a `while`
@@ -108,11 +115,11 @@ export interface DebugPause {
    *  (`docs/debugging.md` §3.4). That is also why a module authored through the `fn()` EDSL,
    *  which carries no spans at all, runs to completion without pausing: there is no source to
    *  step. */
-  readonly span: SourceSpan
+  readonly span: SourceSpan;
   /** The IR statement about to execute. */
-  readonly stmt: Stmt
+  readonly stmt: Stmt;
   /** The call stack, innermost frame first, as a debug adapter reports it. */
-  readonly frames: readonly DebugStackFrame[]
+  readonly frames: readonly DebugStackFrame[];
   /** The uniform and storage bindings this run was given, as their own scope.
    *
    *  The values SUPPLIED, keyed by declared name, not the module's declared list: a binding the
@@ -126,10 +133,10 @@ export interface DebugPause {
    *  where a struct is declared produces `NaN` when a field of it is read. The configuration
    *  layer is where that check lives, which is also where a caller gets every problem at once
    *  rather than the first. */
-  readonly bindings: ReadonlyMap<string, CpuValue>
+  readonly bindings: ReadonlyMap<string, CpuValue>;
   /** Each binding's declared type, for the same reason {@link DebugStackFrame.localTypes}
    *  exists. */
-  readonly bindingTypes: ReadonlyMap<string, ShaderType>
+  readonly bindingTypes: ReadonlyMap<string, ShaderType>;
 }
 
 /** How a run is set up.
@@ -142,28 +149,28 @@ export interface DebugSessionOptions {
    *  GPU computes, while the f64 mode answers a different question. It is the algebra
    *  reference, blind by construction to the rounding that produces most "it looks wrong on
    *  the GPU" reports. `docs/debugging.md` §5 decision 6 settles this. */
-  readonly precision?: CpuPrecision
+  readonly precision?: CpuPrecision;
   /** Accept placeholder values at the GPU-only intrinsics (a texture read, a screen-space
    *  derivative) instead of throwing. Off by default, as on the oracle, because a plausible
    *  wrong number is the worst failure mode for a reference. When on,
    *  {@link DebugSession.stubbedIntrinsics} names every one that stood in, and
    *  {@link DebugStackFrame.stubbedLocals} names the values each pause is showing that came
    *  from one. */
-  readonly gpuStubs?: boolean
+  readonly gpuStubs?: boolean;
   /** Uniform and storage values by declared name, in the CPU value model: a number for a
    *  scalar, a flat array for a vector or matrix, an object keyed by field name for a
    *  struct, an array for an array. */
-  readonly bindings?: Readonly<Record<string, CpuValue>>
+  readonly bindings?: Readonly<Record<string, CpuValue>>;
   /** Breakpoints to arm before the run starts. {@link DebugSession.setBreakpoints} replaces
    *  them later. */
-  readonly breakpoints?: readonly DebugBreakpoint[]
+  readonly breakpoints?: readonly DebugBreakpoint[];
   /** Stop before the entry's first statement. Default `true`; `false` runs to the first
    *  breakpoint instead.
    *
    *  Either way a breakpoint on the entry's own first statement fires: the entry pause is
    *  examined against the armed breakpoints like any other stop, and reports `'breakpoint'`
    *  when one matches. */
-  readonly stopOnEntry?: boolean
+  readonly stopOnEntry?: boolean;
   /** Stop the run after this many statement events, as a guard against a shader that cannot
    *  finish.
    *
@@ -175,7 +182,7 @@ export interface DebugSessionOptions {
    *
    *  Counted in statements reached, not in statements stopped at, so it bounds the work one
    *  `continue()` can do rather than the number of pauses it reports. */
-  readonly maxSteps?: number
+  readonly maxSteps?: number;
 }
 
 /** A run of one invocation, stopped at a statement and steppable from there.
@@ -184,14 +191,14 @@ export interface DebugSessionOptions {
  */
 export interface DebugSession {
   /** Where the run is stopped, or `undefined` once it has finished. */
-  readonly pause: DebugPause | undefined
+  readonly pause: DebugPause | undefined;
   /** Whether the run has finished. */
-  readonly done: boolean
+  readonly done: boolean;
   /** The entry point's return value, once `done`. `undefined` for a void entry and for one
    *  that discarded. */
-  readonly result: CpuValue | undefined
+  readonly result: CpuValue | undefined;
   /** Whether the run ended at a `discard`. */
-  readonly discarded: boolean
+  readonly discarded: boolean;
   /** The GPU-only intrinsics that returned a placeholder rather than a computed value at some
    *  point during this run, by name. Empty unless `gpuStubs` is on.
    *
@@ -202,21 +209,21 @@ export interface DebugSession {
    *  it reports `dpdx` and cannot tell `d` from `a`. That is
    *  {@link DebugStackFrame.stubbedLocals}, the other half of `docs/debugging.md` §2.4, which
    *  is what a variables view marks. */
-  readonly stubbedIntrinsics: readonly string[]
+  readonly stubbedIntrinsics: readonly string[];
   /** The precision this run is evaluating at, so a UI can say which question it is answering. */
-  readonly precision: CpuPrecision
+  readonly precision: CpuPrecision;
   /** Run to the next statement in this frame or a caller, over any calls the current
    *  statement makes. */
-  stepOver(): DebugPause | undefined
+  stepOver(): DebugPause | undefined;
   /** Run to the next statement anywhere, which is the first statement of a callee when the
    *  current statement calls one. */
-  stepIn(): DebugPause | undefined
+  stepIn(): DebugPause | undefined;
   /** Run until this frame returns, stopping in its caller. */
-  stepOut(): DebugPause | undefined
+  stepOut(): DebugPause | undefined;
   /** Run until a breakpoint or the end of the invocation. */
-  continue(): DebugPause | undefined
+  continue(): DebugPause | undefined;
   /** Replace the armed breakpoints. */
-  setBreakpoints(breakpoints: readonly DebugBreakpoint[]): void
+  setBreakpoints(breakpoints: readonly DebugBreakpoint[]): void;
   /** What is this expression, here, now: a DAP `evaluate`, a watch box, a debug hover.
    *
    *  The text is compiled by the REAL front end against the frame's own names, so a watch
@@ -241,14 +248,14 @@ export interface DebugSession {
    *    an out-of-range index).
    *  @throws `Error` when the session is not paused, or `frameIndex` names no frame.
    */
-  evaluate(expression: string, frameIndex?: number): DebugWatchValue
+  evaluate(expression: string, frameIndex?: number): DebugWatchValue;
   /** Abandon the run without finishing it: the session reports `done`, keeps whatever pause it
    *  was showing out of `pause`, and every further move is a no-op.
    *
    *  What a DAP `terminate` maps onto, and what a UI closing a panel should call. It cannot
    *  interrupt a `continue()` that is already running, since that is a loop on the same
    *  thread; {@link DebugSessionOptions.maxSteps} is the guard for that case. */
-  terminate(): void
+  terminate(): void;
 }
 
 /** Start a stepped run of one shader invocation.
@@ -313,25 +320,25 @@ export function startDebugSession(
 ): DebugSession {
   // The oracle's own preparation, in the oracle's own order: reject what the GPU writers
   // reject, materialise auto-vars so the assignable lvalues match, then round if asked.
-  validate(m)
-  let prepared = autoVars(m)
-  const precision: CpuPrecision = opts?.precision ?? 'f32'
-  if (precision === 'f32') prepared = froundF32(prepared)
+  validate(m);
+  let prepared = autoVars(m);
+  const precision: CpuPrecision = opts?.precision ?? 'f32';
+  if (precision === 'f32') prepared = froundF32(prepared);
 
-  const decl = prepared.funcs.find((f) => f.name === entry)
-  if (!decl) throw new Error(`typeshade/debug: no function "${entry}" in module`)
+  const decl = prepared.funcs.find((f) => f.name === entry);
+  if (!decl) throw new Error(`typeshade/debug: no function "${entry}" in module`);
 
-  const ctx = makeCtx(prepared, opts?.gpuStubs ?? false)
+  const ctx = makeCtx(prepared, opts?.gpuStubs ?? false);
   // A name the module does not declare is a typo, not a value: storing it silently means the
   // real binding stays unsupplied and the run fails later, naming the binding the caller
   // thought they had just supplied. `ctx.bindingNames` is the declared set.
-  const declared = new Set(m.bindings.map((b) => b.name))
+  const declared = new Set(m.bindings.map((b) => b.name));
   for (const [name, value] of Object.entries(opts?.bindings ?? {})) {
     if (!declared.has(name)) {
-      const known = [...declared].sort().join(', ') || 'none'
-      throw new Error(`typeshade/debug: no binding "${name}" in this module; it declares ${known}`)
+      const known = [...declared].sort().join(', ') || 'none';
+      throw new Error(`typeshade/debug: no binding "${name}" in this module; it declares ${known}`);
     }
-    ctx.bindings[name] = value
+    ctx.bindings[name] = value;
   }
 
   return new Session(
@@ -344,31 +351,31 @@ export function startDebugSession(
     new Map(m.bindings.map((b) => [b.name, b.type])),
     prepared,
     opts?.maxSteps,
-  )
+  );
 }
 
 /** Positional arguments, with anything missing standing in as the zero of its type, whatever
  *  `zeroOf` makes of it: `{}` for a struct, which is the gap `startDebugSession`'s JSDoc names. */
 function fillArgs(decl: FuncDecl, args: readonly CpuValue[]): CpuValue[] {
-  return decl.params.map((p, i) => (args[i] === undefined ? zeroOf(p.type) : args[i]!))
+  return decl.params.map((p, i) => (args[i] === undefined ? zeroOf(p.type) : args[i]!));
 }
 
 class Session implements DebugSession {
-  readonly precision: CpuPrecision
-  private readonly run: Step<Signal>
-  private readonly ctx: ReturnType<typeof makeCtx>
-  private readonly bindingTypes: ReadonlyMap<string, ShaderType>
-  private breakpoints: readonly DebugBreakpoint[]
-  private paused: DebugPause | undefined
-  private finished = false
-  private signal: Signal | undefined
+  readonly precision: CpuPrecision;
+  private readonly run: Step<Signal>;
+  private readonly ctx: ReturnType<typeof makeCtx>;
+  private readonly bindingTypes: ReadonlyMap<string, ShaderType>;
+  private breakpoints: readonly DebugBreakpoint[];
+  private paused: DebugPause | undefined;
+  private finished = false;
+  private signal: Signal | undefined;
   /** The module as the run prepared it, for a watch to redeclare structs and helpers from. */
-  private readonly prepared: ModuleDecl
+  private readonly prepared: ModuleDecl;
   /** Compiled watches, by text and frame shape. Stepping with a watch box open re-asks the
    *  same question at every stop, and the answer changes while the lowering does not. */
-  private readonly watches = new Map<string, CompiledWatch>()
-  private readonly maxSteps: number | undefined
-  private steps = 0
+  private readonly watches = new Map<string, CompiledWatch>();
+  private readonly maxSteps: number | undefined;
+  private steps = 0;
 
   constructor(
     decl: FuncDecl,
@@ -381,13 +388,13 @@ class Session implements DebugSession {
     prepared: ModuleDecl,
     maxSteps: number | undefined,
   ) {
-    this.ctx = ctx
-    this.prepared = prepared
-    this.bindingTypes = bindingTypes
-    this.precision = precision
-    this.breakpoints = breakpoints
-    this.maxSteps = maxSteps
-    this.run = runFunction(decl, args, undefined, ctx)
+    this.ctx = ctx;
+    this.prepared = prepared;
+    this.bindingTypes = bindingTypes;
+    this.precision = precision;
+    this.breakpoints = breakpoints;
+    this.maxSteps = maxSteps;
+    this.run = runFunction(decl, args, undefined, ctx);
     // `'entry'` is the reason only when nothing else claims the stop. A breakpoint on the
     // entry's FIRST statement used to be invisible: the constructor consumed that statement
     // as the entry pause, so a later `continue()` resumed past it and the breakpoint never
@@ -395,64 +402,64 @@ class Session implements DebugSession {
     // other move, which is what makes the `stopOnEntry: false` arm below honest too: it runs
     // to the first breakpoint, and the entry's own first statement is one of the statements
     // that can carry one.
-    if (stopOnEntry) this.advance('entry', () => true)
-    else this.advance('breakpoint', () => false)
+    if (stopOnEntry) this.advance('entry', () => true);
+    else this.advance('breakpoint', () => false);
   }
 
   get pause(): DebugPause | undefined {
-    return this.paused
+    return this.paused;
   }
   get done(): boolean {
-    return this.finished
+    return this.finished;
   }
   get result(): CpuValue | undefined {
-    return this.signal?.kind === 'return' ? this.signal.value : undefined
+    return this.signal?.kind === 'return' ? this.signal.value : undefined;
   }
   get discarded(): boolean {
-    return this.signal?.kind === 'discard'
+    return this.signal?.kind === 'discard';
   }
   get stubbedIntrinsics(): readonly string[] {
-    return [...this.ctx.stubbed]
+    return [...this.ctx.stubbed];
   }
 
   setBreakpoints(breakpoints: readonly DebugBreakpoint[]): void {
-    this.breakpoints = breakpoints
+    this.breakpoints = breakpoints;
   }
 
   evaluate(expression: string, frameIndex = 0): DebugWatchValue {
-    const pause = this.paused
+    const pause = this.paused;
     if (!pause) {
-      throw new Error('typeshade/debug: cannot evaluate a watch; the run is not paused')
+      throw new Error('typeshade/debug: cannot evaluate a watch; the run is not paused');
     }
-    const frame = pause.frames[frameIndex]
+    const frame = pause.frames[frameIndex];
     if (!frame) {
       throw new Error(
         `typeshade/debug: no frame ${frameIndex}; the stack is ${pause.frames.length} deep`,
-      )
+      );
     }
 
     // A local shadows a binding of the same name, which is the order the interpreter itself
     // resolves in (`evalExpr` checks the environment before the bindings).
-    const scope = new Map<string, ShaderType>(this.bindingTypes)
-    for (const [name, type] of frame.localTypes) scope.set(name, type)
+    const scope = new Map<string, ShaderType>(this.bindingTypes);
+    for (const [name, type] of frame.localTypes) scope.set(name, type);
 
-    const key = watchCacheKey(scope, expression)
-    let compiled = this.watches.get(key)
+    const key = watchCacheKey(scope, expression);
+    let compiled = this.watches.get(key);
     if (!compiled) {
-      compiled = this.atPrecision(compileWatch(this.prepared, scope, expression))
-      this.watches.set(key, compiled)
+      compiled = this.atPrecision(compileWatch(this.prepared, scope, expression));
+      this.watches.set(key, compiled);
     }
 
-    const env = new Map<string, CpuValue>()
+    const env = new Map<string, CpuValue>();
     for (const name of compiled.reads) {
-      if (frame.locals.has(name)) env.set(name, frame.locals.get(name) as CpuValue)
-      else if (pause.bindings.has(name)) env.set(name, pause.bindings.get(name) as CpuValue)
+      if (frame.locals.has(name)) env.set(name, frame.locals.get(name) as CpuValue);
+      else if (pause.bindings.has(name)) env.set(name, pause.bindings.get(name) as CpuValue);
       else {
         // Declared further down the body, so the frame has a TYPE for it and no value. Saying
         // so beats evaluating `undefined` into a NaN that reads like an answer.
         throw new Error(
           `typeshade/debug: "${name}" is declared in ${frame.fnName} but not yet assigned at this pause`,
-        )
+        );
       }
     }
 
@@ -460,7 +467,7 @@ class Session implements DebugSession {
     // stub marks is what makes a watch over a stand-in report itself as one, and it is what a
     // call inside the watch unwinds back to. The run's own generator is suspended throughout,
     // so nothing else is looking at this stack, and the `finally` puts it back either way.
-    const before = this.ctx.stubHits
+    const before = this.ctx.stubHits;
     this.ctx.frames.push({
       fnName: frame.fnName,
       fnSpan: frame.fnSpan,
@@ -469,16 +476,16 @@ class Session implements DebugSession {
       types: frame.localTypes,
       stubbed: new Set(frame.stubbedLocals),
       current: undefined,
-    })
+    });
     try {
-      const walk = evalExpr(compiled.expr, env, this.ctx)
-      let step = walk.next()
+      const walk = evalExpr(compiled.expr, env, this.ctx);
+      let step = walk.next();
       // A watch never pauses: its statement boundaries are inside helpers it called, and a
       // watch box asking a question is not a place to stop.
-      while (!step.done) step = walk.next()
-      return { value: step.value, type: compiled.type, stubbed: this.ctx.stubHits > before }
+      while (!step.done) step = walk.next();
+      return { value: step.value, type: compiled.type, stubbed: this.ctx.stubHits > before };
     } finally {
-      this.ctx.frames.pop()
+      this.ctx.frames.pop();
     }
   }
 
@@ -491,33 +498,33 @@ class Session implements DebugSession {
    *  one rather than this file re-implementing the wrapping rule.
    */
   private atPrecision(w: CompiledWatch): CompiledWatch {
-    if (this.precision !== 'f32') return w
+    if (this.precision !== 'f32') return w;
     const wrapped = froundF32({
       consts: [],
       structs: [],
       bindings: [],
       funcs: [{ name: 'w', params: [], ret: w.type, body: [{ s: 'return', expr: w.expr }] }],
-    })
-    const stmt = wrapped.funcs[0]?.body[0]
-    return stmt?.s === 'return' && stmt.expr ? { ...w, expr: stmt.expr } : w
+    });
+    const stmt = wrapped.funcs[0]?.body[0];
+    return stmt?.s === 'return' && stmt.expr ? { ...w, expr: stmt.expr } : w;
   }
 
   terminate(): void {
-    this.finished = true
-    this.paused = undefined
+    this.finished = true;
+    this.paused = undefined;
   }
 
   stepIn(): DebugPause | undefined {
-    return this.advance('step', () => true)
+    return this.advance('step', () => true);
   }
 
   stepOver(): DebugPause | undefined {
-    const depth = this.depth()
-    return this.advance('step', (d) => d <= depth)
+    const depth = this.depth();
+    return this.advance('step', (d) => d <= depth);
   }
 
   stepOut(): DebugPause | undefined {
-    const depth = this.depth()
+    const depth = this.depth();
     // The post-call arm is what makes this §2.1's step-out rather than "run until the stack is
     // shallower": it stops the moment this frame's caller has it back, still on the statement
     // that made the call, so a following `stepIn` enters that statement's next call.
@@ -525,22 +532,22 @@ class Session implements DebugSession {
       'step',
       (d) => d < depth,
       (d) => d < depth,
-    )
+    );
   }
 
   continue(): DebugPause | undefined {
-    return this.advance('breakpoint', () => false)
+    return this.advance('breakpoint', () => false);
   }
 
   /** How deep the stack is at the current pause; 1 is the entry frame. */
   private depth(): number {
-    return this.paused?.frames.length ?? 0
+    return this.paused?.frames.length ?? 0;
   }
 
   private hits(span: SourceSpan): boolean {
     return this.breakpoints.some(
       (b) => (b.file === undefined || sameFileName(b.file, span.file)) && b.line === span.line,
-    )
+    );
   }
 
   /** Pull events out of the walk until one is worth stopping at, or the run finishes.
@@ -561,33 +568,33 @@ class Session implements DebugSession {
     want: (depth: number, span: SourceSpan) => boolean,
     wantAfterCall?: (depth: number) => boolean,
   ): DebugPause | undefined {
-    if (this.finished) return undefined
+    if (this.finished) return undefined;
     for (;;) {
-      const next = this.run.next()
+      const next = this.run.next();
       if (next.done) {
-        this.finished = true
-        this.paused = undefined
-        this.signal = next.value
-        return undefined
+        this.finished = true;
+        this.paused = undefined;
+        this.signal = next.value;
+        return undefined;
       }
-      const { stmt, frames, afterCall } = next.value
+      const { stmt, frames, afterCall } = next.value;
       if (!afterCall && this.maxSteps !== undefined && ++this.steps > this.maxSteps) {
-        this.finished = true
-        this.paused = undefined
+        this.finished = true;
+        this.paused = undefined;
         throw new Error(
           `typeshade/debug: the run reached ${this.maxSteps} statements without finishing ` +
             `(maxSteps); it is either an unbounded loop or a budget set too low`,
-        )
+        );
       }
-      const span = sourceSpanOf(stmt)
+      const span = sourceSpanOf(stmt);
       if (afterCall) {
-        if (span === undefined || !wantAfterCall?.(frames.length)) continue
-        this.paused = snapshot('step', stmt, span, frames, this.ctx.bindings, this.bindingTypes)
-        return this.paused
+        if (span === undefined || !wantAfterCall?.(frames.length)) continue;
+        this.paused = snapshot('step', stmt, span, frames, this.ctx.bindings, this.bindingTypes);
+        return this.paused;
       }
-      if (span === undefined) continue
-      const hit = this.hits(span)
-      if (!hit && !want(frames.length, span)) continue
+      if (span === undefined) continue;
+      const hit = this.hits(span);
+      if (!hit && !want(frames.length, span)) continue;
       this.paused = snapshot(
         hit ? 'breakpoint' : reason,
         stmt,
@@ -595,8 +602,8 @@ class Session implements DebugSession {
         frames,
         this.ctx.bindings,
         this.bindingTypes,
-      )
-      return this.paused
+      );
+      return this.paused;
     }
   }
 }
@@ -627,5 +634,5 @@ function snapshot(
       .reverse(),
     bindings: new Map(Object.entries(bindings)),
     bindingTypes,
-  }
+  };
 }

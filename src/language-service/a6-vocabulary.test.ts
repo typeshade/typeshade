@@ -7,18 +7,18 @@
 // have to be written by hand: `select`'s third argument is a bool, `atan` has two arities,
 // `bool` takes a bool as well as a number, and `discard` is a statement rather than a call.
 
-import { describe, expect, it } from 'vitest'
-import { createTypeshadeLanguageService } from './service.js'
+import { describe, expect, it } from 'vitest';
+import { createTypeshadeLanguageService } from './service.js';
 
 /** The TypeScript diagnostics the service reports for one program — TypeShade's own are not
  *  the subject here, only whether the editor's type layer can see the vocabulary. */
 function tsDiagnostics(body: string): string[] {
-  const service = createTypeshadeLanguageService()
-  service.openDocument('a.ts', `"use typeshade";\n${body}`)
+  const service = createTypeshadeLanguageService();
+  service.openDocument('a.ts', `"use typeshade";\n${body}`);
   return service
     .getDiagnostics('a.ts')
     .filter((d) => d.source !== 'typeshade')
-    .map((d) => `${d.code ?? ''} ${d.message}`)
+    .map((d) => `${d.code ?? ''} ${d.message}`);
 }
 
 describe('the ambient lib sees every #8 A6 spelling', () => {
@@ -41,6 +41,6 @@ describe('the ambient lib sees every #8 A6 spelling', () => {
       'export function f(x: f32): f32 {\n  if (x < 0.) {\n    discard;\n  }\n  return x;\n}',
     ],
   ])('resolves %s', (_label, body) => {
-    expect(tsDiagnostics(body)).toEqual([])
-  })
-})
+    expect(tsDiagnostics(body)).toEqual([]);
+  });
+});

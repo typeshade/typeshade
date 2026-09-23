@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { createTypeshadeLanguageService } from './service.js'
+import { describe, expect, it } from 'vitest';
+import { createTypeshadeLanguageService } from './service.js';
 
 const SOURCE =
   '"use typeshade";\n' +
@@ -18,160 +18,160 @@ const SOURCE =
   '@fragment\n' +
   'export function fs(): vec4 {\n' +
   '  return camera.position\n' +
-  '}\n'
+  '}\n';
 
 describe('getDefinition', () => {
   it('finds the definition of a user function from its call site', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
-    const offset = SOURCE.indexOf('scale(1.0)')
-    const position = service.positionAt('a.ts', offset)
-    const defs = service.getDefinition('a.ts', position)
-    expect(defs.length).toBe(1)
-    expect(defs[0]!.uri).toBe('a.ts')
-    const declOffset = SOURCE.indexOf('function scale') + 'function '.length
-    expect(service.offsetAt('a.ts', defs[0]!.range.start)).toBe(declOffset)
-  })
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
+    const offset = SOURCE.indexOf('scale(1.0)');
+    const position = service.positionAt('a.ts', offset);
+    const defs = service.getDefinition('a.ts', position);
+    expect(defs.length).toBe(1);
+    expect(defs[0]!.uri).toBe('a.ts');
+    const declOffset = SOURCE.indexOf('function scale') + 'function '.length;
+    expect(service.offsetAt('a.ts', defs[0]!.range.start)).toBe(declOffset);
+  });
 
   it('finds the definition of a struct field from a property access', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
-    const offset = SOURCE.lastIndexOf('camera.position') + 'camera.'.length
-    const position = service.positionAt('a.ts', offset)
-    const defs = service.getDefinition('a.ts', position)
-    expect(defs.length).toBe(1)
-    const fieldOffset = SOURCE.indexOf('position: vec4')
-    expect(service.offsetAt('a.ts', defs[0]!.range.start)).toBe(fieldOffset)
-  })
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
+    const offset = SOURCE.lastIndexOf('camera.position') + 'camera.'.length;
+    const position = service.positionAt('a.ts', offset);
+    const defs = service.getDefinition('a.ts', position);
+    expect(defs.length).toBe(1);
+    const fieldOffset = SOURCE.indexOf('position: vec4');
+    expect(service.offsetAt('a.ts', defs[0]!.range.start)).toBe(fieldOffset);
+  });
 
   it('drops a definition that lands in the ambient lib', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
-    const offset = SOURCE.indexOf('position: vec4') + 'position: '.length
-    const position = service.positionAt('a.ts', offset)
-    expect(service.getDefinition('a.ts', position)).toEqual([])
-  })
-})
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
+    const offset = SOURCE.indexOf('position: vec4') + 'position: '.length;
+    const position = service.positionAt('a.ts', offset);
+    expect(service.getDefinition('a.ts', position)).toEqual([]);
+  });
+});
 
 describe('getReferences', () => {
   it('finds every reference to a resource, and can exclude its declaration', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
-    const declOffset = SOURCE.indexOf('camera =')
-    const position = service.positionAt('a.ts', declOffset)
-    const withDecl = service.getReferences('a.ts', position, { includeDeclaration: true })
-    const withoutDecl = service.getReferences('a.ts', position, { includeDeclaration: false })
-    expect(withDecl.length).toBe(2)
-    expect(withoutDecl.length).toBe(1)
-    expect(withDecl.every((loc) => loc.uri === 'a.ts')).toBe(true)
-  })
-})
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
+    const declOffset = SOURCE.indexOf('camera =');
+    const position = service.positionAt('a.ts', declOffset);
+    const withDecl = service.getReferences('a.ts', position, { includeDeclaration: true });
+    const withoutDecl = service.getReferences('a.ts', position, { includeDeclaration: false });
+    expect(withDecl.length).toBe(2);
+    expect(withoutDecl.length).toBe(1);
+    expect(withDecl.every((loc) => loc.uri === 'a.ts')).toBe(true);
+  });
+});
 
 describe('getDocumentSymbols', () => {
   it('re-labels a struct, a resource, a helper, and two entries with their stage detail', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
-    const symbols = service.getDocumentSymbols('a.ts')
-    const byName = new Map(symbols.map((s) => [s.name, s]))
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
+    const symbols = service.getDocumentSymbols('a.ts');
+    const byName = new Map(symbols.map((s) => [s.name, s]));
 
-    expect(byName.get('Camera')?.kind).toBe('struct')
-    expect(byName.get('Camera')?.children?.map((c) => c.kind)).toEqual(['field'])
+    expect(byName.get('Camera')?.kind).toBe('struct');
+    expect(byName.get('Camera')?.children?.map((c) => c.kind)).toEqual(['field']);
 
-    expect(byName.get('camera')?.kind).toBe('resource')
-    expect(byName.get('scale')?.kind).toBe('function')
+    expect(byName.get('camera')?.kind).toBe('resource');
+    expect(byName.get('scale')?.kind).toBe('function');
 
-    expect(byName.get('vs')?.kind).toBe('entry')
-    expect(byName.get('vs')?.detail).toBe('vertex')
-    expect(byName.get('vs')?.children?.map((c) => c.kind)).toEqual(['parameter'])
+    expect(byName.get('vs')?.kind).toBe('entry');
+    expect(byName.get('vs')?.detail).toBe('vertex');
+    expect(byName.get('vs')?.children?.map((c) => c.kind)).toEqual(['parameter']);
 
-    expect(byName.get('fs')?.kind).toBe('entry')
-    expect(byName.get('fs')?.detail).toBe('fragment')
-  })
-})
+    expect(byName.get('fs')?.kind).toBe('entry');
+    expect(byName.get('fs')?.detail).toBe('fragment');
+  });
+});
 
 describe('prepareRename / rename', () => {
   it('renames a user function across its declaration and every call site', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
     const position = service.positionAt(
       'a.ts',
       SOURCE.indexOf('function scale') + 'function '.length,
-    )
-    const prepared = service.prepareRename('a.ts', position)
-    expect(prepared?.placeholder).toBe('scale')
-    const edits = service.rename('a.ts', position, 'multiply')
-    expect(edits['a.ts']?.length).toBe(2)
-  })
+    );
+    const prepared = service.prepareRename('a.ts', position);
+    expect(prepared?.placeholder).toBe('scale');
+    const edits = service.rename('a.ts', position, 'multiply');
+    expect(edits['a.ts']?.length).toBe(2);
+  });
 
   it('renames the same function across a CRLF document', () => {
-    const crlfSource = SOURCE.replace(/\n/g, '\r\n')
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', crlfSource)
+    const crlfSource = SOURCE.replace(/\n/g, '\r\n');
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', crlfSource);
     const position = service.positionAt(
       'a.ts',
       crlfSource.indexOf('function scale') + 'function '.length,
-    )
-    const prepared = service.prepareRename('a.ts', position)
-    expect(prepared?.placeholder).toBe('scale')
-    const edits = service.rename('a.ts', position, 'multiply')
-    expect(edits['a.ts']?.length).toBe(2)
+    );
+    const prepared = service.prepareRename('a.ts', position);
+    expect(prepared?.placeholder).toBe('scale');
+    const edits = service.rename('a.ts', position, 'multiply');
+    expect(edits['a.ts']?.length).toBe(2);
     for (const edit of edits['a.ts']!) {
-      const offset = service.offsetAt('a.ts', edit.range.start)
-      expect(crlfSource.slice(offset, offset + 5)).toBe('scale')
+      const offset = service.offsetAt('a.ts', edit.range.start);
+      expect(crlfSource.slice(offset, offset + 5)).toBe('scale');
     }
-  })
+  });
 
   it('refuses to rename an ambient name', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
     const position = service.positionAt(
       'a.ts',
       SOURCE.indexOf('position: vec4') + 'position: '.length,
-    )
-    expect(service.prepareRename('a.ts', position)).toBeUndefined()
-    expect(service.rename('a.ts', position, 'vec4x')).toEqual({})
-  })
+    );
+    expect(service.prepareRename('a.ts', position)).toBeUndefined();
+    expect(service.rename('a.ts', position, 'vec4x')).toEqual({});
+  });
 
   it('refuses to rename the builtin string inside @builtin(...)', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
-    const position = service.positionAt('a.ts', SOURCE.indexOf('vertex_index') + 1)
-    expect(service.prepareRename('a.ts', position)).toBeUndefined()
-    expect(service.rename('a.ts', position, 'nope')).toEqual({})
-  })
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
+    const position = service.positionAt('a.ts', SOURCE.indexOf('vertex_index') + 1);
+    expect(service.prepareRename('a.ts', position)).toBeUndefined();
+    expect(service.rename('a.ts', position, 'nope')).toEqual({});
+  });
 
   // Regression: `prepareRename` refused the directive string (ts.getRenameInfo says a plain
   // string literal cannot be renamed), but `rename` went straight to ts.findRenameLocations,
   // which treats a string literal as renamable and rewrote `"use typeshade"` itself.
   it('refuses to rename the "use typeshade" directive string, at every offset inside it', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
-    const start = SOURCE.indexOf('"use typeshade"')
-    const end = start + '"use typeshade"'.length
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
+    const start = SOURCE.indexOf('"use typeshade"');
+    const end = start + '"use typeshade"'.length;
     for (let offset = start; offset < end; offset++) {
-      const position = service.positionAt('a.ts', offset)
-      expect(service.prepareRename('a.ts', position)).toBeUndefined()
-      expect(service.rename('a.ts', position, 'nope')).toEqual({})
+      const position = service.positionAt('a.ts', offset);
+      expect(service.prepareRename('a.ts', position)).toBeUndefined();
+      expect(service.rename('a.ts', position, 'nope')).toEqual({});
     }
-  })
+  });
 
   it('never returns edits from rename where prepareRename refused, at any offset in the file', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
     for (let offset = 0; offset <= SOURCE.length; offset++) {
-      const position = service.positionAt('a.ts', offset)
-      const prepared = service.prepareRename('a.ts', position)
-      const edits = service.rename('a.ts', position, 'renamed')
+      const position = service.positionAt('a.ts', offset);
+      const prepared = service.prepareRename('a.ts', position);
+      const edits = service.rename('a.ts', position, 'renamed');
       if (prepared === undefined) {
         expect(
           edits,
           `offset ${offset} (${JSON.stringify(SOURCE.slice(offset, offset + 8))})`,
-        ).toEqual({})
+        ).toEqual({});
       } else {
-        expect(Object.keys(edits).length, `offset ${offset}`).toBeGreaterThan(0)
+        expect(Object.keys(edits).length, `offset ${offset}`).toBeGreaterThan(0);
       }
     }
-  })
+  });
 
   // Regression: TypeScript's own decorator-resolution machinery (the code path
   // getDefinitionAtPosition/getRenameInfo/findRenameLocations all go through) `Debug.fail()`s
@@ -179,41 +179,41 @@ describe('prepareRename / rename', () => {
   // are attached to in "use typeshade". These three methods must return their empty shape
   // instead of letting that throw escape, at every offset inside either decorator.
   it('does not throw, and returns an empty result, on every offset inside @vertex', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
-    const start = SOURCE.indexOf('@vertex')
-    const end = start + '@vertex'.length
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
+    const start = SOURCE.indexOf('@vertex');
+    const end = start + '@vertex'.length;
     for (let offset = start; offset <= end; offset++) {
-      const position = service.positionAt('a.ts', offset)
-      expect(() => service.getDefinition('a.ts', position)).not.toThrow()
-      expect(service.getDefinition('a.ts', position)).toEqual([])
-      expect(() => service.prepareRename('a.ts', position)).not.toThrow()
-      expect(service.prepareRename('a.ts', position)).toBeUndefined()
-      expect(() => service.rename('a.ts', position, 'nope')).not.toThrow()
-      expect(service.rename('a.ts', position, 'nope')).toEqual({})
+      const position = service.positionAt('a.ts', offset);
+      expect(() => service.getDefinition('a.ts', position)).not.toThrow();
+      expect(service.getDefinition('a.ts', position)).toEqual([]);
+      expect(() => service.prepareRename('a.ts', position)).not.toThrow();
+      expect(service.prepareRename('a.ts', position)).toBeUndefined();
+      expect(() => service.rename('a.ts', position, 'nope')).not.toThrow();
+      expect(service.rename('a.ts', position, 'nope')).toEqual({});
     }
-  })
+  });
 
   it('does not throw, and returns an empty result, on every offset inside @fragment', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
-    const start = SOURCE.indexOf('@fragment')
-    const end = start + '@fragment'.length
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
+    const start = SOURCE.indexOf('@fragment');
+    const end = start + '@fragment'.length;
     for (let offset = start; offset <= end; offset++) {
-      const position = service.positionAt('a.ts', offset)
-      expect(() => service.getDefinition('a.ts', position)).not.toThrow()
-      expect(() => service.prepareRename('a.ts', position)).not.toThrow()
-      expect(() => service.rename('a.ts', position, 'nope')).not.toThrow()
+      const position = service.positionAt('a.ts', offset);
+      expect(() => service.getDefinition('a.ts', position)).not.toThrow();
+      expect(() => service.prepareRename('a.ts', position)).not.toThrow();
+      expect(() => service.rename('a.ts', position, 'nope')).not.toThrow();
     }
-  })
+  });
 
   it('still resolves @builtin/@location parameter decorators normally (not swept up by the guard)', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('a.ts', SOURCE)
-    const position = service.positionAt('a.ts', SOURCE.indexOf('vertex_index') + 1)
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', SOURCE);
+    const position = service.positionAt('a.ts', SOURCE.indexOf('vertex_index') + 1);
     // Already covered above as "refuses to rename" (it's a @builtin(...) string), but the point
     // here is specifically that this offset is NOT caught by the new function-decorator guard —
     // it is a call-expression decorator on a parameter, a different shape entirely.
-    expect(() => service.getDefinition('a.ts', position)).not.toThrow()
-  })
-})
+    expect(() => service.getDefinition('a.ts', position)).not.toThrow();
+  });
+});

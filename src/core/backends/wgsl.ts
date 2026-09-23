@@ -15,8 +15,8 @@ import type {
   BindingDecl,
   FuncDecl,
   ModuleDecl,
-} from '../ir/index.js'
-import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend.js'
+} from '../ir/index.js';
+import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend.js';
 import {
   emitExpr as emitExprNeutral,
   emitBody,
@@ -26,22 +26,22 @@ import {
   emitModuleFragment as emitFragmentDriver,
   lowerForBackend,
   type EmitOptions,
-} from '../emit.js'
-import type { EmitFragment } from '../fragment.js'
-import { lowerModule } from '../passes/match-lower.js'
-import { fixpoint, autoVars, type OptLevel } from '../passes/opt/index.js'
-import { spellIntrinsic } from '../intrinsics.js'
-import { fp64Lower } from '../passes/fp64-lower.js'
-import { pointerSpaces, ptrSpaceOf } from './wgsl-ptr.js'
-import { selectComposite } from '../passes/select-composite.js'
+} from '../emit.js';
+import type { EmitFragment } from '../fragment.js';
+import { lowerModule } from '../passes/match-lower.js';
+import { fixpoint, autoVars, type OptLevel } from '../passes/opt/index.js';
+import { spellIntrinsic } from '../intrinsics.js';
+import { fp64Lower } from '../passes/fp64-lower.js';
+import { pointerSpaces, ptrSpaceOf } from './wgsl-ptr.js';
+import { selectComposite } from '../passes/select-composite.js';
 import {
   REQUIRES_DIRECTIVE,
   requiredCaps,
   requiredLanguageFeatures,
-} from '../passes/required-caps.js'
-import { padUniformArrays } from '../passes/uniform-layout.js'
-import { flatIntegerVaryings } from '../passes/varying-interpolate.js'
-import { dslError } from '../diagnostics/error.js'
+} from '../passes/required-caps.js';
+import { padUniformArrays } from '../passes/uniform-layout.js';
+import { flatIntegerVaryings } from '../passes/varying-interpolate.js';
+import { dslError } from '../diagnostics/error.js';
 
 /** Spell a {@link ShaderType} as WGSL type syntax (`f32`, `vec2<f32>`, `array<u32, 4>`, …).
  *
@@ -56,53 +56,53 @@ import { dslError } from '../diagnostics/error.js'
 export function wgslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
-      return t.scalar
+      return t.scalar;
     // f64/vec64 are PRE-LOWERING types only: fp64Lower (run inside
     // lowerForBackend) rewrites them to vec2<f32> / DF64VecN structs before any
     // backend spells a type. Reaching these arms means the pass was bypassed —
     // fail loud, never emit.
     case 'f64':
-      throw dslError('SD0040', 'wgslType(f64)')
+      throw dslError('SD0040', 'wgslType(f64)');
     case 'vec64':
-      throw dslError('SD0040', `wgslType(vec${t.n}<f64>)`)
+      throw dslError('SD0040', `wgslType(vec${t.n}<f64>)`);
     case 'vec':
-      return `vec${t.n}<${t.elem}>`
+      return `vec${t.n}<${t.elem}>`;
     case 'mat':
       // matCxR<f64> is a PRE-LOWERING type too (→ DF64MatN); reaching here means
       // fp64Lower was bypassed — fail loud, never spell an invalid mat<f64>.
-      if (t.elem === 'f64') throw dslError('SD0040', `wgslType(mat${t.cols}x${t.rows}<f64>)`)
-      return `mat${t.cols}x${t.rows}<${t.elem}>`
+      if (t.elem === 'f64') throw dslError('SD0040', `wgslType(mat${t.cols}x${t.rows}<f64>)`);
+      return `mat${t.cols}x${t.rows}<${t.elem}>`;
     case 'struct':
-      return t.name
+      return t.name;
     case 'array':
       return t.size !== undefined
         ? `array<${wgslType(t.elem)}, ${t.size}>`
-        : `array<${wgslType(t.elem)}>`
+        : `array<${wgslType(t.elem)}>`;
     case 'atomic':
-      return `atomic<${t.elem}>`
+      return `atomic<${t.elem}>`;
     case 'texture':
       // Spelled per dim, never templated: '2d-array' is `texture_2d_array<f32>` in
       // WGSL (a `texture_${t.dim}` template would emit `texture_2d-array<f32>`).
       // Exhaustive: a new dim must fail compilation, not fall open to the 2d spelling.
       switch (t.dim) {
         case '2d-ms':
-          return `texture_multisampled_2d<${t.elem}>`
+          return `texture_multisampled_2d<${t.elem}>`;
         case '2d-array':
-          return `texture_2d_array<${t.elem}>`
+          return `texture_2d_array<${t.elem}>`;
         case '2d':
-          return `texture_2d<${t.elem}>`
+          return `texture_2d<${t.elem}>`;
         case 'cube':
-          return `texture_cube<${t.elem}>`
+          return `texture_cube<${t.elem}>`;
         case '3d':
-          return `texture_3d<${t.elem}>`
+          return `texture_3d<${t.elem}>`;
         case '1d':
-          return `texture_1d<${t.elem}>`
+          return `texture_1d<${t.elem}>`;
         case 'cube-array':
-          return `texture_cube_array<${t.elem}>`
+          return `texture_cube_array<${t.elem}>`;
         default:
           // Exhaustiveness on the ARM (X-GIS #1703) — see typeKey's twin: with the texture
           // type a two-arm union, `t` is `never` here and has no `.dim` to check.
-          return t satisfies never
+          return t satisfies never;
       }
     case 'storage-texture':
       // `texture_storage_2d<rgba8unorm, write>` — the format and the access mode are part of
@@ -110,28 +110,28 @@ export function wgslType(t: ShaderType): string {
       // beside the binding. Spelled per dim for the same reason a sampled texture is.
       return t.dim === '2d-array'
         ? `texture_storage_2d_array<${t.format}, ${t.access}>`
-        : `texture_storage_2d<${t.format}, ${t.access}>`
+        : `texture_storage_2d<${t.format}, ${t.access}>`;
     case 'depth-texture':
       // A depth texture has no element type: every one is single-channel float, and a read of
       // one yields `f32` rather than `vec4`.
       switch (t.dim) {
         case '2d':
-          return 'texture_depth_2d'
+          return 'texture_depth_2d';
         case '2d-array':
-          return 'texture_depth_2d_array'
+          return 'texture_depth_2d_array';
         case 'cube':
-          return 'texture_depth_cube'
+          return 'texture_depth_cube';
         case 'cube-array':
-          return 'texture_depth_cube_array'
+          return 'texture_depth_cube_array';
         case '2d-ms':
-          return 'texture_depth_multisampled_2d'
+          return 'texture_depth_multisampled_2d';
       }
     case 'sampler':
-      return 'sampler'
+      return 'sampler';
     case 'sampler-comparison':
-      return 'sampler_comparison'
+      return 'sampler_comparison';
     case 'void':
-      return 'void'
+      return 'void';
   }
 }
 
@@ -141,9 +141,9 @@ export function wgslType(t: ShaderType): string {
  *  @throws `SD0017` if `v` is not finite. Neither WGSL nor GLSL has a NaN or Infinity
  *  literal, so `String(v)` would place an unparseable token in the module. */
 export function f32Lit(v: number): string {
-  if (!Number.isFinite(v)) throw dslError('SD0017', `f32 literal ${v}`)
-  const s = String(v)
-  return /[.eE]/.test(s) ? s : `${s}.0`
+  if (!Number.isFinite(v)) throw dslError('SD0017', `f32 literal ${v}`);
+  const s = String(v);
+  return /[.eE]/.test(s) ? s : `${s}.0`;
 }
 
 /** Spell `v` as the body of an `i32` or `u32` literal (no suffix), in the form WGSL and GLSL
@@ -153,39 +153,39 @@ export function f32Lit(v: number): string {
  *  WGSL rejects `2147483648` as an `i32` literal, and a fractional or out-of-range value
  *  printed verbatim is a compile error on both targets. */
 export function intLit(v: number, scalar: 'i32' | 'u32'): string {
-  const lo = scalar === 'i32' ? -2147483648 : 0
-  const hi = scalar === 'i32' ? 2147483647 : 4294967295
-  if (!Number.isInteger(v) || v < lo || v > hi) throw dslError('SD0017', `${scalar} literal ${v}`)
-  return `${v}`
+  const lo = scalar === 'i32' ? -2147483648 : 0;
+  const hi = scalar === 'i32' ? 2147483647 : 4294967295;
+  if (!Number.isInteger(v) || v < lo || v > hi) throw dslError('SD0017', `${scalar} literal ${v}`);
+  return `${v}`;
 }
 
 function lit(value: number | boolean, t: ShaderType): string {
-  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
   // A `bool` whose value arrived as a NUMBER: `ConstDecl.wgslValue` is typed `number`, so a
   // module-scope `const FLAG: bool = true` reaches here as 1, and without this arm it would
   // fall through to the float spelling and emit `const FLAG: bool = 1.0;` — which neither
   // target accepts. Same class as the integer arms below (#13). Fail-closed like its
   // neighbours: only 0 and 1 mean anything here, and NaN must not read as `true`.
   if (t.kind === 'scalar' && t.scalar === 'bool') {
-    if (value !== 0 && value !== 1) throw dslError('SD0017', `bool literal ${value}`)
-    return value === 0 ? 'false' : 'true'
+    if (value !== 0 && value !== 1) throw dslError('SD0017', `bool literal ${value}`);
+    return value === 0 ? 'false' : 'true';
   }
-  if (t.kind === 'scalar' && t.scalar === 'u32') return `${intLit(value, 'u32')}u`
-  if (t.kind === 'scalar' && t.scalar === 'i32') return intLit(value, 'i32')
+  if (t.kind === 'scalar' && t.scalar === 'u32') return `${intLit(value, 'u32')}u`;
+  if (t.kind === 'scalar' && t.scalar === 'i32') return intLit(value, 'i32');
   // The last declared type this line used to ignore: a non-scalar `ConstDecl` with no
   // `valueExpr` (`{ type: vec3fT, wgslValue: 1 }`) fell through and emitted
   // `const K: vec3<f32> = 1.0;`, which both compilers reject. A vector, matrix, array or
   // struct constant carries its value in `valueExpr`; reaching here without one is a
   // malformed declaration, not a spelling this function can guess.
-  if (t.kind !== 'scalar') throw dslError('SD0017', `${t.kind} constant with no valueExpr`)
-  return f32Lit(value)
+  if (t.kind !== 'scalar') throw dslError('SD0017', `${t.kind} constant with no valueExpr`);
+  return f32Lit(value);
 }
 
 function paramAttr(p: { builtin?: string; location?: number; attr?: string }): string {
-  if (p.attr) return `${p.attr} `
-  if (p.builtin) return `@builtin(${p.builtin}) `
-  if (p.location !== undefined) return `@location(${p.location}) `
-  return ''
+  if (p.attr) return `${p.attr} `;
+  if (p.builtin) return `@builtin(${p.builtin}) `;
+  if (p.location !== undefined) return `@location(${p.location}) `;
+  return '';
 }
 
 /** THE WGSL capability table (X-GIS #1670) — what this target supports, what each cap costs
@@ -264,7 +264,7 @@ const WGSL_CAP_PROFILE = {
   floatRenderTarget: {}, // core in WebGPU: an rgba32float render target needs no feature
   float32Blend: { hostFeature: 'float32-blendable' },
   float32Filterable: { hostFeature: 'float32-filterable' },
-} satisfies CapProfile
+} satisfies CapProfile;
 
 /** `@builtin(<id>)` ids that do NOT exist in WGSL (X-GIS #1672), each mapped to the message
  *  tail the shared pre-pass prints after `wgsl: @builtin(<id>)`. Every one of them is a
@@ -291,7 +291,7 @@ const WGSL_ABSENT_BUILTINS: ReadonlyMap<string, string> = new Map([
     'frag_coord',
     'does not exist in WGSL — the fragment-stage framebuffer coordinate (GLSL gl_FragCoord) is @builtin(position) on a fragment entry parameter.',
   ],
-])
+]);
 
 /** The WGSL target: a {@link Backend} that spells types, literals, intrinsics and module
  *  declarations for `device.createShaderModule`. Pass it to any API that takes a backend,
@@ -319,14 +319,14 @@ export const wgslBackend: Backend = {
   // X-GIS #1671 — emit THIS target's payload; a raw carrying only the GLSL spelling is
   // a hard build failure here, not a stringified `undefined` in the module body.
   rawStmt: (s) => {
-    if (s.wgsl !== undefined) return s.wgsl
+    if (s.wgsl !== undefined) return s.wgsl;
     // Mirrors the GLSL side: the at-least-one union guarantees a `glsl` side
     // here, but tsc cannot discriminate the union on a non-unit-typed property —
     // so narrow the PROPERTY locally instead of asserting; `''` is unreachable.
-    const glsl = s.glsl ?? ''
+    const glsl = s.glsl ?? '';
     throw new UnsupportedFeatureError(
       `wgsl: raw Stmt carries no wgsl payload (glsl-only raw: '${glsl.slice(0, 40)}') — supply a wgsl spelling for this statement`,
-    )
+    );
   },
   placeholderStmt: (tag) => `// __placeholder: ${tag}`,
   // Measured against Tint: `max(1.0, 2.0);` is rejected as ignoring a `@must_use` result,
@@ -358,8 +358,8 @@ export const wgslBackend: Backend = {
           `${f.size !== undefined ? `@size(${String(f.size)}) ` : ''}` +
           `${f.attr ? `${f.attr} ` : ''}${f.name}: ${wgslType(f.type)},`,
       )
-      .join('\n')
-    return `struct ${s.name} {\n${fields}\n}`
+      .join('\n');
+    return `struct ${s.name} {\n${fields}\n}`;
   },
   emitBinding: (b) => {
     // texture / storage texture / sampler are handle types — no address space (`var x: T;`).
@@ -372,10 +372,10 @@ export const wgslBackend: Backend = {
       b.type.kind === 'sampler' ||
       b.type.kind === 'sampler-comparison'
     ) {
-      return `@group(${b.group}) @binding(${b.binding}) var ${b.name}: ${wgslType(b.type)};`
+      return `@group(${b.group}) @binding(${b.binding}) var ${b.name}: ${wgslType(b.type)};`;
     }
-    const space = b.space === 'storage' ? `storage, ${b.access ?? 'read'}` : 'uniform'
-    return `@group(${b.group}) @binding(${b.binding}) var<${space}> ${b.name}: ${wgslType(b.type)};`
+    const space = b.space === 'storage' ? `storage, ${b.access ?? 'read'}` : 'uniform';
+    return `@group(${b.group}) @binding(${b.binding}) var<${space}> ${b.name}: ${wgslType(b.type)};`;
   },
   // `var<workgroup> tile: array<f32, 64>;` / `var<private> seed: u32 = 7u;` (roadmap 0.2
   // item 5). The initializer is a constant expression, rendered the way a const's is.
@@ -393,12 +393,12 @@ export const wgslBackend: Backend = {
   reference: (lvalue) => `&${lvalue}`,
   dereference: (name) => `(*${name})`,
   emitFunc: (f, parens) => {
-    const params = f.params.map((p) => wgslBackend.paramDecl!(p)).join(', ')
+    const params = f.params.map((p) => wgslBackend.paramDecl!(p)).join(', ');
     const ret =
-      f.ret.kind === 'void' ? '' : ` -> ${f.retAttr ? `${f.retAttr} ` : ''}${wgslType(f.ret)}`
-    const attrs = f.attrs && f.attrs.length ? `${f.attrs.join(' ')}\n` : ''
-    const body = withPointerParams(wgslBackend, f, () => emitBody(f.body, 1, wgslBackend, parens))
-    return `${attrs}fn ${f.name}(${params})${ret} {\n${body}\n}`
+      f.ret.kind === 'void' ? '' : ` -> ${f.retAttr ? `${f.retAttr} ` : ''}${wgslType(f.ret)}`;
+    const attrs = f.attrs && f.attrs.length ? `${f.attrs.join(' ')}\n` : '';
+    const body = withPointerParams(wgslBackend, f, () => emitBody(f.body, 1, wgslBackend, parens));
+    return `${attrs}fn ${f.name}(${params})${ret} {\n${body}\n}`;
   },
   // WGSL's emit-time optimizer: the full pipeline run to a fixed point — const/copy
   // propagation, const-fold (incl. literal compare/logical/select), algebraic
@@ -447,7 +447,7 @@ export const wgslBackend: Backend = {
     // features) contribute nothing, so an enables-free module's emit stays byte-identical.
     const dirs = requiredCaps(m)
       .map((c) => wgslBackend.capProfile[c]?.directive)
-      .filter((d): d is string => d !== undefined)
+      .filter((d): d is string => d !== undefined);
     // `requires <feature>;` for each WGSL LANGUAGE extension the module needs — a different
     // axis from `enable`. WGSL fixes only that directives precede declarations, not the
     // order of the two kinds; `enable` first is this writer's choice, for deterministic
@@ -460,19 +460,19 @@ export const wgslBackend: Backend = {
     // changes nothing (#152).
     const requires = requiredLanguageFeatures(m)
       .filter((f) => REQUIRES_DIRECTIVE.has(f))
-      .map((f) => `requires ${f};`)
+      .map((f) => `requires ${f};`);
     // `diagnostic(...)` first: WGSL fixes only that directives precede declarations, and a
     // severity an author set reads better above the extensions it applies across (§54).
-    const rules = (m.diagnostics ?? []).map((d) => `diagnostic(${d.severity}, ${d.rule});`)
-    const lines = [...rules, ...[...new Set(dirs)].sort().map((d) => `enable ${d};`), ...requires]
-    return lines.join('\n')
+    const rules = (m.diagnostics ?? []).map((d) => `diagnostic(${d.severity}, ${d.rule});`);
+    const lines = [...rules, ...[...new Set(dirs)].sort().map((d) => `enable ${d};`), ...requires];
+    return lines.join('\n');
   },
-}
+};
 
 /** Emit one {@link Expr} as WGSL source text, using {@link wgslBackend} with the default
  *  `'full'` parenthesisation. The expression is written as given; the lowering and
  *  optimization passes that {@link emitModule} runs do not run here. */
-export const emitExpr = (e: Expr): string => emitExprNeutral(e, wgslBackend)
+export const emitExpr = (e: Expr): string => emitExprNeutral(e, wgslBackend);
 
 // The module-decl emit functions live as wgslBackend methods; these thin wrappers keep the
 // existing export names + signatures. Only two of the four have a consumer through the
@@ -488,20 +488,20 @@ export const emitExpr = (e: Expr): string => emitExprNeutral(e, wgslBackend)
  *  The declaration is written as given: the passes {@link emitModule} runs before writing a
  *  module do not run here, so pass a declaration that needs none of them. The caveat on
  *  {@link emitFuncs} applies equally. */
-export const emitConst = (c: ConstDecl): string => wgslBackend.emitConst(c)
+export const emitConst = (c: ConstDecl): string => wgslBackend.emitConst(c);
 
 /** Emit one {@link StructDecl} as a WGSL `struct` block.
  *
  *  @internal Exported for the backend's own use. A struct is meaningful only alongside the
  *  bindings and functions that use it, which {@link emitModule} emits together. */
-export const emitStruct = (s: StructDecl): string => wgslBackend.emitStruct(s)
+export const emitStruct = (s: StructDecl): string => wgslBackend.emitStruct(s);
 
 /** Emit one {@link BindingDecl} as a WGSL `@group(…) @binding(…) var` line.
  *
  *  @internal Exported for the backend's own use. Group and binding indices are assigned
  *  across the whole module, so a line emitted alone can disagree with the layout
  *  {@link reflect} reports for that module. Use {@link emitModule}. */
-export const emitBinding = (b: BindingDecl): string => wgslBackend.emitBinding(b)
+export const emitBinding = (b: BindingDecl): string => wgslBackend.emitBinding(b);
 
 /** Emit one {@link FuncDecl} as a WGSL function, exactly as given.
  *
@@ -517,7 +517,7 @@ export const emitBinding = (b: BindingDecl): string => wgslBackend.emitBinding(b
  *  to the same speller, so a module emitted with `parens: 'minimal'` spells the same function
  *  with fewer parentheses. A function emitted here matches its text inside a module emitted
  *  with the default option, and may differ from its text inside a `'minimal'` one. */
-export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f)
+export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f);
 
 /** Emit a list of functions as WGSL, joined by blank lines, through the same lowering and
  *  optimization passes {@link emitModule} runs. Constant folding, dead-code removal and reuse
@@ -536,15 +536,15 @@ export function emitFuncs(funcs: readonly FuncDecl[]): string {
         ),
       ),
     ),
-  )
-  return lowered.funcs.map((f) => wgslBackend.emitFunc(f)).join('\n\n')
+  );
+  return lowered.funcs.map((f) => wgslBackend.emitFunc(f)).join('\n\n');
 }
 
 /** Alias of {@link emitFuncs}.
  *
  *  @deprecated Use {@link emitFuncs}. Its name describes what the function does, which is to
  *  run the full optimization pipeline; the `Csed` suffix names only one of its passes. */
-export const emitFuncsCsed = emitFuncs
+export const emitFuncsCsed = emitFuncs;
 
 /** Emit a {@link ModuleDecl} as a complete WGSL module string, ready for
  *  `device.createShaderModule`. Runs validation, the capability check, the lowering passes and
@@ -555,7 +555,7 @@ export const emitFuncsCsed = emitFuncs
  *  production ones on the `typeshade/emit-prod` subpath, and `parens` to choose how
  *  many parentheses the expressions carry. */
 export const emitModule = (m: ModuleDecl, opts?: EmitOptions): string =>
-  emitModuleDriver(m, wgslBackend, opts)
+  emitModuleDriver(m, wgslBackend, opts);
 
 /** Emit a {@link ModuleDecl} as a WGSL fragment for a host that assembles the final module
  *  itself: the declarations and helper functions without the `enable` directive header and,
@@ -570,7 +570,7 @@ export const emitModule = (m: ModuleDecl, opts?: EmitOptions): string =>
 export const emitFragment = (
   m: ModuleDecl,
   opts?: EmitOptions & { entryPoints?: boolean },
-): EmitFragment => emitFragmentDriver(m, wgslBackend, opts)
+): EmitFragment => emitFragmentDriver(m, wgslBackend, opts);
 
 /** Emit a {@link ModuleDecl} as WGSL at an explicit optimization level. `emitModuleAt(m, 'O2')`
  *  produces the same string as `emitModule(m)`; `'O0'` skips the optimizer and writes the
@@ -578,7 +578,7 @@ export const emitFragment = (
  *  value. Useful for debug builds and for comparing emitted size across levels. See
  *  {@link OptLevel}. */
 export const emitModuleAt = (m: ModuleDecl, level: OptLevel): string =>
-  emitModuleAtDriver(m, wgslBackend, level)
+  emitModuleAtDriver(m, wgslBackend, level);
 
 /** Run the passes {@link emitModule} runs before writing text (validation, the capability
  *  check, {@link autoVars}, {@link lowerModule} and the optimizer at `level`) and return the
@@ -586,4 +586,4 @@ export const emitModuleAt = (m: ModuleDecl, level: OptLevel): string =>
  *  that inspects the lowered module (an instruction count, for example) sees exactly the
  *  module {@link emitModuleAt} would write at the same level. */
 export const lowerWgsl = (m: ModuleDecl, level: OptLevel): ModuleDecl =>
-  lowerForBackend(m, wgslBackend, level)
+  lowerForBackend(m, wgslBackend, level);

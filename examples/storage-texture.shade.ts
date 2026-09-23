@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -32,15 +32,15 @@
 // program emitted without a diagnostic — the shape issue #113 was.
 
 // Written, never read: `"write"` is the access mode, and `textureLoad` on this is refused.
-declare const dst: texture_storage_2d<"rgba8unorm", "write">
+declare const dst: texture_storage_2d<"rgba8unorm", "write">;
 
 // Read and written through one binding, which only the three single-channel 32-bit formats
 // allow. An accumulator is what that is for.
-declare const acc: texture_storage_2d<"r32float", "read_write">
+declare const acc: texture_storage_2d<"r32float", "read_write">;
 
 // An integer format stores an integer texel: a `"…uint"` format takes a `vec4u`, a `"…sint"`
 // one a `vec4i`. The conditional type in the ambient lib makes the editor say so too.
-declare const ids: texture_storage_2d<"rgba8uint", "write">
+declare const ids: texture_storage_2d<"rgba8uint", "write">;
 
 @compute([64, 1, 1])
 export function paint(@builtin("global_invocation_id") gid: vec3u): void {
@@ -48,24 +48,24 @@ export function paint(@builtin("global_invocation_id") gid: vec3u): void {
   // one-dimensional (§25), so the two coordinates come out of the index rather than out of
   // `gid.y`. The guard is the standard one — a dispatch covers whole workgroups, so the last
   // one runs past the end.
-  const size = textureDimensions(dst)
-  const width = size.x
-  const x = gid.x % width
-  const y = gid.x / width
+  const size = textureDimensions(dst);
+  const width = size.x;
+  const x = gid.x % width;
+  const y = gid.x / width;
   if (y >= size.y) {
-    return
+    return;
   }
-  const at: vec2i = vec2i(i32(x), i32(y))
-  const uv: vec2 = vec2(f32(x) / f32(size.x), f32(y) / f32(size.y))
+  const at: vec2i = vec2i(i32(x), i32(y));
+  const uv: vec2 = vec2(f32(x) / f32(size.x), f32(y) / f32(size.y));
 
   // Read the accumulator, add to it, write it back: one binding, both ways.
-  const seen = textureLoad(acc, at)
-  const weight = seen.x + length(uv - vec2(0.5))
-  textureStore(acc, at, vec4(weight, 0., 0., 0.))
+  const seen = textureLoad(acc, at);
+  const weight = seen.x + length(uv - vec2(0.5));
+  textureStore(acc, at, vec4(weight, 0., 0., 0.));
 
-  const shade = smoothstep(0., 1., weight * 0.5)
-  textureStore(dst, at, vec4(uv.x, uv.y, shade, 1.))
+  const shade = smoothstep(0., 1., weight * 0.5);
+  textureStore(dst, at, vec4(uv.x, uv.y, shade, 1.));
 
   // The same coordinate in an integer texture, as an id map is written.
-  textureStore(ids, at, vec4u(x % u32(256), y % u32(256), u32(1), u32(255)))
+  textureStore(ids, at, vec4u(x % u32(256), y % u32(256), u32(1), u32(255)));
 }

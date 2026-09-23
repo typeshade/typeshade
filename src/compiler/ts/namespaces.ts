@@ -10,25 +10,26 @@
 // each of those already has a module-level home and giving it a second one would mean two
 // spellings of one thing.
 
-import ts from 'typescript'
-import type { TsCompilerDiagnostic } from './source-file.js'
-import { makeDiagnostic } from './diagnostic.js'
-import { TS_CODES } from './codes.js'
+import ts from 'typescript';
+import type { TsCompilerDiagnostic } from './source-file.js';
+import { makeDiagnostic } from './diagnostic.js';
+import { TS_CODES } from './codes.js';
 
 /** The joining every flattened member takes: `Palette.warm` is `Palette_warm`. */
-export const namespaceMemberName = (prefix: string, member: string): string => `${prefix}_${member}`
+export const namespaceMemberName = (prefix: string, member: string): string =>
+  `${prefix}_${member}`;
 
 /** One statement found inside a namespace, with the prefix its emitted name takes. */
 export interface NamespaceMember<T extends ts.Statement> {
-  readonly prefix: string
-  readonly node: T
+  readonly prefix: string;
+  readonly node: T;
 }
 
 /** The namespace's own name, or undefined for a shape this surface does not take: a string
  *  name (`namespace "a.b"`), a `declare` namespace, or a body that is not a block. */
 function namespaceName(stmt: ts.ModuleDeclaration): string | undefined {
-  if (!ts.isIdentifier(stmt.name)) return undefined
-  return stmt.name.text
+  if (!ts.isIdentifier(stmt.name)) return undefined;
+  return stmt.name.text;
 }
 
 /** Walks `statements` and every namespace inside them, calling `see` for each statement with
@@ -45,10 +46,10 @@ export function eachNamespaceStatement(
 ): void {
   for (const stmt of statements) {
     if (!ts.isModuleDeclaration(stmt)) {
-      see(stmt, prefix)
-      continue
+      see(stmt, prefix);
+      continue;
     }
-    const name = namespaceName(stmt)
+    const name = namespaceName(stmt);
     if (name === undefined) {
       diagnostics.push(
         makeDiagnostic(
@@ -57,8 +58,8 @@ export function eachNamespaceStatement(
           `A namespace is declared with a plain name, "namespace Palette { ... }".`,
           TS_CODES.TOP_LEVEL,
         ),
-      )
-      continue
+      );
+      continue;
     }
     if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) {
       diagnostics.push(
@@ -68,21 +69,21 @@ export function eachNamespaceStatement(
           `"declare namespace ${name}" has no members to emit; declare the namespace in this file.`,
           TS_CODES.TOP_LEVEL,
         ),
-      )
-      continue
+      );
+      continue;
     }
-    const inner = prefix === '' ? name : namespaceMemberName(prefix, name)
-    const body = stmt.body
-    if (body === undefined) continue
+    const inner = prefix === '' ? name : namespaceMemberName(prefix, name);
+    const body = stmt.body;
+    if (body === undefined) continue;
     if (!ts.isModuleBlock(body)) {
       // `namespace A.B { ... }` parses as a namespace whose body is the next one; both
       // spellings reach the same flattening.
       if (ts.isModuleDeclaration(body)) {
-        eachNamespaceStatement([body], sourceFile, diagnostics, see, inner)
+        eachNamespaceStatement([body], sourceFile, diagnostics, see, inner);
       }
-      continue
+      continue;
     }
-    eachNamespaceStatement(body.statements, sourceFile, diagnostics, see, inner)
+    eachNamespaceStatement(body.statements, sourceFile, diagnostics, see, inner);
   }
 }
 
@@ -102,7 +103,7 @@ export function refuseNamespaceStatement(
         ? 'a type'
         : ts.isVariableStatement(stmt)
           ? 'a variable'
-          : 'this'
+          : 'this';
   diagnostics.push(
     makeDiagnostic(
       sourceFile,
@@ -111,5 +112,5 @@ export function refuseNamespaceStatement(
         `"${prefix}" has no flattened form. Declare it at the top level of the file.`,
       TS_CODES.TOP_LEVEL,
     ),
-  )
+  );
 }

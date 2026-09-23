@@ -27,7 +27,7 @@ export const F64_SCALAR_TWIN_FN: Readonly<Record<string, string>> = {
   mix: 'df64_mix',
   sin: 'df64_sin',
   cos: 'df64_cos',
-}
+};
 
 /** Builtin id → the shape of its componentwise `df64_vN_*` twin on a `vec64` operand. */
 export const F64_VEC_TWIN_KIND: Readonly<Record<string, 'unary' | 'binary' | 'mix'>> = {
@@ -41,18 +41,18 @@ export const F64_VEC_TWIN_KIND: Readonly<Record<string, 'unary' | 'binary' | 'mi
   min: 'binary',
   max: 'binary',
   mix: 'mix',
-}
+};
 
 /** The cross-lane reductions on a `vec64`: composed from the SCALAR df64 helpers rather than
  *  from a `df64_vN_*` twin (a dot product has to accumulate in extended precision anyway), so
  *  they are not in {@link F64_VEC_TWIN_KIND} and are listed here. Each yields an `f64`. */
-export const F64_VEC_REDUCTIONS: readonly string[] = ['dot', 'length', 'distance']
+export const F64_VEC_REDUCTIONS: readonly string[] = ['dot', 'length', 'distance'];
 
 /** Every builtin the pass lowers on a scalar `f64`, sorted, for a refusal message. */
-export const F64_SCALAR_TWINS: readonly string[] = Object.keys(F64_SCALAR_TWIN_FN).sort()
+export const F64_SCALAR_TWINS: readonly string[] = Object.keys(F64_SCALAR_TWIN_FN).sort();
 
 /** Every builtin the pass lowers on a `vec64`, sorted, for a refusal message. */
 export const F64_VEC_TWINS: readonly string[] = [
   ...Object.keys(F64_VEC_TWIN_KIND),
   ...F64_VEC_REDUCTIONS,
-].sort()
+].sort();

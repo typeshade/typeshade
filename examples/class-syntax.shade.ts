@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -20,28 +20,28 @@
 //   the static `count()` is the class (Rule 8.13).
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 class FsOut {
-  @location(0) color: vec4
+  @location(0) color: vec4;
 }
 
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.
-  const y = f32(vi >> u32(1)) * 4. - 1.
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) }
+  const x = f32(vi & u32(1)) * 4. - 1.;
+  const y = f32(vi >> u32(1)) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
 }
 
 /** A ring: a centre and a radius, and a band width kept above a minimum by its setter. */
 class Ring {
-  static readonly MIN_WIDTH = 0.01
-  static drawn = 0.
+  static readonly MIN_WIDTH = 0.01;
+  static drawn = 0.;
 
-  #width = 0.05
+  #width = 0.05;
 
   constructor(
     public center: vec2,
@@ -49,45 +49,45 @@ class Ring {
   ) {}
 
   get width(): f32 {
-    return this.#width
+    return this.#width;
   }
   set width(w: f32) {
-    this.#width = max(w, Ring.MIN_WIDTH)
+    this.#width = max(w, Ring.MIN_WIDTH);
   }
 
   /** The width as a fraction of the radius, written through the width's own setter. */
   set relativeWidth(f: f32) {
-    this.width = this.radius * f
+    this.width = this.radius * f;
   }
 
   /** The signed distance from `p` to the band. */
   #distance(p: vec2): f32 {
-    return abs(length(p - this.center) - this.radius) - this.#width * 0.5
+    return abs(length(p - this.center) - this.radius) - this.#width * 0.5;
   }
 
   coverage(p: vec2): f32 {
-    return 1. - smoothstep(0., 0.012, this.#distance(p))
+    return 1. - smoothstep(0., 0.012, this.#distance(p));
   }
 
   static get unit(): Ring {
-    return new Ring(vec2(0.), 0.5)
+    return new Ring(vec2(0.), 0.5);
   }
 
   static count(): void {
-    this.drawn += 1.
+    this.drawn += 1.;
   }
 }
 
 @fragment
 export function fs(v: VsOut): FsOut {
-  let a = Ring.unit
-  a.relativeWidth = 0.16
-  let b = new Ring(vec2(0.35, 0.2), 0.3)
+  let a = Ring.unit;
+  a.relativeWidth = 0.16;
+  let b = new Ring(vec2(0.35, 0.2), 0.3);
   // Read through the getter, written through the setter, which clamps it to MIN_WIDTH.
-  b.width -= 0.1
-  Ring.count()
-  Ring.count()
-  const ink = max(a.coverage(v.uv), b.coverage(v.uv))
-  const tint = mix(vec3(0.07, 0.08, 0.14), vec3(0.95, 0.74, 0.32), ink)
-  return { color: vec4(tint * (Ring.drawn * 0.5), 1.) }
+  b.width -= 0.1;
+  Ring.count();
+  Ring.count();
+  const ink = max(a.coverage(v.uv), b.coverage(v.uv));
+  const tint = mix(vec3(0.07, 0.08, 0.14), vec3(0.95, 0.74, 0.32), ink);
+  return { color: vec4(tint * (Ring.drawn * 0.5), 1.) };
 }

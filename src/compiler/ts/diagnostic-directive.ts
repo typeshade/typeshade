@@ -13,19 +13,19 @@
 // in the entry, so the attribute form would switch off a rule the module still breaks
 // elsewhere. One spelling in, the one that means what the author meant out.
 
-import ts from 'typescript'
-import type { DiagnosticDirective } from '../../core/ir/nodes.js'
-import { makeDiagnostic } from './diagnostic.js'
-import { TS_CODES } from './codes.js'
-import type { TsCompilerDiagnostic } from './source-file.js'
+import ts from 'typescript';
+import type { DiagnosticDirective } from '../../core/ir/nodes.js';
+import { makeDiagnostic } from './diagnostic.js';
+import { TS_CODES } from './codes.js';
+import type { TsCompilerDiagnostic } from './source-file.js';
 
 /** The severities WGSL's diagnostic filter takes. */
-const SEVERITIES = ['off', 'info', 'warning', 'error'] as const
+const SEVERITIES = ['off', 'info', 'warning', 'error'] as const;
 
 /** The rules this compiler knows how to answer for. `derivative_uniformity` is the one it
  *  ANALYSES, so it is the one an author can switch off and change what the compiler does; a
  *  name outside this list would emit a directive with nothing behind it. */
-const RULES = ['derivative_uniformity'] as const
+const RULES = ['derivative_uniformity'] as const;
 
 /** The `diagnostic(...)` directives the file asks for, deduplicated and in source order. Read
  *  off any top-level function's decorators, entry or helper — the directive is module-scope
@@ -35,28 +35,28 @@ export function collectDiagnosticDirectives(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): DiagnosticDirective[] {
-  const out: DiagnosticDirective[] = []
+  const out: DiagnosticDirective[] = [];
   /** The first directive seen for a rule: its severity and the function carrying it, which the
    *  conflict message names so an author can find the other side. */
-  const firstOf = new Map<string, { severity: string; fn: string }>()
+  const firstOf = new Map<string, { severity: string; fn: string }>();
   /** Rules already reported as conflicting, so three directives on one rule are one
    *  diagnostic and not two. */
-  const reported = new Set<string>()
+  const reported = new Set<string>();
   for (const stmt of sourceFile.statements) {
-    if (!ts.isFunctionDeclaration(stmt)) continue
-    const fnName = stmt.name?.text ?? '(anonymous)'
+    if (!ts.isFunctionDeclaration(stmt)) continue;
+    const fnName = stmt.name?.text ?? '(anonymous)';
     // A decorator on a top-level `function` parses as a MODIFIER, not through
     // `getDecorators`, which is why `function.ts` has `decoratorsOf`; the same shape here.
-    const mods: readonly ts.ModifierLike[] = stmt.modifiers ?? []
-    const decorators = mods.filter(ts.isDecorator)
+    const mods: readonly ts.ModifierLike[] = stmt.modifiers ?? [];
+    const decorators = mods.filter(ts.isDecorator);
     for (const d of decorators) {
-      if (!ts.isCallExpression(d.expression)) continue
-      if (!ts.isIdentifier(d.expression.expression)) continue
-      if (d.expression.expression.text !== 'diagnostic') continue
+      if (!ts.isCallExpression(d.expression)) continue;
+      if (!ts.isIdentifier(d.expression.expression)) continue;
+      if (d.expression.expression.text !== 'diagnostic') continue;
       const args = d.expression.arguments.map((a) =>
         ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a) ? a.text : undefined,
-      )
-      const [severity, rule] = args
+      );
+      const [severity, rule] = args;
       if (args.length !== 2 || severity === undefined || rule === undefined) {
         diagnostics.push(
           makeDiagnostic(
@@ -66,8 +66,8 @@ export function collectDiagnosticDirectives(
               `@diagnostic("off", "derivative_uniformity").`,
             TS_CODES.ATTRIBUTE_NAME,
           ),
-        )
-        continue
+        );
+        continue;
       }
       if (!(SEVERITIES as readonly string[]).includes(severity)) {
         diagnostics.push(
@@ -77,8 +77,8 @@ export function collectDiagnosticDirectives(
             `"${severity}" is not a diagnostic severity. WGSL has: ${SEVERITIES.join(', ')}.`,
             TS_CODES.ATTRIBUTE_NAME,
           ),
-        )
-        continue
+        );
+        continue;
       }
       if (!(RULES as readonly string[]).includes(rule)) {
         diagnostics.push(
@@ -88,15 +88,15 @@ export function collectDiagnosticDirectives(
             `"${rule}" is not a rule this compiler analyses. It knows: ${RULES.join(', ')}.`,
             TS_CODES.ATTRIBUTE_NAME,
           ),
-        )
-        continue
+        );
+        continue;
       }
       // Deduplicated on the RULE, not on the (severity, rule) pair. WGSL allows one severity
       // per rule in a scope, so two directives setting the same rule differently are a
       // `conflicting diagnostic directive` on Tint — and the pair test let both through, so
       // the module carried both lines and no driver accepted it, silently. The same severity
       // written twice is not a conflict: it says the same thing.
-      const prior = firstOf.get(rule)
+      const prior = firstOf.get(rule);
       if (prior !== undefined) {
         if (prior.severity !== severity) {
           // ONE conflict, ONE diagnostic — on the SECOND directive, which is the one that
@@ -104,7 +104,7 @@ export function collectDiagnosticDirectives(
           // author can find the other without searching. Reporting it at both decorators with
           // byte-identical text made a reader check whether two conflicts had been found.
           if (!reported.has(rule)) {
-            reported.add(rule)
+            reported.add(rule);
             diagnostics.push(
               makeDiagnostic(
                 sourceFile,
@@ -115,16 +115,16 @@ export function collectDiagnosticDirectives(
                   `diagnostic directive" on Tint. Keep one of the two.`,
                 TS_CODES.ATTRIBUTE_NAME,
               ),
-            )
+            );
           }
         }
-        continue
+        continue;
       }
-      firstOf.set(rule, { severity, fn: fnName })
-      out.push({ severity: severity as DiagnosticDirective['severity'], rule })
+      firstOf.set(rule, { severity, fn: fnName });
+      out.push({ severity: severity as DiagnosticDirective['severity'], rule });
     }
   }
-  return out
+  return out;
 }
 
 /** How the file's directives set `derivative_uniformity`, or `undefined` when none does.
@@ -144,5 +144,5 @@ export function collectDiagnosticDirectives(
 export function derivativeUniformitySeverity(
   directives: readonly DiagnosticDirective[],
 ): DiagnosticDirective['severity'] | undefined {
-  return directives.find((d) => d.rule === 'derivative_uniformity')?.severity
+  return directives.find((d) => d.rule === 'derivative_uniformity')?.severity;
 }

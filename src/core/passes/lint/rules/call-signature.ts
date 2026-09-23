@@ -1,5 +1,5 @@
-import type { LintRule } from '../engine.js'
-import { typeEq, typeKey } from '../../../ir/index.js'
+import type { LintRule } from '../engine.js';
+import { typeEq, typeKey } from '../../../ir/index.js';
 
 /** A call to a MODULE fn must match its declared parameter count and types.
  *
@@ -20,12 +20,12 @@ export const callSignature: LintRule = {
   severity: 'error',
   category: 'correctness',
   create: (ctx) => {
-    const fns = new Map(ctx.module.funcs.map((f) => [f.name, f]))
+    const fns = new Map(ctx.module.funcs.map((f) => [f.name, f]));
     return {
       Expr(e, fn) {
-        if (e.op !== 'call') return
-        const target = fns.get(e.fn)
-        if (!target) return // intrinsic / injected extern — name resolution is deferred by charter
+        if (e.op !== 'call') return;
+        const target = fns.get(e.fn);
+        if (!target) return; // intrinsic / injected extern — name resolution is deferred by charter
         if (e.args.length !== target.params.length) {
           ctx.report(
             `call to '${e.fn}' passes ${e.args.length} argument${e.args.length === 1 ? '' : 's'}, declared ${target.params.length}`,
@@ -34,19 +34,19 @@ export const callSignature: LintRule = {
               node: e,
               hint: `declared: ${target.params.map((p) => `${p.name}: ${typeKey(p.type)}`).join(', ')}`,
             },
-          )
-          return
+          );
+          return;
         }
         e.args.forEach((a, i) => {
-          const p = target.params[i]!
+          const p = target.params[i]!;
           if (!typeEq(a.type, p.type)) {
             ctx.report(
               `call to '${e.fn}' argument #${i + 1} ('${p.name}') is ${typeKey(a.type)}, declared ${typeKey(p.type)}`,
               { fn: fn.name, node: e },
-            )
+            );
           }
-        })
+        });
       },
-    }
+    };
   },
-}
+};

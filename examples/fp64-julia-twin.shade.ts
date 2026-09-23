@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -39,35 +39,35 @@
 //   ITER     = 128
 
 class Uniforms {
-  center: vec2f64 // one DF64Vec2 slot, the host packs [hi.x, hi.y, lo.x, lo.y]
-  resolution: vec2
-  zoom_exp: f32 // view span = 10^-zoom_exp complex units
-  fp64: f32 // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+  center: vec2f64; // one DF64Vec2 slot, the host packs [hi.x, hi.y, lo.x, lo.y]
+  resolution: vec2;
+  zoom_exp: f32; // view span = 10^-zoom_exp complex units
+  fp64: f32; // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 }
 
-declare const u: uniform<Uniforms>
+declare const u: uniform<Uniforms>;
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): VsOut {
-  const x = f32(vi & 1) * 4. - 1.
-  const y = f32(vi >> 1) * 4. - 1.
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) }
+  const x = f32(vi & 1) * 4. - 1.;
+  const y = f32(vi >> 1) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 @fragment
 export function fs_julia(vo: VsOut): vec4 {
-  const span = pow(10.0, -u.zoom_exp)
+  const span = pow(10.0, -u.zoom_exp);
   // Each half maps its own 0..1 sub-range onto the SAME complex window
   // (pan lives on the HOST in full double precision, see fp64-mandelbrot.ts).
-  const half = vo.uv.x * 2.0
-  const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0)
-  const dx = (sx - 0.5) * span
-  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2.0)
+  const half = vo.uv.x * 2.0;
+  const sx = half - (vo.uv.x < 0.5 ? 0.0 : 1.0);
+  const dx = (sx - 0.5) * span;
+  const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2.0);
 
   // |z|^2 of the last z the loop reached, CARRIED beside z: set from z0 before
   // the loop, refreshed after every step, read by the escape test, and after the
@@ -80,8 +80,8 @@ export function fs_julia(vo: VsOut): vec4 {
   // its condition is read as ONE comparison of the counter against a constant,
   // and the conjunction is TS8006. A `break` is the same program in the counted
   // form; `fp64-julia.ts` records what exiting does and does not save.
-  let it = 0.
-  let m2 = 0.
+  let it = 0.;
+  let m2 = 0.;
   if (vo.uv.x < 0.5 || u.fp64 < 0.5) {
     // f32 twin: z0 built from the narrowed center. At deep zoom the pixel
     // coordinate quantizes to f32 ulps and whole columns collapse.
@@ -91,22 +91,22 @@ export function fs_julia(vo: VsOut): vec4 {
     // squaring it again in the step puts the two on opposite sides of the loop's
     // back edge, where no CSE can share them (two multiplies a trip; the counts
     // are in `fp64-julia.ts`).
-    let zx = f32(u.center.x) + dx
-    let zy = f32(u.center.y) + dy
-    let x2 = zx * zx
-    let y2 = zy * zy
-    m2 = x2 + y2
+    let zx = f32(u.center.x) + dx;
+    let zy = f32(u.center.y) + dy;
+    let x2 = zx * zx;
+    let y2 = zy * zy;
+    m2 = x2 + y2;
     for (let j: u32 = 0; j < 128; j++) {
       if (m2 > 16.0) {
-        break
+        break;
       }
-      const nzx = x2 - y2 + -0.8
-      zy = zx * zy * 2.0 + 0.156
-      zx = nzx
-      it = it + 1.0
-      x2 = zx * zx
-      y2 = zy * zy
-      m2 = x2 + y2
+      const nzx = x2 - y2 + -0.8;
+      zy = zx * zy * 2.0 + 0.156;
+      zx = nzx;
+      it = it + 1.0;
+      x2 = zx * zx;
+      y2 = zy * zy;
+      m2 = x2 + y2;
     }
   } else {
     // f64: the same loop, z0 keeps its extended-precision position. The
@@ -123,35 +123,35 @@ export function fs_julia(vo: VsOut): vec4 {
     // different values. A pixel within an f32 rounding of |z|^2 = 16 can escape
     // one step earlier or later than a df64 test would have it, and the smooth
     // colouring absorbs the step; the counts are in `fp64-julia.ts`.
-    let zx = u.center.x + f64(dx)
-    let zy = u.center.y + f64(dy)
-    const hx0 = f32(zx)
-    const hy0 = f32(zy)
-    m2 = hx0 * hx0 + hy0 * hy0
+    let zx = u.center.x + f64(dx);
+    let zy = u.center.y + f64(dy);
+    const hx0 = f32(zx);
+    const hy0 = f32(zy);
+    m2 = hx0 * hx0 + hy0 * hy0;
     for (let j: u32 = 0; j < 128; j++) {
       if (m2 > 16.0) {
-        break
+        break;
       }
-      const nzx = zx * zx - zy * zy + -0.8
-      zy = zx * zy * 2.0 + 0.156
-      zx = nzx
-      it = it + 1.0
-      const hx = f32(zx)
-      const hy = f32(zy)
-      m2 = hx * hx + hy * hy
+      const nzx = zx * zx - zy * zy + -0.8;
+      zy = zx * zy * 2.0 + 0.156;
+      zx = nzx;
+      it = it + 1.0;
+      const hx = f32(zx);
+      const hy = f32(zy);
+      m2 = hx * hx + hy * hy;
     }
   }
 
   // Smooth escape time (the same log2 log2 treatment as fp64-mandelbrot.ts)
   // through a cool cosine palette; interior stays black.
-  const sn = it - log2(max(log2(max(m2, 1.0001)), 0.0001)) + 1.0
-  const inside = step(128. - 0.5, it)
-  const s = sn / 128.
-  const ph = vec3(0.0, 0.25, 0.6)
+  const sn = it - log2(max(log2(max(m2, 1.0001)), 0.0001)) + 1.0;
+  const inside = step(128. - 0.5, it);
+  const s = sn / 128.;
+  const ph = vec3(0.0, 0.25, 0.6);
   // Annotated for the EDITOR, not for the compiler. TypeScript types
   // `vec3 * scalar` as `number`, so `rgb` would lose its lanes and draw TS2345
   // at the `vec4(...)` that returns it, on a program that compiles (issue #43).
   // Emit-neutral: the WGSL and GLSL are byte-identical without it.
-  const rgb: vec3 = (vec3(0.5) + cos(ph + s * 5.5 + 2.2) * 0.5) * mix(0.35, 1.0, s) * (1. - inside)
-  return vec4(rgb, 1.)
+  const rgb: vec3 = (vec3(0.5) + cos(ph + s * 5.5 + 2.2) * 0.5) * mix(0.35, 1.0, s) * (1. - inside);
+  return vec4(rgb, 1.);
 }

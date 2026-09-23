@@ -30,8 +30,8 @@
 // Every hoisted expr is input-only, so it is valid anywhere in the fn — placement can
 // only trade WHERE it runs, never WHETHER its value is the same.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
-import { eachStmtExpr, mapStmtExpr } from '../../ir/visit.js'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js';
+import { eachStmtExpr, mapStmtExpr } from '../../ir/visit.js';
 import {
   keyOf,
   isCompound,
@@ -42,15 +42,21 @@ import {
   collectMutatedRoots,
   refsLocal,
   isWorthHoisting,
-} from './expr-utils.js'
-import { bodyHasEffectfulCall, fnReads, fnWrites, type FnReads, type FnWrites } from '../effects.js'
+} from './expr-utils.js';
+import {
+  bodyHasEffectfulCall,
+  fnReads,
+  fnWrites,
+  type FnReads,
+  type FnWrites,
+} from '../effects.js';
 
 /** Where one occurrence of a subexpression lives: the placement BLOCK (a path of
  *  `${stmtIndex}#${childBlockId}` steps from the fn body) and the index, within that
  *  block, of the statement containing it. */
 interface Occurrence {
-  readonly bp: readonly string[]
-  readonly idx: number
+  readonly bp: readonly string[];
+  readonly idx: number;
 }
 
 /** Visit every expr node in `body`, tagged with its placement block + block-level
@@ -64,27 +70,27 @@ function eachOccurrence(
   visit: (e: Expr, bp: readonly string[], idx: number) => void,
 ): void {
   body.forEach((s, idx) => {
-    const node = (e: Expr) => visit(e, bp, idx)
+    const node = (e: Expr) => visit(e, bp, idx);
     switch (s.s) {
       case 'if':
         s.arms.forEach((a, ai) => {
-          eachExpr(a.cond, node)
-          eachOccurrence(a.body, [...bp, `${idx}#a${ai}`], visit)
-        })
-        if (s.elseBody) eachOccurrence(s.elseBody, [...bp, `${idx}#e`], visit)
-        break
+          eachExpr(a.cond, node);
+          eachOccurrence(a.body, [...bp, `${idx}#a${ai}`], visit);
+        });
+        if (s.elseBody) eachOccurrence(s.elseBody, [...bp, `${idx}#e`], visit);
+        break;
       case 'switch':
-        eachExpr(s.scrut, node)
-        s.cases.forEach((c, ci) => eachOccurrence(c.body, [...bp, `${idx}#c${ci}`], visit))
-        if (s.defaultBody) eachOccurrence(s.defaultBody, [...bp, `${idx}#d`], visit)
-        break
+        eachExpr(s.scrut, node);
+        s.cases.forEach((c, ci) => eachOccurrence(c.body, [...bp, `${idx}#c${ci}`], visit));
+        if (s.defaultBody) eachOccurrence(s.defaultBody, [...bp, `${idx}#d`], visit);
+        break;
       default:
         // eachStmtExpr walks the nested bodies too (`for`), and eachExpr the
         // descendants of every Expr it hands back.
-        eachStmtExpr(s, (e) => eachExpr(e, node))
-        break
+        eachStmtExpr(s, (e) => eachExpr(e, node));
+        break;
     }
-  })
+  });
 }
 
 /** The shallowest block dominating every occurrence, and the earliest statement index
@@ -92,49 +98,49 @@ function eachOccurrence(
  *  common prefix of the occurrence block-paths; an occurrence deeper than that prefix
  *  contributes the statement index encoded in its next path step. */
 function placementOf(list: readonly Occurrence[]): { bp: readonly string[]; idx: number } {
-  let bp = list[0]!.bp
+  let bp = list[0]!.bp;
   for (const o of list) {
-    let n = 0
-    while (n < bp.length && n < o.bp.length && bp[n] === o.bp[n]) n++
-    bp = bp.slice(0, n)
+    let n = 0;
+    while (n < bp.length && n < o.bp.length && bp[n] === o.bp[n]) n++;
+    bp = bp.slice(0, n);
   }
-  let idx = Number.POSITIVE_INFINITY
+  let idx = Number.POSITIVE_INFINITY;
   for (const o of list) {
-    const own = o.bp.length === bp.length ? o.idx : Number(o.bp[bp.length]!.split('#')[0])
-    if (own < idx) idx = own
+    const own = o.bp.length === bp.length ? o.idx : Number(o.bp[bp.length]!.split('#')[0]);
+    if (own < idx) idx = own;
   }
-  return { bp, idx }
+  return { bp, idx };
 }
 
 function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
-  if (bodyHasRaw(f.body)) return f
+  if (bodyHasRaw(f.body)) return f;
   // A call that writes a binding is not shareable: hoisting `store(i)` to one temp would
   // make two writes one (issue #47).
-  if (bodyHasEffectfulCall(f.body, writes)) return f
+  if (bodyHasEffectfulCall(f.body, writes)) return f;
   // Non-invariant names: function locals AND any mutated name (incl. a read_write
   // binding written in this fn). A read of a mutated name is not safely shareable, and
   // neither is a call to a helper that reads one (`reads`): `h(x)` is not input-only when
   // `h` reads a `var<private>` this function writes.
-  const noHoist = new Set<string>()
-  collectLocals(f.body, noHoist)
-  collectMutatedRoots(f.body, noHoist, writes)
+  const noHoist = new Set<string>();
+  collectLocals(f.body, noHoist);
+  collectMutatedRoots(f.body, noHoist, writes);
 
   // Count occurrences of every compound, input-only subexpression — and record WHERE
   // each one occurs, so the temp can be bound at their common block instead of fn top.
-  const counts = new Map<string, number>()
-  const exemplar = new Map<string, Expr>()
-  const sites = new Map<string, Occurrence[]>()
+  const counts = new Map<string, number>();
+  const exemplar = new Map<string, Expr>();
+  const sites = new Map<string, Occurrence[]>();
   eachOccurrence(f.body, [], (e, bp, idx) => {
-    if (!isCompound(e) || !isWorthHoisting(e) || refsLocal(e, noHoist, reads)) return
-    const k = keyOf(e)
-    counts.set(k, (counts.get(k) ?? 0) + 1)
-    if (!exemplar.has(k)) exemplar.set(k, e)
-    const at = sites.get(k)
-    if (at) at.push({ bp, idx })
-    else sites.set(k, [{ bp, idx }])
-  })
-  const repeated = new Set<string>([...counts].filter(([, n]) => n >= 2).map(([k]) => k))
-  if (repeated.size === 0) return f
+    if (!isCompound(e) || !isWorthHoisting(e) || refsLocal(e, noHoist, reads)) return;
+    const k = keyOf(e);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+    if (!exemplar.has(k)) exemplar.set(k, e);
+    const at = sites.get(k);
+    if (at) at.push({ bp, idx });
+    else sites.set(k, [{ bp, idx }]);
+  });
+  const repeated = new Set<string>([...counts].filter(([, n]) => n >= 2).map(([k]) => k));
+  if (repeated.size === 0) return f;
 
   // Keep only the MAXIMAL repeated exprs — those NOT nested inside another repeated
   // expr. Hoisting the outermost (e.g. `sqrt(dot(p,p))`) binds the whole shared value
@@ -142,16 +148,16 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
   // repeat in one temp (vs the inner-only hoist that left `sqrt(_cse0)` repeated). The
   // maximal set never nests itself, so there is still no replacement-ordering interaction,
   // and every member is input-only (refsLocal filtered) so fn-top placement stays valid.
-  const nestedInside = new Set<string>()
+  const nestedInside = new Set<string>();
   for (const k of repeated) {
     eachExpr(exemplar.get(k)!, (sub) => {
-      if (sub === exemplar.get(k)) return
-      const sk = keyOf(sub)
-      if (repeated.has(sk)) nestedInside.add(sk)
-    })
+      if (sub === exemplar.get(k)) return;
+      const sk = keyOf(sub);
+      if (repeated.has(sk)) nestedInside.add(sk);
+    });
   }
-  const maximal = [...repeated].filter((k) => !nestedInside.has(k))
-  if (maximal.length === 0) return f
+  const maximal = [...repeated].filter((k) => !nestedInside.has(k));
+  if (maximal.length === 0) return f;
 
   // Seed the temp index past any existing `_cseN` binding so a SECOND cse pass
   // cannot redeclare `_cse0`. cse runs TWICE on the optimize()->emitModule() path
@@ -160,47 +166,47 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
   // occurs standalone — the next pass then hoists it, and a per-call counter reset
   // would emit a colliding `let _cse0`. (noHoist already holds every local, incl.
   // the prior pass's _cseN, via collectLocals.)
-  let base = 0
+  let base = 0;
   for (const n of noHoist) {
-    const mm = /^_cse(\d+)$/.exec(n)
-    if (mm) base = Math.max(base, Number(mm[1]) + 1)
+    const mm = /^_cse(\d+)$/.exec(n);
+    if (mm) base = Math.max(base, Number(mm[1]) + 1);
   }
 
   // Assign a temp per maximal key and file its `let` under the block + statement index
   // that dominates every use (see PLACEMENT in the header).
-  const temp = new Map<string, string>()
-  const plan = new Map<string, Map<number, Stmt[]>>()
+  const temp = new Map<string, string>();
+  const plan = new Map<string, Map<number, Stmt[]>>();
   maximal.forEach((k, i) => {
-    const name = `_cse${base + i}`
-    temp.set(k, name)
-    const { bp, idx } = placementOf(sites.get(k)!)
-    const blockKey = bp.join('|')
-    let byIdx = plan.get(blockKey)
-    if (!byIdx) plan.set(blockKey, (byIdx = new Map()))
-    const at = byIdx.get(idx)
-    const stmt: Stmt = { s: 'let', name, expr: exemplar.get(k)! }
-    if (at) at.push(stmt)
-    else byIdx.set(idx, [stmt])
-  })
+    const name = `_cse${base + i}`;
+    temp.set(k, name);
+    const { bp, idx } = placementOf(sites.get(k)!);
+    const blockKey = bp.join('|');
+    let byIdx = plan.get(blockKey);
+    if (!byIdx) plan.set(blockKey, (byIdx = new Map()));
+    const at = byIdx.get(idx);
+    const stmt: Stmt = { s: 'let', name, expr: exemplar.get(k)! };
+    if (at) at.push(stmt);
+    else byIdx.set(idx, [stmt]);
+  });
 
   const replace = (e: Expr): Expr => {
-    const t = temp.get(keyOf(e))
-    if (t !== undefined) return { op: 'varref', type: e.type, name: t }
-    return mapChildren(e, replace)
-  }
+    const t = temp.get(keyOf(e));
+    if (t !== undefined) return { op: 'varref', type: e.type, name: t };
+    return mapChildren(e, replace);
+  };
 
   // Rebuild the body, splicing each block's planned lets in before the statement they
   // were filed against. Block paths are constructed IDENTICALLY to eachOccurrence's.
   const rewriteBlock = (body: readonly Stmt[], bp: readonly string[]): Stmt[] => {
-    const byIdx = plan.get(bp.join('|'))
-    const out: Stmt[] = []
+    const byIdx = plan.get(bp.join('|'));
+    const out: Stmt[] = [];
     body.forEach((s, idx) => {
-      const lets = byIdx?.get(idx)
-      if (lets) out.push(...lets)
-      out.push(rewriteStmt(s, bp, idx))
-    })
-    return out
-  }
+      const lets = byIdx?.get(idx);
+      if (lets) out.push(...lets);
+      out.push(rewriteStmt(s, bp, idx));
+    });
+    return out;
+  };
   const rewriteStmt = (s: Stmt, bp: readonly string[], idx: number): Stmt => {
     switch (s.s) {
       case 'if':
@@ -211,7 +217,7 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
             body: rewriteBlock(a.body, [...bp, `${idx}#a${ai}`]),
           })),
           elseBody: s.elseBody ? rewriteBlock(s.elseBody, [...bp, `${idx}#e`]) : undefined,
-        }
+        };
       case 'switch':
         return {
           ...s,
@@ -221,14 +227,14 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
             body: rewriteBlock(c.body, [...bp, `${idx}#c${ci}`]),
           })),
           defaultBody: s.defaultBody ? rewriteBlock(s.defaultBody, [...bp, `${idx}#d`]) : undefined,
-        }
+        };
       default:
         // `for` included: mapStmtExpr replaces through its whole subtree, which is
         // exactly right — nothing was placed inside it.
-        return mapStmtExpr(s, replace)
+        return mapStmtExpr(s, replace);
     }
-  }
-  return { ...f, body: rewriteBlock(f.body, []) }
+  };
+  return { ...f, body: rewriteBlock(f.body, []) };
 }
 
 /**
@@ -247,7 +253,7 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
  * @returns A new module with the rewritten functions; `m` is not modified.
  */
 export function cse(m: ModuleDecl): ModuleDecl {
-  const writes = fnWrites(m)
-  const reads = fnReads(m)
-  return { ...m, funcs: m.funcs.map((f) => cseFn(f, writes, reads)) }
+  const writes = fnWrites(m);
+  const reads = fnReads(m);
+  return { ...m, funcs: m.funcs.map((f) => cseFn(f, writes, reads)) };
 }

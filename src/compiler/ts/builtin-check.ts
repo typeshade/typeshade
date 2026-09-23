@@ -5,21 +5,21 @@
 // so the two front-end sites that parse a `@builtin(...)` decorator agree on one vocabulary and
 // one set of stage rules — see design doc §5 and §10 step 5.
 
-import ts from 'typescript'
+import ts from 'typescript';
 import {
   WGSL_BUILTIN_NAMES,
   WGSL_BUILTIN_TYPES,
   type FixedTypeBuiltinName,
   type WgslBuiltinName,
-} from '../../core/sot.js'
-import { typeKey, type ShaderType } from '../../core/ir/types.js'
-import type { TsCompilerDiagnostic } from './source-file.js'
-import { makeDiagnostic } from './diagnostic.js'
-import { TS_CODES } from './codes.js'
-import { isIntegerVarying } from '../../core/passes/varying-interpolate.js'
+} from '../../core/sot.js';
+import { typeKey, type ShaderType } from '../../core/ir/types.js';
+import type { TsCompilerDiagnostic } from './source-file.js';
+import { makeDiagnostic } from './diagnostic.js';
+import { TS_CODES } from './codes.js';
+import { isIntegerVarying } from '../../core/passes/varying-interpolate.js';
 
 /** The pipeline stage a `@builtin(...)` id is being checked against. */
-export type BuiltinStage = 'vertex' | 'fragment' | 'compute'
+export type BuiltinStage = 'vertex' | 'fragment' | 'compute';
 
 /**
  * Every attribute (decorator) name `"use typeshade"` actually parses and acts on:
@@ -45,7 +45,7 @@ export const ATTRIBUTE_NAMES: readonly string[] = [
   // §54: `@diagnostic("off", "derivative_uniformity")` on an entry, which becomes a
   // module-scope `diagnostic(off, derivative_uniformity);`.
   'diagnostic',
-]
+];
 
 /** The interpolation TYPES WGSL names, and the SAMPLINGS each admits. `flat` takes `first`
  *  or `either` and nothing else; `perspective` and `linear` take the three positions. A
@@ -54,7 +54,7 @@ const INTERPOLATE_TYPES: Readonly<Record<string, readonly string[]>> = {
   perspective: ['center', 'centroid', 'sample'],
   linear: ['center', 'centroid', 'sample'],
   flat: ['first', 'either'],
-}
+};
 
 /** Reads and checks an `@interpolate("type")` or `@interpolate("type", "sampling")` on a
  *  field, returning the WGSL attribute text, or `undefined` when there is none (or when the
@@ -65,13 +65,13 @@ export function interpolateDecoratorArg(
   decorators: readonly ts.Decorator[],
 ): string | undefined {
   for (const d of decorators) {
-    if (!ts.isCallExpression(d.expression)) continue
-    if (!ts.isIdentifier(d.expression.expression)) continue
-    if (d.expression.expression.text !== 'interpolate') continue
+    if (!ts.isCallExpression(d.expression)) continue;
+    if (!ts.isIdentifier(d.expression.expression)) continue;
+    if (d.expression.expression.text !== 'interpolate') continue;
     const raw = d.expression.arguments.map((a) =>
       ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a) ? a.text : undefined,
-    )
-    const [type, sampling] = raw
+    );
+    const [type, sampling] = raw;
     if (type === undefined || raw.length > 2 || (raw.length === 2 && sampling === undefined)) {
       diagnostics.push(
         makeDiagnostic(
@@ -81,10 +81,10 @@ export function interpolateDecoratorArg(
             `@interpolate("flat") or @interpolate("linear", "centroid").`,
           TS_CODES.ATTRIBUTE_NAME,
         ),
-      )
-      return undefined
+      );
+      return undefined;
     }
-    const samplings = INTERPOLATE_TYPES[type]
+    const samplings = INTERPOLATE_TYPES[type];
     if (samplings === undefined) {
       diagnostics.push(
         makeDiagnostic(
@@ -94,8 +94,8 @@ export function interpolateDecoratorArg(
             `${Object.keys(INTERPOLATE_TYPES).join(', ')}.`,
           TS_CODES.ATTRIBUTE_NAME,
         ),
-      )
-      return undefined
+      );
+      return undefined;
     }
     if (sampling !== undefined && !samplings.includes(sampling)) {
       diagnostics.push(
@@ -106,17 +106,17 @@ export function interpolateDecoratorArg(
             `not "${sampling}".`,
           TS_CODES.ATTRIBUTE_NAME,
         ),
-      )
-      return undefined
+      );
+      return undefined;
     }
-    return sampling === undefined ? `@interpolate(${type})` : `@interpolate(${type}, ${sampling})`
+    return sampling === undefined ? `@interpolate(${type})` : `@interpolate(${type}, ${sampling})`;
   }
-  return undefined
+  return undefined;
 }
 
 /** Whether `decorators` carries a bare `@invariant`. */
 export function hasInvariantDecorator(decorators: readonly ts.Decorator[]): boolean {
-  return decorators.some((d) => ts.isIdentifier(d.expression) && d.expression.text === 'invariant')
+  return decorators.some((d) => ts.isIdentifier(d.expression) && d.expression.text === 'invariant');
 }
 
 /**
@@ -125,25 +125,25 @@ export function hasInvariantDecorator(decorators: readonly ts.Decorator[]): bool
  * {@link checkAttributeName} must not also call them "unknown" — that would read as two
  * contradictory diagnostics on the same decorator.
  */
-const RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES: readonly string[] = ['std140', 'align']
+const RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES: readonly string[] = ['std140', 'align'];
 
 /** The decorator identifier `@name` or `@name(...)` reads off, or `undefined` for a decorator
  *  shape (anything but a bare identifier or an identifier call) this front end never produces. */
 function attributeNameOf(decorator: ts.Decorator): string | undefined {
-  if (ts.isIdentifier(decorator.expression)) return decorator.expression.text
+  if (ts.isIdentifier(decorator.expression)) return decorator.expression.text;
   if (
     ts.isCallExpression(decorator.expression) &&
     ts.isIdentifier(decorator.expression.expression)
   ) {
-    return decorator.expression.expression.text
+    return decorator.expression.expression.text;
   }
-  return undefined
+  return undefined;
 }
 
 /** Whether a `@builtin(...)` id is supplied to the shader (`'input'`, a parameter or a field of
  *  a parameter's struct type) or produced by it (`'output'`, a return type or a field of a
  *  struct return type). */
-export type BuiltinDirection = 'input' | 'output'
+export type BuiltinDirection = 'input' | 'output';
 
 /** Finds a `@builtin("name")` decorator among `decorators` and returns its raw string and the
  *  string literal node itself, for a diagnostic span narrower than the whole declaration.
@@ -152,41 +152,41 @@ export function builtinDecoratorArg(
   decorators: readonly ts.Decorator[],
 ): { readonly name: string; readonly argNode: ts.StringLiteralLike } | undefined {
   for (const d of decorators) {
-    if (!ts.isCallExpression(d.expression)) continue
+    if (!ts.isCallExpression(d.expression)) continue;
     if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== 'builtin') {
-      continue
+      continue;
     }
-    const arg = d.expression.arguments[0]
+    const arg = d.expression.arguments[0];
     if (arg && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))) {
-      return { name: arg.text, argNode: arg }
+      return { name: arg.text, argNode: arg };
     }
   }
-  return undefined
+  return undefined;
 }
 
 function isWgslBuiltinName(name: string): name is WgslBuiltinName {
-  return (WGSL_BUILTIN_NAMES as readonly string[]).includes(name)
+  return (WGSL_BUILTIN_NAMES as readonly string[]).includes(name);
 }
 
 /** Plain Levenshtein edit distance, for the "Did you mean ...?" suggestion below. `a` and `b`
  *  are short (builtin ids), so the classic O(len(a)*len(b)) table is not worth optimizing. */
 function editDistance(a: string, b: string): number {
-  const rows = a.length + 1
-  const cols = b.length + 1
-  const dp: number[][] = Array.from({ length: rows }, () => new Array<number>(cols).fill(0))
-  for (let i = 0; i < rows; i++) dp[i]![0] = i
-  for (let j = 0; j < cols; j++) dp[0]![j] = j
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const dp: number[][] = Array.from({ length: rows }, () => new Array<number>(cols).fill(0));
+  for (let i = 0; i < rows; i++) dp[i]![0] = i;
+  for (let j = 0; j < cols; j++) dp[0]![j] = j;
   for (let i = 1; i < rows; i++) {
     for (let j = 1; j < cols; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
       dp[i]![j] = Math.min(
         dp[i - 1]![j]! + 1, // deletion
         dp[i]![j - 1]! + 1, // insertion
         dp[i - 1]![j - 1]! + cost, // substitution
-      )
+      );
     }
   }
-  return dp[rows - 1]![cols - 1]!
+  return dp[rows - 1]![cols - 1]!;
 }
 
 /** The closest entry in `candidates` to `name` by edit distance, or `undefined` when nothing is
@@ -195,30 +195,30 @@ function editDistance(a: string, b: string): number {
  *  typo). Shared by {@link suggestBuiltinName} (`WGSL_BUILTIN_NAMES`) and
  *  {@link checkAttributeName} (`ATTRIBUTE_NAMES`) so both "Did you mean ...?" hints use one rule. */
 function closestName(name: string, candidates: readonly string[]): string | undefined {
-  let best: string | undefined
-  let bestDistance = Infinity
+  let best: string | undefined;
+  let bestDistance = Infinity;
   for (const candidate of candidates) {
-    const distance = editDistance(name, candidate)
+    const distance = editDistance(name, candidate);
     if (distance < bestDistance) {
-      bestDistance = distance
-      best = candidate
+      bestDistance = distance;
+      best = candidate;
     }
   }
-  if (best === undefined) return undefined
-  const threshold = Math.max(3, Math.ceil(best.length / 3))
-  return bestDistance <= threshold ? best : undefined
+  if (best === undefined) return undefined;
+  const threshold = Math.max(3, Math.ceil(best.length / 3));
+  return bestDistance <= threshold ? best : undefined;
 }
 
 /** The closest {@link WGSL_BUILTIN_NAMES} entry to `name` by edit distance, or `undefined` when
  *  nothing is close enough to be worth suggesting. */
 export function suggestBuiltinName(name: string): string | undefined {
-  return closestName(name, WGSL_BUILTIN_NAMES)
+  return closestName(name, WGSL_BUILTIN_NAMES);
 }
 
 /** The closest {@link ATTRIBUTE_NAMES} entry to `name` by edit distance, or `undefined` when
  *  nothing is close enough to be worth suggesting. */
 export function suggestAttributeName(name: string): string | undefined {
-  return closestName(name, ATTRIBUTE_NAMES)
+  return closestName(name, ATTRIBUTE_NAMES);
 }
 
 /** Validates a `@builtin("...")` name against {@link WGSL_BUILTIN_NAMES}, pushing a `BUILTIN_NAME`
@@ -231,15 +231,15 @@ export function checkBuiltinName(
   node: ts.Node,
   name: string,
 ): boolean {
-  if (isWgslBuiltinName(name)) return true
-  const suggestion = suggestBuiltinName(name)
+  if (isWgslBuiltinName(name)) return true;
+  const suggestion = suggestBuiltinName(name);
   const hint = suggestion
     ? ` Did you mean "${suggestion}"?`
-    : ` Supported names: ${WGSL_BUILTIN_NAMES.join(', ')}.`
+    : ` Supported names: ${WGSL_BUILTIN_NAMES.join(', ')}.`;
   diagnostics.push(
     makeDiagnostic(sourceFile, node, `Unknown builtin "${name}".${hint}`, TS_CODES.BUILTIN_NAME),
-  )
-  return false
+  );
+  return false;
 }
 
 /** Which stage(s) and direction(s) each builtin id is valid for, per design doc §10 step 5,
@@ -281,10 +281,10 @@ const BUILTIN_STAGE_RULES: Readonly<
     { stage: 'compute', direction: 'input' },
     { stage: 'fragment', direction: 'input' },
   ],
-}
+};
 
 /** The longest `array<f32, N>` WGSL's built-in value table lets `@builtin(clip_distances)` be. */
-const MAX_CLIP_DISTANCES = 8
+const MAX_CLIP_DISTANCES = 8;
 
 /** Validates the type of a `@location(n)` field or parameter (§53). WGSL: "the type of a
  *  user-defined IO must be a numeric scalar or numeric vector" — a `bool` at a location was
@@ -316,19 +316,19 @@ export function checkLocationType(
           `derived from the type — or send an f32.`,
         TS_CODES.TYPE_MISMATCH,
       ),
-    )
-    return
+    );
+    return;
   }
   // An emulated double at a `@location` is NOT this rule's to answer. §39 measured what the
   // two targets do with one — a scalar `f64` vertex attribute is kept, because its `vec2<f32>`
   // pair fits the one slot it has, and every other position is refused with a message naming
   // the remedy — and `refuseF64EntryIo` in `lower/function.ts` carries that decision. Answering
   // here too would refuse the shape §39 keeps, and word the rest wrong.
-  if (type.kind === 'f64' || type.kind === 'vec64') return
+  if (type.kind === 'f64' || type.kind === 'vec64') return;
   const ok =
     (type.kind === 'scalar' && type.scalar !== 'bool') ||
-    (type.kind === 'vec' && type.elem !== 'bool')
-  if (ok) return
+    (type.kind === 'vec' && type.elem !== 'bool');
+  if (ok) return;
   diagnostics.push(
     makeDiagnostic(
       sourceFile,
@@ -340,7 +340,7 @@ export function checkLocationType(
           : 'Send its components as separate locations.'),
       TS_CODES.TYPE_MISMATCH,
     ),
-  )
+  );
 }
 
 /** Validates the TYPE declared for a `@builtin(...)` id against what WGSL fixes for it.
@@ -361,7 +361,7 @@ export function checkBuiltinType(
   // Every id but `clip_distances` has ONE type, which `core/sot.ts` already writes down — so
   // a declaration that disagrees is checked against that table rather than guessed at (§53).
   // `@builtin("vertex_index") i: f32` used to emit and die at the driver.
-  const fixed = WGSL_BUILTIN_TYPES[name as FixedTypeBuiltinName] as ShaderType | undefined
+  const fixed = WGSL_BUILTIN_TYPES[name as FixedTypeBuiltinName] as ShaderType | undefined;
   if (fixed !== undefined) {
     if (typeKey(fixed) !== typeKey(type)) {
       diagnostics.push(
@@ -371,20 +371,20 @@ export function checkBuiltinType(
           `Builtin "${name}" is "${typeKey(fixed)}"; this declares it "${typeKey(type)}".`,
           TS_CODES.TYPE_MISMATCH,
         ),
-      )
+      );
     }
-    return
+    return;
   }
-  if (name !== 'clip_distances') return
-  const shown = typeKey(type)
+  if (name !== 'clip_distances') return;
+  const shown = typeKey(type);
   const ok =
     type.kind === 'array' &&
     type.elem.kind === 'scalar' &&
     type.elem.scalar === 'f32' &&
     type.size !== undefined &&
     type.size >= 1 &&
-    type.size <= MAX_CLIP_DISTANCES
-  if (ok) return
+    type.size <= MAX_CLIP_DISTANCES;
+  if (ok) return;
   diagnostics.push(
     makeDiagnostic(
       sourceFile,
@@ -393,7 +393,7 @@ export function checkBuiltinType(
         `${String(MAX_CLIP_DISTANCES)}.`,
       TS_CODES.TYPE_MISMATCH,
     ),
-  )
+  );
 }
 
 /** Validates a (already name-checked) `@builtin(...)` id against the entry stage and direction
@@ -408,10 +408,10 @@ export function checkBuiltinStage(
   stage: BuiltinStage,
   direction: BuiltinDirection,
 ): void {
-  const rules = BUILTIN_STAGE_RULES[name]
-  if (!rules || rules.length === 0) return
-  if (rules.some((r) => r.stage === stage && r.direction === direction)) return
-  const allowed = rules.map((r) => `${r.stage} ${r.direction}`).join(' or ')
+  const rules = BUILTIN_STAGE_RULES[name];
+  if (!rules || rules.length === 0) return;
+  if (rules.some((r) => r.stage === stage && r.direction === direction)) return;
+  const allowed = rules.map((r) => `${r.stage} ${r.direction}`).join(' or ');
   diagnostics.push(
     makeDiagnostic(
       sourceFile,
@@ -419,7 +419,7 @@ export function checkBuiltinStage(
       `Builtin "${name}" is not a valid ${stage} ${direction}; it is a ${allowed}.`,
       TS_CODES.BUILTIN_STAGE,
     ),
-  )
+  );
 }
 
 /**
@@ -441,14 +441,14 @@ export function checkAttributeName(
   sourceFile: ts.SourceFile,
   decorator: ts.Decorator,
 ): void {
-  const name = attributeNameOf(decorator)
-  if (name === undefined) return
-  if (ATTRIBUTE_NAMES.includes(name)) return
-  if (RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name)) return
-  const suggestion = suggestAttributeName(name)
+  const name = attributeNameOf(decorator);
+  if (name === undefined) return;
+  if (ATTRIBUTE_NAMES.includes(name)) return;
+  if (RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name)) return;
+  const suggestion = suggestAttributeName(name);
   const hint = suggestion
     ? ` Did you mean "@${suggestion}"?`
-    : ` Supported attributes: ${ATTRIBUTE_NAMES.map((n) => `@${n}`).join(', ')}.`
+    : ` Supported attributes: ${ATTRIBUTE_NAMES.map((n) => `@${n}`).join(', ')}.`;
   diagnostics.push(
     makeDiagnostic(
       sourceFile,
@@ -456,5 +456,5 @@ export function checkAttributeName(
       `Unknown attribute "@${name}".${hint}`,
       TS_CODES.ATTRIBUTE_NAME,
     ),
-  )
+  );
 }

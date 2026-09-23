@@ -16,24 +16,24 @@
 // manifest line, a filename — which is exactly where the reported failure happened.
 // `buildRegistry` (X-GIS #1716) takes it as `stamp` for that reason.
 
-import type { EmitOptions } from './emit.js'
-import type { ModuleDecl } from './ir/index.js'
-import { isPortableComputeEntry } from './passes/portable-kernel.js'
+import type { EmitOptions } from './emit.js';
+import type { ModuleDecl } from './ir/index.js';
+import { isPortableComputeEntry } from './passes/portable-kernel.js';
 
 /** 32-bit FNV-1a over the canonical form. Zero-dependency on purpose: `node:crypto` is not
  *  reachable from a browser-safe package, and this is a change DETECTOR, not a security
  *  primitive — an adversary who can rewrite the artifact can rewrite the stamp beside it. */
 function fnv1a(s: string): string {
-  let h = 0x811c9dc5
+  let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 0x01000193) >>> 0
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
   }
-  return h.toString(16).padStart(8, '0')
+  return h.toString(16).padStart(8, '0');
 }
 
 /** The emit target an identity is computed for. Spelled as the backends spell themselves. */
-export type EmitTarget = 'wgsl' | 'glsl-es300'
+export type EmitTarget = 'wgsl' | 'glsl-es300';
 
 /** The emit options that change the emitted text, other than plugins. The list is explicit:
  *  every option here is one axis of the identity that {@link emitIdentity} computes, and an
@@ -46,9 +46,9 @@ export interface EmitIdentityInput extends EmitOptions {
    *  because this option was passed or because the module declares a `portable` compute entry,
    *  which takes the same path with no option. Pass the module as {@link emitIdentity}'s third
    *  argument and the marker is derived from either source. */
-  readonly emulateCompute?: boolean
+  readonly emulateCompute?: boolean;
   /** GLSL only. Pinned `override` values become `#define`s, which changes the emitted text. */
-  readonly overrideValues?: Readonly<Record<string, number | boolean>>
+  readonly overrideValues?: Readonly<Record<string, number | boolean>>;
 }
 
 /**
@@ -81,17 +81,17 @@ export interface EmitIdentityInput extends EmitOptions {
  * @returns a one-line identity: a readable summary, then `#` and a 32-bit digest of it.
  */
 export function emitIdentity(target: EmitTarget, opts?: EmitIdentityInput, m?: ModuleDecl): string {
-  const plugins = (opts?.plugins ?? []).map((p) => p.identity ?? p.name)
+  const plugins = (opts?.plugins ?? []).map((p) => p.identity ?? p.name);
   // Sorted keys, so an object literal written in a different order is the same identity.
   const overrides = Object.entries(opts?.overrideValues ?? {})
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([k, v]) => `${k}=${String(v)}`)
+    .map(([k, v]) => `${k}=${String(v)}`);
   // The lowering RAN — by the option, or (GLSL only, X-GIS #1812) because the module declares a
   // portable compute entry, which takes the same path with no option. WGSL never runs it,
   // so the target gates the declaration half.
   const emulateCompute =
     opts?.emulateCompute === true ||
-    (target === 'glsl-es300' && m !== undefined && m.funcs.some(isPortableComputeEntry))
+    (target === 'glsl-es300' && m !== undefined && m.funcs.some(isPortableComputeEntry));
   const parts = [
     target,
     `parens=${opts?.parens ?? 'full'}`,
@@ -99,7 +99,7 @@ export function emitIdentity(target: EmitTarget, opts?: EmitIdentityInput, m?: M
     ...(emulateCompute ? ['emulateCompute'] : []),
     ...(overrides.length ? [`overrides=${overrides.join(',')}`] : []),
     `plugins=${plugins.length ? plugins.join('+') : '-'}`,
-  ]
-  const readable = parts.join(';')
-  return `${readable}#${fnv1a(readable)}`
+  ];
+  const readable = parts.join(';');
+  return `${readable}#${fnv1a(readable)}`;
 }
