@@ -204,10 +204,9 @@ export function collectModuleVars(
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
     if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue;
+    // A top-level `var` is semantic.ts's refusal (TS8014), and is collected as the `let` it
+    // would have been, so its uses say nothing more (Rule 12.4).
     const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
-    const isLet = (stmt.declarationList.flags & ts.NodeFlags.Let) !== 0;
-    // A top-level `var` is semantic.ts's refusal.
-    if (!isConst && !isLet) continue;
     for (const decl of stmt.declarationList.declarations) {
       const wrapper = moduleVarSpace(decl.type);
       if (isConst) {
@@ -226,6 +225,14 @@ export function collectModuleVars(
       }
       // `let q: override<f32>` is overrides.ts's refusal, with the fix (`const`).
       if (isOverrideType(decl.type)) continue;
+      // `let g = (x: f32): f32 => …` is a function, which the local-function collector says is
+      // declared with const (TS8020); it is no module variable to refuse a second time.
+      if (
+        decl.initializer !== undefined &&
+        (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
+      ) {
+        continue;
+      }
       if (!ts.isIdentifier(decl.name)) {
         diagnostics.push(
           diag(

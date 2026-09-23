@@ -265,6 +265,15 @@ function contractInterfaces(sourceFile: ts.SourceFile): ReadonlySet<string> {
   return out;
 }
 
+/** The generic interfaces and object-type aliases of a file that something uses: `collectStructs`
+ *  refuses each once at its declaration (TS8010), and sets this before it maps a type. */
+const REFUSED_GENERICS = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+
+/** Records the generic interfaces and aliases `collectStructs` refuses in `sourceFile`. */
+export function setRefusedGenerics(sourceFile: ts.SourceFile, names: ReadonlySet<string>): void {
+  REFUSED_GENERICS.set(sourceFile, names);
+}
+
 export function mapTsTypeToShaderType(
   typeNode: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
@@ -330,6 +339,11 @@ function mapType(
       // the binding alive, so one mistake still reads as one sentence instead of a second
       // refusal here and an "Unknown identifier" at every read of it (T10, #111).
       return structT(generic);
+    }
+    // A generic interface or type alias was refused where it is declared, with the class that
+    // says it (structs.ts), so `G<f32>` names no type and says nothing more (Rule 12.4).
+    if (name !== undefined && REFUSED_GENERICS.get(sourceFile)?.has(name) === true) {
+      return undefined;
     }
     if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
       return mapGeneric(name, typeNode, sourceFile, diagnostics, resolving);

@@ -58,8 +58,9 @@ import {
 } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
 import { lowerCall } from './expression-call.js';
-import { lowerArrayLiteral } from './expression-array.js';
+import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
 import { lowerFor, lowerForOf, lowerSwitch, lowerUpdate, lowerWhile } from './control.js';
+import { refusedBySemantics } from '../semantic.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { foldNumericLit } from '../lit-coerce.js';
@@ -281,6 +282,9 @@ function lowerStatementKind(
     );
     return undefined;
   }
+  // `for…in`, `try` and `throw` are semantic.ts's refusals (TS8013), each with its reason, and
+  // one mistake reads as one diagnostic (Rule 12.4).
+  if (refusedBySemantics(node)) return undefined;
   pushDiag(
     diagnostics,
     sourceFile,
@@ -311,19 +315,9 @@ function lowerVariableStatement(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | Stmt[] | undefined {
-  const flags = node.declarationList.flags;
-  const isConst = (flags & ts.NodeFlags.Const) !== 0;
-  const isLet = (flags & ts.NodeFlags.Let) !== 0;
-  if (!isConst && !isLet) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'Use "const" or "let". The JS "var" keyword is not supported.',
-      TS_CODES.UNSUPPORTED,
-    );
-    return undefined;
-  }
+  // A `var` is semantic.ts's refusal (TS8013), and is lowered as the `let` it would have been,
+  // so the names it declares stay bound and their uses say nothing more (Rule 12.4).
+  const isConst = (node.declarationList.flags & ts.NodeFlags.Const) !== 0;
   // One declarator is the overwhelmingly common case, and there the statement IS the
   // declaration: stamping the declarator alone gives a span starting after the `const`/`let`
   // keyword, so a breakpoint on that line points mid-statement. Several declarators genuinely
@@ -496,6 +490,28 @@ function lowerDeclarationKind(
   // literal to take its type, and everything else ignores it.
   let init: Expr | undefined;
   if (ts.isArrayLiteralExpression(decl.initializer)) {
+    // A spread is the list's one mistake, said before the annotation it would otherwise be
+    // asked for. With a type declared the name is still declared, with no value, so a use of it
+    // adds nothing (Rule 12.4).
+    if (refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)) {
+      if (!annotated) return undefined;
+      const bound = defineLocal(
+        name,
+        annotated,
+        !isConst,
+        undefined,
+        decl,
+        sourceFile,
+        scope,
+        diagnostics,
+      );
+      if (!bound) return undefined;
+      return withSpan(
+        { s: 'var', name: irNameOf(bound), type: annotated } as Stmt,
+        sourceFile,
+        spanNode,
+      );
+    }
     if (!annotated) {
       const kw = isConst ? 'const' : 'let';
       pushDiag(
@@ -1121,6 +1137,8 @@ function lowerExpressionAsStatement(
       return undefined;
     }
   }
+  // `yield x;`, `await x;` or a template string standing alone: semantic.ts's refusal.
+  if (refusedBySemantics(expr)) return undefined;
   pushDiag(
     diagnostics,
     sourceFile,

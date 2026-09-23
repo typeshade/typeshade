@@ -60,9 +60,9 @@ export function collectBindings(
   let next = firstBinding;
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
-    const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
-    const isLet = (stmt.declarationList.flags & ts.NodeFlags.Let) !== 0;
-    if (!isConst && !isLet) continue;
+    // A top-level `var` is semantic.ts's refusal (TS8014), and one that declares a binding is
+    // read as the `const` a binding is, so its uses say nothing more (Rule 12.4).
+    const isConst = (stmt.declarationList.flags & ts.NodeFlags.Let) === 0;
     const declared = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false;
     for (const decl of stmt.declarationList.declarations) {
       if (!ts.isIdentifier(decl.name)) continue;

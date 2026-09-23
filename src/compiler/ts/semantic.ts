@@ -77,6 +77,7 @@ function push(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
+  REFUSED.get(sourceFile)?.add(node);
 }
 
 /** What `new X(...)` names, so the refusal can say the real reason rather than blaming the
@@ -270,35 +271,23 @@ function visit(
     );
   }
   // `{ ...p }` in an object literal is the fields of `p`, which the literal lowering spreads
-  // to one read each (roadmap 0.3 item T7, #92); it says itself what it cannot spread. Every
-  // other spread is still a runtime operation this surface has no form for: `f(...args)`
-  // needs an argument count known only at run time, and `[...xs]` a list that grows.
-  if (ts.isSpreadElement(node)) {
+  // to one read each (roadmap 0.3 item T7, #92); it says itself what it cannot spread, and so
+  // does a list, `[...a, 3.]`, which knows the elements to name (expression-array.ts). What is
+  // left is a spread argument, `f(...args)`, whose count is known only at run time.
+  if (ts.isSpreadElement(node) && !ts.isArrayLiteralExpression(node.parent)) {
     push(diagnostics, sourceFile, node, 'Spread is a JS runtime operation.', TS_CODES.HOST_STMT);
   }
-  if (
-    ts.isFunctionDeclaration(node) &&
-    node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
-  ) {
-    push(
-      diagnostics,
-      sourceFile,
-      node,
-      'async functions are host. TypeShade functions are pure and synchronous.',
-      TS_CODES.HOST_STMT,
-    );
+  // Wherever it stands, at the top level or in a body (Rule 8.17); the local-function collector
+  // leaves a declaration to this one sentence.
+  if (ts.isFunctionDeclaration(node) && isAsyncOrGenerator(node)) {
+    push(diagnostics, sourceFile, node, asyncOrGeneratorMessage(node), TS_CODES.HOST_STMT);
   }
-  if (ts.isFunctionDeclaration(node) && node.asteriskToken) {
-    push(
-      diagnostics,
-      sourceFile,
-      node,
-      'Generators are not TypeShade functions.',
-      TS_CODES.HOST_STMT,
-    );
-  }
+  // A `var` at the top level is analyzeSemantics' TS8014 below, and one in a namespace the
+  // namespace walk's TS8014; this sentence is a body's.
   if (
     ts.isVariableStatement(node) &&
+    !ts.isSourceFile(node.parent) &&
+    !ts.isModuleBlock(node.parent) &&
     (node.declarationList.flags & ts.NodeFlags.Let) === 0 &&
     (node.declarationList.flags & ts.NodeFlags.Const) === 0
   ) {
@@ -310,7 +299,64 @@ function visit(
       TS_CODES.HOST_STMT,
     );
   }
+  if (holdsItsMistake(node)) return;
   ts.forEachChild(node, (child) => visit(child, sourceFile, diagnostics));
+}
+
+/** Whether what is under `node` is part of the one mistake refused at it, and is not read again
+ *  (Rule 12.4): the operand of a `throw`, an `await` or a `yield`, the spans of a template
+ *  string, what a spread spreads, and the whole of an async function or a generator, which is
+ *  refused once on the function wherever it is written (here, or as a local function, an
+ *  argument or a method), so an `await` or a `yield` in it is not said again. `throw new
+ *  Error("x")` is the `throw`. A `try` and a `for…in` hold statements of the author's own, and
+ *  those are still read. */
+function holdsItsMistake(node: ts.Node): boolean {
+  return (
+    ts.isThrowStatement(node) ||
+    ts.isAwaitExpression(node) ||
+    ts.isYieldExpression(node) ||
+    ts.isTemplateExpression(node) ||
+    ts.isTaggedTemplateExpression(node) ||
+    ts.isSpreadElement(node) ||
+    (ts.isFunctionLike(node) && isAsyncOrGenerator(node))
+  );
+}
+
+/** Whether a function is `async` or a generator, which a shader function cannot be: it runs to
+ *  completion in one call, with no event loop to wait on and nothing to suspend it. */
+export function isAsyncOrGenerator(node: ts.SignatureDeclaration): boolean {
+  return (
+    (node as { asteriskToken?: ts.AsteriskToken }).asteriskToken !== undefined ||
+    (ts.canHaveModifiers(node) &&
+      (ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false))
+  );
+}
+
+/** The one sentence for an async or generator function declaration. */
+function asyncOrGeneratorMessage(node: ts.FunctionDeclaration): string {
+  const shown = node.name === undefined ? 'This function' : `"${node.name.text}"`;
+  const isAsync = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
+  if (!isAsync) {
+    return (
+      `${shown} is a generator, and a shader function runs to completion in one call: nothing ` +
+      `suspends it at a "yield". Remove the "*" and return one value.`
+    );
+  }
+  return node.asteriskToken
+    ? `${shown} is an async generator, and a shader function runs to completion in one call: ` +
+        `there is no event loop to wait on. Remove "async" and the "*", and return one value.`
+    : `${shown} is async, and a shader function runs to completion in one call: there is no ` +
+        `event loop to wait on. Remove "async" and each "await".`;
+}
+
+/** The nodes `visit` refused, per file: the lowering reads it where it has no form for a node,
+ *  and says nothing more about one of these (Rule 12.4). Replaced on each analysis, so a node
+ *  the language service keeps across edits carries only the latest verdict. */
+const REFUSED = new WeakMap<ts.SourceFile, Set<ts.Node>>();
+
+/** Whether `analyzeSemantics` refused `node`, having said why. */
+export function refusedBySemantics(node: ts.Node): boolean {
+  return REFUSED.get(node.getSourceFile())?.has(node) ?? false;
 }
 
 const ALLOWED_TOP = new Set([
@@ -380,5 +426,6 @@ export function analyzeSemantics(
       );
     }
   }
+  REFUSED.set(sourceFile, new Set());
   visit(sourceFile, sourceFile, diagnostics);
 }

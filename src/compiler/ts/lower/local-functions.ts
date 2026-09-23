@@ -112,6 +112,12 @@ export function collectLocalFunctions(
     const refuse = (): void => {
       refused?.add(localFnName(ownerName, local));
     };
+    // A `var` is refused already, TS8013 in a body and TS8014 at the top level or in a
+    // namespace, and that one sentence is the declaration's (Rule 12.4).
+    if (ts.isVariableDeclaration(decl) && isVar(decl)) {
+      refuse();
+      continue;
+    }
     if (ts.isVariableDeclaration(decl) && !isConst(decl)) {
       push(
         diagnostics,
@@ -137,13 +143,16 @@ export function collectLocalFunctions(
       continue;
     }
     if (node.asteriskToken || node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)) {
-      push(
-        diagnostics,
-        sourceFile,
-        node,
-        `"${local}" is a plain function or nothing: no async, no generator.`,
-        TS_CODES.FUNCTION_SHAPE,
-      );
+      // A `function` declaration is semantic.ts's to refuse wherever it stands (TS8013), once.
+      if (!ts.isFunctionDeclaration(node)) {
+        push(
+          diagnostics,
+          sourceFile,
+          node,
+          `"${local}" is a plain function or nothing: no async, no generator.`,
+          TS_CODES.FUNCTION_SHAPE,
+        );
+      }
       refuse();
       continue;
     }
@@ -214,6 +223,14 @@ export function declarationsIn(body: ts.Node): LocalFunctionDecl[] {
   };
   ts.forEachChild(body, walk);
   return out;
+}
+
+function isVar(decl: ts.VariableDeclaration): boolean {
+  const list = decl.parent;
+  return (
+    ts.isVariableDeclarationList(list) &&
+    (list.flags & (ts.NodeFlags.Const | ts.NodeFlags.Let)) === 0
+  );
 }
 
 function isConst(decl: ts.VariableDeclaration): boolean {

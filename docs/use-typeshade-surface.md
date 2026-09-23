@@ -3443,6 +3443,22 @@ adds that it "requires a TypeShade type annotation", which it has; a return no l
 longer says "Unknown function", which was untrue — the function is there, and its declaration
 already said why. A call to a name nothing declares still says so.
 
+**And where two passes both saw the mistake, one of them stops** (proposal 0008). `for…in`,
+`try` and `throw` in a body are refused once, with their reason, and no "Unsupported statement"
+follows. What a refused `throw`, `await`, `yield`, template string or spread holds is part of the
+same mistake and is not read again, so `throw new Error("x")` is one diagnostic, not four. An
+`async` function or a generator is refused once, on the function, wherever it is declared: a
+shader function runs to completion in one call, with no event loop to wait on and nothing to
+suspend it, and an `await` or a `yield` inside it adds nothing. A `var` is refused once, `TS8013`
+in a body and `TS8014` at the top level or in a namespace, and is read as the `let` it would have
+been (a binding or an override as the `const` it is), so a use of the name says nothing more. An
+interface or a type alias inside a namespace is refused once. A spread in a list names the
+elements to write, `"...a" spreads a list into a list, which a shader array does not do: write
+its elements, a[0], a[1].`, and the name the list initializes stays declared; a spread argument,
+`f(...args)`, keeps its own sentence. A generic interface or type alias is refused at its
+declaration with the class that says it, and `G<f32>` adds nothing (§32). A name that another
+refused declaration leaves unbound is still `TS8022` where it is read (#171).
+
 ## 29. The mixin pattern
 
 Roadmap 0.3 item T8. `class TintedDisc extends Tinted(Disc)` is a class whose base is decided by
@@ -3688,6 +3704,11 @@ selects, indexes and returns, and the arithmetic happens on what it gives back.
 names no layout until the declaration around it is instantiated; the wrong number of type
 arguments. A surplus argument is reported once and the instance is still collected from the ones
 the class declares, so the mistake does not take the struct, and every use of it, down with it.
+
+**A generic interface or type alias is not collected per instance**, so one that something uses
+is refused at its declaration with the spelling that is: `"G" is a generic interface; a generic
+struct is written as a class, class G<T> { x: T } (surface §32).` A use of it, `G<f32>`, adds
+nothing to that sentence (proposal 0008).
 
 ## 33. A storage texture
 

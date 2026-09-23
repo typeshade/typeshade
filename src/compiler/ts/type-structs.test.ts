@@ -262,8 +262,8 @@ describe('shapes a WGSL struct has no form for', () => {
         ${USED}
       `),
     ).toBe(
-      '"Bad" takes type parameters. A TypeShade struct is one concrete layout, so a generic ' +
-        'declaration has no single set of field types to emit.',
+      '"Bad" is a generic type alias; a generic struct is written as a class, ' +
+        'class Bad<T> { a: T } (surface §32).',
     );
   });
 

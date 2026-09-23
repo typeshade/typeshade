@@ -71,6 +71,7 @@ import { ATOMIC_INTRINSICS, isBarrierIntrinsic } from '../../../core/intrinsics.
 import { makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { isAsyncOrGenerator } from '../semantic.js';
 import {
   checkLoweredRecursion,
   checkRecursion,
@@ -122,8 +123,15 @@ export function lowerSourceFunctions(
       // A namespace holds functions, constants, classes and namespaces. The consts are
       // module-const.ts's and the classes are structs.ts's, under the same flattened name
       // (#107); the rest has no flattened form. Only the namespace's own statements are refused
-      // here, since a top-level statement of any kind is semantic.ts's to judge.
-      if (prefix !== '' && !isNamespaceConst(stmt) && !ts.isClassDeclaration(stmt)) {
+      // here, since a top-level statement of any kind is semantic.ts's to judge. An interface
+      // and an object-type alias are structs.ts's too, which refuses one here itself.
+      if (
+        prefix !== '' &&
+        !isNamespaceConst(stmt) &&
+        !ts.isClassDeclaration(stmt) &&
+        !ts.isInterfaceDeclaration(stmt) &&
+        !(ts.isTypeAliasDeclaration(stmt) && ts.isTypeLiteralNode(stmt.type))
+      ) {
         refuseNamespaceStatement(stmt, prefix, sourceFile, diagnostics);
       }
       return;
@@ -165,6 +173,13 @@ export function lowerSourceFunctions(
       !isAmbient(stmt) &&
       implemented.has(irName ?? stmt.name.text)
     ) {
+      continue;
+    }
+    // An async function or a generator is semantic.ts's refusal, and its body is that one
+    // mistake: it is not lowered, and a call to it says nothing more (Rule 12.4).
+    if (isAsyncOrGenerator(stmt)) {
+      refused.add(irName ?? stmt.name?.text ?? '');
+      if (stmt.name !== undefined) refused.add(stmt.name.text);
       continue;
     }
     // A generic function is compiled once per set of argument types the file calls it with

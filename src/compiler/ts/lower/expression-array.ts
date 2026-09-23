@@ -169,10 +169,11 @@ export function lowerArrayLiteral(
     );
     return undefined;
   }
+  // Checked before the count: `[...xs]` is one element syntactically, so counting it first
+  // would report an arity the author never wrote.
+  if (refuseListSpread(node, sourceFile, scope, diagnostics)) return undefined;
   for (const element of node.elements) {
-    // Checked before the count: `[...xs]` is one element syntactically, so counting it first
-    // would report an arity the author never wrote.
-    if (ts.isSpreadElement(element) || ts.isOmittedExpression(element)) {
+    if (ts.isOmittedExpression(element)) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -224,6 +225,57 @@ export function lowerArrayLiteral(
     args.push(typed);
   }
   return { op: 'construct', type: target, args };
+}
+
+/** `[...a, 3.]`: a spread in a list, refused with the elements to write in its place (Rule 12.4,
+ *  Rule 12.1). A shader array's length is its type's, so there is no list for `a` to grow; its
+ *  own elements, by index, are what the author means. A declaration asks this before the
+ *  annotation it would otherwise ask for, so the spread is the one sentence. Returns whether it
+ *  refused. */
+export function refuseListSpread(
+  node: ts.ArrayLiteralExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const spread = node.elements.find(ts.isSpreadElement);
+  if (spread === undefined) return false;
+  const operand = spread.expression;
+  const written = operand.getText(sourceFile);
+  const shown =
+    ts.isIdentifier(operand) ||
+    ts.isPropertyAccessExpression(operand) ||
+    ts.isElementAccessExpression(operand) ||
+    ts.isCallExpression(operand)
+      ? written
+      : `(${written})`;
+  // Only its type is read, to count the elements; what the operand itself may be refused for is
+  // not this mistake.
+  const type = lowerExpression(operand, sourceFile, scope, [])?.type;
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    spread,
+    `"...${written}" spreads a list into a list, which a shader array does not do: write its ` +
+      `elements, ${spreadElements(shown, type)}.`,
+    TS_CODES.HOST_STMT,
+  );
+  return true;
+}
+
+/** The elements a spread of `shown` stands for, as an author writes them. */
+function spreadElements(shown: string, type: ShaderType | undefined): string {
+  if (type?.kind === 'vec' || type?.kind === 'vec64') {
+    return ['x', 'y', 'z', 'w']
+      .slice(0, type.n)
+      .map((c) => `${shown}.${c}`)
+      .join(', ');
+  }
+  const at = (i: number): string => `${shown}[${String(i)}]`;
+  const n = type?.kind === 'array' ? type.size : undefined;
+  if (n === undefined) return `${at(0)}, ${at(1)}, …`;
+  if (n <= 4) return Array.from({ length: n }, (_, i) => at(i)).join(', ');
+  return `${at(0)}, ${at(1)}, …, ${at(n - 1)}`;
 }
 
 /** One element of an `array<T, N>`, list or call, given the element type it sits in. Shared by

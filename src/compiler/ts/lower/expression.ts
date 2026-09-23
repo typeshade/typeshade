@@ -8,6 +8,7 @@ import { f32T, boolT, i32T, u32T, isF64, isVec64, typeKey } from '../../../core/
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { irNameOf, type LoweringScope } from '../context.js';
 import { resolveLangConst } from '../math-alias.js';
+import { refusedBySemantics } from '../semantic.js';
 import { foldConstComponents, foldConstNumber } from '../loop-bound.js';
 import {
   broadcastResultType,
@@ -240,6 +241,9 @@ export function lowerExpression(
     );
     return undefined;
   }
+  // `await x`, `yield`, a template string and a spread argument are semantic.ts's refusals
+  // (TS8013), each with its reason, and one mistake reads as one diagnostic (Rule 12.4).
+  if (refusedBySemantics(node)) return undefined;
   if (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)) {
     pushDiag(
       diagnostics,

@@ -3,7 +3,7 @@ import type { StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { boolT, f32T, structT, typeKey as typeKeyOf } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { lookupTypeName, mapTsTypeToShaderType } from './type-map.js';
+import { lookupTypeName, mapTsTypeToShaderType, setRefusedGenerics } from './type-map.js';
 import {
   baseClassOf,
   emittedMemberName,
@@ -183,6 +183,15 @@ export function collectStructs(
   );
   const candidates = collectCandidates(sourceFile);
   const reachable = reachableCandidates(sourceFile, candidates);
+  // A generic interface or object-type alias something uses is refused once, at its declaration
+  // (below), and a use of it, `G<f32>`, adds nothing to that (Rule 12.4). Recorded before any
+  // type is mapped here, so a field that names one is quiet too.
+  setRefusedGenerics(
+    sourceFile,
+    new Set(
+      [...candidates.values()].filter((c) => c.generic && reachable.has(c.name)).map((c) => c.name),
+    ),
+  );
   const out: CollectedStruct[] = [];
   const declared = new Set<string>();
   /** Where to anchor a diagnostic about a struct's inheritance, which is reported after the
@@ -313,14 +322,9 @@ export function collectStructs(
       }
       if (!reachable.has(candidate.name)) continue;
       if (candidate.generic) {
-        diagnostics.push(
-          diag(
-            sourceFile,
-            candidate.nameNode,
-            `"${candidate.name}" takes type parameters. A TypeShade struct is one concrete ` +
-              `layout, so a generic declaration has no single set of field types to emit.`,
-          ),
-        );
+        // §32 collects a generic CLASS once per set of type arguments; the other two spellings
+        // are not collected that way, so the sentence names the one that is.
+        diagnostics.push(diag(sourceFile, candidate.nameNode, genericCandidateMessage(candidate)));
         continue;
       }
       const heritage = basesOf(candidate.name, candidate.heritage, sourceFile, diagnostics);
@@ -1132,6 +1136,30 @@ function candidateOf(stmt: ts.Statement): Candidate | undefined {
     };
   }
   return undefined;
+}
+
+/** Why a generic interface or type alias is no struct, and the class that says it: `class
+ *  G<T> { x: T }` with the declaration's own type parameters and fields. */
+function genericCandidateMessage(candidate: Candidate): string {
+  const declaration = candidate.nameNode.parent as
+    ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
+  const params = (declaration.typeParameters ?? []).map((p) => p.getText()).join(', ');
+  const fields = candidate.members
+    .filter(ts.isPropertySignature)
+    .map((m) =>
+      m.type === undefined ? m.name.getText() : `${m.name.getText()}: ${m.type.getText()}`,
+    );
+  const body =
+    fields.length === 0
+      ? '…'
+      : fields.length > 3
+        ? `${fields.slice(0, 2).join('; ')}; …`
+        : fields.join('; ');
+  const what = candidate.spelling === 'interface' ? 'a generic interface' : 'a generic type alias';
+  return (
+    `"${candidate.name}" is ${what}; a generic struct is written as a class, ` +
+    `class ${candidate.name}<${params}> { ${body} } (surface §32).`
+  );
 }
 
 function collectCandidates(sourceFile: ts.SourceFile): Map<string, Candidate> {
