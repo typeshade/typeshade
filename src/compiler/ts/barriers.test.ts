@@ -19,6 +19,7 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { optimizeAt } from '../../core/passes/opt/optimize.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { reflect } from '../../core/reflect.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const REDUCE = `"use typeshade";
 declare const src: storage<array<f32>>;
@@ -428,8 +429,8 @@ export function fs(): vec4 {
       'textureBarrier() belongs in a compute entry or a function it calls; a fragment entry ' +
         'has no workgroup whose texture writes it could order.',
     );
-    // Still refused inside a branch, and now by §54's walk rather than by this file's own
-    // `inBranch()` arm: `textureBarrier` is one of `BARRIER_INTRINSICS`, and the uniformity
+    // Still refused inside a branch, and now by §54's walk rather than by a branch-depth check
+    // in the lowering: `textureBarrier` is one of `BARRIER_INTRINSICS`, and the uniformity
     // analysis reads that set, so it inherited the same relaxation the other two barriers got
     // — a branch on a value the invocations do NOT share is what WGSL refuses, not a branch.
     // `o[0]` is a storage read, which the walk cannot prove uniform, so the refusal stands and
@@ -537,6 +538,47 @@ ${body}
     expect(r.wgsl).toContain('workgroupUniformLoad(&w)');
   });
 
+  // Where the walk cannot classify the flow, the load keeps the answer its old rule gave: each
+  // of these compiled before, outside any `if` or `switch`, and Tint accepts each, measured.
+  // `opaque` returns the uniform `k`, which the walk does not see through (#180).
+  const OPAQUE = 'function opaque(): f32 {\n  return k;\n}\n';
+  it.each([
+    [
+      'after a return under a helper',
+      '  if (opaque() > 0.5) { return; }\n  o[0] = workgroupUniformLoad(w);',
+      OPAQUE,
+    ],
+    [
+      'in a loop a helper bounds',
+      '  for (let i: u32 = 0; i < u32(opaque()); i++) {\n    o[i] = workgroupUniformLoad(w);\n  }',
+      OPAQUE,
+    ],
+    [
+      'right of an && on a helper',
+      '  if (opaque() > 0.5 && workgroupUniformLoad(w) > 0) { o[0] = 1; }',
+      OPAQUE,
+    ],
+    [
+      'right of an && on a uniform',
+      '  if (k > 0.5 && workgroupUniformLoad(w) > 0) { o[0] = 1; }',
+      '',
+    ],
+    [
+      'right of an || on workgroup_id',
+      '  if (wid.x > 2 || workgroupUniformLoad(w) > 0) { o[0] = 1; }',
+      '',
+    ],
+    [
+      'in a loop the length of a read_write array bounds',
+      '  for (let i: u32 = 0; i < o.length; i++) {\n    o[i] = workgroupUniformLoad(w);\n  }',
+      '',
+    ],
+  ])('takes workgroupUniformLoad %s', (_what, body, helpers) => {
+    const r = compile(load(body, helpers));
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('workgroupUniformLoad(&w)');
+  });
+
   it.each([
     [
       'after a return taken under local_invocation_id',
@@ -582,6 +624,73 @@ ${body}
         'break on',
       ),
     ],
+    // The condition runs at the top of every iteration, so a later one reaches it with the
+    // invocations a jump or the condition itself left behind.
+    [
+      'in the condition of a loop a continue taken under it cuts short',
+      load(
+        '  for (let i: u32 = 0; i < workgroupUniformLoad(w); i++) {\n    if (lid.x > 2) { continue; }\n    o[i] = 1;\n  }',
+      ),
+      refusal(
+        `in a loop where some invocations skip ahead by a continue taken under ${LID}`,
+        'Move it out of the loop',
+        'continue on',
+      ),
+    ],
+    [
+      'in the condition of a loop a break taken under it leaves',
+      load(
+        '  for (let i: u32 = 0; i < workgroupUniformLoad(w); i++) {\n    if (lid.x > 2) { break; }\n    o[i] = 1;\n  }',
+      ),
+      refusal(
+        `in a loop some invocations leave by a break taken under ${LID}`,
+        'Move it out of the loop',
+        'break on',
+      ),
+    ],
+    [
+      'in the condition of a loop that condition bounds by it',
+      load(
+        '  for (let i: u32 = 0; i < lid.x + workgroupUniformLoad(w); i++) {\n    o[i] = 1;\n  }',
+      ),
+      refusal(
+        `in a loop whose condition reads ${LID}`,
+        'Move it out of the loop',
+        'bound the loop by',
+      ),
+    ],
+    [
+      'right of an && on it',
+      load('  if (lid.x > 2 && workgroupUniformLoad(w) > 0) { o[0] = 1; }'),
+      refusal(
+        `on the right of an && or || whose left side reads ${LID}`,
+        'Call it before the && or ||',
+        'make the left side',
+      ),
+    ],
+    [
+      'right of an || on it',
+      load('  if (lid.x > 2 || workgroupUniformLoad(w) > 0) { o[0] = 1; }'),
+      refusal(
+        `on the right of an && or || whose left side reads ${LID}`,
+        'Call it before the && or ||',
+        'make the left side',
+      ),
+    ],
+    // Inside an `if`, where its old rule refused every one, a condition the walk cannot
+    // classify is still refused, and now says why. Conservative (#180): Tint accepts it.
+    [
+      'under a branch on a helper',
+      load(
+        '  if (opaque() > 0.5) {\n    o[0] = workgroupUniformLoad(w);\n  }',
+        'function opaque(): f32 {\n  return k;\n}\n',
+      ),
+      refusal(
+        'under the expression, which this compiler cannot prove uniform',
+        'Move it out of the branch',
+        'branch on',
+      ),
+    ],
   ])('refuses workgroupUniformLoad %s', (_what, src, want) => {
     expect(codedErrorsOf(src)).toEqual([want]);
   });
@@ -594,5 +703,86 @@ ${body}
     );
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.glsl).toBeUndefined();
+  });
+});
+
+// Proposal 0008 §4 on the editor's side (Rule 12.7): the language service runs the same walk,
+// so a refusal reads the same in both, and a program that compiles is clean in both.
+describe('a jump and workgroupUniformLoad read the same in the editor', () => {
+  const both = (src: string): { compiled: string[]; editor: string[] } => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.shade.ts', src);
+    return {
+      compiled: compileTsSource(src)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${d.code} ${d.message}`),
+      editor: service.getDiagnostics('a.shade.ts').map((d) => `${String(d.code)} ${d.message}`),
+    };
+  };
+  const kernel = (body: string): string => `"use typeshade";
+declare const o: storage<array<u32>, "read_write">;
+let w: workgroup<u32>;
+@compute([64, 1, 1])
+export function cs(@builtin("local_invocation_id") lid: vec3u, @builtin("workgroup_id") wid: vec3u): void {
+${body}
+}
+`;
+  const LID = '"lid" (@builtin(local_invocation_id))';
+  const said = (callee: string, reached: string, move: string, on: string): string =>
+    `${TS_CODES.UNIFORMITY} ${callee}() is reached ${reached}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. ${move}, or ${on} a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`;
+
+  it.each([
+    [
+      'a barrier below a break',
+      '  for (let i: u32 = 0; i < 4; i++) {\n    if (lid.x > 2) { break; }\n    workgroupBarrier();\n  }',
+      said(
+        'workgroupBarrier',
+        `in a loop some invocations leave by a break taken under ${LID}`,
+        'Move it out of the loop',
+        'break on',
+      ),
+    ],
+    [
+      'a barrier above a continue',
+      '  for (let i: u32 = 0; i < 4; i++) {\n    workgroupBarrier();\n    if (lid.x > 2) { continue; }\n  }',
+      said(
+        'workgroupBarrier',
+        `in a loop where some invocations skip ahead by a continue taken under ${LID}`,
+        'Move it out of the loop',
+        'continue on',
+      ),
+    ],
+    [
+      'a barrier after a break out of a switch case',
+      '  switch (i32(wid.x)) {\n    case 0: {\n      if (lid.x > 2) { break; }\n      workgroupBarrier();\n      break;\n    }\n    default: { }\n  }',
+      said(
+        'workgroupBarrier',
+        `after a break out of the switch taken under ${LID}`,
+        'Move it above the break',
+        'break on',
+      ),
+    ],
+    [
+      'a load after a return',
+      '  if (lid.x > 2) { return; }\n  o[0] = workgroupUniformLoad(w);',
+      said(
+        'workgroupUniformLoad',
+        `after a return taken under ${LID}`,
+        'Move it above the return',
+        'return on',
+      ),
+    ],
+  ])('refuses %s in both', (_what, body, want) => {
+    expect(both(kernel(body))).toEqual({ compiled: [want], editor: [want] });
+  });
+
+  it('takes a barrier below the loop a break left, and a load under a uniform branch, in both', () => {
+    expect(
+      both(
+        kernel(
+          '  for (let i: u32 = 0; i < 4; i++) {\n    if (lid.x > 2) { break; }\n    o[i] = 1;\n  }\n  workgroupBarrier();\n  if (wid.x > 2) {\n    o[0] = workgroupUniformLoad(w);\n  }',
+        ),
+      ),
+    ).toEqual({ compiled: [], editor: [] });
   });
 });

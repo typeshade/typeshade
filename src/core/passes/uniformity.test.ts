@@ -1146,7 +1146,7 @@ ${body}
   );
   const skippedByContinue = barrierRefusal(
     'workgroupBarrier',
-    `in a loop where a continue taken under ${LID} skips some invocations ahead`,
+    `in a loop where some invocations skip ahead by a continue taken under ${LID}`,
     'Move it out of the loop',
     'continue on',
   );
@@ -1259,7 +1259,7 @@ ${body}
   }`,
       barrierRefusal(
         'workgroupBarrier',
-        `after a return taken under ${LID} inside a loop`,
+        `after a return taken inside a loop under ${LID}`,
         'Move it above the loop',
         'return on',
       ),
@@ -1274,7 +1274,7 @@ ${body}
   }`,
       barrierRefusal(
         'workgroupBarrier',
-        `after a return taken under ${LID} inside a loop`,
+        `after a return taken inside a loop under ${LID}`,
         'Move it above the loop',
         'return on',
       ),
@@ -1287,7 +1287,7 @@ ${body}
   workgroupBarrier();`,
       barrierRefusal(
         'workgroupBarrier',
-        `after a return taken under ${LID} inside a loop`,
+        `after a return taken inside a loop under ${LID}`,
         'Move it above the loop',
         'return on',
       ),
@@ -1530,5 +1530,353 @@ ${inner}
       ]);
       expect(compiled(counted(jump, 'k')).wgsl, jump).toContain('textureSample(t, s,');
     }
+  });
+
+  it('carries the condition of a break out of a switch case into a helper’s summary', () => {
+    // `pick(x)` returns what the case wrote, which `x` decided through the break. Tint refuses
+    // the sample under `pick(v.uv.x)` ("'textureSample' must only be called from uniform
+    // control flow") and accepts it under `pick(k)`.
+    const picked = (arg: string): string => `${HEAD}function pick(x: f32): f32 {
+  let r = 0.;
+  switch (i32(k)) {
+    case 0: {
+      if (x > 0.5) { break; }
+      r = 1.;
+      break;
+    }
+    default: { }
+  }
+  return r;
+}
+@fragment export function fs(v: VsOut): vec4 {
+  if (pick(${arg}) > 0.5) { return textureSample(t, s, v.uv); }
+  return vec4(0., 0., 0., 1.);
+}`;
+    expect(errorsOf(picked('v.uv.x'))).toEqual([
+      sampleRefusal(`under ${UV}`, 'Hoist the call above the branch'),
+    ]);
+    expect(compiled(picked('k')).wgsl).toContain('textureSample(t, s,');
+  });
+
+  // Only a jump taken under DEFINITELY non-uniform control flow narrows the loop. Each of these
+  // compiled before this change, and Tint accepts each, measured: `done` and `f64(…)` are
+  // values this walk cannot classify, and `out.length` is the size of the bound buffer.
+  it.each([
+    [
+      'below a break on a helper it cannot see through',
+      `  for (let i: i32 = 0; i < 8; i++) {
+    if (done(i)) { break; }
+    workgroupBarrier();
+  }`,
+    ],
+    [
+      'above a break on that helper',
+      `  for (let i: i32 = 0; i < 8; i++) {
+    workgroupBarrier();
+    if (done(i)) { break; }
+  }`,
+    ],
+    [
+      'above a continue on it',
+      `  for (let i: i32 = 0; i < 8; i++) {
+    workgroupBarrier();
+    if (done(i)) { continue; }
+    out[i] = 1;
+  }`,
+    ],
+    [
+      'below a break on a comparison of doubles',
+      `  const lim: f64 = f64(k);
+  for (let i: i32 = 0; i < 8; i++) {
+    if (f64(f32(i)) > lim) { break; }
+    workgroupBarrier();
+  }`,
+    ],
+    [
+      'below a break on the length of a read_write storage array',
+      `  for (let i: u32 = 0; i < 64; i++) {
+    if (i >= out.length) { break; }
+    workgroupBarrier();
+  }`,
+    ],
+  ])('accepts a barrier %s', (_what, body) => {
+    const src = kernel(body, 'function done(i: i32): bool { return f32(i) > k; }\n');
+    expect(errorsOf(src)).toEqual([]);
+    expect(compiled(src).wgsl).toContain('workgroupBarrier();');
+  });
+
+  // The sentence names what made the flow non-uniform FIRST. A loop inside a branch on `lid`
+  // is reached under that branch, whatever its bound; a jump taken on a shared value in a loop
+  // `lid` bounds leaves the loop's reason standing. Each named move compiles on Tint.
+  const inLoopBoundByLid = barrierRefusal(
+    'workgroupBarrier',
+    `in a loop whose condition reads ${LID}`,
+    'Move it out of the loop',
+    'bound the loop by',
+  );
+  it.each([
+    [
+      'in a for with a constant bound, inside a branch on lid',
+      `  if (lid.x > 2) {
+    for (let j: i32 = 0; j < 4; j++) {
+      workgroupBarrier();
+    }
+  }`,
+      branchedOnLid,
+    ],
+    [
+      'in a while with a constant bound, inside a branch on lid',
+      `  if (lid.x > 2) {
+    let j: i32 = 0;
+    while (j < 4) {
+      workgroupBarrier();
+      j++;
+    }
+  }`,
+      branchedOnLid,
+    ],
+    [
+      'in a for…of, inside a branch on lid',
+      `  const xs = array<u32, 4>(1, 2, 3, 4);
+  if (lid.x > 2) {
+    for (const x of xs) {
+      workgroupBarrier();
+      out[x] = 1;
+    }
+  }`,
+      branchedOnLid,
+    ],
+    [
+      'in a constant loop inside a loop a break left',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (lid.x > 2) { break; }
+    for (let j: i32 = 0; j < 4; j++) {
+      workgroupBarrier();
+    }
+  }`,
+      leftByBreak,
+    ],
+    [
+      'below a break on a uniform, in a loop lid bounds',
+      `  for (let i: u32 = 0; i < lid.x; i++) {
+    if (k > 0.5) { break; }
+    workgroupBarrier();
+  }`,
+      inLoopBoundByLid,
+    ],
+    [
+      'above a continue on a uniform, in a loop lid bounds',
+      `  for (let i: u32 = 0; i < lid.x; i++) {
+    workgroupBarrier();
+    if (k > 0.5) { continue; }
+  }`,
+      inLoopBoundByLid,
+    ],
+    [
+      'above an unconditional break, in a loop lid bounds',
+      `  for (let i: u32 = 0; i < lid.x; i++) {
+    workgroupBarrier();
+    break;
+  }`,
+      inLoopBoundByLid,
+    ],
+    [
+      'below a loop lid bounds that a return on a uniform left',
+      `  for (let i: u32 = 0; i < lid.x; i++) {
+    if (k > 0.5) { return; }
+  }
+  workgroupBarrier();`,
+      barrierRefusal(
+        'workgroupBarrier',
+        `after a return inside a loop whose condition reads ${LID}`,
+        'Move it above the loop',
+        'bound the loop by',
+      ),
+    ],
+    [
+      // The refusal is main's, and conservative (#180): Tint accepts `done`, which compares to a
+      // uniform. Pinned for the sentence, whose value, unclassified, comes last.
+      'below a loop a return under a helper it cannot see through left',
+      `  for (let i: i32 = 0; i < 4; i++) {
+    if (done(i)) { return; }
+  }
+  workgroupBarrier();`,
+      barrierRefusal(
+        'workgroupBarrier',
+        'after a return taken inside a loop under done(…), which this compiler cannot prove uniform',
+        'Move it above the loop',
+        'return on',
+      ),
+    ],
+  ])('names the flow a barrier is reached under: %s', (_what, body, want) => {
+    expect(errorsOf(kernel(body, 'function done(i: i32): bool { return f32(i) > k; }\n'))).toEqual([
+      want,
+    ]);
+  });
+
+  it('names the flow a derivative is reached under, with the hoist that fits it', () => {
+    // A loop inside a branch on a fragment input: hoisting the sample out of the loop leaves it
+    // under the branch, so the branch is named.
+    expect(
+      errorsOf(
+        frag(`  let c = vec4(0., 0., 0., 0.);
+  if (v.uv.x > 0.5) {
+    for (let i: i32 = 0; i < 4; i++) {
+      c = c + textureSample(t, s, v.uv + vec2(f32(i), 0.));
+    }
+  }
+  return c;`),
+      ),
+    ).toEqual([sampleRefusal(`under ${UV}`, 'Hoist the call above the branch')]);
+    // After a break out of a switch case, the rest of the case.
+    expect(
+      errorsOf(
+        frag(`  let c = vec4(0., 0., 0., 0.);
+  switch (i32(k)) {
+    case 0: {
+      if (v.uv.x > 0.5) { break; }
+      c = textureSample(t, s, v.uv);
+      break;
+    }
+    default: { }
+  }
+  return c;`),
+      ),
+    ).toEqual([
+      sampleRefusal(
+        `after a break out of the switch taken under ${UV}`,
+        'Hoist the call above the break',
+      ),
+    ]);
+    // Above a return taken in the loop, which the next iteration reaches after it.
+    expect(
+      errorsOf(
+        frag(`  let c = vec4(0., 0., 0., 0.);
+  for (let i: i32 = 0; i < 4; i++) {
+    c = c + textureSample(t, s, v.uv + vec2(f32(i), 0.));
+    if (v.uv.x > 0.5) { return c; }
+  }
+  return c;`),
+      ),
+    ).toEqual([
+      sampleRefusal(
+        `after a return taken inside a loop under ${UV}`,
+        'Hoist the call above the loop',
+      ),
+    ]);
+    // A screen-space derivative after a continue, whose remedy has no explicit-LOD form.
+    expect(
+      errorsOf(
+        frag(`  let c = 0.;
+  for (let i: i32 = 0; i < 4; i++) {
+    if (v.uv.x > 0.5) { continue; }
+    c = c + dpdx(v.uv.y * f32(i));
+  }
+  return vec4(c, 0., 0., 1.);`),
+      ),
+    ).toEqual([
+      `${TS_CODES.UNIFORMITY} dpdx() is reached in a loop where some invocations skip ahead by a continue taken under ${UV}, which WGSL's derivative_uniformity rule refuses: it differences neighbouring invocations, and one that did not run has no value to difference against. Hoist the call out of the loop and select from its result, or compute the quantity some other way — a screen-space derivative has no alternative form, or write @diagnostic("off", "derivative_uniformity") on the entry to take the module as written.`,
+    ]);
+  });
+
+  it('follows a copy chain nested in a branch to its end, however many rounds that takes', () => {
+    // The loop's fixpoint was bounded by the body's top-level length, one `if` here, and the
+    // chain outran it: `a` stayed uniform. Tint refuses both, measured.
+    const chain = (names: string[], barrierAbove: boolean): string => {
+      const lets = names.map((n) => `  let ${n} = 0.;`).join('\n');
+      const copies = names
+        .slice(1)
+        .map((n, i) => `      ${names[i]} = ${n};`)
+        .join('\n');
+      const top = barrierAbove
+        ? '      workgroupBarrier();\n      if (a > 0.5) { break; }'
+        : '      if (a > 0.5) { workgroupBarrier(); }';
+      return kernel(`${lets}
+  for (let i: i32 = 0; i < 4; i++) {
+    if (k > 0.5) {
+${top}
+${copies}
+      ${names[names.length - 1]} = f32(lid.x);
+    }
+  }`);
+    };
+    expect(errorsOf(chain(['a', 'b', 'c', 'd'], true))).toEqual([
+      barrierRefusal(
+        'workgroupBarrier',
+        `in a loop some invocations leave by a break taken under ${LID}`,
+        'Move it out of the loop',
+        'break on',
+      ),
+    ]);
+    expect(errorsOf(chain(['a', 'b', 'c', 'd', 'e', 'f'], false))).toEqual([branchedOnLid]);
+  });
+});
+
+// ═══ The right side of `&&` and `||` (proposal 0008 §4, Rule 8.5) ═══
+//
+// It runs only where the left side lets it, which WGSL's analysis reads as a branch on the left
+// side's value. Measured on Chromium 141: `v.uv.x > 0.5 && textureSample(…).x > 0.5` is
+// "'textureSample' must only be called from uniform control flow"; with a uniform on the left
+// it is accepted. The walk checked every call of an expression under one flow, so the first
+// compiled with no diagnostic.
+describe('a call on the right of && or ||', () => {
+  it('refuses a sample right of a fragment input, and takes one right of a uniform', () => {
+    const cond = (left: string): string =>
+      frag(`  if (${left} && textureSample(t, s, v.uv).x > 0.5) { return vec4(1., 0., 0., 1.); }
+  return vec4(0., 0., 0., 1.);`);
+    expect(errorsOf(cond('v.uv.x > 0.5'))).toEqual([
+      sampleRefusal(
+        `on the right of an && or || whose left side reads ${UV}`,
+        'Hoist the call above the && or ||',
+      ),
+    ]);
+    expect(compiled(cond('k > 0.5')).wgsl).toContain('textureSample(t, s,');
+  });
+});
+
+// ═══ `arrayLength`, the size of the bound buffer ═══
+//
+// `out.length` on a runtime-sized `read_write` storage array lowers to `arrayLength(&out)`,
+// which reads no element. Measured on Chromium 141: a barrier under `if (arrayLength(&o) > 4u)`
+// is accepted, and so is one in a loop it bounds, and a `textureSample` under a branch on a
+// helper that returns it; the same under `o[0]` is refused. The walk joined the argument and
+// read it as a `read_write` read, so all three were refused.
+describe('the length of a read_write storage array', () => {
+  const kernel = (body: string): string =>
+    `declare const out: storage<array<u32>, "read_write">;
+@compute([64]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
+${body}
+}`;
+  it.each([
+    ['under a branch on it', '  if (out.length > 4) { workgroupBarrier(); }'],
+    ['in a loop it bounds', '  for (let i: u32 = 0; i < out.length; i++) { workgroupBarrier(); }'],
+  ])('is one value for the dispatch: a barrier %s compiles', (_what, body) => {
+    expect(compiled(kernel(body)).wgsl).toContain('workgroupBarrier();');
+  });
+
+  it('is one value through a helper that returns it, and an element is not', () => {
+    const sampled = (read: string): string =>
+      `declare const buf: storage<array<u32>, "read_write">
+function n(): u32 { return ${read}; }
+${frag(`  if (n() > 4) { return textureSample(t, s, v.uv); }
+  return vec4(0., 0., 0., 1.);`)}`;
+    expect(compiled(sampled('buf.length')).wgsl).toContain('textureSample(t, s,');
+    expect(errorsOf(sampled('buf[0]'))).toEqual([
+      sampleRefusal(
+        'under n(…), which reads memory the invocations share',
+        'Hoist the call above the branch',
+      ),
+    ]);
+  });
+
+  it('is not an element, which still varies', () => {
+    expect(errorsOf(kernel('  if (out[0] > 4) { workgroupBarrier(); }'))).toEqual([
+      barrierRefusal(
+        'workgroupBarrier',
+        'under "out" (a read_write storage buffer)',
+        'Move it out of the branch',
+        'branch on',
+      ),
+    ]);
   });
 });

@@ -418,64 +418,68 @@ function entryDeclaration(sourceFile: ts.SourceFile, name: string): ts.Node | un
   );
 }
 
-/** Where a {@link UniformityViolation}'s call is reached, around the value that made it
+/** Where a {@link UniformityViolation}'s call is reached, before the value that made it
  *  non-uniform, and the two remedies that fit that statement: where to move a barrier or hoist
  *  a derivative, and what to write the statement on instead. Each remedy compiles on Tint in
  *  the shape it names (Rule 12.1), and the loop rows are why there are rows: a barrier moved
  *  ABOVE a non-uniform `break` is still refused, because the next iteration is reached by fewer
  *  invocations, so a `break` or `continue` sends it out of the loop; and a `return` taken in a
- *  loop reaches that loop's later iterations and everything after it, so it sends it above. */
+ *  loop reaches that loop's later iterations and everything after it, so it sends it above.
+ *  The value comes last, because its phrase can end in "which this compiler cannot prove
+ *  uniform", and a clause after that one reads as part of it. */
 const UNIFORMITY_SITES: Readonly<
-  Record<
-    UniformityViolation['via'],
-    { before: string; after: string; move: string; hoist: string; on: string }
-  >
+  Record<UniformityViolation['via'], { reached: string; move: string; hoist: string; on: string }>
 > = {
   branch: {
-    before: 'under',
-    after: '',
+    reached: 'under',
     move: 'Move it out of the branch',
     hoist: 'Hoist the call above the branch',
     on: 'branch on',
   },
+  'short-circuit': {
+    reached: 'on the right of an && or || whose left side reads',
+    move: 'Call it before the && or ||',
+    hoist: 'Hoist the call above the && or ||',
+    on: 'make the left side',
+  },
   loop: {
-    before: 'in a loop whose condition reads',
-    after: '',
+    reached: 'in a loop whose condition reads',
     move: 'Move it out of the loop',
     hoist: 'Hoist the call out of the loop',
     on: 'bound the loop by',
   },
   return: {
-    before: 'after a return taken under',
-    after: '',
+    reached: 'after a return taken under',
     move: 'Move it above the return',
     hoist: 'Hoist the call above the return',
     on: 'return on',
   },
   'loop-return': {
-    before: 'after a return taken under',
-    after: ' inside a loop',
+    reached: 'after a return taken inside a loop under',
     move: 'Move it above the loop',
     hoist: 'Hoist the call above the loop',
     on: 'return on',
   },
+  'bound-return': {
+    reached: 'after a return inside a loop whose condition reads',
+    move: 'Move it above the loop',
+    hoist: 'Hoist the call above the loop',
+    on: 'bound the loop by',
+  },
   break: {
-    before: 'in a loop some invocations leave by a break taken under',
-    after: '',
+    reached: 'in a loop some invocations leave by a break taken under',
     move: 'Move it out of the loop',
     hoist: 'Hoist the call out of the loop',
     on: 'break on',
   },
   continue: {
-    before: 'in a loop where a continue taken under',
-    after: ' skips some invocations ahead',
+    reached: 'in a loop where some invocations skip ahead by a continue taken under',
     move: 'Move it out of the loop',
     hoist: 'Hoist the call out of the loop',
     on: 'continue on',
   },
   'switch-break': {
-    before: 'after a break out of the switch taken under',
-    after: '',
+    reached: 'after a break out of the switch taken under',
     move: 'Move it above the break',
     hoist: 'Hoist the call above the break',
     on: 'break on',
@@ -488,7 +492,7 @@ const UNIFORMITY_SITES: Readonly<
  *  arrive and some do not waits forever. */
 function uniformityMessage(v: UniformityViolation): string {
   const site = UNIFORMITY_SITES[v.via];
-  const reached = `${site.before} ${v.cause}${site.after}`;
+  const reached = `${site.reached} ${v.cause}`;
   if (v.kind === 'barrier') {
     return (
       `${v.callee}() is reached ${reached}, and every invocation of the workgroup has ` +

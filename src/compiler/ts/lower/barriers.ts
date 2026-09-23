@@ -74,7 +74,7 @@ export function lowerBarrierStatement(
     );
     return undefined;
   }
-  // NOT `scope.inBranch()` any more (§54). That rule refused EVERY `if` and `switch`, which
+  // NOT a branch-depth check any more (§54). That rule refused EVERY `if` and `switch`, which
   // is stricter than both the spec and Tint: a barrier under `if (k > 0.5)` on a uniform
   // buffer value is accepted, measured on Chromium 141 and 153 alike, because every
   // invocation of the workgroup takes the same side of it. What the two refuse is a branch on
@@ -128,11 +128,13 @@ export function lowerWorkgroupUniformLoad(
   // sentence for the same mistake that no program can see, and a worse one: it would name the
   // builtin where the existing rule names the variable, which is what the author has to move.
   //
-  // NOT `scope.inBranch()` either, for the reason the barrier above gave it up (§54): that
+  // NOT a branch-depth check either, for the reason the barrier above gave it up (§54): that
   // rule refused `if (k > 0.5)` on a uniform, which Tint accepts, and saw none of what Tint
   // refuses without a branch in sight — a `return` taken under `local_invocation_id` above
   // the call, a helper holding it called under a branch on one, a loop bounded by one. The
   // uniformity walk reads the call as it reads a barrier, and answers all of them, measured.
+  // Where the walk cannot classify the flow, it refuses the call inside an `if` or `switch`,
+  // as that rule did, and nowhere else.
   const arg = args[0]!;
   if (!rootedIn(arg, scope, ['workgroup'])) {
     pushDiag(

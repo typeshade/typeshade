@@ -1941,19 +1941,14 @@ function lowerBranch(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt[] {
-  scope.enterBranch();
+  if (ts.isBlock(node)) return lowerBlock(node, sourceFile, scope, diagnostics);
+  scope.push();
   try {
-    if (ts.isBlock(node)) return lowerBlock(node, sourceFile, scope, diagnostics);
-    scope.push();
-    try {
-      const one = lowerStatement(node, sourceFile, scope, diagnostics);
-      if (!one) return [];
-      return Array.isArray(one) ? one : [one];
-    } finally {
-      scope.pop();
-    }
+    const one = lowerStatement(node, sourceFile, scope, diagnostics);
+    if (!one) return [];
+    return Array.isArray(one) ? one : [one];
   } finally {
-    scope.exitBranch();
+    scope.pop();
   }
 }
 

@@ -5005,6 +5005,8 @@ It carries a barrier's placement rules, because it *is* two barriers around a re
 | in a compute entry, outside any branch | accepts |
 | inside an `if` or a `switch` on a uniform, or on `workgroup_id` | accepts |
 | inside an `if` on `local_invocation_id`, after a `return` or a `break` taken under one, or in a loop it bounds | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
+| right of `lid.x > 2 &&` or `lid.x > 2 \|\|` | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
+| in the condition of a loop that a `continue` under `local_invocation_id` cuts short | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
 | of a storage pointer | **"no matching call"**, both candidates workgroup pointers |
 | of a `vec4`, of an array element | accepts — any shape that memory holds |
 
@@ -5012,6 +5014,9 @@ The compiler reads the call with §54's uniformity walk, as it reads a barrier, 
 rows are TS8052 at the call, worded as the barrier's, and the accepted ones compile. It used
 to refuse every `if` and `switch` around the call with TS8034, the uniform ones included, and to
 pass an early `return`, a helper called under a branch and a loop bound, which Tint refuses.
+Where the walk cannot classify the flow, as under a helper it does not see through (#180), the
+call is refused inside an `if` or a `switch`, as the old rule refused it, and compiles anywhere
+else, as it did.
 
 A render entry needs no rule of its own here: a workgroup variable read from one is already
 refused where it is read, which is the sentence that names what the author has to move.
@@ -5718,8 +5723,12 @@ broken-shader instrument check passing on both compilers first:
 | the same, a `textureSample` in the loop body | `'textureSample' must only be called from uniform control flow` |
 | the same, a barrier after the loop under a branch on a local the loop writes | `'workgroupBarrier' must only be called from uniform control flow` |
 | `if (id.x > 4u) { break }` out of a `switch` case, a barrier after the `switch` | accepted |
+| the same, `if (k > 0.5) { break }` on a uniform, or `if (done(i)) { break }` on a helper that compares to one | accepted |
 | `workgroupUniformLoad` under `if (k > 0.5)` on a uniform buffer value | accepted |
 | `workgroupUniformLoad` after `if (id.x > 4u) { return }`, or in a loop `id.x` bounds | `'workgroupUniformLoad' must only be called from uniform control flow` |
+| `workgroupUniformLoad` in the condition `i < id.x + workgroupUniformLoad(&w)` | `'workgroupUniformLoad' must only be called from uniform control flow` |
+| `workgroupUniformLoad`, or a `textureSample`, right of `&&` or `\|\|` whose left side reads `id.x` or `uv.x` | `'workgroupUniformLoad'` (or `'textureSample'`) `must only be called from uniform control flow` |
+| a barrier under `if (arrayLength(&rw) > 4u)` on a `read_write` storage array, or in a loop it bounds | accepted |
 
 Every one of those is reported by `createShaderModule`, not only by `createRenderPipeline` — so
 the compile gate already runs Tint's own uniformity check on every example, and the acceptance
@@ -5743,7 +5752,16 @@ for `for`, `while` and `for…of`. A `break` out of a `switch` case makes the re
 non-uniform and nothing after the `switch`, since a case runs once. The environment at the jump
 goes where the jump lands, so a local written before a `break`, even a uniform one, reaches the
 code after the loop with the value it had there, and a local the loop writes after a
-non-uniform jump is non-uniform after the loop.
+non-uniform jump is non-uniform after the loop. A loop's own condition is a `break` at the top of
+its body, so a condition that reads a value the invocations do not share makes the condition
+non-uniform from the second iteration on, and a `workgroupUniformLoad` in it is refused. A jump
+under a condition the walk cannot classify narrows nothing: no rule refused a barrier beside
+one before, and Tint accepts one on a helper that compares to a uniform.
+
+**The right side of `&&` and `||` runs only where the left side lets it**, so a call there is
+under a branch on the left side's value: `lid.x > 2 && workgroupUniformLoad(w) > 0` is refused,
+and so is a `textureSample` right of a fragment input. A left side the walk cannot classify
+narrows nothing, as a jump's condition does not.
 
 **What the compiler says now.** The call is refused at the call, naming the value the control
 flow depends on and the three ways out:
@@ -5763,16 +5781,21 @@ Each move compiles on Tint:
 | The call is reached | The sentence says it is reached | The move |
 | --- | --- | --- |
 | under an `if` or a `switch` on the value | under … | out of the branch, or the call hoisted above it |
+| right of an `&&` or `\|\|` whose left side reads it | on the right of an && or \|\| whose left side reads … | before the `&&` or `\|\|` |
 | after a `return` taken under it | after a return taken under … | above the return |
 | in a loop whose condition reads it | in a loop whose condition reads … | out of the loop |
 | in a loop a `break` taken under it leaves early | in a loop some invocations leave by a break taken under … | out of the loop |
-| in a loop a `continue` taken under it cuts short | in a loop where a continue taken under … skips some invocations ahead | out of the loop |
+| in a loop a `continue` taken under it cuts short | in a loop where some invocations skip ahead by a continue taken under … | out of the loop |
 | after a `break` taken under it out of a `switch` case | after a break out of the switch taken under … | above the break |
-| in or after a loop a `return` taken under it leaves | after a return taken under … inside a loop | above the loop |
+| in or after a loop a `return` taken under it leaves | after a return taken inside a loop under … | above the loop |
+| after a loop whose condition reads it, which a `return` on a shared value left | after a return inside a loop whose condition reads … | above the loop |
 
-A barrier's sentence also names the other way out, a value the whole workgroup shares to branch,
-return, break, continue or bound the loop on; a derivative's names the explicit-LOD sample and
-the filter.
+The sentence names the statement whose own condition made the flow non-uniform first. A loop
+inside an `if` on the value is reached under that `if`, whatever its bound, and a `break` on a
+uniform inside a loop the value bounds leaves the loop's condition as the reason. A barrier's
+sentence also names the other way out, a value the whole workgroup shares to branch, return,
+break, continue, bound the loop or test on the left side on; a derivative's names the
+explicit-LOD sample and the filter.
 
 **The analysis is three-valued, and that is the design, not a hedge.** A value is `uniform`,
 `non-uniform`, or `unknown`, and the two callers want opposite answers from the same walk:
@@ -5874,13 +5897,15 @@ ADDRESS SPACE, and Tint does not look at the write side at all — it refuses a 
 | a read-only storage binding (`declare const`) | uniform |
 | a module `const`, an `override` | uniform |
 | `workgroupUniformLoad(x)` | uniform, by construction |
+| `.length` of a runtime-sized storage array, `read_write` included (`arrayLength`) | uniform: the size the host bound, not an element |
 
 `workgroupUniformLoad` is the carve-out and it is load-bearing: with a workgroup read
 non-uniform on sight, it is the only spelling left that can carry a barrier — which is exactly
 what the builtin is for, since it *is* one value for the whole workgroup with a barrier on each
 side. It is the value the CALL produces that is uniform, not the argument. The call itself is
 held to the barrier's threshold, for the same reason: a `workgroupUniformLoad` reached where the
-walk has not proven the flow uniform is TS8052, worded as a barrier's (§48).
+walk has proven the flow non-uniform is TS8052, worded as a barrier's, and so is one inside an
+`if` or `switch` the walk cannot classify, which the old rule refused (§48).
 
 An earlier round classified those three spaces by the join of every write in the module
 instead, on the theory that a location written only constants stays uniform. That refinement is
