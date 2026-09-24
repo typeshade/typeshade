@@ -67,10 +67,12 @@ Two things are therefore **out of scope**, and stay out:
   in the driver, and an unbounded buffer for any loop), so the thing you step through is not
   the thing that was wrong. It is also a large feature in its own right and belongs to a
   proposal about GPU capture.
-- **`printf` on the GPU.** WGSL has no print. The same storage-buffer-ring trick would be
-  needed, with the same objection plus a decode step, and it would move emitted bytes on every
-  shader that used it. A "shader trace buffer" is a defensible separate feature; it is not
-  debugging, and calling it debugging would set the wrong expectation.
+- **`printf` on the GPU as debugging.** WGSL has no print. The "shader trace buffer" this
+  bullet once called a defensible separate feature is that feature now, and it stays separate:
+  `compile(src, { console: 'gpu' })` records each `console` call of a compute or fragment
+  shader in one storage buffer the host decodes into the events the CPU sink receives
+  (surface §66, Rule 11.9). It is opt-in, so no emitted byte moves in a compile that did not
+  ask, and it records values; it does not step, and the stepper stays the CPU's.
 
 What already exists for the shipped shader is the other half, and it stays as it is: `mangle`
 fills a `renames` map that `decodeShaderLog` (`src/core/decode-log.ts`) uses to rewrite a

@@ -29,6 +29,7 @@ import { validate } from '../passes/validate.js';
 import { autoVars } from '../passes/opt/index.js';
 import { froundF32 } from '../passes/precision.js';
 import { evalExpr, makeCtx, runFunction, type StepCtx } from './interp.js';
+import type { ConsoleSink } from '../console.js';
 import type { CpuPrecision, DispatchReport } from '../oracle.js';
 
 /** The shape of `workgroups` a dispatch takes: one number for a 1-D grid, or the three counts. */
@@ -113,7 +114,11 @@ export function dispatchCompute(
   entry: string,
   workgroups: WorkgroupCount,
   bindings: Record<string, CpuValue>,
-  opts?: { readonly gpuStubs?: boolean; readonly precision?: CpuPrecision },
+  opts?: {
+    readonly gpuStubs?: boolean;
+    readonly precision?: CpuPrecision;
+    readonly consoleSink?: ConsoleSink;
+  },
 ): DispatchReport {
   validate(m);
   let prepared = autoVars(m);
@@ -161,6 +166,9 @@ export function dispatchCompute(
                 ...base,
                 privates: privatesOf(),
                 lockstep: true,
+                // Each event says which invocation made it, as a decoded GPU event does
+                // (surface §66), so the two can be compared entry for entry.
+                ...(opts?.consoleSink ? { consoleSink: opts.consoleSink, invocation: gid } : {}),
                 frames: [],
                 stubbed: new Set<string>(),
                 stubHits: 0,

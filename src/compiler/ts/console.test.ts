@@ -5,6 +5,7 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { compile } from './compile.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
+// Verifies: Rule 11.9 (a console call delivers its event to the host's sink on the CPU).
 describe('JavaScript Console API in use typeshade', () => {
   it('lowers console.log and preserves a source span', () => {
     const result = compileTsSource(`"use typeshade";
