@@ -19,6 +19,7 @@ import { mapTsTypeToShaderType } from '../type-map.js';
 import { parseSwizzle } from '../swizzle.js';
 import { staticThisClass } from '../class-names.js';
 import { refuseAtomicDeclaration } from './atomics.js';
+import { refuseRuntimeArrayLocal, runtimeArrayWithin } from './runtime-array.js';
 import { lowerBarrierStatement } from './barriers.js';
 import { classFunctionOf, lowerMutatingCall } from './class-methods.js';
 import { lowerChainPrelude } from './chains.js';
@@ -444,6 +445,13 @@ function lowerDeclarationKind(
     if (!annotated) return undefined;
     if (refuseAtomicDeclaration(annotated, decl.type, sourceFile, diagnostics, 'a local'))
       return undefined;
+    if (
+      decl.initializer === undefined &&
+      refuseRuntimeArrayLocal(annotated, name, undefined, decl.type, sourceFile, diagnostics, (n) =>
+        scope.structByName(n),
+      )
+    )
+      return undefined;
     annotated = builtThisType(annotated, decl, scope);
   }
   if (!decl.initializer) {
@@ -514,6 +522,48 @@ function lowerDeclarationKind(
     init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated);
   }
   if (!init) return undefined;
+  // An array with no size is the binding's alone (Rule 12.6). A `const` that names the binding
+  // (`const a = src`) is the binding, as it is in TypeScript: the name resolves to it and no
+  // declaration is emitted, so `a[i]` and `a.length` read `src` (#46). A `let` would be a copy,
+  // and so would anything but the bare name.
+  const holdsRuntimeArray =
+    runtimeArrayWithin(annotated ?? init.type, (n) => scope.structByName(n)) !== undefined;
+  if (holdsRuntimeArray) {
+    const target = isConst && init.op === 'varref' ? scope.resolveIr(init.name) : undefined;
+    if (target !== undefined) {
+      try {
+        scope.defineAlias(name, target);
+      } catch (e) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          decl.name,
+          e instanceof Error ? e.message : String(e),
+          TS_CODES.DUPLICATE_SYMBOL,
+        );
+        return undefined;
+      }
+      scope.recordDeclaration(sourceFile, decl.name, {
+        name,
+        kind: 'local',
+        type: target.type,
+        mutable: false,
+      });
+      return undefined;
+    }
+    // A list built in place (`array<f32>(1., 2., 3.)`) is a value with a count, and wants one.
+    refuseRuntimeArrayLocal(
+      annotated ?? init.type,
+      name,
+      init.op === 'construct' ? undefined : truncate(decl.initializer.getText(sourceFile)),
+      decl.initializer,
+      sourceFile,
+      diagnostics,
+      (n) => scope.structByName(n),
+      init.op === 'construct' ? init.args.length : undefined,
+    );
+    return undefined;
+  }
   // A call that returns nothing has nothing to bind: `const x = store(1)` emitted
   // `let x = store(1u);`, which Tint refuses, with no diagnostic.
   if (init.type.kind === 'void') {
