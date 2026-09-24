@@ -6307,8 +6307,9 @@ as `lib.es5.d.ts` spells them with a `this` of `array<T, N>` and `index: i32`, a
 `changes/0014-gpu-console.md`. A shader function calls the JavaScript console as TypeScript
 spells it, `console.log`, `console.info`, `console.debug`, `console.warn` and `console.error`,
 and the call reaches the host as an event, `{ method, args, span }`, handed to the sink the host
-passes: `compile(src, { consoleSink })` for `eval`, or `compileModule(m, { consoleSink })` and
-`compileModuleJs(m, { consoleSink })`. The other methods of `console` are refused by name.
+passes: `compile(src, { consoleSink })` for `eval`, `compileModule(m, { consoleSink })` and
+`compileModuleJs(m, { consoleSink })`, or `startDebugSession(m, entry, args, { consoleSink })`
+for a stepped run. The other methods of `console` are refused by name.
 
 ```ts
 "use typeshade";
@@ -6341,10 +6342,13 @@ used. Its arguments are evaluated once, in order, as any call's are, so an argum
 (a method that changes its object, a helper that bumps a module variable) writes on every
 target.
 
-**Where it is delivered.** On the CPU (the oracle, the generated CPU code, `dispatch`), each call
-delivers its event to the sink when it runs, and to nothing when no sink is passed. An event from
-an entry that takes `global_invocation_id`, or from a `dispatch`, carries its `invocation`; a
-fragment entry's is the pixel, `[x, y, 0]`. The debugger steps through a call. By default WGSL
+**Where it is delivered.** On the CPU (the oracle, the generated CPU code, `dispatch`, a debug
+session), each call delivers its event to the sink when it runs, and to nothing when no sink is
+passed. An event from an entry that takes `global_invocation_id`, or from a `dispatch`, carries its
+`invocation`; a fragment entry's is the pixel, `[x, y, 0]`. The debugger steps through a call
+and delivers its event at the step that runs it, the event `compile().eval` delivers for the same
+entry and arguments; `startDebugSessionFromConfig` takes the sink as its third argument,
+`{ consoleSink }`, beside the JSON configuration (changes/0018). By default WGSL
 and GLSL ES 3.00 record nothing: the call is removed, and the writes of its arguments stay, so no
 emitted byte depends on a console call.
 

@@ -15,6 +15,7 @@
 // here.
 
 import type { CpuValue } from '../cpu-runtime.js';
+import type { ConsoleSink } from '../console.js';
 import type { FuncDecl, ModuleDecl, StructDecl } from '../ir/nodes.js';
 import { stageOf, workgroupShapeOf } from '../ir/nodes.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
@@ -179,6 +180,8 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
  *
  *  @param m - the module to run, as `compile()` produced it.
  *  @param config - the run to start.
+ *  @param hooks - what cannot ride in a JSON configuration: `consoleSink`, where the
+ *    `console.*` calls the run steps over go ({@link DebugSessionOptions.consoleSink}).
  *  @returns the session, already stopped on its first statement, or already finished when the
  *    module carries no spans.
  *  @throws {@link DebugConfigError} when the configuration does not fit the module.
@@ -202,6 +205,7 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
 export function startDebugSessionFromConfig(
   m: ModuleDecl,
   config: DebugLaunchConfig,
+  hooks?: { readonly consoleSink?: ConsoleSink },
 ): DebugSession {
   const problems: string[] = [];
   // A misspelled top-level key used to be ignored in silence, so `stopOnentry: false` or
@@ -240,6 +244,7 @@ export function startDebugSessionFromConfig(
     bindings,
     breakpoints: config.breakpoints,
     stopOnEntry: config.stopOnEntry,
+    consoleSink: hooks?.consoleSink,
   });
 }
 
