@@ -6397,7 +6397,7 @@ call runs the module's own code **on the CPU tier, not on the GPU**, at `f32` pr
 the GPU would compute it (Rule 11.7). It is how host code shares a shader's math: a height query,
 a picking test, a unit test. No device, buffer or compile step appears in the host's code, and
 `typescript` is needed at build time only. A `@compute` entry runs on the GPU through the same
-import (§67); drawing a fragment entry is the rest of roadmap item 16's second half (16b).
+import, and a full-screen `@fragment` entry draws into a canvas (§67).
 
 ```ts
 "use typeshade";
@@ -6471,8 +6471,8 @@ bundle reads the source, through the plugin:
 export declare const EPS: number;
 export declare function height(p: readonly [number, number], k: readonly [number, number, number, number]): number;
 export declare function normal(p: readonly [number, number], k: readonly [number, number, number, number]): [number, number, number];
-/** Not callable from host code (Rule 8.20): it is a fragment entry, drawn into a canvas through the import by the second part of change 0016. */
-export declare const fs: never;
+/** A full-screen `@fragment` entry: draws one frame into `target`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24). */
+export declare function fs(target: HTMLCanvasElement | OffscreenCanvas, bindings: {}): Promise<void>;
 ```
 
 The plugin rewrites a view when its module changes, in `vite dev` and in `vite build`. On a clean
@@ -6483,8 +6483,8 @@ stale. The views are generated files, and git-ignored.
 **What a host can call** (Rule 8.20): an exported function that is not an entry point, is not
 generic, takes no function, has a host value for each parameter and for its result, and reaches
 no binding, no workgroup variable and no builtin only a GPU computes. An exported constant and an
-`enum` are values too, and an exported struct is a type. A `@compute` entry is called as §67
-says. Every other export is in the view as `never`, with the reason in a comment, so calling one
+`enum` are values too, and an exported struct is a type. A `@compute` entry is called, and a
+full-screen `@fragment` entry drawn, as §67 says. Every other export is in the view as `never`, with the reason in a comment, so calling one
 is a type error at the host's own line.
 
 | Export                                       | In the host view                                             |
@@ -6494,7 +6494,8 @@ is a type error at the host's own line.
 | an `enum`                                    | its members as values, and a type of their numbers           |
 | a struct (`class`, `interface`, `type`)      | `export interface S { … }`                                   |
 | a `@compute` entry                           | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
-| a vertex or fragment entry, a generic function, a binding, anything else | `never`, with the reason and the work that adds it |
+| a full-screen `@fragment` entry              | `export declare function e(target, bindings): Promise<void>` (§67) |
+| a vertex entry, a generic function, a binding, anything else | `never`, with the reason and the work that adds it |
 
 **Host values** (Rule 8.21) are the representation the CPU tier already runs on:
 
@@ -6534,7 +6535,8 @@ imports `typeshade/runtime`, the op library it runs on, and nothing of the compi
 A host file calls a module's `@compute` entry through the same import (§64), and the entry runs
 on the GPU. `entry(bindings, workgroups)` dispatches it as written over `workgroups` workgroups
 on WebGPU, and reads every storage binding it writes back into the caller's value (Rule 8.24).
-Drawing a fragment entry into a canvas is the second part of change 0016.
+A full-screen `@fragment` entry draws into a canvas the same way, as `entry(target, bindings)`
+(below).
 
 ```ts
 "use typeshade";
@@ -6571,6 +6573,8 @@ the binding's host value (Rule 8.21):
 | `storage<array<S>>` of a struct                 | an array of objects                                                                          |
 | an atomic, `storage<array<atomic<u32>>>`        | its integer's value, or `Uint32Array` / `Int32Array` for an array                            |
 | a written `storage<T>` whose `T` is one scalar  | a typed array of length one, which the call writes back                                     |
+| `texture_2d<f32>`                               | an image source: `ImageBitmap`, `ImageData`, `HTMLImageElement`, `HTMLCanvasElement`, `HTMLVideoElement` or `OffscreenCanvas`, uploaded at each call |
+| `sampler`                                       | `{ filter?: 'nearest' \| 'linear', address?: 'clamp' \| 'repeat' \| 'mirror' }`, or nothing for linear and clamp |
 
 The call packs each value by the layout the WGSL gives it, padding a `vec3` element to its
 16-byte stride, and refuses one that does not fit with a `TypeError` naming the entry, the
@@ -6587,10 +6591,47 @@ every later call shares. Where there is none, as in Node or a test runner, it ru
 tier: the generated code (§64), every invocation of every workgroup in turn, `z`, then `y`, then
 `x`, with the workgroup memory zeroed per workgroup, as the interpreter's own dispatch runs it.
 An entry that reaches a barrier needs WebGPU; without it the call is refused, naming the barrier
-and its line.
+and its line. So does one that reads a texture, which the CPU tier cannot.
 
-**Not yet.** A texture or sampler binding, an emulated `f64` and a vertex or fragment entry keep
-the entry `never` in the view, with the reason. A `Resident` binding that stays on the device,
-and `configure({ prefer })` to order or require the tiers, come with change 0013.
+### Drawing a fragment entry
+
+A `@fragment` entry that reads no builtin but `position` and `front_facing`, and writes one
+`@location(0)` `vec4` (as its result, or as a struct of that one field), draws one frame into a
+canvas with a full-screen triangle the runtime supplies:
+
+```ts
+import { fs } from './plasma.shade.ts';
+
+const canvas = document.querySelector('canvas')!;
+const frame = (t: number) => {
+  fs(canvas, { frame: { time: t / 1000, scale: 0.02 } }); // queued; nothing is read back
+  requestAnimationFrame(frame);
+};
+requestAnimationFrame(frame);
+```
+
+- **`target`** is an `HTMLCanvasElement` or an `OffscreenCanvas`, and the frame fills its
+  `width` by `height`. `position` is the pixel's centre, `(x + 0.5, y + 0.5)`, with row 0 at the
+  top, on every tier.
+- **`bindings`** is the object above, typed exactly in the view.
+- **The result** is a promise that resolves when the frame is submitted, not when the GPU has
+  drawn it. A frame loop may drop it. Draws made before the device exists run in order once it
+  does, each with the values it was called with.
+- **Where it draws.** On WebGPU, then WebGL2 (the entry's GLSL ES 3.00 program, drawn into a
+  framebuffer and copied upside down so row 0 is the top, as WGSL counts it), then the CPU tier,
+  pixel by pixel into an `ImageData`. A canvas keeps the first kind of context it hands out, so
+  the first draw into a canvas decides its tier and every later draw uses it; a canvas whose
+  `webgl2` or `2d` context the host made first draws on that tier. The frame is opaque on every
+  tier: the alpha a shader writes is not composited, and a discarded pixel is opaque black.
+- **When a tier cannot draw it.** WebGL2 has no storage buffer, so an entry that reads one draws
+  on WebGPU or the CPU; a non-struct uniform and anything else the GLSL backend refuses leave the
+  WebGL2 tier out too. A texture has no CPU tier. When the canvas's tier cannot draw the entry,
+  the draw is refused with a `TypeError` that names why.
+
+**Not yet.** A storage texture, a depth texture, a texture of another dimension and an emulated
+`f64` keep the entry `never` in the view, with the reason, as do a vertex entry and a fragment
+entry that reads what a vertex entry writes (#204, the rendering design, adds a mesh). A
+`Resident` binding that stays on the device, and `configure({ prefer })` to order or require the
+tiers, come with change 0013.
 
 Last updated: 2026-09-22

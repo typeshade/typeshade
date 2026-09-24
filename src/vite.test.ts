@@ -48,7 +48,7 @@ describe('a host file imports a .shade.ts through the plugin', () => {
     const m = (await import(/* @vite-ignore */ file)) as {
       height: (p: readonly number[], k: readonly number[]) => number;
       K: number;
-      fs: () => never;
+      fs: (...a: unknown[]) => Promise<void>;
     };
     const args = [
       [0.5, 0.5],
@@ -57,7 +57,8 @@ describe('a host file imports a .shade.ts through the plugin', () => {
     const oracle = compileModule(compile(TERRAIN).module, { precision: 'f32' });
     expect(m.height(...args)).toBe(oracle.fns.height!(...(args as unknown as never[])));
     expect(m.K).toBe(0.5);
-    expect(() => m.fs()).toThrow(TypeError);
+    // A draw needs a canvas: without one it is refused, as a rejected promise.
+    await expect(m.fs()).rejects.toThrow(TypeError);
     expect(readFileSync(join(dir, 'terrain.shade.typeshade.ts'), 'utf8')).toBe(
       hostFace(TERRAIN, { fileName: file }).view,
     );

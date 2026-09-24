@@ -19,6 +19,7 @@ import { hostFace, type HostExport } from './host-face.js';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
 import { wgslLayout } from '../../core/reflect.js';
+import type { EntryBinding } from '../../core/host-entry.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const ROOT = resolve(__dirname, '../../..');
@@ -71,7 +72,7 @@ export function scale(@builtin("global_invocation_id") gid: vec3u) {
 `;
 
 describe('which entries a host can call (Rule 8.24)', () => {
-  it('calls a @compute entry, and says why a vertex or fragment entry is not callable yet', () => {
+  it('calls a @compute entry, draws a fragment entry, and says why a vertex entry is neither', () => {
     const f = face(`"use typeshade";
 class VsOut { @builtin("position") pos: vec4; }
 @vertex
@@ -87,20 +88,32 @@ export function fill(@builtin("global_invocation_id") gid: vec3u) { out[gid.x] =
     );
     expect(kinds.fill).toBe('compute');
     expect(kinds.vs).toMatch(/^it is a vertex entry.*#204/);
-    expect(kinds.fs).toMatch(/^it is a fragment entry.*second part of change 0016/);
+    expect(kinds.fs).toBe('fragment');
   });
 
-  it('refuses an entry that reaches a binding the call cannot pack yet, naming it', () => {
+  it('takes a texture on WebGPU only, and refuses a binding with no host value, naming it', () => {
     const f = face(`"use typeshade";
 declare const tex: texture_2d<f32>;
+declare const vol: texture_3d<f32>;
 declare const out: storage<array<vec4>, "read_write">;
 @compute([8])
 export function copy(@builtin("global_invocation_id") gid: vec3u) {
   out[gid.x] = textureLoad(tex, vec2i(i32(gid.x), 0), 0);
 }
+@compute([8])
+export function deep(@builtin("global_invocation_id") gid: vec3u) {
+  out[gid.x] = textureLoad(vol, vec3i(i32(gid.x), 0, 0), 0);
+}
 `);
-    const e = f.exports.find((x) => x.name === 'copy')!;
-    expect(e.kind === 'never' && e.reason).toMatch(/^binding "tex": .*second part of change 0016/);
+    const copy = entryOf(f.exports, 'copy');
+    expect(copy.entry.noCpu).toBe(
+      'it reaches the texture_2d<f32> "tex", which the CPU tier cannot read',
+    );
+    expect(copy.bindingsType).toContain('readonly tex: ImageBitmap | ImageData | HTMLImageElement');
+    const deep = f.exports.find((x) => x.name === 'deep')!;
+    expect(deep.kind === 'never' && deep.reason).toBe(
+      'binding "vol" is a texture_3d<f32>, which has no host value yet; #204, the rendering design, adds it',
+    );
   });
 });
 
@@ -171,7 +184,7 @@ export function touch(@builtin("global_invocation_id") gid: vec3u) { s.b = u.b +
       ['u', 'std140'],
       ['s', 'std430'],
     ] as const) {
-      const b = e.entry.bindings.find((x) => x.name === name)!;
+      const b = e.entry.bindings.find((x) => x.name === name)! as EntryBinding;
       const decl = structs.get(name.toUpperCase())!;
       const want = wgslLayout(decl, kind, structs);
       expect(b.layout.k === 'o' && b.layout.f.map(([n, off]) => [n, off])).toEqual(
@@ -264,7 +277,7 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     const m = await load(SYNC);
     const call = m.cs as (b: unknown, w: unknown) => Promise<void>;
     const bindings = Object.fromEntries(
-      e.entry.bindings.map((b) => [
+      (e.entry.bindings as readonly EntryBinding[]).map((b) => [
         b.name,
         b.layout.k === 'a' ? new Uint32Array(64) : b.layout.k === 's' ? new Uint32Array(1) : {},
       ]),

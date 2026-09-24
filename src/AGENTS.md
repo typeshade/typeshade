@@ -61,6 +61,7 @@ and the tree disagree.
 | `core/cpu-codegen-runtime.ts`                 | The runtime object the generated CPU code closes over (the factory's `$`), apart from the generator, so a module the host imports ships it alone.            |
 | `core/host-values.ts`, `core/host-runtime.ts` | The host-value boundary of a host call (Rule 8.21), and what a generated host module imports (Rule 11.7).                                                    |
 | `core/host-entry.ts`                          | A `@compute` entry called from host code (Rule 8.24): packing by the layouts the plugin writes, the WebGPU dispatch and readback, and the CPU-tier dispatch. |
+| `core/host-draw.ts`                           | A full-screen `@fragment` entry drawn from host code (Rule 8.24): the canvas's tier, WebGPU, WebGL2 (framebuffer and flipped copy) and the CPU pixel loop.   |
 | `core/reflect.ts`, `core/sot.ts`              | Pipeline reflection (bind groups, std140 / std430 layouts, entry IO); declare-once IO structs and resources.                                                 |
 | `core/diagnostics/`                           | `codes.ts` (frozen `SDnnnn` catalogue), `error.ts` (`TypeShadeError`), `loc.ts` (opt-in source tracing), `report.ts` (`diagnose()`).                         |
 | `core/fp64/`                                  | The df64 emulation library (float and integer flavors) that `core/passes/fp64-lower.ts` rewrites `f64` into.                                                 |

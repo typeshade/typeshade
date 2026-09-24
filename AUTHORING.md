@@ -1587,8 +1587,9 @@ place, an ordinary `.ts` file imports a `.shade.ts` and calls the helper functio
 Each call runs that function's code **on the CPU**, not on the GPU, at `f32` precision, the way a
 GPU would round it. It is how host code shares a shader's math, for a height query, a picking
 test or a unit test. A `@compute` entry imported the same way runs on the GPU instead: `await
-entry(bindings, workgroups)` dispatches it on WebGPU and reads what it wrote back into your arrays
-(`docs/use-typeshade-surface.md` §67); drawing a fragment entry is the rest of roadmap item 16b:
+entry(bindings, workgroups)` dispatches it on WebGPU and reads what it wrote back into your arrays,
+and `entry(canvas, bindings)` draws a full-screen fragment entry into a canvas
+(`docs/use-typeshade-surface.md` §67):
 
 ```ts
 // app.ts, ordinary TypeScript: terrain.shade.ts exports `height(p: vec2, k: vec4): f32`

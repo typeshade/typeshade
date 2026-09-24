@@ -185,8 +185,8 @@ Each principle comes with the question a reviewer asks of a new public API.
 
 The primary path is being built. The first row's CPU half exists: a host file imports a
 `.shade.ts` and calls a helper, which runs on the CPU tier (change 0009, surface §64), and calls a
-`@compute` entry, which runs on WebGPU (change 0016, surface §67); drawing a fragment entry waits
-on the rest of item 16's second half. The other rows wait on item 15, item 16
+`@compute` entry, which runs on WebGPU, and draws a full-screen fragment entry into a canvas
+(change 0016, surface §67). The other rows wait on item 15, item 16
 or the `explain` report. The right column is what `main` offers today, plus #194 in review. That
 order of work is deliberate: the escape hatches are the compiler, and the primary path is a
 thin layer over them (the roadmap's rule "The run layer has no import").

@@ -248,6 +248,44 @@ async function hostImport(work: string, tarball: string): Promise<number> {
       `WebGPU ${key} match the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,
     );
   }
+
+  // The draw (Rule 8.24): each fragment entry drawn on each tier, read back in the task that
+  // submitted it. The first context a canvas hands out decides its tier, so the page makes the
+  // WebGL2 and 2d canvases' contexts before drawing into them.
+  const drawRef = JSON.parse(
+    spawnSync(
+      'node',
+      [
+        '--input-type=module',
+        '-e',
+        "console.log(JSON.stringify((await import('./reference.mjs')).drawReference()))",
+      ],
+      { cwd: app, encoding: 'utf8' },
+    ).stdout,
+  ) as { plasma: number[]; tiled: number[] };
+  const drawn = web.draws ?? {};
+  const compare = (key: string, want: number[], steps: number): void => {
+    const got = drawn[key];
+    if (typeof got !== 'object') {
+      check(false, `${key} draws (${String(got ?? web.error)})`);
+      return;
+    }
+    const worst = Math.max(...want.map((w, i) => Math.abs((got[i] ?? NaN) - w)));
+    check(
+      got.length === want.length && worst <= steps,
+      `${key} draws the reference frame (worst ${worst.toFixed(2)} of 255)`,
+    );
+  };
+  // f32 against the f64 reference, rounded to 8 bits: two steps of 1/255.
+  for (const tier of ['webgpu', 'webgl2', '2d']) compare(`plasma ${tier}`, drawRef.plasma, 2);
+  // Nearest filtering at texel centres: the image's bytes, exactly.
+  for (const tier of ['webgpu', 'webgl2']) compare(`tiled ${tier}`, drawRef.tiled, 0);
+  const noCpu = drawn['tiled 2d'];
+  check(
+    typeof noCpu === 'string' &&
+      /TypeError: tiled\(\).*"image", which the CPU tier cannot read/.test(noCpu),
+    `a sampled texture has no CPU tier, and the draw says so (${String(noCpu)})`,
+  );
   return failures.length === 0 ? 0 : 1;
 }
 
@@ -261,10 +299,13 @@ const CHROMIUM_ARGS = [
 ];
 
 /** Load `dir/gpu.js` in a page served from localhost (a secure context, which WebGPU needs) and
- *  run its `run()`. */
-async function inBrowser(
-  dir: string,
-): Promise<{ webgpu: boolean; result?: Record<string, number[]>; error?: string }> {
+ *  run its `run()` and `draws()`. */
+async function inBrowser(dir: string): Promise<{
+  webgpu: boolean;
+  result?: Record<string, number[]>;
+  draws?: Record<string, number[] | string>;
+  error?: string;
+}> {
   const js = readFileSync(join(dir, 'gpu.js'), 'utf8');
   const server = createServer((req, res) => {
     if (req.url === '/gpu.js') {
@@ -290,8 +331,9 @@ async function inBrowser(
       try {
         const m = (await import('/gpu.js' as string)) as {
           run(): Promise<Record<string, number[]>>;
+          draws(): Promise<Record<string, number[] | string>>;
         };
-        return { webgpu, result: await m.run() };
+        return { webgpu, result: await m.run(), draws: await m.draws() };
       } catch (e) {
         return { webgpu, error: String(e) };
       }
