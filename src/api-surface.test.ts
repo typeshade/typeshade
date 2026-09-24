@@ -73,6 +73,7 @@ const API_SUBPATHS = [
   './dev',
   './debug',
   './emit-prod',
+  './vite',
   './core/ir',
   './language-service',
 ] as const;
@@ -90,6 +91,7 @@ const FLOOR: Readonly<Record<string, number>> = {
   './dev': 20,
   './debug': 4,
   './emit-prod': 10,
+  './vite': 2,
   './core/ir': 120,
   './language-service': 15,
 };

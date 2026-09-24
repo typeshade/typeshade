@@ -30,7 +30,7 @@ TypeShade is a shader language and compiler built around the TypeScript authorin
 - **Typed in the editor.** TypeScript catches wrong types and misspelled fields before shader code is emitted.
 - **Reflection.** `reflect(module)` exposes bind groups, layouts and entry signatures from the same IR used for emission.
 
-TypeShade ships the authoring and emit surface only, with no runtime dependency. Creating pipelines, binding resources and issuing draws stay with the host application.
+TypeShade ships the authoring and emit surface, and one small runtime: a host file can import a `.shade.ts` through the Vite plugin (`typeshade/vite`) and call its exported functions, which run on the CPU at `f32` precision through `typeshade/runtime` ([surface §64](./docs/use-typeshade-surface.md#64-calling-a-module-from-host-code)). It adds no dependency. Creating pipelines, binding resources and issuing draws stay with the host application.
 
 The author-facing grammar is frozen in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md). The compiler internals and `fn()` / `module()` APIs remain useful for tests, IR equality and the example gallery, but product code should start with `"use typeshade"`.
 
@@ -52,7 +52,7 @@ Install it from npm:
 npm install typeshade
 ```
 
-The tarball ships compiled ESM with type declarations, so `import { compile } from 'typeshade'` needs no TypeScript toolchain. Alongside them it ships the `.ts` sources the declaration maps point at, so "go to definition" lands on real source. The public subpaths are `typeshade`, `typeshade/dev`, `typeshade/debug`, `typeshade/compute`, `typeshade/emit-prod`, `typeshade/core/ir`, `typeshade/examples` and `typeshade/language-service`. `typescript` is a peer dependency (`>=5.0.0 <6`) and npm installs it for you: `compile()` is a TypeScript front end, so the main entry needs the parser at run time. TypeScript 7 is excluded deliberately, because its `ts.SyntaxKind` is not the one this compiler reads and the package throws on import against it.
+The tarball ships compiled ESM with type declarations, so `import { compile } from 'typeshade'` needs no TypeScript toolchain. Alongside them it ships the `.ts` sources the declaration maps point at, so "go to definition" lands on real source. The public subpaths are `typeshade`, `typeshade/dev`, `typeshade/debug`, `typeshade/compute`, `typeshade/emit-prod`, `typeshade/vite`, `typeshade/core/ir`, `typeshade/examples` and `typeshade/language-service`; `typeshade/runtime` is what a module the Vite plugin generates imports, and is not API. `typescript` is a peer dependency (`>=5.0.0 <6`) and npm installs it for you: `compile()` is a TypeScript front end, so the main entry needs the parser at run time. TypeScript 7 is excluded deliberately, because its `ts.SyntaxKind` is not the one this compiler reads and the package throws on import against it.
 
 For repository development, or to pin a commit rather than a version, add TypeShade as a git submodule and compile it in place:
 
@@ -85,7 +85,7 @@ export function paint(@builtin("global_invocation_id") gid: vec3u) {
 }
 ```
 
-The same authoring model is used by the documentation and the compiler's official surface reference. The host consumes the generated shader source; TypeShade does not own the rendering or compute runtime.
+The same authoring model is used by the documentation and the compiler's official surface reference. The host consumes the generated shader source, or imports the module and calls its helpers on the CPU (surface §64); TypeShade does not own the GPU rendering or compute runtime.
 
 Every `"use typeshade"` block in this README, `AUTHORING.md`, `docs/` and `examples/*.md` compiles with the current compiler; `src/compiler/ts/doc-snippets.test.ts` extracts them and fails the build on any error diagnostic. Grammar that the compiler does not accept yet stays in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md), marked as a target, and is not copied here.
 
@@ -117,6 +117,34 @@ What it inherits from the language service, it inherits whole:
 
 - **Each file is analysed on its own**, so a function imported from another shader file is `TS8004` ([#187](https://github.com/typeshade/typeshade/issues/187)).
 - **A mistake both halves see is reported once**, in the compiler's sentence, as the editor shows it: a write to a `const` is the compiler's `TS8005`, not that and TypeScript's `TS2588` beside it. A misspelled name is the compiler's too, which names the fix itself: `Unknown function "clmap". Did you mean "clamp"?`.
+
+## Calling a shader module from host code
+
+A host file imports a `.shade.ts` and calls the functions it exports. The call runs the module's code on the CPU at `f32` precision, with plain values: a `vec2` is `[x, y]`, a struct an object.
+
+```ts
+import { height } from './terrain.shade.ts';
+
+const h = height([0.5, 0.5], [1, 0.5, 2, 0.25]); // a number
+```
+
+The setup is the Vite plugin, two lines of the host `tsconfig.json`, and `typeshade sync` in `prepare`, which writes the host view `tsc` reads for the import (`terrain.shade.typeshade.ts`, git-ignored):
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite';
+import { typeshade } from 'typeshade/vite';
+
+export default defineConfig({ plugins: [typeshade()] });
+```
+
+```jsonc
+// tsconfig.json
+"moduleSuffixes": [".typeshade", ""],
+"exclude": ["src/**/*.shade.ts"]
+```
+
+What a host can call, the host value of each type, and what ships are in [surface §64](./docs/use-typeshade-surface.md#64-calling-a-module-from-host-code). Calling an entry point on the GPU is not there yet.
 
 ## Type-checking `.shade.ts` with tsc
 

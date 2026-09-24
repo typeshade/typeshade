@@ -2082,12 +2082,13 @@ them, and forwards them to the server
 `ts-main/packages/vscode-typescript/src/client.ts:44-60`). Content mapping exists so a `.vue` or
 `.svelte` file, which the TypeScript parser cannot read, can be turned into TypeScript the server
 can; a `.shade.ts` file already is TypeScript and is already in the program, so there is nothing to
-map (`src/compiler/ts/directive.ts`; `src/compiler/ts/vite.ts`). What is worth copying is only the
+map (`src/compiler/ts/directive.ts`; `src/vite.ts`). What is worth copying is only the
 underlying discipline, that the recognition rule is written down once and both halves obey it:
 settle the open question in section 11 of `docs/language-service-api.md` by declaring the directive
 authoritative for semantics and the `.shade.ts` extension authoritative only for tool activation,
 which files an editor wakes the plugin on and which files Vite transforms, and state that in one
-place both `directive.ts` and `vite.ts` cite.
+place both `directive.ts` and `vite.ts` cite. (Done by change 0009: Rules 3.1 and 3.8 of
+`docs/language-design.md` are that place.)
 
 ### The getExternalFiles plugin hook
 

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022", "dom"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "noEmit": true,
+    "types": [],
+    // The two lines the setup adds (surface §64): an import of `./x.shade.ts` reads the host
+    // view `x.shade.typeshade.ts`, and the shader source is not part of this program.
+    "moduleSuffixes": [".typeshade", ""]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.shade.ts"]
+}

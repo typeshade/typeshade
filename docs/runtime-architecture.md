@@ -419,6 +419,8 @@ The runtime may manage pipelines, bind groups, queues, resource layouts and cach
 
 The raw compiler/reflection path remains available for applications that need direct WebGPU/WebGL control.
 
+The first half of this exists (change 0009, surface §64): `import { height } from "./terrain.shade.ts"` in an ordinary host file, through the `typeshade/vite` plugin, and `height([0.5, 0.5], k)` runs the module's function on the CPU tier at `f32`, with no device. The device and the GPU calls (`device.create`, an entry point run on WebGPU or WebGL2) are the second half of roadmap item 16.
+
 ## 6. Why Numba is useful
 
 Numba demonstrates a valuable rule: GPU execution should remain distinguishable from CPU execution.
@@ -648,6 +650,8 @@ A future package layout could be:
 
 These names are illustrative and are not API commitments.
 
+What ships today is one package, not these four. It has two subpaths for the host side, both from change 0009. `typeshade/vite` is the build-time plugin that compiles an imported `.shade.ts`. `typeshade/runtime` is the op library that the generated module imports to run the CPU tier. It is not API: only the generated modules name it.
+
 The important boundary is that backend-specific objects do not leak into the TypeShade language.
 
 ## 16. What this design explicitly avoids
@@ -760,9 +764,9 @@ A tensor or array abstraction may be built later on top of the runtime, but it s
 
 The following remain deliberately unresolved:
 
-- What is the exact host-side representation of a GPU value?
+- What is the exact host-side representation of a GPU value? For a value a host call passes on the CPU tier, Rule 8.21 answers it: numbers, booleans, tuples, flat column-major arrays and objects.
 - What is the exact host-side representation of a GPU class/module?
-- How does a `.shade.ts` module become importable?
+- How does a `.shade.ts` module become importable? Answered for the CPU half by change 0009 (surface §64): through the Vite plugin, with a generated host view that `tsc` reads through `moduleSuffixes`.
 - Does `device.create()` instantiate GPU state directly, or create a host handle first?
 - Is `module.method()` enough for common execution, or should explicit dispatch always be visible?
 - If both high-level and explicit execution exist, what semantics and performance guarantees does each provide?
@@ -775,7 +779,7 @@ The following remain deliberately unresolved:
 - What is the minimum viable runtime before introducing scheduling or graph execution?
 - What guarantees can the CPU oracle provide, and where must GPU-only behavior remain GPU-only?
 - How should errors map back to original TypeScript source spans?
-- How should the language service understand imported TypeShade modules?
+- How should the language service understand imported TypeShade modules? A host file reads the generated host view, not the source (surface §64); the editor needs nothing more for it.
 
 These questions should be answered by small implementation proposals, not by prematurely freezing a large runtime API.
 

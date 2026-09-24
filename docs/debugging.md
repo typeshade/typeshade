@@ -462,7 +462,7 @@ Lines and characters are **zero-based**, matching `docs/language-service-api.md`
 inconsistency and is better described as two conventions answering to two different readers.
 The one-based pair IS read, by three places, and all three format it into a human-readable
 `file:line:col` string: `compile()`'s "cannot evaluate" error (`src/compiler/ts/compile.ts`),
-the Vite plugin's build failure (`src/compiler/ts/vite.ts`) and the example gate's report
+the Vite plugin's build failure (`formatBuildErrors` in `src/compiler/ts/host-face.ts`) and the example gate's report
 (`examples/_shade.ts`). What no reader does is consume it as a POSITION: the language service
 re-derives zero-based positions from the same `start` and `length` this type carries, and never
 from the pair. So one-based is the convention a person reading a terminal line expects, and a

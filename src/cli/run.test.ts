@@ -29,6 +29,7 @@ function memoryHost(files: Record<string, string>, cwd = '/p') {
   const host: CliHost = {
     cwd,
     readFile: (path) => files[path],
+    writeFile: (path, text) => void (files[path] = text),
     kind(path) {
       if (files[path] !== undefined) return 'file';
       return Object.keys(files).some((f) => f.startsWith(`${path}/`)) ? 'directory' : undefined;
