@@ -22,14 +22,16 @@
 // emitGlslStages and nothing else.
 //
 // PLACEMENT — LAST in the GLSL IR chain (glsl.ts `lowerForGlsl`): after the optimizer
-// fixpoint, after `sanitizeReservedIdents`, after `lowerHostLooseBlocks`, and after
-// `applyIRPlugins`. The module this pass returns IS the module `assembleGlsl` spells, so
-// the guarantee below holds over the FINAL IR BY CONSTRUCTION: there is no later
-// transformation that could reintroduce the fatal shape — not a third-party
-// `EmitPlugin.transformIR`, not the opt-in `inline()`. Running last also keeps the older
-// reasons intact: `lowerComputeToFragment` MINTS `{s:'discard'}` (glsl.ts, the bounds-guard
-// early-out) and `fp64Lower`/`lowerModule` rewrite whole expression trees — all of them are
-// upstream, so the analysis sees the discards and the ctors they actually leave behind.
+// fixpoint, after `sanitizeReservedIdents`, after `lowerHostLooseBlocks`, after
+// `applyIRPlugins`, and after `lowerUniformBlockValues` (glsl-block-values.ts), whose
+// rebuilt block reads are member loads and never a call. The module this pass returns IS the
+// module `assembleGlsl` spells, so the guarantee below holds over the FINAL IR BY
+// CONSTRUCTION: there is no later transformation that could reintroduce the fatal shape —
+// not a third-party `EmitPlugin.transformIR`, not the opt-in `inline()`. Running last also
+// keeps the older reasons intact: `lowerComputeToFragment` MINTS `{s:'discard'}` (glsl.ts,
+// the bounds-guard early-out) and `fp64Lower`/`lowerModule` rewrite whole expression trees —
+// all of them are upstream, so the analysis sees the discards and the ctors they actually
+// leave behind.
 //
 // The `_dhN` names are safe at this position. `mangleModule` (emit-prod) mints base-52
 // LETTERS-ONLY identifiers and `sanitizeReservedIdents` only ever suffixes a GLSL reserved

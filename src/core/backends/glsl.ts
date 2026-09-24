@@ -89,6 +89,7 @@ import { requiredCaps } from '../passes/required-caps.js';
 import { wgslLayout } from '../reflect.js';
 import { sanitizeReservedIdents } from './glsl-sanitize.js';
 import { hoistDiscardingCtorArgs } from './glsl-legalize.js';
+import { lowerUniformBlockValues } from './glsl-block-values.js';
 import { fixpoint } from '../passes/opt/index.js';
 
 // UnsupportedFeatureError now lives in the backend contract; re-exported here so
@@ -1925,6 +1926,13 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // what `reflect()` reports. Before the plugins, so mangle sees the flattened bindings
   // and its survivor set keeps every host-owned name.
   //
+  // GLSL-local: a uniform block's struct held as a VALUE (a parameter, a local, the `self_` of
+  // a method called on the uniform, a field of another struct) takes a twin struct, `U_value`,
+  // and a read of the block whole is rebuilt from its members, because a GLSL block name names
+  // the block and nothing else (glsl-block-values.ts). After the plugins, so no whole read of a
+  // block reaches the assembly whatever a plugin did; before the legalisation below, which
+  // then sees the constructors it builds.
+  //
   // GLSL-local: bind a struct-ctor argument carrying a (transitively) discarding call to a
   // named local — ANGLE/D3D11 miscompiles the inline form silently (X-GIS #1840). LAST in the
   // chain, over the FINAL IR: the module this returns is the one `assembleGlsl` spells, so
@@ -1932,11 +1940,15 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // third-party `EmitPlugin.transformIR`, not the opt-in `inline()`. The guarantee is by
   // construction rather than by an argument about what each downstream pass happens to do.
   return hoistDiscardingCtorArgs(
-    applyIRPlugins(
-      lowerHostLooseBlocks(
-        sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor)),
+    lowerUniformBlockValues(
+      applyIRPlugins(
+        lowerHostLooseBlocks(
+          sanitizeReservedIdents(
+            lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor),
+          ),
+        ),
+        opts,
       ),
-      opts,
     ),
   );
 }
@@ -2019,10 +2031,12 @@ function assembleGlslParts(
 
   // A struct consumed as a uniform/storage BINDING type becomes a UBO/SSBO block, NOT a
   // GLSL `struct` decl — reusing its name for both a `struct` and a `uniform <Name> {…}`
-  // block is a redeclaration error. EVERY OTHER struct (IO in/out + storage-element +
-  // nested + helper-fn arg) IS emitted as a plain GLSL struct: the entry's `_impl` fn
-  // signature references the IO struct types, and storage-element structs are read field-
-  // wise — both need a real `struct` decl.
+  // block is a redeclaration error. A VALUE of such a struct never spells the name: the
+  // lowering typed it as the struct's twin (`U_value`, glsl-block-values.ts), which is an
+  // ordinary struct here. EVERY OTHER struct (IO in/out + storage-element + nested +
+  // helper-fn arg) IS emitted as a plain GLSL struct: the entry's `_impl` fn signature
+  // references the IO struct types, and storage-element structs are read field-wise —
+  // both need a real `struct` decl.
   const bindingStructNames = new Set<string>();
   for (const b of lowered.bindings)
     if (b.type.kind === 'struct') bindingStructNames.add(b.type.name);
