@@ -1,7 +1,7 @@
 ---
 id: '0011'
 title: WGSL's predeclared matCxRf aliases (mat2x2f … mat4x4f) are types and constructors, as the vecNf aliases already are
-status: draft
+status: accepted
 rules: []
 surface:
 - 40
