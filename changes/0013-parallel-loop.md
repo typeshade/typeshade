@@ -7,11 +7,13 @@ rules:
 - '7.5'
 - '8.6'
 - '8.8'
+- '8.20'
 - '8.21'
 - '8.22'
 - '8.23'
 - '11.8'
 surface:
+- 64
 - 65
 exports:
 - resident
@@ -269,6 +271,9 @@ Alternatives considered, each measured in #252:
 - **Rule 8.6.** A kernel function, like an entry, is not called from another function.
 - **Rule 8.8.** Its one new exception: a runtime-sized array parameter of a kernel function is
   passed by reference.
+- **Rule 8.20 (0009).** A kernel function joins the exports a host can call; every other export
+  it names stays `never`. (Amended after acceptance, when the call was implemented: without it
+  Rule 8.20 would still call a kernel function a function a host cannot use.)
 - **Rule 8.21 (0009).** The host call gains the kernel function's asynchronous shape, its two
   signatures and the length check.
 - **Rule 8.22 (new).** A kernel function, its candidate loops, the body's shape, and the proof
@@ -277,6 +282,8 @@ Alternatives considered, each measured in #252:
   per argument in a helper, and its host values.
 - **Rule 11.8 (new).** The tiers, what each takes, the reduction's tree order on every tier,
   and `configure({ prefer })`.
+- **Surface §64 (0009).** "What a host can call" and its table gain the kernel function, which
+  §65 then describes. (Amended with Rule 8.20.)
 - **Surface §65 (new): "A loop that runs as a kernel".** It follows 0009's §64; 0014 (#269)
   takes §66. It holds the kernel function, the proof's rules, the TS8070
   table, the host values, `resident` and the tiers.
