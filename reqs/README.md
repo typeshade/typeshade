@@ -47,7 +47,9 @@ traceability equivalent of a signature, so never run either one without reading 
 - `code`: only the implementation the rule names carries it out (an `Implements: Rule N.M`
   tag), and no test checks it yet. Each one is a gap for a test to close.
 - `pending`: Appendix B lists the rule as not yet enforced.
-- `review`: its "Enforced by" says review holds it.
+- `review`: its "Enforced by" says review holds it. An "Enforced by" that opens with "review"
+  is `review` even when it names a file, since the file is what review reads (Rule 3.7's
+  `codes.ts`), unless a test verifies the rule.
 
 A rule that fits none of the four fails `reqs:sync`.
 

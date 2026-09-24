@@ -230,13 +230,15 @@ that is itself used. Naming it in another TYPE declaration is not using it — `
 Config`, `Config[]`, `Config | undefined` and `Readonly<Config>` all describe a type rather
 than consume one, so none of them makes `Config` a shader struct. A `type` or `interface`
 declaration nothing consumes is not a shader type at all — it may be a host-side shape
-(`type Opts = { seed: number }`) — and is left alone, neither checked nor emitted. A `class`
-is always collected, as it always has been.
+(`type Opts = { seed: number }`) — and is left alone, neither checked nor emitted, except
+that its name counts toward the rule below. A `class` is always collected, as it always has
+been.
 
 One name, one declaration. A second class, interface or type alias of the same name is an
 error, **including two interfaces**, which TypeScript itself would merge: the merged layout
 would disagree with the one emitted here at every use site, so the ambiguity is refused
-rather than silently resolved.
+rather than silently resolved. It is refused whether or not anything uses the name (#172), so
+the error sits on the second declaration and not on a use written later.
 
 `declare` is the bind-group spelling; an `interface` is a value layout like any other.
 
@@ -4357,8 +4359,10 @@ about 2⁻¹⁰² keeps only its high word, because its low word is then below t
 ## 40. Matrices: every `matCxR`
 
 A matrix is `cols` columns of `rows` components, column-major, which is what both targets are.
-All nine shapes of `C, R ∈ {2, 3, 4}` are types, spelled `matCxR`, and a square one also
-answers to `matN`:
+All nine shapes of `C, R ∈ {2, 3, 4}` are types, spelled `matCxR`. Each one also answers to
+WGSL's predeclared alias `matCxRf` (`mat2x2f`, `mat4x3f`, …), as `vec3` answers to `vec3f`, and a
+square one also answers to `matN`. The three spellings are one type, and each is a constructor
+too:
 
 ```ts
 "use typeshade";
@@ -4367,7 +4371,8 @@ export function shapes(a: mat3, b: mat2x3, c: mat4x3): vec3 {
   //  mat3   = mat3x3   3 columns of 3
   //  mat2x3           2 columns of 3
   //  mat4x3           4 columns of 3
-  return a[0] + b[1] + c[3];
+  const d: mat2x3f = b;  // mat2x3f = mat2x3, WGSL's alias
+  return a[0] + d[1] + c[3];
 }
 ```
 

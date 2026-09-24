@@ -231,15 +231,7 @@ export function collectStructs(
           };
     if (declared.has(name)) {
       diagnostics.push(
-        makeDiagnostic(
-          sourceFile,
-          node,
-          `Struct "${name}" is declared more than once. A class, an interface and a type alias ` +
-            `are three spellings of one struct, not declarations that merge — TypeScript would ` +
-            `merge two interfaces, and the merged layout would disagree with this one at every ` +
-            `use site.`,
-          TS_CODES.DUPLICATE_SYMBOL,
-        ),
+        makeDiagnostic(sourceFile, node, duplicateStructMessage(name), TS_CODES.DUPLICATE_SYMBOL),
       );
       return;
     }
@@ -297,6 +289,7 @@ export function collectStructs(
   // constant already take (#107). The walk below visits the file's own statements and each
   // namespace body, so one loop serves both; `prefix` is '' at the top level, where the struct
   // keeps the name it was written under.
+  reportUnusedDuplicates(sourceFile, reachable, diagnostics);
   const seen: { stmt: ts.Statement; prefix: string }[] = [];
   eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt, prefix) => {
     seen.push({ stmt, prefix });
@@ -1132,6 +1125,56 @@ function candidateOf(stmt: ts.Statement): Candidate | undefined {
     };
   }
   return undefined;
+}
+
+/** The message of `TS8023` for a struct name declared twice, from `add` for a struct something
+ *  uses and from {@link reportUnusedDuplicates} for one nothing does. */
+function duplicateStructMessage(name: string): string {
+  return (
+    `Struct "${name}" is declared more than once. A class, an interface and a type alias ` +
+    `are three spellings of one struct, not declarations that merge — TypeScript would ` +
+    `merge two interfaces, and the merged layout would disagree with this one at every ` +
+    `use site.`
+  );
+}
+
+/** A struct name declared twice at the top level, when nothing uses it (Rule 4.2, #172).
+ *
+ *  `add` reports a second declaration only for what the walk collects, and the walk skips an
+ *  interface or an object-type alias nothing uses, so `interface S` beside `class S`, or two
+ *  `interface S`, compiled with no diagnostic until a binding named `S`. The mistake is in the
+ *  declarations, so it is reported there: once for each declaration after the first. A name
+ *  something uses is left to `add`, and two classes of one name are too (a class is always
+ *  collected, and `add` sees both). */
+function reportUnusedDuplicates(
+  sourceFile: ts.SourceFile,
+  reachable: ReadonlySet<string>,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const byName = new Map<string, { nameNode: ts.Identifier; candidate: boolean }[]>();
+  for (const stmt of sourceFile.statements) {
+    const candidate = candidateOf(stmt);
+    const decl = candidate
+      ? { name: candidate.name, nameNode: candidate.nameNode, candidate: true }
+      : ts.isClassDeclaration(stmt) && stmt.name
+        ? { name: stmt.name.text, nameNode: stmt.name, candidate: false }
+        : undefined;
+    if (!decl || reachable.has(decl.name)) continue;
+    byName.set(decl.name, [...(byName.get(decl.name) ?? []), decl]);
+  }
+  for (const [name, decls] of byName) {
+    if (decls.length < 2 || !decls.some((d) => d.candidate)) continue;
+    for (const d of decls.slice(1)) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          d.nameNode,
+          duplicateStructMessage(name),
+          TS_CODES.DUPLICATE_SYMBOL,
+        ),
+      );
+    }
+  }
 }
 
 function collectCandidates(sourceFile: ts.SourceFile): Map<string, Candidate> {

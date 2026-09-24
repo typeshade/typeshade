@@ -38,7 +38,7 @@
 // HOW A RULE IS HELD (`verification`): `test` when a test, a gate script or a CI workflow checks
 // it; `code` when only the implementation it names carries it out (an `Implements:` tag), which a
 // test should come to cover; `pending` when Appendix B lists it as not yet enforced; `review`
-// when its "Enforced by" says review holds it.
+// when its "Enforced by" says review holds it (and, when it opens with "review", ahead of `code`).
 // A rule that is none of the three is an error: it claims enforcement nobody can find.
 //
 // Usage:
@@ -192,15 +192,19 @@ export function buildRules(md = read(DESIGN), files = trackedFiles()): RuleItem[
     const surface = [
       ...new Set([...text.matchAll(/surface §(\d+)/g)].map((m) => Number(m[1]))),
     ].sort((a, b) => a - b);
+    // "Enforced by: review" is the rule's own word on how it is held: a file named after it is the
+    // thing review reads (Rule 3.7's `codes.ts`), not an implementation that carries the rule out.
     const verification = [...refs].some(isVerifying)
       ? 'test'
-      : refs.size
-        ? 'code'
-        : pending.has(number)
-          ? 'pending'
-          : /\breview\b/.test(enforced)
-            ? 'review'
-            : null;
+      : /^- Enforced by: review\b/.test(enforced)
+        ? 'review'
+        : refs.size
+          ? 'code'
+          : pending.has(number)
+            ? 'pending'
+            : /\breview\b/.test(enforced)
+              ? 'review'
+              : null;
     if (!verification) {
       throw new Error(
         `Rule ${number} names no verifying file, is not in Appendix B, and does not say review ` +
