@@ -2,7 +2,11 @@
 
 All notable changes to `typeshade` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before `1.0.0` the minor is the breaking
+position: a breaking change ships only in a new `0.N.0`, and a `0.N.P` only fixes and adds.
+What counts as breaking, and the deprecation window a change of meaning takes, are design rules
+13.9 and 13.10 (`docs/language-design.md`; the procedure is `RELEASING.md#7-versions-and-deprecations`).
+A released version is headed `## [X.Y.Z] - YYYY-MM-DD`.
 
 This file starts where TypeShade was separated from the X-GIS monorepo. Everything before that
 — the IR, the three backends, the pass pipeline, and the breaking changes that shaped them — is
@@ -1572,6 +1576,24 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   the editor drops TS2454 on a per-invocation `let` as it does on workgroup memory: under
   TypeScript 5.7 and later, `let hits: u32` counted with `hits += 1` read as used before being
   assigned.
+
+- **An `f64` module variable compiles** (surface §24 and §39, Rule 6.5). §39 says a pass
+  rewrites every `f64` into `vec2<f32>` before a backend sees one, and the pass rewrote the
+  constants, the structs, the bindings and the functions but not the module variables. So
+  `let big: f64`, with or without an initializer, and a `vec3f64` or an `array<f64, 2>` one,
+  reached the writers as `f64`, and `compile()` failed with TS8015
+  (`SD0040 f64 type leaked past fp64Lower`) while the editor reported nothing. A module
+  variable is now rewritten as a binding is, and its initializer, which the front end folds to
+  literals, lowers to the pair a declared `f64` carries: `let big: f64 = 0.1` is
+  `var<private> big: vec2<f32> = vec2<f32>(0.10000000149011612, -1.4901161415892261e-9);`, and
+  with no initializer GLSL writes the zero, `vec2 big = vec2(0.0);`. Each shape compiles and
+  links on ANGLE and on Tint, and the CPU oracle computes it as the double.
+
+- **A module variable hovers as `let`** (Rule 6.5, Rule 12.7). #188 made every binding hover as
+  `const name: T`, since a binding is always declared `const`. The front end records a module
+  variable as a binding too, so from then on `let hits: u32` hovered as `const hits: u32`, and
+  workgroup memory as `const tile: array<u32, 64>`. The hover now says `let` for a module
+  variable, and a binding beside it keeps `const`.
 
 - **The editor indexes a vector and an `f32` matrix by a runtime value** (Rule 12.7, surface
   §49). `m[i]` on a `mat4` or a `mat2x3` with an `i: u32`, a `for` counter as the index, `v[i]`
