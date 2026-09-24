@@ -814,7 +814,13 @@ declare const arrayTag: unique symbol
 type ArrayOps = 'map' | 'forEach' | 'some' | 'every' | 'reduce'
 // Iterable, so \`for (const x of xs)\` type-checks (Rule 7.5): the compiler lowers it to a counted
 // loop over the indices. The iterator's shape is written inline so it adds no global name.
-type array<T, N extends number = number> = Pick<Array<T>, ArrayOps> & { readonly [arrayTag]?: readonly [T, N]; readonly length: N } & {
+//
+// \`length\` is the size \`N\` when the array has one, and a \`u32\` when it has none. \`N\` is
+// two things here, the size the tag compares and the type \`length\` reads, and a runtime-sized
+// array fills it with its default \`number\`: \`src.length\` hovered as \`number\` while the
+// compiler reads it as \`arrayLength(&src)\`, a \`u32\` (#46), the type \`arrayLength\` below
+// already declares. \`number extends N\` is true only for that default, never for a literal size.
+type array<T, N extends number = number> = Pick<Array<T>, ArrayOps> & { readonly [arrayTag]?: readonly [T, N]; readonly length: number extends N ? u32 : N } & {
   [index: number]: T
   [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
 }

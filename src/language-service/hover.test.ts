@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createTypeshadeLanguageService } from './service.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { compileTsSource } from '../compiler/ts/index.js';
 import { compile } from '../compiler/ts/compile.js';
 import { spellShaderType } from './hover.js';
 import {
@@ -347,6 +348,70 @@ describe('getHover: a resource binding, and where its access mode shows', () => 
     expect(hoverAt(source.indexOf('ro[gid.x]'))).toContain(
       'storage resource at @group(0) @binding(0)',
     );
+  });
+});
+
+describe("getHover: a runtime-sized array's length is the compiler's u32", () => {
+  // The compiler reads `.length` on a runtime-sized storage array as `arrayLength(&src)`, a
+  // `u32` (#46); the ambient `array<T, N>` gave `length` the type `N`, which a runtime-sized
+  // array fills with its default `number`, so the editor said `number` for the same read. The
+  // tests of #46 read the compiler half only. These read both, on one source (Rule 12.7).
+  const program = (body: string): string =>
+    [
+      '"use typeshade";',
+      'class Buf {',
+      '  scale: f32;',
+      '  xs: array<f32>;',
+      '}',
+      'declare const ro: storage<array<f32>>',
+      'declare const rw: storage<array<u32>, "read_write">',
+      'declare const b: storage<Buf>',
+      '@compute([64, 1, 1])',
+      'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
+      body,
+      '}',
+    ].join('\n');
+  const source = program(
+    [
+      '  const fixed: array<f32, 4> = [1., 2., 3., 4.];',
+      '  if (gid.x >= ro.length || gid.x >= b.xs.length) {',
+      '    return;',
+      '  }',
+      '  rw[gid.x] = rw.length + u32(fixed.length);',
+    ].join('\n'),
+  );
+
+  function hoverAfter(prefix: string): string | undefined {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('len.ts', source);
+    const offset = source.indexOf(prefix) + prefix.length;
+    return service.getHover('len.ts', service.positionAt('len.ts', offset))?.contents;
+  }
+
+  it.each([
+    ['a read binding', 'ro.len'],
+    ['a read_write binding', 'rw.len'],
+    ["a binding's trailing struct member", 'b.xs.len'],
+  ])('is a u32 on %s in the editor', (_label, prefix) => {
+    expect(hoverAfter(prefix)).toContain('length: u32');
+  });
+
+  it("keeps a sized array's length its size, which is what separates the sizes", () => {
+    expect(hoverAfter('fixed.len')).toContain('length: 4');
+  });
+
+  it('is a u32 to the compiler, and the editor refuses what the compiler refuses', () => {
+    expect(compileTsSource(source).diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('len.ts', source);
+    expect(service.getDiagnostics('len.ts')).toEqual([]);
+
+    const f32Source = program('  const n: f32 = ro.length;\n  rw[gid.x] = u32(n);');
+    const compiler = compileTsSource(f32Source).diagnostics.filter((d) => d.category === 'error');
+    expect(compiler.map((d) => d.code)).toEqual([TS_CODES.TYPE_MISMATCH]);
+    expect(compiler[0]!.message).toContain('u32');
+    service.openDocument('f32.ts', f32Source);
+    expect(service.getDiagnostics('f32.ts').map((d) => d.code)).toEqual([TS_CODES.TYPE_MISMATCH]);
   });
 });
 
