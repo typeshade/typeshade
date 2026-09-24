@@ -35,3 +35,30 @@ export function gpuReference() {
   });
   return { ys, sums };
 }
+
+/** What `draws()` in `src/gpu.ts` should read back, RGBA, top row first: the plasma at each
+ *  pixel's centre, and the 8x8 image repeated. The GPU runs in f32 and writes 8 bits a channel,
+ *  so the journey compares the plasma within two steps of 1/255. */
+export function drawReference(size = 32) {
+  const time = 1.25;
+  const scale = 0.09;
+  const plasma = [];
+  const tiled = [];
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const u = (x + 0.5) * scale;
+      const w = (y + 0.5) * scale;
+      let v = 0;
+      for (let i = 0; i < 4; i++) {
+        const k = i + 1;
+        v += (Math.sin(u * k + time) * Math.cos(w * k - time)) / k;
+      }
+      const c = v * 0.5 + 0.5;
+      // A colour channel is written to 8 bits, clamped to [0, 1] first.
+      plasma.push(...[c, c * c, 1 - c, 1].map((x) => Math.min(1, Math.max(0, x)) * 255));
+      const i = x % 8;
+      const j = y % 8;
+      tiled.push(i * 32, j * 32, (i + j) * 16, 255);
+    }
+  return { plasma, tiled };
+}

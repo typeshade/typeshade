@@ -387,6 +387,16 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A host file draws a full-screen `@fragment` entry into a canvas through the import** (change
+  0016, part 2; Rules 8.20, 8.21, 8.24 and 11.7, surface §67). `fs(canvas, { frame })` draws one
+  frame with a full-screen triangle the runtime supplies, on WebGPU, then WebGL2, then the CPU
+  tier, and the promise resolves at submission. The entry reads no builtin but `position` and
+  `front_facing` and writes one `@location(0)` `vec4`. The first draw into a canvas decides its
+  tier, and `position` counts rows from the top on every tier: the WebGL2 tier draws into a
+  framebuffer and copies it upside down. A `texture_2d<f32>` binding takes an image source and a
+  `sampler` takes `{ filter?, address? }`, for a draw and for a compute entry, on the GPU tiers.
+  The import journey draws two entries on all three tiers in Chromium and holds each frame to the
+  reference.
 - **A host file calls a `@compute` entry through the import, and it runs on the GPU** (change
   0016, part 1; Rules 8.20, 8.21, 8.24 and 11.7, surface §67). `await step({ sim, particles }, 4)`
   dispatches the imported entry as written over four workgroups on WebGPU, with a device the

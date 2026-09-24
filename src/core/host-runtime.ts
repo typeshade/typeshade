@@ -11,10 +11,13 @@ export { createCodegenRuntime, type CodegenRuntime } from './cpu-codegen-runtime
 export {
   callCompute,
   type ComputeEntry,
+  type DrawBinding,
   type EntryBinding,
   type GeneratedCpu,
+  type HandleBinding,
   type Layout,
 } from './host-entry.js';
+export { callDraw, type FragmentEntry } from './host-draw.js';
 export {
   toShader,
   fromShader,

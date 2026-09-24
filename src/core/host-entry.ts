@@ -57,6 +57,22 @@ export interface EntryBinding {
   readonly s: string;
 }
 
+/** A `texture_2d<f32>` or `sampler` binding an entry reaches. */
+export interface HandleBinding {
+  readonly name: string;
+  readonly group: number;
+  readonly binding: number;
+  readonly space: 'texture' | 'sampler';
+  readonly s: string;
+}
+
+/** A binding an entry reaches: a buffer (read only: a draw reads nothing back) or a
+ *  handle. */
+export type DrawBinding = EntryBinding | HandleBinding;
+
+export const isBuffer = (b: DrawBinding): b is EntryBinding =>
+  b.space === 'uniform' || b.space === 'storage';
+
 /** A `@compute` entry a host can call, as the generated module writes it. */
 export interface ComputeEntry {
   /** The name the host imports. */
@@ -68,11 +84,14 @@ export interface ComputeEntry {
   readonly wg: readonly [number, number, number];
   /** Each parameter's builtin, in order. */
   readonly params: readonly string[];
-  readonly bindings: readonly EntryBinding[];
+  readonly bindings: readonly DrawBinding[];
   /** The module's workgroup variables and their zero values, for the CPU tier. */
   readonly workgroupZero: Readonly<Record<string, CpuValue>>;
   /** Where the entry reaches a barrier, when it does: then it has no CPU tier. */
   readonly barrier?: string;
+  /** Why the CPU tier cannot run the entry otherwise, when it cannot (a texture, a call only a
+   *  GPU computes). */
+  readonly noCpu?: string;
 }
 
 /** What the generated module hands the call: the CPU tier's functions and the runtime they
@@ -85,7 +104,7 @@ export interface GeneratedCpu {
 // ─── checking and packing host values ────────────────────────────────────────────────────────
 
 /** A refusal inside a value, unwound to the call, which names the entry and the binding. */
-class Misfit {
+export class Misfit {
   constructor(
     readonly path: string,
     readonly problem: string,
@@ -97,7 +116,7 @@ const RANGE: Record<'i32' | 'u32', readonly [number, number]> = {
   u32: [0, 0xffffffff],
 };
 
-function describe(v: unknown): string {
+export function describe(v: unknown): string {
   if (v === null) return 'null';
   if (Array.isArray(v)) return `an array of length ${v.length}`;
   if (ArrayBuffer.isView(v)) return `a ${v.constructor.name}`;
@@ -161,7 +180,7 @@ function runtimeCount(l: Layout & { k: 'a' }, v: unknown, path: string): number 
 }
 
 /** The byte size of `v` packed by `l`, checking the shape as it goes. */
-function byteSize(l: Layout, v: unknown, path: string): number {
+export function byteSize(l: Layout, v: unknown, path: string): number {
   if (l.k === 'a' && l.n === null) {
     const count = runtimeCount(l, v, path);
     if (count === 0) throw new Misfit(path, 'got an empty array, which WebGPU cannot bind');
@@ -201,7 +220,14 @@ function readNumber(dv: DataView, at: number, t: LayoutNumber): number {
 
 /** Write host value `v` into `dv` at `at` by layout `l`, checking it. A written scalar binding's
  *  host value is a one-element typed array (`box`), since a number cannot be written in place. */
-function pack(dv: DataView, at: number, l: Layout, v: unknown, path: string, box = false): void {
+export function pack(
+  dv: DataView,
+  at: number,
+  l: Layout,
+  v: unknown,
+  path: string,
+  box = false,
+): void {
   switch (l.k) {
     case 's': {
       const x = box ? unbox(l.t, v, path) : checkNumber(l.t, v, path);
@@ -299,10 +325,81 @@ function readInto(dv: DataView, at: number, l: Layout, target: unknown): unknown
   }
 }
 
+// ─── textures and samplers ───────────────────────────────────────────────────────────────────
+
+/** An image source a `texture_2d<f32>` takes, with its size. */
+export interface Image {
+  readonly source: object;
+  readonly width: number;
+  readonly height: number;
+  /** An `ImageData`'s pixels, which WebGPU uploads with `writeTexture`. */
+  readonly data?: Uint8ClampedArray;
+}
+
+const IMAGE_KINDS = [
+  'ImageBitmap',
+  'ImageData',
+  'HTMLImageElement',
+  'HTMLCanvasElement',
+  'HTMLVideoElement',
+  'OffscreenCanvas',
+] as const;
+
+export function imageOf(v: unknown): Image | string {
+  const g = globalThis as unknown as Record<string, (abstract new () => unknown) | undefined>;
+  const kind = IMAGE_KINDS.find((k) => g[k] !== undefined && v instanceof g[k]);
+  if (kind === undefined) return `got ${describe(v)}, not an image source`;
+  const o = v as Record<string, unknown>;
+  const [width, height] =
+    kind === 'HTMLImageElement'
+      ? [o.naturalWidth, o.naturalHeight]
+      : kind === 'HTMLVideoElement'
+        ? [o.videoWidth, o.videoHeight]
+        : [o.width, o.height];
+  if (typeof width !== 'number' || typeof height !== 'number' || width === 0 || height === 0)
+    return `got a ${kind} of no pixels (${String(width)}x${String(height)}); an image draws once it has loaded`;
+  return {
+    source: v as object,
+    width,
+    height,
+    ...(kind === 'ImageData' ? { data: o.data as Uint8ClampedArray } : {}),
+  };
+}
+
+/** A `sampler`'s host value, with its defaults. */
+export interface Sampling {
+  readonly filter: 'nearest' | 'linear';
+  readonly address: 'clamp' | 'repeat' | 'mirror';
+}
+
+export function samplingOf(v: unknown): Sampling | string {
+  if (v === undefined) return { filter: 'linear', address: 'clamp' };
+  if (typeof v !== 'object' || v === null || Array.isArray(v))
+    return `got ${describe(v)}; a sampler is { filter?, address? }`;
+  const o = v as Record<string, unknown>;
+  for (const k of Object.keys(o))
+    if (k !== 'filter' && k !== 'address')
+      return `got a property "${k}"; a sampler is { filter?, address? }`;
+  const filter = o.filter ?? 'linear';
+  const address = o.address ?? 'clamp';
+  if (filter !== 'nearest' && filter !== 'linear')
+    return `got filter ${describe(filter)}; it is 'nearest' or 'linear'`;
+  if (address !== 'clamp' && address !== 'repeat' && address !== 'mirror')
+    return `got address ${describe(address)}; it is 'clamp', 'repeat' or 'mirror'`;
+  return { filter, address };
+}
+
+/** A sampler's address mode, as WebGPU spells it. */
+export const ADDRESS = {
+  clamp: 'clamp-to-edge',
+  repeat: 'repeat',
+  mirror: 'mirror-repeat',
+} as const;
+
 // ─── the CPU tier's values ───────────────────────────────────────────────────────────────────
 
 /** The CPU tier's value of a host value: the representation the generated code runs on. */
-function toCpu(l: Layout, v: unknown, box: boolean): CpuValue {
+export function toCpu(l: Layout, v: unknown, box: boolean): CpuValue {
   switch (l.k) {
     case 's': {
       const x = box ? (v as ArrayLike<number>)[0]! : (v as number);
@@ -407,7 +504,7 @@ interface GpuShaderModule {
     messages: readonly { type: string; message: string; lineNum: number; linePos: number }[];
   }>;
 }
-interface GpuDevice {
+export interface GpuDevice {
   createShaderModule(d: { code: string }): GpuShaderModule;
   createComputePipeline(d: {
     layout: 'auto';
@@ -416,7 +513,7 @@ interface GpuDevice {
   createBuffer(d: { size: number; usage: number }): GpuBuffer;
   createBindGroup(d: {
     layout: unknown;
-    entries: readonly { binding: number; resource: { buffer: GpuBuffer } }[];
+    entries: readonly { binding: number; resource: unknown }[];
   }): unknown;
   createCommandEncoder(): {
     beginComputePass(): {
@@ -444,7 +541,7 @@ const MAP_READ = 1;
 let device: Promise<GpuDevice | null> | undefined;
 
 /** The device every call shares, requested on the first call; null where WebGPU is absent. */
-function gpuDevice(): Promise<GpuDevice | null> {
+export function gpuDevice(): Promise<GpuDevice | null> {
   return (device ??= (async () => {
     const gpu = (
       globalThis as {
@@ -506,8 +603,19 @@ function workgroupsOf(e: ComputeEntry, w: unknown): [number, number, number] {
   return out;
 }
 
-/** Check the bindings object: exactly the entry's bindings, each fitting its type. */
-function bindingsOf(e: ComputeEntry, v: unknown): Record<string, unknown> {
+/** A call's bindings, checked: the host's object, and each handle's image or sampling. */
+export interface Checked {
+  readonly values: Record<string, unknown>;
+  readonly images: Map<string, Image>;
+  readonly samplers: Map<string, Sampling>;
+}
+
+/** Check the bindings object: exactly the entry's bindings, each fitting its type. A sampler
+ *  may be left out, for linear filtering and clamping. */
+export function checkBindings(
+  e: { readonly name: string; readonly bindings: readonly DrawBinding[] },
+  v: unknown,
+): Checked {
   if (typeof v !== 'object' || v === null || Array.isArray(v))
     throw new TypeError(
       `${e.name}(): "bindings" is an object of the entry's bindings; got ${describe(v)}.`,
@@ -519,9 +627,18 @@ function bindingsOf(e: ComputeEntry, v: unknown): Record<string, unknown> {
       throw new TypeError(
         `${e.name}(): the entry reaches no binding "${k}"; it takes ${[...names].map((n) => `"${n}"`).join(', ') || 'none'}.`,
       );
+  const checked: Checked = { values: o, images: new Map(), samplers: new Map() };
   for (const b of e.bindings) {
-    if (!(b.name in o))
+    if (!(b.name in o) && b.space !== 'sampler')
       throw new TypeError(`${e.name}(): binding "${b.name}" (${b.s}) is missing.`);
+    if (!isBuffer(b)) {
+      const got = b.space === 'texture' ? imageOf(o[b.name]) : samplingOf(o[b.name]);
+      if (typeof got === 'string')
+        throw new TypeError(`${e.name}(): binding "${b.name}" (${b.s}): ${got}.`);
+      if (b.space === 'texture') checked.images.set(b.name, got as Image);
+      else checked.samplers.set(b.name, got as Sampling);
+      continue;
+    }
     try {
       // A dry pack into scratch memory runs every check before anything is uploaded.
       const size = byteSize(b.layout, o[b.name], '');
@@ -532,11 +649,72 @@ function bindingsOf(e: ComputeEntry, v: unknown): Record<string, unknown> {
       throw new TypeError(`${e.name}(): binding "${b.name}" (${b.s}): ${at}${err.problem}.`);
     }
   }
-  return o;
+  return checked;
 }
 
 /** A written storage binding whose type is one scalar is passed boxed. */
-const boxed = (b: EntryBinding): boolean => b.writes && b.layout.k === 's';
+export const boxed = (b: EntryBinding): boolean => b.writes && b.layout.k === 's';
+
+/** A buffer binding's bytes, packed by its layout and padded to a multiple of 16. */
+export function packed(b: EntryBinding, v: unknown): ArrayBuffer {
+  const size = byteSize(b.layout, v, '');
+  const bytes = new ArrayBuffer(Math.max(16, Math.ceil(size / 16) * 16));
+  pack(new DataView(bytes), 0, b.layout, v, '', boxed(b));
+  return bytes;
+}
+
+/** `GPUTextureUsage`, whose values the WebGPU specification fixes. */
+const TEXTURE_USAGE = { COPY_DST: 2, TEXTURE_BINDING: 4, RENDER_ATTACHMENT: 16 } as const;
+
+/** The part of a WebGPU device a texture or sampler binding needs. */
+interface HandleDevice {
+  createTexture(d: object): { createView(): unknown; destroy(): void };
+  createSampler(d: object): unknown;
+  readonly queue: {
+    writeTexture(dst: object, data: ArrayBufferView, layout: object, size: object): void;
+    copyExternalImageToTexture(src: object, dst: object, size: object): void;
+  };
+}
+
+/** A texture binding's image, uploaded to a new `rgba8unorm` texture, or a sampler binding's
+ *  sampler. The texture is pushed onto `owned`, to destroy once the work is submitted. */
+export function gpuHandle(
+  d: HandleDevice,
+  b: DrawBinding,
+  c: Checked,
+  owned: { destroy(): void }[],
+): unknown {
+  if (b.space === 'texture') {
+    const img = c.images.get(b.name)!;
+    const texture = d.createTexture({
+      size: [img.width, img.height],
+      format: 'rgba8unorm',
+      usage:
+        TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.RENDER_ATTACHMENT,
+    });
+    if (img.data !== undefined)
+      d.queue.writeTexture(
+        { texture },
+        img.data,
+        { bytesPerRow: 4 * img.width, rowsPerImage: img.height },
+        [img.width, img.height],
+      );
+    else
+      d.queue.copyExternalImageToTexture({ source: img.source }, { texture }, [
+        img.width,
+        img.height,
+      ]);
+    owned.push(texture);
+    return texture.createView();
+  }
+  const s = c.samplers.get(b.name)!;
+  return d.createSampler({
+    magFilter: s.filter,
+    minFilter: s.filter,
+    addressModeU: ADDRESS[s.address],
+    addressModeV: ADDRESS[s.address],
+  });
+}
 
 /**
  * Call a `@compute` entry from host code (Rule 8.24): dispatch `workgroups` workgroups of it
@@ -544,7 +722,7 @@ const boxed = (b: EntryBinding): boolean => b.writes && b.layout.k === 's';
  * storage binding it writes back into the caller's value in place.
  *
  * @throws `TypeError` naming the entry and the binding for a value that does not fit, and for
- *   an entry that reaches a barrier where there is no WebGPU.
+ *   an entry the CPU tier cannot run (a barrier, a texture) where there is no WebGPU.
  */
 export async function callCompute(
   cpu: GeneratedCpu,
@@ -555,39 +733,46 @@ export async function callCompute(
 ): Promise<void> {
   if (argc !== 2)
     throw new TypeError(`${e.name}() takes 2 arguments, (bindings, workgroups); got ${argc}.`);
-  const values = bindingsOf(e, bindings);
+  const checked = checkBindings(e, bindings);
   const wg = workgroupsOf(e, workgroups);
   const d = await gpuDevice();
-  if (d !== null) return onGpu(d, e, values, wg);
+  if (d !== null) return onGpu(d, e, checked, wg);
   if (e.barrier !== undefined)
     throw new TypeError(
       `${e.name}() needs WebGPU: it reaches ${e.barrier}, and a barrier has no CPU tier.`,
     );
-  onCpu(cpu, e, values, wg);
+  if (e.noCpu !== undefined)
+    throw new TypeError(`${e.name}() needs WebGPU: ${e.noCpu}, and the CPU tier cannot.`);
+  onCpu(cpu, e, checked.values, wg);
 }
 
 async function onGpu(
   d: GpuDevice,
   e: ComputeEntry,
-  values: Record<string, unknown>,
+  checked: Checked,
   wg: readonly [number, number, number],
 ): Promise<void> {
+  const { values } = checked;
   const pipeline = await pipelineFor(d, e);
   d.pushErrorScope('validation');
   const buffers = new Map<EntryBinding, { buffer: GpuBuffer; size: number }>();
+  const resources = new Map<DrawBinding, unknown>();
+  const owned: { destroy(): void }[] = [];
   for (const b of e.bindings) {
-    const size = byteSize(b.layout, values[b.name], '');
-    // A uniform buffer's size is a multiple of 16; a storage buffer's of 4.
-    const padded = Math.max(b.space === 'uniform' ? 16 : 4, Math.ceil(size / 16) * 16);
-    const bytes = new ArrayBuffer(padded);
-    pack(new DataView(bytes), 0, b.layout, values[b.name], '', boxed(b));
+    if (!isBuffer(b)) {
+      resources.set(b, gpuHandle(d as unknown as HandleDevice, b, checked, owned));
+      continue;
+    }
+    const bytes = packed(b, values[b.name]);
     const buffer = d.createBuffer({
-      size: padded,
+      size: bytes.byteLength,
       usage:
         (b.space === 'uniform' ? USAGE.UNIFORM : USAGE.STORAGE) | USAGE.COPY_DST | USAGE.COPY_SRC,
     });
     d.queue.writeBuffer(buffer, 0, bytes);
-    buffers.set(b, { buffer, size: padded });
+    buffers.set(b, { buffer, size: bytes.byteLength });
+    resources.set(b, { buffer });
+    owned.push(buffer);
   }
   const groups = [...new Set(e.bindings.map((b) => b.group))].sort((a, b) => a - b);
   const encoder = d.createCommandEncoder();
@@ -600,15 +785,14 @@ async function onGpu(
         layout: pipeline.getBindGroupLayout(g),
         entries: e.bindings
           .filter((b) => b.group === g)
-          .map((b) => ({ binding: b.binding, resource: { buffer: buffers.get(b)!.buffer } })),
+          .map((b) => ({ binding: b.binding, resource: resources.get(b) })),
       }),
     );
   pass.dispatchWorkgroups(wg[0], wg[1], wg[2]);
   pass.end();
   const reads: { b: EntryBinding; staging: GpuBuffer }[] = [];
-  for (const b of e.bindings) {
+  for (const [b, { buffer, size }] of buffers) {
     if (!b.writes) continue;
-    const { buffer, size } = buffers.get(b)!;
     const staging = d.createBuffer({ size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
     encoder.copyBufferToBuffer(buffer, 0, staging, 0, size);
     reads.push({ b, staging });
@@ -625,7 +809,7 @@ async function onGpu(
       (values[b.name] as { [i: number]: number })[0] = readNumber(dv, 0, b.layout.t);
     else readInto(dv, 0, b.layout, values[b.name]);
   }
-  for (const { buffer } of buffers.values()) buffer.destroy();
+  for (const o of owned) o.destroy();
 }
 
 function onCpu(
@@ -634,7 +818,8 @@ function onCpu(
   values: Record<string, unknown>,
   wg: readonly [number, number, number],
 ): void {
-  for (const b of e.bindings) cpu.$.bindings[b.name] = toCpu(b.layout, values[b.name], boxed(b));
+  for (const b of e.bindings)
+    if (isBuffer(b)) cpu.$.bindings[b.name] = toCpu(b.layout, values[b.name], boxed(b));
   const fn = cpu.F[e.fn]!;
   const init = cpu.F['$initPrivates'];
   const [sx, sy, sz] = e.wg;
@@ -671,5 +856,6 @@ function onCpu(
   // What the entry wrote goes back into the caller's values; a written binding is always one
   // that can be updated in place (a boxed scalar, an array, a typed array or an object).
   for (const b of e.bindings)
-    if (b.writes) fromCpu(b.layout, cpu.$.bindings[b.name]!, values[b.name], boxed(b));
+    if (isBuffer(b) && b.writes)
+      fromCpu(b.layout, cpu.$.bindings[b.name]!, values[b.name], boxed(b));
 }
