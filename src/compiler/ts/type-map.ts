@@ -45,7 +45,12 @@ import { makeDiagnostic } from './diagnostic.js';
 import { boundTypeArgument } from './generics.js';
 import { genericStructName, isGenericClass } from './generic-structs.js';
 import { TS_CODES, type TsCode } from './codes.js';
-import { namesInScope, unknownNameSentence, type NameScopes } from './unknown-names.js';
+import {
+  declaredValueNamesOf,
+  namesInScope,
+  unknownNameSentence,
+  type NameScopes,
+} from './unknown-names.js';
 import { isIntegerWritten } from './lit-coerce.js';
 import { namespaceClassAround } from './namespaces.js';
 
@@ -340,6 +345,45 @@ const libraryTypeMessage = (name: string): string => {
   return remedy === undefined ? mistake : `${mistake} ${remedy}`;
 };
 
+/** The conversion an author writes for a library type called as one, `Number(x)`. */
+const LIBRARY_CALL_REMEDY: Readonly<Record<string, string>> = {
+  Number: 'Write f32(x), i32(x) or u32(x).',
+  Boolean: 'Write bool(x).',
+};
+
+/** The objects of functions the ambient library keeps (Rule 2.1), with a call of one. */
+const LIBRARY_OBJECTS: Readonly<Record<string, string>> = {
+  Math: 'Math.sin(x)',
+  console: 'console.log(x)',
+};
+
+/**
+ * What a name the ambient library declares is, where a value, a callee or a `new` reads it and
+ * the file declares nothing of the name, or undefined for any other name (Rule 2.1, Rule 12.1).
+ * A type of {@link LIBRARY_TYPE_NAMES} is a type, which TypeScript says too (TS2693), with the
+ * conversion to write where one is called; `Math` and `console` are objects of functions; and
+ * `Symbol`, which TypeScript's `for…of` reads an iterator through, is the library's own.
+ */
+export function libraryNameSentence(
+  name: string,
+  as: 'value' | 'callee' | 'class',
+): string | undefined {
+  if (LIBRARY_TYPE_NAMES.has(name)) {
+    const mistake = `"${name}" is a type, not a value: the library declares it for TypeScript's own use.`;
+    const remedy = as === 'callee' ? LIBRARY_CALL_REMEDY[name] : undefined;
+    return remedy === undefined ? mistake : `${mistake} ${remedy}`;
+  }
+  const what = as === 'value' ? 'value' : as === 'callee' ? 'function' : 'class';
+  const call = LIBRARY_OBJECTS[name];
+  if (call !== undefined) {
+    return `"${name}" is an object of functions, not a ${what}. Call one of them, ${call}.`;
+  }
+  if (name === 'Symbol') {
+    return `"Symbol" is no ${what} a shader has: the library declares it for TypeScript's own use.`;
+  }
+  return undefined;
+}
+
 /** Whether `name` is a type parameter of a declaration around `node`, a mapped type's key
  *  (`[K in keyof T]`) or a conditional type's `infer U` included. */
 function isTypeParameterAround(node: ts.Node, name: string): boolean {
@@ -409,26 +453,42 @@ const MAPS_ITS_ARGUMENT: ReadonlySet<string> = new Set([
   'override',
 ]);
 
+/** Whether `generic`, a generic of the library written with type arguments, is mapped as a
+ *  type of its own where it is written, and so says what it takes of them: not when it is itself
+ *  a type argument of a class of the file, `B<vec3<Foo>>` or `new B<vec3<Foo>>()`, whose
+ *  instance is collected from the arguments as written and says nothing of them when it cannot
+ *  be (through the wrappers that map their argument, `B<array<vec3<Foo>, 4>>` as well). */
+function mappedWhereWritten(generic: ts.TypeReferenceNode, sourceFile: ts.SourceFile): boolean {
+  for (let at: ts.Node = generic; ; at = at.parent) {
+    const outer = at.parent;
+    if (ts.isNewExpression(outer)) return false;
+    if (!ts.isTypeReferenceNode(outer)) return true;
+    const name = typeNameOf(outer) ?? dottedTypeName(outer.typeName);
+    if (isGenericClass(name, sourceFile)) return false;
+    if (name === undefined || !MAPS_ITS_ARGUMENT.has(name)) return true;
+    if (fileDeclaresType(outer, name, sourceFile)) return true;
+  }
+}
+
 /** The name a type position writes, bare and with no type argument, when nothing declares it:
  *  not WGSL, not the ambient library, and nothing of the file ({@link fileDeclaresType}). A
- *  type reference, or a name an `implements` clause writes, which is a type too; a class's
- *  `extends` names a value, and an interface's `extends` its base, both the struct collector's,
- *  and so is an argument of a generic of the library that reads its own ({@link
- *  MAPS_ITS_ARGUMENT}). `as const` names no type, and the retired `perInvocation` has a refusal
- *  of its own. */
+ *  type reference, or a name a heritage clause writes: an `implements` and an interface's
+ *  `extends` name a type, and a class's `extends` a class, which a value of the file declares
+ *  too (`const Base = Tinted(B)`). An argument of a generic of the library that reads its own
+ *  ({@link MAPS_ITS_ARGUMENT}) is that generic's to say, where it is mapped. `as const` names
+ *  no type, and the retired `perInvocation` has a refusal of its own. */
 export function undeclaredTypeName(
   node: ts.Node,
   sourceFile: ts.SourceFile,
 ): ts.Identifier | undefined {
   let id: ts.Node;
+  let isClassBase = false;
   if (ts.isTypeReferenceNode(node)) {
     id = node.typeName;
-  } else if (
-    ts.isExpressionWithTypeArguments(node) &&
-    ts.isHeritageClause(node.parent) &&
-    node.parent.token === ts.SyntaxKind.ImplementsKeyword
-  ) {
+  } else if (ts.isExpressionWithTypeArguments(node) && ts.isHeritageClause(node.parent)) {
     id = node.expression;
+    isClassBase =
+      node.parent.token === ts.SyntaxKind.ExtendsKeyword && ts.isClassLike(node.parent.parent);
   } else {
     return undefined;
   }
@@ -438,7 +498,9 @@ export function undeclaredTypeName(
     ts.isTypeReferenceNode(outer) &&
     ts.isIdentifier(outer.typeName) &&
     isLibraryTypeName(outer.typeName.text) &&
-    !MAPS_ITS_ARGUMENT.has(outer.typeName.text)
+    !MAPS_ITS_ARGUMENT.has(outer.typeName.text) &&
+    !fileDeclaresType(outer, outer.typeName.text, sourceFile) &&
+    mappedWhereWritten(outer, sourceFile)
   ) {
     return undefined;
   }
@@ -447,12 +509,19 @@ export function undeclaredTypeName(
     name === 'const' ||
     name === RETIRED_VAR_WRAPPER ||
     isLibraryTypeName(name) ||
-    boundTypeArgument(name) !== undefined
+    boundTypeArgument(name) !== undefined ||
+    (isClassBase && declaredValueNamesOf(sourceFile).has(name))
   ) {
     return undefined;
   }
   return fileDeclaresType(node, name, sourceFile) ? undefined : id;
 }
+
+/** Whether a type nothing declares is written anywhere in `node` ({@link undeclaredTypeName}),
+ *  which then names no layout; it was said where it is written. */
+export const writesUndeclaredType = (node: ts.Node, sourceFile: ts.SourceFile): boolean =>
+  undeclaredTypeName(node, sourceFile) !== undefined ||
+  (ts.forEachChild(node, (child) => writesUndeclaredType(child, sourceFile) || undefined) ?? false);
 
 /** The retired module-variable wrapper, refused by name wherever it is written.
  *  `perInvocation<T>` (#83) was a second spelling of the variable a plain top-level `let`
@@ -543,8 +612,9 @@ function mapType(
     if (generic !== undefined && isGenericClass(generic, sourceFile)) {
       const instance = genericStructName(generic, typeNode.typeArguments, sourceFile);
       if (instance !== undefined) return structT(instance);
-      // A type argument nothing declares names no layout, and was said where it is written.
-      if (typeNode.typeArguments?.some((a) => undeclaredTypeName(a, sourceFile) !== undefined)) {
+      // A type argument that writes a name nothing declares, `Foo` or `vec3<Foo>`, names no
+      // layout, and was said where it is written.
+      if (typeNode.typeArguments?.some((a) => writesUndeclaredType(a, sourceFile))) {
         return undefined;
       }
       // Arguments that name no layout — the wrong number of them, or one that is a type
@@ -629,12 +699,6 @@ function mapType(
     // An interface that declares a method is a contract and never a value (Rule 6.9); it was
     // said so where it declares the method, once, and a type it names here names nothing.
     if (contractInterfaces(sourceFile).has(name)) return undefined;
-    // A type the library declares for TypeScript's own use is declared, and names no value a
-    // shader has: it is not unknown, and the sentence says what it is (Rule 12.1).
-    if (LIBRARY_TYPE_NAMES.has(name)) {
-      pushDiag(diagnostics, sourceFile, typeNode.typeName, libraryTypeMessage(name));
-      return undefined;
-    }
     // A name the file declares as a type, or imports, is a struct: a class or an interface,
     // declared above or below the use, here or in the module it is imported from. A name
     // declared nowhere was a struct too, and emitted as one, so `l: Lihgt` compiled in silence
@@ -642,6 +706,14 @@ function mapType(
     // name it is spelled like (Rule 12.1).
     const declared = namesInScope(typeNode, 'type');
     if (declared.some((group) => group.includes(name))) return structT(name);
+    // A type the library declares for TypeScript's own use, where the file declares none of
+    // its name, names no value a shader has: it is not unknown, and the sentence says what it
+    // is (Rule 12.1). After the file's own, so a `class Mat` or an `interface Pick` is the
+    // file's, as TypeScript resolves it (Rule 2.1).
+    if (LIBRARY_TYPE_NAMES.has(name)) {
+      pushDiag(diagnostics, sourceFile, typeNode.typeName, libraryTypeMessage(name));
+      return undefined;
+    }
     // The file's own pass (semantic.ts) says it in the same words at the same span, wherever
     // the type is written and whether or not a body maps it, and the two are one diagnostic.
     pushDiag(diagnostics, sourceFile, typeNode.typeName, unknownTypeSentence(name, declared));

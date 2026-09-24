@@ -346,6 +346,17 @@ describe('what inheritance refuses, and why', () => {
         ),
       )[0],
     ).toBe(
+      `${TS_CODES.UNKNOWN_TYPE} Unknown type "Missing". Declare it in this file, or import it from another shader module.`,
+    );
+    // A base the file declares and does not collect as a struct is the collector's to say.
+    expect(
+      errorsOf(
+        file(
+          `enum Missing {\n  A = 1,\n}\nclass D extends Missing {\n  y: f32\n}\n`,
+          `  const d: D = { y: 1. }\n  return vec4(d.y, 0., 0., 1.)`,
+        ),
+      )[0],
+    ).toBe(
       `${TS_CODES.STRUCT_FIELD} "D" extends "Missing", which this file does not declare as a struct. A base has to be a class or an interface whose fields are shader types.`,
     );
     expect(

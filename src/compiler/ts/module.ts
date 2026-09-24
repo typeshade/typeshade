@@ -19,7 +19,7 @@ import { collectBindings } from './bindings.js';
 import { collectEnables } from './enables.js';
 import { collectOverrides } from './overrides.js';
 import { fillFunctionBody, parseSignature } from './lower/function.js';
-import { analyzeSemantics } from './semantic.js';
+import { analyzeSemantics, reportUndeclaredValues } from './semantic.js';
 import { reportImportedNews } from './lower/new-target.js';
 import { collectModuleConsts } from './module-const.js';
 import { collectModuleVars } from './module-vars.js';
@@ -484,6 +484,8 @@ export function compileTsSources(
   // A call cycle emits WGSL Tint refuses (#48). Across files it can be spelled through an
   // import, which is exactly why the resolver above goes through `callees`.
   checkRecursion(graph, diagnostics);
+  // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
+  for (const sf of parsed.values()) reportUndeclaredValues(sf, diagnostics);
 
   dropRepeatedDiagnostics(diagnostics);
   let wgsl: string | undefined;

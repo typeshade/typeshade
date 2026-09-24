@@ -92,6 +92,44 @@ describe('a name the file declares is the file’s, whatever it spells', () => {
   });
 });
 
+describe('a type the file declares is the file’s, whatever the library calls its own', () => {
+  // Each was TS8002 '"Mat" is not a shader type: the library declares it for TypeScript's own
+  // use.' in every position a type is written, although TypeScript resolves the name to the
+  // file's declaration, and main compiled each one (Rule 2.1).
+  const MAT = `class Mat {\n  m: f32 = 1.;\n}\n`;
+
+  it('a class Mat as a parameter, a local, a return and a field type', () => {
+    runs(
+      `${MAT}function g(x: Mat): f32 {\n  return x.m;\n}\nfunction f(): f32 {\n  return g(new Mat());\n}\n`,
+      1,
+    );
+    runs(`${MAT}function f(): f32 {\n  const k: Mat = new Mat();\n  return k.m;\n}\n`, 1);
+    runs(
+      `${MAT}function mk(): Mat {\n  return new Mat();\n}\nfunction f(): f32 {\n  return mk().m;\n}\n`,
+      1,
+    );
+    runs(
+      `${MAT}class Holder {\n  k: Mat = new Mat();\n}\nfunction f(): f32 {\n  return new Holder().k.m + 1.;\n}\n`,
+      2,
+    );
+  });
+
+  it('a class String, and an interface Pick in a uniform', () => {
+    runs(
+      `class String {\n  a: f32 = 3.;\n}\nfunction g(x: String): f32 {\n  return x.a;\n}\nfunction f(): f32 {\n  return g(new String());\n}\n`,
+      3,
+    );
+    const r =
+      compile(`"use typeshade";\ninterface Pick {\n  p: f32;\n}\ndeclare const u: uniform<Pick>;\n@fragment
+export function fs(): vec4 {
+  return vec4(u.p);
+}
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('struct Pick');
+  });
+});
+
 describe('a name nothing declares is one diagnostic, where it is used', () => {
   const body = (line: string) => `"use typeshade";
 function g(): f32 {
@@ -200,6 +238,107 @@ export function fs(): vec4 {
   });
 });
 
+describe('a name the library declares for TypeScript is what it is, read or called', () => {
+  // Each was 'Unknown identifier' or 'Unknown function … Declare it in this file', which the
+  // editor contradicts (TypeScript's TS2693 says the library declares a type of the name), and a
+  // `new` of the same name already said what it is.
+  const body = (line: string) =>
+    `"use typeshade";\nfunction g(x: f32): f32 {\n  const k = ${line};\n  return 1.;\n}\n${FS}`;
+  const type = (name: string) =>
+    `"${name}" is a type, not a value: the library declares it for TypeScript's own use.`;
+
+  it('a type of its own, called or read, with the conversion to write where it is called', () => {
+    for (const [line, message] of [
+      ['Number("1")', `${TS_CODES.UNKNOWN_FN} ${type('Number')} Write f32(x), i32(x) or u32(x).`],
+      ['Number(x)', `${TS_CODES.UNKNOWN_FN} ${type('Number')} Write f32(x), i32(x) or u32(x).`],
+      ['Boolean(x)', `${TS_CODES.UNKNOWN_FN} ${type('Boolean')} Write bool(x).`],
+      ['String(x)', `${TS_CODES.UNKNOWN_FN} ${type('String')}`],
+      ['Array(4)', `${TS_CODES.UNKNOWN_FN} ${type('Array')}`],
+      ['Object', `${TS_CODES.UNKNOWN_NAME} ${type('Object')}`],
+      ['Object.keys(x)', `${TS_CODES.UNKNOWN_NAME} ${type('Object')}`],
+    ]) {
+      expect(diagnosticsOf(body(line!)), line).toEqual([message]);
+    }
+    // The conversions it names compile.
+    expect(
+      diagnosticsOf(body('f32(x) + f32(i32(x)) + f32(u32(x)) + select(0., 1., bool(x))')),
+    ).toEqual([]);
+  });
+
+  it('Symbol, Math and console, which the library declares as values', () => {
+    const symbol = (what: string) =>
+      `"Symbol" is no ${what} a shader has: the library declares it for TypeScript's own use.`;
+    for (const [line, message] of [
+      ['Symbol', `${TS_CODES.UNKNOWN_NAME} ${symbol('value')}`],
+      ['Symbol("k")', `${TS_CODES.UNKNOWN_FN} ${symbol('function')}`],
+      ['new Symbol()', `${TS_CODES.CLASS_MEMBER} ${symbol('class')}`],
+      [
+        'Math',
+        `${TS_CODES.UNKNOWN_NAME} "Math" is an object of functions, not a value. Call one of them, Math.sin(x).`,
+      ],
+      [
+        'console',
+        `${TS_CODES.UNKNOWN_NAME} "console" is an object of functions, not a value. Call one of them, console.log(x).`,
+      ],
+    ]) {
+      expect(diagnosticsOf(body(line!)), line).toEqual([message]);
+    }
+  });
+});
+
+describe('a name nothing declares in a body no call lowers is said too', () => {
+  // Each compiled with no diagnostic while the editor said TS2304 (Rule 12.7): an uncalled
+  // generic, a function that takes a function, and a method of a class nothing builds are never
+  // lowered. While the host list stood, `window` there was TS8012.
+  it('a value, a callee and a target, in the words the lowering uses', () => {
+    for (const [head, message] of [
+      [
+        'function mk<T>(x: T): f32 {\n  const d = window;\n  return 1.;\n}\n',
+        `${TS_CODES.UNKNOWN_NAME} Unknown identifier "window".`,
+      ],
+      [
+        'function mk<T>(x: T): f32 {\n  return fetch(x);\n}\n',
+        `${TS_CODES.UNKNOWN_FN} Unknown function "fetch". Declare it in this file, or import it from another shader module.`,
+      ],
+      [
+        'function run(f: (x: f32) => f32): f32 {\n  const d = window;\n  return f(1.);\n}\n',
+        `${TS_CODES.UNKNOWN_NAME} Unknown identifier "window".`,
+      ],
+      [
+        'function mk<T>(x: T): f32 {\n  Date = 1.;\n  return 1.;\n}\n',
+        `${TS_CODES.UNKNOWN_NAME} Cannot assign to unknown name "Date".`,
+      ],
+      [
+        'class G<T> {\n  v: T;\n  get(): f32 {\n    return self;\n  }\n}\n',
+        `${TS_CODES.UNKNOWN_NAME} Unknown identifier "self".`,
+      ],
+      [
+        'function mk<T>(x: T): f32 {\n  return Number(1.);\n}\n',
+        `${TS_CODES.UNKNOWN_FN} "Number" is a type, not a value: the library declares it for TypeScript's own use. Write f32(x), i32(x) or u32(x).`,
+      ],
+    ]) {
+      expect(diagnosticsOf(`"use typeshade";\n${head}${FS}`), head).toEqual([message]);
+    }
+  });
+
+  it('once, where a body a call lowers says it as well', () => {
+    expect(
+      diagnosticsOf(`"use typeshade";\nfunction mk<T>(x: T): f32 {\n  const d = window;\n  return 1.;\n}\n@fragment
+export function fs(): vec4 {
+  return vec4(mk(1.) + mk(2));
+}
+`),
+    ).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "window".`]);
+  });
+
+  it('nothing for a name the file or the library declares, in any scope', () => {
+    const r = compile(
+      `"use typeshade";\nconst K: f32 = 2.;\nfunction mk<T>(x: T, n: f32): f32 {\n  const a = PI + K + sin(n) + Math.cos(n);\n  let b = a;\n  b += select(0., 1., n > 0.);\n  _ = sin(b);\n  return b;\n}\n${FS}`,
+    );
+    expect(r.diagnostics).toEqual([]);
+  });
+});
+
 describe('a type name nothing declares is TS8002 wherever it is written, once', () => {
   // Measured before this change: each was a single TS8012 while the host list stood, and then
   // nothing at all, since none of these positions is mapped by a body the compiler lowers: the
@@ -250,6 +389,58 @@ describe('a type name nothing declares is TS8002 wherever it is written, once', 
         unknownType(name!),
       ]);
     }
+  });
+
+  it('inside a WGSL generic that is itself a type argument of a class', () => {
+    // `x: B<vec3<Foo>>` compiled with no diagnostic to `fn g(x: B)` with no struct B, which Tint
+    // refuses ("unresolved type 'B'"), and `new B<vec3<Foo>>()` was told the file writes no type
+    // argument. `B` collects no instance from `vec3<Foo>` and says nothing of it, so `vec3`'s own
+    // sentence is never said there: the name is.
+    const head = 'class B<T> {\n  v: T;\n}\n';
+    for (const [line, message] of [
+      ['function g(x: B<vec3<Foo>>): f32 {\n  return 1.;\n}\n', unknownType('Foo')],
+      ['function g(x: B<mat3x3<Foo>>): f32 {\n  return 1.;\n}\n', unknownType('Foo')],
+      [
+        'function g(): f32 {\n  const b = new B<vec3<Foo>>();\n  return 1.;\n}\n',
+        unknownType('Foo'),
+      ],
+      [
+        'function g(x: B<vec3<float>>): f32 {\n  return 1.;\n}\n',
+        `${TS_CODES.UNKNOWN_TYPE} Unknown type "float". GLSL's and HLSL's float is f32 here.`,
+      ],
+    ]) {
+      expect(diagnosticsOf(`"use typeshade";\n${head}${line}${FS}`), line).toEqual([message]);
+    }
+  });
+
+  it('as the base of a class or an interface, used or not', () => {
+    // Each was TS8010 '"C" extends "Date", which this file does not declare as a struct', beside
+    // TypeScript's TS2304 on `Date`; an interface no one used said nothing at all.
+    for (const head of [
+      'class C extends Date {\n  a: f32 = 1.;\n}\nfunction g(): f32 {\n  return new C().a;\n}\n',
+      'interface I extends Date {\n  a: f32;\n}\nfunction g(i: I): f32 {\n  return i.a;\n}\n',
+      'interface I extends Date {\n  a: f32;\n}\n',
+    ]) {
+      expect(diagnosticsOf(`"use typeshade";\n${head}${FS}`), head).toEqual([unknownType('Date')]);
+    }
+    // A class that holds a mixin applied is a base the file declares.
+    const r =
+      compile(`"use typeshade";\nclass B {\n  a: f32 = 1.;\n}\nfunction Tinted<TBase extends AnyClass>(Base: TBase) {\n  return class extends Base {\n    t: f32 = 2.;\n  };\n}\nconst TB = Tinted(B);\nclass C extends TB {\n  c: f32 = 3.;\n}\n@fragment
+export function fs(): vec4 {
+  const c = new C();
+  return vec4(c.a, c.t, c.c, 1.);
+}
+`);
+    expect(r.diagnostics).toEqual([]);
+  });
+
+  it('as the type of a binding, which a read of the binding adds nothing to', () => {
+    // A read was also 'Unknown field "a" on Foo.', of the struct the binding was recovered as.
+    expect(
+      diagnosticsOf(
+        `"use typeshade";\ndeclare const u: uniform<Foo>;\nfunction g(): f32 {\n  return u.a;\n}\n${FS}`,
+      ),
+    ).toEqual([unknownType('Foo')]);
   });
 
   it('a name the library declares is no unknown name in a constraint', () => {
@@ -362,6 +553,47 @@ describe('the editor says the one sentence the compiler says', () => {
       expect(compiled, line).toHaveLength(1);
       expect(editorOf(src), line).toEqual(compiled.map((c) => `typeshade ${c}`));
     }
+  });
+
+  it('a type the library declares, read, called or built, and a name in a body no call lowers', () => {
+    for (const src of [
+      body('', 'Number("1")'),
+      body('', 'Number(1.)'),
+      body('', 'Object.keys(1.)'),
+      body('', 'Object'),
+      body('', 'new Symbol()'),
+      body('', 'process'),
+      body('', 'require("x")'),
+      body('', 'new globalThis.Date()'),
+      `"use typeshade";\nfunction mk<T>(x: T): f32 {\n  const d = window;\n  return 1.;\n}\n${FS}`,
+      `"use typeshade";\nclass C extends Date {\n  a: f32 = 1.;\n}\n${FS}`,
+      `"use typeshade";\ninterface I extends Date {\n  a: f32;\n}\n${FS}`,
+      `"use typeshade";\ndeclare const u: uniform<Foo>;\nfunction g(): f32 {\n  return u.a;\n}\n${FS}`,
+    ]) {
+      const compiled = diagnosticsOf(src);
+      expect(compiled, src).toHaveLength(1);
+      expect(editorOf(src), src).toEqual(compiled.map((c) => `typeshade ${c}`));
+    }
+  });
+
+  it('a new of a name another document declares, which a file compiled on its own cannot see', () => {
+    // TypeScript's TS7009 on `new g()` merges into the compiler's unknown name: the editor
+    // compiles each document on its own, as it does a call of an imported function (TS8004).
+    const service = createTypeshadeLanguageService();
+    service.openDocument(
+      '/lib.ts',
+      `"use typeshade";\nexport function g(): f32 {\n  return 1.;\n}\n`,
+    );
+    service.openDocument(
+      '/main.ts',
+      `"use typeshade";\nimport { g } from "./lib";\nfunction f(): f32 {\n  const d = new g();\n  return 1.;\n}\n${FS}`,
+    );
+    expect(
+      service
+        .getDiagnostics('/main.ts')
+        .filter((d) => d.severity === 'error')
+        .map((d) => `${d.source} ${d.code} ${d.message}`),
+    ).toEqual([`typeshade ${TS_CODES.UNKNOWN_NAME} Unknown identifier "g".`]);
   });
 
   it('a name the file declares, whatever it spells', () => {

@@ -15,7 +15,8 @@ import { emitModule } from '../../core/backends/wgsl.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
 import { lowerSourceFunctions } from './lower/function.js';
 import { sequenceEffects } from './sequence.js';
-import { analyzeSemantics } from './semantic.js';
+import { analyzeSemantics, reportUndeclaredValues } from './semantic.js';
+import { reportImportedNews } from './lower/new-target.js';
 import { collectModuleConsts } from './module-const.js';
 import { collectBindings } from './bindings.js';
 import { collectOverrides } from './overrides.js';
@@ -208,6 +209,8 @@ export function compileTsSource(
   }
 
   analyzeSemantics(sourceFile, diagnostics);
+  // A file compiled on its own sees no file it imports from, and says so of a `new` on an import.
+  reportImportedNews(sourceFile, undefined, diagnostics);
   // Opt-in, and additive: warnings only, no emitted byte moves (§13, #148).
   if (options.deprecations === true) reportIntegerLiteralDeprecations(sourceFile, diagnostics);
   // The file's `"enable <extension>";` directives (§50), before anything that could emit.
@@ -328,6 +331,8 @@ export function compileTsSource(
   if (options.checkReservedNames ?? true) {
     reportReservedNames(sourceFile, diagnostics, symbols, funcs, vars);
   }
+  // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
+  reportUndeclaredValues(sourceFile, diagnostics);
   dropRepeatedDiagnostics(diagnostics);
   let wgsl: string | undefined;
   const shouldEmit = options.emit ?? true;

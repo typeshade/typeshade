@@ -1,17 +1,25 @@
 // Ban host/JS surface inside "use typeshade" files: host control flow and the runtime forms no
 // shader has. A NAME is not judged here by its spelling. It is resolved where it is used, and one
-// nothing declares is an unknown name of the code that owns its position (Rule 2.1). Two of those
-// are said here, on the syntax, because the lowering reaches a body once per instance or not at
-// all: a `new` that builds no class, and a type name nothing declares.
+// nothing declares is an unknown name of the code that owns its position (Rule 2.1). Three of
+// those are said here, on the syntax, because the lowering reaches a body once per instance or
+// not at all: a `new` that builds no class and a type name nothing declares, before the lowering,
+// and a value or a callee nothing declares, after it ({@link reportUndeclaredValues}).
 
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { isEnableDirective } from './enables.js';
-import { undeclaredTypeName, unknownTypeSentence } from './type-map.js';
-import { namesInScope } from './unknown-names.js';
+import { LIBRARY_TYPE_NAMES, undeclaredTypeName, unknownTypeSentence } from './type-map.js';
+import { declaredValueNamesOf, namesInScope } from './unknown-names.js';
 import { newRefusal } from './lower/new-target.js';
+import {
+  builtinValueNames,
+  unknownIdentifierSentence,
+  unknownValueSentence,
+} from './lower/expression.js';
+import { unknownFunctionSentence } from './lower/expression-call.js';
+import { ATTRIBUTE_NAMES } from './builtin-check.js';
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -199,4 +207,167 @@ export function analyzeSemantics(
     }
   }
   visit(sourceFile, sourceFile, diagnostics);
+}
+
+/** The values the ambient library declares beyond the builtins a call reaches and the §9.3
+ *  constants ({@link builtinValueNames}): the attributes, `discard`, `Symbol`, and the call-form
+ *  bindings `uniform<T>()` and `storage<T>()`. TypeScript resolves each, so none is a name
+ *  nothing declares; `ambient-parity.test.ts` holds the whole set to the library. */
+export const LIBRARY_VALUES: ReadonlySet<string> = new Set([
+  ...ATTRIBUTE_NAMES,
+  'discard',
+  'Symbol',
+  'uniform',
+  'storage',
+]);
+
+/** Whether the ambient library declares a value of `name`, which is then no name nothing
+ *  declares ({@link LIBRARY_VALUES}). */
+export const isLibraryValueName = (name: string): boolean =>
+  LIBRARY_VALUES.has(name) || builtinValueNames().includes(name);
+
+/** The names a body reads that are neither a value nor a callee of the program: WGSL's phony
+ *  target `_` (§52), and the two TypeScript itself declares in a function, which the lowering
+ *  says what it makes of. */
+const NOT_READ: ReadonlySet<string> = new Set(['_', 'undefined', 'arguments']);
+
+/** Whether an identifier is the root of a target written to, `x` in `x.a[i] = 1.` or `x++`. */
+function assignedRoot(id: ts.Identifier): boolean {
+  let at: ts.Node = id;
+  while (
+    (ts.isPropertyAccessExpression(at.parent) || ts.isElementAccessExpression(at.parent)) &&
+    at.parent.expression === at
+  ) {
+    at = at.parent;
+  }
+  while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+  const p = at.parent;
+  if (ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p)) {
+    return (
+      p.operator === ts.SyntaxKind.PlusPlusToken || p.operator === ts.SyntaxKind.MinusMinusToken
+    );
+  }
+  return (
+    ts.isBinaryExpression(p) &&
+    p.left === at &&
+    p.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+    p.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+  );
+}
+
+/** How `id` is used where it stands in a body, or undefined where it is no read of a name: a
+ *  declaration's name, a member after a dot, a key, a label, and the operands another refusal
+ *  covers whole (`await`, `throw`, `typeof`, a spread, a template, a shorthand). */
+function useOf(id: ts.Identifier): 'value' | 'callee' | 'assigned' | undefined {
+  const p = id.parent;
+  if (ts.isCallExpression(p) && p.expression === id) return 'callee';
+  if (ts.isPropertyAccessExpression(p)) {
+    return p.expression === id ? (assignedRoot(id) ? 'assigned' : 'value') : undefined;
+  }
+  if (ts.isElementAccessExpression(p)) {
+    return p.expression === id && assignedRoot(id) ? 'assigned' : 'value';
+  }
+  if (
+    ts.isBinaryExpression(p) ||
+    ts.isPrefixUnaryExpression(p) ||
+    ts.isPostfixUnaryExpression(p) ||
+    ts.isParenthesizedExpression(p)
+  ) {
+    return assignedRoot(id) ? 'assigned' : 'value';
+  }
+  if (ts.isVariableDeclaration(p) || ts.isPropertyAssignment(p) || ts.isPropertyDeclaration(p)) {
+    return p.initializer === id ? 'value' : undefined;
+  }
+  if (ts.isCallExpression(p) || ts.isNewExpression(p)) {
+    return p.arguments?.includes(id) === true ? 'value' : undefined;
+  }
+  if (
+    ts.isReturnStatement(p) ||
+    ts.isConditionalExpression(p) ||
+    ts.isArrayLiteralExpression(p) ||
+    ts.isIfStatement(p) ||
+    ts.isWhileStatement(p) ||
+    ts.isDoStatement(p) ||
+    ts.isSwitchStatement(p) ||
+    ts.isCaseClause(p) ||
+    ts.isForOfStatement(p) ||
+    ts.isAsExpression(p) ||
+    ts.isSatisfiesExpression(p) ||
+    ts.isNonNullExpression(p) ||
+    ts.isExpressionStatement(p) ||
+    (ts.isArrowFunction(p) && p.body === id)
+  ) {
+    return ts.isForOfStatement(p) && p.initializer === id ? undefined : 'value';
+  }
+  return undefined;
+}
+
+/**
+ * Says each name read as a value, called, or assigned to in a body, where nothing declares it:
+ * not the file, in any scope (`declaredValueNamesOf`), not the ambient library, and not a type
+ * the library declares, which is said to be one. Run once the file is lowered: a body a call
+ * lowers said it already, word for word at the same span, or covered it with a refusal of its
+ * own, and either way says nothing more here; a body no call lowers (an uncalled generic, a
+ * function that takes a function, a method of a class nothing builds) says it here, as the
+ * editor's TS2304 does (Rule 2.1, Rule 12.7). A decorator, a type, a heritage clause and a
+ * `new`'s target are said where they are read.
+ */
+export function reportUndeclaredValues(
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const declared = declaredValueNamesOf(sourceFile);
+  const errors = diagnostics.filter(
+    (d) => d.category === 'error' && d.fileName === sourceFile.fileName,
+  );
+  const covered = (node: ts.Node): boolean => {
+    const start = node.getStart(sourceFile);
+    const end = node.getEnd();
+    return errors.some((d) => d.start <= start && d.start + d.length >= end);
+  };
+  const check = (id: ts.Identifier): void => {
+    const name = id.text;
+    if (declared.has(name) || NOT_READ.has(name)) return;
+    if (isLibraryValueName(name) && !LIBRARY_TYPE_NAMES.has(name)) return;
+    const use = useOf(id);
+    if (use === undefined || covered(id)) return;
+    const message =
+      use === 'callee'
+        ? unknownFunctionSentence(id)
+        : use === 'assigned'
+          ? unknownIdentifierSentence(id, `Cannot assign to unknown name "${name}".`)
+          : unknownValueSentence(id);
+    push(
+      diagnostics,
+      sourceFile,
+      id,
+      message,
+      use === 'callee' ? TS_CODES.UNKNOWN_FN : TS_CODES.UNKNOWN_NAME,
+    );
+  };
+  const walk = (node: ts.Node, inBody: boolean): void => {
+    if (ts.isDecorator(node) || ts.isTypeNode(node) || ts.isHeritageClause(node)) return;
+    if (ts.isNewExpression(node)) {
+      for (const arg of node.arguments ?? []) walk(arg, inBody);
+      return;
+    }
+    if (inBody && ts.isIdentifier(node)) {
+      check(node);
+      return;
+    }
+    if (ts.isFunctionLike(node)) {
+      const body = (node as { readonly body?: ts.Node }).body;
+      if (body !== undefined) walk(body, true);
+      return;
+    }
+    // An instance field's initializer is a body too: the constructor runs it.
+    if (ts.isPropertyDeclaration(node) && node.initializer !== undefined) {
+      if (!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) {
+        walk(node.initializer, true);
+      }
+      return;
+    }
+    ts.forEachChild(node, (child) => walk(child, inBody));
+  };
+  walk(sourceFile, false);
 }

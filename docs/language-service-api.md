@@ -333,11 +333,14 @@ past the second sentence, and a coding agent fixes both. `mergeDiagnostics` drop
 two rules, and only ever an error that another error already covers:
 
 - **The same mistake.** A TypeScript error and a compiler error that its table pairs by code
-  (TS2304, TS2583, TS2584, TS2552, TS2448 and TS2454 with the unknown-name codes `TS8022`,
-  `TS8004` and `TS8002`, `Map` and `document` among them; TS2339 and TS2551 with `TS8022` and `TS8035`; TS2353 and TS2561 with `TS8010`;
-  TS2694 and TS2749 with `TS8002`; TS2349 with `TS8004`; TS7009, TS2351, TS2693 and TS2511
-  with `TS8035`, a `new` of a function, a value, a type or an `abstract` class;
-  TS2588 and TS2540 with `TS8005`;
+  (TS2304, TS2583, TS2584, TS2591, TS2580, TS2552, TS2448 and TS2454 with the unknown-name
+  codes `TS8022`, `TS8004` and `TS8002`, `Map`, `document` and `process` among them; TS2339 and
+  TS2551 with `TS8022` and `TS8035`; TS2353 and TS2561 with `TS8010`; TS2694 and TS2749 with
+  `TS8002`; TS2349 with `TS8004`; TS7009, TS2351, TS2693, TS2511 and TS2708 with `TS8035`, a
+  `new` of a function, a value, a type, an `abstract` class or a namespace of types; TS7009
+  and TS7017 with `TS8022`, a `new` of a name a file compiled on its own imports and cannot
+  see, or of a member of `globalThis`; TS2693 with `TS8022` and `TS8004` too, a type the
+  library declares read or called (`Number(x)`); TS2588 and TS2540 with `TS8005`;
   TS2554 with `TS8019`; TS2322 with `TS8003`; TS2345 and TS2769 with `TS8003`, `TS8019` and
   `TS8036`; TS2365 and TS2367 with `TS8003`, for a comparison of a vector with a vector of
   another size or with a scalar), where one span contains the other, are one mistake. TypeScript's span is widened

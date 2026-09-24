@@ -20,6 +20,8 @@ import { createTypeshadeLanguageService } from './service.js';
 import { SHADE_DTS } from './ambient.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
 import { LIBRARY_TYPE_NAMES, isLibraryTypeName } from '../compiler/ts/type-map.js';
+import { LIBRARY_VALUES, isLibraryValueName } from '../compiler/ts/semantic.js';
+import { builtinValueNames } from '../compiler/ts/lower/expression.js';
 
 const editorRefusal = (source: string): string | null => {
   const service = createTypeshadeLanguageService();
@@ -253,5 +255,37 @@ describe('every type the library declares is a name the compiler knows is declar
     const names = declared();
     expect(names.filter((n) => !isLibraryTypeName(n))).toEqual([]);
     expect([...LIBRARY_TYPE_NAMES].filter((n) => !names.includes(n))).toEqual([]);
+  });
+});
+
+describe('every value the library declares is a name the compiler knows is declared', () => {
+  // A value or a callee nothing declares is said once the file is lowered, in a body no call
+  // lowers too (Rule 2.1, proposal 0008), and the compiler reads "nothing" through
+  // `isLibraryValueName`. A value the library declares and the compiler does not know would be
+  // refused where the editor takes it. The brands its types are written with (`vecTag`, a
+  // `unique symbol`) are no name an author reads, and a read of one stays the lowering's to say.
+  const declared = (): string[] => {
+    const sf = ts.createSourceFile('shade.d.ts', SHADE_DTS, ts.ScriptTarget.Latest, true);
+    const out: string[] = [];
+    for (const st of sf.statements) {
+      if (ts.isFunctionDeclaration(st) && st.name !== undefined) out.push(st.name.text);
+      if (!ts.isVariableStatement(st)) continue;
+      for (const d of st.declarationList.declarations) {
+        const brand =
+          d.type !== undefined &&
+          ts.isTypeOperatorNode(d.type) &&
+          d.type.operator === ts.SyntaxKind.UniqueKeyword;
+        if (ts.isIdentifier(d.name) && !brand) out.push(d.name.text);
+      }
+    }
+    return [...new Set(out)].sort();
+  };
+
+  it('each one, and no name the library does not declare', () => {
+    const names = declared();
+    expect(names.filter((n) => !isLibraryValueName(n))).toEqual([]);
+    expect([...LIBRARY_VALUES, ...builtinValueNames()].filter((n) => !names.includes(n))).toEqual(
+      [],
+    );
   });
 });

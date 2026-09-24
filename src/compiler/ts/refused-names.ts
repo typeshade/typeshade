@@ -66,7 +66,8 @@ function declaringList(
 
 /** The class or the import that declares `name` among `statements`: a `new` reads a class, whose
  *  constructor may be refused where it is written, and an import is a declaration of the file's
- *  top level, which a multi-file program refuses when it names no function. */
+ *  top level, which a multi-file program refuses when it names no function (on the name) or
+ *  resolves to no file (on the whole import), so the whole import is the declaration. */
 function declaringClassOrImport(
   statements: readonly ts.Statement[],
   name: string,
@@ -75,8 +76,7 @@ function declaringClassOrImport(
     if (ts.isClassDeclaration(s) && s.name?.text === name) return s;
     const bindings = ts.isImportDeclaration(s) ? s.importClause?.namedBindings : undefined;
     if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
-    const hit = bindings.elements.find((el) => el.name.text === name);
-    if (hit !== undefined) return hit;
+    if (bindings.elements.some((el) => el.name.text === name)) return s;
   }
   return undefined;
 }

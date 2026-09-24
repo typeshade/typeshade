@@ -43,7 +43,7 @@ import {
 import { qualifiedParts } from '../namespaces.js';
 import { pushTypeArguments } from '../generics.js';
 import { ambiguousNew, newInstanceName, writtenInstanceArgs } from '../generic-structs.js';
-import { importsResolved, newRefusal, newTargetOf, thisObjectNewMessage } from './new-target.js';
+import { newRefusal, newTargetOf, thisObjectNewMessage } from './new-target.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import {
   methodNames,
@@ -70,7 +70,7 @@ import {
   staticThisClass,
   writtenMemberName,
 } from '../class-names.js';
-import { mapTsTypeToShaderType, undeclaredTypeName } from '../type-map.js';
+import { mapTsTypeToShaderType, writesUndeclaredType } from '../type-map.js';
 import {
   checkFunctionAccess,
   checkInheritedPrivateStatic,
@@ -1588,20 +1588,8 @@ export function lowerNew(
     dotted = cls;
   } else {
     const target = newTargetOf(node, sourceFile);
-    if (target.kind === 'imported') {
-      // What a name another file declares is was said once the imports were resolved. A file
-      // compiled on its own sees no other file, so the name is unknown here, as a call of it is.
-      if (!importsResolved(sourceFile)) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          node.expression,
-          `Unknown identifier "${target.name}".`,
-          TS_CODES.UNKNOWN_NAME,
-        );
-      }
-      return undefined;
-    }
+    // Anything but a class was said once for the file, where the `new` is written: a name
+    // another file declares with the imports (`reportImportedNews`), the rest by semantic.ts.
     if (target.kind !== 'class') return undefined;
     flat = target.flat;
     shown = unparen(node.expression).getText(sourceFile);
@@ -1614,10 +1602,9 @@ export function lowerNew(
   // exists, and never mention the type argument that is missing.
   const instance = newInstanceName(node, flat, sourceFile);
   if (instance === undefined) {
-    // A type argument nothing declares names no layout, and was said where it is written.
-    if (node.typeArguments?.some((t) => undeclaredTypeName(t, sourceFile) !== undefined)) {
-      return undefined;
-    }
+    // A type argument that writes a name nothing declares, `Foo` or `vec3<Foo>`, names no
+    // layout, and was said where it is written.
+    if (node.typeArguments?.some((t) => writesUndeclaredType(t, sourceFile))) return undefined;
     const why = ambiguousNew(dotted, sourceFile);
     if (why !== undefined) {
       pushDiag(diagnostics, sourceFile, node, why);

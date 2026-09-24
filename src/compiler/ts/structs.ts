@@ -3,7 +3,7 @@ import type { StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { boolT, f32T, structT, typeKey as typeKeyOf } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { lookupTypeName, mapTsTypeToShaderType } from './type-map.js';
+import { lookupTypeName, mapTsTypeToShaderType, undeclaredTypeName } from './type-map.js';
 import {
   baseClassOf,
   emittedMemberName,
@@ -1279,6 +1279,9 @@ function basesOf(
       );
       return undefined;
     }
+    // A base nothing declares is an unknown type, said where it is written (semantic.ts), and
+    // the class keeps its own fields.
+    if (undeclaredTypeName(type, sourceFile) !== undefined) continue;
     out.push(type.expression.text);
   }
   return { bases: out, bodies };

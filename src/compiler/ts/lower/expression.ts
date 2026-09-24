@@ -21,7 +21,7 @@ import {
   shiftAmountMessage,
   shiftAmountOutOfRange,
 } from '../lit-coerce.js';
-import { mapTsTypeToShaderType } from '../type-map.js';
+import { libraryNameSentence, mapTsTypeToShaderType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral } from './expression-array.js';
 import { refuseBareAtomic } from './atomics.js';
@@ -301,7 +301,7 @@ const RUNTIME_TYPE_TEST: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
 /** The builtin values a name may be meant as: the language constants, `Math` and `console`, and
  *  every builtin function, which TypeScript's own suggestion offers for a value too. */
 let builtinValues: readonly string[] | undefined;
-const builtinValueNames = (): readonly string[] =>
+export const builtinValueNames = (): readonly string[] =>
   (builtinValues ??= [...Object.keys(LANG_CONST), 'Math', 'console', ...builtinCalleeNames()]);
 
 /** The candidates for a misspelled value where `node` is written: the names in scope there,
@@ -310,6 +310,15 @@ export const valueScopes = (node: ts.Node): NameScopes => [
   ...namesInScope(node, 'value'),
   builtinValueNames(),
 ];
+
+/** The sentence for a value read that names no binding: what a name the library declares is
+ *  where the file declares nothing of it (`Number`, `Math`), else {@link
+ *  unknownIdentifierSentence}'s (Rule 2.1, Rule 12.1). */
+export function unknownValueSentence(node: ts.Identifier): string {
+  const library =
+    declarationOf(node) === undefined ? libraryNameSentence(node.text, 'value') : undefined;
+  return library ?? unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`);
+}
 
 /**
  * The sentence for an identifier that names no binding, `mistake` followed by its remedy
@@ -370,13 +379,7 @@ function lowerIdentifier(
     // A name whose declaration was refused, or one an error already covers, says nothing
     // more: the refusal is the one diagnostic for the one mistake (Rule 12.4, #171).
     if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined;
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`),
-      TS_CODES.UNKNOWN_NAME,
-    );
+    pushDiag(diagnostics, sourceFile, node, unknownValueSentence(node), TS_CODES.UNKNOWN_NAME);
     return undefined;
   }
   switch (binding.kind) {

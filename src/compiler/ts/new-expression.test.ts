@@ -132,6 +132,29 @@ describe('what a new is refused on says its own reason', () => {
     ).toEqual([`${TS_CODES.UNKNOWN_NAME} "N" has no member "Q".`]);
   });
 
+  it('names a class it is spelled like, and never a value, which a new cannot build', () => {
+    // `new Pos()` beside a parameter `pos` was told 'Did you mean "pos"?', and `new pos()` is
+    // '"pos" is a value, not a class.'
+    expect(
+      errorsOf(
+        `"use typeshade"\nfunction g(pos: f32): f32 {\n  const q = new Pos()\n  return pos\n}${TAIL}`,
+      ),
+    ).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "Pos".`]);
+    expect(
+      errorsOf(
+        `"use typeshade"\nfunction ray(): f32 {\n  return 1.\n}\nfunction g(): f32 {\n  const q = new Ray()\n  return 1.\n}${TAIL}`,
+      ),
+    ).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "Ray".`]);
+    expect(
+      errorsOf(
+        built(
+          'class Ray {\n  a: f32 = 1.\n}\nabstract class Rax {\n  a: f32 = 1.\n}\n',
+          'new Rya()',
+        ),
+      ),
+    ).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "Rya". Did you mean "Ray"?`]);
+  });
+
   it('what a target that is no class is, with what to write (Rule 8.13)', () => {
     const one = (head: string, target: string, message: string) =>
       expect(errorsOf(built(head, target)), target).toEqual([
@@ -436,6 +459,16 @@ describe('each thing a new is refused on is named for what it is (Rule 8.13, Rul
     }
   });
 
+  it('a type the library declares for TypeScript is a type, not a value', () => {
+    // Each was TS8013 "…is not one of them. "new" on anything else allocates a JS object", beside
+    // TS8012 "is a host/JS API"; TypeScript says TS2693, "only refers to a type".
+    const type = (name: string) =>
+      `"${name}" is a type, not a value: the library declares it for TypeScript's own use.`;
+    one('', 'new Array(4)', type('Array'));
+    one('', 'new Number(1)', type('Number'));
+    one('', 'new Object()', type('Object'));
+  });
+
   it('a name the ambient library gives is what it is: a constant, a function, a member', () => {
     one('', 'new PI()', '"PI" is a value, not a class.');
     one('', 'new Math.PI()', '"Math.PI" is a value, not a class.');
@@ -599,6 +632,27 @@ describe('a short name inside a namespace is the namespace’s, for a new and a 
       file(
         `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n}\nnamespace N {\n  export function mk(): P {\n    return new P()\n  }\n}\n`,
         `  return vec4(N.mk().a)`,
+      ),
+      [1, 1, 1, 1],
+    );
+  });
+
+  it('a parameter P of a namespace function takes N.P, which a top-level P is not', () => {
+    // Before this `P` there was the top-level class, and `N.f(new P())` from outside compiled
+    // (7). It is `N.P` now, as TypeScript reads it, and the top-level `P` handed to it is a
+    // different struct, refused as two same-shaped classes are (Rule 12.7's nominal structs).
+    expect(
+      errorsOf(
+        file(
+          `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(p: P): f32 {\n    return p.a\n  }\n}\n`,
+          `  return vec4(N.f(new P()))`,
+        ),
+      ),
+    ).toEqual([`${TS_CODES.TYPE_MISMATCH} Argument 1 of "N.f" type mismatch.`]);
+    values(
+      file(
+        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(p: P): f32 {\n    return p.a\n  }\n}\n`,
+        `  return vec4(N.f(new N.P()))`,
       ),
       [1, 1, 1, 1],
     );
@@ -879,11 +933,39 @@ describe('a new finds what TypeScript finds, and names it as the file writes it'
     expect(
       multi([main(`export function f(): f32 {\n  const p = new P();\n  return p.a;\n}\n`)]),
     ).toEqual([`main.ts:2 ${TS_CODES.UNSUPPORTED} "lib.ts" has no function "P".`]);
-    // A file compiled on its own sees no other file: the name is unknown, as a call of it is.
-    expect(
-      said(
-        `"use typeshade"\nimport { g } from "./lib"\nexport function f(): f32 {\n  const d = new g()\n  return 1.\n}\n`,
-      ),
-    ).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "g".`]);
+    // A file compiled on its own sees no other file: the name is unknown, as a call of it is,
+    // in a body a call lowers or not.
+    for (const fn of ['export function f(): f32', 'function mk<T>(x: T): f32']) {
+      expect(
+        said(
+          `"use typeshade"\nimport { g } from "./lib"\n${fn} {\n  const d = new g()\n  return 1.\n}\n`,
+        ),
+        fn,
+      ).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "g".`]);
+    }
+  });
+
+  it('an import that resolves to no file is the one refusal, and the local a new builds adds nothing', () => {
+    // A `new` on it was dropped in silence, and each read of `o` said 'Unknown identifier "o"',
+    // although `o` is declared: `./lib.js` is the usual ESM spelling, which names no file here.
+    const LIB = {
+      fileName: 'lib.ts',
+      source: `"use typeshade";\nexport class P {\n  a: f32 = 1.;\n}\n`,
+    };
+    for (const [spec, looked] of [
+      ['./nothere', 'nothere.ts'],
+      ['./lib.js', 'lib.js.ts'],
+    ]) {
+      const main = {
+        fileName: 'main.ts',
+        source: `"use typeshade";\nimport { P } from "${spec!}";\nexport function f(): f32 {\n  const o = new P();\n  return o.a;\n}\n@fragment\nexport function fs(): vec4 {\n  return vec4(f());\n}\n`,
+      };
+      expect(
+        compileTsSources([main, LIB], 'main.ts').diagnostics.map((d) => `${d.code} ${d.message}`),
+        spec,
+      ).toEqual([
+        `${TS_CODES.UNSUPPORTED} Cannot resolve import "${spec!}" from "main.ts" (looked for "${looked!}").`,
+      ]);
+    }
   });
 });

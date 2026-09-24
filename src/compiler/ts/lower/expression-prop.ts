@@ -24,6 +24,7 @@ import {
   visibleField,
 } from './class-access.js';
 import { parseSwizzle } from '../swizzle.js';
+import { declaredTypeNamesOf, isLibraryTypeName } from '../type-map.js';
 import { numericMismatch } from '../numeric.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
@@ -308,6 +309,15 @@ export function lowerPropertyAccess(
       // A field its class declared and the struct does not carry was refused where it was
       // written; a read of it adds nothing (Rule 12.4).
       if (scope.isWithheld(base.type.name, emittedMemberName(prop))) return undefined;
+      // Nor does a read through a struct nothing declares, `u.a` of `uniform<Foo>`, which a
+      // binding recovers from a type refused where it is written (`TS8002`).
+      if (
+        scope.structByName(base.type.name) === undefined &&
+        !declaredTypeNamesOf(sourceFile).has(base.type.name) &&
+        !isLibraryTypeName(base.type.name)
+      ) {
+        return undefined;
+      }
       const hidden = isPrivateName(prop)
         ? scope.privateField(base.type.name, emittedMemberName(prop))
         : undefined;

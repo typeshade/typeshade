@@ -263,15 +263,16 @@ export function fs(): vec4 {
     expect(r.wgsl).toContain('fn half(m: f32) -> f32 {');
   });
 
-  it('says a symbol is a name nothing declares, and says it once', () => {
-    // No list of host names says it (Rule 2.1): `Symbol` is an unknown callee, and the string
-    // handed to it is not lowered to say a second thing about the same line.
+  it('says what a symbol is, and says it once', () => {
+    // No list of host names says it (Rule 2.1): the library declares `Symbol` for TypeScript's
+    // `for…of`, which is what the callee is told, and the string handed to it is not lowered to
+    // say a second thing about the same line.
     expect(
       compileTsSource(`"use typeshade"
 const key = Symbol('k')
 ${FS}`).diagnostics.map((d) => `${d.code} ${d.message}`),
     ).toEqual([
-      'TS8004 Unknown function "Symbol". Declare it in this file, or import it from another shader module.',
+      `TS8004 "Symbol" is no function a shader has: the library declares it for TypeScript's own use.`,
     ]);
   });
 

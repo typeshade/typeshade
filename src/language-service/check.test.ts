@@ -70,11 +70,12 @@ export function fogFactor(dist: f32, density: f32): f32 {
     const report = checkDocuments([doc('fog.shade.ts', text)]);
     const rows = report.diagnostics.map((d) => `${d.line}:${d.column} ${d.source} ${d.code}`);
     // The write to the `const` is one mistake both halves see: TypeScript's TS2588 and the
-    // compiler's TS8005, merged to the compiler's (Rule 12.4). The typo only TypeScript sees,
-    // since the compiler refused the statement at the write.
-    expect(rows).toEqual(['4:3 typeshade TS8005', '4:7 typescript TS2552']);
-    const typo = report.diagnostics.find((d) => d.code === 'TS2552')!;
-    expect(typo.message).toBe("Cannot find name 'clmap'. Did you mean 'clamp'?");
+    // compiler's TS8005, merged to the compiler's (Rule 12.4). So is the typo in the statement
+    // the compiler refused at the write: it names a function nothing declares, which the
+    // compiler says once the file is lowered (Rule 2.1), and TypeScript's TS2552 merges into it.
+    expect(rows).toEqual(['4:3 typeshade TS8005', '4:7 typeshade TS8004']);
+    const typo = report.diagnostics.find((d) => d.code === 'TS8004')!;
+    expect(typo.message).toBe('Unknown function "clmap". Did you mean "clamp"?');
     expect(typo).toMatchObject({ file: 'fog.shade.ts', endLine: 4, endColumn: 12, length: 5 });
     expect(report.errors).toBe(2);
   });

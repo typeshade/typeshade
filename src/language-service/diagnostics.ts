@@ -1216,6 +1216,16 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'The same for a name of the DOM (`document`).',
   },
   {
+    typescript: 2591,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same for a name of Node (`process`, `require`, `Buffer`).',
+  },
+  {
+    typescript: 2580,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same for a name of Node, where TypeScript offers its types to install.',
+  },
+  {
     typescript: 2552,
     typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
     reason:
@@ -1275,20 +1285,34 @@ const SAME_MISTAKE: readonly SameMistake[] = [
   },
   {
     typescript: 7009,
-    typeshade: new Set(['TS8035']),
-    reason: 'A `new` on a function or a WGSL constructor, which is called without it.',
+    typeshade: new Set(['TS8035', 'TS8022']),
+    reason:
+      'A `new` on a function or a WGSL constructor, which is called without it, or on a name a ' +
+      'file compiled on its own imports and cannot see.',
   },
   {
     typescript: 2351,
     typeshade: new Set(['TS8035']),
-    reason: 'A `new` on a value, an enum, `Math` or `console`, none of which has a constructor.',
+    reason:
+      'A `new` on a value, an enum, `Math`, `console` or `Symbol`, none of which has a ' +
+      'constructor.',
   },
   {
     typescript: 2693,
-    typeshade: new Set(['TS8035']),
+    typeshade: new Set(['TS8035', 'TS8022', 'TS8004']),
     reason:
-      'A `new` on an interface, a type alias or a WGSL type with no constructor, which is a ' +
-      'type and not a value.',
+      'A type read as a value: a `new` on an interface, a type alias or a WGSL type with no ' +
+      'constructor, and a type the library declares read or called (`Number(x)`).',
+  },
+  {
+    typescript: 2708,
+    typeshade: new Set(['TS8035']),
+    reason: 'A `new` through a namespace that holds types alone (`new N.I()`).',
+  },
+  {
+    typescript: 7017,
+    typeshade: new Set(['TS8022']),
+    reason: 'A `new` on a member of `globalThis`, a name nothing declares.',
   },
   {
     typescript: 2511,

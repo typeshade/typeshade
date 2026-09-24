@@ -17,10 +17,11 @@
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
   /** A type name nothing declares, said once for the file wherever it is written (a parameter,
-   *  a claim, a type argument, an alias, an `implements` clause, a body no call lowers), a type
-   *  the library declares for TypeScript alone (`Number`), or a type this surface does not take
-   *  in a position the mapper reads (Rule 2.1). A class's or an interface's `extends` is the
-   *  struct collector's, `STRUCT_FIELD`, where the struct is used. */
+   *  a claim, a type argument, `B<vec3<Foo>>` included, an alias, an `implements` clause, the
+   *  base a class or an interface extends, a body no call lowers), a type the library declares
+   *  for TypeScript alone (`Number`) where the file declares none of its name, or a type this
+   *  surface does not take in a position the mapper reads (Rule 2.1). A base the file declares
+   *  and does not collect as a struct is the struct collector's, `STRUCT_FIELD`. */
   UNKNOWN_TYPE: 'TS8002',
   TYPE_MISMATCH: 'TS8003',
   UNKNOWN_FN: 'TS8004',
@@ -50,7 +51,7 @@ export const TS_CODES = {
   FUNCTION_SHAPE: 'TS8020',
   /** A `return` shape problem: bare `return` where a value is required, or an entry function with no return type annotation that returns a value. */
   RETURN_SHAPE: 'TS8021',
-  /** Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`). */
+  /** Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`), in a body a call lowers or in one no call lowers; a name the library declares for TypeScript's own use (`Object`, `Math`, `Symbol`) read as a value says what it is. */
   UNKNOWN_NAME: 'TS8022',
   /** The same function, binding, module constant or struct name declared twice in one scope. A struct counts whichever of the three spellings each declaration used: a class, an interface and a type alias of one name are one struct, not declarations that merge. */
   DUPLICATE_SYMBOL: 'TS8023',
@@ -119,8 +120,8 @@ export const TS_CODES = {
    *  (`new vec3f()`), a type alias of one (`type S = vec3`), a WGSL type with no constructor
    *  (`new sampler()`) or one the library declares for TypeScript (`new Array(4)`), a function
    *  (`Math.sin` and an imported one included), an enum or one of its members, a namespace,
-   *  `Math` or `console`, an interface or type alias, a type parameter, a mixin applied to a
-   *  class, or a value (`PI` included). A target nothing
+   *  `Math`, `console` or `Symbol`, an interface or type alias, a type parameter, a mixin
+   *  applied to a class, or a value (`PI` included). A target nothing
    *  declares, and a member the object before it does not have (`new Math.Foo()`), is
    *  `UNKNOWN_NAME`. A getter or setter missing its type is `UNKNOWN_TYPE`, a `readonly` field
    *  written outside the constructor `CONST_ASSIGN`. */

@@ -19,7 +19,7 @@ import ts from 'typescript';
 import { TS_CODES, type TsCode } from '../codes.js';
 import {
   HANDLE_TYPE_NAMES,
-  LIBRARY_TYPE_NAMES,
+  libraryNameSentence,
   lookupTypeName,
   mapTsTypeToShaderType,
 } from '../type-map.js';
@@ -48,7 +48,7 @@ export type NewTarget =
   | { readonly kind: 'class'; readonly flat: string; readonly dotted: string }
   /** A name the file imports, which another file of a multi-file program declares. What it is
    *  is known only once the imports are resolved (`compileTsSources`, which imports functions
-   *  alone and says so of anything else), so it is said there ({@link reportImportedNews}). */
+   *  alone and says so of anything else), so it is said with them ({@link reportImportedNews}). */
   | { readonly kind: 'imported'; readonly name: string }
   /** A value that holds a class, `const A = B` or `const Q = class {…}`: a class is no value
    *  here, which its declaration is refused for, and the `new` adds nothing (Rule 12.4). */
@@ -189,10 +189,11 @@ function aliasTarget(
 }
 
 /** The sentence for a name nothing declares where a `new` names it, with the remedy every
- *  unknown name gets (Rule 12.1). */
+ *  unknown name gets (Rule 12.1). The name it is spelled like is one a `new` builds, a class or a
+ *  namespace on the way to one: a local `pos` is no remedy for `new Pos()`. */
 const unknownTarget = (id: ts.Identifier): NewTarget =>
   refused(
-    unknownNameSentence(`Unknown identifier "${id.text}".`, id.text, namesInScope(id, 'value')),
+    unknownNameSentence(`Unknown identifier "${id.text}".`, id.text, namesInScope(id, 'class')),
     TS_CODES.UNKNOWN_NAME,
   );
 
@@ -304,7 +305,8 @@ function hostMember(
 }
 
 /** A bare name no declaration of the file gives: a type parameter or a type around it, a WGSL
- *  type, a builtin function, a §9.3 constant, `Math` or `console`, or nothing at all. */
+ *  type, a name the library declares (a type of its own, `Math`, `console`, `Symbol`), a builtin
+ *  function, a §9.3 constant, or nothing at all. */
 function undeclared(
   id: ts.Identifier,
   node: ts.NewExpression,
@@ -326,11 +328,8 @@ function undeclared(
   if (NO_CONSTRUCTOR.has(name)) {
     return refused(`"${name}" is a type, not a value, and WGSL gives it no constructor.`);
   }
-  if (LIBRARY_TYPE_NAMES.has(name)) {
-    return refused(
-      `"${name}" is a type, not a value: the library declares it for TypeScript's own use.`,
-    );
-  }
+  const library = libraryNameSentence(name, 'class');
+  if (library !== undefined) return refused(library);
   if (
     isCanonicalMathFn(name) ||
     USER_FIRST_BUILTINS.has(name) ||
@@ -342,12 +341,6 @@ function undeclared(
     return functionTarget(name, node, sourceFile);
   }
   if (resolveLangConst(name) !== undefined) return valueTarget(name);
-  if (name === 'Math' || name === 'console') {
-    return refused(
-      `"${name}" is an object of functions, not a class. Call one of them, ` +
-        `${name === 'Math' ? 'Math.sin(x)' : 'console.log(x)'}.`,
-    );
-  }
   return unknownTarget(id);
 }
 
@@ -428,26 +421,31 @@ export function newRefusal(
 }
 
 /**
- * Says, once for the file, what each `new` on a name it imports is, once `compileTsSources` has
- * resolved the imports: it imports functions alone (#74), so a name `isFunction` answers for is
- * a function, called without `new`, and one whose import it refused said why at the import. A
- * module constant of a file that is not the entry is never lowered, which is why this is not
- * the lowering's to say.
+ * Says, once for the file, what each `new` on a name it imports is, in a body a call lowers or
+ * not. `compileTsSources` resolves the imports first and passes `isFunction`: it imports functions
+ * alone (#74), so a name `isFunction` answers for is a function, called without `new`, and one
+ * whose import it refused said why at the import. A file compiled on its own, as the editor
+ * compiles each document, sees no other file (`isFunction` undefined), and names the import
+ * unknown, as it names a call of one (`TS8004`). A module constant of a file that is not the
+ * entry is never lowered, which is why this is not the lowering's to say.
  */
 export function reportImportedNews(
   sourceFile: ts.SourceFile,
-  isFunction: (name: string) => boolean,
+  isFunction: ((name: string) => boolean) | undefined,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
-  IMPORTS_RESOLVED.add(sourceFile);
   const visit = (n: ts.Node): void => {
     if (ts.isNewExpression(n)) {
       const t = newTargetOf(n, sourceFile);
-      if (t.kind === 'imported' && isFunction(t.name)) {
-        const said = functionTarget(t.name, n, sourceFile) as Extract<
-          NewTarget,
-          { kind: 'refused' }
-        >;
+      const said =
+        t.kind !== 'imported'
+          ? undefined
+          : isFunction === undefined
+            ? refused(`Unknown identifier "${t.name}".`, TS_CODES.UNKNOWN_NAME)
+            : isFunction(t.name)
+              ? functionTarget(t.name, n, sourceFile)
+              : undefined;
+      if (said?.kind === 'refused') {
         diagnostics.push(makeDiagnostic(sourceFile, n, said.message, said.code));
       }
     }
@@ -455,11 +453,3 @@ export function reportImportedNews(
   };
   visit(sourceFile);
 }
-
-/** The files {@link reportImportedNews} has spoken for: the files of a multi-file program. */
-const IMPORTS_RESOLVED = new WeakSet<ts.SourceFile>();
-
-/** Whether the imports of `sourceFile` were resolved, so what a `new` on one is was said
- *  ({@link reportImportedNews}); a file compiled on its own sees no other file. */
-export const importsResolved = (sourceFile: ts.SourceFile): boolean =>
-  IMPORTS_RESOLVED.has(sourceFile);

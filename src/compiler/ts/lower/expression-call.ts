@@ -71,6 +71,7 @@ import { TS_CODES, type TsCode } from '../codes.js';
 import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 import { checkMathArgs, mathTakesElem } from './math-args.js';
 import { parseSwizzle } from '../swizzle.js';
+import { libraryNameSentence } from '../type-map.js';
 import { isConsoleMethod } from '../../../core/console.js';
 
 const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = {
@@ -2609,11 +2610,16 @@ export const calleeScopes = (callee: ts.Node): NameScopes => [
 
 /** The sentence for a call of `callee` that names nothing callable: TypeShade's spelling of a
  *  GLSL or HLSL name, the function a misspelled one is spelled like, or the declaration it
- *  needs. `discard` is a statement, which a call of it is not. */
-function unknownFunctionSentence(callee: ts.Identifier): string {
+ *  needs. `discard` is a statement, which a call of it is not, and a name the library declares
+ *  for TypeScript's own use (`Number`, `Math`) says what it is, where the file declares nothing
+ *  of it. */
+export function unknownFunctionSentence(callee: ts.Identifier): string {
   if (callee.text === 'discard') {
     return `"discard" is a statement, not a function. Write it without the parentheses: "discard;".`;
   }
+  const library =
+    declarationOf(callee) === undefined ? libraryNameSentence(callee.text, 'callee') : undefined;
+  if (library !== undefined) return library;
   return unknownNameSentence(
     `Unknown function "${callee.text}".`,
     callee.text,
