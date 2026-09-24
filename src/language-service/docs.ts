@@ -57,6 +57,15 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   mat4x3: '4x3 matrix of `f32`, column-major: 4 columns of `vec3`.',
   mat4x4: '4x4 matrix of `f32` (or `f64` as `mat4x4<f64>`), column-major.',
   mat4: '4x4 matrix of `f32`, column-major, same type as `mat4x4`.',
+  mat2x2f: "2x2 matrix of `f32`, column-major, same type as `mat2x2`: WGSL's predeclared alias.",
+  mat2x3f: "2x3 matrix of `f32`, column-major, same type as `mat2x3`: WGSL's predeclared alias.",
+  mat2x4f: "2x4 matrix of `f32`, column-major, same type as `mat2x4`: WGSL's predeclared alias.",
+  mat3x2f: "3x2 matrix of `f32`, column-major, same type as `mat3x2`: WGSL's predeclared alias.",
+  mat3x3f: "3x3 matrix of `f32`, column-major, same type as `mat3x3`: WGSL's predeclared alias.",
+  mat3x4f: "3x4 matrix of `f32`, column-major, same type as `mat3x4`: WGSL's predeclared alias.",
+  mat4x2f: "4x2 matrix of `f32`, column-major, same type as `mat4x2`: WGSL's predeclared alias.",
+  mat4x3f: "4x3 matrix of `f32`, column-major, same type as `mat4x3`: WGSL's predeclared alias.",
+  mat4x4f: "4x4 matrix of `f32`, column-major, same type as `mat4x4`: WGSL's predeclared alias.",
   sampler:
     'A sampler: how a sampled texture is filtered and addressed when `textureSample` reads it. A resource with no type argument, declared bare as `declare const smp: sampler`.',
   sampler_comparison:
@@ -373,6 +382,24 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   mat4x4:
     'Builds a `mat4x4`, 4 columns of 4 components in column-major order, from 4 `vec4` columns, from 16 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is square, so `determinant` applies and `transpose` maps it to itself.',
   mat4: 'Builds a `mat4x4`, 4 columns of 4 components in column-major order, from 4 `vec4` columns, from 16 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is square, so `determinant` applies and `transpose` maps it to itself.',
+  mat2x2f:
+    "Builds a `mat2x2f`, the same type as `mat2x2` under WGSL's predeclared alias, in the same four ways: from 2 `vec2` columns, from 4 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40).",
+  mat2x3f:
+    "Builds a `mat2x3f`, the same type as `mat2x3` under WGSL's predeclared alias, in the same four ways: from 2 `vec3` columns, from 6 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40).",
+  mat2x4f:
+    "Builds a `mat2x4f`, the same type as `mat2x4` under WGSL's predeclared alias, in the same four ways: from 2 `vec4` columns, from 8 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40).",
+  mat3x2f:
+    "Builds a `mat3x2f`, the same type as `mat3x2` under WGSL's predeclared alias, in the same four ways: from 3 `vec2` columns, from 6 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40).",
+  mat3x3f:
+    "Builds a `mat3x3f`, the same type as `mat3x3` under WGSL's predeclared alias, in the same four ways: from 3 `vec3` columns, from 9 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40).",
+  mat3x4f:
+    "Builds a `mat3x4f`, the same type as `mat3x4` under WGSL's predeclared alias, in the same four ways: from 3 `vec4` columns, from 12 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40).",
+  mat4x2f:
+    "Builds a `mat4x2f`, the same type as `mat4x2` under WGSL's predeclared alias, in the same four ways: from 4 `vec2` columns, from 8 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40).",
+  mat4x3f:
+    "Builds a `mat4x3f`, the same type as `mat4x3` under WGSL's predeclared alias, in the same four ways: from 4 `vec3` columns, from 12 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40).",
+  mat4x4f:
+    "Builds a `mat4x4f`, the same type as `mat4x4` under WGSL's predeclared alias, in the same four ways: from 4 `vec4` columns, from 16 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40).",
   vec2: 'Builds a `vec2` from two scalars or broadcasts a single scalar to both components.',
   vec3: 'Builds a `vec3` from three scalars, a `vec2` and a scalar, or broadcasts a single scalar to all three components.',
   vec4: 'Builds a `vec4` from four scalars, a `vec3` and a scalar, a `vec2` and two scalars, or broadcasts a single scalar to all four components.',

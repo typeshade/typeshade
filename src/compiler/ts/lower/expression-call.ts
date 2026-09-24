@@ -126,16 +126,16 @@ function ctorZero(elem: VecCtorElem): Expr | undefined {
   if (t) return { op: 'lit', type: t, value: 0 };
   return elem === 'bool' ? { op: 'lit', type: boolT, value: false } : undefined;
 }
-/** Matrix constructor name -> its shape. Every `matCxR` of wgsl.txt:4621 plus the `matN`
- *  shorthand for a square one, matching the type names `type-map.ts` accepts, so a type an
- *  author can declare is a value an author can build. */
+/** Matrix constructor name -> its shape. Every `matCxR` of wgsl.txt:4621, its predeclared
+ *  `matCxRf` alias (#183), and the `matN` shorthand for a square one, matching the type names
+ *  `type-map.ts` accepts, so a type an author can declare is a value an author can build. */
 const MAT_CTOR: Readonly<Record<string, { cols: 2 | 3 | 4; rows: 2 | 3 | 4 }>> = Object.fromEntries(
   ([2, 3, 4] as const).flatMap((cols) =>
-    ([2, 3, 4] as const).flatMap((rows) =>
-      cols === rows
-        ? [[`mat${cols}x${rows}`, { cols, rows }] as const, [`mat${cols}`, { cols, rows }] as const]
-        : [[`mat${cols}x${rows}`, { cols, rows }] as const],
-    ),
+    ([2, 3, 4] as const).flatMap((rows) => [
+      [`mat${cols}x${rows}`, { cols, rows }] as const,
+      [`mat${cols}x${rows}f`, { cols, rows }] as const,
+      ...(cols === rows ? [[`mat${cols}`, { cols, rows }] as const] : []),
+    ]),
   ),
 );
 

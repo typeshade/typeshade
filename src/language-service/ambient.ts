@@ -125,6 +125,8 @@ const matTypeAliases = MAT_ARITIES.flatMap((cols) =>
     const body = `Mat<${elem}, ${cols}, ${rows}>`;
     const lines = [`type mat${cols}x${rows}${param} = ${body}`];
     if (cols === rows) lines.push(`type mat${cols}${param} = mat${cols}x${rows}<T>`);
+    // WGSL's predeclared alias (#183): the `f32` matrix, taking no type argument.
+    lines.push(`type mat${cols}x${rows}f = mat${cols}x${rows}`);
     return lines;
   }),
 ).join('\n');
@@ -152,7 +154,7 @@ const matCtorOverloads = MAT_ARITIES.flatMap((cols) =>
       `declare function NAME(${comps}): ${t}`,
       ...bigger,
     ];
-    const names = cols === rows ? [name, `mat${cols}`] : [name];
+    const names = cols === rows ? [name, `${name}f`, `mat${cols}`] : [name, `${name}f`];
     // Every `declare function` carries JSDoc — `docs.test.ts` requires it, and an editor
     // with no hover text on a constructor is the gap that rule exists to close.
     return names.flatMap((n) => {
