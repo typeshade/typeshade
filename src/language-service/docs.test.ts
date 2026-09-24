@@ -154,13 +154,16 @@ describe('ambient lib JSDoc', () => {
 
 describe('TYPE_DOCS: every matrix name the compiler takes has a row', () => {
   // Regression: the table held `mat4` and `mat4x4` only, while the compiler takes every
-  // `matCxR` and the square `matN` shorthands (surface §40; the TS8002 sentence lists them),
+  // `matCxR`, WGSL's `matCxRf` aliases and the square `matN` shorthands (surface §40; the TS8002
+  // sentence lists them),
   // so hover documented two of the twelve and the reference page listed two matrix types.
   const MATRIX_NAMES = SUPPORTED_TYPE_NAMES.filter((n) => /^mat\d/.test(n));
 
-  it('the compiler takes all twelve, so the check below is not vacuous', () => {
+  it('the compiler takes all twenty-one, so the check below is not vacuous', () => {
     expect([...MATRIX_NAMES].sort()).toEqual(
       [
+        // WGSL's predeclared `matCxRf` aliases (#183).
+        ...[2, 3, 4].flatMap((c) => [2, 3, 4].map((r) => `mat${c}x${r}f`)),
         'mat2',
         'mat2x2',
         'mat2x3',
@@ -181,7 +184,7 @@ describe('TYPE_DOCS: every matrix name the compiler takes has a row', () => {
     const missing = MATRIX_NAMES.filter((n) => TYPE_DOCS[n] === undefined);
     expect(missing).toEqual([]);
     for (const n of MATRIX_NAMES) {
-      const [, c, r] = /^mat(\d)(?:x(\d))?$/.exec(n)!;
+      const [, c, r] = /^mat(\d)(?:x(\d)f?)?$/.exec(n)!;
       expect(TYPE_DOCS[n], n).toContain(`${c}x${r ?? c} matrix`);
     }
   });
