@@ -376,6 +376,40 @@ describe('a for update is lowered or refused, never dropped (Rules 7.5, 12.6)', 
       if (!header.includes('zz')) expect(editorErrorsOf(src), header).toEqual(errorsOf(alone));
     }
   });
+
+  it('adds nothing to the refusal of a function the header calls (Rule 12.4)', () => {
+    // A call of a function whose signature was refused says nothing more, so the header did
+    // not lower and the invariant added `TS8099 for loop could not be lowered, and no other
+    // diagnostic says why`, false beside the refusal of the signature.
+    const optional = {
+      code: 'TS8020',
+      message:
+        'Optional parameter "x" is not supported: a shader value is always present, so there ' +
+        'is no "absent" for the body to test. Give it a default instead, "x: T = ...", which a ' +
+        'call that omits it fills in.',
+    };
+    const unknownType = {
+      code: 'TS8002',
+      message:
+        'Unknown type "Foo". Declare it in this file, or import it from another shader module.',
+    };
+    for (const [top, expected] of [
+      ['function lim(x?: i32): i32 { return 1; }', optional],
+      ['function lim(x: Foo): i32 { return 1; }', unknownType],
+      ['function lim(x: i32): Foo { return 1; }', unknownType],
+    ] as const) {
+      for (const header of [
+        'let i: i32 = 0; i < lim(1); i++',
+        'let i: i32 = lim(1); i < 8; i++',
+        'let i: i32 = 0; i < 8; i += lim(1)',
+        'let i: i32 = 0; i < 8 && lim(1) > 0; i++',
+      ]) {
+        const src = kernel(`for (${header}) { out[0] = 5.; }`, top);
+        expect(errorsOf(src), `${top} ${header}`).toEqual([expected]);
+        expect(editorErrorsOf(src), `${top} ${header}`).toEqual([expected]);
+      }
+    }
+  });
 });
 
 describe('i = i + c is the step i += c spelled out (Rule 7.5)', () => {
@@ -598,6 +632,33 @@ describe('while on a constant that is true (Rule 7.5)', () => {
     ).toEqual([]);
     for (const cond of ['OFF', '!ON', 'ON && OFF', 'N < 0', 'ON && out[0] < 3.']) {
       expect(errorsOf(kernel(`while (${cond}) { out[0] += 1.; }`, top)), cond).toEqual([]);
+    }
+  });
+
+  it('reads a float comparison as the target computes it, in f32', () => {
+    // Folded in doubles, each of these held, and the loop was refused as one that never
+    // ends. In f32, on both targets, 0.1 + 0.2 is 0.3, and 16777217. and 1e-46 are 16777216.
+    // and 0., so the condition fails and the loop runs no trip.
+    const top =
+      'const A = 0.1; const B = 0.2; const C = 0.3; const X = 16777217.; const E = 1e-46;';
+    for (const cond of ['A + B > 0.3', 'A + B !== C', 'X > 16777216.', 'E > 0.', 'A > 0.1']) {
+      const src = kernel(`while (${cond}) { out[0] += 1.; }`, top);
+      expect(errorsOf(src), cond).toEqual([]);
+      expect(editorErrorsOf(src), cond).toEqual([]);
+    }
+    // A local is its initializer, which the target computes in f32 again: 1 + 2^-30 is 1
+    // there, so `L` is 0, where the doubles made it 2^-30.
+    const local = kernel(
+      'const L = (A + B) - A; while (L > 0.) { out[0] += 1.; }',
+      'const A = 1.; const B = 1. / 1073741824.;',
+    );
+    expect(errorsOf(local)).toEqual([]);
+    // A value f32 holds exactly is the same value there, so its comparison still decides.
+    const exact = 'const H = 0.5; const Q = -0.25;';
+    for (const cond of ['H > 0.', 'H > Q', '-Q === 0.25', '1. > 0.']) {
+      expect(errorsOf(kernel(`while (${cond}) { out[0] = 5.; }`, exact)), cond).toEqual([
+        never(cond),
+      ]);
     }
   });
 });

@@ -611,15 +611,36 @@ function foldConstCond(expr: Expr, scope: LoweringScope): boolean | undefined {
   }
   // `!x` is `x == false` in the IR, so a negation is a comparison of two bools.
   if (expr.op === 'compare' && typeKey(expr.type) === 'bool') {
-    const side = (e: Expr): number | undefined => {
-      const b = foldConstCond(e, scope);
-      return b === undefined ? foldConstNumber(e, scope) : Number(b);
-    };
-    const a = side(expr.a);
-    const b = side(expr.b);
+    const a = exactOperand(expr.a, scope);
+    const b = exactOperand(expr.b, scope);
     return a === undefined || b === undefined ? undefined : cmpHolds(expr.cop, a, b);
   }
   return undefined;
+}
+
+/**
+ * A comparison operand's value, where both targets compute that same value, or undefined.
+ *
+ * A `bool`, and an integer computed from integers alone, fold as both targets compute them
+ * (#154). A float folds in doubles here and computes in f32 there, so it is taken only where
+ * the two cannot differ: a literal or a module constant that f32 holds exactly, negated or
+ * not, with no arithmetic between. A local's value is its initializer's, which the target may
+ * compute in f32 again, so a local is not taken. Folded in doubles, `A + B > 0.3` over `0.1`
+ * and `0.2`, and `X > 16777216.` over `16777217.`, held; in f32 they do not, and a loop that
+ * ran no trip on either target was refused as one that never ends.
+ */
+function exactOperand(e: Expr, scope: LoweringScope): number | undefined {
+  const b = foldConstCond(e, scope);
+  if (b !== undefined) return Number(b);
+  let integral = true;
+  eachExpr(e, (x) => {
+    if (intElemOf(x.type) === undefined && typeKey(x.type) !== 'bool') integral = false;
+  });
+  if (integral) return foldConstNumber(e, scope);
+  const leaf = e.op === 'unop' ? e.a : e;
+  if (leaf.op !== 'lit' && leaf.op !== 'constref') return undefined;
+  const v = foldConstNumber(e, scope);
+  return v !== undefined && Math.fround(v) === v ? v : undefined;
 }
 
 /**

@@ -34,8 +34,9 @@ import { fallsIntoABody } from '../fallthrough.js';
  * deletes the loop, body and all, from both targets: `for (…; v.x += 1.)` and `for (…; zz += 1)`
  * compiled that way with no diagnostic (Rule 12.6). Each refusal below says why; this keeps
  * the invariant for any that does not, with a `TS8099` that says the loop was refused, not
- * dropped. A header that reads a name whose declaration was refused is explained by that
- * refusal, which a read of the name does not repeat (Rule 12.4, #171).
+ * dropped. A header that reads a name whose declaration was refused, a `const` or a function
+ * alike, is explained by that refusal, which a read of the name does not repeat (Rule 12.4,
+ * #171).
  */
 export function lowerFor(
   node: ts.ForStatement,
@@ -48,7 +49,7 @@ export function lowerFor(
   if (
     loop === undefined &&
     errorCount(diagnostics) === errors &&
-    !readsARefusedName(node, sourceFile, diagnostics)
+    !readsARefusedName(node, sourceFile, scope, diagnostics)
   ) {
     pushDiag(
       diagnostics,
@@ -68,15 +69,20 @@ function errorCount(diagnostics: readonly TsCompilerDiagnostic[]): number {
 
 /** Whether the `for` header reads a name an error already stands for: `i < n` for a refused
  *  `declare const n: i32` is not lowered, and says nothing more than the declaration's
- *  refusal. The header is where every `undefined` of {@link lowerCountedFor} comes from. */
+ *  refusal. Nor is `i < lim(1)` for a `function lim(x?: i32)` whose signature was refused,
+ *  which a call of it answers by the same predicate (`declarationRefused`). The header is
+ *  where every `undefined` of {@link lowerCountedFor} comes from. */
 function readsARefusedName(
   node: ts.ForStatement,
   sourceFile: ts.SourceFile,
+  scope: LoweringScope,
   diagnostics: readonly TsCompilerDiagnostic[],
 ): boolean {
+  const refused = (n: ts.Identifier): boolean =>
+    scope.declarationRefused(n.text) ||
+    unknownNameAlreadyReported(n, n.text, sourceFile, diagnostics);
   const reads = (n: ts.Node): boolean =>
-    (ts.isIdentifier(n) && unknownNameAlreadyReported(n, n.text, sourceFile, diagnostics)) ||
-    ts.forEachChild(n, (c) => reads(c) || undefined) === true;
+    (ts.isIdentifier(n) && refused(n)) || ts.forEachChild(n, (c) => reads(c) || undefined) === true;
   return [node.initializer, node.condition, node.incrementor].some((h) => h && reads(h));
 }
 

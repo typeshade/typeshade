@@ -1607,10 +1607,14 @@ that leaves it:
 holds `true` is the same loop: `const ON = true;` then `while (ON) { … }` is
 `TS8007 while (ON) has no break or return in its body, so it never ends.`, and so is a namespace's
 constant or a static readonly (`while (C.ON)`), and `!`, `&&`, `||` or a comparison over constants
-(`while (!PAUSED)`, `while (N > 0)`). Each used to compile, and never end. A `?:`, a call, or a
-local `const` holding one of those (`const go = !OFF`) is still read as a runtime condition
-(Appendix B of the language design). A `break` inside a nested loop or a `switch` leaves that
-statement, not this loop, and is not counted as a way out.
+(`while (!PAUSED)`, `while (N > 0)`). Each used to compile, and never end. A comparison of
+floats is read this way only over literals and module constants that f32 holds exactly, with no
+arithmetic between (`while (H > 0.)` for `const H = 0.5`), because the targets compute it in
+f32: `const A = 0.1; const B = 0.2;` then `while (A + B > 0.3)` is false there, and the loop runs
+no trip, where doubles make it true. A `?:`, a call, a float comparison over arithmetic or a
+local, or a local `const` holding one of those (`const go = !OFF`) is still read as a runtime
+condition (Appendix B of the language design). A `break` inside a nested loop or a `switch`
+leaves that statement, not this loop, and is not counted as a way out.
 A `for` with no condition says to write this form: `for (;;)` is refused and points at
 `while (true) { … }`.
 
