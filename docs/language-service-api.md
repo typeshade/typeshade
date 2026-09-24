@@ -492,17 +492,18 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   TS2542 ("Index signature in type 'array<f32, number>' only permits reading") a false positive
   on the Playground's own compute sample. The brand and `length` stay `readonly`: neither is
   assignable in the source language, so `out.length = 2` keeps its TS2540.
-- A read of workgroup memory is clean in the editor on every TypeScript the package admits.
-  `let tile: workgroup<array<f32, 64>>` takes no initializer, since WGSL gives a
-  `var<workgroup>` none, and a kernel writes it through an element (`tile[i] = x`), which
-  TypeScript does not count as an assignment to `tile`. TypeScript 5.7 and later report such a
-  `let` as used before being assigned (TS2454) in every function that reads it; 5.6, the
-  version this repository installs, reports nothing. The Playground bundles TypeScript 5.9, and
-  four compute examples would not compile there. The service drops TS2454 when the checker
-  resolves the name to a top-level `let` annotated `workgroup<T>`, by `moduleVarSpace`, the
-  front end's own test. A per-invocation module `let` that nothing assigns keeps it, and so
-  does a local read before its first assignment (Rule 7.6), since GLSL ES 3.00 leaves either
-  one undefined.
+- A read of a module variable is clean in the editor on every TypeScript the package admits. A
+  module variable with no initializer starts at zero on every target (surface §24): a
+  per-invocation `let calls: u32`, and workgroup memory, `let tile: workgroup<array<f32, 64>>`,
+  which takes no initializer, since WGSL gives a `var<workgroup>` none. A kernel writes such a
+  variable through an element or a field (`tile[i] = x`), which TypeScript does not count as an
+  assignment to `tile`, and `calls += 1` reads before it writes. TypeScript 5.7 and later report
+  a `let` that no statement assigns as used before being assigned (TS2454) in every function
+  that reads it; 5.6, the version this repository installs, reports nothing. The Playground
+  bundles TypeScript 5.9, and four compute examples would not compile there. The service drops
+  TS2454 when the checker resolves the name to a top-level `let`, the declaration the front end
+  makes a module variable of. A local read before its first assignment keeps it (Rule 7.6),
+  since GLSL ES 3.00 leaves a local undefined.
 
 ### Vector and matrix arithmetic (issue #21)
 
