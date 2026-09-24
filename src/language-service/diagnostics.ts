@@ -1228,6 +1228,103 @@ const SAME_MISTAKE: readonly SameMistake[] = [
       'member it is spelled like, or what is out of range.',
   },
   {
+    typescript: 1245,
+    typeshade: new Set(['TS8035']),
+    reason: 'An `abstract` method written with a body.',
+  },
+  {
+    typescript: 1318,
+    typeshade: new Set(['TS8035']),
+    reason: 'An `abstract` accessor written with a body.',
+  },
+  {
+    typescript: 1267,
+    typeshade: new Set(['TS8035']),
+    reason: 'An `abstract` field written with an initializer, a function or a value.',
+  },
+  {
+    typescript: 1244,
+    typeshade: new Set(['TS8035']),
+    reason: 'An `abstract` method or accessor in a class that is not abstract, or in a mixin.',
+  },
+  {
+    typescript: 1253,
+    typeshade: new Set(['TS8035']),
+    reason: 'The same for an `abstract` field, which the compiler refuses when it has a body.',
+  },
+  {
+    typescript: 2676,
+    typeshade: new Set(['TS8035']),
+    reason: 'A getter and a setter of which one is `abstract`, and has a body.',
+  },
+  {
+    typescript: 2512,
+    typeshade: new Set(['TS8035']),
+    reason: 'An `abstract` overload signature of a method whose body is not.',
+  },
+  {
+    typescript: 2393,
+    typeshade: new Set(['TS8035']),
+    reason: 'A method with two bodies, which TypeScript reports on each and the compiler once.',
+  },
+  {
+    typescript: 2392,
+    typeshade: new Set(['TS8035']),
+    reason: 'The same for a constructor.',
+  },
+  {
+    typescript: 2300,
+    typeshade: new Set(['TS8035']),
+    reason: 'The same for two getters, or a field and a member of one name.',
+  },
+  {
+    typescript: 2515,
+    typeshade: new Set(['TS8035']),
+    reason:
+      'A class that is not abstract and leaves an abstract member unimplemented, where the ' +
+      'compiler says so of the class, or of a member of a base that is abstract and has a body.',
+  },
+  {
+    typescript: 2654,
+    typeshade: new Set(['TS8035']),
+    reason: 'The same for several members.',
+  },
+  {
+    typescript: 1108,
+    typeshade: new Set(['TS8014']),
+    reason: 'A `return` at the top level of the file.',
+  },
+  {
+    typescript: 1105,
+    typeshade: new Set(['TS8014']),
+    reason: 'A `break` at the top level.',
+  },
+  {
+    typescript: 1104,
+    typeshade: new Set(['TS8014']),
+    reason: 'A `continue` at the top level.',
+  },
+  {
+    typescript: 1101,
+    typeshade: new Set(['TS8014']),
+    reason: 'A `with` statement at the top level.',
+  },
+  {
+    typescript: 2410,
+    typeshade: new Set(['TS8014']),
+    reason: 'The same `with` statement, which TypeScript reports twice.',
+  },
+  {
+    typescript: 1202,
+    typeshade: new Set(['TS8014']),
+    reason: 'An `import x = require("./m")` at the top level.',
+  },
+  {
+    typescript: 1315,
+    typeshade: new Set(['TS8014']),
+    reason: 'An `export as namespace` at the top level.',
+  },
+  {
     typescript: 2353,
     typeshade: new Set(['TS8010']),
     reason: 'An object literal that names a field its struct does not have.',
@@ -1314,6 +1411,119 @@ const spanOfNode = (node: ts.Node, sourceFile: ts.SourceFile): TypeshadeTextSpan
   return { start, length: node.getEnd() - start };
 };
 
+/** The TypeScript codes about how one class member is declared, reported on its name or on a
+ *  modifier of it (`abstract`), where the compiler reports the name. */
+const MEMBER_CODES: ReadonlySet<number> = new Set([1244, 1245, 1253, 1267, 1318, 2512, 2676]);
+
+/** The TypeScript codes about a name a class declares twice, reported on every declaration of
+ *  it, where the compiler reports the later one. */
+const DUPLICATE_CODES: ReadonlySet<number> = new Set([2300, 2392, 2393]);
+
+/** The TypeScript codes about a class that leaves an abstract member unimplemented, reported on
+ *  the class's name. */
+const UNIMPLEMENTED_CODES: ReadonlySet<number> = new Set([2515, 2654]);
+
+const modifiersOf = (member: ts.ClassElement): readonly ts.ModifierLike[] =>
+  (ts.canHaveModifiers(member) ? ts.getModifiers(member) : undefined) ?? [];
+
+/** The class member `span` starts on: the member itself, its name or one of its modifiers. */
+function memberAt(
+  context: DiagnosticFilterContext,
+  span: TypeshadeTextSpan,
+): ts.ClassElement | undefined {
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, span.start);
+  while (node !== undefined && !(ts.isClassElement(node) && ts.isClassLike(node.parent))) {
+    node = node.parent;
+  }
+  if (node === undefined) return undefined;
+  const member = node;
+  const parts: readonly (ts.Node | undefined)[] = [member, member.name, ...modifiersOf(member)];
+  return parts.some((p) => p?.getStart(context.sourceFile) === span.start) ? member : undefined;
+}
+
+/** A member's name as the class declares it, `static` apart: two of one key are one name
+ *  declared twice. */
+function memberKey(member: ts.ClassElement): string | undefined {
+  const isStatic = modifiersOf(member).some((m) => m.kind === ts.SyntaxKind.StaticKeyword);
+  if (ts.isConstructorDeclaration(member)) return 'constructor';
+  const name = member.name;
+  if (name === undefined || !(ts.isIdentifier(name) || ts.isPrivateIdentifier(name))) {
+    return undefined;
+  }
+  return `${isStatic ? 'static ' : ''}${name.text}`;
+}
+
+/** Whether the class `derived` extends `base`, through any number of classes between. */
+function extendsClass(
+  context: DiagnosticFilterContext,
+  derived: ts.ClassLikeDeclaration,
+  base: ts.ClassLikeDeclaration,
+): boolean {
+  const checker = context.checker;
+  if (checker === undefined) return false;
+  const seen = new Set<ts.Type>();
+  // A base is a class, an instance of a generic one (`B<f32>`), or what a mixin returns, the
+  // class it writes with the class it was handed (an intersection).
+  const reaches = (type: ts.Type): boolean => {
+    if (seen.has(type)) return false;
+    seen.add(type);
+    if (type.isIntersection()) return type.types.some(reaches);
+    if (type.symbol?.declarations?.includes(base) === true) return true;
+    const target = (type as ts.TypeReference).target ?? type;
+    return target.isClassOrInterface() && checker.getBaseTypes(target).some(reaches);
+  };
+  const type = checker.getTypeAtLocation(derived);
+  return type.isClassOrInterface() && checker.getBaseTypes(type).some(reaches);
+}
+
+/**
+ * Whether a TypeScript diagnostic about how a class is declared and a compiler one are one
+ * mistake; `undefined` for any other code. TypeScript reports a member on its name or on a
+ * modifier (`abstract` in a class that is not abstract, TS1244), and on each declaration of
+ * its name: each overload signature, and both bodies of a method written twice (TS2393). The
+ * compiler reports the name once, on one of them. A class that leaves an abstract member
+ * unimplemented TypeScript reports on the class (TS2515), as the compiler does, and also when
+ * the member of the base is `abstract` with a body, which the compiler refuses on that member
+ * and then gives each class that extends it.
+ */
+function sameClassDeclaration(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  error: TypeshadeDiagnostic,
+): boolean | undefined {
+  const code = diagnostic.code;
+  if (typeof code !== 'number') return undefined;
+  if (MEMBER_CODES.has(code) || DUPLICATE_CODES.has(code)) {
+    const member = memberAt(context, diagnostic.span);
+    const other = memberAt(context, error.span);
+    if (member === undefined || other === undefined) return false;
+    const key = memberKey(member);
+    return (
+      member === other ||
+      (member.parent === other.parent && key !== undefined && key === memberKey(other))
+    );
+  }
+  if (UNIMPLEMENTED_CODES.has(code)) {
+    if (
+      diagnostic.span.start === error.span.start &&
+      diagnostic.span.length === error.span.length
+    ) {
+      return true;
+    }
+    const member = memberAt(context, error.span);
+    if (member === undefined) return false;
+    if (!modifiersOf(member).some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)) return false;
+    const named = nodeAtPosition(context.sourceFile, diagnostic.span.start).parent;
+    return (
+      named !== undefined &&
+      ts.isClassLike(named) &&
+      ts.isClassLike(member.parent) &&
+      extendsClass(context, named, member.parent)
+    );
+  }
+  return undefined;
+}
+
 /** The call a TypeScript diagnostic in `CALL_CODES` is about: the one whose argument it covers,
  * or whose callee (TypeScript's span for a failed overload on a later argument, and for too few
  * arguments). */
@@ -1350,6 +1560,8 @@ function sameMistakeSpans(
     const region = call === undefined ? diagnostic.span : spanOfNode(call, context.sourceFile);
     return within(error.span, region) || within(diagnostic.span, error.span);
   }
+  const declared = sameClassDeclaration(context, diagnostic, error);
+  if (declared !== undefined) return declared;
   return (
     within(diagnostic.span, error.span) &&
     (diagnostic.span.start === error.span.start || spanEnd(diagnostic.span) === spanEnd(error.span))

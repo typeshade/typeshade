@@ -1102,15 +1102,8 @@ export function collectClassFunctions(
           );
           continue;
         }
-        if (method.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)) {
-          pushDiag(
-            diagnostics,
-            sourceFile,
-            method,
-            `"${shown}" is abstract; a shader function has one body.`,
-          );
-          continue;
-        }
+        // An `abstract` member written with a body was refused where the class that declares it
+        // wrote it (structs.ts), once; lowered like any body here, it adds nothing to that.
         // A parameter of function type makes the method a template, copied for each set of
         // functions its calls hand it (Rule 8.18); an accessor's value is refused where it is
         // parsed.
@@ -1831,6 +1824,9 @@ export function lowerClassCall(
         );
         return undefined;
       }
+      // A static that lost its emitted name to another member was reported where the two are
+      // declared (structs.ts); a call of it adds nothing (Rule 12.4).
+      if (scope.isWithheld(name, emittedMemberName(member))) return undefined;
       pushDiag(
         diagnostics,
         sourceFile,
@@ -1859,6 +1855,9 @@ export function lowerClassCall(
       return undefined;
     }
     if (cf.kind !== 'static') {
+      // The static of this name lost it to this method, which was reported where the two are
+      // declared; the call is of the static the author wrote (Rule 12.4).
+      if (scope.isWithheld(name, emittedMemberName(member))) return undefined;
       pushDiag(
         diagnostics,
         sourceFile,
@@ -1881,7 +1880,17 @@ export function lowerClassCall(
   const name = recv.type.name;
   const shown = `${name}.${member}`;
   const found = memberFunctionOf(name, member, 'method', scope);
+  // A member the class was refused at its declaration for (structs.ts): an abstract one it leaves
+  // unimplemented, or one that lost its emitted name to another, a static of the same name
+  // among them. A call of it adds nothing, whatever the name reaches now (Rule 12.4).
+  const withheld = scope.isWithheld(name, emittedMemberName(member));
   if (found === undefined) {
+    if (withheld) return undefined;
+    // A class whose chain has a base the file does not declare as a struct was refused where it
+    // extends it (structs.ts), and what that base would have given it is not known here.
+    if (scope.ancestorsOf(name).some((a) => scope.structByName(a) === undefined)) {
+      return undefined;
+    }
     const taken = scope.resolveCallee(methodFnName(name, emittedMemberName(member)));
     if (taken !== undefined && isCollidedFunction(taken)) return undefined;
     const accessor =
@@ -1908,6 +1917,7 @@ export function lowerClassCall(
     return undefined;
   if (!checkFunctionAccess(cf, name, callee.name, sourceFile, scope, diagnostics)) return undefined;
   if (cf.kind === 'static') {
+    if (withheld) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,

@@ -4,6 +4,7 @@ import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
+import { refusedInNamespace, statementRefusal } from './namespaces.js';
 import { isEnableDirective } from './enables.js';
 import { staticThisClass } from './class-names.js';
 
@@ -189,6 +190,14 @@ function visit(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
+  // A statement a namespace does not hold is refused whole where the namespace is walked
+  // (namespaces.ts): what it is and what it holds add nothing to that sentence (Rule 12.4).
+  if (ts.isModuleBlock(node)) {
+    for (const stmt of node.statements) {
+      if (!refusedInNamespace(stmt)) visit(stmt, sourceFile, diagnostics);
+    }
+    return;
+  }
   if (ts.isIdentifier(node) && HOST_GLOBALS.has(node.text) && !isPropertyName(node)) {
     push(
       diagnostics,
@@ -362,6 +371,11 @@ const ALLOWED_TOP = new Set([
   ts.SyntaxKind.ExpressionStatement,
 ]);
 
+/** What a file holds at the top level, for the sentence that refuses anything else there. */
+const TOP_LEVEL_HOLDS =
+  'a shader file declares functions, classes, types, enums, namespaces, constants, module ' +
+  'variables and resources';
+
 export function analyzeSemantics(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -403,14 +417,16 @@ export function analyzeSemantics(
       continue;
     }
     if (!ALLOWED_TOP.has(stmt.kind)) {
-      push(
-        diagnostics,
-        sourceFile,
-        stmt,
-        `Unsupported top-level "${ts.SyntaxKind[stmt.kind]}". A TypeShade file is directive + types + functions + imports.`,
-        TS_CODES.TOP_LEVEL,
-      );
+      const said = statementRefusal(stmt, sourceFile, 'at the top level', TOP_LEVEL_HOLDS);
+      push(diagnostics, sourceFile, stmt, said, TS_CODES.TOP_LEVEL);
     }
   }
-  visit(sourceFile, sourceFile, diagnostics);
+  // A statement the loop above refuses by its kind is refused whole: what it is and what it holds
+  // add nothing to that sentence, so a `try`, a `throw` or a `for…in` there is not told again
+  // that it is a host form (Rule 12.4).
+  for (const stmt of sourceFile.statements) {
+    if (ALLOWED_TOP.has(stmt.kind) || ts.isVariableStatement(stmt)) {
+      visit(stmt, sourceFile, diagnostics);
+    }
+  }
 }

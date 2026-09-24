@@ -90,11 +90,17 @@ export const TS_CODES = {
    *  What is refused, in the declaration: a field holding a function when the field is static,
    *  or when the function takes type parameters, is `async` or a generator, or is an
    *  expression body with no return type; a static block, an index signature, a second
-   *  constructor, a decorator on a method or on a parameter property, an `async` or generator
-   *  method, one name declared as two kinds of member, or as another kind than the class it
-   *  extends declares it, two members that would emit one function or constant name (a
-   *  private name loses its `#`), and a parameter named `self_`, the name the emitted function
-   *  gives its object. In a use: `this` outside a method, or naming an instance field in a
+   *  constructor, a second body for a method, a decorator on a method or on a parameter
+   *  property, an `async` or generator method, an `abstract` member with a body or an
+   *  initializer, an `abstract` method or accessor in a class that is not abstract or in the
+   *  class a mixin returns, an `abstract` overload signature of a method whose body is not, a
+   *  class that is not abstract and leaves an abstract method or accessor unimplemented (an
+   *  abstract field is a member of every struct below it), one name declared as two kinds of
+   *  member, or as another kind than the class it extends declares it, two members that would
+   *  emit one function or constant name (a private name loses its `#`), and a parameter named
+   *  `self_`, the name the emitted function gives its object. A second body and an `abstract`
+   *  member are said where they are written, whether or not the class is instantiated or the
+   *  mixin applied. In a use: `this` outside a method, or naming an instance field in a
    *  static one; `super.m` with no body above to name, or naming a field holding a function;
    *  an instance method called on the class or a static one on a value; a member the class
    *  does not have; a `#` member reached outside its class body; a getter with no setter
