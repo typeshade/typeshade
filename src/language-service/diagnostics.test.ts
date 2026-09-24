@@ -807,7 +807,7 @@ describe('a field that holds a function draws no TypeScript diagnostic (Rule 8.1
 // then filtered the way the service filters, so the rule is pinned under either version. The
 // tests that let it through read the editor half on TypeScript 5.6 alone (`ambient.test.ts`'s
 // examples corpus); each case below reads the compiler half of the same source too.
-describe('a read of workgroup memory draws no TS2454 (TypeScript 5.7 and later)', () => {
+describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)', () => {
   /** The compiler half: `compile()`'s diagnostics, code and text (Rule 12.5). */
   const compiled = (source: string): string[] =>
     compile(source).diagnostics.map((d) => `${d.code} ${d.message}`);
@@ -852,12 +852,33 @@ describe('a read of workgroup memory draws no TS2454 (TypeScript 5.7 and later)'
     );
   }
 
-  it('drops it on workgroup memory and keeps it on a per-invocation let nothing assigns', () => {
+  it('drops it on workgroup memory and on a per-invocation let nothing assigns', () => {
     expect(compiled(kernel), 'the compiler accepts the kernel').toEqual([]);
     expect(compile(kernel).wgsl).toContain('var<workgroup> tile: array<f32, 64>;');
-    expect(withNeverAssigned(kernel, ['tile', 'calls'])).toEqual([
-      "TS2454: Variable 'calls' is used before being assigned.",
-    ]);
+    expect(compile(kernel).wgsl).toContain('var<private> calls: u32;');
+    expect(withNeverAssigned(kernel, ['tile', 'calls'])).toEqual([]);
+  });
+
+  it('drops it on a per-invocation let, which starts at zero on GLSL ES 3.00 too', () => {
+    // Surface §24: with no initializer a module variable is zero. WGSL zero-initializes a
+    // `var<private>`, and the GLSL writer spells the zero, which GLSL ES 3.00 would otherwise
+    // leave undefined. `acc` is written through a field only, which TypeScript does not count
+    // as an assignment to `acc`.
+    const source =
+      '"use typeshade"\n' +
+      'class Acc { total: f32; count: u32 }\n' +
+      'let calls: u32\n' +
+      'let acc: Acc\n' +
+      '@fragment\n' +
+      'export function k(@location(0) uv: vec2): vec4 {\n' +
+      '  acc.total = uv.x\n' +
+      '  return vec4(acc.total, f32(acc.count + calls), 0., 1.)\n' +
+      '}\n';
+    expect(compiled(source)).toEqual([]);
+    const glsl = compile(source).glsl!.fragment;
+    expect(glsl).toContain('uint calls = 0u;');
+    expect(glsl).toContain('Acc acc = Acc(0.0, 0u);');
+    expect(withNeverAssigned(source, ['calls', 'acc'])).toEqual([]);
   });
 
   it('keeps it on a local read before its first assignment, which TypeScript 5.6 reports too', () => {

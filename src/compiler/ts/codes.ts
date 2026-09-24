@@ -176,6 +176,13 @@ export const TS_CODES = {
    *  flattening (`Cls_member`, `Ns_member`) made it differ from the written one. A module
    *  with no GLSL form is not held to GLSL ES 3.00's list. */
   RESERVED_NAME: 'TS8068',
+  /** A `"use typeshade"` directive after another top-level statement (Rule 3.1, #200). In
+   *  ECMAScript a directive is only a leading string-literal statement, so TypeScript reads a late
+   *  one as an ordinary string while TypeShade reads the file as a shader. Reported on the
+   *  directive, and the rest of the file is still checked. Kept apart from `MISSING_DIRECTIVE`,
+   *  which means that there is no directive, because the fix is different: move it, don't add
+   *  one (proposal 0012). */
+  MISPLACED_DIRECTIVE: 'TS8069',
   UNSUPPORTED: 'TS8099',
 } as const;
 

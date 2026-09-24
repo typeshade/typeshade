@@ -4359,8 +4359,10 @@ about 2⁻¹⁰² keeps only its high word, because its low word is then below t
 ## 40. Matrices: every `matCxR`
 
 A matrix is `cols` columns of `rows` components, column-major, which is what both targets are.
-All nine shapes of `C, R ∈ {2, 3, 4}` are types, spelled `matCxR`, and a square one also
-answers to `matN`:
+All nine shapes of `C, R ∈ {2, 3, 4}` are types, spelled `matCxR`. Each one also answers to
+WGSL's predeclared alias `matCxRf` (`mat2x2f`, `mat4x3f`, …), as `vec3` answers to `vec3f`, and a
+square one also answers to `matN`. The three spellings are one type, and each is a constructor
+too:
 
 ```ts
 "use typeshade";
@@ -4369,7 +4371,8 @@ export function shapes(a: mat3, b: mat2x3, c: mat4x3): vec3 {
   //  mat3   = mat3x3   3 columns of 3
   //  mat2x3           2 columns of 3
   //  mat4x3           4 columns of 3
-  return a[0] + b[1] + c[3];
+  const d: mat2x3f = b;  // mat2x3f = mat2x3, WGSL's alias
+  return a[0] + d[1] + c[3];
 }
 ```
 

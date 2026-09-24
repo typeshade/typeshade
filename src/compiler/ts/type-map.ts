@@ -66,8 +66,8 @@ const MAT_SHAPE: Readonly<Record<string, readonly [2 | 3 | 4, 2 | 3 | 4]>> = Obj
  *  4) plus the `matN` shorthand both targets give a square one. GLSL ES 3.00 has all nine
  *  (glsl-es-300.txt:955-967), so the set is the same on both. `f32` is the default element;
  *  `mat3<f64>` and the rest go through the generic arm. */
-const MAT_TYPE_NAMES: Readonly<Record<string, ShaderType>> = Object.fromEntries(
-  ([2, 3, 4] as const).flatMap((cols) =>
+const MAT_TYPE_NAMES: Readonly<Record<string, ShaderType>> = Object.fromEntries([
+  ...([2, 3, 4] as const).flatMap((cols) =>
     ([2, 3, 4] as const).flatMap((rows) => {
       const t = matT(cols, rows);
       return cols === rows
@@ -75,7 +75,13 @@ const MAT_TYPE_NAMES: Readonly<Record<string, ShaderType>> = Object.fromEntries(
         : [[`mat${cols}x${rows}`, t] as const];
     }),
   ),
-);
+  // WGSL's predeclared `matCxRf` aliases (Predeclared aliases, Rule 2.1(a), #183), after the
+  // names above so that a refusal still quotes `mat2x2` (see AUTHOR_NAME_BY_KEY). An alias takes
+  // no type argument, so it stays out of MAT_SHAPE, the generic arm's table.
+  ...([2, 3, 4] as const).flatMap((cols) =>
+    ([2, 3, 4] as const).map((rows) => [`mat${cols}x${rows}f`, matT(cols, rows)] as const),
+  ),
+]);
 
 const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   f32: f32T,

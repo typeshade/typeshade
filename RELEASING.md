@@ -93,7 +93,9 @@ is a second placeholder held for a possible future split, and **nothing is publi
 never published. Authentication needs nothing from you beyond checking that the token bypasses 2FA
 (§0).
 
-1. Set the version. Edit `package.json` by hand, or:
+1. Choose the version by Rule 13.9 (§7): read `## [Unreleased]` in `CHANGELOG.md`. If any
+   entry is breaking, the next version is the next minor (`0.N.0`; the next major from
+   `1.0.0`); otherwise it is the next patch. Then set it. Edit `package.json` by hand, or:
 
    ```bash
    npm version 0.1.0 --no-git-tag-version
@@ -102,20 +104,24 @@ never published. Authentication needs nothing from you beyond checking that the 
    `--no-git-tag-version` matters: the tag is created in step 3, on a commit that is already on
    `main`, not by npm on your working copy.
 
-2. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new heading for the version, and
-   leave `## [Unreleased]` in place, empty, for what comes next. The generated monorepo-era
+2. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new heading for the version,
+   `## [X.Y.Z] - YYYY-MM-DD` with the release date, and leave `## [Unreleased]` in place, empty,
+   for what comes next. `src/changelog.test.ts` checks the heading and, for a release with a
+   `### Changed` or `### Removed` entry, the minor bump. The generated monorepo-era
    history lives in `docs/HISTORY.md`, so do not touch it.
 
-3. Run the gates locally. The workflow runs them too, but finding a failure here costs a
-   commit and finding it there costs a release:
+3. Run the gates locally: the same ones CI runs (`AGENTS.md#tests`). The workflow runs them
+   too, but finding a failure here costs a commit and finding it there costs a release:
 
    ```bash
    bun install
    bun run build
+   bun run lint
+   bun run format:check          # Prettier, then the shader-source semicolons
    bun run test
    bun run gate:compile          # needs Chromium once: ./node_modules/.bin/playwright install --only-shell chromium
+   bun run gate:journeys         # after build: the packed tarball, installed and used
    bun run bake:api-surface      # must produce no diff
-   bunx prettier --check .
    ```
 
 4. Look at what would ship. This rewrites `package.json` in your working tree. The message
@@ -142,6 +148,20 @@ publishing would have authenticated the upload (§0).
 
 A dry run on `main` before tagging tells you the pipeline works without spending a version
 number.
+
+### The first run, 2026-09-24
+
+The checklist was run once for real, with nothing published, for roadmap item 25:
+
+| Step                               | Result                                                                                                                                                                                                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §1 step 3, locally on `cd3a70a`    | build, lint and format pass; `bun run test` 6143 passed; the compile gate 118 examples, 0 failures; the journeys 8 runs, all pass; `bake:api-surface` no diff                                                                         |
+| §1 step 4, locally                 | 18 of 18 entry points in `dist/`; `npm pack` 3.2 MB, 12.4 MB unpacked, 1425 files; the tarball, installed on Node 22, imports all eight runtime subpaths and `compile()` emits WGSL                                                   |
+| §2, the workflow (run 35946535643) | every `verify` job and the pack job pass; "Publish to npm" skipped. npm 12.1.0 tried the OIDC exchange first, got `404 ... OIDC token exchange error - package not found` (npm/cli#9969, §0), and would have published with the token |
+
+It found two things, both fixed: §0 told the owner to delete the token that is the one working
+credential (#227), and step 3 above listed fewer gates than CI runs (it lacked the lint, the
+format check and the journeys).
 
 ---
 
@@ -222,30 +242,49 @@ to <https://www.npmjs.com/package/typeshade>.
 | A gate failed in `verify`                                                     | Nothing was built or uploaded. Fix it on `main`, delete the tag and the release, and cut it again from the fixed commit.                                                                                                                                   |
 | The tarball check failed                                                      | An entry point does not resolve from the packed package. Nothing was uploaded. `src/publish-manifest.test.ts` D3 and D4 cover this case locally, so run `bun run build && bun run test` and they should reproduce it.                                      |
 
-## 7. Deprecations: how a spelling's meaning changes
+## 7. Versions and deprecations
 
-A change to what a spelling MEANS is different from a change to what the compiler accepts. A
-program that used to be refused and now compiles breaks nobody; a program that used to compile
-to one thing and now compiles to another breaks everybody, silently, and the shader is the
-place a silent change is hardest to see. So a meaning change gets a window:
+Two design rules govern what a version number promises. This section is their procedure; the
+rules themselves are in `docs/language-design.md` and win where the two disagree.
 
-1. **One release with the diagnostic and no behaviour change.** The new rule is implemented as
-   a `category: 'warning'` diagnostic behind an opt-in compile flag, the old behaviour is
-   untouched, and the emitted bytes are identical with the flag on and off. A consumer turns
-   the flag on in CI, sees every line the change will move, and edits them at their own pace.
-   The flag is named for what it reports, not for the release it belongs to.
-2. **One release that flips the default**, as a breaking change: a `### Changed` entry in
-   `CHANGELOG.md` naming the old meaning, the new one and the one-line edit that keeps the old,
-   every example golden re-baked and reviewed line by line, and the flag retired.
+**Rule 13.9, the version.** Semantic Versioning 2.0.0, with the minor as the breaking position
+before `1.0.0`: a breaking change ships only in a new `0.N.0`, and a `0.N.P` only fixes and adds,
+so a `^0.N.0` range never pulls in a break. From `1.0.0`, only a major breaks. A change is
+breaking when an upgrade can make a program that worked stop working or work differently: a
+program `compile()` or the editor accepted is refused, a program computes a different value on a
+target or on the oracle, an export in `src/__api__/surface.md` is removed or reshaped, or the
+`typescript` peer range narrows. It is not breaking when the emitted text moves and the values
+do not, when a warning is added, when a program is newly refused that Tint or WebGL2 already
+refused, or when a target or the oracle is fixed to compute what WGSL defines (a `### Fixed`
+entry that names the old result). Every breaking entry names the edit an author makes to migrate.
 
-The window is at least one minor release. Do not compress it because the change looks small:
-the size of the diff is not the size of the breakage.
+**Rule 13.10, the deprecation window.** A program that stops compiling says so, with its fix. A
+program that compiles to something else says nothing, and the shader is the place a silent
+change is hardest to see. So a change of meaning ships in two steps:
+
+1. **Warn, in a published release.** The new meaning is reported as a `category: 'warning'`
+   diagnostic behind the opt-in option, `compile(src, { deprecations: true })` and
+   `typeshade check --deprecations`, naming the edit that keeps today's meaning. The emitted
+   bytes are identical with the option on and off. A consumer turns the option on in CI, sees
+   every line the change will move, and edits them at their own pace. The release's CHANGELOG
+   names the warning and the release that will change the default.
+2. **Change the default, no earlier than the next breaking release** after the one that warned:
+   the next minor before `1.0.0`, the next major after it. A `### Changed` entry names the old
+   meaning, the new one and the one-line edit that keeps the old; every example golden is
+   re-baked and reviewed line by line; the warning and its code are retired.
+
+The window is counted in published releases, not in commits on `main`: a warning that never
+reached npm warned nobody. Do not compress it because the change looks small: the size of the
+diff is not the size of the breakage. From `1.0.0` a removal takes the same window: a spelling
+warns under the same option, and an export carries `@deprecated` in its JSDoc naming its
+replacement for one minor before the major that removes it. Before `1.0.0` a removal is a loud
+break the refusal itself explains, so it needs a minor and a migration line, not a window.
 
 **Open windows.** Each is a row until its flip lands.
 
-| Spelling                                                                          | Today | After the flip                                                                                                                        | Flag                                              |
-| --------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| an integer-written literal in a declaration with no type annotation (`let i = 0`) | `f32` | `i32`, which is what WGSL concretizes an AbstractInt to and what a TypeScript reader expects of an array index (§13, roadmap item 25) | `compile(src, { deprecations: true })` → `TS8053` |
+| Spelling                                                                          | Today | After the flip                                                                                                                                                                        | Flag                                              |
+| --------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| an integer-written literal in a declaration with no type annotation (`let i = 0`) | `f32` | `i32`, which is what WGSL concretizes an AbstractInt to and what a TypeScript reader expects of an array index (surface §13, #148). Warns from `0.1.0`; flips no earlier than `0.2.0` | `compile(src, { deprecations: true })` → `TS8053` |
 
 Nothing in this file publishes anything by itself. Every path to the registry goes through a
 release you create.
