@@ -1,7 +1,7 @@
 ---
 id: '0010'
 title: A version number says what an upgrade can break, and a spelling that will mean something else warns for one published minor release first
-status: accepted
+status: implemented
 rules:
 - '13.9'
 - '13.10'

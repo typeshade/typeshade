@@ -1,7 +1,7 @@
 ---
-id: '0010'
+id: '0012'
 title: A "use typeshade" directive after another top-level statement is refused on the directive, and the rest of the file is still checked
-status: accepted
+status: implemented
 rules:
 - '3.1'
 surface: []
@@ -16,6 +16,9 @@ downstream:
 - repo: vscode-typeshade
   what: The skill's line on the directive, if it says only that one is required, gains "first"; any TS8001 quick fix is checked to leave a late directive to TS8069
 ---
+
+This proposal was merged as 0010 (#253) the minute before `0010-versions-and-deprecation-window.md`
+(#255) took the same number, and was renumbered to 0012, the next free one, so each id is unique.
 
 <!-- doc-refs: skip-file — a proposal names the code and the test it will add, and files of the repositories downstream, which this tree does not have -->
 
