@@ -302,10 +302,17 @@ describe('a for update is lowered or refused, never dropped (Rules 7.5, 12.6)', 
 
   it('refuses an unknown name with the sentence `zz++` gets', () => {
     const unknown = { code: 'TS8022', message: 'Cannot assign to unknown name "zz".' };
-    for (const update of ['zz += 1', 'zz = zz + 1', 'zz++']) {
+    for (const update of ['zz += 1', 'zz++']) {
       const src = kernel(`for (let i: i32 = 0; i < 16; ${update}) { out[0] = 5.; }`);
       expect(errorsOf(src), update).toEqual([unknown]);
     }
+    // A read of the name on the right is a use of its own, said as the same statement in a body
+    // says it, and as the editor's TS2304 at each use (Rule 2.1, Rule 12.7).
+    const src = kernel('for (let i: i32 = 0; i < 16; zz = zz + 1) { out[0] = 5.; }');
+    expect(errorsOf(src)).toEqual([
+      unknown,
+      { code: 'TS8022', message: 'Unknown identifier "zz".' },
+    ]);
   });
 
   it('leaves an error for every for loop it does not lower', () => {
