@@ -19,8 +19,8 @@
 import ts from 'typescript';
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
+import { authorTypeText } from '../context.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
 import { F64_SCALAR_TWINS, F64_VEC_REDUCTIONS, F64_VEC_TWINS } from '../../../core/fp64/twins.js';
@@ -250,7 +250,7 @@ function checkF64Args(
     const narrow = vec ? `vec${head.n}(v)` : 'f32(x)';
     return refuse(
       0,
-      `${display} has no emulated-double form; got ${typeKey(args[0]!.type)}. ` +
+      `${display} has no emulated-double form; got ${authorTypeText(args[0]!.type)}. ` +
         `On ${vec ? 'a vector of doubles' : 'an f64'} the pass lowers ${listOf(twins)} — ` +
         `narrow first, e.g. ${display}(${narrow}).`,
     );
@@ -259,7 +259,7 @@ function checkF64Args(
   // own shape. Either way an f32 operand beside the f64 one is the pass's exact widen.
   for (let i = 1; i < args.length; i++) {
     const shape = shapes[i];
-    const got = typeKey(args[i]!.type);
+    const got = authorTypeText(args[i]!.type);
     // mix(a, b, t): the interpolant is a plain f32 on both the scalar and the vector body
     // (fp64-lower.ts raises SD0041 for an f64 t), so it is checked here and not as an operand.
     if (fn === 'mix' && i === 2) {
@@ -280,7 +280,7 @@ function checkF64Args(
       return refuse(
         i,
         `${display} reduces two vectors of emulated doubles of one width; the first is ` +
-          `${typeKey(args[0]!.type)}, this one ${got}.`,
+          `${authorTypeText(args[0]!.type)}, this one ${got}.`,
       );
     }
     // A componentwise twin takes the head's own shape, or a SCALAR the pass broadcasts across
@@ -291,7 +291,7 @@ function checkF64Args(
       continue;
     return refuse(
       i,
-      `${display} takes arguments of one type; the first is ${typeKey(args[0]!.type)}, ` +
+      `${display} takes arguments of one type; the first is ${authorTypeText(args[0]!.type)}, ` +
         `this one ${got}.` +
         (shape !== undefined && shape.elem === 'f32' && shape.n > 1
           ? ` A vector of f32 is not widened to a vector of doubles — build it with ` +
@@ -333,7 +333,7 @@ export function checkMathArgs(
   if (first === undefined) return true;
   if (MATRIX_FNS.has(fn)) {
     if (first.type.kind !== 'mat') {
-      return refuse(0, `${display} takes a matrix; got ${typeKey(first.type)}.`);
+      return refuse(0, `${display} takes a matrix; got ${authorTypeText(first.type)}.`);
     }
     // `transpose` on an emulated-double matrix is a reshuffle of the lanes the fp64 pass
     // lowers (df64_mN_transpose); a DETERMINANT has no df64 body at all, so it would compile
@@ -343,14 +343,14 @@ export function checkMathArgs(
     if (fn === 'determinant' && first.type.cols !== first.type.rows) {
       return refuse(
         0,
-        `${display} takes a square matrix; got ${typeKey(first.type)}. Only matN has a ` +
+        `${display} takes a square matrix; got ${authorTypeText(first.type)}. Only matN has a ` +
           `determinant — on a non-square matrix there is none to take.`,
       );
     }
     if (first.type.elem === 'f64' && fn === 'determinant') {
       return refuse(
         0,
-        `${display} has no emulated-double form; got ${typeKey(first.type)}: the fp64 pass ` +
+        `${display} has no emulated-double form; got ${authorTypeText(first.type)}: the fp64 pass ` +
           `lowers only * and transpose on a matrix of doubles, so declare the matrix ` +
           `mat${first.type.cols} where you need its determinant.`,
       );
@@ -369,28 +369,31 @@ export function checkMathArgs(
   }
   const head = shapes[0];
   if (head === undefined || !spec.elems.includes(head.elem)) {
-    return refuse(0, `${display} takes ${classWord(spec.elems)}; got ${typeKey(first.type)}.`);
+    return refuse(
+      0,
+      `${display} takes ${classWord(spec.elems)}; got ${authorTypeText(first.type)}.`,
+    );
   }
   if (spec.vec3 && head.n !== 3) {
     return refuse(
       0,
-      `${display} takes two ${vectorSpelling(head.elem, 3)}; got ${typeKey(first.type)}.`,
+      `${display} takes two ${vectorSpelling(head.elem, 3)}; got ${authorTypeText(first.type)}.`,
     );
   }
   if (spec.vector && head.n === 1) {
-    return refuse(0, `${display} takes vectors; got ${typeKey(first.type)}.`);
+    return refuse(0, `${display} takes vectors; got ${authorTypeText(first.type)}.`);
   }
   for (let i = 1; i < args.length; i++) {
     const arg = args[i]!;
     const shape = shapes[i];
     const role: Role = spec.roles?.[i] ?? 'same';
-    const got = typeKey(arg.type);
+    const got = authorTypeText(arg.type);
     switch (role) {
       case 'same':
         if (shape !== undefined && shape.elem === head.elem && shape.n === head.n) break;
         return refuse(
           i,
-          `${display} takes arguments of one type; the first is ${typeKey(first.type)}, this one ${got}.` +
+          `${display} takes arguments of one type; the first is ${authorTypeText(first.type)}, this one ${got}.` +
             (shape === undefined ? '' : sameFix(head, shape)),
         );
       case 'sameOrScalar':
@@ -403,7 +406,7 @@ export function checkMathArgs(
         }
         return refuse(
           i,
-          `${display} takes this argument as ${typeKey(first.type)}, the first argument's type, or as ` +
+          `${display} takes this argument as ${authorTypeText(first.type)}, the first argument's type, or as ` +
             `a scalar ${head.elem}; got ${got}.`,
         );
       case 'scalar':
@@ -416,7 +419,7 @@ export function checkMathArgs(
           head.n === 1
             ? `${display} takes an i32 exponent; got ${got}.`
             : `${display} takes a ${vectorSpelling('i32', head.n)} exponent for a ` +
-                `${typeKey(first.type)} x, one component each; got ${got}.`,
+                `${authorTypeText(first.type)} x, one component each; got ${got}.`,
         );
       case 'u32':
         if (shape !== undefined && shape.elem === 'u32' && shape.n === 1) break;

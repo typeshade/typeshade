@@ -3,7 +3,7 @@ import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, type LoweringScope } from '../context.js';
 import {
   MATH_MEMBER_NAMES,
   resolveMathConst,
@@ -113,7 +113,7 @@ export function arrayLengthOf(
       diagnostics,
       sourceFile,
       node,
-      `arrayLength takes a runtime-sized storage array, not a ${typeKey(base.type)}.`,
+      `arrayLength takes a runtime-sized storage array, not a ${authorTypeText(base.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -339,7 +339,7 @@ export function lowerPropertyAccess(
           ? `"${prop}" is private to "${owner}", and this code is outside its class body. Reach ` +
               `it through a member "${owner}" declares without the "#".`
           : // On the member, as TypeScript's TS2339 is, with the field it is spelled like.
-            unknownNameSentence(`Unknown field "${prop}" on ${base.type.name}.`, prop, [
+            unknownNameSentence(`Unknown field "${prop}" on ${authorTypeText(base.type)}.`, prop, [
               publicFieldNames(base.type.name, scope),
             ]),
         hidden !== undefined ? TS_CODES.CLASS_MEMBER : TS_CODES.UNKNOWN_NAME,
@@ -449,8 +449,9 @@ export function lowerObjectLiteral(
       diagnostics,
       sourceFile,
       node,
-      `"${declared.name}" has the ${hidden.access} field "${hidden.written}", which an object ` +
-        `literal cannot set. Build it with "new ${declared.name}(...)".`,
+      `"${authorTypeText(structT(declared.name))}" has the ${hidden.access} field ` +
+        `"${hidden.written}", which an object literal cannot set. Build it with ` +
+        `"new ${authorTypeText(structT(declared.name))}(...)".`,
       TS_CODES.STRUCT_FIELD,
     );
     return undefined;
@@ -466,6 +467,8 @@ export function lowerObjectLiteral(
     );
     return undefined;
   }
+  // A class in a namespace or an instance of a generic one is named as written, `N.P`.
+  const written = authorTypeText(structT(match.name));
   // Only where the struct is DECLARED. On the fallback path `matchStruct` has already equated
   // the struct's field count with the literal's UNIQUE name count and checked that every field
   // is among those names, so a name it does not have cannot reach here — and the count guard
@@ -491,7 +494,7 @@ export function lowerObjectLiteral(
           diagnostics,
           sourceFile,
           p.at,
-          `Struct ${match.name} has no field "${p.name}", which this spread brings in.`,
+          `Struct ${written} has no field "${p.name}", which this spread brings in.`,
           TS_CODES.STRUCT_FIELD,
         );
         return undefined;
@@ -501,7 +504,7 @@ export function lowerObjectLiteral(
         diagnostics,
         sourceFile,
         p.key,
-        unknownNameSentence(`Struct ${match.name} has no field "${p.name}".`, p.name, [
+        unknownNameSentence(`Struct ${written} has no field "${p.name}".`, p.name, [
           match.fields.map((f) => f.name),
         ]),
         TS_CODES.STRUCT_FIELD,
@@ -542,7 +545,7 @@ export function lowerObjectLiteral(
         diagnostics,
         sourceFile,
         node,
-        `Missing field "${field.name}" for struct ${match.name}.`,
+        `Missing field "${field.name}" for struct ${written}.`,
         TS_CODES.STRUCT_FIELD,
       );
       return undefined;
@@ -552,7 +555,7 @@ export function lowerObjectLiteral(
         diagnostics,
         sourceFile,
         node,
-        numericMismatch(`field ${match.name}.${field.name}`, field.type, expr.type),
+        numericMismatch(`field ${written}.${field.name}`, field.type, expr.type),
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -613,7 +616,7 @@ function lowerSpreadInto(
       diagnostics,
       sourceFile,
       prop,
-      `"..." spreads the fields of a struct, and ${typeKey(value.type)} has none. Write the ` +
+      `"..." spreads the fields of a struct, and ${authorTypeText(value.type)} has none. Write the ` +
         `components by name.`,
       TS_CODES.UNSUPPORTED,
     );

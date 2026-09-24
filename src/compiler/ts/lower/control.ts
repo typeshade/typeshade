@@ -3,7 +3,7 @@ import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, dropsRecoveredUse, type LoweringScope } from '../context.js';
 import { irNameOf, readOnlyPhrase, writableRemedy, writeRules } from '../context.js';
 import {
   analyzeCountedFor,
@@ -140,7 +140,7 @@ function lowerCountedFor(
         diagnostics,
         sourceFile,
         node.condition,
-        `for condition must be bool, got ${typeKey(cond.type)}.`,
+        `for condition must be bool, got ${authorTypeText(cond.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -434,7 +434,7 @@ function lowerForInit(
       diagnostics,
       sourceFile,
       decl,
-      `for induction must be i32 or u32, got ${k}.`,
+      `for induction must be i32 or u32, got ${authorTypeText(type)}.`,
       TS_CODES.LOOP_INDUCTION,
     );
     return undefined;
@@ -561,7 +561,7 @@ export function lowerForOf(
       diagnostics,
       sourceFile,
       node.expression,
-      `for-of iterates an array; this is a ${typeKey(array.type)}. Index it with a counted ` +
+      `for-of iterates an array; this is a ${authorTypeText(array.type)}. Index it with a counted ` +
         `for, or write the value into an array<T, N>.`,
       TS_CODES.TYPE_MISMATCH,
     );
@@ -662,7 +662,7 @@ export function lowerSwitch(
       diagnostics,
       sourceFile,
       node.expression,
-      `switch scrutinee must be i32 or u32, got ${k}.`,
+      `switch scrutinee must be i32 or u32, got ${authorTypeText(scrut.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -948,6 +948,8 @@ export function lowerUpdate(
         refuseParamWrite(expr, targetExpr.text, sourceFile, diagnostics);
         return undefined;
       }
+      // A binding whose declared type was refused says nothing more (see `lowerLValue`).
+      if (dropsRecoveredUse(sourceFile, binding)) return undefined;
       binding.capture?.byRef();
       // withSpan, as origin/main's #32 gives every authored lvalue: the write position is
       // what a stepped run and a diagnostic point at, and this branch builds the target
@@ -975,8 +977,8 @@ export function lowerUpdate(
         sourceFile,
         expr,
         isVec(target.type) || isVec64(target.type)
-          ? `Cannot apply ${token} to ${typeKey(target.type)}: a vector has no literal to step by. Write the addition out${stepHint(target.type)}.`
-          : `Cannot apply ${token} to ${typeKey(target.type)}: ${token} steps a numeric scalar (f32, i32, u32, f64).`,
+          ? `Cannot apply ${token} to ${authorTypeText(target.type)}: a vector has no literal to step by. Write the addition out${stepHint(target.type)}.`
+          : `Cannot apply ${token} to ${authorTypeText(target.type)}: ${token} steps a numeric scalar (f32, i32, u32, f64).`,
         TS_CODES.ASSIGN_TARGET,
       );
       return undefined;
@@ -1066,7 +1068,7 @@ export function lowerUpdate(
             sourceFile,
             expr,
             `for step "${left.text} ${bop}= ${String(folded)}" does not fit "${left.text}", ` +
-              `which is ${typeKey(binding.type)}: ${String(folded)} ` +
+              `which is ${authorTypeText(binding.type)}: ${String(folded)} ` +
               `${Number.isInteger(folded) ? 'is outside its range' : 'is not a whole number'}.`,
             TS_CODES.TYPE_MISMATCH,
           );

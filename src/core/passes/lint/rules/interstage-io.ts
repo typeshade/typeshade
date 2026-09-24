@@ -1,6 +1,6 @@
 import type { LintRule } from '../engine.js';
 import type { FuncDecl, StructDecl, StructField } from '../../../ir/nodes.js';
-import { typeKey, type ShaderType } from '../../../ir/types.js';
+import { structT, typeKey, type ShaderType } from '../../../ir/types.js';
 import { canonicalInterpolation, emittedInterpolation } from '../../varying-interpolate.js';
 
 /** One `@location(n)` slot as a stage declares it. */
@@ -20,12 +20,18 @@ export interface InterstageMismatch {
   readonly message: string;
 }
 
+/** How a message spells a type, and a struct's name in a field's `where`. The IR's own is
+ *  the default: a struct by its name, anything else by its {@link typeKey}. */
+type Spell = (t: ShaderType) => string;
+const irSpelling: Spell = (t) => (t.kind === 'struct' ? t.name : typeKey(t));
+
 /** The varyings a struct declares, or the single one a bare `@location` parameter is. */
 function varyings(
   structs: readonly StructDecl[],
   type: ShaderType,
   own: { location?: number; interpolate?: string; name: string },
   where: string,
+  spell: Spell,
 ): Varying[] {
   if (own.location !== undefined) {
     return [
@@ -52,7 +58,7 @@ function varyings(
       type: f.type,
       interpolate: emittedInterpolation(f),
       name: f.name,
-      where: `${s.name}.${f.name}`,
+      where: `${spell(structT(s.name))}.${f.name}`,
     });
   }
   return out;
@@ -62,7 +68,8 @@ const shown = (i: string | undefined): string =>
   i === undefined ? 'no @interpolate' : `@interpolate(${i})`;
 
 /** Every interstage slot that does not line up between the module's one vertex entry and its
- *  one fragment entry.
+ *  one fragment entry. `spell` prints a type in the messages: the `"use typeshade"` front end
+ *  passes its author's spelling, `vec3` where the IR writes `vec3<f32>` (Rule 12.7).
  *
  *  WGSL's rule (wgsl.txt:14935-14938): for every `@location(n)` a fragment entry takes, the
  *  vertex entry must produce one at `n` with the SAME type and the same interpolation. Two
@@ -83,6 +90,7 @@ const shown = (i: string | undefined): string =>
 export function interstageMismatches(
   structs: readonly StructDecl[],
   funcs: readonly FuncDecl[],
+  spell: Spell = irSpelling,
 ): InterstageMismatch[] {
   const vs = funcs.filter((f) => f.stage === 'vertex');
   const fs = funcs.filter((f) => f.stage === 'fragment');
@@ -92,13 +100,14 @@ export function interstageMismatches(
   // A vertex entry's bare (non-struct) return is `@builtin(position)`, never a varying, so
   // only its struct return can carry one.
   const outAt = new Map<number, Varying>();
-  for (const v of varyings(structs, vertex.ret, { name: '' }, `${vertex.name}'s return`)) {
+  for (const v of varyings(structs, vertex.ret, { name: '' }, `${vertex.name}'s return`, spell)) {
     outAt.set(v.location, v);
   }
   const found: InterstageMismatch[] = [];
   const say = (message: string): void => void found.push({ fragment: fragment.name, message });
   for (const p of fragment.params) {
-    for (const want of varyings(structs, p.type, p, `${fragment.name}'s parameter "${p.name}"`)) {
+    const where = `${fragment.name}'s parameter "${p.name}"`;
+    for (const want of varyings(structs, p.type, p, where, spell)) {
       const have = outAt.get(want.location);
       const slot = `@location(${String(want.location)})`;
       if (have === undefined) {
@@ -107,8 +116,8 @@ export function interstageMismatches(
       }
       if (typeKey(have.type) !== typeKey(want.type)) {
         say(
-          `${slot} leaves "${vertex.name}" as ${typeKey(have.type)} (${have.where}) and ` +
-            `enters "${fragment.name}" as ${typeKey(want.type)} (${want.where}); ` +
+          `${slot} leaves "${vertex.name}" as ${spell(have.type)} (${have.where}) and ` +
+            `enters "${fragment.name}" as ${spell(want.type)} (${want.where}); ` +
             `an interstage slot is one type on both sides.`,
         );
         continue;

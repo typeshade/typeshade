@@ -176,7 +176,7 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   return vec4(f32(p) * 0., 0., 0., 1.)`),
       )[0],
     ).toBe(
-      'TS8003 pack4xU8 takes a vec4<u32>; got vec4<f32>. WGSL gives it one overload, and ' +
+      'TS8003 pack4xU8 takes a vec4u; got vec4. WGSL gives it one overload, and ' +
         'GLSL ES 3.00 has no form of it at all.',
     );
   });

@@ -594,7 +594,7 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
         diagnosticsOf(
           'export function f(a: vec3i, b: vec3i, t: vec3i): vec3i {\n  return mix(a, b, t)\n}',
         ),
-      ).toEqual(['typeshade TS8036: mix takes an f32, or a vector of them; got vec3<i32>.']);
+      ).toEqual(['typeshade TS8036: mix takes an f32, or a vector of them; got vec3i.']);
     });
   });
 
@@ -1050,7 +1050,7 @@ describe('mix blend factors the GPU compilers refuse (#57)', () => {
   };
 
   const factor = (t: string): string =>
-    `typeshade TS8036: mix takes this argument as vec3<f32>, the first argument's type, or as a scalar f32; got ${t}.`;
+    `typeshade TS8036: mix takes this argument as vec3, the first argument's type, or as a scalar f32; got ${t}.`;
   const reported: Readonly<Record<string, readonly [string, readonly string[]]>> = {
     // Tint: no matching call to 'mix(vec3<f32>, vec3<f32>, i32)'
     'mix(vec3, vec3, i32)': [
@@ -1075,7 +1075,7 @@ describe('mix blend factors the GPU compilers refuse (#57)', () => {
     // matching call to 'mix(vec3<f32>, vec3<f32>, vec2<f32>)'.
     'mix(vec3, vec3, vec2 * f32)': [
       'export function f(a: vec3, b: vec3, c: vec2): vec3 {\n  return mix(a, b, c * 2.)\n}',
-      [factor('vec2<f32>')],
+      [factor('vec2')],
     ],
   };
   for (const [name, [body, expected]] of Object.entries(reported)) {
@@ -1513,7 +1513,7 @@ describe('an index and a swizzle, as each layer answers them (Rule 12.7)', () =>
         "TS7053 Element implicitly has an 'any' type because expression of type 'u32' can't be used to index type 'vec4f64'.",
       ],
       compiler: [
-        'TS8003 A vec4<f64> is indexed by a constant lane, since an emulated double is a pair of ' +
+        'TS8003 A vec4f64 is indexed by a constant lane, since an emulated double is a pair of ' +
           'hi/lo planes and a lane of it is a swizzle of both; write v.x, v.y or a whole-number index.',
       ],
     },

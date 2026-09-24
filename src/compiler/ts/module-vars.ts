@@ -25,6 +25,7 @@ import { structT, typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import {
   LoweringScope,
+  authorTypeText,
   refuseModuleName,
   refusedDeclarationsOf,
   refusedModuleNames,
@@ -344,7 +345,7 @@ function lowerWrapped(
     name,
     space,
     type,
-    `a ${word}<${typeKey(type)}>`,
+    `a ${word}<${authorTypeText(type)}>`,
     asPrivate,
     sourceFile,
     scope,
@@ -462,7 +463,7 @@ function lowerPlain(
       name,
       'private',
       type,
-      typeKey(type),
+      authorTypeText(type),
       undefined,
       sourceFile,
       scope,
@@ -504,7 +505,7 @@ function lowerPlain(
     name,
     'private',
     init.type,
-    typeKey(init.type),
+    authorTypeText(init.type),
     undefined,
     sourceFile,
     scope,
@@ -569,7 +570,7 @@ function finish(
       diag(
         sourceFile,
         decl.initializer,
-        `"${name}" is declared ${typeKey(type)} but its initializer is ${typeKey(init.type)}.`,
+        `"${name}" is declared ${authorTypeText(type)} but its initializer is ${authorTypeText(init.type)}.`,
       ),
     );
     return undefined;

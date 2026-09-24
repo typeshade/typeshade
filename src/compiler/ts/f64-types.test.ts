@@ -217,7 +217,7 @@ describe('every builtin it has no twin for', () => {
       `"use typeshade"\nexport function k(a: vec3f64): vec3f64 { return ceil(a) }\n`,
     );
     expect(errors).toEqual([
-      'ceil has no emulated-double form; got vec3<f64>. On a vector of doubles the pass ' +
+      'ceil has no emulated-double form; got vec3f64. On a vector of doubles the pass ' +
         'lowers abs, cos, distance, dot, floor, fract, length, max, min, mix, normalize, ' +
         'round and sin — narrow first, e.g. ceil(vec3(v)).',
     ]);
@@ -319,7 +319,7 @@ export function k(a: vec${n}f64, b: vec${n}f64): vec${n}b {
   it('is refused where a bool goes, in the words a comparison of two vec3s gets', () => {
     const program = (t: string): string =>
       `"use typeshade";\nexport function k(a: ${t}, b: ${t}): f32 {\n  if (a < b) { return 1.; }\n  return 0.;\n}\n`;
-    expect(errorsOf(program('vec3f64'))).toEqual(['if condition must be bool, got vec3<bool>.']);
+    expect(errorsOf(program('vec3f64'))).toEqual(['if condition must be bool, got vec3b.']);
     expect(errorsOf(program('vec3f64'))).toEqual(errorsOf(program('vec3')));
   });
 
@@ -333,29 +333,19 @@ export function k(a: vec${n}f64, b: vec${n}f64): vec${n}b {
       `combines with a scalar only through + - * /; splat the scalar with vec${n}f64(f64(x)) ` +
       `to get a vector.`;
     for (const [params, ret, body, want] of [
-      ['a: vec3f64, b: f64', 'vec3b', 'return a < b;', refusal('compare', 'vec3<f64> and f64', 3)],
+      ['a: vec3f64, b: f64', 'vec3b', 'return a < b;', refusal('compare', 'vec3f64 and f64', 3)],
       // The literal is lifted to f64 beside a vec64, so it reads as one.
-      ['a: vec3f64', 'vec3b', 'return a < 0.5;', refusal('compare', 'vec3<f64> and f64', 3)],
-      [
-        'a: vec3f64, t: f32',
-        'vec3b',
-        'return a === t;',
-        refusal('compare', 'vec3<f64> and f32', 3),
-      ],
-      ['a: vec3f64, b: f64', 'vec3b', 'return b >= a;', refusal('compare', 'f64 and vec3<f64>', 3)],
-      [
-        'a: vec2f64, b: f64',
-        'vec2b',
-        'return a !== b;',
-        refusal('compare', 'vec2<f64> and f64', 2),
-      ],
-      ['a: vec4f64, b: f64', 'vec4b', 'return a > b;', refusal('compare', 'vec4<f64> and f64', 4)],
+      ['a: vec3f64', 'vec3b', 'return a < 0.5;', refusal('compare', 'vec3f64 and f64', 3)],
+      ['a: vec3f64, t: f32', 'vec3b', 'return a === t;', refusal('compare', 'vec3f64 and f32', 3)],
+      ['a: vec3f64, b: f64', 'vec3b', 'return b >= a;', refusal('compare', 'f64 and vec3f64', 3)],
+      ['a: vec2f64, b: f64', 'vec2b', 'return a !== b;', refusal('compare', 'vec2f64 and f64', 2)],
+      ['a: vec4f64, b: f64', 'vec4b', 'return a > b;', refusal('compare', 'vec4f64 and f64', 4)],
       // A declaration is refused in the same words, and takes the same splat.
       [
         'a: vec3f64, b: f64',
         'vec3b',
         'const v: vec3f64 = b; return a < a;',
-        refusal('let/const v', 'vec3<f64> and f64', 3),
+        refusal('let/const v', 'vec3f64 and f64', 3),
       ],
     ] as const) {
       expect(
@@ -382,23 +372,21 @@ export function declared(a: vec3f64, b: f64): vec3b { const v: vec3f64 = vec3f64
   });
 
   it('still refuses a vec64 beside another width or a vector of f32, whose fix is no splat', () => {
-    for (const [b, peer] of [
-      ['vec2f64', 'vec2<f64>'],
-      ['vec3', 'vec3<f32>'],
-    ] as const) {
+    // The peer is named as its parameter is written.
+    for (const b of ['vec2f64', 'vec3']) {
       expect(
         codedErrorsOf(
           `"use typeshade";\nexport function k(a: vec3f64, b: ${b}): vec3b { return a < b; }\n`,
         ),
       ).toEqual([
-        `${TS_CODES.TYPE_MISMATCH} Type mismatch: cannot compare vec3<f64> and ${peer}. Types must match.`,
+        `${TS_CODES.TYPE_MISMATCH} Type mismatch: cannot compare vec3f64 and ${b}. Types must match.`,
       ]);
     }
     // Nor is the splat offered where it fixes nothing: a vec64 given to a declared or assigned
     // f64, where the scalar is the type the author asked for.
     for (const [body, want] of [
-      ['const s: f64 = a; return b;', 'cannot let/const s f64 and vec3<f64>'],
-      ['let s = b; s = a; return s;', 'cannot assign to f64 f64 and vec3<f64>'],
+      ['const s: f64 = a; return b;', 'cannot let/const s f64 and vec3f64'],
+      ['let s = b; s = a; return s;', 'cannot assign to f64 f64 and vec3f64'],
     ] as const) {
       expect(
         codedErrorsOf(`"use typeshade";\nexport function k(a: vec3f64, b: f64): f64 { ${body} }\n`),
@@ -412,7 +400,7 @@ export function declared(a: vec3f64, b: f64): vec3b { const v: vec3f64 = vec3f64
         `"use typeshade";\nexport function k(a: vec3f64, b: f64): vec3f64 { return a & b; }\n`,
       ),
     ).toEqual([
-      `${TS_CODES.TYPE_MISMATCH} Bitwise "&" needs i32 or u32 operands, got vec3<f64>. Narrow ` +
+      `${TS_CODES.TYPE_MISMATCH} Bitwise "&" needs i32 or u32 operands, got vec3f64. Narrow ` +
         `and convert first, e.g. vec3u(vec3(a)) & vec3u(vec3(b)).`,
     ]);
   });
@@ -429,8 +417,8 @@ export function k(a: vec${n}f64, b: vec${n}f64): vec${n}f64 { return select(a, b
 `),
         `vec${n}f64`,
       ).toEqual([
-        `${TS_CODES.TYPE_MISMATCH} select with a vec${n}<bool> condition has no emulated-double ` +
-          `form; got vec${n}<f64> arms. The fp64 pass picks a vector of doubles whole, by one ` +
+        `${TS_CODES.TYPE_MISMATCH} select with a vec${n}b condition has no emulated-double ` +
+          `form; got vec${n}f64 arms. The fp64 pass picks a vector of doubles whole, by one ` +
           `bool — narrow the arms, select(vec${n}(a), vec${n}(b), m), or keep the doubles with ` +
           `min(a, b) or max(a, b) where the pick is a componentwise minimum or maximum.`,
       ]);
@@ -441,8 +429,8 @@ export function k(a: vec${n}f64, b: vec${n}f64): vec${n}f64 { return select(a, b
 export function k(a: vec3f64, b: vec3f64, m: vec2b): vec3f64 { return select(a, b, m); }
 `),
     ).toEqual([
-      `${TS_CODES.TYPE_MISMATCH} select with a vec2<bool> condition picks per component and ` +
-        `needs 2-component arms; got vec3<f64>.`,
+      `${TS_CODES.TYPE_MISMATCH} select with a vec2b condition picks per component and ` +
+        `needs 2-component arms; got vec3f64.`,
     ]);
   });
 
@@ -632,7 +620,7 @@ export function k(s: f64, t: f32): f64 {
       const errors = errorsOf(`"use typeshade"\n${body}\n`);
       expect(errors, body).toHaveLength(1);
       expect(errors[0], body).toMatch(
-        /^Cannot % (f64|vec3<f64>): the emulated double has no remainder/,
+        /^Cannot % (f64|vec3f64): the emulated double has no remainder/,
       );
     }
     const compound = errorsOf(
@@ -796,7 +784,7 @@ export function k(a: f64, b: f64, c: f64): f64 {
     expect(
       errorsOf(`"use typeshade"\nexport function k(a: vec3f64, i: i32): f64 { return a[i] }\n`),
     ).toEqual([
-      'A vec3<f64> is indexed by a constant lane, since an emulated double is a pair of ' +
+      'A vec3f64 is indexed by a constant lane, since an emulated double is a pair of ' +
         'hi/lo planes and a lane of it is a swizzle of both; write v.x, v.y or a whole-number ' +
         'index.',
     ]);
@@ -868,7 +856,7 @@ export function fs(@location(0) uv: vec2): C {
   return { color: textureSample(t, s, c) }
 }
 `),
-    ).toEqual(['textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<f64>.']);
+    ).toEqual(['textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2f64.']);
   });
 });
 

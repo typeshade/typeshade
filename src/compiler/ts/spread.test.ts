@@ -138,7 +138,7 @@ describe('what a spread has no form for', () => {
         ),
       )[0],
     ).toBe(
-      `${TS_CODES.UNSUPPORTED} "..." spreads the fields of a struct, and vec2<f32> has none. Write the components by name.`,
+      `${TS_CODES.UNSUPPORTED} "..." spreads the fields of a struct, and vec2 has none. Write the components by name.`,
     );
   });
 

@@ -286,8 +286,11 @@ class CsIn {
 class FsIn { @builtin("position") pos: vec4; @location(0) uv: vec3 }
 @vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } }
 @fragment export function fs(v: FsIn): vec4 { return vec4(v.uv, 1.) }`);
-    expect(d.message).toContain('leaves "vs" as vec2<f32> (VsOut.uv)');
-    expect(d.message).toContain('enters "fs" as vec3<f32> (FsIn.uv)');
+    // Each type as the author wrote it, `vec2`, not the key `vec2<f32>` (Rule 12.7).
+    expect(`${d.code ?? ''} ${d.message}`).toBe(
+      'TS8010 @location(0) leaves "vs" as vec2 (VsOut.uv) and enters "fs" as vec3 (FsIn.uv); ' +
+        'an interstage slot is one type on both sides.',
+    );
   });
 
   it('compares the EMITTED interpolation, not the spelling', () => {

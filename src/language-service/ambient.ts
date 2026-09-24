@@ -793,7 +793,9 @@ declare const arrayTag: unique symbol
 // [1., 2., 3.]\` compiles, and with a required tag the editor reported TS2322 ("Property
 // '[arrayTag]' is missing") on a program the compiler accepts. \`length\` stays required and
 // stays \`N\`, which is what still separates the sizes — a three-element list is not an
-// \`array<f32, 2>\` in the editor either.
+// \`array<f32, 2>\` in the editor either. A runtime-sized array leaves \`N\` at \`number\` and has
+// no size to give, so its \`length\` is the \`u32\` the compiler reads from the buffer
+// (\`arrayLength\`, surface §20), and the editor shows the type \`n * 0.5\` is refused for.
 //
 // WHERE AN ARRAY MEMBER GOES. \`Pick<Array<T>, ArrayOps>\` is how this type takes its members
 // from the \`interface Array<T>\` at the bottom of this file, the way dom.d.ts picks from the

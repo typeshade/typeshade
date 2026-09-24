@@ -356,7 +356,7 @@ describe('the bool and f64 casts', () => {
           return bool(v) ? 1. : 0.;
         }
       `),
-    ).toBe('bool() takes a numeric scalar, got vec3<f32>.');
+    ).toBe('bool() takes a numeric scalar, got vec3.');
     expect(
       diagnose(`
         export function f(i: i32): f64 {
@@ -411,7 +411,7 @@ describe('the ** operator', () => {
         }
       `),
     ).toBe(
-      'Type mismatch: cannot ** vec3<f32> and f32. ** is pow(a, b), which takes two values of ' +
+      'Type mismatch: cannot ** vec3 and f32. ** is pow(a, b), which takes two values of ' +
         'one type; splat the exponent, e.g. v ** vec3(2.).',
     );
   });

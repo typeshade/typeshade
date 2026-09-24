@@ -649,7 +649,7 @@ export function lowerCall(
           diagnostics,
           sourceFile,
           node,
-          `${written}(${typeKey(from.type)}) — an emulated-double vector narrows to f32 lane ` +
+          `${written}(${authorTypeText(from.type)}) — an emulated-double vector narrows to f32 lane ` +
             `by lane and to nothing else; write vec${from.type.n}(v)` +
             (ctor.elem === 'f32'
               ? ' of its own width.'
@@ -797,7 +797,7 @@ function lowerMatrixCtor(
 ): Expr | undefined {
   const { cols, rows } = shape;
   const type: ShaderType = { kind: 'mat', cols, rows, elem: 'f32' };
-  const shown = typeKey(type);
+  const shown = authorTypeText(type);
   const colT: ShaderType = { kind: 'vec', n: rows, elem: 'f32' };
   const args: Expr[] = [];
   for (const arg of node.arguments) {
@@ -830,7 +830,7 @@ function lowerMatrixCtor(
         diagnostics,
         sourceFile,
         node,
-        `${shown} cannot be built from ${typeKey(src)}: the emulated-double matrices are ` +
+        `${shown} cannot be built from ${authorTypeText(src)}: the emulated-double matrices are ` +
           `their own square shapes and do not convert.`,
         TS_CODES.TYPE_MISMATCH,
       );
@@ -841,7 +841,7 @@ function lowerMatrixCtor(
         diagnostics,
         sourceFile,
         node,
-        `${shown} cannot be built from the smaller ${typeKey(src)}: this surface truncates a ` +
+        `${shown} cannot be built from the smaller ${authorTypeText(src)}: this surface truncates a ` +
           `matrix and does not grow one, since the components it would have to invent are a ` +
           `choice the author should make. Write the columns out.`,
         TS_CODES.TYPE_MISMATCH,
@@ -884,7 +884,7 @@ function lowerMatrixCtor(
         diagnostics,
         sourceFile,
         node.arguments[bad] ?? node,
-        `${shown} takes f32 components; argument ${bad + 1} is ${typeKey(args[bad]!.type)}.`,
+        `${shown} takes f32 components; argument ${bad + 1} is ${authorTypeText(args[bad]!.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -906,7 +906,7 @@ function lowerMatrixCtor(
     node,
     `${shown} takes ${cols} vec${rows} columns, ${cols * rows} f32 components, a larger ` +
       `matrix to truncate, or nothing for the zero matrix; got ${args.length} argument(s)` +
-      `${args.length > 0 ? ` (${args.map((a) => typeKey(a.type)).join(', ')})` : ''}.`,
+      `${args.length > 0 ? ` (${args.map((a) => authorTypeText(a.type)).join(', ')})` : ''}.`,
     TS_CODES.ARITY_MISMATCH,
   );
   return undefined;
@@ -1084,7 +1084,7 @@ function lowerSelectCall(
       diagnostics,
       sourceFile,
       node.arguments[2]!,
-      `select condition must be bool or a vector of bools, got ${typeKey(cond.type)}. ` +
+      `select condition must be bool or a vector of bools, got ${authorTypeText(cond.type)}. ` +
         "The order is WGSL's: select(falseValue, trueValue, cond).",
       TS_CODES.TYPE_MISMATCH,
     );
@@ -1097,7 +1097,7 @@ function lowerSelectCall(
       diagnostics,
       sourceFile,
       node,
-      `select arm type mismatch: ${typeKey(ifFalse.type)} vs ${typeKey(ifTrue.type)}.`,
+      `select arm type mismatch: ${authorTypeText(ifFalse.type)} vs ${authorTypeText(ifTrue.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -1116,8 +1116,8 @@ function lowerSelectCall(
         diagnostics,
         sourceFile,
         node,
-        `select with a ${typeKey(cond.type)} condition has no emulated-double form; got ` +
-          `${typeKey(ifTrue.type)} arms. The fp64 pass picks a vector of doubles whole, by one ` +
+        `select with a ${authorTypeText(cond.type)} condition has no emulated-double form; got ` +
+          `${authorTypeText(ifTrue.type)} arms. The fp64 pass picks a vector of doubles whole, by one ` +
           `bool — narrow the arms, select(vec${n}(a), vec${n}(b), m), or keep the doubles with ` +
           `min(a, b) or max(a, b) where the pick is a componentwise minimum or maximum.`,
         TS_CODES.TYPE_MISMATCH,
@@ -1129,8 +1129,8 @@ function lowerSelectCall(
         diagnostics,
         sourceFile,
         node,
-        `select with a ${typeKey(cond.type)} condition picks per component and needs ` +
-          `${cond.type.n}-component arms; got ${typeKey(ifTrue.type)}.`,
+        `select with a ${authorTypeText(cond.type)} condition picks per component and needs ` +
+          `${cond.type.n}-component arms; got ${authorTypeText(ifTrue.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -1167,7 +1167,7 @@ function lowerBoolReduce(
       sourceFile,
       node,
       `${name}(v) takes a vector of bools, which a comparison of two vectors gives (§27), or ` +
-        `an array with a predicate, ${name}(xs, (x) => ...); got ${typeKey(peek.type)}.`,
+        `an array with a predicate, ${name}(xs, (x) => ...); got ${authorTypeText(peek.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -1274,7 +1274,7 @@ function lowerBitBuiltinCall(
           sourceFile,
           node.arguments[i]!,
           `${id} reads each argument as four packed bytes, so both are u32; ` +
-            `argument ${String(i + 1)} is ${typeKey(a.type)}. Write u32(x).`,
+            `argument ${String(i + 1)} is ${authorTypeText(a.type)}. Write u32(x).`,
           TS_CODES.TYPE_MISMATCH,
         );
         return undefined;
@@ -1305,8 +1305,8 @@ function lowerBitBuiltinCall(
         diagnostics,
         sourceFile,
         node,
-        `bitcast<${written}> reads the bits of ${target.article} ${typeKey(target.from)}; got ` +
-          `${typeKey(arg.type)}. A bitcast reinterprets 32 bits, it does not convert: ` +
+        `bitcast<${written}> reads the bits of ${target.article} ${authorTypeText(target.from)}; got ` +
+          `${authorTypeText(arg.type)}. A bitcast reinterprets 32 bits, it does not convert: ` +
           `${written}(x) is the conversion.`,
         TS_CODES.TYPE_MISMATCH,
       );
@@ -1326,7 +1326,7 @@ function lowerBitBuiltinCall(
         diagnostics,
         sourceFile,
         node,
-        `quantizeToF16 takes an f32 or a vector of them; got ${typeKey(arg.type)}.`,
+        `quantizeToF16 takes an f32 or a vector of them; got ${authorTypeText(arg.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -1343,7 +1343,7 @@ function lowerBitBuiltinCall(
       diagnostics,
       sourceFile,
       node,
-      `${id} takes a ${typeKey(sig.arg)}; got ${typeKey(fixed.type)}. WGSL gives it one ` +
+      `${id} takes a ${authorTypeText(sig.arg)}; got ${authorTypeText(fixed.type)}. WGSL gives it one ` +
         // "and GLSL ES 3.00 the same" is true of the ten pack/unpack rows this message was
         // written for and FALSE of the packed 4x8 family (#152), which GLSL ES 3.00 has no
         // form of at all — so the sentence names the target that actually has the overload.
@@ -1420,7 +1420,7 @@ function lowerStorageTextureCall(
 ): Expr | undefined {
   const isArray = tex.dim === '2d-array';
   const texel: ShaderType = { kind: 'vec', n: 4, elem: storageTexel(tex.format) };
-  const shown = typeKey(tex);
+  const shown = authorTypeText(tex);
   if (id === 'textureDimensions') {
     // NO mip level here, unlike every sampled and depth texture. A storage texture has exactly
     // one level, and WGSL gives its `textureDimensions` no level overload at all — measured on
@@ -1513,7 +1513,7 @@ function lowerStorageTextureCall(
         diagnostics,
         sourceFile,
         node,
-        `"${shown}" stores a ${typeKey(texel)}; got ${typeKey(value.type)}. The texel type is ` +
+        `"${shown}" stores a ${authorTypeText(texel)}; got ${authorTypeText(value.type)}. The texel type is ` +
           `the format's own: a "…uint" format stores a vec4u, a "…sint" one a vec4i, and ` +
           `every other one — unorm, snorm and float — a vec4.`,
         TS_CODES.TYPE_MISMATCH,
@@ -1563,7 +1563,7 @@ function lowerDepthTextureCall(
     return lowerMultisampledCall(id, tex, args, node, sourceFile, diagnostics);
   const suffix = arraySuffix(tex.dim);
   const isArray = suffix !== '';
-  const shown = typeKey(tex);
+  const shown = authorTypeText(tex);
   if (id === 'textureDimensions') {
     // A cube's size is the size of one face, two wide on both targets, so it keeps the 2d id.
     const out = dimsArgs(id, args, node, sourceFile, diagnostics);
@@ -1595,8 +1595,8 @@ function lowerDepthTextureCall(
         sourceFile,
         node,
         `${id} compares through a sampler_comparison; got ` +
-          `${smp === undefined ? 'nothing' : typeKey(smp.type)}. An ordinary sampler filters a ` +
-          `texel and has no reference to compare against. Declare the sampler ` +
+          `${smp === undefined ? 'nothing' : authorTypeText(smp.type)}. An ordinary sampler ` +
+          `filters a texel and has no reference to compare against. Declare the sampler ` +
           `"declare const smp: sampler_comparison".`,
         TS_CODES.TYPE_MISMATCH,
       );
@@ -1704,7 +1704,7 @@ function lowerTextureCall(
       diagnostics,
       sourceFile,
       node,
-      `textureStore writes a storage texture; "${typeKey(tex.type)}" is a sampled texture, ` +
+      `textureStore writes a storage texture; "${authorTypeText(tex.type)}" is a sampled texture, ` +
         `which is read through a sampler and never written. Declare the binding as ` +
         `texture_storage_2d<"rgba8unorm", "write"> (or whichever format) to write to it.`,
       TS_CODES.TYPE_MISMATCH,
@@ -1720,7 +1720,7 @@ function lowerTextureCall(
   }
   const suffix = arraySuffix(tex.type.dim);
   const isArray = suffix !== '';
-  const shown = typeKey(tex.type);
+  const shown = authorTypeText(tex.type);
   const texel: ShaderType = { kind: 'vec', n: 4, elem: tex.type.elem };
   // The two sampler kinds are not interchangeable in either direction, and Tint says so ("no
   // matching call"); this says it first, in the author's own file (roadmap 0.4 item 11).
@@ -1729,7 +1729,7 @@ function lowerTextureCall(
       diagnostics,
       sourceFile,
       node,
-      `${id} compares against a depth texture; "${typeKey(tex.type)}" is a sampled colour ` +
+      `${id} compares against a depth texture; "${authorTypeText(tex.type)}" is a sampled colour ` +
         `texture with no depth to compare. Declare the shadow map "texture_depth_2d" and read ` +
         `it with a "sampler_comparison".`,
       TS_CODES.TYPE_MISMATCH,
@@ -1975,7 +1975,7 @@ function lowerMultisampledCall(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const shown = typeKey(tex);
+  const shown = authorTypeText(tex);
   const depth = tex.kind === 'depth-texture';
   switch (id) {
     case 'textureDimensions':
@@ -2089,7 +2089,7 @@ function lowerGatherCall(
     );
     return undefined;
   }
-  const shown = typeKey(tex.type);
+  const shown = authorTypeText(tex.type);
   const compare = id === 'textureGatherCompare';
   if (tex.type.dim === '1d' || tex.type.dim === '3d' || tex.type.dim === '2d-ms') {
     pushDiag(
@@ -2173,9 +2173,9 @@ function lowerGatherCall(
       node,
       compare
         ? `textureGatherCompare compares through a sampler_comparison; got ` +
-            `${smp === undefined ? 'nothing' : typeKey(smp.type)}.`
+            `${smp === undefined ? 'nothing' : authorTypeText(smp.type)}.`
         : `textureGather reads through an ordinary sampler; got ` +
-            `${smp === undefined ? 'nothing' : typeKey(smp.type)}. A sampler_comparison ` +
+            `${smp === undefined ? 'nothing' : authorTypeText(smp.type)}. A sampler_comparison ` +
             `compares instead, with textureGatherCompare.`,
       TS_CODES.TYPE_MISMATCH,
     );
@@ -2239,7 +2239,7 @@ function elemNameOf(t: ShaderType): string {
       ? t.elem
       : t.kind === 'f64' || t.kind === 'vec64'
         ? 'f64'
-        : typeKey(t);
+        : authorTypeText(t);
 }
 
 /** The coordinate a texture is addressed by has the width its `dim` decides — a `vec2` on a 2d
@@ -2293,7 +2293,7 @@ function vecArg(
       diagnostics,
       sourceFile,
       node,
-      `${id} on a ${typeKey(tex)} takes a ${shape}; got ${typeKey(arg.type)}.`,
+      `${id} on a ${authorTypeText(tex)} takes a ${shape}; got ${authorTypeText(arg.type)}.`,
       TS_CODES.TEXTURE_ARGUMENT,
     );
     return false;
@@ -2316,9 +2316,9 @@ function vecArg(
     sourceFile,
     node,
     wantInt
-      ? `${id} on a ${typeKey(tex)} takes an integer ${what}, an i32 or a u32; got ` +
-          `${typeKey(arg.type)}.`
-      : `${id} on a ${typeKey(tex)} takes an f32 ${what}; got ${typeKey(arg.type)}.`,
+      ? `${id} on a ${authorTypeText(tex)} takes an integer ${what}, an i32 or a u32; got ` +
+          `${authorTypeText(arg.type)}.`
+      : `${id} on a ${authorTypeText(tex)} takes an f32 ${what}; got ${authorTypeText(arg.type)}.`,
     TS_CODES.TEXTURE_ARGUMENT,
   );
   return false;
@@ -2376,7 +2376,7 @@ function floatArg(
     diagnostics,
     sourceFile,
     node,
-    `${id} ${what} must be an f32; got ${typeKey(arg.type)}. Write f32(${argText(node, sourceFile)}).`,
+    `${id} ${what} must be an f32; got ${authorTypeText(arg.type)}. Write f32(${argText(node, sourceFile)}).`,
     TS_CODES.TEXTURE_ARGUMENT,
   );
   return undefined;
@@ -2419,7 +2419,7 @@ function intArg(
       diagnostics,
       sourceFile,
       node,
-      `A texture ${what} must be an i32 or u32; got ${typeKey(arg.type)}. An emulated double ` +
+      `A texture ${what} must be an i32 or u32; got ${authorTypeText(arg.type)}. An emulated double ` +
         `narrows to f32 first, so write i32(f32(x)).`,
       TS_CODES.TYPE_MISMATCH,
     );
@@ -2435,8 +2435,8 @@ function intArg(
       diagnostics,
       sourceFile,
       node,
-      `${id} ${what} must be an i32 or a u32; got ${key}. ` +
-        `Write ${typeKey(want)}(${argText(node, sourceFile)}).`,
+      `${id} ${what} must be an i32 or a u32; got ${authorTypeText(arg.type)}. ` +
+        `Write ${authorTypeText(want)}(${argText(node, sourceFile)}).`,
       TS_CODES.TEXTURE_ARGUMENT,
     );
     return undefined;
@@ -2483,7 +2483,7 @@ function dimsArgs(
       diagnostics,
       sourceFile,
       node,
-      `${id} on a ${typeKey(args[0]!.type)} expects 1 argument(s), or 2 with an explicit mip ` +
+      `${id} on a ${authorTypeText(args[0]!.type)} expects 1 argument(s), or 2 with an explicit mip ` +
         `level, got ${args.length}.`,
       TS_CODES.ARITY_MISMATCH,
     );
@@ -2517,7 +2517,7 @@ function arity(
     diagnostics,
     sourceFile,
     node,
-    `${id} on a ${typeKey(args[0]!.type)} expects ${want} argument(s), got ${args.length}.`,
+    `${id} on a ${authorTypeText(args[0]!.type)} expects ${want} argument(s), got ${args.length}.`,
     TS_CODES.ARITY_MISMATCH,
   );
   return false;

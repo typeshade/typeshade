@@ -290,7 +290,7 @@ describe('a float operand of & | ^', () => {
     expect(refusal('export function k(a: vec3, b: vec3): vec3 {\n  return a | b;\n}')).toEqual({
       code: 'TS8003',
       message:
-        'Bitwise "|" needs i32 or u32 operands, got vec3<f32>. Convert first, e.g. ' +
+        'Bitwise "|" needs i32 or u32 operands, got vec3. Convert first, e.g. ' +
         'vec3u(a) | vec3u(b).',
       at: 'a | b',
     });
@@ -306,7 +306,7 @@ describe('a float operand of & | ^', () => {
     ).toEqual({
       code: 'TS8003',
       message:
-        'Bitwise "^" needs i32 or u32 operands, got vec3<f64>. Narrow and convert first, e.g. ' +
+        'Bitwise "^" needs i32 or u32 operands, got vec3f64. Narrow and convert first, e.g. ' +
         'vec3u(vec3(a)) ^ vec3u(vec3(b)).',
       at: 'a ^ b',
     });

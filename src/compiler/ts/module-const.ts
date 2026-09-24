@@ -7,7 +7,12 @@ import type { ConstDecl, Expr, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { i32T, typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { LoweringScope, refuseModuleName, refusedDeclarationsOf } from './context.js';
+import {
+  LoweringScope,
+  authorTypeText,
+  refuseModuleName,
+  refusedDeclarationsOf,
+} from './context.js';
 import type { DeclaredSymbolSink } from './symbols.js';
 import { mapTsTypeToShaderType } from './type-map.js';
 import { foldConstComponents, foldConstValue } from './loop-bound.js';
@@ -502,7 +507,7 @@ function valueExprConst(
       makeDiagnostic(
         sourceFile,
         decl,
-        `Module const "${name}" is declared ${typeKey(annotated)} but its value is ${typeKey(init.type)}.`,
+        `Module const "${name}" is declared ${authorTypeText(annotated)} but its value is ${authorTypeText(init.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     );
@@ -535,7 +540,7 @@ function valueExprConst(
         sourceFile,
         decl,
         `Module const "${name}" must be a foldable scalar (literal or const expression), ` +
-          `or a whole vector or array built from them; ${typeKey(type)} is neither.`,
+          `or a whole vector or array built from them; ${authorTypeText(type)} is neither.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     );
@@ -695,7 +700,19 @@ function lowerOne(
       makeDiagnostic(
         sourceFile,
         decl,
-        `Module const "${name}" is ${k}, but its initializer is ${typeKey(init.type)}. Cast it, e.g. ${k}(...), or change the annotation.`,
+        `Module const "${name}" is ${authorTypeText(type)}, but its initializer is ` +
+          `${authorTypeText(init.type)}. ` +
+          // A conversion of the call is a module const, and so is a splat of it into a vector of
+          // its own element when it folds as a vector's component does (`vec3i(countOneBits(5))`,
+          // `vec3(f32(floor(2.)))`). Any other call around it is not one (`A(...)`, `bool(...)`,
+          // `f64(...)`, and `vec3u(u32(floor(2.)))`, whose conversion no vector const takes),
+          // so the annotation is what changes (Rule 12.1).
+          ((type.kind === 'scalar' && type.scalar !== 'bool') ||
+          (type.kind === 'vec' &&
+            typeKey(init.type) === type.elem &&
+            isFoldableValueExpr(init, scope, valueExprs))
+            ? `Cast it, e.g. ${authorTypeText(type)}(...), or change the annotation.`
+            : `Change the annotation to ${authorTypeText(init.type)}.`),
         TS_CODES.TYPE_MISMATCH,
       ),
     );

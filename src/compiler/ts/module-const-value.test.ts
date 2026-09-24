@@ -290,7 +290,7 @@ describe('what a module constant still is not', () => {
           return V;
         }
       `),
-    ).toBe('Module const "V" is declared vec4<f32> but its value is vec3<f32>.');
+    ).toBe('Module const "V" is declared vec4 but its value is vec3.');
   });
 
   it('rejects a write to it', () => {

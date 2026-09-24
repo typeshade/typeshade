@@ -33,6 +33,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { CollectedStruct, FieldInit } from '../structs.js';
 import {
   authorTypeText,
+  classOfStruct,
   irNameOf,
   readOnlyPhrase,
   writableRemedy,
@@ -1489,7 +1490,7 @@ function initAssigns(
         diagnostics,
         sourceFile,
         f.init,
-        `Field "${f.name}" is ${typeKey(f.type)} but its initializer is ${typeKey(init.type)}.`,
+        `Field "${f.name}" is ${authorTypeText(f.type)} but its initializer is ${authorTypeText(init.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       continue;
@@ -1940,7 +1941,9 @@ export function lowerClassCall(
     return 'not-a-class-call';
   }
   const name = recv.type.name;
-  const shown = `${name}.${member}`;
+  // A class in a namespace or an instance of a generic one is named as written, `N.P`.
+  const written = authorTypeText(recv.type);
+  const shown = `${written}.${member}`;
   const found = memberFunctionOf(name, member, 'method', scope);
   // A member the class was refused at its declaration for (structs.ts): an abstract one it leaves
   // unimplemented, or one that lost its emitted name to another, a static of the same name
@@ -1959,6 +1962,15 @@ export function lowerClassCall(
     const accessor =
       memberFunctionOf(name, member, 'get', scope) ?? memberFunctionOf(name, member, 'set', scope);
     const field = visibleField(name, member, callee.name, scope) !== undefined;
+    // A static of a generic class belongs to the class, not to one instance of it: `Slot_m`,
+    // not `Slot_f32_m`.
+    const cls = classOfStruct(name);
+    const onClass =
+      cls.base === name ? undefined : memberFunctionOf(cls.base, member, 'method', scope);
+    if (onClass?.cf.kind === 'static') {
+      pushDiag(diagnostics, sourceFile, callee, staticOnValue(name, member));
+      return undefined;
+    }
     pushDiag(
       diagnostics,
       sourceFile,
@@ -1967,9 +1979,9 @@ export function lowerClassCall(
         ? `"${shown}" is an accessor, not a method; read or assign it without the call: ` +
             `v.${member}.`
         : field
-          ? `"${member}" is a field of ${name}, not a method.`
+          ? `"${member}" is a field of ${written}, not a method.`
           : // On the member, as TypeScript's TS2339 is, with the method it is spelled like.
-            unknownNameSentence(`"${name}" has no method "${member}".`, member, [
+            unknownNameSentence(`"${written}" has no method "${member}".`, member, [
               [name, ...scope.ancestorsOf(name)].flatMap((c) => methodNames(c, sourceFile)),
             ]),
     );
@@ -1981,12 +1993,7 @@ export function lowerClassCall(
   if (!checkFunctionAccess(cf, name, callee.name, sourceFile, scope, diagnostics)) return undefined;
   if (cf.kind === 'static') {
     if (withheld) return undefined;
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      callee,
-      `"${shown}" is static; call it on the class: ${name}.${member}(...).`,
-    );
+    pushDiag(diagnostics, sourceFile, callee, staticOnValue(name, member));
     return undefined;
   }
   // A method that takes a function: the copy for the functions this call hands it (Rule 8.18).
@@ -2014,6 +2021,18 @@ export function lowerClassCall(
     return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown, leading: [target] });
   }
   return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown, leading: [recv] });
+}
+
+/** A static called on a value of its class, the struct `name`. The call it names is on the
+ *  class with no type arguments, `Slot.m(...)`, since `Slot<f32>.m(...)` is TS1477. A static of a
+ *  class in a namespace is called nowhere today (`N.P.m()` reads `N` as an unknown value), so
+ *  that sentence gives the reason and names no call. */
+function staticOnValue(name: string, member: string): string {
+  const cls = classOfStruct(name);
+  const shown = `"${cls.written}.${member}"`;
+  return cls.inNamespace
+    ? `${shown} is static, so a value of ${cls.written} does not have it.`
+    : `${shown} is static; call it on the class: ${cls.written}.${member}(...).`;
 }
 
 /** The class a class function's body was written in: the one whose body may name it when its

@@ -20,7 +20,7 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { casResultT, i32T, typeKey, u32T, voidT } from '../../../core/ir/types.js';
 import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { readOnlyPhrase, writableRemedy, type LoweringScope } from '../context.js';
+import { authorTypeText, readOnlyPhrase, writableRemedy, type LoweringScope } from '../context.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { retargetIntLitCtx } from '../lit-coerce.js';
@@ -62,9 +62,9 @@ export function refuseAtomicDeclaration(
     diagnostics,
     sourceFile,
     node,
-    `${typeKey(atomic)} lives in storage or workgroup memory only: declare it inside a storage ` +
-      `binding (declare const counters: storage<array<${typeKey(atomic)}>, "read_write">) or a ` +
-      `workgroup variable (let tile: workgroup<array<${typeKey(atomic)}, 64>>), not as ` +
+    `${authorTypeText(atomic)} lives in storage or workgroup memory only: declare it inside a storage ` +
+      `binding (declare const counters: storage<array<${authorTypeText(atomic)}>, "read_write">) or a ` +
+      `workgroup variable (let tile: workgroup<array<${authorTypeText(atomic)}, 64>>), not as ` +
       `${where}.`,
     TS_CODES.UNSUPPORTED,
   );
@@ -88,7 +88,7 @@ export function refuseBareAtomic(
     diagnostics,
     sourceFile,
     node,
-    `"${text}" is an ${typeKey(t)}: read it with atomicLoad(${text}) and write it with ` +
+    `"${text}" is an ${authorTypeText(t)}: read it with atomicLoad(${text}) and write it with ` +
       `atomicStore(${text}, v) or atomicAdd(${text}, v). An atomic is never read or assigned directly.`,
     TS_CODES.TYPE_MISMATCH,
   );
@@ -135,7 +135,7 @@ export function lowerAtomicCall(
       locNode,
       `${name} takes an atomic<u32> or atomic<i32> location (an element of a ` +
         `storage<array<atomic<u32>>>, a field of a storage struct, or a storage<atomic<u32>> ` +
-        `binding), got ${typeKey(loc.type)}.`,
+        `binding), got ${authorTypeText(loc.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -204,8 +204,8 @@ export function lowerAtomicCall(
           diagnostics,
           sourceFile,
           argNode,
-          `${name} ${what} must be ${typeKey(elemT)} to match the ${typeKey(loc.type)}, got ` +
-            `${typeKey(v.type)}.`,
+          `${name} ${what} must be ${authorTypeText(elemT)} to match the ${authorTypeText(loc.type)}, got ` +
+            `${authorTypeText(v.type)}.`,
           TS_CODES.TYPE_MISMATCH,
         );
         return undefined;
@@ -226,7 +226,7 @@ export function lowerAtomicCall(
         diagnostics,
         sourceFile,
         valueNode,
-        `${name} value must be ${typeKey(elemT)} to match the ${typeKey(loc.type)}, got ${typeKey(value.type)}.`,
+        `${name} value must be ${authorTypeText(elemT)} to match the ${authorTypeText(loc.type)}, got ${authorTypeText(value.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;

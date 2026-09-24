@@ -268,7 +268,7 @@ describe('what a list is refused for', () => {
         src('  const xs: array<array<f32, 2>, 2> = [[1., 2.], [3., 4.]];\n  return xs[0][0];'),
       ),
     ).toBe(
-      'array<array<f32,2>, 2> is an array of arrays, which GLSL ES 3.00 does not have. ' +
+      'array<array<f32, 2>, 2> is an array of arrays, which GLSL ES 3.00 does not have. ' +
         'Flatten it: one array<f32, N> indexed by row * width + column.',
     );
     // A list where the element type does not take one says which type is wanted, rather than

@@ -46,6 +46,7 @@ import {
   type MixinApplication,
 } from './mixins.js';
 import { pushTypeArguments } from './generics.js';
+import { authorTypeText, useWrittenStructs, type StructOrigin } from './context.js';
 import {
   genericClasses,
   genericStructName,
@@ -202,6 +203,9 @@ export function collectStructs(
     (node) => mapTsTypeToShaderType(node, sourceFile, undefined),
     diagnostics,
   );
+  // Every class's written form is bound before any is walked: a sentence about a field, a base
+  // or a @location may name a class the walk has not reached (`N.P`, not the emitted `N_P`).
+  useWrittenStructs(classStructs(sourceFile, genericParams, instances));
   const candidates = collectCandidates(sourceFile);
   const reachable = reachableCandidates(sourceFile, candidates);
   // Recorded before any type is mapped here, so a field that names one is quiet too.
@@ -294,8 +298,8 @@ export function collectStructs(
           diag(
             sourceFile,
             node,
-            `Struct "${name}" has no fields. WGSL requires a struct to declare at least one ` +
-              `member, so an empty one cannot be emitted.` +
+            `Struct "${authorTypeText(structT(name))}" has no fields. WGSL requires a struct to ` +
+              `declare at least one member, so an empty one cannot be emitted.` +
               (members !== undefined && (members.methods.length > 0 || members.accessors.length > 0)
                 ? ` A class holding only functions is not a struct; write them as functions.`
                 : ''),
@@ -422,6 +426,9 @@ export function collectStructs(
       : [{ name: written, binding: undefined }];
     for (const instance of cases) {
       const structName = instance.name;
+      // The class as its author wrote it, `N.P` or `Slot<f32>`, for a sentence about the class
+      // as a whole.
+      const shownName = authorTypeText(structT(structName));
       // Imperative rather than a callback: the body below `continue`s, and a callback would
       // make that cross a function boundary. A `continue` here skips this INSTANCE, which is
       // what a member the walk refuses should do.
@@ -545,9 +552,9 @@ export function collectStructs(
               sourceFile,
               at,
               prior === written
-                ? `Field "${written}" is declared twice on "${structName}"; a struct has one ` +
+                ? `Field "${written}" is declared twice on "${shownName}"; a struct has one ` +
                     `member of a name.`
-                : `"${structName}" declares "${prior}" and "${written}", which would both be the ` +
+                : `"${shownName}" declares "${prior}" and "${written}", which would both be the ` +
                     `struct member "${emitted}": a private name is emitted without its "#". ` +
                     `Rename one of them.`,
             ),
@@ -587,7 +594,7 @@ export function collectStructs(
           stmt.members,
           sourceFile,
           diagnostics,
-          structName,
+          shownName,
         )) {
           // A method, a constructor and a static function are functions of the module (#86), the
           // shapes below are what the surface does not take, each with its fix.
@@ -600,7 +607,7 @@ export function collectStructs(
             // constructor assigns it from its parameter before anything else (Rule 8.14).
             for (const p of member.parameters) {
               if (!ts.isParameterPropertyDeclaration(p, member)) continue;
-              const field = parameterPropertyField(p, structName, sourceFile, diagnostics);
+              const field = parameterPropertyField(p, shownName, sourceFile, diagnostics);
               if (field === undefined) {
                 if (ts.isIdentifier(p.name)) withheld.add(p.name.text);
                 continue;
@@ -720,7 +727,7 @@ export function collectStructs(
           if (!ts.isPropertyDeclaration(member)) continue;
           const memberName = writtenMemberName(member.name);
           if (memberName === undefined) {
-            diagnostics.push(memberNameDiag(sourceFile, member, stmt.name.text));
+            diagnostics.push(memberNameDiag(sourceFile, member, structName));
             continue;
           }
           // The same rule an interface member already had: a struct field is always present in
@@ -733,7 +740,7 @@ export function collectStructs(
               diag(
                 sourceFile,
                 member,
-                `Optional field "${memberName}?" on "${structName}" is not supported: a ` +
+                `Optional field "${memberName}?" on "${shownName}" is not supported: a ` +
                   `struct field is always present in the buffer the host fills.`,
               ),
             );
@@ -814,8 +821,8 @@ export function collectStructs(
                   sourceFile,
                   member.name,
                   member.initializer === undefined
-                    ? `Field "${memberName}" on "${structName}" needs a type: write "${memberName}: T".`
-                    : `Field "${memberName}" on "${structName}" needs a type, which ` +
+                    ? `Field "${memberName}" on "${shownName}" needs a type: write "${memberName}: T".`
+                    : `Field "${memberName}" on "${shownName}" needs a type, which ` +
                         `"${member.initializer.getText(sourceFile)}" does not name. Write ` +
                         `"${memberName}: T = ...".`,
                 ),
@@ -1473,10 +1480,10 @@ function candidateOf(stmt: ts.Statement): Candidate | undefined {
  *  uses and from {@link reportUnusedDuplicates} for one nothing does. */
 function duplicateStructMessage(name: string): string {
   return (
-    `Struct "${name}" is declared more than once. A class, an interface and a type alias ` +
-    `are three spellings of one struct, not declarations that merge — TypeScript would ` +
-    `merge two interfaces, and the merged layout would disagree with this one at every ` +
-    `use site.`
+    `Struct "${authorTypeText(structT(name))}" is declared more than once. A class, an ` +
+    `interface and a type alias are three spellings of one struct, not declarations that ` +
+    `merge — TypeScript would merge two interfaces, and the merged layout would disagree ` +
+    `with this one at every use site.`
   );
 }
 
@@ -1673,6 +1680,8 @@ function basesOf(
 ): MixinApplication | undefined {
   const extendsClause = clauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword);
   if (!extendsClause) return { bases: [], bodies: [] };
+  // The class as its author wrote it, `N.D` for the struct `N_D`.
+  const shown = authorTypeText(structT(name));
   const out: string[] = [];
   const bodies: ts.ClassExpression[] = [];
   for (const type of extendsClause.types) {
@@ -1689,7 +1698,7 @@ function basesOf(
           diag(
             sourceFile,
             type,
-            `"${name}" extends "${type.getText(sourceFile)}", which names no layout. A base has ` +
+            `"${shown}" extends "${type.getText(sourceFile)}", which names no layout. A base has ` +
               `to be a class this file declares, at type arguments it can resolve.`,
           ),
         );
@@ -1699,7 +1708,7 @@ function basesOf(
       continue;
     }
     if (isMixinHeritage(type.expression, sourceFile)) {
-      const applied = applyMixins(name, type.expression, sourceFile, diagnostics);
+      const applied = applyMixins(shown, type.expression, sourceFile, diagnostics);
       if (applied === undefined) return undefined;
       out.push(...applied.bases);
       bodies.push(...applied.bodies);
@@ -1710,7 +1719,7 @@ function basesOf(
         diag(
           sourceFile,
           type,
-          `"${name}" extends an expression. A base has to be a declared class or interface ` +
+          `"${shown}" extends an expression. A base has to be a declared class or interface ` +
             `here, or a mixin: a call to a function of this file whose body is one ` +
             `"return class … { … }".`,
         ),
@@ -1723,6 +1732,33 @@ function basesOf(
     out.push(type.expression.text);
   }
   return { bases: out, bodies };
+}
+
+/** Every struct a class declaration of the file emits, with the declaration and what its type
+ *  parameters are bound to, found the way {@link collectStructs} walks them: a class in a
+ *  namespace under its flattened name, a generic class once per set of type arguments the file
+ *  writes. */
+function classStructs(
+  sourceFile: ts.SourceFile,
+  genericParams: ReadonlyMap<string, unknown>,
+  instances: ReadonlyMap<string, readonly StructInstance[]>,
+): StructOrigin[] {
+  const out: StructOrigin[] = [];
+  eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt, prefix) => {
+    if (!ts.isClassDeclaration(stmt) || !stmt.name) return;
+    const written = prefix === '' ? stmt.name.text : namespaceMemberName(prefix, stmt.name.text);
+    const cases: readonly StructInstance[] = genericParams.has(written)
+      ? (instances.get(written) ?? [])
+      : [{ name: written, binding: undefined }];
+    for (const c of cases) {
+      out.push({
+        decl: { name: c.name },
+        classNode: stmt,
+        ...(c.binding !== undefined ? { binding: c.binding } : {}),
+      });
+    }
+  });
+  return out;
 }
 
 /** Splice each struct's bases into it, base fields first (roadmap 0.3 item T5, #92). Runs
@@ -1750,6 +1786,8 @@ function applyInheritance(
   const done = new Map<string, Resolved>();
   const onStack: string[] = [];
   const at = (n: string): ts.Node => nodeOf.get(n) ?? sourceFile;
+  /** A class as its author wrote it, `N.P` for the struct `N_P`. */
+  const shown = (n: string): string => authorTypeText(structT(n));
   const ownOf = (s: CollectedStruct): Resolved => ({
     fields: s.decl.fields,
     privates: s.privateFields ?? new Map(),
@@ -1776,8 +1814,11 @@ function applyInheritance(
         diag(
           sourceFile,
           at(name),
-          `"${name}" extends itself, through ${[...onStack.slice(onStack.indexOf(name)), name]
-            .map((n) => `"${n}"`)
+          `"${shown(name)}" extends itself, through ${[
+            ...onStack.slice(onStack.indexOf(name)),
+            name,
+          ]
+            .map((n) => `"${shown(n)}"`)
             .join(' -> ')}. A struct cannot contain its own fields.`,
         ),
       );
@@ -1811,9 +1852,10 @@ function applyInheritance(
           diag(
             sourceFile,
             at(name),
-            `"${prior.from}" declares "${prior.private?.written ?? f.name}" and "${from}" ` +
-              `declares "${priv?.written ?? f.name}", which would both be the struct member ` +
-              `"${f.name}": a private name is emitted without its "#". Rename one of them.`,
+            `"${shown(prior.from)}" declares "${prior.private?.written ?? f.name}" and ` +
+              `"${shown(from)}" declares "${priv?.written ?? f.name}", which would both be the ` +
+              `struct member "${f.name}": a private name is emitted without its "#". Rename one ` +
+              `of them.`,
           ),
         );
         return;
@@ -1823,9 +1865,9 @@ function applyInheritance(
         diag(
           sourceFile,
           at(name),
-          `"${from}" declares "${f.name}" as ${typeKeyOf(f.type)}, and "${prior.from}" declares ` +
-            `it as ${typeKeyOf(prior.field.type)}. A struct has one layout, so a field cannot ` +
-            `change type on the way down.`,
+          `"${shown(from)}" declares "${f.name}" as ${authorTypeText(f.type)}, and ` +
+            `"${shown(prior.from)}" declares it as ${authorTypeText(prior.field.type)}. A struct ` +
+            `has one layout, so a field cannot change type on the way down.`,
         ),
       );
     };
@@ -1835,8 +1877,8 @@ function applyInheritance(
           diag(
             sourceFile,
             at(name),
-            `"${name}" extends "${base}", which this file does not declare as a struct. A base ` +
-              `has to be a class or an interface whose fields are shader types.`,
+            `"${shown(name)}" extends "${base}", which this file does not declare as a struct. ` +
+              `A base has to be a class or an interface whose fields are shader types.`,
           ),
         );
         continue;
@@ -1884,8 +1926,8 @@ function applyInheritance(
       diag(
         sourceFile,
         at(s.decl.name),
-        `Struct "${s.decl.name}" has no fields, and neither has what it extends. WGSL requires ` +
-          `a struct to declare at least one member.`,
+        `Struct "${shown(s.decl.name)}" has no fields, and neither has what it extends. WGSL ` +
+          `requires a struct to declare at least one member.`,
       ),
     );
   }
@@ -2008,8 +2050,9 @@ function memberNameDiag(
   return diag(
     sourceFile,
     member,
-    `Field names on "${owner}" must be plain identifiers: a WGSL struct member has no other ` +
-      `spelling, and a quoted or computed name would not reach the emitted layout.`,
+    `Field names on "${authorTypeText(structT(owner))}" must be plain identifiers: a WGSL struct ` +
+      `member has no other spelling, and a quoted or computed name would not reach the emitted ` +
+      `layout.`,
   );
 }
 
@@ -2136,6 +2179,8 @@ function checkLocationSlots(
   fields: readonly StructField[],
 ): void {
   const at = node ?? sourceFile;
+  // A class in a namespace or an instance of a generic one is named as written, `N.VOut`.
+  const shown = authorTypeText(structT(structName));
   const atLocation = new Map<string, string>();
   const blendSources = new Set<number>();
   for (const field of fields) {
@@ -2148,7 +2193,7 @@ function checkLocationSlots(
         makeDiagnostic(
           sourceFile,
           at,
-          `Struct "${structName}" puts "${prev}" and "${field.name}" both at ` +
+          `Struct "${shown}" puts "${prev}" and "${field.name}" both at ` +
             `@location(${String(field.location)})` +
             `${field.blendSrc !== undefined ? ` @blend_src(${String(field.blendSrc)})` : ''}; ` +
             `each slot carries one value.`,
@@ -2160,7 +2205,7 @@ function checkLocationSlots(
       diagnostics,
       sourceFile,
       at,
-      `${structName}.${field.name}`,
+      `${shown}.${field.name}`,
       field.type,
       field.interpolate,
     );
@@ -2177,7 +2222,7 @@ function checkLocationSlots(
       makeDiagnostic(
         sourceFile,
         at,
-        `Struct "${structName}" declares @blend_src(${String(only)}) and not ` +
+        `Struct "${shown}" declares @blend_src(${String(only)}) and not ` +
           `@blend_src(${String(1 - only)}); a dual-source blend mixes two colours, so both sit ` +
           `at the same @location.`,
         TS_CODES.STRUCT_FIELD,

@@ -6,7 +6,7 @@
 import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js';
 import { typeKey } from '../../core/ir/types.js';
 import { eachExpr, mapChildren } from '../../core/ir/visit.js';
-import type { LoweringScope } from './context.js';
+import { authorTypeText, type LoweringScope } from './context.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { BUILTINS } from '../../core/cpu-runtime.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
@@ -301,7 +301,7 @@ export function analyzeCountedFor(
   if (k !== 'i32' && k !== 'u32') {
     return {
       ok: false,
-      message: `for induction must be i32 or u32, got ${k}.`,
+      message: `for induction must be i32 or u32, got ${authorTypeText(init.type)}.`,
       code: TS_CODES.LOOP_INDUCTION,
     };
   }

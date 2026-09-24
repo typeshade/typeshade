@@ -437,7 +437,7 @@ export function f(a: ${type}): ${type} {
   it('leaves a bad swizzle of such a name to the compiler, which reports it once', () => {
     const source = entry('  const lit = a * s\n  const p = lit.w\n');
     expect(diagnosticsOf(source).map((x) => `${x.source} ${String(x.code)} ${x.message}`)).toEqual([
-      'typeshade TS8022 .w out of range on vec3<f32>.',
+      'typeshade TS8022 .w out of range on vec3.',
     ]);
   });
 
@@ -823,15 +823,15 @@ describe("the editor shows the compiler's one diagnostic, at its span (both halv
     ],
     'a scalar returned for a vector': [
       '"use typeshade"\nexport function f(v: vec3): vec3 {\n  return length(v)\n}\n',
-      'TS8003 Function "f" return type mismatch: declared vec3<f32>, got f32. @return length(v)',
+      'TS8003 Function "f" return type mismatch: declared vec3, got f32. @return length(v)',
     ],
     'the second of two returns': [
       '"use typeshade"\nexport function f(x: f32, v: vec3): vec3 {\n  if (x > 0.) {\n    return v\n  }\n  return x\n}\n',
-      'TS8003 Function "f" return type mismatch: declared vec3<f32>, got f32. @return x',
+      'TS8003 Function "f" return type mismatch: declared vec3, got f32. @return x',
     ],
     'a vector returned for an entry output struct': [
       '"use typeshade"\nclass C {\n  @location(0) color: vec4;\n}\n@fragment\nexport function fs(): C {\n  return vec4(1.)\n}\n',
-      'TS8003 Function "fs" return type mismatch: declared struct:C, got vec4<f32>. @return vec4(1.)',
+      'TS8003 Function "fs" return type mismatch: declared C, got vec4. @return vec4(1.)',
     ],
   };
   const at = (source: string, start: number, length: number): string =>
@@ -988,5 +988,57 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     expect(typeScriptDiagnosticsOf(source)).toEqual([
       "TS2454: Variable 'tile' is used before being assigned.",
     ]);
+  });
+});
+
+// WGSL's phony assignment `_ = f(x)` compiles (surface §19, §52), and the editor said TS2304
+// "Cannot find name '_'" on every one of them, so a program the compiler accepts was red and the
+// one it refuses read as two diagnostics (Rule 12.4, Rule 12.7). `_` is not a name the ambient
+// library can declare (no WGSL, ECMAScript or §9.3 source gives it, `surface-names.test.ts`), so
+// the editor drops TS2304 on the `_` of the statement the compiler reads as phony, and nowhere
+// else.
+describe("the _ of a phony assignment is the compiler's to judge (Rule 12.7)", () => {
+  const said = (body: string): string[] =>
+    diagnosticsOf(`"use typeshade"\n${body}\n`).map((d) => `${d.source} ${d.code}: ${d.message}`);
+
+  it('_ = max(a, 1.) is clean, as it compiles', () => {
+    expect(said('export function f(a: f32): f32 { _ = max(a, 1.); return a; }')).toEqual([]);
+  });
+
+  it('the phony statement inside a block, a loop and an arrow that returns nothing is clean', () => {
+    expect(
+      said(
+        [
+          'function g(x: f32): f32 { return x * 2.; }',
+          'export function f(a: f32): f32 {',
+          '  if (a > 0.) { _ = sqrt(a); }',
+          '  for (let i = 0; i < 3; i++) { _ = g(a); }',
+          '  const h = (x: f32) => _ = max(x, 1.);',
+          '  h(a);',
+          '  return a;',
+          '}',
+        ].join('\n'),
+      ),
+    ).toEqual([]);
+  });
+
+  it("_ = a + 1. keeps the compiler's one refusal and no TS2304", () => {
+    expect(said('export function f(a: f32): f32 { _ = a + 1.; return a; }')).toEqual([
+      'typeshade TS8099: "_ = ..." drops the result of a call. "a + 1." is not one, so there is nothing to drop; remove the line.',
+    ]);
+  });
+
+  it('a `_` read as a value, or written by any other operator, keeps TS2304', () => {
+    // TypeScript's half keeps it, and the merged list reads it as the compiler's unknown name,
+    // one diagnostic (Rule 12.4).
+    const read = 'export function f(a: f32): f32 { const y = _; return a; }';
+    const added = 'export function f(a: f32): f32 { _ += 1.; return a; }';
+    for (const body of [read, added]) {
+      expect(typeScriptDiagnosticsOf(`"use typeshade"\n${body}\n`)).toEqual([
+        "TS2304: Cannot find name '_'.",
+      ]);
+    }
+    expect(said(read)).toEqual(['typeshade TS8022: Unknown identifier "_".']);
+    expect(said(added)).toEqual(['typeshade TS8022: Cannot assign to unknown name "_".']);
   });
 });

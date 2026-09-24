@@ -169,13 +169,13 @@ describe('bool vectors: what is refused, and what the fix is', () => {
 
   it('an ordering on bool vectors, a select whose arms do not match the mask', () => {
     expect(only(FS('  const m = a < b\n  const n = m < m\n  return vec4(1.)'))).toBe(
-      `${TS_CODES.TYPE_MISMATCH} "<" has no meaning on vec3<bool>: compare bool vectors with === or !==, or reduce them with any() or all().`,
+      `${TS_CODES.TYPE_MISMATCH} "<" has no meaning on vec3b: compare bool vectors with === or !==, or reduce them with any() or all().`,
     );
     expect(only(FS('  const m = uv < vec2(0.5)\n  return vec4(select(a, b, m), 1.)'))).toBe(
-      `${TS_CODES.TYPE_MISMATCH} select with a vec2<bool> condition picks per component and needs 2-component arms; got vec3<f32>.`,
+      `${TS_CODES.TYPE_MISMATCH} select with a vec2b condition picks per component and needs 2-component arms; got vec3.`,
     );
     expect(only(FS('  return vec4(select(a, b, uv), 1.)'))).toBe(
-      `${TS_CODES.TYPE_MISMATCH} select condition must be bool or a vector of bools, got vec2<f32>. The order is WGSL's: select(falseValue, trueValue, cond).`,
+      `${TS_CODES.TYPE_MISMATCH} select condition must be bool or a vector of bools, got vec2. The order is WGSL's: select(falseValue, trueValue, cond).`,
     );
   });
 
@@ -186,7 +186,7 @@ describe('bool vectors: what is refused, and what the fix is', () => {
     // emit. What stays refused is a vector that is not a vector of BOOLS.
     expect(errorsOf(FS('  return vec4(f32(any(uv.x < 0.5)), 0., 0., 1.)'))).toEqual([]);
     expect(only(FS('  return vec4(f32(all(a)), 0., 0., 1.)'))).toBe(
-      `${TS_CODES.TYPE_MISMATCH} all(v) takes a vector of bools, which a comparison of two vectors gives (§27), or an array with a predicate, all(xs, (x) => ...); got vec3<f32>.`,
+      `${TS_CODES.TYPE_MISMATCH} all(v) takes a vector of bools, which a comparison of two vectors gives (§27), or an array with a predicate, all(xs, (x) => ...); got vec3.`,
     );
     // The fold keeps its own message.
     expect(

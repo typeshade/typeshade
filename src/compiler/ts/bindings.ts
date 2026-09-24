@@ -639,19 +639,21 @@ function checkHostShareable(
     seen.add(t.name);
     const decl = structs.get(t.name);
     if (decl === undefined) return;
+    // A class in a namespace or an instance of a generic one is named as written, `N.P`.
+    const shown = authorTypeText(t);
     for (const [i, f] of decl.fields.entries()) {
       if (f.type.kind === 'array' && f.type.size === undefined && i !== decl.fields.length - 1) {
         diagnostics.push(
           layoutDiag(
             sourceFile,
             node,
-            `"${t.name}.${f.name}" is a list of no fixed length and is not the last field of ` +
-              `"${t.name}": nothing after it has an offset. Move it last, or give it a length.`,
+            `"${shown}.${f.name}" is a list of no fixed length and is not the last field of ` +
+              `"${shown}": nothing after it has an offset. Move it last, or give it a length.`,
           ),
         );
         continue;
       }
-      walk(f.type, `${t.name}.${f.name}`);
+      walk(f.type, `${shown}.${f.name}`);
     }
   };
   walk(binding.type, binding.name);
