@@ -63,6 +63,7 @@ and the tree disagree.
 | `core/host-values.ts`, `core/host-runtime.ts` | The host-value boundary of a host call (Rule 8.21), and what a generated host module imports (Rule 11.7).                                                                                           |
 | `core/host-entry.ts`                          | A `@compute` entry called from host code (Rule 8.24): packing by the layouts the plugin writes, the WebGPU dispatch and readback, the CPU-tier dispatch, and the `_console` readback in `vite dev`. |
 | `core/host-draw.ts`                           | A full-screen `@fragment` entry drawn from host code (Rule 8.24): the canvas's tier, WebGPU, WebGL2 (framebuffer and flipped copy) and the CPU pixel loop.                                          |
+| `core/host-kernel.ts`                         | A kernel function called from host code (Rule 8.21): the length check, one WebGPU dispatch per loop with in-place readback, and the CPU tier.                                                       |
 | `core/reflect.ts`, `core/sot.ts`              | Pipeline reflection (bind groups, std140 / std430 layouts, entry IO); declare-once IO structs and resources.                                                                                        |
 | `core/diagnostics/`                           | `codes.ts` (frozen `SDnnnn` catalogue), `error.ts` (`TypeShadeError`), `loc.ts` (opt-in source tracing), `report.ts` (`diagnose()`).                                                                |
 | `core/fp64/`                                  | The df64 emulation library (float and integer flavors) that `core/passes/fp64-lower.ts` rewrites `f64` into.                                                                                        |
@@ -78,18 +79,19 @@ Most other `core/*.ts` files are the production-emit and host-integration layer:
 
 ### `core/passes/`
 
-| Path                                  | What it is                                                                                                                                             |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `core/passes/validate.ts`             | `validate()` throws `ValidationError` on the first `CORE_RULES` error at every emit; `lintModule()` runs the full `RULES`.                             |
-| `core/passes/lint/`                   | The lint engine (one registry, one traversal), `presets.ts`, and `rules/`, one rule per file.                                                          |
-| `core/passes/required-caps.ts`        | `requiredCaps` / `assertCaps`: the fail-closed capability gate.                                                                                        |
-| `core/passes/match-lower.ts`          | `lowerModule`: each `matchExpr` becomes a hoisted `var` plus a `switch`, so the emit walk never sees one.                                              |
-| `core/passes/fp64-lower.ts`           | The single authority for `f64` semantics: `f64` IR to `vec2<f32>` and `df64_*` calls.                                                                  |
-| `core/passes/console-buffer.ts`       | Under `compile(src, { console: 'gpu' })`, rewrites each recorded `console` call into writes to the `_console` storage buffer (Rule 6.11, surface §66). |
-| `core/passes/parallel-loop.ts`        | `proveKernels`: the independence proof of a kernel function's loops (Rule 8.22), R1 to R6, as facts in IR names.                                       |
-| `core/passes/opt/`                    | `autoVars`, `cse`, and the `optimize` fixpoint (const / copy propagation, folding, dead branches, LICM, DCE). `expr-utils.ts` is the shared traversal. |
-| `core/passes/compose.ts`              | `composeModule(base, swaps)`: swaps tagged `placeholder` statements. Strict by default.                                                                |
-| `core/passes/mangle.ts`, `inline*.ts` | Identifier mangling for `obfuscate`; function inlining.                                                                                                |
+| Path                                  | What it is                                                                                                                                                     |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core/passes/validate.ts`             | `validate()` throws `ValidationError` on the first `CORE_RULES` error at every emit; `lintModule()` runs the full `RULES`.                                     |
+| `core/passes/lint/`                   | The lint engine (one registry, one traversal), `presets.ts`, and `rules/`, one rule per file.                                                                  |
+| `core/passes/required-caps.ts`        | `requiredCaps` / `assertCaps`: the fail-closed capability gate.                                                                                                |
+| `core/passes/match-lower.ts`          | `lowerModule`: each `matchExpr` becomes a hoisted `var` plus a `switch`, so the emit walk never sees one.                                                      |
+| `core/passes/fp64-lower.ts`           | The single authority for `f64` semantics: `f64` IR to `vec2<f32>` and `df64_*` calls.                                                                          |
+| `core/passes/console-buffer.ts`       | Under `compile(src, { console: 'gpu' })`, rewrites each recorded `console` call into writes to the `_console` storage buffer (Rule 6.11, surface §66).         |
+| `core/passes/parallel-loop.ts`        | `proveKernels`: the independence proof of a kernel function's loops (Rule 8.22), R1 to R6, as facts in IR names.                                               |
+| `core/passes/kernel-lower.ts`         | `lowerKernel`: a kernel function whose loops are accepted maps, lowered to one `@compute` entry per loop and a range function the call runs first (Rule 8.22). |
+| `core/passes/opt/`                    | `autoVars`, `cse`, and the `optimize` fixpoint (const / copy propagation, folding, dead branches, LICM, DCE). `expr-utils.ts` is the shared traversal.         |
+| `core/passes/compose.ts`              | `composeModule(base, swaps)`: swaps tagged `placeholder` statements. Strict by default.                                                                        |
+| `core/passes/mangle.ts`, `inline*.ts` | Identifier mangling for `obfuscate`; function inlining.                                                                                                        |
 
 ### `core/spec-conformance/`
 

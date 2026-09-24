@@ -225,10 +225,10 @@ export function cs() {
     expect(d).toMatch(/^error TS8020 Parameter "xs" is array<f32>, an array with no size/);
   });
 
-  it('is not yet callable through the import: its asynchronous call is the next part', () => {
+  it('is called through the import, asynchronously (the call: host-kernel.test.ts)', () => {
     const f = hostFace(module(RENDER), { fileName: 'm.shade.ts' });
     expect(f.view).toContain(
-      '/** Not callable from host code (Rule 8.20): it is a kernel function (Rule 8.22), whose asynchronous call, which dispatches its loops, the next part of change 0013 adds. */\nexport declare const render: never;',
+      'export declare function render(k: readonly [number, number, number, number], size: number, out: Float32Array): Promise<void>;',
     );
     expect(f.view).toContain('export declare function height(');
   });
