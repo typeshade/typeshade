@@ -6513,7 +6513,7 @@ stale. The views are generated files, and git-ignored.
 generic, takes no function, has a host value for each parameter and for its result, and reaches
 no binding, no workgroup variable and no builtin only a GPU computes. An exported constant and an
 `enum` are values too, and an exported struct is a type. A `@compute` entry is called, and a
-full-screen `@fragment` entry drawn, as §67 says. Every other export is in the view as `never`, with the reason in a comment, so calling one
+full-screen `@fragment` entry drawn, as §67 says, and a kernel function called as §65 says. Every other export is in the view as `never`, with the reason in a comment, so calling one
 is a type error at the host's own line.
 
 | Export                                       | In the host view                                             |
@@ -6524,6 +6524,7 @@ is a type error at the host's own line.
 | a struct (`class`, `interface`, `type`)      | `export interface S { … }`                                   |
 | a `@compute` entry                           | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
 | a full-screen `@fragment` entry              | `export declare function e(target, bindings): Promise<void>` (§67) |
+| a kernel function (§65)                      | `export declare function k(…): Promise<R>`                   |
 | a vertex entry, a generic function, a binding, anything else | `never`, with the reason and the work that adds it |
 
 **Host values** (Rule 8.21) are the representation the CPU tier already runs on:
@@ -6631,10 +6632,35 @@ correct either way. The first sentence names the line and your names, and the se
 The editor shows the same warning. Only a kernel function's loops are candidates: a loop in an
 entry, a helper or a fragment shader stays per-invocation code, as it always was.
 
-**Not yet.** The call from host code, `await render(k, 512, img)`, which dispatches each accepted
-loop on the GPU and reads `img` back in place, and `resident`, `configure` and the tiers, are the
-next parts of change 0013. Until then a kernel function runs on the CPU oracle
-(`compileModule`), and its import is `never` with that reason.
+**The call.** A host file imports a kernel function like any export (§64) and awaits it:
+
+```ts
+import { render, total } from './terrain.shade.ts';
+
+const img = new Float32Array(512 * 512);
+await render([1, 0.5, 2, 0.25], 512, img); // each loop ran on the GPU; img is filled in place
+const sum = await total(img); // a reduction: on the CPU until change 0013's next part
+```
+
+It is asynchronous from the start, and it returns `Promise<void>` or `Promise<R>` for a result.
+Each array it writes is read back into yours in place.
+
+| Parameter                           | Host value                                                                        |
+| ----------------------------------- | --------------------------------------------------------------------------------- |
+| a value (`f32`, `vec4`, a struct…) | the host value §64 gives it                                                       |
+| `array<f32>`, `array<i32>`, `array<u32>` | `Float32Array`, `Int32Array`, `Uint32Array`                                  |
+| `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element |
+| `array<S>`, a struct                | an array of objects                                                               |
+
+**Where it runs.** When every loop of the function is a map the proof accepts, each loop is one
+dispatch on WebGPU, one invocation per iteration, in order; the call reads back what each loop
+wrote before the next. Before anything runs it checks each array against the indices a loop
+writes at `a*i + c`, and refuses one too short (`render(): parameter "out" holds 10 elements, and
+loop 1 writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, the whole
+function runs on the CPU tier (Rule 11.7), and the view's comment says why.
+
+**Not yet.** A reduction, a scatter and a returned value on the GPU, `resident` and `configure`,
+and the WebGL2 tier are the next parts of change 0013. Until then such a function runs on the CPU.
 
 ## 67. Calling an entry point from host code
 

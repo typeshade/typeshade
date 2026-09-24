@@ -3,6 +3,7 @@
 // of its own. The page runs `run()` and `draws()`.
 import { blockSum, report, scale } from './kernels.shade.ts';
 import { plasma, tiled } from './draw.shade.ts';
+import { drift, odds, render } from './loops.shade.ts';
 // Copied in by the journey from journeys/particles and journeys/plasma.
 import { step } from './particles.shade.ts';
 import { fs } from './plasma.shade.ts';
@@ -94,4 +95,29 @@ export async function journeys(input: {
     return [...ctx.getImageData(0, 0, 64, 64).data];
   });
   return { particles: particles.flatMap((p) => [...p.pos, ...p.vel]), plasma: plasmaPixels };
+}
+
+/** Call three kernel functions (change 0013): their loops run on WebGPU, one invocation per
+ *  iteration, and what they write comes back into these arrays in place. */
+export async function loops(): Promise<Record<string, number[] | string>> {
+  const img = new Float32Array(64 * 64);
+  await render([1, 0.5, 2, 0.25], 64, img);
+  const ps = Array.from({ length: 100 }, (_, i) => ({
+    pos: [i, 10, 0, 1] as [number, number, number, number],
+    vel: [1, 0, -1, 0] as [number, number, number, number],
+  }));
+  await drift(ps, 0.25);
+  const every = new Float32Array(30);
+  await odds(every, 10);
+  // An array shorter than the loop writes is refused before anything is uploaded.
+  const short = await render([1, 0.5, 2, 0.25], 64, new Float32Array(10)).then(
+    () => 'no error',
+    (e: unknown) => String(e),
+  );
+  return {
+    render: [...img],
+    drift: ps.flatMap((p) => [...p.pos, ...p.vel]),
+    odds: [...every],
+    short,
+  };
 }

@@ -337,6 +337,41 @@ async function hostImport(work: string, tarball: string): Promise<number> {
     `the plasma journey's fs, drawn through the import, matches its reference (worst ${(worstPlasma * 255).toFixed(2)} of 255)`,
   );
 
+  // Kernel functions (change 0013): each loop the proof accepts runs on WebGPU, one invocation per
+  // iteration, and writes back into the caller's arrays in place.
+  const loopRef = JSON.parse(
+    spawnSync(
+      'node',
+      [
+        '--input-type=module',
+        '-e',
+        "console.log(JSON.stringify((await import('./reference.mjs')).loopReference()))",
+      ],
+      { cwd: app, encoding: 'utf8' },
+    ).stdout,
+  ) as Record<string, number[]>;
+  for (const key of Object.keys(loopRef)) {
+    const got = web.loops?.[key];
+    const want = loopRef[key]!;
+    const worst =
+      typeof got === 'object'
+        ? Math.max(...want.map((w, i) => Math.abs((got[i] ?? NaN) - w)))
+        : NaN;
+    // f32 on both sides. WGSL gives sin and cos an absolute error of 2^-11 in [-pi, pi], and
+    // render sums k.x * sin + k.z * cos with |k.x| + |k.z| = 3; the other kernels are exact.
+    const bound = key === 'render' ? 3 * 2 ** -11 : 0;
+    check(
+      typeof got === 'object' && got.length === want.length && worst <= bound,
+      `the kernel function ${key}, called through the import, writes the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,
+    );
+  }
+  check(
+    /TypeError: render\(\): parameter "out" holds 10 elements, and loop 1 writes it at indices 0 to 4095\./.test(
+      String(web.loops?.['short']),
+    ),
+    `a kernel call checks an array's length before it uploads (${String(web.loops?.['short'])})`,
+  );
+
   // `console.*` from the GPU (change 0014 through 0016): a production build records nothing, and
   // `vite dev` prints `report`'s four calls from WebGPU in invocation order.
   check(
@@ -423,6 +458,7 @@ async function inBrowser(
   draws?: Record<string, number[] | string>;
   logs?: string[];
   journeys?: { particles: number[]; plasma: number[] };
+  loops?: Record<string, number[] | string>;
   error?: string;
 }> {
   const js = readFileSync(join(dir, 'gpu.js'), 'utf8');
@@ -457,12 +493,14 @@ async function inBrowser(
           draws(): Promise<Record<string, number[] | string>>;
           logged(): Promise<void>;
           journeys(input: unknown): Promise<{ particles: number[]; plasma: number[] }>;
+          loops(): Promise<Record<string, number[] | string>>;
         };
         const result = await m.run();
         const draws = await m.draws();
         await m.logged();
         const journeys = await m.journeys(input);
-        return { webgpu, result, draws, journeys };
+        const loops = await m.loops();
+        return { webgpu, result, draws, journeys, loops };
       } catch (e) {
         return { webgpu, error: String(e) };
       }

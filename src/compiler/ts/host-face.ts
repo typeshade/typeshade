@@ -40,6 +40,9 @@ import { sourceSpanOf } from '../../core/ir/span.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
 import type { ComputeEntry, DrawBinding, Layout } from '../../core/host-entry.js';
 import type { FragmentEntry } from '../../core/host-draw.js';
+import type { KernelFace, KernelParam } from '../../core/host-kernel.js';
+import { proveKernels } from '../../core/passes/parallel-loop.js';
+import { lowerKernel } from '../../core/passes/kernel-lower.js';
 import { emitGlslStages } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
@@ -100,6 +103,14 @@ export type HostExport =
       readonly bindingsType: string;
     }
   | {
+      /** A kernel function (Rule 8.22), whose call is asynchronous and dispatches its loops
+       *  (Rule 8.21). `ranges` are the CPU-tier functions its call runs first. */
+      readonly kind: 'kernel';
+      readonly name: string;
+      readonly face: KernelFace;
+      readonly ranges: readonly FuncDecl[];
+    }
+  | {
       readonly kind: 'never';
       readonly name: string;
       /** Why the host cannot use it, and which later work adds it when one is planned. */
@@ -132,8 +143,6 @@ const REASON = {
     `parameter "${p}" is what a vertex entry writes, and a draw has no vertex entry but its full-screen triangle; #204, the rendering design, adds a mesh`,
   fragmentOutput:
     'a draw writes one @location(0) vec4 colour, a vec4 result or a struct of that one field',
-  kernel:
-    'it is a kernel function (Rule 8.22), whose asynchronous call, which dispatches its loops, the next part of change 0013 adds',
   fp64: 'its module emulates f64, whose guard binding the call does not create yet; change 0013 adds the f64 split',
   generic:
     'it is generic, and a generic function exists only as the instances the module uses; no proposal adds it yet',
@@ -613,9 +622,14 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     if (e.kind === 'function') for (const g of closureOf(e.fn, callees)) keep.add(g);
     if ((e.kind === 'compute' || e.kind === 'fragment') && e.entry.noCpu === undefined)
       for (const g of closureOf(e.entry.fn, callees)) keep.add(g);
+    if (e.kind === 'kernel') {
+      for (const g of closureOf(e.face.fn, callees)) keep.add(g);
+      for (const r of e.ranges) keep.add(r.name);
+    }
   }
+  const ranges = exports.flatMap((e) => (e.kind === 'kernel' ? e.ranges : []));
   const gen = generateModuleJs(
-    { ...m, funcs: m.funcs.filter((f) => keep.has(f.name)) },
+    { ...m, funcs: [...m.funcs, ...ranges].filter((f) => keep.has(f.name)) },
     { precision: 'f32' },
   );
   const fallbacks = new Set(gen.fallbacks);
@@ -931,6 +945,89 @@ function texturePairs(closure: ReadonlySet<string>, c: FaceCtx): Map<string, Set
   return pairs;
 }
 
+/** The face of a kernel function (Rules 8.21 to 8.23): each value parameter's host type, each
+ *  array's layout, and what its call dispatches when its loops lower, or why they do not. */
+function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
+  const m = c.entry.module;
+  const written = fnWrites(m).get(f.name) ?? new Set<string>();
+  const params: KernelParam[] = [];
+  for (const p of f.params) {
+    if (p.type.kind === 'array' && p.type.size === undefined) {
+      const layout = layoutOf(p.type, 'std430', c.structs);
+      if ('none' in layout) return never(name, `parameter "${p.name}": ${layout.none}`);
+      params.push({
+        name: p.name,
+        k: 'array',
+        layout: layout as Layout & { k: 'a' },
+        writes: written.has(p.name),
+        s: spell(p.type),
+      });
+      continue;
+    }
+    const t = hostTypeOf(p.type, c.structs);
+    if ('none' in t) return never(name, `parameter "${p.name}": ${t.none}`);
+    params.push({ name: p.name, k: 'value', type: t });
+  }
+  const result = hostTypeOf(f.ret, c.structs);
+  if ('none' in result) return never(name, `its result: ${result.none}`);
+  const face: KernelFace = { name, fn: f.name, params, result };
+  const proof = proveKernels(m).find((p) => p.fn === f.name);
+  const plan = proof === undefined ? { noGpu: 'it was not proved' } : lowerKernel(f, m, proof);
+  if ('noGpu' in plan)
+    return { kind: 'kernel', name, face: { ...face, noGpu: plan.noGpu }, ranges: [] };
+  let wgsl: string;
+  try {
+    wgsl = emitModule(plan.module);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    return {
+      kind: 'kernel',
+      name,
+      face: { ...face, noGpu: `its WGSL did not emit: ${why}` },
+      ranges: [],
+    };
+  }
+  const structs = new Map(plan.module.structs.map((x) => [x.name, x]));
+  const argsLayout = layoutOf({ kind: 'struct', name: plan.argsStruct }, 'std140', structs);
+  if ('none' in argsLayout)
+    return { kind: 'kernel', name, face: { ...face, noGpu: argsLayout.none }, ranges: [] };
+  const arrays = plan.module.bindings.filter((b) => b.name !== plan.argsBinding);
+  return {
+    kind: 'kernel',
+    name,
+    face: {
+      ...face,
+      gpu: {
+        wgsl,
+        args: {
+          name: plan.argsBinding,
+          group: 0,
+          binding: 0,
+          space: 'uniform',
+          writes: false,
+          layout: argsLayout,
+          s: plan.argsStruct,
+        },
+        arrays: arrays.map((b) => {
+          const p = params.find((x) => x.name === b.name) as KernelParam & { k: 'array' };
+          return {
+            name: b.name,
+            group: b.group,
+            binding: b.binding,
+            space: 'storage' as const,
+            writes: p.writes,
+            ...(b.access === 'read_write' ? { rw: true as const } : {}),
+            layout: p.layout,
+            s: p.s,
+          };
+        }),
+        loops: plan.loops,
+      },
+    },
+    ranges: plan.ranges,
+  };
+}
+
 /** An object type of these members, `{}` for none. */
 const objectType = (members: readonly string[]): string =>
   members.length === 0 ? '{}' : `{ ${members.join('; ')} }`;
@@ -981,7 +1078,7 @@ function faceOf(ref: ExportRef, c: FaceCtx): HostExport {
     if (f.stage === 'vertex') return never(name, REASON.vertex);
     if (f.stage === 'fragment') return fragmentFace(name, f, c);
     if (f.stage === 'compute') return computeFace(name, f, c);
-    if (f.kernel === true) return never(name, REASON.kernel);
+    if (f.kernel === true) return kernelFace(name, f, c);
     const params: { name: string; type: HostType }[] = [];
     for (const p of f.params) {
       const t = hostTypeOf(p.type, c.structs);
@@ -1078,6 +1175,25 @@ function viewText(stem: string, exports: readonly HostExport[]): string {
         out.push(
           `/** A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, and each binding the entry writes is read back into your value in place (Rule 8.24). */`,
           `export declare function ${e.name}(bindings: ${e.bindingsType}, workgroups: number | readonly [number, number?, number?]): Promise<void>;`,
+        );
+        break;
+      }
+      case 'kernel': {
+        const f = e.face;
+        const params = f.params
+          .map((p) =>
+            p.k === 'value'
+              ? `${p.name}: ${argType(p.type)}`
+              : `${p.name}: ${bindingTsType(p.layout, p.writes)}`,
+          )
+          .join(', ');
+        const where =
+          f.gpu !== undefined
+            ? 'Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise'
+            : `It runs on the CPU: ${f.noGpu ?? 'unknown'}`;
+        out.push(
+          `/** A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place (Rule 8.21). */`,
+          `export declare function ${e.name}(${params}): Promise<${resultType(f.result, named)}>;`,
         );
         break;
       }
@@ -1181,6 +1297,17 @@ function moduleText(
           `const ${id} = { ...${JSON.stringify(e.entry)}, wgsl: __ts_wgsl${e.entry.console === true ? ', log: __ts_console' : ''} };`,
           `export function ${e.name}(bindings, workgroups) {`,
           `  return ${RT}.callCompute(${MOD}, ${id}, arguments.length, bindings, workgroups);`,
+          `}`,
+        );
+        break;
+      }
+      case 'kernel': {
+        const id = `__ts_e${t++}`;
+        const ps = e.face.params.map((p) => p.name);
+        out.push(
+          `const ${id} = ${JSON.stringify(e.face)};`,
+          `export function ${e.name}(${ps.join(', ')}) {`,
+          `  return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}]);`,
           `}`,
         );
         break;

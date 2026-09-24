@@ -423,6 +423,16 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   debug session delivers it too. The editor completes it after `console.`, and the host's second
   argument, the columns to show, is `TS8099` with the remedy.
 
+- **A host file calls a kernel function through the import, and its loops run on the GPU**
+  (change 0013, part 2; Rules 8.20 to 8.23, surface §64 and §65). `await render(k, 512, img)`
+  dispatches each loop of `render` on WebGPU, one invocation per iteration, and fills `img` in
+  place: the plugin lowers a kernel function whose every loop the proof accepts as a map to one
+  `@compute` entry per loop, with its scalar parameters in a uniform and its arrays as storage, and
+  a range function the call runs first for each loop's start and trip count. Before anything runs,
+  the call checks each array against the indices a loop writes and refuses one too short, naming
+  both numbers. A function that does not lower (a reduction, a refused loop, a `bool`, a module
+  binding) and every call where there is no WebGPU run on the CPU tier, and the view's comment says
+  why. The import journey calls three kernel functions on WebGPU in Chromium.
 - **A kernel function, whose loops the compiler proves independent** (change 0013, part 1;
   Rules 7.5, 8.6, 8.8, 8.22 and 8.23, surface §65). An exported function that takes an array with
   no size, `render(k: vec4, size: u32, out: array<f32>)`, is a kernel function: its array is the

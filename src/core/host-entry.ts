@@ -169,7 +169,7 @@ function flatWidth(e: Layout): { n: number; t: LayoutNumber } | undefined {
 }
 
 /** How many elements a runtime-sized array's host value holds. */
-function runtimeCount(l: Layout & { k: 'a' }, v: unknown, path: string): number {
+export function runtimeCount(l: Layout & { k: 'a' }, v: unknown, path: string): number {
   const flat = flatWidth(l.e);
   if (flat !== undefined) {
     const Want = TYPED[flat.t];
@@ -442,7 +442,7 @@ export function toCpu(l: Layout, v: unknown, box: boolean): CpuValue {
 }
 
 /** Write the CPU tier's value `c` back into the caller's value `target` in place. */
-function fromCpu(l: Layout, c: CpuValue, target: unknown, box: boolean): unknown {
+export function fromCpu(l: Layout, c: CpuValue, target: unknown, box: boolean): unknown {
   switch (l.k) {
     case 's':
       if (box) {
@@ -868,7 +868,7 @@ export async function callCompute(
   onCpu(cpu, e, checked.values, wg);
 }
 
-async function onGpu(
+export async function onGpu(
   d: GpuDevice,
   e: ComputeEntry,
   checked: Checked,
