@@ -1,7 +1,7 @@
 ---
 id: '0010'
 title: A "use typeshade" directive after another top-level statement is refused on the directive, and the rest of the file is still checked
-status: draft
+status: accepted
 rules:
 - '3.1'
 surface: []
@@ -58,7 +58,8 @@ at all: TypeScript, and any tool that reads the file as TypeScript, sees an expr
 with no effect. TypeShade treats the same file as a shader. The file means one thing to one of
 its readers and another thing to the other, and Rule 12.7 exists to prevent that.
 
-Alternatives considered. Each one is a decision this proposal asks the owner to make:
+Alternatives considered. The owner decided all three on #253 as recommended here: a new code,
+no deprecation window, and the directive strictly first.
 
 1. **`TS8001` with a second sentence**, instead of a new code. This adds no code. But the site's
    Playground replaces any `TS8001` with its own "add the directive" sentence
