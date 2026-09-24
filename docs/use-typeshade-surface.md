@@ -5255,6 +5255,10 @@ both said `number`. The compiler reads the same rows for the call's result and i
 check. `src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both
 halves on a witness per instance.
 
+A class field or a function's return the document leaves unannotated is written in by the
+projection when the front end types it a scalar: `#width = 0.05` hovers as `f32`, and `get
+period() { return this.r * 2. }` returns one, where TypeScript said `number`.
+
 One call has no type TypeScript can give it: a call whose numeric arguments are all literals,
 such as `select(0., 0.15, c)` or `max(1., 2.)`. WGSL types it as an abstract numeric until its
 context concretizes it, and TypeScript cannot say which one, since `0.` and `0` are the same
