@@ -43,54 +43,32 @@ import type {
   StructDecl,
   ShaderType,
   BinOp,
-  CmpOp,
   FuncDecl,
 } from './ir/index.js';
 import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
 import { froundF32 } from './passes/precision.js';
 import type { CpuPrecision } from './oracle.js';
-import { consoleArgs, type ConsoleMethod, type ConsoleSink } from './console.js';
-import type { SourceSpan } from './ir/span.js';
+import type { ConsoleSink } from './console.js';
 import {
   type CpuValue,
+  type NumKind,
   FIELD_IDX,
-  applyBin,
-  matVec,
-  matMul,
-  matVecShaped,
-  matMulShaped,
-  vecMatShaped,
-  matColumn,
-  matTransposeShaped,
-  setMatColumn,
   BUILTINS,
   GPU_STUBS,
-  f32ToU32Sat,
-  f32ToI32Sat,
   numKindOf,
-  intDiv,
-  intRem,
-  type NumKind,
-  cloneValue,
   copiedParams,
-  inoutReturn,
   isAggregateType,
-  convertComponent,
-  convertComponents,
   elemKindOf,
-  atomicStep,
   zeroOf,
-  compareValues,
   comparesAsF32,
-  selectComponents,
   TYPED_BIT_BUILTINS,
-  bitBuiltin,
 } from './cpu-runtime.js';
 import { compileModule, type CpuModule } from './oracle.js';
-import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js';
+import { isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js';
 import { fnWrites } from './passes/effects.js';
 import { dispatchCompute } from './debug/dispatch.js';
+import { createCodegenRuntime, type CodegenRuntime } from './cpu-codegen-runtime.js';
 
 /** Sentinel: a per-fn body used an IR construct the codegen can't emit
  *  bit-identically. Caught by compileModuleJs → that fn falls back to the
@@ -635,122 +613,35 @@ function emitBody(body: readonly Stmt[], S: FnCtx): string {
   return body.map((s) => emitStmt(s, S)).join('\n');
 }
 
-/** The runtime object closed over by every generated fn (the factory's `$`). */
-interface CodegenRuntime {
-  applyBin: typeof applyBin;
-  matVec: typeof matVec;
-  matMul: typeof matMul;
-  matVecShaped: typeof matVecShaped;
-  matColumn: typeof matColumn;
-  matTransposeShaped: typeof matTransposeShaped;
-  setMatColumn: typeof setMatColumn;
-  matMulShaped: typeof matMulShaped;
-  vecMatShaped: typeof vecMatShaped;
-  B: typeof BUILTINS;
-  bindings: Record<string, CpuValue>;
-  /** The module variables by name (roadmap 0.2 item 5); see `ModCtx.varNames`. */
-  vars: Record<string, CpuValue>;
-  /** name → resolved impl (compiled fn or interpreter fallback). Populated after
-   *  both halves are built so cross-fn calls see the final table. */
-  F: Record<string, (...a: CpuValue[]) => CpuValue>;
-  splat: (n: number, v: number) => number[];
-  swiz: (a: number[], idx: number[]) => number[];
-  negVec: (a: number[]) => number[];
-  /** A componentwise comparison of two vectors, and a per-component select (§27). */
-  cmpVec: (cop: CmpOp, a: CpuValue, b: CpuValue, f32: boolean) => CpuValue;
-  /** One of the kind-dependent bit builtins (§10) on already-evaluated arguments. */
-  bit: (fn: string, kind: 'u32' | 'i32', args: CpuValue[]) => CpuValue;
-  selVec: (cond: readonly CpuValue[], ifTrue: CpuValue, ifFalse: CpuValue) => CpuValue;
-  gpuStub: (name: string, ...args: CpuValue[]) => CpuValue;
-  console: (
-    method: string,
-    args: CpuValue[],
-    span?: unknown,
-    labels?: readonly (string | number)[],
-  ) => void;
-  /** One atomic builtin on `base[key]` (roadmap 0.2 item 4): read, `atomicStep`, write back. */
-  atomicAt: (
-    fn: string,
-    base: CpuValue,
-    key: string | number,
-    arg: number,
-    kind: NumKind,
-    store?: number,
-  ) => CpuValue;
-  /** A barrier reached by a directly called invocation: throws, naming `dispatch`. */
-  barrier: (fn: string) => never;
-  /** The same on a JS local, through the getter and setter the generated code closes over. */
-  atomicRef: (
-    fn: string,
-    get: () => CpuValue,
-    set: (v: CpuValue) => void,
-    arg: number,
-    kind: NumKind,
-    store?: number,
-  ) => CpuValue;
-  /** WGSL saturating f32→u32/i32 (float sources only — see cpu-runtime). */
-  u32Sat: typeof f32ToU32Sat;
-  i32Sat: typeof f32ToI32Sat;
-  /** WGSL integer `/` and `%` (X-GIS #2274) — the SAME helpers `scalarBin` calls. */
-  intDiv: typeof intDiv;
-  intRem: typeof intRem;
-  /** Aggregate copy at a `let` / `var` binding — the SAME helper the interpreter calls. */
-  clone: typeof cloneValue;
-  inout: typeof inoutReturn;
-  /** Element-converting vector constructor components — the SAME helpers the interpreter's
-   *  `construct` case calls, so the two CPU backends convert identically. */
-  cvt: typeof convertComponent;
-  cvtVec: typeof convertComponents;
+/** What {@link generateModuleJs} writes for a module: the source of the factory
+ *  {@link compileModuleJs} hands to `new Function`, and the pieces it is made of, for a caller
+ *  that writes the code into a module of its own instead (the Vite plugin, through
+ *  `src/compiler/ts/host-face.ts`, Rule 11.7). */
+export interface GeneratedModuleJs {
+  /** The module the code was generated from: the input after the shared preamble (`validate`,
+   *  `autoVars`, and `froundF32` in `'f32'` precision). */
+  readonly module: ModuleDecl;
+  /** One `const $C_i = …;` or `const $O_i = …;` statement per module constant and override. */
+  readonly decls: readonly string[];
+  /** The JavaScript id each module constant has among {@link decls}, by the constant's name. */
+  readonly constIds: ReadonlyMap<string, string>;
+  /** One `"name": function(…) {…}` property per function this generator could emit, plus
+   *  `"$initPrivates"` when the module has a private variable. */
+  readonly fns: readonly string[];
+  /** The functions it could not emit, which {@link compileModuleJs} runs on the interpreter. */
+  readonly fallbacks: readonly string[];
+  /** The factory body: {@link decls}, then `return { …fns };`. It reads everything through its
+   *  one parameter, `$`, a {@link CodegenRuntime}. */
+  readonly factorySource: string;
 }
 
-/** Compile a module for the CPU by generating JavaScript, returning the same
- *  {@link CpuModule} shape {@link compileModule} returns and the same results bit for bit.
- *  Prefer it on any hot path.
- *
- *  Bit identity holds by construction: every operation calls the exact runtime helper the
- *  interpreter calls, so the two cannot drift apart. What differs is when the work happens.
- *  Instead of walking the IR node by node on every invocation, this walks each function body
- *  once, emits a JavaScript source string and builds it with `new Function`, so each call runs
- *  straight-line code with real local variables.
- *
- *  The interpreter is the reference and the fallback. A function body holding a shape this
- *  generator cannot emit bit-identically (a raw statement, a placeholder statement, an
- *  assignment target with no expression form) falls back to the interpreter for that function
- *  alone, so a returned module can be part compiled and part interpreted with nothing to do at
- *  the call site. Where `new Function` itself is unavailable, as on a host whose content
- *  security policy forbids `unsafe-eval`, construction throws, and the caller catches it and
- *  calls {@link compileModule} instead. Reach for the interpreter directly when debugging, too,
- *  since it puts no generated source between you and the IR.
- *
- *  Exported from `typeshade`.
- *
- *  @param m - the module to evaluate.
- *  @param opts - the same `precision` and `gpuStubs` {@link compileModule} takes.
- *  @returns the compiled module: `fns` by name, and `setBinding`.
- *  @throws `Error` when the host forbids `new Function`, which is the case to catch and fall
- *    back to {@link compileModule} for. It also throws {@link ValidationError} when the module
- *    fails a core rule, and, once a function runs, the same errors {@link compileModule}
- *    documents for a GPU-only intrinsic called with `gpuStubs` off or a raw statement reached.
- *
- *  @example
- *  ```ts
- *  import { compileModuleJs, compileModule } from 'typeshade'
- *
- *  const cpu = (() => {
- *    try {
- *      return compileModuleJs(MODULE)
- *    } catch {
- *      return compileModule(MODULE) // no new Function on this host
- *    }
- *  })()
- *  ```
- *
- *  @see {@link compileModule} for the interpreter this matches.
- */
-export function compileModuleJs(
+/** Generate the JavaScript source of every function of `m` for the CPU, without building it.
+ *  {@link compileModuleJs} is this followed by `new Function`; the precision is the same
+ *  option it takes. */
+export function generateModuleJs(
   m: ModuleDecl,
-  opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink },
-): CpuModule {
+  opts?: { precision?: CpuPrecision },
+): GeneratedModuleJs {
   // Identical preamble to compileModule so the generated code walks the SAME IR
   // the interpreter would (validate rejects malformed modules; autoVars
   // materialises plain-const assignables into var bindings; froundF32 makes f32
@@ -759,7 +650,6 @@ export function compileModuleJs(
   validate(m);
   const av = autoVars(m);
   const mv = opts?.precision === 'f32' ? froundF32(av) : av;
-  const gpuStubs = opts?.gpuStubs ?? false;
 
   const mod: ModCtx = {
     structs: new Map(mv.structs.map((s) => [s.name, s])),
@@ -845,74 +735,80 @@ export function compileModuleJs(
     }
   }
 
-  const factorySrc = `${decls.join('\n')}\nreturn {\n${fnSrcs.join(',\n')}\n};`;
+  return {
+    module: mv,
+    decls,
+    constIds: mod.constId,
+    fns: fnSrcs,
+    fallbacks: fallbackNames,
+    factorySource: `${decls.join('\n')}\nreturn {\n${fnSrcs.join(',\n')}\n};`,
+  };
+}
+
+/** Compile a module for the CPU by generating JavaScript, returning the same
+ *  {@link CpuModule} shape {@link compileModule} returns and the same results bit for bit.
+ *  Prefer it on any hot path.
+ *
+ *  Bit identity holds by construction: every operation calls the exact runtime helper the
+ *  interpreter calls, so the two cannot drift apart. What differs is when the work happens.
+ *  Instead of walking the IR node by node on every invocation, this walks each function body
+ *  once, emits a JavaScript source string and builds it with `new Function`, so each call runs
+ *  straight-line code with real local variables.
+ *
+ *  The interpreter is the reference and the fallback. A function body holding a shape this
+ *  generator cannot emit bit-identically (a raw statement, a placeholder statement, an
+ *  assignment target with no expression form) falls back to the interpreter for that function
+ *  alone, so a returned module can be part compiled and part interpreted with nothing to do at
+ *  the call site. Where `new Function` itself is unavailable, as on a host whose content
+ *  security policy forbids `unsafe-eval`, construction throws, and the caller catches it and
+ *  calls {@link compileModule} instead. Reach for the interpreter directly when debugging, too,
+ *  since it puts no generated source between you and the IR.
+ *
+ *  Exported from `typeshade`.
+ *
+ *  @param m - the module to evaluate.
+ *  @param opts - the same `precision` and `gpuStubs` {@link compileModule} takes.
+ *  @returns the compiled module: `fns` by name, and `setBinding`.
+ *  @throws `Error` when the host forbids `new Function`, which is the case to catch and fall
+ *    back to {@link compileModule} for. It also throws {@link ValidationError} when the module
+ *    fails a core rule, and, once a function runs, the same errors {@link compileModule}
+ *    documents for a GPU-only intrinsic called with `gpuStubs` off or a raw statement reached.
+ *
+ *  @example
+ *  ```ts
+ *  import { compileModuleJs, compileModule } from 'typeshade'
+ *
+ *  const cpu = (() => {
+ *    try {
+ *      return compileModuleJs(MODULE)
+ *    } catch {
+ *      return compileModule(MODULE) // no new Function on this host
+ *    }
+ *  })()
+ *  ```
+ *
+ *  @see {@link compileModule} for the interpreter this matches.
+ */
+export function compileModuleJs(
+  m: ModuleDecl,
+  opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink },
+): CpuModule {
+  const gen = generateModuleJs(m, opts);
+  const mv = gen.module;
+  const fallbackNames = gen.fallbacks;
+  const factorySrc = gen.factorySource;
   // `new Function` construction is what a CSP `unsafe-eval` host blocks — let it
   // throw so the caller (cpu-projections) can fall the whole module back.
   const factory = new Function('$', factorySrc) as (
     $: CodegenRuntime,
   ) => Record<string, (...a: CpuValue[]) => CpuValue>;
 
-  const runtime: CodegenRuntime = {
-    applyBin,
-    matVec,
-    matMul,
-    matVecShaped,
-    matMulShaped,
-    vecMatShaped,
-    matColumn,
-    matTransposeShaped,
-    setMatColumn,
-    B: BUILTINS,
-    bindings: {},
-    vars: {},
-    F: {},
-    splat: (n, v) => new Array(n).fill(v),
-    swiz: (a, idx) => idx.map((i) => a[i]!),
-    negVec: (a) => a.map((v) => -v),
-    cmpVec: compareValues,
-    bit: (fn, kind, args) => bitBuiltin(fn, args, kind),
-    selVec: selectComponents,
-    u32Sat: f32ToU32Sat,
-    i32Sat: f32ToI32Sat,
-    atomicAt: (fn, base, key, arg, kind, store) => {
-      const obj = base as unknown as Record<string | number, CpuValue>;
-      const step = atomicStep(fn, obj[key] as number, arg, kind, store);
-      if (fn !== 'atomicLoad') obj[key] = step.next;
-      return step.result;
-    },
-    atomicRef: (fn, get, set, arg, kind, store) => {
-      const step = atomicStep(fn, get() as number, arg, kind, store);
-      if (fn !== 'atomicLoad') set(step.next);
-      return step.result;
-    },
-    barrier: (fn) => {
-      throw barrierOutsideDispatch(fn);
-    },
-    clone: cloneValue,
-    inout: inoutReturn,
-    cvt: convertComponent,
-    cvtVec: convertComponents,
-    intDiv,
-    intRem,
-    gpuStub: (name, ...args) => {
-      if (!gpuStubs)
-        throw new Error(
-          `typeshade/cpu: '${name}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
-        );
-      return GPU_STUBS[name]!(...args);
-    },
-    console: (method, args, span, labels) => {
-      opts?.consoleSink?.({
-        method: method as ConsoleMethod,
-        args: consoleArgs(args, labels),
-        span: typeof span === 'string' ? JSON.parse(span) : (span as SourceSpan | undefined),
-      });
-    },
-  };
+  const runtime = createCodegenRuntime(opts);
 
   const jsFns = factory(runtime);
+  const structs = new Map(mv.structs.map((s) => [s.name, s]));
   for (const v of mv.vars ?? [])
-    if (v.space === 'workgroup') runtime.vars[v.name] = zeroOf(v.type, mod.structs);
+    if (v.space === 'workgroup') runtime.vars[v.name] = zeroOf(v.type, structs);
   const initPrivates = jsFns['$initPrivates'] as (() => void) | undefined;
 
   // Only build the interpreter twin when a fn actually needs it — its fns supply

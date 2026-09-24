@@ -32,36 +32,39 @@ and the tree disagree.
 
 ### `compiler/ts/`: the `"use typeshade"` front end
 
-| File                         | What it is                                                                                                              |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `compiler/ts/compile.ts`     | `compile()`: front end, then both emitters and the oracle. Shader text exists only when no error diagnostic was raised. |
-| `compiler/ts/source-file.ts` | `compileTsSource`: one file to IR. Imports `typescript` at module scope, which is why it is a required peer.            |
-| `compiler/ts/module.ts`      | `compileTsSources`: a multi-file program joined by relative imports.                                                    |
-| `compiler/ts/lower/`         | Statement, expression, call and function lowering (`function.ts` runs signatures, then bodies).                         |
-| `compiler/ts/semantic.ts`    | Refuses host / JavaScript surface inside a `"use typeshade"` file.                                                      |
-| `compiler/ts/codes.ts`       | The `TS8nnn` diagnostic codes. Numbers are never reused.                                                                |
-| `compiler/ts/semicolons.ts`  | The shader-source `;` inserter behind `bun run format:semicolons`.                                                      |
-| `compiler/ts/vite.ts`        | A Vite transform for `*.shade.ts`, with no Vite import.                                                                 |
+| File                         | What it is                                                                                                                               |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `compiler/ts/compile.ts`     | `compile()`: front end, then both emitters and the oracle. Shader text exists only when no error diagnostic was raised.                  |
+| `compiler/ts/source-file.ts` | `compileTsSource`: one file to IR. Imports `typescript` at module scope, which is why it is a required peer.                             |
+| `compiler/ts/module.ts`      | `compileTsSources`: a multi-file program joined by relative imports.                                                                     |
+| `compiler/ts/lower/`         | Statement, expression, call and function lowering (`function.ts` runs signatures, then bodies).                                          |
+| `compiler/ts/semantic.ts`    | Refuses host / JavaScript surface inside a `"use typeshade"` file.                                                                       |
+| `compiler/ts/codes.ts`       | The `TS8nnn` diagnostic codes. Numbers are never reused.                                                                                 |
+| `compiler/ts/semicolons.ts`  | The shader-source `;` inserter behind `bun run format:semicolons`.                                                                       |
+| `compiler/ts/host-face.ts`   | The host face of a module (Rules 8.20, 8.21): the exports a host can call, the host view `tsc` reads, and the generated CPU-tier module. |
+| `compiler/ts/vite.ts`        | A Vite transform for `*.shade.ts`, with no Vite import.                                                                                  |
 
 ### `core/`: IR, emit and backends
 
-| File                                    | What it is                                                                                                                                  |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `core/ir/types.ts`, `core/ir/nodes.ts`  | `ShaderType` and the typed constants; the `Expr` / `Stmt` unions and the module declarations (`ConstDecl`, `StructDecl`, `FuncDecl`, …).    |
-| `core/ir/node.ts`, `core/ir/builder.ts` | `Node<K>` (chaining operators, `.assign()`) and `ReadonlyNode<K>`; the `Builder`, `fn` / `externFn` / `module`, `constExpr`, `Let` / `Var`. |
-| `core/ir/visit.ts`                      | One walker per operation over the closed `Expr` / `Stmt` unions, so a new node kind reaches every pass.                                     |
-| `core/emit.ts`                          | The one neutral tree walk, and `lowerForBackend`, the shared pre-emit pipeline (below).                                                     |
-| `core/backend.ts`                       | The `Backend` contract: type / literal / intrinsic spelling, the divergent fragments, capabilities, `UnsupportedFeatureError`.              |
-| `core/intrinsics.ts`                    | Neutral intrinsic ids mapped to each target's spelling. Only divergent intrinsics need an entry.                                            |
-| `core/backends/wgsl.ts`                 | The WGSL backend and `emitModule`. `wgsl-ptr.ts` spells `inout` parameters as pointers.                                                     |
-| `core/backends/glsl.ts`                 | The GLSL ES 3.00 backend (`emitGlslModule`, `emitGlslStages`): std140 UBOs, entry IO as varyings, storage as data textures.                 |
-| `core/oracle.ts`, `core/cpu-codegen.ts` | The CPU f64 tree-walk interpreter and its `new Function` twin, both over the one op library in `core/cpu-runtime.ts`.                       |
-| `core/reflect.ts`, `core/sot.ts`        | Pipeline reflection (bind groups, std140 / std430 layouts, entry IO); declare-once IO structs and resources.                                |
-| `core/diagnostics/`                     | `codes.ts` (frozen `SDnnnn` catalogue), `error.ts` (`TypeShadeError`), `loc.ts` (opt-in source tracing), `report.ts` (`diagnose()`).        |
-| `core/fp64/`                            | The df64 emulation library (float and integer flavors) that `core/passes/fp64-lower.ts` rewrites `f64` into.                                |
-| `core/debug/`                           | The stepping interpreter (`interp.ts`), sessions, launch config, watch expressions, lockstep workgroup dispatch.                            |
-| `core/compute/runner.ts`                | The engine behind `./compute`.                                                                                                              |
-| `core/testing/`                         | Test utilities only: a seeded random-IR generator and span stamping / stripping.                                                            |
+| File                                          | What it is                                                                                                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core/ir/types.ts`, `core/ir/nodes.ts`        | `ShaderType` and the typed constants; the `Expr` / `Stmt` unions and the module declarations (`ConstDecl`, `StructDecl`, `FuncDecl`, …).          |
+| `core/ir/node.ts`, `core/ir/builder.ts`       | `Node<K>` (chaining operators, `.assign()`) and `ReadonlyNode<K>`; the `Builder`, `fn` / `externFn` / `module`, `constExpr`, `Let` / `Var`.       |
+| `core/ir/visit.ts`                            | One walker per operation over the closed `Expr` / `Stmt` unions, so a new node kind reaches every pass.                                           |
+| `core/emit.ts`                                | The one neutral tree walk, and `lowerForBackend`, the shared pre-emit pipeline (below).                                                           |
+| `core/backend.ts`                             | The `Backend` contract: type / literal / intrinsic spelling, the divergent fragments, capabilities, `UnsupportedFeatureError`.                    |
+| `core/intrinsics.ts`                          | Neutral intrinsic ids mapped to each target's spelling. Only divergent intrinsics need an entry.                                                  |
+| `core/backends/wgsl.ts`                       | The WGSL backend and `emitModule`. `wgsl-ptr.ts` spells `inout` parameters as pointers.                                                           |
+| `core/backends/glsl.ts`                       | The GLSL ES 3.00 backend (`emitGlslModule`, `emitGlslStages`): std140 UBOs, entry IO as varyings, storage as data textures.                       |
+| `core/oracle.ts`, `core/cpu-codegen.ts`       | The CPU f64 tree-walk interpreter and its `new Function` twin, both over the one op library in `core/cpu-runtime.ts`.                             |
+| `core/cpu-codegen-runtime.ts`                 | The runtime object the generated CPU code closes over (the factory's `$`), apart from the generator, so a module the host imports ships it alone. |
+| `core/host-values.ts`, `core/host-runtime.ts` | The host-value boundary of a host call (Rule 8.21), and what a generated host module imports (Rule 11.7).                                         |
+| `core/reflect.ts`, `core/sot.ts`              | Pipeline reflection (bind groups, std140 / std430 layouts, entry IO); declare-once IO structs and resources.                                      |
+| `core/diagnostics/`                           | `codes.ts` (frozen `SDnnnn` catalogue), `error.ts` (`TypeShadeError`), `loc.ts` (opt-in source tracing), `report.ts` (`diagnose()`).              |
+| `core/fp64/`                                  | The df64 emulation library (float and integer flavors) that `core/passes/fp64-lower.ts` rewrites `f64` into.                                      |
+| `core/debug/`                                 | The stepping interpreter (`interp.ts`), sessions, launch config, watch expressions, lockstep workgroup dispatch.                                  |
+| `core/compute/runner.ts`                      | The engine behind `./compute`.                                                                                                                    |
+| `core/testing/`                               | Test utilities only: a seeded random-IR generator and span stamping / stripping.                                                                  |
 
 Most other `core/*.ts` files are the production-emit and host-integration layer:
 `emit-minify.ts`, `emit-alias.ts`, `shader-lex.ts`, `decode-log.ts`, `emit-prune.ts`,
