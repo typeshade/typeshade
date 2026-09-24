@@ -17,6 +17,11 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **The atomics, the barriers and `arrayLength` are declared from Tint's overload table** (surface
+  §49, Rule 12.7, proposal 0017). Their editor declarations are generated from `core.def`'s rows,
+  as the math builtins' are, and the compiler types each call from the same rows. What an author
+  sees does not change: the declarations read as they did, and a call's type is the one it had.
+
 - **`array(...)` and an array's `reduce` from a value have the compiler's type in the editor**
   (surface §49, Rule 12.7, proposal 0015). `array(uv.x, uv.y, 1.)` hovers as `array<f32, 3>`
   where it said `array<number>`, and `xs.reduce((a, x) => a + x, 0.)` as `f32` where it said
