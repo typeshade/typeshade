@@ -37,6 +37,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { HISTORY_FILES, ROOT, extractRefs, git, markdownFiles, sourceFiles } from './doc-refs.js';
+import { SHADE_DTS } from '../src/language-service/ambient.js';
 
 export interface Mention {
   readonly file: string;
@@ -294,6 +295,10 @@ export function impactOf(diff: Diff): Impact[] {
         `(?:(?:export|declare)[^\\n]*?\\b(?:function\\*?|const|let|var|class|interface|type|enum|namespace)\\s+${escape(name)}\\b)|(?:export\\s*\\{[^}]*\\b${escape(name)}\\b)`,
       );
       if (kept.test(headSources)) continue;
+      // A builtin the ambient library now generates from `core.def` (0017,
+      // `builtin-signatures.ts`) has no `declare function` line in any source file, and is
+      // declared all the same: the library the editor reads is the one to ask.
+      if (new RegExp(`^declare function ${escape(name)}\\b`, 'm').test(SHADE_DTS)) continue;
       if (name.length < 3) continue;
       const mentions = nameMentions(name).filter(untouched);
       if (mentions.length) impacts.push({ subject, severity: 'must-fix', mentions });
