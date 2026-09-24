@@ -1,7 +1,7 @@
 ---
-id: '0012'
+id: '0015'
 title: A top-level loop of an exported function that takes an array runs as a GPU kernel when the compiler proves its iterations independent, and on the CPU with the line that stops it when it cannot
-status: draft
+status: accepted
 rules:
 - '7.2'
 - '7.5'
@@ -37,8 +37,8 @@ downstream:
 ## What changes
 
 This proposal is roadmap item 15. The owner settled the design in #252 and took its
-recommendations; its seventh open question is decided on this pull request. Every measurement
-cited below is recorded there, taken on `main` at cd3a70a against Tint in Chromium 141.
+recommendations, and accepted the assumption below for its seventh open question (#260). Every
+measurement cited below is recorded there, taken on `main` at cd3a70a against Tint in Chromium 141.
 
 Today an author who wants a GPU to run a loop writes a `@compute` entry, `declare`s a storage
 binding for each array, reads `global_invocation_id`, guards the bound, and packs the buffers on
@@ -239,8 +239,8 @@ The owner took #252's recommendations on its open questions:
    Tint as `fn f(ps: array<P>)`, which Tint refuses with
    `runtime-sized arrays can only be used in the <storage> address space`. This proposal
    assumes a separate bug fix lands first and refuses such a parameter on every function with
-   `TS8020`. This proposal then lifts the refusal for a kernel function alone. The reviewer
-   decides this one on this pull request.
+   `TS8020`. This proposal then lifts the refusal for a kernel function alone. The owner
+   accepted that assumption with this proposal.
 
 Alternatives considered, each measured in #252:
 
@@ -275,10 +275,10 @@ Alternatives considered, each measured in #252:
   per argument in a helper, and its host values.
 - **Rule 11.8 (new).** The tiers, what each takes, the reduction's tree order on every tier,
   and `configure({ prefer })`.
-- **Surface §65 (new): "A loop that runs as a kernel".** It is the next free number after 0009's
-  §64 and no open branch claims it. It holds the kernel function, the proof's rules, the TS8070
+- **Surface §65 (new): "A loop that runs as a kernel".** It follows 0009's §64; 0014 (#269)
+  takes §66. It holds the kernel function, the proof's rules, the TS8070
   table, the host values, `resident` and the tiers.
-- **TS8070 (new).** The warning. TS8069 is claimed by the open proposal on the directive (#253).
+- **TS8070 (new).** The warning. TS8069 is 0012's and TS8071 is 0014's (#269).
 - **Exports.**
   - `resident`, the function;
   - `Resident`, its opaque type;
