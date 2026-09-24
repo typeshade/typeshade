@@ -41,11 +41,13 @@ const STD140 =
   '"@std140" is not applied: WGSL lays out a struct by its own rules, which reflect() reports. ' +
   'Remove it.';
 
+// Each source is a vertex entry: a parameter of a function that is not one takes no built-in
+// at all (TS8028), and its name is not read.
 describe('builtin name allow-list (BUILTIN_NAME)', () => {
   it('rejects a typo\'d builtin with a "Did you mean" suggestion', () => {
     const r = diag(`
       "use typeshade";
-      export function vs(@builtin("vertex_idx") i: u32): vec4 {
+      @vertex export function vs(@builtin("vertex_idx") i: u32): vec4 {
         return vec4(0., 0., 0., 1.);
       }
     `);
@@ -59,7 +61,7 @@ describe('builtin name allow-list (BUILTIN_NAME)', () => {
   it('accepts every real WgslBuiltinName with zero BUILTIN_NAME diagnostics', () => {
     const r = diag(`
       "use typeshade";
-      export function vs(@builtin("vertex_index") i: u32): vec4 {
+      @vertex export function vs(@builtin("vertex_index") i: u32): vec4 {
         return vec4(0., 0., 0., 1.);
       }
     `);
@@ -69,7 +71,7 @@ describe('builtin name allow-list (BUILTIN_NAME)', () => {
   it('gives the BUILTIN_NAME diagnostic a span over the string literal argument', () => {
     const r = diag(`
       "use typeshade";
-      export function vs(@builtin("vertex_idx") i: u32): vec4 {
+      @vertex export function vs(@builtin("vertex_idx") i: u32): vec4 {
         return vec4(0., 0., 0., 1.);
       }
     `);
@@ -796,16 +798,28 @@ declare const u: uniform<T>
   });
 
   it('says where each attribute it reads belongs, when one is written on a declaration', () => {
+    const marks: Record<string, string> = {
+      vertex: 'an entry function',
+      fragment: 'an entry function',
+      compute: 'an entry function',
+      builtin: "an entry's input or output",
+      location: "an entry's input or output",
+      interpolate: "an entry's input or output",
+      invariant: "an entry's input or output",
+      blend_src: "a field of a fragment entry's output",
+      diagnostic: 'a top-level function',
+    };
+    expect(Object.keys(marks)).toEqual(ATTRIBUTE_NAMES);
     for (const name of ATTRIBUTE_NAMES) {
       const r = compileTsSource(`"use typeshade"
 @${name} const K: f32 = 1.
 @fragment export function fs(): vec4 { return vec4(K) }`);
-      expect(r.diagnostics.map((d) => d.code)).toEqual([TS_CODES.ATTRIBUTE_NAME]);
-      expect(r.diagnostics[0]!.message).toMatch(
-        new RegExp(
-          `^"@${name}" does not apply to a declaration: it marks an entry[ \\w']+\\. Remove it\\.$`,
-        ),
-      );
+      expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([
+        [
+          TS_CODES.ATTRIBUTE_NAME,
+          `"@${name}" does not apply to a declaration: it marks ${marks[name]!}. Remove it.`,
+        ],
+      ]);
     }
   });
 
@@ -830,6 +844,289 @@ const K: f32 = 1.;
     expect(editor(source)).toEqual([]);
     expect(c.wgsl).toContain('@group(0) @binding(0) var<uniform> u: U;');
     expect(c.wgsl).toContain('override k: f32 = 0.0;');
+  });
+});
+
+// Rule 6.7, the places a declaration's refusal left. A decorator on a constructor, on an
+// overload signature, on an abstract member, on a mixin, on a class expression or a local class,
+// on a parameter of any of those, and one that is not a name (`@N.k`, `@(fragment)`) anywhere,
+// vanished: `compile()` said nothing, and the editor said TS1206, TS1249 or TS2304, or nothing.
+// `@fragment` on an overload signature left the module with no entry. So did an attribute of the
+// list where the place does not apply it: `@location` on a class or a function, `@fragment` on a
+// field or a parameter, `@blend_src` on a parameter, `@diagnostic` on a namespace's function,
+// and `@builtin` or `@location` on a parameter of a function that is not an entry, where Tint
+// refuses the WGSL ("'@location' is not valid for non-entry point function parameters"). A
+// method's decorator is TS8035, the arrow-function field's too (Rule 8.16), and the method is
+// lowered all the same, so a call of it says nothing more. The editor shows the compiler's
+// sentence alone.
+describe('a decorator where nothing reads it (Rule 6.7)', () => {
+  const UNKNOWN_BOGUS =
+    'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
+    '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.';
+  const NOT_A_NAME = (text: string): string =>
+    `"${text}" is not applied: an attribute is written "@name" or "@name(...)". Remove it.`;
+  const NOT_AN_ENTRY = (name: string): string =>
+    `"@${name}" does not apply to a parameter of a function that is not an entry: it marks an ` +
+    "entry's input or output. Remove it.";
+  const METHOD = (shown: string): string =>
+    `A decorator has no place on "${shown}"; an entry is a top-level function.`;
+  it.each([
+    [
+      'an unknown name on a constructor',
+      `class M { x: f32 = 0.; @bogus constructor() { this.x = 1.; } }
+@fragment export function fs(): vec4 { return vec4(new M().x) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, UNKNOWN_BOGUS]],
+    ],
+    [
+      'an entry attribute on a constructor',
+      `class M { x: f32 = 0.; @fragment constructor() { this.x = 1.; } }
+@fragment export function fs(): vec4 { return vec4(new M().x) }`,
+      [
+        [
+          TS_CODES.ATTRIBUTE_NAME,
+          '"@fragment" does not apply to a constructor: it marks an entry function. Remove it.',
+        ],
+      ],
+    ],
+    [
+      'an unknown name on a field that holds a function, which is a method',
+      `class M { x: f32 = 0.; @bogus f = (a: f32): f32 => a * this.x; }
+@fragment export function fs(): vec4 { return vec4(new M().f(2.)) }`,
+      [[TS_CODES.CLASS_MEMBER, METHOD('M.f')]],
+    ],
+    [
+      'an unknown name on a method, called',
+      `class M { x: f32 = 0.; @bogus f(): f32 { return this.x; } }
+@fragment export function fs(): vec4 { return vec4(new M().f()) }`,
+      [[TS_CODES.CLASS_MEMBER, METHOD('M.f')]],
+    ],
+    [
+      "a method's decorator on a generic class, by the class's name",
+      `class Box<T> { v: T; constructor(v: T) { this.v = v; } @bogus get(): T { return this.v; } }
+@fragment export function fs(): vec4 { return vec4(new Box<f32>(1.).get() + f32(new Box<i32>(2).v)) }`,
+      [[TS_CODES.CLASS_MEMBER, METHOD('Box.get')]],
+    ],
+    [
+      'a dotted name on a function',
+      `namespace N { export const k: f32 = 1.; }
+@N.k
+function g(): f32 { return 1. }
+@fragment export function fs(): vec4 { return vec4(g()) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, NOT_A_NAME('@N.k')]],
+    ],
+    [
+      'a parenthesised name on a function',
+      `@(bogus)
+function g(): f32 { return 1. }
+@fragment export function fs(): vec4 { return vec4(g()) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, NOT_A_NAME('@(bogus)')]],
+    ],
+    [
+      'a parenthesised stage on an entry',
+      `@(fragment)
+export function fs(): vec4 { return vec4(1.) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, NOT_A_NAME('@(fragment)')]],
+    ],
+    [
+      'a dotted name on a field',
+      `class S { @a.b x: f32 }
+declare const u: uniform<S>
+@fragment export function fs(): vec4 { return vec4(u.x) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, NOT_A_NAME('@a.b')]],
+    ],
+    [
+      'a dotted name on a parameter',
+      `@fragment export function fs(@a.b @location(0) x: f32): vec4 { return vec4(x) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, NOT_A_NAME('@a.b')]],
+    ],
+    [
+      'a stage on an overload signature',
+      `@fragment
+export function fs(): vec4;
+export function fs(): vec4 { return vec4(1.) }`,
+      [
+        [
+          TS_CODES.ATTRIBUTE_NAME,
+          '"@fragment" does not apply to an overload signature: it marks an entry function. ' +
+            'Write it on the implementation.',
+        ],
+      ],
+    ],
+    [
+      'an unknown name on an overload signature',
+      `@bogus function f(x: f32): f32;
+function f(x: f32): f32 { return x }
+@fragment export function fs(): vec4 { return vec4(f(1.)) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, UNKNOWN_BOGUS]],
+    ],
+    [
+      "an entry's IO on an overload signature's parameter",
+      `export function fs(@location(0) x: f32): vec4;
+@fragment export function fs(@location(0) x: f32): vec4 { return vec4(x) }`,
+      [
+        [
+          TS_CODES.ATTRIBUTE_NAME,
+          '"@location" does not apply to an overload signature: it marks an entry\'s input or ' +
+            'output. Write it on the implementation.',
+        ],
+      ],
+    ],
+    [
+      'an unknown name on an abstract method',
+      `abstract class B { x: f32 = 0.; @bogus abstract f(): f32; }
+class C extends B { f(): f32 { return this.x } }
+@fragment export function fs(): vec4 { return vec4(new C().f()) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, UNKNOWN_BOGUS]],
+    ],
+    [
+      "a binding's slot on a method's overload signature",
+      `class M { x: f32 = 1.; @group(1) f(a: f32): f32; f(a: f32): f32 { return a * this.x } }
+@fragment export function fs(): vec4 { return vec4(new M().f(2.)) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, `"@group" ${SLOT}`]],
+    ],
+    [
+      'an unknown name on a mixin',
+      `@bogus function Mix<T extends new (...a: any[]) => object>(B: T) { return class extends B { y: f32 = 1.; }; }
+class A { x: f32 = 0.; }
+class C extends Mix(A) {}
+@fragment export function fs(): vec4 { const c = new C(); return vec4(c.x + c.y) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, UNKNOWN_BOGUS]],
+    ],
+    [
+      "an entry's IO on a local function's parameter",
+      `@fragment export function fs(@builtin("position") p: vec4): vec4 {
+  function g(@location(0) x: f32): f32 { return x * 2. }
+  return vec4(g(p.x))
+}`,
+      [[TS_CODES.ATTRIBUTE_NAME, NOT_AN_ENTRY('location')]],
+    ],
+    [
+      "a built-in on a helper's parameter",
+      `function h(@builtin("position") p: vec4): f32 { return p.x }
+@fragment export function fs(@builtin("position") p: vec4): vec4 { return vec4(h(p)) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, NOT_AN_ENTRY('builtin')]],
+    ],
+    [
+      "an entry's IO on a method's parameter",
+      `class M { x: f32 = 0.; f(@location(0) a: f32): f32 { return a * this.x } }
+@fragment export function fs(): vec4 { return vec4(new M().f(2.)) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, NOT_AN_ENTRY('location')]],
+    ],
+    [
+      "an entry's IO on a generic helper's parameter, called at two types",
+      `function pick<T>(@location(0) a: T): T { return a }
+@fragment export function fs(): vec4 { return vec4(pick(1.) + pick(2.)) + vec4(pick(vec3(1.)), 1.) }`,
+      [[TS_CODES.ATTRIBUTE_NAME, NOT_AN_ENTRY('location')]],
+    ],
+    [
+      "an entry's IO on a class",
+      `@location(0) class S { x: f32 = 0. }
+@fragment export function fs(): vec4 { return vec4(new S().x) }`,
+      [
+        [
+          TS_CODES.ATTRIBUTE_NAME,
+          '"@location" does not apply to a class: it marks an entry\'s input or output. Remove it.',
+        ],
+      ],
+    ],
+    [
+      "an entry's IO on a function",
+      `@location(0)
+@fragment export function fs(): vec4 { return vec4(1.) }`,
+      [
+        [
+          TS_CODES.ATTRIBUTE_NAME,
+          '"@location" does not apply to a function: it marks an entry\'s input or output. ' +
+            'Remove it.',
+        ],
+      ],
+    ],
+    [
+      'a stage on a field',
+      `class S { @fragment x: f32 = 0. }
+@fragment export function fs(): vec4 { return vec4(new S().x) }`,
+      [
+        [
+          TS_CODES.ATTRIBUTE_NAME,
+          '"@fragment" does not apply to a struct field: it marks an entry function. Remove it.',
+        ],
+      ],
+    ],
+    [
+      'a stage on a parameter',
+      `@fragment export function fs(@fragment @location(0) x: f32): vec4 { return vec4(x) }`,
+      [
+        [
+          TS_CODES.ATTRIBUTE_NAME,
+          '"@fragment" does not apply to a parameter: it marks an entry function. Remove it.',
+        ],
+      ],
+    ],
+    [
+      'a blend source on a parameter',
+      `@fragment export function fs(@blend_src(0) @location(0) x: f32): vec4 { return vec4(x) }`,
+      [
+        [
+          TS_CODES.ATTRIBUTE_NAME,
+          '"@blend_src" does not apply to a parameter: it marks a field of a fragment entry\'s ' +
+            'output. Remove it.',
+        ],
+      ],
+    ],
+    [
+      "a diagnostic filter on a namespace's function",
+      `namespace N { @diagnostic("off", "derivative_uniformity") export function h(): f32 { return 1. } }
+@fragment export function fs(): vec4 { return vec4(N.h()) }`,
+      [
+        [
+          TS_CODES.ATTRIBUTE_NAME,
+          '"@diagnostic" does not apply to a namespace\'s function: it marks a top-level ' +
+            'function. Remove it.',
+        ],
+      ],
+    ],
+  ])('refuses %s', (_what, source, expected) => {
+    const r = compileTsSource(`"use typeshade"\n${source}`);
+    expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual(expected);
+    expect(editor(`"use typeshade"\n${source}`)).toEqual(
+      expected.map(([code, message]) => ['typeshade', code, message]),
+    );
+  });
+
+  it('reads the stage on the implementation, as the overload refusal says to write it', () => {
+    const source = `"use typeshade";
+export function fs(x: f32): vec4;
+@fragment export function fs(@location(0) x: f32): vec4 { return vec4(x); }`;
+    const r = compile(source);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('@fragment');
+    expect(r.wgsl).toContain('@location(0) x: f32');
+    expect(editor(source)).toEqual([]);
+  });
+
+  it("reads a namespace's entry, and the editor says nothing about its decorators", () => {
+    const source = `"use typeshade";
+namespace N {
+  @fragment export function fs(@builtin("position") p: vec4): vec4 { return p; }
+}`;
+    const r = compile(source);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('@fragment');
+    expect(r.wgsl).toContain('@builtin(position) p: vec4<f32>');
+    expect(editor(source)).toEqual([]);
+  });
+
+  it("leaves an entry's IO, a helper's plain parameter and @invariant on a position input as they were", () => {
+    const source = `"use typeshade";
+function h(x: f32): f32 { return x * 2.; }
+@fragment export function fs(
+  @invariant @builtin("position") p: vec4,
+  @location(0) @interpolate("perspective", "centroid") c: vec4,
+): vec4 { return c * h(p.x); }`;
+    const r = compile(source);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('@location(0) @interpolate(perspective, centroid) c: vec4<f32>');
+    expect(editor(source)).toEqual([]);
   });
 });
 

@@ -44,16 +44,20 @@ interface DiagnosticFilterContext {
 }
 
 /**
- * A top-level function declaration, exported or not. `lower/function.ts`'s
- * `lowerSourceFunctions` is the authority on what counts as a `"use typeshade"` entry point —
- * it collects every `sourceFile.statements.filter(ts.isFunctionDeclaration)` with no `export`
- * requirement at all, so `@vertex`/`@fragment`/`@compute` on a non-exported top-level function
- * compiles and emits today. The old `export`-only predicate here disagreed with that and left
- * TS1206 red on a program the compiler accepts outright.
+ * A function declaration at the top level or directly in a namespace's body, exported or not.
+ * `lower/function.ts`'s `lowerSourceFunctions` is the authority on what counts as a
+ * `"use typeshade"` entry point — it collects every function declaration of the file's
+ * statements and of each namespace's (`namespaces.ts`'s `eachNamespaceStatement`), with no
+ * `export` requirement at all, so `@vertex`/`@fragment`/`@compute` on a non-exported function
+ * compiles and emits `@fragment fn N_fs` for one in `namespace N`. The old `export`-only
+ * predicate here disagreed with that and left TS1206 red on a program the compiler accepts
+ * outright, and so did a top-level-only one on a namespace's entry.
  */
 function isTopLevelFunctionDeclaration(node: ts.Node): node is ts.FunctionDeclaration {
   return (
-    ts.isFunctionDeclaration(node) && node.parent !== undefined && ts.isSourceFile(node.parent)
+    ts.isFunctionDeclaration(node) &&
+    node.parent !== undefined &&
+    (ts.isSourceFile(node.parent) || ts.isModuleBlock(node.parent))
   );
 }
 
@@ -65,8 +69,9 @@ function isTopLevelFunctionDeclaration(node: ts.Node): node is ts.FunctionDeclar
  * `@compute` on a top-level function (exported or not — see `isTopLevelFunctionDeclaration`)
  * and `@builtin`/`@location` on that function's parameters, so this is the one syntax-level
  * restriction no ambient `.d.ts` can configure away (§6); this predicate recognizes exactly
- * that shape, on the entry function itself or on one of its parameters, so any other TS1206
- * (a decorator TypeShade does not define) still surfaces.
+ * that shape, on the entry function itself or on one of its parameters. The compiler reads
+ * every decorator there, and refuses one it does not apply (`TS8028`); any other TS1206 still
+ * surfaces unless the compiler refuses the decorator itself (`mergeDiagnostics`).
  */
 function isDecoratorOnTopLevelFunction(
   context: DiagnosticFilterContext,
@@ -1037,11 +1042,11 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
     reason:
-      '@vertex/@fragment/@compute on a top-level function, and @builtin/@location on that ' +
-      'function\'s parameters, are exactly the grammar "use typeshade" defines (the compiler ' +
-      'does not require export either — see lower/function.ts) — legacy decorators otherwise ' +
-      'forbid a function declaration or its parameters as a target, and no compiler option ' +
-      'relaxes that. See design doc §6.',
+      "@vertex/@fragment/@compute on a top-level or a namespace's function, and " +
+      "@builtin/@location on that function's parameters, are exactly the grammar " +
+      '"use typeshade" defines (the compiler does not require export either — see ' +
+      'lower/function.ts) — legacy decorators otherwise forbid a function declaration or its ' +
+      'parameters as a target, and no compiler option relaxes that. See design doc §6.',
     when: isDecoratorOnTopLevelFunction,
   },
   {
@@ -1642,30 +1647,51 @@ const DECORATOR_REFUSALS: ReadonlySet<string> = new Set([
   TS_CODES.CLASS_MEMBER,
 ]);
 
+/** The code the compiler refuses every decorator of a method with, at the first. */
+const METHOD_DECORATOR_REFUSAL: ReadonlySet<string> = new Set([TS_CODES.CLASS_MEMBER]);
+
 /**
  * Whether a TypeScript error sits inside a decorator the compiler refuses whole, with one of
  * `DECORATOR_REFUSALS` on the decorator (Rule 6.7): TypeScript's TS1206 ("Decorators are not
- * valid here") on a declaration that takes none, and TS2304 or TS2552 on the name of an
- * attribute the ambient library does not declare (`@size`, `@group`, a misspelled `@locaton`).
- * The compiler's sentence says what the attribute is and where its intent goes, and the whole
- * decorator is to be removed, so anything TypeScript says inside it is the same mistake (Rule
- * 12.4).
+ * valid here") or TS1249 (a decorator on an overload) on a declaration that takes none, TS1239
+ * on a parameter's, and TS2304 or TS2552 on the name of an attribute the ambient library does
+ * not declare (`@size`, `@group`, a misspelled `@locaton`). The compiler's sentence says what
+ * the attribute is and where its intent goes, and the whole decorator is to be removed, so
+ * anything TypeScript says inside it is the same mistake (Rule 12.4). A method's decorators are
+ * refused together, at the first (`TS8035`, `class-methods.ts`), so an error in any of them
+ * goes; and so does TypeScript's TS2318 for `TypedPropertyDescriptor`, the global type it
+ * checks a method's decorator against and the ambient library does not declare, which carries
+ * no span.
  */
 function isInRefusedDecorator(
   context: DiagnosticFilterContext,
   diagnostic: TypeshadeDiagnostic,
   compilerErrors: readonly TypeshadeDiagnostic[],
 ): boolean {
+  const refused = (decorator: ts.Decorator, codes: ReadonlySet<string>): boolean => {
+    const span = spanOfNode(decorator, context.sourceFile);
+    return compilerErrors.some(
+      (error) =>
+        codes.has(String(error.code)) &&
+        error.span.start === span.start &&
+        error.span.length === span.length,
+    );
+  };
+  if (diagnostic.code === 2318 && diagnostic.message.includes("'TypedPropertyDescriptor'")) {
+    return compilerErrors.some((error) => {
+      if (error.code !== TS_CODES.CLASS_MEMBER) return false;
+      let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, error.span.start);
+      while (node !== undefined && !ts.isDecorator(node)) node = node.parent;
+      return node !== undefined && refused(node, METHOD_DECORATOR_REFUSAL);
+    });
+  }
   let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
   while (node !== undefined && !ts.isDecorator(node)) node = node.parent;
   if (node === undefined) return false;
-  const span = spanOfNode(node, context.sourceFile);
-  return compilerErrors.some(
-    (error) =>
-      DECORATOR_REFUSALS.has(String(error.code)) &&
-      error.span.start === span.start &&
-      error.span.length === span.length,
-  );
+  if (refused(node, DECORATOR_REFUSALS)) return true;
+  const declaration = node.parent;
+  const siblings = ts.canHaveDecorators(declaration) ? (ts.getDecorators(declaration) ?? []) : [];
+  return siblings.some((d) => refused(d, METHOD_DECORATOR_REFUSAL));
 }
 
 /**

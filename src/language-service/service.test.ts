@@ -249,11 +249,10 @@ describe('getDiagnostics: a broken program', () => {
     ]);
   });
 
-  // A decorator nothing reads is the compiler's TS8028 in every position (Rule 6.7), and its
-  // TS8035 on a method: on a function declared in another function's body TypeScript also says
-  // TS1206, and on a static field or a method, which it lets a decorator name, TS2304 for a
-  // name the ambient library does not declare. Either would be the one mistake said twice
-  // (Rule 12.4).
+  // A decorator nothing reads is the compiler's TS8028, and its TS8035 on a method (Rule 6.7):
+  // on a function declared in another function's body TypeScript also says TS1206, and on a
+  // static field or a method, which it lets a decorator name, TS2304 for a name the ambient
+  // library does not declare. Either would be the one mistake said twice (Rule 12.4).
   it('says a decorator on a local function, a static field or a method once', () => {
     const service = createTypeshadeLanguageService();
     const text =
@@ -274,6 +273,54 @@ describe('getDiagnostics: a broken program', () => {
       ['typeshade', 'TS8028', '@bogus'],
       ['typeshade', 'TS8028', '@bogus'],
     ]);
+  });
+
+  // The places TypeScript refuses a decorator the compiler did not read: a constructor (TS1206),
+  // an abstract method (TS1249), a local function's parameter, where Tint refuses the WGSL
+  // (TS1206), and the second decorator of a method (TS2304). Each is the compiler's refusal
+  // alone. A method's `@fragment`, which TypeScript checks against a `TypedPropertyDescriptor`
+  // the ambient library does not declare, adds nothing of TypeScript's either (TS2318).
+  it('says a decorator on a constructor, an abstract method or a helper parameter once', () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class M { x: f32 = 0.; @bogus constructor() { this.x = 1.; } @a @b f(): f32 { return 1.; } ' +
+      '@fragment g(): f32 { return 2.; } }\n' +
+      'abstract class B { x: f32 = 0.; @bogus abstract f(): f32; }\n' +
+      'class C extends B { f(): f32 { return this.x; } }\n' +
+      '@fragment\n' +
+      'export function fs(@builtin("position") p: vec4): vec4 {\n' +
+      '  function g(@location(0) x: f32): f32 { return x; }\n' +
+      '  const m = new M();\n' +
+      '  return vec4(g(p.x) + m.f() + m.g() + new C().f());\n' +
+      '}\n';
+    service.openDocument('unread2.ts', text);
+    expect(
+      service
+        .getDiagnostics('unread2.ts')
+        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+    ).toEqual([
+      ['typeshade', 'TS8028', '@bogus'],
+      ['typeshade', 'TS8035', '@a'],
+      ['typeshade', 'TS8035', '@fragment'],
+      ['typeshade', 'TS8028', '@bogus'],
+      ['typeshade', 'TS8028', '@location(0)'],
+    ]);
+  });
+
+  // A namespace's function is an entry as a top-level one is (`@fragment fn N_fs`), so its
+  // decorators and its parameters' are the grammar, as they are on a top-level function: no
+  // TS1206 (Rule 12.7).
+  it("says nothing about a namespace entry's decorators", () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'namespace N {\n' +
+      '  @fragment export function fs(@builtin("position") p: vec4): vec4 { return p; }\n' +
+      '}\n';
+    service.openDocument('ns-entry.ts', text);
+    expect(service.getDiagnostics('ns-entry.ts')).toEqual([]);
+    expect(service.getCompiledOutput('ns-entry.ts', 'wgsl')?.text).toContain('@fragment');
   });
 });
 

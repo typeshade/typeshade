@@ -335,9 +335,10 @@ export function analyzeSemantics(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
-  // A decorator on a binding, an override, a constant, a variable, an enum, an interface, a
-  // type alias, a namespace, a local function or a static field (Rule 6.7), beside whatever
-  // else the declaration is refused for.
+  // A decorator nothing reads (Rule 6.7): on a binding, an override, a constant, a variable, an
+  // enum, an interface, a type alias, a namespace, a local function or class, a static field, a
+  // constructor, an overload signature, an abstract member or a mixin, beside whatever else the
+  // declaration is refused for.
   checkDeclarationDecorators(diagnostics, sourceFile);
   for (const stmt of sourceFile.statements) {
     if (ts.isExpressionStatement(stmt)) {

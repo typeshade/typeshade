@@ -378,10 +378,17 @@ four rules, and only ever an error that another error already covers:
 - **A decorator the compiler refuses.** A decorator nothing reads is the compiler's `TS8028`
   (Rule 6.7), with a sentence that says what the attribute is and where its intent goes: on a
   declaration that takes none (`@group(2) declare const u: uniform<U>`, a `const` at any depth,
-  an enum, an interface, a type alias, a namespace, a local function, a `static` field), and a
-  WGSL attribute written another way here (`@size`, `@group`), and `TS8035` on a method's.
-  Whatever TypeScript says inside that decorator goes: TS1206 ("Decorators are not valid here")
-  and TS2304 or TS2552 on a name the ambient library does not declare.
+  an enum, an interface, a type alias, a namespace, a local function or class, a class
+  expression, a `static` field), on a constructor, an overload signature, an abstract member, a
+  mixin or an index signature and on a parameter of one of those, one that is not a name
+  (`@N.k`), a WGSL attribute written another way here (`@size`, `@group`), and an attribute
+  written where the place does not apply it (`@location` on a class, `@builtin` on a parameter
+  of a function that is not an entry); and `TS8035` on a method's, at its first decorator.
+  Whatever TypeScript says inside that decorator goes, or inside any decorator of that method:
+  TS1206 ("Decorators are not valid here"), TS1249 (a decorator on an overload), TS1239 (a
+  parameter's), TS2304 or TS2552 on a name the ambient library does not declare, and TS2318 for
+  the `TypedPropertyDescriptor` TypeScript checks a method's decorator against, which carries no
+  span.
 
 `typeshade check` reads the same merged list, and adds from `compile()` only what the service
 cannot compute: the backends' `TS8015` and the opt-in `TS8053`. That check is exported from this
@@ -474,11 +481,15 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
 - The program is created with `strictPropertyInitialization: false` and
   `experimentalDecorators: true`; TS2564 disappears.
 - TS1206 cannot be configured away for decorators on function declarations. The service drops
-  it when the decorated node is a top-level function (exported or not) in a `"use typeshade"`
-  file, because the TypeShade grammar defines that position. A decorator anywhere else is the
-  compiler's to refuse, and the merge keeps its sentence alone (§5). Any other filtered code is
-  listed in one table in the source with the reason, and a test asserts the sample produces
-  zero TypeScript diagnostics.
+  it when the decorated node is a function declared at the top level or directly in a
+  namespace's body (exported or not), or a parameter of one, in a `"use typeshade"` file,
+  because the TypeShade grammar defines that position: the compiler reads every decorator there
+  (`@fragment` on `namespace N`'s `fs` emits `@fragment fn N_fs`) and refuses one the place does
+  not apply (`TS8028`). A decorator anywhere else is one nothing reads, which the compiler
+  refuses (`TS8028`, or `TS8035` on a method), and the merge keeps its sentence alone (§5); on
+  a static block, which the compiler refuses whole, TypeScript's TS1206 stays. Any other
+  filtered code is listed in one table in the source with the reason, and a test asserts the
+  sample produces zero TypeScript diagnostics.
 - GPU scalars (`f32`, `i32`, `u32`, `f64`) are nominal too, but the brand property that keeps
   them apart is optional, not required (`ambient.ts`'s `scalarBrands`). A required brand made a
   return value, a local, or a `dot`/`length` result typed `number` fail to satisfy an
@@ -665,7 +676,10 @@ own decorator checks) reports it as `ATTRIBUTE_NAME` with a "Did you mean ...?" 
 suggestion. A WGSL attribute the surface writes another way (`@workgroup_size`, `@size`,
 `@group`, `@binding`, `@id`, `@must_use`) is not called unknown: the sentence says it is WGSL's
 and where its intent goes (`@compute([64])` for `@workgroup_size`, `reflect()` for a binding's
-slot). Likewise, a struct field used as entry-point input or output with neither
+slot). An attribute of the list written where the place does not apply it (`@location` on a
+class or a function, `@fragment` on a field, `@builtin` on a parameter of a function that is
+not an entry) is named by what it marks, and a decorator that is not a name (`@N.k`,
+`@(fragment)`) as not applied. Likewise, a struct field used as entry-point input or output with neither
 `@builtin(...)` nor `@location(...)` type-checks fine as ordinary TypeScript, since it is just an
 unattributed property, but WGSL rejects it; `structs.ts`'s field collection feeds the entry
 function's own check, which reports it as `STRUCT_FIELD_MISSING_ATTR` before it ever reaches the
@@ -689,7 +703,7 @@ each meaning copied from that file's own comment):
 | `TS8037` | `WORKGROUP_ARG`             | `@compute(...)` with an argument that is not an array literal of one to three whole numbers (an object, a bare number, an identifier, an empty or four-wide array). It used to default to 64 with no diagnostic (#118).                                                                                                                                                                                                                                                                                                        |
 | `TS8038` | `F64_ENTRY_IO`              | An emulated double (`f64`, a `vec64`) on an entry's IO boundary: a `@location` parameter, a `@location` field of an IO struct, or an entry's return (#151, surface doc §39). A varying interpolates each of the double's two `f32` words on its own; the remedy is to narrow with `f32(x)`, or read the double in the stage that needs it from a uniform or storage binding.                                                                                                                                                   |
 | `TS8027` | `MAT_UNSUPPORTED`           | A non-square `matCxR<f64>`: the fp64 pass carries a square matrix of doubles only (`mat2`, `mat3`, `mat4`). Every `matCxR<f32>` is a type (#149), so this no longer marks `mat2`/`mat3`.                                                                                                                                                                                                                                                                                                                                       |
-| `TS8028` | `ATTRIBUTE_NAME`            | A decorator identifier outside the attribute vocabulary `"use typeshade"` defines (`@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`, `@interpolate`, `@invariant`, `@blend_src`, `@diagnostic`), e.g. a misspelled `@vertx`; a WGSL attribute written another way here (`@workgroup_size`, `@size`, `@group`, `@binding`, `@id`), named as WGSL's with where its intent goes; and any decorator on a declaration that takes none.                                                                                   |
+| `TS8028` | `ATTRIBUTE_NAME`            | A decorator identifier outside the attribute vocabulary `"use typeshade"` defines (`@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`, `@interpolate`, `@invariant`, `@blend_src`, `@diagnostic`), e.g. a misspelled `@vertx`; a WGSL attribute written another way here (`@workgroup_size`, `@size`, `@group`, `@binding`, `@id`), named as WGSL's with where its intent goes; one of the list where the place does not apply it; and any decorator nothing reads.                                                   |
 | `TS8029` | `STRUCT_FIELD_MISSING_ATTR` | A field of a struct used as an entry function's parameter or return type carries neither `@builtin(...)` nor `@location(...)`: WGSL rejects an entry-IO struct member with no attribute, so this is caught at the front end instead of reaching the backend as invalid emitted WGSL.                                                                                                                                                                                                                                           |
 | `TS8030` | `SYNTAX`                    | A TypeScript parse error (an unclosed parenthesis, a missing brace, an unexpected token) in a `"use typeshade"` file, carried through as a TypeShade diagnostic so a `compile()` caller sees it without running `tsc`. The language service drops these in favour of TypeScript's own syntactic diagnostics, which carry the real `TS1005`-style code.                                                                                                                                                                         |
 | `TS8031` | `RECURSION`                 | A call cycle: a function that reaches itself, directly or through other functions. WGSL has no call stack, so Tint rejects the emitted module (`cyclic dependency found: 'a' -> 'b' -> 'a'`). Reported on the call that closes the cycle; a call on a value, an accessor and `new` are read as they lower. Before the optimizer, so a call in dead code counts (surface doc §4, §26).                                                                                                                                          |
