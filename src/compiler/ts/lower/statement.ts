@@ -54,7 +54,6 @@ import {
   retargetIntLitCtx,
   reportIntLitRange,
   shiftAmountMessage,
-  shiftAmountOutOfRange,
 } from '../lit-coerce.js';
 import { lowerExpression, unknownIdentifierSentence } from './expression.js';
 import { lowerCall } from './expression-call.js';
@@ -63,7 +62,7 @@ import { lowerFor, lowerForOf, lowerSwitch, lowerUpdate, lowerWhile } from './co
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { foldNumericLit } from '../lit-coerce.js';
-import { foldConstNumber, foldConstComponents, foldConstValue } from '../loop-bound.js';
+import { constShiftAmountOutOfRange, foldConstComponents, foldConstValue } from '../loop-bound.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { unknownNameSentence } from '../unknown-names.js';
@@ -1270,8 +1269,8 @@ function lowerBitwiseAssignOpTo(
   // is the one the loop bound uses, so `16 + 16` and a module const are caught with the
   // literal; a runtime amount is left alone, since WGSL masks it. `shiftAmountMessage` is the
   // same sentence the binary path raises — one rule, one wording.
-  const amount = isShift ? foldConstNumber(value, scope) : undefined;
-  if (amount !== undefined && shiftAmountOutOfRange(amount)) {
+  const amount = isShift ? constShiftAmountOutOfRange(value, scope) : undefined;
+  if (amount !== undefined) {
     pushDiag(diagnostics, sourceFile, right, shiftAmountMessage(amount), TS_CODES.TYPE_MISMATCH);
     return undefined;
   }
