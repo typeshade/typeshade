@@ -407,7 +407,8 @@ five rules, and only ever an error that another error already covers:
   span.
 - **What the compiler refused whole.** A TypeScript error about something the compiler refused
   together with what it holds (proposal 0008) goes: one inside a refused `throw`, `await`,
-  `yield`, template string or spread, or inside an async function or a generator, so
+  `yield`, template string or spread, inside an async function or a generator, or inside a
+  statement a namespace does not hold (`export let T: array<f32, 3> = [...A, 3.]`), so
   `throw new Error("x")` is the compiler's one sentence and not also TS2304 for `Error`; one
   about a value that holds such a node, the TS2322 on a list with a spread; a global type
   TypeScript cannot find (TS2318, `Promise` for an async function) when a form that names one

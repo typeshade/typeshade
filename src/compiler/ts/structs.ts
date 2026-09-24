@@ -57,6 +57,7 @@ import {
 import {
   eachNamespaceStatement,
   namespaceMemberName,
+  qualifiedParts,
   refuseNamespaceStatement,
 } from './namespaces.js';
 
@@ -1169,6 +1170,13 @@ function writtenOwner(cls: ts.ClassLikeDeclaration): string {
   return ts.isClassExpression(cls) ? mixinShown(cls) : (cls.name?.text ?? '');
 }
 
+/** The class as a whole, as a sentence about it names it (Rule 12.7): `N.P` for a class in a
+ *  namespace, as the author writes it outside, where {@link writtenOwner} names a member's
+ *  class by its own name. */
+function wholeClassName(cls: ts.ClassLikeDeclaration): string {
+  return ts.isClassDeclaration(cls) ? qualifiedParts(cls).join('.') : writtenOwner(cls);
+}
+
 const isAbstractNode = (n: ts.Node): boolean =>
   (ts.getCombinedModifierFlags(n as ts.Declaration) & ts.ModifierFlags.Abstract) !== 0;
 
@@ -1274,7 +1282,9 @@ function memberShapeSentences(cls: ts.ClassLikeDeclaration): { at: ts.Node; mess
       if (ctor) {
         out.push({
           at: member,
-          message: `"${owner}" declares two constructors; a shader function has one body.`,
+          message:
+            `"${wholeClassName(cls)}" declares two constructors; a shader function has ` +
+            `one body.`,
         });
       }
       ctor = true;
@@ -1877,8 +1887,8 @@ function applyInheritance(
           diag(
             sourceFile,
             at(name),
-            `"${shown(name)}" extends "${base}", which this file does not declare as a struct. ` +
-              `A base has to be a class or an interface whose fields are shader types.`,
+            `"${shown(name)}" extends "${shown(base)}", which this file does not declare as a ` +
+              `struct. A base has to be a class or an interface whose fields are shader types.`,
           ),
         );
         continue;

@@ -1231,6 +1231,16 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       ),
       [SPREAD_ANY('A')],
     ],
+    // A `let` a namespace does not hold is refused whole, and what it holds, the spread here and
+    // TypeScript's TS2322 on the list, adds nothing.
+    [
+      'a spread in a namespace let',
+      shader(
+        'namespace N {\n  export let T: array<f32, 3> = [...A, 3.];\n}\n',
+        '  return a;',
+      ).replace('namespace N', `${LIST}namespace N`),
+      [IN_NAMESPACE('a variable')],
+    ],
     // `...q` in a list assigned to collects; the target's refusal is the one sentence.
     [
       'a rest element in a list assigned to',

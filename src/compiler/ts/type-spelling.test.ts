@@ -576,6 +576,10 @@ describe('a class named while the structs are collected, and a sentence about a 
     ]);
     const n = (members: string): string =>
       `namespace N { export class P { x: f32 = 0.; ${members} } }`;
+    // Said where the class is written, and named as written there, `N.P`.
+    expect(one(n('constructor() {} constructor(a: f32) {}'), 'p: N.P')).toEqual([
+      'TS8035 "N.P" declares two constructors; a shader function has one body.',
+    ]);
     expect(one(n('y?: f32;'), 'p: N.P')).toEqual([
       'TS8010 Optional field "y?" on "N.P" is not supported: a struct field is always present ' +
         'in the buffer the host fills.',
@@ -597,6 +601,13 @@ describe('a class named while the structs are collected, and a sentence about a 
       'TS8023 Struct "N.P" is declared more than once. A class, an interface and a type alias ' +
         'are three spellings of one struct, not declarations that merge — TypeScript would merge ' +
         'two interfaces, and the merged layout would disagree with this one at every use site.',
+    ]);
+    // An instance of a generic class is a base as it is written, `B<f32>`.
+    expect(one('class B<T> { }\nclass C extends B<f32> { y: f32 = 0.; }', 'c: C')).toEqual([
+      'TS8010 Struct "B<f32>" has no fields. WGSL requires a struct to declare at least one ' +
+        'member, so an empty one cannot be emitted.',
+      'TS8010 "C" extends "B<f32>", which this file does not declare as a struct. A base has ' +
+        'to be a class or an interface whose fields are shader types.',
     ]);
     // The base is named as it is written, and the class that extends it as it is. A base
     // nothing declares is an unknown type (host-names.test.ts); one the file declares and does

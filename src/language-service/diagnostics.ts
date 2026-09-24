@@ -1877,10 +1877,39 @@ function isKnockOn(
 
 /** What the compiler refused whole, as spans of the document: the nodes whose operand or body
  *  is part of the one mistake refused at them (`refusedWhole`, a `throw`, an `await`, an async
- *  function, a spread), and the `var` statements it refused (`refusedVars`). */
+ *  function, a spread, and a statement a namespace does not hold), and the `var` statements it
+ *  refused (`refusedVars`). */
 interface Refusals {
   readonly whole: readonly TypeshadeTextSpan[];
   readonly vars: readonly TypeshadeTextSpan[];
+}
+
+/** The statements of a namespace the compiler refused whole (namespaces.ts): a `TS8014` whose
+ *  span is the statement itself, `export let T: array<f32, 3> = [...A, 3.]` in `namespace N`.
+ *  semantic.ts does not read what such a statement holds, so nothing inside it is a mistake of
+ *  its own, and TypeScript's word on what it holds repeats the one refusal (Rule 12.4). */
+function namespaceStatementsRefused(
+  sourceFile: ts.SourceFile,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): TypeshadeTextSpan[] {
+  const out: TypeshadeTextSpan[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isModuleBlock(node)) {
+      for (const stmt of node.statements) {
+        const span = spanOfNode(stmt, sourceFile);
+        const refused = compilerErrors.some(
+          (e) =>
+            e.code === TS_CODES.TOP_LEVEL &&
+            e.span.start === span.start &&
+            e.span.length === span.length,
+        );
+        if (refused) out.push(span);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return out;
 }
 
 /** The global type an async function, a generator, an `await`, a `yield`, a `for await` or a
@@ -2212,7 +2241,10 @@ export function mergeDiagnostics(
   const compilerErrors = typeshade.filter((d) => d.severity === 'error');
   const operatorRefusals = compilerErrors.filter((d) => d.code === TS_CODES.TYPE_MISMATCH);
   const refusals: Refusals = {
-    whole: refusedWhole(analysis.sourceFile).map((n) => spanOfNode(n, analysis.sourceFile)),
+    whole: [
+      ...refusedWhole(analysis.sourceFile).map((n) => spanOfNode(n, analysis.sourceFile)),
+      ...namespaceStatementsRefused(analysis.sourceFile, compilerErrors),
+    ],
     vars: refusedVars(analysis.sourceFile).map((n) => spanOfNode(n, analysis.sourceFile)),
   };
   const keptTypescript = typescript.filter((diagnostic) => {
