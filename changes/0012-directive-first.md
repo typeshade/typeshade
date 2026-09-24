@@ -1,7 +1,7 @@
 ---
 id: '0012'
 title: A "use typeshade" directive after another top-level statement is refused on the directive, and the rest of the file is still checked
-status: accepted
+status: implemented
 rules:
 - '3.1'
 surface: []

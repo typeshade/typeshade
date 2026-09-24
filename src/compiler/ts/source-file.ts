@@ -206,6 +206,7 @@ export function compileTsSource(
     return { ...empty, hasDirective: true };
   }
 
+  reportMisplacedDirective(sourceFile, directive, diagnostics);
   analyzeSemantics(sourceFile, diagnostics);
   // Opt-in, and additive: warnings only, no emitted byte moves (§13, #148).
   if (options.deprecations === true) reportIntegerLiteralDeprecations(sourceFile, diagnostics);
@@ -363,6 +364,41 @@ export function compileTsSource(
     symbols,
     wgsl,
   };
+}
+
+/** Rule 3.1: `"use typeshade"` is the file's first statement (#200, proposal 0012). A comment
+ *  before it is not a statement, so a licence header is fine; anything else, another string
+ *  directive included, is `TS8069` on the directive. The file is still lowered, so the editor
+ *  keeps its answers while the directive is out of place, and the error holds back the emit. */
+function reportMisplacedDirective(
+  sourceFile: ts.SourceFile,
+  directive: ts.ExpressionStatement,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const first = sourceFile.statements[0];
+  if (first === undefined || first === directive) return;
+  diagnostics.push(
+    makeDiagnostic(
+      sourceFile,
+      directive,
+      `"${USE_TYPESHADE}" must be the file's first statement: here it follows ${describeStatement(first)}, ` +
+        `so TypeScript reads it as an ordinary string and not as a directive. Move it to the top of the file.`,
+      TS_CODES.MISPLACED_DIRECTIVE,
+    ),
+  );
+}
+
+/** The statement a late directive follows, in the words an author would use for it. */
+function describeStatement(stmt: ts.Statement): string {
+  if (ts.isClassDeclaration(stmt)) return 'a class declaration';
+  if (ts.isFunctionDeclaration(stmt)) return 'a function declaration';
+  if (ts.isInterfaceDeclaration(stmt)) return 'an interface declaration';
+  if (ts.isTypeAliasDeclaration(stmt)) return 'a type alias';
+  if (ts.isVariableStatement(stmt)) return 'a variable declaration';
+  if (ts.isImportDeclaration(stmt)) return 'an import';
+  if (ts.isExpressionStatement(stmt) && ts.isStringLiteral(stmt.expression))
+    return `the "${stmt.expression.text}" directive`;
+  return 'another statement';
 }
 
 /** Return whether a TypeScript source string opts into TypeShade with the "use typeshade" directive. */
