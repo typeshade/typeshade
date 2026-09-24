@@ -50,7 +50,7 @@ import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
 import { froundF32 } from './passes/precision.js';
 import type { CpuPrecision } from './oracle.js';
-import type { ConsoleMethod, ConsoleSink } from './console.js';
+import { consoleArgs, type ConsoleMethod, type ConsoleSink } from './console.js';
 import type { SourceSpan } from './ir/span.js';
 import {
   type CpuValue,
@@ -297,7 +297,7 @@ function emitExpr(e: Expr, S: FnCtx): string {
       if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return emitAtomic(e, S);
       const args = e.args.map((a) => emitExpr(a, S));
       if (e.declRef === undefined && e.fn.startsWith('console.')) {
-        return `$.console(${q(e.fn.slice('console.'.length))}, [${args.join(', ')}], ${e.span ? q(JSON.stringify(e.span)) : 'undefined'})`;
+        return `$.console(${q(e.fn.slice('console.'.length))}, [${args.join(', ')}], ${e.span ? q(JSON.stringify(e.span)) : 'undefined'}, ${e.labels ? JSON.stringify(e.labels) : 'undefined'})`;
       }
       // f32→u32/i32 SATURATES per WGSL — the SAME static-type branch the
       // interpreter takes (oracle.ts 'call'), baked at compile time so the
@@ -662,7 +662,12 @@ interface CodegenRuntime {
   bit: (fn: string, kind: 'u32' | 'i32', args: CpuValue[]) => CpuValue;
   selVec: (cond: readonly CpuValue[], ifTrue: CpuValue, ifFalse: CpuValue) => CpuValue;
   gpuStub: (name: string, ...args: CpuValue[]) => CpuValue;
-  console: (method: string, args: CpuValue[], span?: unknown) => void;
+  console: (
+    method: string,
+    args: CpuValue[],
+    span?: unknown,
+    labels?: readonly (string | number)[],
+  ) => void;
   /** One atomic builtin on `base[key]` (roadmap 0.2 item 4): read, `atomicStep`, write back. */
   atomicAt: (
     fn: string,
@@ -896,10 +901,10 @@ export function compileModuleJs(
         );
       return GPU_STUBS[name]!(...args);
     },
-    console: (method, args, span) => {
+    console: (method, args, span, labels) => {
       opts?.consoleSink?.({
         method: method as ConsoleMethod,
-        args,
+        args: consoleArgs(args, labels),
         span: typeof span === 'string' ? JSON.parse(span) : (span as SourceSpan | undefined),
       });
     },

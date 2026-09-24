@@ -561,10 +561,12 @@ The check closes over the call graph, and `discard()` is not a call the surface 
 - Enforced by: `src/compiler/ts/builtins.test.ts` (`discard`: lowers to the discard statement, emits it on both targets); `TS8099` names the entry, or the helper and the entry, on the wrong stage; `discard()` is `TS8004`, which says that `discard` is a statement and is written without the parentheses (`src/compiler/ts/unknown-names.test.ts`).
 
 **Rule 7.8.** The refusals of surface §28 (a union of two GPU types, a string type, a nullable, a mixed tuple, a rest tuple, `symbol`, an intersection of carriers, `instanceof`, `in`) must apply to expressions as they do to types, each in one sentence.
+The one string an expression may be is a string literal written as an argument of a `console` call: it is a label, which the host keeps and the event carries in its place, and it never reaches a target (surface §66).
+A template with a value in it is refused there with the arguments to write instead.
 
-- Rationale: see Rule 4.5.
-- Derives from: surface §28.
-- Enforced by: `src/compiler/ts/honest-refusals.test.ts`.
+- Rationale: see Rule 4.5; a label is text a human reads, which belongs on the host, and a console call is the one place the host receives it.
+- Derives from: surface §28 and §66; `changes/0014-gpu-console.md`.
+- Enforced by: `src/compiler/ts/honest-refusals.test.ts`; `src/compiler/ts/console.test.ts`, for the label and the template, in the compiler and in the language service.
 
 **Rule 7.9.** An expression must be evaluated left to right, as TypeScript and WGSL both evaluate it, and a call that writes (its object, a module variable, a storage binding, an atomic location) inside a larger expression must take effect in that order on every target.
 The compiler binds each such call to a temporary ahead of its statement, in source order, and binds ahead of the call an operand evaluated before it that reads what it writes; a call TypeScript evaluates conditionally, in an arm of `?:` or the right operand of `&&` or `||`, keeps its condition as an `if`.

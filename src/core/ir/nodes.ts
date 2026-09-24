@@ -138,6 +138,12 @@ export type Expr =
        *  a `Math.*` expansion, a numeric cast) carries none, because it was written nowhere.
        *  Read it with {@link sourceSpanOf}. */
       readonly span?: SourceSpan;
+      /** On a `console.*` call whose author wrote a string literal among the arguments: every
+       *  argument in the order written, a string for a label and a number for the index of a
+       *  value in `args`. A label has no GPU representation and is never an `Expr`; it lives
+       *  here, on the host's side of the call (Rule 7.8, surface §66). Absent when every
+       *  argument is a value, which is then `args` in order. */
+      readonly labels?: readonly (string | number)[];
     }
   | {
       readonly op: 'member';

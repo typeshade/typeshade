@@ -13,8 +13,21 @@ export type ConsoleMethod = 'log' | 'info' | 'debug' | 'warn' | 'error';
 /** A console event produced by a TypeShade CPU/debug invocation. */
 export interface ConsoleEvent {
   readonly method: ConsoleMethod;
-  readonly args: readonly CpuValue[];
+  /** The arguments as the author wrote them: a value for each value, and the text of each
+   *  string literal, which is a label the host keeps (surface §66). */
+  readonly args: readonly (CpuValue | string)[];
   readonly span?: SourceSpan;
+}
+
+/** The event's arguments in the order written: `values` are the evaluated value arguments and
+ *  `labels` the call's `labels` field (a string for a label, a number for an index into
+ *  `values`). With no `labels`, the values alone, in order. */
+export function consoleArgs(
+  values: readonly CpuValue[],
+  labels: readonly (string | number)[] | undefined,
+): (CpuValue | string)[] {
+  if (labels === undefined) return [...values];
+  return labels.map((l) => (typeof l === 'string' ? l : values[l]!));
 }
 
 /** Host callback used by the Playground, tests, and editor debug adapters. */

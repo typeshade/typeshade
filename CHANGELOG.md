@@ -383,6 +383,19 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A string literal argument of a `console` call is a label** (§66, design rule 7.8,
+  `changes/0014-gpu-console.md`). `console.warn("large value at", gid.x, y)` compiles; it was
+  `TS8099 A string has no GPU representation`. The label never reaches a target: it is kept on
+  the host, and the event the sink receives carries it where it was written
+  (`["large value at", 136, 272]`), on the interpreter, the generated CPU code and the stepper
+  alike. `ConsoleEvent.args` is `readonly (string | CpuValue)[]`, and the IR's `call` node gains
+  an optional `labels` field, the arguments in the order written. A template with a value in it
+  is still refused, now once and with the arguments to write (`TS8013 … Pass the text and the
+value as two arguments: console.log("x =", x).`), where it drew a second `TS8099` about the
+  same template. The editor's `Console` takes what the standard one does, so a label, a struct,
+  an array and a matrix draw no error there either; the compiler already took the last three.
+  WGSL and GLSL emit no byte more. The WebGPU half of 0014 is not in this entry.
+
 - **`typeshade check`: the editor's answer and the backends', from the command line** (Rule
   12.7, Rule 12.3). The package gains a `typeshade` command whose `check` reports, for every
   `*.shade.ts` under the given paths, the language service's merged list (TypeScript over the

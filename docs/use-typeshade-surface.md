@@ -3434,7 +3434,7 @@ way. `tsc` is what enforces the distinction, which is where it belongs.
 | Written | Why there is nothing for it to be |
 | --- | --- |
 | `f32 \| vec3` | a value has exactly one type, and the emitted code would have to pick. Write one function per type. |
-| `'lo' \| 'hi'` | a string has no GPU representation. Write the cases as an enum, whose members are numbers. |
+| `'lo' \| 'hi'` | a string has no GPU representation. Write the cases as an enum, whose members are numbers. A string literal written as an argument of `console.log` is a label, which the host keeps (§66). |
 | `f32 \| null` | a value of a type always exists. Carry a bool saying whether it means anything. |
 | `[f32, vec3]` | a list of several types is a struct. Declare one with a field per element. |
 | `[f32, ...f32[]]` | every array outside storage has a length known at compile time. |
@@ -6268,6 +6268,55 @@ to write where they fit.
 as `lib.es5.d.ts` spells them with a `this` of `array<T, N>` and `index: i32`, and
 `array<T, N>` picks them by name (Rule 3.6), so `scaled` above is an `array<f32, 4>` and
 `glow`'s arrow function is checked against the element type.
+
+## 66. `console`: what reaches the host
+
+`changes/0014-gpu-console.md`. A shader function calls the JavaScript console as TypeScript
+spells it, `console.log`, `console.info`, `console.debug`, `console.warn` and `console.error`,
+and the call reaches the host as an event, `{ method, args, span }`, handed to the sink the host
+passes: `compile(src, { consoleSink })` for `eval`, or `compileModule(m, { consoleSink })` and
+`compileModuleJs(m, { consoleSink })`. The other methods of `console` are refused by name.
+
+```ts
+"use typeshade";
+declare const xs: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
+
+@compute([64])
+export function scale(@builtin("global_invocation_id") gid: vec3u): void {
+  if (gid.x >= arrayLength(xs)) {
+    return;
+  }
+  const y = xs[gid.x] * 2.;
+  if (y > 100.) {
+    console.warn("large value at", gid.x, y);
+  }
+  out[gid.x] = y;
+}
+```
+
+**An argument is a value, or a string literal, which is a label.** A value is anything with a
+type the shader can hold: a scalar, a `bool`, a vector, a matrix, an `f64`, an array, a struct,
+an enum member. A string has no GPU representation (§28), and a label never reaches one: it is
+kept on the host, and the event carries it in the place it was written, so the call above
+delivers `["large value at", 136, 272]`. A template with a value in it builds text at run time,
+and is refused with the arguments to write instead (`console.log(\`x = ${x}\`)` is
+`console.log("x =", x)`); so is any other string that is not a literal.
+
+**A console call computes nothing a shader reads.** It is a statement, and its value cannot be
+used. Its arguments are evaluated once, in order, as any call's are, so an argument that writes
+(a method that changes its object, a helper that bumps a module variable) writes on every
+target.
+
+**Where it is delivered.** On the CPU (the oracle, the generated CPU code), each call delivers
+its event to the sink when it runs, and to nothing when no sink is passed. The debugger steps
+through it. WGSL and GLSL ES 3.00 record nothing: the call is removed, and the writes of its
+arguments stay. The WebGPU half of `changes/0014-gpu-console.md`, which records the call in a
+buffer the host decodes into the same events, is being implemented and is written here when it
+lands.
+
+**The editor** declares each method as the standard console does, taking any argument, and
+reports what the compiler refuses among them in the compiler's words.
 
 ---
 
