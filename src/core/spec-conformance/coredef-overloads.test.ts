@@ -79,9 +79,9 @@ describe('every core.def row is claimed (0017)', () => {
       return all;
     });
     // A floor, so a claim table that stopped supporting anything cannot pass on nothing: the
-    // math family alone is 94 rows and 257 instances.
-    expect(rows.length).toBeGreaterThanOrEqual(90);
-    expect(instances.length).toBeGreaterThanOrEqual(250);
+    // math family and the derivatives, bits and packing are 148 rows and 379 instances.
+    expect(rows.length).toBeGreaterThanOrEqual(140);
+    expect(instances.length).toBeGreaterThanOrEqual(370);
     const compiler = compilerReadings(instances);
     const editor = editorReadings(instances, SHADE_DTS);
     const parted = instances

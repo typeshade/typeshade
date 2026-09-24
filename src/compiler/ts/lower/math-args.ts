@@ -88,39 +88,16 @@ interface Spec {
   readonly roles?: Readonly<Record<number, Role>>;
 }
 
-const same = (elems: readonly Elem[]): Spec => ({ elems });
-const FLOAT_SAME = same(FLOAT);
-
 /** The builtins that take a matrix, checked apart from the shapes above. */
 const MATRIX_FNS: ReadonlySet<string> = new Set(['transpose', 'determinant']);
 
-/** The rules of the names whose `core.def` rows are not SUPPORTED yet (0017): the derivatives
- *  and the bit builtins, whose family lands after math, and `mod`, which `core.def` has no row
- *  for (its floor-mod is a TypeShade spelling, written on WGSL as `x - y * floor(x / y)`). Each
- *  leaves this table for the derived one below when its family does. */
+/** The rule of the one math name `core.def` has no row for: `mod`, whose floor-mod is a
+ *  TypeShade spelling, written on WGSL as `x - y * floor(x / y)`. Every other name's rule is
+ *  derived from its SUPPORTED rows (0017). */
 const UNDERIVED_SPECS: Readonly<Record<string, Spec>> = {
-  // The derivatives, on floats.
-  dpdx: FLOAT_SAME,
-  dpdy: FLOAT_SAME,
-  fwidth: FLOAT_SAME,
-  dpdxCoarse: FLOAT_SAME,
-  dpdxFine: FLOAT_SAME,
-  dpdyCoarse: FLOAT_SAME,
-  dpdyFine: FLOAT_SAME,
-  fwidthCoarse: FLOAT_SAME,
-  fwidthFine: FLOAT_SAME,
   // `mod(x, y)` takes a scalar `y` against a vector `x`, which its floor-mod spelling on WGSL
   // and GLSL's `mod(vec, float)` both accept.
   mod: { elems: FLOAT, roles: { 1: 'sameOrScalar' } },
-  // The bit builtins, on integers.
-  countOneBits: same(INT),
-  reverseBits: same(INT),
-  countLeadingZeros: same(INT),
-  countTrailingZeros: same(INT),
-  firstLeadingBit: same(INT),
-  firstTrailingBit: same(INT),
-  extractBits: { elems: INT, roles: { 1: 'u32', 2: 'u32' } },
-  insertBits: { elems: INT, roles: { 2: 'u32', 3: 'u32' } },
 };
 
 /** The element kinds a set of `core.def` scalars stands for, as the canonical lists the

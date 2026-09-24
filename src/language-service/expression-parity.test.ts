@@ -306,16 +306,10 @@ const groupOf = (d: Divergence): string => `${d.reads} | ${d.compiler} | ${d.edi
  * SHRINK-ONLY: a fix takes its rows out in the same change; a row that no longer occurs fails.
  */
 const KNOWN: Readonly<Record<string, 'A' | 'B' | 'C'>> = {
-  // A. A builtin's result, where the ambient library retyped it. The math family's rows are
-  // generated from `core.def` since 0017 part 2; these are the families still to come:
-  // derivatives, bits and packing, and `determinant`, whose matrix argument has no generated
-  // form yet. `fwidth()` was behind a `length()` that said `number` until then.
-  'countOneBits() | u32 | number': 'A',
+  // A. A builtin's result, where the ambient library retyped it. The math family and the
+  // derivatives, bits and packing are generated from `core.def` since 0017; `determinant`
+  // takes a matrix, which the generator has no form for yet.
   'determinant() | f32 | number': 'A',
-  'firstLeadingBit() | u32 | number': 'A',
-  'fwidth() | f32 | number': 'A',
-  'fwidthCoarse() | f32 | number': 'A',
-  'reverseBits() | u32 | number': 'A',
   // B. A scalar the document declares with no annotation (a field, a method or function
   // return), which TypeScript infers from a literal as `number` and the front end as `f32`.
   // `falloff()` was behind a `distance()` that said `number`.
