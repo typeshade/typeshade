@@ -43,9 +43,14 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 
 /** What a `new` names. */
 export type NewTarget =
-  /** A class of the file: the struct the module emits it as (`N_P`) and its name written in
-   *  full from the top of the file (`N.P`). */
-  | { readonly kind: 'class'; readonly flat: string; readonly dotted: string }
+  /** A class of the file: the struct the module emits it as (`N_P`), its name written in full
+   *  from the top of the file (`N.P`), and its declaration. */
+  | {
+      readonly kind: 'class';
+      readonly flat: string;
+      readonly dotted: string;
+      readonly decl: ts.ClassDeclaration;
+    }
   /** A name the file imports, which another file of a multi-file program declares. What it is
    *  is known only once the imports are resolved (`compileTsSources`, which imports functions
    *  alone and says so of anything else), so it is said with them ({@link reportImportedNews}). */
@@ -219,6 +224,82 @@ const valueTarget = (shown: string): NewTarget => refused(`"${shown}" is a value
 const noMember = (reached: string, member: string, kind = 'member'): NewTarget =>
   refused(`"${reached}" has no ${kind} "${member}".`, TS_CODES.UNKNOWN_NAME);
 
+/** What an enum is: its values are its members, the first of which the sentence writes. */
+function enumSentence(decl: ts.EnumDeclaration, shown: string, sourceFile: ts.SourceFile): string {
+  const first = decl.members.find((m) => ts.isIdentifier(m.name))?.name.getText(sourceFile);
+  return first === undefined
+    ? `"${shown}" is an enum, whose values are its members.`
+    : `"${shown}" is an enum, whose values are its members: ${shown}.${first}.`;
+}
+
+/**
+ * What a name the file declares is, read where a value is, when it holds no value a shader has:
+ * an enum, a namespace, a class or a type (Rule 2.1), in the words a `new` of it is told. Each
+ * names the value it does offer: an enum's member, a namespace's exported constant, an instance
+ * of a class or, for a class of statics, a static member. Undefined for a name the file does not
+ * declare, or declares as anything else. It was `Unknown identifier "E"`, of a name the file
+ * declares.
+ */
+export function notAValueSentence(
+  id: ts.Identifier,
+  sourceFile: ts.SourceFile,
+): string | undefined {
+  let decl = scopedDeclaration(id);
+  let name = id.text;
+  // `N.P` read through the namespaces it names is what its last name is.
+  for (let at: ts.Node = id; decl !== undefined && ts.isModuleDeclaration(decl); at = at.parent) {
+    const access = at.parent;
+    if (!ts.isPropertyAccessExpression(access) || access.expression !== at) break;
+    const member = namespaceMember(decl, access.name.text);
+    if (member === undefined) break;
+    decl = member;
+    name = `${name}.${access.name.text}`;
+  }
+  if (decl === undefined) {
+    const type = typeNamed(id, name);
+    if (type === 'type parameter') return `"${name}" is a type parameter, not a value.`;
+    return type === undefined ? undefined : `"${name}" is a type, not a value.`;
+  }
+  if (ts.isEnumDeclaration(decl)) return enumSentence(decl, name, sourceFile);
+  if (ts.isInterfaceDeclaration(decl) || ts.isTypeAliasDeclaration(decl)) {
+    return `"${name}" is a type, not a value.`;
+  }
+  if (ts.isModuleDeclaration(decl)) {
+    const body = decl.body;
+    const constant =
+      body !== undefined && ts.isModuleBlock(body)
+        ? body.statements
+            .filter(ts.isVariableStatement)
+            .find((st) => st.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword))
+            ?.declarationList.declarations.find((d) => ts.isIdentifier(d.name))
+        : undefined;
+    return constant === undefined
+      ? `"${name}" is a namespace, not a value.`
+      : `"${name}" is a namespace, not a value: its values are its members, ` +
+          `${name}.${constant.name.getText(sourceFile)}.`;
+  }
+  if (!ts.isClassDeclaration(decl)) return undefined;
+  if (isAbstract(decl)) {
+    return `"${name}" is an abstract class, not a value. Build a class that extends it.`;
+  }
+  const instanceField = decl.members.some((m) => ts.isPropertyDeclaration(m) && !isStaticMember(m));
+  const statics = decl.members.filter(
+    (m) => isStaticMember(m) && m.name !== undefined && ts.isIdentifier(m.name),
+  );
+  if (!instanceField && statics.length > 0) {
+    const first = statics.find(ts.isPropertyDeclaration) ?? statics[0]!;
+    const member = `${name}.${first.name!.getText(sourceFile)}`;
+    return (
+      `"${name}" is a class of static members, not a value: its values are its members, ` +
+      `${ts.isPropertyDeclaration(first) ? member : `${member}(...)`}.`
+    );
+  }
+  // A module constant is folded before any function exists, so a `new` there is no remedy.
+  return ts.findAncestor(id, ts.isFunctionLike) === undefined
+    ? `"${name}" is a class, not a value.`
+    : `"${name}" is a class, not a value. Build one with "new ${name}(...)".`;
+}
+
 /** What a declaration the target resolved to is, as a `new` sees it. */
 function classify(
   decl: ts.Node,
@@ -229,7 +310,7 @@ function classify(
   if (ts.isClassDeclaration(decl)) {
     if (isAbstract(decl)) return refused(abstractNewMessage(shown));
     const parts = qualifiedParts(decl);
-    return { kind: 'class', flat: parts.join('_'), dotted: parts.join('.') };
+    return { kind: 'class', flat: parts.join('_'), dotted: parts.join('.'), decl };
   }
   const holdsFunction =
     ts.isVariableDeclaration(decl) &&
@@ -238,14 +319,7 @@ function classify(
   if (ts.isFunctionDeclaration(decl) || holdsFunction) {
     return functionTarget(shown, node, sourceFile);
   }
-  if (ts.isEnumDeclaration(decl)) {
-    const first = decl.members.find((m) => ts.isIdentifier(m.name))?.name.getText(sourceFile);
-    return refused(
-      first === undefined
-        ? `"${shown}" is an enum, whose values are its members.`
-        : `"${shown}" is an enum, whose values are its members: ${shown}.${first}.`,
-    );
-  }
+  if (ts.isEnumDeclaration(decl)) return refused(enumSentence(decl, shown, sourceFile));
   if (ts.isModuleDeclaration(decl)) return refused(`"${shown}" is a namespace, not a class.`);
   if (ts.isTypeAliasDeclaration(decl)) return aliasTarget(decl, shown, node, sourceFile);
   if (ts.isInterfaceDeclaration(decl)) return typeTarget(shown);

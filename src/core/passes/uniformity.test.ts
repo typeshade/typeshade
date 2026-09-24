@@ -234,6 +234,30 @@ describe('@diagnostic("off", "derivative_uniformity")', () => {
     OFF,
   );
 
+  it('is offered where the file can carry it, which a namespace entry cannot', () => {
+    // A namespace's entry refuses the attribute (TS8028), and TS8052 still told the author to
+    // write it "on the entry". It is read off any top-level function, so it is offered there when
+    // the file has one, and not at all when it does not.
+    const ns = (top: string, attrs = '') => `declare const t: texture_2d<f32>
+declare const s: sampler
+${attrs}${top}namespace N {
+  @fragment export function fs(@builtin("position") p: vec4): vec4 {
+    if (p.x > 1.) { return vec4(0.) }
+    return textureSample(t, s, p.xy)
+  }
+}`;
+    const said = (tail: string): string =>
+      `${TS_CODES.UNIFORMITY} textureSample() is reached after a return taken under "p" (@builtin(position)), which WGSL's derivative_uniformity rule refuses: the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. Hoist the call above the return, or use textureSampleLevel or textureSampleGrad, whose level of detail is the one you wrote${tail}`;
+    expect(errorsOf(ns(''))).toEqual([said('.')]);
+    const helper = 'function half(x: f32): f32 { return x * 0.5 }\n';
+    expect(errorsOf(ns(helper))).toEqual([
+      said(
+        ', or write @diagnostic("off", "derivative_uniformity") on a top-level function to take the module as written.',
+      ),
+    ]);
+    expect(compiled(ns(helper, OFF)).wgsl).toContain('diagnostic(off, derivative_uniformity);');
+  });
+
   it('emits the directive when asked, and takes the module as written', () => {
     const c = compiled(SRC);
     expect(c.wgsl).toContain('diagnostic(off, derivative_uniformity);');

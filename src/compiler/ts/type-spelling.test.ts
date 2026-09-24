@@ -66,10 +66,57 @@ describe('a message names a class by the name the author gave it', () => {
     ]);
   });
 
-  it('an assignment, and a struct at a @location', () => {
-    expect(said('export function k(a: A, b: B): f32 { let c = a; c = b; return c.x; }')).toEqual([
-      'TS8003 Type mismatch: cannot assign to A A and B. Types must match.',
+  it('an argument of another class', () => {
+    // TypeScript takes one class for another with the same fields, so the editor is silent and
+    // the sentence says why: it said "Argument 1 of "g" type mismatch." and nothing more.
+    expect(
+      said('function g(b: B): f32 { return b.x; }\nexport function k(a: A): f32 { return g(a); }'),
+    ).toEqual([
+      'TS8003 Argument 1 of "g" is A, and "g" takes B. A struct is its own type whatever its ' +
+        'fields, so pass a value of type B.',
     ]);
+  });
+
+  it('an assignment, and a struct at a @location', () => {
+    // An assignment reads in the order it is written, the value and then the place: "cannot
+    // assign to A A and B" named the place twice, and its vector remedy added to the place
+    // (`a + vec3(…)`) where the fix casts the value. The editor shows the one sentence.
+    const assigns: [string, string][] = [
+      [
+        'export function k(a: A, b: B): f32 { let c = a; c = b; return c.x; }',
+        'TS8003 Type mismatch: cannot assign B to A. Types must match.',
+      ],
+      [
+        'export function k(b: vec3u): f32 { let a = vec3(0.); a = b; return a.x; }',
+        'TS8003 Type mismatch: cannot assign vec3u to vec3. Vectors must have the same element ' +
+          'type. Cast the value per component, e.g. a = vec3(f32(b.x), f32(b.y), f32(b.z)).',
+      ],
+      [
+        'export function k(b: u32): i32 { let a = i32(0); a = b; return a; }',
+        'TS8003 Type mismatch: cannot assign u32 to i32 — WGSL has no implicit integer ' +
+          'conversion. Cast the value: i32(…), e.g. a = i32(b).',
+      ],
+    ];
+    for (const [body, sentence] of assigns) {
+      expect(said(body), body).toEqual([sentence]);
+      const service = createTypeshadeLanguageService();
+      service.openDocument('t.ts', `${classes}${body}\n`);
+      expect(
+        service.getDiagnostics('t.ts').map((d) => `${String(d.code)} ${d.message}`),
+        body,
+      ).toEqual([sentence]);
+    }
+    // No splat puts a vector in a scalar place.
+    expect(said('export function k(b: vec2): f32 { let a = 0.; a = b; return a; }')).toEqual([
+      'TS8003 Type mismatch: cannot assign vec2 to f32. Types must match.',
+    ]);
+    // Each remedy compiles when pasted.
+    for (const body of [
+      'export function k(b: vec3u): f32 { let a = vec3(0.); a = vec3(f32(b.x), f32(b.y), f32(b.z)); return a.x; }',
+      'export function k(b: u32): i32 { let a = i32(0); a = i32(b); return a; }',
+    ]) {
+      expect(said(body), body).toEqual([]);
+    }
     expect(
       said(
         [

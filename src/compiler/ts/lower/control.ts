@@ -463,6 +463,16 @@ export function lowerWhile(
   const cond = lowerExpression(node.expression, sourceFile, scope, diagnostics);
   if (!cond) return undefined;
   const written = node.expression.getText(sourceFile);
+  if (typeKey(cond.type) !== 'bool') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.expression,
+      whileConditionSentence(cond, written, scope),
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
   const err = openLoopError(cond, scope, bodyHasExit(node.statement), written);
   if (err) {
     pushDiag(diagnostics, sourceFile, node, err.message, err.code);
@@ -493,6 +503,27 @@ export function lowerWhile(
   } finally {
     scope.exitLoop();
   }
+}
+
+/** The sentence for a `while` whose condition is not a `bool`, as `if` and `for` have one
+ *  (Rules 7.5, 12.6). TypeScript takes any value there by its truthiness, and the loop compiled
+ *  with no word; Tint then refused the module, "for-loop condition must be bool". A number is
+ *  compared with zero and a vector of bools reduced with `any`, the spellings that say what
+ *  the truthiness did; a struct, an array or a numeric vector has no one such spelling, and
+ *  neither has a constant (`E.A`), whose comparison the editor refuses as always the same
+ *  (TS2367). */
+function whileConditionSentence(cond: Expr, written: string, scope: LoweringScope): string {
+  const type = cond.type;
+  const said = `while condition must be bool, got ${authorTypeText(type)}.`;
+  if (foldConstNumber(cond, scope) !== undefined) return said;
+  const operand = /^[\w$.]+$/.test(written) ? written : `(${written})`;
+  if (type.kind === 'scalar' && (type.scalar === 'f32' || isIntScalar(type))) {
+    return `${said} Compare it with zero: while (${operand} !== ${type.scalar === 'f32' ? '0.' : '0'}).`;
+  }
+  if (isVec(type) && type.elem === 'bool') {
+    return `${said} Reduce it: while (any(${written})) or while (all(${written})).`;
+  }
+  return said;
 }
 
 /** Whether a `while` body can leave its loop: a `break` that belongs to it, or a `return`.

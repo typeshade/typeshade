@@ -12,6 +12,7 @@ import type {
   ModuleVarDecl,
   OverrideDecl,
 } from '../../core/ir/nodes.js';
+import { stageOf } from '../../core/ir/nodes.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
 import { lowerSourceFunctions } from './lower/function.js';
@@ -326,6 +327,18 @@ function compileOneSource(source: string, options: CompileTsSourceOptions): Comp
     // the module. `off` drops the derivative rows, `info` and `warning` demote them.
     const severity = derivativeUniformitySeverity(directives);
     const calleeText = calleesAsWritten(sourceFile, funcs);
+    // `@diagnostic` is read off any top-level function (`collectDiagnosticDirectives`), and a
+    // namespace's entry refuses the attribute (`TS8028`). So the sentence offers it on the entry
+    // when every entry is top-level, on a top-level function when one is not and the file has
+    // one, and not at all when it has none.
+    const namespaceEntry = funcs.some(
+      (f) => stageOf(f) !== undefined && entryDeclaration(sourceFile, f.name) === undefined,
+    );
+    const directivePlace = !namespaceEntry
+      ? 'the entry'
+      : sourceFile.statements.some((st) => ts.isFunctionDeclaration(st) && st.body !== undefined)
+        ? 'a top-level function'
+        : undefined;
     for (const v of uniformityViolations(shaped, { builtIfs, calleeText })) {
       if (v.kind === 'derivative' && severity === 'off') continue;
       const category =
@@ -337,7 +350,7 @@ function compileOneSource(source: string, options: CompileTsSourceOptions): Comp
           sourceFile,
           v.span,
           entryDeclaration(sourceFile, v.fn),
-          uniformityMessage(v),
+          uniformityMessage(v, directivePlace),
           TS_CODES.UNIFORMITY,
           category,
         ),
@@ -595,8 +608,12 @@ const UNIFORMITY_SITES: Readonly<
 /** The sentence a {@link UniformityViolation} reads as. Two rules with one walk behind them,
  *  so two wordings: a derivative needs uniform control flow because its value is a difference
  *  between neighbouring invocations, and a barrier because a workgroup where some invocations
- *  arrive and some do not waits forever. */
-function uniformityMessage(v: UniformityViolation): string {
+ *  arrive and some do not waits forever. A derivative's sentence offers `@diagnostic` at
+ *  `directivePlace`, where the file can carry it, and not at all when it has no such place. */
+function uniformityMessage(
+  v: UniformityViolation,
+  directivePlace: 'the entry' | 'a top-level function' | undefined,
+): string {
   const site = UNIFORMITY_SITES[v.via];
   const reached = `${site.reached} ${v.cause}`;
   if (v.kind === 'barrier') {
@@ -622,7 +639,11 @@ function uniformityMessage(v: UniformityViolation): string {
       v.isDerivativeBuiltin
         ? 'it differences neighbouring invocations'
         : 'the implicit level of detail is a difference between neighbouring invocations'
-    }, and one that did not run has no value to difference against. ${fix}, or write ` +
-    `@diagnostic("off", "derivative_uniformity") on the entry to take the module as written.`
+    }, and one that did not run has no value to difference against. ${fix}${
+      directivePlace === undefined
+        ? '.'
+        : `, or write @diagnostic("off", "derivative_uniformity") on ${directivePlace} to ` +
+          `take the module as written.`
+    }`
   );
 }

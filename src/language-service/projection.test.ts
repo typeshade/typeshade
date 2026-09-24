@@ -302,6 +302,24 @@ export function f(): vec3 {
     expect(planned('  const d = dot(a, b) * s;')).toEqual([]);
   });
 
+  it('reads & and | on two bools as the bool they are, and on integers leaves them', () => {
+    // WGSL's logical and and or, which TypeScript types as a `number` (and refuses, TS2447):
+    // the operation is asserted `bool`, the one TypeScript cannot infer. Two that end together
+    // write the same text there.
+    const src = `"use typeshade";
+export function f(p: bool, q: bool, r: bool, u: u32): bool {
+  const k = p & q | r;
+  const n = u | u;
+  return k;
+}
+`;
+    const projection = new Projection(src, planInsertions(src, 'b.shade.ts'));
+    expect(projection.projected).toContain(
+      'const k = ((((p & q) as unknown as bool) | r) as unknown as bool);',
+    );
+    expect(projection.projected).toContain('const n = u | u;');
+  });
+
   it('writes nothing into a file without the directive', () => {
     expect(planInsertions('export const x = 1;\n', 'a.ts')).toEqual([]);
   });

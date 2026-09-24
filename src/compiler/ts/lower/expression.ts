@@ -24,6 +24,7 @@ import { refuseBareAtomic } from './atomics.js';
 import { builtinCalleeNames, lowerCall } from './expression-call.js';
 import { declarationOf } from './closures.js';
 import { lowerNew, lowerThis } from './class-methods.js';
+import { notAValueSentence } from './new-target.js';
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
@@ -333,12 +334,17 @@ export const valueScopes = (node: ts.Node): NameScopes => [
 ];
 
 /** The sentence for a value read that names no binding: what a name the library declares is
- *  where the file declares nothing of it (`Number`, `Math`), else {@link
+ *  where the file declares nothing of it (`Number`, `Math`), what a name the file declares is
+ *  when it is an enum, a namespace, a class or a type ({@link notAValueSentence}), else {@link
  *  unknownIdentifierSentence}'s (Rule 2.1, Rule 12.1). */
 export function unknownValueSentence(node: ts.Identifier): string {
   const library =
     declarationOf(node) === undefined ? libraryNameSentence(node.text, 'value') : undefined;
-  return library ?? unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`);
+  return (
+    library ??
+    notAValueSentence(node, node.getSourceFile()) ??
+    unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`)
+  );
 }
 
 /**

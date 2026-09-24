@@ -1203,7 +1203,7 @@ function lowerAssign(
       diagnostics,
       sourceFile,
       right,
-      numericMismatch(`assign to ${authorTypeText(want)}`, want, value.type),
+      numericMismatch('assign', want, value.type),
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;

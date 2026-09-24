@@ -22,6 +22,12 @@
 //     method, a getter, a field that holds a function, an arrow function or a function
 //     expression, local or handed to a call.
 //
+//   - `&` or `|` on two `bool`s, which WGSL takes as its logical and and or that do not
+//     short-circuit, and TypeScript refuses (TS2447) and types as a `number`: the operation is
+//     read as the `bool` the front end gives it, `((a & b) as unknown as bool)`, so a `bool`
+//     return, local, argument or field it flows into is not an error on a program the compiler
+//     accepts (Rule 12.7). The refusal itself is the diagnostics filter's to drop.
+//
 // Everything else is served as written. An insertion never spans a line break, so the two texts
 // have the same lines and differ only in the columns after an insertion on its own line.
 //
@@ -104,6 +110,27 @@ export const ERASING_UNARY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.MinusMinusToken,
 ]);
 
+/** `&` and `|`, which on two `bool`s the front end takes as WGSL's non-short-circuiting logical
+ *  operators and TypeScript types as a `number`. */
+const LOGICAL_BITWISE_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.AmpersandToken,
+  ts.SyntaxKind.BarToken,
+]);
+
+/** Every `a & b` and `a | b` in `sourceFile`, the operations TypeScript may type as a `number`
+ *  where the front end reads a `bool`. */
+function logicalBitwiseOperations(sourceFile: ts.SourceFile): ts.BinaryExpression[] {
+  const out: ts.BinaryExpression[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isBinaryExpression(node) && LOGICAL_BITWISE_OPERATORS.has(node.operatorToken.kind)) {
+      out.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return out;
+}
+
 /** Whether `node` applies such an operator anywhere inside it: the only way TypeScript turns a
  *  vector into a `number` or a `boolean`. A call, a swizzle or a constructor keeps its type. */
 function hasOperator(node: ts.Node): boolean {
@@ -144,7 +171,11 @@ export function ambientSpelling(type: ShaderType): string | undefined {
 export function planInsertions(text: string, fileName: string): Insertion[] {
   // The front end is the expensive half; a document with no candidate declaration skips it.
   const syntax = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
-  if (candidates(syntax).length === 0 && functionCandidates(syntax).length === 0) {
+  if (
+    candidates(syntax).length === 0 &&
+    functionCandidates(syntax).length === 0 &&
+    logicalBitwiseOperations(syntax).length === 0
+  ) {
     return [];
   }
   let analysis: ReturnType<typeof compileTsSource>;
@@ -180,6 +211,18 @@ export function planInsertions(text: string, fileName: string): Insertion[] {
     if (only === undefined) continue;
     out.push({ at: only.getStart(sf), text: '(' });
     out.push({ at: only.getEnd(), text: `): ${spelled}` });
+  }
+  // The front end's own record of what each expression lowered to decides a `bool` operation:
+  // one it refused, or lowered to an integer or a vector, is served as written. Two operations
+  // that start or end together (`a & b | c`) insert the same text there, in either order.
+  const lowered = new Map<string, ShaderType>();
+  for (const e of analysis.expressions) lowered.set(`${e.start}:${e.length}`, e.type);
+  for (const op of logicalBitwiseOperations(sf)) {
+    const start = op.getStart(sf);
+    const type = lowered.get(`${start}:${op.getEnd() - start}`);
+    if (type?.kind !== 'scalar' || type.scalar !== 'bool') continue;
+    out.push({ at: start, text: '((' });
+    out.push({ at: op.getEnd(), text: ') as unknown as bool)' });
   }
   return out.sort((a, b) => a.at - b.at);
 }

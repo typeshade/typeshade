@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { compile } from './compile.js';
+import { TS_CODES } from './codes.js';
 import { typeKey } from '../../core/ir/types.js';
 import type { Expr, Stmt } from '../../core/ir/nodes.js';
 
@@ -243,8 +244,12 @@ describe('compound assignment with a vector target', () => {
         let w = v; w = s; return w;
       }
     `);
-    expect(r.diagnostics.some((d) => /assign to vec3 vec3 and f32\./.test(d.message))).toBe(true);
-    expect(r.diagnostics[0]!.message).toMatch(/vec3\(x\)/);
+    // The value and then the place, as the assignment is written (Rule 12.1).
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} Type mismatch: cannot assign f32 to vec3. A vector combines ` +
+        'with a scalar of its element type only through + - * / %; splat the scalar with ' +
+        'vec3(x) to get a vector.',
+    ]);
     const ok = compileTsSource(`
       "use typeshade";
       export function f(v: vec3, s: f32): vec3 {

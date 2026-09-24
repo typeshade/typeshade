@@ -327,6 +327,11 @@ export function lowerPropertyAccess(
       ) {
         return undefined;
       }
+      // Nor a read through a class whose chain has a base the file does not collect, refused
+      // where it extends it (structs.ts): what that base would have given it is not known here.
+      if (scope.ancestorsOf(base.type.name).some((a) => scope.structByName(a) === undefined)) {
+        return undefined;
+      }
       const hidden = isPrivateName(prop)
         ? scope.privateField(base.type.name, emittedMemberName(prop))
         : undefined;

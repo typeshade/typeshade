@@ -386,7 +386,7 @@ export function declared(a: vec3f64, b: f64): vec3b { const v: vec3f64 = vec3f64
     // f64, where the scalar is the type the author asked for.
     for (const [body, want] of [
       ['const s: f64 = a; return b;', 'cannot let/const s f64 and vec3f64'],
-      ['let s = b; s = a; return s;', 'cannot assign to f64 f64 and vec3f64'],
+      ['let s = b; s = a; return s;', 'cannot assign vec3f64 to f64'],
     ] as const) {
       expect(
         codedErrorsOf(`"use typeshade";\nexport function k(a: vec3f64, b: f64): f64 { ${body} }\n`),

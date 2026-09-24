@@ -123,16 +123,25 @@ export function broadcastResultType(
 
 const VEC_CTOR_SUFFIX: Readonly<Record<string, string>> = { f32: '', i32: 'i', u32: 'u' };
 
+/** The sentence for two types `op` does not take together. `op` is an operator (`+`, `+=`,
+ *  `compare`, `bitwise`), a declaration's phrase, or `assign`: an assignment reads in the order
+ *  it is written, `cannot assign B to A`, with `left` the place and `right` the value, and its
+ *  example casts the value it assigns (`a = u32(b)`), where an operator's casts an operand. */
 export function numericMismatch(op: string, left: ShaderType, right: ShaderType): string {
   const lk = typeKey(left);
   const rk = typeKey(right);
   if (lk === rk) return `Type mismatch in ${op}: unexpected same-type mismatch.`;
-  const pair = `${authorTypeText(left)} and ${authorTypeText(right)}`;
+  const assign = op === 'assign';
+  const pair = assign
+    ? `${authorTypeText(right)} to ${authorTypeText(left)}`
+    : `${authorTypeText(left)} and ${authorTypeText(right)}`;
   const ints = (lk === 'i32' && rk === 'u32') || (lk === 'u32' && rk === 'i32');
   if (ints) {
     return (
       `Type mismatch: cannot ${op} ${pair} — WGSL has no implicit integer conversion. ` +
-      `Cast one side: ${lk}(…) or ${rk}(…), e.g. a + ${lk === 'i32' ? 'i32' : 'u32'}(b).`
+      (assign
+        ? `Cast the value: ${lk}(…), e.g. a = ${lk}(b).`
+        : `Cast one side: ${lk}(…) or ${rk}(…), e.g. a + ${lk === 'i32' ? 'i32' : 'u32'}(b).`)
     );
   }
   if (
@@ -158,7 +167,9 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
     const example = /^[-+*/%]$/.test(op) ? op : '+';
     return (
       `Type mismatch: cannot ${op} ${pair}. Vectors must have the same element type. ` +
-      `Cast one side per component, e.g. a ${example} ${rebuilt}.`
+      (assign
+        ? `Cast the value per component, e.g. a = ${rebuilt}.`
+        : `Cast one side per component, e.g. a ${example} ${rebuilt}.`)
     );
   }
   if ((op === '%' || op === '%=') && (isVec64(left) || isVec64(right))) {
@@ -189,8 +200,14 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
       `splat the scalar with vec${vec64.n}f64(f64(x)) to get a vector.`
     );
   }
+  // No splat fixes a vector assigned to a scalar place either.
   const [vec, scalar] = isVec(left) ? [left, right] : [right, left];
-  if (isVec(vec) && isScalar(scalar) && scalar.scalar in VEC_CTOR_SUFFIX) {
+  if (
+    isVec(vec) &&
+    isScalar(scalar) &&
+    scalar.scalar in VEC_CTOR_SUFFIX &&
+    !(assign && vec === right)
+  ) {
     const splat = `vec${vec.n}${VEC_CTOR_SUFFIX[vec.elem]}(x)`;
     if (scalar.scalar === vec.elem) {
       return (

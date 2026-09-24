@@ -11,7 +11,9 @@
 //     nothing more), TS8002 for a type, in the words and with the remedy proposal 0007 gave
 //     every unknown name;
 //   - a declaration of the file wins over a §9.3 constant of the same name, as it does in the
-//     editor: `enum E`, `namespace PI`, `class TAU` and `function PI` are never e, π or τ;
+//     editor: `enum E`, `namespace PI`, `class TAU` and `function PI` are never e, π or τ, and
+//     each, like any enum, namespace, class or type the file declares, read as a value is told
+//     what it is, once, in the compiler and in the editor;
 //   - `eval` and `arguments`, which strict mode lets no declaration bind, are the one spelling
 //     refused: once, where a variable, a parameter or a function binds one, as TypeScript
 //     refuses it (TS8068).
@@ -281,16 +283,64 @@ describe('a declaration of the file wins over a §9.3 constant of its name', () 
   // Measured on main: each compiled with no diagnostic, to `return 2.718281828459045;`, π or τ,
   // while the editor read the file's declaration (TS2322).
   it('an enum, a namespace and a class read as a value are the file’s, not e, π or τ', () => {
-    for (const [head, name] of [
-      ['enum E {\n  A = 1,\n}\n', 'E'],
-      ['namespace PI {\n  export const a: f32 = 1.;\n}\n', 'PI'],
-      ['class TAU {\n  a: f32 = 1.;\n}\n', 'TAU'],
+    // Each said `Unknown identifier "E"` of a name the file declares, and the editor added
+    // TypeScript's TS2322 about `typeof E`: it says what the name is, once, and the value it
+    // offers, in the words a `new` of it is told (Rule 12.4).
+    for (const [head, name, sentence] of [
+      ['enum E {\n  A = 1,\n}\n', 'E', '"E" is an enum, whose values are its members: E.A.'],
+      [
+        'namespace PI {\n  export const a: f32 = 1.;\n}\n',
+        'PI',
+        '"PI" is a namespace, not a value: its values are its members, PI.a.',
+      ],
+      [
+        'class TAU {\n  a: f32 = 1.;\n}\n',
+        'TAU',
+        '"TAU" is a class, not a value. Build one with "new TAU(...)".',
+      ],
     ]) {
-      expect(
-        diagnosticsOf(`"use typeshade";\n${head}function g(): f32 {\n  return ${name};\n}\n${FS}`),
-        name,
-      ).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "${name}".`]);
+      const src = `"use typeshade";\n${head}function g(): f32 {\n  return ${name};\n}\n${FS}`;
+      expect(diagnosticsOf(src), name).toEqual([`${TS_CODES.UNKNOWN_NAME} ${sentence}`]);
+      expect(editorOf(src), name).toEqual([`typeshade ${TS_CODES.UNKNOWN_NAME} ${sentence}`]);
     }
+  });
+
+  it('any other enum, namespace, class or type read as a value says what it is', () => {
+    const top = [
+      'enum Mode {\n  A = 1,\n}',
+      'namespace N {\n  export const a: f32 = 1.;\n  export class P {\n    a: f32 = 1.;\n  }\n}',
+      'class Q {\n  a: f32 = 1.;\n}',
+      'abstract class R {\n  a: f32 = 1.;\n}',
+      'class S {\n  static k: f32 = 2.;\n}',
+      'interface I {\n  a: f32;\n}',
+      '',
+    ].join('\n');
+    for (const [body, sentence] of [
+      ['  const k: f32 = Mode;', '"Mode" is an enum, whose values are its members: Mode.A.'],
+      ['  const k = Q * 2.;', '"Q" is a class, not a value. Build one with "new Q(...)".'],
+      ['  const k: f32 = N.P;', '"N.P" is a class, not a value. Build one with "new N.P(...)".'],
+      [
+        '  const k: f32 = R;',
+        '"R" is an abstract class, not a value. Build a class that extends it.',
+      ],
+      [
+        '  const k: f32 = S;',
+        '"S" is a class of static members, not a value: its values are its members, S.k.',
+      ],
+      ['  const k: f32 = I;', '"I" is a type, not a value.'],
+      [
+        '  const k: bool = Mode.A === Mode;',
+        '"Mode" is an enum, whose values are its members: Mode.A.',
+      ],
+    ]) {
+      const src = `"use typeshade";\n${top}function g(): f32 {\n${body}\n  return 1.;\n}\n${FS}`;
+      expect(diagnosticsOf(src), body).toEqual([`${TS_CODES.UNKNOWN_NAME} ${sentence}`]);
+      expect(editorOf(src), body).toEqual([`typeshade ${TS_CODES.UNKNOWN_NAME} ${sentence}`]);
+    }
+    // Each remedy compiles.
+    const src = `"use typeshade";\n${top}function g(): f32 {\n  return f32(Mode.A) + N.a + new Q().a + new N.P().a + S.k;\n}\n${FS}`;
+    expect(diagnosticsOf(src)).toEqual([]);
+    expect(editorOf(src)).toEqual([]);
   });
 
   it('a function read as a value is a function, generic or not', () => {
@@ -298,11 +348,10 @@ describe('a declaration of the file wins over a §9.3 constant of its name', () 
       'function PI(): f32 {\n  return 1.;\n}\n',
       'function PI<T>(x: T): T {\n  return x;\n}\n',
     ]) {
-      expect(
-        diagnosticsOf(`"use typeshade";\n${head}function g(): f32 {\n  return PI;\n}\n${FS}`),
-      ).toEqual([
-        `${TS_CODES.UNSUPPORTED} "PI" is a function, and a shader has no function values: nothing at run time can hold one, return one or choose between two. Call it where its value is needed, "PI(...)", or hand it to a parameter that takes a function (Rule 8.18).`,
-      ]);
+      const src = `"use typeshade";\n${head}function g(): f32 {\n  return PI;\n}\n${FS}`;
+      const sentence = `${TS_CODES.UNSUPPORTED} "PI" is a function, and a shader has no function values: nothing at run time can hold one, return one or choose between two. Call it where its value is needed, "PI(...)", or hand it to a parameter that takes a function (Rule 8.18).`;
+      expect(diagnosticsOf(src)).toEqual([sentence]);
+      expect(editorOf(src)).toEqual([`typeshade ${sentence}`]);
     }
   });
 

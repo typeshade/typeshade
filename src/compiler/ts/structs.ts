@@ -1796,6 +1796,25 @@ function applyInheritance(
   const done = new Map<string, Resolved>();
   const onStack: string[] = [];
   const at = (n: string): ts.Node => nodeOf.get(n) ?? sourceFile;
+  /** The classes whose `extends` names a base that was refused where it is written: `B<T>` in
+   *  `class D<T> extends B<T>`, whose type parameter names no layout (`TS8002`), leaves each
+   *  instance of `D` extending a `B_f32` nothing collects. That refusal is the one diagnostic,
+   *  so the missing base, and the fields it would have given, say nothing more (Rule 12.4). */
+  const refusedBase = new Set<string>();
+  const baseRefusedWhereWritten = (struct: CollectedStruct): boolean => {
+    const clause = struct.classNode?.heritageClauses?.find(
+      (h) => h.token === ts.SyntaxKind.ExtendsKeyword,
+    );
+    if (clause === undefined) return false;
+    const [start, end] = [clause.getStart(sourceFile), clause.getEnd()];
+    return diagnostics.some(
+      (d) =>
+        d.category === 'error' &&
+        d.fileName === sourceFile.fileName &&
+        d.start >= start &&
+        d.start < end,
+    );
+  };
   /** A class as its author wrote it, `N.P` for the struct `N_P`. */
   const shown = (n: string): string => authorTypeText(structT(n));
   const ownOf = (s: CollectedStruct): Resolved => ({
@@ -1882,6 +1901,10 @@ function applyInheritance(
       );
     };
     for (const base of struct.bases ?? []) {
+      if (!byName.has(base) && baseRefusedWhereWritten(struct)) {
+        refusedBase.add(name);
+        continue;
+      }
       if (!byName.has(base)) {
         diagnostics.push(
           diag(
@@ -1932,6 +1955,7 @@ function applyInheritance(
   // inherits is only known now.
   for (const s of out) {
     if (s.namespace || s.decl.fields.length > 0 || (s.bases ?? []).length === 0) continue;
+    if (refusedBase.has(s.decl.name)) continue;
     diagnostics.push(
       diag(
         sourceFile,

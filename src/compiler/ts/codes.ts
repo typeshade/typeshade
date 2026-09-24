@@ -51,7 +51,7 @@ export const TS_CODES = {
   FUNCTION_SHAPE: 'TS8020',
   /** A `return` shape problem: bare `return` where a value is required, or an entry function with no return type annotation that returns a value. */
   RETURN_SHAPE: 'TS8021',
-  /** Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`), in a body a call lowers or in one no call lowers; a name the library declares for TypeScript's own use (`Object`, `Math`, `Symbol`) read as a value says what it is. */
+  /** Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`), in a body a call lowers or in one no call lowers; a name the library declares for TypeScript's own use (`Object`, `Math`, `Symbol`), or the file declares as an enum, a namespace, a class or a type, read as a value says what it is. */
   UNKNOWN_NAME: 'TS8022',
   /** The same function, binding, module constant or struct name declared twice in one scope. A struct counts whichever of the three spellings each declaration used: a class, an interface and a type alias of one name are one struct, not declarations that merge. */
   DUPLICATE_SYMBOL: 'TS8023',

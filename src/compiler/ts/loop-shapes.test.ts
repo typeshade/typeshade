@@ -670,6 +670,62 @@ describe('while on a constant that is true (Rule 7.5)', () => {
   });
 });
 
+describe('a while condition is a bool, as an if or a for condition is (Rules 7.5, 12.6)', () => {
+  // TypeScript takes any value in a condition by its truthiness, and `while (k)` compiled with
+  // no word; Tint then refused the module, "for-loop condition must be bool, got f32".
+  const top = 'class P { x: f32 = 1.; } enum E { A = 1 }';
+  const said = (type: string, remedy = ''): { code: string; message: string } => ({
+    code: 'TS8003',
+    message: `while condition must be bool, got ${type}.${remedy}`,
+  });
+
+  it('refuses any other type, with the comparison or the reduction that says it', () => {
+    for (const [body, expected] of [
+      [
+        'let k = out[0]; while (k) { k -= 1.; }',
+        said('f32', ' Compare it with zero: while (k !== 0.).'),
+      ],
+      [
+        'let j: u32 = 3; while (j) { j--; }',
+        said('u32', ' Compare it with zero: while (j !== 0).'),
+      ],
+      // A constant is compared with nothing: TypeScript refuses `E.A !== 0` as always true.
+      ['while (E.A) { break; }', said('i32')],
+      [
+        'while (out[0] - 1.) { break; }',
+        said('f32', ' Compare it with zero: while ((out[0] - 1.) !== 0.).'),
+      ],
+      [
+        'const b = vec2(out[0], 1.) > vec2(0.); while (b) { break; }',
+        said('vec2b', ' Reduce it: while (any(b)) or while (all(b)).'),
+      ],
+      ['const u = vec3u(1, 2, 3); while (u) { break; }', said('vec3u')],
+      ['while (new P()) { break; }', said('P')],
+      ['const a: array<f32, 2> = [1., 2.]; while (a) { break; }', said('array<f32, 2>')],
+    ] as const) {
+      const src = kernel(body, top);
+      expect(errorsOf(src), body).toEqual([expected]);
+      expect(editorErrorsOf(src), body).toEqual([expected]);
+    }
+  });
+
+  it('compiles each remedy, and the bool conditions it always took', () => {
+    for (const body of [
+      'let k = out[0]; while (k !== 0.) { k -= 1.; }',
+      'let j: u32 = 3; while (j !== 0) { j--; }',
+      'while ((out[0] - 1.) !== 0.) { break; }',
+      'const b = vec2(out[0], 1.) > vec2(0.); while (any(b)) { break; } while (all(b)) { break; }',
+      'let k = 3; while (k > 0.) { k -= 1.; }',
+      'const go = out[0] > 1.; while (go && out[1] < 3.) { break; }',
+      'while (!(out[0] < 0.)) { break; }',
+    ]) {
+      const src = kernel(body, top);
+      expect(errorsOf(src), body).toEqual([]);
+      expect(editorErrorsOf(src), body).toEqual([]);
+    }
+  });
+});
+
 describe("a loop's hidden counter is the compiler's own name (Rule 2.2)", () => {
   it('lets an author name a local _w beside a while, and write two whiles', () => {
     // Both failed in the backend, `TS8015 ... '_w' is declared more than once in fn 'main'`,

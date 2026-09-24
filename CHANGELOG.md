@@ -70,7 +70,15 @@ of functions, not a value. Call one of them, Math.sin(x).`, and `Symbol`, which 
   class, where it is called or built), where each was `Unknown identifier`. A declaration of the file wins over
   a §9.3 constant of its name, as it does in the editor: `enum E`, `namespace PI`, `class TAU`
   and `function PI` read as a value compiled to e, π and τ with no diagnostic, and now read as
-  the file's (an interface declares no value, so `LN2` still reads through one). A member is
+  the file's (an interface declares no value, so `LN2` still reads through one). None of them is
+  a value a shader holds, and neither is any enum, namespace, class or type the file declares:
+  read as one, each says what it is and the value it offers, once, where it was `Unknown
+identifier "E"` of a name the file declares and the editor added TypeScript's TS2322 about
+  `typeof E`: `"E" is an enum, whose values are its members: E.A.`, `"N" is a namespace, not a
+value: its values are its members, N.a.`, `"P" is a class, not a value. Build one with "new
+P(...)".` (`"N.P"` through a namespace, and no `new` offered in a module constant), `"S" is a
+class of static members, not a value: its values are its members, S.k.` and `"I" is a type, not
+a value.` A member is
   looked up on its receiver: a class field `reverse`, an interface field `map` and a getter
   `join` compile, where each was refused as a JS array method by its spelling, and a class
   method named `swizzle` compiles, where every `.swizzle()` call was routed to the IR builder's
@@ -1635,8 +1643,13 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   on a spread argument, TS2322 on `export let T: array<f32, 3> = [...A, 3.]` in a namespace),
   about a value that holds one (TS2322 on a list with a spread, in a local, a field, a static
   field or a default), a global type TypeScript cannot find for such a form (TS2318, `Promise`), TS1103 on
-  a refused `for await`, and TypeScript's type of the rest element of a list the compiler
-  refused as an assignment target. So `throw new Error("neg")`, `await fetch(a)` and an
+  a refused `for await`, TS2407 on a scalar or a bool a refused `for…in` enumerates
+  (`for (const k in 1.)`), and TypeScript's type of the rest element of a list the compiler
+  refused as an assignment target. A class whose `extends` writes a base with its own type
+  parameter, `class D<T> extends B<T>`, is that `TS8002` alone, where it was followed by `TS8010
+"D<f32>" extends "B_f32"` naming the emitted struct, `TS8010` "has no fields" of a class whose
+  base has one, `TS8035 "D" declares only static members … Call "D.f(...)"` at its `new`, and
+  `Unknown field "x"` at a read of what the base would have given it. So `throw new Error("neg")`, `await fetch(a)` and an
   `async function` are one diagnostic in the editor too, where they were two or three.
   A `var` is refused once: `TS8013` in a body, and `TS8014` at the top level and in a namespace,
   in `compile()` and in the multi-file path alike. One in a body is lowered as the `let` it would
@@ -1749,6 +1762,14 @@ struct`), and a struct left with no other field. A method, a static function or 
   holding one of those (`const go = !OFF`) is still read as a runtime condition, as Appendix B's
   Rule 7.5 row records. The fold is the loop's own: what a `const` is given as its value, and so
   what a module constant emits, is unchanged.
+  A `WHILE` CONDITION IS A `BOOL`, AS AN `IF` OR A `FOR` CONDITION IS. TypeScript reads any value
+  there by its truthiness, and `while (k)` on an `f32`, `while (u)` on a `vec3u`, `while (a)` on
+  an array, `while (new P())` and `while (E.A)` compiled with no diagnostic, and Tint refused the
+  module (`for-loop condition must be bool, got f32`). Each is `TS8003` on the condition, naming
+  its type as written, with the spelling that says a number's or a mask's truthiness:
+  `while condition must be bool, got f32. Compare it with zero: while (k !== 0.).`, and
+  `Reduce it: while (any(b)) or while (all(b)).` for a `vec2b`; a struct, an array, a vector of
+  numbers or a constant is told its type alone.
   A LOOP'S COUNTER IS NOT A NAME THE SOURCE CAN REACH (Rule 2.2). A `while` counted with an IR
   local written as `_w` outright, so an author's `_w` in the function, or a second `while`,
   failed in the backend as `TS8015 … '_w' is declared more than once in fn 'main'`, anchored on
@@ -1814,7 +1835,11 @@ struct`), and a struct left with no other field. A method, a static function or 
   `Cannot *= mat3x3<f64>: the fp64 pass lowers the product of two matrices of doubles and not its compound assignment. Write m = m * n.`,
   `Unary "+" is not defined on A; it takes a number, a vector or a matrix, not a struct. Remove it.`
   `&` and `|` on a bool or a vector of bools stay, as WGSL's non-short-circuiting logical
-  operators; `+m` on a matrix and `+x` on a number or a vector stay the identity. A float under
+  operators, and on two scalar `bool`s the editor now reads them as the compiler does: it kept
+  TypeScript's TS2447 on the operator and, where the `number` TypeScript types the result as
+  reached a `bool`, TS2322, TS2345, TS2363, TS2367 or TS2769, on a program that compiles. The
+  projection reads the operation as the `bool` it is, `((a & b) as unknown as bool)`, and the
+  TS2447 filter's reason no longer calls `^` WGSL's xor on a vector of bools; `+m` on a matrix and `+x` on a number or a vector stay the identity. A float under
   `&`, `|` or `^` keeps the refusal #236 gave it, which leaves two whole numbers the front end
   folds alone: `const AB = A | B`, `const F: u32 = 1 | 2` and `case 1 | 2:` compile as before.
   The one table is `src/compiler/ts/lower/operator-kinds.ts`, and every remedy it names
@@ -1938,7 +1963,11 @@ whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).` T
   is named as the author wrote it: a helper as it is called, `Lim.hit(…)`, `done(…)` or
   `Gate.open(…)`, where the sentence printed the emitted `Lim_hit(…)`, `main_done(…)` or
   `Gate_open(…)`, and a helper the walk cannot see through by its name, `opaque(…)`, where the
-  sentence said "the expression" or "the entry".
+  sentence said "the expression" or "the entry". A derivative's sentence offers
+  `@diagnostic("off", "derivative_uniformity")` where the file can carry it: on the entry when
+  every entry is top-level, as before, on a top-level function when an entry is a namespace's,
+  whose own `@diagnostic` is `TS8028`, and not at all when the file has no top-level function;
+  it told a namespace's entry to write the attribute it then refused.
   Measured against main (`6c78035`, with #210) over 9674 probe programs on Chromium 141: 117 that
   compiled before are refused now. Tint refuses 112 of them as written. The other 5 passed Tint on
   main only because loop-invariant code motion moved the derivative out of the loop, which the
@@ -2000,7 +2029,17 @@ struct:mat2x3 and mat2x3<f32>`), and a function that writes no return type and r
   read, `function g() { return vh[0].x; }`, a method or an arrow alike, made its caller say
   `cannot assign to f32 f32 and void`; each program is now its one TS8002 or TS8027, and a
   write to a read binding keeps its TS8005. A value returned from a function that says it
-  returns nothing reads `returns a value of type vec3`, where #249's sentence said `vec3<f32>`;
+  returns nothing reads `returns a value of type vec3`, where #249's sentence said `vec3<f32>`.
+  An assignment reads in the order it is written, `cannot assign B to A. Types must match.`,
+  where it named the place twice (`cannot assign to A A and B`), and its remedy casts the value,
+  `e.g. a = vec3(f32(b.x), f32(b.y), f32(b.z))` and `a = i32(b)`, where it added to the place
+  (`a + vec3(…)`); a vector assigned to a scalar is no longer told to splat. An argument of
+  another class names both, `Argument 1 of "N.f" is P, and "N.f" takes N.P. A struct is its own
+type whatever its fields, so pass a value of type N.P.`, where it said `Argument 1 of "N.f" type
+mismatch.` and nothing more: TypeScript takes one class for another with the same fields, so
+  the editor is silent, and `N.f(new P())` with a top-level `P` beside the namespace's compiled on
+  main only because the parameter's `P` resolved to the top-level class (§1); and the note on a
+  base and a derived class names them as written;
   and the host import names a type as written where a call or a binding has no host value, `a
 vec3f64 waits for change 0013's f64 split` for `an vec3<f64>`, and a binding in its runtime
   errors, `binding "pts" (array<vec2>)` for `(array<vec2<f32>>)`. The backend's TS8015, from
@@ -2109,6 +2148,9 @@ holds functions, constants, classes and namespaces. Move it into a function.`, t
   passes Tint. A program TypeScript refuses for an abstract member (TS1244, TS1245, TS1267,
   TS2512, TS2515) or for two bodies in a mixin (TS2392, TS2393) that compiled on `main` is
   refused now. No code is added or renumbered.
+  A `new` of a class of statics alone names one of its statics, `Call "U.half(...)" directly.`,
+  or for one of static fields alone `"K" declares only static members, so there is no value of
+it to build. Read "K.a" directly.`, where it named a literal `U.f(...)` the class need not have.
 
 - **`dispatch` and the debugger no longer throw on a `console` call.** The lockstep interpreter
   (`src/core/debug/interp.ts`) had no arm for one: `cpu.dispatch` of a kernel that logged threw

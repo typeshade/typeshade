@@ -240,19 +240,24 @@ const BOOLEAN_BITWISE_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
 ]);
 
 /**
- * TS2447 ("The '&' operator is not allowed for boolean types"), on two masks: `(a < b) & (c < d)`.
- * A comparison of two vectors is the `bool` vector of their width to the compiler and a
- * `boolean` to TypeScript, which refuses a bitwise operator on two booleans. On `vecN<bool>`,
- * `&`, `|` and `^` are WGSL's componentwise and, or and xor, and the `&&` and `||` TypeScript
- * suggests instead take a scalar `bool` only. Dropped when either operand is a vector
- * (`isGpuValue`); the compiler reports two masks of different widths itself. On two scalar
- * booleans the code stands.
+ * TS2447 ("The '&' operator is not allowed for boolean types"), where WGSL has the operator.
+ * `&` and `|` on two `bool`s are WGSL's logical and and or, which do not short-circuit, and on
+ * two masks (`(a < b) & (c < d)`, a comparison of vectors being the `bool` vector of their width
+ * to the compiler and a `boolean` to TypeScript) its componentwise and and or; `&&` and `||`,
+ * which TypeScript suggests instead, take a scalar `bool` only. So `&` and `|` are dropped
+ * whatever their operands: the compiler reports a scalar beside a mask itself, and the
+ * projection types the `bool` result (`projection.ts`). `^`, and every compound form, is
+ * dropped only when either operand is a vector (`isGpuValue`): WGSL has neither on a bool or a
+ * vector of bools, and the compiler refuses each with its own sentence, which the merge keeps
+ * (`SAME_MISTAKE`).
  */
 function isGpuMaskOperation(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
   const binary = binaryExpressionSpanning(context, diagnostic);
   if (binary === undefined || !BOOLEAN_BITWISE_OPERATORS.has(binary.operatorToken.kind)) {
     return false;
   }
+  const kind = binary.operatorToken.kind;
+  if (kind === ts.SyntaxKind.AmpersandToken || kind === ts.SyntaxKind.BarToken) return true;
   return isGpuValue(context, binary.left) || isGpuValue(context, binary.right);
 }
 
@@ -1108,11 +1113,14 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 2447,
     reason:
-      '`&`, `|` or `^` on two masks, `(a < b) & (c < d)`: a comparison of vectors is a `bool` ' +
-      'vector to the compiler and a `boolean` to TypeScript, which refuses a bitwise operator ' +
-      "on two booleans. On `vecN<bool>` the three are WGSL's componentwise and, or and xor, and " +
-      'the `&&` and `||` suggested instead take a scalar `bool` only. Dropped when either ' +
-      'operand is a vector to the compiler; on two scalar booleans the code stands.',
+      "`&` and `|` on two `bool`s are WGSL's logical and and or, which do not short-circuit, " +
+      'and on two masks, `(a < b) & (c < d)` (a comparison of vectors is a `bool` vector to the ' +
+      'compiler and a `boolean` to TypeScript), its componentwise and and or; the `&&` and `||` ' +
+      'suggested instead take a scalar `bool` only. Both are dropped whatever their operands, ' +
+      'and the projection types the `bool` result. WGSL has no `^` on a bool or a vector of ' +
+      'bools, nor a compound form of the three: those are dropped when an operand is a vector ' +
+      "and the compiler's refusal stands, and on two scalar booleans the merge keeps that " +
+      'refusal in place of this code.',
     when: isGpuMaskOperation,
   },
   {
@@ -1447,8 +1455,10 @@ const SAME_MISTAKE: readonly SameMistake[] = [
   },
   {
     typescript: 2708,
-    typeshade: new Set(['TS8035']),
-    reason: 'A `new` through a namespace that holds types alone (`new N.I()`).',
+    typeshade: new Set(['TS8035', 'TS8022']),
+    reason:
+      'A `new` through a namespace that holds types alone (`new N.I()`), and such a namespace ' +
+      'read as a value.',
   },
   {
     typescript: 7017,
@@ -1974,8 +1984,10 @@ function initializerNamedAt(
   return undefined;
 }
 
-/** Whether a TypeScript error sits in the head of a `for await` the compiler refused whole:
- *  TS1103 on its `await`, which the refusal already says. */
+/** Whether a TypeScript error sits in the head of a `for await` or a `for…in` the compiler
+ *  refused whole: TS1103 on the `await`, and TS2407 on what a `for…in` enumerates when it is no
+ *  object (`for (const k in 1.)`), which the refusal already says. What the loop's body says is
+ *  its own. */
 function forAwaitHeadAt(
   context: DiagnosticFilterContext,
   diagnostic: TypeshadeDiagnostic,
@@ -1983,7 +1995,8 @@ function forAwaitHeadAt(
 ): boolean {
   const loop = ts.findAncestor(
     nodeAtPosition(context.sourceFile, diagnostic.span.start),
-    (n): n is ts.ForOfStatement => ts.isForOfStatement(n) && n.awaitModifier !== undefined,
+    (n): n is ts.ForOfStatement | ts.ForInStatement =>
+      (ts.isForOfStatement(n) && n.awaitModifier !== undefined) || ts.isForInStatement(n),
   );
   if (loop === undefined) return false;
   const whole = spanOfNode(loop, context.sourceFile);
@@ -2023,8 +2036,9 @@ function restOfRefusedTarget(
  *   `await` its `'await' expressions are only allowed within async functions`;
  * - the value it judges holds such a node: the list `[...a, 3.]` TypeScript finds unassignable
  *   to the `array<f32, 3>` it initializes;
- * - it sits in the head of a `for await` the compiler refused, TS1103 on its `await`, or on the
- *   rest element of a list the compiler refused as an assignment target;
+ * - it sits in the head of a `for await` or a `for…in` the compiler refused, TS1103 on the
+ *   `await` or TS2407 on a scalar a `for…in` enumerates, or on the rest element of a list the
+ *   compiler refused as an assignment target;
  * - it is a global type TypeScript cannot find (`MISSING_GLOBAL_TYPE`), and a form that names
  *   one stands inside a compiler error: `Promise` for an async function the compiler refused;
  * - it is TypeScript's word on a `var` the compiler refused, which the compiler lowers as the
@@ -2133,6 +2147,42 @@ function repeatsStrictModeRefusal(
   };
   visit(context.sourceFile);
   return found;
+}
+
+/** What a name can be declared as that holds no value a shader reads: an enum, a class, a
+ *  namespace with a value in it, and a function. A namespace of types alone is TypeScript's
+ *  TS2708, which `SAME_MISTAKE` pairs. */
+const NO_VALUE_SYMBOLS =
+  ts.SymbolFlags.Enum | ts.SymbolFlags.Class | ts.SymbolFlags.ValueModule | ts.SymbolFlags.Function;
+
+/**
+ * Whether a TypeScript error is about the value of a name the compiler refused to read as one,
+ * because the file declares it as an enum, a class, a namespace or a function: the compiler says
+ * what the name is (`TS8022 "E" is an enum, whose values are its members: E.A.`, and `TS8099`
+ * for a function), and TypeScript, which types the read as the declaration itself (`typeof E`,
+ * `() => f32`), reports where that value flows, `const k: f32 = E` (TS2322), `TAU * 2.`
+ * (TS2362), `m === Mode` (TS2367) or an argument (TS2345). One mistake, the compiler's sentence
+ * (Rule 12.4). The error goes when the value it judges (`subjectOf`, or the operation of an
+ * operand's report), or its own span, holds such a read.
+ */
+function readsDeclarationAsValue(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const checker = context.checker;
+  if (checker === undefined) return false;
+  const reads = compilerErrors.filter((e) => {
+    if (e.code !== TS_CODES.UNKNOWN_NAME && e.code !== TS_CODES.UNSUPPORTED) return false;
+    const node = nodeAtPosition(context.sourceFile, e.span.start);
+    if (!ts.isIdentifier(node) || node.getEnd() !== spanEnd(e.span)) return false;
+    const symbol = checker.getSymbolAtLocation(node);
+    return symbol !== undefined && (symbol.flags & NO_VALUE_SYMBOLS) !== 0;
+  });
+  if (reads.length === 0) return false;
+  const subject = operationOf(context, diagnostic) ?? subjectOf(context, diagnostic);
+  const region = subject === undefined ? diagnostic.span : spanOfNode(subject, context.sourceFile);
+  return reads.some((read) => within(read.span, region) || within(read.span, diagnostic.span));
 }
 
 /**
@@ -2292,7 +2342,7 @@ function isInRefusedDecorator(
 
 /**
  * The merged list for one document: `typescript` (already filtered by
- * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Six
+ * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Seven
  * rules drop a report, and each only ever drops an ERROR that another error already covers:
  *
  * - a TypeScript error that is TypeScript's own knock-on of a call it failed to resolve
@@ -2307,7 +2357,9 @@ function isInRefusedDecorator(
  *   async function, a spread in a list, a `var` (`repeatsRefusal`), goes;
  * - a TypeScript error about a write of `eval` or `arguments` whose declaration the compiler
  *   refused, or a read of `arguments` it takes for a function's own object
- *   (`repeatsStrictModeRefusal`), goes.
+ *   (`repeatsStrictModeRefusal`), goes;
+ * - a TypeScript error about the value of an enum, a class, a namespace or a function the
+ *   compiler refused to read as a value (`readsDeclarationAsValue`), goes.
  *
  * Without `analysis` nothing is dropped: the service passes none when a test asks for the two
  * halves unmerged (`TypeshadeLanguageServiceTestOptions`).
@@ -2339,6 +2391,7 @@ export function mergeDiagnostics(
     if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
+    if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;
     const pair = SAME_MISTAKE.find((p) => p.typescript === ruleCodeOf(diagnostic.code));
     if (pair === undefined) return true;
     return !compilerErrors.some(

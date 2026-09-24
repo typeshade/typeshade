@@ -491,11 +491,52 @@ describe('an operation other than arithmetic loses a vector type the same way', 
     });
   }
 
-  it('keeps TS2447 for a bitwise operator on two scalar booleans', () => {
-    // A mask is a vector to the compiler; two scalar booleans are not, and the rule is about
-    // masks only.
-    const source = entry('  const k = (s < 1.) & (s > 0.)\n');
-    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2447:']);
+  it('reads & and | on two scalar booleans as the bool the compiler reads', () => {
+    // WGSL's logical and and or, which do not short-circuit, compile; the editor kept
+    // TypeScript's TS2447 on the operator and, where the `number` it types the result as
+    // flowed into a `bool`, TS2322, TS2345, TS2363, TS2367 or TS2769 (Rule 12.7).
+    const bools = 'a: bool, b: bool, c: bool, x: f32';
+    const programs = [
+      'export function f(a: bool, b: bool): bool {\n  return a & b\n}',
+      'export function f(a: bool, b: bool): bool {\n  const k = a | b\n  return k\n}',
+      `export function f(${bools}): bool {\n  let k = false\n  k = a & b | c\n  return k\n}`,
+      `export function f(${bools}): bool {\n  return (a & b) === c\n}`,
+      `export function f(${bools}): bool {\n  return (x > 0.) & (a | b) && c\n}`,
+      `export function f(${bools}): f32 {\n  return select(0., x, a & b)\n}`,
+      `function g(k: bool): bool {\n  return !k\n}\nexport function f(${bools}): bool {\n  return g(a | b)\n}`,
+      `class R {\n  ok: bool = false\n}\nexport function f(${bools}): bool {\n  const r = new R()\n  r.ok = a & b\n  return r.ok\n}`,
+      `export function f(${bools}): u32 {\n  if (a | b) {\n    return u32(a & b)\n  }\n  return 0\n}`,
+    ];
+    for (const body of programs) {
+      const source = `"use typeshade"\n${body}\n`;
+      expect(compile(source).diagnostics, source).toEqual([]);
+      expect(diagnosticsOf(source), source).toEqual([]);
+    }
+  });
+
+  it("shows the compiler's refusal alone for ^ and a compound form on two booleans", () => {
+    // WGSL has neither on a bool: the compiler refuses each, and TypeScript's TS2447 on the
+    // same operator is that mistake again (Rule 12.4).
+    for (const [body, sentence] of [
+      [
+        'export function f(a: bool, b: bool): bool {\n  return a ^ b\n}',
+        "TS8003 Cannot ^ bool: WGSL's ^ takes integers, not a bool. Write a !== b, which is the same.",
+      ],
+      [
+        'export function f(a: bool, b: bool): bool {\n  let k = a\n  k &= b\n  return k\n}',
+        'TS8003 Bitwise "&=" needs an i32 or u32 target, got bool.',
+      ],
+    ] as const) {
+      const source = `"use typeshade"\n${body}\n`;
+      expect(
+        compile(source).diagnostics.map((d) => `${d.code} ${d.message}`),
+        source,
+      ).toEqual([sentence]);
+      expect(
+        diagnosticsOf(source).map((d) => `${String(d.code)} ${d.message}`),
+        source,
+      ).toEqual([sentence]);
+    }
   });
 });
 

@@ -485,7 +485,7 @@ let recoveredUsesDropped = 0;
  *  (Rule 12.4); counts the drop. A body that dropped one did not lower, as a body whose own
  *  statement was refused did not, and {@link recoveredUsesDroppedSoFar} is how the function
  *  lowering tells: a function that says its return type in its body and never got to say it
- *  would otherwise return `void` to its callers, `cannot assign to f32 f32 and void`. */
+ *  would otherwise return `void` to its callers, `cannot assign void to f32`. */
 export function dropsRecoveredUse(sourceFile: ts.SourceFile, binding: Binding): boolean {
   if (binding.kind !== 'binding' || !isRecoveredBinding(sourceFile, binding.name)) return false;
   recoveredUsesDropped++;
@@ -1075,18 +1075,16 @@ export class LoweringScope {
    *  related. `want` is the type the place has, `got` the type of the value. */
   inheritanceNote(want: ShaderType, got: ShaderType): string {
     if (want.kind !== 'struct' || got.kind !== 'struct') return '';
+    const [w, g] = [authorTypeText(want), authorTypeText(got)];
     if (this.extendsStruct(got.name, want.name)) {
       return (
-        ` "${got.name}" extends "${want.name}", and a name typed as the base cannot hold a ` +
+        ` "${g}" extends "${w}", and a name typed as the base cannot hold a ` +
         `derived value here: method dispatch is static, so a call through it would run ` +
-        `"${want.name}"'s body. Write "${got.name}" as the type.`
+        `"${w}"'s body. Write "${g}" as the type.`
       );
     }
     if (this.extendsStruct(want.name, got.name)) {
-      return (
-        ` "${want.name}" extends "${got.name}", and a "${got.name}" has none of the fields ` +
-        `"${want.name}" adds.`
-      );
+      return ` "${w}" extends "${g}", and a "${g}" has none of the fields "${w}" adds.`;
     }
     return '';
   }

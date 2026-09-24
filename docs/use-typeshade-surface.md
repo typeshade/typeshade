@@ -1639,6 +1639,13 @@ leaves that statement, not this loop, and is not counted as a way out.
 A `for` with no condition says to write this form: `for (;;)` is refused and points at
 `while (true) { … }`.
 
+A condition that is not a `bool` is refused as it is in an `if` or a `for`. TypeScript reads any
+value there by its truthiness, and `while (k)` on an `f32` compiled with no word, then failed in
+Tint (`for-loop condition must be bool, got f32`). Now it is
+`TS8003 while condition must be bool, got f32. Compare it with zero: while (k !== 0.).`, and a
+vector of bools is told `Reduce it: while (any(b)) or while (all(b)).` A struct, an array, a
+vector of numbers or a constant (`while (E.A)`) is told its type alone.
+
 The compiler does not check that a `while` body moves toward its exit. An open loop is the
 author's to end, as it is in WGSL, and one that spins on a GPU is ended by the device's watchdog,
 which loses the device. `examples/loops-over-data.shade.ts` holds all three loops, a
@@ -3622,7 +3629,14 @@ such names and refused
 each by its spelling, at the declaration and at every use, as `TS8012`, which is retired; its <!-- doc-refs: skip — a retired code, named as retired -->
 number stays a gap. A declaration of the file also wins over a §9.3 constant of its name: an
 `enum E`, a `namespace PI`, a `class TAU` or a `function PI` read as a value is the file's, as
-the editor reads it, and never e, π or τ.
+the editor reads it, and never e, π or τ. None of the four is a value a shader holds, and the
+sentence says what the name is and the value it offers, once, where TypeScript's TS2322 about
+`typeof E` stood beside it in the editor:
+`TS8022 "E" is an enum, whose values are its members: E.A.`,
+`"PI" is a namespace, not a value: its values are its members, PI.a.`,
+`"TAU" is a class, not a value. Build one with "new TAU(...)".`, and `TS8099` for the function.
+Any enum, namespace, class or type the file declares is told the same (`"I" is a type, not a
+value.`); each said `Unknown identifier` of a name the file declares.
 
 **And one mistake reads as one sentence.** A parameter whose annotation was refused no longer
 adds that it "requires a TypeShade type annotation", which it has; a return no longer adds
@@ -6124,7 +6138,11 @@ inside an `if` on the value is reached under that `if`, whatever its bound, and 
 uniform inside a loop the value bounds leaves the loop's condition as the reason. A barrier's
 sentence also names the other way out, a value the whole workgroup shares to branch, return,
 break, continue, bound the loop, test on the left side or test in the condition on; a
-derivative's names the explicit-LOD sample and the filter. The value is named as the author
+derivative's names the explicit-LOD sample and the filter. The filter is offered where the file
+can carry it: on the entry when every entry is a top-level function, on a top-level function
+when an entry is a namespace's, since a namespace's function refuses `@diagnostic` (`TS8028`,
+§7) and the directive is read off any top-level function, and not at all in a file with no
+top-level function. The value is named as the author
 wrote it: a helper as it is called, `Lim.hit(…)` or `done(…)`, never the name the emit gives it,
 and a helper the walk cannot see through by its own name, not as "the expression".
 

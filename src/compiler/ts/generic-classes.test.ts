@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -418,6 +419,59 @@ export function fs(): vec4 {
     expect(errors[0]).toContain('"Pair<U>" is written with the type parameter "U"');
     expect(errors[0]).toContain('names no layout until the declaration around it is instantiated');
     expect(errors[0]).toContain('write "Pair<f32>"');
+  });
+
+  it('refuses a base written with a type parameter once, and nothing about what it would give', () => {
+    // `class D<T> extends B<T>` leaves each instance of D extending a `B_f32` nothing collects.
+    // The TS8002 at `B<T>` was followed by TS8010 naming the emitted `B_f32`, TS8010 "has no
+    // fields" of a class whose base has one, TS8035 "declares only static members … D_f32.f" at
+    // the `new`, and "Unknown field" at a read of the base's field (Rule 12.4).
+    const sentence =
+      `${TS_CODES.UNKNOWN_TYPE} "B<T>" is written with the type parameter "T", which names no ` +
+      'layout until the declaration around it is instantiated. A struct is collected before ' +
+      'anything is lowered against it, so its type arguments have to be concrete: write ' +
+      '"B<f32>" (or whichever types this file uses) at the use sites.';
+    for (const derived of [
+      'class D<T> extends B<T> {\n  f(): f32 {\n    return 2.;\n  }\n}',
+      'class D<T> extends B<T> {\n  y: f32 = 2.;\n  f(): f32 {\n    return this.y;\n  }\n}',
+    ]) {
+      const src = `"use typeshade";
+class B<T> {
+  x: f32 = 1.;
+}
+${derived}
+@fragment
+export function fs(): vec4 {
+  const c = new D<f32>();
+  return vec4(c.f() + c.x);
+}
+`;
+      expect(errorsOf(src), derived).toEqual([sentence]);
+      const service = createTypeshadeLanguageService();
+      service.openDocument('d.ts', src);
+      expect(
+        service.getDiagnostics('d.ts').map((d) => `${String(d.code)} ${d.message}`),
+        derived,
+      ).toEqual([sentence]);
+    }
+    // The base written at a concrete type is what the sentence asks for, and compiles.
+    expect(
+      errorsOf(`"use typeshade";
+class B<T> {
+  x: f32 = 1.;
+}
+class D<T> extends B<f32> {
+  f(): f32 {
+    return 2.;
+  }
+}
+@fragment
+export function fs(): vec4 {
+  const c = new D<f32>();
+  return vec4(c.f() + c.x);
+}
+`),
+    ).toEqual([]);
   });
 
   it('reports too many type arguments once, and still collects the instance', () => {

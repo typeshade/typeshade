@@ -1569,6 +1569,31 @@ export function lowerThis(
     : { op: 'varref', type: b.type, name: irNameOf(b) };
 }
 
+/** The sentence for a `new` of a class whose members are all static, which emits no struct and
+ *  so has no value to build (T3, #92). The remedy names one of the class's own statics, a method
+ *  to call or else a field to read: it named a literal `f`, which the class need not have. */
+function staticsOnlyMessage(
+  shown: string,
+  decl: ts.ClassLikeDeclaration | undefined,
+  sourceFile: ts.SourceFile,
+): string {
+  const statics = (decl?.members ?? []).filter(
+    (m) => isStaticMember(m) && m.name !== undefined && ts.isIdentifier(m.name),
+  );
+  const method = statics.find(ts.isMethodDeclaration);
+  const field = statics.find(ts.isPropertyDeclaration);
+  const head = `"${shown}" declares only static members, so`;
+  if (method !== undefined) {
+    return (
+      `${head} it is a group of functions and there is no value of it to build. Call ` +
+      `"${shown}.${method.name.getText(sourceFile)}(...)" directly.`
+    );
+  }
+  return field === undefined
+    ? `${head} there is no value of it to build.`
+    : `${head} there is no value of it to build. Read "${shown}.${field.name.getText(sourceFile)}" directly.`;
+}
+
 /** A class with no constructor function this module can call: a `new` of it is dropped from the
  *  body, and says so. */
 const noConstructorMessage = (shown: string): string =>
@@ -1592,6 +1617,7 @@ export function lowerNew(
   let shown: string;
   /** The class written in full from the top of the file, for the sentences that offer a line. */
   let dotted: string;
+  let classDecl: ts.ClassLikeDeclaration | undefined;
   if (unparen(node.expression).kind === ts.SyntaxKind.ThisKeyword) {
     const cls = scope.resolve('this') === undefined ? scope.staticClass() : undefined;
     if (newRefusal(node, sourceFile) !== undefined) return undefined;
@@ -1604,6 +1630,7 @@ export function lowerNew(
     flat = cls;
     shown = cls;
     dotted = cls;
+    classDecl = staticThisClass(unparen(node.expression));
   } else {
     const target = newTargetOf(node, sourceFile);
     // Anything but a class was said once for the file, where the `new` is written: a name
@@ -1612,6 +1639,7 @@ export function lowerNew(
     flat = target.flat;
     shown = unparen(node.expression).getText(sourceFile);
     dotted = target.dotted;
+    classDecl = target.decl;
   }
   // `new Pair<f32>()` builds the instance struct the file collected for that set of type
   // arguments (roadmap 0.3 item T9, #92), and a bare `new Pair()` the one instance the file
@@ -1638,13 +1666,12 @@ export function lowerNew(
   // declares. Before this it emitted `fn U_new() -> U` with no `struct U` anywhere, which
   // Tint refuses, and said nothing.
   if (struct.fields.length === 0) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `"${shown}" declares only static members, so it is a group of functions and there is no ` +
-        `value of it to build. Call "${shown}.f(...)" directly.`,
-    );
+    // A class whose chain has a base the file does not collect was refused where it extends it
+    // (structs.ts), and a `new` of it adds nothing (Rule 12.4).
+    if (scope.ancestorsOf(name).some((a) => scope.structByName(a) === undefined)) {
+      return undefined;
+    }
+    pushDiag(diagnostics, sourceFile, node, staticsOnlyMessage(shown, classDecl, sourceFile));
     return undefined;
   }
   const decl = scope.resolveCallee(ctorFnName(name));

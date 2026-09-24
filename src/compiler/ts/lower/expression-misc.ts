@@ -234,12 +234,21 @@ export function lowerUserCall(
     args[i] = retargetIntLitCtx(args[i]!, argNode, want);
     args[i] = reportIntLitRange(args[i]!, argNode, want, sourceFile, diagnostics) ?? args[i]!;
     if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {
+      const got = args[i]!.type;
+      const note = scope.inheritanceNote(want, got);
+      const nth = `Argument ${i + 1 - leading.length} of "${shown}"`;
+      // Two unrelated structs are named: TypeScript takes one for the other when their fields
+      // match, so the editor is silent, and the sentence is the only place that says why
+      // (`N.f(new P())` where `N.f` takes the namespace's own `P`).
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        `Argument ${i + 1 - leading.length} of "${shown}" type mismatch.` +
-          scope.inheritanceNote(decl.params[i]!.type, args[i]!.type),
+        note === '' && want.kind === 'struct' && got.kind === 'struct'
+          ? `${nth} is ${authorTypeText(got)}, and "${shown}" takes ${authorTypeText(want)}. ` +
+              `A struct is its own type whatever its fields, so pass a value of type ` +
+              `${authorTypeText(want)}.`
+          : `${nth} type mismatch.${note}`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;

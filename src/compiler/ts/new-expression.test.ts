@@ -12,6 +12,7 @@ import { compileTsSources } from './module.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -265,8 +266,17 @@ class Q extends S {
         ),
       )[0],
     ).toBe(
-      `${TS_CODES.CLASS_MEMBER} "U" declares only static members, so it is a group of functions and there is no value of it to build. Call "U.f(...)" directly.`,
+      `${TS_CODES.CLASS_MEMBER} "U" declares only static members, so it is a group of functions and there is no value of it to build. Call "U.half(...)" directly.`,
     );
+    // The remedy names a static the class has: it named a literal `f`, and a class of static
+    // fields alone has no function to call.
+    expect(
+      errorsOf(
+        file(`class K {\n  static a: f32 = 1.\n}\n`, `  const k = new K()\n  return vec4(K.a)`),
+      ),
+    ).toEqual([
+      `${TS_CODES.CLASS_MEMBER} "K" declares only static members, so there is no value of it to build. Read "K.a" directly.`,
+    ]);
   });
 
   it('arguments to a class that declares no constructor, naming both ways to write it', () => {
@@ -641,14 +651,21 @@ describe('a short name inside a namespace is the namespace’s, for a new and a 
     // Before this `P` there was the top-level class, and `N.f(new P())` from outside compiled
     // (7). It is `N.P` now, as TypeScript reads it, and the top-level `P` handed to it is a
     // different struct, refused as two same-shaped classes are (Rule 12.7's nominal structs).
-    expect(
-      errorsOf(
-        file(
-          `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(p: P): f32 {\n    return p.a\n  }\n}\n`,
-          `  return vec4(N.f(new P()))`,
-        ),
-      ),
-    ).toEqual([`${TS_CODES.TYPE_MISMATCH} Argument 1 of "N.f" type mismatch.`]);
+    // TypeScript takes one for the other, so the sentence names both and says why; it said
+    // only "type mismatch".
+    const called = file(
+      `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(p: P): f32 {\n    return p.a\n  }\n}\n`,
+      `  return vec4(N.f(new P()))`,
+    );
+    const sentence =
+      `${TS_CODES.TYPE_MISMATCH} Argument 1 of "N.f" is P, and "N.f" takes N.P. A struct is its ` +
+      `own type whatever its fields, so pass a value of type N.P.`;
+    expect(errorsOf(called)).toEqual([sentence]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('t.ts', called);
+    expect(service.getDiagnostics('t.ts').map((d) => `${String(d.code)} ${d.message}`)).toEqual([
+      sentence,
+    ]);
     values(
       file(
         `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(p: P): f32 {\n    return p.a\n  }\n}\n`,
@@ -874,11 +891,13 @@ describe('a new finds what TypeScript finds, and names it as the file writes it'
 
   it('a value that holds a class adds nothing to the refusal of its declaration', () => {
     // Each said '"A" is a value, not a class.' beside the declaration's own refusal, and a value
-    // that holds a class is no value that is not one.
+    // that holds a class is no value that is not one. The refusal says what `B` is: it said
+    // 'Unknown identifier "B"' of a class the file declares. A module constant is folded before
+    // any function exists, so "new B()" there would be refused too, and is not offered.
     for (const [head, first] of [
       [
         `class B {\n  a: f32 = 1.\n}\nconst A = B\n`,
-        `${TS_CODES.UNKNOWN_NAME} Unknown identifier "B".`,
+        `${TS_CODES.UNKNOWN_NAME} "B" is a class, not a value.`,
       ],
       [
         `const A = class {\n  a: f32 = 1.\n}\n`,

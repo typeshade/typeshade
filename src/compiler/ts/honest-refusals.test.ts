@@ -686,6 +686,19 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
           '`for (let i = 0; i < n; i++)`.',
       ],
     ],
+    [
+      // TypeScript's TS2407 on a right-hand side that is no object is the same mistake.
+      'for…in over a scalar and a bool',
+      shader('', '  for (const k in a) {\n  }\n  for (const j in a > 0.) {\n  }\n  return a;'),
+      [
+        "TS8013 for-in enumerates a JS object's keys, which a shader value does not have. " +
+          'Iterate an array with `for (const x of xs)`, or count with ' +
+          '`for (let i = 0; i < n; i++)`.',
+        "TS8013 for-in enumerates a JS object's keys, which a shader value does not have. " +
+          'Iterate an array with `for (const x of xs)`, or count with ' +
+          '`for (let i = 0; i < n; i++)`.',
+      ],
+    ],
     ['throw', shader('', '  if (a < 0.) {\n    throw 1.;\n  }\n  return a;'), [THROW]],
     ['try', shader('', '  try {\n    return a;\n  } catch {\n    return 0.;\n  }'), [THROW]],
     [
