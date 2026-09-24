@@ -170,11 +170,18 @@ This section states how a name may be spelled on each target, and how a number i
 
 **Rule 3.1.** A shader file must begin with the directive `"use typeshade"` as its first statement.
 
-- Rationale: the directive is what tells the compiler, the language service, and the bundler that the file is a shader and not host code.
+- Rationale: the directive is what tells the compiler and the language service that the file is a shader and not host code; the bundler and a host program's `tsconfig` read the file's name first, which Rule 3.8 fixes as `*.shade.ts`, and the directive is what they check it against.
 - Derives from: surface §1 and `src/compiler/ts/source-file.ts`.
 - Enforced by: `TS8001 MISSING_DIRECTIVE`, which yields an otherwise empty result, for a file with no directive at all; `TS8069 MISPLACED_DIRECTIVE` on a directive after another top-level statement, another string directive included, with the rest of the file still checked (#200, proposal 0012), pinned by `src/compiler/ts/directive-placement.test.ts`.
 
 Roadmap 0.6 item B1 (#97) will let a file hold both a shader and its host half; until it lands, the whole file is the shader.
+
+**Rule 3.8.** A shader module that host code imports is named `*.shade.ts`, and a host import of a `.ts` file that begins with the directive under any other name must be refused with the rename.
+
+- Rationale: the bundler and the host program's `tsconfig` decide what an import is before they read a statement of the file: the Vite plugin picks the modules it compiles by the name, and the host view `name.shade.typeshade.ts` that `tsc` reads in place of the source (surface §64) is named after it, as is the `exclude` that keeps the source out of the host program. A shader under another name would reach the host as its source, which a host program cannot type-check and a bundle would run as JavaScript.
+  The name decides how a host imports the file; the directive still decides what a shader is, for the compiler and the language service (Rule 3.1).
+- Derives from: change `0009` in `changes/` ("The shader module is picked by its name"); `docs/roadmap.md` item 16.
+- Enforced by: the Vite plugin in `src/vite.ts`, which refuses a project `.ts` that begins with the directive and is not named `*.shade.ts` (`… begins with "use typeshade", so it is a shader module, and a host imports a shader module by the name *.shade.ts (Rule 3.8). Rename it to terrain.shade.ts and import it by that name.`), and `typeshade sync`, which writes a view for a `*.shade.ts` only; pinned by `src/vite.test.ts`.
 
 ### 3.3. Identifiers
 

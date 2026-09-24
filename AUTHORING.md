@@ -103,9 +103,12 @@ you never write costs nothing in your bundle:
   position, with a baked JSON Schema for a `launch.json` and a formatter that renders a value
   in the shader type its author wrote. It is what an editor's debug adapter and the
   Playground's step panel are both built on. See `docs/debugging.md`.
+- `typeshade/vite` has the Vite plugin through which an ordinary host file imports a
+  `.shade.ts` and calls its helper functions, which run on the CPU. See
+  [Calling a module's helpers from host code](#calling-a-modules-helpers-from-host-code).
 
-This package ships the authoring surface. The shaders themselves live in your repository
-and import the package like any other dependency.
+This package ships the authoring surface, and the small runtime a host import runs on. The
+shaders themselves live in your repository and import the package like any other dependency.
 
 ### How this guide is ordered
 
@@ -1576,6 +1579,34 @@ derivative builtin or a struct the parameter would flow into among them, and onl
 parameter reaches it; the pass never returns a zero derivative it did not derive. The generated
 function is checked against a central finite difference on the oracle, which is how to check
 one of your own.
+
+### Calling a module's helpers from host code
+
+A `"use typeshade"` module is also a module your application can import. With the Vite plugin in
+place, an ordinary `.ts` file imports a `.shade.ts` and calls the helper functions it exports.
+Each call runs that function's code **on the CPU**, not on the GPU, at `f32` precision, the way a
+GPU would round it. It is how host code shares a shader's math, for a height query, a picking
+test or a unit test; running an entry point on the GPU through the same import is the next step
+(roadmap item 16b):
+
+```ts
+// app.ts, ordinary TypeScript: terrain.shade.ts exports `height(p: vec2, k: vec4): f32`
+import { height } from './terrain.shade.ts'
+
+const h = height([0.5, 0.5], [1, 0.5, 2, 0.25]) // a number
+```
+
+The values are plain: a scalar is a `number` or a `boolean`, a vector a tuple (`[x, y]`), a
+matrix a flat column-major array, an `array<T, N>` an array and a struct an object. The call
+checks each argument and throws a `TypeError` naming the parameter when one does not fit, and
+what it returns is a fresh value. It is synchronous.
+
+What a host can call is an exported function that is not an entry point, not generic, takes no
+function, and reaches no binding and no GPU-only builtin. Everything else the module exports
+appears to the host as `never`, with the reason, so calling it is a type error where you wrote
+the call. The setup is four lines, a plugin in `vite.config.ts`, two in `tsconfig.json` and
+`typeshade sync` in `prepare`. The surface reference has them, with the full table of host
+values: `docs/use-typeshade-surface.md` §64.
 
 ## Diagnostics
 

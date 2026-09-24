@@ -1,4 +1,4 @@
-// ═══ The host face of a shader module (Rules 8.20, 8.21, 11.7) ═══
+// ═══ The host face of a shader module (Rules 8.20, 8.21, 11.7; surface §64) ═══
 //
 // A host file imports a `.shade.ts` and calls what it exports. This file computes what that host
 // sees, from one compile of the module:
@@ -681,4 +681,22 @@ function moduleText(
     }
   }
   return `${out.join('\n')}\n`;
+}
+
+/** Where the host view of the shader module at `path` goes: beside it, `name.shade.typeshade.ts`,
+ *  which `moduleSuffixes: [".typeshade", ""]` resolves `./name.shade.ts` to. */
+export const hostViewPath = (path: string): string => path.replace(/\.ts$/, '.typeshade.ts');
+
+/** Whether `path` names a shader module a host may import (Rule 3.8): `*.shade.ts`. */
+export const isShaderModulePath = (path: string): boolean => path.endsWith('.shade.ts');
+
+/** The build error a module with an error diagnostic fails with: each one at its file, line and
+ *  column, with its code. */
+export function formatBuildErrors(diagnostics: readonly TsCompilerDiagnostic[]): string {
+  return diagnostics
+    .filter((d) => d.category === 'error')
+    .map((d) =>
+      `${d.fileName}:${d.line}:${d.character} ${d.code ?? ''} ${d.message}`.replace(/  +/, ' '),
+    )
+    .join('\n');
 }

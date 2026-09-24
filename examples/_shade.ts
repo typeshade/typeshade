@@ -58,9 +58,9 @@
 // files and of metadata that can drift away from, or outlive, the shader it describes. A header
 // costs no files and cannot: deleting the shader deletes its registration with it.
 //
-// WHY A COMMENT IS SAFE. It is not a declaration, so a `.shade.ts` file stays exactly as
-// non-importable as it was, `compile()` ignores it, and `"use typeshade"` is still the first
-// non-comment line of every file. The block is REQUIRED: a shader without one fails the drift
+// WHY A COMMENT IS SAFE. It is not a declaration, so a `.shade.ts` file's host face (what a
+// host that imports it through the Vite plugin can call) is exactly what it was, `compile()`
+// ignores it, and `"use typeshade"` is still the first non-comment line of every file. The block is REQUIRED: a shader without one fails the drift
 // arm in `shade-examples.test.ts` rather than going quietly unregistered.
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -71,8 +71,9 @@ import type { ShaderExample } from './_shared.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-/** The extension that marks a TypeShade source module — the same one `src/compiler/ts/vite.ts`
- *  filters on, so the corpus on disk and the bundler plugin agree on what a shade module is. */
+/** The extension that marks a TypeShade source module — the same one the Vite plugin
+ *  (`src/vite.ts`) and `typeshade sync` pick modules by (Rule 3.8), so the corpus on disk and the
+ *  bundler plugin agree on what a shade module is. */
 export const SHADE_EXT = '.shade.ts';
 
 /** The hand-written half of a `.shade.ts` registration: everything `compile()` cannot infer. */

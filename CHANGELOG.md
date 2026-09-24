@@ -353,6 +353,10 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Removed
 
+- **The unexported `typeshadeVite()` pack transform** (`src/compiler/ts/vite.ts`). It was on no
+  subpath, and it default-exported a JSON pack that dropped overrides, module variables and
+  enables. `typeshade()` from `typeshade/vite` replaces it (change 0009).
+
 - **`perInvocation<T>`, the second spelling of the per-invocation variable** (§24,
   [#83](https://github.com/typeshade/typeshade/issues/83)). #83 added it as the wrapper for
   WGSL's `var<private>`. #85 then made a plain top-level `let` that variable, because a
@@ -382,6 +386,29 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   spelling of its own (Rule 6.5).
 
 ### Added
+
+- **A host file imports a `.shade.ts` and calls its helper functions, on the CPU** (change 0009,
+  roadmap item 16 first half; Rules 3.8, 8.20, 8.21 and 11.7, surface §64). Nothing here runs on
+  the GPU: an entry point is `never` to the host until the second half of item 16 (16b). With `typeshade()` from the new
+  `typeshade/vite` subpath in `vite.config.ts`, an ordinary `.ts` file writes
+  `import { height } from './terrain.shade.ts'` and calls `height([0.5, 0.5], k)`. The call runs
+  the module's own code on the CPU tier, the oracle's generated code at `f32` precision, written
+  into the bundle as module code with no `new Function`. That code runs over the op library in
+  `typeshade/runtime`, a subpath only generated modules import and which is not API. Host values
+  are plain, and each argument is checked and converted (a `TypeError` names the function, the
+  parameter and its type). A result aliases no argument, and the call is synchronous.
+  A host can call an exported function that is not an entry point, not generic, takes no
+  function, has a host value for each parameter and its result, and reaches no binding, no
+  workgroup variable and no GPU-only builtin. Constants and enums are values, and structs are
+  types. Every other export is declared `never` with the reason. `tsc` reads a generated host
+  view, `name.shade.typeshade.ts`, through two lines of the host `tsconfig`
+  (`moduleSuffixes: [".typeshade", ""]` and an `exclude` of the shader sources). The plugin
+  rewrites the view as the module changes, and the new `typeshade sync` (`--check` to verify)
+  writes every view before `tsc` runs on a clean checkout. A `.ts` that begins with the
+  directive under another name is refused with the rename, and a module that does not compile
+  fails the build with its `TS80xx` diagnostics. `bun run gate:journeys` gains the import
+  journey: the tarball in a fresh Vite project, `tsc` clean and a wrong call caught,
+  `vite build`, and Node running the bundle against a plain-JavaScript reference.
 
 - **The `gpu-console` example and the `console-log` journey** (§66, `changes/0014-gpu-console.md`,
   now implemented). The compile gate hands Tint the WGSL of every example that logs twice, as

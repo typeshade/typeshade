@@ -897,9 +897,11 @@ dist/src/compiler/ts/source-file.js`. npm installs a required peer automatically
   `typeshade`. Both npm placeholders (`typeshade` and `@typeshade/core`, reserved 2026-09-07 at
   `0.0.0`) belong to the project owner; `@typeshade/core` stays reserved for a later split and
   nothing is published to it.
-- Whether `.shade.ts` should be recognised by extension in editors before the file is parsed,
-  or only by the `"use typeshade"` directive (the compiler uses the directive; the Vite plugin
-  uses the extension).
+- ~~Whether `.shade.ts` should be recognised by extension or only by the `"use typeshade"`
+  directive~~ — decided by change 0009: both, for different questions. The directive says what
+  a shader is, to the compiler and the language service (Rule 3.1). The name says how a host
+  imports one, to the Vite plugin and the host `tsconfig`: a shader module a host imports is
+  `*.shade.ts`, and a directive file under another name is refused with the rename (Rule 3.8).
 - ~~Multi-file: `compileTsSources` exists in two incompatible forms~~ — resolved: one form, in
   `module.ts`, taking a list of `{ fileName, source }` with an optional `entry`. `sources.ts` is
   deleted; the statement-level semantic check and the entry's module constants, which only it

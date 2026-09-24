@@ -7,12 +7,20 @@
 
 import { checkDocuments, type CheckDocument } from '../language-service/check.js';
 import { CHECK_FORMATS, formatCheckReport, type CheckFormat } from './format.js';
+import {
+  formatBuildErrors,
+  hostFace,
+  hostViewPath,
+  isShaderModulePath,
+} from '../compiler/ts/host-face.js';
 
 /** What the command needs from its host. Paths are absolute, joined with `/`. */
 export interface CliHost {
   /** The working directory, absolute. */
   readonly cwd: string;
   readFile(path: string): string | undefined;
+  /** Write `text` to the file at `path`, replacing it; `typeshade sync` writes host views. */
+  writeFile(path: string, text: string): void;
   /** `'file'`, `'directory'`, or `undefined` when nothing is at `path`. */
   kind(path: string): 'file' | 'directory' | undefined;
   /** The names directly inside the directory at `path`. */
@@ -33,13 +41,21 @@ const SKIPPED_DIRECTORIES = new Set(['node_modules', 'dist', '.git']);
 const SHADE_SUFFIX = '.shade.ts';
 
 export const USAGE = `Usage: typeshade check [options] [paths...]
+       typeshade sync [--check] [paths...]
 
 Checks "use typeshade" files the way the editor does, and runs the WGSL and GLSL
 backends the way compile() does. A directory is searched for *.shade.ts files
 (node_modules, dist and .git are skipped); a file is checked whatever its name.
 With no path, the working directory is searched.
 
+sync writes the host view of each *.shade.ts beside it, name.shade.typeshade.ts,
+which a host tsconfig with moduleSuffixes [".typeshade", ""] reads for an import of
+the module (the Vite plugin rewrites them as modules change). Run it before tsc on
+a clean checkout; its home is the "prepare" script. With --check it writes
+nothing and fails when a view is missing or stale.
+
 Options:
+  --check                     sync: check the views instead of writing them
   --format <text|short|json>  text (default): each diagnostic with its source line
                               short: one line per diagnostic
                               json: the report as data (one-based lines and columns)
@@ -84,6 +100,7 @@ interface ParsedArgs {
   readonly paths: readonly string[];
   readonly format: CheckFormat;
   readonly deprecations: boolean;
+  readonly check: boolean;
   readonly help: boolean;
   readonly version: boolean;
   readonly error?: string;
@@ -94,6 +111,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   const paths: string[] = [];
   let format: CheckFormat = 'text';
   let deprecations = false;
+  let check = false;
   let help = false;
   let version = false;
   for (let i = 0; i < argv.length; i++) {
@@ -101,6 +119,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     if (arg === '-h' || arg === '--help') help = true;
     else if (arg === '-v' || arg === '--version') version = true;
     else if (arg === '--deprecations') deprecations = true;
+    else if (arg === '--check') check = true;
     else if (arg === '--format' || arg.startsWith('--format=')) {
       const value = arg === '--format' ? argv[++i] : arg.slice('--format='.length);
       if (!(CHECK_FORMATS as readonly string[]).includes(value ?? '')) {
@@ -108,6 +127,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
           paths,
           format,
           deprecations,
+          check,
           help,
           version,
           error: `--format takes one of ${CHECK_FORMATS.join(', ')}; got ${value === undefined ? 'nothing' : JSON.stringify(value)}.`,
@@ -115,11 +135,19 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       }
       format = value as CheckFormat;
     } else if (arg.startsWith('-')) {
-      return { paths, format, deprecations, help, version, error: `Unknown option ${arg}.` };
+      return {
+        paths,
+        format,
+        deprecations,
+        check,
+        help,
+        version,
+        error: `Unknown option ${arg}.`,
+      };
     } else if (command === undefined) command = arg;
     else paths.push(arg);
   }
-  return { command, paths, format, deprecations, help, version };
+  return { command, paths, format, deprecations, check, help, version };
 }
 
 /**
@@ -141,7 +169,7 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
     (args.help ? host.stdout : host.stderr)(USAGE);
     return args.help ? 0 : 2;
   }
-  if (args.command !== 'check') {
+  if (args.command !== 'check' && args.command !== 'sync') {
     host.stderr(`typeshade: unknown command ${JSON.stringify(args.command)}.\n\n${USAGE}`);
     return 2;
   }
@@ -165,6 +193,8 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
     return 2;
   }
 
+  if (args.command === 'sync') return sync(unique, host, args.check);
+
   const docs: CheckDocument[] = [];
   for (const path of unique) {
     const text = host.readFile(path);
@@ -180,4 +210,59 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
   });
   host.stdout(formatCheckReport(report, args.format, new Map(docs.map((d) => [d.path, d.text]))));
   return report.errors > 0 ? 1 : 0;
+}
+
+/**
+ * `typeshade sync`: write the host view of each shader module beside it (surface §64), or with
+ * `check`, report each one that is missing or stale and write nothing. A module that does not
+ * compile has no view; its errors are printed, and the status is 1.
+ */
+function sync(files: readonly string[], host: CliHost, check: boolean): number {
+  let status = 0;
+  let written = 0;
+  let current = 0;
+  for (const path of files) {
+    const shown = relativeTo(host.cwd, path);
+    if (!isShaderModulePath(path)) {
+      host.stderr(
+        `typeshade: ${shown} is not named *.shade.ts; a host imports a shader module by that name (Rule 3.8).\n`,
+      );
+      return 2;
+    }
+    const text = host.readFile(path);
+    if (text === undefined) {
+      host.stderr(`typeshade: cannot read ${shown}.\n`);
+      return 2;
+    }
+    const face = hostFace(text, { fileName: shown });
+    if (face.view === undefined) {
+      host.stderr(`${formatBuildErrors(face.diagnostics)}\n`);
+      status = 1;
+      continue;
+    }
+    const viewPath = hostViewPath(path);
+    const viewShown = relativeTo(host.cwd, viewPath);
+    if (host.readFile(viewPath) === face.view) {
+      current++;
+      continue;
+    }
+    if (check) {
+      host.stderr(
+        `${viewShown} is ${host.kind(viewPath) === 'file' ? 'stale' : 'missing'}; run typeshade sync.\n`,
+      );
+      status = 1;
+      continue;
+    }
+    host.writeFile(viewPath, face.view);
+    host.stdout(`wrote ${viewShown}\n`);
+    written++;
+  }
+  const s = (n: number): string => (n === 1 ? '' : 's');
+  if (status === 0)
+    host.stdout(
+      check
+        ? `${current} host view${s(current)} up to date.\n`
+        : `${written} host view${s(written)} written, ${current} up to date.\n`,
+    );
+  return status;
 }

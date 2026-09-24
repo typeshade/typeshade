@@ -17,16 +17,18 @@ Every file below but the last is a `package.json` `exports` subpath. `__api__/su
 they export; it is generated (`bun run bake:api-surface`) and `api-surface.test.ts` fails when it
 and the tree disagree.
 
-| File                  | Subpath                                                                                                                         |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`            | `.`: `compile()` and the source compiler, the EDSL, the emitters, `reflect`, `validate`. The only surface most consumers need.  |
-| `dev.ts`              | `./dev`: lint, `diagnose()` / `formatReport()`, source tracing, optimizer measurement. Dev-time only.                           |
-| `debug.ts`            | `./debug`: stepping one invocation on the CPU (`startDebugSession`), for IDE adapters and the Playground (`docs/debugging.md`). |
-| `compute.ts`          | `./compute`: `createComputeRunner`, one dispatch for a `portable: true` kernel across WebGPU, WebGL2 and the CPU.               |
-| `emit-prod.ts`        | `./emit-prod`: ship-time text plugins (`obfuscate`, minify, type aliasing) and `decodeShaderLog` to map a driver error back.    |
-| `language-service/`   | `./language-service`: the editor-neutral, document-based service (`createTypeshadeLanguageService`) and `SHADE_DTS`.            |
-| `core/ir/index.ts`    | `./core/ir`: the IR barrel. The one piece of `core/` that is published; everything else under `core/` is private.               |
-| `language-service.ts` | Not a subpath: a compatibility adapter keeping the older string-based `TypeshadeLanguageService` API over the real service.     |
+| File                  | Subpath                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`            | `.`: `compile()` and the source compiler, the EDSL, the emitters, `reflect`, `validate`. The only surface most consumers need.              |
+| `dev.ts`              | `./dev`: lint, `diagnose()` / `formatReport()`, source tracing, optimizer measurement. Dev-time only.                                       |
+| `debug.ts`            | `./debug`: stepping one invocation on the CPU (`startDebugSession`), for IDE adapters and the Playground (`docs/debugging.md`).             |
+| `compute.ts`          | `./compute`: `createComputeRunner`, one dispatch for a `portable: true` kernel across WebGPU, WebGL2 and the CPU.                           |
+| `emit-prod.ts`        | `./emit-prod`: ship-time text plugins (`obfuscate`, minify, type aliasing) and `decodeShaderLog` to map a driver error back.                |
+| `vite.ts`             | `./vite`: `typeshade()`, the Vite plugin a host project imports a `.shade.ts` through (surface §64), and `TypeshadeVitePlugin`.             |
+| `runtime.ts`          | `./runtime`: not API. What a module the plugin generates imports (the CPU tier's runtime and the host-value checks), and nothing else does. |
+| `language-service/`   | `./language-service`: the editor-neutral, document-based service (`createTypeshadeLanguageService`) and `SHADE_DTS`.                        |
+| `core/ir/index.ts`    | `./core/ir`: the IR barrel. The one piece of `core/` that is published; everything else under `core/` is private.                           |
+| `language-service.ts` | Not a subpath: a compatibility adapter keeping the older string-based `TypeshadeLanguageService` API over the real service.                 |
 
 ## Key directories
 
@@ -42,7 +44,6 @@ and the tree disagree.
 | `compiler/ts/codes.ts`       | The `TS8nnn` diagnostic codes. Numbers are never reused.                                                                                 |
 | `compiler/ts/semicolons.ts`  | The shader-source `;` inserter behind `bun run format:semicolons`.                                                                       |
 | `compiler/ts/host-face.ts`   | The host face of a module (Rules 8.20, 8.21): the exports a host can call, the host view `tsc` reads, and the generated CPU-tier module. |
-| `compiler/ts/vite.ts`        | A Vite transform for `*.shade.ts`, with no Vite import.                                                                                  |
 
 ### `core/`: IR, emit and backends
 

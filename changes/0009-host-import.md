@@ -1,7 +1,7 @@
 ---
 id: '0009'
 title: An ordinary TypeScript file imports a `.shade.ts` and calls its exported functions, which run on the CPU tier, with host types that plain `tsc` reads
-status: accepted
+status: implemented
 rules:
 - '3.1'
 - '3.8'
@@ -285,7 +285,7 @@ Alternatives considered:
   - `src/AGENTS.md`: the entry-points table and the `vite.ts` line.
   - `AUTHORING.md`: "Importing", and a new section for the host call.
   - `docs/use-typeshade.md`: "Host code never imports a TypeShade runtime", and the
-    `typeshadeVite()` paragraph.
+    paragraph on the old pack transform.
   - `docs/runtime-architecture.md`: §5, §15 and §20. This proposal answers §20's open questions
     for the CPU half.
   - `docs/dx.md`:

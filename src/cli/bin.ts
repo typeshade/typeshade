@@ -14,6 +14,7 @@ import { runCli, type CliHost } from './run.js';
 
 interface NodeFs {
   readFileSync(path: string, encoding: 'utf8'): string;
+  writeFileSync(path: string, text: string): void;
   readdirSync(path: string): string[];
   statSync(
     path: string,
@@ -60,6 +61,7 @@ const host: CliHost = {
       return undefined;
     }
   },
+  writeFile: (path, text) => fs.writeFileSync(path, text),
   kind(path) {
     const stat = fs.statSync(path, { throwIfNoEntry: false });
     if (stat === undefined) return undefined;
