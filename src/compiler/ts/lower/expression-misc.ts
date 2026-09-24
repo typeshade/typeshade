@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { builtinResultType } from '../../../core/builtins/resolve.js';
 import { stageOf } from '../../../core/ir/nodes.js';
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -287,15 +288,19 @@ export function lowerUserCall(
 }
 
 export function mathResultType(fn: string, args: readonly Expr[]): ShaderType {
+  // A SUPPORTED row of Tint's overload table types the call (0017): `dot(vec3u, vec3u)` is a
+  // `u32` because the row `dot<N, T>(vec<N, T>, vec<N, T>) -> T` says so, and the editor's
+  // declaration is generated from the same row. The branches below are what the table has no
+  // row form for yet: an emulated double, and a matrix.
+  const fromTable = builtinResultType(
+    fn,
+    args.map((a) => a.type),
+  );
+  if (fromTable !== undefined) return fromTable;
   const first = args[0]!.type;
-  // `dot` keeps the vectors' element kind (WGSL: dot(vecN<T>, vecN<T>) -> T), so an integer
-  // dot product is an integer (#57); the float reductions are f32.
-  if (fn === 'dot' && first.kind === 'vec' && first.elem !== 'f32' && first.elem !== 'bool') {
-    return { kind: 'scalar', scalar: first.elem };
-  }
-  // The same rule one kind over: a reduction of an emulated-double vector is an f64. The fp64
-  // pass composes it from the SCALAR df64 error-free transforms and hands back the (hi, lo)
-  // pair (passes/fp64-lower.ts, the dot/length/distance arm), and the fn() EDSL types it f64
+  // The reductions of an emulated-double vector are an f64. The fp64 pass composes each from
+  // the SCALAR df64 error-free transforms and hands back the (hi, lo) pair
+  // (passes/fp64-lower.ts, the dot/length/distance arm), and the fn() EDSL types it f64
   // (ir/node.ts); typing it f32 here was a lie the pass then contradicted, so `const l =
   // length(v64)` could not be returned from a function declared `f64` (#151 F64-01).
   if ((fn === 'length' || fn === 'distance' || fn === 'dot') && first.kind === 'vec64') return f64T;
