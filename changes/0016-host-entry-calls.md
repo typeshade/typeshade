@@ -1,7 +1,7 @@
 ---
 id: '0016'
 title: A host file calls a module's `@compute` entry, which runs on the GPU, and draws its full-screen `@fragment` entry into a canvas, through the same import
-status: draft
+status: accepted
 rules:
 - '8.20'
 - '8.21'
