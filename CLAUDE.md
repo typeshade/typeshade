@@ -4,6 +4,13 @@ Read `AGENTS.md` first: it is the architecture guide (one IR, three backends, th
 pipeline, the gates) and `src/AGENTS.md` the map of `src/`. This file adds the rules that
 are specific to Claude Code sessions.
 
+## The language of the conversation
+
+Answer the owner in Korean, every reply, from the first to the last of a session: a status
+report, a question, a summary after a merge. What goes into the repository stays in English as
+it is: code, comments, commit messages, pull request titles and bodies, proposals and every
+document in the tree.
+
 ## Use codebase-memory-mcp for every structural question
 
 `.mcp.json` registers [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
