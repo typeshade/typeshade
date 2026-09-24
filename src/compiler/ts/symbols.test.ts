@@ -281,3 +281,62 @@ describe('DeclaredSymbol table: shadowing and errors', () => {
     ).toEqual([]);
   });
 });
+
+describe('LoweredExpression table (0015)', () => {
+  const at = (source: string, text: string): readonly string[] => {
+    const start = source.indexOf(text);
+    return compileTsSource(source)
+      .expressions.filter((e) => e.start === start && e.length === text.length)
+      .map((e) => typeKey(e.type));
+  };
+
+  it('spans each expression exactly, in source order, with the type it was lowered to', () => {
+    const result = compileTsSource(FIXTURE);
+    expect(errorsOf(result.diagnostics)).toEqual([]);
+    const texts = result.expressions.map((e) => FIXTURE.slice(e.start, e.start + e.length));
+    expect(texts).toContain('vec3(x, 0., 0.)');
+    expect(texts).toContain('n + u32(1)');
+    for (const text of texts) expect(text).toBe(text.trim());
+    const starts = result.expressions.map((e) => e.start);
+    expect(starts).toEqual([...starts].sort((a, b) => a - b));
+    expect(at(FIXTURE, 'vec3(x, 0., 0.)')).toEqual([typeKey({ kind: 'vec', n: 3, elem: 'f32' })]);
+    expect(at(FIXTURE, 'n + u32(1)')).toEqual(['u32']);
+  });
+
+  it('records nothing for an expression the front end refused, and keeps what it lowered inside it', () => {
+    const source = [
+      '"use typeshade";',
+      '@fragment',
+      'export function fs(): vec4 {',
+      '  const x = f32(vec3(1.));',
+      '  return vec4(x, 0., 0., 1.);',
+      '}',
+    ].join('\n');
+    expect(errorsOf(compileTsSource(source).diagnostics)).not.toEqual([]);
+    expect(at(source, 'f32(vec3(1.))')).toEqual([]);
+    expect(at(source, 'vec3(1.)')).toEqual([typeKey({ kind: 'vec', n: 3, elem: 'f32' })]);
+  });
+
+  it('leaves out a span lowered to two types, which no one type describes', () => {
+    // `a` in the body of a generic is lowered once per instance: an f32 here and a vec3 there.
+    const source = [
+      '"use typeshade";',
+      'function pick<T>(c: bool, a: T, b: T): T {',
+      '  return c ? a : b;',
+      '}',
+      '@fragment',
+      'export function fs(@location(0) uv: vec2): vec4 {',
+      '  const s = pick(uv.x > 0.5, 1., 0.);',
+      '  const v = pick(uv.y > 0.5, vec3(1.), vec3(0.));',
+      '  return vec4(v * s, 1.);',
+      '}',
+    ].join('\n');
+    expect(errorsOf(compileTsSource(source).diagnostics)).toEqual([]);
+    expect(at(source, 'c ? a : b')).toEqual([]);
+    expect(at(source, 'pick(uv.x > 0.5, 1., 0.)')).toEqual(['f32']);
+  });
+
+  it('is empty for a file with no directive', () => {
+    expect(compileTsSource('export const x = 1;').expressions).toEqual([]);
+  });
+});

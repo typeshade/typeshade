@@ -41,6 +41,7 @@ import {
 } from './passes/required-caps.js';
 import { bindingStages } from './passes/stage-bindings.js';
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js';
+import { consoleBuffer } from './passes/console-buffer.js';
 
 const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a;
 
@@ -695,6 +696,10 @@ export interface ReflectOptions {
    *  reflection computed with a different flavour is describing a different program than the
    *  one it runs. */
   readonly fp64Flavor?: Fp64Flavor;
+  /** Where a `console` call is recorded: `'gpu'` reports the `_console` buffer the WGSL then
+   *  binds (Rule 6.11, surface §66), as `_fp64` is reported. Pass the same value `compile()`
+   *  got. Defaults to `'cpu'`, which adds no binding. */
+  readonly console?: 'cpu' | 'gpu';
 }
 
 /** The module's declared bindings, plus any a LOWERING injects that a host must still bind
@@ -804,6 +809,7 @@ function bindingsIncludingInjected(
  *  @see {@link hostFeaturesFor} for turning `requiredFeatures` into one target's strings.
  */
 export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
+  if (opts?.console === 'gpu') return reflect(consoleBuffer(m).module, { ...opts, console: 'cpu' });
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   const { bindings: allBindings, lowered } = bindingsIncludingInjected(m, opts?.fp64Flavor);
   const stages = bindingStages(lowered);

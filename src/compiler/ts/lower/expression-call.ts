@@ -168,10 +168,22 @@ export function lowerCall(
         );
         return undefined;
       }
+      // A string literal is a label (Rule 7.8, surface §66): text the host keeps and the event
+      // carries in its place. Every other argument is a value. A template with a value in it was
+      // already refused with its remedy by the semantic pass, so it adds nothing here (Rule 12.4).
       const args: Expr[] = [];
+      const labels: (string | number)[] = [];
+      let labelled = false;
       for (const arg of node.arguments) {
+        if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
+          labels.push(arg.text);
+          labelled = true;
+          continue;
+        }
+        if (ts.isTemplateExpression(arg)) return undefined;
         const lowered = lowerExpression(arg, sourceFile, scope, diagnostics);
         if (!lowered) return undefined;
+        labels.push(args.length);
         args.push(lowered);
       }
       return {
@@ -179,6 +191,7 @@ export function lowerCall(
         type: voidT,
         fn: `console.${method}`,
         args,
+        ...(labelled ? { labels } : {}),
         // The one span constructor every lowering uses: a `SourceSpan` carries line and character
         // as well as the offset, and a hand-built `{ file, start, length }` is not one.
         span: spanOf(sourceFile, node),

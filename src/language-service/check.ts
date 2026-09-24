@@ -161,9 +161,11 @@ export function checkOpenDocument(
   // The compiler's own run adds what the service does not compute, and nothing else: the
   // backends' verdict (`TS8015`, which an analysis with `emit: false` never reaches) and the
   // opt-in deprecations (`TS8053`). Every other front-end diagnostic is already in the
-  // service's list, or was merged out of it on purpose: an unknown name TypeScript has a
-  // spelling fix for is its `TS2552` alone (`mergeDiagnostics`), and a parse error is
-  // TypeScript's own `TS1005`-style row in place of the compiler's `TS8030` copy of it.
+  // service's list, which keeps the compiler's report where TypeScript and the compiler report
+  // one mistake (`mergeDiagnostics`, Rule 12.4: an unknown name is the compiler's `TS8004` or
+  // `TS8022` with its "Did you mean", and TypeScript's `TS2552` beside it is dropped), or was
+  // left out of it on purpose: a parse error is TypeScript's own `TS1005`-style row in place of
+  // the compiler's `TS8030` copy of it.
   const compiled = compile(doc.text, {
     fileName: doc.path,
     ...(options.deprecations === true ? { deprecations: true } : {}),

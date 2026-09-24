@@ -183,6 +183,12 @@ export const TS_CODES = {
    *  which means that there is no directive, because the fix is different: move it, don't add
    *  one (proposal 0012). */
   MISPLACED_DIRECTIVE: 'TS8069',
+  /** A warning under `compile(src, { console: 'gpu' })`: a `console` call the WGSL does not
+   *  record, on the call, with the reason (a vertex entry reaches it, an argument has no fixed
+   *  size or is not a value, the stage has no room for another storage buffer). The call still
+   *  reaches the sink on the CPU (Rule 11.9, surface §66, proposal 0014). TS8070 is claimed by
+   *  the parallel-loop proposal (#260) and stays a gap until it lands. */
+  CONSOLE_NOT_RECORDED: 'TS8071',
   UNSUPPORTED: 'TS8099',
 } as const;
 

@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 464 exports
+## `.` — 467 exports
 
 ```
 abs
@@ -83,8 +83,10 @@ ComposeOptions
 condExpr
 CONSOLE_METHODS
 ConsoleEvent
+ConsoleLog
 ConsoleMethod
 ConsoleSink
+ConsoleSite
 constDecl
 ConstDecl
 constExpr
@@ -102,6 +104,7 @@ CpuValue
 cross
 cse
 DeclarableCapability
+decodeConsole
 degrees
 DERIVATIVE_INTRINSICS
 DeterminismAccuracy
@@ -902,11 +905,11 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 583 definitions
+## Shapes — 586 definitions
 
 ```
-src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string }
-src/compiler/ts/compile.ts#CompileResult  interface  { determinism: readonly DeterminismEntry[]; diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
+src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string }
+src/compiler/ts/compile.ts#CompileResult  interface  { console?: ConsoleLog; determinism: readonly DeterminismEntry[]; diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
 src/compiler/ts/compile.ts#compile  function  (source: string, options?: CompileOptions) => CompileResult
 src/compiler/ts/directive.ts#USE_TYPESHADE  const  "use typeshade"
 src/compiler/ts/directive.ts#findUseTypeshadeDirective  function  (sourceFile: SourceFile) => ExpressionStatement
@@ -921,7 +924,7 @@ src/compiler/ts/pack.ts#PackEntry  interface  { name: string; stage: string }
 src/compiler/ts/pack.ts#packJson  function  (m: ModuleDecl) => string
 src/compiler/ts/pack.ts#packModule  function  (m: ModuleDecl) => Pack
 src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { checkReservedNames?: boolean; deprecations?: boolean; emit?: boolean; fileName?: string; requireDirective?: boolean; sourceFile?: SourceFile }
-src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; directives: readonly DiagnosticDirective[]; enables: readonly DeclarableCapability[]; funcs: readonly FuncDecl[]; hasDirective: boolean; overrides: readonly OverrideDecl[]; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; vars: readonly ModuleVarDecl[]; wgsl?: string }
+src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; directives: readonly DiagnosticDirective[]; enables: readonly DeclarableCapability[]; expressions: readonly LoweredExpression[]; funcs: readonly FuncDecl[]; hasDirective: boolean; overrides: readonly OverrideDecl[]; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; vars: readonly ModuleVarDecl[]; wgsl?: string }
 src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "message" | "warning"; character: number; code?: string; endCharacter: number; endLine: number; fileName: string; length: number; line: number; message: string; start: number }
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
 src/compiler/ts/source-file.ts#isTypeshadeSource  function  (source: string, fileName?: string) => boolean
@@ -956,9 +959,12 @@ src/core/backends/wgsl.ts#lowerWgsl  const  (m: ModuleDecl, level: OptLevel) => 
 src/core/backends/wgsl.ts#wgslBackend  const  Backend
 src/core/backends/wgsl.ts#wgslType  function  (t: ShaderType) => string
 src/core/console.ts#CONSOLE_METHODS  const  ReadonlySet<ConsoleMethod>
-src/core/console.ts#ConsoleEvent  interface  { args: readonly CpuValue[]; method: ConsoleMethod; span?: SourceSpan }
+src/core/console.ts#ConsoleEvent  interface  { args: readonly (string | CpuValue)[]; invocation?: readonly number[]; method: ConsoleMethod; span?: SourceSpan }
+src/core/console.ts#ConsoleLog  interface  { binding: number; group: number; sites: readonly ConsoleSite[] }
 src/core/console.ts#ConsoleMethod  type  "debug" | "error" | "info" | "log" | "warn"
 src/core/console.ts#ConsoleSink  type  (event: ConsoleEvent) => void
+src/core/console.ts#ConsoleSite  interface  { args: readonly ({ readonly label: string; } | { readonly shape: ConsoleShape; })[]; method: ConsoleMethod; span?: SourceSpan; words: number }
+src/core/console.ts#decodeConsole  function  (buffer: Uint32Array, log: ConsoleLog) => { events: ConsoleEvent[]; dropped: number; }
 src/core/console.ts#isConsoleMethod  function  (name: string) => name is ConsoleMethod
 src/core/cpu-codegen.ts#compileModuleJs  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink; }) => CpuModule
 src/core/cpu-runtime.ts#CpuStruct  interface  CpuStruct
@@ -1217,7 +1223,7 @@ src/core/ir/nodes.ts#ConstDecl  interface  { cpuValue: number; name: string; typ
 src/core/ir/nodes.ts#DeclarableCapability  type  "clipDistances" | "dualSourceBlending" | "f16" | "float32Blend" | "float32Filterable" | "floatRenderTarget" | "multiview" | "primitiveIndex" | "subgroups"
 src/core/ir/nodes.ts#DiagnosticDirective  interface  { rule: string; severity: "error" | "info" | "off" | "warning" }
 src/core/ir/nodes.ts#EntryParam  interface  { builtin?: string; location?: number; name: string; type: ShaderType }
-src/core/ir/nodes.ts#Expr  type  { readonly op: "lit"; readonly type: ShaderType; readonly value: number | boolean; } | { readonly op: "constref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "overrideref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "externref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "param"; readonly type: ShaderType; readonly name: string; readonly span?: SourceSpan; } | { readonly op: "varref"; readonly type: ShaderType; readonly name: string; readonly span?: SourceSpan; } | { readonly op: "binop"; readonly type: ShaderType; readonly bop: BinOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "unop"; readonly type: ShaderType; readonly a: Expr; } | { readonly op: "compare"; readonly type: ShaderType; readonly cop: CmpOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "logical"; readonly type: ShaderType; readonly lop: LogOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "call"; readonly type: ShaderType; readonly fn: string; readonly args: readonly Expr[]; readonly declRef?: FuncDecl; readonly span?: SourceSpan; } | { readonly op: "member"; readonly type: ShaderType; readonly base: Expr; readonly field: string; } | { readonly op: "construct"; readonly type: ShaderType; readonly args: readonly Expr[]; } | { readonly op: "select"; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr; } | { readonly op: "index"; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr; readonly span?: SourceSpan; } | { readonly op: "matchExpr"; readonly type: ShaderType; readonly scrutinee: Expr; readonly cases: readonly (readonly [number, Expr])[]; readonly default: Expr; }
+src/core/ir/nodes.ts#Expr  type  { readonly op: "lit"; readonly type: ShaderType; readonly value: number | boolean; } | { readonly op: "constref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "overrideref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "externref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "param"; readonly type: ShaderType; readonly name: string; readonly span?: SourceSpan; } | { readonly op: "varref"; readonly type: ShaderType; readonly name: string; readonly span?: SourceSpan; } | { readonly op: "binop"; readonly type: ShaderType; readonly bop: BinOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "unop"; readonly type: ShaderType; readonly a: Expr; } | { readonly op: "compare"; readonly type: ShaderType; readonly cop: CmpOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "logical"; readonly type: ShaderType; readonly lop: LogOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "call"; readonly type: ShaderType; readonly fn: string; readonly args: readonly Expr[]; readonly declRef?: FuncDecl; readonly span?: SourceSpan; readonly labels?: readonly (string | number)[]; } | { readonly op: "member"; readonly type: ShaderType; readonly base: Expr; readonly field: string; } | { readonly op: "construct"; readonly type: ShaderType; readonly args: readonly Expr[]; } | { readonly op: "select"; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr; } | { readonly op: "index"; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr; readonly span?: SourceSpan; } | { readonly op: "matchExpr"; readonly type: ShaderType; readonly scrutinee: Expr; readonly cases: readonly (readonly [number, Expr])[]; readonly default: Expr; }
 src/core/ir/nodes.ts#ExternVarDecl  interface  { name: string; spelling?: { readonly wgsl?: string; readonly glsl?: string; }; stage?: "compute" | "fragment" | "vertex"; type: ShaderType }
 src/core/ir/nodes.ts#FuncDecl  interface  { [ASSEMBLED_AS]?: string; allowEarlyReturn?: boolean; attrs?: readonly string[]; body: readonly Stmt[]; lintDisable?: readonly string[]; name: string; nameSpan?: SourceSpan; opaque?: boolean; params: readonly { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string; mode?: "inout"; }[]; portable?: boolean; ret: ShaderType; retAttr?: string; retBuiltin?: string; span?: SourceSpan; stage?: "compute" | "fragment" | "vertex"; workgroupShape?: WorkgroupShape; workgroupSize?: number }
 src/core/ir/nodes.ts#LogOp  type  "&&" | "||"
@@ -1372,7 +1378,7 @@ src/core/reflect.ts#ExternRequirement  interface  { glsl: string; name: string; 
 src/core/reflect.ts#FieldLayout  interface  { align: number; name: string; offset: number; size: number; type: string }
 src/core/reflect.ts#LayoutKind  type  "std140" | "std430"
 src/core/reflect.ts#OverrideInfo  interface  { default: boolean | number; name: string; type: string }
-src/core/reflect.ts#ReflectOptions  interface  { fp64Flavor?: Fp64Flavor }
+src/core/reflect.ts#ReflectOptions  interface  { console?: "cpu" | "gpu"; fp64Flavor?: Fp64Flavor }
 src/core/reflect.ts#Reflection  interface  { bindGroups: readonly BindGroup[]; entries: readonly EntryInfo[]; overrides: readonly OverrideInfo[]; requiredFeatures: readonly Capability[]; requiredLanguageFeatures: readonly LanguageFeature[]; requires: readonly ExternRequirement[]; storage: readonly StructLayout[]; uniforms: readonly StructLayout[]; vertex?: VertexLayout }
 src/core/reflect.ts#ResourceKind  type  "sampler" | "storage-buffer" | "storage-texture" | "texture" | "uniform-buffer"
 src/core/reflect.ts#StructLayout  interface  { align: number; fields: readonly FieldLayout[]; name: string; size: number }

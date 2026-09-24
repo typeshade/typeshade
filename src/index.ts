@@ -55,8 +55,11 @@ export * from './core/backends/glsl.js';
 export * from './core/intrinsics.js';
 export {
   CONSOLE_METHODS,
+  decodeConsole,
   isConsoleMethod,
   type ConsoleEvent,
+  type ConsoleLog,
+  type ConsoleSite,
   type ConsoleMethod,
   type ConsoleSink,
 } from './core/console.js';

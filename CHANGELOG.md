@@ -410,6 +410,34 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   journey: the tarball in a fresh Vite project, `tsc` clean and a wrong call caught,
   `vite build`, and Node running the bundle against a plain-JavaScript reference.
 
+- **`console` calls reach the host from WebGPU, when the compile asks** (§66, design rules 6.11
+  and 11.9, `changes/0014-gpu-console.md`; roadmap 0.2 item 6). `compile(src, { console: 'gpu' })`
+  makes the WGSL record each `console.*` call a compute or fragment entry reaches, in one storage
+  buffer the compiler binds, `_console`, at group 0 past the module's bindings (the `_fp64` rule).
+  `result.console` gives the slot and the table of calls. `decodeConsole(words, result.console)`
+  turns the buffer the host copies back into the `ConsoleEvent`s the CPU sink receives, ordered
+  as the CPU runs a dispatch, each with its `invocation`. A call reserves its words with one
+  `atomicAdd`; one that does not fit the buffer, whose size is the host's, is dropped whole and
+  counted. `reflect(m, { console: 'gpu' })` lists the buffer. Measured on Tint and SwiftShader in
+  Chromium 141: 331 events of a kernel decoded equal to the CPU's, invocation ids included; a
+  fragment's helper and discarded invocations write nothing; a vertex stage that reaches the
+  buffer is refused by Tint, so such a call is a new `TS8071` warning, as are an argument with no
+  fixed size and a stage that already binds eight storage buffers. The default, `'cpu'`, moves no
+  emitted byte, and GLSL ES 3.00 records nothing.
+
+- **A string literal argument of a `console` call is a label** (§66, design rule 7.8,
+  `changes/0014-gpu-console.md`). `console.warn("large value at", gid.x, y)` compiles; it was
+  `TS8099 A string has no GPU representation`. The label never reaches a target: it is kept on
+  the host, and the event the sink receives carries it where it was written
+  (`["large value at", 136, 272]`), on the interpreter, the generated CPU code and the stepper
+  alike. `ConsoleEvent.args` is `readonly (string | CpuValue)[]`, and the IR's `call` node gains
+  an optional `labels` field, the arguments in the order written. A template with a value in it
+  is still refused, now once and with the arguments to write (`TS8013 … Pass the text and the
+value as two arguments: console.log("x =", x).`), where it drew a second `TS8099` about the
+  same template. The editor's `Console` takes what the standard one does, so a label, a struct,
+  an array and a matrix draw no error there either; the compiler already took the last three.
+  WGSL and GLSL emit no byte more. The WebGPU half of 0014 is not in this entry.
+
 - **`typeshade check`: the editor's answer and the backends', from the command line** (Rule
   12.7, Rule 12.3). The package gains a `typeshade` command whose `check` reports, for every
   `*.shade.ts` under the given paths, the language service's merged list (TypeScript over the
@@ -1406,6 +1434,11 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **`dispatch` and the debugger no longer throw on a `console` call.** The lockstep interpreter
+  (`src/core/debug/interp.ts`) had no arm for one: `cpu.dispatch` of a kernel that logged threw
+  `typeshade/debug: unknown fn console.log`, as did stepping over the call. It now evaluates the
+  arguments and delivers the event to the sink `compileModule` took, with the invocation.
+
 - **`f64()` keeps the whole double of a negated or computed literal** (Rule 5.2, §39).
   `f64(-0.1)`, `f64(-(0.1))` and `f64(1. / 3.)` carried only the `f32` rounding of their value,
   widened as `(x, 0.0)` with the tail lost, while `f64(0.1)` and `const k: f64 = -0.1` carried
@@ -1603,6 +1636,24 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   the editor drops TS2454 on a per-invocation `let` as it does on workgroup memory: under
   TypeScript 5.7 and later, `let hits: u32` counted with `hits += 1` read as used before being
   assigned.
+
+- **An `f64` module variable compiles** (surface §24 and §39, Rule 6.5). §39 says a pass
+  rewrites every `f64` into `vec2<f32>` before a backend sees one, and the pass rewrote the
+  constants, the structs, the bindings and the functions but not the module variables. So
+  `let big: f64`, with or without an initializer, and a `vec3f64` or an `array<f64, 2>` one,
+  reached the writers as `f64`, and `compile()` failed with TS8015
+  (`SD0040 f64 type leaked past fp64Lower`) while the editor reported nothing. A module
+  variable is now rewritten as a binding is, and its initializer, which the front end folds to
+  literals, lowers to the pair a declared `f64` carries: `let big: f64 = 0.1` is
+  `var<private> big: vec2<f32> = vec2<f32>(0.10000000149011612, -1.4901161415892261e-9);`, and
+  with no initializer GLSL writes the zero, `vec2 big = vec2(0.0);`. Each shape compiles and
+  links on ANGLE and on Tint, and the CPU oracle computes it as the double.
+
+- **A module variable hovers as `let`** (Rule 6.5, Rule 12.7). #188 made every binding hover as
+  `const name: T`, since a binding is always declared `const`. The front end records a module
+  variable as a binding too, so from then on `let hits: u32` hovered as `const hits: u32`, and
+  workgroup memory as `const tile: array<u32, 64>`. The hover now says `let` for a module
+  variable, and a binding beside it keeps `const`.
 
 - **The editor indexes a vector and an `f32` matrix by a runtime value** (Rule 12.7, surface
   §49). `m[i]` on a `mat4` or a `mat2x3` with an `i: u32`, a `for` counter as the index, `v[i]`
