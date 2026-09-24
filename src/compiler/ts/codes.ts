@@ -183,11 +183,15 @@ export const TS_CODES = {
    *  which means that there is no directive, because the fix is different: move it, don't add
    *  one (proposal 0012). */
   MISPLACED_DIRECTIVE: 'TS8069',
+  /** A warning on a loop of a kernel function (Rule 8.22, surface §65, proposal 0013) that the
+   *  independence proof refused: the loop runs on the CPU, and the message names the line and
+   *  the author's names that stop it, and the remedy. On the function instead when its body is
+   *  not the kernel call's shape. The program is correct either way. */
+  KERNEL_LOOP_ON_CPU: 'TS8070',
   /** A warning under `compile(src, { console: 'gpu' })`: a `console` call the WGSL does not
    *  record, on the call, with the reason (a vertex entry reaches it, an argument has no fixed
    *  size or is not a value, the stage has no room for another storage buffer). The call still
-   *  reaches the sink on the CPU (Rule 11.9, surface §66, proposal 0014). TS8070 is claimed by
-   *  the parallel-loop proposal (#260) and stays a gap until it lands. */
+   *  reaches the sink on the CPU (Rule 11.9, surface §66, proposal 0014). */
   CONSOLE_NOT_RECORDED: 'TS8071',
   UNSUPPORTED: 'TS8099',
 } as const;

@@ -250,15 +250,15 @@ function stepText(name: string, step: Step): string {
   return `${name} ${step.op === 'mul' ? '*' : '/'}= ${step.by}`;
 }
 
-/** What the analysis concluded about an accepted counted loop. Nothing reads it yet: the
- *  caller branches on `ok` and lowers the `for` it already has. So this carries the numbers a
- *  reader would want and no more, and in particular not the step's OPERATION: a field for it
- *  would be one more thing written and never read. `step` is the addend for an additive loop
- *  and the factor for a multiplicative one. `start`, `bound` and `trips` are present when the
+/** What the analysis concluded about an accepted counted loop, which the IR `for` carries as
+ *  its `counted` fact for the independence proof of a kernel function's loop (Rule 8.22).
+ *  `step` is the addend for an additive loop and the factor for a multiplicative one, and `op`
+ *  says which. `start`, `bound` and `trips` are present when the
  *  header folds to constants, and absent when the start or the bound is a runtime value
  *  (Rule 7.5): such a loop is still counted, by a count known only when it runs. */
 export interface CountedLoop {
   readonly name: string;
+  readonly op: 'add' | 'mul' | 'div';
   readonly start?: number;
   readonly bound?: number;
   readonly step: number;
@@ -322,7 +322,7 @@ export function analyzeCountedFor(
   }
   if (start === undefined || exit.value === undefined) {
     const refused = runtimeHeader(shown, start, exit.cop, step);
-    return refused ?? { ok: true, loop: { name: init.name, start, step: step.by } };
+    return refused ?? { ok: true, loop: { name: init.name, op: step.op, start, step: step.by } };
   }
   const bound = exit.value;
   const trips = countTrips(start, exit.cop, bound, step, k);
@@ -343,7 +343,10 @@ export function analyzeCountedFor(
   }
   // No ceiling on the count (Rule 7.5, #203): a trip count is a fact about the program, and
   // neither target limits it. The exact count is what the unroller and a reader get.
-  return { ok: true, loop: { name: init.name, start, bound, step: step.by, trips: trips.n } };
+  return {
+    ok: true,
+    loop: { name: init.name, op: step.op, start, bound, step: step.by, trips: trips.n },
+  };
 }
 
 /**

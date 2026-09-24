@@ -72,6 +72,11 @@ export function storageRooted(e: Expr, scope: LoweringScope): boolean {
  *  `['storage', 'workgroup']`, the two spaces WGSL allows an atomic in (§23, §24). */
 export function rootedIn(e: Expr, scope: LoweringScope, spaces: readonly string[]): boolean {
   switch (e.op) {
+    // A kernel function's array parameter is the caller's storage (Rule 8.23).
+    case 'param': {
+      const b = scope.resolveIr(e.name);
+      return b?.kind === 'param' && b.space !== undefined && spaces.includes(b.space);
+    }
     case 'varref': {
       // A local that copies a binding (`const a = src`) denotes what the binding denotes; the
       // chain is followed rather than stopped at the local, which answered "give it a size"

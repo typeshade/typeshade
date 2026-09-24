@@ -410,6 +410,18 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A kernel function, whose loops the compiler proves independent** (change 0013, part 1;
+  Rules 7.5, 8.6, 8.8, 8.22 and 8.23, surface §65). An exported function that takes an array with
+  no size, `render(k: vec4, size: u32, out: array<f32>)`, is a kernel function: its array is the
+  caller's storage, written in place (`out[i] = …`) and sized at run time (`xs.length`), which
+  `TS8018` and `TS8032` refused before. Each `for` at the top level of its body is proved
+  independent (R1 to R6 of #252): a map at `a*i + c`, row-major or a texel, a reduction
+  `s += x`, `s = max(s, x)`, or an integer scatter `bins[k] += 1` is accepted, and any other loop
+  runs on the CPU with a warning, `TS8070`, that names the line and the author's names and gives
+  the remedy, in the compiler and in the editor. The IR `for` carries the counted fact the front
+  end proved (`counted`), and `FuncDecl` the `kernel` mark every backend reads to leave the
+  function out of what it emits. A kernel function runs on the CPU oracle; its call through the
+  import, which dispatches the accepted loops on the GPU, is the next part.
 - **A debug session delivers the `console` calls it steps over** (§66,
   `changes/0018-debugger-console-sink.md`). `startDebugSession(m, entry, args, { consoleSink })`
   hands each call to the sink when the step that runs it runs, and nothing at a step that skips

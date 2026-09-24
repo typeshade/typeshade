@@ -34,16 +34,17 @@ and the tree disagree.
 
 ### `compiler/ts/`: the `"use typeshade"` front end
 
-| File                         | What it is                                                                                                                                                                                 |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `compiler/ts/compile.ts`     | `compile()`: front end, then both emitters and the oracle. Shader text exists only when no error diagnostic was raised.                                                                    |
-| `compiler/ts/source-file.ts` | `compileTsSource`: one file to IR. Imports `typescript` at module scope, which is why it is a required peer.                                                                               |
-| `compiler/ts/module.ts`      | `compileTsSources`: a multi-file program joined by relative imports.                                                                                                                       |
-| `compiler/ts/lower/`         | Statement, expression, call and function lowering (`function.ts` runs signatures, then bodies).                                                                                            |
-| `compiler/ts/semantic.ts`    | Refuses host / JavaScript surface inside a `"use typeshade"` file.                                                                                                                         |
-| `compiler/ts/codes.ts`       | The `TS8nnn` diagnostic codes. Numbers are never reused.                                                                                                                                   |
-| `compiler/ts/semicolons.ts`  | The shader-source `;` inserter behind `bun run format:semicolons`.                                                                                                                         |
-| `compiler/ts/host-face.ts`   | The host face of a module (Rules 8.20, 8.21, 8.24): the exports a host can call, the host view `tsc` reads, and the generated module, with each callable entry's WGSL and binding layouts. |
+| File                          | What it is                                                                                                                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `compiler/ts/compile.ts`      | `compile()`: front end, then both emitters and the oracle. Shader text exists only when no error diagnostic was raised.                                                                    |
+| `compiler/ts/source-file.ts`  | `compileTsSource`: one file to IR. Imports `typescript` at module scope, which is why it is a required peer.                                                                               |
+| `compiler/ts/module.ts`       | `compileTsSources`: a multi-file program joined by relative imports.                                                                                                                       |
+| `compiler/ts/lower/`          | Statement, expression, call and function lowering (`function.ts` runs signatures, then bodies).                                                                                            |
+| `compiler/ts/semantic.ts`     | Refuses host / JavaScript surface inside a `"use typeshade"` file.                                                                                                                         |
+| `compiler/ts/codes.ts`        | The `TS8nnn` diagnostic codes. Numbers are never reused.                                                                                                                                   |
+| `compiler/ts/semicolons.ts`   | The shader-source `;` inserter behind `bun run format:semicolons`.                                                                                                                         |
+| `compiler/ts/host-face.ts`    | The host face of a module (Rules 8.20, 8.21, 8.24): the exports a host can call, the host view `tsc` reads, and the generated module, with each callable entry's WGSL and binding layouts. |
+| `compiler/ts/kernel-loops.ts` | `TS8070`: a kernel function's refused loop, worded in the author's names and lines from the proof's facts (Rule 8.22).                                                                     |
 
 ### `core/`: IR, emit and backends
 
@@ -85,6 +86,7 @@ Most other `core/*.ts` files are the production-emit and host-integration layer:
 | `core/passes/match-lower.ts`          | `lowerModule`: each `matchExpr` becomes a hoisted `var` plus a `switch`, so the emit walk never sees one.                                              |
 | `core/passes/fp64-lower.ts`           | The single authority for `f64` semantics: `f64` IR to `vec2<f32>` and `df64_*` calls.                                                                  |
 | `core/passes/console-buffer.ts`       | Under `compile(src, { console: 'gpu' })`, rewrites each recorded `console` call into writes to the `_console` storage buffer (Rule 6.11, surface §66). |
+| `core/passes/parallel-loop.ts`        | `proveKernels`: the independence proof of a kernel function's loops (Rule 8.22), R1 to R6, as facts in IR names.                                       |
 | `core/passes/opt/`                    | `autoVars`, `cse`, and the `optimize` fixpoint (const / copy propagation, folding, dead branches, LICM, DCE). `expr-utils.ts` is the shared traversal. |
 | `core/passes/compose.ts`              | `composeModule(base, swaps)`: swaps tagged `placeholder` statements. Strict by default.                                                                |
 | `core/passes/mangle.ts`, `inline*.ts` | Identifier mangling for `obfuscate`; function inlining.                                                                                                |

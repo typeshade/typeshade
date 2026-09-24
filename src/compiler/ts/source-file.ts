@@ -12,6 +12,7 @@ import type {
   OverrideDecl,
 } from '../../core/ir/nodes.js';
 import { emitModule } from '../../core/backends/wgsl.js';
+import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
 import { lowerSourceFunctions } from './lower/function.js';
 import { sequenceEffects } from './sequence.js';
@@ -330,6 +331,24 @@ export function compileTsSource(
         ),
       );
     }
+  }
+  // A kernel function's loops run as dispatches when the proof accepts them, and on the CPU
+  // with a warning that names why when it does not (Rule 8.22, TS8070). After the functions,
+  // because the proof reads what each callee writes, and only on a module with no error.
+  if (funcs.some((f) => f.kernel === true) && !diagnostics.some((d) => d.category === 'error')) {
+    diagnostics.push(
+      ...kernelLoopDiagnostics(
+        {
+          consts: [...consts],
+          structs: emittedStructDecls(structs),
+          bindings: [...bindings],
+          funcs: [...funcs],
+          overrides: [...overrides],
+          vars: [...vars],
+        },
+        () => sourceFile,
+      ),
+    );
   }
   // A name a target reserves, on the name the emit actually carries (#103). After the
   // functions, because a local, a parameter and a method's flattened name are recorded there,

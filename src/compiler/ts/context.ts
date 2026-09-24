@@ -1098,6 +1098,12 @@ export class LoweringScope {
     return stored;
   }
 
+  /** What each IR name this scope declared was written as in the source: `i_1` for the second
+   *  `i`, `_i` for a `for…of`'s counter. A refusal that the IR proves names the author's. */
+  sourceNames(): Map<string, string> {
+    return new Map([...this.byIr].map(([ir, b]) => [ir, b.name]));
+  }
+
   /** Bind `name` in the current frame to an existing binding, so the name resolves to it and
    *  emits its IR name: `const a = src` for a storage array with no size, which no local can
    *  hold (Rule 12.6). Throws on a name the frame already binds, as {@link define} does. */

@@ -1810,7 +1810,8 @@ function checkRootNamed(
   }
   // A captured variable's parameter keeps the variable's rules (Rule 8.17).
   const rules = writeRules(binding);
-  if (rules.kind === 'param') {
+  // A kernel function's array is the caller's storage, written in place (Rule 8.23).
+  if (rules.kind === 'param' && rules.space !== 'storage') {
     pushDiag(
       diagnostics,
       sourceFile,
