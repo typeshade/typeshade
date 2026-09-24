@@ -41,6 +41,9 @@ import { workgroupShapeOf } from '../../core/ir/nodes.js';
 import type { ComputeEntry, DrawBinding, Layout } from '../../core/host-entry.js';
 import type { FragmentEntry } from '../../core/host-draw.js';
 import { emitGlslStages } from '../../core/backends/glsl.js';
+import { emitModule } from '../../core/backends/wgsl.js';
+import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
+import type { ConsoleLog } from '../../core/console.js';
 import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js';
 import { emittedStructDecls } from './structs.js';
 import { staticConstName } from './module-const.js';
@@ -52,6 +55,10 @@ export interface HostFaceOptions {
   /** The specifier the generated module imports its runtime from. Defaults to
    *  `typeshade/runtime`; a test points it at the source file. */
   readonly runtime?: string;
+  /** `'gpu'` records each `console.*` call a GPU entry reaches into the `_console` buffer
+   *  (change 0014), which the runtime decodes into the host's console after the dispatch or
+   *  draw. The Vite plugin sets it in `vite dev`; a production build records nothing. */
+  readonly console?: 'gpu';
 }
 
 /** One export of a shader module, as the host sees it. */
@@ -81,7 +88,7 @@ export type HostExport =
        *  which the module shares, and the TypeScript type of its bindings object. */
       readonly kind: 'compute';
       readonly name: string;
-      readonly entry: Omit<ComputeEntry, 'wgsl'>;
+      readonly entry: Omit<ComputeEntry, 'wgsl' | 'log'>;
       readonly bindingsType: string;
     }
   | {
@@ -89,7 +96,7 @@ export type HostExport =
        *  the draw needs but the WGSL, and the TypeScript type of its bindings object. */
       readonly kind: 'fragment';
       readonly name: string;
-      readonly entry: Omit<FragmentEntry, 'wgsl'>;
+      readonly entry: Omit<FragmentEntry, 'wgsl' | 'log'>;
       readonly bindingsType: string;
     }
   | {
@@ -625,12 +632,41 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     return e;
   });
 
+  // In `vite dev`, the WGSL records the console calls the GPU entries reach (change 0014), and
+  // each entry that reaches one carries the log the runtime decodes the buffer with.
+  let wgsl = r.wgsl ?? '';
+  let log: ConsoleLog | undefined;
+  let logged = final;
+  if (options.console === 'gpu') {
+    const recorded = consoleBuffer(m);
+    if (recorded.log !== undefined) {
+      log = recorded.log;
+      wgsl = emitModule(recorded.module);
+      const rm = recorded.module;
+      const rDeclared = new Set(rm.funcs.map((f) => f.name));
+      const rCallees = new Map(rm.funcs.map((f) => [f.name, calleesOf(f, rDeclared)]));
+      const rTouched = new Map(
+        rm.funcs.map((f) => [
+          f.name,
+          new Set([...(fnReads(rm).get(f.name) ?? []), ...(fnWrites(rm).get(f.name) ?? [])]),
+        ]),
+      );
+      const reaches = (fn: string): boolean =>
+        [...closureOf(fn, rCallees)].some((g) => rTouched.get(g)?.has(CONSOLE_NAMES.binding));
+      logged = final.map((e): HostExport => {
+        if ((e.kind === 'compute' || e.kind === 'fragment') && reaches(e.entry.fn))
+          return { ...e, entry: { ...e.entry, console: true } } as HostExport;
+        return e;
+      });
+    }
+  }
+
   const stem = options.fileName.replace(/\\/g, '/').split('/').pop()!;
   return {
     diagnostics: r.diagnostics,
-    exports: final,
-    view: viewText(stem, final),
-    code: moduleText(stem, final, gen, options.runtime ?? 'typeshade/runtime', r.wgsl ?? ''),
+    exports: logged,
+    view: viewText(stem, logged),
+    code: moduleText(stem, logged, gen, options.runtime ?? 'typeshade/runtime', wgsl, log),
   };
 }
 
@@ -703,7 +739,8 @@ function entryBindings(
     const layout = layoutOf(b.type, space === 'uniform' ? 'std140' : 'std430', c.structs);
     if ('none' in layout) return { none: `binding "${b.name}": ${layout.none}` };
     const writes = f.stage === 'compute' && space === 'storage' && written.has(b.name);
-    bindings.push({ ...at, space, writes, layout });
+    const rw = space === 'storage' && b.access === 'read_write';
+    bindings.push({ ...at, space, writes, ...(rw ? { rw: true as const } : {}), layout });
     types.push(`readonly ${b.name}: ${bindingTsType(layout, writes)}`);
   }
   return { bindings, types, closure };
@@ -1078,6 +1115,7 @@ function moduleText(
   gen: ReturnType<typeof generateModuleJs>,
   runtime: string,
   wgsl: string,
+  log?: ConsoleLog,
 ): string {
   const q = (s: string): string => JSON.stringify(s);
   const consts = exports.filter((e) => e.kind === 'const');
@@ -1095,6 +1133,7 @@ function moduleText(
   // The module's WGSL, once, for every entry the host calls on WebGPU.
   if (exports.some((e) => e.kind === 'compute' || e.kind === 'fragment'))
     out.push(`const __ts_wgsl = ${q(wgsl)};`);
+  if (log !== undefined) out.push(`const __ts_console = ${JSON.stringify(log)};`);
   let t = 0;
   for (const e of exports) {
     switch (e.kind) {
@@ -1136,7 +1175,7 @@ function moduleText(
       case 'compute': {
         const id = `__ts_e${t++}`;
         out.push(
-          `const ${id} = { ...${JSON.stringify(e.entry)}, wgsl: __ts_wgsl };`,
+          `const ${id} = { ...${JSON.stringify(e.entry)}, wgsl: __ts_wgsl${e.entry.console === true ? ', log: __ts_console' : ''} };`,
           `export function ${e.name}(bindings, workgroups) {`,
           `  return ${RT}.callCompute(${MOD}, ${id}, arguments.length, bindings, workgroups);`,
           `}`,
@@ -1146,7 +1185,7 @@ function moduleText(
       case 'fragment': {
         const id = `__ts_e${t++}`;
         out.push(
-          `const ${id} = { ...${JSON.stringify(e.entry)}, wgsl: __ts_wgsl };`,
+          `const ${id} = { ...${JSON.stringify(e.entry)}, wgsl: __ts_wgsl${e.entry.console === true ? ', log: __ts_console' : ''} };`,
           `export function ${e.name}(target, bindings) {`,
           `  return ${RT}.callDraw(${MOD}, ${id}, arguments.length, target, bindings);`,
           `}`,
