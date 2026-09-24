@@ -634,9 +634,10 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
   const TOP_VAR =
     'TS8014 Top-level var is not allowed. Use `let` for a per-invocation variable or `const` ' +
     'for a module constant.';
-  const TOP = (kind: string): string =>
-    `TS8014 Unsupported top-level "${kind}". A TypeShade file is directive + types + functions + ` +
-    'imports.';
+  // A top-level statement is named by its keyword (proposal 0008 §6, semantic.test.ts).
+  const TOP = (what: string): string =>
+    `TS8014 ${what} at the top level runs nowhere; a shader file declares functions, classes, ` +
+    'types, enums, namespaces, constants, module variables and resources.';
   const IN_NAMESPACE = (what: string): string =>
     `TS8014 A namespace holds functions, constants, classes and namespaces; ${what} inside "N" ` +
     'has no flattened form. Declare it at the top level of the file.';
@@ -692,12 +693,16 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       [THROW],
     ],
     // A statement the top level cannot hold is that one mistake, whatever it holds.
-    ['throw at the top level', shader('throw 1.;\n', '  return a;'), [TOP('ThrowStatement')]],
-    ['try at the top level', shader('try {\n} catch {\n}\n', '  return a;'), [TOP('TryStatement')]],
+    ['throw at the top level', shader('throw 1.;\n', '  return a;'), [TOP('A "throw" statement')]],
+    [
+      'try at the top level',
+      shader('try {\n} catch {\n}\n', '  return a;'),
+      [TOP('A "try" statement')],
+    ],
     [
       'for…in at the top level',
       shader('for (const k in {}) {\n}\n', '  return a;'),
-      [TOP('ForInStatement')],
+      [TOP('A "for…in" loop')],
     ],
     [
       'var in a body, lowered as the let it would have been',

@@ -5,10 +5,14 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { checkDeclarationDecorators } from './builtin-check.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
-import { refusedInNamespace, statementRefusal } from './namespaces.js';
 import { isEnableDirective } from './enables.js';
 import { staticThisClass } from './class-names.js';
-import { namespaceMemberName, refuseNamespaceStatement } from './namespaces.js';
+import {
+  namespaceMemberName,
+  refusedInNamespace,
+  refuseNamespaceStatement,
+  statementRefusal,
+} from './namespaces.js';
 import { mixinAppliedBy } from './mixins.js';
 
 export const HOST_GLOBALS: ReadonlySet<string> = new Set([
@@ -349,6 +353,8 @@ function visit(
     if (ts.isModuleBlock(node.parent)) {
       const prefix = namespacePrefix(node.parent);
       if (prefix !== undefined) refuseNamespaceStatement(node, prefix, sourceFile, diagnostics);
+      // Refused whole, as a `let` there is (namespaces.ts): what it holds adds nothing.
+      return;
     } else {
       push(
         diagnostics,

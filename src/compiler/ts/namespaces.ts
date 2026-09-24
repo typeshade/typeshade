@@ -155,10 +155,16 @@ export function statementRefusal(
 }
 
 /** Whether a namespace refuses `stmt` whole ({@link refuseNamespaceStatement}): anything but a
- *  function, a `const`, a class or a namespace. A `try`, a `throw` and a `for…in` are not,
- *  since their one refusal is semantic.ts's, wherever they stand. */
+ *  function, a `const`, a class or a namespace. A `try`, a `throw`, a `for…in` and a `var` are
+ *  not, since their one refusal is semantic.ts's, wherever they stand. */
 export function refusedInNamespace(stmt: ts.Statement): boolean {
-  if (ts.isTryStatement(stmt) || ts.isThrowStatement(stmt) || ts.isForInStatement(stmt)) {
+  if (
+    ts.isTryStatement(stmt) ||
+    ts.isThrowStatement(stmt) ||
+    ts.isForInStatement(stmt) ||
+    (ts.isVariableStatement(stmt) &&
+      (stmt.declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0)
+  ) {
     return false;
   }
   return !(
