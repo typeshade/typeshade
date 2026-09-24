@@ -427,6 +427,49 @@ export function fs(@location(0) uv: vec2): vec4 {
     ).toThrow(UnsupportedFeatureError);
   });
 
+  it('an f64 variable is a pair on both targets, as every f64 is, and the editor agrees', () => {
+    // §39: a pass rewrites every f64 before a backend sees one. It rewrote the consts, the
+    // structs, the bindings and the functions but not the module variables, so an f64 one
+    // reached the writers as f64 and compile() failed with TS8015 (SD0040), with or without an
+    // initializer, while the editor reported nothing.
+    const src = `"use typeshade";
+let big: f64 = 0.1;
+let sum: f64;
+let w: vec3f64 = vec3f64(f64(1.), f64(2.), f64(0.1));
+let a: array<f64, 2>;
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  sum = sum + big + f64(uv.x);
+  w = w + vec3f64(sum, f64(0.), f64(1.));
+  a[1] = a[0] + sum;
+  return vec4(f32(sum), f32(w.x), f32(a[1]), f32(w.z));
+}
+`;
+    const r = compile(src);
+    expect(r.diagnostics).toEqual([]);
+    // The double 0.1 as its pair, and the zero of each shape on GLSL.
+    expect(r.wgsl).toContain(
+      'var<private> big: vec2<f32> = vec2<f32>(0.10000000149011612, -1.4901161415892261e-9);',
+    );
+    expect(r.wgsl).toContain('var<private> sum: vec2<f32>;');
+    expect(r.wgsl).toContain('var<private> w: DF64Vec3 = DF64Vec3(');
+    expect(r.wgsl).toContain('var<private> a: array<vec2<f32>, 2>;');
+    const glsl = r.glsl!.fragment;
+    for (const line of [
+      'vec2 big = vec2(0.10000000149011612, -1.4901161415892261e-9);',
+      'vec2 sum = vec2(0.0);',
+      'vec2[2] a = vec2[2](vec2(0.0), vec2(0.0));',
+    ])
+      expect(glsl).toContain(line);
+    expect(glsl).toContain('DF64Vec3 w = DF64Vec3(');
+    // At double precision: sum is 0.1 + 0.25, w is (1, 2, 0.1) plus (sum, 0, 1), a[1] is sum.
+    expect(r.eval('fs', [[0.25, 0]])).toEqual([0.35, 1.35, 0.35, 1.1]);
+    expect(compileModuleJs(r.module).fns['fs']!([0.25, 0])).toEqual([0.35, 1.35, 0.35, 1.1]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('f64.shade.ts', src);
+    expect(service.getDiagnostics('f64.shade.ts').map((d) => `${d.code} ${d.message}`)).toEqual([]);
+  });
+
   it('what is refused, and what the fix is', () => {
     const only = (src: string) => {
       const errors = errorsOf(src);
