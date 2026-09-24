@@ -33,10 +33,14 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 reserved in ECMAScript's strict mode, which every "use typeshade" file is in, so a local of that
 name cannot be declared. Rename it.`, where the editor says TS1215 (which merges into it, with
   its word on a later write of the name) and the host import's generated module would not load;
-  a class, an enum, a namespace or a type of either name compiles, as TypeScript takes it. A name
-  nothing declares is one diagnostic, in proposal 0007's words and with its remedy, in a body a
-  call lowers and in one no call lowers alike (an uncalled generic, a function that takes a
-  function, a method of a class nothing builds), where the lowering never reads it (`window`
+  a class, an enum, a namespace or a type of either name compiles, as TypeScript takes it. The
+  host import's generated module binds no name the file declares: each export is bound under a
+  name of the generator's own and exported under the file's, so an export named `Object`, `Math`
+  or `NaN` no longer shadows the `Object.freeze` of an enum or the `Math.imul` of the CPU tier,
+  which left the module unable to load. A name nothing declares is one diagnostic, in proposal
+  0007's words and with its remedy, in a body a call lowers and in one no call lowers alike (an
+  uncalled generic, a function that takes a function, a method of a class nothing builds), where
+  the lowering never reads it (`window`
   there was `TS8012`, and `nope` nothing at all): `TS8022` for a value (`window`, `Date.now()`, `Map`) and
   for a written target (`Date = 1.`, "Cannot assign to unknown name"), `TS8004` on the callee's
   name (`fetch("x")`), where a string or a function handed to an unknown callee now says nothing
@@ -1995,10 +1999,15 @@ Slot.m(...).`, where it said `"Slot<f32>" has no method "m"`. A static of a clas
 struct:mat2x3 and mat2x3<f32>`), and a function that writes no return type and returns such a
   read, `function g() { return vh[0].x; }`, a method or an arrow alike, made its caller say
   `cannot assign to f32 f32 and void`; each program is now its one TS8002 or TS8027, and a
-  write to a read binding keeps its TS8005. The backend's TS8015, from `src/core`'s uniform
-  layout, keeps WGSL's spelling (`array<vec2<f32>,4>`). Measured: the audit's and three reviews'
-  probe programs (a class, a namespaced and a generic class, a vector, a matrix, an array, a
-  sampler and a texture in each message family) print the author's spelling in `compile()` and in
+  write to a read binding keeps its TS8005. A value returned from a function that says it
+  returns nothing reads `returns a value of type vec3`, where #249's sentence said `vec3<f32>`;
+  and the host import names a type as written where a call or a binding has no host value, `a
+vec3f64 waits for change 0013's f64 split` for `an vec3<f64>`, and a binding in its runtime
+  errors, `binding "pts" (array<vec2>)` for `(array<vec2<f32>>)`. The backend's TS8015, from
+  `src/core`'s uniform layout, keeps WGSL's spelling (`array<vec2<f32>,4>`). Measured: the
+  audit's and three reviews' probe programs (a class, a namespaced and a generic class, a
+  vector, a matrix, an array, a sampler and a texture in each message family) print the author's
+  spelling in `compile()` and in
   the editor, and `type-spelling.test.ts` pins them by code and text and pastes every spelling and
   every remedy back; 22 valid programs around `.length`, `_`, namespaced, generic and mixin
   classes, statics, object literals, entries, module consts, binding reads and writes and

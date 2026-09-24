@@ -64,7 +64,7 @@ describe('a `: void` function that returns a value is refused (#212)', () => {
 
   it('an entry: the annotation it names is spelled as an author writes it', () => {
     const message =
-      'Function "fs" returns void but returns a value of type vec4<f32>: write ": vec4" as its ' +
+      'Function "fs" returns void but returns a value of type vec4: write ": vec4" as its ' +
       'return type, or return nothing.';
     const r = compile(ENTRY);
     expect(compilerErrors(ENTRY)).toEqual([`TS8003 ${message}`]);

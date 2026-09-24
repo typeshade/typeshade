@@ -2980,7 +2980,7 @@ export function fillFunctionBody(
           r.span,
           node.name ?? node,
           `Function "${shown ?? stub.name}" returns void but returns a value of type ` +
-            `${typeKey(r.expr.type)}: write ": ${authorTypeText(r.expr.type)}" as its return ` +
+            `${authorTypeText(r.expr.type)}: write ": ${authorTypeText(r.expr.type)}" as its return ` +
             `type, or return nothing.`,
           TS_CODES.TYPE_MISMATCH,
         ),

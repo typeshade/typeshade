@@ -316,6 +316,46 @@ export function isB(m: i32): bool { return m === Mode.B; }
     expect((m.isB as (x: number) => boolean)(4)).toBe(true);
   });
 
+  it('loads a module whose exports are named after the globals its code reads', async () => {
+    // A name the file declares is the file's (Rule 2.1), and the generated module binds none of
+    // them: each export is bound under a name of its own and exported under the file's. Bound as
+    // written, an export `Object` beside an enum left its `Object.freeze` undefined, and `Math`
+    // the `Math.imul` of an integer product and the `Math.fround` of a comparison, so the module
+    // did not load; an enum `eval` was a module the host could not parse.
+    const source = `"use typeshade";
+export enum Mode { A, B = 4 }
+export enum eval { C = 7 }
+const K: f32 = 1.5;
+export function Object(x: f32): f32 { return x * 2.; }
+export function Math(a: i32, b: i32): i32 { return a * b; }
+export function NaN(x: f32): bool { return x === K; }
+export function Infinity(x: f32): f32 { return x + K; }
+export function undefined(x: f32): f32 { return -x; }
+export const Array: f32 = 1.;
+export const Symbol: f32 = 2.;
+export const globalThis: f32 = 3.;
+export const Error: f32 = 4.;
+export const Number: f32 = 5.;
+`;
+    // The code reads each global the exports would have shadowed.
+    const code = face(source).code;
+    for (const read of ['Object.freeze(', 'Math.imul(', 'Math.fround('])
+      expect(code).toContain(read);
+    const m = await load(source);
+    const call = (name: string, ...args: number[]): unknown =>
+      (m[name] as (...a: number[]) => unknown)(...args);
+    expect(m.Mode).toEqual({ A: 0, B: 4, 0: 'A', 4: 'B' });
+    expect(m.eval).toEqual({ C: 7, 7: 'C' });
+    expect(call('Object', 3)).toBe(6);
+    expect(call('Math', 3, 4)).toBe(12);
+    expect(call('NaN', 1.5)).toBe(true);
+    expect(call('Infinity', 1)).toBe(2.5);
+    expect(call('undefined', 2)).toBe(-2);
+    expect([m.Array, m.Symbol, m.globalThis, m.Error, m.Number]).toEqual([1, 2, 3, 4, 5]);
+    // A callable export keeps the file's name as its own.
+    expect((m.Object as () => unknown).name).toBe('Object');
+  });
+
   it('starts a module private variable over at every call, as one invocation', async () => {
     const m = await load(`"use typeshade";
 let count: f32 = 0.;

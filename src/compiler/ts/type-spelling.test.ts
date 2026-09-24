@@ -108,6 +108,18 @@ describe('a message names a vector, a matrix and an array as the author writes t
     ]);
   });
 
+  it('a value returned from a function that says it returns nothing', () => {
+    // #249's sentence, merged after the rest took this printer, spelled `vec3<f32>`.
+    expect(said('function f(a: f32): void { return vec3(a, 1., 2.); }')).toEqual([
+      'TS8003 Function "f" returns void but returns a value of type vec3: write ": vec3" as its ' +
+        'return type, or return nothing.',
+    ]);
+    expect(said('function f(a: u32): void { return vec2u(a, a); }')).toEqual([
+      'TS8003 Function "f" returns void but returns a value of type vec2u: write ": vec2u" as ' +
+        'its return type, or return nothing.',
+    ]);
+  });
+
   it('a matrix by its name, and a matrix of doubles by the generic form', () => {
     expect(said('export function k(m: mat3x3, v: vec4): vec4 { return m * v; }')).toEqual([
       'TS8003 Type mismatch: cannot * mat3x3 and vec4. Types must match.',

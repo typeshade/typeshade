@@ -90,7 +90,7 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { console.log(
     const dir = tempDir();
     const out = await typeshade().transform(TERRAIN, join(dir, 'terrain.shade.ts'));
     expect(out?.code).toMatch(/^import \* as __ts_rt from "typeshade\/runtime";$/m);
-    expect(out?.code).toContain('export function height(p, k) {');
+    expect(out?.code).toMatch(/^export \{.* as height\b.*\};$/m);
   });
 
   it('refuses a shader module under another name, with the rename (Rule 3.8)', async () => {
