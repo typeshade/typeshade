@@ -722,8 +722,14 @@ elaboration of that error asks for under `lib: []`. So the projection also write
 the front end gave a function: `: vec2` after the parameter list of every function declaration,
 method, getter, arrow function or function expression that writes none, whose `return` or
 expression body applies one of those operators (`ERASING_OPERATORS`, so `return lo <= p` is a
-`vec3b`), and whose type is one of the same vectors or matrices. An arrow
-function's one bare parameter gets parentheses too, `(x): vec2 => x * k`. The type comes from a
+`vec3b`), and whose type is one of the same vectors or matrices, or a scalar (`f32`, `i32`,
+`u32`, `f64`), which TypeScript types `number` where the front end has a brand (0015's class B:
+`get period() { return this.r * 2. }`). An arrow function's one bare parameter gets parentheses
+too, `(x): vec2 => x * k`. And a class field with an initializer and no annotation, static or not,
+private or not, whose front-end type is a scalar gets its type after its name: `#width: f32 =
+0.05`, `static readonly MIN_WIDTH: f32 = 0.01`, which TypeScript would type `number` and the
+literal `0.01`. A local keeps the vector-and-matrix rule above: hover answers for a local from
+the front end's own record already. The type comes from a
 side table the front end fills as it lowers each body (`recordInferredReturn` in
 `compiler/ts/symbols.ts`, keyed by the node's offset, and left empty for a node lowered to two
 types, as a generic function's instances or the copies of a function that takes a function are),

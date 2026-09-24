@@ -17,6 +17,12 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **An unannotated scalar field or return has the compiler's type in the editor** (surface §49,
+  Rule 12.7, proposal 0015). `#width = 0.05`, `static readonly MIN_WIDTH = 0.01` and a getter
+  that returns `this.r * 2.` hover as `f32` where they said `number` (or the literal `0.01`):
+  the language service writes the front end's type in, as it does for a vector. Plain `tsc`
+  reads the file as written and still says `number`.
+
 - **A builtin's result has the compiler's type in the editor** (surface §49, Rule 12.7,
   proposal 0017). The math builtins' declarations are generated from Tint's overload table,
   `core.def`, one overload per row, so `dot(a, b)` on two `vec3u` hovers as `u32`, `max(n, m)` on

@@ -300,31 +300,19 @@ const groupOf = (d: Divergence): string => `${d.reads} | ${d.compiler} | ${d.edi
  * files each under.
  *
  *   A  a builtin's result, which the ambient library retypes instead of deriving
- *   B  an unannotated scalar the document declares, which TypeScript infers as `number`
+ *   B  an unannotated scalar the document declares, which TypeScript infers as `number`: none
+ *      left since the projection writes a scalar field's and a scalar return's type in
  *   C  a constructor or a method that loses a type argument
  *
  * SHRINK-ONLY: a fix takes its rows out in the same change; a row that no longer occurs fails.
  */
-const KNOWN: Readonly<Record<string, 'A' | 'B' | 'C'>> = {
+const KNOWN: Readonly<Record<string, 'A' | 'C'>> = {
   // A. A builtin's result, where the ambient library retyped it. The math family and the
   // derivatives, bits and packing are generated from `core.def` since 0017; `determinant`
   // takes a matrix, which the generator has no form for yet.
   'determinant() | f32 | number': 'A',
-  // B. A scalar the document declares with no annotation (a field, a method or function
-  // return), which TypeScript infers from a literal as `number` and the front end as `f32`.
-  // `falloff()` was behind a `distance()` that said `number`.
-  '.#width | f32 | number': 'B',
-  '.MIN_WIDTH | f32 | number': 'B',
-  '.SIZE | f32 | number': 'B',
-  '.dist | f32 | number': 'B',
-  '.drawn | f32 | number': 'B',
-  '.next() | f32 | number': 'B',
-  '.period | f32 | number': 'B',
-  'draw() | f32 | number': 'B',
-  'falloff() | f32 | number': 'B',
   // C. A constructor or a method that loses a type argument: `array(...)` its element and
   // count, an array method its element, a static builder its `this` class.
-  '.map() | array<f32, 4> | array<number, 4>': 'C',
   '.reduce() | f32 | number': 'C',
   '.unit() | Capped | Disc': 'C',
   'array() | array<f32, 3> | array<number>': 'C',

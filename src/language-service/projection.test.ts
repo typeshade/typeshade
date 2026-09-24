@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { createTypeshadeLanguageService } from './service.js';
 import { Projection, planInsertions } from './projection.js';
+import { compileTsSource } from '../compiler/ts/source-file.js';
 
 const SOURCE = `"use typeshade";
 class Frame { time: f32; scale: f32; }
@@ -219,7 +220,11 @@ export function c(p: vec2) {
   return length(p) * 2.;
 }
 `;
-    expect(planInsertions(plain, 'p.shade.ts')).toEqual([]);
+    // `a` writes its type and `b` returns a call TypeScript types right, so neither is touched.
+    // `c` returns scalar arithmetic, which TypeScript types `number` and the front end `f32`: its
+    // return is written in since 0015's class B, as a vector one's always was.
+    const at = plain.indexOf('c(p: vec2)') + 'c(p: vec2)'.length;
+    expect(planInsertions(plain, 'p.shade.ts')).toEqual([{ at, text: ': f32' }]);
   });
 
   it('writes the return type of a function that returns a mask or a bitwise result', () => {
@@ -325,5 +330,69 @@ describe('the offset maps', () => {
       0, 1, 2, 2, 2, 2, 3, 4, 5, 5, 5, 5, 5, 6, 7, 8,
     ]);
     for (let o = 0; o <= 8; o++) expect(p.toOriginal(p.toProjected(o))).toBe(o);
+  });
+});
+
+describe('a scalar field or a scalar return the document leaves unannotated (0015 class B)', () => {
+  // TypeScript infers `number`, or a literal type, from `0.05` and from `this.r * 2.`; the front
+  // end says `f32`. The projection writes the front end's type after the name or the parameter
+  // list, so a hover, a completion and the call it feeds read `f32` as the compiler does.
+  const src = `"use typeshade";
+class Ring {
+  static readonly MIN_WIDTH = 0.01;
+  static drawn = 0.;
+  #width = 0.05;
+  r: f32 = 1.;
+  get period() {
+    return this.r * 2.;
+  }
+  width() {
+    return max(this.#width, Ring.MIN_WIDTH);
+  }
+}
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const ring = new Ring();
+  const falloff = (d: f32) => 0.004 / (d * d + 0.002);
+  return vec4(ring.period + ring.width() + falloff(uv.x), 0., 0., 1.);
+}
+`;
+
+  it('writes f32 after each unannotated scalar field and scalar return, and nothing else', () => {
+    // `width()` returns a `max(...)` TypeScript already types `f32` (its overload is generated
+    // from core.def), and `r` writes its type: neither is touched.
+    const written = planInsertions(src, 'ring.shade.ts').map(
+      (i) => `${src.slice(Math.max(0, i.at - 12), i.at)}|${i.text}`,
+    );
+    expect(written).toEqual([
+      'ly MIN_WIDTH|: f32',
+      'static drawn|: f32',
+      '0.;\n  #width|: f32',
+      'get period()|: f32',
+      'f = (d: f32)|: f32',
+    ]);
+  });
+
+  it('is a program both halves accept, and the editor hovers each as the compiler types it', () => {
+    const compiled = compileTsSource(src);
+    expect(compiled.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const typeAt = (text: string): string | undefined => {
+      const start = src.indexOf(text);
+      const e = compiled.expressions.find((x) => x.start === start && x.length === text.length);
+      return e === undefined ? undefined : JSON.stringify(e.type);
+    };
+    const f32Type = JSON.stringify({ kind: 'scalar', scalar: 'f32' });
+    expect(typeAt('ring.period')).toBe(f32Type);
+    expect(typeAt('falloff(uv.x)')).toBe(f32Type);
+
+    const s = createTypeshadeLanguageService();
+    s.openDocument('ring.shade.ts', src);
+    expect(s.getDiagnostics('ring.shade.ts')).toEqual([]);
+    const hover = (text: string, offset: number): string =>
+      s.getHover('ring.shade.ts', s.positionAt('ring.shade.ts', src.indexOf(text) + offset))
+        ?.contents ?? '';
+    expect(hover('ring.period', 'ring.'.length)).toContain('period: f32');
+    expect(hover('Ring.MIN_WIDTH', 'Ring.'.length)).toContain('MIN_WIDTH: f32');
+    expect(hover('this.#width', 'this.'.length)).toContain('#width: f32');
   });
 });

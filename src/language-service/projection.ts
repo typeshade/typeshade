@@ -20,7 +20,11 @@
 //     expression body, applies such an operator (Rule 8.19): `: vec2` after its parameter list,
 //     and a pair of parentheses around an arrow function's one bare parameter. A function, a
 //     method, a getter, a field that holds a function, an arrow function or a function
-//     expression, local or handed to a call.
+//     expression, local or handed to a call. Its return is written in when it is a SCALAR
+//     too (`f32`, `i32`, `u32`, `f64`), which TypeScript types `number` (0015's class B);
+//   - a class field with an initializer and no annotation, static or not, private or not,
+//     whose front-end type is a scalar: `: f32` after its name. `#width = 0.05` is `number` to
+//     TypeScript and `static readonly MIN_WIDTH = 0.01` the literal `0.01`.
 //
 // Everything else is served as written. An insertion never spans a line break, so the two texts
 // have the same lines and differ only in the columns after an insertion on its own line.
@@ -133,6 +137,18 @@ export function ambientSpelling(type: ShaderType): string | undefined {
   return undefined;
 }
 
+/** `ambientSpelling`, and a scalar too: the `f32`, `i32`, `u32` or `f64` a class field or a
+ *  function's return is to the front end, which TypeScript infers as `number` from a literal or
+ *  arithmetic (0015's class B: `#width = 0.05`, `get period() { return this.r * 2. }`). A local
+ *  keeps `ambientSpelling`: hover already answers for a local from the front end's own record,
+ *  and a scalar there costs nothing downstream. The brands are optional, so writing one in
+ *  rejects no `number`; a `bool` is TypeScript's own `boolean` already. */
+function memberSpelling(type: ShaderType): string | undefined {
+  if (type.kind === 'scalar') return type.scalar === 'bool' ? undefined : type.scalar;
+  if (type.kind === 'f64') return 'f64';
+  return ambientSpelling(type);
+}
+
 /**
  * The insertions for `text`: a `: <type>` after the name of every unannotated local or module
  * const whose initializer applies an operator TypeScript types as a `number` or a `boolean`, and
@@ -144,7 +160,11 @@ export function ambientSpelling(type: ShaderType): string | undefined {
 export function planInsertions(text: string, fileName: string): Insertion[] {
   // The front end is the expensive half; a document with no candidate declaration skips it.
   const syntax = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
-  if (candidates(syntax).length === 0 && functionCandidates(syntax).length === 0) {
+  if (
+    candidates(syntax).length === 0 &&
+    functionCandidates(syntax).length === 0 &&
+    fieldCandidates(syntax).length === 0
+  ) {
     return [];
   }
   let analysis: ReturnType<typeof compileTsSource>;
@@ -159,7 +179,23 @@ export function planInsertions(text: string, fileName: string): Insertion[] {
     if (symbol.kind === 'local' || symbol.kind === 'const')
       byNameStart.set(symbol.start, symbol.type);
   }
+  const fieldTypes = new Map<number, ShaderType>();
+  for (const symbol of analysis.symbols) {
+    if (symbol.kind === 'field' || symbol.kind === 'const' || symbol.kind === 'binding')
+      fieldTypes.set(symbol.start, symbol.type);
+  }
   const out: Insertion[] = [];
+  for (const name of fieldCandidates(analysis.sourceFile)) {
+    const type = fieldTypes.get(name.getStart(analysis.sourceFile));
+    // A field whose initializer is a vector call TypeScript types right (`c = vec2(0.)`); only a
+    // scalar, which a literal or arithmetic leaves `number`, is written in unless it applied an
+    // operator (the rule for a local, above).
+    const spelled =
+      type === undefined || (type.kind !== 'scalar' && type.kind !== 'f64')
+        ? undefined
+        : memberSpelling(type);
+    if (spelled !== undefined) out.push({ at: name.getEnd(), text: `: ${spelled}` });
+  }
   for (const name of candidates(analysis.sourceFile)) {
     const type = byNameStart.get(name.getStart(analysis.sourceFile));
     const spelled = type === undefined ? undefined : ambientSpelling(type);
@@ -168,7 +204,7 @@ export function planInsertions(text: string, fileName: string): Insertion[] {
   const sf = analysis.sourceFile;
   for (const fn of functionCandidates(sf)) {
     const type = inferredReturnAt(sf, fn.getStart(sf));
-    const spelled = type === undefined ? undefined : ambientSpelling(type);
+    const spelled = type === undefined ? undefined : memberSpelling(type);
     if (spelled === undefined) continue;
     const close = fn.getChildren(sf).find((c) => c.kind === ts.SyntaxKind.CloseParenToken);
     if (close !== undefined) {
@@ -226,6 +262,26 @@ function functionCandidates(sourceFile: ts.SourceFile): FunctionCandidate[] {
       returnedValues(node).some(hasOperator)
     ) {
       out.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return out;
+}
+
+/** The name of every class field TypeScript may type wrongly: one with an initializer and no
+ *  annotation, static or not, private (`#width`) or not. What the front end typed it decides
+ *  whether anything is written (a scalar is; see `planInsertions`). */
+function fieldCandidates(sourceFile: ts.SourceFile): (ts.Identifier | ts.PrivateIdentifier)[] {
+  const out: (ts.Identifier | ts.PrivateIdentifier)[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isPropertyDeclaration(node) &&
+      (ts.isIdentifier(node.name) || ts.isPrivateIdentifier(node.name)) &&
+      node.type === undefined &&
+      node.initializer !== undefined
+    ) {
+      out.push(node.name);
     }
     ts.forEachChild(node, visit);
   };
