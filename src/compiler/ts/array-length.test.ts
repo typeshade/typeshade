@@ -102,8 +102,11 @@ export function fs(): vec4 { return vec4(f32(arrayLength(u)), 0., 0., 1.); }
     const param = errorsOf(`"use typeshade";
 export function n(xs: array<f32>): u32 { return arrayLength(xs); }
 `);
+    // A parameter cannot hold an array with no size at all (Rule 12.6), which is the more
+    // fundamental problem, and the function is not lowered past it.
     expect(param).toHaveLength(1);
-    expect(param[0]).toContain(TS_CODES.UNSIZED_ARRAY_LENGTH);
+    expect(param[0]).toContain(TS_CODES.FUNCTION_SHAPE);
+    expect(param[0]).toContain('Parameter "xs" is array<f32>, an array with no size');
   });
 
   it('takes exactly one argument', () => {

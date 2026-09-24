@@ -1835,13 +1835,14 @@ array in the storage space, which is the binding itself or a trailing array fiel
 struct (`arrayLength(b.xs)` for `declare const b: storage<Buf>`). Measured on Tint,
 `arrayLength(&src[0])` is refused and `arrayLength(&b.xs)` accepted, and the front end draws
 the same line: an element, a sized array or a value that is not an array is refused (TS8003)
-with what it is. A local that copies the binding (`const a = src`) denotes what the binding
-denotes, so `a.length` reads the same length.
+with what it is. A `const` that names the binding (`const a = src`) is the binding, as it is in
+TypeScript: nothing is copied, and `a[i]` and `a.length` read `src`.
 
-**An unsized array that is not in storage has no runtime length.** A `uniform<array<f32>>`, a
-local `array<f32>` or a parameter typed `array<f32>` was already invalid GPU code (Tint:
-"runtime-sized arrays can only be used in the <storage> address space"), and `.length` or
-`arrayLength` on one is refused (TS8032) with the one fix that works: give the type a size,
+**An unsized array lives in a storage binding alone** (Tint: "runtime-sized arrays can only be
+used in the <storage> address space"). A parameter or a result that holds one, directly or as a
+struct's last field, is refused (TS8020), and so is a local that would hold a copy, a `let`
+(TS8099): read the binding by its name instead. A `uniform<array<f32>>` is refused (TS8051), and
+`.length` or `arrayLength` on it (TS8032) with the one fix that works: give the type a size,
 `array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
 
 **The CPU oracle** reads the bound buffer's length, so `compile().eval` and the debug stepper

@@ -41,6 +41,7 @@ import {
   withTypeArguments,
 } from '../generics.js';
 import { refuseAtomicDeclaration } from './atomics.js';
+import { refuseRuntimeArraySignature } from './runtime-array.js';
 import {
   captureArguments,
   captureBindings,
@@ -2033,6 +2034,17 @@ export function parseParams(
     if (refuseAtomicDeclaration(pType, p.type, sourceFile, diagnostics, 'a parameter'))
       return undefined;
     if (!pType) return undefined;
+    if (
+      refuseRuntimeArraySignature(
+        pType,
+        { kind: 'parameter', name: p.name.text },
+        p.type,
+        sourceFile,
+        diagnostics,
+        (n) => structs.find((c) => c.decl.name === n)?.decl,
+      )
+    )
+      return undefined;
     const builtinArg = builtinDecoratorArg(decoratorsOf(p));
     let builtin: string | undefined;
     if (builtinArg) {
@@ -2210,6 +2222,17 @@ export function parseReturnType(
   if (typeNode.kind !== ts.SyntaxKind.VoidKeyword) {
     const mapped = mapTsTypeToShaderType(typeNode, sourceFile, diagnostics);
     if (refuseAtomicDeclaration(mapped, typeNode, sourceFile, diagnostics, 'a return type'))
+      return undefined;
+    if (
+      refuseRuntimeArraySignature(
+        mapped,
+        { kind: 'result' },
+        typeNode,
+        sourceFile,
+        diagnostics,
+        (n) => structs.find((c) => c.decl.name === n)?.decl,
+      )
+    )
       return undefined;
     // The annotation said why it names no type, on its own span. "Unsupported return type
     // for f" repeated that on the same span and named nothing the first one had not (T10).

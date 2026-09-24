@@ -122,15 +122,23 @@ export function fs(): vec4 {
     expect(r.wgsl).toContain('arrayLength(&src)');
   });
 
+  // A local or a parameter that would hold an array with no size is refused where it is
+  // declared (Rule 12.6), before any `.length` on it: the declaration is the thing Tint refuses.
+  const declarationRefusal = (src: string): string => {
+    const errors = compileTsSource(src).diagnostics.filter((d) => d.category === 'error');
+    expect(errors).toHaveLength(1);
+    return `${errors[0]!.code} ${errors[0]!.message}`;
+  };
+
   it('a local array with no N is told to give it a size', () => {
-    const m = messageFor(`"use typeshade";
+    const m = declarationRefusal(`"use typeshade";
 @fragment
 export function fs(): vec4 {
   const xs = array<f32>(1., 2., 3.);
   return vec4(f32(xs.length), 0., 0., 1.);
 }
 `);
-    expect(m).toContain('array<f32, 3>');
+    expect(m).toMatch(/^TS8099 .*Give the array a size: array<f32, 3>\.$/);
     expect(m).not.toContain('arrayLength');
   });
 
@@ -152,10 +160,11 @@ export function fs(): vec4 { return vec4(f32(u.length), 0., 0., 1.); }
   });
 
   it('a parameter is told to give it a size', () => {
-    const m = messageFor(`"use typeshade";
+    const m = declarationRefusal(`"use typeshade";
 export function n(xs: array<f32>): i32 { return xs.length; }
 `);
-    expect(m).toContain('array<f32, 3>');
+    // The size is one of its two remedies.
+    expect(m).toMatch(/^TS8020 .*Give it a size, array<f32, N>/);
     expect(m).not.toContain('arrayLength');
   });
 });

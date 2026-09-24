@@ -1504,6 +1504,15 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **An array with no size is refused where it would leave its storage binding, not by Tint**
+  (Rule 12.6, surface §20). A parameter or a result typed `array<T>`, or a struct whose last field
+  is one, and a `let` that would copy one, compiled with no diagnostic and reached Tint, which
+  refused the module (`runtime-sized arrays can only be used in the <storage> address space`).
+  The front end now refuses each in the author's words (`TS8020` for a parameter or a result,
+  `TS8099` for a local), with the remedy. A `const` that names the binding (`const a = src`) is
+  now the binding, as in TypeScript: it used to emit `let a = src`, which Tint refused as soon as
+  `a` was indexed, and now `a[i]`, `a.length` and writes through `a` read and write `src`.
+
 - **`dispatch` and the debugger no longer throw on a `console` call.** The lockstep interpreter
   (`src/core/debug/interp.ts`) had no arm for one: `cpu.dispatch` of a kernel that logged threw
   `typeshade/debug: unknown fn console.log`, as did stepping over the call. It now evaluates the
