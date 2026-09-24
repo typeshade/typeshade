@@ -13,7 +13,7 @@
 //   4. each run, on WebGPU, produces what the journey's plain-JavaScript reference computes;
 //   5. the same run on the CPU oracle (`compileModule`) produces it too.
 
-import { compile, reflect, compileModule } from 'typeshade';
+import { compile, reflect, compileModule, decodeConsole } from 'typeshade';
 import { createTypeshadeLanguageService } from 'typeshade/language-service';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -88,8 +88,10 @@ const wire = (a) => ({
 });
 
 /** Every binding of group 0, as a bind group layout entry needs it. */
-function layoutOf(module) {
-  const group = reflect(module).bindGroups.find((g) => g.group === 0);
+function layoutOf(module, console) {
+  const group = reflect(module, console ? { console: 'gpu' } : undefined).bindGroups.find(
+    (g) => g.group === 0,
+  );
   return (group?.entries ?? []).map((e) => ({
     binding: e.binding,
     name: e.name,
@@ -102,18 +104,36 @@ for (const id of journeys) {
   const spec = (await import(pathToFileURL(join(process.cwd(), ROOT, id, 'journey.mjs')).href))
     .default;
   for (const [n, run] of spec.runs.entries()) {
-    const r = compiled.get(join(ROOT, id, run.shader));
+    const path = join(ROOT, id, run.shader);
+    const r = compiled.get(path);
     if (!r?.wgsl) continue;
     const bindings = Object.fromEntries(
       Object.entries(run.bindings).map(([k, v]) => [k, wire(v.gpu)]),
     );
+    // A run with `console` is compiled again with the WGSL recording its console calls, and
+    // the harness binds the `_console` buffer the reflection reports (surface §66).
+    let wgsl = r.wgsl;
+    let consoleLog;
+    if (run.console) {
+      const rc = compile(readFileSync(path, 'utf8'), { fileName: path, console: 'gpu' });
+      for (const d of rc.diagnostics)
+        fail(path, `compile({ console: 'gpu' }) ${d.category} ${d.code}: ${d.message}`);
+      if (!rc.wgsl || !rc.console) {
+        fail(path, "compile({ console: 'gpu' }) recorded no console call");
+        continue;
+      }
+      wgsl = rc.wgsl;
+      consoleLog = rc.console;
+      bindings._console = wire(new Uint32Array(2 + run.console.capacity));
+    }
     jobs.push({
       id: `${id}#${n}`,
       spec,
       run,
       module: r.module,
-      wgsl: r.wgsl,
-      layout: layoutOf(r.module),
+      wgsl,
+      consoleLog,
+      layout: layoutOf(r.module, run.console !== undefined),
       bindings,
     });
   }
@@ -182,6 +202,14 @@ async function runOnGpu(job) {
       float: true,
     };
     encoder.copyBufferToBuffer(buffer, 0, readback.buffer, 0, size);
+    if (job.readConsole) {
+      const c = buffers._console;
+      readback.console = device.createBuffer({
+        size: c.size,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      encoder.copyBufferToBuffer(c.buffer, 0, readback.console, 0, c.size);
+    }
   } else {
     const [w, h] = job.size;
     const format = 'rgba8unorm';
@@ -219,6 +247,11 @@ async function runOnGpu(job) {
   device.queue.submit([encoder.finish()]);
   await readback.buffer.mapAsync(GPUMapMode.READ);
   const raw = readback.buffer.getMappedRange().slice(0);
+  let consoleWords = null;
+  if (readback.console) {
+    await readback.console.mapAsync(GPUMapMode.READ);
+    consoleWords = [...new Uint32Array(readback.console.getMappedRange().slice(0))];
+  }
   const error = await device.popErrorScope();
   let values;
   if (readback.float) values = [...new Float32Array(raw)];
@@ -231,6 +264,7 @@ async function runOnGpu(job) {
   }
   return {
     values,
+    consoleWords,
     error: error ? error.message : null,
     messages: info.messages.map((m) => `${m.type}: ${m.message}`),
   };
@@ -292,6 +326,7 @@ for (const job of jobs) {
       vertex: run.vertex,
       fragment: run.fragment,
       size: run.size,
+      readConsole: job.consoleLog !== undefined,
     });
   } catch (e) {
     fail(job.id, `WebGPU threw: ${e.message.split('\n')[0]}`);
@@ -302,10 +337,14 @@ for (const job of jobs) {
   const g = worst(gpu.values, expected, run.tolerance);
   if (!g.ok) fail(job.id, `WebGPU result off by ${g.text} (tolerance ${run.tolerance})`);
 
-  // The CPU oracle.
+  // The CPU oracle, and the console lines it delivers to the sink.
   let cpuValues;
+  const cpuLines = [];
   try {
-    const m = compileModule(job.module);
+    const m = compileModule(job.module, {
+      consoleSink: (e) =>
+        cpuLines.push({ method: e.method, args: e.args, invocation: e.invocation }),
+    });
     for (const [name, b] of Object.entries(run.bindings))
       m.setBinding(name, structuredClone(b.cpu));
     if (run.kind === 'render') {
@@ -329,6 +368,23 @@ for (const job of jobs) {
   }
   const c = worst(cpuValues, expected, run.tolerance);
   if (!c.ok) fail(job.id, `CPU oracle result off by ${c.text} (tolerance ${run.tolerance})`);
+
+  // The console lines: decoded from WebGPU, delivered on the CPU, and the host's own, all equal.
+  if (job.consoleLog) {
+    const want = JSON.stringify(run.console.expected());
+    const decoded = decodeConsole(new Uint32Array(gpu.consoleWords ?? []), job.consoleLog);
+    const gpuLines = decoded.events.map((e) => ({
+      method: e.method,
+      args: e.args,
+      invocation: [...e.invocation],
+    }));
+    if (decoded.dropped > 0) fail(job.id, `WebGPU dropped ${decoded.dropped} console lines`);
+    if (JSON.stringify(gpuLines) !== want)
+      fail(job.id, `WebGPU console lines differ from the host's (${gpuLines.length} lines)`);
+    if (JSON.stringify(cpuLines.map((l) => ({ ...l, invocation: [...l.invocation] }))) !== want)
+      fail(job.id, `CPU oracle console lines differ from the host's (${cpuLines.length} lines)`);
+    console.log(`     ${job.id.padEnd(16)} console: ${gpuLines.length} lines from WebGPU`);
+  }
   console.log(
     `${g.ok && c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${expected.length} values, worst relative error WebGPU ${g.text}, CPU oracle ${c.text}`,
   );

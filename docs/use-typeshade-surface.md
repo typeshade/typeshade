@@ -6370,6 +6370,11 @@ WGSL cannot record, and the call still reaches the sink on the CPU:
 GLSL ES 3.00 has no storage buffer and records nothing, with no diagnostic. A discarded fragment
 writes nothing after its `discard`.
 
+`examples/gpu-console.shade.ts` is the kernel above with a helper that warns; the compile gate
+hands Tint its WGSL both ways, as written and under `console: 'gpu'`. The `console-log` journey
+runs it on WebGPU from the packed tarball and holds the lines `decodeConsole` returns equal to
+the CPU run's and to its host's own, line for line.
+
 **The editor** declares each method as the standard console does, taking any argument, and
 reports what the compiler refuses among them in the compiler's words.
 

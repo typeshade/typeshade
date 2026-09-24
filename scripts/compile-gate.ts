@@ -50,6 +50,7 @@ import type { AddressInfo } from 'node:net';
 import { chromium } from 'playwright';
 import { examples } from '../examples/index.js';
 import { shadeExamples } from '../examples/_shade.js';
+import { consoleBuffer, hasConsoleCall } from '../src/core/passes/console-buffer.js';
 import {
   emitGlslModule,
   emitModule,
@@ -263,8 +264,18 @@ function pipelineOf(m: ModuleDecl): [PipelineSpec | null, string] {
   return [{ vertexEntry: vs.name, fragmentEntry: fs.name, buffers, targets }, ''];
 }
 
+/** Each example whose module makes a console call, as the WGSL `compile(src, { console: 'gpu' })`
+ *  writes it (surface §66): a second program, with the `_console` buffer and its stores, that Tint
+ *  reads on its own (Rule 11.9, Rule 13.3). */
+const CONSOLE_EXAMPLES = ALL_EXAMPLES.filter((ex) => hasConsoleCall(ex.module)).map((ex) => ({
+  ...ex,
+  id: `${ex.id}+console`,
+  module: consoleBuffer(ex.module).module,
+  renderable: false,
+}));
+
 function jobs(): Job[] {
-  return ALL_EXAMPLES.map((ex) => {
+  return [...ALL_EXAMPLES, ...CONSOLE_EXAMPLES].map((ex) => {
     const cut = ex.id === CUT;
     const wgsl = emitModule(ex.module);
     const glsl = ex.renderable
