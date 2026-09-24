@@ -528,6 +528,8 @@ export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f);
  *  are skipped; only the passes the spelling needs run. {@link emitFragment} runs the full
  *  set when the declarations form a module. */
 export function emitFuncs(funcs: readonly FuncDecl[]): string {
+  // A kernel function runs on the host's side of the call (Rule 8.22): it is not emitted.
+  funcs = funcs.filter((f) => f.kernel !== true);
   const lowered = pointerSpaces(
     selectComposite(
       fixpoint(

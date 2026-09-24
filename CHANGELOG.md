@@ -17,6 +17,11 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **The atomics, the barriers and `arrayLength` are declared from Tint's overload table** (surface
+  §49, Rule 12.7, proposal 0017). Their editor declarations are generated from `core.def`'s rows,
+  as the math builtins' are, and the compiler types each call from the same rows. What an author
+  sees does not change: the declarations read as they did, and a call's type is the one it had.
+
 - **`array(...)` and an array's `reduce` from a value have the compiler's type in the editor**
   (surface §49, Rule 12.7, proposal 0015). `array(uv.x, uv.y, 1.)` hovers as `array<f32, 3>`
   where it said `array<number>`, and `xs.reduce((a, x) => a + x, 0.)` as `f32` where it said
@@ -417,6 +422,19 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   form. It is recorded on WebGPU under `console: 'gpu'` like the other methods, and a stepped
   debug session delivers it too. The editor completes it after `console.`, and the host's second
   argument, the columns to show, is `TS8099` with the remedy.
+
+- **A kernel function, whose loops the compiler proves independent** (change 0013, part 1;
+  Rules 7.5, 8.6, 8.8, 8.22 and 8.23, surface §65). An exported function that takes an array with
+  no size, `render(k: vec4, size: u32, out: array<f32>)`, is a kernel function: its array is the
+  caller's storage, written in place (`out[i] = …`) and sized at run time (`xs.length`), which
+  `TS8018` and `TS8032` refused before. Each `for` at the top level of its body is proved
+  independent (R1 to R6 of #252): a map at `a*i + c`, row-major or a texel, a reduction
+  `s += x`, `s = max(s, x)`, or an integer scatter `bins[k] += 1` is accepted, and any other loop
+  runs on the CPU with a warning, `TS8070`, that names the line and the author's names and gives
+  the remedy, in the compiler and in the editor. The IR `for` carries the counted fact the front
+  end proved (`counted`), and `FuncDecl` the `kernel` mark every backend reads to leave the
+  function out of what it emits. A kernel function runs on the CPU oracle; its call through the
+  import, which dispatches the accepted loops on the GPU, is the next part.
 
 - **A debug session delivers the `console` calls it steps over** (§66,
   `changes/0018-debugger-console-sink.md`). `startDebugSession(m, entry, args, { consoleSink })`

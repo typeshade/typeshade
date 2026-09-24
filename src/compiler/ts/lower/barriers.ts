@@ -25,7 +25,7 @@
 
 import ts from 'typescript';
 import type { Expr } from '../../../core/ir/nodes.js';
-import { voidT } from '../../../core/ir/types.js';
+import { builtinResultType } from '../../../core/builtins/resolve.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -87,7 +87,10 @@ export function lowerBarrierStatement(
   // With the span the author wrote. Without it the §54 diagnostic fell back to the enclosing
   // declaration and underlined the entry's `@compute` decorator, pointing at the function
   // rather than at the barrier inside it.
-  const call: Expr = { op: 'call', type: voidT, fn: name, args: [] };
+  // No result: the row says so (0017), and a row that said otherwise would be a new builtin.
+  const type = builtinResultType(name, []);
+  if (type?.kind !== 'void') throw new Error(`${name}: core.def has no row that returns nothing`);
+  const call: Expr = { op: 'call', type, fn: name, args: [] };
   return withSpan(call, sourceFile, node);
 }
 

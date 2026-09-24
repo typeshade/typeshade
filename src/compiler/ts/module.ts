@@ -19,6 +19,7 @@ import { collectBindings } from './bindings.js';
 import { collectEnables } from './enables.js';
 import { collectOverrides } from './overrides.js';
 import { fillFunctionBody, parseSignature } from './lower/function.js';
+import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { analyzeSemantics } from './semantic.js';
 import { collectModuleConsts } from './module-const.js';
 import { collectModuleVars } from './module-vars.js';
@@ -467,6 +468,25 @@ export function compileTsSources(
   // A call cycle emits WGSL Tint refuses (#48). Across files it can be spelled through an
   // import, which is exactly why the resolver above goes through `callees`.
   checkRecursion(graph, diagnostics);
+  // A kernel function's loops that run on the CPU, each named in its own file (Rule 8.22).
+  if (funcs.some((f) => f.kernel === true) && !diagnostics.some((d) => d.category === 'error')) {
+    const fileOf = new Map<FuncDecl, ts.SourceFile>();
+    for (const table of exports.values())
+      for (const rec of table.values()) fileOf.set(rec.stub, rec.sf);
+    diagnostics.push(
+      ...kernelLoopDiagnostics(
+        {
+          consts,
+          structs: emittedStructDecls(merged.structs),
+          bindings: merged.bindings,
+          funcs,
+          overrides: merged.overrides,
+          vars,
+        },
+        (f) => fileOf.get(f) ?? entrySf ?? [...parsed.values()][0]!,
+      ),
+    );
+  }
 
   let wgsl: string | undefined;
   if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {

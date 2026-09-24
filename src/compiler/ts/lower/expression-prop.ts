@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/types.js';
+import { f32T, i32T, structT, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
 import {
@@ -28,6 +28,7 @@ import { numericMismatch } from '../numeric.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
 import { refuseBareAtomic } from './atomics.js';
+import { builtinResultType } from '../../../core/builtins/resolve.js';
 import { isArrayMethod, otherArrayMethod } from './array-methods.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -72,6 +73,11 @@ export function storageRooted(e: Expr, scope: LoweringScope): boolean {
  *  `['storage', 'workgroup']`, the two spaces WGSL allows an atomic in (§23, §24). */
 export function rootedIn(e: Expr, scope: LoweringScope, spaces: readonly string[]): boolean {
   switch (e.op) {
+    // A kernel function's array parameter is the caller's storage (Rule 8.23).
+    case 'param': {
+      const b = scope.resolveIr(e.name);
+      return b?.kind === 'param' && b.space !== undefined && spaces.includes(b.space);
+    }
     case 'varref': {
       // A local that copies a binding (`const a = src`) denotes what the binding denotes; the
       // chain is followed rather than stopped at the local, which answered "give it a size"
@@ -145,7 +151,11 @@ export function arrayLengthOf(
     );
     return undefined;
   }
-  return { op: 'call', type: u32T, fn: 'arrayLength', args: [base] };
+  // The row's result, `u32` (0017): `.length` reads the same builtin.
+  const type = builtinResultType('arrayLength', [base.type]);
+  if (type === undefined)
+    throw new Error('arrayLength: core.def has no row for a runtime-sized array');
+  return { op: 'call', type, fn: 'arrayLength', args: [base] };
 }
 
 export function lowerPropertyAccess(

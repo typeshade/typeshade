@@ -17,6 +17,7 @@
 //
 // Implements: Rule 4.8, Rule 6.8 (docs/language-design.md; traced in reqs/).
 
+import { withoutKernels } from './ir/kernels.js';
 import {
   type ShaderType,
   type StructDecl,
@@ -809,6 +810,8 @@ function bindingsIncludingInjected(
  *  @see {@link hostFeaturesFor} for turning `requiredFeatures` into one target's strings.
  */
 export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
+  // A kernel function is no entry and binds nothing: its arrays are the call's (Rule 8.23).
+  m = withoutKernels(m);
   if (opts?.console === 'gpu') return reflect(consoleBuffer(m).module, { ...opts, console: 'cpu' });
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   const { bindings: allBindings, lowered } = bindingsIncludingInjected(m, opts?.fp64Flavor);

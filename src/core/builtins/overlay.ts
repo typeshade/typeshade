@@ -187,6 +187,7 @@ export const ABSENT_TYPES = ['f16', 'u16', 'u64', 'i8', 'u8', 'subgroup_matrix']
 export const SUPPORTED_FAMILIES: ReadonlySet<Family> = new Set<Family>([
   'math',
   'derivatives, bits and packing',
+  'atomics, barriers and arrayLength',
 ]);
 
 /** Why a row has no instance TypeShade can spell, or undefined when it has one. */

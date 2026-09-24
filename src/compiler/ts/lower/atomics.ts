@@ -17,7 +17,7 @@
 import ts from 'typescript';
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { casResultT, i32T, typeKey, u32T, voidT } from '../../../core/ir/types.js';
+import { i32T, typeKey, u32T } from '../../../core/ir/types.js';
 import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { readOnlyPhrase, writableRemedy, type LoweringScope } from '../context.js';
@@ -26,6 +26,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
 import { rootedIn } from './expression-prop.js';
+import { builtinResultType } from '../../../core/builtins/resolve.js';
 
 function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
@@ -212,7 +213,7 @@ export function lowerAtomicCall(
       }
       args.push(v);
     }
-    return { op: 'call', type: casResultT(loc.type.elem), fn: name, args };
+    return { op: 'call', type: resultOf(name, args), fn: name, args };
   }
   if (sig.arity === 2) {
     const valueNode = node.arguments[1]!;
@@ -233,5 +234,16 @@ export function lowerAtomicCall(
     }
     args.push(value);
   }
-  return { op: 'call', type: sig.returns === 'void' ? voidT : elemT, fn: name, args };
+  return { op: 'call', type: resultOf(name, args), fn: name, args };
+}
+
+/** The call's result, read off `core.def`'s row for the arguments it was checked with (0017):
+ *  the value's type, nothing for `atomicStore`, the result struct for the compare-exchange. */
+function resultOf(name: string, args: readonly Expr[]): ShaderType {
+  const type = builtinResultType(
+    name,
+    args.map((a) => a.type),
+  );
+  if (type === undefined) throw new Error(`${name}: core.def has no row for the checked arguments`);
+  return type;
 }

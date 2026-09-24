@@ -42,6 +42,7 @@ import {
 } from '../generics.js';
 import { refuseAtomicDeclaration } from './atomics.js';
 import { refuseRuntimeArraySignature } from './runtime-array.js';
+import { kernelSourceNames } from '../kernel-loops.js';
 import {
   captureArguments,
   captureBindings,
@@ -1932,7 +1933,14 @@ export function parseParams(
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
   stage: FuncDecl['stage'] | undefined,
-  opts: { readonly owner?: string; readonly forbidSelf?: boolean; readonly fnName?: string } = {},
+  opts: {
+    readonly owner?: string;
+    readonly forbidSelf?: boolean;
+    readonly fnName?: string;
+    /** An exported function that is not an entry, whose array parameter with no size makes it
+     *  a kernel function (Rule 8.22) rather than a refusal. */
+    readonly mayBeKernel?: boolean;
+  } = {},
 ): FuncDecl['params'][number][] | undefined {
   const params: FuncDecl['params'][number][] = [];
   // `@location` slot → the parameter already holding it, for the collision rule below.
@@ -2034,7 +2042,12 @@ export function parseParams(
     if (refuseAtomicDeclaration(pType, p.type, sourceFile, diagnostics, 'a parameter'))
       return undefined;
     if (!pType) return undefined;
+    // An array with no size is a kernel function's parameter, the caller's storage (Rule 8.23),
+    // and nothing else's (Rule 12.6). A struct that holds one is not.
+    const kernelArray =
+      opts.mayBeKernel === true && pType.kind === 'array' && pType.size === undefined;
     if (
+      !kernelArray &&
       refuseRuntimeArraySignature(
         pType,
         { kind: 'parameter', name: p.name.text },
@@ -2148,6 +2161,8 @@ export function parseParams(
       ...(interpolate !== undefined
         ? { interpolate, attr: `@location(${String(location)}) ${interpolateAttr!}` }
         : {}),
+      // The caller's storage, passed by reference (Rule 8.23): no copy is made on the way in.
+      ...(kernelArray ? { mode: 'inout' as const } : {}),
     });
   }
   return params;
@@ -2271,6 +2286,11 @@ function namespaceNamesOf(sourceFile: ts.SourceFile): string[] {
   return out;
 }
 
+/** Whether a function declaration carries `export`. */
+function isExported(node: ts.FunctionDeclaration): boolean {
+  return (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0;
+}
+
 export function parseSignature(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
@@ -2314,7 +2334,7 @@ export function parseSignature(
     diagnostics,
     structs,
     stageInfo.stage,
-    { fnName: name },
+    { fnName: name, mayBeKernel: stageInfo.stage === undefined && isExported(node) },
   );
   if (!params) return undefined;
   // A function that writes no return type says it in its body (Rule 8.19); an entry's is its
@@ -2336,6 +2356,8 @@ export function parseSignature(
     return undefined;
   }
   const decl: FuncDecl = { name, params, ret, body: [] };
+  if (params.some((p) => p.type.kind === 'array' && p.type.size === undefined))
+    (decl as { kernel?: boolean }).kernel = true;
   recordParamDefaults(decl, node.parameters);
   // `node.getStart(sourceFile)` is the first decorator or the `export` keyword, so an entry
   // function's span covers its `@fragment` line; `nameSpan` is just the identifier, for a
@@ -2849,7 +2871,15 @@ export function fillFunctionBody(
       );
       return;
     }
-    const stored = scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true });
+    // A kernel function's array is the caller's storage, read and written in place (Rule 8.23).
+    const storage = stub.kernel === true && p.type.kind === 'array' && p.type.size === undefined;
+    const stored = scope.define({
+      kind: 'param',
+      name: p.name,
+      type: p.type,
+      mutable: true,
+      ...(storage ? { space: 'storage' as const } : {}),
+    });
     // What a local function in this body that captures the parameter passes for it (Rule 8.17).
     scope.bindDeclaration(declared, stored);
   });
@@ -2927,6 +2957,9 @@ export function fillFunctionBody(
     body = [...prologue, ...body];
   }
   (stub as { body: readonly Stmt[] }).body = body;
+  // A kernel function's loops are proved on its IR, and a refusal names the author's names
+  // (Rule 8.22): keep what each IR name was written as.
+  if (stub.kernel === true) kernelSourceNames.set(stub, scope.sourceNames());
   // The type a function that writes none returns, which the language service writes into the
   // text TypeScript reads when its return does vector arithmetic (#162, `projection.ts`).
   if (node.type === undefined && stub.stage === undefined) {

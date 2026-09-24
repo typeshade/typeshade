@@ -44,6 +44,7 @@ import { lowerUserCall } from './expression-misc.js';
 import { localFunctionOf } from './local-functions.js';
 import { declaringNode } from './closures.js';
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js';
+import { recordLoweredExpression } from '../symbols.js';
 import {
   broadcastResultType,
   f64WidenResultType,
@@ -1105,7 +1106,9 @@ function lowerExpressionAsStatement(
         scope,
         diagnostics,
       );
-      return barrier ? { s: 'call', expr: barrier } : undefined;
+      if (barrier === undefined) return undefined;
+      recordLoweredExpression(sourceFile, expr, barrier.type);
+      return { s: 'call', expr: barrier };
     }
     // A method that changes its object, `r.advance(2.)`, is a call that writes through its
     // receiver, and a value it returns is dropped here (§26); anything else takes the ordinary
@@ -1114,6 +1117,9 @@ function lowerExpressionAsStatement(
     if (mutating !== 'not-a-mutating-call') return mutating;
     const call = lowerCall(expr, sourceFile, scope, diagnostics);
     if (!call) return undefined;
+    // A call in expression position is recorded by `lowerExpression`; one that stands alone is
+    // recorded here, so the table the editor is compared against holds it too.
+    recordLoweredExpression(sourceFile, expr, call.type);
     if (call.op !== 'call') {
       pushDiag(
         diagnostics,
@@ -1810,7 +1816,8 @@ function checkRootNamed(
   }
   // A captured variable's parameter keeps the variable's rules (Rule 8.17).
   const rules = writeRules(binding);
-  if (rules.kind === 'param') {
+  // A kernel function's array is the caller's storage, written in place (Rule 8.23).
+  if (rules.kind === 'param' && rules.space !== 'storage') {
     pushDiag(
       diagnostics,
       sourceFile,
