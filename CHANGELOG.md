@@ -383,6 +383,12 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **The `gpu-console` example and the `console-log` journey** (§66, `changes/0014-gpu-console.md`,
+  now implemented). The compile gate hands Tint the WGSL of every example that logs twice, as
+  written and under `console: 'gpu'` (`gpu-console+console`), and the journey gate runs a logging
+  kernel from the packed tarball on WebGPU: the 163 lines `decodeConsole` reads back equal the
+  CPU run's and the host's plain-JavaScript ones. A journey run takes a `console` field for it.
+
 - **`console` calls reach the host from WebGPU, when the compile asks** (§66, design rules 6.11
   and 11.9, `changes/0014-gpu-console.md`; roadmap 0.2 item 6). `compile(src, { console: 'gpu' })`
   makes the WGSL record each `console.*` call a compute or fragment entry reaches, in one storage
