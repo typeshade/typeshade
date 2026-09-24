@@ -230,7 +230,7 @@ A private member `#m` is emitted without its `#` (Rule 8.12), and the two halves
 - Derives from: WGSL [Types](https://gpuweb.github.io/gpuweb/wgsl/#types), whose type names are lowercase; `src/language-service/ambient.ts`'s own `interface Array<T>` and the `lib: []` compiler options beside it.
 - Enforced by: `surface-names.test.ts`, whose WGSL source check passes only for a name the fixture carries under WGSL's spelling, so a capitalized WGSL name would be reported as unsourced and a lowercase TypeShade name needs a §9.3 row that review reads.
 
-### 3.5. Claim rules for numbers
+### 3.6. Claim rules for numbers
 
 **Rule 3.7.** A new surface section must take the next free `§` number in `docs/use-typeshade-surface.md` as the current tree makes it, and a new diagnostic must take the next free `TS80xx` code in `src/compiler/ts/codes.ts`.
 A branch working in parallel may instead be handed a block of numbers and take the number from the block.
