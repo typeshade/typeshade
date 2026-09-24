@@ -272,6 +272,13 @@ function reserveFn(): FuncDecl {
 const isConsoleCall = (e: Expr): e is Extract<Expr, { op: 'call' }> =>
   e.op === 'call' && e.declRef === undefined && e.fn.startsWith('console.');
 
+/** Whether any function of `m` makes a `console.*` call. */
+export function hasConsoleCall(m: ModuleDecl): boolean {
+  return m.funcs.some((f) =>
+    JSON.stringify(f.body, (k, v) => (k === 'declRef' ? undefined : v)).includes('"fn":"console.'),
+  );
+}
+
 /** Rewrite each console call a compute or fragment entry reaches into writes to the console
  *  buffer, and describe the buffer. Pure; `m` is not changed. */
 export function consoleBuffer(m: ModuleDecl): ConsoleBufferResult {
