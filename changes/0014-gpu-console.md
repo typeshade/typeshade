@@ -147,7 +147,7 @@ The design questions, and what this proposal takes:
    shader that logs, and a host that does not know about the buffer fails validation on its next
    dispatch. `docs/debugging.md` §1.1 turned a GPU printf down for that reason. Opt-in answers
    it: the build that wants the lines asks, like a debug build, and a production build is the
-   default. A runtime (0009's host import, 0012's kernel functions) turns it on in its
+   default. A runtime (0009's host import, the parallel-loop proposal's kernel functions (#260)) turns it on in its
    development mode.
 2. **The slot.** #76 left open "the highest unused group, or a fixed group such as 3". Both work
    on Chromium 141. This proposal takes a third: group 0, past the module's own bindings, because
@@ -195,8 +195,8 @@ Alternatives considered:
 - **Surface §66 (new): "`console`: what reaches the host, from the CPU and from the GPU".** The
   console surface has no section today. It holds the methods, what an argument may be, labels,
   the sink, the `'gpu'` option, the buffer's layout, the host's four steps, `decodeConsole`, the
-  order, `TS8071` and what is not recorded. It is the next free number after 0012's §65.
-- **TS8071 (new).** The warning. TS8069 is 0010's and TS8070 is 0012's.
+  order, `TS8071` and what is not recorded. It is the next free number after §65, which the parallel-loop proposal (#260) claims.
+- **TS8071 (new).** The warning. TS8069 is the directive proposal's (0012) and TS8070 is claimed by the parallel-loop proposal (#260).
 - **Exports**, re-baked into `src/__api__/surface.md` (Rule 11.6):
   - `CompileOptions` gains `console?: 'cpu' | 'gpu'`;
   - `CompileResult` gains `console?: ConsoleLog`;
