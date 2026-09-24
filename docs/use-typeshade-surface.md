@@ -6273,11 +6273,12 @@ as `lib.es5.d.ts` spells them with a `this` of `array<T, N>` and `index: i32`, a
 
 ## 64. Calling a module from host code
 
-An ordinary TypeScript file imports a `.shade.ts` and calls the functions it exports. The call
-runs the module's own code on the CPU tier, at `f32` precision, the way the GPU would compute it
-(Rule 11.7). No device, buffer or compile step appears in the host's code, and `typescript` is
-needed at build time only. Calling an entry point on a GPU is the second half of roadmap item 16,
-and comes in a proposal of its own.
+An ordinary TypeScript file imports a `.shade.ts` and calls the helper functions it exports. The
+call runs the module's own code **on the CPU tier, not on the GPU**, at `f32` precision, the way
+the GPU would compute it (Rule 11.7). It is how host code shares a shader's math: a height query,
+a picking test, a unit test. No device, buffer or compile step appears in the host's code, and
+`typescript` is needed at build time only. Calling an entry point on the GPU through the same
+import is the second half of roadmap item 16 (16b), and comes in a proposal of its own.
 
 ```ts
 "use typeshade";

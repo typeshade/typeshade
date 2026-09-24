@@ -104,8 +104,8 @@ you never write costs nothing in your bundle:
   in the shader type its author wrote. It is what an editor's debug adapter and the
   Playground's step panel are both built on. See `docs/debugging.md`.
 - `typeshade/vite` has the Vite plugin through which an ordinary host file imports a
-  `.shade.ts` and calls its functions on the CPU. See
-  [Calling a module from host code](#calling-a-module-from-host-code).
+  `.shade.ts` and calls its helper functions, which run on the CPU. See
+  [Calling a module's helpers from host code](#calling-a-modules-helpers-from-host-code).
 
 This package ships the authoring surface, and the small runtime a host import runs on. The
 shaders themselves live in your repository and import the package like any other dependency.
@@ -1580,11 +1580,14 @@ parameter reaches it; the pass never returns a zero derivative it did not derive
 function is checked against a central finite difference on the oracle, which is how to check
 one of your own.
 
-### Calling a module from host code
+### Calling a module's helpers from host code
 
 A `"use typeshade"` module is also a module your application can import. With the Vite plugin in
-place, an ordinary `.ts` file imports a `.shade.ts` and calls the functions it exports, and each
-call runs that function's code on the CPU at `f32` precision, the way a GPU would round it:
+place, an ordinary `.ts` file imports a `.shade.ts` and calls the helper functions it exports.
+Each call runs that function's code **on the CPU**, not on the GPU, at `f32` precision, the way a
+GPU would round it. It is how host code shares a shader's math, for a height query, a picking
+test or a unit test; running an entry point on the GPU through the same import is the next step
+(roadmap item 16b):
 
 ```ts
 // app.ts, ordinary TypeScript: terrain.shade.ts exports `height(p: vec2, k: vec4): f32`

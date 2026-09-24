@@ -387,8 +387,9 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
-- **A host file imports a `.shade.ts` and calls its functions** (change 0009, roadmap item 16
-  first half; Rules 3.8, 8.20, 8.21 and 11.7, surface §64). With `typeshade()` from the new
+- **A host file imports a `.shade.ts` and calls its helper functions, on the CPU** (change 0009,
+  roadmap item 16 first half; Rules 3.8, 8.20, 8.21 and 11.7, surface §64). Nothing here runs on
+  the GPU: an entry point is `never` to the host until the second half of item 16 (16b). With `typeshade()` from the new
   `typeshade/vite` subpath in `vite.config.ts`, an ordinary `.ts` file writes
   `import { height } from './terrain.shade.ts'` and calls `height([0.5, 0.5], k)`. The call runs
   the module's own code on the CPU tier, the oracle's generated code at `f32` precision, written

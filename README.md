@@ -30,7 +30,7 @@ TypeShade is a shader language and compiler built around the TypeScript authorin
 - **Typed in the editor.** TypeScript catches wrong types and misspelled fields before shader code is emitted.
 - **Reflection.** `reflect(module)` exposes bind groups, layouts and entry signatures from the same IR used for emission.
 
-TypeShade ships the authoring and emit surface, and one small runtime: a host file can import a `.shade.ts` through the Vite plugin (`typeshade/vite`) and call its exported functions, which run on the CPU at `f32` precision through `typeshade/runtime` ([surface §64](./docs/use-typeshade-surface.md#64-calling-a-module-from-host-code)). It adds no dependency. Creating pipelines, binding resources and issuing draws stay with the host application.
+TypeShade ships the authoring and emit surface, with no GPU runtime. Creating pipelines, binding resources and issuing draws stay with the host application. A host file can also import a `.shade.ts` and call its helper functions, which run on the CPU at `f32` precision ([surface §64](./docs/use-typeshade-surface.md#64-calling-a-module-from-host-code)): that is how host code shares a shader's math. Running an entry point on the GPU through the same import is the next step (roadmap item 16b).
 
 The author-facing grammar is frozen in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md). The compiler internals and `fn()` / `module()` APIs remain useful for tests, IR equality and the example gallery, but product code should start with `"use typeshade"`.
 
@@ -118,9 +118,9 @@ What it inherits from the language service, it inherits whole:
 - **Each file is analysed on its own**, so a function imported from another shader file is `TS8004` ([#187](https://github.com/typeshade/typeshade/issues/187)).
 - **A mistake both halves see is reported once**, in the compiler's sentence, as the editor shows it: a write to a `const` is the compiler's `TS8005`, not that and TypeScript's `TS2588` beside it. A misspelled name is the compiler's too, which names the fix itself: `Unknown function "clmap". Did you mean "clamp"?`.
 
-## Calling a shader module from host code
+## Calling a shader's helpers from host code, on the CPU
 
-A host file imports a `.shade.ts` and calls the functions it exports. The call runs the module's code on the CPU at `f32` precision, with plain values: a `vec2` is `[x, y]`, a struct an object.
+A host file imports a `.shade.ts` and calls the helper functions it exports. **The call runs on the CPU, not on the GPU:** the module's own code, at `f32` precision, so a host-side height query, a picking test or a unit test computes what the shader computes, with plain values (a `vec2` is `[x, y]`, a struct an object). An entry point is not callable this way yet; running one on the GPU through the same import is the next step (roadmap item 16b).
 
 ```ts
 import { height } from './terrain.shade.ts';
@@ -144,7 +144,7 @@ export default defineConfig({ plugins: [typeshade()] });
 "exclude": ["src/**/*.shade.ts"]
 ```
 
-What a host can call, the host value of each type, and what ships are in [surface §64](./docs/use-typeshade-surface.md#64-calling-a-module-from-host-code). Calling an entry point on the GPU is not there yet.
+What a host can call, the host value of each type, and what ships are in [surface §64](./docs/use-typeshade-surface.md#64-calling-a-module-from-host-code).
 
 ## Type-checking `.shade.ts` with tsc
 
