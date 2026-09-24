@@ -4,6 +4,9 @@
 // default, and the default typing has not moved. The flip is a breaking change to every module
 // that leans on `let i = 0` being an `f32`, and it gets its own release, its own golden review
 // and its own entry.
+//
+// Verifies: Rule 13.10 (docs/language-design.md; traced in reqs/). This is the window's first
+// step: a warning behind the opt-in option, with no emitted byte moved.
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
