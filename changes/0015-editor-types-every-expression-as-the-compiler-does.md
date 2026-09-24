@@ -1,7 +1,7 @@
 ---
 id: '0015'
 title: The editor gives every expression the type the compiler gives it, and a gate holds the two to it
-status: draft
+status: accepted
 rules:
 - '12.7'
 surface:
