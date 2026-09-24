@@ -1,7 +1,7 @@
 ---
 id: '0014'
 title: A console call in a compute or fragment shader reaches the host from WebGPU too, as the same events the CPU delivers, when a compile asks for it, and a string literal is a label
-status: draft
+status: accepted
 rules:
 - '6.11'
 - '7.8'
