@@ -17,6 +17,131 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **A name is what declares it, not how it is spelled, and `new` answers by its target** (proposal
+  0008 §1 and §2; design rules 2.1, 2.2 and 8.13; surface §7, §26 and §28). The front end kept a
+  list of 59 JavaScript globals and refused an identifier by its text as `TS8012` "is a host/JS
+  API", at the declaration and at every use, so `enum Status { Ok, Error }`, a `window` parameter of
+  a windowing function, a `class Date`, a module `let process`, a generic `<Map>` and a local
+  function `self` were each refused although TypeScript and the editor took them; where nothing
+  declared the name, `TS8012` came beside the unknown-name
+  sentence. The list and `TS8012` are gone, and its number stays a gap (Rule 12.2). A name the
+  file declares is the file's whatever it spells, and all six compile, measured on Tint; so do
+  a `class Mat`, a `class String` and an `interface Pick` (in `uniform<Pick>` too), whose names
+  the ambient library also gives types of its own, in every position a type is written. A name
+  nothing declares is one diagnostic, in proposal 0007's words and with its remedy, in a body a
+  call lowers and in one no call lowers alike (an uncalled generic, a function that takes a
+  function, a method of a class nothing builds), where the lowering never reads it (`window`
+  there was `TS8012`, and `nope` nothing at all): `TS8022` for a value (`window`, `Date.now()`, `Map`) and
+  for a written target (`Date = 1.`, "Cannot assign to unknown name"), `TS8004` on the callee's
+  name (`fetch("x")`), where a string or a function handed to an unknown callee now says nothing
+  more, as it did while the list stood, and `TS8002` for a type wherever it is written: a
+  parameter, a return type, a local, a field, a claim (`0.5 as window`, which compiled as
+  `0.5`), a type argument (`x: B<Date>` emitted `fn g(x: B)` with no struct `B`, and so did
+  `x: B<vec3<Foo>>`, which Tint refuses; `new B<vec3<Foo>>()` was told the file writes no type
+  argument), an alias no one uses, a type-parameter default, an overload signature, an
+  interface method, a function type, an `implements` clause, the base a class or an interface
+  extends (`class C extends Date` was `TS8010 "C" extends "Date", which this file does not
+declare as a struct` beside TypeScript's TS2304, and an unused `interface I extends Date` said
+  nothing; `TS8010` stays for a base the file declares and does not collect) and a body no call
+  lowers. An argument of a WGSL generic (`vec3<Foo>`, `texture_2d<Foo>`) is the generic's own
+  sentence alone, and a module `let`, a static field or a module `const` whose type nothing
+  declares is `TS8002` alone, where it also said `"K" is declared struct:Foo but its initializer
+is f32`; so is a binding of one, `uniform<Foo>`, where a read `u.a` also said `Unknown field
+"a" on Foo.` A name the ambient library declares is declared. A type it declares for
+  TypeScript's own use says so where a shader type is due, when the file declares none of its
+  name: `x: Number` is `"Number" is not a shader type: the library declares it for TypeScript's
+own use. Write f32, i32 or u32.`, where it was `Unknown type`; and where a value is read or
+  called: `Number(x)` is `"Number" is a type, not a value: the library declares it for
+TypeScript's own use. Write f32(x), i32(x) or u32(x).` (`TS8004`), where it was `Unknown
+function "Number". Declare it in this file`, and `const o = Object` the same sentence under
+  `TS8022`. `Math` and `console` read as a value are objects of functions, `"Math" is an object
+of functions, not a value. Call one of them, Math.sin(x).`, and `Symbol`, which the library
+  declares for TypeScript's `for…of`, is `"Symbol" is no value a shader has` (a function, a
+  class, where it is called or built), where each was `Unknown identifier`. A declaration of the file wins over
+  a §9.3 constant of its name, as it does in the editor: `enum E`, `namespace PI`, `class TAU`
+  and `function PI` read as a value compiled to e, π and τ with no diagnostic, and now read as
+  the file's (an interface declares no value, so `LN2` still reads through one). A member is
+  looked up on its receiver: a class field `reverse`, an interface field `map` and a getter
+  `join` compile, where each was refused as a JS array method by its spelling, and a class
+  method named `swizzle` compiles, where every `.swizzle()` call was routed to the IR builder's
+  method by its name. A method called on a vector is a member the vector does not have
+  (`TS8022`, Rule 2.2), and the sentence names what to write only where it compiles:
+  `v.swizzle("yxz")` is `v.yxz`, `v.clamp(0., 1.)` is `clamp(v, vec3(0.), vec3(1.))`,
+  `b.any()` is `any(b)`, and `v.sqrt()` on a `vec3u` or `v.swizzle("xyzw")` on a `vec3` is told
+  that a vector's members are its components.
+  `new` resolves its target as TypeScript does and says what it is once for the file, where it
+  is written, so a generic body lowered for three type arguments says it once and a body no
+  call lowers says it too, all under `TS8035`: a WGSL constructor or a cast
+  (`new vec3f(1., 2., 3.)`, `new f32(1)`), a type alias of one (`type S = vec3`, whose remedy was
+  an object literal a vector has no fields for) and a function (`Math.sin` included, and one
+  another file declares) are called without `new`, and the sentence gives the call; a WGSL type
+  with no constructor (`new sampler()`) and a type the library declares for TypeScript
+  (`new Array(4)`) are types; an enum's values are its members; `Math` and `console` are
+  objects of functions; a mixin applied to a class is built through a class that extends it; a
+  local, a parameter, a §9.3 constant, an enum member, a namespace and a type parameter are no
+  class; an interface, a type alias, an `abstract` class and `new this()` outside a static
+  member keep their sentences and move from `TS8013` to `TS8035`. `new Date()` is `TS8022`, and
+  so is a member the object before it does not have (`new Math.Foo()`); the name a misspelled
+  target is spelled like is a class the `new` can build, never a value (`new Pos()` beside a
+  parameter `pos` was told `Did you mean "pos"?`, and `new pos()` is refused). A `new` on
+  `const A = B` adds nothing to the refusal of that declaration. The "allocates a JS object,
+  which a shader has no heap for" reason is gone: `new P(1., 2.)` on the file's own class is
+  `P_new(1.0, 2.0)`. `new N.P()` and a bare `new P()` inside `namespace N` build a namespace
+  class with no written constructor as a top-level one is built (it was `TS8035 "N_P" has no
+constructor here`), `new (C)()` is `new C()`, and every sentence names the class and its type
+  arguments as the file writes them, `N.P`, `Pair<N.Q>`, `new Pair<Box<f32>>`, never `N_P`,
+  `Pair_N_Q` or `Pair_Box_f32`. A constructor refused at its signature or for a colliding
+  `P_new` is that refusal alone: neither the `new` nor a use of the local it builds adds a
+  word. So is an import that resolves to no file (`"./nothere"`, or `"./lib.js"`, the usual ESM
+  spelling, which `compileTsSources` reads as `lib.js.ts`): the `new` on it was dropped in
+  silence and each read of the local it built said `Unknown identifier "o"`. A file compiled on
+  its own, as the editor compiles each document, sees no file it imports from and says a `new`
+  of an imported name is an unknown name, once for the file, as a call of one is `TS8004`. In
+  the editor each of these is one diagnostic: TypeScript's TS7009, TS2351, TS2693, TS2511 and
+  TS2708 on a `new` (TS7009 also on the `new` of an import a document compiled on its own
+  cannot see, and TS7017 on `new globalThis.Date()`), its TS2304 or TS2339 on a name in the
+  target, its TS2583, TS2584, TS2591 and TS2580 on `Map`, `document`, `process`, `require` or
+  `Buffer`, and its TS2693 on a library type read or called, merge into the compiler's.
+  A module const, a static field (`this.f()` included), a module `let` or an enum member whose
+  initializer calls a function or builds a class of the module, imported ones included, is one
+  sentence from the declaration's own check, naming it as written (`S.K`, `N.K`): `TS8003
+Module const "K" must be constant, and "g()" calls a function this file declares. A module
+constant is folded before any function exists, so build the value inside the function that
+reads it.`, `TS8033` for a `let`, where it was `TS8004 Unknown function "g()". Declare it in
+this file` or `"P" has no constructor here`, then `TS8022` at every read. A read or a write of
+  it, a module `let` built from it, and a static field that is not constant (`dpdx(1.)`, which
+  was spelled `S_K`) add nothing. Tint refuses the same WGSL with "user-declared functions
+  cannot be called at module-scope".
+  THREE PROGRAMS THAT COMPILED NOW MEAN WHAT THEY SAY. Inside `namespace N`, a short name `P` is
+  the class its own block declares, or one another block of `N` exports, for a `new` and for a
+  type annotation alike, ahead of a top-level `P`, as TypeScript resolves it: `new P()` in `N`
+  built the top-level class (`N.mk().a` was 7 where TypeScript gives 1, also from a second block
+  of `N`), and `const p: P = new P()` there read the top-level class too (7); a class another
+  block does not export is not merged, so there `P` is the top-level class, as TypeScript reads
+  it. A field initializer that builds a sibling class of the namespace (`a: A = new A()` in
+  `N.B`) was dropped from `N_B_new`, so `new N.B().a.x` read 0; it is 1. Each value is pinned on
+  the CPU paths and passes Tint. AND ONE THAT COMPILED IS NOW REFUSED: a function of `N` whose
+  parameter is written `P` takes `N.P`, so a caller outside the namespace that hands it the
+  top-level `P` (`N.f(new P())`, which compiled to 7, and which TypeScript takes structurally)
+  is `TS8003 Argument 1 of "N.f" type mismatch.`, as two same-shaped classes of the file already
+  are (Rule 12.7's nominal structs); `N.f(new N.P())` compiles.
+  Measured: the 82 examples, the 72 `"use typeshade"` fences of the docs and journeys, and 120
+  valid neighbours of every changed check (a `new` of every class shape, merged, exported and
+  private namespace blocks, calls of every callee kind, the §9.3 constants beside the file's
+  names, module-scope builtin calls and literals, writes to module lets and statics, every WGSL
+  type and type-parameter form in every type position, type aliases of WGSL types, a mixin's
+  `AnyClass` constraint, nested generic instances, mapped and conditional types) give
+  byte-identical diagnostics, WGSL and GLSL on main and on this change, but for the namespace
+  programs above, an interface field `map` and a class method `swizzle`, which now compile, the
+  host names the file declares, and the programs main compiled in silence that name something
+  nothing declares, which are now refused where TypeScript refuses them: a name in a body no
+  call lowers (`const d = nope` in an uncalled generic), `B<vec3<Foo>>`, and an unused
+  `interface I extends Foo`; every program that now compiles passes Tint, every remedy a new
+  sentence names compiles, and the emit goldens and the API surface do not move. A name nothing
+  declares in a statement the lowering refused on an earlier mistake is said too, as TypeScript
+  says it: `f = clmap(f, 0., 1.)` after `const f` is the write's `TS8005` and `Unknown function
+"clmap". Did you mean "clamp"?`, where the typo was TypeScript's alone.
+
 - **A storage binding's access mode is its second type argument, and a binding is declared
   `const`** (§1 and §7, design rules 6.1 and 6.2). `declare const src: storage<array<f32>>` is
   `var<storage, read>` and `declare const dst: storage<array<f32>, "read_write">` is
@@ -1412,6 +1537,492 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   surface on both targets.
 
 ### Fixed
+
+- **One mistake is one diagnostic where two passes both refused it, in `compile()` and in the
+  editor** (proposal 0008 §3; design rule 12.4; surface §28 and §32). `semantic.ts` refused
+  `for…in`, `try`, `throw`, `await`, `yield`, a template string and a spread, and the lowering then
+  reached its catch-all and added `TS8099 Unsupported statement` or `Unsupported expression` about
+  the same node; `throw new Error("neg")` read as four diagnostics in `compile()` and five in the
+  editor. `semantic.ts` now records the nodes it refuses, per file, and the lowering's catch-alls
+  leave those to it; a node the record does not hold still gets the catch-all, so no statement is
+  dropped in silence. What a refused `throw`, `await`, `yield`, template string or spread holds
+  is not read again, so `throw new Error("neg")` is one `TS8013`, and so is `await g(...xs)`,
+  `await new Date()`, `yield await a` and a tagged template holding an `await`.
+  The editor's merged list drops TypeScript's report of what the compiler refused whole: inside
+  a refused `throw`, `await`, `yield`, template, spread, async function or generator, or a
+  statement a namespace refuses whole (`Cannot find name 'Error'`, TS1308 on an `await`, TS2556
+  on a spread argument, TS2322 on `export let T: array<f32, 3> = [...A, 3.]` in a namespace),
+  about a value that holds one (TS2322 on a list with a spread, in a local, a field, a static
+  field or a default), a global type TypeScript cannot find for such a form (TS2318, `Promise`), TS1103 on
+  a refused `for await`, and TypeScript's type of the rest element of a list the compiler
+  refused as an assignment target. So `throw new Error("neg")`, `await fetch(a)` and an
+  `async function` are one diagnostic in the editor too, where they were two or three.
+  A `var` is refused once: `TS8013` in a body, and `TS8014` at the top level and in a namespace,
+  in `compile()` and in the multi-file path alike. One in a body is lowered as the `let` it would
+  have been, where the lowering refused it again with `TS8099`, and a `var` override is read as
+  the `const` it is. A `var` that declares a parameter or an earlier `var` again is that
+  variable, as JavaScript has it, where lowering it as a `let` added `TS8023 Duplicate binding`;
+  a sentence about the declaration quotes it as written, `"var b" needs an array type annotation
+to take a list, e.g. let b: array<f32, 2> = [...].`, where it quoted `let b`. A use of the name
+  says nothing more wherever the `var` is written: `refused-names.ts` finds a `var` anywhere in
+  the function around a read, as TypeScript scopes it, and `N.x` and `N.M.x` for a variable a
+  namespace was refused no longer add `Unknown identifier "N"`; in the editor, TypeScript's
+  TS2454 at a read after the block and its TS2403 on a redeclaration go too.
+  An `async` function or a generator is one diagnostic on the function wherever it is written,
+  in a body no call lowers too, under the code its position had (`TS8013` on a declaration,
+  `TS8020` on a function written as a value, `TS8035` on a class's method or on the function a
+  class field holds) and with a true reason in place of "TypeShade functions are pure and
+  synchronous", "Generators are not TypeShade functions." and "a plain function or nothing: no
+  async, no generator": `"h" is async, and a shader function runs to completion in one call:
+there is no event loop to wait on. Remove "async" and each "await".` When the return type
+  written is the wrapper, `Promise<f32>` or `IterableIterator<f32>`, the remedy names the type
+  to write, `…, and write its return type as f32.`, where following it left a `Promise<f32>`
+  the compiler refuses as a type. A mixin's method is named on the class that applies it, `"TD.m"`. Its
+  `await` and `yield` add nothing, its body is not lowered, and a call of it is silent: `h(a)`,
+  `N.h(a)`, one through an import, `c.m()`, `C.s()` and a mixin's `t.m()`, where these added a
+  false `"N" has no function "h"` or `"TD" has no method "m"`; so is a local declared from one,
+  `const y = h(a)`, where a read of `y` added `Unknown identifier "y"`. An object literal's async
+  method is the literal's one refusal, where its `await` added `TS8013`.
+  An interface or an object-type alias inside a namespace is refused once, where the same
+  `TS8014` came twice on one span, and a type that names it, `N.I`, adds nothing, where it added
+  `TS8002 "N.I" names no struct this file declares`.
+  A spread in a list is refused wherever it is written, before the list is counted or asked for
+  its type, and names the elements to write when the lowering reads its operand as a vector or an
+  array of fixed length: `"...a" spreads a list into a list, which a shader array does not do:
+write its elements, a[0], a[1].` (a vector's are `v.x, v.y, v.z`; a long array's `a[0], a[1],
+…, a[7]`). Otherwise (a struct, a scalar, a body no call lowers, a namespace's constant, which
+  reads no other by its short name) it is `"...s" spreads into a list, which a shader array does
+not do: write the elements one by one.` It was `TS8013` "Spread is a JS runtime operation."
+  beside `TS8099` "An array literal element must be a value", or beside a count sentence naming
+  an arity the author never wrote. The name the list initializes says nothing more where it is
+  used, a static field `C.K` included, where it added `"C" has no static field "K"`. A spread
+  argument, `f(...args)`, keeps its sentence, once, and `...q` in a list assigned to,
+  `[p, ...q] = a`, is the target's `TS8018` alone.
+  A generic interface or object-type alias that something uses, directly or through a plain alias
+  (`type GF = G<f32>`), is one `TS8010` naming the spelling §32 collects per instance, `"G" is a
+generic interface; a generic struct is written as a class, class G<T> { x: T } (surface
+§32).`, in place of the "no single set of field types" reason §32 retired and the `TS8002 Type
+arguments are not supported yet` at each use. Nothing that names `G<f32>` adds to it: a
+  parameter or a return of a function, a method, a static function, a constructor or a function
+  a field holds, and a call, a `new` or a local declared from one, in the file that declares it
+  or one that imports it (which said `"lib.ts" has no function "h"`); a local, a module constant
+  or variable, a binding that holds one or an array of them (which said `Cannot index
+struct:array`), and an `as`; and a field of a class or an interface, which a literal of it
+  leaves out (it said `Struct H has no field "g"` or `Object literal { x } does not match a known
+struct`), and a struct left with no other field. A method, a static function or a constructor
+  whose signature names a type refused at its declaration, and a static field holding a function
+  that `structs.ts` refused, are refused where written, so a call of one adds nothing.
+  `honest-refusals.test.ts` pins 107 shapes whole, code and text, in `compile()` and in the
+  editor's merged list with TypeScript's entries included, and seven in `compileTsSources`; each
+  new pin fails with the source changes reverted. Measured against `main`: the 82 examples, 205
+  neighbours of the changed checks and the docs' 66 `"use typeshade"` fences give identical
+  diagnostics, WGSL and GLSL; of 202 fences read as shader files, the 36 that differ are host
+  code whose top-level statement is now its one diagnostic in the editor too. Every remedy the
+  new sentences name compiles and passes Tint. No code is added or renumbered.
+
+- **A loop the compiler does not lower is refused, never dropped; `i = i + 1` is a counted
+  step; `while (ON)` is `while (true)`; a loop's hidden counter is the compiler's own name; and
+  an `&&` exit names the clause that is not its bound** (proposal 0008 §4 and §6; design rules
+  7.5, 7.1, 2.2, 12.4 and 12.6; surface §17).
+  A `FOR` WHOSE UPDATE ASSIGNS A MEMBER, AN ELEMENT OR AN UNKNOWN NAME WAS DELETED.
+  `for (let i: i32 = 0; i < 16; v.x += 1.)`, `…; xs[0] += 1)` and `…; zz += 1)` compiled with
+  no diagnostic, and the whole loop, body and all, was missing from the WGSL and the GLSL, which
+  Tint accepted. The first two are now the sentence `v.x++` and `j += 1` already got,
+  `TS8008 for-update must be i++ / i += <const>, or i *= / /= <const>.`, and the third is
+  `TS8022 Cannot assign to unknown name "zz".`, as `zz++` is: the same sentence, on the name,
+  with the remedy #210 gives a misspelled name (`Did you mean "count"?`) or one written above
+  its declaration, and nothing more after a refused declaration of it. `lowerFor` keeps the
+  invariant: a `for` it does not lower always leaves an error, and one no other refusal
+  explains is a `TS8099` that says the loop was refused rather than left out. A header that
+  reads a name whose declaration was refused (`i < n` after a refused `declare const n: i32`)
+  is explained by that refusal and adds nothing to it (Rule 12.4), in `compile()` and in the
+  editor; for `i = i + n` that also drops main's second `TS8099 Unsupported for-update.`. So
+  does a header that calls a function whose signature was refused (`i < lim(1)` after
+  `function lim(x?: i32)`, a parameter or return type nothing declares, a string, a rest
+  parameter, `number[]`, `this: Foo`, an overload), in the bound, the start, the step and an
+  `&&` clause: the one `TS8020` or `TS8002` main gives.
+  ONE UPDATE MISTAKE, ONE SENTENCE. `i <<= 1`, `i %= 3`, `i = i * 2`, `i++, j++` and `-i` were
+  `TS8099 Unsupported for-update.` (or `Unsupported update operator.`), which named no form,
+  while `j += 1` was `TS8008`; every update that is none of the counted forms is that `TS8008`
+  sentence now (Rule 12.4). `i = i + c`, `i = c + i` and `i = i - c` are `i += c` and `i -= c`
+  spelled out, which the counter already read as `i++` lowers to, and they compile (Rule 7.5):
+  `for (…; i = i + 1)` emits `i = (i + 1)`. The sum is typed as the same assignment in the
+  body is (Rule 7.1): `i = i + 2.`, `i = i + f32(2)`, `i = i + u32(1)` and `i = i + s` for a
+  `u32` `s` on an `i32` counter are the body's
+  `TS8003 Type mismatch: cannot + i32 and f32 — no implicit int/float conversion. …` or
+  `… cannot + i32 and u32 — WGSL has no implicit integer conversion. …`, where the header alone
+  would have lowered the step, retyped it to `i32` and dropped the conversion the author wrote.
+  `WHILE (ON)` NEVER ENDS, AND SAYS SO. `const ON = true; while (ON) { … }` with nothing that
+  leaves it compiled with no diagnostic, a loop that never ends, where `while (true)` was
+  `TS8007`. The loop's check now folds a module constant, a namespace's and a static readonly
+  (`ON`, `N.ON`, `C.ON`), a local `const` copied from one, and `!`, `&&`, `||` and a
+  comparison over constants (`!PAUSED`, `!false`, `ON && ON`, `N > 0`), so each is the same
+  `TS8007`, naming the condition as written:
+  `while (!PAUSED) has no break or return in its body, so it never ends. Leave it with a break, or write the exit into the condition.`
+  A comparison of floats is folded only over literals and module constants that f32 holds
+  exactly, with no arithmetic between (`while (H > 0.)` for `const H = 0.5` is `TS8007`),
+  because both targets compute it in f32: `const A = 0.1; const B = 0.2;` then
+  `while (A + B > 0.3)` is false there and the loop runs no trip, as `X > 16777216.` over
+  `16777217.`, `E > 0.` over `1e-46` and `A + B !== C` are, and each compiles as on main. A
+  `?:`, a call, a float comparison over arithmetic or a local (`H + H > H`), or a local `const`
+  holding one of those (`const go = !OFF`) is still read as a runtime condition, as Appendix B's
+  Rule 7.5 row records. The fold is the loop's own: what a `const` is given as its value, and so
+  what a module constant emits, is unchanged.
+  A LOOP'S COUNTER IS NOT A NAME THE SOURCE CAN REACH (Rule 2.2). A `while` counted with an IR
+  local written as `_w` outright, so an author's `_w` in the function, or a second `while`,
+  failed in the backend as `TS8015 … '_w' is declared more than once in fn 'main'`, anchored on
+  the `"use typeshade"` directive. A `for…of` bound its counter `_i` as a source name, so an
+  author's `let _i: u32 = 7` read inside the body read the counter instead, with no diagnostic
+  (`s += y + f32(_i)` summed 16 where the program says 38), and `for (const _i of xs)` was
+  `TS8023 Duplicate binding`. And a counter named after an author's `function _w`, `function _i`
+  or `class _w` hid it from the loop's body, so Tint refused the module
+  (`cannot use 'var _w' as call target`, `… as type`) and the compiler said nothing. Both
+  counters, like every temporary the lowering names, take a name no local, module constant,
+  binding, function or struct has, and bind no source name: `_w_1` and `_i_1` when the name is
+  taken, an author's `_i` is the author's, and an `_i` nothing declares is `TS8022`, as the
+  editor's `TS2304` already said.
+  AN `&&` EXIT IS TOLD WHICH CLAUSE IS REFUSED. `for (let i: i32 = 0; i < 8 && i !== 3; i++)`
+  was `TS8006 for exit must compare "i" to a bound`, which it does. It is now
+  `TS8006 for exit joins the bound "i < 8" with "i !== 3", and a counted loop's exit is its bound alone. Make "if (i === 3) { break; }" the body's first statement, or write the loop as a while.`
+  The bound may stand on either side; the extra clause is negated as one comparison only where
+  that is exact (an equality, or an ordering of integers), as `ok` for `!ok`, and as `!(…)`
+  otherwise, since `!(x > 0.)` is not `x <= 0.` for a NaN; a clause keeps the parentheses that
+  make it one clause (`i < 8 && (a > 0 || b > 0) && c > 0` is told
+  `"(a > 0 || b > 0) && c > 0"` and `if (!((a > 0 || b > 0) && c > 0)) { break; }`); and an
+  unannotated counter takes its type from the clause that compares it, so
+  `i < data.length && data[i] > 0.` gets this sentence and not `cannot compare i32 and u32`.
+  Every remedy the sentence names compiles, Tint accepts it, and on the CPU it runs the trips
+  of the header written as a `while`, for every input a test tries.
+  MEASURED. On main, the member, element and unknown-name updates, `while (ON)`, `while (C.ON)`,
+  `while (N.ON)`, `while (!PAUSED)`, `while (!false)`, `while (ON && ON)` and `while (N > 0)`
+  gave no diagnostic; an author `_w`, two or nested `while` loops and an author `_i` failed in
+  the backend or read the wrong value, and an author `function _w` or `function _i` called in
+  the loop gave a module Tint refused. 450 valid programs (the neighbours of every change, all
+  examples and journeys and all `"use typeshade"` fences of the docs) give the same
+  diagnostics, WGSL and GLSL on main and here, except those main refused or handed Tint a module
+  it refused. Measured again after #210: the 89 examples and journeys, the 66 docs fences and
+  192 neighbours are identical, the 78 programs of this change that compile pass Tint, and a
+  loop that reads a refused declaration is that declaration's one diagnostic in each of the 11
+  shapes probed, where main gives two for a spelled-out step (`i = i + n`). Measured again for
+  the review: 51 headers that call a function with a refused signature, or a refused class,
+  namespace, method, generic or constant, give main's one diagnostic in `compile()` and in the
+  editor; of 40 `while` loops on float, integer and bool constants, which main all compiles,
+  33 compile identically here and the 7 that never end on either target are `TS8007`, and
+  Tint's `const_assert` gives the f32 answer this fold now gives where doubles differed. The
+  emit goldens and the API surface did not move. In one case a valid program's emit moves: a
+  temporary whose name a function or a struct of the file already has, where nothing in its
+  scope reaches that function or struct, takes the next free name (`_w_1`).
+
+- **An operator is checked by the kind of its operands, a bool vector stays out of a binding,
+  and a decorator nothing reads is refused** (proposal 0008 §4; design rules 6.7, 6.8 and 7.1;
+  surface §1, §4, §7, §27 and §51). Each of these compiled with no diagnostic and then failed in
+  Tint, or was silently not the program written (Rule 12.6).
+  AN OPERATOR TAKES THE KINDS WGSL GIVES IT. The lowering checked that two operands had one
+  type and stopped there, so `a + b` on two class instances or two arrays, `<` or `*` on two
+  bools, arithmetic on a `vec3b`, `^` on a bool, `&` on two structs or matrices, `===` on two
+  matrices, structs or arrays, any operator on a texture or a sampler, unary `-` on a bool, a
+  matrix, a struct or an array, and `+`, `-`, `+=`, `-=` or `*=` on a matrix of doubles
+  reached Tint as `no matching overload for 'operator + (A, A)'` (or, for a matrix of doubles,
+  as a span-less `TS8015` from the fp64 pass). Unary `+` on a struct, an array or a texture
+  lowered to the value itself, where TypeScript's `+a` is `NaN`. Each is now one `TS8003` on
+  the line, naming the operator and the type as the author writes it, with the spelling that
+  works where there is one:
+  `Cannot + A: WGSL has no arithmetic on a struct. Write it field by field.`,
+  `Cannot ^ bool: WGSL's ^ takes integers, not a bool. Write a !== b, which is the same.`,
+  `Cannot === mat3x3: WGSL compares scalars and vectors, not a matrix. Compare it column by column, all(m[0] === n[0]).`,
+  `Cannot *= mat3x3<f64>: the fp64 pass lowers the product of two matrices of doubles and not its compound assignment. Write m = m * n.`,
+  `Unary "+" is not defined on A; it takes a number, a vector or a matrix, not a struct. Remove it.`
+  `&` and `|` on a bool or a vector of bools stay, as WGSL's non-short-circuiting logical
+  operators; `+m` on a matrix and `+x` on a number or a vector stay the identity. A float under
+  `&`, `|` or `^` keeps the refusal #236 gave it, which leaves two whole numbers the front end
+  folds alone: `const AB = A | B`, `const F: u32 = 1 | 2` and `case 1 | 2:` compile as before.
+  The one table is `src/compiler/ts/lower/operator-kinds.ts`, and every remedy it names
+  compiles. The editor shows the compiler's sentence alone: its merge drops TypeScript's
+  TS2365, TS2362, TS2363 or TS2447 on the same operator, and any report about the value, which
+  TypeScript types a `number` from the operator alone, in place, through a member or an element
+  or through a local declared from it (`(a & b).x` was TS2339, `const b = -a; b[0]` TS7053,
+  `const c = a * b; return c` TS2322). `a + b` on two class instances was TS2365 in the editor,
+  and `a * b` on two bools returned from a `bool` function three TypeScript diagnostics.
+  A VECTOR OF BOOLS IS NOT HOST-SHAREABLE EITHER. Only a scalar `bool` was refused in a
+  uniform or storage binding; a `vec3b` field, a `storage<array<vec2b>>` and a bare
+  `uniform<vec4b>` reached Tint as `type 'vec3<bool>' cannot be used in address space
+'uniform' as it is non-host-shareable`. Each is `TS8051` now:
+  `"U.b" is a vec3b; a uniform binding holds no bool, alone or in a vector (WGSL's host-shareable rule). Use vec3u.`
+  A workgroup variable, a module `let` and a local hold one as before.
+  A DECORATOR NOTHING READS IS REFUSED. TypeScript parses one on a `const` and its checker
+  refuses it (TS1206), which `compile()` never ran, so `@group(2) @binding(5) declare const u:
+uniform<U>` was emitted at group 0, binding 0, and `@id(7)` on an override and `@bogus` on a
+  constant, a namespace's constant, a function's local, an enum, an interface, a type alias, a
+  function declared in another function's body, a `static` field, a constructor, an overload
+  signature, an abstract member, a mixin, a class expression or a local class vanished;
+  `@fragment` on an overload signature left the module with no entry. So did a decorator that
+  is not a name (`@N.k`, `@(fragment)`) anywhere, and an attribute of the list where the place
+  does not apply it: `@location` on a class or a function, `@fragment` on a field or a
+  parameter, `@blend_src` on a parameter, `@diagnostic` on a namespace's function. Each is
+  `TS8028` now: `@group` and `@binding` as not applied, since `reflect()` reports the group and
+  slot each binding gets, whichever form declares it
+  (`"@group" is WGSL's attribute, and is not applied: reflect() reports the group and slot each binding gets. Remove it, and read the slot from reflect() on the host.`),
+  `@id` as not applied since the host sets an override by its name, an attribute of the list
+  by what it marks
+  (`"@fragment" does not apply to a local function: it marks an entry function. Remove it.`;
+  on an overload signature, `Write it on the implementation.`), a decorator that is not a name
+  as not applied (`"@N.k" is not applied: an attribute is written "@name" or "@name(...)". Remove it.`),
+  and any other name by the unknown-attribute sentence. `@builtin` or `@location` on a
+  parameter of a function that is not an entry (a helper, a local function, a method) reached
+  Tint as `'@location' is not valid for non-entry point function parameters`, and is
+  `"@location" does not apply to a parameter of a function that is not an entry: it marks an entry's input or output. Remove it.`
+  `@std140`, which vanished everywhere but on a class, says it is not applied:
+  `"@std140" is not applied: WGSL lays out a struct by its own rules, which reflect() reports. Remove it.`
+  A field that holds a function is a method (Rule 8.16), and its decorator is the method's
+  `TS8035`, once, by the class's written name (`Box.get`, where a generic class said
+  `Box_f32.get` and `Box_vec3.get`); a decorated method is lowered all the same, so a call of
+  it no longer adds `"M" has no method "f"`, and a generic function's misplaced attribute is
+  refused once, not once per instance. The editor's merge drops whatever TypeScript says
+  inside a decorator the compiler refuses whole (TS1206, TS1239, TS1249, and TS2304 on a name
+  the ambient library does not declare), in any decorator of a refused method, and the
+  span-less TS2318 for `TypedPropertyDescriptor` a method's `@fragment` drew, so it says the
+  one mistake once. A namespace's entry (`namespace N { @fragment export function fs() }`,
+  emitted as `@fragment fn N_fs`) drew TS1206 in the editor on each decorator, a program the
+  compiler accepts; the service's TS1206 filter takes a namespace's function and its
+  parameters as it takes a top-level one's. Surface §4 no longer claims TypeScript cannot parse
+  a decorator on a `const`.
+  WGSL'S OWN ATTRIBUTES ARE NOT "UNKNOWN". `@workgroup_size`, `@size`, `@align`, `@group`,
+  `@binding`, `@id`, `@must_use` and `@subgroup_size` are WGSL's (Rule 2.1), and the sentence
+  says so and where the intent goes:
+  `"@workgroup_size" is WGSL's attribute, written here as @compute's argument: @compute([64]) or @compute([8, 8]).`
+  `@size` anywhere but a struct field, and `@align` anywhere but a field or a class, are named
+  as the field's: `"@align" is WGSL's attribute for a struct field, not a function. Remove it.`
+  `@align` on a function or a parameter, which compiled as if unwritten, is refused with it;
+  `@align` on a class keeps `@align on a class is not applied.` A test holds these lists and
+  the attributes the compiler reads to WGSL's own list in the spec-names fixture, `@const`
+  aside (a keyword TypeScript does not parse as a decorator).
+  MEASURED against main (`6c78035`): every program of the group's findings and of the two
+  reviews, each of which main compiled into a module Tint refused or with the decorator
+  dropped, is one diagnostic in `compile()` and in the editor. 362 files of examples,
+  journeys, documentation fences and valid neighbours (folded bit flags, `+` on numbers,
+  vectors, matrices and doubles, undecorated static fields, local functions, namespaces and
+  declarations, overloads, a namespace's entry, a constructor, an arrow-function field, an
+  abstract class, a mixin, a generic function, an entry's `@invariant @builtin("position")`
+  and `@interpolate` parameters, `@diagnostic` on a helper, a `@blend_src` struct) give the
+  same diagnostics, WGSL and GLSL as main, but for one intended refusal, a `*=` of two
+  matrices of doubles Tint refused; the editor differs only on the three namespace entries,
+  which lose TS1206. The emit goldens and the API surface did not move. The one test that wrote `@group(0) @binding(0)` on a declaration, and
+  relied on it being ignored, drops it; the projection test that did `a + a` on a `mat<f64>`,
+  which Tint refuses, does `a * a`; and three `BUILTIN_NAME` tests whose `vs` had no `@vertex`
+  are vertex entries now.
+
+- **A `break`, a `continue`, `&&`, `||` and `?:`, and `workgroupUniformLoad` answer to the
+  uniformity walk** (proposal 0008 §4; design rule 8.5; surface §48 and §54). The walk modelled
+  `return` alone, so after `if (lid.x > 2u) { break; }` or `continue;` the rest of the loop read as
+  uniform, and a barrier, a derivative or an implicit-LOD sample in the body compiled with no
+  diagnostic and failed at `createShaderModule`. A `break` or `continue` under a non-uniform
+  condition now makes the rest of its loop non-uniform, the next iterations included, so a
+  barrier above the jump is `TS8052` as well as one below it. The flow after the loop is the
+  loop's own again, so a barrier below the loop still compiles. This holds for `for`, `while` and
+  `for…of`. A `break` out of a `switch` case makes the rest of that case non-uniform and nothing
+  after the `switch`. A jump carries the environment it was taken in to where it lands, so a
+  local that a loop writes is non-uniform after a loop that a non-uniform jump left. A loop's
+  condition is read on every iteration, so `i < lid.x + workgroupUniformLoad(w)` is refused. The
+  right side of `&&` and `||` is under a branch on a non-uniform left side, so
+  `lid.x > 2 && workgroupUniformLoad(w) > 0` and a `textureSample` right of a fragment input are
+  refused. So is an arm of a `?:` that WGSL writes as an `if` because its `select` takes no
+  struct, array, matrix or vector of doubles: `lid.x > 2 ? workgroupUniformLoad(tile) : z` on an
+  array, and a `textureSample` in a struct `?:` on a fragment input, compiled and failed in Tint.
+  A `?:` on a scalar or a vector is `select`, which evaluates both arms, and still compiles. An
+  `&&`, `||` or `?:` whose operand calls a helper that writes, which the compiler writes as an
+  `if` of its own (§26), reads as the operator the author wrote. A jump, a left side or a
+  condition that the walk cannot classify, such as `if (done(i)) { break; }` on a helper, narrows
+  nothing, as before. `out.length` on a `read_write` storage array (`arrayLength`) is the size
+  the host bound, which is uniform: a barrier under `if (out.length > 4)` compiles now, where it
+  was refused.
+  `workgroupUniformLoad` goes through the same walk as a barrier. It had a rule of its own,
+  `TS8034` for any `if` or `switch` around it. That rule refused `if (k > 0.5)` on a uniform and
+  `if (wid.x > 2u)`, which now compile. It passed a load after `if (lid.x > 2u) { return; }`, in
+  a helper called under a branch on `lid`, in a `while` or `for` that `lid` bounds, below a
+  non-uniform `break`, and handed to a helper that writes on the right of `lid.x > 2 &&`, each of
+  which is now `TS8052`. Where the walk cannot classify the flow, the load is refused inside an
+  `if` or `switch` the author wrote, as before, and compiles elsewhere, as before:
+  `opaque() > 0.5 && bump(workgroupUniformLoad(w))` still compiles.
+  `TS8052` names the statement whose own condition first made the flow non-uniform, and the move
+  that fits it. It used to say "Move it out of the branch" of a barrier that was in no branch:
+  `workgroupBarrier() is reached in a loop some invocations leave by a break taken under "lid"
+(@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that
+does not is a workgroup that waits forever. Move it out of the loop, or break on a value the
+whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).` The other places
+  are a return, a loop condition, a continue, a break out of a switch case, the right side of
+  `&&` or `||`, an arm of a `?:` ("in an arm of a ?: whose condition reads …", "Call it before
+  the ?:"), and a return inside a loop. A loop inside a branch on `lid` is still reached "under"
+  that branch, and a `break` on a uniform inside a loop that `lid` bounds names the bound. A
+  derivative's sentence hoists the call to the same places. Each move compiles on Tint. The value
+  is named as the author wrote it: a helper as it is called, `Lim.hit(…)`, `done(…)` or
+  `Gate.open(…)`, where the sentence printed the emitted `Lim_hit(…)`, `main_done(…)` or
+  `Gate_open(…)`, and a helper the walk cannot see through by its name, `opaque(…)`, where the
+  sentence said "the expression" or "the entry".
+  Measured against main (`6c78035`, with #210) over 9674 probe programs on Chromium 141: 117 that
+  compiled before are refused now. Tint refuses 112 of them as written. The other 5 passed Tint on
+  main only because loop-invariant code motion moved the derivative out of the loop, which the
+  front end does not count, as it did not before for a loop with a non-uniform bound. 25 that main
+  refused now compile, and Tint accepts each. 41 refusals read the new sentences, and every other
+  program is unchanged. The `?:` and writing-helper cases were measured on their own, on
+  Chromium 141 and 153 alike: main compiled each refused one and Tint refuses it, and each one
+  kept compiling passes Tint. The editor reports each refusal as `compile()` does, and each pin
+  reads both. The examples and journeys give the same diagnostics, WGSL and GLSL as before, and
+  the emit goldens and API surface did not move.
+
+- **The editor says what the compiler says, and a message names a type as the author writes it**
+  (proposal 0008 §5; design rule 12.7; surface §19, §20 and §52). A runtime-sized storage
+  array's `length` hovers the `u32` the compiler reads through `arrayLength` (#271 declared it),
+  a sized binding's and a local's keep their literal size, and the hover is pinned beside the
+  compiler's one refusal of `src.length * 0.5`, which is also the editor's only diagnostic
+  there. WGSL's phony assignment `_ = max(a, 1.)`, which
+  compiles, drew TS2304 "Cannot find name '_'" in the editor, and `_ = a + 1.` read as two
+  diagnostics. `_` has no WGSL, ECMAScript or §9.3 source, so it is not declared in the ambient
+  library; the language service drops TS2304 on the `_` of the statement the compiler lowers as
+  phony (an expression statement, or the body of an arrow that returns nothing) and nowhere
+  else, so `_ = max(a, 1.)` is clean, `_ = a + 1.` is the compiler's one TS8099, and a `_` read
+  as a value is the compiler's one TS8022 in the merged list.
+  A message the front end writes names the type of a value, a field, a parameter or a return,
+  and a class its sentence is about as a whole, through `authorTypeText` instead of the IR key
+  or the emitted struct name: `Function "k" return type mismatch: declared B, got A.` where it
+  said `declared struct:B, got struct:A`; `N.P` for a class in a namespace, which printed as the
+  emitted `N_P`; `Slot<f32>` for an instance of a generic class, which printed as `Slot_f32`;
+  `cannot * vec3u and vec3` for `vec3<u32> and vec3<f32>`; `mat3x3` for `mat3x3<f32>`; `vec3f64`
+  and `vec2b` for `vec3<f64>` and `vec2<bool>`; `array<vec3u, 4>` for `array<vec3<u32>,4>`; a
+  storage texture with the string literals the author writes, `texture_storage_2d<"rgba8unorm",
+"write">`; and what `atomicCompareExchangeWeak` returns as the ambient library declares it,
+  `{ old_value: u32; exchanged: bool }`. The sentences about a class read its written name too:
+  its declaration (`Field "x" is declared twice on "Slot<f32>"`, `Optional field "y?" on "N.P"`,
+  `Field names on "N.P" must be plain identifiers`, `Struct "N.P" is declared more than once`,
+  `Struct "S.E" has no fields`), its base and its mixins (`"N.Q" extends "E"`, `"C" extends
+"B<f32>"` where it printed `B_f32`, `"N.D" gets the field "t" twice through its mixins`,
+  `"B" declares "f" as f32, and "A" declares it as N.P`), a literal, an entry or a
+  method call of it (`Struct N.P has no field "z"`, `give "S.VOut" a field with
+@builtin("position")`, `"N.P" has no method "q"`), and a struct two files of one program
+  declare (`Struct "N.P" is declared in both "a.ts" and "b.ts"`). The interstage refusal (TS8010)
+  reads `@location(0) leaves "vs" as vec3 (VOut.uv) and enters "fs" as vec2 (FIn.uv)`.
+  A remedy that quotes a type or a call compiles when pasted: `Cast it, e.g. vec3(...)` was
+  `vec3<f32>(...)` and `add ": vec4" to the signature` was `": vec4<f32>"`, both TS2315 in the
+  editor; a module const whose annotation no call converts (`const K: A = sin(1.)`,
+  `mat3x3<f64>`, and `const K: vec3u = u32(floor(2.))`, whose splat `vec3u(u32(...))` is not
+  constant) is told `Change the annotation to u32.`, while `const K: vec3i = countOneBits(5)`
+  keeps `Cast it, e.g. vec3i(...)`; a class built as a literal is told `new Slot<f32>(...)`; an
+  array element of a struct type is no longer told to "cast it"; and a static called on a value
+  names its class with no type arguments, `"Slot.m" is static; call it on the class:
+Slot.m(...).`, where it said `"Slot<f32>" has no method "m"`. A static of a class in a
+  namespace is called nowhere yet (`N.P.m()` reads `N` as an unknown value), so its sentence
+  names no call: `"N.P.m" is static, so a value of N.P does not have it.`, where it named
+  `N_P.m(...)`. A read or a write of a storage binding whose declared type was refused says
+  nothing more (Rule 12.4): `storage<array<vec2h>>` and `storage<mat2x3<f64>>` hold a
+  placeholder struct, and `vh[0]`, `vh++`, `mnd = mat2x3()` and `mnd *= 2.` each added a
+  sentence about it (`Cannot index struct:array`, `cannot assign to struct:mat2x3
+struct:mat2x3 and mat2x3<f32>`), and a function that writes no return type and returns such a
+  read, `function g() { return vh[0].x; }`, a method or an arrow alike, made its caller say
+  `cannot assign to f32 f32 and void`; each program is now its one TS8002 or TS8027, and a
+  write to a read binding keeps its TS8005. The backend's TS8015, from `src/core`'s uniform
+  layout, keeps WGSL's spelling (`array<vec2<f32>,4>`). Measured: the audit's and three reviews'
+  probe programs (a class, a namespaced and a generic class, a vector, a matrix, an array, a
+  sampler and a texture in each message family) print the author's spelling in `compile()` and in
+  the editor, and `type-spelling.test.ts` pins them by code and text and pastes every spelling and
+  every remedy back; 22 valid programs around `.length`, `_`, namespaced, generic and mixin
+  classes, statics, object literals, entries, module consts, binding reads and writes and
+  unannotated returns, and a two-file program, give the same diagnostics, WGSL and GLSL as on
+  `main`, Tint accepts each, and the emit goldens and the API surface did not move.
+
+- **Sentences written before classes say what is true now, once, where the member is written**
+  (proposal 0008 §6; design rules 12.1 and 12.4; surface §26 and §27). Two bodies for one method
+  were `TS8035 "C.m" is declared twice; a method has one body and no overloads.`, written before
+  overload signatures compiled (#190). They are `"C.m" has two bodies; a method has one body, with
+overload signatures above it for each shape it takes.`, said once of the class as it is written,
+  where a generic class said it once per instance (`"P_f32.m"`, `"P_vec3.m"`) and a namespaced class
+  named its struct (`"N_C.m"`). A second constructor of a generic class is `"P" declares two
+constructors; ...` once, where it was `"P_f32"` and `"P_vec2"`, and one of
+  a class in a namespace names it as the author writes it outside, `"N.P"`.
+  Two bodies for a method, a getter or a constructor in a mixin's class expression compiled, the
+  first winning where JavaScript runs the second; each is refused where the mixin writes it,
+  `"Tinted(…).lit" has two bodies; ...` and `"Tinted(…)" declares two constructors; ...`, once,
+  whether or not a class applies the mixin or writes the member over it.
+  Two members that would be emitted under one name are said in the words they are written in,
+  with no emitted function and no generic instance: `"P.f" and the static "P.f" would be emitted
+under one name. Rename one of them.`, `"P.#m" and "P.m" ...`, `The getter "C.y" and "C.get_y"
+...`, where the sentence was `"P_f32.f" and "P_f32.static f" would both be the function
+"P_f32_f".` A call of either member adds nothing, where a call on the other side was told to
+  call the one that won (`"C.m" is static; call it on the class: C.m(...).`) and a call on a
+  generic class's instance was `"P_f32" has no method "m".`
+  An `abstract` member with a body was `"D.m" is abstract; a shader function has one body.`,
+  named for each class that inherited it, followed by `"D" has no method "m"` at a call, and
+  not said at all when the class that extends overrode it (TS1245 in the editor). It is one
+  `TS8035` where it is written: `"B.m" is abstract and has a body; remove "abstract", or remove
+the body and let each class that extends "B" write it.` (a class that is not abstract, or a
+  field that holds a function, is told only the first), for a method, an accessor and a field
+  that holds a function alike, and `"Tinted(…).lit" is abstract and has a body; remove
+"abstract".` once for a mixin's member. It is said whatever a generic class is instantiated
+  with or when nothing instantiates it, and whether or not a class applies the mixin or
+  overrides the member. An abstract field with an initializer (TS1267), which compiled, is
+  `"B.x" is abstract and has an initializer; ...`.
+  An abstract method or accessor with no body in a class that is not abstract (TS1244)
+  compiled while nothing called it, and a call was `"B" has no method "m"`. It is one sentence
+  at the member: `"B.m" is abstract, and "B" is not; mark "B" abstract, or remove "abstract" and
+give "m" a body.`, and in a mixin, whose class cannot be abstract, `"Tinted(…).lit" is
+abstract, and the class a mixin returns cannot be; remove "abstract" and give "lit" a body.`
+  An abstract overload signature of a method whose body is not (TS2512) compiled, and a class
+  extending one that wrote it first was told `"D" does not implement "m", which "C" declares
+abstract`, though `C` writes the body `D` inherits; it is `A signature of "C.m" is abstract,
+and its body is not; remove "abstract".` (`remove the signature.` below the body, where
+  TypeScript takes no signature), and a method any of whose declarations has a body is
+  implemented, whichever comes first.
+  A class that is not abstract and leaves an abstract method or accessor of its chain
+  unimplemented (TS2515) compiled while nothing called the member, and a call was `"D" has no
+method "m"`. It is one `TS8035` at the class, `"D" does not implement "m", which "B" declares
+abstract; write "m" in "D".`, the members listed in one sentence when there are several. In
+  each of these a call, a read, a write or an inherited body that reaches the member adds
+  nothing. The check reads the classes collected as structs, so a class in a function body is
+  its one `TS8099`; it does not follow a mixin or a base the file does not resolve. An abstract
+  field is a member of every struct below the class that declares it, so a class that does not
+  declare it again still compiles, where TypeScript refuses it (TS2515).
+  None of these sentences says why a class has no field, so a class with none is told that too
+  (`Struct "Shape" has no fields. ...`), where the sentence about the member stood in for it and
+  a class extending it was told only that its base is no struct; a call of what such a base
+  would have given adds nothing. A class of statics alone with a second body for a static stays
+  the namespace it is, where it was an empty struct and every use of it `Unknown identifier`.
+  A statement at the top level was `TS8014 Unsupported top-level "IfStatement". A TypeShade
+file is directive + types + functions + imports.`, TypeScript's node name (a `debugger` was
+  "LastStatement") and an inventory from before classes, enums, namespaces and module
+  variables. It is named by its keyword: `An "if" statement at the top level runs nowhere; a
+shader file declares functions, classes, types, enums, namespaces, constants, module variables
+and resources. Move it into a function.`, with the move offered only for what a function body
+  takes, "Remove it." for an empty `;` and `debugger`, its own sentence for `import x =
+require("./lib")` and `import k = N.k`, and the written text for any other statement. A
+  top-level `try`, `throw` or `for…in` was that and `TS8013` on one span, and is `TS8014` alone.
+  In a namespace a statement was `A namespace holds functions, constants, classes and
+namespaces; this inside "N" has no flattened form. Declare it at the top level of the file.`,
+  a remedy the top level refuses; it is `An "if" statement inside "N" runs nowhere; a namespace
+holds functions, constants, classes and namespaces. Move it into a function.`, the namespace
+  written as the author writes it (`A.B`), and a `try`, a `throw` or a `for…in` there keeps the
+  one `TS8013` it gets anywhere. A statement a namespace refuses whole is that one sentence: a
+  `try` inside an `if` there was also `TS8013`.
+  Each of these reads once in the editor too. TypeScript refuses the same class shapes and
+  top-level statements, and the editor showed its report beside the compiler's sentence:
+  TS1245 beside `"B.m" is abstract and has a body`, TS2515 beside `"D" does not implement "m"`,
+  TS2393 on each of two bodies, TS1108 beside a top-level `return`. The merged list (#210)
+  pairs TS1244, TS1245, TS1253, TS1267, TS1318, TS2512, TS2676, TS2300, TS2392, TS2393, TS2515
+  and TS2654 with `TS8035`, by the member or the class each is about (every declaration of a
+  name declared twice or overloaded, and a class that inherits a base's abstract member with a
+  body, through a generic base or a mixin), and TS1101, TS1104, TS1105, TS1108, TS1202, TS1315
+  and TS2410 with `TS8014`, and keeps the compiler's sentence.
+  Pinned with code and text in `class-methods.test.ts`, `inheritance.test.ts`,
+  `semantic.test.ts` (20 top-level and 10 namespace shapes, each asserting the whole diagnostic
+  list) and `class-syntax.test.ts`, the class and top-level pins reading both halves, the
+  compiler's list and the editor's; each new pin fails without its fix. Measured against `main`:
+  147 programs written to compile, the 82 examples among them (abstract members implemented by
+  a method, an arrow field, a getter, a field, a parameter property, a class between and a
+  mixin; overload signatures, of a method and of a constructor; generic and namespaced classes
+  and their statics; a mixin's methods, accessors and a constructor a class overrides, and one
+  nothing applies; a static beside an instance method of another name; a class extending a class
+  of statics; namespace members; every top-level declaration), give identical diagnostics in
+  `compile()` and in the editor, WGSL and GLSL, and every remedy the sentences name compiles and
+  passes Tint. A program TypeScript refuses for an abstract member (TS1244, TS1245, TS1267,
+  TS2512, TS2515) or for two bodies in a mixin (TS2392, TS2393) that compiled on `main` is
+  refused now. No code is added or renumbered.
 
 - **`dispatch` and the debugger no longer throw on a `console` call.** The lockstep interpreter
   (`src/core/debug/interp.ts`) had no arm for one: `cpu.dispatch` of a kernel that logged threw
