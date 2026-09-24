@@ -215,9 +215,11 @@ Of that list the compiler applies `@location`, `@builtin`, `@interpolate`, `@inv
 `@blend_src` today (§53). `@location`, `@builtin` and `@interpolate` also apply to a bare entry
 PARAMETER, which is how a fragment entry that takes one varying writes it. The rest are refused
 rather than silently dropped, under two codes: `@align` on a field is `TS8010` ("@align on a
-field is not applied"), so the `@align(16)` above is *(target)*; `@size`, `@offset` and
-`@ignore` are `TS8028` ("Unknown attribute"), because the compiler's attribute list does not
-carry them. Measured, not assumed: each of the five was compiled to read back its code.
+field is not applied"), so the `@align(16)` above is *(target)*; `@size` is `TS8028`, named as
+WGSL's attribute and not applied, since a field takes the size WGSL's layout gives its type
+(§51); `@offset` and `@ignore` are `TS8028` ("Unknown attribute"), because neither WGSL nor the
+compiler's attribute list has them. Measured, not assumed: each of the five was compiled to read
+back its code.
 
 `class` here is a struct with attributes, not an object.
 
@@ -1317,7 +1319,7 @@ return of a call, a constructor or a field keeps its type either way.
 
 Refused, each with the reason: a function whose type waits on itself, which is a call cycle and
 refused as one (§4); `return`s of two types (`Function "f" returns f32 at its first "return" and
-vec2<f32> at another`); a bare `return` beside one with a value; a default parameter value that
+vec2 at another`); a bare `return` beside one with a value; a default parameter value that
 calls such a function, since every default is lowered before any body; and a setter's value with
 no type and no getter, or beside a getter that returns nothing, since nothing says what it takes.
 A setter's value that writes no type beside a getter takes what the getter returns, written or
@@ -1524,8 +1526,9 @@ so `{ ...v }` is refused. A value that is not a plain read: the spread reads its
 per field, so a call would run once per field with it; bind it to a const first. And a field the
 target struct has not got, which names the field rather than saying the literal does not match.
 
-Every other spread is still a runtime operation this surface has no form for: `f(...args)` needs
-an argument count known only at run time, and `[...xs]` a list that grows.
+Every other spread has no form here. `f(...args)` needs an argument count known only at run
+time. `[...xs]` spreads a list into a list, which a shader array does not do, and the refusal
+names the elements to write in its place, `xs[0], xs[1]` (§18).
 
 ## 17. What a `for` loop may say, and what it is told
 
@@ -1790,7 +1793,10 @@ means:
   *arrays of arrays supported in GLSL ES 3.10 and above only*, so the two targets would
   disagree about the same source. Flatten it: one `array<f32, 4>` indexed by
   `row * width + column`.
-- A spread and a hole are refused: `[...xs]` would need the size of `xs` at lowering time.
+- A spread and a hole are refused. A spread is one sentence that names the elements to write in
+  its place: `[...xs, 3.]` with an `array<f32, 2>` `xs` is `"...xs" spreads a list into a list,
+  which a shader array does not do: write its elements, xs[0], xs[1].` A hole is an element with
+  no value.
 
 The call form types its arguments by the same rule and the same check, so
 `array<i32, 3>(1, 2, 3)` emits `array<i32, 3>(1, 2, 3)` (GLSL `int[3](1, 2, 3)`) and
@@ -2221,8 +2227,9 @@ on a value the invocations do not share, which is how a workgroup waits forever 
 second rule used to refuse every `if` and `switch` body; it is the uniformity analysis of §54
 now, so a branch on a uniform buffer value or on `workgroup_id` is accepted, and the `if` above,
 on `local_invocation_id`, holds no barrier. A `for` whose bound every invocation shares (a constant, a
-uniform, `workgroup_id`) is uniform and allowed; one bounded by `local_invocation_id` is not, and
-a barrier in it is TS8052, which is the shape the reduction above needs: the loop steps by `/= 2`, one of §17's four counted steps. The optimizer
+uniform, `workgroup_id`) is uniform and allowed, unless a `break` or `continue` taken under a
+value the invocations do not share leaves it early (§54); one bounded by `local_invocation_id` is
+not, and a barrier in it is TS8052, which is the shape the reduction above needs: the loop steps by `/= 2`, one of §17's four counted steps. The optimizer
 treats a barrier as an effect (§19), so it is never dropped, merged or moved, and no read of
 workgroup memory crosses it.
 
@@ -4249,7 +4256,7 @@ the same rule (`textureGather`, `…Array`, `…Depth`, `…DepthArray`, `…Com
 **What a 1d texture cannot do.** WGSL gives it `textureSample`, `textureSampleLevel` and
 `textureLoad` only — no bias, no gradients, no gather, no layers — and each is refused in one
 sentence naming the reads it has. A coordinate is checked for width like every other dim: a
-`vec2` on a `texture_1d` is "takes a single f32 coordinate; got vec2<f32>".
+`vec2` on a `texture_1d` is "takes a single f32 coordinate; got vec2".
 
 **Fragment-only, under the name the author wrote.** `textureSample`, `textureSampleBias` and
 `textureSampleCompare` on a cube array join the fragment-only set as their own ids, and the
@@ -4624,7 +4631,7 @@ the two look.
 ```ts
 export function bad(a: mat2x3, b: mat2x3): mat3 {
   return a * b;
-  // Type mismatch: cannot * mat2x3<f32> and mat2x3<f32>. WGSL's matrix product is
+  // Type mismatch: cannot * mat2x3 and mat2x3. WGSL's matrix product is
   // matKxR * matCxK -> matCxR: the left operand's 2 columns must meet the right operand's
   // 3 rows. transpose(b) turns this pair into one that meets.
 }
@@ -4710,11 +4717,11 @@ textureSampleLevel level must be an f32; got i32. Write f32(l).
 
 The same check covers the element kind of a coordinate, which nothing looked at:
 `textureSample(t, s, vec2i(0, 0))` is `textureSample on a texture_2d<f32> takes an f32
-coordinate; got vec2<i32>.`, and `textureLoad(t, vec2(0., 0.), 0)` is `textureLoad on a
-texture_2d<f32> takes an integer coordinate, an i32 or a u32; got vec2<f32>.` A storage texture
+coordinate; got vec2i.`, and `textureLoad(t, vec2(0., 0.), 0)` is `textureLoad on a
+texture_2d<f32> takes an integer coordinate, an i32 or a u32; got vec2.` A storage texture
 is checked like every other one, where its coordinate was previously left to nobody:
 `textureStore(dst, vec3i(0, 0, 0), …)` on a `texture_storage_2d` is `takes a vec2 coordinate;
-got vec3<i32>.`
+got vec3i.`
 
 A bare number is still retargeted rather than refused, because a literal has no type of its own
 on this surface: `textureSampleLevel(t, s, uv, 0)` emits `0.0`, `textureLoad(t, c, 0)` emits the
@@ -4792,7 +4799,7 @@ beside them:
 
 A pack takes exactly the vector its name says and yields a `u32`; an unpack takes a `u32` and
 yields the vector. There is one overload each, and a wrong shape says so:
-`pack4x8unorm takes a vec4<f32>; got vec2<f32>. WGSL gives it one overload, and GLSL ES 3.00
+`pack4x8unorm takes a vec4; got vec2. WGSL gives it one overload, and GLSL ES 3.00
 the same.` The bit pattern of an unpack may be written as
 a bare number — `unpack2x16unorm(65536)` — because an integer literal is retargeted in every
 integer position.
@@ -4906,7 +4913,7 @@ values for a float that does not. Measured: u32(-1.) is 0 on WGSL and 4294967295
 3.00, and u32(4.3e9) is 4294967295 there and 5032960 here. Clamp it first if you want one
 answer, e.g. u32(clamp(x, 0., 4294967295.)).
 
-f32() takes a scalar; got vec3<f32>. A vector is converted component-wise by its own
+f32() takes a scalar; got vec3. A vector is converted component-wise by its own
 constructor, e.g. vec3(v).
 ```
 
@@ -6360,7 +6367,7 @@ declaration reads `random(seed: f32 | vec2 | vec3): f32`, which is what the comp
 | Written | Verdict |
 | --- | --- |
 | `random(s)` on a `u32`, an `i32` or an `f64` | `TS8003 random(seed) seed must be f32, vec2, or vec3; got u32.` (and `i32`, `f64`) |
-| `random(v)` on a `vec4` | the same sentence with `vec4<f32>`, and TypeScript's own `Argument of type 'vec4' is not assignable to parameter of type 'f32 \| vec2 \| vec3'` |
+| `random(v)` on a `vec4` | the same sentence with `vec4`, and TypeScript's own `Argument of type 'vec4' is not assignable to parameter of type 'f32 \| vec2 \| vec3'` |
 | `random(3)` | accepted: an integer literal in a float position is an `f32` (the language design rules' 5.1, and §13 here), so this is `random(3.)` |
 | `random()` | `TS8019`, one sentence naming the three shapes; `Math.random()` with no seed does not compile either |
 
