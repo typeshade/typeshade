@@ -287,3 +287,51 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     );
   });
 });
+
+describe('console.* from an entry, in vite dev (change 0014)', () => {
+  const LOGS = `"use typeshade";
+declare const xs: storage<array<f32>>;
+declare const ys: storage<array<f32>, "read_write">;
+@compute([4])
+export function report(@builtin("global_invocation_id") gid: vec3u) {
+  console.log("x", gid.x, xs[gid.x]);
+  ys[gid.x] = xs[gid.x];
+}
+@compute([4])
+export function quiet(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] = 0.; }
+`;
+
+  it('records the calls in the WGSL, with the log, only when the build asks for it', () => {
+    const dev = hostFace(LOGS, { fileName: '/app/m.shade.ts', runtime: RUNTIME, console: 'gpu' });
+    expect(dev.code).toContain('const __ts_console = {"group":');
+    expect(dev.code).toMatch(/"name":"report".*log: __ts_console \};/);
+    expect(dev.code).not.toMatch(/"name":"quiet".*log: __ts_console/);
+    expect(dev.code).toContain('_console');
+    // The view is the same in dev and in a build.
+    const build = face(LOGS);
+    expect(dev.view).toBe(build.view);
+    expect(build.code).not.toContain('__ts_console');
+    expect(build.code).not.toContain('_Console');
+  });
+
+  it('prints the calls on the CPU tier, in invocation order, as a production build does', async () => {
+    const m = await load(LOGS);
+    const lines: unknown[][] = [];
+    const log = console.log;
+    console.log = (...a: unknown[]) => void lines.push(a);
+    try {
+      await (m.report as (b: unknown, w: unknown) => Promise<void>)(
+        { xs: Float32Array.of(1.5, 2.5, 3.5, 4.5), ys: new Float32Array(4) },
+        1,
+      );
+    } finally {
+      console.log = log;
+    }
+    expect(lines).toEqual([
+      ['x', 0, 1.5],
+      ['x', 1, 2.5],
+      ['x', 2, 3.5],
+      ['x', 3, 4.5],
+    ]);
+  });
+});

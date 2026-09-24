@@ -4,13 +4,14 @@ derived: false
 level: 67
 links:
 - RULE-0821: m44NNH4OmEvFEjb0aPFp1Tk_md0suF8Drh5oMy3KmO0=
-- RULE-0824: HeRQSuBdTdUVjbExDxv4q_XU3cXXBmDLQbPY5ueKCbc=
+- RULE-0824: djNQBhFCn2G0vJ2PCehmbmKWKQdF1nUFPzjA_KMKTak=
+- RULE-1005: V6ipYBO0obzE0XTJJLu-pgkVdXrcElXWDgHLp6O5hmY=
 normative: true
 ref: ''
-reviewed: Q0tqDPyIpHutIDCY9zbzbmVPreQvq7e7hU92lvjIAtI=
+reviewed: jYeP2q3QEI5PpruFveZuncEdXP6gb0sVM5TChzh7ckA=
 source: docs/use-typeshade-surface.md §67
 ---
 
 # Calling an entry point from host code
 
-docs/use-typeshade-surface.md §67, "Calling an entry point from host code": the surface section that explains Rule 8.21, Rule 8.24.
+docs/use-typeshade-surface.md §67, "Calling an entry point from host code": the surface section that explains Rule 8.21, Rule 8.24, Rule 10.5.

@@ -66,6 +66,22 @@ describe('a host file imports a .shade.ts through the plugin', () => {
 });
 
 describe('the plugin hook', () => {
+  it('records console calls in vite dev, and none in a build', async () => {
+    const src = `"use typeshade";
+declare const ys: storage<array<f32>, "read_write">;
+@compute([1])
+export function note(@builtin("global_invocation_id") gid: vec3u) { console.log("n", gid.x); ys[0] = 1.; }
+`;
+    const dir = tempDir();
+    const file = join(dir, 'note.shade.ts');
+    const dev = typeshade();
+    dev.configResolved({ command: 'serve' });
+    const build = typeshade();
+    build.configResolved({ command: 'build' });
+    expect((await dev.transform(src, file))?.code).toContain('log: __ts_console');
+    expect((await build.transform(src, file))?.code).not.toContain('__ts_console');
+  });
+
   it('passes a host file through untouched', async () => {
     expect(await typeshade().transform('export const x = 1;', '/app/main.ts')).toBeNull();
   });

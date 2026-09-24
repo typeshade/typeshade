@@ -405,6 +405,14 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   launch configuration. An event is the one `compile().eval` delivers for the same entry and
   arguments, labels, span and `invocation` included. Without a sink a session behaves as it did.
 
+- **`console.*` in an entry a host calls prints from the GPU in `vite dev`** (change 0016, part
+  3; Rule 8.24, surface §67). The plugin compiles with the console recorded (0014) in `vite dev`,
+  and the runtime reads the `_console` buffer back after each dispatch or draw and prints the
+  events in the CPU tier's order; a production build records nothing. An entry's pipeline layout
+  is now written out from its bindings, so a binding the optimizer stops using (a read only a
+  dropped `console.*` call made) still binds. The import journey also runs the particles and
+  plasma journeys' programs through the import, against their own references.
+
 - **A host file draws a full-screen `@fragment` entry into a canvas through the import** (change
   0016, part 2; Rules 8.20, 8.21, 8.24 and 11.7, surface §67). `fs(canvas, { frame })` draws one
   frame with a full-screen triangle the runtime supplies, on WebGPU, then WebGL2, then the CPU
