@@ -157,6 +157,33 @@ function isPropertyName(node: ts.Identifier): boolean {
   return false;
 }
 
+/** Whether `node` is written directly as an argument of `console.<method>(...)`. */
+export function isConsoleArgument(node: ts.Node): boolean {
+  const call = node.parent;
+  return (
+    call !== undefined &&
+    ts.isCallExpression(call) &&
+    call.arguments.some((a) => a === node) &&
+    ts.isPropertyAccessExpression(call.expression) &&
+    ts.isIdentifier(call.expression.expression) &&
+    call.expression.expression.text === 'console'
+  );
+}
+
+/** The argument list a template becomes: its text as labels and each hole as a value. */
+function consoleRemedy(node: ts.TemplateExpression, sourceFile: ts.SourceFile): string {
+  const parts: string[] = [];
+  const text = (t: string): void => {
+    if (t.trim() !== '') parts.push(JSON.stringify(t.trim()));
+  };
+  text(node.head.text);
+  for (const span of node.templateSpans) {
+    parts.push(span.expression.getText(sourceFile));
+    text(span.literal.text);
+  }
+  return parts.join(', ');
+}
+
 function visit(
   node: ts.Node,
   sourceFile: ts.SourceFile,
@@ -265,7 +292,12 @@ function visit(
       diagnostics,
       sourceFile,
       node,
-      'Template strings are JS. TypeShade has no string type.',
+      ts.isTemplateExpression(node) && isConsoleArgument(node)
+        ? // A label is text the host keeps (Rule 7.8), so a literal one is fine; the holes are
+          // what a shader cannot build, and each is an argument of its own.
+          `A template with a value in it builds text at run time, which a shader has no string ` +
+            `for. Pass the text and the value as two arguments: console.log(${consoleRemedy(node, sourceFile)}).`
+        : 'Template strings are JS. TypeShade has no string type.',
       TS_CODES.HOST_STMT,
     );
   }

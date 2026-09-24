@@ -736,13 +736,15 @@ type Numeric = number | vec2 | vec3 | vec4 | vec2i | vec3i | vec4i | vec2u | vec
  * The source spelling is the standard \`console.*\` API; the compiler currently lowers the
  * logging-level methods below. Other Console methods remain visible to TypeScript only when
  * they are added here deliberately, so editor completion never advertises an unsupported
- * shader operation. */
+ * shader operation. Each takes what the standard one does: a value of any type, or a string
+ * literal, which is a label the host keeps (surface §66). What the compiler refuses among
+ * them (a template with a value in it, a string that is not a literal) it says itself. */
 interface Console {
-  log(...data: (Numeric | boolean)[]): void
-  info(...data: (Numeric | boolean)[]): void
-  debug(...data: (Numeric | boolean)[]): void
-  warn(...data: (Numeric | boolean)[]): void
-  error(...data: (Numeric | boolean)[]): void
+  log(...data: any[]): void
+  info(...data: any[]): void
+  debug(...data: any[]): void
+  warn(...data: any[]): void
+  error(...data: any[]): void
 }
 /** The standard console. Its logging methods are the ones declared on Console above; a
  * call to one is delivered to the host's console sink when the program runs on the CPU. */
