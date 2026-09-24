@@ -8,6 +8,7 @@
 // for the language service.
 
 import type { CpuValue } from '../cpu-runtime.js';
+import { consoleInvocation, type ConsoleSink } from '../console.js';
 import { zeroOf } from '../cpu-runtime.js';
 import type { FuncDecl, ModuleDecl, ShaderType, Stmt } from '../ir/index.js';
 import type { SourceSpan } from '../ir/span.js';
@@ -183,6 +184,13 @@ export interface DebugSessionOptions {
    *  Counted in statements reached, not in statements stopped at, so it bounds the work one
    *  `continue()` can do rather than the number of pauses it reports. */
   readonly maxSteps?: number;
+  /** Where the `console.*` calls the run steps over go (surface §66). Each call delivers one
+   *  event when it runs, so a step that runs one delivers it before the step returns its
+   *  pause, and a step that does not reach it delivers nothing. The event is the one
+   *  `compile().eval` delivers for the same call: its labels, its span and, for an entry that
+   *  takes `global_invocation_id` or `position`, the `invocation` the run was started as.
+   *  Absent, a call delivers nothing. */
+  readonly consoleSink?: ConsoleSink;
 }
 
 /** A run of one invocation, stopped at a statement and steppable from there.
@@ -328,7 +336,14 @@ export function startDebugSession(
   const decl = prepared.funcs.find((f) => f.name === entry);
   if (!decl) throw new Error(`typeshade/debug: no function "${entry}" in module`);
 
-  const ctx = makeCtx(prepared, opts?.gpuStubs ?? false);
+  const filled = fillArgs(decl, args);
+  const sink = opts?.consoleSink;
+  const invocation = sink && consoleInvocation(decl, filled);
+  const ctx: ReturnType<typeof makeCtx> = {
+    ...makeCtx(prepared, opts?.gpuStubs ?? false),
+    ...(sink ? { consoleSink: sink } : {}),
+    ...(invocation ? { invocation } : {}),
+  };
   // A name the module does not declare is a typo, not a value: storing it silently means the
   // real binding stays unsupplied and the run fails later, naming the binding the caller
   // thought they had just supplied. `ctx.bindingNames` is the declared set.
@@ -343,7 +358,7 @@ export function startDebugSession(
 
   return new Session(
     decl,
-    fillArgs(decl, args),
+    filled,
     ctx,
     precision,
     opts?.breakpoints ?? [],

@@ -398,6 +398,13 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A debug session delivers the `console` calls it steps over** (§66,
+  `changes/0018-debugger-console-sink.md`). `startDebugSession(m, entry, args, { consoleSink })`
+  hands each call to the sink when the step that runs it runs, and nothing at a step that skips
+  it; `startDebugSessionFromConfig(m, config, { consoleSink })` takes the sink beside the JSON
+  launch configuration. An event is the one `compile().eval` delivers for the same entry and
+  arguments, labels, span and `invocation` included. Without a sink a session behaves as it did.
+
 - **A host file draws a full-screen `@fragment` entry into a canvas through the import** (change
   0016, part 2; Rules 8.20, 8.21, 8.24 and 11.7, surface §67). `fs(canvas, { frame })` draws one
   frame with a full-screen triangle the runtime supplies, on WebGPU, then WebGL2, then the CPU

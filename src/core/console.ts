@@ -6,6 +6,7 @@
 
 import type { SourceSpan } from './ir/span.js';
 import type { CpuStruct, CpuValue } from './cpu-runtime.js';
+import type { FuncDecl } from './ir/nodes.js';
 
 /** Console methods currently lowered by the TypeShade source compiler. */
 export type ConsoleMethod = 'log' | 'info' | 'debug' | 'warn' | 'error';
@@ -36,6 +37,26 @@ export function consoleArgs(
 
 /** Host callback used by the Playground, tests, and editor debug adapters. */
 export type ConsoleSink = (event: ConsoleEvent) => void;
+
+/** The invocation an entry called with `args` runs as, for {@link ConsoleEvent.invocation}:
+ *  its `global_invocation_id` (compute), or the pixel `[x, y, 0]` its `position` names
+ *  (fragment), the id a decoded GPU event carries (surface §66). Undefined for an entry that
+ *  takes neither, or a value that is not a vector. */
+export function consoleInvocation(
+  decl: FuncDecl,
+  args: readonly unknown[],
+): readonly number[] | undefined {
+  const at = decl.params.findIndex(
+    (p) => p.builtin === 'global_invocation_id' || p.builtin === 'position',
+  );
+  if (at < 0) return undefined;
+  const v = args[at];
+  if (!Array.isArray(v)) return undefined;
+  const n = v.map((x) => Math.max(0, Math.floor(Number(x))));
+  return decl.params[at]!.builtin === 'position'
+    ? [n[0] ?? 0, n[1] ?? 0, 0]
+    : [n[0] ?? 0, n[1] ?? 0, n[2] ?? 0];
+}
 
 /** The JavaScript Console API methods TypeShade recognizes in shader source today. */
 export const CONSOLE_METHODS: ReadonlySet<ConsoleMethod> = new Set([
