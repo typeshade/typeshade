@@ -1,7 +1,7 @@
 ---
 id: '0009'
 title: An ordinary TypeScript file imports a `.shade.ts` and calls its exported functions, which run on the CPU tier, with host types that plain `tsc` reads
-status: draft
+status: accepted
 rules:
 - '3.1'
 - '3.8'
