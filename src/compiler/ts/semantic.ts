@@ -4,7 +4,7 @@ import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
-import { statementRefusal } from './namespaces.js';
+import { refusedInNamespace, statementRefusal } from './namespaces.js';
 import { isEnableDirective } from './enables.js';
 import { staticThisClass } from './class-names.js';
 
@@ -163,6 +163,14 @@ function visit(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
+  // A statement a namespace does not hold is refused whole where the namespace is walked
+  // (namespaces.ts): what it is and what it holds add nothing to that sentence (Rule 12.4).
+  if (ts.isModuleBlock(node)) {
+    for (const stmt of node.statements) {
+      if (!refusedInNamespace(stmt)) visit(stmt, sourceFile, diagnostics);
+    }
+    return;
+  }
   if (ts.isIdentifier(node) && HOST_GLOBALS.has(node.text) && !isPropertyName(node)) {
     push(
       diagnostics,

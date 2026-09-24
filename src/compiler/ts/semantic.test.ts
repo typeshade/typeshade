@@ -206,6 +206,13 @@ describe('a statement at the top level is named by its keyword', () => {
       'namespace N { try { } catch { } }',
       `${TS_CODES.HOST_STMT} try/catch/throw are JS exceptions. TypeShade has no exception path.`,
     ],
+    // A statement refused whole is one sentence here too: what it holds, and a `var` it
+    // declares, add nothing (Rule 12.4).
+    ['namespace N { if (true) { try { } catch { } } }', inside('An "if" statement')],
+    [
+      'namespace N { var v = 1.; }',
+      `${TS_CODES.TOP_LEVEL} A namespace holds functions, constants, classes and namespaces; a variable inside "N" has no flattened form. Declare it at the top level of the file.`,
+    ],
   ];
 
   it.each(inNamespace)('%s', (stmt, expected) => {

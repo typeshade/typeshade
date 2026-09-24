@@ -154,6 +154,21 @@ export function statementRefusal(
   return `"${shown}" has no place ${where}; ${holds}.`;
 }
 
+/** Whether a namespace refuses `stmt` whole ({@link refuseNamespaceStatement}): anything but a
+ *  function, a `const`, a class or a namespace. A `try`, a `throw` and a `for…in` are not,
+ *  since their one refusal is semantic.ts's, wherever they stand. */
+export function refusedInNamespace(stmt: ts.Statement): boolean {
+  if (ts.isTryStatement(stmt) || ts.isThrowStatement(stmt) || ts.isForInStatement(stmt)) {
+    return false;
+  }
+  return !(
+    ts.isFunctionDeclaration(stmt) ||
+    ts.isClassDeclaration(stmt) ||
+    ts.isModuleDeclaration(stmt) ||
+    (ts.isVariableStatement(stmt) && (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0)
+  );
+}
+
 /** Reports a statement a namespace cannot hold. Called by the collectors, each of which knows
  *  which statements are its own. */
 export function refuseNamespaceStatement(

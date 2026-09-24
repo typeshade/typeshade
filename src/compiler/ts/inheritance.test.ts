@@ -619,14 +619,103 @@ class TR extends Tinted(Ring) { s: f32 }
 export function g(t: TD, u: TR): f32 { return t.lit() + u.lit() }
 ${FS}`),
     ).toEqual([`${M} "Tinted(…).lit" is abstract and has a body; remove "abstract".`]);
-    // A generic class with no field says it once, and no instance adds that it is empty.
+    // Whether or not a class that applies it writes the member over it, or anything applies
+    // it: TypeScript refuses it where it is written (TS1245, TS1244). Until proposal 0008 each
+    // of these compiled.
+    const tinted = (member: string, applied: string): string => `"use typeshade"
+class Disc { r: f32 }
+function Tinted<TBase extends AnyClass>(Base: TBase) {
+  return class extends Base { tint: vec3; ${member} }
+}
+${applied}${FS}`;
+    const over = `class TD extends Tinted(Disc) { s: f32; lit(): f32 { return 2. } }
+export function g(t: TD): f32 { return t.lit() }
+`;
+    expect(bothHalves(tinted('abstract lit(): f32 { return 1. }', over))).toEqual([
+      `${M} "Tinted(…).lit" is abstract and has a body; remove "abstract".`,
+    ]);
+    expect(bothHalves(tinted('abstract lit(): f32 { return 1. }', ''))).toEqual([
+      `${M} "Tinted(…).lit" is abstract and has a body; remove "abstract".`,
+    ]);
+    expect(bothHalves(tinted('abstract lit(): f32', over))).toEqual([
+      `${M} "Tinted(…).lit" is abstract, and the class a mixin returns cannot be; remove "abstract" and give "lit" a body.`,
+    ]);
+    // A generic class says it once whatever it is instantiated with, or when nothing is.
+    const generic = `${M} "B.m" is abstract and has a body; remove "abstract", or remove the body and let each class that extends "B" write it.`;
     expect(
       bothHalves(`"use typeshade"
-abstract class B<T> { abstract m(a: T): T { return a } }
-function g(a: B<f32>, b: B<vec2>): f32 { return 1. }
+abstract class B<T> { v: T; abstract m(a: T): T { return a } }
+${FS}`),
+    ).toEqual([generic]);
+  });
+
+  it('says nothing of why a class has no field, which is said too', () => {
+    // A base with no field is no struct, and a class that extends it has nothing of it. The
+    // sentence about the member says nothing of that, and it stood in for the sentence that
+    // does, so the class that extends was told only that its base is no struct.
+    const noFields = (cls: string): string =>
+      `${TS_CODES.STRUCT_FIELD} Struct "${cls}" has no fields. WGSL requires a struct to declare at least one member, so an empty one cannot be emitted.`;
+    const notStruct = `${TS_CODES.STRUCT_FIELD} "Circle" extends "Shape", which this file does not declare as a struct. A base has to be a class or an interface whose fields are shader types.`;
+    // A call of what the base would have given adds nothing to that.
+    expect(
+      bothHalves(`"use typeshade"
+abstract class Shape { abstract sdf(p: vec2): f32 { return 0. } }
+class Circle extends Shape { r: f32 }
+export function g(c: Circle): f32 { return c.sdf(vec2(0.1, 0.2)) }
 ${FS}`),
     ).toEqual([
-      `${M} "B.m" is abstract and has a body; remove "abstract", or remove the body and let each class that extends "B" write it.`,
+      `${M} "Shape.sdf" is abstract and has a body; remove "abstract", or remove the body and let each class that extends "Shape" write it.`,
+      `${noFields('Shape')} A class holding only functions is not a struct; write them as functions.`,
+      notStruct,
     ]);
+    expect(
+      bothHalves(`"use typeshade"
+class Shape { abstract sdf(p: vec2): f32 }
+class Circle extends Shape { r: f32; sdf(p: vec2): f32 { return length(p) - this.r } }
+export function g(c: Circle): f32 { return c.sdf(vec2(0.1)) }
+${FS}`),
+    ).toEqual([
+      `${M} "Shape.sdf" is abstract, and "Shape" is not; mark "Shape" abstract, or remove "abstract" and give "sdf" a body.`,
+      noFields('Shape'),
+      notStruct,
+    ]);
+  });
+
+  it('a signature beside the body of its name is refused where it is written', () => {
+    // TypeScript refuses an abstract overload signature of a method whose body is not
+    // (TS2512). Until proposal 0008 the compiler took it, and a class that extends the one that
+    // writes it was then told it does not implement the method, which its base does.
+    const d = `class D extends C { }
+export function g(d: D): f32 { return d.m() }
+${FS}`;
+    expect(
+      bothHalves(`"use typeshade"
+abstract class C { x: f32; abstract m(): f32; m(): f32 { return 1. } }
+${d}`),
+    ).toEqual([`${M} A signature of "C.m" is abstract, and its body is not; remove "abstract".`]);
+    // Below the body a signature is none (TS2391), so it goes.
+    expect(
+      bothHalves(`"use typeshade"
+abstract class C { x: f32; m(): f32 { return 1. } abstract m(): f32 }
+${d}`),
+    ).toEqual([
+      `${M} A signature of "C.m" is abstract, and its body is not; remove the signature.`,
+    ]);
+    // In a class that is not abstract (TS1244 beside it) it is the same one mistake, and "C.m"
+    // has the body a sentence about an abstract member would have told it to write.
+    expect(
+      bothHalves(`"use typeshade"
+class C { x: f32; abstract m(): f32; m(): f32 { return 1. } }
+export function g(c: C): f32 { return c.m() }
+${FS}`),
+    ).toEqual([`${M} A signature of "C.m" is abstract, and its body is not; remove "abstract".`]);
+    // What the sentence offers compiles, with the body D inherits.
+    const r = compile(`"use typeshade";
+abstract class C { x: f32; m(): f32; m(): f32 { return this.x + 1.; } }
+class D extends C { }
+@fragment
+export function fs(): vec4 { const d = new D(); d.x = 1.; return vec4(d.m()); }
+`);
+    expect(r.diagnostics).toEqual([]);
   });
 });

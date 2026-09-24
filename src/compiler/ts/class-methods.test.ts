@@ -309,12 +309,32 @@ function g(a: P<f32>, b: P<vec2>): f32 { return a.g + b.g }${TAIL}`),
         `"use typeshade"\nnamespace N { export class C { x: f32; m(): f32 { return 1. } m(): f32 { return 2. } } }${TAIL}`,
       ),
     ).toEqual([twice('C', 'm')]);
-    // A generic class with no field is said once too, and no instance adds that it is empty.
+    // The second body says nothing of why a class has no field, so a class with none is told
+    // that too, and one of statics alone stays the namespace it is.
     expect(
       bothHalves(`"use typeshade"
-class P<T> { m(a: T): T { return a } m(a: T): T { return a } }
-function g(a: P<f32>, b: P<vec2>): f32 { return 1. }${TAIL}`),
+class S { m(): f32 { return 1. } m(): f32 { return 2. } }${TAIL}`),
+    ).toEqual([
+      twice('S', 'm'),
+      `${TS_CODES.STRUCT_FIELD} Struct "S" has no fields. WGSL requires a struct to declare at least one member, so an empty one cannot be emitted. A class holding only functions is not a struct; write them as functions.`,
+    ]);
+    expect(
+      bothHalves(`"use typeshade"
+class U { static f(): f32 { return 1. } static f(): f32 { return 2. } }
+export function g(): f32 { return U.f() }${TAIL}`),
+    ).toEqual([twice('U', 'f')]);
+    // A generic class nothing instantiates says it too, where it is written.
+    expect(
+      bothHalves(`"use typeshade"
+class P<T> { x: T; m(): f32 { return 1. } m(): f32 { return 2. } }${TAIL}`),
     ).toEqual([twice('P', 'm')]);
+    // And a second constructor, once for all the instances of a generic class, which it named
+    // by each instance until proposal 0008 (`"P_f32" declares two constructors`).
+    expect(
+      bothHalves(`"use typeshade"
+class P<T> { x: T; constructor(a: T) { this.x = a } constructor(a: T, b: T) { this.x = b } }
+function g(a: P<f32>, b: P<vec2>): f32 { return a.x + b.x.x }${TAIL}`),
+    ).toEqual([`${M} "P" declares two constructors; a shader function has one body.`]);
     // A mixin's class expression is where its members are written: said there, once, however
     // many classes apply it. Keeping the first body compiled the second one silently, which is
     // the one JavaScript runs.
@@ -329,6 +349,40 @@ export function g(t: TD, u: TR): f32 { return t.lit() + u.lit() }${TAIL}`;
     expect(bothHalves(tinted('lit(): f32 { return 1. } lit(): f32 { return 2. }'))).toEqual([
       twice('Tinted(…)', 'lit'),
     ]);
+    // Whether or not a class that applies the mixin writes the member over it, or any class
+    // applies the mixin at all, as TypeScript says it (TS2393). Until proposal 0008 each of
+    // these compiled.
+    const overridden = (body: string): string => `"use typeshade"
+class Disc { r: f32 }
+function Tinted<TBase extends AnyClass>(Base: TBase) {
+  return class extends Base { tint: vec3; ${body} }
+}
+class TD extends Tinted(Disc) { s: f32; lit(): f32 { return 3. } }
+export function g(t: TD): f32 { return t.lit() }${TAIL}`;
+    expect(bothHalves(overridden('lit(): f32 { return 1. } lit(): f32 { return 2. }'))).toEqual([
+      twice('Tinted(…)', 'lit'),
+    ]);
+    expect(
+      bothHalves(`"use typeshade"
+function Tinted<TBase extends AnyClass>(Base: TBase) {
+  return class extends Base { tint: vec3; lit(): f32 { return 1. } lit(): f32 { return 2. } }
+}${TAIL}`),
+    ).toEqual([twice('Tinted(…)', 'lit')]);
+    // A second constructor in a mixin was dropped, and the first built the object, silently.
+    // (The editor adds TypeScript's own rule for a mixin's constructor, one rest parameter of
+    // `any[]` (TS2545), which no constructor here keeps.)
+    const ctors =
+      'constructor() { super(); this.tint = vec3(1.) } constructor(a: f32) { super(); this.tint = vec3(a) }';
+    expect(
+      errorsOf(`"use typeshade"
+class Disc { r: f32 }
+function Tinted<TBase extends AnyClass>(Base: TBase) {
+  return class extends Base { tint: vec3; ${ctors} }
+}
+class TD extends Tinted(Disc) { s: f32 }
+class TR extends Tinted(Disc) { w: f32 }
+export function g(): f32 { const t = new TD(); const u = new TR(); return t.tint.x + u.tint.x }${TAIL}`),
+    ).toEqual([`${M} "Tinted(…)" declares two constructors; a shader function has one body.`]);
   });
 
   it('two members that would be emitted under one name, said in the words they are written in', () => {
@@ -358,6 +412,31 @@ function g(a: P<f32>, b: P<vec2>): f32 { return a.m() + b.m().x }${TAIL}`),
     expect(
       bothHalves(C('  get g(): f32 { return 1. }\n  static get g(): f32 { return 2. }')),
     ).toEqual([one('The getter "C.g"', 'the static getter "C.g"')]);
+    // A call of either adds nothing, whichever of the two the name reaches now: the author wrote
+    // both. Until proposal 0008 a call on the other side was told to call the one that won, the
+    // one the author did not mean, and on a generic class's instance that it had no method,
+    // naming the instance ("P_f32").
+    expect(
+      bothHalves(`"use typeshade"
+class C { x: f32; f(): f32 { return 1. } static f(): f32 { return 2. } }
+export function g(c: C): f32 { return c.f() + C.f() }${TAIL}`),
+    ).toEqual([one('"C.f"', 'the static "C.f"')]);
+    expect(
+      bothHalves(`"use typeshade"
+class C { x: f32; static m(): f32 { return 1. } m(): f32 { return 2. } }
+class D extends C { y: f32 }
+export function g(c: C, d: D): f32 { return c.m() + C.m() + d.m() + D.m() }${TAIL}`),
+    ).toEqual([one('The static "C.m"', '"C.m"')]);
+    expect(
+      bothHalves(`"use typeshade"
+class P<T> { v: T; static m(): f32 { return 1. } m(): T { return this.v } }
+export function g(a: P<f32>, b: P<vec2>): f32 { return a.m() + b.m().x + P.m() }${TAIL}`),
+    ).toEqual([one('The static "P.m"', '"P.m"')]);
+    expect(
+      bothHalves(`"use typeshade"
+class P<T> { v: T; m(): T { return this.v } static m(): f32 { return 1. } }
+export function g(a: P<f32>): f32 { return a.m() + P.m() }${TAIL}`),
+    ).toEqual([one('"P.m"', 'the static "P.m"')]);
   });
 
   it('a call on the wrong side, a member the class lacks, a field called', () => {

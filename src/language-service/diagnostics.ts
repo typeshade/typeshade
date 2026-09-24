@@ -1265,6 +1265,11 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'A getter and a setter of which one is `abstract`, and has a body.',
   },
   {
+    typescript: 2512,
+    typeshade: new Set(['TS8035']),
+    reason: 'An `abstract` overload signature of a method whose body is not.',
+  },
+  {
     typescript: 2393,
     typeshade: new Set(['TS8035']),
     reason: 'A method with two bodies, which TypeScript reports on each and the compiler once.',
@@ -1415,7 +1420,7 @@ const spanOfNode = (node: ts.Node, sourceFile: ts.SourceFile): TypeshadeTextSpan
 
 /** The TypeScript codes about how one class member is declared, reported on its name or on a
  *  modifier of it (`abstract`), where the compiler reports the name. */
-const MEMBER_CODES: ReadonlySet<number> = new Set([1244, 1245, 1253, 1267, 1318, 2676]);
+const MEMBER_CODES: ReadonlySet<number> = new Set([1244, 1245, 1253, 1267, 1318, 2512, 2676]);
 
 /** The TypeScript codes about a name a class declares twice, reported on every declaration of
  *  it, where the compiler reports the later one. */

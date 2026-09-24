@@ -354,7 +354,7 @@ two rules, and only ever an error that another error already covers:
   compiler reports it on the `return` it is about, as TypeScript does, not on the function's
   name, which with two returns would not say which.
   A class is paired by the member or the class a report is about. TypeScript reports a member
-  on its name or on a modifier (TS1244, TS1245, TS1253, TS1267, TS1318 and TS2676, an
+  on its name or on a modifier (TS1244, TS1245, TS1253, TS1267, TS1318, TS2512 and TS2676, an
   `abstract` member written where it cannot be), a name declared twice on each of its
   declarations (TS2300, TS2392 and TS2393), and a class that leaves an abstract member
   unimplemented on the class (TS2515 and TS2654). The compiler's `TS8035` names the member

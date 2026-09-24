@@ -19,7 +19,6 @@ import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
-import { isStaticMember } from './class-names.js';
 
 /** What an `extends <expression>` clause comes to once the mixins in it have been run. */
 export interface MixinApplication {
@@ -48,7 +47,7 @@ function mixinFunction(
 /** The class expression a mixin function returns, when its body is exactly one return of one.
  *  A mixin has no other shape here: there is nothing for a second statement to do at compile
  *  time, and a body that returns something else returns no class. */
-function returnedClass(fn: ts.FunctionDeclaration): ts.ClassExpression | undefined {
+export function returnedClass(fn: ts.FunctionDeclaration): ts.ClassExpression | undefined {
   const statements = fn.body?.statements ?? [];
   if (statements.length !== 1) return undefined;
   const only = statements[0];
@@ -266,18 +265,6 @@ function memberKey(member: ts.ClassElement): string | undefined {
   return undefined;
 }
 
-/** Whether `member` is a second body for the method `held`: both have one, and both are static
- *  or neither is. A static and an instance method of one name are two members. */
-function secondBody(held: ts.ClassElement, member: ts.ClassElement): boolean {
-  return (
-    ts.isMethodDeclaration(held) &&
-    ts.isMethodDeclaration(member) &&
-    held.body !== undefined &&
-    member.body !== undefined &&
-    isStaticMember(held) === isStaticMember(member)
-  );
-}
-
 /** The type a property member is written with, for the one collision that is not an override
  *  but a change of layout. Compared as written: two spellings of one type read as different
  *  here, which is the safe direction — it asks rather than silently picking one. */
@@ -323,13 +310,6 @@ export function mixedMembers(
       // second half of a pair one body declares is kept beside the first (Rule 8.11).
       if (held !== undefined && isAccessorHalf(held) && isAccessorHalf(member)) {
         if (held.parent === member.parent) kept[i]!.push(member);
-        continue;
-      }
-      // A second body for one method of one body is no override: it is kept, and the class
-      // refuses it as it refuses one written in a class declaration. JavaScript would run the
-      // second, and keeping only the first compiled the other one silently.
-      if (held !== undefined && held.parent === member.parent && secondBody(held, member)) {
-        kept[i]!.push(member);
         continue;
       }
       if (held !== undefined) {

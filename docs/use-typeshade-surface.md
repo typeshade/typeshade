@@ -2397,10 +2397,10 @@ or one method, in a class or in the class a mixin returns (overload signatures a
 body compile), a static and an instance method of one name (they would be emitted under one
 name), an `abstract` member written with a body or an initializer (remove `abstract`, or the
 body), an `abstract` method or accessor in a class that is not abstract or in the class a mixin
-returns (mark the class abstract, or give the member a body), a class that is not abstract and
-leaves an abstract method or accessor of its base unimplemented (write it there), a call of a
-method on the class or of a static function on
-a value, a member the class does not have, a field called as a method and an accessor called as
+returns (mark the class abstract, or give the member a body), an `abstract` overload signature
+of a method whose body is not (remove `abstract`), a class that is not abstract and leaves an
+abstract method or accessor of its base unimplemented (write it there), a call of a method on
+the class or of a static function on a value, a member the class does not have, a field called as a method and an accessor called as
 one, a member a class that extends declares as another kind than its base does, a method that
 changes its object called on a `const` whose value something else may hold, a parameter or a
 value that is dropped, one that returns nothing used as a value, and a parameter named `self_`.
@@ -3239,7 +3239,8 @@ inside one is refused and told to be declared at the top level of the file, beca
 has a home there and a second spelling would be a second thing. A statement that declares
 nothing, an `if`, a loop or a block, is named by its keyword and told to move into a function,
 since the top level of the file refuses it too; a `try`, a `throw` and a `for…in` keep the one
-refusal they have anywhere (TS8013). A `declare namespace` has no members to emit.
+refusal they have anywhere (TS8013). A statement refused whole is that one sentence: what it
+holds adds nothing. A `declare namespace` has no members to emit.
 
 ## 27. Boolean vectors
 
@@ -3378,15 +3379,19 @@ derived one can be described in terms of it, its methods reach each concrete cla
 inheritance rather than becoming functions of its own, and a constructor it declares is emitted
 because a derived `super(...)` calls it. An `abstract` member declares no body and contributes
 nothing. One written with a body or an initializer is refused where it is written, once, as
-TypeScript refuses it (TS1245, TS1267): on the class that declares it, or on the mixin whose
-class expression writes it, not on each class that applies the mixin. So is an abstract method
-or accessor in a class that is not abstract, a mixin's class expression among them (TS1244). A
-class that is not abstract and leaves an abstract method or accessor unimplemented is refused on
-that class, whether or not anything calls the member (TS2515). An abstract field is a member of
-every struct below the class that declares it, so a class that does not declare it again
-compiles, where TypeScript refuses it (TS2515). Until proposal 0008 an abstract member with a
-body was said of each class that inherited it, and one left unimplemented only at a call, as
-`"D" has no method "m"`.
+TypeScript refuses it (TS1245, TS1267): on the class that declares it, whatever it is
+instantiated with and whether or not anything extends it, or on the mixin whose class
+expression writes it, whether or not a class applies the mixin or writes the member over it. So
+is an abstract method or accessor in a class that is not abstract, a mixin's class expression
+among them (TS1244), and an abstract overload signature of a method whose body is not
+(TS2512). A class that is not abstract and leaves an abstract method or accessor unimplemented
+is refused on that class, whether or not anything calls the member (TS2515); a method one of
+whose declarations in the class that declares it has a body is implemented. An abstract field
+is a member of every struct below the class that declares it, so a class that does not declare
+it again compiles, where TypeScript refuses it (TS2515). None of these sentences says why a
+class has no field, so a class with none is told that too. Until proposal 0008 an abstract
+member with a body was said of each class that inherited it, and one left unimplemented only at
+a call, as `"D" has no method "m"`.
 
 **`super`.** Both forms work. `super(a, b)` in a constructor calls the base's constructor and
 copies its fields into the object being built, which is what a flat struct makes of it:
