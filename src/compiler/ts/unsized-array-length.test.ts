@@ -161,7 +161,7 @@ export function fs(): vec4 { return vec4(f32(u.length), 0., 0., 1.); }
 
   it('a parameter is told to give it a size', () => {
     const m = declarationRefusal(`"use typeshade";
-export function n(xs: array<f32>): i32 { return xs.length; }
+function n(xs: array<f32>): i32 { return xs.length; }
 `);
     // The size is one of its two remedies.
     expect(m).toMatch(/^TS8020 .*Give it a size, array<f32, N>/);

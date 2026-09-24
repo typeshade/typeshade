@@ -6546,6 +6546,83 @@ one module.
 code, with no `new Function`, so a strict content security policy is no obstacle. That module
 imports `typeshade/runtime`, the op library it runs on, and nothing of the compiler.
 
+## 65. A loop that runs as a kernel
+
+A function that takes an array with no size, `array<T>`, and is exported is a **kernel function**
+(Rule 8.22). Its array is the caller's storage, read and written in place, and each `for` at the
+top level of its body is a loop that can run on the GPU, one invocation per iteration, when the
+compiler proves that no iteration touches what another one does. No `@compute`, no binding and no
+`global_invocation_id` is written:
+
+```ts
+"use typeshade";
+
+export function height(p: vec2, k: vec4): f32 {
+  return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
+}
+
+export function render(k: vec4, size: u32, out: array<f32>) {
+  for (let i: u32 = 0; i < size * size; i++) {
+    const p = vec2(f32(i % size), f32(i / size)) / f32(size);
+    out[i] = height(p, k);
+  }
+}
+
+export function total(xs: array<f32>): f32 {
+  let s = 0.;
+  for (const x of xs) {
+    s += x;
+  }
+  return s;
+}
+```
+
+**The array parameter** (Rule 8.23) is passed by reference, the one exception to Rule 8.8: the body
+writes `out[i]` and reads `xs.length`, and cannot assign `out` whole. Any other function that
+takes an array with no size is refused (TS8020, §20). A kernel function is emitted by no target and
+is not called from another function (Rule 8.6); `height` above is an ordinary function both the
+loop and the host can call.
+
+**The body** is scalar statements, then the loops, then an optional `return` of scalars. A
+statement outside the loops that writes an array, or that is neither a loop nor a scalar
+statement, runs the whole function on the CPU, and so does a loop that reads what an earlier loop
+reduces: split the function.
+
+**The proof** (Rule 8.22) accepts a loop when:
+
+- R1: it is a counted `for` (Rule 7.5), or a `for…of`, that steps by adding a constant;
+- R2: nothing returns from it or breaks out of it;
+- R3: each write lands on a name declared inside it; on an outer array at `a*i + c`, at one index
+  whose coefficient of `i` is loop-invariant, or at `i*W + x` over a nested loop of `x` below `W`;
+  on a texture at `vec2(i % W, i / W)`; on a variable it combines, `s += e` (or `*=`, `&=`, `|=`,
+  `^=`, `s = min(s, e)`, `s = max(s, e)`); or on an integer array combined at any index,
+  `bins[k] += 1`;
+- R4: an array it writes is read only at an index it writes, and a combined variable is not read;
+- R5: a function it calls writes no module variable and no binding;
+- R6: it has no barrier, no workgroup memory and no `console` call.
+
+**A loop the proof refuses runs on the CPU**, with a warning, TS8070, on the loop. The program is
+correct either way. The first sentence names the line and your names, and the second the remedy:
+
+| Rule | Warning                                                                                                                                                                      |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1   | `This loop runs on the CPU because it is a while loop, whose trip count is known only when it ends. A for loop over a count runs on the GPU.`                                |
+| R1   | `This loop runs on the CPU because "stride /= 2" does not step through a range of indices. Step by adding a constant.`                                                       |
+| R2   | `This loop runs on the CPU because line 9 returns from inside it, so whether an iteration runs depends on the ones before it. Record the result in an array and read it after the loop.` |
+| R3   | `This loop runs on the CPU because line 49 writes "nearest", which the next iteration reads. Declare it inside the loop, or combine it with one of += *= min max & \| ^.`   |
+| R3   | `This loop runs on the CPU because line 4 writes "b[idx[i]]", an element two iterations can share. Write at an index made from "i".`                                        |
+| R4   | `This loop runs on the CPU because line 9 reads "out[i - 1]", which another iteration writes. Read from an array the loop does not write.`                                  |
+| R5   | `This loop runs on the CPU because line 7 calls "tally", which writes "calls". Return the value from "tally" and combine it in the loop instead.`                           |
+| R6   | `This loop runs on the CPU because line 5 calls console.log, whose lines would print in another order on the GPU. Log after the loop.`                                      |
+
+The editor shows the same warning. Only a kernel function's loops are candidates: a loop in an
+entry, a helper or a fragment shader stays per-invocation code, as it always was.
+
+**Not yet.** The call from host code, `await render(k, 512, img)`, which dispatches each accepted
+loop on the GPU and reads `img` back in place, and `resident`, `configure` and the tiers, are the
+next parts of change 0013. Until then a kernel function runs on the CPU oracle
+(`compileModule`), and its import is `never` with that reason.
+
 ## 67. Calling an entry point from host code
 
 A host file calls a module's `@compute` entry through the same import (§64), and the entry runs

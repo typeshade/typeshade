@@ -132,6 +132,8 @@ const REASON = {
     `parameter "${p}" is what a vertex entry writes, and a draw has no vertex entry but its full-screen triangle; #204, the rendering design, adds a mesh`,
   fragmentOutput:
     'a draw writes one @location(0) vec4 colour, a vec4 result or a struct of that one field',
+  kernel:
+    'it is a kernel function (Rule 8.22), whose asynchronous call, which dispatches its loops, the next part of change 0013 adds',
   fp64: 'its module emulates f64, whose guard binding the call does not create yet; change 0013 adds the f64 split',
   generic:
     'it is generic, and a generic function exists only as the instances the module uses; no proposal adds it yet',
@@ -979,6 +981,7 @@ function faceOf(ref: ExportRef, c: FaceCtx): HostExport {
     if (f.stage === 'vertex') return never(name, REASON.vertex);
     if (f.stage === 'fragment') return fragmentFace(name, f, c);
     if (f.stage === 'compute') return computeFace(name, f, c);
+    if (f.kernel === true) return never(name, REASON.kernel);
     const params: { name: string; type: HostType }[] = [];
     for (const p of f.params) {
       const t = hostTypeOf(p.type, c.structs);

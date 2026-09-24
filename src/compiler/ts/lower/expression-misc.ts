@@ -203,6 +203,20 @@ export function lowerUserCall(
     );
     return undefined;
   }
+  // A kernel function is the host's to call (Rule 8.6): its arrays are the caller's storage,
+  // which a shader has no way to hand over, and its loops are dispatches.
+  if (decl.kernel === true) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${shown}" is a kernel function, which host code calls and whose arrays are the call's ` +
+        `storage, so no function can call it. Move what the two share into a plain function ` +
+        `and call that from both.`,
+      TS_CODES.UNSUPPORTED,
+    );
+    return undefined;
+  }
   // A function that writes no return type says it in its body, which is lowered now if it has
   // not been yet (Rule 8.19); a call back into a body still being lowered closes a cycle.
   if (!scope.calleeReady(decl, node, sourceFile, diagnostics)) return undefined;
