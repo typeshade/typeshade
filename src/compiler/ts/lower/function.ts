@@ -19,6 +19,7 @@ import { voidT, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
+  authorTypeText,
   THIS_CAPTURE,
   fileFunctionsOf,
   writeRules,
@@ -2925,6 +2926,25 @@ export function fillFunctionBody(
           TS_CODES.RETURN_SHAPE,
         );
       }
+      return;
+    }
+    // A function that says it returns nothing, in its signature or as an entry's written
+    // `: void`, cannot return a value: WGSL refuses a `return` with a value in a function with
+    // no return type (Rule 1.1), so the front end says it where TypeScript's TS2322 says it, on
+    // the `return` (Rules 12.6, 12.7), under the code TS2322 reads as (Rule 12.4) (#212).
+    for (const r of collectReturns(body)) {
+      if (!r.expr) continue;
+      diagnostics.push(
+        diagnosticAtSpan(
+          sourceFile,
+          r.span,
+          node.name ?? node,
+          `Function "${shown ?? stub.name}" returns void but returns a value of type ` +
+            `${typeKey(r.expr.type)}: write ": ${authorTypeText(r.expr.type)}" as its return ` +
+            `type, or return nothing.`,
+          TS_CODES.TYPE_MISMATCH,
+        ),
+      );
     }
     return;
   }

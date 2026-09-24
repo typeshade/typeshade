@@ -8,19 +8,14 @@ import { f32T, boolT, i32T, u32T, isF64, isVec64, typeKey } from '../../../core/
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { irNameOf, type LoweringScope } from '../context.js';
 import { LANG_CONST, resolveLangConst } from '../math-alias.js';
-import { foldConstComponents, foldConstNumber } from '../loop-bound.js';
+import { constShiftAmountOutOfRange, foldConstComponents, foldConstNumber } from '../loop-bound.js';
 import {
   broadcastResultType,
   f64WidenResultType,
   numericMismatch,
   retargetLit,
 } from '../numeric.js';
-import {
-  foldNumericLit,
-  retargetIntLitCtx,
-  shiftAmountMessage,
-  shiftAmountOutOfRange,
-} from '../lit-coerce.js';
+import { foldNumericLit, retargetIntLitCtx, shiftAmountMessage } from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral } from './expression-array.js';
@@ -676,8 +671,8 @@ function lowerBinary(
     // runtime amount is left alone, since WGSL masks it to the low five bits.
     const isShift = bit === '<<' || bit === '>>';
     if (isShift) {
-      const amount = foldConstNumber(right, scope);
-      if (amount !== undefined && shiftAmountOutOfRange(amount)) {
+      const amount = constShiftAmountOutOfRange(right, scope);
+      if (amount !== undefined) {
         pushDiag(
           diagnostics,
           sourceFile,

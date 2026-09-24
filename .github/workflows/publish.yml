@@ -17,19 +17,20 @@ name: publish
 # pack/publish lifecycle scripts, since `prepack` also runs inside `npm pack` and would let a
 # read-only operation mutate a working tree. The checkout this runs in is thrown away.
 #
-# AUTHENTICATION — the NPM_ACCESS_TOKEN secret, which the repository ALREADY HAS, with
-# trusted publishing as the path that needs no secret at all. The step below writes the secret
-# to .npmrc when it is set, and npm uses it; with the secret removed, npm falls back to its
-# OIDC flow and verifies the `id-token` permission below against a publisher the package owner
-# registers once on npmjs.com, naming this repository and this workflow file.
+# AUTHENTICATION — the NPM_ACCESS_TOKEN secret, which the repository ALREADY HAS and which is,
+# today, the only credential that works. The step below writes it to .npmrc. npm (>= 11.5.1)
+# tries its OIDC exchange FIRST on every publish, whether or not a token is configured, and
+# falls back to the token without a word; the exchange's outcome appears only at
+# `--loglevel verbose` (npm/cli#9923). So this log cannot say which credential published: the
+# registry can (`_npmUser` and `trustedPublisher` on the version, RELEASING.md §0), and the dry
+# run below copies npm's `oidc` lines into the job summary.
 #
-# Trusted publishing is the better end state — nothing to leak, nothing to rotate, and no
-# publish-capable secret sitting in the repository for every future workflow to read — but it
-# is not the default HERE, because the token already exists and switching is a change the owner
-# makes deliberately: trusted publishing needs npm >= 11.5.1 and a publisher registered BEFORE
-# the first release, and a release that fails on either is a tag already pushed with nothing on
-# the registry. RELEASING.md §0 has both, and says the secret can be deleted once the publisher
-# is registered.
+# Trusted publishing is the better end state — nothing to leak, nothing to rotate — but npm
+# refuses the exchange for repositories GitHub created after 2026-07-15 (an immutable OIDC
+# subject npm does not match yet, npm/cli#9969), and this one was created on 2026-09-07. Until
+# that is fixed, deleting the secret leaves this workflow with no credential, and the release
+# fails after the tag is pushed with nothing on the registry. RELEASING.md §0 has the steps and
+# the January 2027 deadline for the token.
 #
 # RENAMING THIS FILE BREAKS TRUSTED PUBLISHING. The registered publisher names the workflow
 # filename. Rename it and the OIDC exchange is refused until the publisher is re-registered.
@@ -170,14 +171,27 @@ jobs:
         if: env.NPM_ACCESS_TOKEN != ''
         run: |
           echo "//registry.npmjs.org/:_authToken=\${NPM_ACCESS_TOKEN}" >> ~/.npmrc
-          echo "Publishing with the NPM_ACCESS_TOKEN secret (trusted publishing not used)."
+          echo "NPM_ACCESS_TOKEN written to .npmrc. npm still tries trusted publishing first and falls back to it silently; the registry's _npmUser records which one published (RELEASING.md §0)."
 
       - name: Publish to npm
         if: env.DRY_RUN != 'true'
         run: npm publish --provenance --access public
 
+      # Verbose, so the log says what the OIDC exchange did: npm reports it at no other level
+      # (npm/cli#9923). Until npm/cli#9969 is fixed the exchange is refused and the token is
+      # what would publish; the day the summary shows it succeeding, RELEASING.md §0 says what
+      # to do next.
       - name: Dry run — not published
         if: env.DRY_RUN == 'true'
         run: |
-          npm publish --provenance --access public --dry-run
-          echo "Dry run: nothing was uploaded." >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          npm publish --provenance --access public --dry-run --loglevel verbose 2>&1 | tee /tmp/publish.log
+          {
+            echo '### Trusted publishing (OIDC exchange)'
+            echo
+            echo '```'
+            grep -iE 'oidc' /tmp/publish.log || echo 'npm logged no oidc line: the exchange was not attempted.'
+            echo '```'
+            echo
+            echo "Dry run: nothing was uploaded."
+          } >> "$GITHUB_STEP_SUMMARY"
