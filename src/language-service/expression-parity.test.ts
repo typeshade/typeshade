@@ -30,6 +30,7 @@ import { compileTsSource } from '../compiler/ts/source-file.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { SHADE_DTS } from './ambient.js';
 import { TypeshadeHost } from './host.js';
+import { createTypeshadeLanguageService } from './service.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -195,7 +196,7 @@ function isAbstractCall(
   editor: string,
   compilerOf: ReadonlyMap<ts.Expression, string>,
 ): boolean {
-  if (!ts.isCallExpression(node) || editor !== 'number') return false;
+  if (!ts.isCallExpression(node) || !/^(number|array<number, \d+>)$/.test(editor)) return false;
   const numeric = node.arguments.filter(
     (a) => !/^(bool|vec[234]<bool>)$/.test(compilerOf.get(a) ?? ''),
   );
@@ -302,7 +303,8 @@ const groupOf = (d: Divergence): string => `${d.reads} | ${d.compiler} | ${d.edi
  *   A  a builtin's result, which the ambient library retypes instead of deriving
  *   B  an unannotated scalar the document declares, which TypeScript infers as `number`: none
  *      left since the projection writes a scalar field's and a scalar return's type in
- *   C  a constructor or a method that loses a type argument
+ *   C  a constructor or a method that loses a type argument: a static builder's `this` class
+ *      is the one left
  *
  * SHRINK-ONLY: a fix takes its rows out in the same change; a row that no longer occurs fails.
  */
@@ -311,11 +313,12 @@ const KNOWN: Readonly<Record<string, 'A' | 'C'>> = {
   // derivatives, bits and packing are generated from `core.def` since 0017; `determinant`
   // takes a matrix, which the generator has no form for yet.
   'determinant() | f32 | number': 'A',
-  // C. A constructor or a method that loses a type argument: `array(...)` its element and
-  // count, an array method its element, a static builder its `this` class.
-  '.reduce() | f32 | number': 'C',
+  // C. A constructor or a method that loses a type argument. `array(...)` reads its element
+  // and count off its values, and a `reduce` from a value has its running type written in by
+  // the projection; what is left is a static builder's `this` class. `Capped.unit()` runs the
+  // `unit` `Disc` declares with `this` as `Capped` (Rules 8.11, 8.13), and the front end types
+  // it `Capped`, where the `: Disc` the author wrote is all TypeScript reads.
   '.unit() | Capped | Disc': 'C',
-  'array() | array<f32, 3> | array<number>': 'C',
 };
 
 describe('the editor gives every expression the type the compiler gives it (Rule 12.7, 0015)', () => {
@@ -335,6 +338,35 @@ describe('the editor gives every expression the type the compiler gives it (Rule
     expect(firstDivergences(example).divergences.map(groupOf)).not.toContain(
       '.length | u32 | number',
     );
+  });
+
+  it('types an array(...) of typed values as the compiler does: element and count (class C)', () => {
+    // The shipped programs build their arrays from literals alone, an abstract array the gate
+    // classifies by Rule 12.7; this one builds them from typed values, the call the tuple
+    // overload of `array` exists for. Before it, each lost its count, and a mix of a typed value and
+    // a literal its element as well.
+    const text = `"use typeshade";
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const a = array(uv.x, uv.y, 1.);
+  const b = array(vec2(uv.x), uv);
+  const c = array<vec4, 2>(vec4(uv, 0., 1.), vec4(1.));
+  const i = array(i32(uv.x), i32(uv.y));
+  return c[1] * (a[2] + b[0].x + f32(i[0]));
+}
+`;
+    const probe = [{ uri: '/probe/array.shade.ts', text }];
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/probe/array.shade.ts', text);
+    expect(service.getDiagnostics('/probe/array.shade.ts')).toEqual([]);
+    expect(firstDivergences(probe).divergences.map(groupOf)).toEqual([]);
+    const before = SHADE_DTS.replace(/^declare function array<V extends readonly.*\n/m, '');
+    expect(before).not.toBe(SHADE_DTS);
+    expect(firstDivergences(probe, before).divergences.map(groupOf)).toEqual([
+      'array() | array<f32, 3> | array<number>',
+      'array() | array<vec2<f32>, 2> | array<vec2<f32>>',
+      'array() | array<i32, 2> | array<i32>',
+    ]);
   });
 
   it('reads every shipped program, and compares enough of each to mean something', () => {

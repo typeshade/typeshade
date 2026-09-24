@@ -17,6 +17,12 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **`array(...)` and an array's `reduce` from a value have the compiler's type in the editor**
+  (surface §49, Rule 12.7, proposal 0015). `array(uv.x, uv.y, 1.)` hovers as `array<f32, 3>`
+  where it said `array<number>`, and `xs.reduce((a, x) => a + x, 0.)` as `f32` where it said
+  `number`: the ambient `array` reads its element and count off its values, and the language
+  service writes the running value's type in as `reduce`'s type argument.
+
 - **An unannotated scalar field or return has the compiler's type in the editor** (surface §49,
   Rule 12.7, proposal 0015). `#width = 0.05`, `static readonly MIN_WIDTH = 0.01` and a getter
   that returns `this.r * 2.` hover as `f32` where they said `number` (or the literal `0.01`):

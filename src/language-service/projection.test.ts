@@ -396,3 +396,53 @@ export function fs(@location(0) uv: vec2): vec4 {
     expect(hover('this.#width', 'this.'.length)).toContain('#width: f32');
   });
 });
+
+describe('an array reduced from a literal (0015 class C)', () => {
+  // `xs.reduce(f, 0.)`: TypeScript takes the running value's type from `0.`, a `number`, before it
+  // reads `f`; the front end makes it an `f32`. The projection writes that type in as the type
+  // argument, and the call is an `f32` in both halves.
+  const src = `"use typeshade";
+class Light { pos: vec2; power: f32; }
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const lights = array<Light, 2>({ pos: vec2(0.), power: 1. }, { pos: vec2(1.), power: 2. });
+  const d = array(uv.x, uv.y, 1.);
+  const glow = lights.reduce((sum, l) => sum + l.power / (1. + dot(l.pos - uv, l.pos - uv)), 0.);
+  const total = d.reduce((a, s) => a + s, 0.);
+  const near = d.reduce((a, b) => min(a, b));
+  return vec4(glow, total, near, 1.);
+}
+`;
+
+  it('writes the running value type as the type argument of a reduce from a value only', () => {
+    const written = planInsertions(src, 'r.shade.ts')
+      .filter((i) => i.text.startsWith('<'))
+      .map((i) => `${src.slice(i.at - 12, i.at)}|${i.text}`);
+    expect(written).toEqual(['ights.reduce|<f32, 2>', 'l = d.reduce|<f32, 3>']);
+  });
+
+  it('is a program both halves accept, and both type each reduce as an f32', () => {
+    const compiled = compileTsSource(src);
+    expect(compiled.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const f32Type = JSON.stringify({ kind: 'scalar', scalar: 'f32' });
+    for (const call of ['lights.reduce(', 'd.reduce((a, s)', 'd.reduce((a, b)']) {
+      const start = src.indexOf(call);
+      const e = compiled.expressions.find((x) => x.start === start);
+      expect(JSON.stringify(e?.type)).toBe(f32Type);
+    }
+
+    const s = createTypeshadeLanguageService();
+    s.openDocument('r.shade.ts', src);
+    expect(s.getDiagnostics('r.shade.ts')).toEqual([]);
+    // A local's hover reads the front end's symbol either way; the method's hover is the
+    // checker's own reading of the call, the half that said `number` before the projection.
+    const method = (text: string): string =>
+      s.getHover('r.shade.ts', s.positionAt('r.shade.ts', src.indexOf(text) + text.length - 3))
+        ?.contents ?? '';
+    expect(method('lights.reduce')).toContain('reduce<f32, 2>(');
+    expect(method('lights.reduce')).toContain(
+      'array: array<Light, 2>) => f32, initialValue: f32): f32',
+    );
+    expect(method('total = d.reduce')).toContain('initialValue: f32): f32');
+  });
+});

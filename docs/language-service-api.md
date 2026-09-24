@@ -729,7 +729,11 @@ too, `(x): vec2 => x * k`. And a class field with an initializer and no annotati
 private or not, whose front-end type is a scalar gets its type after its name: `#width: f32 =
 0.05`, `static readonly MIN_WIDTH: f32 = 0.01`, which TypeScript would type `number` and the
 literal `0.01`. A local keeps the vector-and-matrix rule above: hover answers for a local from
-the front end's own record already. The type comes from a
+the front end's own record already. An array's `reduce` from a value, `xs.reduce((a, x) => a +
+x, 0.)`, gets the front end's type of the call as its type argument, and the array's size after
+it: `xs.reduce<f32, 3>(…)`. TypeScript takes the running value's type from `0.`, a `number`,
+before it reads the function, so the call was a `number` where the front end has an `f32` (0015's
+class C); the type comes from the front end's table of lowered expressions. The return type comes from a
 side table the front end fills as it lowers each body (`recordInferredReturn` in
 `compiler/ts/symbols.ts`, keyed by the node's offset, and left empty for a node lowered to two
 types, as a generic function's instances or the copies of a function that takes a function are),
