@@ -1,7 +1,7 @@
 ---
 id: '0019'
 title: A shader calls console.table with one value, and the host prints it as a table
-status: draft
+status: accepted
 rules:
   - '11.9'
 surface:
