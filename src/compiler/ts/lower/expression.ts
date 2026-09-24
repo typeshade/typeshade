@@ -22,7 +22,7 @@ import {
   shiftAmountMessage,
   shiftAmountOutOfRange,
 } from '../lit-coerce.js';
-import { mapTsTypeToShaderType } from '../type-map.js';
+import { mapTsTypeToShaderType, writesRefusedType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
 import { refuseBareAtomic } from './atomics.js';
@@ -99,6 +99,9 @@ function lowerTypeClaim(
     ts.isIdentifier(typeNode.typeName) &&
     typeNode.typeName.text === 'const';
   const claimed = isConst ? undefined : mapTsTypeToShaderType(typeNode, sourceFile, /* quiet */ []);
+  // A claim of a generic interface or alias, `{ x: a } as G<f32>`, names a declaration refused
+  // where it is written, which said why; the operand, built for it, adds nothing (Rule 12.4).
+  if (claimed === undefined && writesRefusedType(typeNode, sourceFile)) return undefined;
   const lowered = lowerExpression(operand, sourceFile, scope, diagnostics, claimed ?? contextual);
   if (!lowered || claimed === undefined) return lowered;
   if (typeKey(lowered.type) !== typeKey(claimed)) {

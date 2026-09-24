@@ -3467,19 +3467,33 @@ read again, so `throw new Error("x")` is one diagnostic, not four. An `async` fu
 generator is refused once, on the function, wherever it is written, in a body no call lowers too:
 a shader function runs to completion in one call, with no event loop to wait on and nothing to
 suspend it. The code is the one its position had: `TS8013` on a declaration, `TS8020` on a
-function written as a value, `TS8035` on a class's method. An `await` or a `yield` inside it adds
-nothing, and neither does a call of it, `h(a)`, `N.h(a)`, `c.m()` or `C.s()`. A `var` is refused
-once, `TS8013` in a body and `TS8014` at the top level or in a namespace. One in a body is lowered
-as the `let` it would have been. Wherever it is written, a use of the name says nothing more, as
-for any refused declaration: a read after the block the `var` is written in, and `N.x` for one in
-a namespace, included. An interface or a type alias inside a namespace is refused once. A spread
-in a list is refused wherever it is written, before the list is counted or asked for a type. When
-its operand is a vector or an array of fixed length the sentence names the elements to write,
-`"...a" spreads a list into a list, which a shader array does not do: write its elements, a[0],
-a[1].`, and otherwise it says `"...s" spreads into a list, which a shader array does not do:
-write the elements one by one.` The name the list initializes says nothing more where it is
-used. A spread argument, `f(...args)`, keeps its own sentence. A generic interface or type alias
-is refused at its declaration with the class that says it (§32).
+function written as a value, `TS8035` on a class's method; a mixin's method is named on the
+class that applies it, `TD.m`. The remedy removes `async` and `await`, or the `*`, and when the
+return type written is the wrapper they return, `Promise<f32>` or `IterableIterator<f32>`, it
+names the type to write instead, `f32`. An `await` or a `yield` inside it adds nothing, and
+neither does a call of it, `h(a)`, `N.h(a)`, `c.m()` or `C.s()`, or a local declared from one,
+`const y = h(a)`. An object literal's async method is the literal's one refusal, since a literal
+holds fields. A `var` is refused once, `TS8013` in a body and `TS8014` at the top level or in a
+namespace. One in a body is lowered as the `let` it would have been: a `var` that declares a
+parameter or an earlier `var` again is that variable, as in JavaScript, and a sentence about the
+declaration quotes it as written, `"var b" needs an array type annotation`, with `let` in its
+remedy. Wherever it is written, a use of the name says nothing more, as for any refused
+declaration: a read after the block the `var` is written in, and `N.x` for one in a namespace,
+included. An interface or a type alias inside a namespace is refused once, and a type that names
+it, `N.I`, says nothing more. A spread in a list is refused wherever it is written, before the
+list is counted or asked for a type. When the lowering reads its operand as a vector or an array
+of fixed length, the sentence names the elements to write, `"...a" spreads a list into a list,
+which a shader array does not do: write its elements, a[0], a[1].`; where it reads none (a body
+no call lowers, a namespace's constant, which reads no other by its short name, a struct), it
+says `"...s" spreads into a list, which a shader array does not do: write the elements one by
+one.` The name the list initializes, a local, a constant, a variable, a field or a static field,
+says nothing more where it is used. A spread argument, `f(...args)`, keeps its own sentence, and
+`...q` in a list assigned to, `[p, ...q] = a`, is a rest element, which the assignment's refusal of
+its target says. A generic interface or object-type alias is refused at its declaration with the
+class that says it (§32). Each of these is one diagnostic in the editor too: TypeScript's own
+report of what the compiler refused whole (`Cannot find name 'Error'` in the `throw`, TS1308 on an
+`await`, the `Promise` an async function names, a list with a spread as unassignable) is not in
+its merged list, and neither is its TS2454 at a read of a refused `var`.
 
 ## 29. The mixin pattern
 
@@ -3727,12 +3741,17 @@ names no layout until the declaration around it is instantiated; the wrong numbe
 arguments. A surplus argument is reported once and the instance is still collected from the ones
 the class declares, so the mistake does not take the struct, and every use of it, down with it.
 
-**A generic interface or type alias is not collected per instance**, so one that something uses,
-directly or through a plain alias (`type GF = G<f32>`), is refused at its declaration with the
-spelling that is: `"G" is a generic interface; a generic struct is written as a class, class G<T>
-{ x: T } (surface §32).` A parameter, a return, a local, a module constant or variable, a binding
-or a field typed `G<f32>` adds nothing to that sentence, and neither does a read of one (proposal
-0008).
+**A generic interface or object-type alias is not collected per instance**, so one that something
+uses, directly or through a plain alias (`type GF = G<f32>`), is refused at its declaration with
+the spelling that is: `"G" is a generic interface; a generic struct is written as a class, class
+G<T> { x: T } (surface §32).` Nothing that names `G<f32>` adds to that sentence (proposal 0008): a
+parameter or a return of a function, a method, a static function, a constructor or a function a
+field holds, and a call, a `new` or a local declared from one, in the file that declares it or
+one that imports it; a local, a module constant or variable, a binding that holds one or an array
+of them, and an `as` that claims one, with a read of each; and a field of a class or an
+interface, which a literal of it leaves out, and a struct left with no other field, which is
+refused with it. A generic alias of another type, `type Arr<T> = array<T, 4>`, is not refused at
+its declaration; each use of it is (`TS8002`).
 
 ## 33. A storage texture
 

@@ -7,7 +7,7 @@ import ts from 'typescript';
 import type { BindingDecl, StructDecl } from '../../core/ir/nodes.js';
 import { structT, type ShaderType } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES } from './type-map.js';
+import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES, writesRefusedType } from './type-map.js';
 import { atomicWithin } from './lower/atomics.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { recordCallFormBinding, recordRecoveredBinding } from './context.js';
@@ -274,9 +274,13 @@ function fromType(
   // A remedy built from a recovered type quotes a line that is refused again (see
   // `recordRecoveredBinding`), so the site that would quote one is told not to.
   const beforeType = diagnostics.length;
+  // A type that names a generic interface or alias was refused at that declaration, which
+  // said why; the binding is not collected, and a read of it adds nothing (Rule 12.4).
   const mapped =
     mapTsTypeToShaderType(inner, sourceFile, diagnostics) ??
-    (ts.isTypeReferenceNode(inner) && ts.isIdentifier(inner.typeName)
+    (ts.isTypeReferenceNode(inner) &&
+    ts.isIdentifier(inner.typeName) &&
+    !writesRefusedType(inner, sourceFile)
       ? structT(inner.typeName.text)
       : undefined);
   if (diagnostics.slice(beforeType).some((d) => d.category === 'error')) {
@@ -349,7 +353,9 @@ function fromCall(
   const beforeType = diagnostics.length;
   const type =
     mapTsTypeToShaderType(typeArg, sourceFile, diagnostics) ??
-    (ts.isTypeReferenceNode(typeArg) && ts.isIdentifier(typeArg.typeName)
+    (ts.isTypeReferenceNode(typeArg) &&
+    ts.isIdentifier(typeArg.typeName) &&
+    !writesRefusedType(typeArg, sourceFile)
       ? structT(typeArg.typeName.text)
       : undefined);
   if (diagnostics.slice(beforeType).some((d) => d.category === 'error')) {

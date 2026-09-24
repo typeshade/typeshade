@@ -26,7 +26,12 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { LoweringScope } from './context.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
-import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js';
+import {
+  mapTsTypeToShaderType,
+  RETIRED_VAR_WRAPPER,
+  retiredWrapperMessage,
+  writesRefusedType,
+} from './type-map.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { foldConstComponents } from './loop-bound.js';
 import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
@@ -105,7 +110,10 @@ const typeOf = (
   diagnostics: TsCompilerDiagnostic[],
 ): ShaderType | undefined =>
   mapTsTypeToShaderType(node, sourceFile, diagnostics) ??
-  (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)
+  // One that names a generic interface or alias was refused at that declaration (Rule 12.4).
+  (ts.isTypeReferenceNode(node) &&
+  ts.isIdentifier(node.typeName) &&
+  !writesRefusedType(node, sourceFile)
     ? structT(node.typeName.text)
     : undefined);
 

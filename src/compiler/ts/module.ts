@@ -166,7 +166,12 @@ export function compileTsSources(
       }
       const exported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
       const stub = parseSignature(stmt, sf, diagnostics);
-      if (!stub) continue;
+      // A signature that could not be read said why, or names a type refused where it is
+      // declared, which did: the function is refused, as in one file, and so is an import of it.
+      if (!stub) {
+        if (stmt.name !== undefined) refused.add(stmt.name.text);
+        continue;
+      }
       if (table.has(stub.name)) {
         diagnostics.push(
           makeDiagnostic(

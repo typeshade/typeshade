@@ -7,8 +7,9 @@ import {
   aliasTargetsOf,
   lookupTypeName,
   mapTsTypeToShaderType,
-  namesRefusedGeneric,
+  refuseTypeName,
   setRefusedGenerics,
+  writesRefusedType,
 } from './type-map.js';
 import {
   baseClassOf,
@@ -93,8 +94,9 @@ export type CollectedStruct = {
    *  one says nothing more, since its declaration already said why (Rule 12.4). */
   readonly withheld?: ReadonlySet<string>;
   /** The functions the class declared that lost their emitted name to another member, by what
-   *  follows `Cls_` in it (`step` for a refused `#step` beside `step`): the pair was reported,
-   *  and a call that would have reached the one refused says nothing more (Rule 12.4). */
+   *  follows `Cls_` in it (`step` for a refused `#step` beside `step`), and the fields holding a
+   *  function it refused: each was reported, and a call that would have reached the one refused
+   *  says nothing more (Rule 12.4). */
   readonly withheldFunctions?: ReadonlySet<string>;
   /** The `readonly` fields, by emitted name, with the class that declares each: only that
    *  class's constructor may assign one (Rule 8.14), which is TypeScript's rule. */
@@ -220,10 +222,15 @@ export function collectStructs(
       restrictedFields: ReadonlyMap<string, RestrictedField>;
       staticHolder?: string;
     },
+    /** The fields an interface or a type alias declared and does not carry, refused where
+     *  they are written; a class's are its `klass.withheld`. */
+    withheld: ReadonlySet<string> = klass?.withheld ?? new Set(),
   ): void => {
     const fromClass =
       klass === undefined
-        ? {}
+        ? withheld.size > 0
+          ? { withheld }
+          : {}
         : {
             classNode: klass.node,
             ...(klass.staticHolder !== undefined ? { staticHolder: klass.staticHolder } : {}),
@@ -272,9 +279,12 @@ export function collectStructs(
     // A declaration with a base gets its fields from `applyInheritance`, which reports an
     // empty one once what it extends is known (T5, #92).
     if (fields.length === 0 && bases.length === 0) {
-      // A field the class withholds was refused where it is written, which says why this one
-      // is empty; a field typed with a generic interface was refused at that interface.
-      if (diagnostics.length === before && (klass?.withheld.size ?? 0) === 0) {
+      // A field it withholds was refused where it is written, which says why this one is
+      // empty. One withheld with nothing said here names a type refused at its declaration (a
+      // generic interface); with no field left, the struct is refused with it, and a type that
+      // names the struct says nothing more.
+      if (withheld.size > 0 && diagnostics.length === before) refuseTypeName(sourceFile, name);
+      if (diagnostics.length === before && withheld.size === 0) {
         diagnostics.push(
           diag(
             sourceFile,
@@ -344,15 +354,27 @@ export function collectStructs(
         kind: 'struct',
         type: structT(candidate.name),
       });
+      const withheld = new Set<string>();
       add(
         candidate.name,
         candidate.nameNode,
-        signatureFields(candidate.members, candidate.name, sourceFile, diagnostics, symbols),
+        signatureFields(
+          candidate.members,
+          candidate.name,
+          sourceFile,
+          diagnostics,
+          symbols,
+          withheld,
+        ),
         candidate.spelling,
         before,
         undefined,
         undefined,
         heritage.bases,
+        undefined,
+        undefined,
+        undefined,
+        withheld,
       );
       continue;
     }
@@ -664,6 +686,8 @@ export function collectStructs(
             const why = functionFieldRefusal(member, fn, structName, memberName);
             if (why !== undefined) {
               diagnostics.push(classDiag(sourceFile, why.at, why.message));
+              // Refused where it is written, so a call of it adds nothing (Rule 12.4).
+              withheldFunctions.add(emittedMemberName(memberName));
               continue;
             }
             const twice =
@@ -709,11 +733,12 @@ export function collectStructs(
           // `v = vec3(0.)` and `p = new P()` the type they build. Before this such a field was
           // dropped from the struct with no diagnostic, and every read of it said it did not
           // exist.
-          // One whose type is a generic interface or alias is withheld: that declaration said
-          // why, once, and a read of the field adds nothing (Rule 12.4).
+          // One whose type names a generic interface or alias is withheld: that declaration
+          // said why, once, and a read of the field or a literal that sets it adds nothing
+          // (Rule 12.4).
           const type = member.type
             ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
-              (namesRefusedGeneric(member.type, sourceFile)
+              (writesRefusedType(member.type, sourceFile)
                 ? undefined
                 : structT(member.type.getText(sourceFile))))
             : member.initializer !== undefined
@@ -1650,6 +1675,8 @@ function signatureFields(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   symbols?: DeclaredSymbolSink,
+  /** Where a field whose type names a type refused at its declaration goes, unsaid. */
+  withheld?: Set<string>,
 ): StructField[] {
   const fields: StructField[] = [];
   for (const member of members) {
@@ -1702,11 +1729,19 @@ function signatureFields(
       );
       continue;
     }
+    // One whose type names a generic interface or alias is withheld, as a class's is: that
+    // declaration said why, and a read of the field or a literal that sets it adds nothing
+    // (Rule 12.4).
     const type = member.type
       ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
-        structT(member.type.getText(sourceFile)))
+        (writesRefusedType(member.type, sourceFile)
+          ? undefined
+          : structT(member.type.getText(sourceFile))))
       : undefined;
-    if (!type) continue;
+    if (!type) {
+      if (member.type !== undefined) withheld?.add(member.name.text);
+      continue;
+    }
     fields.push({ name: member.name.text, type });
     recordDeclaration(symbols, sourceFile, member.name, {
       name: member.name.text,

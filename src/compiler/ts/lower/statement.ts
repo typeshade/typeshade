@@ -398,6 +398,31 @@ function builtThisType(
     : annotated;
 }
 
+/** Whether a `var` declares a name its function already bound as a parameter or by an earlier
+ *  `var`, which JavaScript reads as the one variable, where a `let` of it would be refused. */
+function redeclaresVar(decl: ts.VariableDeclaration, name: string): boolean {
+  const fn = ts.findAncestor(decl.parent, ts.isFunctionLike);
+  if (fn === undefined) return false;
+  if (fn.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === name)) return true;
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found || node.pos >= decl.pos || ts.isFunctionLike(node) || ts.isClassLike(node)) return;
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === name &&
+      ts.isVariableDeclarationList(node.parent) &&
+      (node.parent.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(fn, visit);
+  return found;
+}
+
 function lowerDeclarationKind(
   decl: ts.VariableDeclaration,
   isConst: boolean,
@@ -423,7 +448,16 @@ function lowerDeclarationKind(
     return undefined;
   }
   const name = decl.name.text;
+  // A `var` is lowered as the `let` it would have been (semantic.ts refused it), and quoted as
+  // the author wrote it; the remedies name `let`.
+  const isVar =
+    ts.isVariableDeclarationList(decl.parent) &&
+    (decl.parent.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0;
+  const written = isConst ? 'const' : isVar ? 'var' : 'let';
   if (scope.hasInCurrent(name)) {
+    // JavaScript lets a `var` declare a name its function has already bound, a parameter or an
+    // earlier `var`, as the same variable; the one mistake is the `var` (Rule 12.4).
+    if (isVar && redeclaresVar(decl, name)) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,
@@ -462,7 +496,8 @@ function lowerDeclarationKind(
         diagnostics,
         sourceFile,
         decl,
-        `"let ${name}" without an initializer needs a type annotation, e.g. let ${name}: f32;`,
+        `"${written} ${name}" without an initializer needs a type annotation, e.g. let ` +
+          `${name}: f32;`,
         TS_CODES.UNSUPPORTED,
       );
       return undefined;
@@ -502,7 +537,7 @@ function lowerDeclarationKind(
         diagnostics,
         sourceFile,
         decl,
-        `"${kw} ${name}" needs an array type annotation to take a list, e.g. ${kw} ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
+        `"${written} ${name}" needs an array type annotation to take a list, e.g. ${kw} ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
         TS_CODES.UNKNOWN_TYPE,
       );
       return undefined;

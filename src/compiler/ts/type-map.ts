@@ -278,29 +278,46 @@ function contractInterfaces(sourceFile: ts.SourceFile): ReadonlySet<string> {
   return out;
 }
 
-/** The generic interfaces and object-type aliases of a file that something uses: `collectStructs`
- *  refuses each once at its declaration (TS8010), and sets this before it maps a type. */
-const REFUSED_GENERICS = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+/** The types a file refuses where they are declared, having said why there: each generic
+ *  interface or object-type alias something uses (TS8010), and a struct none of whose fields is
+ *  left because each names one. `collectStructs` sets it before it maps a type, and a type that
+ *  names one of these maps to nothing and says nothing more (Rule 12.4). */
+const REFUSED_TYPES = new WeakMap<ts.SourceFile, Set<string>>();
 
 /** Records the generic interfaces and aliases `collectStructs` refuses in `sourceFile`. */
 export function setRefusedGenerics(sourceFile: ts.SourceFile, names: ReadonlySet<string>): void {
-  REFUSED_GENERICS.set(sourceFile, names);
+  REFUSED_TYPES.set(sourceFile, new Set(names));
 }
 
-/** Whether a struct is named after a generic interface or alias `collectStructs` refused: the
- *  name a field typed `G<f32>` or a binding typed `uniform<G<f32>>` falls back to, `G<f32>` or
- *  `G`, which names no layout. */
-export function isRefusedGenericStruct(name: string, sourceFile: ts.SourceFile): boolean {
-  return REFUSED_GENERICS.get(sourceFile)?.has(name.split('<')[0]!) === true;
+/** Records a struct `collectStructs` left out because every field it declares names a type
+ *  refused where it is declared: a type that names it is refused with them. */
+export function refuseTypeName(sourceFile: ts.SourceFile, name: string): void {
+  const names = REFUSED_TYPES.get(sourceFile) ?? new Set<string>();
+  names.add(name);
+  REFUSED_TYPES.set(sourceFile, names);
 }
 
-/** Whether a type names a generic interface or alias `collectStructs` refused, `G<f32>`. */
-export function namesRefusedGeneric(typeNode: ts.TypeNode, sourceFile: ts.SourceFile): boolean {
-  return (
-    ts.isTypeReferenceNode(typeNode) &&
-    ts.isIdentifier(typeNode.typeName) &&
-    REFUSED_GENERICS.get(sourceFile)?.has(typeNode.typeName.text) === true
-  );
+/** Whether a type names, anywhere in it and through the plain aliases it names, a type the
+ *  file refused where it is declared: `G<f32>`, `array<G<f32>, 4>`, `GF` for `type GF =
+ *  G<f32>`. What it types has nothing to lay out, and that declaration said why. */
+export function writesRefusedType(typeNode: ts.Node, sourceFile: ts.SourceFile): boolean {
+  const refused = REFUSED_TYPES.get(sourceFile);
+  if (refused === undefined || refused.size === 0) return false;
+  const aliases = aliasTargetsOf(sourceFile);
+  const followed = new Set<string>();
+  const walk = (node: ts.Node): boolean => {
+    if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) {
+      const name = node.typeName.text;
+      if (refused.has(name)) return true;
+      const target = aliases.get(name);
+      if (target !== undefined && !followed.has(name)) {
+        followed.add(name);
+        if (walk(target)) return true;
+      }
+    }
+    return ts.forEachChild(node, (child) => (walk(child) ? true : undefined)) === true;
+  };
+  return walk(typeNode);
 }
 
 export function mapTsTypeToShaderType(
@@ -371,7 +388,7 @@ function mapType(
     }
     // A generic interface or type alias was refused where it is declared, with the class that
     // says it (structs.ts), so `G<f32>` names no type and says nothing more (Rule 12.4).
-    if (name !== undefined && REFUSED_GENERICS.get(sourceFile)?.has(name) === true) {
+    if (name !== undefined && REFUSED_TYPES.get(sourceFile)?.has(name) === true) {
       return undefined;
     }
     if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
@@ -384,6 +401,11 @@ function mapType(
       const dotted = dottedTypeName(typeNode.typeName);
       if (dotted !== undefined && namespaceStructsOf(sourceFile).flattened.has(dotted)) {
         return structT(dotted);
+      }
+      // An interface or a type alias inside a namespace was refused where it is written
+      // (TS8014), so a type that names it, `N.I`, says nothing more (Rule 12.4).
+      if (dotted !== undefined && namespaceStructsOf(sourceFile).types.has(dotted)) {
+        return undefined;
       }
       // A misspelled member names the class of a namespace it is spelled like (Rule 12.1).
       pushDiag(
@@ -1012,6 +1034,9 @@ interface NamespaceStructs {
   readonly short: ReadonlyMap<string, string[]>;
   /** Every struct name the file declares at its top level, which wins over a short name. */
   readonly topLevel: ReadonlySet<string>;
+  /** The flattened name of each interface and type alias a namespace declares, which the
+   *  namespace walk refuses (TS8014). */
+  readonly types: ReadonlySet<string>;
 }
 
 const NS_STRUCT_CACHE = new WeakMap<ts.SourceFile, NamespaceStructs>();
@@ -1024,6 +1049,7 @@ function namespaceStructsOf(sourceFile: ts.SourceFile): NamespaceStructs {
   const flattened = new Set<string>();
   const short = new Map<string, string[]>();
   const topLevel = new Set<string>();
+  const types = new Set<string>();
   for (const stmt of sourceFile.statements) {
     if (ts.isClassDeclaration(stmt) && stmt.name) topLevel.add(stmt.name.text);
     if (ts.isInterfaceDeclaration(stmt)) topLevel.add(stmt.name.text);
@@ -1037,6 +1063,9 @@ function namespaceStructsOf(sourceFile: ts.SourceFile): NamespaceStructs {
         else if (ts.isModuleDeclaration(stmt.body)) walk([stmt.body], inner);
         continue;
       }
+      if (prefix !== '' && (ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt))) {
+        types.add(`${prefix}_${stmt.name.text}`);
+      }
       if (prefix === '' || !ts.isClassDeclaration(stmt) || !stmt.name) continue;
       const full = `${prefix}_${stmt.name.text}`;
       flattened.add(full);
@@ -1046,7 +1075,7 @@ function namespaceStructsOf(sourceFile: ts.SourceFile): NamespaceStructs {
     }
   };
   walk(sourceFile.statements, '');
-  const value: NamespaceStructs = { flattened, short, topLevel };
+  const value: NamespaceStructs = { flattened, short, topLevel, types };
   NS_STRUCT_CACHE.set(sourceFile, value);
   return value;
 }

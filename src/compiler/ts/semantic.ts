@@ -7,6 +7,7 @@ import { makeDiagnostic } from './diagnostic.js';
 import { isEnableDirective } from './enables.js';
 import { staticThisClass } from './class-names.js';
 import { namespaceMemberName, refuseNamespaceStatement } from './namespaces.js';
+import { mixinAppliedBy } from './mixins.js';
 
 export const HOST_GLOBALS: ReadonlySet<string> = new Set([
   'window',
@@ -284,8 +285,10 @@ function visit(
   // argument, `f(...args)`, needs an argument count known only at run time. A spread in a list,
   // `[...a, 3.]`, is refused here as well, so it is refused in a body no call lowers too; the
   // lowering, which knows what `a` is, names its elements in the sentence (expression-array.ts).
+  // `...q` in a list that is assigned to, `[p, ...q] = a`, is a rest element, which collects
+  // rather than spreads; the assignment's own refusal of that target is its one sentence.
   if (ts.isSpreadElement(node) && ts.isArrayLiteralExpression(node.parent)) {
-    refuseListSpread(node, sourceFile, diagnostics);
+    if (!isAssignedPattern(node.parent)) refuseListSpread(node, sourceFile, diagnostics);
   } else if (ts.isSpreadElement(node)) {
     push(diagnostics, sourceFile, node, 'Spread is a JS runtime operation.', TS_CODES.HOST_STMT);
   }
@@ -340,8 +343,9 @@ function namespacePrefix(block: ts.ModuleBlock): string | undefined {
  *  (Rule 12.4): the operand of a `throw`, an `await` or a `yield`, the spans of a template
  *  string, what a spread spreads, and the whole of an async function or a generator refused
  *  above, so an `await` or a `yield` in it is not said again. `throw new Error("x")` is the
- *  `throw`. A `try` and a `for…in` hold statements of the author's own, and those are still
- *  read, and so is an object literal's async method, which the literal refuses as a method. */
+ *  `throw`. So is an object literal's async method or generator, which the literal refuses as
+ *  a method (a literal holds fields). A `try` and a `for…in` hold statements of the author's
+ *  own, and those are still read. */
 function holdsItsMistake(node: ts.Node): boolean {
   return (
     ts.isThrowStatement(node) ||
@@ -350,7 +354,32 @@ function holdsItsMistake(node: ts.Node): boolean {
     ts.isTemplateExpression(node) ||
     ts.isTaggedTemplateExpression(node) ||
     ts.isSpreadElement(node) ||
-    (ts.isFunctionLike(node) && refusedBySemantics(node))
+    (ts.isFunctionLike(node) && refusedBySemantics(node)) ||
+    (ts.isMethodDeclaration(node) &&
+      ts.isObjectLiteralExpression(node.parent) &&
+      isAsyncOrGenerator(node))
+  );
+}
+
+/** Whether a list is the target of an assignment, `[p, ...q] = a`, or a part of one, or the
+ *  head of a `for…of`: a pattern that takes values apart, where `...q` collects. */
+function isAssignedPattern(node: ts.ArrayLiteralExpression): boolean {
+  let at: ts.Node = node;
+  while (
+    ts.isParenthesizedExpression(at.parent) ||
+    ts.isArrayLiteralExpression(at.parent) ||
+    ts.isSpreadElement(at.parent) ||
+    ts.isObjectLiteralExpression(at.parent) ||
+    (ts.isPropertyAssignment(at.parent) && at.parent.initializer === at)
+  ) {
+    at = at.parent;
+  }
+  const holder = at.parent;
+  return (
+    (ts.isBinaryExpression(holder) &&
+      holder.left === at &&
+      holder.operatorToken.kind === ts.SyntaxKind.EqualsToken) ||
+    ((ts.isForOfStatement(holder) || ts.isForInStatement(holder)) && holder.initializer === at)
   );
 }
 
@@ -381,7 +410,8 @@ function asyncOrGeneratorRefusal(node: ts.Node): { message: string; code: TsCode
   if (member !== undefined) {
     if (!ts.isClassLike(member.parent)) return undefined;
     const written = member.name.getText();
-    const owner = member.parent.name?.text;
+    // A mixin's class has no name of its own; its method is the applying class's, `TD.m`.
+    const owner = member.parent.name?.text ?? mixinAppliedBy(member.parent, node.getSourceFile());
     return {
       message: asyncOrGeneratorMessage(node, owner === undefined ? written : `${owner}.${written}`),
       code: TS_CODES.CLASS_MEMBER,
@@ -399,24 +429,63 @@ function asyncOrGeneratorRefusal(node: ts.Node): { message: string; code: TsCode
 }
 
 /** The one sentence for an async function or a generator, named as written, or "This function"
- *  for one written with no name. */
+ *  for one written with no name. The remedy names the return type to write when the one written
+ *  is the wrapper an async function or a generator returns (`Promise<f32>`), which a plain
+ *  function has no form for. */
 function asyncOrGeneratorMessage(node: ts.SignatureDeclaration, name: string | undefined): string {
   const shown = name === undefined ? 'This function' : `"${name}"`;
   const isGenerator = (node as { asteriskToken?: ts.AsteriskToken }).asteriskToken !== undefined;
   const isAsync =
     ts.canHaveModifiers(node) &&
     (ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false);
-  if (!isAsync) {
-    return (
-      `${shown} is a generator, and a shader function runs to completion in one call: nothing ` +
-      `suspends it at a "yield". Remove the "*" and return one value.`
-    );
+  const removed = [
+    ...(isAsync ? ['"async"'] : []),
+    ...(isGenerator ? ['the "*"'] : []),
+    ...(isAsync && !isGenerator ? ['each "await"'] : []),
+  ];
+  const wrapped = wrappedReturn(node);
+  if (wrapped === null) removed.push('its return type');
+  const steps = [
+    `Remove ${removed.slice(0, -1).join(', ')}${removed.length > 1 ? ' and ' : ''}${removed.at(-1)!}`,
+    ...(typeof wrapped === 'string' ? [`write its return type as ${wrapped}`] : []),
+    ...(isGenerator ? ['return one value'] : []),
+  ];
+  const remedy =
+    steps.length === 1
+      ? steps[0]!
+      : steps.length === 2 && removed.length === 1
+        ? `${steps[0]!} and ${steps[1]!}`
+        : `${steps.slice(0, -1).join(', ')}, and ${steps.at(-1)!}`;
+  const reason = isAsync ? 'there is no event loop to wait on' : 'nothing suspends it at a "yield"';
+  const what = isAsync ? (isGenerator ? 'an async generator' : 'async') : 'a generator';
+  return `${shown} is ${what}, and a shader function runs to completion in one call: ${reason}. ${remedy}.`;
+}
+
+/** The wrappers an async function or a generator is declared to return. */
+const RETURN_WRAPPERS: ReadonlySet<string> = new Set([
+  'Promise',
+  'PromiseLike',
+  'Generator',
+  'Iterator',
+  'Iterable',
+  'IterableIterator',
+  'AsyncGenerator',
+  'AsyncIterator',
+  'AsyncIterable',
+  'AsyncIterableIterator',
+]);
+
+/** What an async function or a generator declares it hands back, once it is a plain function:
+ *  `f32` for `Promise<f32>` or `Generator<f32>`, as written; `null` for a wrapper written with
+ *  no type argument, which leaves nothing to write; undefined when no wrapper is written, and
+ *  the return type stands as it is. */
+function wrappedReturn(node: ts.SignatureDeclaration): string | null | undefined {
+  const type = node.type;
+  if (type === undefined || !ts.isTypeReferenceNode(type) || !ts.isIdentifier(type.typeName)) {
+    return undefined;
   }
-  return isGenerator
-    ? `${shown} is an async generator, and a shader function runs to completion in one call: ` +
-        `there is no event loop to wait on. Remove "async" and the "*", and return one value.`
-    : `${shown} is async, and a shader function runs to completion in one call: there is no ` +
-        `event loop to wait on. Remove "async" and each "await".`;
+  if (!RETURN_WRAPPERS.has(type.typeName.text)) return undefined;
+  return type.typeArguments?.[0]?.getText() ?? null;
 }
 
 /** The nodes `visit` and `analyzeSemantics` refused, per file: the lowering reads it where it
@@ -429,38 +498,34 @@ export function refusedBySemantics(node: ts.Node): boolean {
   return REFUSED.get(node.getSourceFile())?.has(node) ?? false;
 }
 
-/** Whether the class declared as `struct` (flattened, `N_P` inside a namespace) has a member
- *  written `member` that `visit` refused, an async method or a generator, having said why: a
- *  call of it has nothing more to say (Rule 12.4). */
-export function memberRefusedBySemantics(
-  struct: string,
-  member: string,
-  sourceFile: ts.SourceFile,
-): boolean {
-  for (const node of REFUSED.get(sourceFile) ?? []) {
-    const m = ts.isMethodDeclaration(node)
-      ? node
-      : ts.isPropertyDeclaration(node.parent) && node.parent.initializer === node
-        ? node.parent
-        : undefined;
-    if (m === undefined || m.name.getText() !== member) continue;
-    if (!ts.isClassDeclaration(m.parent) || m.parent.name === undefined) continue;
-    const block = m.parent.parent;
-    const prefix = ts.isModuleBlock(block) ? namespacePrefix(block) : undefined;
-    const cls = m.parent.name.text;
-    if ((prefix === undefined ? cls : namespaceMemberName(prefix, cls)) === struct) return true;
+/** Whether `analyzeSemantics` refused `node` or something written inside it that the lowering
+ *  stops at. A body or a default the lowering could not finish for that reason has said why,
+ *  though the lowering itself added nothing, so a call of it has nothing more to say (Rule
+ *  12.4). A `var` is lowered as the `let` it would have been, so it stops nothing. */
+export function refusalWithin(node: ts.Node): boolean {
+  for (const refused of REFUSED.get(node.getSourceFile()) ?? []) {
+    if (ts.isVariableStatement(refused)) continue;
+    if (refused.pos >= node.pos && refused.end <= node.end) return true;
   }
   return false;
 }
 
-/** Whether `analyzeSemantics` refused `node` or something written inside it. A body or a
- *  default the lowering could not finish for that reason has said why, though the lowering
- *  itself added nothing, so a call of it has nothing more to say (Rule 12.4). */
-export function refusalWithin(node: ts.Node): boolean {
-  for (const refused of REFUSED.get(node.getSourceFile()) ?? []) {
-    if (refused.pos >= node.pos && refused.end <= node.end) return true;
-  }
-  return false;
+/** The nodes `analyzeSemantics` refused whole in `sourceFile`, having said why: a statement the
+ *  top level cannot hold, and each node whose operand or body is part of its one mistake
+ *  (`holdsItsMistake`). Nothing under one is read again, so a report of something inside it
+ *  repeats that mistake; the editor's merged list drops TypeScript's (Rule 12.4). */
+export function refusedWhole(sourceFile: ts.SourceFile): ts.Node[] {
+  return [...(REFUSED.get(sourceFile) ?? [])].filter(
+    (node) =>
+      holdsItsMistake(node) || (node.parent === sourceFile && !ts.isVariableStatement(node)),
+  );
+}
+
+/** The `var` statements `analyzeSemantics` refused in `sourceFile`: each is lowered as the
+ *  `let` it would have been, so what TypeScript says of a `var` alone (a redeclaration, a read
+ *  outside its block) belongs to that one mistake. */
+export function refusedVars(sourceFile: ts.SourceFile): ts.VariableStatement[] {
+  return [...(REFUSED.get(sourceFile) ?? [])].filter(ts.isVariableStatement);
 }
 
 /** A spread in a list `visit` refused, with the sentence that fits any operand, and where that

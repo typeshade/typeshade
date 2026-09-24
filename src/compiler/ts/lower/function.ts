@@ -236,7 +236,7 @@ export function lowerSourceFunctions(
   // A class's methods, static functions and constructor are functions of the module (#86),
   // registered before any body is lowered so a call in either direction resolves. The emitted
   // name is `Struct_member`; a top-level function of that name is a clash, said on both.
-  const classFns = collectClassFunctions(structs, sourceFile, diagnostics).filter((cf) => {
+  const classFns = collectClassFunctions(structs, sourceFile, diagnostics, refused).filter((cf) => {
     const taken = callees.get(cf.stub.name);
     if (taken !== undefined) {
       const at = cf.node ?? cf.struct.members?.node ?? sourceFile;

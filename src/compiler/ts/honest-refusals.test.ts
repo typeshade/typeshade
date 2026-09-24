@@ -608,22 +608,24 @@ export function fs(): vec4 {
 });
 
 // Proposal 0008 §3 (Rule 12.4): where two passes each refused one node, one of them stops. Each
-// shape is pinned whole, code and text, in compile() and in the editor's own diagnostics, so a
-// second diagnostic about the same mistake cannot come back under either. What TypeScript itself
-// adds in the editor (`Cannot find name 'Error'`) is its own list, which proposal 0007 merges.
+// shape is pinned whole, code and text, in compile() and in the editor's merged list, so a second
+// diagnostic about the same mistake cannot come back under either: TypeScript's own report of
+// what the compiler refused whole (`Cannot find name 'Error'` in a refused `throw`, TS1308 on an
+// `await`, the `Promise` an async function names) is dropped there (`mergeDiagnostics`).
 describe('one mistake, one diagnostic, in compile() and in the editor', () => {
   const compiled = (src: string): string[] =>
     compile(src).diagnostics.map((d) => `${String(d.code)} ${d.message}`);
-  // The editor's half is what the compiler says there. TypeScript's own report of a host form
-  // (TS1308 on an await, TS2318 for the Promise an async function names) is the merged list's to
-  // keep or drop (proposal 0007, `mergeDiagnostics`), which proposal 0008 leaves as it is.
+  // The whole merged list, TypeScript's entries included, which read `typescript <code>`.
   const edited = (src: string): string[] => {
     const service = createTypeshadeLanguageService();
     service.openDocument('one.ts', src);
     return service
       .getDiagnostics('one.ts')
-      .filter((d) => d.source === 'typeshade')
-      .map((d) => `${String(d.code)} ${d.message}`);
+      .map((d) =>
+        d.source === 'typescript'
+          ? `typescript ${String(d.code)} ${d.message}`
+          : `${String(d.code)} ${d.message}`,
+      );
   };
   const shader = (head: string, body: string): string =>
     `"use typeshade";\n${head}export function f(a: f32): f32 {\n${body}\n}\n${FS}`;
@@ -655,7 +657,18 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     `{ ${body} } (surface §32).`;
   const TEMPLATE = 'TS8013 Template strings are JS. TypeShade has no string type.';
   const AWAIT = 'TS8013 await is host control flow. Shader functions are synchronous.';
+  const YIELD = 'TS8013 yield is not valid in a TypeShade function.';
+  const ASYNC_TYPED = (code: string, shown: string, type: string): string =>
+    `${code} ${shown} is async, and a shader function runs to completion in one call: there is ` +
+    `no event loop to wait on. Remove "async" and each "await", and write its return type as ` +
+    `${type}.`;
+  const GENERATOR_TYPED = (code: string, shown: string, type: string): string =>
+    `${code} ${shown} is a generator, and a shader function runs to completion in one call: ` +
+    `nothing suspends it at a "yield". Remove the "*", write its return type as ${type}, and ` +
+    'return one value.';
   const LIST = 'const A: array<f32, 2> = [1., 2.];\n';
+  const G = 'interface G<T> {\n  x: T;\n}\n';
+  const G_TWO = 'function g(x: f32, y: f32): f32 {\n  return x + y;\n}\n';
   const cases: readonly (readonly [string, string, readonly string[]])[] = [
     [
       'for…in, and no "Unsupported statement" after it',
@@ -1087,6 +1100,272 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       ),
       [GENERIC('interface', 'a: T; b: T; …')],
     ],
+    // What a refused `throw` or `await` holds is not read again, by TypeScript either.
+    [
+      'throw of a host name',
+      shader('', '  if (a < 0.) {\n    throw window;\n  }\n  return a;'),
+      [THROW],
+    ],
+    ['await of a host call', shader('', '  const x = await fetch(a);\n  return a;'), [AWAIT]],
+    [
+      'an await of a call with a spread argument',
+      shader(G_TWO, '  const xs: array<f32, 2> = [a, 2.];\n  return await g(...xs);'),
+      [AWAIT],
+    ],
+    [
+      'an await of a host constructor',
+      shader('', '  const d = await new Date();\n  return a;'),
+      [AWAIT],
+    ],
+    [
+      'a yield outside a generator, holding an await',
+      shader('', '  yield await a;\n  return a;'),
+      [YIELD],
+    ],
+    [
+      'a tagged template holding an await',
+      shader('', '  const s = foo`a${await a}`;\n  return a;'),
+      [TEMPLATE],
+    ],
+    [
+      "an object literal's async method, whose await is the literal's one mistake too",
+      shader('', '  const o = { async m(): f32 { return await a; } };\n  return a;'),
+      ['TS8099 Object literals must use identifier fields, e.g. { pos: vec4(...) }.'],
+    ],
+    // A local declared from a call of a refused function binds nothing and says nothing more.
+    [
+      'a local declared from a call of an async function',
+      shader(
+        'async function h(x: f32): f32 {\n  return x;\n}\n',
+        '  const y = h(a);\n  return y * 2.;',
+      ),
+      [ASYNC('TS8013', '"h"')],
+    ],
+    [
+      'a local declared from a call of a generator',
+      shader('function* h(): f32 {\n  yield 1.;\n}\n', '  const y = h();\n  return y + a;'),
+      [GENERATOR('TS8013', '"h"')],
+    ],
+    [
+      'a local declared from a call of an async method',
+      shader(
+        'class C {\n  x: f32 = 0.;\n  async m(): f32 {\n    return 1.;\n  }\n}\n',
+        '  const c = new C();\n  const y = c.m();\n  return y * a;',
+      ),
+      [ASYNC('TS8035', '"C.m"')],
+    ],
+    [
+      'a local declared from a call of an async function in a namespace',
+      shader(
+        'namespace N {\n  export async function h(x: f32): f32 {\n    return x;\n  }\n}\n',
+        '  const y = N.h(a);\n  return y * 2.;',
+      ),
+      [ASYNC('TS8013', '"h"')],
+    ],
+    [
+      'an async method a mixin adds, named on the class that applies it, and calls of it',
+      shader(
+        'class Disc {\n  r: f32 = 1.;\n}\n' +
+          'function Tinted<T extends new (...args: any[]) => object>(Base: T) {\n' +
+          '  return class extends Base {\n    tint: f32 = 0.5;\n' +
+          '    async m(): f32 {\n      return 1.;\n    }\n  };\n}\n' +
+          'class TD extends Tinted(Disc) {}\n',
+        '  const t = new TD();\n  const y = t.m();\n  return y + t.m() + a;',
+      ),
+      [ASYNC('TS8035', '"TD.m"')],
+    ],
+    // The remedy names the type a plain function returns in place of the wrapper written.
+    [
+      'an async function declared to return a Promise',
+      shader('async function h(x: f32): Promise<f32> {\n  return x;\n}\n', '  return a;'),
+      [ASYNC_TYPED('TS8013', '"h"', 'f32')],
+    ],
+    [
+      'a generator declared to return an iterator',
+      shader('function* h(): IterableIterator<f32> {\n  yield 1.;\n}\n', '  return a;'),
+      [GENERATOR_TYPED('TS8013', '"h"', 'f32')],
+    ],
+    // A spread in a field, and a read of the field.
+    [
+      'a spread in a static field, and a read of it',
+      shader(
+        `${LIST}class C {\n  static readonly K: array<f32, 3> = [...A, 3.];\n  x: f32 = 0.;\n}\n`,
+        '  return C.K[0] + a;',
+      ),
+      [SPREAD('A', 'A[0], A[1]')],
+    ],
+    [
+      'a spread in a static field of a class of statics, and a read of it',
+      shader(
+        `${LIST}class S {\n  static xs: array<f32, 3> = [...A, 3.];\n}\n`,
+        '  return S.xs[0] + a;',
+      ),
+      [SPREAD('A', 'A[0], A[1]')],
+    ],
+    [
+      'a spread in a field, and a read of it',
+      shader(
+        `${LIST}class C {\n  xs: array<f32, 3> = [...A, 3.];\n}\n`,
+        '  const c = new C();\n  return c.xs[0] + a;',
+      ),
+      [SPREAD('A', 'A[0], A[1]')],
+    ],
+    // A namespace's constant reads no other by its short name, so its elements go unnamed.
+    [
+      'a spread in a namespace constant, and a read of it',
+      shader(
+        'namespace N {\n  export const A: array<f32, 2> = [1., 2.];\n' +
+          '  export const T: array<f32, 3> = [...A, 3.];\n}\n',
+        '  return N.T[0] + a;',
+      ),
+      [SPREAD_ANY('A')],
+    ],
+    // `...q` in a list assigned to collects; the target's refusal is the one sentence.
+    [
+      'a rest element in a list assigned to',
+      shader(
+        '',
+        '  let p = 0.;\n  let q: array<f32, 2> = [0., 0.];\n  const b: array<f32, 3> = [a, a, a];\n' +
+          '  [p, ...q] = b;\n  return p;',
+      ),
+      ['TS8018 Assignment target must be a name, or a field, component or element of one.'],
+    ],
+    [
+      'an interface in a namespace, and a function whose parameter names it',
+      shader(
+        'namespace N {\n  export interface I {\n    x: f32;\n  }\n}\n' +
+          'function k(i: N.I): f32 {\n  return i.x;\n}\n',
+        '  return k({ x: a });',
+      ),
+      [IN_NAMESPACE('a type')],
+    ],
+    // A `var` is the variable JavaScript makes of it, quoted as written.
+    ['a var that declares a parameter again', shader('', '  var a = 1.;\n  return a;'), [VAR]],
+    [
+      'a var declared twice',
+      shader('', '  var x: f32 = 1.;\n  var x: f32 = 2.;\n  return x + a;'),
+      [VAR, VAR],
+    ],
+    [
+      'a var of a list with no type, quoted as written',
+      shader('', '  var b = [1., 2.];\n  return b[0] + a;'),
+      [
+        VAR,
+        'TS8002 "var b" needs an array type annotation to take a list, e.g. let b: ' +
+          'array<f32, 2> = [...].',
+      ],
+    ],
+    // A generic interface in every position that can name it.
+    [
+      'a generic interface typing a field of a class a literal builds',
+      shader(
+        `${G}class H {\n  g: G<f32>;\n  k: f32 = 1.;\n}\n`,
+        '  const h: H = { g: { x: a }, k: 1. };\n  return h.k + h.g.x;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface typing the one field of a class a literal builds',
+      shader(
+        `${G}class H {\n  g: G<f32>;\n}\n`,
+        '  const h: H = { g: { x: a } };\n  return h.g.x;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      "a generic interface typing an interface's field, built as a literal and as an argument",
+      shader(
+        `${G}interface H {\n  g: G<f32>;\n  k: f32;\n}\nfunction k(h: H): f32 {\n  return h.k;\n}\n`,
+        '  const h: H = { g: { x: a }, k: 1. };\n  return h.k + k({ g: { x: a }, k: 1. });',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface typing an entry output field',
+      `"use typeshade";\n${G}class VO {\n  @builtin("position") pos: vec4;\n  @location(0) g: G<f32>;\n}\n` +
+        '@vertex\nexport function vs(): VO {\n  return { pos: vec4(0.), g: { x: 1. } };\n}\n' +
+        FS,
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface typing a module variable with a value, and a read of it',
+      shader(`${G}let K: G<f32> = { x: 1. };\n`, '  return K.x + a;'),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface as the element of a storage array, written and read',
+      shader(
+        `${G}declare const s: storage<array<G<f32>>, "read_write">;\n`,
+        '  s[0].x = a;\n  return s[0].x;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface as the element of a uniform array',
+      shader(`${G}declare const u: uniform<array<G<f32>, 4>>;\n`, '  return u[0].x + a;'),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      "a generic interface typing a method's parameter, and a call of it",
+      shader(
+        `${G}class C {\n  k: f32 = 1.;\n  m(g: G<f32>): f32 {\n    return g.x * this.k;\n  }\n}\n`,
+        '  const c = new C();\n  return c.m({ x: a });',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      "a generic interface typing a static function's parameter, and a call of it",
+      shader(
+        `${G}class C {\n  k: f32 = 1.;\n  static s(g: G<f32>): f32 {\n    return g.x;\n  }\n}\n`,
+        '  return C.s({ x: a });',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      "a generic interface typing a method's return, and a call of it",
+      shader(
+        `${G}class C {\n  k: f32 = 1.;\n  m(): G<f32> {\n    return { x: this.k };\n  }\n}\n`,
+        '  const c = new C();\n  return c.m().x + a;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      "a generic interface typing a constructor's parameter, and a new of it",
+      shader(
+        `${G}class C {\n  k: f32;\n  constructor(g: G<f32>) {\n    this.k = g.x;\n  }\n}\n`,
+        '  const c = new C({ x: a });\n  return c.k;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface typing the parameter of a function a field holds, and a call of it',
+      shader(
+        `${G}class C {\n  k: f32 = 1.;\n  m = (g: G<f32>): f32 => g.x;\n}\n`,
+        '  const c = new C();\n  return c.m({ x: a });',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface a generic class holds, and a new of it',
+      shader(
+        `${G}class B<T> {\n  g: G<T>;\n  constructor(g: G<T>) {\n    this.g = g;\n  }\n}\n`,
+        '  const b = new B<f32>({ x: a });\n  return b.g.x;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a generic interface claimed with as',
+      shader(G, '  return ({ x: a } as G<f32>).x;'),
+      [GENERIC('interface', 'x: T')],
+    ],
+    [
+      'a local declared from a call of a function whose parameter names a generic interface',
+      shader(
+        `${G}function k(g: G<f32>): f32 {\n  return g.x;\n}\n`,
+        '  const y = k({ x: a });\n  return y * 2.;',
+      ),
+      [GENERIC('interface', 'x: T')],
+    ],
   ];
   for (const [name, src, expected] of cases) {
     it(name, () => {
@@ -1139,6 +1418,22 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     expect(sources('', 'export function h(x: f32) {\n  return `${x}`.length;\n}\n')).toEqual([
       TEMPLATE,
     ]);
+    // A function whose parameter names a generic interface is refused in the file that declares
+    // it, and the file that imports and calls it says nothing more.
+    expect(
+      compileTsSources([
+        {
+          fileName: 'main.ts',
+          source:
+            '"use typeshade";\nimport { h } from "./lib";\n' +
+            'export function f(a: f32): f32 {\n  return h({ x: a });\n}\n',
+        },
+        {
+          fileName: 'lib.ts',
+          source: `"use typeshade";\n${G}export function h(g: G<f32>): f32 {\n  return g.x;\n}\n`,
+        },
+      ]).diagnostics.map((d) => `${String(d.code)} ${d.message}`),
+    ).toEqual([GENERIC('interface', 'x: T')]);
   });
 
   it('the class a generic interface names compiles', () => {
@@ -1150,6 +1445,17 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     );
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct G_f32 {');
+  });
+
+  it('the return type an async or generator sentence names compiles', () => {
+    // `async function h(x: f32): Promise<f32>` and `function* h(): IterableIterator<f32>`, with
+    // the remedy followed.
+    expect(
+      compiled(shader('function h(x: f32): f32 {\n  return x;\n}\n', '  return h(a);')),
+    ).toEqual([]);
+    expect(compiled(shader('function h(): f32 {\n  return 1.;\n}\n', '  return h() + a;'))).toEqual(
+      [],
+    );
   });
 
   it('the elements a spread sentence names compile', () => {
