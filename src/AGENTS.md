@@ -17,54 +17,58 @@ Every file below but the last is a `package.json` `exports` subpath. `__api__/su
 they export; it is generated (`bun run bake:api-surface`) and `api-surface.test.ts` fails when it
 and the tree disagree.
 
-| File                  | Subpath                                                                                                                         |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`            | `.`: `compile()` and the source compiler, the EDSL, the emitters, `reflect`, `validate`. The only surface most consumers need.  |
-| `dev.ts`              | `./dev`: lint, `diagnose()` / `formatReport()`, source tracing, optimizer measurement. Dev-time only.                           |
-| `debug.ts`            | `./debug`: stepping one invocation on the CPU (`startDebugSession`), for IDE adapters and the Playground (`docs/debugging.md`). |
-| `compute.ts`          | `./compute`: `createComputeRunner`, one dispatch for a `portable: true` kernel across WebGPU, WebGL2 and the CPU.               |
-| `emit-prod.ts`        | `./emit-prod`: ship-time text plugins (`obfuscate`, minify, type aliasing) and `decodeShaderLog` to map a driver error back.    |
-| `language-service/`   | `./language-service`: the editor-neutral, document-based service (`createTypeshadeLanguageService`) and `SHADE_DTS`.            |
-| `core/ir/index.ts`    | `./core/ir`: the IR barrel. The one piece of `core/` that is published; everything else under `core/` is private.               |
-| `language-service.ts` | Not a subpath: a compatibility adapter keeping the older string-based `TypeshadeLanguageService` API over the real service.     |
+| File                  | Subpath                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`            | `.`: `compile()` and the source compiler, the EDSL, the emitters, `reflect`, `validate`. The only surface most consumers need.              |
+| `dev.ts`              | `./dev`: lint, `diagnose()` / `formatReport()`, source tracing, optimizer measurement. Dev-time only.                                       |
+| `debug.ts`            | `./debug`: stepping one invocation on the CPU (`startDebugSession`), for IDE adapters and the Playground (`docs/debugging.md`).             |
+| `compute.ts`          | `./compute`: `createComputeRunner`, one dispatch for a `portable: true` kernel across WebGPU, WebGL2 and the CPU.                           |
+| `emit-prod.ts`        | `./emit-prod`: ship-time text plugins (`obfuscate`, minify, type aliasing) and `decodeShaderLog` to map a driver error back.                |
+| `vite.ts`             | `./vite`: `typeshade()`, the Vite plugin a host project imports a `.shade.ts` through (surface §64), and `TypeshadeVitePlugin`.             |
+| `runtime.ts`          | `./runtime`: not API. What a module the plugin generates imports (the CPU tier's runtime and the host-value checks), and nothing else does. |
+| `language-service/`   | `./language-service`: the editor-neutral, document-based service (`createTypeshadeLanguageService`) and `SHADE_DTS`.                        |
+| `core/ir/index.ts`    | `./core/ir`: the IR barrel. The one piece of `core/` that is published; everything else under `core/` is private.                           |
+| `language-service.ts` | Not a subpath: a compatibility adapter keeping the older string-based `TypeshadeLanguageService` API over the real service.                 |
 
 ## Key directories
 
 ### `compiler/ts/`: the `"use typeshade"` front end
 
-| File                         | What it is                                                                                                                               |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `compiler/ts/compile.ts`     | `compile()`: front end, then both emitters and the oracle. Shader text exists only when no error diagnostic was raised.                  |
-| `compiler/ts/source-file.ts` | `compileTsSource`: one file to IR. Imports `typescript` at module scope, which is why it is a required peer.                             |
-| `compiler/ts/module.ts`      | `compileTsSources`: a multi-file program joined by relative imports.                                                                     |
-| `compiler/ts/lower/`         | Statement, expression, call and function lowering (`function.ts` runs signatures, then bodies).                                          |
-| `compiler/ts/semantic.ts`    | Refuses host control flow once per node; resolves `new` targets and names nothing declares by declaration, not spelling (Rule 2.1).      |
-| `compiler/ts/codes.ts`       | The `TS8nnn` diagnostic codes. Numbers are never reused.                                                                                 |
-| `compiler/ts/semicolons.ts`  | The shader-source `;` inserter behind `bun run format:semicolons`.                                                                       |
-| `compiler/ts/host-face.ts`   | The host face of a module (Rules 8.20, 8.21): the exports a host can call, the host view `tsc` reads, and the generated CPU-tier module. |
-| `compiler/ts/vite.ts`        | A Vite transform for `*.shade.ts`, with no Vite import.                                                                                  |
+| File                         | What it is                                                                                                                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `compiler/ts/compile.ts`     | `compile()`: front end, then both emitters and the oracle. Shader text exists only when no error diagnostic was raised.                                                                    |
+| `compiler/ts/source-file.ts` | `compileTsSource`: one file to IR. Imports `typescript` at module scope, which is why it is a required peer.                                                                               |
+| `compiler/ts/module.ts`      | `compileTsSources`: a multi-file program joined by relative imports.                                                                                                                       |
+| `compiler/ts/lower/`         | Statement, expression, call and function lowering (`function.ts` runs signatures, then bodies).                                                                                            |
+| `compiler/ts/semantic.ts`    | Refuses host control flow once per node; resolves `new` targets and names nothing declares by declaration, not spelling (Rule 2.1).                                                        |
+| `compiler/ts/codes.ts`       | The `TS8nnn` diagnostic codes. Numbers are never reused.                                                                                                                                   |
+| `compiler/ts/semicolons.ts`  | The shader-source `;` inserter behind `bun run format:semicolons`.                                                                                                                         |
+| `compiler/ts/host-face.ts`   | The host face of a module (Rules 8.20, 8.21, 8.24): the exports a host can call, the host view `tsc` reads, and the generated module, with each callable entry's WGSL and binding layouts. |
 
 ### `core/`: IR, emit and backends
 
-| File                                          | What it is                                                                                                                                        |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `core/ir/types.ts`, `core/ir/nodes.ts`        | `ShaderType` and the typed constants; the `Expr` / `Stmt` unions and the module declarations (`ConstDecl`, `StructDecl`, `FuncDecl`, …).          |
-| `core/ir/node.ts`, `core/ir/builder.ts`       | `Node<K>` (chaining operators, `.assign()`) and `ReadonlyNode<K>`; the `Builder`, `fn` / `externFn` / `module`, `constExpr`, `Let` / `Var`.       |
-| `core/ir/visit.ts`                            | One walker per operation over the closed `Expr` / `Stmt` unions, so a new node kind reaches every pass.                                           |
-| `core/emit.ts`                                | The one neutral tree walk, and `lowerForBackend`, the shared pre-emit pipeline (below).                                                           |
-| `core/backend.ts`                             | The `Backend` contract: type / literal / intrinsic spelling, the divergent fragments, capabilities, `UnsupportedFeatureError`.                    |
-| `core/intrinsics.ts`                          | Neutral intrinsic ids mapped to each target's spelling. Only divergent intrinsics need an entry.                                                  |
-| `core/backends/wgsl.ts`                       | The WGSL backend and `emitModule`. `wgsl-ptr.ts` spells `inout` parameters as pointers.                                                           |
-| `core/backends/glsl.ts`                       | The GLSL ES 3.00 backend (`emitGlslModule`, `emitGlslStages`): std140 UBOs, entry IO as varyings, storage as data textures.                       |
-| `core/oracle.ts`, `core/cpu-codegen.ts`       | The CPU f64 tree-walk interpreter and its `new Function` twin, both over the one op library in `core/cpu-runtime.ts`.                             |
-| `core/cpu-codegen-runtime.ts`                 | The runtime object the generated CPU code closes over (the factory's `$`), apart from the generator, so a module the host imports ships it alone. |
-| `core/host-values.ts`, `core/host-runtime.ts` | The host-value boundary of a host call (Rule 8.21), and what a generated host module imports (Rule 11.7).                                         |
-| `core/reflect.ts`, `core/sot.ts`              | Pipeline reflection (bind groups, std140 / std430 layouts, entry IO); declare-once IO structs and resources.                                      |
-| `core/diagnostics/`                           | `codes.ts` (frozen `SDnnnn` catalogue), `error.ts` (`TypeShadeError`), `loc.ts` (opt-in source tracing), `report.ts` (`diagnose()`).              |
-| `core/fp64/`                                  | The df64 emulation library (float and integer flavors) that `core/passes/fp64-lower.ts` rewrites `f64` into.                                      |
-| `core/debug/`                                 | The stepping interpreter (`interp.ts`), sessions, launch config, watch expressions, lockstep workgroup dispatch.                                  |
-| `core/compute/runner.ts`                      | The engine behind `./compute`.                                                                                                                    |
-| `core/testing/`                               | Test utilities only: a seeded random-IR generator and span stamping / stripping.                                                                  |
+| File                                          | What it is                                                                                                                                                   |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `core/ir/types.ts`, `core/ir/nodes.ts`        | `ShaderType` and the typed constants; the `Expr` / `Stmt` unions and the module declarations (`ConstDecl`, `StructDecl`, `FuncDecl`, …).                     |
+| `core/ir/node.ts`, `core/ir/builder.ts`       | `Node<K>` (chaining operators, `.assign()`) and `ReadonlyNode<K>`; the `Builder`, `fn` / `externFn` / `module`, `constExpr`, `Let` / `Var`.                  |
+| `core/ir/visit.ts`                            | One walker per operation over the closed `Expr` / `Stmt` unions, so a new node kind reaches every pass.                                                      |
+| `core/emit.ts`                                | The one neutral tree walk, and `lowerForBackend`, the shared pre-emit pipeline (below).                                                                      |
+| `core/backend.ts`                             | The `Backend` contract: type / literal / intrinsic spelling, the divergent fragments, capabilities, `UnsupportedFeatureError`.                               |
+| `core/intrinsics.ts`                          | Neutral intrinsic ids mapped to each target's spelling. Only divergent intrinsics need an entry.                                                             |
+| `core/backends/wgsl.ts`                       | The WGSL backend and `emitModule`. `wgsl-ptr.ts` spells `inout` parameters as pointers.                                                                      |
+| `core/backends/glsl.ts`                       | The GLSL ES 3.00 backend (`emitGlslModule`, `emitGlslStages`): std140 UBOs, entry IO as varyings, storage as data textures.                                  |
+| `core/oracle.ts`, `core/cpu-codegen.ts`       | The CPU f64 tree-walk interpreter and its `new Function` twin, both over the one op library in `core/cpu-runtime.ts`.                                        |
+| `core/cpu-codegen-runtime.ts`                 | The runtime object the generated CPU code closes over (the factory's `$`), apart from the generator, so a module the host imports ships it alone.            |
+| `core/host-values.ts`, `core/host-runtime.ts` | The host-value boundary of a host call (Rule 8.21), and what a generated host module imports (Rule 11.7).                                                    |
+| `core/host-entry.ts`                          | A `@compute` entry called from host code (Rule 8.24): packing by the layouts the plugin writes, the WebGPU dispatch and readback, and the CPU-tier dispatch. |
+| `core/host-draw.ts`                           | A full-screen `@fragment` entry drawn from host code (Rule 8.24): the canvas's tier, WebGPU, WebGL2 (framebuffer and flipped copy) and the CPU pixel loop.   |
+| `core/reflect.ts`, `core/sot.ts`              | Pipeline reflection (bind groups, std140 / std430 layouts, entry IO); declare-once IO structs and resources.                                                 |
+| `core/diagnostics/`                           | `codes.ts` (frozen `SDnnnn` catalogue), `error.ts` (`TypeShadeError`), `loc.ts` (opt-in source tracing), `report.ts` (`diagnose()`).                         |
+| `core/fp64/`                                  | The df64 emulation library (float and integer flavors) that `core/passes/fp64-lower.ts` rewrites `f64` into.                                                 |
+| `core/builtins/`                              | Tint's overload table baked from `core.def` (`coredef.ts`), the claim on each row (`overlay.ts`), and the row types both halves read (0017).                 |
+| `core/debug/`                                 | The stepping interpreter (`interp.ts`), sessions, launch config, watch expressions, lockstep workgroup dispatch.                                             |
+| `core/compute/runner.ts`                      | The engine behind `./compute`.                                                                                                                               |
+| `core/testing/`                               | Test utilities only: a seeded random-IR generator and span stamping / stripping.                                                                             |
 
 Most other `core/*.ts` files are the production-emit and host-integration layer:
 `emit-minify.ts`, `emit-alias.ts`, `shader-lex.ts`, `decode-log.ts`, `emit-prune.ts`,

@@ -16,7 +16,11 @@
 //      from the README;
 //   3. copy `journeys/` in and run `journeys/_harness.mjs` there with Node. The harness imports
 //      only `typeshade`, and checks each journey through the compiler, the language service,
-//      plain `tsc`, WebGPU (headless Chromium on SwiftShader) and the CPU oracle.
+//      plain `tsc`, WebGPU (headless Chromium on SwiftShader) and the CPU oracle;
+//   4. the import path (change 0009): `journeys/_host-import/` becomes a fresh Vite project with
+//      the documented setup, whose `prepare` runs `typeshade sync`. Its host file type-checks
+//      with plain `tsc` (and a wrong call is caught), `vite build` bundles it, and Node runs the
+//      bundle, which must print what the plain-JavaScript reference computes and ship no compiler.
 //
 // TYPESHADE_CHROMIUM points at a Chromium binary, as for the compile gate; without it Playwright
 // launches its own. TYPESHADE_JOURNEY_KEEP=1 keeps the temporary project for inspection.
@@ -34,6 +38,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:http';
+import { chromium } from 'playwright';
 import { derivePublishManifest } from './publish-manifest.js';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -57,7 +63,7 @@ export function readmeTsconfig(readme: string): string {
   return readme.slice(readme.indexOf('\n', start) + 1, end);
 }
 
-function main(): number {
+async function main(): Promise<number> {
   if (!existsSync(join(REPO, 'dist', 'src', 'index.js'))) {
     console.error('user journeys: dist/ is missing. Run `bun run build` first.');
     return 1;
@@ -112,11 +118,230 @@ function main(): number {
         TYPESHADE_PLAYWRIGHT: join(REPO, 'node_modules', 'playwright', 'index.mjs'),
       },
     });
-    return run.status ?? 1;
+    if ((run.status ?? 1) !== 0) return run.status ?? 1;
+
+    // 4. The import path.
+    return await hostImport(work, join(work, tarball));
   } finally {
     if (process.env['TYPESHADE_JOURNEY_KEEP'] === '1') console.log(`kept ${work}`);
     else rmSync(work, { recursive: true, force: true });
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) process.exit(main());
+/** Versions the import journey installs beside the tarball: the repository's own TypeScript pin,
+ *  and the Vite line the proposal measured (change 0009). */
+const HOST_DEPS = [
+  'vite@^7.3.6',
+  `typescript@${
+    (
+      JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as {
+        devDependencies: Record<string, string>;
+      }
+    ).devDependencies['typescript']
+  }`,
+];
+
+/** Step 4: a Vite project that imports a `.shade.ts` and calls it, set up as surface §64 says. */
+async function hostImport(work: string, tarball: string): Promise<number> {
+  const app = join(work, 'host-import');
+  cpSync(join(REPO, 'journeys', '_host-import'), app, { recursive: true });
+  writeFileSync(
+    join(app, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'host-import',
+        version: '1.0.0',
+        private: true,
+        type: 'module',
+        scripts: { prepare: 'typeshade sync' },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  sh('npm', ['install', '--silent', '--no-audit', '--no-fund', tarball, ...HOST_DEPS], app);
+  // A plain `npm install`, as a clone of the project runs it, runs `prepare`, so the views exist
+  // before anything reads them. (An install that names packages does not run it.)
+  sh('npm', ['install', '--silent', '--no-audit', '--no-fund'], app);
+  const failures: string[] = [];
+  const check = (ok: boolean, what: string): void => {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} host import: ${what}`);
+    if (!ok) failures.push(what);
+  };
+  check(existsSync(join(app, 'src', 'terrain.shade.typeshade.ts')), 'prepare wrote the host view');
+
+  const tsc = (): string[] => {
+    const r = spawnSync('npx', ['tsc', '-p', 'tsconfig.json', '--pretty', 'false'], {
+      cwd: app,
+      encoding: 'utf8',
+    });
+    return `${r.stdout}${r.stderr}`.split('\n').filter((l) => /error TS\d+/.test(l));
+  };
+  const clean = tsc();
+  check(clean.length === 0, `tsc reports 0 errors (got ${clean.length}: ${clean.join(' | ')})`);
+  writeFileSync(
+    join(app, 'src', 'wrong.ts'),
+    "import { height } from './terrain.shade.ts';\nexport const h = height([0.5], [1, 0.5, 2, 0.25]);\n",
+  );
+  const wrong = tsc();
+  check(
+    wrong.length === 1 && /^src\/wrong\.ts\(2,\d+\): error TS2345/.test(wrong[0]!),
+    `a wrong-length vector is TS2345 at the host line (got ${wrong.join(' | ')})`,
+  );
+  rmSync(join(app, 'src', 'wrong.ts'));
+
+  sh('npx', ['vite', 'build', '--ssr', 'src/app.ts', '--outDir', 'out', '--logLevel', 'warn'], app);
+  const bundle = readFileSync(join(app, 'out', 'app.js'), 'utf8');
+  check(
+    !bundle.includes('createSourceFile') && !bundle.includes('new Function'),
+    `the bundle ships no compiler and no new Function (${bundle.length} bytes)`,
+  );
+  const printed = JSON.parse(sh('node', [join('out', 'app.js')], app)) as Record<string, unknown>;
+  const reference = spawnSync(
+    'node',
+    [
+      '--input-type=module',
+      '-e',
+      "console.log(JSON.stringify((await import('./reference.mjs')).default))",
+    ],
+    { cwd: app, encoding: 'utf8' },
+  );
+  const want = JSON.parse(reference.stdout) as Record<string, unknown>;
+  const flat = (v: unknown): number[] => (Array.isArray(v) ? v.flatMap(flat) : [v as number]);
+  for (const key of Object.keys(want)) {
+    const got = flat(printed[key]);
+    const exp = flat(want[key]);
+    const worst = Math.max(
+      ...exp.map((e, i) => Math.abs((got[i] ?? NaN) - e) / Math.max(1, Math.abs(e))),
+    );
+    // f32 arithmetic against the f64 reference: a few f32 ulps, and the normal's difference
+    // quotient amplifies them by 1 / (2 EPS).
+    check(got.length === exp.length && worst < 2e-3, `${key} match the reference (worst ${worst})`);
+  }
+
+  // The GPU half (change 0016, Rule 8.24): the browser bundle of src/gpu.ts calls two compute
+  // entries in a page with WebGPU. `blockSum` reaches a barrier, which has no CPU tier, so it answers only
+  // where WebGPU ran it.
+  sh('npx', ['vite', 'build', '--config', 'vite.web.config.ts', '--logLevel', 'warn'], app);
+  const web = await inBrowser(join(app, 'out-web'));
+  check(web.webgpu, 'the page has WebGPU, so the entries ran on it');
+  const gpuRef = JSON.parse(
+    spawnSync(
+      'node',
+      [
+        '--input-type=module',
+        '-e',
+        "console.log(JSON.stringify((await import('./reference.mjs')).gpuReference()))",
+      ],
+      { cwd: app, encoding: 'utf8' },
+    ).stdout,
+  ) as Record<string, number[]>;
+  for (const key of Object.keys(gpuRef)) {
+    const got = web.result?.[key] ?? [];
+    const exp = gpuRef[key]!;
+    const worst = Math.max(
+      ...exp.map((e, i) => Math.abs((got[i] ?? NaN) - e) / Math.max(1, Math.abs(e))),
+    );
+    // f32 on both sides, in the same order: WebGPU rounds each add and multiply as IEEE does.
+    check(
+      got.length === exp.length && worst <= 1e-6,
+      `WebGPU ${key} match the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,
+    );
+  }
+
+  // The draw (Rule 8.24): each fragment entry drawn on each tier, read back in the task that
+  // submitted it. The first context a canvas hands out decides its tier, so the page makes the
+  // WebGL2 and 2d canvases' contexts before drawing into them.
+  const drawRef = JSON.parse(
+    spawnSync(
+      'node',
+      [
+        '--input-type=module',
+        '-e',
+        "console.log(JSON.stringify((await import('./reference.mjs')).drawReference()))",
+      ],
+      { cwd: app, encoding: 'utf8' },
+    ).stdout,
+  ) as { plasma: number[]; tiled: number[] };
+  const drawn = web.draws ?? {};
+  const compare = (key: string, want: number[], steps: number): void => {
+    const got = drawn[key];
+    if (typeof got !== 'object') {
+      check(false, `${key} draws (${String(got ?? web.error)})`);
+      return;
+    }
+    const worst = Math.max(...want.map((w, i) => Math.abs((got[i] ?? NaN) - w)));
+    check(
+      got.length === want.length && worst <= steps,
+      `${key} draws the reference frame (worst ${worst.toFixed(2)} of 255)`,
+    );
+  };
+  // f32 against the f64 reference, rounded to 8 bits: two steps of 1/255.
+  for (const tier of ['webgpu', 'webgl2', '2d']) compare(`plasma ${tier}`, drawRef.plasma, 2);
+  // Nearest filtering at texel centres: the image's bytes, exactly.
+  for (const tier of ['webgpu', 'webgl2']) compare(`tiled ${tier}`, drawRef.tiled, 0);
+  const noCpu = drawn['tiled 2d'];
+  check(
+    typeof noCpu === 'string' &&
+      /TypeError: tiled\(\).*"image", which the CPU tier cannot read/.test(noCpu),
+    `a sampled texture has no CPU tier, and the draw says so (${String(noCpu)})`,
+  );
+  return failures.length === 0 ? 0 : 1;
+}
+
+/** The four flags that make WebGPU exist on SwiftShader, as the compile gate passes them. */
+const CHROMIUM_ARGS = [
+  '--enable-unsafe-webgpu',
+  '--enable-unsafe-swiftshader',
+  '--use-angle=swiftshader',
+  '--use-vulkan=swiftshader',
+  '--enable-features=Vulkan',
+];
+
+/** Load `dir/gpu.js` in a page served from localhost (a secure context, which WebGPU needs) and
+ *  run its `run()` and `draws()`. */
+async function inBrowser(dir: string): Promise<{
+  webgpu: boolean;
+  result?: Record<string, number[]>;
+  draws?: Record<string, number[] | string>;
+  error?: string;
+}> {
+  const js = readFileSync(join(dir, 'gpu.js'), 'utf8');
+  const server = createServer((req, res) => {
+    if (req.url === '/gpu.js') {
+      res.setHeader('content-type', 'text/javascript');
+      res.end(js);
+    } else {
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      res.end('<!doctype html><title>typeshade host import</title>');
+    }
+  });
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const browser = await chromium.launch({
+    executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
+    args: CHROMIUM_ARGS,
+  });
+  try {
+    const page = await browser.newPage();
+    const { port } = server.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}/`);
+    return await page.evaluate(async () => {
+      const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+      const webgpu = gpu !== undefined && (await gpu.requestAdapter()) !== null;
+      try {
+        const m = (await import('/gpu.js' as string)) as {
+          run(): Promise<Record<string, number[]>>;
+          draws(): Promise<Record<string, number[] | string>>;
+        };
+        return { webgpu, result: await m.run(), draws: await m.draws() };
+      } catch (e) {
+        return { webgpu, error: String(e) };
+      }
+    });
+  } finally {
+    await browser.close();
+    server.close();
+  }
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) process.exit(await main());

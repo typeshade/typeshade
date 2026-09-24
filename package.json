@@ -36,6 +36,8 @@
     "./debug": "./src/debug.ts",
     "./compute": "./src/compute.ts",
     "./emit-prod": "./src/emit-prod.ts",
+    "./vite": "./src/vite.ts",
+    "./runtime": "./src/runtime.ts",
     "./core/ir": "./src/core/ir/index.ts",
     "./examples": "./examples/index.ts",
     "./language-service": "./src/language-service/index.ts",

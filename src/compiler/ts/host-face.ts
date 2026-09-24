@@ -1,4 +1,4 @@
-// ═══ The host face of a shader module (Rules 8.20, 8.21, 11.7) ═══
+// ═══ The host face of a shader module (Rules 8.20, 8.21, 11.7; surface §64) ═══
 //
 // A host file imports a `.shade.ts` and calls what it exports. This file computes what that host
 // sees, from one compile of the module:
@@ -17,7 +17,15 @@
 // lowering's symbol table, and the IR is consulted for what each callable function reaches.
 
 import ts from 'typescript';
-import type { ConstDecl, Expr, FuncDecl, ModuleDecl, StructDecl } from '../../core/ir/nodes.js';
+import type {
+  BindingDecl,
+  ConstDecl,
+  Expr,
+  FuncDecl,
+  ModuleDecl,
+  Stmt,
+  StructDecl,
+} from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { typeKey } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
@@ -26,6 +34,13 @@ import { GPU_STUBS } from '../../core/cpu-runtime.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
 import type { HostType } from '../../core/host-values.js';
+import { typeLayout } from '../../core/reflect.js';
+import { zeroOf } from '../../core/cpu-runtime.js';
+import { sourceSpanOf } from '../../core/ir/span.js';
+import { workgroupShapeOf } from '../../core/ir/nodes.js';
+import type { ComputeEntry, DrawBinding, Layout } from '../../core/host-entry.js';
+import type { FragmentEntry } from '../../core/host-draw.js';
+import { emitGlslStages } from '../../core/backends/glsl.js';
 import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js';
 import { emittedStructDecls } from './structs.js';
 import { staticConstName } from './module-const.js';
@@ -62,6 +77,22 @@ export type HostExport =
     }
   | { readonly kind: 'struct'; readonly name: string; readonly type: HostType & { k: 'struct' } }
   | {
+      /** A `@compute` entry a host can call (Rule 8.24): everything the call needs but the WGSL,
+       *  which the module shares, and the TypeScript type of its bindings object. */
+      readonly kind: 'compute';
+      readonly name: string;
+      readonly entry: Omit<ComputeEntry, 'wgsl'>;
+      readonly bindingsType: string;
+    }
+  | {
+      /** A full-screen `@fragment` entry a host can draw into a canvas (Rule 8.24): everything
+       *  the draw needs but the WGSL, and the TypeScript type of its bindings object. */
+      readonly kind: 'fragment';
+      readonly name: string;
+      readonly entry: Omit<FragmentEntry, 'wgsl'>;
+      readonly bindingsType: string;
+    }
+  | {
       readonly kind: 'never';
       readonly name: string;
       /** Why the host cannot use it, and which later work adds it when one is planned. */
@@ -84,21 +115,30 @@ export interface HostFace {
 
 // ─── reasons (Rule 8.20) ─────────────────────────────────────────────────────────────────────
 
-const GPU_HALF = 'the GPU half of roadmap item 16 adds it';
+const GPU_HALF = 'an entry takes it as a binding instead (Rule 8.24)';
 const ITEM_15 = 'roadmap item 15 adds it';
 
 const REASON = {
-  entry: `it is an entry point, which runs on a GPU; ${GPU_HALF}`,
+  vertex:
+    'it is a vertex entry, which draws with a mesh, a vertex count and a topology; #204, the rendering design, adds it',
+  fragmentInput: (p: string) =>
+    `parameter "${p}" is what a vertex entry writes, and a draw has no vertex entry but its full-screen triangle; #204, the rendering design, adds a mesh`,
+  fragmentOutput:
+    'a draw writes one @location(0) vec4 colour, a vec4 result or a struct of that one field',
+  fp64: 'its module emulates f64, whose guard binding the call does not create yet; change 0013 adds the f64 split',
   generic:
     'it is generic, and a generic function exists only as the instances the module uses; no proposal adds it yet',
   takesFunction:
     'it takes a function, and such a function exists only as the copies the module uses; no proposal adds it yet',
-  binding: `it reaches a resource binding, which a host call has none of; ${GPU_HALF}`,
-  workgroup: `it reaches a workgroup variable, which exists only in a dispatch; ${GPU_HALF}`,
-  gpuOnly: (fn: string) => `it reaches ${fn}, which only a GPU computes; ${GPU_HALF}`,
+  binding:
+    'it reaches a resource binding, which a helper call passes none of; call the entry that uses it (Rule 8.24)',
+  workgroup:
+    'it reaches a workgroup variable, which exists only in a dispatch; call the entry that uses it (Rule 8.24)',
+  gpuOnly: (fn: string) =>
+    `it reaches ${fn}, which only a GPU computes; call the entry that uses it (Rule 8.24)`,
   fallback: 'the CPU tier cannot generate code for a function it reaches',
   notLowered: 'it was not lowered to one function of the module',
-  bindingExport: `it is a resource binding; ${GPU_HALF}`,
+  bindingExport: 'it is a resource binding; pass it to the entry that uses it (Rule 8.24)',
   override: 'it is an override, which a pipeline sets; no proposal adds it yet',
   moduleVar: 'it is a module variable, which exists per invocation; no proposal adds it yet',
   namespace: 'it is a namespace; export what it holds from the top of the file instead',
@@ -346,6 +386,133 @@ function gpuOnlyCall(f: FuncDecl, declared: ReadonlySet<string>): string | undef
   return found;
 }
 
+// ─── an entry a host calls (Rule 8.24) ──────────────────────────────────────────────────────
+
+/** The builtins a `@compute` entry's parameters can take, which the call fills in. */
+const COMPUTE_BUILTINS = new Set([
+  'global_invocation_id',
+  'local_invocation_id',
+  'local_invocation_index',
+  'workgroup_id',
+  'num_workgroups',
+]);
+
+const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a;
+
+/** The byte layout of a binding's type (std430 for storage, the uniform rules for uniform), from
+ *  `reflect()`'s own `typeLayout`, or why it has none a host can pack. */
+function layoutOf(
+  t: ShaderType,
+  kind: 'std140' | 'std430',
+  structs: ReadonlyMap<string, StructDecl>,
+): Layout | { readonly none: string } {
+  switch (t.kind) {
+    case 'scalar':
+      if (t.scalar === 'bool') return { none: 'a bool is not host-shareable' };
+      return { k: 's', t: t.scalar };
+    case 'atomic':
+      return { k: 's', t: t.elem };
+    case 'vec':
+      if (t.elem === 'bool') return { none: `a ${typeKey(t)} is not host-shareable` };
+      return { k: 'v', n: t.n, t: t.elem };
+    case 'mat': {
+      if (t.elem === 'f64') return { none: `a ${typeKey(t)} waits for change 0013's f64 split` };
+      if (kind === 'std140' && t.rows === 2)
+        return { none: `a ${typeKey(t)} in a uniform has no one layout both targets share` };
+      return { k: 'm', c: t.cols, r: t.rows, cs: t.rows === 2 ? 8 : 16 };
+    }
+    case 'array': {
+      const e = layoutOf(t.elem, kind, structs);
+      if ('none' in e) return e;
+      const el = typeLayout(t.elem, kind, structs);
+      let st = roundUp(el.size, el.align);
+      if (kind === 'std140') st = roundUp(st, 16);
+      return { k: 'a', n: t.size ?? null, st, e };
+    }
+    case 'struct': {
+      const decl = structs.get(t.name);
+      if (decl === undefined) return { none: `struct ${t.name} is not declared` };
+      const f: (readonly [string, number, Layout])[] = [];
+      let cursor = 0;
+      for (const field of decl.fields) {
+        const fl = layoutOf(field.type, kind, structs);
+        if ('none' in fl) return { none: `field ${t.name}.${field.name}: ${fl.none}` };
+        const { size, align } = typeLayout(field.type, kind, structs);
+        cursor = roundUp(cursor, align);
+        f.push([field.name, cursor, fl]);
+        cursor += size;
+      }
+      return { k: 'o', f, sz: typeLayout(t, kind, structs).size };
+    }
+    case 'f64':
+    case 'vec64':
+      return { none: `an ${typeKey(t)} waits for change 0013's f64 split` };
+    default:
+      return { none: `a ${typeKey(t)} has no host value` };
+  }
+}
+
+/** A binding's type as its author spells it, for a refusal: `Sim`, `array<Particle>`. */
+function spell(t: ShaderType): string {
+  if (t.kind === 'struct') return t.name;
+  if (t.kind === 'array')
+    return t.size === undefined ? `array<${spell(t.elem)}>` : `array<${spell(t.elem)}, ${t.size}>`;
+  if (t.kind === 'atomic') return `atomic<${t.elem}>`;
+  return typeKey(t);
+}
+
+const TYPED_NAME = { f32: 'Float32Array', i32: 'Int32Array', u32: 'Uint32Array' } as const;
+
+/** The TypeScript type of a binding's host value in the bindings object: read-only where the
+ *  entry only reads it, mutable where the call writes it back in place (Rule 8.21). */
+function bindingTsType(l: Layout, writes: boolean, top = true): string {
+  const ro = writes ? '' : 'readonly ';
+  switch (l.k) {
+    case 's':
+      return top && writes ? TYPED_NAME[l.t] : 'number';
+    case 'v':
+      return `${ro}[${Array(l.n).fill('number').join(', ')}]`;
+    case 'm':
+      return `${ro}number[]`;
+    case 'a': {
+      if (l.n === null && (l.e.k === 's' || l.e.k === 'v')) return TYPED_NAME[l.e.t];
+      const el = bindingTsType(l.e, writes, false);
+      return `${ro}${el.startsWith('readonly ') ? `(${el})` : el}[]`;
+    }
+    case 'o':
+      return `{ ${l.f.map(([n, , fl]) => `${ro}${n}: ${bindingTsType(fl, writes, false)}`).join('; ')} }`;
+  }
+}
+
+/** The first barrier `fn` reaches, as `workgroupBarrier() at file:line`, if any. */
+function barrierIn(
+  closure: ReadonlySet<string>,
+  byName: ReadonlyMap<string, FuncDecl>,
+  declared: ReadonlySet<string>,
+): string | undefined {
+  for (const g of closure) {
+    let found: string | undefined;
+    const visitStmt = (st: Stmt): void => {
+      if (found !== undefined) return;
+      eachStmtExpr(
+        st,
+        (e) =>
+          eachExpr(e, (x) => {
+            if (found !== undefined || x.op !== 'call' || declared.has(x.fn)) return;
+            if (!isBarrierIntrinsic(x.fn)) return;
+            const span = sourceSpanOf(st) ?? sourceSpanOf(x);
+            const file = span?.file.replace(/\\/g, '/').split('/').pop();
+            found = span ? `${x.fn}() at ${file}:${span.line + 1}` : `${x.fn}() in ${g}`;
+          }),
+        visitStmt,
+      );
+    };
+    for (const st of byName.get(g)!.body) visitStmt(st);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
 // ─── the face ────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -412,6 +579,20 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
         overrideNames,
         privateNames,
         reachProblem,
+        entry: {
+          module: m,
+          bindings: m.bindings,
+          reads,
+          writes,
+          callees,
+          declared,
+          workgroupZero: Object.fromEntries(
+            (m.vars ?? [])
+              .filter((v) => v.space === 'workgroup')
+              .map((v) => [v.name, zeroOf(v.type, structs)]),
+          ),
+          fp64: r.wgsl !== undefined && /\b_fp64\b/.test(r.wgsl),
+        },
       }),
     );
   }
@@ -419,17 +600,28 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   // The CPU tier's code, for the functions the callable ones reach and nothing else, so an
   // entry point's GPU-only body is never generated and never shipped.
   const keep = new Set<string>();
-  for (const e of exports)
+  for (const e of exports) {
     if (e.kind === 'function') for (const g of closureOf(e.fn, callees)) keep.add(g);
+    if ((e.kind === 'compute' || e.kind === 'fragment') && e.entry.noCpu === undefined)
+      for (const g of closureOf(e.entry.fn, callees)) keep.add(g);
+  }
   const gen = generateModuleJs(
     { ...m, funcs: m.funcs.filter((f) => keep.has(f.name)) },
     { precision: 'f32' },
   );
   const fallbacks = new Set(gen.fallbacks);
   const final = exports.map((e): HostExport => {
-    if (e.kind !== 'function') return e;
-    for (const g of closureOf(e.fn, callees))
-      if (fallbacks.has(g)) return { kind: 'never', name: e.name, reason: REASON.fallback };
+    if (e.kind === 'function') {
+      for (const g of closureOf(e.fn, callees))
+        if (fallbacks.has(g)) return { kind: 'never', name: e.name, reason: REASON.fallback };
+      return e;
+    }
+    if (e.kind !== 'compute' && e.kind !== 'fragment') return e;
+    if (e.entry.noCpu !== undefined) return e;
+    // An entry whose code the CPU tier cannot generate still runs on the GPU.
+    for (const g of closureOf(e.entry.fn, callees))
+      if (fallbacks.has(g))
+        return { ...e, entry: { ...e.entry, noCpu: REASON.fallback } } as HostExport;
     return e;
   });
 
@@ -438,7 +630,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     diagnostics: r.diagnostics,
     exports: final,
     view: viewText(stem, final),
-    code: moduleText(stem, final, gen, options.runtime ?? 'typeshade/runtime'),
+    code: moduleText(stem, final, gen, options.runtime ?? 'typeshade/runtime', r.wgsl ?? ''),
   };
 }
 
@@ -453,7 +645,256 @@ interface FaceCtx {
   readonly overrideNames: ReadonlySet<string>;
   readonly privateNames: ReadonlySet<string>;
   readonly reachProblem: (fn: string) => string | undefined;
+  /** What an entry's face reads (Rule 8.24). */
+  readonly entry: EntryCtx;
 }
+
+interface EntryCtx {
+  /** The module, which the GLSL backend emits a fragment entry's program from. */
+  readonly module: ModuleDecl;
+  readonly bindings: readonly BindingDecl[];
+  readonly reads: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly writes: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly callees: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly declared: ReadonlySet<string>;
+  readonly workgroupZero: Readonly<Record<string, unknown>>;
+  /** Whether the module emulates f64, which injects a guard binding the call cannot create. */
+  readonly fp64: boolean;
+}
+
+/** The bindings an entry reaches through its calls, each with its host value's layout and
+ *  TypeScript type (Rule 8.21), or why one has no host value. */
+function entryBindings(
+  f: FuncDecl,
+  c: FaceCtx,
+): { bindings: DrawBinding[]; types: string[]; closure: ReadonlySet<string> } | { none: string } {
+  const x = c.entry;
+  const closure = closureOf(f.name, x.callees);
+  const touched = new Set<string>();
+  const written = new Set<string>();
+  for (const g of closure) {
+    for (const n of x.reads.get(g) ?? []) touched.add(n);
+    for (const n of x.writes.get(g) ?? []) {
+      touched.add(n);
+      written.add(n);
+    }
+  }
+  const bindings: DrawBinding[] = [];
+  const types: string[] = [];
+  for (const b of x.bindings) {
+    if (!touched.has(b.name)) continue;
+    const at = { name: b.name, group: b.group, binding: b.binding, s: spell(b.type) };
+    if (b.type.kind === 'texture' && b.type.dim === '2d' && b.type.elem === 'f32') {
+      bindings.push({ ...at, space: 'texture' });
+      types.push(`readonly ${b.name}: ${IMAGE_SOURCE}`);
+      continue;
+    }
+    if (b.type.kind === 'sampler') {
+      bindings.push({ ...at, space: 'sampler' });
+      types.push(`readonly ${b.name}?: ${SAMPLING}`);
+      continue;
+    }
+    const handle = ['texture', 'storage-texture', 'depth-texture', 'sampler-comparison'];
+    const space = b.space === 'storage' ? 'storage' : 'uniform';
+    if (handle.includes(b.type.kind))
+      return {
+        none: `binding "${b.name}" is a ${spell(b.type)}, which has no host value yet; #204, the rendering design, adds it`,
+      };
+    const layout = layoutOf(b.type, space === 'uniform' ? 'std140' : 'std430', c.structs);
+    if ('none' in layout) return { none: `binding "${b.name}": ${layout.none}` };
+    const writes = f.stage === 'compute' && space === 'storage' && written.has(b.name);
+    bindings.push({ ...at, space, writes, layout });
+    types.push(`readonly ${b.name}: ${bindingTsType(layout, writes)}`);
+  }
+  return { bindings, types, closure };
+}
+
+/** A `texture_2d<f32>`'s host value (Rule 8.21), in the host view. */
+const IMAGE_SOURCE =
+  'ImageBitmap | ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | OffscreenCanvas';
+/** A `sampler`'s host value (Rule 8.21), in the host view. */
+const SAMPLING =
+  "{ readonly filter?: 'nearest' | 'linear'; readonly address?: 'clamp' | 'repeat' | 'mirror' }";
+
+/** Why the CPU tier cannot run `closure`, when it cannot: it reaches a texture or a call only a
+ *  GPU computes. */
+function noCpuTier(
+  closure: ReadonlySet<string>,
+  bindings: readonly DrawBinding[],
+  c: FaceCtx,
+): string | undefined {
+  const handle = bindings.find((b) => b.space === 'texture' || b.space === 'sampler');
+  if (handle !== undefined)
+    return `it reaches the ${handle.s} "${handle.name}", which the CPU tier cannot read`;
+  for (const g of closure) {
+    const gpu = gpuOnlyCall(c.byName.get(g)!, c.entry.declared);
+    if (gpu !== undefined && !isAtomicIntrinsic(gpu) && !isBarrierIntrinsic(gpu))
+      return `it reaches ${gpu}(), which only a GPU computes`;
+  }
+  return undefined;
+}
+
+/** The face of a `@compute` entry (Rule 8.24): the bindings it reaches, each with its byte
+ *  layout and host type, its workgroup shape and builtins, and the barrier it reaches, if any. */
+function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
+  const x = c.entry;
+  if (x.fp64) return never(name, REASON.fp64);
+  for (const p of f.params)
+    if (p.builtin === undefined || !COMPUTE_BUILTINS.has(p.builtin))
+      return never(name, `parameter "${p.name}" is not a builtin the call can fill in`);
+  const reached = entryBindings(f, c);
+  if ('none' in reached) return never(name, reached.none);
+  const { bindings, types, closure } = reached;
+  const barrier = barrierIn(closure, c.byName, x.declared);
+  const noCpu = noCpuTier(closure, bindings, c);
+  return {
+    kind: 'compute',
+    name,
+    entry: {
+      name,
+      fn: f.name,
+      wg: workgroupShapeOf(f) ?? [64, 1, 1],
+      params: f.params.map((p) => p.builtin!),
+      bindings,
+      workgroupZero: x.workgroupZero as ComputeEntry['workgroupZero'],
+      ...(barrier !== undefined ? { barrier } : {}),
+      ...(noCpu !== undefined ? { noCpu } : {}),
+    },
+    bindingsType: objectType(types),
+  };
+}
+
+/** The builtins a full-screen draw fills in for a `@fragment` entry. */
+const FRAGMENT_BUILTINS = new Set(['position', 'front_facing']);
+
+/** The face of a full-screen `@fragment` entry (Rule 8.24): the bindings it reaches, where its
+ *  colour is, and what the WebGL2 and CPU tiers need to draw it, or why they cannot. */
+function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
+  const x = c.entry;
+  if (x.fp64) return never(name, REASON.fp64);
+  for (const p of f.params)
+    if (p.builtin === undefined || !FRAGMENT_BUILTINS.has(p.builtin))
+      return never(name, REASON.fragmentInput(p.name));
+  const out = colourOf(f, c.structs);
+  if (out === undefined) return never(name, REASON.fragmentOutput);
+  const reached = entryBindings(f, c);
+  if ('none' in reached) return never(name, reached.none);
+  const { bindings, types, closure } = reached;
+  const gl = glslFor(f, bindings, closure, c);
+  const noCpu = noCpuTier(closure, bindings, c);
+  return {
+    kind: 'fragment',
+    name,
+    entry: {
+      name,
+      fn: f.name,
+      params: f.params.map((p) => p.builtin!),
+      out,
+      bindings,
+      ...('none' in gl ? { noGl: gl.none } : { gl }),
+      ...(noCpu !== undefined ? { noCpu } : {}),
+    },
+    bindingsType: objectType(types),
+  };
+}
+
+const isVec4F32 = (t: ShaderType): boolean => t.kind === 'vec' && t.n === 4 && t.elem === 'f32';
+
+/** Where a fragment entry's one `@location(0)` colour is: null for a bare `vec4` result, the
+ *  field's name for a struct of that one field; undefined when it writes anything else. */
+function colourOf(
+  f: FuncDecl,
+  structs: ReadonlyMap<string, StructDecl>,
+): string | null | undefined {
+  if (isVec4F32(f.ret)) return f.retAttr === '@location(0)' ? null : undefined;
+  if (f.ret.kind !== 'struct') return undefined;
+  const fields = structs.get(f.ret.name)?.fields ?? [];
+  if (fields.length !== 1) return undefined;
+  const [only] = fields;
+  return only!.location === 0 && only!.builtin === undefined && isVec4F32(only!.type)
+    ? only!.name
+    : undefined;
+}
+
+/** What the WebGL2 tier draws a fragment entry with: its GLSL ES 3.00 fragment program, the
+ *  block name of each uniform binding and the sampler of each texture; or why it cannot. */
+function glslFor(
+  f: FuncDecl,
+  bindings: readonly DrawBinding[],
+  closure: ReadonlySet<string>,
+  c: FaceCtx,
+): NonNullable<FragmentEntry['gl']> | { none: string } {
+  const storage = bindings.find((b) => b.space === 'storage');
+  if (storage !== undefined)
+    return {
+      none: `it reaches the storage binding "${storage.name}", and GLSL ES 3.00 has no storage buffer`,
+    };
+  let frag: string;
+  try {
+    frag = emitGlslStages(c.entry.module, { fragmentEntry: f.name }).fragment;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { none: `the GLSL backend refuses it: ${message.replace(/\.$/, '')}` };
+  }
+  const blocks: Record<string, string> = {};
+  const samplers: Record<string, string | null> = {};
+  const declared = new Set<string>();
+  for (const b of bindings) {
+    if (b.space === 'uniform') {
+      const m = new RegExp(`uniform (\\w+) \\{[^}]*\\} ${b.name};`).exec(frag);
+      if (m === null) return { none: `its GLSL declares no uniform block for "${b.name}"` };
+      blocks[b.name] = m[1]!;
+      declared.add(b.name);
+    } else if (b.space === 'texture') {
+      if (!new RegExp(`uniform sampler2D ${b.name};`).test(frag))
+        return { none: `its GLSL declares no sampler2D for "${b.name}"` };
+      declared.add(b.name);
+    }
+  }
+  // GLSL ES 3.00 fuses a texture with its sampler: each texture takes the one sampler its
+  // calls pass it, so the WebGL2 tier can set that sampler's filter and address on it.
+  const pairs = texturePairs(closure, c);
+  for (const b of bindings) {
+    if (b.space !== 'texture') continue;
+    const with_ = [...(pairs.get(b.name) ?? [])];
+    if (with_.length > 1)
+      return {
+        none: `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and GLSL ES 3.00 fuses a texture with one sampler`,
+      };
+    samplers[b.name] = with_[0] ?? null;
+  }
+  // Every uniform the program declares is one the draw binds.
+  for (const m of frag.matchAll(
+    /^(?:layout\([^)]*\) )?uniform (?:\w+ )*?(\w+)(?: \{[^}]*\} (\w+))?;/gm,
+  )) {
+    const n = m[2] ?? m[1]!;
+    if (!declared.has(n))
+      return { none: `its GLSL declares a uniform "${n}" the draw does not bind` };
+  }
+  return { frag, blocks, samplers };
+}
+
+/** Which sampler bindings each texture binding is sampled with, in the calls `closure` makes. */
+function texturePairs(closure: ReadonlySet<string>, c: FaceCtx): Map<string, Set<string>> {
+  const pairs = new Map<string, Set<string>>();
+  for (const g of closure)
+    for (const st of c.byName.get(g)!.body)
+      eachStmtExpr(st, (e) =>
+        eachExpr(e, (x) => {
+          if (x.op !== 'call' || c.entry.declared.has(x.fn)) return;
+          const [t, s] = x.args;
+          if (t?.op !== 'varref' || s?.op !== 'varref' || s.type.kind !== 'sampler') return;
+          let set = pairs.get(t.name);
+          if (set === undefined) pairs.set(t.name, (set = new Set()));
+          set.add(s.name);
+        }),
+      );
+  return pairs;
+}
+
+/** An object type of these members, `{}` for none. */
+const objectType = (members: readonly string[]): string =>
+  members.length === 0 ? '{}' : `{ ${members.join('; ')} }`;
 
 const never = (name: string, reason: string, typeOnly?: true): HostExport =>
   typeOnly ? { kind: 'never', name, reason, typeOnly } : { kind: 'never', name, reason };
@@ -498,7 +939,9 @@ function faceOf(ref: ExportRef, c: FaceCtx): HostExport {
     const fnName = lowered.size === 1 ? [...lowered][0]! : undefined;
     const f = fnName === undefined ? undefined : c.byName.get(fnName);
     if (f === undefined) return never(name, REASON.notLowered);
-    if (f.stage !== undefined) return never(name, REASON.entry);
+    if (f.stage === 'vertex') return never(name, REASON.vertex);
+    if (f.stage === 'fragment') return fragmentFace(name, f, c);
+    if (f.stage === 'compute') return computeFace(name, f, c);
     const params: { name: string; type: HostType }[] = [];
     for (const p of f.params) {
       const t = hostTypeOf(p.type, c.structs);
@@ -590,6 +1033,20 @@ function viewText(stem: string, exports: readonly HostExport[]): string {
       case 'struct':
         out.push(`export interface ${e.name} ${structBody(e.type, named)}`);
         break;
+      case 'compute': {
+        const [x, y, z] = e.entry.wg;
+        out.push(
+          `/** A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, and each binding the entry writes is read back into your value in place (Rule 8.24). */`,
+          `export declare function ${e.name}(bindings: ${e.bindingsType}, workgroups: number | readonly [number, number?, number?]): Promise<void>;`,
+        );
+        break;
+      }
+      case 'fragment':
+        out.push(
+          `/** A full-screen \`@fragment\` entry: draws one frame into \`target\`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24). */`,
+          `export declare function ${e.name}(target: HTMLCanvasElement | OffscreenCanvas, bindings: ${e.bindingsType}): Promise<void>;`,
+        );
+        break;
       case 'never': {
         out.push(`/** Not callable from host code (Rule 8.20): ${e.reason}. */`);
         if (e.name === 'default')
@@ -620,6 +1077,7 @@ function moduleText(
   exports: readonly HostExport[],
   gen: ReturnType<typeof generateModuleJs>,
   runtime: string,
+  wgsl: string,
 ): string {
   const q = (s: string): string => JSON.stringify(s);
   const consts = exports.filter((e) => e.kind === 'const');
@@ -631,9 +1089,12 @@ function moduleText(
     `const ${MOD} = (function ($) {`,
     ...gen.decls,
     `$.F = {\n${gen.fns.join(',\n')}\n};`,
-    `return { F: $.F, C: { ${constTable} } };`,
+    `return { F: $.F, C: { ${constTable} }, $: $ };`,
     `})(${RT}.createCodegenRuntime({ consoleSink: ${RT}.hostConsole }));`,
   ];
+  // The module's WGSL, once, for every entry the host calls on WebGPU.
+  if (exports.some((e) => e.kind === 'compute' || e.kind === 'fragment'))
+    out.push(`const __ts_wgsl = ${q(wgsl)};`);
   let t = 0;
   for (const e of exports) {
     switch (e.kind) {
@@ -672,6 +1133,26 @@ function moduleText(
       }
       case 'struct':
         break;
+      case 'compute': {
+        const id = `__ts_e${t++}`;
+        out.push(
+          `const ${id} = { ...${JSON.stringify(e.entry)}, wgsl: __ts_wgsl };`,
+          `export function ${e.name}(bindings, workgroups) {`,
+          `  return ${RT}.callCompute(${MOD}, ${id}, arguments.length, bindings, workgroups);`,
+          `}`,
+        );
+        break;
+      }
+      case 'fragment': {
+        const id = `__ts_e${t++}`;
+        out.push(
+          `const ${id} = { ...${JSON.stringify(e.entry)}, wgsl: __ts_wgsl };`,
+          `export function ${e.name}(target, bindings) {`,
+          `  return ${RT}.callDraw(${MOD}, ${id}, arguments.length, target, bindings);`,
+          `}`,
+        );
+        break;
+      }
       case 'never':
         if (e.typeOnly) break;
         if (e.name === 'default')
@@ -681,4 +1162,22 @@ function moduleText(
     }
   }
   return `${out.join('\n')}\n`;
+}
+
+/** Where the host view of the shader module at `path` goes: beside it, `name.shade.typeshade.ts`,
+ *  which `moduleSuffixes: [".typeshade", ""]` resolves `./name.shade.ts` to. */
+export const hostViewPath = (path: string): string => path.replace(/\.ts$/, '.typeshade.ts');
+
+/** Whether `path` names a shader module a host may import (Rule 3.8): `*.shade.ts`. */
+export const isShaderModulePath = (path: string): boolean => path.endsWith('.shade.ts');
+
+/** The build error a module with an error diagnostic fails with: each one at its file, line and
+ *  column, with its code. */
+export function formatBuildErrors(diagnostics: readonly TsCompilerDiagnostic[]): string {
+  return diagnostics
+    .filter((d) => d.category === 'error')
+    .map((d) =>
+      `${d.fileName}:${d.line}:${d.character} ${d.code ?? ''} ${d.message}`.replace(/  +/, ' '),
+    )
+    .join('\n');
 }

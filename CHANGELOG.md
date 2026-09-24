@@ -142,6 +142,15 @@ this file` or `"P" has no constructor here`, then `TS8022` at every read. A read
   says it: `f = clmap(f, 0., 1.)` after `const f` is the write's `TS8005` and `Unknown function
 "clmap". Did you mean "clamp"?`, where the typo was TypeScript's alone.
 
+- **A builtin's result has the compiler's type in the editor** (surface §49, Rule 12.7,
+  proposal 0017). The math builtins' declarations are generated from Tint's overload table,
+  `core.def`, one overload per row, so `dot(a, b)` on two `vec3u` hovers as `u32`, `max(n, m)` on
+  two `u32` as `u32`, and `smoothstep(0.3, 0.55, h)` on an `f32` as `f32`, where each said
+  `number`. A call whose numeric arguments are all literals stays `number`, the abstract numeric
+  TypeScript cannot tell apart. TypeScript's own report of a wrong argument to one of these names
+  is now TS2769 ("No overload matches this call") where it was TS2345; the editor's merged list
+  shows the compiler's `TS8036` for it, as it did.
+
 - **A storage binding's access mode is its second type argument, and a binding is declared
   `const`** (§1 and §7, design rules 6.1 and 6.2). `declare const src: storage<array<f32>>` is
   `var<storage, read>` and `declare const dst: storage<array<f32>, "read_write">` is
@@ -478,6 +487,10 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Removed
 
+- **The unexported `typeshadeVite()` pack transform** (`src/compiler/ts/vite.ts`). It was on no
+  subpath, and it default-exported a JSON pack that dropped overrides, module variables and
+  enables. `typeshade()` from `typeshade/vite` replaces it (change 0009).
+
 - **`perInvocation<T>`, the second spelling of the per-invocation variable** (§24,
   [#83](https://github.com/typeshade/typeshade/issues/83)). #83 added it as the wrapper for
   WGSL's `var<private>`. #85 then made a plain top-level `let` that variable, because a
@@ -507,6 +520,55 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   spelling of its own (Rule 6.5).
 
 ### Added
+
+- **A host file draws a full-screen `@fragment` entry into a canvas through the import** (change
+  0016, part 2; Rules 8.20, 8.21, 8.24 and 11.7, surface §67). `fs(canvas, { frame })` draws one
+  frame with a full-screen triangle the runtime supplies, on WebGPU, then WebGL2, then the CPU
+  tier, and the promise resolves at submission. The entry reads no builtin but `position` and
+  `front_facing` and writes one `@location(0)` `vec4`. The first draw into a canvas decides its
+  tier, and `position` counts rows from the top on every tier: the WebGL2 tier draws into a
+  framebuffer and copies it upside down. A `texture_2d<f32>` binding takes an image source and a
+  `sampler` takes `{ filter?, address? }`, for a draw and for a compute entry, on the GPU tiers.
+  The import journey draws two entries on all three tiers in Chromium and holds each frame to the
+  reference.
+- **A host file calls a `@compute` entry through the import, and it runs on the GPU** (change
+  0016, part 1; Rules 8.20, 8.21, 8.24 and 11.7, surface §67). `await step({ sim, particles }, 4)`
+  dispatches the imported entry as written over four workgroups on WebGPU, with a device the
+  runtime requests on first use, and reads every storage binding it writes back into the
+  caller's values in place: a typed array element by element, an array of structs object by
+  object. The bindings object is typed exactly in the host view, one property per binding the
+  entry reaches. A runtime-sized array of scalars or vectors is a `Float32Array`, `Int32Array` or
+  `Uint32Array`, padded to the WGSL stride by the call, and a written one-scalar binding is a
+  typed array of length one. The plugin writes the WGSL and each binding's byte layout into the
+  generated module at build time, so the bundle still ships no compiler. Where there is no
+  WebGPU, as in Node, the entry runs on the CPU tier, invocation by invocation, and equals the
+  interpreter's own dispatch; an entry that reaches a barrier needs WebGPU and says so, naming
+  the barrier's line. The import journey now also calls two entries in Chromium on WebGPU from
+  the packed tarball. A texture or sampler binding, a fragment entry, `Resident` and
+  `configure` come later (0016 part 2, and 0013).
+
+- **A host file imports a `.shade.ts` and calls its helper functions, on the CPU** (change 0009,
+  roadmap item 16 first half; Rules 3.8, 8.20, 8.21 and 11.7, surface §64). Nothing here runs on
+  the GPU: an entry point is `never` to the host until the second half of item 16 (16b). With `typeshade()` from the new
+  `typeshade/vite` subpath in `vite.config.ts`, an ordinary `.ts` file writes
+  `import { height } from './terrain.shade.ts'` and calls `height([0.5, 0.5], k)`. The call runs
+  the module's own code on the CPU tier, the oracle's generated code at `f32` precision, written
+  into the bundle as module code with no `new Function`. That code runs over the op library in
+  `typeshade/runtime`, a subpath only generated modules import and which is not API. Host values
+  are plain, and each argument is checked and converted (a `TypeError` names the function, the
+  parameter and its type). A result aliases no argument, and the call is synchronous.
+  A host can call an exported function that is not an entry point, not generic, takes no
+  function, has a host value for each parameter and its result, and reaches no binding, no
+  workgroup variable and no GPU-only builtin. Constants and enums are values, and structs are
+  types. Every other export is declared `never` with the reason. `tsc` reads a generated host
+  view, `name.shade.typeshade.ts`, through two lines of the host `tsconfig`
+  (`moduleSuffixes: [".typeshade", ""]` and an `exclude` of the shader sources). The plugin
+  rewrites the view as the module changes, and the new `typeshade sync` (`--check` to verify)
+  writes every view before `tsc` runs on a clean checkout. A `.ts` that begins with the
+  directive under another name is refused with the rename, and a module that does not compile
+  fails the build with its `TS80xx` diagnostics. `bun run gate:journeys` gains the import
+  journey: the tarball in a fresh Vite project, `tsc` clean and a wrong call caught,
+  `vite build`, and Node running the bundle against a plain-JavaScript reference.
 
 - **The `gpu-console` example and the `console-log` journey** (§66, `changes/0014-gpu-console.md`,
   now implemented). The compile gate hands Tint the WGSL of every example that logs twice, as

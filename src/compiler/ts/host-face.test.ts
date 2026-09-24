@@ -98,7 +98,7 @@ export function fromTile(i: u32): u32 { return tile[i]; }
 export function usesIdent(x: f32): f32 { return ident(x) + apply(helper, x); }
 
 @fragment
-export function fs(): vec4 { return vec4(helper(1.), 0., 0., 1.); }
+export function fs(@location(0) uv: vec2): vec4 { return vec4(helper(uv.x), 0., 0., 1.); }
 `);
     const k = kinds(f.exports);
     expect(k.helper).toBe('function');
@@ -110,10 +110,11 @@ export function fs(): vec4 { return vec4(helper(1.), 0., 0., 1.); }
     expect(k.derivative).toMatch(/^it reaches dpdx, which only a GPU computes/);
     expect(k.sampled).toMatch(/resource binding|only a GPU computes/);
     expect(k.fromTile).toMatch(/^it reaches a workgroup variable/);
-    expect(k.fs).toMatch(/^it is an entry point/);
+    expect(k.fs).toMatch(/^parameter "uv" is what a vertex entry writes/);
     // Each refusal names the work that adds it, or says none does yet.
     for (const e of f.exports)
-      if (e.kind === 'never') expect(e.reason).toMatch(/roadmap item 1[56] adds it|no proposal/);
+      if (e.kind === 'never')
+        expect(e.reason).toMatch(/roadmap item 1[56] adds it|no proposal|Rule 8\.24|#204/);
   });
 
   it('refuses a parameter or a result with no host value, naming the type', () => {
@@ -176,10 +177,10 @@ export function nothing(x: f32) { let y = x; }
   it('declares an export with no host face never, with the reason', () => {
     const f = face(`"use typeshade";
 @fragment
-export function fs(): vec4 { return vec4(1.); }
+export function fs(@location(0) uv: vec2): vec4 { return vec4(uv, 0., 1.); }
 `);
     expect(f.view).toContain(
-      '/** Not callable from host code (Rule 8.20): it is an entry point, which runs on a GPU; the GPU half of roadmap item 16 adds it. */\nexport declare const fs: never;',
+      '/** Not callable from host code (Rule 8.20): parameter "uv" is what a vertex entry writes, and a draw has no vertex entry but its full-screen triangle; #204, the rendering design, adds a mesh. */\nexport declare const fs: never;',
     );
   });
 
@@ -204,7 +205,7 @@ export function fs(): vec4 { return vec4(1.); }
   it('makes a call of an export with no host face a type error', () => {
     const src = `"use typeshade";
 @fragment
-export function fs(): vec4 { return vec4(1.); }
+export function fs(@location(0) uv: vec2): vec4 { return vec4(uv, 0., 1.); }
 `;
     expect(
       hostErrors(src, `import { fs } from './terrain.shade.ts';\nexport const c = fs();\n`),
@@ -272,10 +273,10 @@ export function f(v: vec2, i: i32, u: u32, b: vec2b, s: S, xs: array<f32, 2>): f
   it('refuses a call of an export with no host face, with the reason', async () => {
     const m = await load(`"use typeshade";
 @fragment
-export function fs(): vec4 { return vec4(1.); }
+export function fs(@location(0) uv: vec2): vec4 { return vec4(uv, 0., 1.); }
 `);
     expect(() => (m.fs as () => unknown)()).toThrow(
-      'fs cannot be called from host code: it is an entry point',
+      'fs cannot be called from host code: parameter "uv" is what a vertex entry writes',
     );
   });
 

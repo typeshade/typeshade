@@ -183,6 +183,25 @@ const isNumericLiteral = (node: ts.Expression): boolean =>
   (ts.isPrefixUnaryExpression(node) && ts.isNumericLiteral(node.operand)) ||
   (ts.isParenthesizedExpression(node) && isNumericLiteral(node.expression));
 
+/**
+ * A call whose numeric arguments are all literals, which the editor types `number`: WGSL types
+ * it as an abstract numeric until its context concretizes it, and TypeScript cannot say which
+ * one, since `0.` and `0` are the same literal type to it. Rule 12.7 states that the editor's
+ * `number` IS that abstract type, so the gate classifies such a call by the rule instead of
+ * listing it (0017). `select(0., 0.15, c)` is one: its third argument is a `bool`.
+ */
+function isAbstractCall(
+  node: ts.Expression,
+  editor: string,
+  compilerOf: ReadonlyMap<ts.Expression, string>,
+): boolean {
+  if (!ts.isCallExpression(node) || editor !== 'number') return false;
+  const numeric = node.arguments.filter(
+    (a) => !/^(bool|vec[234]<bool>)$/.test(compilerOf.get(a) ?? ''),
+  );
+  return numeric.length > 0 && numeric.every(isNumericLiteral);
+}
+
 /** What a checked expression reads, or undefined for a kind this gate does not judge: the
  *  operators are TypeScript's to erase (`projection.ts` owns that), not a declaration's. */
 function readsOf(node: ts.Expression): string | undefined {
@@ -260,10 +279,12 @@ function firstDivergences(
       typed.push({ node, compiler, editor });
       compared++;
     }
+    const compilerOf = new Map(typed.map((t) => [t.node, t.compiler]));
     for (const { node, compiler, editor } of typed) {
       if (compiler === editor) continue;
       const reads = readsOf(node);
       if (reads === undefined) continue;
+      if (isAbstractCall(node, editor, compilerOf)) continue;
       const clean = inputsOf(node).every((i) => isNumericLiteral(i) || agrees.get(i) !== false);
       if (!clean) continue;
       divergences.push({ uri, text: node.getText(written), reads, compiler, editor });
@@ -285,35 +306,19 @@ const groupOf = (d: Divergence): string => `${d.reads} | ${d.compiler} | ${d.edi
  * SHRINK-ONLY: a fix takes its rows out in the same change; a row that no longer occurs fails.
  */
 const KNOWN: Readonly<Record<string, 'A' | 'B' | 'C'>> = {
-  // A. A builtin's result: `(…: number) => number` (`scalarMathOverload`) and the reductions
-  // `SPECIAL_MATH_SIGNATURES` declares by hand, where the compiler gives the argument's scalar.
-  'abs() | f32 | number': 'A',
-  'abs() | u32 | number': 'A',
-  'atan2() | f32 | number': 'A',
-  'clamp() | f32 | number': 'A',
+  // A. A builtin's result, where the ambient library retyped it. The math family's rows are
+  // generated from `core.def` since 0017 part 2; these are the families still to come:
+  // derivatives, bits and packing, and `determinant`, whose matrix argument has no generated
+  // form yet. `fwidth()` was behind a `length()` that said `number` until then.
   'countOneBits() | u32 | number': 'A',
   'determinant() | f32 | number': 'A',
-  'distance() | f32 | number': 'A',
-  'dot() | f32 | number': 'A',
-  'dot() | i32 | number': 'A',
-  'dot() | u32 | number': 'A',
   'firstLeadingBit() | u32 | number': 'A',
+  'fwidth() | f32 | number': 'A',
   'fwidthCoarse() | f32 | number': 'A',
-  'length() | f32 | number': 'A',
-  'max() | f32 | number': 'A',
-  'max() | u32 | number': 'A',
-  'min() | f32 | number': 'A',
-  'mix() | f32 | number': 'A',
-  'pow() | f32 | number': 'A',
-  'radians() | f32 | number': 'A',
   'reverseBits() | u32 | number': 'A',
-  'round() | f64 | number': 'A',
-  'select() | f32 | number': 'A',
-  'sin() | f32 | number': 'A',
-  'smoothstep() | f32 | number': 'A',
-  'sqrt() | f32 | number': 'A',
   // B. A scalar the document declares with no annotation (a field, a method or function
   // return), which TypeScript infers from a literal as `number` and the front end as `f32`.
+  // `falloff()` was behind a `distance()` that said `number`.
   '.#width | f32 | number': 'B',
   '.MIN_WIDTH | f32 | number': 'B',
   '.SIZE | f32 | number': 'B',
@@ -322,10 +327,9 @@ const KNOWN: Readonly<Record<string, 'A' | 'B' | 'C'>> = {
   '.next() | f32 | number': 'B',
   '.period | f32 | number': 'B',
   'draw() | f32 | number': 'B',
-  'pick() | f32 | number': 'B',
+  'falloff() | f32 | number': 'B',
   // C. A constructor or a method that loses a type argument: `array(...)` its element and
   // count, an array method its element, a static builder its `this` class.
-  '.map() | array<f32, 3> | array<number, 3>': 'C',
   '.map() | array<f32, 4> | array<number, 4>': 'C',
   '.reduce() | f32 | number': 'C',
   '.unit() | Capped | Disc': 'C',

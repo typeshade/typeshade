@@ -86,9 +86,11 @@ rendered as an ellipse. Every gate passed; only visual review caught it.
 The 71 `*.shade.ts` files are the OTHER authoring surface. Instead of building a graph with
 `fn()` / `module()` calls, they are TypeScript source that opens with `"use typeshade"` and is
 compiled to the same IR by `compile()` — so `vec4`, `u32` and `uniform<T>` are the shader
-language's own names, and the `@vertex` / `@builtin(...)` decorators are attribute syntax. They
-are not importable TypeScript modules (nothing declares those names), which is why
-`tsconfig.tests.json` and `examples/tsconfig.json` both exclude the pattern from the type check.
+language's own names, and the `@vertex` / `@builtin(...)` decorators are attribute syntax. A host
+program cannot type-check them as TypeScript modules (nothing in a host program declares those
+names), which is why `tsconfig.tests.json` and `examples/tsconfig.json` both exclude the pattern
+from the type check. A host imports one through the Vite plugin instead, which hands `tsc` a
+generated host view in its place (surface §64).
 
 Each one registers itself: a `/* @example { "title": …, "blurb": …, "renderable": … } */` JSON
 block directly after the directive carries what `compile()` cannot infer (and a `reason` when

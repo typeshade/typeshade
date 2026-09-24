@@ -1,8 +1,10 @@
 # Official author surface: `"use typeshade"`
 
 TypeShade’s public language is TypeScript. A file that starts with `"use typeshade"` is a
-shader compilation unit. It lowers to the same IR the `fn()` EDSL builds. Host code never
-imports a TypeShade runtime — only emitted WGSL/GLSL and a slot table.
+shader compilation unit. It lowers to the same IR the `fn()` EDSL builds. A host either takes the
+emitted WGSL/GLSL and a slot table and runs them itself, or imports a `*.shade.ts` through the Vite
+plugin and calls its exported functions, which run on the CPU tier through `typeshade/runtime`
+(surface §64).
 
 ## Unit
 
@@ -182,11 +184,11 @@ device.createShaderModule({ code: p.wgsl })
 // p.bindings, p.vertexLayout, p.glsl
 ```
 
-Vite: `typeshadeVite()` turns `*.shade.ts` into `export default pack`.
+`packModule` (`src/compiler/ts/pack.ts`) is exported from the package entry.
 
-`packModule` (`src/compiler/ts/pack.ts`) is exported from the package entry. `typeshadeVite`
-(`src/compiler/ts/vite.ts`) is in the same state as `compileTsSources`: real, tested, but a
-deep import rather than a package entry export.
+Vite: `typeshade()` from `typeshade/vite` lets a host file import a `*.shade.ts` and call what
+it exports (surface §64). The import is the module's own functions on the CPU tier, with a host
+view beside each module that `tsc` reads; it is not a pack of the emitted text.
 
 ## What this is not
 
