@@ -1,7 +1,7 @@
 ---
 id: '0018'
 title: A debug session delivers the console calls it steps over to a sink, as the CPU oracle does
-status: draft
+status: accepted
 rules: []
 surface:
 - 66
