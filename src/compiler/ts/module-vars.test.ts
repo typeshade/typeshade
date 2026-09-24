@@ -19,6 +19,10 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { reflect } from '../../core/reflect.js';
 import { fnWrites } from '../../core/passes/effects.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { glslEs300Backend } from '../../core/backends/glsl.js';
+import { UnsupportedFeatureError } from '../../core/backend.js';
+import { u32T } from '../../core/ir/index.js';
 
 const KERNEL = `"use typeshade";
 declare const src: storage<array<f32>>;
@@ -346,6 +350,81 @@ export function fs(@location(0) uv: vec2): vec4 {
     // seed = 2, then 7, then 22.
     expect(r.eval('fs', [[2, 0]])).toEqual([7, 22, 22, 1]);
     expect(compileModuleJs(r.module).fns['fs']!([2, 0])).toEqual([7, 22, 22, 1]);
+  });
+
+  it('on GLSL ES 3.00 one with no initializer is written with its zero, and the editor agrees', () => {
+    // WGSL zero-initializes a var<private> and both CPU backends start one at zero, but GLSL ES
+    // 3.00 §4.3 lets a global with no initializer enter main() undefined. Every shape the
+    // variable can hold, and a static field the file writes, which is the same variable (Rule 8.13).
+    const src = `"use typeshade";
+class Acc {
+  total: f32;
+  count: u32;
+  ring: array<vec2, 2>;
+}
+class Counter {
+  static count: u32;
+  static bump(): u32 {
+    Counter.count += 1;
+    return Counter.count;
+  }
+}
+let hits: u32;
+let tint: vec3;
+let flags: vec2b;
+let ring: array<f32, 3>;
+let acc: Acc;
+let m: mat3x2;
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  hits += 1;
+  acc.count += hits;
+  ring[1] = ring[0] + uv.x;
+  const n = Counter.bump();
+  const s = f32(acc.count + n) + ring[1] + m[0].x + acc.ring[1].y;
+  return vec4(s, tint.y, select(0., 1., flags.x), 1.);
+}
+`;
+    const r = compile(src);
+    expect(r.diagnostics).toEqual([]);
+    // WGSL zero-initializes the variable by itself.
+    expect(r.wgsl).toContain('var<private> hits: u32;');
+    expect(r.wgsl).toContain('var<private> Counter_count: u32;');
+    const glsl = r.glsl!.fragment;
+    for (const line of [
+      'uint Counter_count = 0u;',
+      'uint hits = 0u;',
+      'vec3 tint = vec3(0.0);',
+      'bvec2 flags = bvec2(false);',
+      'float[3] ring = float[3](0.0, 0.0, 0.0);',
+      'Acc acc = Acc(0.0, 0u, vec2[2](vec2(0.0), vec2(0.0)));',
+      'mat3x2 m = mat3x2(0.0);',
+    ])
+      expect(glsl).toContain(line);
+    // From zero: hits and acc.count are 1, the first bump is 1, and ring[1] is uv.x.
+    expect(r.eval('fs', [[0.25, 0]])).toEqual([2.25, 0, 0, 1]);
+    expect(compileModuleJs(r.module).fns['fs']!([0.25, 0])).toEqual([2.25, 0, 0, 1]);
+    // The editor half: the same program draws nothing.
+    const service = createTypeshadeLanguageService();
+    service.openDocument('zero.shade.ts', src);
+    expect(service.getDiagnostics('zero.shade.ts').map((d) => `${d.code} ${d.message}`)).toEqual(
+      [],
+    );
+  });
+
+  it('the bare GLSL method spells a zero, and fails closed on a struct it has no fields for', () => {
+    // A struct's zero lists its fields: emitGlslModule has the struct table, the method alone
+    // does not, and a bare `P p;` would be the undefined global this replaces.
+    expect(glslEs300Backend.emitModuleVar!({ name: 'n', space: 'private', type: u32T })).toBe(
+      'uint n = 0u;',
+    );
+    expect(() =>
+      glslEs300Backend.emitModuleVar!({
+        name: 'p',
+        space: 'private',
+        type: { kind: 'struct', name: 'P' },
+      }),
+    ).toThrow(UnsupportedFeatureError);
   });
 
   it('what is refused, and what the fix is', () => {

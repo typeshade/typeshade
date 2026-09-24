@@ -2,7 +2,11 @@
 
 All notable changes to `typeshade` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before `1.0.0` the minor is the breaking
+position: a breaking change ships only in a new `0.N.0`, and a `0.N.P` only fixes and adds.
+What counts as breaking, and the deprecation window a change of meaning takes, are design rules
+13.9 and 13.10 (`docs/language-design.md`; the procedure is `RELEASING.md#7-versions-and-deprecations`).
+A released version is headed `## [X.Y.Z] - YYYY-MM-DD`.
 
 This file starts where TypeShade was separated from the X-GIS monorepo. Everything before that
 — the IR, the three backends, the pass pipeline, and the breaking changes that shaped them — is
@@ -1580,9 +1584,24 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   installs, never reports it. The site's Playground bundles TypeScript 5.9, where
   `workgroup-scratch`, `workgroup-reduce`, `compute-sync` and `workgroup-tile-2d` showed the
   error and would not compile. The language service now drops TS2454 when the name resolves to
-  a top-level `let` annotated `workgroup<T>`. A per-invocation module `let` that nothing
-  assigns, and a local read before its first assignment, still report it. Measured over the
-  Playground's 82 examples under TypeScript 5.9.3: 4 with an error before, 0 after.
+  a top-level `let` annotated `workgroup<T>`, and since the next entry to any module variable.
+  A local read before its first assignment still reports it. Measured over the Playground's 82
+  examples under TypeScript 5.9.3: 4 with an error before, 0 after.
+
+- **A module variable with no initializer is zero on GLSL ES 3.00 too** (surface §24, Rule
+  6.5). §24 says a per-invocation variable with no initializer is zero, and WGSL, the CPU oracle
+  and the CPU codegen start it there, but the GLSL writer declared it bare, `uint hits;`, and
+  GLSL ES 3.00 §4.3 lets such a global enter `main()` with an undefined value. A counter that
+  starts at zero on WebGPU counted up from whatever the driver left in it on WebGL2, and so did
+  a static field the file writes, which is the same variable (Rule 8.13). The writer now spells
+  the zero of every shape the variable can hold: `uint hits = 0u;`, `vec3 tint = vec3(0.0);`,
+  `mat3x2 m = mat3x2(0.0);`, `float[3] ring = float[3](0.0, 0.0, 0.0);`, and a struct's
+  constructor over the zeros of its fields. The WGSL does not move, and no golden moves: no
+  example that renders on WebGL2 declares such a variable. Each shape compiles and links on
+  ANGLE and on Tint, the compile gate's two compilers. With the value defined on every target,
+  the editor drops TS2454 on a per-invocation `let` as it does on workgroup memory: under
+  TypeScript 5.7 and later, `let hits: u32` counted with `hits += 1` read as used before being
+  assigned.
 
 - **The editor indexes a vector and an `f32` matrix by a runtime value** (Rule 12.7, surface
   §49). `m[i]` on a `mat4` or a `mat2x3` with an `i: u32`, a `for` counter as the index, `v[i]`
