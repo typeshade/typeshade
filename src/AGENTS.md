@@ -38,7 +38,7 @@ and the tree disagree.
 | `compiler/ts/source-file.ts` | `compileTsSource`: one file to IR. Imports `typescript` at module scope, which is why it is a required peer.                             |
 | `compiler/ts/module.ts`      | `compileTsSources`: a multi-file program joined by relative imports.                                                                     |
 | `compiler/ts/lower/`         | Statement, expression, call and function lowering (`function.ts` runs signatures, then bodies).                                          |
-| `compiler/ts/semantic.ts`    | Refuses host / JavaScript surface inside a `"use typeshade"` file.                                                                       |
+| `compiler/ts/semantic.ts`    | Refuses host control flow once per node; resolves `new` targets and names nothing declares by declaration, not spelling (Rule 2.1).      |
 | `compiler/ts/codes.ts`       | The `TS8nnn` diagnostic codes. Numbers are never reused.                                                                                 |
 | `compiler/ts/semicolons.ts`  | The shader-source `;` inserter behind `bun run format:semicolons`.                                                                       |
 | `compiler/ts/host-face.ts`   | The host face of a module (Rules 8.20, 8.21): the exports a host can call, the host view `tsc` reads, and the generated CPU-tier module. |

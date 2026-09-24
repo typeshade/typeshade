@@ -16,7 +16,7 @@
 // sentence and is never dropped, `while (ON)` is `while (true)`, an `&&` exit names its extra
 // clause, and a loop's hidden counter is a name the source cannot reach.
 //
-// Verifies: Rule 7.5 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 7.5, Rule 12.6 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
