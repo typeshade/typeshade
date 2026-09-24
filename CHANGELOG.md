@@ -2,7 +2,11 @@
 
 All notable changes to `typeshade` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before `1.0.0` the minor is the breaking
+position: a breaking change ships only in a new `0.N.0`, and a `0.N.P` only fixes and adds.
+What counts as breaking, and the deprecation window a change of meaning takes, are design rules
+13.9 and 13.10 (`docs/language-design.md`; the procedure is `RELEASING.md#7-versions-and-deprecations`).
+A released version is headed `## [X.Y.Z] - YYYY-MM-DD`.
 
 This file starts where TypeShade was separated from the X-GIS monorepo. Everything before that
 — the IR, the three backends, the pass pipeline, and the breaking changes that shaped them — is
