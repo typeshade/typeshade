@@ -5,9 +5,9 @@
 // WHAT THIS CLOSES. A builtin's type rules were written three times by hand, in the compiler's
 // result types (`mathResultType`), its argument table (`math-args.ts`) and the editor's
 // declarations (`SHADE_DTS`), and a test of one copy could not see the others (0017). This suite
-// reads the one table all three copy, `fixtures/coredef.json` (every overload of `core.def`,
+// reads the one table all three copy, `src/core/builtins/coredef.ts` (every overload of `core.def`,
 // baked by `scripts/bake-coredef.ts`), and forces every row to be claimed by
-// `coredef-overlay.ts` as exactly one of REFUSED, SUPPORTED, or DEFERRED to a family of 0017.
+// `src/core/builtins/overlay.ts` as exactly one of REFUSED, SUPPORTED, or DEFERRED to a family of 0017.
 //
 // A SUPPORTED row is held to BOTH halves on the same witness (`coredef-witness.ts`): for every
 // instance of its type parameters over the types TypeShade has, `compile()` accepts it and
@@ -22,65 +22,19 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SHADE_DTS } from '../../language-service/ambient.js';
-import {
-  ABSENT_TYPES,
-  NOT_WGSL,
-  SUPPORTED,
-  extensionOf,
-  familyOf,
-  type Family,
-} from './coredef-overlay.js';
-import {
-  compilerReadings,
-  disagreement,
-  editorReadings,
-  instancesOf,
-  type CoreDefRow,
-} from './coredef-witness.js';
+import { NOT_WGSL, claimOf as claimOfRow, familyOf, type Claim } from '../builtins/overlay.js';
+import { COREDEF } from '../builtins/coredef.js';
+import type { CoreDefRow } from '../builtins/coredef-types.js';
+import { compilerReadings, disagreement, editorReadings, instancesOf } from './coredef-witness.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
-const fixture = JSON.parse(readFileSync(join(FIXTURES, 'coredef.json'), 'utf8')) as {
-  sha256: string;
-  matchers: Record<string, string[]>;
-  rows: CoreDefRow[];
-};
+const fixture = COREDEF;
 const textures = JSON.parse(readFileSync(join(FIXTURES, 'coredef-textures.json'), 'utf8')) as {
   sha256: string;
   rows: { fn: string; params: { type: string }[]; ret: string }[];
 };
 
-/** Why a row has no instance TypeShade can spell, or undefined when it has one. */
-function absentType(row: CoreDefRow): string | undefined {
-  const named = [...row.params.map((p) => p.type), row.ret].join(' ');
-  for (const t of ABSENT_TYPES) {
-    // A type written outside any constraint is one every instance needs.
-    if (new RegExp(`\\b${t}\\b`).test(named)) return `every instance takes or returns \`${t}\``;
-  }
-  for (const [param, constraint] of Object.entries(row.implicit)) {
-    const domain = fixture.matchers[constraint];
-    if (domain === undefined) continue;
-    const kept = domain.filter((d) => !ABSENT_TYPES.some((a) => d === a || d.startsWith(`${a}<`)));
-    if (kept.length === 0) return `\`${param}: ${constraint}\` admits only types TypeShade lacks`;
-  }
-  return undefined;
-}
-
-type Claim =
-  | { readonly status: 'REFUSED'; readonly reason: string }
-  | { readonly status: 'SUPPORTED' }
-  | { readonly status: 'DEFERRED'; readonly to: Family | 'an extension'; readonly reason?: string };
-
-function claimOf(row: CoreDefRow): Claim | undefined {
-  const notWgsl = row.kind === 'fn' ? NOT_WGSL[row.name] : undefined;
-  if (notWgsl !== undefined) return { status: 'REFUSED', reason: notWgsl };
-  const absent = absentType(row);
-  if (absent !== undefined) return { status: 'REFUSED', reason: absent };
-  if (SUPPORTED.has(row.signature)) return { status: 'SUPPORTED' };
-  const extension = row.kind === 'fn' ? extensionOf(row.name) : undefined;
-  if (extension !== undefined) return { status: 'DEFERRED', to: 'an extension', reason: extension };
-  const family = familyOf(row.kind, row.name);
-  return family === undefined ? undefined : { status: 'DEFERRED', to: family };
-}
+const claimOf = (row: CoreDefRow): Claim | undefined => claimOfRow(row, fixture.matchers);
 
 describe('the core.def fixture', () => {
   it('is the same snapshot the texture fixture was baked from', () => {
@@ -117,11 +71,6 @@ describe('every core.def row is claimed (0017)', () => {
     expect(both.map((r) => r.signature)).toEqual([]);
   });
 
-  it('supports only rows that exist, so a SUPPORTED entry cannot outlive its row', () => {
-    const signatures = new Set(fixture.rows.map((r) => r.signature));
-    expect([...SUPPORTED].filter((s) => !signatures.has(s))).toEqual([]);
-  });
-
   it('holds every SUPPORTED row to both halves on every instance', () => {
     const rows = fixture.rows.filter((r) => claimOf(r)?.status === 'SUPPORTED');
     const instances = rows.flatMap((r) => {
@@ -129,6 +78,10 @@ describe('every core.def row is claimed (0017)', () => {
       if (all === undefined) throw new Error(`SUPPORTED row with no witness form: ${r.signature}`);
       return all;
     });
+    // A floor, so a claim table that stopped supporting anything cannot pass on nothing: the
+    // math family alone is 94 rows and 257 instances.
+    expect(rows.length).toBeGreaterThanOrEqual(90);
+    expect(instances.length).toBeGreaterThanOrEqual(250);
     const compiler = compilerReadings(instances);
     const editor = editorReadings(instances, SHADE_DTS);
     const parted = instances

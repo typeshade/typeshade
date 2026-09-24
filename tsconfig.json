@@ -71,12 +71,11 @@
   // Every one of them is still TYPE-CHECKED, by `tsc -p tsconfig.tests.json`, which covers
   // all of examples/ and scripts/ and does load those types.
   //
-  // The two `coredef-*` modules beside `coredef-overloads.test.ts` are its support: the claims
-  // on Tint's table and the both-halves witness (0017). No export reaches them, so they are
-  // test code in all but name, and they stay out of dist/ as the tests do.
+  // `coredef-witness.ts` beside `coredef-overloads.test.ts` is its support: the both-halves
+  // witness (0017). No export reaches it, so it is test code in all but name, and it stays out
+  // of dist/ as the tests do.
   "exclude": [
     "src/**/*.test.ts",
-    "src/core/spec-conformance/coredef-overlay.ts",
     "src/core/spec-conformance/coredef-witness.ts",
     "examples/**/*.test.ts",
     "examples/**/*.shade.ts",

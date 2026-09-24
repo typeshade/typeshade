@@ -158,14 +158,15 @@ describe('an argument that is not vector arithmetic still reports (issue #43)', 
     );
   });
 
-  it('a vector of the wrong size keeps TS2345, since nothing else reports it', () => {
+  it('a vector of the wrong size keeps its TypeScript report', () => {
     // The narrowing this rule makes against the TS2322 rule it mirrors: a branded argument that
-    // reached a branded parameter without any arithmetic is a real mismatch, and `dot` is where
-    // it shows, since the compiler front end has no argument check for the ambient math
-    // functions.
+    // reached a branded parameter without any arithmetic is a real mismatch, and TypeScript's
+    // report of it survives the filters. `dot` has one overload per `core.def` row (0017), so
+    // the report is TS2769, the overload code, on the call; the compiler's `TS8036` is the one
+    // the merged list keeps.
     stillReports(
       '"use typeshade"\nexport function f(a: vec3, b: vec2): f32 {\n  return dot(a, b)\n}\n',
-      2345,
+      2769,
     );
   });
 
@@ -187,22 +188,23 @@ describe('an argument that is not vector arithmetic still reports (issue #43)', 
 });
 
 // The arithmetic in a call is not a licence to stop checking the OTHER arguments. Every case
-// here is a real size or element mismatch in a call that also does vector arithmetic, and the
-// ambient math functions have no argument check in the compiler front end at all
-// (`src/compiler/ts/math-alias.ts` lowers them by arity), so TypeScript's TS2345 is the only
-// report these mistakes get. The first rule for issue #43 asked only "is this argument branded,
-// and does SOME argument do arithmetic", which answered yes to all of them.
+// here is a real size or element mismatch in a call that also does vector arithmetic. When
+// issue #43 was fixed the ambient math functions had no argument check in the compiler front
+// end, so TypeScript's report was the only one these mistakes got. They have one now:
+// `checkMathArgs` (`src/compiler/ts/lower/math-args.ts`, #57) refuses each with `TS8036`, and
+// the editor shows it. So what this suite holds is what an author reads, the merged list: the
+// mistake is reported, by the compiler's `TS8036` or by TypeScript's argument code.
+//
+// TypeScript's own half has changed under it twice. Every math name gained an overload per
+// `core.def` row (0017), so it reports `TS2769` ("No overload matches this call") where it
+// reported `TS2345`; and where an argument is erased vector arithmetic, the callee-span rule
+// for `TS2769` drops that report as it drops every overload failure arithmetic caused, which
+// leaves the compiler's `TS8036` as the one diagnostic (Rule 12.4).
 describe('a wrong shape still reports when the call also does arithmetic (issue #43)', () => {
-  // TS2345 for a callee with one signature, TS2769 ("No overload matches this call") for an
-  // overloaded one: `mix` and every generic math name now declare an all-scalar overload beside
-  // the generic shape, and `mix` three vector-with-scalar ones as well, so TypeScript has no
-  // single candidate to name and reports the overload code on the same span instead. Which of
-  // the two codes arrives is TypeScript's business; that the mistake is still reported is this
-  // suite's.
-  const ARGUMENT_MISMATCH_CODES: ReadonlySet<string | number> = new Set([2345, 2769]);
+  const ARGUMENT_MISMATCH_CODES: ReadonlySet<string | number> = new Set([2345, 2769, 'TS8036']);
   const keepsReporting = (source: string): void => {
     expect(
-      typeScriptHalfOf(source).some((d) => ARGUMENT_MISMATCH_CODES.has(d.code)),
+      diagnosticsOf(source).some((d) => ARGUMENT_MISMATCH_CODES.has(d.code)),
       source,
     ).toBe(true);
   };
@@ -418,15 +420,17 @@ export function f(a: ${type}): ${type} {
     });
   }
 
-  it('keeps TS2345 for a name the compiler types as a scalar', () => {
+  // `cross` has its `core.def` overload and its hand-written one (0017), so TypeScript's report
+  // of a wrong argument is the overload code, TS2769, where it was TS2345.
+  it('keeps a TypeScript report for a name the compiler types as a scalar', () => {
     const source = entry('  const d = dot(a, b)\n  const p = cross(d, a)\n');
-    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2345:']);
+    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2769:']);
   });
 
-  it('keeps TS2345 for a name of the wrong shape', () => {
+  it('keeps a TypeScript report for a name of the wrong shape', () => {
     // `w` is the `vec2` the swizzle's arithmetic makes, and `cross` takes two `vec3`.
     const source = entry('  const w = a.xy * s\n  const p = cross(w, a)\n');
-    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2345:']);
+    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2769:']);
   });
 
   it('leaves a bad swizzle of such a name to the compiler, which reports it once', () => {

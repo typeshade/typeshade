@@ -1,6 +1,6 @@
 // ═══ The TypeShade overlay on Tint's overload table (0017) ═══
 //
-// `fixtures/coredef.json` is every overload Tint matches a call against. This file is what
+// `coredef.ts` is every overload Tint matches a call against. This file is what
 // TypeShade says about each one: the family whose pull request will take the row over, or why
 // the row is refused. `coredef-overloads.test.ts` holds every row to exactly one claim, and a
 // row a re-bake adds with a name nothing here knows fails there until someone decides.
@@ -15,6 +15,9 @@
 //              hand-written copies (0017, "The work lands in pull requests of one family each").
 //   DEFERRED   to the family that will take it over, or, for an extension TypeShade does not
 //              spell yet, with the reason.
+
+import type { CoreDefRow } from './coredef-types.js';
+import { rowTypes } from './row-types.js';
 
 /** The pull requests of 0017, in the order they land. */
 export type Family =
@@ -173,12 +176,54 @@ export function extensionOf(name: string): string | undefined {
   return undefined;
 }
 
-/** The scalar types TypeShade has, which an instance of a row may bind a type parameter to. */
-export const TYPESHADE_SCALARS = ['f32', 'i32', 'u32', 'bool'] as const;
-
 /** Types in `core.def` that TypeShade has no spelling for. A row that names one outside a
  *  constraint, or whose constraint admits nothing TypeShade has, has no instance to claim. */
 export const ABSENT_TYPES = ['f16', 'u16', 'u64', 'i8', 'u8', 'subgroup_matrix'] as const;
 
-/** The rows whose instances are held to both halves. A family's pull request adds its rows. */
-export const SUPPORTED: ReadonlySet<string> = new Set<string>([]);
+/** The families whose rows are SUPPORTED: generated into the editor's declarations and held
+ *  to both halves. A family's pull request adds itself here. Within a supported family, a row
+ *  whose types `row-types.ts` has no form for yet (a matrix, a result struct) stays DEFERRED
+ *  to it, and the pull request that adds the form claims the row. */
+export const SUPPORTED_FAMILIES: ReadonlySet<Family> = new Set<Family>(['math']);
+
+/** Why a row has no instance TypeShade can spell, or undefined when it has one. */
+function absentType(
+  row: CoreDefRow,
+  matchers: Readonly<Record<string, readonly string[]>>,
+): string | undefined {
+  const named = [...row.params.map((p) => p.type), row.ret].join(' ');
+  for (const t of ABSENT_TYPES) {
+    // A type written outside any constraint is one every instance needs.
+    if (new RegExp(`\\b${t}\\b`).test(named)) return `every instance takes or returns \`${t}\``;
+  }
+  for (const [param, constraint] of Object.entries(row.implicit)) {
+    const domain = matchers[constraint];
+    if (domain === undefined) continue;
+    const kept = domain.filter((d) => !ABSENT_TYPES.some((a) => d === a || d.startsWith(`${a}<`)));
+    if (kept.length === 0) return `\`${param}: ${constraint}\` admits only types TypeShade lacks`;
+  }
+  return undefined;
+}
+
+/** What TypeShade says about one row. */
+export type Claim =
+  | { readonly status: 'REFUSED'; readonly reason: string }
+  | { readonly status: 'SUPPORTED' }
+  | { readonly status: 'DEFERRED'; readonly to: Family | 'an extension'; readonly reason?: string };
+
+/** The claim on `row`, or undefined for a row nothing here knows (a re-bake's new name). */
+export function claimOf(
+  row: CoreDefRow,
+  matchers: Readonly<Record<string, readonly string[]>>,
+): Claim | undefined {
+  const notWgsl = row.kind === 'fn' ? NOT_WGSL[row.name] : undefined;
+  if (notWgsl !== undefined) return { status: 'REFUSED', reason: notWgsl };
+  const absent = absentType(row, matchers);
+  if (absent !== undefined) return { status: 'REFUSED', reason: absent };
+  const extension = row.kind === 'fn' ? extensionOf(row.name) : undefined;
+  if (extension !== undefined) return { status: 'DEFERRED', to: 'an extension', reason: extension };
+  const family = familyOf(row.kind, row.name);
+  if (family === undefined) return undefined;
+  if (SUPPORTED_FAMILIES.has(family) && rowTypes(row) !== undefined) return { status: 'SUPPORTED' };
+  return { status: 'DEFERRED', to: family };
+}

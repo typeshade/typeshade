@@ -5238,16 +5238,26 @@ either layer. It shows only in what an author reads: a hover, a completion list,
 `src.length` on a runtime-sized storage array was one: the compiler reads it as `arrayLength(&src)`,
 a `u32` (§20), and the editor said `number` until #271.
 
-The front end now records the type of every expression it lowers
+The front end records the type of every expression it lowers
 (`CompileTsSourceResult.expressions`). `src/language-service/expression-parity.test.ts` compares
 that type with the checker's on every program under `examples/` and `journeys/`. What it
 reports is the first divergence: a property access, an element access or a call whose receiver
 and arguments agree, but whose own type does not. The divergences still open are listed in the
 test's own table, which is the one list of them, by what each reads and the two types. The table
 is shrink-only: a divergence it does not list fails, and so does a row that no longer occurs.
-Proposal 0015 names the three classes the table holds today: a builtin's result (`dot`, `length`,
-`smoothstep`, `max` on a `u32`, …), an unannotated scalar a document declares, and a constructor
-or method that loses a type argument (`array(...)`, `.map`).
+
+A builtin's declarations are generated from Tint's own overload table, `core.def`, one overload
+per row (proposal 0017, `src/language-service/builtin-signatures.ts`), for every family that
+table's claims mark SUPPORTED; the math family is the first. `dot(a, b)` on two `vec3u` is a `u32`
+in the editor as it is in the compiler, and `max(n, u32(3))` a `u32`, where both said `number`.
+`src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both halves on a
+witness per instance.
+
+One call has no type TypeScript can give it: a call whose numeric arguments are all literals,
+such as `select(0., 0.15, c)` or `max(1., 2.)`. WGSL types it as an abstract numeric until its
+context concretizes it, and TypeScript cannot say which one, since `0.` and `0` are the same
+literal type to it. The editor says `number`, and Rule 12.7 makes that the abstract numeric's
+spelling; the gate classifies such a call by the rule instead of listing it.
 
 ## 50. `enable`, `requires`, and the built-in values behind an extension
 

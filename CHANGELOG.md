@@ -17,6 +17,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **A builtin's result has the compiler's type in the editor** (surface §49, Rule 12.7,
+  proposal 0017). The math builtins' declarations are generated from Tint's overload table,
+  `core.def`, one overload per row, so `dot(a, b)` on two `vec3u` hovers as `u32`, `max(n, m)` on
+  two `u32` as `u32`, and `smoothstep(0.3, 0.55, h)` on an `f32` as `f32`, where each said
+  `number`. A call whose numeric arguments are all literals stays `number`, the abstract numeric
+  TypeScript cannot tell apart. TypeScript's own report of a wrong argument to one of these names
+  is now TS2769 ("No overload matches this call") where it was TS2345; the editor's merged list
+  shows the compiler's `TS8036` for it, as it did.
+
 - **A storage binding's access mode is its second type argument, and a binding is declared
   `const`** (§1 and §7, design rules 6.1 and 6.2). `declare const src: storage<array<f32>>` is
   `var<storage, read>` and `declare const dst: storage<array<f32>, "read_write">` is

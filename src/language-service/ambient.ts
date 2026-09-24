@@ -28,6 +28,10 @@ import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
 import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
 import { STORAGE_BUFFER_ACCESS as COMPILER_STORAGE_BUFFER_ACCESS } from '../compiler/ts/bindings.js';
 import { FUNCTION_DOCS, CONSTANT_DOCS, ATTRIBUTE_DOCS, MATH_MEMBER_DOCS } from './docs.js';
+import { generatedOverloads } from './builtin-signatures.js';
+
+/** The overloads the builtin table generates, by name (0017). */
+const GENERATED = generatedOverloads();
 
 // Renders a documentation string as a JSDoc block. Single line (single-line JSDoc) when
 // it fits in 100 columns, otherwise a multi-line block with ` * ` prefixes. Throws if the
@@ -404,7 +408,7 @@ function mixSignature(): string {
   return [
     ...F32_VEC_TYPE_NAMES.map(vectorWithScalar),
     ...VEC64_TYPE_NAMES.map(vectorWithScalar),
-    scalarMathOverload('mix', 3),
+    ...(GENERATED.has('mix') ? [] : [scalarMathOverload('mix', 3)]),
     'declare function mix<T extends Numeric>(a: T, b: T, t: T): T',
   ].join('\n');
 }
@@ -478,7 +482,11 @@ function freeMathSignature(name: string): string {
   // body keeps the `Numeric` constraint and stays refused here, exactly as
   // `checkMathArgs` refuses it (§39).
   const constraint = F64_VEC_TWIN_KIND[name] === undefined ? 'Numeric' : 'Numeric | Vec64Any';
-  return `${scalarMathOverload(name, arity)}\ndeclare function ${name}<T extends ${constraint}>(${params}): T`;
+  // A name the overload table generates (`builtin-signatures.ts`) needs no all-scalar overload:
+  // the generated one gives each argument its own type parameter, which is what this one was
+  // for, and returns the scalar its arguments carry rather than `number`.
+  const scalar = GENERATED.has(name) ? '' : `${scalarMathOverload(name, arity)}\n`;
+  return `${scalar}declare function ${name}<T extends ${constraint}>(${params}): T`;
 }
 
 const EXPAND_NAMES = Object.keys(MATH_EXPAND_ALIAS);
@@ -658,7 +666,7 @@ export const GPU_BRAND_TAGS: readonly string[] = ['vecTag', 'vec64Tag', 'matTag'
  * completion lists the components and the prefix swizzles only (`completions.ts`), since the
  * whole set is 680 names on a `vec4`.
  */
-export const SHADE_DTS = `// Generated ambient declarations for TypeShade authoring — see ambient.ts.
+const HAND_WRITTEN_DTS = `// Generated ambient declarations for TypeShade authoring — see ambient.ts.
 
 ${scalarBrands}
 type bool = boolean
@@ -1635,3 +1643,47 @@ interface Object {}
 interface RegExp {}
 interface String {}
 `;
+
+/**
+ * The ambient library: the declarations above, with every SUPPORTED builtin row of Tint's
+ * overload table generated in (`builtin-signatures.ts`, 0017). A name's generated overloads go
+ * ahead of the first declaration the text above still has for it, each with the name's
+ * documentation, so they are the ones TypeScript tries first. What still follows them by hand is
+ * what the table has no row for yet: the `f64` family's overloads (§39), `mix`'s
+ * vector-with-scalar-factor forms on the emulated doubles, and the generic fallbacks whose
+ * diagnostics the tests pin.
+ */
+export const SHADE_DTS = withGeneratedBuiltins(HAND_WRITTEN_DTS);
+
+function withGeneratedBuiltins(dts: string): string {
+  const pending = new Map(GENERATED);
+  const lines = dts.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const name = /^declare function (\w+)[<(]/.exec(line)?.[1];
+    const overloads = name === undefined ? undefined : pending.get(name);
+    if (name !== undefined && overloads !== undefined) {
+      pending.delete(name);
+      const doc = FUNCTION_DOCS[name];
+      // Ahead of the documentation the text above put on this line, which stays with it; each
+      // generated overload carries its own copy, as `freeMath` gives every overload one.
+      let at = out.length;
+      if (out[at - 1]?.trimEnd().endsWith('*/')) {
+        while (at > 0 && !out[at - 1]!.trimStart().startsWith('/**')) at--;
+        at--;
+      }
+      out.splice(at, 0, ...overloads.flatMap((o) => [...(doc ? [renderJSDoc(doc)] : []), o]));
+    }
+    out.push(line);
+  }
+  if (pending.size > 0) {
+    // A generated name with no hand-written declaration still has to be declared: it goes at
+    // the end, documented the same way.
+    for (const [name, overloads] of pending) {
+      const doc = FUNCTION_DOCS[name];
+      for (const o of overloads) out.push(...(doc ? [renderJSDoc(doc)] : []), o);
+    }
+  }
+  return out.join('\n');
+}
