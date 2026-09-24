@@ -9,6 +9,13 @@ import type { ConsoleEvent } from './console.js';
 
 export { createCodegenRuntime, type CodegenRuntime } from './cpu-codegen-runtime.js';
 export {
+  callCompute,
+  type ComputeEntry,
+  type EntryBinding,
+  type GeneratedCpu,
+  type Layout,
+} from './host-entry.js';
+export {
   toShader,
   fromShader,
   constantOf,

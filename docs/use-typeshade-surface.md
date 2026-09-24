@@ -6396,8 +6396,8 @@ An ordinary TypeScript file imports a `.shade.ts` and calls the helper functions
 call runs the module's own code **on the CPU tier, not on the GPU**, at `f32` precision, the way
 the GPU would compute it (Rule 11.7). It is how host code shares a shader's math: a height query,
 a picking test, a unit test. No device, buffer or compile step appears in the host's code, and
-`typescript` is needed at build time only. Calling an entry point on the GPU through the same
-import is the second half of roadmap item 16 (16b), and comes in a proposal of its own.
+`typescript` is needed at build time only. A `@compute` entry runs on the GPU through the same
+import (§67); drawing a fragment entry is the rest of roadmap item 16's second half (16b).
 
 ```ts
 "use typeshade";
@@ -6471,7 +6471,7 @@ bundle reads the source, through the plugin:
 export declare const EPS: number;
 export declare function height(p: readonly [number, number], k: readonly [number, number, number, number]): number;
 export declare function normal(p: readonly [number, number], k: readonly [number, number, number, number]): [number, number, number];
-/** Not callable from host code (Rule 8.20): it is an entry point, which runs on a GPU; the GPU half of roadmap item 16 adds it. */
+/** Not callable from host code (Rule 8.20): it is a fragment entry, drawn into a canvas through the import by the second part of change 0016. */
 export declare const fs: never;
 ```
 
@@ -6483,8 +6483,9 @@ stale. The views are generated files, and git-ignored.
 **What a host can call** (Rule 8.20): an exported function that is not an entry point, is not
 generic, takes no function, has a host value for each parameter and for its result, and reaches
 no binding, no workgroup variable and no builtin only a GPU computes. An exported constant and an
-`enum` are values too, and an exported struct is a type. Every other export is in the view as
-`never`, with the reason in a comment, so calling one is a type error at the host's own line.
+`enum` are values too, and an exported struct is a type. A `@compute` entry is called as §67
+says. Every other export is in the view as `never`, with the reason in a comment, so calling one
+is a type error at the host's own line.
 
 | Export                                       | In the host view                                             |
 | -------------------------------------------- | ------------------------------------------------------------ |
@@ -6492,7 +6493,8 @@ no binding, no workgroup variable and no builtin only a GPU computes. An exporte
 | a constant                                   | `export declare const K: …`, a frozen copy                   |
 | an `enum`                                    | its members as values, and a type of their numbers           |
 | a struct (`class`, `interface`, `type`)      | `export interface S { … }`                                   |
-| an entry point, a generic function, a binding, anything else | `never`, with the reason and the work that adds it |
+| a `@compute` entry                           | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
+| a vertex or fragment entry, a generic function, a binding, anything else | `never`, with the reason and the work that adds it |
 
 **Host values** (Rule 8.21) are the representation the CPU tier already runs on:
 
@@ -6512,9 +6514,10 @@ Each argument is checked and converted at the call, for the caller `tsc` did not
 `ArrayLike` of the right length, a `Float32Array` included, becomes a fresh array, and a value
 that does not fit is a `TypeError` naming the function, the parameter and its type
 (`height(): parameter "p" (vec2): got an array of length 1.`). The result aliases no argument.
-The call is synchronous, and no later tier makes it otherwise. A runtime-sized array, an atomic, a
-texture, a sampler and a binding have no host value yet: they belong to roadmap item 15 and to
-the GPU half of item 16.
+The call is synchronous, and no later tier makes it otherwise. As a helper's parameter, a
+runtime-sized array, an atomic, a texture, a sampler and a binding have no host value: a
+runtime-sized array parameter belongs to roadmap item 15, and a binding is what an entry takes
+(§67).
 
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
 a `.ts` the bundle reads that begins with `"use typeshade"` under any other name, with the
@@ -6525,5 +6528,69 @@ one module.
 **What ships.** The plugin writes the CPU tier's code into the module the bundler reads, as module
 code, with no `new Function`, so a strict content security policy is no obstacle. That module
 imports `typeshade/runtime`, the op library it runs on, and nothing of the compiler.
+
+## 67. Calling an entry point from host code
+
+A host file calls a module's `@compute` entry through the same import (§64), and the entry runs
+on the GPU. `entry(bindings, workgroups)` dispatches it as written over `workgroups` workgroups
+on WebGPU, and reads every storage binding it writes back into the caller's value (Rule 8.24).
+Drawing a fragment entry into a canvas is the second part of change 0016.
+
+```ts
+"use typeshade";
+
+declare const k: uniform<f32>;
+declare const xs: storage<array<f32>>;
+declare const ys: storage<array<f32>, "read_write">;
+
+@compute([64])
+export function scale(@builtin("global_invocation_id") gid: vec3u) {
+  if (gid.x >= xs.length) {
+    return;
+  }
+  ys[gid.x] = xs[gid.x] * k;
+}
+```
+
+```ts
+import { scale } from './kernels.shade.ts';
+
+const xs = Float32Array.from({ length: 256 }, (_, i) => i);
+const ys = new Float32Array(256);
+await scale({ k: 2.5, xs, ys }, 4); // four workgroups of 64; ys is filled in place
+```
+
+**The bindings object** has one property for each binding the entry reaches through its calls,
+and no other, so a missing or misspelled binding is a type error at the host's line. Each takes
+the binding's host value (Rule 8.21):
+
+| Binding                                         | Host value                                                                                   |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `uniform<T>`, a sized `storage<T>`              | `T`'s host value (§64)                                                                        |
+| `storage<array<T>>` of a scalar or a vector     | `Float32Array`, `Int32Array` or `Uint32Array`, the components one after another             |
+| `storage<array<S>>` of a struct                 | an array of objects                                                                          |
+| an atomic, `storage<array<atomic<u32>>>`        | its integer's value, or `Uint32Array` / `Int32Array` for an array                            |
+| a written `storage<T>` whose `T` is one scalar  | a typed array of length one, which the call writes back                                     |
+
+The call packs each value by the layout the WGSL gives it, padding a `vec3` element to its
+16-byte stride, and refuses one that does not fit with a `TypeError` naming the entry, the
+binding and its type (`scale(): binding "xs" (array<f32>): got an array of length 2, not a
+Float32Array.`). When the promise resolves, every storage binding the entry wrote holds what the
+GPU left in it: a typed array element by element, an array of structs object by object.
+
+**The workgroup count** is `n` or `[x, y, z]`, passed to `dispatchWorkgroups` as written. The
+view's comment on the entry gives its `@workgroup_size`, so the host divides, and the entry
+checks its own bound, as WGSL runs it. Nothing is added to the WGSL the author wrote.
+
+**Where it runs.** On WebGPU where there is a device, which the call requests on first use and
+every later call shares. Where there is none, as in Node or a test runner, it runs on the CPU
+tier: the generated code (§64), every invocation of every workgroup in turn, `z`, then `y`, then
+`x`, with the workgroup memory zeroed per workgroup, as the interpreter's own dispatch runs it.
+An entry that reaches a barrier needs WebGPU; without it the call is refused, naming the barrier
+and its line.
+
+**Not yet.** A texture or sampler binding, an emulated `f64` and a vertex or fragment entry keep
+the entry `never` in the view, with the reason. A `Resident` binding that stays on the device,
+and `configure({ prefer })` to order or require the tiers, come with change 0013.
 
 Last updated: 2026-09-22

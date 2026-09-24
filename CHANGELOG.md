@@ -396,6 +396,22 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A host file calls a `@compute` entry through the import, and it runs on the GPU** (change
+  0016, part 1; Rules 8.20, 8.21, 8.24 and 11.7, surface §67). `await step({ sim, particles }, 4)`
+  dispatches the imported entry as written over four workgroups on WebGPU, with a device the
+  runtime requests on first use, and reads every storage binding it writes back into the
+  caller's values in place: a typed array element by element, an array of structs object by
+  object. The bindings object is typed exactly in the host view, one property per binding the
+  entry reaches. A runtime-sized array of scalars or vectors is a `Float32Array`, `Int32Array` or
+  `Uint32Array`, padded to the WGSL stride by the call, and a written one-scalar binding is a
+  typed array of length one. The plugin writes the WGSL and each binding's byte layout into the
+  generated module at build time, so the bundle still ships no compiler. Where there is no
+  WebGPU, as in Node, the entry runs on the CPU tier, invocation by invocation, and equals the
+  interpreter's own dispatch; an entry that reaches a barrier needs WebGPU and says so, naming
+  the barrier's line. The import journey now also calls two entries in Chromium on WebGPU from
+  the packed tarball. A texture or sampler binding, a fragment entry, `Resident` and
+  `configure` come later (0016 part 2, and 0013).
+
 - **A host file imports a `.shade.ts` and calls its helper functions, on the CPU** (change 0009,
   roadmap item 16 first half; Rules 3.8, 8.20, 8.21 and 11.7, surface §64). Nothing here runs on
   the GPU: an entry point is `never` to the host until the second half of item 16 (16b). With `typeshade()` from the new
