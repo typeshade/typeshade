@@ -20,8 +20,8 @@ import { expect } from 'vitest';
  *  would have two suites baking one file. */
 const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)), '__emit-goldens__');
 
-/** Re-bake protocol, unchanged from X-GIS #763 V3: `bun run bake:goldens` from the REPO ROOT sets
- *  this, and the refreshed `__emit-goldens__/` is committed alongside the emitter change. */
+/** Re-bake protocol, unchanged from X-GIS #763 V3: `bun run bake:goldens` sets this, and the
+ *  refreshed `__emit-goldens__/` is committed alongside the emitter change. */
 const UPDATE = process.env.UPDATE_EMIT_GOLDENS === '1';
 
 // CRLF note: goldens are committed text; git autocrlf checks them out with CRLF on Windows
@@ -42,12 +42,11 @@ export function checkGolden(file: string, emitted: string): void {
     writeFileSync(path, emitted);
     return;
   }
-  expect(
-    existsSync(path),
-    `${file}: golden missing — bake with \`bun run bake:goldens\` (from the repo root)`,
-  ).toBe(true);
+  expect(existsSync(path), `${file}: golden missing — bake with \`bun run bake:goldens\``).toBe(
+    true,
+  );
   expect(
     lf(emitted),
-    `${file}: emit drifted from the committed golden — if intentional, re-bake with \`bun run bake:goldens\` (from the repo root) and commit the diff`,
+    `${file}: emit drifted from the committed golden — if intentional, re-bake with \`bun run bake:goldens\` and commit the diff`,
   ).toBe(lf(readFileSync(path, 'utf8')));
 }

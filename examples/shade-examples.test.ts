@@ -13,7 +13,7 @@
 //      file is shader source, not a TypeScript module that could contain one).
 //   2. GOLDENS — every example's WGSL, and both GLSL ES 3.00 stages for the renderable ones,
 //      pinned byte-for-byte in `__emit-goldens__/` through the shared `_goldens.ts` protocol.
-//      Same bake command as the EDSL corpus: `bun run bake:goldens` from the repo root.
+//      Same bake command as the EDSL corpus: `bun run bake:goldens`.
 //   3. THE `renderable` FLAG IS A CLAIM, SO IT IS CHECKED — `renderable: true` must emit
 //      both stages, and `renderable: false` must be a REFUSAL the emitter actually makes,
 //      not a way to opt out of the compile gate. A flag nobody checks is how a shader
