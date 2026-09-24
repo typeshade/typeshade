@@ -26,30 +26,12 @@ import {
   analyzeSourceFile,
   createTypeshadeLanguageServiceWith,
 } from '../../language-service/service.js';
-import { TYPESHADE_SCALARS } from './coredef-overlay.js';
+import { rowTypes, scalarDomain, type RowType } from '../builtins/row-types.js';
+import type { CoreDefRow } from '../builtins/coredef-types.js';
 
-/** One row of `fixtures/coredef.json`, as `scripts/bake-coredef.ts` writes it. */
-export interface CoreDefRow {
-  readonly kind: 'fn' | 'ctor' | 'conv' | 'op';
-  readonly name: string;
-  readonly stages: readonly string[];
-  readonly implicit: Readonly<Record<string, string>>;
-  readonly params: readonly { readonly name: string; readonly type: string }[];
-  readonly ret: string;
-  readonly signature: string;
-}
+export type { CoreDefRow };
 
-/** A type this module can witness: a scalar, or a vector of one, possibly still generic. */
-type Witnessable = { k: 'scalar'; s: string } | { k: 'vec'; n: string; s: string };
-
-function parseType(t: string): Witnessable | undefined {
-  let m = /^vec<(\w+),\s*(\w+)>$/.exec(t);
-  if (m) return { k: 'vec', n: m[1]!, s: m[2]! };
-  m = /^vec([234])<(\w+)>$/.exec(t);
-  if (m) return { k: 'vec', n: m[1]!, s: m[2]! };
-  if (/^\w+$/.test(t)) return { k: 'scalar', s: t };
-  return undefined;
-}
+type Witnessable = RowType;
 
 /** One instance: the row, what each type parameter is bound to, and the concrete types. */
 export interface Instance {
@@ -59,30 +41,20 @@ export interface Instance {
   readonly ret: Witnessable;
 }
 
-const isScalar = (s: string): boolean => (TYPESHADE_SCALARS as readonly string[]).includes(s);
-
 /**
  * Every instance of `row` over the types TypeShade has, or `undefined` when the row has a type
- * this module cannot witness yet. An instance whose types name something TypeShade lacks is
- * not one: it is never generated.
+ * `row-types.ts` has no form for yet.
  */
 export function instancesOf(
   row: CoreDefRow,
   matchers: Readonly<Record<string, readonly string[]>>,
 ): Instance[] | undefined {
-  if (row.ret === '') return undefined;
-  const types = [...row.params.map((p) => p.type), row.ret].map(parseType);
-  if (types.some((t) => t === undefined)) return undefined;
-  for (const t of types as Witnessable[]) {
-    if (!(t.s in row.implicit) && !isScalar(t.s)) return undefined;
-    if (t.k === 'vec' && !/^[234]$/.test(t.n) && !(t.n in row.implicit)) return undefined;
-  }
+  const types = rowTypes(row);
+  if (types === undefined) return undefined;
   let binds: Record<string, string>[] = [{}];
   for (const [param, constraint] of Object.entries(row.implicit)) {
-    const domain =
-      constraint === 'num'
-        ? ['2', '3', '4']
-        : (matchers[constraint] ?? (isScalar(constraint) ? [constraint] : [])).filter(isScalar);
+    const domain: string[] =
+      constraint === 'num' ? ['2', '3', '4'] : scalarDomain(constraint, matchers);
     binds = binds.flatMap((b) => domain.map((d) => ({ ...b, [param]: d })));
   }
   const subst = (t: Witnessable, b: Record<string, string>): Witnessable =>
@@ -92,8 +64,8 @@ export function instancesOf(
   return binds.map((bind) => ({
     row,
     bind,
-    params: row.params.map((p) => subst(parseType(p.type)!, bind)),
-    ret: subst(parseType(row.ret)!, bind),
+    params: types.params.map((p) => subst(p, bind)),
+    ret: subst(types.ret, bind),
   }));
 }
 
