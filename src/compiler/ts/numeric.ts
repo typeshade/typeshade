@@ -212,16 +212,20 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
 /** A scalar cast: `f32(x)`, `i32(x)`, `u32(x)`, and now `bool(x)` and `f64(x)`, the two WGSL
  *  spells that this surface had no name for. `bool` and `f64` are handled before the integer
  *  truncation below: `f64(0.1)` keeps the whole double (truncating it to 0 would be the exact
- *  precision the emulation exists to carry), and `bool(0)` is the literal `false`, not `0`. A
- *  cast of a value that already has the target type is that value — `f64(x)` with `x: f64`
- *  emits nothing, as WGSL's identity conversion does — which also keeps the fp64 pass from
- *  seeing a widen it would have to undo. `bool(x)` becomes the compare `x != 0`, which is
- *  what WGSL's bool conversion means and what all three backends already evaluate. Every
- *  other name keeps its behaviour exactly. */
+ *  precision the emulation exists to carry), and so do `f64(-0.1)` and `f64(1. / 3.)`, while
+ *  `bool(0)` is the literal `false`, not `0`. A cast of a value that already has the target
+ *  type is that value — `f64(x)` with `x: f64` emits nothing, as WGSL's identity conversion
+ *  does — which also keeps the fp64 pass from seeing a widen it would have to undo. `bool(x)`
+ *  becomes the compare `x != 0`, which is what WGSL's bool conversion means and what all three
+ *  backends already evaluate. Every other name keeps its behaviour exactly.
+ *
+ *  `argNode` is the argument as written. Only `f64` reads it, to tell a written number from a
+ *  call such as `f32(0.1)` that has already lowered to a literal. */
 export function lowerScalarCast(
   name: string,
   arg: Expr,
   constOf?: (e: Expr) => number | undefined,
+  argNode?: ts.Expression,
 ): Expr | string {
   const type = SCALAR_CAST[name];
   if (!type) return `Unknown scalar cast "${name}".`;
@@ -248,8 +252,26 @@ export function lowerScalarCast(
   }
   if (name === 'f64') {
     if (isF64(arg.type)) return arg;
-    if (arg.op === 'lit' && typeof arg.value === 'number') {
-      return { op: 'lit', type: f64T, value: arg.value };
+    // A negated literal lowers to a `unop` over a `lit`, and `1. / 3.` to a `binop`, so a
+    // literal-only argument is folded first, as the retype beside an f64 folds it
+    // ({@link retargetF64Lit}). Lifting only a bare `lit` left `f64(-0.1)` and `f64(1. / 3.)`
+    // to the widen below, which carries the f32 rounding as (x, 0.0) with the tail lost, where
+    // `const k: f64 = -0.1` kept the double. Only an f32 is folded, so a negated integer keeps
+    // the refusal it had.
+    const lit = typeKey(arg.type) === 'f32' ? foldNumericLit(arg) : arg;
+    if (lit.op === 'lit' && typeof lit.value === 'number') {
+      // An argument that is itself a call is not a written number. `f32(0.1)` lowers to an f32
+      // literal that still holds the double 0.1, and lifting that value would undo the narrow
+      // the author wrote. The retype leaves such a call alone for the same reason, so the cast
+      // widens exactly, as it widens any f32, and it carries the f32's own value. The CPU
+      // oracle reads a literal as the double it holds, so it then agrees with the pair. The
+      // test is the retype's own, on the argument as a whole, so `f64(-f32(0.1))` folds as
+      // `s * -f32(0.1)` does and the two spellings still emit one pair.
+      const narrowed =
+        typeKey(lit.type) === 'f32' &&
+        argNode !== undefined &&
+        ts.isCallExpression(stripParens(argNode));
+      return { op: 'lit', type: f64T, value: narrowed ? Math.fround(lit.value) : lit.value };
     }
     if (typeKey(arg.type) !== 'f32') {
       return `f64() widens an f32, got ${typeKey(arg.type)}. Cast to f32 first, e.g. f64(f32(x)).`;
