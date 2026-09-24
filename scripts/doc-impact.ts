@@ -37,7 +37,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { HISTORY_FILES, ROOT, extractRefs, git, markdownFiles, sourceFiles } from './doc-refs.js';
-import { SHADE_DTS } from '../src/language-service/ambient.js';
+import { createRequire } from 'node:module';
 
 export interface Mention {
   readonly file: string;
@@ -266,6 +266,18 @@ export function ruleMentions(rule: string): Mention[] {
 
 const SURFACE = 'src/__api__/surface.md';
 
+/** The ambient library, loaded on first use. It is the compiler's front end (it imports
+ *  `typescript`), and a repository downstream runs `downstream-impact.ts`, which imports this
+ *  file, from the pinned sources with nothing installed: a top-level import made every such run
+ *  fail before it read a line. */
+let ambient: string | undefined;
+function shadeDts(): string {
+  ambient ??= (
+    createRequire(import.meta.url)('../src/language-service/ambient.js') as { SHADE_DTS: string }
+  ).SHADE_DTS;
+  return ambient;
+}
+
 export function impactOf(diff: Diff): Impact[] {
   const impacts: Impact[] = [];
   const untouched = (m: Mention): boolean => !diff.touched.get(m.file)?.has(m.line);
@@ -298,7 +310,7 @@ export function impactOf(diff: Diff): Impact[] {
       // A builtin the ambient library now generates from `core.def` (0017,
       // `builtin-signatures.ts`) has no `declare function` line in any source file, and is
       // declared all the same: the library the editor reads is the one to ask.
-      if (new RegExp(`^declare function ${escape(name)}\\b`, 'm').test(SHADE_DTS)) continue;
+      if (new RegExp(`^declare function ${escape(name)}\\b`, 'm').test(shadeDts())) continue;
       if (name.length < 3) continue;
       const mentions = nameMentions(name).filter(untouched);
       if (mentions.length) impacts.push({ subject, severity: 'must-fix', mentions });
