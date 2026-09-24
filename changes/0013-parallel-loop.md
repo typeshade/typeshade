@@ -17,6 +17,8 @@ exports:
 - resident
 - Resident
 - configure
+- Stmt
+- FuncDecl
 exports-removed: []
 codes:
 - TS8070
@@ -286,6 +288,13 @@ Alternatives considered, each measured in #252:
 
   All three are from `typeshade`, baked into `src/__api__/surface.md` (Rule 11.6).
 
+  Two IR types that `typeshade` and `typeshade/core/ir` already export are reshaped: `Stmt`, whose
+  `for` gains the `counted` fact (below), and `FuncDecl`, which gains `kernel`, the mark the
+  backends read to leave a kernel function out of the WGSL and GLSL they emit (a kernel function
+  runs on the host's side of the call, and only its generated entries reach a shader). (Amended
+  after acceptance, when the first part was implemented: both fields change a type the API
+  surface lists.)
+
 - **Examples.**
   - `loop-kernel`: the roadmap's terrain;
   - `loop-reduction`: a sum, a mean and a variance, and a histogram;
@@ -293,7 +302,8 @@ Alternatives considered, each measured in #252:
   - `loop-on-cpu`: one refused loop per rule, each carrying its TS8070 warning. It compiles,
     because a warning refuses nothing.
 - **Code.**
-  - `src/core/ir/nodes.ts`: `for` gains `counted`, set by `lowerFor` and absent on a `while`.
+  - `src/core/ir/nodes.ts`: `for` gains `counted`, set by `lowerFor` and absent on a `while`;
+    `FuncDecl` gains `kernel`.
   - `src/core/passes/parallel-loop.ts` (new): the proof over the IR, with its facts. The
     front end turns them into TS8070 in the author's names.
   - The kernel lowering: the generated `@compute` entry per candidate loop, the tree reduction,
