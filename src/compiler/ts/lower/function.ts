@@ -21,6 +21,7 @@ import {
   LoweringScope,
   THIS_CAPTURE,
   authorTypeText,
+  recoveredUsesDroppedSoFar,
   fileFunctionsOf,
   writeRules,
   type CaptureKey,
@@ -419,6 +420,7 @@ export function lowerSourceFunctions(
     run: () => void,
   ): void => {
     const before = said.length;
+    const droppedBefore = recoveredUsesDroppedSoFar();
     filling.push(stub);
     if (infers) inferring.add(stub);
     try {
@@ -432,6 +434,12 @@ export function lowerSourceFunctions(
       (cyclic.has(stub) ||
         (typeKey(stub.ret) === 'void' && said.slice(before).some((d) => d.category === 'error')))
     ) {
+      unsaid.add(stub);
+    }
+    // A body that dropped a use of a binding whose declared type was refused did not lower
+    // either, and its refusal was said at the declaration (`dropsRecoveredUse`). It never got to
+    // the `return` that says its type, so its callers would be told it returns `void` (Rule 12.4).
+    if (infers && typeKey(stub.ret) === 'void' && recoveredUsesDroppedSoFar() > droppedBefore) {
       unsaid.add(stub);
     }
   };

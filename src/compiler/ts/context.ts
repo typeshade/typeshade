@@ -274,6 +274,9 @@ interface WrittenStruct {
   /** What its type parameters are bound to, in the order it declares them; empty for a class
    *  that is not generic. */
   readonly args: readonly ShaderType[];
+  /** The name the class's statics are emitted under, which no type argument reaches: `N_P`,
+   *  `Slot` for the struct `Slot_f32`. */
+  readonly base: string;
 }
 
 /** The written form of each struct of the module being compiled whose emitted name is not what
@@ -319,16 +322,33 @@ export function useWrittenStructs(structs: readonly StructOrigin[]): void {
     }
     const args = (node.typeParameters ?? []).flatMap((p) => s.binding?.get(p.name.text) ?? []);
     const name = path.join('.');
-    if (name !== s.decl.name || args.length > 0) written.set(s.decl.name, { name, args });
+    if (name !== s.decl.name || args.length > 0) {
+      written.set(s.decl.name, { name, args, base: path.join('_') });
+    }
   }
   WRITTEN_STRUCTS = written;
 }
 
+/** The class the struct `name` is emitted from, for a sentence about one of its statics: as the
+ *  author names it with no type arguments (`N.P`, `Slot` for the struct `Slot_f32`), the name
+ *  its statics are emitted under (`N_P`, `Slot`), and whether a namespace holds it. A class
+ *  written as it is emitted is its own struct's name. */
+export function classOfStruct(name: string): {
+  readonly written: string;
+  readonly base: string;
+  readonly inNamespace: boolean;
+} {
+  const w = WRITTEN_STRUCTS?.get(name);
+  if (w === undefined) return { written: name, base: name, inNamespace: false };
+  return { written: w.name, base: w.base, inNamespace: w.name.includes('.') };
+}
+
 /** How a diagnostic spells a type back to the author (Rule 12.1, Rule 12.7): a message the front
  *  end writes names the type of a value, a field, a parameter or a return through this, and a
- *  struct as a whole (`Struct "N.E" has no fields`), and so does the interstage check it runs from
- *  `src/core`. A sentence about one member of a class still names the class by the struct it emits
- *  (`"N_P.m" is declared twice`). {@link typeKey} is the COMPILER's key and is NOT a spelling: it
+ *  class its sentence is about as a whole (`Struct "N.E" has no fields`, `"N.D" extends
+ *  "Missing"`), and so does the interstage check it runs from `src/core`. A sentence about one
+ *  member of a class names the member its own way (`class-methods.ts`), and so does one that
+ *  `new` says of the class it builds. {@link typeKey} is the COMPILER's key and is NOT a spelling: it
  *  writes a struct as `struct:Params`, an array with no space after the comma, and a vector or a
  *  non-square matrix with a type argument the ambient library does not declare (`vec4<f32>`,
  *  `mat2x3<f32>`). A remedy quoting any of those goes red the moment the author pastes it —
@@ -437,6 +457,28 @@ export function recordRecoveredBinding(sourceFile: ts.SourceFile, name: string):
  *  `mat2x3`), and a sentence about it would name a type the author never declared. */
 export function isRecoveredBinding(sourceFile: ts.SourceFile, name: string): boolean {
   return RECOVERED_BINDINGS.get(sourceFile)?.has(name) ?? false;
+}
+
+/** How many reads and writes of a recovered binding the lowering has dropped without a word.
+ *  Only ever compared with itself, so it is never reset. */
+let recoveredUsesDropped = 0;
+
+/** Whether a read or a write of `binding` is dropped without a word, because its declared type
+ *  was refused and a sentence about the placeholder would name a type the author never wrote
+ *  (Rule 12.4); counts the drop. A body that dropped one did not lower, as a body whose own
+ *  statement was refused did not, and {@link recoveredUsesDroppedSoFar} is how the function
+ *  lowering tells: a function that says its return type in its body and never got to say it
+ *  would otherwise return `void` to its callers, `cannot assign to f32 f32 and void`. */
+export function dropsRecoveredUse(sourceFile: ts.SourceFile, binding: Binding): boolean {
+  if (binding.kind !== 'binding' || !isRecoveredBinding(sourceFile, binding.name)) return false;
+  recoveredUsesDropped++;
+  return true;
+}
+
+/** The count {@link dropsRecoveredUse} keeps: a body lowered between two reads of it dropped a
+ *  use when they differ. */
+export function recoveredUsesDroppedSoFar(): number {
+  return recoveredUsesDropped;
 }
 
 /** The second sentence of a "cannot assign" refusal: the declaration that WOULD permit the

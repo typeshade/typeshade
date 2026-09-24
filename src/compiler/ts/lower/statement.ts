@@ -10,8 +10,8 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
   authorTypeText,
+  dropsRecoveredUse,
   irNameOf,
-  isRecoveredBinding,
   readOnlyPhrase,
   writableRemedy,
   writeRules,
@@ -1574,7 +1574,7 @@ export function lowerLValue(
   }
   // A write to a binding whose declared type was refused says nothing more, as a read of it
   // does (`lowerIdentifier`, Rule 12.4): its type is the mapper's placeholder, not one written.
-  if (binding.kind === 'binding' && isRecoveredBinding(sourceFile, binding.name)) return undefined;
+  if (dropsRecoveredUse(sourceFile, binding)) return undefined;
   binding.capture?.byRef();
   return withSpan(
     {

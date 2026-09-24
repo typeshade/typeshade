@@ -101,7 +101,7 @@ bun vendor/typeshade/src/cli/bin.ts check src/    # from a submodule, which reso
 A directory is searched for `*.shade.ts` files, skipping `node_modules`, `dist` and `.git`; a file named on the command line is checked whatever its name. Each diagnostic prints with the line it points at:
 
 ```text
-src/light.shade.ts:4:10 - error TS8003: Type mismatch: cannot + vec3<f32> and vec2<f32>. Vectors must have the same size.
+src/light.shade.ts:4:10 - error TS8003: Type mismatch: cannot + vec3 and vec2. Vectors must have the same size.
 
 4   return base + glow * k
            ~~~~~~~~~~~~~~~

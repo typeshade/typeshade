@@ -33,6 +33,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { CollectedStruct, FieldInit } from '../structs.js';
 import {
   authorTypeText,
+  classOfStruct,
   irNameOf,
   readOnlyPhrase,
   writableRemedy,
@@ -1890,6 +1891,15 @@ export function lowerClassCall(
     const accessor =
       memberFunctionOf(name, member, 'get', scope) ?? memberFunctionOf(name, member, 'set', scope);
     const field = visibleField(name, member, callee.name, scope) !== undefined;
+    // A static of a generic class belongs to the class, not to one instance of it: `Slot_m`,
+    // not `Slot_f32_m`.
+    const cls = classOfStruct(name);
+    const onClass =
+      cls.base === name ? undefined : memberFunctionOf(cls.base, member, 'method', scope);
+    if (onClass?.cf.kind === 'static') {
+      pushDiag(diagnostics, sourceFile, callee, staticOnValue(name, member));
+      return undefined;
+    }
     pushDiag(
       diagnostics,
       sourceFile,
@@ -1911,12 +1921,7 @@ export function lowerClassCall(
     return undefined;
   if (!checkFunctionAccess(cf, name, callee.name, sourceFile, scope, diagnostics)) return undefined;
   if (cf.kind === 'static') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      callee,
-      `"${shown}" is static; call it on the class: ${written}.${member}(...).`,
-    );
+    pushDiag(diagnostics, sourceFile, callee, staticOnValue(name, member));
     return undefined;
   }
   // A method that takes a function: the copy for the functions this call hands it (Rule 8.18).
@@ -1944,6 +1949,18 @@ export function lowerClassCall(
     return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown, leading: [target] });
   }
   return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown, leading: [recv] });
+}
+
+/** A static called on a value of its class, the struct `name`. The call it names is on the
+ *  class with no type arguments, `Slot.m(...)`, since `Slot<f32>.m(...)` is TS1477. A static of a
+ *  class in a namespace is called nowhere today (`N.P.m()` reads `N` as an unknown value), so
+ *  that sentence gives the reason and names no call. */
+function staticOnValue(name: string, member: string): string {
+  const cls = classOfStruct(name);
+  const shown = `"${cls.written}.${member}"`;
+  return cls.inNamespace
+    ? `${shown} is static, so a value of ${cls.written} does not have it.`
+    : `${shown} is static; call it on the class: ${cls.written}.${member}(...).`;
 }
 
 /** The class a class function's body was written in: the one whose body may name it when its

@@ -3,7 +3,7 @@ import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { authorTypeText, isRecoveredBinding, type LoweringScope } from '../context.js';
+import { authorTypeText, dropsRecoveredUse, type LoweringScope } from '../context.js';
 import { irNameOf, readOnlyPhrase, writableRemedy, writeRules } from '../context.js';
 import {
   analyzeCountedFor,
@@ -734,9 +734,7 @@ export function lowerUpdate(
         return undefined;
       }
       // A binding whose declared type was refused says nothing more (see `lowerLValue`).
-      if (binding.kind === 'binding' && isRecoveredBinding(sourceFile, binding.name)) {
-        return undefined;
-      }
+      if (dropsRecoveredUse(sourceFile, binding)) return undefined;
       binding.capture?.byRef();
       // withSpan, as origin/main's #32 gives every authored lvalue: the write position is
       // what a stepped run and a diagnostic point at, and this branch builds the target

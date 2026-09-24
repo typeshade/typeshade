@@ -530,11 +530,15 @@ function lowerOne(
         decl,
         `Module const "${name}" is ${authorTypeText(type)}, but its initializer is ` +
           `${authorTypeText(init.type)}. ` +
-          // A conversion of the call, or a splat of it into a vector of its own element, is a
-          // module const; any other call around it (`A(...)`, `vec3u(u32(...))`, `bool(...)`,
-          // `f64(...)`) is not one, so the annotation is what changes (Rule 12.1).
+          // A conversion of the call is a module const, and so is a splat of it into a vector of
+          // its own element when it folds as a vector's component does (`vec3i(countOneBits(5))`,
+          // `vec3(f32(floor(2.)))`). Any other call around it is not one (`A(...)`, `bool(...)`,
+          // `f64(...)`, and `vec3u(u32(floor(2.)))`, whose conversion no vector const takes),
+          // so the annotation is what changes (Rule 12.1).
           ((type.kind === 'scalar' && type.scalar !== 'bool') ||
-          (type.kind === 'vec' && typeKey(init.type) === type.elem)
+          (type.kind === 'vec' &&
+            typeKey(init.type) === type.elem &&
+            isFoldableValueExpr(init, scope, valueExprs))
             ? `Cast it, e.g. ${authorTypeText(type)}(...), or change the annotation.`
             : `Change the annotation to ${authorTypeText(init.type)}.`),
         TS_CODES.TYPE_MISMATCH,

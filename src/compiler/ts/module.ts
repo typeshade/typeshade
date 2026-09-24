@@ -9,7 +9,7 @@ import type {
   OverrideDecl,
   StructDecl,
 } from '../../core/ir/nodes.js';
-import { typeKey } from '../../core/ir/types.js';
+import { structT, typeKey } from '../../core/ir/types.js';
 import { emitFuncs, emitModule } from '../../core/backends/wgsl.js';
 import { requiredCaps } from '../../core/passes/required-caps.js';
 import { hasUseTypeshadeDirective } from './directive.js';
@@ -24,7 +24,12 @@ import { collectModuleConsts } from './module-const.js';
 import { collectModuleVars } from './module-vars.js';
 import { TS_CODES } from './codes.js';
 import { checkRecursion, type RecursionNode } from './recursion.js';
-import { fileFunctionsOf, useWrittenStructs, withWrittenStructs } from './context.js';
+import {
+  authorTypeText,
+  fileFunctionsOf,
+  useWrittenStructs,
+  withWrittenStructs,
+} from './context.js';
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
 import type { DeclaredSymbol } from './symbols.js';
 import { unknownNameSentence } from './unknown-names.js';
@@ -326,9 +331,10 @@ function compileAllSources(
       enables: collectEnables(sf, diagnostics),
     });
   }
+  // Each file's collection bound its own classes' written forms; the merge and the lowering read
+  // every file's.
+  useWrittenStructs(perFile.flatMap((f) => f.structs));
   const merged = mergeDeclarations(perFile, diagnostics);
-  // Each file's collection bound its own classes' written forms; the lowering reads every file's.
-  useWrittenStructs(merged.structs);
 
   // BEFORE the bodies are filled, not after. `fillFunctionBody` takes the module constants as
   // a parameter and defines each one in the lowering scope; collect them afterwards and every
@@ -567,14 +573,15 @@ function mergeDeclarations(
   // A multi-file program is one module, so its `"enable ..."` directives are one set: two
   // files naming the same extension is not a duplicate declaration, it is one enable.
   const enables: DeclarableCapability[] = [];
-  const claim = (kind: string, name: string, file: FileDeclarations): boolean => {
+  // `shown` is the name as the author wrote it, `N.P` for the struct `N_P`.
+  const claim = (kind: string, name: string, file: FileDeclarations, shown = name): boolean => {
     const prev = owner.get(name);
     if (prev !== undefined && prev !== file.name) {
       diagnostics.push(
         makeDiagnostic(
           file.sf,
           undefined,
-          `${kind} "${name}" is declared in both "${prev}" and "${file.name}". A multi-file ` +
+          `${kind} "${shown}" is declared in both "${prev}" and "${file.name}". A multi-file ` +
             `program is one module, so a name is declared once; rename one or move it.`,
           TS_CODES.DUPLICATE_SYMBOL,
         ),
@@ -586,7 +593,9 @@ function mergeDeclarations(
   };
   for (const f of files) {
     for (const c of f.enables) if (!enables.includes(c)) enables.push(c);
-    for (const s of f.structs) if (claim('Struct', s.decl.name, f)) structs.push(s);
+    for (const s of f.structs) {
+      if (claim('Struct', s.decl.name, f, authorTypeText(structT(s.decl.name)))) structs.push(s);
+    }
     for (const o of f.overrides) if (claim('Override', o.name, f)) overrides.push(o);
     for (const b of f.bindings) {
       if (!claim('Binding', b.name, f)) continue;

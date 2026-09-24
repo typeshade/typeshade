@@ -16,6 +16,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { compileTsSources } from './module.js';
 import { authorTypeText } from './context.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import {
@@ -461,8 +462,9 @@ describe('a class named while the structs are collected, and a sentence about a 
     expect(saidOf('export function k(p: N.P): f32 { return p.x(); }')).toEqual([
       'TS8035 "x" is a field of N.P, not a method.',
     ]);
-    // The call this names, `N.P.m()`, is refused today where the namespace is read as a value
-    // (TS8022 Unknown identifier "N"), a gap of its own; the spelling is the one the editor reads.
+    // A static of a class in a namespace is called nowhere today (`N.P.m()` is TS8022 Unknown
+    // identifier "N", a gap of its own), so the sentence names no call; the one it named,
+    // `N_P.m(...)` and then `N.P.m(...)`, did not compile.
     expect(
       compile(
         [
@@ -472,7 +474,7 @@ describe('a class named while the structs are collected, and a sentence about a 
           '',
         ].join('\n'),
       ).diagnostics.map((d) => `${d.code} ${d.message}`),
-    ).toEqual(['TS8035 "N.P.m" is static; call it on the class: N.P.m(...).']);
+    ).toEqual(['TS8035 "N.P.m" is static, so a value of N.P does not have it.']);
     const box = 'class Box<T> { #h: f32 = 0.; v: T; constructor(v: T) { this.v = v; } }';
     expect(
       saidOf(`${box}\nexport function k(): f32 { const b: Box<f32> = { v: 1. }; return b.v; }`),
@@ -542,6 +544,105 @@ describe('a class named while the structs are collected, and a sentence about a 
     ]);
   });
 
+  it('the declaration sentences of a class in a namespace, and of a generic one', () => {
+    // Each named the struct the class emits, `N_P` or `Slot_f32`, which the editor cannot find.
+    const one = (decl: string, use: string): string[] => {
+      const source = `"use typeshade";\n${decl}\nexport function k(${use}): f32 { return 1.; }\n`;
+      const compiled = compile(source).diagnostics.map((d) => `${d.code} ${d.message}`);
+      // The editor's list says the same (Rule 12.7); TypeScript's own word on the same
+      // declaration, TS2300 or TS2392, is not this file's to judge.
+      const service = createTypeshadeLanguageService();
+      service.openDocument('t.ts', source);
+      expect(
+        service
+          .getDiagnostics('t.ts')
+          .filter((d) => d.source === 'typeshade')
+          .map((d) => `${d.code} ${d.message}`),
+      ).toEqual(compiled);
+      return compiled;
+    };
+    const slot = (members: string): string =>
+      `class Slot<T> { v: T; ${members} constructor(v: T) { this.v = v; } }`;
+    expect(one(slot('constructor() {}'), 's: Slot<f32>')).toEqual([
+      'TS8035 "Slot<f32>" declares two constructors; a shader function has one body.',
+    ]);
+    expect(one(slot('x: f32 = 0.; x: f32 = 1.;'), 's: Slot<f32>')).toEqual([
+      'TS8010 Field "x" is declared twice on "Slot<f32>"; a struct has one member of a name.',
+    ]);
+    expect(one(slot('y;'), 's: Slot<f32>')).toEqual([
+      'TS8010 Field "y" on "Slot<f32>" needs a type: write "y: T".',
+    ]);
+    const n = (members: string): string =>
+      `namespace N { export class P { x: f32 = 0.; ${members} } }`;
+    expect(one(n('y?: f32;'), 'p: N.P')).toEqual([
+      'TS8010 Optional field "y?" on "N.P" is not supported: a struct field is always present ' +
+        'in the buffer the host fills.',
+    ]);
+    expect(one(n('#x: f32 = 1.;'), 'p: N.P')).toEqual([
+      'TS8010 "N.P" declares "x" and "#x", which would both be the struct member "x": a private ' +
+        'name is emitted without its "#". Rename one of them.',
+    ]);
+    expect(one(n('"a b": f32 = 0.;'), 'p: N.P')).toEqual([
+      'TS8010 Field names on "N.P" must be plain identifiers: a WGSL struct member has no other ' +
+        'spelling, and a quoted or computed name would not reach the emitted layout.',
+    ]);
+    expect(
+      one(
+        'namespace N { export class P { x: f32 = 0.; } export class P { y: f32 = 0.; } }',
+        'p: N.P',
+      ),
+    ).toEqual([
+      'TS8023 Struct "N.P" is declared more than once. A class, an interface and a type alias ' +
+        'are three spellings of one struct, not declarations that merge — TypeScript would merge ' +
+        'two interfaces, and the merged layout would disagree with this one at every use site.',
+    ]);
+    // The base is named as it is written, and the class that extends it as it is.
+    expect(
+      one('namespace N { export class Q extends Missing { y: f32 = 0.; } }', 'q: N.Q'),
+    ).toEqual([
+      'TS8010 "N.Q" extends "Missing", which this file does not declare as a struct. A base has ' +
+        'to be a class or an interface whose fields are shader types.',
+    ]);
+    expect(
+      one(
+        [
+          'function A<B extends new (...a: any[]) => object>(Base: B) {',
+          '  return class extends Base { t: f32 = 0.; };',
+          '}',
+          'function C<B extends new (...a: any[]) => object>(Base: B) {',
+          '  return class extends Base { t: i32 = 0; };',
+          '}',
+          'class Root { r: f32 = 0.; }',
+          'namespace N { export class D extends A(C(Root)) { y: f32 = 0.; } }',
+        ].join('\n'),
+        'd: N.D',
+      ),
+    ).toEqual([
+      'TS8099 "N.D" gets the field "t" twice through its mixins, written "i32" in one and "f32" ' +
+        'in another. One of them decides the layout, and picking either silently would change ' +
+        "what the other's code reads. Give them one type, or two names.",
+    ]);
+  });
+
+  it('a struct two files declare, named as the author wrote it', () => {
+    const twice = (decl: string, param: string): string[] =>
+      compileTsSources(
+        ['a.ts', 'b.ts'].map((fileName, i) => ({
+          fileName,
+          source: `"use typeshade";\n${decl}\nexport function f${String(i)}(${param}): f32 { return 1.; }\n`,
+        })),
+      ).diagnostics.map((d) => `${d.code} ${d.message}`);
+    const rest =
+      'is declared in both "a.ts" and "b.ts". A multi-file program is one module, so a name is ' +
+      'declared once; rename one or move it.';
+    expect(twice('namespace N { export class P { x: f32 = 0.; } }', 'p: N.P')).toEqual([
+      `TS8023 Struct "N.P" ${rest}`,
+    ]);
+    expect(
+      twice('class Slot<T> { v: T; constructor(v: T) { this.v = v; } }', 's: Slot<f32>'),
+    ).toEqual([`TS8023 Struct "Slot<f32>" ${rest}`]);
+  });
+
   it('a write to a binding whose type was refused says nothing more', () => {
     // The placeholder `mat2x3` printed as the f32 matrix it is not: "cannot assign to mat2x3
     // mat2x3 and mat2x3". The refusal at the declaration is the one mistake (Rule 12.4).
@@ -565,6 +666,55 @@ describe('a class named while the structs are collected, and a sentence about a 
         'doubles only (mat2, mat3, mat4). Declare it mat2x3 and narrow, or use a square shape.',
       'TS8002 Unknown type "vec2h". Did you mean "vec2"?',
     ]);
+  });
+
+  it('a function whose return reads such a binding does not return void to its caller', () => {
+    // Its return type is the body's to say, and the body never said it: the caller was told
+    // "cannot assign to f32 f32 and void" for a function that returns an f32 (Rule 12.4).
+    const bindings = [
+      'declare const vh: storage<array<vec2h>>;',
+      'declare const mnd: storage<mat2x3<f64>>;',
+      'declare const o: storage<array<f32>, "read_write">;',
+    ].join('\n');
+    const vec2h = 'TS8002 Unknown type "vec2h". Did you mean "vec2"?';
+    const mat2x3 =
+      'TS8027 mat2x3<f64> has no emulated-double form: the fp64 pass carries a square matrix of ' +
+      'doubles only (mat2, mat3, mat4). Declare it mat2x3 and narrow, or use a square shape.';
+    for (const [body, call] of [
+      ['function g() { return vh[0].x; }', 'o[0] = g();'],
+      ['function g(i: u32) { return f32(mnd[i].x); }', 'o[0] = g(u32(0)) * 2.;'],
+      ['const g = () => vh[0].x;', 'o[0] = g();'],
+      ['class K { w: f32 = 0.; get() { return vh[0].x; } }', 'o[0] = new K().get() + 1.;'],
+    ] as const) {
+      const lines = [bindings, body, `@compute([1, 1, 1]) export function cs(): void { ${call} }`];
+      expect(said(lines.join('\n'))).toEqual([vec2h, mat2x3]);
+      // The editor's list is the compiler's (Rule 12.7). TypeScript's own TS2315 on
+      // `mat2x3<f64>` is not this file's to judge.
+      const service = createTypeshadeLanguageService();
+      service.openDocument('t.ts', `${classes}${lines.join('\n')}\n`);
+      expect(
+        service
+          .getDiagnostics('t.ts')
+          .filter((d) => d.source === 'typeshade')
+          .map((d) => `${d.code} ${d.message}`),
+      ).toEqual([vec2h, mat2x3]);
+    }
+  });
+
+  it('a static of a generic class, called on a value, names the class with no type arguments', () => {
+    // `Slot.m` is the class's, not the instance's, and was "Slot<f32>" has no method "m". The
+    // call it names compiles; `Slot<f32>.m()` would be TS1477.
+    const slot =
+      'class Slot<T> { v: T; constructor(v: T) { this.v = v; } static m(): f32 { return 1.; } }';
+    const source = (body: string): string =>
+      `"use typeshade";\n${slot}\nexport function k(s: Slot<f32>): f32 { return ${body}; }\n`;
+    expect(compile(source('s.m()')).diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      'TS8035 "Slot.m" is static; call it on the class: Slot.m(...).',
+    ]);
+    expect(compile(source('Slot.m()')).diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('t.ts', source('Slot.m()'));
+    expect(service.getDiagnostics('t.ts')).toEqual([]);
   });
 
   it('a module const whose annotation no call converts to names the annotation, which compiles', () => {
@@ -599,5 +749,33 @@ describe('a class named while the structs are collected, and a sentence about a 
     expect(said('const U: u32 = u32(sin(1.));\nexport function k(): u32 { return U; }')).toEqual(
       [],
     );
+  });
+
+  it('an integer vector keeps the cast only where the splat is a module const', () => {
+    // `vec3u(u32(floor(2.)))` is refused as not constant, so the conversion names the
+    // annotation; a call that is already the element, `countOneBits(5)`, splats.
+    const run = (line: string): string[] =>
+      said(`${line}\nexport function k(): f32 { return 1.; }`);
+    expect(run('const K: vec3u = u32(floor(2.));')).toEqual([
+      'TS8003 Module const "K" is vec3u, but its initializer is u32. Change the annotation to ' +
+        'u32.',
+    ]);
+    expect(run('const K: u32 = u32(floor(2.));')).toEqual([]);
+    expect(run('const K: vec3i = i32(floor(2.));')).toEqual([
+      'TS8003 Module const "K" is vec3i, but its initializer is i32. Change the annotation to ' +
+        'i32.',
+    ]);
+    expect(run('const K: i32 = i32(floor(2.));')).toEqual([]);
+    expect(run('const K: vec3i = countOneBits(5);')).toEqual([
+      'TS8003 Module const "K" is vec3i, but its initializer is i32. Cast it, e.g. vec3i(...), ' +
+        'or change the annotation.',
+    ]);
+    expect(run('const K: vec3i = vec3i(countOneBits(5));')).toEqual([]);
+    // An f32 vector splats a conversion too, which lowers to the call it converts.
+    expect(run('const K: vec3 = f32(floor(2.));')).toEqual([
+      'TS8003 Module const "K" is vec3, but its initializer is f32. Cast it, e.g. vec3(...), or ' +
+        'change the annotation.',
+    ]);
+    expect(run('const K: vec3 = vec3(f32(floor(2.)));')).toEqual([]);
   });
 });
