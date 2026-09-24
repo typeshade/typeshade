@@ -283,7 +283,10 @@ export interface Backend {
    *  WGSL writer spells `var<workgroup> x: T;` and `var<private> y: T = init;`; the GLSL
    *  writer spells a private variable as a plain global, which GLSL ES 3.00 gives every
    *  invocation its own copy of, and fails closed on a workgroup one, since WebGL2 has no
-   *  workgroup memory. A backend that omits this cannot emit a module that declares one. */
+   *  workgroup memory. A GLSL global with no initializer is undefined, so that writer spells
+   *  the zero of one the IR gives none; the zero of a struct lists its fields, which
+   *  `emitGlslModule` has and this method alone does not, so here it fails closed. A backend
+   *  that omits this cannot emit a module that declares one. */
   emitModuleVar?(v: ModuleVarDecl): string;
   /** A function declaration block: the signature and the emitted body. `parens` selects
    *  how many parentheses the shared expression walk writes, `'full'` or `'minimal'`;
