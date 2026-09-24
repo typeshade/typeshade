@@ -399,11 +399,16 @@ export function shade(n: vec3, l: vec3, albedo: vec3, d: f32): vec3 {
   // The projection spells the compiler's type in the ambient library's words (`ambientSpelling`),
   // and a parameter's type is the ambient declaration itself; this is the test that the
   // spelling names that declaration, for every vector and matrix type there is an operation on:
-  // arithmetic, and `&` on a mask.
+  // arithmetic, `&` on a mask, and `*` on a matrix of doubles, which takes no other operator
+  // (surface §39, Rule 7.1).
   const OPERATED_TYPES = [...VECTOR_AND_MATRIX_NAMES, 'mat2<f64>', 'mat3<f64>', 'mat4<f64>'];
   for (const type of OPERATED_TYPES) {
     it(`carries its type into a parameter of type ${type}`, () => {
-      const operation = /^vec\db$/.test(type) ? 'a & a' : 'a + a';
+      const operation = /^vec\db$/.test(type)
+        ? 'a & a'
+        : type.endsWith('<f64>')
+          ? 'a * a'
+          : 'a + a';
       const source = `"use typeshade"
 function g(v: ${type}): ${type} {
   return v

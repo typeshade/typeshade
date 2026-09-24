@@ -190,7 +190,7 @@ class Span<T> {
   lo: T;
   hi: T;
 }
-@group(0) @binding(0) declare const u: uniform<Span<f32>>;
+declare const u: uniform<Span<f32>>;
 @fragment
 export function fs(): vec4 {
   return vec4(u.lo, u.hi, 0., 1.);

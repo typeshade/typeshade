@@ -1080,15 +1080,25 @@ export function collectClassFunctions(
         const isSuperBody = body.isSuper;
         const shown = isSuperBody ? `super.${member}` : `${name}.${member}`;
         const isStatic = body.isStatic;
-        const decorated = ts.canHaveDecorators(method) ? (ts.getDecorators(method) ?? []) : [];
-        if (decorated.length > 0) {
+        // Read off the declaration the method's name is written in: a field that holds a function
+        // is lowered as a method made from it (`structs.ts`'s `methodOfField`), which keeps the
+        // field's name and not its decorator (Rule 8.16). Refused once, at the class that writes
+        // it and by the name it is written with, however many classes inherit the method or
+        // instances a generic class makes of it; the method is lowered all the same, so a call
+        // of it says nothing more (Rule 12.4).
+        const written = method.name.parent;
+        const decorated = ts.canHaveDecorators(written) ? (ts.getDecorators(written) ?? []) : [];
+        const at = decorated[0];
+        if (at !== undefined && !reported.has(`decorator:${at.pos}`)) {
+          reported.add(`decorator:${at.pos}`);
+          const owner = ts.isClassLike(written.parent) ? written.parent.name?.text : undefined;
           pushDiag(
             diagnostics,
             sourceFile,
-            decorated[0]!,
-            `A decorator has no place on "${shown}"; an entry is a top-level function.`,
+            at,
+            `A decorator has no place on "${owner ?? name}.${member}"; an entry is a top-level ` +
+              `function.`,
           );
-          continue;
         }
         if (
           (ts.isMethodDeclaration(method) && method.asteriskToken) ||

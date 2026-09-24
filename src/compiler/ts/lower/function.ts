@@ -1937,8 +1937,12 @@ export function parseParams(
   // `@location` slot → the parameter already holding it, for the collision rule below.
   const paramLocations = new Map<number, string>();
   const fnName = opts.fnName ?? opts.owner ?? 'this entry';
+  // A function that is not an entry has no IO: WGSL refuses `@builtin` and `@location` on its
+  // parameter (Tint: "not valid for non-entry point function parameters"), so each is refused
+  // at the decorator and not read.
+  const site = stage ? 'a parameter' : 'a parameter of a function that is not an entry';
   for (const p of parameters) {
-    for (const d of decoratorsOf(p)) checkAttributeName(diagnostics, sourceFile, d);
+    for (const d of decoratorsOf(p)) checkAttributeName(diagnostics, sourceFile, d, site);
     if (!ts.isIdentifier(p.name)) {
       pushDiag(
         diagnostics,
@@ -2033,7 +2037,7 @@ export function parseParams(
     if (refuseAtomicDeclaration(pType, p.type, sourceFile, diagnostics, 'a parameter'))
       return undefined;
     if (!pType) return undefined;
-    const builtinArg = builtinDecoratorArg(decoratorsOf(p));
+    const builtinArg = stage ? builtinDecoratorArg(decoratorsOf(p)) : undefined;
     let builtin: string | undefined;
     if (builtinArg) {
       const validName = checkBuiltinName(
@@ -2060,7 +2064,7 @@ export function parseParams(
     if (stage && pType.kind === 'struct') {
       checkStructBuiltinFields(diagnostics, sourceFile, p, pType.name, structs, stage, 'input');
     }
-    const location = numberDecorator(p, sourceFile, 'location');
+    const location = stage ? numberDecorator(p, sourceFile, 'location') : undefined;
     // An emulated double on the entry's IO boundary (#151 F64-09). A FRAGMENT @location input
     // is interpolated; a VERTEX one is a buffer read, which carries a scalar f64's pair in one
     // slot but cannot carry a vec64's two.
@@ -2083,7 +2087,9 @@ export function parseParams(
     // attribute an author wrote here was dropped with no diagnostic and reached neither
     // target (§53). The whole argument list is kept, as the struct path keeps it: the GLSL
     // writer needs the sampling as well as the type.
-    const interpolateAttr = interpolateDecoratorArg(diagnostics, sourceFile, decoratorsOf(p));
+    const interpolateAttr = stage
+      ? interpolateDecoratorArg(diagnostics, sourceFile, decoratorsOf(p))
+      : undefined;
     if (interpolateAttr !== undefined && location === undefined) {
       pushDiag(
         diagnostics,
@@ -3001,7 +3007,12 @@ function parseStage(
   let stage: FuncDecl['stage'] | undefined;
   let workgroupShape: WorkgroupShape | undefined;
   for (const d of decos) {
-    checkAttributeName(diagnostics, sourceFile, d);
+    checkAttributeName(
+      diagnostics,
+      sourceFile,
+      d,
+      ts.isSourceFile(node.parent) ? 'a function' : "a namespace's function",
+    );
     const text = d.getText(sourceFile);
     if (/^@vertex\b/.test(text)) stage = 'vertex';
     else if (/^@fragment\b/.test(text)) stage = 'fragment';

@@ -2,6 +2,7 @@
 
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import { checkDeclarationDecorators } from './builtin-check.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { refusedInNamespace, statementRefusal } from './namespaces.js';
@@ -380,6 +381,11 @@ export function analyzeSemantics(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
+  // A decorator nothing reads (Rule 6.7): on a binding, an override, a constant, a variable, an
+  // enum, an interface, a type alias, a namespace, a local function or class, a static field, a
+  // constructor, an overload signature, an abstract member or a mixin, beside whatever else the
+  // declaration is refused for.
+  checkDeclarationDecorators(diagnostics, sourceFile);
   for (const stmt of sourceFile.statements) {
     if (ts.isExpressionStatement(stmt)) {
       const e = stmt.expression;

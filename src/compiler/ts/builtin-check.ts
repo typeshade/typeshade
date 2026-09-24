@@ -17,6 +17,7 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import { unknownNameSentence } from './unknown-names.js';
+import { isMixinDeclaration } from './mixins.js';
 import { isIntegerVarying } from '../../core/passes/varying-interpolate.js';
 
 /** The pipeline stage a `@builtin(...)` id is being checked against. */
@@ -123,13 +124,116 @@ export function hasInvariantDecorator(decorators: readonly ts.Decorator[]): bool
 /**
  * Attribute names the compiler recognizes but always rejects with their own dedicated message
  * (`structs.ts`'s `"... on a class is not applied"` / `"@align on a field is not applied"`), so
- * {@link checkAttributeName} must not also call them "unknown" — that would read as two
+ * {@link checkAttributeName} must not also call them "unknown" there — that would read as two
  * contradictory diagnostics on the same decorator.
  */
 const RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES: readonly string[] = ['std140', 'align'];
 
-/** The decorator identifier `@name` or `@name(...)` reads off, or `undefined` for a decorator
- *  shape (anything but a bare identifier or an identifier call) this front end never produces. */
+/** Where a decorator is written, as a refusal names the place. */
+export type AttributeSite =
+  | 'a struct field'
+  | 'a class'
+  | 'a function'
+  | "a namespace's function"
+  | 'a parameter'
+  | 'a parameter of a function that is not an entry'
+  | 'a declaration'
+  | 'a local function'
+  | 'a static field'
+  | 'a constructor'
+  | 'an overload signature'
+  | 'an abstract member'
+  | 'a mixin'
+  | 'a class expression'
+  | 'a local class'
+  | 'an index signature';
+
+/**
+ * The attributes of {@link ATTRIBUTE_NAMES} each place that reads decorators applies. The
+ * collector of that place drops any other, so {@link checkAttributeName} refuses it there: a
+ * function is an entry by its stage, and `diagnostic-directive.ts` reads `@diagnostic` off a
+ * top-level function only; an entry's parameter takes its IO, where `@invariant` has no effect
+ * on the one input WGSL lets it mark (`position`) and is dropped; a struct field takes the IO of
+ * an entry's struct. A class, and a parameter of a function that is not an entry, take none.
+ */
+const SITE_ATTRIBUTES: Readonly<Partial<Record<AttributeSite, readonly string[]>>> = {
+  'a function': ['vertex', 'fragment', 'compute', 'diagnostic'],
+  "a namespace's function": ['vertex', 'fragment', 'compute'],
+  'a parameter': ['builtin', 'location', 'interpolate', 'invariant'],
+  'a struct field': ['builtin', 'location', 'interpolate', 'invariant', 'blend_src'],
+};
+
+/** The attributes that make a function an entry, which `structs.ts` refuses on a class with a
+ *  sentence of its own. */
+const STAGE_ATTRIBUTES: readonly string[] = ['vertex', 'fragment', 'compute'];
+
+/** `@std140` anywhere but a class, where `structs.ts` has its own sentence. It is GLSL's layout,
+ *  and no position takes a layout here. */
+const STD140_NOT_APPLIED =
+  '"@std140" is not applied: WGSL lays out a struct by its own rules, which reflect() ' +
+  'reports. Remove it.';
+
+/** Why a binding's `@group` and `@binding` are not the author's (Rule 6.1): whichever form
+ *  declares the binding, the host reads its slot back from `reflect()`. */
+const BINDING_SLOT_REASON =
+  "is WGSL's attribute, and is not applied: reflect() reports the group and slot each " +
+  'binding gets. Remove it, and read the slot from reflect() on the host.';
+
+/**
+ * WGSL's attributes of a struct member (Rule 2.1), which the layout engine does not read
+ * (surface §51). On a field, `@size` has its sentence in {@link WGSL_ATTRIBUTES_ELSEWHERE} and
+ * `@align` its own in `structs.ts`; anywhere else, each is named as the struct field's.
+ */
+export const WGSL_MEMBER_ATTRIBUTES: readonly string[] = ['size', 'align'];
+
+/**
+ * WGSL's own attributes (Rule 2.1) that a `"use typeshade"` program does not write as a
+ * decorator, each with the sentence that says where its intent goes instead. They are WGSL's,
+ * so calling one "Unknown attribute" would be false; {@link checkAttributeName} and
+ * {@link checkDeclarationDecorators} answer with these. The rest of WGSL's attribute list is
+ * {@link ATTRIBUTE_NAMES}, `@align` ({@link WGSL_MEMBER_ATTRIBUTES}), and `@const`, which
+ * TypeScript does not parse as a decorator (it is a keyword), and which WGSL keeps for its own
+ * built-in functions anyway; `stage3.test.ts` holds the lists to the fixture's.
+ */
+export const WGSL_ATTRIBUTES_ELSEWHERE: ReadonlyMap<string, string> = new Map(
+  Object.entries({
+    workgroup_size:
+      '"@workgroup_size" is WGSL\'s attribute, written here as @compute\'s argument: ' +
+      '@compute([64]) or @compute([8, 8]).',
+    size:
+      '"@size" is WGSL\'s attribute, and is not applied: a field takes the size WGSL\'s layout ' +
+      'gives its type, which reflect() reports. Add a field where you need padding.',
+    group: `"@group" ${BINDING_SLOT_REASON}`,
+    binding: `"@binding" ${BINDING_SLOT_REASON}`,
+    id:
+      '"@id" is WGSL\'s attribute, and is not applied: the host sets an override by its name, ' +
+      'which reflect() lists. Remove it.',
+    must_use:
+      '"@must_use" is WGSL\'s attribute, and is not applied: a call\'s result is not checked ' +
+      'for use. Remove it.',
+    subgroup_size:
+      '"@subgroup_size" is WGSL\'s attribute, and is not applied: a compute entry runs at the ' +
+      'subgroup size the device chooses. Remove it.',
+  }),
+);
+
+/** What each attribute of {@link ATTRIBUTE_NAMES} marks, for the refusal of one written where it
+ *  is not applied. `stage3.test.ts` writes every name of that list on a declaration and reads
+ *  the sentence back, so a name added there without a row here fails it. */
+const ATTRIBUTE_TARGET: Readonly<Record<string, string>> = {
+  vertex: 'an entry function',
+  fragment: 'an entry function',
+  compute: 'an entry function',
+  builtin: "an entry's input or output",
+  location: "an entry's input or output",
+  interpolate: "an entry's input or output",
+  invariant: "an entry's input or output",
+  blend_src: "a field of a fragment entry's output",
+  diagnostic: 'a top-level function',
+};
+
+/** The decorator identifier `@name` or `@name(...)` reads off, or `undefined` for any other
+ *  decorator shape (`@N.k`, `@(fragment)`), which no place reads as an attribute. */
 function attributeNameOf(decorator: ts.Decorator): string | undefined {
   if (ts.isIdentifier(decorator.expression)) return decorator.expression.text;
   if (
@@ -384,36 +488,236 @@ export function checkBuiltinStage(
  * name itself. Without this, a misspelled attribute (`@vertx`, `@framgent`, `@bogus`) is silent
  * from both the compiler and the language service: TypeScript never resolves a decorator on an
  * invalid target, so there is no TS2304, and nothing else names the typo — the function or
- * field just silently stops being an entry point or an I/O field. A name in
- * {@link RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES} (`@std140`, `@align`) is left alone: those
- * already get their own "not applied" diagnostic elsewhere, and calling them "unknown" too
- * would contradict it. A decorator shape this front end never produces (its expression is
- * neither a bare identifier nor an identifier call) is left alone as well — nothing here can
- * name it usefully.
+ * field just silently stops being an entry point or an I/O field. `site` is where the decorator
+ * is written. One of the list that `site` does not apply ({@link SITE_ATTRIBUTES}), and a
+ * decorator that is not a name at all (`@N.k`, `@(fragment)`), were dropped the same way, and
+ * are refused too (Rule 6.7). `@std140` and `@align` on a class, `@align` on a field, and a
+ * stage on a class are left alone: `structs.ts` says those are not applied, and a second
+ * sentence here would contradict it.
  */
 export function checkAttributeName(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
   decorator: ts.Decorator,
+  site: AttributeSite,
 ): void {
+  const message = attributeRefusal(decorator, sourceFile, site);
+  if (message === undefined) return;
+  // A generic function, and one that takes a function, is lowered once per instance, and each
+  // pass reads its decorators again: one decorator is one refusal (Rule 12.4).
+  const start = decorator.getStart(sourceFile);
+  if (diagnostics.some((d) => d.start === start && d.message === message)) return;
+  diagnostics.push(makeDiagnostic(sourceFile, decorator, message, TS_CODES.ATTRIBUTE_NAME));
+}
+
+/** The sentence {@link checkAttributeName} refuses `decorator`, written at `site`, with, or
+ *  `undefined` where `site` applies it or another module refuses it. */
+function attributeRefusal(
+  decorator: ts.Decorator,
+  sourceFile: ts.SourceFile,
+  site: AttributeSite,
+): string | undefined {
   const name = attributeNameOf(decorator);
-  if (name === undefined) return;
-  if (ATTRIBUTE_NAMES.includes(name)) return;
-  if (RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name)) return;
-  // An HLSL or GLSL attribute (`@numthreads`) names TypeShade's own (#218) before any
-  // spelling-distance guess, which for a foreign name would point at an unrelated attribute.
-  diagnostics.push(
-    makeDiagnostic(
-      sourceFile,
-      decorator,
-      unknownNameSentence(
-        `Unknown attribute "@${name}".`,
-        name,
-        [ATTRIBUTE_NAMES],
-        `Supported attributes: ${ATTRIBUTE_NAMES.map((n) => `@${n}`).join(', ')}.`,
-        '@',
-      ),
-      TS_CODES.ATTRIBUTE_NAME,
-    ),
+  if (name === undefined) {
+    return (
+      `"${decorator.getText(sourceFile)}" is not applied: an attribute is written "@name" or ` +
+      `"@name(...)". Remove it.`
+    );
+  }
+  if (ATTRIBUTE_NAMES.includes(name)) {
+    if (SITE_ATTRIBUTES[site]?.includes(name) === true) return undefined;
+    if (site === 'a class' && STAGE_ATTRIBUTES.includes(name)) return undefined;
+    return misplacedAttribute(name, site);
+  }
+  if (
+    RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name) &&
+    (site === 'a class' || (name === 'align' && site === 'a struct field'))
+  ) {
+    return undefined;
+  }
+  return name === 'std140'
+    ? STD140_NOT_APPLIED
+    : (wgslAttributeSentence(name, site) ?? unknownAttribute(name));
+}
+
+/** The sentence for `name`, one of {@link ATTRIBUTE_NAMES}, written at `site`, which does not
+ *  apply it. The remedy is to remove it, which compiles wherever it was dropped; on an overload
+ *  signature it is to move it onto the implementation, which reads it. */
+function misplacedAttribute(
+  name: string,
+  site: AttributeSite,
+  implementation?: AttributeSite,
+): string {
+  const remedy =
+    implementation !== undefined && SITE_ATTRIBUTES[implementation]?.includes(name) === true
+      ? 'Write it on the implementation.'
+      : 'Remove it.';
+  return `"@${name}" does not apply to ${site}: it marks ${ATTRIBUTE_TARGET[name]}. ${remedy}`;
+}
+
+/** The sentence for WGSL's own attribute `name` written at `site`, or `undefined` for a name
+ *  that is not one of {@link WGSL_ATTRIBUTES_ELSEWHERE} or {@link WGSL_MEMBER_ATTRIBUTES}. A
+ *  struct member's attribute anywhere but on a field is named as the field's. */
+function wgslAttributeSentence(name: string, site: AttributeSite): string | undefined {
+  if (WGSL_MEMBER_ATTRIBUTES.includes(name) && site !== 'a struct field') {
+    return `"@${name}" is WGSL's attribute for a struct field, not ${site}. Remove it.`;
+  }
+  return WGSL_ATTRIBUTES_ELSEWHERE.get(name);
+}
+
+/** The sentence for a decorator name neither `"use typeshade"` nor WGSL has. An HLSL or GLSL
+ *  attribute (`@numthreads`) names TypeShade's own (#218) before any spelling-distance guess,
+ *  which for a foreign name would point at an unrelated attribute. */
+function unknownAttribute(name: string): string {
+  return unknownNameSentence(
+    `Unknown attribute "@${name}".`,
+    name,
+    [ATTRIBUTE_NAMES],
+    `Supported attributes: ${ATTRIBUTE_NAMES.map((n) => `@${n}`).join(', ')}.`,
+    '@',
   );
+}
+
+/**
+ * Where `node` takes a decorator that nothing in the compiler reads, as a refusal names the
+ * place, or `undefined` where one is read or refused elsewhere. A variable statement at any
+ * depth (a binding of any kind, an override, a module, namespace or local `const` or `let`), an
+ * enum, an interface, a type alias and a namespace are `a declaration`, and a function declared
+ * in another function's body is `a local function`: TypeScript refuses a decorator on each
+ * (TS1206). So it does on a constructor, an index signature, a class expression and a class
+ * declared in a function's body, and on a method, accessor or function written without a body,
+ * an overload signature or an abstract member (TS1206 or TS1249), which the compiler skips for
+ * the implementation, and on a mixin, which runs where it is applied and emits no function; a
+ * parameter of any of those is unread with it. A local class, an index signature and a class
+ * expression are refused whole where they are collected, and their decorator here with the
+ * rest; a static block, refused whole in `structs.ts`, keeps TypeScript's TS1206 on its
+ * decorator, since TypeScript's public tree gives a static block no modifiers to read. A
+ * `static` field is a module constant, which TypeScript lets a decorator name (TS2304 when the
+ * ambient library declares no such name). A top-level or a namespace's function with a body, a
+ * class, its instance fields (a function-valued one is a method, Rule 8.16), its methods and
+ * every other parameter are read, and refused, where they are collected.
+ */
+function unreadDecoratorSite(node: ts.Node): AttributeSite | undefined {
+  if (
+    ts.isVariableStatement(node) ||
+    ts.isEnumDeclaration(node) ||
+    ts.isInterfaceDeclaration(node) ||
+    ts.isTypeAliasDeclaration(node) ||
+    ts.isModuleDeclaration(node)
+  ) {
+    return 'a declaration';
+  }
+  if (ts.isFunctionDeclaration(node)) {
+    if (!ts.isSourceFile(node.parent) && !ts.isModuleBlock(node.parent)) return 'a local function';
+    if (isMixinDeclaration(node)) return 'a mixin';
+    return implementationOf(node) !== undefined ? 'an overload signature' : undefined;
+  }
+  if (ts.isClassExpression(node)) return 'a class expression';
+  if (ts.isClassDeclaration(node)) {
+    return ts.isSourceFile(node.parent) || ts.isModuleBlock(node.parent)
+      ? undefined
+      : 'a local class';
+  }
+  if (ts.isConstructorDeclaration(node)) return 'a constructor';
+  if (ts.isIndexSignatureDeclaration(node)) return 'an index signature';
+  if ((ts.isMethodDeclaration(node) || ts.isAccessor(node)) && node.body === undefined) {
+    return node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)
+      ? 'an abstract member'
+      : 'an overload signature';
+  }
+  if (
+    ts.isPropertyDeclaration(node) &&
+    node.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)
+  ) {
+    return 'a static field';
+  }
+  if (ts.isParameter(node)) {
+    const fn = node.parent;
+    // A constructor's own decorator is unread; the parameters of the one with a body are the
+    // ones `new` passes, and read.
+    if (ts.isConstructorDeclaration(fn)) {
+      return fn.body === undefined ? 'an overload signature' : undefined;
+    }
+    const site = unreadDecoratorSite(fn);
+    return site === 'a local function' ? undefined : site;
+  }
+  return undefined;
+}
+
+/** The implementation an overload signature `fn` declares, the function of the same name with
+ *  a body that TypeScript requires to follow it, or `undefined` when `fn` has a body, is
+ *  `declare`, or has no implementation (each refused whole as `TS8020`). */
+function implementationOf(fn: ts.FunctionDeclaration): ts.FunctionDeclaration | undefined {
+  if (fn.body !== undefined || fn.name === undefined) return undefined;
+  if (fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) return undefined;
+  const statements = (fn.parent as ts.SourceFile | ts.ModuleBlock).statements;
+  return statements.find(
+    (s): s is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(s) && s.body !== undefined && s.name?.text === fn.name!.text,
+  );
+}
+
+/** Where the implementation reads what decorator `d`, written on an overload signature or one
+ *  of its parameters, would apply, or `undefined` for any other place. */
+function implementationSite(d: ts.Decorator): AttributeSite | undefined {
+  const on = d.parent;
+  const fn = ts.isParameter(on) ? on.parent : on;
+  if (!ts.isFunctionDeclaration(fn)) return undefined;
+  const implementation = implementationOf(fn);
+  if (implementation === undefined) return undefined;
+  if (!ts.isParameter(on)) {
+    return ts.isSourceFile(fn.parent) ? 'a function' : "a namespace's function";
+  }
+  const isEntry = (implementation.modifiers ?? []).some((m) => {
+    const name = ts.isDecorator(m) ? attributeNameOf(m) : undefined;
+    return name !== undefined && STAGE_ATTRIBUTES.includes(name);
+  });
+  return isEntry ? 'a parameter' : 'a parameter of a function that is not an entry';
+}
+
+/**
+ * Refuses every decorator nothing reads ({@link unreadDecoratorSite}), anywhere in `sourceFile`
+ * (Rule 6.7). TypeScript parses one there, and its own checker refuses it (TS1206) or resolves
+ * its name, which `compile()` never runs, so the decorator vanished: `@group(2) @binding(5)
+ * declare const u: uniform<U>` was emitted at group 0, binding 0, and `@id(7)` on an override,
+ * `@bogus` on a constant, on a local function, on a static field or on a constructor were
+ * dropped with no word, and `@fragment` on an overload signature left the module with no
+ * entry. Each decorator is answered by what it is: WGSL's own with
+ * {@link WGSL_ATTRIBUTES_ELSEWHERE}, a struct member's as the field's, one `"use typeshade"`
+ * reads with where it belongs, and any other name with the unknown-attribute sentence. The
+ * language service's merge keeps this sentence alone and drops what TypeScript says inside the
+ * same decorator (Rule 12.4).
+ */
+export function checkDeclarationDecorators(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
+): void {
+  const visit = (node: ts.Node): void => {
+    const site = unreadDecoratorSite(node);
+    if (site !== undefined && ts.canHaveModifiers(node)) {
+      for (const d of node.modifiers ?? []) {
+        if (ts.isDecorator(d)) diagnostics.push(unreadDecoratorRefusal(sourceFile, d, site));
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+}
+
+/** The `TS8028` for decorator `d` written at `site`, where nothing reads it. */
+function unreadDecoratorRefusal(
+  sourceFile: ts.SourceFile,
+  d: ts.Decorator,
+  site: AttributeSite,
+): TsCompilerDiagnostic {
+  const name = attributeNameOf(d);
+  const message =
+    name === undefined
+      ? `"${d.getText(sourceFile)}" is not applied: ${site} takes no decorator. Remove it.`
+      : name === 'std140'
+        ? STD140_NOT_APPLIED
+        : ATTRIBUTE_NAMES.includes(name)
+          ? misplacedAttribute(name, site, implementationSite(d))
+          : (wgslAttributeSentence(name, site) ?? unknownAttribute(name));
+  return makeDiagnostic(sourceFile, d, message, TS_CODES.ATTRIBUTE_NAME);
 }

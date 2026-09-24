@@ -10,7 +10,7 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES } from './type-map.js';
 import { atomicWithin } from './lower/atomics.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
-import { recordCallFormBinding, recordRecoveredBinding } from './context.js';
+import { authorTypeText, recordCallFormBinding, recordRecoveredBinding } from './context.js';
 import { isOverrideType } from './overrides.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
@@ -553,9 +553,10 @@ function isStorageBufferAccess(word: string): word is StorageBufferAccess {
  *
  *  Three rules, each measured against the Tint the compile gate runs:
  *
- *  - `bool` is not host-shareable in any address space: `type 'bool' cannot be used in address
- *    space 'uniform' as it is non-host-shareable`. The GLSL writer happily emits `out bool`
- *    into a std140 block, so this is a silent target divergence, not a shared failure.
+ *  - `bool` is not host-shareable in any address space, alone or as a vector's element: `type
+ *    'bool' cannot be used in address space 'uniform' as it is non-host-shareable`, and the
+ *    same of `vec3<bool>`. The GLSL writer happily emits `out bool` into a std140 block, so
+ *    this is a silent target divergence, not a shared failure.
  *  - A runtime-sized `array<T>` must be the LAST member of its struct; anything after it has
  *    no offset.
  *  - A runtime-sized array may not sit in the uniform address space at all: a uniform buffer's
@@ -583,6 +584,21 @@ function checkHostShareable(
           node,
           `"${path}" is a bool; a ${space} struct holds numeric scalars only (WGSL's ` +
             `host-shareable rule). Use u32.`,
+        ),
+      );
+      return;
+    }
+    // A vector of bools is no more host-shareable than its element (surface §27): Tint says
+    // `type 'vec3<bool>' cannot be used in address space 'uniform' as it is non-host-shareable`
+    // for a field, a runtime array's element and a bare `uniform<vec3b>` alike, the path
+    // naming which.
+    if (t.kind === 'vec' && t.elem === 'bool') {
+      diagnostics.push(
+        layoutDiag(
+          sourceFile,
+          node,
+          `"${path}" is a ${authorTypeText(t)}; a ${space} binding holds no bool, alone or in a ` +
+            `vector (WGSL's host-shareable rule). Use vec${String(t.n)}u.`,
         ),
       );
       return;
