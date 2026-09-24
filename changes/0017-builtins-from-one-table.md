@@ -1,7 +1,7 @@
 ---
 id: '0017'
 title: Every builtin's overloads, in the compiler and in the editor, come from one table, Tint's core.def with a TypeShade overlay
-status: draft
+status: accepted
 rules:
 - '9.2'
 - '9.6'
