@@ -925,17 +925,108 @@ function methodSignature(
   structs: readonly CollectedStruct[],
   /** The parameters that take a function, which a copy of the method takes in their place. */
   skip: ReadonlySet<number> = new Set(),
-): { params: FuncDecl['params'][number][]; ret: ShaderType; infers?: true } | undefined {
-  const written = method.parameters.filter((_, i) => !skip.has(i));
+):
+  | { params: FuncDecl['params'][number][]; ret: ShaderType; infers?: true; callerClass?: true }
+  | undefined {
+  // `static unit<C extends Disc>(this: { new (): C; SIZE: f32 }): C` (0020): the `this`
+  // parameter is TypeScript's typing of the class the call names, which a static's copy for
+  // each class already is (Rule 8.13). It is not a parameter anything passes, and the `C` it
+  // returns is that class.
+  const caller = isStatic ? callerClassForm(method) : undefined;
+  const written = method.parameters.filter(
+    (p, i) => !skip.has(i) && !(caller !== undefined && p === caller.thisParam),
+  );
   const params = parseParams(written, sourceFile, diagnostics, structs, undefined, {
     owner: shown,
     forbidSelf: !isStatic,
   });
   if (!params) return undefined;
+  if (caller !== undefined) return { params, ret: selfT, callerClass: true };
   if (method.type?.kind === ts.SyntaxKind.ThisType) return { params, ret: selfT };
   const ret = parseReturnType(method.type, sourceFile, diagnostics, structs, undefined);
   if (!ret) return undefined;
   return method.type === undefined ? { params, ret, infers: true } : { params, ret };
+}
+
+/**
+ * The `this` parameter of a static that says it returns the class the call names (0020):
+ * `static unit<C extends Disc>(this: { new (): C; … }): C`. The parameter is typed by an object
+ * type with a construct signature that returns one of the method's own type parameters, and the
+ * method returns that type parameter. Anything else is not this form, and is read as written.
+ */
+export function callerClassForm(
+  method: MemberFunction,
+): { readonly thisParam: ts.ParameterDeclaration; readonly typeParam: string } | undefined {
+  const first = method.parameters[0];
+  if (first === undefined || !ts.isIdentifier(first.name) || first.name.text !== 'this') {
+    return undefined;
+  }
+  const t = first.type;
+  if (t === undefined || !ts.isTypeLiteralNode(t)) return undefined;
+  const ctor = t.members.find(ts.isConstructSignatureDeclaration);
+  const built = ctor?.type;
+  if (built === undefined || !ts.isTypeReferenceNode(built) || !ts.isIdentifier(built.typeName)) {
+    return undefined;
+  }
+  const name = built.typeName.text;
+  const own = (method as ts.MethodDeclaration).typeParameters?.some((p) => p.name.text === name);
+  const ret = method.type;
+  const returnsIt =
+    ret !== undefined &&
+    ts.isTypeReferenceNode(ret) &&
+    ts.isIdentifier(ret.typeName) &&
+    ret.typeName.text === name;
+  return own === true && returnsIt ? { thisParam: first, typeParam: name } : undefined;
+}
+
+/** The refusal of a static declared to return the class that declares it, which builds its value
+ *  with `new this()` and which the class `caller` inherits (0020), with the form to write. */
+function callerClassRefusal(
+  method: MemberFunction,
+  declaredIn: string,
+  caller: string,
+  shown: string,
+): string {
+  const member = shown.split('.').pop() ?? shown;
+  const statics = new Map<string, string>();
+  const cls = method.parent;
+  const typeOfStatic = (name: string): string => {
+    const decl = ts.isClassLike(cls)
+      ? cls.members.find(
+          (m): m is ts.PropertyDeclaration =>
+            ts.isPropertyDeclaration(m) &&
+            isStaticMember(m) &&
+            ts.isIdentifier(m.name) &&
+            m.name.text === name,
+        )
+      : undefined;
+    if (decl?.type !== undefined) return decl.type.getText();
+    const init = decl?.initializer;
+    if (init !== undefined && (ts.isNumericLiteral(init) || ts.isPrefixUnaryExpression(init))) {
+      return 'f32';
+    }
+    if (init !== undefined && ts.isCallExpression(init)) return init.expression.getText();
+    return 'f32';
+  };
+  const walk = (n: ts.Node): void => {
+    if (
+      ts.isPropertyAccessExpression(n) &&
+      n.expression.kind === ts.SyntaxKind.ThisKeyword &&
+      ts.isIdentifier(n.name)
+    ) {
+      statics.set(n.name.text, typeOfStatic(n.name.text));
+    }
+    ts.forEachChild(n, walk);
+  };
+  if (method.body !== undefined) walk(method.body);
+  const members = ['new (): C', ...[...statics].map(([k, t]) => `${k}: ${t}`)].join('; ');
+  const params = method.parameters.map((p) => p.getText()).join(', ');
+  return (
+    `"${declaredIn}.${member}" builds its value with "new this()", so "${caller}.${member}()" returns a ` +
+    `${caller}, but it is declared to return a ${declaredIn}, which is the type the editor ` +
+    `gives the call. Declare the class the call names: static ${member}<C extends ${declaredIn}>` +
+    `(this: { ${members} }${params === '' ? '' : `, ${params}`}): C`
+  );
 }
 
 /** The other half of the accessor `node` declares, in the same class body, or `undefined`. */
@@ -1148,6 +1239,28 @@ export function collectClassFunctions(
         // class that inherits it, `this` is that class (Rule 8.13), so `Derived.make()` builds and
         // returns a `Derived`, as TypeScript does at run time where its type says `Base`.
         const declaresOwnClass = typeKey(signature.ret) === typeKey(structT(body.declaredIn));
+        // Lowered for a class that inherits it, such a static returns that class, and the editor,
+        // which reads the return type as written, says the declaring one (Rule 12.7). 0020 asks
+        // for the form TypeScript types the same way, and refuses this one where they part.
+        if (
+          isStatic &&
+          half === undefined &&
+          body.declaredIn !== name &&
+          !('callerClass' in signature) &&
+          declaresOwnClass &&
+          returnsBuiltThis(method)
+        ) {
+          const key = `caller-class:${body.declaredIn}.${shown}`;
+          if (!reported.has(key)) {
+            reported.add(key);
+            pushDiag(
+              diagnostics,
+              sourceFile,
+              method.name,
+              callerClassRefusal(method, body.declaredIn, name, shown),
+            );
+          }
+        }
         // One that writes no return type and whose every `return` is `return this` returns its
         // object, as one written `this` does; any other says its type in its body (Rule 8.19).
         const thisReturning =
