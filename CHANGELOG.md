@@ -1585,6 +1585,12 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   with no initializer GLSL writes the zero, `vec2 big = vec2(0.0);`. Each shape compiles and
   links on ANGLE and on Tint, and the CPU oracle computes it as the double.
 
+- **A module variable hovers as `let`** (Rule 6.5, Rule 12.7). #188 made every binding hover as
+  `const name: T`, since a binding is always declared `const`. The front end records a module
+  variable as a binding too, so from then on `let hits: u32` hovered as `const hits: u32`, and
+  workgroup memory as `const tile: array<u32, 64>`. The hover now says `let` for a module
+  variable, and a binding beside it keeps `const`.
+
 - **The editor indexes a vector and an `f32` matrix by a runtime value** (Rule 12.7, surface
   §49). `m[i]` on a `mat4` or a `mat2x3` with an `i: u32`, a `for` counter as the index, `v[i]`
   and `v[0]` on a vector, and `m[0][1]` were `TS7053` in the language service on programs the
