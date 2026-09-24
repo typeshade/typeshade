@@ -30,7 +30,7 @@ TypeShade is a shader language and compiler built around the TypeScript authorin
 - **Typed in the editor.** TypeScript catches wrong types and misspelled fields before shader code is emitted.
 - **Reflection.** `reflect(module)` exposes bind groups, layouts and entry signatures from the same IR used for emission.
 
-TypeShade ships the authoring and emit surface, with no GPU runtime. Creating pipelines, binding resources and issuing draws stay with the host application. A host file can also import a `.shade.ts` and call its helper functions, which run on the CPU at `f32` precision ([surface §64](./docs/use-typeshade-surface.md#64-calling-a-module-from-host-code)): that is how host code shares a shader's math. Running an entry point on the GPU through the same import is the next step (roadmap item 16b).
+TypeShade ships the authoring and emit surface, with no GPU runtime. Creating pipelines, binding resources and issuing draws stay with the host application. A host file can also import a `.shade.ts` and call its helper functions, which run on the CPU at `f32` precision ([surface §64](./docs/use-typeshade-surface.md#64-calling-a-module-from-host-code)): that is how host code shares a shader's math. A `@compute` entry imported the same way runs on the GPU: `entry(bindings, workgroups)` dispatches it on WebGPU ([surface §67](./docs/use-typeshade-surface.md#67-calling-an-entry-point-from-host-code)); drawing a fragment entry is the rest of roadmap item 16b.
 
 The author-facing grammar is frozen in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md). The compiler internals and `fn()` / `module()` APIs remain useful for tests, IR equality and the example gallery, but product code should start with `"use typeshade"`.
 
@@ -120,7 +120,7 @@ What it inherits from the language service, it inherits whole:
 
 ## Calling a shader's helpers from host code, on the CPU
 
-A host file imports a `.shade.ts` and calls the helper functions it exports. **The call runs on the CPU, not on the GPU:** the module's own code, at `f32` precision, so a host-side height query, a picking test or a unit test computes what the shader computes, with plain values (a `vec2` is `[x, y]`, a struct an object). An entry point is not callable this way yet; running one on the GPU through the same import is the next step (roadmap item 16b).
+A host file imports a `.shade.ts` and calls the helper functions it exports. **The call runs on the CPU, not on the GPU:** the module's own code, at `f32` precision, so a host-side height query, a picking test or a unit test computes what the shader computes, with plain values (a `vec2` is `[x, y]`, a struct an object). A `@compute` entry is the part that runs on the GPU: `await entry(bindings, workgroups)` dispatches it on WebGPU and reads what it wrote back into your arrays ([surface §67](./docs/use-typeshade-surface.md#67-calling-an-entry-point-from-host-code)). Drawing a fragment entry is the rest of roadmap item 16b.
 
 ```ts
 import { height } from './terrain.shade.ts';

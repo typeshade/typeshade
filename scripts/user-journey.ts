@@ -38,6 +38,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:http';
+import { chromium } from 'playwright';
 import { derivePublishManifest } from './publish-manifest.js';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -61,7 +63,7 @@ export function readmeTsconfig(readme: string): string {
   return readme.slice(readme.indexOf('\n', start) + 1, end);
 }
 
-function main(): number {
+async function main(): Promise<number> {
   if (!existsSync(join(REPO, 'dist', 'src', 'index.js'))) {
     console.error('user journeys: dist/ is missing. Run `bun run build` first.');
     return 1;
@@ -119,7 +121,7 @@ function main(): number {
     if ((run.status ?? 1) !== 0) return run.status ?? 1;
 
     // 4. The import path.
-    return hostImport(work, join(work, tarball));
+    return await hostImport(work, join(work, tarball));
   } finally {
     if (process.env['TYPESHADE_JOURNEY_KEEP'] === '1') console.log(`kept ${work}`);
     else rmSync(work, { recursive: true, force: true });
@@ -140,7 +142,7 @@ const HOST_DEPS = [
 ];
 
 /** Step 4: a Vite project that imports a `.shade.ts` and calls it, set up as surface §64 says. */
-function hostImport(work: string, tarball: string): number {
+async function hostImport(work: string, tarball: string): Promise<number> {
   const app = join(work, 'host-import');
   cpSync(join(REPO, 'journeys', '_host-import'), app, { recursive: true });
   writeFileSync(
@@ -216,7 +218,88 @@ function hostImport(work: string, tarball: string): number {
     // quotient amplifies them by 1 / (2 EPS).
     check(got.length === exp.length && worst < 2e-3, `${key} match the reference (worst ${worst})`);
   }
+
+  // The GPU half (change 0016, Rule 8.24): the browser bundle of src/gpu.ts calls two compute
+  // entries in a page with WebGPU. `blockSum` reaches a barrier, which has no CPU tier, so it answers only
+  // where WebGPU ran it.
+  sh('npx', ['vite', 'build', '--config', 'vite.web.config.ts', '--logLevel', 'warn'], app);
+  const web = await inBrowser(join(app, 'out-web'));
+  check(web.webgpu, 'the page has WebGPU, so the entries ran on it');
+  const gpuRef = JSON.parse(
+    spawnSync(
+      'node',
+      [
+        '--input-type=module',
+        '-e',
+        "console.log(JSON.stringify((await import('./reference.mjs')).gpuReference()))",
+      ],
+      { cwd: app, encoding: 'utf8' },
+    ).stdout,
+  ) as Record<string, number[]>;
+  for (const key of Object.keys(gpuRef)) {
+    const got = web.result?.[key] ?? [];
+    const exp = gpuRef[key]!;
+    const worst = Math.max(
+      ...exp.map((e, i) => Math.abs((got[i] ?? NaN) - e) / Math.max(1, Math.abs(e))),
+    );
+    // f32 on both sides, in the same order: WebGPU rounds each add and multiply as IEEE does.
+    check(
+      got.length === exp.length && worst <= 1e-6,
+      `WebGPU ${key} match the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,
+    );
+  }
   return failures.length === 0 ? 0 : 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) process.exit(main());
+/** The four flags that make WebGPU exist on SwiftShader, as the compile gate passes them. */
+const CHROMIUM_ARGS = [
+  '--enable-unsafe-webgpu',
+  '--enable-unsafe-swiftshader',
+  '--use-angle=swiftshader',
+  '--use-vulkan=swiftshader',
+  '--enable-features=Vulkan',
+];
+
+/** Load `dir/gpu.js` in a page served from localhost (a secure context, which WebGPU needs) and
+ *  run its `run()`. */
+async function inBrowser(
+  dir: string,
+): Promise<{ webgpu: boolean; result?: Record<string, number[]>; error?: string }> {
+  const js = readFileSync(join(dir, 'gpu.js'), 'utf8');
+  const server = createServer((req, res) => {
+    if (req.url === '/gpu.js') {
+      res.setHeader('content-type', 'text/javascript');
+      res.end(js);
+    } else {
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      res.end('<!doctype html><title>typeshade host import</title>');
+    }
+  });
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const browser = await chromium.launch({
+    executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
+    args: CHROMIUM_ARGS,
+  });
+  try {
+    const page = await browser.newPage();
+    const { port } = server.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}/`);
+    return await page.evaluate(async () => {
+      const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+      const webgpu = gpu !== undefined && (await gpu.requestAdapter()) !== null;
+      try {
+        const m = (await import('/gpu.js' as string)) as {
+          run(): Promise<Record<string, number[]>>;
+        };
+        return { webgpu, result: await m.run() };
+      } catch (e) {
+        return { webgpu, error: String(e) };
+      }
+    });
+  } finally {
+    await browser.close();
+    server.close();
+  }
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) process.exit(await main());

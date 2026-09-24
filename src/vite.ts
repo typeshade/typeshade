@@ -7,7 +7,9 @@
 //   - compiles the module, and fails the build with each TS80xx diagnostic at its file, line
 //     and column when one is an error;
 //   - returns the generated module in its place: the CPU tier's code for the functions a host
-//     can call, at `f32` (Rules 8.20, 11.7), each checking its arguments (Rule 8.21);
+//     can call, at `f32` (Rules 8.20, 11.7), each checking its arguments (Rule 8.21), and for
+//     each `@compute` entry its WGSL and the byte layout of each binding it reaches, which the
+//     runtime dispatches on WebGPU (Rule 8.24);
 //   - writes the host view beside it, `name.shade.typeshade.ts`, which the project's `tsconfig`
 //     (`moduleSuffixes: [".typeshade", ""]`) makes `tsc` read for the import.
 //
@@ -59,7 +61,8 @@ const isProjectTs = (path: string): boolean =>
  * options.
  *
  * A host file then imports a `.shade.ts` and calls what it exports (surface §64). The call runs
- * the module's code on the CPU tier at `f32` precision (Rule 11.7), with host values (Rule 8.21).
+ * the module's code on the CPU tier at `f32` precision (Rule 11.7), with host values (Rule 8.21); a
+ * call of a `@compute` entry dispatches it on WebGPU (Rule 8.24).
  * The plugin writes each module's host view beside it, `name.shade.typeshade.ts`, when the
  * module changes, in `vite dev` and in `vite build`; `typeshade sync` writes them all for a
  * clean checkout.
