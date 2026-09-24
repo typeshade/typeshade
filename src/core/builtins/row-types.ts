@@ -44,6 +44,12 @@ export function rowTypes(
     if (!(t.s in row.implicit) && !isTypeshadeScalar(t.s)) return undefined;
     if (t.k === 'vec' && !/^[234]$/.test(t.n) && !(t.n in row.implicit)) return undefined;
   }
+  // A result whose type parameter no argument binds is chosen by an explicit type argument
+  // (`bitcast<f32>(u)`), a form neither the generator nor the resolver reads yet.
+  const bound = new Set((params as RowType[]).flatMap((p) => (p.k === 'vec' ? [p.s, p.n] : [p.s])));
+  for (const name of ret.k === 'vec' ? [ret.s, ret.n] : [ret.s]) {
+    if (name in row.implicit && !bound.has(name)) return undefined;
+  }
   return { params: params as RowType[], ret };
 }
 

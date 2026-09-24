@@ -1492,6 +1492,6 @@ src/language-service/types.ts#TypeshadeSignatureHelp  interface  { activeParamet
 src/language-service/types.ts#TypeshadeSymbolKind  type  "constant" | "entry" | "field" | "function" | "parameter" | "resource" | "struct" | "variable"
 src/language-service/types.ts#TypeshadeTextEdit  interface  { newText: string; range: TypeshadeRange }
 src/language-service/types.ts#TypeshadeTextSpan  interface  { length: number; start: number }
-src/vite.ts#TypeshadeVitePlugin  interface  { enforce: "pre"; name: "typeshade"; transform: (code: string, id: string) => Promise<{ code: string; map: null; }> }
+src/vite.ts#TypeshadeVitePlugin  interface  { configResolved: (config: { readonly command: string; }) => void; enforce: "pre"; name: "typeshade"; transform: (code: string, id: string) => Promise<{ code: string; map: null; }> }
 src/vite.ts#typeshade  function  () => TypeshadeVitePlugin
 ```

@@ -146,7 +146,9 @@ this file` or `"P" has no constructor here`, then `TS8022` at every read. A read
   proposal 0017). The math builtins' declarations are generated from Tint's overload table,
   `core.def`, one overload per row, so `dot(a, b)` on two `vec3u` hovers as `u32`, `max(n, m)` on
   two `u32` as `u32`, and `smoothstep(0.3, 0.55, h)` on an `f32` as `f32`, where each said
-  `number`. A call whose numeric arguments are all literals stays `number`, the abstract numeric
+  `number`; so are the derivatives (`fwidth`, `dpdx`, …) and the bit and packing builtins
+  (`countOneBits(u32)` is a `u32`, `pack4x8snorm` a `u32`), all but `bitcast`. A call whose
+  numeric arguments are all literals stays `number`, the abstract numeric
   TypeScript cannot tell apart. TypeScript's own report of a wrong argument to one of these names
   is now TS2769 ("No overload matches this call") where it was TS2345; the editor's merged list
   shows the compiler's `TS8036` for it, as it did.
@@ -521,6 +523,13 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **`console.*` in an entry a host calls prints from the GPU in `vite dev`** (change 0016, part
+  3; Rule 8.24, surface §67). The plugin compiles with the console recorded (0014) in `vite dev`,
+  and the runtime reads the `_console` buffer back after each dispatch or draw and prints the
+  events in the CPU tier's order; a production build records nothing. An entry's pipeline layout
+  is now written out from its bindings, so a binding the optimizer stops using (a read only a
+  dropped `console.*` call made) still binds. The import journey also runs the particles and
+  plasma journeys' programs through the import, against their own references.
 - **A host file draws a full-screen `@fragment` entry into a canvas through the import** (change
   0016, part 2; Rules 8.20, 8.21, 8.24 and 11.7, surface §67). `fs(canvas, { frame })` draws one
   frame with a full-screen triangle the runtime supplies, on WebGPU, then WebGL2, then the CPU

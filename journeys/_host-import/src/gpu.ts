@@ -1,8 +1,11 @@
 // The browser half of the journey: ordinary TypeScript that calls two compute entries and draws
 // two fragment entries through the import, with plain typed arrays and no WebGPU or WebGL code
 // of its own. The page runs `run()` and `draws()`.
-import { blockSum, scale } from './kernels.shade.ts';
+import { blockSum, report, scale } from './kernels.shade.ts';
 import { plasma, tiled } from './draw.shade.ts';
+// Copied in by the journey from journeys/particles and journeys/plasma.
+import { step } from './particles.shade.ts';
+import { fs } from './plasma.shade.ts';
 
 export async function run(): Promise<{ ys: number[]; sums: number[] }> {
   const xs = Float32Array.from({ length: 256 }, (_, i) => Math.sin(i * 0.37) * 4);
@@ -60,4 +63,35 @@ export async function draws(): Promise<Record<string, number[] | string>> {
     );
   }
   return out;
+}
+
+/** Call an entry that logs: in `vite dev` its four `console.log` calls print from WebGPU, in
+ *  invocation order; in a production build they record nothing. */
+export async function logged(): Promise<void> {
+  await report({ xs: Float32Array.of(1.5, 2.5, 3.5, 4.5) }, 1);
+}
+
+/** The particles and plasma journeys' programs (`journeys/particles`, `journeys/plasma`), which
+ *  the journey copies beside this file, run through the import: no packing, no layout, no WebGPU
+ *  code. `input` is each journey's own starting data. */
+export async function journeys(input: {
+  sim: Parameters<typeof step>[0]['sim'];
+  particles: Parameters<typeof step>[0]['particles'];
+  frames: number;
+  frame: Parameters<typeof fs>[1]['frame'];
+}): Promise<{ particles: number[]; plasma: number[] }> {
+  const { sim, particles, frames, frame } = input;
+  for (let f = 0; f < frames; f++) await step({ sim, particles }, Math.ceil(particles.length / 64));
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 64;
+  const plasmaPixels = await fs(c, { frame }).then(() => {
+    const copy = document.createElement('canvas');
+    copy.width = 64;
+    copy.height = 64;
+    const ctx = copy.getContext('2d')!;
+    ctx.drawImage(c, 0, 0);
+    return [...ctx.getImageData(0, 0, 64, 64).data];
+  });
+  return { particles: particles.flatMap((p) => [...p.pos, ...p.vel]), plasma: plasmaPixels };
 }

@@ -10,6 +10,9 @@
 //     can call, at `f32` (Rules 8.20, 11.7), each checking its arguments (Rule 8.21), and for
 //     each `@compute` entry its WGSL and the byte layout of each binding it reaches, which the
 //     runtime dispatches on WebGPU (Rule 8.24);
+//   - in `vite dev`, records the `console.*` calls a GPU entry reaches into the WGSL's console
+//     buffer (change 0014), which the runtime reads back and prints after the dispatch or draw;
+//     a production build records nothing;
 //   - writes the host view beside it, `name.shade.typeshade.ts`, which the project's `tsconfig`
 //     (`moduleSuffixes: [".typeshade", ""]`) makes `tsc` read for the import.
 //
@@ -46,6 +49,9 @@ export interface TypeshadeVitePlugin {
   /** Before Vite's own TypeScript transform, which would otherwise strip the source's types
    *  and hand the bundle the shader source as host code. */
   readonly enforce: 'pre';
+  /** Reads whether this is `vite dev` (`command: 'serve'`), where the WGSL records the
+   *  `console.*` calls a GPU entry reaches (change 0014) and the runtime prints them. */
+  configResolved(config: { readonly command: string }): void;
   /** The module the bundle reads for `id`: the generated host module for a `*.shade.ts`,
    *  nothing for any other file, and a thrown error for a module that does not compile or a
    *  shader module under another name (Rule 3.8). */
@@ -77,9 +83,13 @@ const isProjectTs = (path: string): boolean =>
  * ```
  */
 export function typeshade(): TypeshadeVitePlugin {
+  let dev = false;
   return {
     name: 'typeshade',
     enforce: 'pre',
+    configResolved(config) {
+      dev = config.command === 'serve';
+    },
     async transform(code, id) {
       const path = id.split('?')[0]!.replace(/\\/g, '/');
       if (!isShaderModulePath(path)) {
@@ -93,7 +103,7 @@ export function typeshade(): TypeshadeVitePlugin {
         }
         return null;
       }
-      const face = hostFace(code, { fileName: path });
+      const face = hostFace(code, { fileName: path, ...(dev ? { console: 'gpu' as const } : {}) });
       if (face.code === undefined || face.view === undefined) {
         throw new Error(`${path} does not compile:\n${formatBuildErrors(face.diagnostics)}`);
       }

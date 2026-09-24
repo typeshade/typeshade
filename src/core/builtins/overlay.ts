@@ -184,7 +184,10 @@ export const ABSENT_TYPES = ['f16', 'u16', 'u64', 'i8', 'u8', 'subgroup_matrix']
  *  to both halves. A family's pull request adds itself here. Within a supported family, a row
  *  whose types `row-types.ts` has no form for yet (a matrix, a result struct) stays DEFERRED
  *  to it, and the pull request that adds the form claims the row. */
-export const SUPPORTED_FAMILIES: ReadonlySet<Family> = new Set<Family>(['math']);
+export const SUPPORTED_FAMILIES: ReadonlySet<Family> = new Set<Family>([
+  'math',
+  'derivatives, bits and packing',
+]);
 
 /** Why a row has no instance TypeShade can spell, or undefined when it has one. */
 function absentType(

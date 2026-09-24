@@ -5472,10 +5472,12 @@ is shrink-only: a divergence it does not list fails, and so does a row that no l
 
 A builtin's declarations are generated from Tint's own overload table, `core.def`, one overload
 per row (proposal 0017, `src/language-service/builtin-signatures.ts`), for every family that
-table's claims mark SUPPORTED; the math family is the first. `dot(a, b)` on two `vec3u` is a `u32`
-in the editor as it is in the compiler, and `max(n, u32(3))` a `u32`, where both said `number`.
-`src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both halves on a
-witness per instance.
+table's claims mark SUPPORTED: the math builtins, the derivatives, and the bit and packing
+builtins, all but `bitcast`, whose result is chosen by a type argument. `dot(a, b)` on two
+`vec3u` is a `u32` in the editor as it is in the compiler, and `max(n, u32(3))` a `u32`, where
+both said `number`. The compiler reads the same rows for the call's result and its argument
+check. `src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both
+halves on a witness per instance.
 
 One call has no type TypeScript can give it: a call whose numeric arguments are all literals,
 such as `select(0., 0.15, c)` or `max(1., 2.)`. WGSL types it as an abstract numeric until its
@@ -6930,6 +6932,18 @@ requestAnimationFrame(frame);
   on WebGPU or the CPU; a non-struct uniform and anything else the GLSL backend refuses leave the
   WebGL2 tier out too. A texture has no CPU tier. When the canvas's tier cannot draw the entry,
   the draw is refused with a `TypeError` that names why.
+
+### `console.*` from an entry
+
+In `vite dev`, the plugin compiles each module with the console recorded (§66): each
+`console.*` call a compute or fragment entry reaches is written into the `_console` buffer on
+the GPU. The runtime binds a fresh buffer for each dispatch and each draw, reads it back once
+the GPU has run it, and prints the events to the page's console in the order the CPU tier prints
+them: by invocation, `z`, then `y`, then `x`, and in program order within one. A call's
+promise resolves after its events are printed; a draw's frame is submitted first, and its
+events follow. Calls that do not fit the buffer are counted in one warning. A production build
+records nothing, and the WebGL2 tier records nothing (Rule 10.5). The CPU tier prints each call
+as it runs.
 
 **Not yet.** A storage texture, a depth texture, a texture of another dimension and an emulated
 `f64` keep the entry `never` in the view, with the reason, as do a vertex entry and a fragment

@@ -23,13 +23,18 @@
 // promise resolves when the frame is submitted, and a frame loop may drop it.
 
 import type { CpuValue } from './cpu-runtime.js';
+import type { ConsoleLog } from './console.js';
 import {
   checkBindings,
+  consoleFor,
+  groupEntries,
   describe,
   gpuDevice,
   gpuHandle,
   isBuffer,
   packed,
+  pipelineLayout,
+  STAGE,
   toCpu,
   type Checked,
   type DrawBinding,
@@ -61,7 +66,9 @@ export interface FragmentEntry {
   /** Why the WebGL2 tier cannot draw the entry, when it cannot. */
   readonly noGl?: string;
   /** Why the CPU tier cannot draw the entry, when it cannot. */
-  readonly noCpu?: string;
+  readonly noCpu?: string; /** As a compute entry's: whether the WGSL records `console.*` calls, and the log. */
+  readonly console?: true;
+  readonly log?: ConsoleLog;
 }
 
 // ─── checking the arguments ──────────────────────────────────────────────────────────────────
@@ -257,7 +264,7 @@ async function renderPipelineFor(
           `${e.name}: WebGPU refused the module's WGSL: ${errors.map((m) => `line ${m.lineNum}:${m.linePos} ${m.message}`).join('; ')}`,
         );
       return d.createRenderPipeline({
-        layout: 'auto',
+        layout: pipelineLayout(d, e.bindings, e.log, STAGE.FRAGMENT),
         vertex: { module: d.createShaderModule({ code: FULLSCREEN_WGSL }), entryPoint: 'v' },
         fragment: { module, entryPoint: e.fn, targets: [{ format }] },
         primitive: { topology: 'triangle-list' },
@@ -307,20 +314,17 @@ function webgpuPainter(d: RenderDevice, ctx: GpuCanvasContext): Painter {
       ],
     });
     pass.setPipeline(pipeline);
-    for (const g of [...new Set(e.bindings.map((b) => b.group))].sort((a, b) => a - b))
-      pass.setBindGroup(
-        g,
-        d.createBindGroup({
-          layout: pipeline.getBindGroupLayout(g),
-          entries: e.bindings
-            .filter((b) => b.group === g)
-            .map((b) => ({ binding: b.binding, resource: resources.get(b.name) as never })),
-        }),
-      );
+    const log = consoleFor(d, e.name, e.log);
+    for (const [g, entries] of groupEntries(e.bindings, (b) => resources.get(b.name), log))
+      pass.setBindGroup(g, d.createBindGroup({ layout: pipeline.getBindGroupLayout(g), entries }));
     pass.draw(3);
     pass.end();
+    log?.copy(encoder);
     d.queue.submit([encoder.finish()]);
     for (const o of owned) o.destroy();
+    // The frame is submitted; its console calls print when the GPU has run it, after the
+    // promise resolved, since a draw reads nothing back.
+    void log?.print();
   };
   return { prepare, paint };
 }

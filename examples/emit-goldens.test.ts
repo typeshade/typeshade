@@ -8,10 +8,8 @@
 // of shipped output shows up as a reviewed golden diff, not a silent drift.
 //
 // Re-bake protocol (intentional emit changes): re-run with the env flag set —
-//   bun run bake:goldens        (from the REPO ROOT — X-GIS #844; the script moved there
-//                                in X-GIS #1681 C, because a shader-dsl script may not name
-//                                a path outside the package)
-//   (equivalently: UPDATE_EMIT_GOLDENS=1 npx vitest run shader-dsl/examples/emit-goldens.test.ts)
+//   bun run bake:goldens        (package.json: the three golden suites under the flag)
+//   (equivalently: UPDATE_EMIT_GOLDENS=1 bunx vitest run examples/emit-goldens.test.ts)
 // — then commit the refreshed __emit-goldens__/ alongside the emitter change.
 //
 // The bake protocol itself (the env flag, the CRLF normalisation, the two failure messages)

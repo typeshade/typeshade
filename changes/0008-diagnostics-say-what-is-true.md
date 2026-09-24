@@ -5,30 +5,43 @@ status: accepted
 rules:
 - '2.1'
 - '2.2'
+- '4.8'
 - '6.7'
 - '6.8'
 - '7.1'
 - '7.5'
 - '8.5'
 - '8.13'
+- '8.19'
 - '12.4'
 - '12.6'
 - '12.7'
 surface:
 - 1
+- 2
 - 4
 - 7
+- 14
+- 16
 - 17
+- 18
 - 19
 - 20
+- 25
 - 26
 - 27
 - 28
 - 32
+- 36
+- 40
+- 42
+- 44
+- 45
 - 48
 - 51
 - 52
 - 54
+- 55
 exports: []
 exports-removed: []
 codes:
@@ -242,6 +255,18 @@ hands Tint a module it refuses. The causes are four:
   - **§28:** host names are unknown names.
   - **§32:** the generic interface sentence.
   - **§48, §54:** `workgroupUniformLoad` and `break`/`continue` in the uniformity walk.
+- **Widened after acceptance**, because the implementation changed sentences that these places
+  quote, and a quote the diff leaves stale is false (Rule 12.5):
+  - **Rules 4.8 and 8.19** quote a `TS8003` and a return-type sentence that printed the IR's
+    type key (`mat2x3<f32>`, `vec2<f32>`); §5's printer writes them as the author does.
+  - **§36, §40, §42, §44, §45 and §55** quote texture-argument, matrix, packing, conversion and
+    `random` sentences in the same IR spelling.
+  - **§14** quotes a return-type sentence the same way.
+  - **§2** says `@size` is refused as an unknown attribute; §4 of this proposal names it as
+    WGSL's own attribute that is not an author attribute.
+  - **§16 and §18** give the old reason for refusing a spread in a list (§3 of this proposal).
+  - **§25** says `workgroupUniformLoad` is refused inside any branch; §4 of this proposal moves
+    it under the uniformity walk.
 - **Exports.** None.
 - **Codes.** `TS8012` is retired; its number stays a gap (Rule 12.2). No code is added or
   renumbered. `TS8013` loses its `new` refusals to `TS8035`.

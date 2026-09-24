@@ -11,7 +11,8 @@ rules:
 surface:
 - 64
 - 67
-exports: []
+exports:
+- TypeshadeVitePlugin
 exports-removed: []
 codes: []
 examples: []
@@ -208,6 +209,12 @@ resets and decodes `_console` for a host-called entry, and hands the events to t
 console, in the order the CPU tier would print them. A production build records nothing, as
 0014's does not.
 
+The plugin tells `vite dev` from a build by Vite's own `configResolved` hook (`command:
+'serve'`), so `TypeshadeVitePlugin`, the plugin object's exported type, gains
+`configResolved(config: { readonly command: string }): void`. A host calls none of it: Vite does.
+Its options stay none. (Amended after acceptance, while part 3 was implemented: the plugin had no
+other way to know it runs in `vite dev`.)
+
 ### Every failure names a line (`docs/dx.md` principle 3)
 
 - A WGSL creation error, from `getCompilationInfo`, is mapped to the `.shade.ts` line through the
@@ -280,9 +287,11 @@ console, in the order the CPU tier would print them. A production build records 
   (Rule 3.7): 0013 takes §65 and 0014 takes §66. It holds the two calls, the host values of a
   binding, the tiers, the `_console` handling in `vite dev`, and what an entry needs to be
   callable.
-- **No export, no code, no example.**
+- **No new export, no code, no example.**
   - The call shapes are the host view's. `configure` and `resident` are 0013's.
     `typeshade/runtime` stays outside the API (0009).
+  - `TypeshadeVitePlugin` (0009's export) gains the `configResolved` hook Vite calls, which tells
+    `vite dev` from a build.
   - A refusal is a `TypeError` at the call, or `never` in the view with its reason.
   - The journeys carry the programs.
 - **Code.**
@@ -361,4 +370,5 @@ changed before acceptance without touching the rest:
    texture waits for #204.
 7. `vite dev` records `console.*` from WebGPU through 0014's buffer, and a production build does
    not.
-8. No new export: the calls are the host view's, and `configure` and `resident` stay 0013's.
+8. No new export: the calls are the host view's, and `configure` and `resident` stay 0013's. The
+   plugin's type gains Vite's `configResolved` hook, for decision 7.
