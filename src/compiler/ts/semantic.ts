@@ -1,13 +1,16 @@
 // Ban host/JS surface inside "use typeshade" files: host control flow and the runtime forms no
-// shader has. A NAME is not judged here by its spelling. It is resolved where it is used, and one
-// nothing declares is an unknown name of the code that owns its position (Rule 2.1). Three of
-// those are said here, on the syntax, because the lowering reaches a body once per instance or
-// not at all: a `new` that builds no class and a type name nothing declares, before the lowering,
-// and a value or a callee nothing declares, after it ({@link reportUndeclaredValues}).
+// shader has. A NAME is not judged here by its spelling, except `eval` and `arguments`, which
+// strict mode lets no declaration bind. It is resolved where it is used, and one nothing
+// declares is an unknown name of the code that owns its position (Rule 2.1). Three of those are
+// said here, on the syntax, because the lowering reaches a body once per instance or not at
+// all: a `new` that builds no class and a type name nothing declares, before the lowering, and a
+// value or a callee nothing declares, after it ({@link reportUndeclaredValues}).
 
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { ATTRIBUTE_NAMES, checkDeclarationDecorators } from './builtin-check.js';
+import { isResourceCall } from './bindings.js';
+import { isOverrideType } from './overrides.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { isEnableDirective } from './enables.js';
@@ -80,6 +83,14 @@ function visit(
       if (!refusedInNamespace(stmt)) visit(stmt, sourceFile, diagnostics);
     }
     return;
+  }
+  // A declaration that binds `eval` or `arguments`, which strict mode forbids (Rule 2.1). The
+  // declaration still lowers, so nothing is marked refused and a use of the name says nothing.
+  const strict = strictModeBinding(node);
+  if (strict !== undefined) {
+    diagnostics.push(
+      makeDiagnostic(sourceFile, strict.name, strict.message, TS_CODES.RESERVED_NAME),
+    );
   }
   // What a `new` builds, and a type name nothing declares, are resolved here, once for the file:
   // in a body no call lowers, and once for a body lowered for every instance (Rule 2.1, Rule 12.4).
@@ -192,6 +203,65 @@ function visit(
   }
   if (holdsItsMistake(node)) return;
   ts.forEachChild(node, (child) => visit(child, sourceFile, diagnostics));
+}
+
+/** The two names ECMAScript's strict mode lets no declaration bind. Every `"use typeshade"` file
+ *  is strict code, so TypeScript refuses such a binding (TS1215, TS1210 in a class, TS1100),
+ *  and the JavaScript the host import generates from the file would not load. */
+export const STRICT_MODE_NAMES: ReadonlySet<string> = new Set(['eval', 'arguments']);
+
+/**
+ * The binding `node` makes of a {@link STRICT_MODE_NAMES} name, where TypeScript refuses it, and
+ * the one sentence for it: a parameter, a function's name, and a variable, which is a local in a
+ * body and a module constant, a module variable, a binding or an override at the top level or
+ * in a namespace. A class, an enum, a namespace or a type of the name is a declaration
+ * TypeScript takes, and so does this front end (Rule 2.1).
+ */
+function strictModeBinding(node: ts.Node): { name: ts.Identifier; message: string } | undefined {
+  const name =
+    ts.isParameter(node) ||
+    ts.isVariableDeclaration(node) ||
+    ts.isBindingElement(node) ||
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node)
+      ? node.name
+      : undefined;
+  if (name === undefined || !ts.isIdentifier(name) || !STRICT_MODE_NAMES.has(name.text)) {
+    return undefined;
+  }
+  const noun = bindingNoun(node);
+  return {
+    name,
+    message:
+      `"${name.text}" is reserved in ECMAScript's strict mode, which every "use typeshade" ` +
+      `file is in, so ${/^[aeiou]/.test(noun) ? 'an' : 'a'} ${noun} of that name cannot be ` +
+      `declared. Rename it.`,
+  };
+}
+
+/** What the author calls what `node` declares, in the words `reserved-names.ts` uses. A name in
+ *  a pattern is what the pattern declares. */
+function bindingNoun(node: ts.Node): string {
+  if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) return 'function';
+  let at = node;
+  while (ts.isBindingElement(at) || ts.isObjectBindingPattern(at) || ts.isArrayBindingPattern(at)) {
+    at = at.parent;
+  }
+  if (ts.isParameter(at)) return 'parameter';
+  const statement = at.parent.parent;
+  if (
+    !ts.isVariableDeclaration(at) ||
+    !ts.isVariableStatement(statement) ||
+    !(ts.isSourceFile(statement.parent) || ts.isModuleBlock(statement.parent))
+  ) {
+    return 'local';
+  }
+  if ((at.parent.flags & ts.NodeFlags.Const) === 0) return 'module variable';
+  const declared = statement.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword);
+  if (declared === true || (at.initializer !== undefined && isResourceCall(at.initializer))) {
+    return 'binding';
+  }
+  return isOverrideType(at.type) ? 'override' : 'module constant';
 }
 
 /** Whether a variable statement is a `var`. */

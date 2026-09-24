@@ -11,7 +11,10 @@
 //     nothing more), TS8002 for a type, in the words and with the remedy proposal 0007 gave
 //     every unknown name;
 //   - a declaration of the file wins over a §9.3 constant of the same name, as it does in the
-//     editor: `enum E`, `namespace PI`, `class TAU` and `function PI` are never e, π or τ.
+//     editor: `enum E`, `namespace PI`, `class TAU` and `function PI` are never e, π or τ;
+//   - `eval` and `arguments`, which strict mode lets no declaration bind, are the one spelling
+//     refused: once, where a variable, a parameter or a function binds one, as TypeScript
+//     refuses it (TS8068).
 //
 // Verifies: Rule 2.1, Rule 12.4 (docs/language-design.md; traced in reqs/).
 
@@ -25,6 +28,16 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 
 const diagnosticsOf = (src: string): string[] =>
   compile(src).diagnostics.map((d) => `${d.code} ${d.message}`);
+
+/** The editor's errors on `src`, its merged list, TypeScript's entries included. */
+const editorOf = (src: string): string[] => {
+  const service = createTypeshadeLanguageService();
+  service.openDocument('a.ts', src);
+  return service
+    .getDiagnostics('a.ts')
+    .filter((d) => d.severity === 'error')
+    .map((d) => `${d.source} ${d.code} ${d.message}`);
+};
 
 /** The sentence a capitalized type name nothing declares gets. */
 const unknownType = (name: string): string =>
@@ -89,6 +102,72 @@ describe('a name the file declares is the file’s, whatever it spells', () => {
       `interface URL {\n  a: f32;\n}\nnamespace JSON {\n  export const k: f32 = 1.;\n}\nclass P {\n  Error: f32 = 1.;\n  get performance(): f32 {\n    return this.Error;\n  }\n  eval(): f32 {\n    return this.Error;\n  }\n}\nfunction fetch(u: URL): f32 {\n  return u.a;\n}\nfunction f(): f32 {\n  const p = new P();\n  const u: URL = { a: 1. };\n  return fetch(u) + JSON.k + p.performance + p.eval();\n}\n`,
       4,
     );
+  });
+});
+
+describe('eval and arguments, which strict mode lets no declaration bind', () => {
+  // The list refused `eval` by its spelling, at the declaration and at every use, and never had
+  // `arguments`. With the list gone, `const eval = 1.` compiled while the editor said TS1215, and
+  // the JavaScript the host import generates, which is strict code, did not load. A declaration
+  // that binds either name is refused once, on the name, where TypeScript refuses it, and its
+  // TS1215 (TS1210 in a class) merges into that; a write of the name, and a read of `arguments`
+  // that TypeScript takes for the function's own object, add nothing (Rule 2.1, Rule 12.4).
+  const strict = (name: string, noun: string): string =>
+    `${TS_CODES.RESERVED_NAME} "${name}" is reserved in ECMAScript's strict mode, which every ` +
+    `"use typeshade" file is in, so ${noun} of that name cannot be declared. Rename it.`;
+
+  it('a local, a parameter, a function, a module constant and a module variable, once', () => {
+    for (const [head, name, noun] of [
+      [`function g(): f32 {\n  const eval = 1.;\n  return eval;\n}\n`, 'eval', 'a local'],
+      [`function g(eval: f32): f32 {\n  return eval * 2.;\n}\n`, 'eval', 'a parameter'],
+      [`function eval(x: f32): f32 {\n  return x * 2.;\n}\n`, 'eval', 'a function'],
+      [
+        `const eval: f32 = 1.;\nfunction g(): f32 {\n  return eval;\n}\n`,
+        'eval',
+        'a module constant',
+      ],
+      [
+        `class C {\n  x: f32 = 1.;\n  m(eval: f32): f32 {\n    return this.x + eval;\n  }\n}\n`,
+        'eval',
+        'a parameter',
+      ],
+      [
+        `function g(): f32 {\n  let arguments = 1.;\n  arguments++;\n  return arguments;\n}\n`,
+        'arguments',
+        'a local',
+      ],
+      [
+        `let arguments: f32 = 1.;\nfunction g(): f32 {\n  arguments = 2.;\n  return arguments * 2.;\n}\n`,
+        'arguments',
+        'a module variable',
+      ],
+    ]) {
+      const src = `"use typeshade";\n${head!}${FS}`;
+      expect(diagnosticsOf(src), head).toEqual([strict(name!, noun!)]);
+      expect(editorOf(src), head).toEqual([`typeshade ${strict(name!, noun!)}`]);
+    }
+  });
+
+  it('a class, an enum, a namespace and a type of the name are the file’s, as TypeScript takes them', () => {
+    for (const head of [
+      `class eval {\n  x: f32 = 1.;\n}\nfunction g(): f32 {\n  return new eval().x;\n}\n`,
+      `enum eval {\n  A = 1,\n}\nfunction g(): i32 {\n  return eval.A;\n}\n`,
+      `namespace eval {\n  export const k: f32 = 1.;\n}\nfunction g(): f32 {\n  return eval.k;\n}\n`,
+      `type arguments = f32;\nfunction g(x: arguments): f32 {\n  return x;\n}\n`,
+    ]) {
+      const src = `"use typeshade";\n${head}${FS}`;
+      expect(diagnosticsOf(src), head).toEqual([]);
+      expect(editorOf(src), head).toEqual([]);
+    }
+  });
+
+  it('a read of arguments nothing declares is the unknown name alone', () => {
+    // TypeScript takes it for the function's own object and says `length` is no member of
+    // `IArguments`; the compiler's unknown name is the one mistake.
+    const src = `"use typeshade";\nfunction g(x: f32): f32 {\n  return arguments.length;\n}\n${FS}`;
+    const said = [`${TS_CODES.UNKNOWN_NAME} Unknown identifier "arguments".`];
+    expect(diagnosticsOf(src)).toEqual(said);
+    expect(editorOf(src)).toEqual(said.map((s) => `typeshade ${s}`));
   });
 });
 
@@ -517,14 +596,6 @@ describe('the editor says the one sentence the compiler says', () => {
   // on `Date`, TS2351 on an enum, TS2693 on a type, TS7009 on a function, TS2511 on an abstract
   // class) is merged into the compiler's, and a name the file declares draws nothing. Before
   // this each `new` read as the compiler's sentence beside TypeScript's.
-  const editorOf = (src: string): string[] => {
-    const service = createTypeshadeLanguageService();
-    service.openDocument('a.ts', src);
-    return service
-      .getDiagnostics('a.ts')
-      .filter((d) => d.severity === 'error')
-      .map((d) => `${d.source} ${d.code} ${d.message}`);
-  };
   const body = (head: string, line: string) =>
     `"use typeshade";\n${head}function g(): f32 {\n  const d = ${line};\n  return 1.;\n}\n${FS}`;
 

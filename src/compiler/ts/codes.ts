@@ -204,7 +204,9 @@ export const TS_CODES = {
    *  word" in generated text the author never wrote, or `as` as a local, which Tint refuses.
    *  The message names the target that reserves the word, and the emitted name when the
    *  flattening (`Cls_member`, `Ns_member`) made it differ from the written one. A module
-   *  with no GLSL form is not held to GLSL ES 3.00's list. */
+   *  with no GLSL form is not held to GLSL ES 3.00's list. The same code refuses `eval` and
+   *  `arguments` where a variable, a parameter or a function binds one, which ECMAScript's
+   *  strict mode, and TypeScript with it, lets no declaration do (Rule 2.1). */
   RESERVED_NAME: 'TS8068',
   /** A `"use typeshade"` directive after another top-level statement (Rule 3.1, #200). In
    *  ECMAScript a directive is only a leading string-literal statement, so TypeScript reads a late

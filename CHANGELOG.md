@@ -27,7 +27,13 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   sentence. The list and `TS8012` are gone, and its number stays a gap (Rule 12.2). A name the
   file declares is the file's whatever it spells, and all six compile, measured on Tint; so do
   a `class Mat`, a `class String` and an `interface Pick` (in `uniform<Pick>` too), whose names
-  the ambient library also gives types of its own, in every position a type is written. A name
+  the ambient library also gives types of its own, in every position a type is written. Two
+  spellings are the exception, as ECMAScript's strict mode makes them: `eval` and `arguments`
+  bound by a variable, a parameter or a function are `TS8068`, once, on the name, `"eval" is
+reserved in ECMAScript's strict mode, which every "use typeshade" file is in, so a local of that
+name cannot be declared. Rename it.`, where the editor says TS1215 (which merges into it, with
+  its word on a later write of the name) and the host import's generated module would not load;
+  a class, an enum, a namespace or a type of either name compiles, as TypeScript takes it. A name
   nothing declares is one diagnostic, in proposal 0007's words and with its remedy, in a body a
   call lowers and in one no call lowers alike (an uncalled generic, a function that takes a
   function, a method of a class nothing builds), where the lowering never reads it (`window`

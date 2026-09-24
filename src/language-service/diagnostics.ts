@@ -3,7 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
-import { refusedVars, refusedWhole } from '../compiler/ts/semantic.js';
+import { refusedVars, refusedWhole, STRICT_MODE_NAMES } from '../compiler/ts/semantic.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
 import { ERASING_OPERATORS, ERASING_UNARY_OPERATORS } from './projection.js';
@@ -1504,7 +1504,28 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     typeshade: new Set(['TS8003', 'TS8019', 'TS8036']),
     reason: 'The same at an overloaded callee, the math builtins and the vector constructors.',
   },
+  {
+    typescript: 1215,
+    typeshade: new Set(['TS8068', 'TS8022']),
+    reason:
+      'A declaration that binds `eval` or `arguments`, which strict mode forbids, and a write of ' +
+      'such a name nothing declares (`eval = 1.`).',
+  },
+  {
+    typescript: 1210,
+    typeshade: new Set(['TS8068', 'TS8022']),
+    reason: 'The same in a class, which TypeScript says is strict code of its own.',
+  },
+  {
+    typescript: 1100,
+    typeshade: new Set(['TS8068', 'TS8022']),
+    reason: 'The same in a file TypeScript does not take for a module.',
+  },
 ];
+
+/** The TypeScript codes of a binding or a write of `eval` or `arguments` in strict code: in a
+ *  module (TS1215), in a class (TS1210), and in any other file (TS1100). */
+const STRICT_MODE_CODES: ReadonlySet<number> = new Set([1100, 1210, 1215]);
 
 /** The TypeScript codes reported about a CALL, on its callee or on one of its arguments. */
 const CALL_CODES: ReadonlySet<number> = new Set([2345, 2554, 2769]);
@@ -2054,6 +2075,67 @@ function repeatsRefusal(
 }
 
 /**
+ * Whether a TypeScript error repeats what the compiler said of `eval` or `arguments` (Rule 12.4):
+ *
+ * - TypeScript's word on a write of such a name whose declaration the compiler refused
+ *   (`TS8068`, Rule 2.1), `arguments = 2.` or `arguments++`, which it reports as it does the
+ *   binding;
+ * - what it says of a read of `arguments` in a function, which it takes for the function's own
+ *   `arguments` object (`IArguments`): the file's declaration of the name the compiler refused,
+ *   or a name the compiler found no declaration of (`TS8022`), is what that read is about.
+ */
+function repeatsStrictModeRefusal(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const text = (span: TypeshadeTextSpan): string =>
+    context.sourceFile.text.slice(span.start, spanEnd(span));
+  const refused = new Set(
+    compilerErrors
+      .filter((e) => e.code === TS_CODES.RESERVED_NAME && STRICT_MODE_NAMES.has(text(e.span)))
+      .map((e) => text(e.span)),
+  );
+  if (typeof diagnostic.code === 'number' && STRICT_MODE_CODES.has(diagnostic.code)) {
+    return refused.has(text(diagnostic.span));
+  }
+  const checker = context.checker;
+  if (checker === undefined || !context.sourceFile.text.includes('arguments')) return false;
+  const subject = subjectOf(context, diagnostic);
+  const region = subject === undefined ? diagnostic.span : spanOfNode(subject, context.sourceFile);
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (
+      found ||
+      node.getEnd() <= region.start ||
+      node.getStart(context.sourceFile) >= spanEnd(region)
+    ) {
+      return;
+    }
+    if (ts.isIdentifier(node) && node.text === 'arguments') {
+      const span = spanOfNode(node, context.sourceFile);
+      // The function's own object is the one `arguments` symbol with no declaration.
+      const symbol = checker.getSymbolAtLocation(node);
+      found =
+        within(span, region) &&
+        symbol !== undefined &&
+        symbol.declarations === undefined &&
+        (refused.has('arguments') ||
+          compilerErrors.some(
+            (e) =>
+              e.code === TS_CODES.UNKNOWN_NAME &&
+              e.span.start === span.start &&
+              e.span.length === span.length,
+          ));
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(context.sourceFile);
+  return found;
+}
+
+/**
  * The operation an operator's own diagnostic is about: the one TS2447 (`^` on two booleans)
  * spans, or the one whose left operand TS2362, or right operand TS2363, it is reported on.
  * TS2365 is `subjectOf`'s.
@@ -2210,7 +2292,7 @@ function isInRefusedDecorator(
 
 /**
  * The merged list for one document: `typescript` (already filtered by
- * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Five
+ * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Six
  * rules drop a report, and each only ever drops an ERROR that another error already covers:
  *
  * - a TypeScript error that is TypeScript's own knock-on of a call it failed to resolve
@@ -2222,7 +2304,10 @@ function isInRefusedDecorator(
  * - a TypeScript error that `SAME_MISTAKE` pairs by code with a compiler error, and whose span
  *   sits where one mistake would put the two (`sameMistakeSpans`), goes: the compiler's stays;
  * - a TypeScript error about what the compiler refused whole, a `throw` and what it throws, an
- *   async function, a spread in a list, a `var` (`repeatsRefusal`), goes.
+ *   async function, a spread in a list, a `var` (`repeatsRefusal`), goes;
+ * - a TypeScript error about a write of `eval` or `arguments` whose declaration the compiler
+ *   refused, or a read of `arguments` it takes for a function's own object
+ *   (`repeatsStrictModeRefusal`), goes.
  *
  * Without `analysis` nothing is dropped: the service passes none when a test asks for the two
  * halves unmerged (`TypeshadeLanguageServiceTestOptions`).
@@ -2253,6 +2338,7 @@ export function mergeDiagnostics(
     if (isAboutRefusedOperation(context, diagnostic, operatorRefusals)) return false;
     if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
+    if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
     const pair = SAME_MISTAKE.find((p) => p.typescript === ruleCodeOf(diagnostic.code));
     if (pair === undefined) return true;
     return !compilerErrors.some(
