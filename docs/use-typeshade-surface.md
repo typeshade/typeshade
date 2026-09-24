@@ -5257,7 +5257,12 @@ halves on a witness per instance.
 
 A class field or a function's return the document leaves unannotated is written in by the
 projection when the front end types it a scalar: `#width = 0.05` hovers as `f32`, and `get
-period() { return this.r * 2. }` returns one, where TypeScript said `number`.
+period() { return this.r * 2. }` returns one, where TypeScript said `number`. So is the type
+argument of an array's `reduce` from a value: `xs.reduce((a, x) => a + x, 0.)` is an `f32` in
+the editor as in the compiler, where TypeScript took `number` from the `0.`.
+
+`array(...)` reads its element and its count off its values in the editor as it does in the
+compiler: `array(uv.x, uv.y, 1.)` is an `array<f32, 3>`, where the editor said `array<number>`.
 
 One call has no type TypeScript can give it: a call whose numeric arguments are all literals,
 such as `select(0., 0.15, c)` or `max(1., 2.)`. WGSL types it as an abstract numeric until its
