@@ -9,10 +9,11 @@
 // declarations that are not shader types at all, and collecting those would turn each into a
 // type error and put an unreferenced shape into the emit.
 //
-// Verifies: Rule 6.9 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 4.2, Rule 6.9 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import type { StructDecl } from '../../core/ir/nodes.js';
 
 function analyze(source: string): ReturnType<typeof compileTsSource> {
@@ -539,5 +540,36 @@ describe('one name, one declaration', () => {
 
   it('reports it as a duplicate symbol, not a struct-field problem', () => {
     expect(code(`class C {\n  a: f32\n}\ninterface C {\n  b: f32\n}\n${USE}`)).toBe('TS8023');
+  });
+
+  // #172: the check ran only for a struct something uses, so the same pair with no binding
+  // compiled clean, and a use added later got the error at a distance from its cause.
+  // Both halves read the same source: `compile()` and the editor's `getDiagnostics`.
+  const NO_USE = 'export function f(): f32 { return 1.; }';
+  const UNUSED: readonly (readonly [string, string, number])[] = [
+    ['two interfaces', 'interface C {\n  a: f32\n}\ninterface C {\n  b: f32\n}', 4],
+    ['a class and an interface', 'class C {\n  a: f32\n}\ninterface C {\n  b: f32\n}', 4],
+    ['an interface and a class', 'interface C {\n  a: f32\n}\nclass C {\n  b: f32\n}', 4],
+  ];
+  it.each(UNUSED)('rejects %s that nothing uses, on the second declaration', (_l, decls, line) => {
+    const source = `${decls}\n${NO_USE}`;
+    const r = analyze(source);
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([`TS8023 ${DUPLICATE}`]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', `"use typeshade";\n${source}`);
+    const editor = service.getDiagnostics('a.ts');
+    expect(editor.map((d) => `${String(d.code)} ${d.message}`)).toEqual([`TS8023 ${DUPLICATE}`]);
+    expect(editor[0]!.range.start.line).toBe(line);
+  });
+
+  it('still reports a used pair once, not once per check', () => {
+    const r = analyze(`class C {\n  a: f32\n}\ninterface C {\n  b: f32\n}\n${USE}`);
+    expect(r.diagnostics.map((d) => d.code)).toEqual(['TS8023']);
+  });
+
+  it('leaves one unused declaration of a name alone', () => {
+    expect(
+      analyze(`interface C {\n  a: f32\n}\nclass D {\n  b: f32\n}\n${NO_USE}`).diagnostics,
+    ).toEqual([]);
   });
 });
