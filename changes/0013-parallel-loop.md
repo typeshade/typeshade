@@ -1,5 +1,5 @@
 ---
-id: '0015'
+id: '0013'
 title: A top-level loop of an exported function that takes an array runs as a GPU kernel when the compiler proves its iterations independent, and on the CPU with the line that stops it when it cannot
 status: accepted
 rules:
