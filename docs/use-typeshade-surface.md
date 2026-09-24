@@ -5250,10 +5250,13 @@ is shrink-only: a divergence it does not list fails, and so does a row that no l
 A builtin's declarations are generated from Tint's own overload table, `core.def`, one overload
 per row (proposal 0017, `src/language-service/builtin-signatures.ts`), for every family that
 table's claims mark SUPPORTED: the math builtins, the derivatives, and the bit and packing
-builtins, all but `bitcast`, whose result is chosen by a type argument. `dot(a, b)` on two
+builtins, all but `bitcast`, whose result is chosen by a type argument; and the atomics, the
+barriers and `arrayLength`, whose rows take a location WGSL passes by pointer and an author
+writes bare (`atomicAdd(bins[i], 1)`, `arrayLength(xs)`). `dot(a, b)` on two
 `vec3u` is a `u32` in the editor as it is in the compiler, and `max(n, u32(3))` a `u32`, where
 both said `number`. The compiler reads the same rows for the call's result and its argument
-check. `src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both
+check; `ATOMIC_INTRINSICS` and `BARRIER_INTRINSICS`, which the CPU runtime carries, are held to
+them by the same suite. `src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both
 halves on a witness per instance.
 
 A class field or a function's return the document leaves unannotated is written in by the

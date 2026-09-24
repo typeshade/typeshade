@@ -16,8 +16,11 @@
 // arguments carry written types, so what is compared is the builtin's own declaration and
 // nothing it was handed.
 //
-// Rows over scalars and vectors of them are witnessed today; a family whose rows take other
-// types (a pointer, a texture, a matrix) extends `parseType` when it lands.
+// Rows over scalars and vectors of them are witnessed in a fragment entry. A row that takes an
+// atomic's location or a runtime-sized array is witnessed in a compute entry, each such
+// argument a storage binding of its own the call names bare (`atomicAdd(w3_a0, a1)`), and a
+// row that returns nothing is called as a statement. A family whose rows take other types (a
+// texture, a matrix) extends `row-types.ts` when it lands.
 import ts from 'typescript';
 import { compileTsSource } from '../../compiler/ts/source-file.js';
 import type { ShaderType } from '../ir/types.js';
@@ -26,7 +29,13 @@ import {
   analyzeSourceFile,
   createTypeshadeLanguageServiceWith,
 } from '../../language-service/service.js';
-import { rowTypes, scalarDomain, type RowType } from '../builtins/row-types.js';
+import {
+  isValueType,
+  namesOf,
+  rowTypes,
+  scalarDomain,
+  type RowType,
+} from '../builtins/row-types.js';
 import type { CoreDefRow } from '../builtins/coredef-types.js';
 
 export type { CoreDefRow };
@@ -52,15 +61,21 @@ export function instancesOf(
   const types = rowTypes(row);
   if (types === undefined) return undefined;
   let binds: Record<string, string>[] = [{}];
+  // Only the parameters a type names: an address space or an access mode (`S`, `A`) is the
+  // pointer's, which an author never writes.
+  const named = new Set([...types.params, types.ret].flatMap(namesOf));
   for (const [param, constraint] of Object.entries(row.implicit)) {
+    if (!named.has(param)) continue;
     const domain: string[] =
       constraint === 'num' ? ['2', '3', '4'] : scalarDomain(constraint, matchers);
     binds = binds.flatMap((b) => domain.map((d) => ({ ...b, [param]: d })));
   }
   const subst = (t: Witnessable, b: Record<string, string>): Witnessable =>
-    t.k === 'scalar'
-      ? { k: 'scalar', s: b[t.s] ?? t.s }
-      : { k: 'vec', n: b[t.n] ?? t.n, s: b[t.s] ?? t.s };
+    t.k === 'void'
+      ? t
+      : t.k === 'vec'
+        ? { k: 'vec', n: b[t.n] ?? t.n, s: b[t.s] ?? t.s }
+        : { ...t, s: b[t.s] ?? t.s };
   return binds.map((bind) => ({
     row,
     bind,
@@ -69,26 +84,43 @@ export function instancesOf(
   }));
 }
 
-/** The spelling both halves are compared in: `u32`, `vec3<u32>`. */
-export const spellWitnessable = (t: Witnessable): string =>
-  t.k === 'scalar' ? t.s : `vec${t.n}<${t.s}>`;
+/** The spelling both halves are compared in: `u32`, `vec3<u32>`, `atomic<u32>`. */
+export function spellWitnessable(t: Witnessable): string {
+  switch (t.k) {
+    case 'scalar':
+      return t.s;
+    case 'vec':
+      return `vec${t.n}<${t.s}>`;
+    case 'atomic':
+      return `atomic<${t.s}>`;
+    case 'runtimeArray':
+      return `array<${t.s}>`;
+    case 'casResult':
+      return `__atomic_compare_exchange_result<${t.s}>`;
+    case 'void':
+      return 'void';
+  }
+}
 
-/** The name an author writes for the type. */
+/** The name an author writes for a value's type. */
 function authorSpelling(t: Witnessable): string {
   if (t.k === 'scalar') return t.s;
+  if (t.k !== 'vec') return spellWitnessable(t);
   const suffix: Record<string, string> = { f32: '', i32: 'i', u32: 'u', bool: 'b' };
   return `vec${t.n}${suffix[t.s] ?? ''}`;
 }
 
-/** A value of the type, built from the fragment input so no constant folds it away. */
-function valueOf(t: Witnessable): string {
+/** A value of the type, built from the entry's input (`x`, an `f32`) so no constant folds it
+ *  away. */
+function valueOf(t: Witnessable, x: string): string {
   const scalar: Record<string, string> = {
-    f32: 'v.uv.x',
-    i32: 'i32(v.uv.x)',
-    u32: 'u32(v.uv.x)',
-    bool: 'v.uv.x > 0.5',
+    f32: x,
+    i32: `i32(${x})`,
+    u32: `u32(${x})`,
+    bool: `${x} > 0.5`,
   };
-  const s = scalar[t.s] ?? 'v.uv.x';
+  if (t.k !== 'scalar' && t.k !== 'vec') throw new Error(`no value of ${spellWitnessable(t)}`);
+  const s = scalar[t.s] ?? x;
   return t.k === 'scalar' ? s : `${authorSpelling(t)}(${s})`;
 }
 
@@ -103,16 +135,41 @@ const HEAD = [
 
 /** The witness of one instance: a fragment entry, and the call's text in it. */
 export function witnessOf(inst: Instance, index: number): { text: string; call: string } {
-  const decls = inst.params.map(
-    (p, j) => `  const a${String(j)}: ${authorSpelling(p)} = ${valueOf(p)};`,
+  const compute =
+    !inst.params.every(isValueType) ||
+    !inst.row.stages.every((s) => s === 'fragment' || s === 'compute')
+      ? true
+      : inst.row.stages.length > 0 && !inst.row.stages.includes('fragment');
+  const x = compute ? 'f32(gid.x)' : 'v.uv.x';
+  const bindings: string[] = [];
+  const names = inst.params.map((p, j) => {
+    const name = `w${String(index)}_a${String(j)}`;
+    if (p.k === 'atomic')
+      bindings.push(`declare const ${name}: storage<atomic<${p.s}>, "read_write">;`);
+    else if (p.k === 'runtimeArray')
+      bindings.push(`declare const ${name}: storage<array<${p.s}>>;`);
+    else return `a${String(j)}`;
+    return name;
+  });
+  const decls = inst.params.flatMap((p, j) =>
+    isValueType(p) ? [`  const a${String(j)}: ${authorSpelling(p)} = ${valueOf(p, x)};`] : [],
   );
-  const call = `${inst.row.name}(${inst.params.map((_, j) => `a${String(j)}`).join(', ')})`;
+  const call = `${inst.row.name}(${names.join(', ')})`;
+  const body = [...decls, inst.ret.k === 'void' ? `  ${call};` : `  const r = ${call};`];
   const text = [
-    '@fragment',
-    `export function fs_${String(index)}(v: V): vec4 {`,
-    ...decls,
-    `  const r = ${call};`,
-    '  return vec4(0., 0., 0., 1.);',
+    ...bindings,
+    ...(compute
+      ? [
+          '@compute([1, 1, 1])',
+          `export function cs_${String(index)}(@builtin("global_invocation_id") gid: vec3u): void {`,
+          ...body,
+        ]
+      : [
+          '@fragment',
+          `export function fs_${String(index)}(v: V): vec4 {`,
+          ...body,
+          '  return vec4(0., 0., 0., 1.);',
+        ]),
     '}',
     '',
   ].join('\n');
@@ -122,6 +179,8 @@ export function witnessOf(inst: Instance, index: number): { text: string; call: 
 function spellShader(t: ShaderType): string {
   if (t.kind === 'scalar') return t.scalar;
   if (t.kind === 'vec') return `vec${String(t.n)}<${t.elem}>`;
+  const cas = t.kind === 'struct' ? /^__atomic_compare_exchange_result_(\w+)$/.exec(t.name) : null;
+  if (cas) return `__atomic_compare_exchange_result<${cas[1]!}>`;
   return t.kind;
 }
 
@@ -152,6 +211,12 @@ export function compilerReadings(instances: readonly Instance[]): HalfReading[] 
  *  declares: `[f32Tag]` and its siblings for a scalar, `[vecTag]` for a vector. */
 function spellChecked(checker: ts.TypeChecker, t: ts.Type): string {
   if (t.flags & ts.TypeFlags.Any) return 'any';
+  if (t.flags & ts.TypeFlags.Void) return 'void';
+  // The compare-exchange's result, which the ambient library spells as its two fields.
+  const oldValue = t.getProperty('old_value');
+  if (oldValue !== undefined && t.getProperty('exchanged') !== undefined) {
+    return `__atomic_compare_exchange_result<${spellChecked(checker, checker.getTypeOfSymbol(oldValue))}>`;
+  }
   if (t.flags & ts.TypeFlags.BooleanLike) return 'bool';
   const literal = (x: ts.Type): string =>
     x.isStringLiteral() || x.isNumberLiteral() ? String(x.value) : checker.typeToString(x);

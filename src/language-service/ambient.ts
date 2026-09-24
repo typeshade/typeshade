@@ -1454,8 +1454,6 @@ ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers<F extends StorageFormat, A extends StorageAccess>(
   tex: texture_storage_2d_array<F, A>,
 ): u32
-${renderJSDoc(FUNCTION_DOCS.arrayLength)}
-declare function arrayLength<T>(xs: array<T>): u32
 ${renderJSDoc(FUNCTION_DOCS.quantizeToF16)}
 declare function quantizeToF16(e: f32): f32
 ${renderJSDoc(FUNCTION_DOCS.quantizeToF16)}
@@ -1480,14 +1478,6 @@ ${renderJSDoc(FUNCTION_DOCS.unpack2x16unorm)}
 declare function unpack2x16unorm(e: u32): vec2
 ${renderJSDoc(FUNCTION_DOCS.unpack2x16snorm)}
 declare function unpack2x16snorm(e: u32): vec2
-${renderJSDoc(FUNCTION_DOCS.atomicCompareExchangeWeak)}
-declare function atomicCompareExchangeWeak<T extends u32 | i32>(
-  location: atomic<T>,
-  compare: T,
-  value: T,
-): { old_value: T; exchanged: bool }
-${renderJSDoc(FUNCTION_DOCS.textureBarrier)}
-declare function textureBarrier(): void
 ${renderJSDoc(FUNCTION_DOCS.workgroupUniformLoad)}
 declare function workgroupUniformLoad<T>(w: T): T
 ${renderJSDoc(FUNCTION_DOCS.dot4U8Packed)}
@@ -1508,30 +1498,6 @@ ${renderJSDoc(FUNCTION_DOCS.unpack4xI8)}
 declare function unpack4xI8(e: u32): vec4i
 ${renderJSDoc(FUNCTION_DOCS.bitcast)}
 declare function bitcast<T extends u32 | f32>(e: BitcastArg<T>): T
-${renderJSDoc(FUNCTION_DOCS.atomicLoad)}
-declare function atomicLoad<T extends u32 | i32>(location: atomic<T>): T
-${renderJSDoc(FUNCTION_DOCS.atomicStore)}
-declare function atomicStore<T extends u32 | i32>(location: atomic<T>, value: T): void
-${renderJSDoc(FUNCTION_DOCS.atomicAdd)}
-declare function atomicAdd<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicSub)}
-declare function atomicSub<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicMin)}
-declare function atomicMin<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicMax)}
-declare function atomicMax<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicAnd)}
-declare function atomicAnd<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicOr)}
-declare function atomicOr<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicXor)}
-declare function atomicXor<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicExchange)}
-declare function atomicExchange<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.workgroupBarrier)}
-declare function workgroupBarrier(): void
-${renderJSDoc(FUNCTION_DOCS.storageBarrier)}
-declare function storageBarrier(): void
 
 ${vecCtors}
 ${matCtorOverloads}

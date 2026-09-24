@@ -31,7 +31,7 @@ import { TS_CODES } from '../codes.js';
 import { F64_SCALAR_TWINS, F64_VEC_REDUCTIONS, F64_VEC_TWINS } from '../../../core/fp64/twins.js';
 import { COREDEF } from '../../../core/builtins/coredef.js';
 import { supportedRows } from '../../../core/builtins/resolve.js';
-import { rowTypes, scalarDomain } from '../../../core/builtins/row-types.js';
+import { scalarDomain, valueRowTypes } from '../../../core/builtins/row-types.js';
 import { MATH_FN_ARITY } from '../math-alias.js';
 
 type Elem = 'f32' | 'i32' | 'u32' | 'bool' | 'f64';
@@ -134,7 +134,7 @@ function canonicalElems(found: ReadonlySet<string>): readonly Elem[] {
  */
 function derivedSpec(name: string): Spec | undefined {
   const rows = supportedRows(name)
-    .map((row) => ({ row, types: rowTypes(row)! }))
+    .map((row) => ({ row, types: valueRowTypes(row)! }))
     .filter((r) => r.types !== undefined);
   if (rows.length === 0) return undefined;
   const found = new Set<string>();
