@@ -22,3 +22,16 @@ export default {
   heights: points.map(height),
   normals: points.map(normal),
 };
+
+/** What `src/gpu.ts` should return: the same map and block sums, in f32 as the GPU computes. */
+export function gpuReference() {
+  const f = Math.fround;
+  const xs = Array.from({ length: 256 }, (_, i) => f(Math.sin(i * 0.37) * 4));
+  const ys = xs.map((x) => f(x * f(2.5)));
+  const sums = [0, 1, 2, 3].map((w) => {
+    let s = 0;
+    for (let i = 0; i < 64; i++) s = f(s + xs[w * 64 + i]);
+    return s;
+  });
+  return { ys, sums };
+}

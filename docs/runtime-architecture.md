@@ -419,7 +419,7 @@ The runtime may manage pipelines, bind groups, queues, resource layouts and cach
 
 The raw compiler/reflection path remains available for applications that need direct WebGPU/WebGL control.
 
-The first half of this exists (change 0009, surface §64): `import { height } from "./terrain.shade.ts"` in an ordinary host file, through the `typeshade/vite` plugin, and `height([0.5, 0.5], k)` runs the module's function on the CPU tier at `f32`, with no device. The device and the GPU calls (`device.create`, an entry point run on WebGPU or WebGL2) are the second half of roadmap item 16.
+The first half of this exists (change 0009, surface §64): `import { height } from "./terrain.shade.ts"` in an ordinary host file, through the `typeshade/vite` plugin, and `height([0.5, 0.5], k)` runs the module's function on the CPU tier at `f32`, with no device. The first GPU call exists too (change 0016, surface §67): an imported `@compute` entry is `await entry(bindings, workgroups)`, which `typeshade/runtime` dispatches on a device it requests itself, and a fragment entry drawn into a canvas is the rest of the second half of roadmap item 16.
 
 ## 6. Why Numba is useful
 

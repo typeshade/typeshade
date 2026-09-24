@@ -40,11 +40,12 @@ A journey is a directory holding one or more `*.shade.ts` sources and a `journey
 
 ## The import path
 
-`journeys/_host-import/` is a different kind of journey, and the harness skips it (a name that starts with `_`). It is a Vite project that imports a `.shade.ts` and calls its functions on the CPU tier (surface §64). `scripts/user-journey.ts` sets it up with the documented lines, from the same tarball, beside `vite` and `typescript`, and `typeshade sync` runs as its `prepare` script. It then checks four things:
+`journeys/_host-import/` is a different kind of journey, and the harness skips it (a name that starts with `_`). It is a Vite project that imports a `.shade.ts` and calls its functions on the CPU tier (surface §64) and its `@compute` entries on WebGPU (surface §67). `scripts/user-journey.ts` sets it up with the documented lines, from the same tarball, beside `vite` and `typescript`, and `typeshade sync` runs as its `prepare` script. It then checks five things:
 
 1. `tsc` over the host program reports 0 errors, and a wrong-length vector argument is TS2345 at the host line;
 2. `vite build` bundles it, and the bundle holds no compiler and no `new Function`;
 3. Node runs the bundle;
-4. every value the bundle prints matches `reference.mjs`, the same computation in plain JavaScript.
+4. every value the bundle prints matches `reference.mjs`, the same computation in plain JavaScript;
+5. a browser bundle of `src/gpu.ts` calls two `@compute` entries through the import in a page with WebGPU (change 0016), one of them through a barrier, which has no CPU tier, and both match the reference.
 
 A journey belongs with the change that makes it work. A pull request that improves what a user can write adds the journey that shows it, and the gate keeps it working from then on.
