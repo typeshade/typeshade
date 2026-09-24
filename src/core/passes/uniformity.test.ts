@@ -481,7 +481,7 @@ export function opaque(): f32 { return 0.5 }
     ).toEqual([
       barrierRefusal(
         'workgroupBarrier',
-        'after a return taken under the expression, which this compiler cannot prove uniform',
+        'after a return taken under opaque(…), which this compiler cannot prove uniform',
         'Move it above the return',
         'return on',
       ),
@@ -1845,6 +1845,82 @@ describe('a call on the right of && or ||', () => {
       ),
     ]);
     expect(compiled(cond('k > 0.5')).wgsl).toContain('textureSample(t, s,');
+  });
+
+  // A right side that calls a helper which writes becomes an `if` the sequencing pass builds
+  // (Rule 7.9), and the message still names the `&&` the author wrote, not a branch.
+  it('names the && when its right side calls a helper that writes', () => {
+    const src = frag(
+      `  const b = v.uv.x > 0.5 && paint(textureSample(t, s, v.uv).xy) > 0.;
+  return select(vec4(0.), vec4(1.), b);`,
+    ).replace(
+      '@fragment',
+      'declare const scratch: storage<array<f32>, "read_write">\n' +
+        'function paint(uv: vec2): f32 {\n  scratch[0] = uv.x\n  return uv.y\n}\n@fragment',
+    );
+    expect(errorsOf(src)).toEqual([
+      sampleRefusal(
+        `on the right of an && or || whose left side reads ${UV}`,
+        'Hoist the call above the && or ||',
+      ),
+    ]);
+  });
+});
+
+// ═══ A `?:` WGSL writes as an `if` ═══
+//
+// WGSL's `select` takes a scalar or a vector, so a `?:` that picks a struct, an array or a
+// matrix is an `if` and an `else` in the WGSL (`select-composite.ts`), and an arm of it runs
+// only where the condition lets it. Measured on Chromium 141: Tint refuses a `textureSample`
+// in the arm of a struct `?:` on a fragment input, in either arm, and a `dpdx` in an array's;
+// it accepts the same on a uniform, a `textureSampleLevel` there, and a vector `?:`, which is
+// WGSL's `select` and evaluates both arms. The walk read the `select` under one flow, so all
+// of them compiled.
+describe('an arm of a ?: that WGSL writes as an if', () => {
+  const C2 =
+    'class C2 { c: vec4; w: f32; constructor(c: vec4, w: f32) { this.c = c; this.w = w } }\n';
+  const pick = (cond: string, arms: string): string =>
+    frag(
+      `  const z = new C2(vec4(0., 0., 0., 1.), 0.)
+  const r = ${cond} ? ${arms}
+  return r.c`,
+    ).replace('@fragment', `${C2}@fragment`);
+
+  it('refuses a sample in either arm of a struct ?: on a fragment input', () => {
+    const want = [
+      sampleRefusal(`in an arm of a ?: whose condition reads ${UV}`, 'Hoist the call above the ?:'),
+    ];
+    expect(errorsOf(pick('v.uv.x > 0.5', 'new C2(textureSample(t, s, v.uv), 1.) : z'))).toEqual(
+      want,
+    );
+    expect(errorsOf(pick('v.uv.x > 0.5', 'z : new C2(textureSample(t, s, v.uv), 1.)'))).toEqual(
+      want,
+    );
+  });
+
+  it('refuses a derivative in an arm of an array ?: on a fragment input', () => {
+    expect(
+      errorsOf(
+        frag(`  const z = array<f32, 2>(0., 0.)
+  const r = v.uv.x > 0.5 ? array<f32, 2>(dpdx(v.uv.x), 1.) : z
+  return vec4(r[0], 0., 0., 1.)`),
+      ),
+    ).toEqual([
+      `${TS_CODES.UNIFORMITY} dpdx() is reached in an arm of a ?: whose condition reads ${UV}, which WGSL's derivative_uniformity rule refuses: it differences neighbouring invocations, and one that did not run has no value to difference against. Hoist the call above the ?: and select from its result, or compute the quantity some other way — a screen-space derivative has no alternative form, or write @diagnostic("off", "derivative_uniformity") on the entry to take the module as written.`,
+    ]);
+  });
+
+  it('takes one on a uniform, an explicit level, and a vector ?:, which is select', () => {
+    expect(compiled(pick('k > 0.5', 'new C2(textureSample(t, s, v.uv), 1.) : z')).wgsl).toContain(
+      'textureSample(t, s,',
+    );
+    expect(
+      compiled(pick('v.uv.x > 0.5', 'new C2(textureSampleLevel(t, s, v.uv, 0.), 1.) : z')).wgsl,
+    ).toContain('textureSampleLevel(t, s,');
+    expect(
+      compiled(frag('  return v.uv.x > 0.5 ? textureSample(t, s, v.uv) : vec4(0., 0., 0., 1.)'))
+        .wgsl,
+    ).toContain('textureSample(t, s,');
   });
 });
 

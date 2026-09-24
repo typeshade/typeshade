@@ -5,6 +5,7 @@ import type {
   BindingDecl,
   ConstDecl,
   DeclarableCapability,
+  Expr,
   FuncDecl,
   DiagnosticDirective,
   ModuleDecl,
@@ -258,7 +259,7 @@ export function compileTsSource(
   // A call that writes, inside a larger expression, in the order the source evaluates it
   // (Rule 7.9, §26). After every function is lowered, since what a helper writes is read off its
   // body, and before anything reads the bodies, so every backend runs the one order.
-  sequenceEffects(
+  const builtIfs = sequenceEffects(
     {
       consts: [...consts],
       structs: emittedStructDecls(structs),
@@ -303,7 +304,8 @@ export function compileTsSource(
     // `derivative_uniformity` and is not filterable, measured on Tint with the directive in
     // the module. `off` drops the derivative rows, `info` and `warning` demote them.
     const severity = derivativeUniformitySeverity(directives);
-    for (const v of uniformityViolations(shaped)) {
+    const calleeText = calleesAsWritten(sourceFile, funcs);
+    for (const v of uniformityViolations(shaped, { builtIfs, calleeText })) {
       if (v.kind === 'derivative' && severity === 'off') continue;
       const category =
         v.kind === 'derivative' && (severity === 'warning' || severity === 'info')
@@ -418,6 +420,44 @@ function entryDeclaration(sourceFile: ts.SourceFile, name: string): ts.Node | un
   );
 }
 
+/** A call's callee as the author wrote it, for the uniformity walk to name a user function by
+ *  (Rule 12.1): `Lim.hit` for the IR's `Lim_hit`, `done` for a closure's `main_done`,
+ *  `Gate.open` for a namespace's `Gate_open`. Read off the call expression the IR call's span
+ *  covers, or, for a call the source does not spell as one (a getter, `new`), off the name
+ *  its function was declared with. Indexed once, on the first question: the walk asks for
+ *  every user call it classifies, round after round. */
+function calleesAsWritten(
+  sourceFile: ts.SourceFile,
+  funcs: readonly FuncDecl[],
+): (call: Extract<Expr, { op: 'call' }>) => string | undefined {
+  let calls: Map<string, string> | undefined;
+  const byName = new Map(funcs.map((f) => [f.name, f]));
+  const textOf = (start: number, length: number): string =>
+    sourceFile.text.slice(start, start + length).replace(/\s+/g, '');
+  return (call) => {
+    if (call.span !== undefined) {
+      if (calls === undefined) {
+        const index = new Map<string, string>();
+        const visit = (node: ts.Node): void => {
+          if (ts.isCallExpression(node)) {
+            const start = node.getStart(sourceFile);
+            const callee = node.expression;
+            const at = callee.getStart(sourceFile);
+            index.set(`${start}:${node.getEnd() - start}`, textOf(at, callee.getEnd() - at));
+          }
+          ts.forEachChild(node, visit);
+        };
+        visit(sourceFile);
+        calls = index;
+      }
+      const written = calls.get(`${call.span.start}:${call.span.length}`);
+      if (written !== undefined) return written;
+    }
+    const name = byName.get(call.fn)?.nameSpan;
+    return name === undefined ? undefined : textOf(name.start, name.length);
+  };
+}
+
 /** Where a {@link UniformityViolation}'s call is reached, before the value that made it
  *  non-uniform, and the two remedies that fit that statement: where to move a barrier or hoist
  *  a derivative, and what to write the statement on instead. Each remedy compiles on Tint in
@@ -441,6 +481,12 @@ const UNIFORMITY_SITES: Readonly<
     move: 'Call it before the && or ||',
     hoist: 'Hoist the call above the && or ||',
     on: 'make the left side',
+  },
+  conditional: {
+    reached: 'in an arm of a ?: whose condition reads',
+    move: 'Call it before the ?:',
+    hoist: 'Hoist the call above the ?:',
+    on: 'make the condition',
   },
   loop: {
     reached: 'in a loop whose condition reads',

@@ -557,6 +557,10 @@ ${body}
   // of these compiled before, outside any `if` or `switch`, and Tint accepts each, measured.
   // `opaque` returns the uniform `k`, which the walk does not see through (#180).
   const OPAQUE = 'function opaque(): f32 {\n  return k;\n}\n';
+  // A helper that writes, on the right of `&&` or `||` or in an arm of `?:`, makes the
+  // sequencing pass write that operand as an `if` (Rule 7.9). No `if` is the author's there, so
+  // the load keeps the answer it had: `var _seq0: bool = (opaque() > 0.5); if (_seq0) { … }`.
+  const BUMP = 'function bump(x: u32): bool {\n  o[1] = x;\n  return x > 0;\n}\n';
   it.each([
     [
       'after a return under a helper',
@@ -587,6 +591,21 @@ ${body}
       'in a loop the length of a read_write array bounds',
       '  for (let i: u32 = 0; i < o.length; i++) {\n    o[i] = workgroupUniformLoad(w);\n  }',
       '',
+    ],
+    [
+      'right of an && on a helper, handed to a helper that writes',
+      '  if (opaque() > 0.5 && bump(workgroupUniformLoad(w))) { o[0] = 1; }',
+      OPAQUE + BUMP,
+    ],
+    [
+      'right of an || on a helper, handed to a helper that writes',
+      '  const b = opaque() > 0.5 || bump(workgroupUniformLoad(w));\n  if (b) { o[0] = 2; }',
+      OPAQUE + BUMP,
+    ],
+    [
+      'in an arm of a ?: on a helper, handed to a helper that writes',
+      '  const b = opaque() > 0.5 ? bump(workgroupUniformLoad(w)) : false;\n  if (b) { o[0] = 2; }',
+      OPAQUE + BUMP,
     ],
   ])('takes workgroupUniformLoad %s', (_what, body, helpers) => {
     const r = compile(load(body, helpers));
@@ -693,6 +712,70 @@ ${body}
         'make the left side',
       ),
     ],
+    // The sequencing pass's `if` for a helper that writes is named as the operator it stands
+    // for. Main compiled all four, and Tint refuses each.
+    [
+      'right of an && on it, handed to a helper that writes',
+      load(
+        '  const b = lid.x > 2 && bump(workgroupUniformLoad(w));\n  o[0] = select(u32(0), u32(1), b);',
+        BUMP,
+      ),
+      refusal(
+        `on the right of an && or || whose left side reads ${LID}`,
+        'Call it before the && or ||',
+        'make the left side',
+      ),
+    ],
+    [
+      'in an arm of a ?: on it, handed to a helper that writes',
+      load(
+        '  const b = lid.x > 2 ? bump(workgroupUniformLoad(w)) : false;\n  if (b) { o[0] = 2; }',
+        BUMP,
+      ),
+      refusal(
+        `in an arm of a ?: whose condition reads ${LID}`,
+        'Call it before the ?:',
+        'make the condition',
+      ),
+    ],
+    // WGSL's `select` takes no array or struct, so a `?:` that picks one is an `if` there.
+    [
+      'in an arm of an array ?: on it',
+      load(
+        '  const z: array<u32, 64> = tile;\n  const a = lid.x > 2 ? workgroupUniformLoad(tile) : z;\n  o[lid.x] = a[lid.x];',
+        'let tile: workgroup<array<u32, 64>>;\n',
+      ),
+      refusal(
+        `in an arm of a ?: whose condition reads ${LID}`,
+        'Call it before the ?:',
+        'make the condition',
+      ),
+    ],
+    [
+      'in an arm of a struct ?: on it',
+      load(
+        '  const z = new P2(0, 0);\n  const a = lid.x > 2 ? workgroupUniformLoad(ps) : z;\n  o[lid.x] = a.x;',
+        'class P2 {\n  x: u32;\n  y: u32;\n  constructor(x: u32, y: u32) {\n    this.x = x;\n    this.y = y;\n  }\n}\nlet ps: workgroup<P2>;\n',
+      ),
+      refusal(
+        `in an arm of a ?: whose condition reads ${LID}`,
+        'Call it before the ?:',
+        'make the condition',
+      ),
+    ],
+    // A helper is named as the author called it, `Gate.open`, not by the IR's `Gate_open`.
+    [
+      'right of an && on a namespace function that reads read_write storage',
+      load(
+        '  if (Gate.open() && workgroupUniformLoad(w) > 0) { o[1] = 1; }',
+        'namespace Gate {\n  export function open(): bool {\n    return o[0] > 3;\n  }\n}\n',
+      ),
+      refusal(
+        'on the right of an && or || whose left side reads Gate.open(…), which reads memory the invocations share',
+        'Call it before the && or ||',
+        'make the left side',
+      ),
+    ],
     // Inside an `if`, where its old rule refused every one, a condition the walk cannot
     // classify is still refused, and now says why. Conservative (#180): Tint accepts it.
     [
@@ -702,13 +785,24 @@ ${body}
         'function opaque(): f32 {\n  return k;\n}\n',
       ),
       refusal(
-        'under the expression, which this compiler cannot prove uniform',
+        'under opaque(…), which this compiler cannot prove uniform',
         'Move it out of the branch',
         'branch on',
       ),
     ],
   ])('refuses workgroupUniformLoad %s', (_what, src, want) => {
     expect(errorsInBoth(src)).toEqual([want]);
+  });
+
+  it('takes workgroupUniformLoad in an arm of an array ?: on a uniform', () => {
+    const src = load(
+      '  const z: array<u32, 64> = tile;\n  const a = k > 0.5 ? workgroupUniformLoad(tile) : z;\n  o[lid.x] = a[lid.x];',
+      'let tile: workgroup<array<u32, 64>>;\n',
+    );
+    const r = compile(src);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(editorSays(src)).toEqual([]);
+    expect(r.wgsl).toContain('_sel0 = workgroupUniformLoad(&tile);');
   });
 
   it('fails closed on GLSL ES 3.00, which has neither', () => {
@@ -729,10 +823,10 @@ describe('a jump and workgroupUniformLoad read the same in the editor', () => {
     compiled: errorsOf(src),
     editor: editorSays(src),
   });
-  const kernel = (body: string): string => `"use typeshade";
+  const kernel = (body: string, decls = ''): string => `"use typeshade";
 declare const o: storage<array<u32>, "read_write">;
 let w: workgroup<u32>;
-@compute([64, 1, 1])
+${decls}@compute([64, 1, 1])
 export function cs(@builtin("local_invocation_id") lid: vec3u, @builtin("workgroup_id") wid: vec3u): void {
 ${body}
 }
@@ -784,6 +878,73 @@ ${body}
     ],
   ])('refuses %s in both', (_what, body, want) => {
     expect(both(kernel(body))).toEqual({ compiled: [want], editor: [want] });
+  });
+
+  // The value a jump or a branch is taken under is named as the author wrote it (Rule 12.1):
+  // `Lim.hit(…)` and `done(…)`, not the IR's `Lim_hit` and `main_done`, and the helper a
+  // condition calls rather than "the expression" or "the entry". Main compiled the first two,
+  // and Tint refuses both; it refused the other three, in those words.
+  const OPAQUE = 'declare const k: uniform<f32>;\nfunction opaque(): f32 {\n  return k;\n}\n';
+  it.each([
+    [
+      'a barrier below a break on a static method',
+      '  for (let i: u32 = 0; i < 8; i++) {\n    if (Lim.hit(i)) { break; }\n    workgroupBarrier();\n  }',
+      'class Lim {\n  static hit(i: u32): bool {\n    return i > o[0];\n  }\n}\n',
+      said(
+        'workgroupBarrier',
+        'in a loop some invocations leave by a break taken under Lim.hit(…), which reads memory the invocations share',
+        'Move it out of the loop',
+        'break on',
+      ),
+    ],
+    [
+      'a barrier below a continue on a closure',
+      '  const done = (i: u32): bool => i > o[0];\n  for (let i: u32 = 0; i < 8; i++) {\n    if (done(i)) { continue; }\n    workgroupBarrier();\n  }',
+      '',
+      said(
+        'workgroupBarrier',
+        'in a loop where some invocations skip ahead by a continue taken under done(…), which reads memory the invocations share',
+        'Move it out of the loop',
+        'continue on',
+      ),
+    ],
+    [
+      'a barrier in the else of a branch on a helper',
+      '  if (opaque() > 0.5) {\n    o[0] = 1;\n  } else {\n    workgroupBarrier();\n  }',
+      OPAQUE,
+      said(
+        'workgroupBarrier',
+        'under opaque(…), which this compiler cannot prove uniform',
+        'Move it out of the branch',
+        'branch on',
+      ),
+    ],
+    [
+      'a barrier under a local a branch on a helper wrote',
+      '  let t: f32 = 0.;\n  if (k > 0.5) {\n    t = opaque();\n  }\n  if (t > 0.5) {\n    workgroupBarrier();\n  }',
+      OPAQUE,
+      said(
+        'workgroupBarrier',
+        'under opaque(…), which this compiler cannot prove uniform',
+        'Move it out of the branch',
+        'branch on',
+      ),
+    ],
+    // A helper that writes, right of `&&`, is the sequencing pass's `if`; the message names the
+    // `&&` the author wrote, where it said "Move it out of the branch".
+    [
+      'a barrier in a helper that writes, right of an && on a helper',
+      '  const b = opaque() > 0.5 && tick();\n  o[0] = select(u32(0), u32(1), b);',
+      `${OPAQUE}function tick(): bool {\n  workgroupBarrier();\n  o[2] = 1;\n  return true;\n}\n`,
+      said(
+        'workgroupBarrier',
+        'on the right of an && or || whose left side reads opaque(…), which this compiler cannot prove uniform',
+        'Call it before the && or ||',
+        'make the left side',
+      ),
+    ],
+  ])('names what the author wrote: %s, in both', (_what, body, decls, want) => {
+    expect(both(kernel(body, decls))).toEqual({ compiled: [want], editor: [want] });
   });
 
   it('takes a barrier below the loop a break left, and a load under a uniform branch, in both', () => {

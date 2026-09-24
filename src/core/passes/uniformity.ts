@@ -97,6 +97,7 @@ import { stageOf } from '../ir/nodes.js';
 import { eachStmtExpr, mapChildren } from '../ir/visit.js';
 import { BARRIER_INTRINSICS, DERIVATIVE_INTRINSICS, isKnownIntrinsic } from '../intrinsics.js';
 import type { SourceSpan } from '../ir/span.js';
+import type { ShaderType } from '../ir/types.js';
 
 /** How a value varies across the invocations that run together. */
 export type Uniformity = 'uniform' | 'non-uniform' | 'unknown';
@@ -109,10 +110,11 @@ export type Uniformity = 'uniform' | 'non-uniform' | 'unknown';
  *  under `if (k > 0.5)` on a uniform: the barrier's rule, to the row.
  *
  *  One difference, at `unknown`. A barrier's refusal of a flow this walk cannot classify is the
- *  one its old rule had; the load's old rule refused an `if` or `switch` around it and nothing
- *  else, so the load takes `unknown` as a refusal only inside one (see `armDepth`). Outside, an
- *  early `return` under `opaque()` or a loop bounded by `count()` compiled before and Tint
- *  accepts both, measured, so they still compile.
+ *  one its old rule had; the load's old rule refused an `if` or `switch` the author wrote around
+ *  it and nothing else, so the load takes `unknown` as a refusal only inside one (see
+ *  `armDepth`). Outside, an early `return` under `opaque()`, a loop bounded by `count()` and
+ *  the right side of `opaque() > 0.5 && bump(…)`, which the sequencing pass writes as an `if`,
+ *  compiled before and Tint accepts all three, measured, so they still compile.
  *
  *  A sibling of `BARRIER_INTRINSICS`, read here and nowhere else, and not that set itself: the
  *  CPU oracle, the debugger and the JS codegen read `isBarrierIntrinsic` as "a statement to
@@ -129,6 +131,7 @@ const WORKGROUP_UNIFORM_CALLS: ReadonlySet<string> = new Set([
  *  - `branch`: an `if` or `switch` on the value.
  *  - `short-circuit`: the left side of an `&&` or `||` that reads it, which decides whether
  *    the right side runs.
+ *  - `conditional`: the condition of a `?:` that reads it, which decides which arm runs.
  *  - `loop`: a loop whose condition reads it.
  *  - `return`: a `return` taken under it, earlier in the function.
  *  - `loop-return`: the same, inside a loop, so the rest of that loop, its next iterations and
@@ -149,6 +152,7 @@ const WORKGROUP_UNIFORM_CALLS: ReadonlySet<string> = new Set([
 export type Via =
   | 'branch'
   | 'short-circuit'
+  | 'conditional'
   | 'loop'
   | 'return'
   | 'loop-return'
@@ -207,26 +211,23 @@ interface Known {
 
 const UNKNOWN: Known = { at: 'unknown', why: 'a value this compiler cannot classify' };
 
-/** Join two classes, keeping the phrase that names the one an author would act on: the
- *  non-uniform side if there is one, since that is the value to change. */
-function joinKnown(a: Known, b: Known): Known {
-  const at = join(a.at, b.at);
-  if (a.at === 'non-uniform') return { at, why: a.why, via: a.via };
-  if (b.at === 'non-uniform') return { at, why: b.why, via: b.via };
-  return { at, why: a.why, via: a.via };
-}
-
-/** The class of control flow `flow` is at once `by` has also happened to it: the less uniform
- *  of the two, with THAT one's phrase. Not {@link joinKnown}, which keeps the first phrase when
- *  neither side is non-uniform, and so would name a uniform flow's "the entry" as the reason
- *  for an `unknown` one. */
-function degrade(flow: Known, by: Known | undefined): Known {
-  if (by === undefined) return flow;
-  return rank(by.at) > rank(flow.at) ? by : flow;
-}
-
-/** The order {@link join} and {@link degrade} read the three classes in, least uniform last. */
+/** The order {@link join} and {@link joinKnown} read the three classes in, least uniform last. */
 const rank = (u: Uniformity): number => (u === 'uniform' ? 0 : u === 'unknown' ? 1 : 2);
+
+/** Join two classes, keeping the phrase that names the one an author would act on: the less
+ *  uniform side, the first on a tie, since that is the value to change. An `unknown` side's
+ *  phrase wins over a `uniform` one's too. Keeping the first side's named `opaque() > 0.5`
+ *  "the expression" and an `else` after `if (opaque() > 0.5)` "the entry", each "which this
+ *  compiler cannot prove uniform", where the author has to find `opaque`. */
+function joinKnown(a: Known, b: Known): Known {
+  return rank(b.at) > rank(a.at) ? b : a;
+}
+
+/** The class of control flow `flow` is at once `by` has also happened to it, if it has: the
+ *  less uniform of the two, with THAT one's phrase, which is {@link joinKnown}. */
+function degrade(flow: Known, by: Known | undefined): Known {
+  return by === undefined ? flow : joinKnown(flow, by);
+}
 
 /** The environment: what this walk knows about each local, at a point in the statement order. */
 type Env = Map<string, Known>;
@@ -611,6 +612,22 @@ function returnDependencies(
   return out;
 }
 
+/** What the walk needs to know about a module that its IR does not say, which the
+ *  `"use typeshade"` front end knows and supplies. Each is optional, and the walk without it
+ *  reads every `if` as one the author wrote and names a callee by its IR name. */
+export interface UniformitySource {
+  /** The `if` statements a pass built for an operator the author wrote, and the operator: the
+   *  right side of an `&&` or `||` that holds a call that writes, and the arms of a `?:` that
+   *  hold one (`sequence.ts`). A call reached in one is reached on the right of that `&&` or
+   *  in that arm, and the message says so; and `workgroupUniformLoad`'s old rule, which the
+   *  `unknown` threshold keeps, never refused one, since the author wrote no `if` there. */
+  readonly builtIfs?: ReadonlyMap<Stmt, 'short-circuit' | 'conditional'>;
+  /** A call's callee as the author wrote it, `Lim.hit` for the IR's `Lim_hit` and `done` for
+   *  a closure's `main_done`, so that a message names what the author can find (Rule 12.1);
+   *  `undefined` where it cannot tell, and the IR name stands. */
+  readonly calleeText?: (call: Extract<Expr, { op: 'call' }>) => string | undefined;
+}
+
 /** What a walk of one function reads that does not change as it steps: the module, the
  *  function, and the class each PARAMETER was called with.
  *
@@ -629,6 +646,8 @@ interface Cx {
   /** Which parameters each function's RETURN VALUE depends on — see the summary pass above.
    *  A call site joins the arguments at those positions and no others. */
   readonly retDeps: ReturnDeps;
+  /** What the front end knows that the IR does not say: see {@link UniformitySource}. */
+  readonly source: UniformitySource;
 }
 
 /** How one expression varies, read against the environment at this point. */
@@ -753,11 +772,13 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       const summary = cx.retDeps.get(e.fn);
       const reaching =
         summary === undefined ? e.args : e.args.filter((_a, i) => summary.params.has(i));
-      const fromArgs = joinAll(cx, env, reaching, `${e.fn}(…)`);
+      // Named as the author wrote the call, not by the IR's flattened name (Rule 12.1).
+      const callee = `${cx.source.calleeText?.(e) ?? e.fn}(…)`;
+      const fromArgs = joinAll(cx, env, reaching, callee);
       // A result read out of `private`, `workgroup` or `read_write` storage is non-uniform
       // however few arguments the call has — see `Summary.nonUniform`.
       if (summary?.nonUniform === true) {
-        return { at: 'non-uniform', why: `${e.fn}(…), which reads memory the invocations share` };
+        return { at: 'non-uniform', why: `${callee}, which reads memory the invocations share` };
       }
       // A call into a USER function is AT LEAST `unknown` and AT MOST as uniform as its
       // arguments. Both halves are load-bearing and each was wrong on its own:
@@ -779,7 +800,7 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       // `unknown` (allowed through, as Tint allows it), and `edge(v.uv.x)` is `non-uniform`.
       return {
         at: join('unknown', fromArgs.at),
-        why: fromArgs.at === 'non-uniform' ? fromArgs.why : `${e.fn}(…)`,
+        why: fromArgs.at === 'non-uniform' ? fromArgs.why : callee,
       };
     }
     case 'binop':
@@ -891,12 +912,16 @@ function writesIn(stmts: readonly Stmt[]): number {
   return n;
 }
 
-/** Runs the analysis over `m` and returns every call it has an answer about.
+/** Runs the analysis over `m` and returns every call it has an answer about; `source` is what
+ *  the front end knows of `m` that its IR does not say.
  *
  *  A `derivative` violation is reported only when the enclosing control flow is DEFINITELY
  *  non-uniform; a `barrier` one whenever it is not definitely uniform. See the header for why
  *  the two thresholds differ. */
-export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
+export function uniformityViolations(
+  m: ModuleDecl,
+  source: UniformitySource = {},
+): UniformityViolation[] {
   const byName = new Map(m.funcs.map((f) => [f.name, f]));
   /** Whether a NAME lives in an address space a read of which is non-uniform on sight. The
    *  same table `classify`'s varref arm applies, asked by name so the summary pass can carry
@@ -980,6 +1005,7 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
         startAt.get(f.name),
         seedArgs(f.name, startArgs.get(f.name) ?? []),
         retDeps,
+        source,
         [],
         record,
       );
@@ -1001,6 +1027,7 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
       startAt.get(f.name),
       seedArgs(f.name, startArgs.get(f.name) ?? []),
       retDeps,
+      source,
       found,
       () => undefined,
     );
@@ -1026,10 +1053,11 @@ function walkFunction(
   start: Known | undefined,
   paramAt: ReadonlyMap<string, Known>,
   retDeps: ReturnDeps,
+  source: UniformitySource,
   found: UniformityViolation[],
   record: (callee: string, at: Known, args: readonly Known[]) => void,
 ): void {
-  const cx: Cx = { m, f, paramAt, retDeps };
+  const cx: Cx = { m, f, paramAt, retDeps, source };
   const entry: Flow = {
     env: new Map(),
     at: start?.at ?? 'unknown',
@@ -1043,24 +1071,43 @@ function walkFunction(
    *  function's body outside a loop: a `return` taken under nothing less uniform than this made
    *  nothing non-uniform that was not already. See {@link Via}. */
   let loopBase: Uniformity = entry.at;
-  /** How many `if` arms and `switch` cases of this function the walk is inside, which is
+  /** How many `if` arms and `switch` cases the author wrote the walk is inside, which is
    *  where `workgroupUniformLoad`'s old rule refused it. See `WORKGROUP_UNIFORM_CALLS`. */
   let armDepth = 0;
+
+  /** `flow` narrowed to what an operator's condition `cond` lets run, for the operator `via`
+   *  names. Only a DEFINITELY non-uniform condition narrows it: a helper holding a barrier,
+   *  called right of `done(k) &&` or in an arm of `opaque() > 0.5 ? … : …`, compiled before,
+   *  and Tint accepts both. */
+  const narrowed = (flow: Flow, cond: Expr, via: 'short-circuit' | 'conditional'): Flow => {
+    const c = classify(cx, flow.env, cond);
+    if (c.at !== 'non-uniform') return flow;
+    const to = degrade({ at: flow.at, why: flow.why, via: flow.via }, { ...c, via });
+    return { ...flow, at: to.at, why: to.why, via: to.via };
+  };
 
   /** Every call inside one Expr TREE, checked under the control flow `flow` is at. */
   const checkExpr = (e: Expr, flow: Flow): void => {
     // The right side of `&&` and `||` runs only where the left side lets it, so it is under a
     // branch on the left side's value: Tint refuses `workgroupUniformLoad` right of
     // `lid.x > 2 &&` and of `lid.x > 2 ||`, and a `textureSample` right of a fragment input,
-    // measured. Only a DEFINITELY non-uniform left side narrows it: a helper holding a
-    // barrier, called right of `done(k) &&`, compiled before, and Tint accepts it.
+    // measured.
     if (e.op === 'logical') {
       checkExpr(e.a, flow);
-      const c = classify(cx, flow.env, e.a);
-      const own: Known = { at: flow.at, why: flow.why, via: flow.via };
-      const right =
-        c.at === 'non-uniform' ? degrade(own, { ...c, via: 'short-circuit' as const }) : own;
-      checkExpr(e.b, { ...flow, at: right.at, why: right.why, via: right.via });
+      checkExpr(e.b, narrowed(flow, e.a, 'short-circuit'));
+      return;
+    }
+    // So do the arms of a `?:` that WGSL writes as an `if`: its `select` takes a scalar or a
+    // vector, so a struct, an array, a matrix or a vector of doubles is picked by
+    // `select-composite.ts`'s `if` and `else`. Tint refuses `workgroupUniformLoad` in one
+    // under `lid.x > 2`, for an array, a struct, a matrix and a `vec3f64`, and a
+    // `textureSample` under a fragment input, measured. A `?:` that is WGSL's `select`
+    // evaluates both arms wherever it stands, and narrows nothing.
+    if (e.op === 'select' && e.cond.type.kind === 'scalar' && !pickedBySelect(e.type)) {
+      checkExpr(e.cond, flow);
+      const arms = narrowed(flow, e.cond, 'conditional');
+      checkExpr(e.ifTrue, arms);
+      checkExpr(e.ifFalse, arms);
       return;
     }
     if (e.op === 'call') checkCall(e, flow);
@@ -1176,17 +1223,22 @@ function walkFunction(
           break;
         }
         case 'if': {
+          // One the sequencing pass built for `&&`, `||` or `?:` is named as that operator, and
+          // is not an `if` the author wrote: see `UniformitySource.builtIfs`.
+          const built = cx.source.builtIfs?.get(s);
+          const walkBody = built === undefined ? walkArm : walk;
+          const via: Via = built ?? 'branch';
           let merged: Env | undefined;
           let after = cur;
           let armsCond: Known = { at: 'uniform', why: cur.why };
           for (const arm of s.arms) {
             const c = classify(cx, cur.env, arm.cond);
             armsCond = joinKnown(armsCond, c);
-            const inner = walkArm(arm.body, {
+            const inner = walkBody(arm.body, {
               env: new Map(cur.env),
               at: join(cur.at, c.at),
               why: c.at === 'uniform' ? cur.why : c.why,
-              via: c.at === 'uniform' ? cur.via : 'branch',
+              via: c.at === 'uniform' ? cur.via : via,
               diverged: cur.diverged,
             });
             merged = merged === undefined ? inner.env : mergeEnv(merged, inner.env);
@@ -1198,11 +1250,11 @@ function walkFunction(
           // The `else` runs under the negation of every arm's condition, so it is exactly as
           // uniform as the arms are.
           if (s.elseBody) {
-            const inner = walkArm(s.elseBody, {
+            const inner = walkBody(s.elseBody, {
               env: new Map(cur.env),
               at: join(cur.at, armsCond.at),
               why: armsCond.at === 'uniform' ? cur.why : armsCond.why,
-              via: armsCond.at === 'uniform' ? cur.via : 'branch',
+              via: armsCond.at === 'uniform' ? cur.via : via,
               diverged: cur.diverged,
             });
             merged = merged === undefined ? inner.env : mergeEnv(merged, inner.env);
@@ -1379,7 +1431,7 @@ function walkFunction(
     return cur;
   };
 
-  /** {@link walk} over an `if` arm, an `else` or a `switch` case. */
+  /** {@link walk} over an `if` arm, an `else` or a `switch` case the author wrote. */
   const walkArm = (stmts: readonly Stmt[], flow: Flow): Flow => {
     armDepth++;
     try {
@@ -1411,6 +1463,14 @@ function walkFunction(
   };
 
   walk(f.body, entry);
+}
+
+/** Whether WGSL's `select` takes a value of type `t`, so that a `?:` choosing one is a call
+ *  that evaluates both arms: a scalar, a vector, and a double, whose emulated form is a
+ *  `vec2<f32>`. Anything else is picked by an `if` (`select-composite.ts`), a vector of
+ *  doubles included, whose emulated form is a struct. */
+function pickedBySelect(t: ShaderType): boolean {
+  return t.kind === 'scalar' || t.kind === 'vec' || t.kind === 'f64';
 }
 
 /** Every INDEX expression a write's target evaluates on its way to the root: `i` for `a[i]`,

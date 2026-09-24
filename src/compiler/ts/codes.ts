@@ -163,8 +163,8 @@ export const TS_CODES = {
   /** A call that needs uniform control flow — `textureSample` and the other implicit-LOD
    *  forms, the derivatives, a barrier, or `workgroupUniformLoad` — reached under a condition
    *  that is not uniform across the invocations that run together (an `if`, a `switch`, a
-   *  loop's condition, the left side of `&&` or `||`), or after a `return`, `break` or
-   *  `continue` taken under one (§54). */
+   *  loop's condition, the left side of `&&` or `||`, the condition of a `?:` WGSL writes as an
+   *  `if`), or after a `return`, `break` or `continue` taken under one (§54). */
   UNIFORMITY: 'TS8052',
   /** A DEPRECATION warning, not an error: an integer-written literal in a declaration that
    *  declares no type still becomes `f32` and will become `i32` (§13, #148).

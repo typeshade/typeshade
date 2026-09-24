@@ -5022,6 +5022,7 @@ It carries a barrier's placement rules, because it *is* two barriers around a re
 | inside an `if` or a `switch` on a uniform, or on `workgroup_id` | accepts |
 | inside an `if` on `local_invocation_id`, after a `return` or a `break` taken under one, or in a loop it bounds | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
 | right of `lid.x > 2 &&` or `lid.x > 2 \|\|` | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
+| in an arm of `lid.x > 2 ? … : …` that picks an array or a struct | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
 | in the condition of a loop that a `continue` under `local_invocation_id` cuts short | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
 | of a storage pointer | **"no matching call"**, both candidates workgroup pointers |
 | of a `vec4`, of an array element | accepts — any shape that memory holds |
@@ -5031,8 +5032,10 @@ rows are TS8052 at the call, worded as the barrier's, and the accepted ones comp
 to refuse every `if` and `switch` around the call with TS8034, the uniform ones included, and to
 pass an early `return`, a helper called under a branch and a loop bound, which Tint refuses.
 Where the walk cannot classify the flow, as under a helper it does not see through (#180), the
-call is refused inside an `if` or a `switch`, as the old rule refused it, and compiles anywhere
-else, as it did.
+call is refused inside an `if` or a `switch` the author wrote, as the old rule refused it, and
+compiles anywhere else, as it did: right of `opaque() > 0.5 &&` and in an arm of
+`opaque() > 0.5 ? … : …` too, where a helper that writes makes the compiler write the operand as
+an `if` of its own (§26).
 
 A render entry needs no rule of its own here: a workgroup variable read from one is already
 refused where it is read, which is the sentence that names what the author has to move.
@@ -5773,6 +5776,10 @@ broken-shader instrument check passing on both compilers first:
 | `workgroupUniformLoad` after `if (id.x > 4u) { return }`, or in a loop `id.x` bounds | `'workgroupUniformLoad' must only be called from uniform control flow` |
 | `workgroupUniformLoad` in the condition `i < id.x + workgroupUniformLoad(&w)` | `'workgroupUniformLoad' must only be called from uniform control flow` |
 | `workgroupUniformLoad`, or a `textureSample`, right of `&&` or `\|\|` whose left side reads `id.x` or `uv.x` | `'workgroupUniformLoad'` (or `'textureSample'`) `must only be called from uniform control flow` |
+| `workgroupUniformLoad` handed to a helper that writes, right of `id.x > 2u &&`, which the compiler writes as `var _seq0 = …; if (_seq0) { … }` | `'workgroupUniformLoad' must only be called from uniform control flow` |
+| the same right of `opaque() > 0.5 &&` or `\|\|`, or in an arm of `opaque() > 0.5 ? … : …`, where `opaque` returns a uniform | accepted |
+| `workgroupUniformLoad` in an arm of a `?:` on `id.x` that picks an array, a struct, a matrix or a `vec3f64`, which WGSL writes as an `if`, or a `textureSample` in one on `uv.x` that picks a struct | `'workgroupUniformLoad'` (or `'textureSample'`) `must only be called from uniform control flow` |
+| the same on a uniform, or in a `?:` that picks a scalar or a vector, which is WGSL's `select` | accepted |
 | a barrier under `if (arrayLength(&rw) > 4u)` on a `read_write` storage array, or in a loop it bounds | accepted |
 
 Every one of those is reported by `createShaderModule`, not only by `createRenderPipeline` — so
@@ -5806,7 +5813,13 @@ one before, and Tint accepts one on a helper that compares to a uniform.
 **The right side of `&&` and `||` runs only where the left side lets it**, so a call there is
 under a branch on the left side's value: `lid.x > 2 && workgroupUniformLoad(w) > 0` is refused,
 and so is a `textureSample` right of a fragment input. A left side the walk cannot classify
-narrows nothing, as a jump's condition does not.
+narrows nothing, as a jump's condition does not. **So does an arm of a `?:` that WGSL writes as
+an `if`**: its `select` takes a scalar or a vector, so a `?:` that picks a struct, an array, a
+matrix or a vector of doubles is an `if` and an `else` there, and a call in either arm is under
+the condition. A `?:` that picks a scalar or a vector is `select`, which evaluates both arms,
+and narrows nothing. Where a helper that writes stands on the right of `&&` or `||`, or in an
+arm of `?:`, the compiler writes that operand as an `if` of its own (§26); the walk reads it as
+the operator the author wrote, and names it so.
 
 **What the compiler says now.** The call is refused at the call, naming the value the control
 flow depends on and the three ways out:
@@ -5827,6 +5840,7 @@ Each move compiles on Tint:
 | --- | --- | --- |
 | under an `if` or a `switch` on the value | under … | out of the branch, or the call hoisted above it |
 | right of an `&&` or `\|\|` whose left side reads it | on the right of an && or \|\| whose left side reads … | before the `&&` or `\|\|` |
+| in an arm of a `?:` WGSL writes as an `if`, whose condition reads it | in an arm of a ?: whose condition reads … | before the `?:` |
 | after a `return` taken under it | after a return taken under … | above the return |
 | in a loop whose condition reads it | in a loop whose condition reads … | out of the loop |
 | in a loop a `break` taken under it leaves early | in a loop some invocations leave by a break taken under … | out of the loop |
@@ -5839,8 +5853,10 @@ The sentence names the statement whose own condition made the flow non-uniform f
 inside an `if` on the value is reached under that `if`, whatever its bound, and a `break` on a
 uniform inside a loop the value bounds leaves the loop's condition as the reason. A barrier's
 sentence also names the other way out, a value the whole workgroup shares to branch, return,
-break, continue, bound the loop or test on the left side on; a derivative's names the
-explicit-LOD sample and the filter.
+break, continue, bound the loop, test on the left side or test in the condition on; a
+derivative's names the explicit-LOD sample and the filter. The value is named as the author
+wrote it: a helper as it is called, `Lim.hit(…)` or `done(…)`, never the name the emit gives it,
+and a helper the walk cannot see through by its own name, not as "the expression".
 
 **The analysis is three-valued, and that is the design, not a hedge.** A value is `uniform`,
 `non-uniform`, or `unknown`, and the two callers want opposite answers from the same walk:
@@ -5849,9 +5865,13 @@ explicit-LOD sample and the filter.
   the walk cannot follow — a helper's parameters, a storage read whose index it does not track
   — stays `unknown` and goes through to Tint, which owns the complete rule. A false positive
   here would refuse a program both targets run.
-- A **barrier** is accepted only when its control flow is DEFINITELY uniform. The rule it
-  replaces refused every `if` and `switch` outright, so `unknown` keeps that refusal and the
-  relaxation can only ever admit a condition the walk has proven uniform.
+- A **barrier** is accepted only when its control flow is DEFINITELY uniform, with the old
+  rules' reach and no more. The rule it replaces refused every `if` and `switch` outright, so
+  `unknown` keeps that refusal there and the relaxation can only ever admit a condition the walk
+  has proven uniform. Where no old rule refused, `unknown` refuses nothing: a `break`, a
+  `continue`, the left side of an `&&` or `||` and the condition of a `?:` narrow the flow only
+  when the walk has proven them non-uniform, and a `workgroupUniformLoad` takes `unknown` as a
+  refusal only inside an `if` or a `switch` the author wrote (§48).
 
 The seeds are the spec's (wgsl.txt:17870-17883): `workgroup_id`, `num_workgroups`,
 `subgroup_size` and `num_subgroups` are uniform, a `uniform` buffer is uniform, a module or
