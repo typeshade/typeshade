@@ -961,7 +961,7 @@ src/core/backends/wgsl.ts#wgslType  function  (t: ShaderType) => string
 src/core/console.ts#CONSOLE_METHODS  const  ReadonlySet<ConsoleMethod>
 src/core/console.ts#ConsoleEvent  interface  { args: readonly (string | CpuValue)[]; invocation?: readonly number[]; method: ConsoleMethod; span?: SourceSpan }
 src/core/console.ts#ConsoleLog  interface  { binding: number; group: number; sites: readonly ConsoleSite[] }
-src/core/console.ts#ConsoleMethod  type  "debug" | "error" | "info" | "log" | "warn"
+src/core/console.ts#ConsoleMethod  type  "debug" | "error" | "info" | "log" | "table" | "warn"
 src/core/console.ts#ConsoleSink  type  (event: ConsoleEvent) => void
 src/core/console.ts#ConsoleSite  interface  { args: readonly ({ readonly label: string; } | { readonly shape: ConsoleShape; })[]; method: ConsoleMethod; span?: SourceSpan; words: number }
 src/core/console.ts#decodeConsole  function  (buffer: Uint32Array, log: ConsoleLog) => { events: ConsoleEvent[]; dropped: number; }

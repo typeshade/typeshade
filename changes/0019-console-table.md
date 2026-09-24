@@ -1,23 +1,23 @@
 ---
 id: '0019'
 title: A shader calls console.table with one value, and the host prints it as a table
-status: accepted
+status: implemented
 rules:
-  - '11.9'
+- '11.9'
 surface:
-  - 66
+- 66
 exports:
-  - ConsoleMethod
-  - CONSOLE_METHODS
+- ConsoleMethod
+- CONSOLE_METHODS
 exports-removed: []
 codes: []
 examples:
-  - gpu-console
+- gpu-console
 downstream:
-  - repo: typeshade.github.io
-    what: the Playground's Console pane renders a `table` event as a table (rows by index or field, one column per field or component) instead of one line; every page that lists the five console methods names `table` too (the surface and error-code pages, the `TS8099` example for an unsupported method)
-  - repo: vscode-typeshade
-    what: the skill's `console` rule and references/language.md name `table`; the MCP server's `run` tool prints a `table` event as rows under its line (`tools.test.ts` pins one); docs/design.md §5's DAP `output` row says how a `table` event reads in the debug console
+- repo: typeshade.github.io
+  what: the Playground's Console pane renders a `table` event as a table (rows by index or field, one column per field or component) instead of one line; every page that lists the five console methods names `table` too (the surface and error-code pages, the `TS8099` example for an unsupported method)
+- repo: vscode-typeshade
+  what: the skill's `console` rule and references/language.md name `table`; the MCP server's `run` tool prints a `table` event as rows under its line (`tools.test.ts` pins one); docs/design.md §5's DAP `output` row says how a `table` event reads in the debug console
 ---
 
 <!-- doc-refs: skip-file — a proposal names the files it will add, and files of the repositories downstream, which this tree does not have -->

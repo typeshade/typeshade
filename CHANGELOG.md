@@ -415,6 +415,14 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **`console.table` in a shader** (§66, design rule 11.9, `changes/0019-console-table.md`). It
+  takes one value (an array, a struct, a vector, a matrix or a scalar) and the host prints it with
+  its own `console.table`: an array of structs as a row per element. A matrix is delivered as its
+  columns, so `console.table(m)` of a `mat4x4f` is four rows of four; `console.log` keeps the flat
+  form. It is recorded on WebGPU under `console: 'gpu'` like the other methods, and a stepped
+  debug session delivers it too. The editor completes it after `console.`, and the host's second
+  argument, the columns to show, is `TS8099` with the remedy.
+
 - **A kernel function, whose loops the compiler proves independent** (change 0013, part 1;
   Rules 7.5, 8.6, 8.8, 8.22 and 8.23, surface §65). An exported function that takes an array with
   no size, `render(k: vec4, size: u32, out: array<f32>)`, is a kernel function: its array is the
@@ -427,6 +435,7 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   end proved (`counted`), and `FuncDecl` the `kernel` mark every backend reads to leave the
   function out of what it emits. A kernel function runs on the CPU oracle; its call through the
   import, which dispatches the accepted loops on the GPU, is the next part.
+
 - **A debug session delivers the `console` calls it steps over** (§66,
   `changes/0018-debugger-console-sink.md`). `startDebugSession(m, entry, args, { consoleSink })`
   hands each call to the sink when the step that runs it runs, and nothing at a step that skips

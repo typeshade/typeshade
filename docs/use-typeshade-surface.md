@@ -6317,8 +6317,9 @@ as `lib.es5.d.ts` spells them with a `this` of `array<T, N>` and `index: i32`, a
 
 ## 66. `console`: what reaches the host
 
-`changes/0014-gpu-console.md`. A shader function calls the JavaScript console as TypeScript
-spells it, `console.log`, `console.info`, `console.debug`, `console.warn` and `console.error`,
+`changes/0014-gpu-console.md`, `changes/0019-console-table.md`. A shader function calls the
+JavaScript console as TypeScript spells it, `console.log`, `console.info`, `console.debug`,
+`console.warn`, `console.error` and `console.table`,
 and the call reaches the host as an event, `{ method, args, span }`, handed to the sink the host
 passes: `compile(src, { consoleSink })` for `eval`, `compileModule(m, { consoleSink })` and
 `compileModuleJs(m, { consoleSink })`, or `startDebugSession(m, entry, args, { consoleSink })`
@@ -6349,6 +6350,13 @@ kept on the host, and the event carries it in the place it was written, so the c
 delivers `["large value at", 136, 272]`. A template with a value in it builds text at run time,
 and is refused with the arguments to write instead (`console.log(\`x = ${x}\`)` is
 `console.log("x =", x)`); so is any other string that is not a literal.
+
+**`console.table` takes one value**, the data to show: an array, a struct, a vector, a matrix or
+a scalar, anything `console.log` takes but text. The event carries it as `console.log`'s would,
+except a matrix, which it carries as its columns (an array of column vectors, `m[j]` being column
+`j`), so a table of a `mat4x4f` has four rows of four. The host prints it with its own
+`console.table`. The host's second argument, the columns to show, is refused (`TS8099`) with the
+remedy: select the fields in the shader, into a smaller struct, or filter the table on the host.
 
 **A console call computes nothing a shader reads.** It is a statement, and its value cannot be
 used. Its arguments are evaluated once, in order, as any call's are, so an argument that writes
@@ -6399,13 +6407,15 @@ WGSL cannot record, and the call still reaches the sink on the CPU:
 GLSL ES 3.00 has no storage buffer and records nothing, with no diagnostic. A discarded fragment
 writes nothing after its `discard`.
 
-`examples/gpu-console.shade.ts` is the kernel above with a helper that warns; the compile gate
+`examples/gpu-console.shade.ts` is the kernel above with a helper that warns and a `console.table`
+of a matrix; the compile gate
 hands Tint its WGSL both ways, as written and under `console: 'gpu'`. The `console-log` journey
 runs it on WebGPU from the packed tarball and holds the lines `decodeConsole` returns equal to
 the CPU run's and to its host's own, line for line.
 
-**The editor** declares each method as the standard console does, taking any argument, and
-reports what the compiler refuses among them in the compiler's words.
+**The editor** declares each method as the standard console does, taking any argument, except
+`table`, which takes one, and reports what the compiler refuses among them in the compiler's
+words. It completes the six methods after `console.` and no other.
 
 ---
 

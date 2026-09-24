@@ -1129,13 +1129,14 @@ An _emit golden_ is a recorded emitted module under `examples/__emit-goldens__/`
 - Enforced by: `hostFace` in `src/compiler/ts/host-face.ts`, which generates at `precision: 'f32'`, and `src/core/host-runtime.ts`, what a generated module imports; pinned by `src/compiler/ts/host-face.test.ts`, where every call equals `compileModule(m, { precision: 'f32' })` on inputs chosen so the `f32` and `f64` answers part, and the generated module holds no `new Function`.
 
 **Rule 11.9.** A `console` call computes nothing a shader reads: its arguments must be evaluated once, in order, on every target, and the call then delivers an event, `{ method, args, span, invocation }`.
+A `console.table` call must take exactly one value, and a matrix it takes must be delivered as its columns, on every path that delivers the event.
 On the CPU (the oracle, the generated CPU code, the lockstep dispatch) the event goes to the host's sink.
 On WGSL under `console: 'gpu'`, a call a compute or fragment entry reaches must be written into the console buffer (Rule 6.11), and `decodeConsole` must turn the buffer into the same events in the order the CPU runs a dispatch in: by invocation, `z`, then `y`, then `x`, and in program order within one.
 A call the WGSL cannot record (one a vertex entry reaches, one with an argument that has no fixed size or is not a value, one in a stage that already binds eight storage buffers) must be a `TS8071` warning on the call; GLSL ES 3.00 records nothing, with no diagnostic (Rule 10.5).
 
 - Rationale: the GPU is an optimization level of the CPU program (`docs/dx.md`), so what a program logs must not depend on where it ran; the order a GPU wrote in is the scheduler's and means nothing, so the decoder restores the CPU's.
-- Derives from: `changes/0014-gpu-console.md`, measured on Tint and SwiftShader in Chromium 141 (a vertex stage that reaches the buffer: `var with 'storage' address space and 'read_write' access mode cannot be used by vertex pipeline stage`); a fragment's helper invocations and a discarded one write nothing, measured on the same browser; surface §66.
-- Enforced by: `src/core/passes/console-buffer.test.ts`, which runs the lowered module on the oracle and holds the decoded events equal to the sink's, overflow included, and pins each `TS8071` reason; `src/compiler/ts/console.test.ts`, for the CPU delivery.
+- Derives from: `changes/0014-gpu-console.md`, `changes/0019-console-table.md`, measured on Tint and SwiftShader in Chromium 141 (a vertex stage that reaches the buffer: `var with 'storage' address space and 'read_write' access mode cannot be used by vertex pipeline stage`); a fragment's helper invocations and a discarded one write nothing, measured on the same browser; surface §66.
+- Enforced by: `src/core/passes/console-buffer.test.ts`, which runs the lowered module on the oracle and holds the decoded events equal to the sink's, overflow included, and pins each `TS8071` reason; `src/compiler/ts/console.test.ts`, for the CPU delivery and `console.table` in both halves; `src/core/debug/console.test.ts`, for a stepped run.
 
 ## 12. Diagnostics
 

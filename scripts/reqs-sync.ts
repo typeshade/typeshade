@@ -325,7 +325,7 @@ export function parseFront(yaml: string): Record<string, unknown> {
       }
       continue;
     }
-    const entry = /^- (.*)$/.exec(line);
+    const entry = /^\s*- (.*)$/.exec(line);
     if (entry && list) {
       const kv = /^([^:\s][^:]*):(?:\s(.*))?$/.exec(entry[1]!);
       if (kv) {
