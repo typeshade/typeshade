@@ -266,11 +266,16 @@ export function fs(): vec4 {
   });
 
   it('says what a symbol is, and says it once', () => {
+    // No list of host names says it (Rule 2.1): the library declares `Symbol` for TypeScript's
+    // `for…of`, which is what the callee is told, and the string handed to it is not lowered to
+    // say a second thing about the same line.
     expect(
-      errorsOf(`"use typeshade"
+      compileTsSource(`"use typeshade"
 const key = Symbol('k')
-${FS}`),
-    ).toEqual(['"Symbol" is a host/JS API. "use typeshade" files cannot touch the JS runtime.']);
+${FS}`).diagnostics.map((d) => `${d.code} ${d.message}`),
+    ).toEqual([
+      `TS8004 "Symbol" is no function a shader has: the library declares it for TypeScript's own use.`,
+    ]);
   });
 
   it('says a symbol annotation names no value', () => {
@@ -516,7 +521,8 @@ export function f(x: f32): vec3 {
     );
   });
 
-  it('a host API is refused once, not also as an unknown identifier', () => {
+  it('a name nothing declares is refused once, not also at the local it initializes', () => {
+    // `Date` is no host API the file cannot touch but a name nothing declares (Rule 2.1).
     one(
       `"use typeshade";
 export function f(x: f32): f32 {
@@ -524,7 +530,7 @@ export function f(x: f32): f32 {
   return t + x;
 }
 `,
-      '"Date" is a host/JS API.',
+      'Unknown identifier "Date".',
     );
   });
 

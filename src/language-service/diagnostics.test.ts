@@ -538,7 +538,62 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'export function f(v: vec5): f32 {\n  return 1.\n}',
       'typeshade TS8002',
     ],
-    'a host API (TS2304)': [fn('  return Date.now()'), 'typeshade TS8012'],
+    'a name nothing declares, Date (TS2304)': [fn('  return Date.now()'), 'typeshade TS8022'],
+    // A name of a later ECMAScript library or of the DOM, which a shader has no more than `Date`.
+    'a name of a later library (TS2583)': [fn('  const m = Map\n  return x'), 'typeshade TS8022'],
+    'a name of the DOM (TS2584)': [fn('  const d = document\n  return x'), 'typeshade TS8022'],
+    // A name of Node, which TypeScript offers to find in its type definitions (TS2591).
+    'a name of Node (TS2591)': [fn('  const d = process\n  return x'), 'typeshade TS8022'],
+    'a function of Node (TS2591)': [fn('  const d = require("x")\n  return x'), 'typeshade TS8004'],
+    'a type of Node (TS2591)': [
+      'export function f(x: Buffer): f32 {\n  return 1.\n}',
+      'typeshade TS8002',
+    ],
+    // A type the library declares for TypeScript's own use, read or called (TS2693).
+    'a library type called (TS2693)': [fn('  return Number("1")'), 'typeshade TS8004'],
+    'a library type read (TS2693)': [fn('  const o = Object\n  return x'), 'typeshade TS8022'],
+    'a library type read through (TS2693)': [
+      fn('  const k = Object.keys(x)\n  return x'),
+      'typeshade TS8022',
+    ],
+    // An undeclared base of a class or an interface is a type nothing declares (TS2304).
+    'a class base nothing declares (TS2304)': [
+      'class C extends Date {\n  a: f32 = 1.\n}\nexport function f(x: f32): f32 {\n  return new C().a\n}',
+      'typeshade TS8002',
+    ],
+    'an interface base nothing declares (TS2304)': [
+      'interface I extends Date {\n  a: f32\n}\nexport function f(i: I): f32 {\n  return i.a\n}',
+      'typeshade TS8002',
+    ],
+    // A `new` is refused whole, and TypeScript names its target (proposal 0008 §2).
+    'a new of a name nothing declares (TS2304)': [
+      fn('  const d = new Date()\n  return x'),
+      'typeshade TS8022',
+    ],
+    'a new of a WGSL constructor (TS7009)': [
+      fn('  const d = new vec3f(1.)\n  return x'),
+      'typeshade TS8035',
+    ],
+    'a new of an enum (TS2351)': [
+      'enum E {\n  A = 1,\n}\nexport function f(x: f32): f32 {\n  const d = new E()\n  return x\n}',
+      'typeshade TS8035',
+    ],
+    'a new of an interface (TS2693)': [
+      'interface I {\n  a: f32\n}\nexport function f(x: f32): f32 {\n  const d = new I()\n  return x\n}',
+      'typeshade TS8035',
+    ],
+    'a new of the library’s Symbol (TS2351)': [
+      fn('  const d = new Symbol()\n  return x'),
+      'typeshade TS8035',
+    ],
+    'a new through globalThis (TS7017)': [
+      fn('  const d = new globalThis.Date()\n  return x'),
+      'typeshade TS8022',
+    ],
+    'a new of an abstract class (TS2511)': [
+      'abstract class B {\n  a: f32 = 1.\n}\nexport function f(x: f32): f32 {\n  const d = new B()\n  return x\n}',
+      'typeshade TS8035',
+    ],
     'a swizzle out of range (TS2339)': [fn('  return v.w'), 'typeshade TS8022'],
     'a swizzle out of range with a suggestion (TS2551)': [
       fn('  return v.xyzw', 'v: vec3', 'vec4'),
@@ -703,12 +758,24 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
     ).toEqual(['typescript 2588', 'typeshade TS8005']);
   });
 
+  it('merges a new through a namespace of types, beside the refusal of its interface', () => {
+    // TypeScript's TS2708, "Cannot use namespace 'N' as a value", is the `new`'s mistake, which
+    // the compiler's TS8035 says; an interface inside a namespace is refused where it is written.
+    expect(
+      shown(
+        fn(
+          'namespace N {\n  export interface I {\n    a: f32\n  }\n}\nexport function f(x: f32): f32 {\n  const d = new N.I()\n  return x\n}',
+        ),
+      ),
+    ).toEqual(['typeshade TS8014', 'typeshade TS8035']);
+  });
+
   it('keeps two mistakes as two diagnostics', () => {
-    // The write is both halves' mistake and reads once; the typo in the call only TypeScript
-    // sees, since the compiler refused the statement at the write.
+    // The write is both halves' mistake and reads once; so is the typo in the call, which the
+    // compiler says too, although it refused the statement at the write (Rule 2.1).
     expect(shown(fn('  const f = x\n  f = clmap(f, 0., 1.)\n  return f'))).toEqual([
       'typeshade TS8005',
-      'typescript 2552',
+      'typeshade TS8004',
     ]);
   });
 

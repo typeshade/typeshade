@@ -24,6 +24,7 @@ import {
   visibleField,
 } from './class-access.js';
 import { parseSwizzle } from '../swizzle.js';
+import { declaredTypeNamesOf, isLibraryTypeName } from '../type-map.js';
 import { numericMismatch } from '../numeric.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
@@ -232,6 +233,9 @@ export function lowerPropertyAccess(
       pushDiag(diagnostics, sourceFile, node, inheritedPrivate, TS_CODES.CLASS_MEMBER);
       return undefined;
     }
+    // A static field or an enum member whose initializer was refused said why there, and a read
+    // of it adds nothing (Rule 12.4).
+    if (scope.declarationRefused(`${owner}_${emittedMemberName(prop)}`)) return undefined;
     // The name is a type, not a value, so lowering the receiver would report an unknown
     // identifier. Say what it is instead, when it is a class or an enum the file declares.
     if (scope.structByName(owner) !== undefined) {
@@ -287,13 +291,15 @@ export function lowerPropertyAccess(
     }
     return { op: 'lit', type: i32T, value: base.type.size };
   }
-  if (JS_ARRAY_METHODS.has(prop)) {
+  // Said of an array only: a class field `reverse`, an interface field `map` and a getter `join`
+  // are the struct's own members, looked up below (Rule 2.1).
+  if (JS_ARRAY_METHODS.has(prop) && base.type.kind === 'array') {
     // One of the five an array has is called; read as a value it is a function (Rule 8.18).
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      base.type.kind === 'array' && isArrayMethod(prop)
+      isArrayMethod(prop)
         ? `".${prop}" is a method of the array, and a shader has no function values: call it ` +
             `where its value is needed, "${node.expression.getText(sourceFile)}.${prop}(…)".`
         : otherArrayMethod(prop),
@@ -312,6 +318,15 @@ export function lowerPropertyAccess(
       // A field its class declared and the struct does not carry was refused where it was
       // written; a read of it adds nothing (Rule 12.4).
       if (scope.isWithheld(base.type.name, emittedMemberName(prop))) return undefined;
+      // Nor does a read through a struct nothing declares, `u.a` of `uniform<Foo>`, which a
+      // binding recovers from a type refused where it is written (`TS8002`).
+      if (
+        scope.structByName(base.type.name) === undefined &&
+        !declaredTypeNamesOf(sourceFile).has(base.type.name) &&
+        !isLibraryTypeName(base.type.name)
+      ) {
+        return undefined;
+      }
       const hidden = isPrivateName(prop)
         ? scope.privateField(base.type.name, emittedMemberName(prop))
         : undefined;

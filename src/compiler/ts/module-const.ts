@@ -7,7 +7,7 @@ import type { ConstDecl, Expr, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { i32T, typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { LoweringScope } from './context.js';
+import { LoweringScope, refuseModuleName, refusedDeclarationsOf } from './context.js';
 import type { DeclaredSymbolSink } from './symbols.js';
 import { mapTsTypeToShaderType } from './type-map.js';
 import { foldConstComponents, foldConstValue } from './loop-bound.js';
@@ -15,19 +15,22 @@ import { refuseListSpread } from './lower/expression-array.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
 import { lowerExpression } from './lower/expression.js';
 import { lowerArrayLiteral } from './lower/expression-array.js';
-import { eachNamespaceStatement, namespaceMemberName } from './namespaces.js';
+import { eachNamespaceStatement, namespaceMemberName, qualifiedParts } from './namespaces.js';
 import { isResourceCall } from './bindings.js';
 import { isOverrideType } from './overrides.js';
 import { moduleVarSpace } from './module-vars.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { localFunctionOf } from './lower/local-functions.js';
+import { declarationOf, importsName } from './lower/closures.js';
+import { newTargetOf } from './lower/new-target.js';
 import { isMixinApplication } from './mixins.js';
 import {
   emittedMemberName,
   holdsFunction,
   isStaticMember,
   shadowedStaticFields,
+  staticThisClass,
   writtenMemberName,
   writtenStaticFields,
 } from './class-names.js';
@@ -36,6 +39,113 @@ import {
  *  `K_PI` and `Mode.Shaded` is `Mode_Shaded`, the same joining a method takes (`K_half`), so
  *  one owner's members share one prefix in the emitted text. */
 export const staticConstName = (owner: string, member: string): string => `${owner}_${member}`;
+
+/** The first call or `new` in a module-scope initializer that reaches a function or a class the
+ *  file declares: `g()`, `N.g()`, `C.f()`, `new P(2.)`. A module-scope value is folded before
+ *  any function of the module exists, and WGSL refuses the call there too ("user-declared
+ *  functions cannot be called at module-scope", measured on Tint). It is found on the syntax,
+ *  before the initializer is lowered, so the one sentence is the declaration's own and not
+ *  "Unknown function" about a function the file declares (Rule 12.1, Rule 12.4). */
+export function declaredCallIn(
+  init: ts.Node,
+  sourceFile: ts.SourceFile,
+): ts.CallExpression | ts.NewExpression | undefined {
+  let found: ts.CallExpression | ts.NewExpression | undefined;
+  const walk = (n: ts.Node): void => {
+    if (found !== undefined) return;
+    // A function written in the initializer has a body of its own, which is not folded here.
+    if (ts.isArrowFunction(n) || ts.isFunctionExpression(n) || ts.isClassExpression(n)) return;
+    if (ts.isCallExpression(n) && callsDeclared(n.expression)) {
+      found = n;
+      return;
+    }
+    if (
+      ts.isNewExpression(n) &&
+      (n.expression.kind === ts.SyntaxKind.ThisKeyword ||
+        newTargetOf(n, sourceFile).kind === 'class')
+    ) {
+      found = n;
+      return;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(init);
+  return found;
+}
+
+/** Whether a callee names a function of the module: a function the file declares or imports, a
+ *  top-level `const` that holds one, or a static function or a namespace's function reached
+ *  through its owner, `this` in a static initializer included. */
+function callsDeclared(callee: ts.Expression): boolean {
+  let root = callee;
+  while (ts.isParenthesizedExpression(root)) root = root.expression;
+  const dotted = ts.isPropertyAccessExpression(root);
+  while (ts.isPropertyAccessExpression(root) || ts.isParenthesizedExpression(root)) {
+    root = root.expression;
+  }
+  // `static K = this.f()`: `this` in a static initializer is the class (Rule 8.13).
+  if (root.kind === ts.SyntaxKind.ThisKeyword) return dotted && staticThisClass(root) !== undefined;
+  if (!ts.isIdentifier(root)) return false;
+  const decl = declarationOf(root);
+  if (decl === undefined) return !dotted && importsName(root.getSourceFile(), root.text);
+  if (dotted) return ts.isClassDeclaration(decl) || ts.isModuleDeclaration(decl);
+  return (
+    ts.isFunctionDeclaration(decl) ||
+    (ts.isVariableDeclaration(decl) && localFunctionOf(decl) !== undefined)
+  );
+}
+
+/** A module-scope declaration's name as the author wrote it: `K`, `N.K` inside a namespace, and
+ *  `S.K` for a static field, never the `N_K` and `S_K` the module emits (Rule 12.1). */
+export function writtenModuleName(
+  decl: ts.VariableDeclaration | ts.PropertyDeclaration,
+  sourceFile: ts.SourceFile,
+): string {
+  const own = decl.name.getText(sourceFile);
+  if (ts.isPropertyDeclaration(decl) && ts.isClassDeclaration(decl.parent)) {
+    return [...qualifiedParts(decl.parent), own].join('.');
+  }
+  const parts = [own];
+  for (let at: ts.Node | undefined = decl.parent; at !== undefined; at = at.parent) {
+    if (ts.isModuleDeclaration(at) && ts.isIdentifier(at.name)) parts.unshift(at.name.text);
+  }
+  return parts.join('.');
+}
+
+/** How a sentence about a module constant names it: `Module const "K"`, or `Static field "S.K"`
+ *  for a static field no code writes, which is one. */
+const constantShown = (
+  decl: ts.VariableDeclaration | ts.PropertyDeclaration,
+  sourceFile: ts.SourceFile,
+): string =>
+  `${ts.isPropertyDeclaration(decl) ? 'Static field' : 'Module const'} ` +
+  `"${writtenModuleName(decl, sourceFile)}"`;
+
+/** The sentence for a module constant, or a static field no code writes, whose initializer
+ *  calls a function or builds a class of the module ({@link declaredCallIn}). */
+function declaredCallMessage(
+  decl: ts.VariableDeclaration | ts.PropertyDeclaration,
+  call: ts.CallExpression | ts.NewExpression,
+  sourceFile: ts.SourceFile,
+): string {
+  const root = ts.isCallExpression(call) ? call.expression : undefined;
+  const imported =
+    root !== undefined &&
+    ts.isIdentifier(root) &&
+    declarationOf(root) === undefined &&
+    importsName(sourceFile, root.text);
+  const what = `${ts.isNewExpression(call) ? 'builds a class' : 'calls a function'} this file ${
+    imported ? 'imports' : 'declares'
+  }`;
+  const text = call.getText(sourceFile);
+  const kind = ts.isPropertyDeclaration(decl)
+    ? 'A static field no code writes is a module constant, folded'
+    : 'A module constant is folded';
+  return (
+    `${constantShown(decl, sourceFile)} must be constant, and "${text}" ${what}. ${kind} ` +
+    `before any function exists, so build the value inside the function that reads it.`
+  );
+}
 
 /** One `enum`'s members, as the module constants they are (T1, #92).
  *
@@ -98,6 +208,20 @@ function collectEnum(
             TS_CODES.TYPE_MISMATCH,
           ),
         );
+        continue;
+      }
+      // A function or a class of the file has nothing to call yet where an enum is folded.
+      if (declaredCallIn(member.initializer, sourceFile) !== undefined) {
+        diagnostics.push(
+          makeDiagnostic(
+            sourceFile,
+            member,
+            `Enum member "${shown}" needs a value this can compute: a whole number, or ` +
+              `arithmetic over numbers and members declared before it.`,
+            TS_CODES.TYPE_MISMATCH,
+          ),
+        );
+        refuseModuleName(sourceFile, name);
         continue;
       }
       scope.push();
@@ -393,13 +517,16 @@ function valueExprConst(
       makeDiagnostic(
         sourceFile,
         decl,
-        `Module const "${name}" must be constant: a literal, a whole earlier module const, ` +
-          `a constructor over those, or arithmetic over those with a non-zero divisor. ` +
+        `${constantShown(decl, sourceFile)} must be constant: a literal, a whole earlier module ` +
+          `const, a constructor over those, or arithmetic over those with a non-zero divisor. ` +
           `It may call a math builtin over those, but not a declared function or a derivative, ` +
           `and it cannot read a resource or take a component, field or element.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     );
+    // Refused, not unknown: a read of it adds nothing (Rule 12.4).
+    refusedDeclarationsOf(scope.calleeTable()).add(name);
+    refuseModuleName(sourceFile, name);
     return undefined;
   }
   if (!isValueExprType(type)) {
@@ -477,13 +604,34 @@ function lowerOne(
     );
     return undefined;
   }
+  const declaredCall = declaredCallIn(decl.initializer, sourceFile);
+  if (declaredCall !== undefined) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl,
+        declaredCallMessage(decl, declaredCall, sourceFile),
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    );
+    // Refused, not unknown: a later constant or a function that reads it adds nothing.
+    refusedDeclarationsOf(scope.calleeTable()).add(name);
+    refuseModuleName(sourceFile, name);
+    return undefined;
+  }
   const mapped = diagnostics.length;
   const annotated = decl.type
     ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
     : undefined;
-  // A type that maps to nothing and says nothing names a declaration refused where it is written
-  // (a generic interface, a contract), which said why; the constant builds nothing (Rule 12.4).
-  if (decl.type !== undefined && annotated === undefined && diagnostics.length === mapped) {
+  if (decl.type !== undefined && annotated === undefined) {
+    // A type the mapper refused (`Foo` that nothing declares) was said where it is written, and
+    // the initializer lowered against no type would be refused again for it (Rule 12.4).
+    if (diagnostics.length > mapped) {
+      refusedDeclarationsOf(scope.calleeTable()).add(name);
+      refuseModuleName(sourceFile, name);
+    }
+    // One that maps to nothing and says nothing names a declaration refused where it is written
+    // (a generic interface, a contract), which said why; the constant builds nothing either way.
     return undefined;
   }
   // A list is lowered AGAINST the annotation, at module scope for the same reason as in a
@@ -493,6 +641,7 @@ function lowerOne(
   // generic "a list is only an initializer" refusal and then a second `Unknown identifier` for
   // a name that never got defined, neither of which says what to write.
   let init: Expr | undefined;
+  const before = diagnostics.length;
   if (ts.isArrayLiteralExpression(decl.initializer)) {
     // A spread is the list's one sentence, said before the annotation it would otherwise be
     // asked for; the name's uses then say nothing more (refused-names.ts, Rule 12.4).
@@ -516,7 +665,15 @@ function lowerOne(
     // the field names alone did not name one (roadmap 0.3 item T7, #92).
     init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated);
   }
-  if (!init) return undefined;
+  if (!init) {
+    // An initializer that failed without a word read a constant already refused, and this one
+    // is refused with it rather than left to be an unknown name at each use (Rule 12.4).
+    if (diagnostics.length === before && diagnostics.some((d) => d.category === 'error')) {
+      refusedDeclarationsOf(scope.calleeTable()).add(name);
+      refuseModuleName(sourceFile, name);
+    }
+    return undefined;
+  }
   const folded = foldConstValue(init, scope);
   if (typeof folded !== 'number' && typeof folded !== 'boolean') {
     // A non-scalar constant — a vector, an array, a struct, a matrix — is carried by

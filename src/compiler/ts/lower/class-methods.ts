@@ -32,6 +32,7 @@ import { boolT, f32T, i32T, structT, typeKey, u32T, voidT } from '../../../core/
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { CollectedStruct, FieldInit } from '../structs.js';
 import {
+  authorTypeText,
   irNameOf,
   readOnlyPhrase,
   writableRemedy,
@@ -39,8 +40,10 @@ import {
   type SuperCtor,
   writeRules,
 } from '../context.js';
+import { qualifiedParts } from '../namespaces.js';
 import { pushTypeArguments } from '../generics.js';
-import { ambiguousNew, newInstanceName } from '../generic-structs.js';
+import { ambiguousNew, newInstanceName, writtenInstanceArgs } from '../generic-structs.js';
+import { newRefusal, newTargetOf, thisObjectNewMessage } from './new-target.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import {
   methodNames,
@@ -67,7 +70,7 @@ import {
   staticThisClass,
   writtenMemberName,
 } from '../class-names.js';
-import { mapTsTypeToShaderType } from '../type-map.js';
+import { mapTsTypeToShaderType, writesUndeclaredType } from '../type-map.js';
 import {
   checkFunctionAccess,
   checkInheritedPrivateStatic,
@@ -235,9 +238,10 @@ function pushDiag(
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }
 
-/** Every identifier the file writes `new X(...)` on, and the classes a `new this()` in a static
- *  member builds: the class that declares the member, and each class that inherits it, for which
- *  the member is lowered again with `this` as that class (Rule 8.13). */
+/** Every class the file writes `new X(...)` on, by the struct it is emitted as (`P`, `N_P` for
+ *  `new N.P()` and for a bare `new P()` inside `namespace N`), and the classes a `new this()` in
+ *  a static member builds: the class that declares the member, and each class that inherits it,
+ *  for which the member is lowered again with `this` as that class (Rule 8.13). */
 function namesConstructed(
   sourceFile: ts.SourceFile,
   structs: readonly CollectedStruct[],
@@ -246,10 +250,11 @@ function namesConstructed(
   const out = new Set<string>();
   const throughThis = new Set<string>();
   const walk = (n: ts.Node): void => {
-    if (ts.isNewExpression(n) && ts.isIdentifier(n.expression)) {
+    const target = ts.isNewExpression(n) ? newTargetOf(n, sourceFile) : undefined;
+    if (ts.isNewExpression(n) && target?.kind === 'class') {
       // `new Pair<f32>()` constructs the INSTANCE struct (T9, #92), which is the name a
       // synthesised constructor has to be registered under.
-      out.add(newInstanceName(n, n.expression.text, sourceFile) ?? n.expression.text);
+      out.add(newInstanceName(n, target.flat, sourceFile) ?? target.flat);
     }
     if (ts.isNewExpression(n) && n.expression.kind === ts.SyntaxKind.ThisKeyword) {
       const cls = staticThisClass(n.expression)?.name?.text;
@@ -1021,12 +1026,23 @@ function accessorSignature(
     : { params: [{ name: value.name.text, type: inferred }], ret: voidT };
 }
 
+/** A class as its author writes it: `N.P` for the struct `N_P`, and `Pair<f32>` for the
+ *  instance `Pair_f32`, which is how a `new` of it names it (Rule 12.1). */
+function writtenClass(struct: CollectedStruct): string {
+  if (struct.classNode === undefined) return struct.decl.name;
+  const base = qualifiedParts(struct.classNode).join('.');
+  if (struct.binding === undefined) return base;
+  const args = writtenInstanceArgs(struct.decl.name, struct.classNode.getSourceFile());
+  return `${base}<${args ?? [...struct.binding.values()].map(authorTypeText).join(', ')}>`;
+}
+
 /** The functions every class in `structs` contributes, with their signatures parsed and
  *  their bodies still empty: a method (`self` first), a static function, and a constructor for
  *  a class that declares one, has a field initializer, or is constructed with `new`. One that
  *  was refused where it is written, having said why (an async method or a generator, a
- *  signature that names a type refused at its declaration), goes into `refused` under the name
- *  it would have been emitted as, so a call of it adds nothing (Rule 12.4). */
+ *  signature that names a type refused at its declaration, a constructor whose parameters were
+ *  refused), goes into `refused` under the name it would have been emitted as, so a call of it,
+ *  or a `new` of the class, adds nothing (Rule 12.4). */
 export function collectClassFunctions(
   structs: readonly CollectedStruct[],
   sourceFile: ts.SourceFile,
@@ -1259,11 +1275,10 @@ export function collectClassFunctions(
       const ctor = found?.node;
       if (struct.abstract && ctor === undefined) continue;
       if (ctor === undefined && fieldInits.length === 0 && !constructed.has(name)) continue;
-      const shown = `new ${name}`;
+      const shown = `new ${writtenClass(struct)}`;
       // A constructor that takes a function is copied for each set of functions `new` hands it
       // (Rule 8.18), as a method is.
       const ctorFnAt = ctor ? functionParams(ctor) : new Set<number>();
-      const parsed = diagnostics.length;
       const params = ctor
         ? parseParams(
             ctor.parameters.filter((_, i) => !ctorFnAt.has(i)),
@@ -1275,8 +1290,9 @@ export function collectClassFunctions(
           )
         : [];
       if (!params) {
-        // The same, for a parameter whose type was refused where it is declared.
-        if (diagnostics.length === parsed) refused?.add(ctorFnName(name));
+        // Refused where it is written, whether parseParams said why or a parameter's type was
+        // refused where it is declared.
+        refused?.add(ctorFnName(name));
         continue;
       }
       const stub: FuncDecl = { name: ctorFnName(name), params, ret: selfT, body: [] };
@@ -1552,24 +1568,15 @@ export function lowerThis(
     : { op: 'varref', type: b.type, name: irNameOf(b) };
 }
 
-/** The struct a `new` names, flattened: `P` for `new P()`, `N_P` for `new N.P()`. Undefined
- *  when the expression is not a chain of identifiers, which is a `new` on a value. */
-function newTargetName(expr: ts.Expression): string | undefined {
-  const parts: string[] = [];
-  let node: ts.Expression = expr;
-  for (;;) {
-    if (ts.isIdentifier(node)) {
-      parts.unshift(node.text);
-      return parts.join('_');
-    }
-    if (!ts.isPropertyAccessExpression(node)) return undefined;
-    parts.unshift(node.name.text);
-    node = node.expression;
-  }
-}
+/** A class with no constructor function this module can call: a `new` of it is dropped from the
+ *  body, and says so. */
+const noConstructorMessage = (shown: string): string =>
+  `"${shown}" has no constructor here; build it as an object literal, { field: value }.`;
 
-/** `new Ray(a, b)`: the class's constructor function. A `new` on anything that is not a class
- *  the file declares was refused by the semantic pass; here it lowers to nothing more. */
+/** `new Ray(a, b)`: the class's constructor function. Its target is resolved from where the
+ *  `new` is written (`new-target.ts`). A target that is no class the file declares was told
+ *  what it is once for the file, where the `new` is written (semantic.ts), and lowers to
+ *  nothing here, however many instances lower the body around it (Rule 8.13, Rule 12.4). */
 export function lowerNew(
   node: ts.NewExpression,
   sourceFile: ts.SourceFile,
@@ -1577,33 +1584,54 @@ export function lowerNew(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   // `new P(...)`, and `new N.P(...)` for a class inside a namespace, which the module emits as
-  // `N_P` (#107). A bare name inside that namespace's own bodies reaches it too, through the
-  // scope's namespace chain. `new this()` in a static member builds the class that declares the
-  // member (Rule 8.13).
-  const written =
-    node.expression.kind === ts.SyntaxKind.ThisKeyword
-      ? scope.resolve('this') === undefined
-        ? scope.staticClass()
-        : undefined
-      : newTargetName(node.expression);
-  if (written === undefined) return undefined;
+  // `N_P` (#107). A bare name inside that namespace's own bodies reaches it too, as TypeScript
+  // resolves it. `new this()` in a static member builds the class that declares the member
+  // (Rule 8.13). `flat` is the struct, `shown` the class as the author wrote it.
+  let flat: string;
+  let shown: string;
+  /** The class written in full from the top of the file, for the sentences that offer a line. */
+  let dotted: string;
+  if (unparen(node.expression).kind === ts.SyntaxKind.ThisKeyword) {
+    const cls = scope.resolve('this') === undefined ? scope.staticClass() : undefined;
+    if (newRefusal(node, sourceFile) !== undefined) return undefined;
+    if (cls === undefined) {
+      // Outside a static member as the scope sees it, where the syntax found one: said here, so
+      // the `new` is not dropped without a word.
+      pushDiag(diagnostics, sourceFile, node, thisObjectNewMessage(node));
+      return undefined;
+    }
+    flat = cls;
+    shown = cls;
+    dotted = cls;
+  } else {
+    const target = newTargetOf(node, sourceFile);
+    // Anything but a class was said once for the file, where the `new` is written: a name
+    // another file declares with the imports (`reportImportedNews`), the rest by semantic.ts.
+    if (target.kind !== 'class') return undefined;
+    flat = target.flat;
+    shown = unparen(node.expression).getText(sourceFile);
+    dotted = target.dotted;
+  }
   // `new Pair<f32>()` builds the instance struct the file collected for that set of type
   // arguments (roadmap 0.3 item T9, #92), and a bare `new Pair()` the one instance the file
   // writes, when it writes exactly one. Otherwise the expression names no layout, and saying so
   // here is the whole of it: the ordinary "unknown struct" below would name the class, which
   // exists, and never mention the type argument that is missing.
-  const instance = newInstanceName(node, written, sourceFile);
+  const instance = newInstanceName(node, flat, sourceFile);
   if (instance === undefined) {
-    const why = ambiguousNew(written, sourceFile);
+    // A type argument that writes a name nothing declares, `Foo` or `vec3<Foo>`, names no
+    // layout, and was said where it is written.
+    if (node.typeArguments?.some((t) => writesUndeclaredType(t, sourceFile))) return undefined;
+    const why = ambiguousNew(dotted, sourceFile);
     if (why !== undefined) {
       pushDiag(diagnostics, sourceFile, node, why);
       return undefined;
     }
   }
-  const name = instance ?? scope.qualifiedStruct(written);
-  if (name === undefined) return undefined;
-  const struct = scope.structByName(name);
-  if (struct === undefined) return undefined;
+  const name = instance ?? scope.qualifiedStruct(flat);
+  const struct = name === undefined ? undefined : scope.structByName(name);
+  // One the file declares and did not collect said why there.
+  if (name === undefined || struct === undefined) return undefined;
   // A class whose members are all static is a namespace of functions and is not emitted as a
   // struct at all (T3, #92), so a constructor for it would return a type the module never
   // declares. Before this it emitted `fn U_new() -> U` with no `struct U` anywhere, which
@@ -1613,24 +1641,25 @@ export function lowerNew(
       diagnostics,
       sourceFile,
       node,
-      `"${name}" declares only static members, so it is a group of functions and there is no ` +
-        `value of it to build. Call "${name}.f(...)" directly.`,
+      `"${shown}" declares only static members, so it is a group of functions and there is no ` +
+        `value of it to build. Call "${shown}.f(...)" directly.`,
     );
     return undefined;
   }
   const decl = scope.resolveCallee(ctorFnName(name));
   const cf = decl === undefined ? undefined : classFunctionOf(decl);
   if (decl === undefined || cf?.kind !== 'ctor') {
-    // An abstract class has no constructor function of its own (T5, #92) and the semantic pass
-    // already said why a `new` on one is refused; repeating it here in weaker words sends the
-    // author to the second message. A constructor refused where it is written said why too.
-    if (!scope.isAbstractStruct(name) && !scope.declarationRefused(ctorFnName(name))) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `"${name}" has no constructor here; build it as an object literal, { field: value }.`,
-      );
+    // An abstract class has no constructor function of its own (T5, #92), and was refused above.
+    // A constructor refused where it is written, at its signature, and a function of the file
+    // that holds the name a constructor is emitted under, refused as the collision it is, said
+    // why there (Rule 12.4). Any other `new` with no constructor function to call is dropped
+    // from the body, and says so.
+    if (
+      !scope.isAbstractStruct(name) &&
+      decl === undefined &&
+      !scope.declarationRefused(ctorFnName(name))
+    ) {
+      pushDiag(diagnostics, sourceFile, node, noConstructorMessage(shown));
     }
     return undefined;
   }
@@ -1643,7 +1672,7 @@ export function lowerNew(
       diagnostics,
       sourceFile,
       node,
-      `"${name}" declares no constructor, so "new ${name}()" takes no arguments, as it does in ` +
+      `"${shown}" declares no constructor, so "new ${shown}()" takes no arguments, as it does in ` +
         `TypeScript. Declare a constructor to pass values, or write the fields: ` +
         `{ ${struct.fields.map((f) => `${f.name}: ...`).join(', ')} }.`,
       TS_CODES.ARITY_MISMATCH,
@@ -1654,7 +1683,7 @@ export function lowerNew(
   const call =
     cf.takesFunctions !== undefined
       ? lowerCopyCall(node, cf, undefined, undefined, false, sourceFile, scope, diagnostics)
-      : lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown: `new ${name}` });
+      : lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown: `new ${shown}` });
   return call?.op === 'call' ? withSpan(call, sourceFile, node) : call;
 }
 

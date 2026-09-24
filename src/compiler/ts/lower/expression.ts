@@ -17,7 +17,7 @@ import {
   retargetLit,
 } from '../numeric.js';
 import { foldNumericLit, retargetIntLitCtx, shiftAmountMessage } from '../lit-coerce.js';
-import { mapTsTypeToShaderType, writesRefusedType } from '../type-map.js';
+import { libraryNameSentence, mapTsTypeToShaderType, writesRefusedType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
 import { refuseBareAtomic } from './atomics.js';
@@ -286,6 +286,25 @@ function lowerExpressionNode(
   return undefined;
 }
 
+/** Whether `decl`, what the file declares under a name where it is read, declares a VALUE of
+ *  that name: anything {@link declarationOf} finds but a namespace that holds only types, which
+ *  TypeScript does not instantiate. An interface and a type alias declare no value and are not
+ *  found at all. */
+function declaresValue(decl: ts.Node | undefined): boolean {
+  if (decl === undefined) return false;
+  if (!ts.isModuleDeclaration(decl)) return true;
+  const body = decl.body;
+  if (body === undefined) return false;
+  if (ts.isModuleDeclaration(body)) return declaresValue(body);
+  if (!ts.isModuleBlock(body)) return false;
+  return body.statements.some(
+    (st) =>
+      !ts.isInterfaceDeclaration(st) &&
+      !ts.isTypeAliasDeclaration(st) &&
+      (!ts.isModuleDeclaration(st) || declaresValue(st)),
+  );
+}
+
 /** The two operators that ask what a value is at run time, and why neither can (roadmap 0.3
  *  item T10, #92). Both are read before the operands are lowered. */
 const RUNTIME_TYPE_TEST: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
@@ -303,7 +322,7 @@ const RUNTIME_TYPE_TEST: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
 /** The builtin values a name may be meant as: the language constants, `Math` and `console`, and
  *  every builtin function, which TypeScript's own suggestion offers for a value too. */
 let builtinValues: readonly string[] | undefined;
-const builtinValueNames = (): readonly string[] =>
+export const builtinValueNames = (): readonly string[] =>
   (builtinValues ??= [...Object.keys(LANG_CONST), 'Math', 'console', ...builtinCalleeNames()]);
 
 /** The candidates for a misspelled value where `node` is written: the names in scope there,
@@ -312,6 +331,15 @@ export const valueScopes = (node: ts.Node): NameScopes => [
   ...namesInScope(node, 'value'),
   builtinValueNames(),
 ];
+
+/** The sentence for a value read that names no binding: what a name the library declares is
+ *  where the file declares nothing of it (`Number`, `Math`), else {@link
+ *  unknownIdentifierSentence}'s (Rule 2.1, Rule 12.1). */
+export function unknownValueSentence(node: ts.Identifier): string {
+  const library =
+    declarationOf(node) === undefined ? libraryNameSentence(node.text, 'value') : undefined;
+  return library ?? unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`);
+}
 
 /**
  * The sentence for an identifier that names no binding, `mistake` followed by its remedy
@@ -340,12 +368,22 @@ function lowerIdentifier(
 ): Expr | undefined {
   const binding = scope.resolve(node.text);
   if (!binding) {
+    // A §9.3 constant is the ambient library's, and a name the file declares shadows it, as
+    // TypeScript resolves it: `enum E`, `namespace PI`, `class TAU` and `function PI` read as
+    // the file's, never as e, π or τ (Rule 2.1).
     const c = resolveLangConst(node.text);
-    if (c !== undefined) return { op: 'lit', type: f32T, value: c };
+    const declared = c === undefined ? undefined : declarationOf(node);
+    if (c !== undefined && !declaresValue(declared)) return { op: 'lit', type: f32T, value: c };
     // A function named where a value is read (Rule 8.17). A call of it is lowered where the call
     // is, and a function handed to a fold is read there, so what reaches here asks for the
     // function as a value: to hold, return, compare or choose at run time.
-    if (scope.resolveCallee(node.text) !== undefined || scope.isGenericFunction(node.text)) {
+    if (
+      scope.resolveCallee(node.text) !== undefined ||
+      scope.isGenericFunction(node.text) ||
+      (declared !== undefined &&
+        ts.isFunctionDeclaration(declared) &&
+        !scope.declarationRefused(node.text))
+    ) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -362,13 +400,7 @@ function lowerIdentifier(
     // A name whose declaration was refused, or one an error already covers, says nothing
     // more: the refusal is the one diagnostic for the one mistake (Rule 12.4, #171).
     if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined;
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`),
-      TS_CODES.UNKNOWN_NAME,
-    );
+    pushDiag(diagnostics, sourceFile, node, unknownValueSentence(node), TS_CODES.UNKNOWN_NAME);
     return undefined;
   }
   switch (binding.kind) {

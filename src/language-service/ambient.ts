@@ -1619,8 +1619,8 @@ interface Array<T> {
   reduce<N extends number>(this: array<T, N>, callbackfn: (previousValue: T, currentValue: T, currentIndex: i32, array: array<T, N>) => T): T
   reduce<U, N extends number>(this: array<T, N>, callbackfn: (previousValue: U, currentValue: T, currentIndex: i32, array: array<T, N>) => U, initialValue: U): U
 }
-// What \`[Symbol.iterator]\` above resolves through. \`Symbol\` itself stays a host API: the
-// compiler refuses it as a value (TS8012), so declaring it here gives an author nothing to write.
+// What \`[Symbol.iterator]\` above resolves through. \`Symbol\` itself is no name of the shader:
+// the compiler refuses it as a value (TS8022), so declaring it gives an author nothing to write.
 interface SymbolConstructor {
   readonly iterator: unique symbol
 }

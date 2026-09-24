@@ -85,6 +85,10 @@ export function fs(): vec4 {
         ),
       )[0],
     ).toContain('is f32, not Nope');
+    // A claim of a type nothing declares claims nothing the program has (Rule 2.1).
+    expect(errorsOf(file('', `  const k = 0.5 as Nope\n  return vec4(k, 0., 0., 1.)`))[0]).toBe(
+      `${TS_CODES.UNKNOWN_TYPE} Unknown type "Nope". Declare it in this file, or import it from another shader module.`,
+    );
   });
 });
 

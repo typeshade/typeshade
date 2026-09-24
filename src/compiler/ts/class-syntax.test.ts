@@ -479,7 +479,7 @@ export function run(): f32 { C.K = 4.; return C.K }${TAIL}`),
       only(`"use typeshade"
 class A { x: f32 = 1.; clone(): A { return new this() } }${TAIL}`),
     ).toBe(
-      `${TS_CODES.HOST_STMT} "this" here is an object, not a class, so "new" cannot build one from it. Name the class, "new A(...)"; "new this()" builds the class in a static member.`,
+      `${TS_CODES.CLASS_MEMBER} "this" here is an object, not a class, so "new" cannot build one from it. Name the class, "new A(...)"; "new this()" builds the class in a static member.`,
     );
   });
 });

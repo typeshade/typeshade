@@ -17,7 +17,7 @@ import {
 } from '../context.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { parseSwizzle } from '../swizzle.js';
-import { staticThisClass } from '../class-names.js';
+import { emittedMemberName, staticThisClass } from '../class-names.js';
 import { refuseAtomicDeclaration } from './atomics.js';
 import { lowerBarrierStatement } from './barriers.js';
 import { refuseOperatorKind } from './operator-kinds.js';
@@ -1569,6 +1569,8 @@ export function lowerLValue(
     return undefined;
   }
   const binding = scope.resolve(node.text);
+  // A declaration refused where it is written said why there (Rule 12.4).
+  if (!binding && scope.declarationRefused(node.text)) return undefined;
   if (!binding) {
     // A refused declaration already said why the name is unbound (Rule 12.4, #171).
     if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined;
@@ -1647,6 +1649,7 @@ function staticRootOf(
 ):
   | { binding: Binding; owner: string; written: string; whole: boolean }
   | { refused: string }
+  | { said: true }
   | undefined {
   const target = unwrapParens(node);
   let at = target;
@@ -1658,6 +1661,11 @@ function staticRootOf(
         // `whole`: the write is to the static itself, not into what it holds.
         if (binding !== undefined) {
           return { binding, owner, written: at.name.text, whole: at === target && !into };
+        }
+        // A static field whose initializer was refused said why there, and a write of it adds
+        // nothing (Rule 12.4).
+        if (scope.declarationRefused(`${owner}_${emittedMemberName(at.name.text)}`)) {
+          return { said: true };
         }
         // `this.#n += 1.` in a static body a class inherits, `#n` being the declaring class's.
         const refused = inheritedPrivateStaticField(owner, at.name.text, scope, sourceFile);
@@ -1733,6 +1741,7 @@ function checkRootNamed(
   // A chain rooted in a static field, `C.v.x` or `this.v.x` in a static member: the static is
   // the root that has to take the write (Rule 8.13).
   const statik = staticRootOf(node, scope, sourceFile, into);
+  if (statik !== undefined && 'said' in statik) return false;
   if (statik !== undefined && 'refused' in statik) {
     pushDiag(diagnostics, sourceFile, node, statik.refused, TS_CODES.CLASS_MEMBER);
     return false;
@@ -1758,6 +1767,8 @@ function checkRootNamed(
     return false;
   }
   const binding = scope.resolve(rootName);
+  // A declaration refused where it is written said why there (Rule 12.4).
+  if (!binding && scope.declarationRefused(rootName)) return false;
   if (!binding) {
     // A refused declaration already said why the root is unbound (Rule 12.4, #171).
     if (rootName !== 'this' && unknownNameAlreadyReported(node, rootName, sourceFile, diagnostics))

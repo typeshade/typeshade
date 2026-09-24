@@ -494,7 +494,9 @@ describe("inheritance puts the base's fields first (roadmap 0.3 item T5, #92)", 
       }
       ${EXTENDS}
     `),
-    ).toContain('"B" extends "Missing", which this file does not declare as a struct.');
+    ).toContain(
+      'Unknown type "Missing". Declare it in this file, or import it from another shader module.',
+    );
     expect(
       diagnose(`
       class A extends B {

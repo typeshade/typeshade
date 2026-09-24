@@ -214,3 +214,93 @@ export function refuseNamespaceStatement(
     ),
   );
 }
+
+/** The declaration of `name` a statement makes, when it makes one plainly: a class, a function,
+ *  an enum, an interface, a type alias, a namespace or a variable. */
+function declaredName(st: ts.Statement, name: string): ts.Node | undefined {
+  if (
+    (ts.isClassDeclaration(st) ||
+      ts.isFunctionDeclaration(st) ||
+      ts.isEnumDeclaration(st) ||
+      ts.isInterfaceDeclaration(st) ||
+      ts.isTypeAliasDeclaration(st) ||
+      ts.isModuleDeclaration(st)) &&
+    st.name !== undefined &&
+    ts.isIdentifier(st.name) &&
+    st.name.text === name
+  ) {
+    return st;
+  }
+  if (ts.isVariableStatement(st)) {
+    return st.declarationList.declarations.find(
+      (d) => ts.isIdentifier(d.name) && d.name.text === name,
+    );
+  }
+  return undefined;
+}
+
+const isExported = (st: ts.Statement): boolean =>
+  ts.getModifiers(st as ts.HasModifiers)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ??
+  false;
+
+/** The member `name` of a namespace, looked for in every block of that name beside it, since
+ *  two `namespace N { ... }` blocks are one namespace. TypeScript merges what a block exports,
+ *  so a member of another block than the one `from` is written in counts only when it carries
+ *  `export`, and so does every member reached through the namespace's name (`N.P`, no `from`). */
+export function namespaceMember(
+  ns: ts.ModuleDeclaration,
+  name: string,
+  from?: ts.Node,
+): ts.Node | undefined {
+  const around = ns.parent;
+  const blocks =
+    ts.isSourceFile(around) || ts.isModuleBlock(around)
+      ? around.statements.filter(
+          (st): st is ts.ModuleDeclaration =>
+            ts.isModuleDeclaration(st) &&
+            ts.isIdentifier(st.name) &&
+            ts.isIdentifier(ns.name) &&
+            st.name.text === ns.name.text,
+        )
+      : [ns];
+  for (const block of blocks) {
+    const body = block.body;
+    // `namespace A.B { ... }`: the body of `A` is `B` itself.
+    if (body !== undefined && ts.isModuleDeclaration(body)) {
+      if (ts.isIdentifier(body.name) && body.name.text === name) return body;
+      continue;
+    }
+    if (body === undefined || !ts.isModuleBlock(body)) continue;
+    const own = from !== undefined && from.pos >= body.pos && from.end <= body.end;
+    for (const st of body.statements) {
+      const hit = declaredName(st, name);
+      if (hit !== undefined && (own || isExported(st))) return hit;
+    }
+  }
+  return undefined;
+}
+
+/** A class's name written in full from the top of the file, its namespaces first: `[N, P]`. The
+ *  module emits it joined by `_` (`N_P`), and a message writes it joined by `.` (`N.P`). */
+export function qualifiedParts(decl: ts.ClassDeclaration): string[] {
+  const parts = [decl.name?.text ?? ''];
+  for (let at: ts.Node | undefined = decl.parent; at !== undefined; at = at.parent) {
+    if (ts.isModuleDeclaration(at) && ts.isIdentifier(at.name)) parts.unshift(at.name.text);
+  }
+  return parts;
+}
+
+/** The class a short type name written at `node` names inside the namespaces around it, as the
+ *  module emits it (`N_P`): the innermost namespace that declares a class of that name, in the
+ *  block `node` is written in or exported from another of its blocks. Undefined outside a
+ *  namespace, or where none around it declares one, so the name is the file's own. TypeScript
+ *  resolves a type name inside a namespace this way, and a `new` there builds the same class
+ *  (#107). */
+export function namespaceClassAround(node: ts.Node, name: string): string | undefined {
+  for (let at: ts.Node | undefined = node.parent; at !== undefined; at = at.parent) {
+    if (!ts.isModuleDeclaration(at)) continue;
+    const hit = namespaceMember(at, name, node);
+    if (hit !== undefined && ts.isClassDeclaration(hit)) return qualifiedParts(hit).join('_');
+  }
+  return undefined;
+}

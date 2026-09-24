@@ -7,7 +7,6 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
 import { resolveMathExpand } from '../math-alias.js';
 import { expandMath } from '../math-expand.js';
-import { parseSwizzle } from '../swizzle.js';
 import { lowerRandomHash } from '../random-hash.js';
 import { lowerScalarCast } from '../numeric.js';
 import { foldConstNumber } from '../loop-bound.js';
@@ -91,44 +90,6 @@ export function lowerExpandCall(
     return undefined;
   }
   return out;
-}
-
-export function lowerSwizzleCall(
-  node: ts.CallExpression,
-  receiver: ts.Expression,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): Expr | undefined {
-  if (node.arguments.length !== 1) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'swizzle takes one string argument, e.g. v.swizzle("yxz").',
-      TS_CODES.ARITY_MISMATCH,
-    );
-    return undefined;
-  }
-  const arg = node.arguments[0]!;
-  if (!ts.isStringLiteral(arg) && !ts.isNoSubstitutionTemplateLiteral(arg)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'swizzle components must be a string literal.',
-      TS_CODES.UNSUPPORTED,
-    );
-    return undefined;
-  }
-  const base = lowerExpression(receiver, sourceFile, scope, diagnostics);
-  if (!base) return undefined;
-  const sw = parseSwizzle(base.type, arg.text);
-  if (!sw.ok) {
-    pushDiag(diagnostics, sourceFile, node, sw.message, TS_CODES.UNKNOWN_NAME);
-    return undefined;
-  }
-  return { op: 'member', type: sw.type, base, field: sw.field };
 }
 
 export function lowerRandomCall(

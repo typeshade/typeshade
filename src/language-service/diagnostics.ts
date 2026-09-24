@@ -1199,8 +1199,30 @@ interface SameMistake {
 const SAME_MISTAKE: readonly SameMistake[] = [
   {
     typescript: 2304,
-    typeshade: new Set(['TS8022', 'TS8004', 'TS8002', 'TS8012']),
-    reason: 'An unknown name: a value, a function, a type or a host API (`Date`).',
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'An unknown name: a value, a function or a type, `Date` among them.',
+  },
+  {
+    typescript: 2583,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason:
+      'The same for a name of a later ECMAScript library (`Map`, `Promise`), which TypeScript ' +
+      'offers to find there, and which a shader does not have either.',
+  },
+  {
+    typescript: 2584,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same for a name of the DOM (`document`).',
+  },
+  {
+    typescript: 2591,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same for a name of Node (`process`, `require`, `Buffer`).',
+  },
+  {
+    typescript: 2580,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same for a name of Node, where TypeScript offers its types to install.',
   },
   {
     typescript: 2552,
@@ -1356,6 +1378,42 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     typescript: 2349,
     typeshade: new Set(['TS8004']),
     reason: 'A call of a name that is not a function (`discard()`).',
+  },
+  {
+    typescript: 7009,
+    typeshade: new Set(['TS8035', 'TS8022']),
+    reason:
+      'A `new` on a function or a WGSL constructor, which is called without it, or on a name a ' +
+      'file compiled on its own imports and cannot see.',
+  },
+  {
+    typescript: 2351,
+    typeshade: new Set(['TS8035']),
+    reason:
+      'A `new` on a value, an enum, `Math`, `console` or `Symbol`, none of which has a ' +
+      'constructor.',
+  },
+  {
+    typescript: 2693,
+    typeshade: new Set(['TS8035', 'TS8022', 'TS8004']),
+    reason:
+      'A type read as a value: a `new` on an interface, a type alias or a WGSL type with no ' +
+      'constructor, and a type the library declares read or called (`Number(x)`).',
+  },
+  {
+    typescript: 2708,
+    typeshade: new Set(['TS8035']),
+    reason: 'A `new` through a namespace that holds types alone (`new N.I()`).',
+  },
+  {
+    typescript: 7017,
+    typeshade: new Set(['TS8022']),
+    reason: 'A `new` on a member of `globalThis`, a name nothing declares.',
+  },
+  {
+    typescript: 2511,
+    typeshade: new Set(['TS8035']),
+    reason: 'A `new` on an `abstract` class.',
   },
   {
     typescript: 2588,
@@ -1540,6 +1598,21 @@ function callOf(
   return argumentAt(context, span)?.call ?? calleeCallAt(context, span);
 }
 
+/** The `new` a compiler diagnostic covers whole, `new Date()`, when it covers one. */
+function newCovering(
+  context: DiagnosticFilterContext,
+  span: TypeshadeTextSpan,
+): ts.NewExpression | undefined {
+  for (
+    let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, span.start);
+    node !== undefined && node.getStart(context.sourceFile) === span.start;
+    node = node.parent
+  ) {
+    if (ts.isNewExpression(node) && node.getEnd() === spanEnd(span)) return node;
+  }
+  return undefined;
+}
+
 /**
  * Whether a TypeScript diagnostic and a compiler one that `SAME_MISTAKE` pairs by code sit where
  * one mistake would put them.
@@ -1555,12 +1628,24 @@ function callOf(
  * names at the end of the access the compiler names; a declared type mismatch is the name at
  * the start of the declaration. Inside alone is not enough, since a second mistake can sit
  * inside the span of a first: a misspelled argument inside a call the compiler refuses whole.
+ *
+ * A `new` is refused whole by the compiler, once for the file, for what its target is, where
+ * TypeScript reports the target or a name in it (`Date` in `new Date()`, TS2304; `E` in
+ * `new E()`, TS2351; `Foo` in `new Math.Foo()`, TS2339): TypeScript's span then lies inside the
+ * target of the `new` the compiler's covers.
  */
 function sameMistakeSpans(
   context: DiagnosticFilterContext,
   diagnostic: TypeshadeDiagnostic,
   error: TypeshadeDiagnostic,
 ): boolean {
+  const built = newCovering(context, error.span);
+  if (
+    built !== undefined &&
+    within(diagnostic.span, spanOfNode(built.expression, context.sourceFile))
+  ) {
+    return true;
+  }
   if (typeof diagnostic.code === 'number' && CALL_CODES.has(diagnostic.code)) {
     const call = callOf(context, diagnostic.span);
     const region = call === undefined ? diagnostic.span : spanOfNode(call, context.sourceFile);

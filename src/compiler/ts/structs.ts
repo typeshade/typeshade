@@ -9,6 +9,7 @@ import {
   mapTsTypeToShaderType,
   refuseTypeName,
   setRefusedGenerics,
+  undeclaredTypeName,
   writesRefusedType,
 } from './type-map.js';
 import {
@@ -1716,6 +1717,9 @@ function basesOf(
       );
       return undefined;
     }
+    // A base nothing declares is an unknown type, said where it is written (semantic.ts), and
+    // the class keeps its own fields.
+    if (undeclaredTypeName(type, sourceFile) !== undefined) continue;
     out.push(type.expression.text);
   }
   return { bases: out, bodies };

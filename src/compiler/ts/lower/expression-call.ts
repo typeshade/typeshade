@@ -19,7 +19,7 @@ import {
   voidT,
 } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, type LoweringScope } from '../context.js';
 import {
   MATH_EXPAND_ALIAS,
   MATH_FN_ALIAS,
@@ -60,7 +60,6 @@ import {
   lowerExpandCall,
   lowerRandomCall,
   lowerScalarCastCall,
-  lowerSwizzleCall,
   lowerGenericCall,
   lowerUserCall,
   mathResultType,
@@ -68,10 +67,11 @@ import {
 import { captureArguments, declaresFunction } from './local-functions.js';
 import { declarationOf, functionAround } from './closures.js';
 import { makeDiagnostic } from '../diagnostic.js';
-import { HOST_GLOBALS } from '../semantic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 import { checkMathArgs, mathTakesElem } from './math-args.js';
+import { parseSwizzle } from '../swizzle.js';
+import { libraryNameSentence } from '../type-map.js';
 import { isConsoleMethod } from '../../../core/console.js';
 
 const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = {
@@ -126,6 +126,57 @@ function ctorZero(elem: VecCtorElem): Expr | undefined {
   if (t) return { op: 'lit', type: t, value: 0 };
   return elem === 'bool' ? { op: 'lit', type: boolT, value: false } : undefined;
 }
+/** What a method called on a vector is, which has none: `v.swizzle("yxz")` was the IR
+ *  builder's method reached by its name, which no source gives an author (Rule 2.2), and is
+ *  written as a member, `v.yxz`, when the vector has those components; a builtin's name,
+ *  `v.normalize()`, is the builtin, called on the vector, when that call takes these arguments,
+ *  with a scalar splat to the vector's size where the builtin wants one (`clamp(v, vec3(0.),
+ *  vec3(1.))`), and `any` and `all` on a vector of bools the same; anything else is told what a
+ *  vector's members are. A remedy is named only when it compiles (Rule 12.1). */
+function vectorMethodMessage(
+  node: ts.CallExpression,
+  callee: ts.PropertyAccessExpression,
+  recv: Expr,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+): string {
+  const v = callee.expression.getText(sourceFile);
+  const method = callee.name.text;
+  const vector = authorTypeText(recv.type);
+  const head = `${vector} has no method "${method}"`;
+  const only = node.arguments.length === 1 ? node.arguments[0] : undefined;
+  if (method === 'swizzle' && only !== undefined && ts.isStringLiteral(only)) {
+    if (parseSwizzle(recv.type, only.text).ok) {
+      return `${head}: a swizzle is written as a member, ${v}.${only.text}.`;
+    }
+  }
+  const texts = node.arguments.map((a) => a.getText(sourceFile));
+  const call = (args: readonly string[]): string =>
+    `${head}: call the builtin, ${method}(${[v, ...args].join(', ')}).`;
+  if ((method === 'any' || method === 'all') && node.arguments.length === 0) {
+    if (recv.type.kind === 'vec' && recv.type.elem === 'bool') return call([]);
+  } else if (isCanonicalMathFn(method) && SCALAR_CAST[method] === undefined) {
+    // The builtin's own checks, on the arguments lowered where nothing is reported.
+    const scratch: TsCompilerDiagnostic[] = [];
+    const args = node.arguments.map((a) => lowerExpression(a, sourceFile, scope, scratch));
+    const takes = (list: Expr[]): boolean =>
+      (expectedArity(method) ?? list.length) === list.length &&
+      checkMathArgs(method, method, list, node, sourceFile, []);
+    if (args.every((a): a is Expr => a !== undefined)) {
+      if (takes([recv, ...args])) return call(texts);
+      const elem = recv.type.kind === 'vec' ? recv.type.elem : undefined;
+      const splat = (a: Expr): boolean => a.type.kind === 'scalar' && a.type.scalar === elem;
+      if (
+        args.some(splat) &&
+        takes([recv, ...args.map((a) => (splat(a) ? { ...a, type: recv.type } : a))])
+      ) {
+        return call(args.map((a, i) => (splat(a) ? `${vector}(${texts[i]!})` : texts[i]!)));
+      }
+    }
+  }
+  return `${head}: a vector's members are its components, ${v}.x or ${v}.xy.`;
+}
+
 /** Matrix constructor name -> its shape. Every `matCxR` of wgsl.txt:4621, its predeclared
  *  `matCxRf` alias (#183), and the `matN` shorthand for a square one, matching the type names
  *  `type-map.ts` accepts, so a type an author can declare is a value an author can build. */
@@ -227,8 +278,6 @@ export function lowerCall(
         );
         return undefined;
       }
-    } else if (callee.name.text === 'swizzle') {
-      return lowerSwizzleCall(node, callee.expression, sourceFile, scope, diagnostics);
     } else {
       // A method of a class the file declares, or a static function on the class (#86); a
       // receiver that is not a struct falls through to the refusals below.
@@ -239,13 +288,26 @@ export function lowerCall(
       if (isArrayMethod(callee.name.text) && seen.recv !== undefined) {
         return lowerArrayMethod(node, callee, seen.recv, sourceFile, scope, diagnostics);
       }
-      if (JS_ARRAY_METHODS.has(callee.name.text)) {
+      // The sentence about an array's methods is said of an array; any other receiver is looked
+      // up as what it is (Rule 2.1).
+      if (JS_ARRAY_METHODS.has(callee.name.text) && seen.recv?.type.kind === 'array') {
         pushDiag(
           diagnostics,
           sourceFile,
           node,
           otherArrayMethod(callee.name.text),
           TS_CODES.UNSUPPORTED,
+        );
+        return undefined;
+      }
+      // A vector's members are its components, and it has no method (Rule 2.2).
+      if (seen.recv?.type.kind === 'vec' || seen.recv?.type.kind === 'vec64') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          callee.name,
+          vectorMethodMessage(node, callee, seen.recv, sourceFile, scope),
+          TS_CODES.UNKNOWN_NAME,
         );
         return undefined;
       }
@@ -400,22 +462,20 @@ export function lowerCall(
     }
   }
 
-  // `Symbol('k')`, `fetch(url)`: the semantic pass already said the callee is a host API, and
-  // lowering the arguments adds a second complaint about the same line — one about a string
-  // that is only there because the call is (roadmap 0.3 item T10, #92).
-  if (ts.isIdentifier(callee) && HOST_GLOBALS.has(callee.text)) return undefined;
-
   // A name that resolves to nothing callable is said here, on the name, as TypeScript's TS2304
   // is. The arguments are still lowered, for their own mistakes: `colr` in `g(colr)` is a second
   // one, and a build that stopped at `g` would hide it until `g` was fixed. An argument that is
-  // a function is left alone, since whether one may be passed is the unknown callee's to say,
-  // and a refusal of it would be a second report of the first mistake (Rule 12.4).
+  // a function or a string is left alone, since whether one may be passed is the unknown
+  // callee's to say, and a refusal of it would be a second report of the first mistake: `fetch`
+  // in `fetch("x")` is a name nothing declares, and the string is there only because the call is
+  // (Rule 12.4).
   if (ts.isIdentifier(callee) && ctor === undefined && intrinsicId === undefined) {
     // One refused where it is declared said why there (roadmap 0.3 item T10, #92).
     if (scope.declarationRefused(callee.text)) return undefined;
     pushDiag(diagnostics, sourceFile, callee, unknownFunctionSentence(callee), TS_CODES.UNKNOWN_FN);
     for (const arg of node.arguments) {
-      if (!isFunctionArgument(arg, scope)) lowerExpression(arg, sourceFile, scope, diagnostics);
+      if (isFunctionArgument(arg, scope) || ts.isStringLiteralLike(arg)) continue;
+      lowerExpression(arg, sourceFile, scope, diagnostics);
     }
     return undefined;
   }
@@ -2563,11 +2623,16 @@ export const calleeScopes = (callee: ts.Node): NameScopes => [
 
 /** The sentence for a call of `callee` that names nothing callable: TypeShade's spelling of a
  *  GLSL or HLSL name, the function a misspelled one is spelled like, or the declaration it
- *  needs. `discard` is a statement, which a call of it is not. */
-function unknownFunctionSentence(callee: ts.Identifier): string {
+ *  needs. `discard` is a statement, which a call of it is not, and a name the library declares
+ *  for TypeScript's own use (`Number`, `Math`) says what it is, where the file declares nothing
+ *  of it. */
+export function unknownFunctionSentence(callee: ts.Identifier): string {
   if (callee.text === 'discard') {
     return `"discard" is a statement, not a function. Write it without the parentheses: "discard;".`;
   }
+  const library =
+    declarationOf(callee) === undefined ? libraryNameSentence(callee.text, 'callee') : undefined;
+  if (library !== undefined) return library;
   return unknownNameSentence(
     `Unknown function "${callee.text}".`,
     callee.text,

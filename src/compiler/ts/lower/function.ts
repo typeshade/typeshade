@@ -26,6 +26,8 @@ import {
   type CaptureKey,
   privateFieldTableOf,
   readonlyFieldTableOf,
+  refusedDeclarationsOf,
+  refusedModuleNames,
   restrictedFieldTableOf,
   withheldTableOf,
 } from '../context.js';
@@ -2522,6 +2524,10 @@ export function functionScope(
   nsPrefix?: string,
 ): LoweringScope {
   const scope = new LoweringScope(callees, symbols);
+  // A module-scope declaration refused before any function existed stays refused in every body.
+  if (sourceFile) {
+    for (const name of refusedModuleNames(sourceFile)) refusedDeclarationsOf(callees).add(name);
+  }
   scope.setNamespacePrefix(nsPrefix);
   scope.setStructs(structs.map((s) => s.decl));
   scope.setPrivateFields(privateFieldTableOf(structs));

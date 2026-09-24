@@ -1,12 +1,16 @@
-// Ban host/JS surface inside "use typeshade" files.
+// Ban host/JS surface inside "use typeshade" files: host control flow and the runtime forms no
+// shader has. A NAME is not judged here by its spelling. It is resolved where it is used, and one
+// nothing declares is an unknown name of the code that owns its position (Rule 2.1). Three of
+// those are said here, on the syntax, because the lowering reaches a body once per instance or
+// not at all: a `new` that builds no class and a type name nothing declares, before the lowering,
+// and a value or a callee nothing declares, after it ({@link reportUndeclaredValues}).
 
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { checkDeclarationDecorators } from './builtin-check.js';
+import { ATTRIBUTE_NAMES, checkDeclarationDecorators } from './builtin-check.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { isEnableDirective } from './enables.js';
-import { staticThisClass } from './class-names.js';
 import {
   namespaceMemberName,
   refusedInNamespace,
@@ -14,68 +18,15 @@ import {
   statementRefusal,
 } from './namespaces.js';
 import { mixinAppliedBy } from './mixins.js';
-
-export const HOST_GLOBALS: ReadonlySet<string> = new Set([
-  'window',
-  'document',
-  'globalThis',
-  'global',
-  'self',
-  'fetch',
-  'setTimeout',
-  'setInterval',
-  'clearTimeout',
-  'clearInterval',
-  'queueMicrotask',
-  'requestAnimationFrame',
-  'Promise',
-  'Date',
-  'JSON',
-  'process',
-  'require',
-  'module',
-  'exports',
-  'eval',
-  'Function',
-  'Array',
-  'Object',
-  'Map',
-  'Set',
-  'WeakMap',
-  'WeakSet',
-  'Symbol',
-  'Error',
-  'Proxy',
-  'Reflect',
-  'Atomics',
-  'SharedArrayBuffer',
-  'WebAssembly',
-  'navigator',
-  'performance',
-  'crypto',
-  'GPU',
-  'GPUBuffer',
-  'localStorage',
-  'sessionStorage',
-  'XMLHttpRequest',
-  'Worker',
-  'SharedWorker',
-  'MessageChannel',
-  'TextDecoder',
-  'TextEncoder',
-  'URL',
-  'Blob',
-  'atob',
-  'btoa',
-  'parseInt',
-  'parseFloat',
-  'isNaN',
-  'isFinite',
-  'Number',
-  'String',
-  'Boolean',
-  'RegExp',
-]);
+import { LIBRARY_TYPE_NAMES, undeclaredTypeName, unknownTypeSentence } from './type-map.js';
+import { declaredValueNamesOf, namesInScope } from './unknown-names.js';
+import { newRefusal } from './lower/new-target.js';
+import {
+  builtinValueNames,
+  unknownIdentifierSentence,
+  unknownValueSentence,
+} from './lower/expression.js';
+import { unknownFunctionSentence } from './lower/expression-call.js';
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -88,84 +39,6 @@ function push(
   const refused = REFUSED.get(sourceFile) ?? new Set<ts.Node>();
   refused.add(node);
   REFUSED.set(sourceFile, refused);
-}
-
-/** What `new X(...)` names, so the refusal can say the real reason rather than blaming the
- *  allocation (#86, and the DX note on it). A class the file declares is built here, which is
- *  the ordinary case; the other three are each refused for their own reason, and TypeScript
- *  refuses two of them as well. */
-function newTarget(
-  node: ts.NewExpression,
-  sourceFile: ts.SourceFile,
-): 'class' | 'abstract' | 'type' | 'host' {
-  // `new this()` in a static member builds the class that declares the member (Rule 8.13).
-  if (node.expression.kind === ts.SyntaxKind.ThisKeyword) {
-    const cls = staticThisClass(node.expression);
-    if (cls === undefined) return 'host';
-    return cls.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)
-      ? 'abstract'
-      : 'class';
-  }
-  const written = newTargetName(node.expression);
-  if (written === undefined) return 'host';
-  // The name as written, and the short name a dotted one ends in: `new N.P()` names the class
-  // `P` inside `N`, which the class walk below finds under its own name (#107).
-  const short = written.slice(written.lastIndexOf('_') + 1);
-  let found: 'class' | 'abstract' | 'type' | undefined;
-  const walk = (statements: readonly ts.Statement[], inNamespace: boolean): void => {
-    for (const s of statements) {
-      if (ts.isModuleDeclaration(s) && s.body) {
-        if (ts.isModuleBlock(s.body)) walk(s.body.statements, true);
-        else if (ts.isModuleDeclaration(s.body)) walk([s.body], true);
-        continue;
-      }
-      // A namespace's class answers to its short name; a top-level one only to what was
-      // written, so `new N.P()` never resolves to a top-level `P`.
-      const want = inNamespace ? short : written;
-      if (ts.isClassDeclaration(s) && s.name?.text === want) {
-        found ??= s.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)
-          ? 'abstract'
-          : 'class';
-      }
-      if (ts.isInterfaceDeclaration(s) && s.name.text === want) found ??= 'type';
-      if (ts.isTypeAliasDeclaration(s) && s.name.text === want) found ??= 'type';
-    }
-  };
-  walk(sourceFile.statements, false);
-  return found ?? 'host';
-}
-
-/** The name of the class a node stands inside, the innermost one. */
-function enclosingClassName(node: ts.Node): string | undefined {
-  for (let at: ts.Node | undefined = node.parent; at !== undefined; at = at.parent) {
-    if (ts.isClassLike(at)) return at.name?.text;
-  }
-  return undefined;
-}
-
-/** The name a `new` writes, joined the way the module flattens it: `P`, `N_P`. */
-function newTargetName(expr: ts.Expression): string | undefined {
-  const parts: string[] = [];
-  let node: ts.Expression = expr;
-  for (;;) {
-    if (ts.isIdentifier(node)) {
-      parts.unshift(node.text);
-      return parts.join('_');
-    }
-    if (!ts.isPropertyAccessExpression(node)) return undefined;
-    parts.unshift(node.name.text);
-    node = node.expression;
-  }
-}
-
-function isPropertyName(node: ts.Identifier): boolean {
-  const p = node.parent;
-  if (!p) return false;
-  if (ts.isPropertyAccessExpression(p) && p.name === node) return true;
-  if (ts.isQualifiedName(p) && p.right === node) return true;
-  if (ts.isPropertyAssignment(p) && p.name === node) return true;
-  if (ts.isPropertySignature(p) && p.name === node) return true;
-  return false;
 }
 
 /** Whether `node` is written directly as an argument of `console.<method>(...)`. */
@@ -208,14 +81,16 @@ function visit(
     }
     return;
   }
-  if (ts.isIdentifier(node) && HOST_GLOBALS.has(node.text) && !isPropertyName(node)) {
-    push(
-      diagnostics,
-      sourceFile,
-      node,
-      `"${node.text}" is a host/JS API. "use typeshade" files cannot touch the JS runtime.`,
-      TS_CODES.HOST_API,
-    );
+  // What a `new` builds, and a type name nothing declares, are resolved here, once for the file:
+  // in a body no call lowers, and once for a body lowered for every instance (Rule 2.1, Rule 12.4).
+  if (ts.isNewExpression(node)) {
+    const refused = newRefusal(node, sourceFile);
+    if (refused !== undefined) push(diagnostics, sourceFile, node, refused.message, refused.code);
+  }
+  const unknownType = undeclaredTypeName(node, sourceFile);
+  if (unknownType !== undefined) {
+    const sentence = unknownTypeSentence(unknownType.text, namesInScope(node, 'type'));
+    push(diagnostics, sourceFile, unknownType, sentence, TS_CODES.UNKNOWN_TYPE);
   }
   if (ts.isAwaitExpression(node)) {
     push(
@@ -261,56 +136,6 @@ function visit(
       'try/catch/throw are JS exceptions. TypeShade has no exception path.',
       TS_CODES.HOST_STMT,
     );
-  }
-  // `new Ray(...)` on a class the file declares is that class's constructor (#86). The other
-  // three each get their own reason: a message that leads with "`new` allocates a JS object"
-  // reads as a ban on `new` itself, which it is not, and sends a reader looking for a
-  // workaround they do not need.
-  if (ts.isNewExpression(node)) {
-    const shown = ts.isIdentifier(node.expression)
-      ? node.expression.text
-      : node.expression.kind === ts.SyntaxKind.ThisKeyword
-        ? (staticThisClass(node.expression)?.name?.text ?? 'this')
-        : node.expression.getText(sourceFile);
-    switch (newTarget(node, sourceFile)) {
-      case 'class':
-        break;
-      case 'abstract':
-        push(
-          diagnostics,
-          sourceFile,
-          node,
-          `"${shown}" is abstract, so there is no instance of it to build. Construct a class ` +
-            `that extends it.`,
-          TS_CODES.HOST_STMT,
-        );
-        break;
-      case 'type':
-        push(
-          diagnostics,
-          sourceFile,
-          node,
-          `"${shown}" is a type, not a value: an interface and a type alias declare a shape and ` +
-            `carry no constructor. Write the object literal, { field: value }, or declare ` +
-            `"${shown}" as a class to give it one.`,
-          TS_CODES.HOST_STMT,
-        );
-        break;
-      default:
-        push(
-          diagnostics,
-          sourceFile,
-          node,
-          node.expression.kind === ts.SyntaxKind.ThisKeyword
-            ? `"this" here is an object, not a class, so "new" cannot build one from it. Name ` +
-                `the class, "new ${enclosingClassName(node) ?? 'C'}(...)"; "new this()" builds ` +
-                `the class in a static member.`
-            : `A class this file declares is built with "new", and "${shown}" is not one of ` +
-                `them. "new" on anything else allocates a JS object, which a shader has no heap ` +
-                `for.`,
-          TS_CODES.HOST_STMT,
-        );
-    }
   }
   if (ts.isTaggedTemplateExpression(node) || ts.isTemplateExpression(node)) {
     push(
@@ -723,4 +548,167 @@ export function analyzeSemantics(
       visit(stmt, sourceFile, diagnostics);
     }
   }
+}
+
+/** The values the ambient library declares beyond the builtins a call reaches and the §9.3
+ *  constants ({@link builtinValueNames}): the attributes, `discard`, `Symbol`, and the call-form
+ *  bindings `uniform<T>()` and `storage<T>()`. TypeScript resolves each, so none is a name
+ *  nothing declares; `ambient-parity.test.ts` holds the whole set to the library. */
+export const LIBRARY_VALUES: ReadonlySet<string> = new Set([
+  ...ATTRIBUTE_NAMES,
+  'discard',
+  'Symbol',
+  'uniform',
+  'storage',
+]);
+
+/** Whether the ambient library declares a value of `name`, which is then no name nothing
+ *  declares ({@link LIBRARY_VALUES}). */
+export const isLibraryValueName = (name: string): boolean =>
+  LIBRARY_VALUES.has(name) || builtinValueNames().includes(name);
+
+/** The names a body reads that are neither a value nor a callee of the program: WGSL's phony
+ *  target `_` (§52), and the two TypeScript itself declares in a function, which the lowering
+ *  says what it makes of. */
+const NOT_READ: ReadonlySet<string> = new Set(['_', 'undefined', 'arguments']);
+
+/** Whether an identifier is the root of a target written to, `x` in `x.a[i] = 1.` or `x++`. */
+function assignedRoot(id: ts.Identifier): boolean {
+  let at: ts.Node = id;
+  while (
+    (ts.isPropertyAccessExpression(at.parent) || ts.isElementAccessExpression(at.parent)) &&
+    at.parent.expression === at
+  ) {
+    at = at.parent;
+  }
+  while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+  const p = at.parent;
+  if (ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p)) {
+    return (
+      p.operator === ts.SyntaxKind.PlusPlusToken || p.operator === ts.SyntaxKind.MinusMinusToken
+    );
+  }
+  return (
+    ts.isBinaryExpression(p) &&
+    p.left === at &&
+    p.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+    p.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+  );
+}
+
+/** How `id` is used where it stands in a body, or undefined where it is no read of a name: a
+ *  declaration's name, a member after a dot, a key, a label, and the operands another refusal
+ *  covers whole (`await`, `throw`, `typeof`, a spread, a template, a shorthand). */
+function useOf(id: ts.Identifier): 'value' | 'callee' | 'assigned' | undefined {
+  const p = id.parent;
+  if (ts.isCallExpression(p) && p.expression === id) return 'callee';
+  if (ts.isPropertyAccessExpression(p)) {
+    return p.expression === id ? (assignedRoot(id) ? 'assigned' : 'value') : undefined;
+  }
+  if (ts.isElementAccessExpression(p)) {
+    return p.expression === id && assignedRoot(id) ? 'assigned' : 'value';
+  }
+  if (
+    ts.isBinaryExpression(p) ||
+    ts.isPrefixUnaryExpression(p) ||
+    ts.isPostfixUnaryExpression(p) ||
+    ts.isParenthesizedExpression(p)
+  ) {
+    return assignedRoot(id) ? 'assigned' : 'value';
+  }
+  if (ts.isVariableDeclaration(p) || ts.isPropertyAssignment(p) || ts.isPropertyDeclaration(p)) {
+    return p.initializer === id ? 'value' : undefined;
+  }
+  if (ts.isCallExpression(p) || ts.isNewExpression(p)) {
+    return p.arguments?.includes(id) === true ? 'value' : undefined;
+  }
+  if (
+    ts.isReturnStatement(p) ||
+    ts.isConditionalExpression(p) ||
+    ts.isArrayLiteralExpression(p) ||
+    ts.isIfStatement(p) ||
+    ts.isWhileStatement(p) ||
+    ts.isDoStatement(p) ||
+    ts.isSwitchStatement(p) ||
+    ts.isCaseClause(p) ||
+    ts.isForOfStatement(p) ||
+    ts.isAsExpression(p) ||
+    ts.isSatisfiesExpression(p) ||
+    ts.isNonNullExpression(p) ||
+    ts.isExpressionStatement(p) ||
+    (ts.isArrowFunction(p) && p.body === id)
+  ) {
+    return ts.isForOfStatement(p) && p.initializer === id ? undefined : 'value';
+  }
+  return undefined;
+}
+
+/**
+ * Says each name read as a value, called, or assigned to in a body, where nothing declares it:
+ * not the file, in any scope (`declaredValueNamesOf`), not the ambient library, and not a type
+ * the library declares, which is said to be one. Run once the file is lowered: a body a call
+ * lowers said it already, word for word at the same span, or covered it with a refusal of its
+ * own, and either way says nothing more here; a body no call lowers (an uncalled generic, a
+ * function that takes a function, a method of a class nothing builds) says it here, as the
+ * editor's TS2304 does (Rule 2.1, Rule 12.7). A decorator, a type, a heritage clause and a
+ * `new`'s target are said where they are read.
+ */
+export function reportUndeclaredValues(
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const declared = declaredValueNamesOf(sourceFile);
+  const errors = diagnostics.filter(
+    (d) => d.category === 'error' && d.fileName === sourceFile.fileName,
+  );
+  const covered = (node: ts.Node): boolean => {
+    const start = node.getStart(sourceFile);
+    const end = node.getEnd();
+    return errors.some((d) => d.start <= start && d.start + d.length >= end);
+  };
+  const check = (id: ts.Identifier): void => {
+    const name = id.text;
+    if (declared.has(name) || NOT_READ.has(name)) return;
+    if (isLibraryValueName(name) && !LIBRARY_TYPE_NAMES.has(name)) return;
+    const use = useOf(id);
+    if (use === undefined || covered(id)) return;
+    const message =
+      use === 'callee'
+        ? unknownFunctionSentence(id)
+        : use === 'assigned'
+          ? unknownIdentifierSentence(id, `Cannot assign to unknown name "${name}".`)
+          : unknownValueSentence(id);
+    push(
+      diagnostics,
+      sourceFile,
+      id,
+      message,
+      use === 'callee' ? TS_CODES.UNKNOWN_FN : TS_CODES.UNKNOWN_NAME,
+    );
+  };
+  const walk = (node: ts.Node, inBody: boolean): void => {
+    if (ts.isDecorator(node) || ts.isTypeNode(node) || ts.isHeritageClause(node)) return;
+    if (ts.isNewExpression(node)) {
+      for (const arg of node.arguments ?? []) walk(arg, inBody);
+      return;
+    }
+    if (inBody && ts.isIdentifier(node)) {
+      check(node);
+      return;
+    }
+    if (ts.isFunctionLike(node)) {
+      const body = (node as { readonly body?: ts.Node }).body;
+      if (body !== undefined) walk(body, true);
+      return;
+    }
+    // An instance field's initializer is a body too: the constructor runs it.
+    if (ts.isPropertyDeclaration(node) && node.initializer !== undefined) {
+      if (!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) {
+        walk(node.initializer, true);
+      }
+      return;
+    }
+    ts.forEachChild(node, (child) => walk(child, inBody));
+  };
+  walk(sourceFile, false);
 }

@@ -1,7 +1,7 @@
 // Stable diagnostic codes (Phase 10 / 12). Messages stay readable.
 //
 // Numbering: `TS8` + a zero-padded sequential number, assigned in the order a code was added.
-// A gap (8011 is retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
+// A gap (8011 and 8012 are retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
 // exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
 // deserve its own code, so it stays parked past the sequential range instead of at its head.
 //
@@ -16,6 +16,12 @@
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
+  /** A type name nothing declares, said once for the file wherever it is written (a parameter,
+   *  a claim, a type argument, `B<vec3<Foo>>` included, an alias, an `implements` clause, the
+   *  base a class or an interface extends, a body no call lowers), a type the library declares
+   *  for TypeScript alone (`Number`) where the file declares none of its name, or a type this
+   *  surface does not take in a position the mapper reads (Rule 2.1). A base the file declares
+   *  and does not collect as a struct is the struct collector's, `STRUCT_FIELD`. */
   UNKNOWN_TYPE: 'TS8002',
   TYPE_MISMATCH: 'TS8003',
   UNKNOWN_FN: 'TS8004',
@@ -25,7 +31,12 @@ export const TS_CODES = {
   LOOP_INDUCTION: 'TS8008',
   BREAK_OUTSIDE: 'TS8009',
   STRUCT_FIELD: 'TS8010',
-  HOST_API: 'TS8012',
+  // TS8012 was `HOST_API`, a list of JavaScript globals refused by their spelling. A name nothing
+  // declares is `UNKNOWN_NAME`, `UNKNOWN_FN` or `UNKNOWN_TYPE` by its position, and one the file
+  // declares is the file's (Rule 2.1).
+  /** Host control flow and the JavaScript runtime forms no shader has: `await`, `yield`, an
+   *  `async` or generator function, `try`/`catch`/`throw`, `for…in`, `var`, a spread outside an
+   *  object literal, and a template string. A `new` is a class rule, `CLASS_MEMBER`. */
   HOST_STMT: 'TS8013',
   TOP_LEVEL: 'TS8014',
   BACKEND: 'TS8015',
@@ -40,7 +51,7 @@ export const TS_CODES = {
   FUNCTION_SHAPE: 'TS8020',
   /** A `return` shape problem: bare `return` where a value is required, or an entry function with no return type annotation that returns a value. */
   RETURN_SHAPE: 'TS8021',
-  /** Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`). */
+  /** Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`), in a body a call lowers or in one no call lowers; a name the library declares for TypeScript's own use (`Object`, `Math`, `Symbol`) read as a value says what it is. */
   UNKNOWN_NAME: 'TS8022',
   /** The same function, binding, module constant or struct name declared twice in one scope. A struct counts whichever of the three spellings each declaration used: a class, an interface and a type alias of one name are one struct, not declarations that merge. */
   DUPLICATE_SYMBOL: 'TS8023',
@@ -84,8 +95,9 @@ export const TS_CODES = {
    *  flow the invocations do not share is `UNIFORMITY` (§54), not this. */
   BARRIER_PLACEMENT: 'TS8034',
   /** A class member shape the surface does not take, or a use of a member the class rules
-   *  refuse (#86). Getters and setters, static fields and methods, overload signatures,
-   *  abstract members, `#` private names and methods that change their object all compile
+   *  refuse (#86), and a `new` that builds no class (Rule 8.13). Getters and setters, static
+   *  fields and methods, overload signatures, abstract members, `#` private names and methods
+   *  that change their object all compile
    *  (#190), and so does a field holding a function, which is a method (Rule 8.16).
    *  What is refused, in the declaration: a field holding a function when the field is static,
    *  or when the function takes type parameters, is `async` or a generator, or is an
@@ -107,9 +119,18 @@ export const TS_CODES = {
    *  assigned, or a setter with no getter read; a compound assignment through a getter and
    *  setter whose object would run twice; a method that changes its object called on
    *  something it cannot write (a parameter, a `const` whose value something else may hold, a
-   *  dropped value) or used as a value when it returns nothing; and `new` on a class that
-   *  declares only statics. A getter or setter missing its type is `UNKNOWN_TYPE`, a
-   *  `readonly` field written outside the constructor `CONST_ASSIGN`. */
+   *  dropped value) or used as a value when it returns nothing. In a `new`: a class that
+   *  declares only statics, where a body that builds it is lowered; and, once for the file where
+   *  the `new` is written, an `abstract` class, `new this()` outside a static member, and a
+   *  target that resolves to something other than a class — a WGSL constructor or cast
+   *  (`new vec3f()`), a type alias of one (`type S = vec3`), a WGSL type with no constructor
+   *  (`new sampler()`) or one the library declares for TypeScript (`new Array(4)`), a function
+   *  (`Math.sin` and an imported one included), an enum or one of its members, a namespace,
+   *  `Math`, `console` or `Symbol`, an interface or type alias, a type parameter, a mixin
+   *  applied to a class, or a value (`PI` included). A target nothing
+   *  declares, and a member the object before it does not have (`new Math.Foo()`), is
+   *  `UNKNOWN_NAME`. A getter or setter missing its type is `UNKNOWN_TYPE`, a `readonly` field
+   *  written outside the constructor `CONST_ASSIGN`. */
   CLASS_MEMBER: 'TS8035',
   /** A math builtin called with arguments its signature does not take (#57, §10): two shapes
    *  that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` with a vector `v`), an element

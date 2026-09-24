@@ -570,7 +570,12 @@ describe('a refusal names no line when it could not make the line good', () => {
       read: 'declare const vh: storage<array<vec2h>>',
       writable: 'declare const vh: storage<array<vec2h>, "read_write">',
       body: 'vh[0] = vec2h(1., 2.)',
-      says: ['TS8002 Unknown type "vec2h"', 'TS8003 Cannot index struct:array.'],
+      // The call is a second name nothing declares, said although the write was refused first.
+      says: [
+        'TS8002 Unknown type "vec2h"',
+        'TS8003 Cannot index struct:array.',
+        'TS8004 Unknown function "vec2h". Did you mean "vec2"?',
+      ],
     },
     {
       what: 'a lane of an emulated-double vector, which is a read on either mode',

@@ -24,13 +24,24 @@ import { collectBindings } from './bindings.js';
 import { collectEnables } from './enables.js';
 import { collectOverrides } from './overrides.js';
 import { fillFunctionBody, parseSignature } from './lower/function.js';
-import { analyzeSemantics, isAsyncOrGenerator, refusalWithin } from './semantic.js';
+import {
+  analyzeSemantics,
+  isAsyncOrGenerator,
+  refusalWithin,
+  reportUndeclaredValues,
+} from './semantic.js';
+import { reportImportedNews } from './lower/new-target.js';
 import { collectModuleConsts } from './module-const.js';
 import { collectModuleVars } from './module-vars.js';
 import { TS_CODES } from './codes.js';
 import { checkRecursion, type RecursionNode } from './recursion.js';
 import { fileFunctionsOf } from './context.js';
-import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
+import {
+  backendDiagnostic,
+  dropRepeatedDiagnostics,
+  makeDiagnostic,
+  syntaxDiagnostics,
+} from './diagnostic.js';
 import type { DeclaredSymbol } from './symbols.js';
 import { unknownNameSentence } from './unknown-names.js';
 
@@ -292,6 +303,17 @@ export function compileTsSources(
         callees.set(local, rec.stub);
       }
     }
+    // A `new` on a name the file imports, now that what it is is known (Rule 8.13).
+    const imported = new Set(
+      sf.statements.flatMap((st) =>
+        ts.isImportDeclaration(st) &&
+        st.importClause?.namedBindings !== undefined &&
+        ts.isNamedImports(st.importClause.namedBindings)
+          ? st.importClause.namedBindings.elements.map((el) => el.name.text)
+          : [],
+      ),
+    );
+    reportImportedNews(sf, (n) => imported.has(n) && callees.has(n), diagnostics);
   }
 
   const entryName = entry === undefined ? [...parsed.keys()][0] : normalizePath(entry);
@@ -495,7 +517,10 @@ export function compileTsSources(
   // A call cycle emits WGSL Tint refuses (#48). Across files it can be spelled through an
   // import, which is exactly why the resolver above goes through `callees`.
   checkRecursion(graph, diagnostics);
+  // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
+  for (const sf of parsed.values()) reportUndeclaredValues(sf, diagnostics);
 
+  dropRepeatedDiagnostics(diagnostics);
   let wgsl: string | undefined;
   if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
     try {

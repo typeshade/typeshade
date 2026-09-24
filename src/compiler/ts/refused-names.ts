@@ -92,8 +92,26 @@ function declaringVar(body: ts.Node, name: string): ts.VariableStatement | undef
   return found;
 }
 
+/** The class or the import that declares `name` among `statements`: a `new` reads a class, whose
+ *  constructor may be refused where it is written, and an import is a declaration of the file's
+ *  top level, which a multi-file program refuses when it names no function (on the name) or
+ *  resolves to no file (on the whole import), so the whole import is the declaration. */
+function declaringClassOrImport(
+  statements: readonly ts.Statement[],
+  name: string,
+): ts.Node | undefined {
+  for (const s of statements) {
+    if (ts.isClassDeclaration(s) && s.name?.text === name) return s;
+    const bindings = ts.isImportDeclaration(s) ? s.importClause?.namedBindings : undefined;
+    if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
+    if (bindings.elements.some((el) => el.name.text === name)) return s;
+  }
+  return undefined;
+}
+
 /** The declaration of `name` visible at `use`, innermost scope first: the statement or loop
- *  header that declares it, the parameter, or a `var` anywhere in the function. */
+ *  header that declares it, the parameter, a `var` anywhere in the function, the class, or the
+ *  import. */
 function visibleDeclaration(
   use: ts.Node,
   name: string,
@@ -103,7 +121,8 @@ function visibleDeclaration(
   for (let p: ts.Node | undefined = use.parent; p !== undefined; p = p.parent) {
     let found: ts.Node | undefined;
     if (ts.isBlock(p) || ts.isModuleBlock(p) || ts.isCaseClause(p) || ts.isDefaultClause(p)) {
-      found = declaringStatement(p.statements, name, at);
+      found =
+        declaringStatement(p.statements, name, at) ?? declaringClassOrImport(p.statements, name);
     } else if (ts.isForStatement(p) || ts.isForOfStatement(p) || ts.isForInStatement(p)) {
       found = declaringList(p.initializer, name);
     } else if (ts.isFunctionLike(p)) {
@@ -111,7 +130,7 @@ function visibleDeclaration(
         p.parameters.find((q) => binds(q.name, name)) ??
         ('body' in p && p.body !== undefined ? declaringVar(p.body, name) : undefined);
     } else if (ts.isSourceFile(p)) {
-      found = declaringStatement(p.statements, name);
+      found = declaringStatement(p.statements, name) ?? declaringClassOrImport(p.statements, name);
     }
     if (found !== undefined) return found;
   }
@@ -322,8 +341,8 @@ export function staticFieldRefused(
 /**
  * Whether a report that `name` (read at `use`) is unknown would only repeat a diagnostic that
  * already stands: either the declaration `name` resolves to was refused and said why
- * (`refusedWithReason`), or an error already covers exactly `use`'s own span (the host-API
- * refusal of `Date` is `TS8012` on the very identifier an "Unknown identifier" would name).
+ * (`refusedWithReason`), or an error already covers exactly `use`'s own span, where another
+ * check refused the very identifier an "Unknown identifier" would name.
  */
 export function unknownNameAlreadyReported(
   use: ts.Node,

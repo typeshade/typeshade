@@ -191,6 +191,32 @@ export function fs(@location(0) uv: vec2): vec4 {
     expect(r.diagnostics).toEqual([]);
     expect(r.eval('fs', [[1, 0]])).toEqual([3, 0, 0, 1]);
   });
+
+  it('a member is looked up on its receiver, whatever an array method or the IR calls it', () => {
+    // Measured on main: the field `reverse`, the interface field `map` and the getter `join`
+    // were TS8099 '".reverse" is not one of an array's methods here, …', matched by their
+    // spelling before the receiver was looked at, and the method `swizzle` was TS8099 "swizzle
+    // components must be a string literal", the IR builder's `.swizzle()` reached by its name
+    // (Rule 2.1, Rule 2.2). The editor took all four.
+    const r = compile(`"use typeshade";
+class Ray {
+  origin: f32 = 1.;
+  reverse: f32 = 2.;
+  get join(): f32 { return this.origin + this.reverse; }
+  swizzle(k: f32): f32 { return this.reverse * k; }
+}
+interface Tile { map: f32; find: f32 }
+@fragment
+export function fs(): vec4 {
+  const r = new Ray();
+  const t: Tile = { map: 4., find: 5. };
+  return vec4(r.reverse, r.join, r.swizzle(3.), t.map + t.find);
+}
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('fn Ray_swizzle(self_: Ray, k: f32) -> f32 {');
+    expect(r.eval('fs', [])).toEqual([2, 3, 6, 9]);
+  });
 });
 
 describe('class members: what is refused, and what the fix is', () => {
@@ -475,14 +501,17 @@ export function g(a: P<f32>): f32 { return a.m() + P.m() }${TAIL}`),
   });
 
   it('new on anything but a class the file declares', () => {
-    // The message leads with what DOES work. Until the DX note on #86 it opened with "`new`
-    // allocates a JS object", which reads as a ban on `new` itself and sent a reader looking
-    // for a workaround they did not need: a class the file declares is built with `new`.
+    // Until the DX note on #86 the message opened with "`new` allocates a JS object", which reads
+    // as a ban on `new` itself, and until proposal 0008 it said so of every target it did not
+    // find. A name nothing declares is an unknown name (Rule 2.1), and a function is called.
     expect(
-      errorsOf(`"use typeshade"\nfunction g(): f32 { const d = new Date(); return 1. }${TAIL}`)[0],
-    ).toBe(
-      `${TS_CODES.HOST_STMT} A class this file declares is built with "new", and "Date" is not one of them. "new" on anything else allocates a JS object, which a shader has no heap for.`,
-    );
+      errorsOf(`"use typeshade"\nfunction g(): f32 { const d = new Date(); return 1. }${TAIL}`),
+    ).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "Date".`]);
+    expect(
+      errorsOf(
+        `"use typeshade"\nfunction h(): f32 { return 1. }\nfunction g(): f32 { const d = new h(); return 1. }${TAIL}`,
+      ),
+    ).toEqual([`${TS_CODES.CLASS_MEMBER} "h" is a function, which is called without "new": h().`]);
     // A class of statics alone was refused here until roadmap 0.3 item T3 (#92) made it the
     // namespace of functions it is; `class-statics.test.ts` pins it, and an INSTANCE member on
     // a fieldless class keeps this refusal, which the same file pins.

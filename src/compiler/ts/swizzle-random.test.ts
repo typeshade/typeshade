@@ -23,7 +23,27 @@ describe('swizzle', () => {
     if (rgba.ok) expect(typeKey(rgba.type)).toBe('vec4<f32>');
   });
 
-  it('lowers v.swizzle("yxz") to member', () => {
+  it('lowers v.yxz to member', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(a: f32): vec3 {
+        const v = vec3(a, 1, 2);
+        return v.yxz;
+      }
+    `);
+    expect(r.diagnostics).toEqual([]);
+    const ret = r.funcs[0]!.body[1];
+    expect(ret!.s).toBe('return');
+    expect(ret!.s === 'return' && ret.expr?.op === 'member' && ret.expr.field).toBe('yxz');
+    expect(ret!.s === 'return' && ret.expr !== undefined && typeKey(ret.expr.type)).toBe(
+      'vec3<f32>',
+    );
+  });
+
+  it('refuses v.swizzle("yxz"): a vector has no such method, and the IR builder is no source', () => {
+    // `.swizzle()` is the IR builder's method (src/core/ir/swizzle.test.ts). It is not WGSL, not
+    // ECMAScript and no §9.3 row, so it is no name an author writes (Rule 2.1, Rule 2.2), and the
+    // editor already said so (TS2339). It compiled here because a call was routed by its name.
     const r = compileTsSource(`
       "use typeshade";
       export function f(a: f32): vec3 {
@@ -31,12 +51,77 @@ describe('swizzle', () => {
         return v.swizzle("yxz");
       }
     `);
-    expect(r.diagnostics).toEqual([]);
-    const ret = r.funcs[0]!.body[1];
-    expect(ret!.s).toBe('return');
-    if (ret!.s === 'return' && ret.expr && ret.expr.op === 'member') {
-      expect(ret.expr.field).toBe('yxz');
-      expect(typeKey(ret.expr.type)).toBe('vec3<f32>');
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      `TS8022 vec3 has no method "swizzle": a swizzle is written as a member, v.yxz.`,
+    ]);
+  });
+
+  it('names the builtin a method of a vector is, and the components otherwise', () => {
+    // A vector has no method at all (Rule 2.2); `v.length()` is the builtin `length(v)`, and the
+    // sentence names it rather than a component, which is not what the author meant.
+    const said = (call: string) =>
+      compileTsSource(`
+      "use typeshade";
+      export function f(v: vec3, w: vec3): f32 {
+        const r = ${call};
+        return 1.;
+      }
+    `).diagnostics.map((d) => `${d.code} ${d.message}`);
+    expect(said('v.length()')).toEqual([
+      `TS8022 vec3 has no method "length": call the builtin, length(v).`,
+    ]);
+    expect(said('v.dot(w)')).toEqual([
+      `TS8022 vec3 has no method "dot": call the builtin, dot(v, w).`,
+    ]);
+    expect(said('v.foo()')).toEqual([
+      `TS8022 vec3 has no method "foo": a vector's members are its components, v.x or v.xy.`,
+    ]);
+    // What each names compiles in its place.
+    for (const remedy of ['length(v)', 'dot(v, w)', 'v.x']) expect(said(remedy)).toEqual([]);
+  });
+
+  it('names a builtin call only when that call compiles, a scalar splat to the vector', () => {
+    // Each named the call as written, which the compiler then refused: `clamp(v, 0., 1.)` is
+    // TS8036, `sqrt(v)` on a vec3u takes no integer, and `v.xyzw` is out of range on a vec3;
+    // `b.any()` was told about components, although `any(b)` compiles (Rule 12.1).
+    const said = (params: string, call: string) =>
+      compileTsSource(`
+      "use typeshade";
+      export function f(${params}): f32 {
+        const r = ${call};
+        return 1.;
+      }
+    `).diagnostics.map((d) => `${d.code} ${d.message}`);
+    const cases: [string, string, string, string | undefined][] = [
+      [
+        'v: vec3',
+        'v.clamp(0., 1.)',
+        'vec3 has no method "clamp": call the builtin, clamp(v, vec3(0.), vec3(1.)).',
+        'clamp(v, vec3(0.), vec3(1.))',
+      ],
+      [
+        'v: vec3',
+        'v.max(0.)',
+        'vec3 has no method "max": call the builtin, max(v, vec3(0.)).',
+        'max(v, vec3(0.))',
+      ],
+      ['b: vec3b', 'b.any()', 'vec3b has no method "any": call the builtin, any(b).', 'any(b)'],
+      [
+        'v: vec3u',
+        'v.sqrt()',
+        `vec3u has no method "sqrt": a vector's members are its components, v.x or v.xy.`,
+        undefined,
+      ],
+      [
+        'v: vec3',
+        'v.swizzle("xyzw")',
+        `vec3 has no method "swizzle": a vector's members are its components, v.x or v.xy.`,
+        undefined,
+      ],
+    ];
+    for (const [params, call, message, remedy] of cases) {
+      expect(said(params, call), call).toEqual([`TS8022 ${message}`]);
+      if (remedy !== undefined) expect(said(params, remedy), remedy).toEqual([]);
     }
   });
 

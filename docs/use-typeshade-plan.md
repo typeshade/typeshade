@@ -241,9 +241,10 @@ adds bindings, entry list and vertex layout. Tests: `compile.test.ts` (WGSL + GL
 
 Address space, stage compatibility, illegal mutation, ban host APIs, vector/matrix rules — compiler, not pure translator.
 
-**Status:** done (`semantic.ts` bans `fetch` / `Date` / `Promise` / `async` / `await` /
-`try` / `throw`, `new` on anything but a class the file declares, and spread outside an object
-literal as `TS8012`–`TS8014`; a string is `TS8099`; `console.*` is lowered, to a host sink on
+**Status:** done (`semantic.ts` bans `async` / `await` / `try` / `throw` and spread outside an
+object literal as `TS8013`–`TS8014`; `fetch`, `Date` and `Promise` are names nothing declares,
+refused where they are used, and `new` on anything but a class the file declares is `TS8035`
+(proposal 0008); a string is `TS8099`; `console.*` is lowered, to a host sink on
 the CPU and to nothing on the GPU;
 `bindings.ts` enforces address space and read-only resources; `stage.test.ts` covers
 stage / builtin compatibility). Tests: `semantic.test.ts`, `bindings.test.ts`,
