@@ -1,5 +1,5 @@
 ---
-id: '0010'
+id: '0013'
 title: A version number says what an upgrade can break, and a spelling that will mean something else warns for one published minor release first
 status: accepted
 rules:
