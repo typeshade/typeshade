@@ -113,8 +113,20 @@ through the owner's account can too, so the rule is written here:
 - Merge only when every required check is green on the pull request's current head. A red
   check is fixed, never bypassed.
 - Bypass only the review requirement, and only when the owner has said in the conversation to
-  merge that pull request. The owner cannot approve their own pull request, so their go-ahead
-  is the review.
+  merge that pull request, or the pull request is one the owner has approved in advance (below).
+  The owner cannot approve their own pull request, so their go-ahead is the review.
+- Approved in advance, so merged as soon as every required check is green, with no conflict and
+  no review thread left open:
+  - a pull request whose commits say `Change: none` and that edits only documentation or a
+    proposal's `status` line;
+  - a pull request that implements a proposal already `accepted` on `main`, within what the
+    proposal declares (`scripts/changes.ts` passes);
+  - a bug fix that needs no proposal.
+
+  Everything else waits for the owner to say "merge" in the conversation: a new proposal, and a
+  change to a design rule, a public export, a surface section, a diagnostic code or the set of
+  examples that no accepted proposal covers. After a merge, report it to the owner.
+
 - Never push to `main` directly, and never force-push it.
 - The ruleset, the secrets and every other repository setting are the owner's to change: an
   agent has no admin access to them. When one must change, write the owner a script for the
@@ -123,6 +135,18 @@ through the owner's account can too, so the rule is written here:
 - Each required check is a job's `name:` in `.github/workflows/ci.yml`. Renaming or removing
   that job leaves every pull request waiting on a check that never reports, so the ruleset
   (Settings > Rules > Rulesets > `main`) changes in the same step.
+
+## Waiting on a pull request
+
+- Mark a draft pull request ready for review as soon as its required checks are green, not at
+  merge time.
+- Waiting on CI is not work: end the turn, and let the pull request's events wake the session.
+  Never sleep inside a turn for a check.
+- A pull request that is green, has no conflict and waits only on the owner needs no check-in.
+  Do not schedule one: a review, a comment and a push to `main` arrive as events. Schedule a
+  check-in only while something the agent owns is still in flight (a red check, a pending fix).
+- While one pull request waits, move on to the next piece of work rather than holding the
+  session on it.
 
 ## Everything else
 
