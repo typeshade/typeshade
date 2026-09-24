@@ -778,6 +778,25 @@ An entry point writes its return type, which is its output (Rule 8.2).
 - Derives from: TypeScript's [return type inference](https://www.typescriptlang.org/docs/handbook/2/functions.html#return-type-annotations) (the type of the returned expressions; TS7023 for one that waits on itself); ECMAScript [`return`](https://tc39.es/ecma262/#sec-return-statement) (`return g()` evaluates the call and returns its value, `undefined` for a function that returns nothing); Rule 8.2; Rule 8.4; Rule 8.9; Rule 8.10; Rule 8.11; Rule 8.16; Rule 8.17; Rule 8.18; surface §14 and §26.
 - Enforced by: `TS8031 RECURSION` for a cycle (`Recursive call: "a" -> "b" -> "a". WGSL has no call stack, so a function must not take part in a call cycle.`), `TS8003 TYPE_MISMATCH` for two types (`Function "f" returns f32 at its first "return" and vec2<f32> at another; a function returns one type (Rule 8.19): make them agree, or write the return type.`), `TS8021 RETURN_SHAPE` for a bare `return` beside a value and for an entry that returns a value with no return type, `TS8020 FUNCTION_SHAPE` for a default (`"h" says what it returns in its body, and a default is lowered before any body: write the return type on "h" (Rule 8.19).`) and `TS8002 UNKNOWN_TYPE` for a setter's value with nothing to take a type from (`The setter "A.x" needs a type for "v": write "set x(v: T)".`, `The getter "A.x" returns nothing, so the setter has no type for "v": write "set x(v: T)".`); pinned by `src/compiler/ts/return-inference.test.ts`, which holds WGSL, GLSL ES 3.00, the CPU oracle, the codegen and the debugger to one value for each form, compares each with the program that writes its return types, and holds the multi-file path and the editor's silence; `examples/inferred-returns.shade.ts` in the compile gate.
 
+**Rule 8.20.** A function a host file can call through an import of its module is an exported function that is not an entry point, is not generic, takes no function, has a host value (Rule 8.21) for each parameter and for its result, and reaches, through the calls of its body, no binding, no workgroup variable and no builtin only a GPU computes (a derivative, a barrier, an atomic, an implicit-LOD texture sample).
+An exported constant and an `enum` are values of the host face, and an exported struct is a type of it; every other export is declared `never` in the host view, with the reason and the work that adds it, so a call of one is a type error at the host's own line.
+
+- Rationale: a host call runs on the CPU tier (Rule 11.7), which has no device, so what it reaches must be computable there with nothing a host call does not pass; a generic function and a function that takes a function exist only as the copies the module's own calls make (Rules 8.9 and 8.18), and a host call names no such copy.
+  The IR does not keep the source's export list (a generic function is its instances, a method is `P_len`, an enum is its member constants), so the host face is read off the source's `export`s and the lowering's symbol table.
+  An export the host cannot use is still declared, as `never`, because an import of a name the view leaves out would be `any` in a host program that does not check it, and a crash at run time.
+- Derives from: `docs/roadmap.md` item 16 ("The run layer has no import"); change `0009` in `changes/`; Rule 8.9; Rule 8.18.
+- Enforced by: `hostFace` in `src/compiler/ts/host-face.ts`, which computes the callable set and the reason for each other export; pinned by `src/compiler/ts/host-face.test.ts`, one case per exclusion, and by its host programs type-checked against the view, in which a call of an export declared `never` is TS2349.
+
+**Rule 8.21.** A host call passes and returns host values by value: an `f32`, `f64`, `i32` or `u32` is a `number`, a `bool` a `boolean`, a vector a `readonly` tuple of its components as an argument and a tuple as a result, a matrix a flat column-major array of its components, an `array<T, N>` an array of `N` host values of `T`, a struct an object of its fields, and an `enum` member its number.
+Each argument is checked and converted: an `ArrayLike` of the right length becomes a fresh array, an `f32` is rounded as a buffer write rounds it, and a value that does not fit is refused with a `TypeError` naming the function, the parameter and its TypeShade type; the result aliases no argument and nothing the module keeps (Rule 8.8), and an exported constant is a frozen copy.
+A call of a function this rule and Rule 8.20 admit is synchronous, and no later tier changes that; a runtime-sized array, an atomic, a texture, a sampler and a binding have no host value.
+
+- Rationale: the representation is the one the CPU tier already runs on (`src/core/cpu-runtime.ts`), typed precisely in the host view, so there is nothing to construct and a wrong shape is a type error before it is a `TypeError`.
+  The check at the call is for the caller `tsc` did not read: an IR node passed as a vector gave `NaN` in silence, and a `Float32Array` added to another gave a string.
+  A later tier takes new shapes (an entry point, a runtime-sized array parameter) that are asynchronous from the day they appear, so a helper's call site never gains an `await` it does not need (`docs/dx.md` principle 4).
+- Derives from: change `0009` in `changes/` ("Host values were undefined"); Rule 8.8; `docs/dx.md`.
+- Enforced by: `toShader` and `fromShader` in `src/core/host-values.ts`, which the generated module calls at every argument and result; the view's types, from `hostTypeOf` in `src/compiler/ts/host-face.ts`; pinned by `src/compiler/ts/host-face.test.ts`, which checks every row in the view, a `Float32Array` vector, each refusal's text, and that a result aliases no argument.
+
 ## 9. Built-in functions and the TypeShade extensions
 
 ### 9.1. Definition
@@ -1036,6 +1055,14 @@ An _emit golden_ is a recorded emitted module under `examples/__emit-goldens__/`
 - Rationale: 1.0 is a promise about that file.
 - Derives from: `docs/roadmap.md` 0.8 item 24.
 - Enforced by: `src/api-surface.test.ts`.
+
+**Rule 11.7.** The CPU tier, which runs a host call of a module's function, is the oracle's generated code (`generateModuleJs`) at `f32` precision, written into the module the bundler reads as module code, with no `new Function`, over the runtime alone.
+
+- Rationale: a host call computes what the GPU would, so it rounds as `f32` does, which the default `f64` algebra oracle is blind to by construction.
+  The generated code calls the same runtime helpers the interpreter calls, so the tier is the oracle and not a fourth implementation (Rule 11.1).
+  Building it with `new Function` at run time would need `unsafe-eval`, which a strict content security policy forbids, and would ship the IR and the generator; as module code it is minified with the application, and the application ships the op library only.
+- Derives from: change `0009` in `changes/` ("The CPU tier's precision"); `src/core/oracle.ts` (the `'f32'` mode, "a correctly-rounding f32 machine over the same IR"); Rule 11.1.
+- Enforced by: `hostFace` in `src/compiler/ts/host-face.ts`, which generates at `precision: 'f32'`, and `src/core/host-runtime.ts`, what a generated module imports; pinned by `src/compiler/ts/host-face.test.ts`, where every call equals `compileModule(m, { precision: 'f32' })` on inputs chosen so the `f32` and `f64` answers part, and the generated module holds no `new Function`.
 
 ## 12. Diagnostics
 
