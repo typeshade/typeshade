@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createTypeshadeLanguageService } from './service.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { compile } from '../compiler/ts/compile.js';
 import { spellShaderType } from './hover.js';
 import {
   arrayT,
@@ -346,6 +347,46 @@ describe('getHover: a resource binding, and where its access mode shows', () => 
     expect(hoverAt(source.indexOf('ro[gid.x]'))).toContain(
       'storage resource at @group(0) @binding(0)',
     );
+  });
+});
+
+describe('getHover: a module variable says let, the keyword it is declared with', () => {
+  // #188 made every binding hover as `const`, since a binding is always declared `const`. A module
+  // variable is recorded as a binding too, and is declared `let` (Rule 6.5), so `let hits: u32`
+  // hovered as `const hits: u32` from then on. No test hovered one.
+  const source = [
+    '"use typeshade";',
+    'declare const out: storage<array<u32>, "read_write">;',
+    'let hits: u32;',
+    'let tile: workgroup<array<u32, 64>>;',
+    '@compute([64, 1, 1])',
+    'export function cs(@builtin("local_invocation_id") lid: vec3u): void {',
+    '  hits += 1;',
+    '  tile[lid.x] = hits;',
+    '  out[lid.x] = tile[lid.x];',
+    '}',
+  ].join('\n');
+
+  function hoverAt(offset: number): string | undefined {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('mv.ts', source);
+    return service.getHover('mv.ts', service.positionAt('mv.ts', offset))?.contents;
+  }
+
+  it('is a program both halves accept', () => {
+    expect(compile(source).diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('mv.ts', source);
+    expect(service.getDiagnostics('mv.ts').map((d) => `${d.code} ${d.message}`)).toEqual([]);
+  });
+
+  it('says let for a per-invocation variable and for workgroup memory', () => {
+    expect(hoverAt(source.indexOf('hits += 1'))).toContain('let hits: u32');
+    expect(hoverAt(source.indexOf('tile[lid.x] = hits'))).toContain('let tile: array<u32, 64>');
+  });
+
+  it('still says const for the binding beside them', () => {
+    expect(hoverAt(source.indexOf('out[lid.x]'))).toContain('const out: array<u32>');
   });
 });
 

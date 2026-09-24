@@ -40,6 +40,7 @@
 import type {
   ShaderType,
   ModuleDecl,
+  ModuleVarDecl,
   StructDecl,
   BindingDecl,
   FuncDecl,
@@ -257,6 +258,61 @@ function glslLit(value: number | boolean, t: ShaderType): string {
   // malformed declaration, not a spelling this function can guess.
   if (t.kind !== 'scalar') throw dslError('SD0017', `${t.kind} constant with no valueExpr`);
   return f32Lit(value);
+}
+
+/** A module variable as a GLSL ES 3.00 global. A private variable is a plain global, which
+ *  GLSL ES 3.00 gives every invocation its own copy of, so `var<private>` is portable;
+ *  workgroup memory has no WebGL2 form (roadmap 0.2 item 5), and a module that declares some
+ *  is WebGPU-only.
+ *
+ *  A variable with no initializer is written with its zero. The IR starts it at zero
+ *  ({@link ModuleVarDecl}), and so do WGSL and both CPU backends, but GLSL ES 3.00 §4.3 lets a
+ *  global with no initializer "enter main() with undefined values": `uint hits;` counted up
+ *  from whatever the driver left in it. `structs` spells the zero of a struct. */
+function glslModuleVar(v: ModuleVarDecl, structs?: ReadonlyMap<string, StructDecl>): string {
+  if (v.space === 'workgroup')
+    throw new UnsupportedFeatureError(
+      `glsl-es300: var<workgroup> ${v.name} has no GLSL ES 3.00 form (WebGL2 has no workgroup memory); the module is WebGPU-only`,
+    );
+  const type = glslType(v.type);
+  const init = v.init ? emitExprNeutral(v.init, glslEs300Backend) : glslZero(v.type, structs);
+  return `${type} ${v.name} = ${init};`;
+}
+
+/** The zero of `t` as a GLSL ES 3.00 constant expression, which is what a global's initializer
+ *  must be (§4.3): a literal, or a constructor whose arguments are constant (§4.3.3). A vector
+ *  or matrix constructor given one scalar fills every component, or the diagonal and 0.0
+ *  everywhere else (§5.4.2), so `vec3(0.0)` and `mat3x2(0.0)` are zero. An array and a struct
+ *  have no such form and list every element and every field. */
+function glslZero(t: ShaderType, structs?: ReadonlyMap<string, StructDecl>): string {
+  switch (t.kind) {
+    case 'scalar':
+      return glslLit(t.scalar === 'bool' ? false : 0, t);
+    case 'vec':
+      return `${glslType(t)}(${glslZero({ kind: 'scalar', scalar: t.elem }, structs)})`;
+    case 'mat':
+      return `${glslType(t)}(0.0)`;
+    case 'array': {
+      // glslType refuses a runtime-sized array, so the size is there once it has spelled one.
+      const type = glslType(t);
+      const elem = glslZero(t.elem, structs);
+      return `${type}(${Array.from({ length: t.size! }, () => elem).join(', ')})`;
+    }
+    case 'struct': {
+      const decl = structs?.get(t.name);
+      if (decl === undefined)
+        throw new UnsupportedFeatureError(
+          `glsl-es300: the zero of struct ${t.name} lists its fields, which only emitGlslModule has`,
+        );
+      return `${glslType(t)}(${decl.fields.map((f) => glslZero(f.type, structs)).join(', ')})`;
+    }
+    default:
+      // A texture, a sampler or an atomic is never a private variable: the front end refuses
+      // each one (TS8033), and this fails closed for a hand-built module that declares one.
+      throw new UnsupportedFeatureError(
+        `glsl-es300: a module variable of type ${typeKey(t)} has no zero to start from`,
+      );
+  }
 }
 
 // ── entry-IO attribute parsing ──
@@ -579,17 +635,10 @@ export const glslEs300Backend: Backend = {
   // map), so the bare method fails closed to keep the offset SoT in one place. Storage
   // never reaches emit via emitGlslModule/emitGlslStages (the default data-texture
   // lowering rewrites it first); the throw here is belt-and-braces for direct backend use.
-  // A private variable is a plain GLSL global, which GLSL ES 3.00 gives every invocation its
-  // own copy of, so `var<private>` is portable; workgroup memory has no WebGL2 form (roadmap
-  // 0.2 item 5), and a module that declares some is WebGPU-only.
-  emitModuleVar: (v) => {
-    if (v.space === 'workgroup')
-      throw new UnsupportedFeatureError(
-        `glsl-es300: var<workgroup> ${v.name} has no GLSL ES 3.00 form (WebGL2 has no workgroup memory); the module is WebGPU-only`,
-      );
-    const init = v.init ? ` = ${emitExprNeutral(v.init, glslEs300Backend)}` : '';
-    return `${glslType(v.type)} ${v.name}${init};`;
-  },
+  // A module variable (glslModuleVar). The bare method has no struct table, so a struct-typed
+  // variable with no initializer fails closed here; emitGlslModule owns the table and spells
+  // that zero too.
+  emitModuleVar: (v) => glslModuleVar(v),
   emitBinding: (b) => {
     if (b.type.kind === 'texture' || b.type.kind === 'sampler')
       return `uniform ${qualified(b)}${glslType(b.type)} ${b.name};`;
@@ -1948,6 +1997,18 @@ function assembleGlslParts(
       (stage === undefined || stageOf(f) === stage) &&
       (keepEntry === undefined || f.name === keepEntry),
   );
+  // GLSL ES 3.00 allows one `main()` per shader, and each entry of a stage is spelled as one.
+  // Two entries of one stage are WGSL's to allow (an entry point is chosen by name at pipeline
+  // creation), so a caller that does not say which one fails closed here rather than get a
+  // second `main()` a driver refuses (#213, Rules 1.2 and 10.3). A declarations-only fragment
+  // spells no entry, so it has no `main()` to repeat.
+  if (stage !== undefined && omitEntries !== true && entries.length > 1) {
+    throw new UnsupportedFeatureError(
+      `glsl-es300: the ${stage} stage has ${String(entries.length)} entries ` +
+        `(${entries.map((f) => f.name).join(', ')}) and a GLSL ES 3.00 shader has one main(); ` +
+        `name the one to emit with emitGlslStages's ${stage}Entry option`,
+    );
+  }
   // Stage-scoped emit (see stageScope) — only when compiling ONE stage; the
   // whole-module form (stage === undefined, a string-shape artifact used by
   // tests) keeps the emit-everything contract. null = scope not computable.
@@ -2072,7 +2133,7 @@ function assembleGlslParts(
   if (lowered.consts.length)
     parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'));
   if (lowered.vars?.length)
-    parts.push(lowered.vars.map((v) => glslEs300Backend.emitModuleVar!(v)).join('\n'));
+    parts.push(lowered.vars.map((v) => glslModuleVar(v, structs)).join('\n'));
 
   const structCandidates = lowered.structs.filter(
     (s) => !bindingStructNames.has(s.name) && (scope === null || scope.structs.has(s.name)),
@@ -2325,8 +2386,10 @@ function withPortableLowering<T extends GlslEmitOptions>(m: ModuleDecl, opts?: T
  *    {@link UnsupportedFeatureError} (`SD0030`) when this target cannot spell something the
  *    module needs: a `@compute` entry that is not declared `portable`, a multisampled
  *    texture load, `f16`, subgroups, a `read_write` storage binding, a storage element type
- *    outside the list above, a vertex entry returning a bare non-struct output, or a raw
- *    statement with no `glsl` text.
+ *    outside the list above, a vertex entry returning a bare non-struct output, a raw
+ *    statement with no `glsl` text, or a `stage` with more than one entry, which has one
+ *    `main()` to give them (name it with {@link emitGlslStages}'s `vertexEntry` or
+ *    `fragmentEntry`).
  *
  *  @example
  *  ```ts
@@ -2418,7 +2481,8 @@ export function emitGlslFragment(
  *  `opts.vertexEntry` and `opts.fragmentEntry` name the entry to emit for each stage, for
  *  a module that declares several entries of one stage. GLSL allows one `main()` per
  *  stage, so a module with two fragment entries needs `fragmentEntry` to say which one
- *  becomes `main()`; the other entries are left out of that stage's source. The output
+ *  becomes `main()`; the other entries are left out of that stage's source, and with none
+ *  named such a stage throws {@link UnsupportedFeatureError} (`SD0030`). The output
  *  does not depend on which other entries the module carries, because every optimizer
  *  pass works on one function at a time.
  *

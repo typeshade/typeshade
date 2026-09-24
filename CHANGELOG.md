@@ -2,7 +2,11 @@
 
 All notable changes to `typeshade` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before `1.0.0` the minor is the breaking
+position: a breaking change ships only in a new `0.N.0`, and a `0.N.P` only fixes and adds.
+What counts as breaking, and the deprecation window a change of meaning takes, are design rules
+13.9 and 13.10 (`docs/language-design.md`; the procedure is `RELEASING.md#7-versions-and-deprecations`).
+A released version is headed `## [X.Y.Z] - YYYY-MM-DD`.
 
 This file starts where TypeShade was separated from the X-GIS monorepo. Everything before that
 — the IR, the three backends, the pass pipeline, and the breaking changes that shaped them — is
@@ -1554,9 +1558,42 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   installs, never reports it. The site's Playground bundles TypeScript 5.9, where
   `workgroup-scratch`, `workgroup-reduce`, `compute-sync` and `workgroup-tile-2d` showed the
   error and would not compile. The language service now drops TS2454 when the name resolves to
-  a top-level `let` annotated `workgroup<T>`. A per-invocation module `let` that nothing
-  assigns, and a local read before its first assignment, still report it. Measured over the
-  Playground's 82 examples under TypeScript 5.9.3: 4 with an error before, 0 after.
+  a top-level `let` annotated `workgroup<T>`, and since the next entry to any module variable.
+  A local read before its first assignment still reports it. Measured over the Playground's 82
+  examples under TypeScript 5.9.3: 4 with an error before, 0 after.
+
+- **A module variable with no initializer is zero on GLSL ES 3.00 too** (surface §24, Rule
+  6.5). §24 says a per-invocation variable with no initializer is zero, and WGSL, the CPU oracle
+  and the CPU codegen start it there, but the GLSL writer declared it bare, `uint hits;`, and
+  GLSL ES 3.00 §4.3 lets such a global enter `main()` with an undefined value. A counter that
+  starts at zero on WebGPU counted up from whatever the driver left in it on WebGL2, and so did
+  a static field the file writes, which is the same variable (Rule 8.13). The writer now spells
+  the zero of every shape the variable can hold: `uint hits = 0u;`, `vec3 tint = vec3(0.0);`,
+  `mat3x2 m = mat3x2(0.0);`, `float[3] ring = float[3](0.0, 0.0, 0.0);`, and a struct's
+  constructor over the zeros of its fields. The WGSL does not move, and no golden moves: no
+  example that renders on WebGL2 declares such a variable. Each shape compiles and links on
+  ANGLE and on Tint, the compile gate's two compilers. With the value defined on every target,
+  the editor drops TS2454 on a per-invocation `let` as it does on workgroup memory: under
+  TypeScript 5.7 and later, `let hits: u32` counted with `hits += 1` read as used before being
+  assigned.
+
+- **An `f64` module variable compiles** (surface §24 and §39, Rule 6.5). §39 says a pass
+  rewrites every `f64` into `vec2<f32>` before a backend sees one, and the pass rewrote the
+  constants, the structs, the bindings and the functions but not the module variables. So
+  `let big: f64`, with or without an initializer, and a `vec3f64` or an `array<f64, 2>` one,
+  reached the writers as `f64`, and `compile()` failed with TS8015
+  (`SD0040 f64 type leaked past fp64Lower`) while the editor reported nothing. A module
+  variable is now rewritten as a binding is, and its initializer, which the front end folds to
+  literals, lowers to the pair a declared `f64` carries: `let big: f64 = 0.1` is
+  `var<private> big: vec2<f32> = vec2<f32>(0.10000000149011612, -1.4901161415892261e-9);`, and
+  with no initializer GLSL writes the zero, `vec2 big = vec2(0.0);`. Each shape compiles and
+  links on ANGLE and on Tint, and the CPU oracle computes it as the double.
+
+- **A module variable hovers as `let`** (Rule 6.5, Rule 12.7). #188 made every binding hover as
+  `const name: T`, since a binding is always declared `const`. The front end records a module
+  variable as a binding too, so from then on `let hits: u32` hovered as `const hits: u32`, and
+  workgroup memory as `const tile: array<u32, 64>`. The hover now says `let` for a module
+  variable, and a binding beside it keeps `const`.
 
 - **The editor indexes a vector and an `f32` matrix by a runtime value** (Rule 12.7, surface
   §49). `m[i]` on a `mat4` or a `mat2x3` with an `i: u32`, a `for` counter as the index, `v[i]`

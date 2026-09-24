@@ -10,6 +10,7 @@ import type { LoweringScope } from './context.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { BUILTINS } from '../../core/cpu-runtime.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
+import { shiftAmountOutOfRange } from './lit-coerce.js';
 import {
   collectMutatedRoots,
   foldIntLit,
@@ -588,6 +589,24 @@ export function openLoopError(
       'break, or write the exit into the condition.',
     code: TS_CODES.LOOP_INFINITE,
   };
+}
+
+/** The folded value of a constant shift amount outside `0 .. 31`, or undefined (#71, #241).
+ *  A scalar folds through {@link foldConstNumber}; a vector amount (`x << vec2u(32, 1)`) is
+ *  refused by WGSL for each constant component just the same, so it folds through
+ *  {@link foldConstComponents} and gives its first component outside the range. That fold works
+ *  in floating point, so a component is wrapped to its integer type the way the GPU computes
+ *  it, and a vector with a component that is not a whole number (an integer division, which
+ *  the fold does not truncate) is left to Tint: a false negative, never a false refusal. */
+export function constShiftAmountOutOfRange(amount: Expr, scope: LoweringScope): number | undefined {
+  if (amount.type.kind !== 'vec') {
+    const n = foldConstNumber(amount, scope);
+    return n !== undefined && shiftAmountOutOfRange(n) ? n : undefined;
+  }
+  const parts = foldConstComponents(amount, scope);
+  if (parts === undefined || !parts.every((v) => Number.isInteger(v))) return undefined;
+  const int = intElemOf(amount.type);
+  return parts.map((v) => (int === undefined ? v : wrapInt(v, int))).find(shiftAmountOutOfRange);
 }
 
 /** The components of a constant vector or scalar expression, or undefined when any part does not

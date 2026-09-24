@@ -3,7 +3,6 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
-import { moduleVarSpace } from '../compiler/ts/module-vars.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
 import { ERASING_OPERATORS, ERASING_UNARY_OPERATORS } from './projection.js';
@@ -998,39 +997,33 @@ function isLostBrandMember(context: DiagnosticFilterContext, diagnostic: ts.Diag
 }
 
 /**
- * Workgroup memory, `let tile: workgroup<array<f32, 64>>`: a top-level `let` whose annotation
- * is the `workgroup<T>` wrapper, the test `module-vars.ts` makes a module variable by
- * (`moduleVarSpace`). It never has an initializer, since WGSL gives a `var<workgroup>` none and
- * the compiler refuses one, and a kernel writes it through an element (`tile[i] = x`), which
- * TypeScript does not count as an assignment to `tile`.
+ * A module variable (Rule 6.5): a top-level `let`, which `module-vars.ts` makes the
+ * per-invocation variable, or workgroup memory when its annotation is `workgroup<T>`. With no
+ * initializer it starts at zero on every target (surface §24). Workgroup memory never has one,
+ * since WGSL gives a `var<workgroup>` none and the compiler refuses one, and a kernel writes a
+ * module variable through an element or a field (`tile[i] = x`), which TypeScript does not
+ * count as an assignment to `tile`.
  */
-function isWorkgroupDeclaration(declaration: ts.Declaration): boolean {
+function isModuleVarDeclaration(declaration: ts.Declaration): boolean {
   if (!ts.isVariableDeclaration(declaration)) return false;
   const list = declaration.parent;
   if (!ts.isVariableDeclarationList(list) || (list.flags & ts.NodeFlags.Let) === 0) return false;
   const statement = list.parent;
-  return (
-    ts.isVariableStatement(statement) &&
-    ts.isSourceFile(statement.parent) &&
-    moduleVarSpace(declaration.type) === 'workgroup'
-  );
+  return ts.isVariableStatement(statement) && ts.isSourceFile(statement.parent);
 }
 
 /**
- * TS2454 ("Variable 'tile' is used before being assigned") on a name that resolves to workgroup
- * memory. The checker resolves the name, so a local that shadows it keeps its own diagnostic;
+ * TS2454 ("Variable 'tile' is used before being assigned") on a name that resolves to a module
+ * variable. The checker resolves the name, so a local that shadows it keeps its own diagnostic;
  * without a checker the occurrence cannot be proved, and it stays.
  */
-function isWorkgroupMemoryRead(
-  context: DiagnosticFilterContext,
-  diagnostic: ts.Diagnostic,
-): boolean {
+function isModuleVarRead(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
   const checker = context.checker;
   if (checker === undefined) return false;
   const node = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
   if (!ts.isIdentifier(node)) return false;
   const declaration = checker.getSymbolAtLocation(node)?.valueDeclaration;
-  return declaration !== undefined && isWorkgroupDeclaration(declaration);
+  return declaration !== undefined && isModuleVarDeclaration(declaration);
 }
 
 const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
@@ -1149,18 +1142,18 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 2454,
     reason:
-      'Workgroup memory is declared with no initializer, `let tile: workgroup<array<f32, 64>>`, ' +
-      'because a WGSL `var<workgroup>` takes none: it is zero at the start of each workgroup, ' +
-      'and the compiler refuses an initializer. TypeScript 5.7 and later report a `let` that no ' +
-      'statement assigns as used before being assigned in every function that reads it, and a ' +
-      'kernel writes workgroup memory through an element (`tile[i] = x`), which is not an ' +
-      'assignment to `tile`. So under TypeScript 5.9 every read was TS2454, and four examples ' +
+      'A module variable may be declared with no initializer, and it then starts at zero on ' +
+      'every target (surface §24): `let calls: u32`, and workgroup memory, `let tile: ' +
+      'workgroup<array<f32, 64>>`, which takes none because a WGSL `var<workgroup>` takes none. ' +
+      'TypeScript 5.7 and later report a `let` that no statement assigns as used before being ' +
+      'assigned in every function that reads it. A kernel writes such a variable through an ' +
+      'element (`tile[i] = x`), which is not an assignment to `tile`, or with `calls += 1`, ' +
+      'which reads it first. So under TypeScript 5.9 every read was TS2454, and four examples ' +
       '(`workgroup-scratch`, `workgroup-reduce`, `compute-sync`, `workgroup-tile-2d`) showed ' +
-      'errors in the Playground. Dropped only when the name resolves to a top-level `let` ' +
-      'annotated `workgroup<T>`. A per-invocation module `let` that nothing assigns keeps the ' +
-      'diagnostic, as a local read before its first assignment does (Rule 7.6): GLSL ES 3.00 ' +
-      'leaves either one undefined, while workgroup memory exists on WGSL alone.',
-    when: isWorkgroupMemoryRead,
+      'errors in the Playground. Dropped only when the name resolves to a top-level `let`. A ' +
+      'local read before its first assignment keeps the diagnostic (Rule 7.6): GLSL ES 3.00 ' +
+      'leaves a local undefined.',
+    when: isModuleVarRead,
   },
 ];
 

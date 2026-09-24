@@ -492,17 +492,18 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   TS2542 ("Index signature in type 'array<f32, number>' only permits reading") a false positive
   on the Playground's own compute sample. The brand and `length` stay `readonly`: neither is
   assignable in the source language, so `out.length = 2` keeps its TS2540.
-- A read of workgroup memory is clean in the editor on every TypeScript the package admits.
-  `let tile: workgroup<array<f32, 64>>` takes no initializer, since WGSL gives a
-  `var<workgroup>` none, and a kernel writes it through an element (`tile[i] = x`), which
-  TypeScript does not count as an assignment to `tile`. TypeScript 5.7 and later report such a
-  `let` as used before being assigned (TS2454) in every function that reads it; 5.6, the
-  version this repository installs, reports nothing. The Playground bundles TypeScript 5.9, and
-  four compute examples would not compile there. The service drops TS2454 when the checker
-  resolves the name to a top-level `let` annotated `workgroup<T>`, by `moduleVarSpace`, the
-  front end's own test. A per-invocation module `let` that nothing assigns keeps it, and so
-  does a local read before its first assignment (Rule 7.6), since GLSL ES 3.00 leaves either
-  one undefined.
+- A read of a module variable is clean in the editor on every TypeScript the package admits. A
+  module variable with no initializer starts at zero on every target (surface §24): a
+  per-invocation `let calls: u32`, and workgroup memory, `let tile: workgroup<array<f32, 64>>`,
+  which takes no initializer, since WGSL gives a `var<workgroup>` none. A kernel writes such a
+  variable through an element or a field (`tile[i] = x`), which TypeScript does not count as an
+  assignment to `tile`, and `calls += 1` reads before it writes. TypeScript 5.7 and later report
+  a `let` that no statement assigns as used before being assigned (TS2454) in every function
+  that reads it; 5.6, the version this repository installs, reports nothing. The Playground
+  bundles TypeScript 5.9, and four compute examples would not compile there. The service drops
+  TS2454 when the checker resolves the name to a top-level `let`, the declaration the front end
+  makes a module variable of. A local read before its first assignment keeps it (Rule 7.6),
+  since GLSL ES 3.00 leaves a local undefined.
 
 ### Vector and matrix arithmetic (issue #21)
 
@@ -684,6 +685,7 @@ each meaning copied from that file's own comment):
 | `TS8052` | `UNIFORMITY`                | A call that needs uniform control flow — `textureSample` and the other implicit-LOD forms, the derivatives, or a barrier — reached under a condition that is not uniform across the invocations that run together (surface doc §54). A derivative is refused only when the control flow is definitely non-uniform; a barrier whenever it is not definitely uniform, which is what replaced `BARRIER_PLACEMENT`'s "inside any branch at all".                                                                                   |
 | `TS8053` | `INT_LITERAL_DEPRECATION`   | A DEPRECATION warning, not an error: an integer-written literal in a declaration that declares no type still types as `f32` and will type as `i32` (surface doc §13, #148). Reported only when the caller passes `deprecations: true`; the compiler's behaviour has not changed, and the emitted bytes are identical with the flag on and off.                                                                                                                                                                                 |
 | `TS8068` | `RESERVED_NAME`             | A declared name a target reserves, checked on the name the emit carries (`Cls_member`, `Ns_member`) rather than the one written (#103): an error for a WGSL keyword, reserved word, `__` prefix or bare `_`, since WGSL is the program; a warning for a GLSL ES 3.00 word, `gl_` prefix or `__` anywhere, since that target is a second one and the module still compiles for WebGPU. Not raised for a target the module never emits for, nor for a local, parameter or function name the GLSL writer renames itself.          |
+| `TS8069` | `MISPLACED_DIRECTIVE`       | A `"use typeshade"` directive after another top-level statement (Rule 3.1, #200): TypeScript reads a late one as an ordinary string, since a directive is only a leading string-literal statement. Reported on the directive; the rest of the file is still checked. Distinct from `TS8001`, which means no directive at all.                                                                                                                                                                                                  |
 | `TS8099` | `UNSUPPORTED`               | Catch-all for a diagnostic whose site does not yet deserve its own code; parked past the sequential range instead of at its head. (Codes from TS8038 on are drawn from per-branch blocks, so the sequence has gaps there — `codes.ts` says why.)                                                                                                                                                                                                                                                                               |
 
 ### A local built by vector arithmetic (#162)
