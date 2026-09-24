@@ -2853,17 +2853,19 @@ A class inherits its base's statics, as TypeScript's constructors do (Rule 8.13)
 `unit` that `Shape` declares. In TypeScript `this` in a static member is the class the call
 names, so `Big.unit()` runs `Shape`'s body with `this` as `Big`: `new this()` builds a `Big`, and
 `this.SCALE` reads `Big.SCALE`. Here that body is lowered once more for `Big`, as `Big_unit`, with
-`this` bound to `Big`, and a static declared to return the class that declares it that builds
-its value with `new this()` returns the class the call names, the object TypeScript returns at
-run time. `super.describe()` in a static member runs the static the class above declares, with
-`this` still the class the call names.
+`this` bound to `Big`. A static that returns the class the call names, the object TypeScript
+returns at run time, says so as TypeScript does, with a `this` parameter whose construct signature
+returns a type parameter of the method: `static unit<C extends Shape>(this: { new (): C; SCALE:
+f32 }): C`. The parameter is a type, not a value anything passes, and it is what makes `Big.unit()`
+a `Big` in the editor as well as here. `super.describe()` in a static member runs the static the
+class above declares, with `this` still the class the call names.
 
 ```ts
 "use typeshade";
 class Shape {
   size: f32 = 1.;
   static SCALE = 1.;
-  static unit(): Shape {
+  static unit<C extends Shape>(this: { new (): C; SCALE: f32 }): C {
     let s = new this();
     s.size = this.SCALE;
     return s;
@@ -2903,7 +2905,19 @@ fn Big_super_Shape_describe() -> f32 {
 ```
 
 `this` in a static member was the class that wrote the member until this, so `Big.unit()` built a
-`Shape` and read `Shape.SCALE`, which is not what TypeScript computes. A class of statics alone
+`Shape` and read `Shape.SCALE`, which is not what TypeScript computes. Written `static unit():
+Shape`, the same body returns a `Big` here and a `Shape` to the editor, which reads the return type
+as written (Rule 12.7). Where a class inherits it, that spelling is refused with the one to write
+(proposal 0020):
+
+```
+"Shape.unit" builds its value with "new this()", so "Big.unit()" returns a Big, but it is declared
+to return a Shape, which is the type the editor gives the call. Declare the class the call names:
+static unit<C extends Shape>(this: { new (): C; SCALE: f32 }): C
+```
+
+A static no class inherits keeps its written return type, since its caller is always its own
+class. A class of statics alone
 keeps its base too: over a class with fields it has those fields, so it is a struct and `new`
 builds one, and over another class of statics alone it is a namespace that inherits them.
 

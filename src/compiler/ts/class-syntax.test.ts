@@ -23,6 +23,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { TS_CODES } from './codes.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -712,10 +713,12 @@ export function run(): f32 { return V.a() + U.a() * 10. + V.b() * 100. + D.k() *
   });
 
   it('new this() builds the class the call names, and returns it', () => {
+    // The `this` parameter is how TypeScript says it, so `Derived.make()` is a `Derived` to the
+    // editor as it is here (0020).
     const src = `"use typeshade"
 class Base {
   x: f32 = 1.
-  static make(): Base { return new this() }
+  static make<C extends Base>(this: { new (): C }): C { return new this() }
   d(): f32 { return 1. }
 }
 class Derived extends Base {
@@ -729,6 +732,51 @@ export function run(): f32 {
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn Derived_make() -> Derived {\n  return Derived_new();');
     expect(runAll(src)).toBe(521);
+  });
+
+  it('a static declared to return its own class that builds with new this() is refused where a class inherits it (0020)', () => {
+    // TypeScript reads `: Base` as written, so the editor types `Derived.make()` as a `Base`
+    // where this compiler builds and returns a `Derived` (Rule 12.7). Both halves say so: the
+    // language service merges this diagnostic into its own.
+    const src = `"use typeshade"
+class Base {
+  x: f32 = 1.
+  static SCALE = 2.
+  static make(): Base { let b = new this(); b.x = this.SCALE; return b }
+}
+class Derived extends Base {}
+export function run(): f32 { return Derived.make().x }${TAIL}`;
+    const message =
+      '"Base.make" builds its value with "new this()", so "Derived.make()" returns a Derived, ' +
+      'but it is declared to return a Base, which is the type the editor gives the call. ' +
+      'Declare the class the call names: static make<C extends Base>(this: { new (): C; SCALE: f32 }): C';
+    const r = compile(src);
+    expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([['TS8035', message]]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/m.shade.ts', src);
+    expect(
+      service
+        .getDiagnostics('/m.shade.ts')
+        .filter((d) => d.severity === 'error')
+        .map((d) => [d.code, d.message]),
+    ).toEqual([['TS8035', message]]);
+    // The form it names compiles, and the editor types the call as the compiler does.
+    const fixed = src.replace(
+      'static make(): Base {',
+      'static make<C extends Base>(this: { new (): C; SCALE: f32 }): C {',
+    );
+    expect(compile(fixed).diagnostics).toEqual([]);
+    service.openDocument('/f.shade.ts', fixed);
+    expect(service.getDiagnostics('/f.shade.ts')).toEqual([]);
+    const at = fixed.indexOf('Derived.make()') + 'Derived.m'.length;
+    expect(
+      service.getHover('/f.shade.ts', service.positionAt('/f.shade.ts', at))?.contents,
+    ).toContain('make<Derived>');
+    // A static no class inherits keeps its return type: its caller is always its own class.
+    const alone = src
+      .replace('class Derived extends Base {}\n', '')
+      .replace('Derived.make()', 'Base.make()');
+    expect(compile(alone).diagnostics).toEqual([]);
   });
 
   it("a static a class inherits writes that class's own static through this", () => {
@@ -1129,7 +1177,7 @@ class Derived extends Base { y: f32 = 0.; }
 class Shape {
   size: f32 = 1.
   static SCALE = 1.
-  static unit(): Shape { let s: Shape = new this(); s.size = this.SCALE; return s }
+  static unit<C extends Shape>(this: { new (): C; SCALE: f32 }): C { let s = new this(); s.size = this.SCALE; return s }
   static pick(c: bool): Shape { if (c) { return new this() } return new Shape() }
 }
 class Big extends Shape { static SCALE = 4. }

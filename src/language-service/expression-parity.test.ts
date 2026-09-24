@@ -303,22 +303,17 @@ const groupOf = (d: Divergence): string => `${d.reads} | ${d.compiler} | ${d.edi
  *   A  a builtin's result, which the ambient library retypes instead of deriving
  *   B  an unannotated scalar the document declares, which TypeScript infers as `number`: none
  *      left since the projection writes a scalar field's and a scalar return's type in
- *   C  a constructor or a method that loses a type argument: a static builder's `this` class
- *      is the one left
+ *   C  a constructor or a method that loses a type argument: none left since `array(...)`
+ *      reads its values, the projection writes `reduce`'s running type, and a static builder
+ *      says the class the call names with a `this` parameter (0020)
  *
  * SHRINK-ONLY: a fix takes its rows out in the same change; a row that no longer occurs fails.
  */
-const KNOWN: Readonly<Record<string, 'A' | 'C'>> = {
+const KNOWN: Readonly<Record<string, 'A'>> = {
   // A. A builtin's result, where the ambient library retyped it. The math family and the
   // derivatives, bits and packing are generated from `core.def` since 0017; `determinant`
   // takes a matrix, which the generator has no form for yet.
   'determinant() | f32 | number': 'A',
-  // C. A constructor or a method that loses a type argument. `array(...)` reads its element
-  // and count off its values, and a `reduce` from a value has its running type written in by
-  // the projection; what is left is a static builder's `this` class. `Capped.unit()` runs the
-  // `unit` `Disc` declares with `this` as `Capped` (Rules 8.11, 8.13), and the front end types
-  // it `Capped`, where the `: Disc` the author wrote is all TypeScript reads.
-  '.unit() | Capped | Disc': 'C',
 };
 
 describe('the editor gives every expression the type the compiler gives it (Rule 12.7, 0015)', () => {

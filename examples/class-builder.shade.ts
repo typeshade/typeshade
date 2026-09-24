@@ -43,15 +43,15 @@ class Disc {
   private center: vec2 = vec2(0.);
   tint: vec3 = vec3(1.);
 
-  at(c: vec2): Disc {
+  at(c: vec2): this {
     this.center = c;
     return this;
   }
-  sized(r: f32): Disc {
+  sized(r: f32): this {
     this.size = r;
     return this;
   }
-  tinted(c: vec3): Disc {
+  tinted(c: vec3): this {
     this.tint = c;
     return this;
   }
@@ -67,8 +67,9 @@ class Disc {
     return 1. - smoothstep(this.radius - 0.01, this.radius, length(p - this.center));
   }
 
-  /** A disc of the class the call names, `SIZE` across. */
-  static unit(): Disc {
+  /** A disc of the class the call names, `SIZE` across: the `this` parameter says so, and
+   *  `Capped.unit()` is a `Capped` to the editor as it is to the compiler (0020). */
+  static unit<C extends Disc>(this: { new (): C; SIZE: f32 }): C {
     let d = new this();
     d.size = this.SIZE;
     return d;

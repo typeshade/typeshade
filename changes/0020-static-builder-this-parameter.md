@@ -1,7 +1,7 @@
 ---
 id: '0020'
 title: A static builder that returns the class the call names says so with a `this` parameter, so the editor types `Big.unit()` as `Big` as the compiler does
-status: accepted
+status: implemented
 rules:
 - '8.13'
 surface:

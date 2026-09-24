@@ -17,6 +17,13 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **A static builder says the class the call names with a `this` parameter** (surface §26, Rule
+  8.13, proposal 0020). `static unit<C extends Disc>(this: { new (): C; SIZE: f32 }): C` is the
+  TypeScript spelling of a static that builds its value with `new this()`, and `Capped.unit()` is a
+  `Capped` in the editor as it always was in the compiler. The spelling that wrote the declaring
+  class, `static unit(): Disc`, is refused with `TS8035` where a class inherits it, since the editor
+  read it as a `Disc`; a static no class inherits keeps it.
+
 - **The atomics, the barriers and `arrayLength` are declared from Tint's overload table** (surface
   §49, Rule 12.7, proposal 0017). Their editor declarations are generated from `core.def`'s rows,
   as the math builtins' are, and the compiler types each call from the same rows. What an author
