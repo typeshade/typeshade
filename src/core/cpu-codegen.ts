@@ -49,7 +49,7 @@ import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
 import { froundF32 } from './passes/precision.js';
 import type { CpuPrecision } from './oracle.js';
-import type { ConsoleSink } from './console.js';
+import { consoleTableRows, type ConsoleSink } from './console.js';
 import {
   type CpuValue,
   type NumKind,
@@ -275,7 +275,12 @@ function emitExpr(e: Expr, S: FnCtx): string {
       if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return emitAtomic(e, S);
       const args = e.args.map((a) => emitExpr(a, S));
       if (e.declRef === undefined && e.fn.startsWith('console.')) {
-        return `$.console(${q(e.fn.slice('console.'.length))}, [${args.join(', ')}], ${e.span ? q(JSON.stringify(e.span)) : 'undefined'}, ${e.labels ? JSON.stringify(e.labels) : 'undefined'})`;
+        const method = e.fn.slice('console.'.length);
+        const rows = consoleTableRows(
+          method,
+          e.args.map((a) => a.type),
+        );
+        return `$.console(${q(method)}, [${args.join(', ')}], ${e.span ? q(JSON.stringify(e.span)) : 'undefined'}, ${e.labels ? JSON.stringify(e.labels) : 'undefined'}${rows === undefined ? '' : `, ${rows}`})`;
       }
       // f32→u32/i32 SATURATES per WGSL — the SAME static-type branch the
       // interpreter takes (oracle.ts 'call'), baked at compile time so the

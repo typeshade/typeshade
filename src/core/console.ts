@@ -7,9 +7,10 @@
 import type { SourceSpan } from './ir/span.js';
 import type { CpuStruct, CpuValue } from './cpu-runtime.js';
 import type { FuncDecl } from './ir/nodes.js';
+import type { ShaderType } from './ir/types.js';
 
 /** Console methods currently lowered by the TypeShade source compiler. */
-export type ConsoleMethod = 'log' | 'info' | 'debug' | 'warn' | 'error';
+export type ConsoleMethod = 'log' | 'info' | 'debug' | 'warn' | 'error' | 'table';
 
 /** A console event produced by a TypeShade CPU/debug invocation. */
 export interface ConsoleEvent {
@@ -26,13 +27,36 @@ export interface ConsoleEvent {
 
 /** The event's arguments in the order written: `values` are the evaluated value arguments and
  *  `labels` the call's `labels` field (a string for a label, a number for an index into
- *  `values`). With no `labels`, the values alone, in order. */
+ *  `values`). With no `labels`, the values alone, in order.
+ *
+ *  `tableRows` is {@link consoleTableRows} of the call: set, the one value is a matrix that a
+ *  `console.table` delivers as its columns, each `tableRows` long (Rule 11.9). */
 export function consoleArgs(
   values: readonly CpuValue[],
   labels: readonly (string | number)[] | undefined,
+  tableRows?: number,
 ): (CpuValue | string)[] {
-  if (labels === undefined) return [...values];
-  return labels.map((l) => (typeof l === 'string' ? l : values[l]!));
+  const vs = tableRows === undefined ? values : values.map((v) => columnsOf(v, tableRows));
+  if (labels === undefined) return [...vs];
+  return labels.map((l) => (typeof l === 'string' ? l : vs[l]!));
+}
+
+/** The row count a `console.table` of a matrix delivers its columns at, or undefined for every
+ *  other call: another method, or a value that is not a matrix (Rule 11.9). */
+export function consoleTableRows(method: string, types: readonly ShaderType[]): number | undefined {
+  const t = types[0];
+  return method === 'table' && t?.kind === 'mat' ? t.rows : undefined;
+}
+
+/** A flat column-major matrix, as its columns. */
+function columnsOf(v: CpuValue, rows: number): CpuValue {
+  if (!Array.isArray(v)) return v;
+  const flat = v as readonly number[];
+  // An array of vectors, the shape `CpuValue` spells as an array of arrays by a cast wherever
+  // one is built (an `array<vec2, N>` value is one too).
+  return Array.from({ length: flat.length / rows }, (_, j) =>
+    flat.slice(j * rows, (j + 1) * rows),
+  ) as unknown as CpuValue;
 }
 
 /** Host callback used by the Playground, tests, and editor debug adapters. */
@@ -65,6 +89,7 @@ export const CONSOLE_METHODS: ReadonlySet<ConsoleMethod> = new Set([
   'debug',
   'warn',
   'error',
+  'table',
 ]);
 
 /** Whether `name` is one of the console methods the source compiler lowers, narrowing it to
@@ -170,7 +195,14 @@ export function decodeConsole(
     if (p + site.words > data.length) break;
     const invocation = [data[p + 1]!, data[p + 2]!, data[p + 3]!] as const;
     q = p + 4;
-    const args = site.args.map((a) => ('label' in a ? a.label : read(a.shape)));
+    const args = site.args.map((a) => {
+      if ('label' in a) return a.label;
+      const v = read(a.shape);
+      // A table of a matrix is its columns, as the CPU delivers it (Rule 11.9).
+      return site.method === 'table' && typeof a.shape === 'object' && 'mat' in a.shape
+        ? columnsOf(v, a.shape.mat[1])
+        : v;
+    });
     out.push({
       e: { method: site.method, args, ...(site.span ? { span: site.span } : {}), invocation },
       seq: out.length,

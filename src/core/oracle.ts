@@ -74,7 +74,7 @@ import {
 } from './cpu-runtime.js';
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js';
 import { fnWrites } from './passes/effects.js';
-import { consoleArgs, type ConsoleMethod, type ConsoleSink } from './console.js';
+import { consoleArgs, consoleTableRows, type ConsoleMethod, type ConsoleSink } from './console.js';
 import { dispatchCompute, type WorkgroupCount } from './debug/dispatch.js';
 
 // Preserve the historical `typeshade` oracle surface: the value-model
@@ -244,7 +244,14 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         if (ctx.consoleSink)
           ctx.consoleSink({
             method: method as ConsoleMethod,
-            args: consoleArgs(args, e.labels),
+            args: consoleArgs(
+              args,
+              e.labels,
+              consoleTableRows(
+                method,
+                e.args.map((a) => a.type),
+              ),
+            ),
             span: e.span,
           });
         return undefined as unknown as CpuValue;

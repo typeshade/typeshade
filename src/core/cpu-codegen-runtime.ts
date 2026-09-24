@@ -72,6 +72,7 @@ export interface CodegenRuntime {
     args: CpuValue[],
     span?: unknown,
     labels?: readonly (string | number)[],
+    tableRows?: number,
   ) => void;
   /** One atomic builtin on `base[key]` (roadmap 0.2 item 4): read, `atomicStep`, write back. */
   atomicAt: (
@@ -166,10 +167,10 @@ export function createCodegenRuntime(opts?: CodegenRuntimeOptions): CodegenRunti
         );
       return GPU_STUBS[name]!(...args);
     },
-    console: (method, args, span, labels) => {
+    console: (method, args, span, labels, tableRows) => {
       opts?.consoleSink?.({
         method: method as ConsoleMethod,
-        args: consoleArgs(args, labels),
+        args: consoleArgs(args, labels, tableRows),
         span: typeof span === 'string' ? JSON.parse(span) : (span as SourceSpan | undefined),
       });
     },

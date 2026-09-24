@@ -48,10 +48,12 @@ export function main(x: f32): void {
   it('rejects unsupported console methods without inventing a TypeShade API', () => {
     const result = compileTsSource(`"use typeshade";
 export function main(): void {
-  console.table();
+  console.count();
 }`);
     expect(result.diagnostics).toHaveLength(1);
-    expect(result.diagnostics[0]!.message).toContain('console.table() is not supported');
+    expect(result.diagnostics[0]!.message).toBe(
+      'console.count() is not supported in TypeShade yet. Use log, info, debug, warn, error, or table.',
+    );
   });
 });
 
@@ -134,5 +136,120 @@ export function main(x: f32): void {
     const d = compile(src('console.log("x" + "y");')).diagnostics;
     expect(d.length).toBeGreaterThan(0);
     expect(d[0]!.message).toContain('A string has no GPU representation');
+  });
+});
+
+// Verifies: Rule 11.9 (console.table takes one value, and a matrix is delivered as its columns;
+// changes/0019).
+describe('console.table shows one value as a table (surface §66)', () => {
+  const src = (body: string): string => `"use typeshade";
+class P {
+  pos: vec2;
+  speed: f32;
+}
+export function main(x: f32): void {
+  const ps: array<P, 2> = [{ pos: vec2(x, 2.), speed: 3. }, { pos: vec2(4., 5.), speed: x }];
+  const m = mat3x2(1., 2., 3., 4., 5., x);
+  ${body}
+}`;
+  const editor = (body: string): string[] => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', src(body));
+    return service.getDiagnostics('a.ts').map((d) => `${String(d.code)} ${String(d.message)}`);
+  };
+  /** The events of one run, on the interpreter (`eval`) and on the generated code, which must
+   *  agree. */
+  const events = (body: string): unknown[] => {
+    const out: unknown[] = [];
+    const r = compile(src(body), {
+      consoleSink: (e) => out.push({ method: e.method, args: e.args }),
+    });
+    expect(r.diagnostics).toEqual([]);
+    r.eval('main', [1.5]);
+    const js: unknown[] = [];
+    compileModuleJs(r.module, {
+      consoleSink: (e) => js.push({ method: e.method, args: e.args }),
+    }).fns.main!(1.5);
+    expect(js).toEqual(out);
+    return out;
+  };
+
+  it('delivers an array of structs as it is, and a matrix as its columns', () => {
+    expect(events('console.table(ps);')).toEqual([
+      {
+        method: 'table',
+        args: [
+          [
+            { pos: [1.5, 2], speed: 3 },
+            { pos: [4, 5], speed: 1.5 },
+          ],
+        ],
+      },
+    ]);
+    // Three columns of two rows, as WGSL indexes it (m[j] is column j).
+    expect(events('console.table(m);')).toEqual([
+      {
+        method: 'table',
+        args: [
+          [
+            [1, 2],
+            [3, 4],
+            [5, 1.5],
+          ],
+        ],
+      },
+    ]);
+    // console.log keeps the flat, column-major form.
+    expect(events('console.log(m);')).toEqual([{ method: 'log', args: [[1, 2, 3, 4, 5, 1.5]] }]);
+    expect(events('console.table(x);')).toEqual([{ method: 'table', args: [1.5] }]);
+  });
+
+  it('draws no error in either half for one value', () => {
+    for (const body of ['console.table(ps);', 'console.table(m);', 'console.table(x);']) {
+      expect(compile(src(body)).diagnostics, body).toEqual([]);
+      expect(editor(body), body).toEqual([]);
+    }
+  });
+
+  it('refuses the columns argument once, with the remedy, in both halves', () => {
+    const body = 'console.table(ps, ["pos"]);';
+    expect(compile(src(body)).diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      'TS8099 console.table() takes one value, the data to show. Select the columns in the ' +
+        'shader, into a smaller struct, or filter the table on the host.',
+    ]);
+    expect(editor(body).some((m) => m.startsWith('TS8099 console.table() takes one value'))).toBe(
+      true,
+    );
+  });
+
+  it('refuses a table of text, or of nothing, and points at console.log', () => {
+    for (const body of ['console.table("ps");', 'console.table();']) {
+      expect(
+        compile(src(body)).diagnostics.map((d) => `${d.code} ${d.message}`),
+        body,
+      ).toEqual([
+        'TS8099 console.table() takes one value, the data to show: an array, a struct, a ' +
+          'vector, a matrix or a scalar. Text goes in a console.log() beside it.',
+      ]);
+      expect(
+        editor(body).some((m) => m.startsWith('TS8099 console.table()')),
+        body,
+      ).toBe(true);
+    }
+  });
+
+  it('completes exactly the six methods after console., as the compiler accepts them', () => {
+    const text = src('console.');
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', text);
+    const lines = text.split('\n');
+    const line = lines.findIndex((l) => l.trim() === 'console.');
+    const items = service.getCompletions('a.ts', {
+      line,
+      character: lines[line]!.indexOf('console.') + 'console.'.length,
+    });
+    expect(items.map((i) => i.label).sort()).toEqual(
+      ['debug', 'error', 'info', 'log', 'table', 'warn'].sort(),
+    );
   });
 });

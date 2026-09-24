@@ -5,6 +5,8 @@
 // for the same entry and arguments, labels, span and invocation included, and it must deliver
 // each event at the step that runs its call, never before and never at a step that skips it.
 
+// Verifies: Rule 11.9 (a stepped run delivers each console call, a table of a matrix by column).
+
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import type { ConsoleEvent } from '../console.js';
@@ -99,6 +101,28 @@ describe('a debug session delivers console calls to its sink (surface §66)', ()
     bare.continue();
     sunk.continue();
     expect(sunk.result).toEqual(bare.result);
+  });
+
+  it('delivers a console.table of a matrix as its columns, as compile().eval does', () => {
+    const src = `"use typeshade";
+@compute([1])
+export function t(@builtin("global_invocation_id") gid: vec3u): void {
+  console.table(mat2x2(1., 2., 3., f32(gid.x)));
+}`;
+    const expected: ConsoleEvent[] = [];
+    compile(src, { consoleSink: (e) => expected.push(e) }).eval('t', [[5, 0, 0]]);
+    expect(expected[0]!.args).toEqual([
+      [
+        [1, 2],
+        [3, 5],
+      ],
+    ]);
+    const got: ConsoleEvent[] = [];
+    const s = startDebugSession(compile(src).module, 't', [[5, 0, 0]], {
+      consoleSink: (e) => got.push(e),
+    });
+    s.continue();
+    expect(got).toEqual(expected);
   });
 
   it('takes the sink beside a launch configuration, which is JSON', () => {

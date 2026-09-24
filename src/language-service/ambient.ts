@@ -753,6 +753,8 @@ interface Console {
   debug(...data: any[]): void
   warn(...data: any[]): void
   error(...data: any[]): void
+  /** Shows one value as a table: an array by element, a struct by field, a matrix by column. */
+  table(tabularData: unknown): void
 }
 /** The standard console. Its logging methods are the ones declared on Console above; a
  * call to one is delivered to the host's console sink when the program runs on the CPU. */

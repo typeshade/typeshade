@@ -163,10 +163,41 @@ export function lowerCall(
           diagnostics,
           sourceFile,
           callee.name,
-          `console.${method}() is not supported in TypeShade yet. Use log, info, debug, warn, or error.`,
+          `console.${method}() is not supported in TypeShade yet. Use log, info, debug, warn, error, or table.`,
           TS_CODES.UNSUPPORTED,
         );
         return undefined;
+      }
+      // `console.table` takes the one value it shows (Rule 11.9). The host's second argument,
+      // the columns to show, is a list of strings the shader cannot hold.
+      if (method === 'table') {
+        const [data, ...rest] = node.arguments;
+        if (rest.length > 0) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            rest[0]!,
+            'console.table() takes one value, the data to show. Select the columns in the ' +
+              'shader, into a smaller struct, or filter the table on the host.',
+            TS_CODES.UNSUPPORTED,
+          );
+          return undefined;
+        }
+        if (
+          data === undefined ||
+          ts.isStringLiteral(data) ||
+          ts.isNoSubstitutionTemplateLiteral(data)
+        ) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            data ?? node,
+            'console.table() takes one value, the data to show: an array, a struct, a vector, ' +
+              'a matrix or a scalar. Text goes in a console.log() beside it.',
+            TS_CODES.UNSUPPORTED,
+          );
+          return undefined;
+        }
       }
       // A string literal is a label (Rule 7.8, surface §66): text the host keeps and the event
       // carries in its place. Every other argument is a value. A template with a value in it was
