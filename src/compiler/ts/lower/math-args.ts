@@ -14,6 +14,11 @@
 // the vectors one size. An emulated double (`f64`, a `vec64`) is left to the fp64 pass, which
 // has its own lifting rules.
 //
+// Which kinds and shapes a call takes is Tint's overload table's to say, not this file's: for a
+// name whose `core.def` rows are SUPPORTED (0017), `derivedSpec` reads the rule off those rows,
+// the rows the editor's declarations are generated from. What stays here is how a refusal is
+// SAID: the argument it names, and the fix (splat, cast, one size), which no table carries.
+//
 // Implements: Rule 9.2 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
@@ -24,6 +29,10 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
 import { F64_SCALAR_TWINS, F64_VEC_REDUCTIONS, F64_VEC_TWINS } from '../../../core/fp64/twins.js';
+import { COREDEF } from '../../../core/builtins/coredef.js';
+import { supportedRows } from '../../../core/builtins/resolve.js';
+import { rowTypes, scalarDomain } from '../../../core/builtins/row-types.js';
+import { MATH_FN_ARITY } from '../math-alias.js';
 
 type Elem = 'f32' | 'i32' | 'u32' | 'bool' | 'f64';
 
@@ -82,46 +91,14 @@ interface Spec {
 const same = (elems: readonly Elem[]): Spec => ({ elems });
 const FLOAT_SAME = same(FLOAT);
 
-/** One entry per free math builtin the surface lowers as a `call`; `f32` (a cast), `select`,
- *  `any` and `all` are lowered elsewhere and are not here. A name without an entry is checked
- *  by arity alone, as before.
- *
- *  Exported for `math-args.test.ts`, which iterates it: the table is the contract, so the suite
- *  that pins the contract must be driven BY the table rather than by a second hand list beside
- *  it. Not on the public barrel. */
-export const MATH_ARG_SPECS: Readonly<Record<string, Spec>> = {
-  // Componentwise on floats.
-  acos: FLOAT_SAME,
-  acosh: FLOAT_SAME,
-  asin: FLOAT_SAME,
-  asinh: FLOAT_SAME,
-  atan: FLOAT_SAME,
-  atanh: FLOAT_SAME,
-  atan2: FLOAT_SAME,
-  ceil: FLOAT_SAME,
-  cos: FLOAT_SAME,
-  cosh: FLOAT_SAME,
-  degrees: FLOAT_SAME,
-  exp: FLOAT_SAME,
-  exp2: FLOAT_SAME,
-  floor: FLOAT_SAME,
-  fma: FLOAT_SAME,
-  fract: FLOAT_SAME,
-  inverseSqrt: FLOAT_SAME,
-  log: FLOAT_SAME,
-  log2: FLOAT_SAME,
-  pow: FLOAT_SAME,
-  radians: FLOAT_SAME,
-  round: FLOAT_SAME,
-  saturate: FLOAT_SAME,
-  sin: FLOAT_SAME,
-  sinh: FLOAT_SAME,
-  smoothstep: FLOAT_SAME,
-  sqrt: FLOAT_SAME,
-  step: FLOAT_SAME,
-  tan: FLOAT_SAME,
-  tanh: FLOAT_SAME,
-  trunc: FLOAT_SAME,
+/** The builtins that take a matrix, checked apart from the shapes above. */
+const MATRIX_FNS: ReadonlySet<string> = new Set(['transpose', 'determinant']);
+
+/** The rules of the names whose `core.def` rows are not SUPPORTED yet (0017): the derivatives
+ *  and the bit builtins, whose family lands after math, and `mod`, which `core.def` has no row
+ *  for (its floor-mod is a TypeShade spelling, written on WGSL as `x - y * floor(x / y)`). Each
+ *  leaves this table for the derived one below when its family does. */
+const UNDERIVED_SPECS: Readonly<Record<string, Spec>> = {
   // The derivatives, on floats.
   dpdx: FLOAT_SAME,
   dpdy: FLOAT_SAME,
@@ -132,28 +109,9 @@ export const MATH_ARG_SPECS: Readonly<Record<string, Spec>> = {
   dpdyFine: FLOAT_SAME,
   fwidthCoarse: FLOAT_SAME,
   fwidthFine: FLOAT_SAME,
-  // Componentwise on any number.
-  abs: same(NUMERIC),
-  sign: same(SIGNED),
-  min: same(NUMERIC),
-  max: same(NUMERIC),
-  clamp: same(NUMERIC),
-  // The blends: `mix(a, b, t)` takes `t` as the vectors' type or a scalar of their kind, which
-  // WGSL and GLSL both spell; `mod(x, y)` takes a scalar `y` against a vector `x`, which its
-  // floor-mod spelling on WGSL and GLSL's `mod(vec, float)` both accept.
-  mix: { elems: FLOAT, roles: { 2: 'sameOrScalar' } },
+  // `mod(x, y)` takes a scalar `y` against a vector `x`, which its floor-mod spelling on WGSL
+  // and GLSL's `mod(vec, float)` both accept.
   mod: { elems: FLOAT, roles: { 1: 'sameOrScalar' } },
-  // Lengths and products: `length` and `distance` take a scalar or a vector, `dot` vectors of
-  // any numeric kind, the geometry four float vectors.
-  length: FLOAT_SAME,
-  distance: FLOAT_SAME,
-  dot: { elems: NUMERIC, vector: true },
-  normalize: { elems: FLOAT, vector: true },
-  cross: { elems: FLOAT, vector: true, vec3: true },
-  reflect: { elems: FLOAT, vector: true },
-  refract: { elems: FLOAT, vector: true, roles: { 2: 'scalar' } },
-  faceForward: { elems: FLOAT, vector: true },
-  ldexp: { elems: FLOAT, roles: { 1: 'i32Of' } },
   // The bit builtins, on integers.
   countOneBits: same(INT),
   reverseBits: same(INT),
@@ -165,15 +123,119 @@ export const MATH_ARG_SPECS: Readonly<Record<string, Spec>> = {
   insertBits: { elems: INT, roles: { 2: 'u32', 3: 'u32' } },
 };
 
+/** The element kinds a set of `core.def` scalars stands for, as the canonical lists the
+ *  messages name (`classWord` knows these four by identity). An emulated double rides with the
+ *  float kinds, since an `f64` takes the signatures of the `f32` it stands in for (Rule 9.2). */
+function canonicalElems(found: ReadonlySet<string>): readonly Elem[] {
+  const key = ['f32', 'i32', 'u32'].filter((e) => found.has(e)).join(',');
+  const canon: Readonly<Record<string, readonly Elem[]>> = {
+    f32: FLOAT,
+    'i32,u32': INT,
+    'f32,i32': SIGNED,
+    'f32,i32,u32': NUMERIC,
+  };
+  const elems = canon[key];
+  if (elems === undefined) throw new Error(`math-args: no element list for {${key}}`);
+  return elems;
+}
+
+/**
+ * The argument rule of the builtin `name`, derived from its SUPPORTED `core.def` rows (0017):
+ * the element kinds its first argument may have, whether that argument must be a vector (every
+ * row takes one) or a `vec3` (every row fixes the length at 3), and what each later argument is
+ * measured against, read row by row:
+ *
+ *   same          the row writes it as the first argument's own type in every row
+ *   sameOrScalar  the first argument's type in some rows, its element scalar in others (`mix`)
+ *   scalar        the element scalar of a vector first argument in every row (`refract`'s eta)
+ *   i32Of         an `i32` of the first argument's shape, through a parameter of its own
+ *                 (`ldexp`'s exponent, `I: ia_i32`)
+ *   u32           a `u32` scalar in every row
+ *
+ * Undefined for a name with no SUPPORTED rows. A relation that is none of these throws: a
+ * re-bake that brings one has to be read before it is checked.
+ */
+function derivedSpec(name: string): Spec | undefined {
+  const rows = supportedRows(name)
+    .map((row) => ({ row, types: rowTypes(row)! }))
+    .filter((r) => r.types !== undefined);
+  if (rows.length === 0) return undefined;
+  const found = new Set<string>();
+  for (const { row, types } of rows) {
+    const head = types.params[0]!;
+    const domain =
+      head.s in row.implicit ? scalarDomain(row.implicit[head.s]!, COREDEF.matchers) : [head.s];
+    for (const e of domain) found.add(e);
+  }
+  const arity = rows[0]!.types.params.length;
+  const roles: Record<number, Role> = {};
+  for (let i = 1; i < arity; i++) {
+    const seen = new Set<Role | 'scalarOfElem'>();
+    for (const { row, types } of rows) {
+      const head = types.params[0]!;
+      const p = types.params[i]!;
+      const same =
+        p.k === head.k && p.s === head.s && (p.k === 'scalar' || p.n === (head as typeof p).n);
+      if (same) seen.add('same');
+      else if (p.k === 'scalar' && head.k === 'vec' && p.s === head.s) seen.add('scalarOfElem');
+      else if (p.k === 'scalar' && p.s === 'u32') seen.add('u32');
+      else if (
+        p.s in row.implicit &&
+        scalarDomain(row.implicit[p.s]!, COREDEF.matchers).join() === 'i32' &&
+        p.k === head.k &&
+        (p.k === 'scalar' || p.n === (head as typeof p).n)
+      )
+        seen.add('i32Of');
+      else throw new Error(`math-args: no rule for argument ${String(i)} of ${row.signature}`);
+    }
+    const kinds = [...seen].sort().join(',');
+    const role: Readonly<Record<string, Role>> = {
+      same: 'same',
+      'same,scalarOfElem': 'sameOrScalar',
+      scalarOfElem: 'scalar',
+      i32Of: 'i32Of',
+      u32: 'u32',
+    };
+    const r = role[kinds];
+    if (r === undefined) throw new Error(`math-args: arguments ${kinds} of ${name} mix rules`);
+    if (r !== 'same') roles[i] = r;
+  }
+  const heads = rows.map((r) => r.types.params[0]!);
+  return {
+    elems: canonicalElems(found),
+    ...(heads.every((h) => h.k === 'vec') ? { vector: true as const } : {}),
+    ...(heads.every((h) => h.k === 'vec' && h.n === '3') ? { vec3: true as const } : {}),
+    ...(Object.keys(roles).length > 0 ? { roles } : {}),
+  };
+}
+
+/** The free math builtins the surface lowers as a `call`, and the WGSL rule each call is checked
+ *  against; `f32` (a cast), `select`, `any` and `all` are lowered elsewhere and are not here. A
+ *  name without an entry is checked by arity alone, as before.
+ *
+ *  A name with SUPPORTED `core.def` rows takes its rule from them (`derivedSpec`, 0017); the
+ *  rest are `UNDERIVED_SPECS`. The rows are the ones the editor's declarations are generated
+ *  from, so the compiler refuses the argument the editor's signature refuses.
+ *
+ *  Exported for `math-args.test.ts`, which iterates it: the table is the contract, so the suite
+ *  that pins the contract must be driven BY the table rather than by a second hand list beside
+ *  it. Not on the public barrel. */
+export const MATH_ARG_SPECS: Readonly<Record<string, Spec>> = (() => {
+  const out: Record<string, Spec> = { ...UNDERIVED_SPECS };
+  for (const name of Object.keys(MATH_FN_ARITY)) {
+    if (name in UNDERIVED_SPECS || MATRIX_FNS.has(name)) continue;
+    const spec = derivedSpec(name);
+    if (spec !== undefined) out[name] = spec;
+  }
+  return out;
+})();
+
 /** Whether the builtin `fn` has a form on the element kind `elem`: `min` on an i32, yes; `pow`,
  *  no. A name without a spec is taken to have one, as before the check existed. */
 export function mathTakesElem(fn: string, elem: string): boolean {
   const spec = MATH_ARG_SPECS[fn];
   return spec === undefined || (spec.elems as readonly string[]).includes(elem);
 }
-
-/** The builtins that take a matrix, checked apart from the shapes above. */
-const MATRIX_FNS: ReadonlySet<string> = new Set(['transpose', 'determinant']);
 
 const VEC_SUFFIX: Readonly<Record<string, string>> = {
   f32: '',

@@ -609,24 +609,24 @@ are not: `smoothstep(0.3, 0.55, h)` alone reports the same thing. `feat/gradient
 files went from 1 to 0 over the same change.
 
 WHAT THE LIB DECLARES for these functions, which is the half of that measurement the numbers do
-not show. Every free math name carries an all-scalar overload, `(a0: number, ...): number` at its
-own arity, ahead of the generic `<T extends Numeric>` shape it had before; that overload is what
-stops a literal argument settling `T` to its own literal type. `mix` carries vector-with-scalar
-overloads on top of it, in two families: `mix(vecN<f32>, vecN<f32>, f32)` for N = 2, 3, 4, the one
-vector-beside-scalar call in this vocabulary that both Tint and ANGLE's GLSL ES 3.00 translator
-accept, and `mix(vecNf64, vecNf64, f32)` for the same three arities, the one vec64 form the fp64
-pass lowers (`core/passes/fp64-lower.ts` refuses every other one itself, with "mix() on vec64
-needs a scalar f32 interpolant"). The generic same-shape overload stays last and still carries
-`mix(vecN, vecN, vecN)`, `mix(f32, f32, f32)` and the integer vectors; `dot`, `distance`,
-`length`, `normalize` and `cross` keep their hand-written signatures and gain nothing.
+not show. Since 0017, a math name's overloads are generated from Tint's overload table, one per
+`core.def` row (`builtin-signatures.ts`): a row over a vector is generic in the vector it is called
+with, and a row over a scalar gives each argument its own type parameter, which is what stops a
+literal argument settling a type parameter to its own literal type (the job the all-scalar
+`(a0: number, ...): number` overload did before, and still does for a name the table does not
+generate). `mix`'s rows give it `mix(vecN, vecN, vecN)`, `mix(vecN, vecN, f32)` and the scalar form.
+What follows the generated overloads by hand is what the table has no row for: `mix(vecNf64,
+vecNf64, f32)` for N = 2, 3, 4, the one vec64 form the fp64 pass lowers (`core/passes/fp64-lower.ts`
+refuses every other one itself, with "mix() on vec64 needs a scalar f32 interpolant"), the other
+emulated-double forms, and the generic same-shape overload each name had before, last.
 
 The vector-beside-scalar shapes deliberately NOT declared are the ones a GPU compiler refuses, and
 they stay undeclared so that TypeScript is the thing reporting them: `clamp(vecN, s, s)` (Tint: `no
 matching call to 'clamp(vec3<f32>, f32, f32)'`), `min(vecN, s)`, `max(vecN, s)`, `pow(vecN, s)`,
 `step(vecN, s)`, and `mix` on an `i32` or `u32` vector. The mirrored forms draw TypeScript's
-TS2769 too, but do not depend on it: `mathResultType` keys a call's result on its FIRST argument,
-so `min(s, vecN)`, `max(s, vecN)`, `step(s, vecN)` and `smoothstep(s, s, vecN)` are already the
-front end's own `TS8003`.
+TS2769 too, but do not depend on it: `mathResultType` types a call by the `core.def` row that
+takes its arguments and, where none does, by its FIRST argument, so `min(s, vecN)`, `max(s,
+vecN)`, `step(s, vecN)` and `smoothstep(s, s, vecN)` are already the front end's own `TS8003`.
 
 Four shapes both GPU compilers refuse were silent in the editor until the front end's argument
 check for the math builtins (#57, `TS8036`, roadmap 0.2 item 9), and nothing on the declaration
