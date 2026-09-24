@@ -1948,6 +1948,18 @@ function assembleGlslParts(
       (stage === undefined || stageOf(f) === stage) &&
       (keepEntry === undefined || f.name === keepEntry),
   );
+  // GLSL ES 3.00 allows one `main()` per shader, and each entry of a stage is spelled as one.
+  // Two entries of one stage are WGSL's to allow (an entry point is chosen by name at pipeline
+  // creation), so a caller that does not say which one fails closed here rather than get a
+  // second `main()` a driver refuses (#213, Rules 1.2 and 10.3). A declarations-only fragment
+  // spells no entry, so it has no `main()` to repeat.
+  if (stage !== undefined && omitEntries !== true && entries.length > 1) {
+    throw new UnsupportedFeatureError(
+      `glsl-es300: the ${stage} stage has ${String(entries.length)} entries ` +
+        `(${entries.map((f) => f.name).join(', ')}) and a GLSL ES 3.00 shader has one main(); ` +
+        `name the one to emit with emitGlslStages's ${stage}Entry option`,
+    );
+  }
   // Stage-scoped emit (see stageScope) — only when compiling ONE stage; the
   // whole-module form (stage === undefined, a string-shape artifact used by
   // tests) keeps the emit-everything contract. null = scope not computable.
@@ -2325,8 +2337,10 @@ function withPortableLowering<T extends GlslEmitOptions>(m: ModuleDecl, opts?: T
  *    {@link UnsupportedFeatureError} (`SD0030`) when this target cannot spell something the
  *    module needs: a `@compute` entry that is not declared `portable`, a multisampled
  *    texture load, `f16`, subgroups, a `read_write` storage binding, a storage element type
- *    outside the list above, a vertex entry returning a bare non-struct output, or a raw
- *    statement with no `glsl` text.
+ *    outside the list above, a vertex entry returning a bare non-struct output, a raw
+ *    statement with no `glsl` text, or a `stage` with more than one entry, which has one
+ *    `main()` to give them (name it with {@link emitGlslStages}'s `vertexEntry` or
+ *    `fragmentEntry`).
  *
  *  @example
  *  ```ts
@@ -2418,7 +2432,8 @@ export function emitGlslFragment(
  *  `opts.vertexEntry` and `opts.fragmentEntry` name the entry to emit for each stage, for
  *  a module that declares several entries of one stage. GLSL allows one `main()` per
  *  stage, so a module with two fragment entries needs `fragmentEntry` to say which one
- *  becomes `main()`; the other entries are left out of that stage's source. The output
+ *  becomes `main()`; the other entries are left out of that stage's source, and with none
+ *  named such a stage throws {@link UnsupportedFeatureError} (`SD0030`). The output
  *  does not depend on which other entries the module carries, because every optimizer
  *  pass works on one function at a time.
  *
