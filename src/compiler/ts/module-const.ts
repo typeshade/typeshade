@@ -11,6 +11,7 @@ import { LoweringScope } from './context.js';
 import type { DeclaredSymbolSink } from './symbols.js';
 import { mapTsTypeToShaderType } from './type-map.js';
 import { foldConstComponents, foldConstValue } from './loop-bound.js';
+import { refuseListSpread } from './lower/expression-array.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
 import { lowerExpression } from './lower/expression.js';
 import { lowerArrayLiteral } from './lower/expression-array.js';
@@ -476,9 +477,15 @@ function lowerOne(
     );
     return undefined;
   }
+  const mapped = diagnostics.length;
   const annotated = decl.type
     ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
     : undefined;
+  // A type that maps to nothing and says nothing names a declaration refused where it is written
+  // (a generic interface, a contract), which said why; the constant builds nothing (Rule 12.4).
+  if (decl.type !== undefined && annotated === undefined && diagnostics.length === mapped) {
+    return undefined;
+  }
   // A list is lowered AGAINST the annotation, at module scope for the same reason as in a
   // function body (#8 A16): it carries no type of its own. The node it produces is the array
   // `construct` that `array<f32, 3>(...)` already produced here, which `valueExprConst` has
@@ -487,6 +494,9 @@ function lowerOne(
   // a name that never got defined, neither of which says what to write.
   let init: Expr | undefined;
   if (ts.isArrayLiteralExpression(decl.initializer)) {
+    // A spread is the list's one sentence, said before the annotation it would otherwise be
+    // asked for; the name's uses then say nothing more (refused-names.ts, Rule 12.4).
+    if (refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)) return undefined;
     if (!annotated) {
       diagnostics.push(
         makeDiagnostic(

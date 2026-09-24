@@ -32,6 +32,7 @@ import { isArrayMethod, otherArrayMethod } from './array-methods.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { enumMemberNames, staticMemberNames, unknownNameSentence } from '../unknown-names.js';
+import { staticFieldRefused } from '../refused-names.js';
 
 const JS_ARRAY_METHODS = new Set([
   'map',
@@ -234,6 +235,14 @@ export function lowerPropertyAccess(
     // The name is a type, not a value, so lowering the receiver would report an unknown
     // identifier. Say what it is instead, when it is a class or an enum the file declares.
     if (scope.structByName(owner) !== undefined) {
+      // A static field its class declares whose declaration was refused, having said why.
+      if (
+        [owner, ...scope.ancestorsOf(owner)].some((c) =>
+          staticFieldRefused(c, prop, sourceFile, diagnostics),
+        )
+      ) {
+        return undefined;
+      }
       const fn = scope.resolveCallee(methodFnName(owner, emittedMemberName(prop)));
       // `#n` and `n` are two members, so a function of the name answers only as the one written.
       const asFunction = fn !== undefined && classFunctionOf(fn)?.member === prop;
@@ -450,9 +459,16 @@ export function lowerObjectLiteral(
   // been refused after it, while the same literal in a return position stayed accepted. A
   // repeated field is TypeScript's own TS1117 and the editor says so; the compiler keeps
   // taking the last, in every position, as it always did.
+  // A field the struct's declaration withholds was refused where it is written, having said
+  // why; what the literal sets it to is not lowered, and adds nothing (Rule 12.4).
+  const withheld = (p: LiteralProp): boolean =>
+    declared !== undefined &&
+    !('ready' in p) &&
+    scope.isWithheld(match.name, emittedMemberName(p.name));
   if (declared) {
     for (const p of props) {
       if (match.fields.some((f) => f.name === p.name)) continue;
+      if (withheld(p)) continue;
       if ('ready' in p) {
         // A spread of a struct the target does not have every field of: the literal names a
         // field the struct has not got, and says which, rather than "does not match".
@@ -485,6 +501,7 @@ export function lowerObjectLiteral(
       given.push({ name: p.name, expr: p.ready, node: undefined });
       continue;
     }
+    if (withheld(p)) continue;
     const expr = lowerExpression(p.value, sourceFile, scope, diagnostics, fieldType.get(p.name));
     if (!expr) return undefined;
     given.push({ name: p.name, expr, node: p.value });

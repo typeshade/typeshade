@@ -26,12 +26,17 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { LoweringScope } from './context.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
-import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js';
+import {
+  mapTsTypeToShaderType,
+  RETIRED_VAR_WRAPPER,
+  retiredWrapperMessage,
+  writesRefusedType,
+} from './type-map.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { foldConstComponents } from './loop-bound.js';
 import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
 import { lowerExpression } from './lower/expression.js';
-import { lowerArrayLiteral } from './lower/expression-array.js';
+import { lowerArrayLiteral, refuseListSpread } from './lower/expression-array.js';
 import { isOverrideType } from './overrides.js';
 import { isFoldableConstExpr, staticConstName } from './module-const.js';
 import { eachNamespaceStatement } from './namespaces.js';
@@ -105,7 +110,10 @@ const typeOf = (
   diagnostics: TsCompilerDiagnostic[],
 ): ShaderType | undefined =>
   mapTsTypeToShaderType(node, sourceFile, diagnostics) ??
-  (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)
+  // One that names a generic interface or alias was refused at that declaration (Rule 12.4).
+  (ts.isTypeReferenceNode(node) &&
+  ts.isIdentifier(node.typeName) &&
+  !writesRefusedType(node, sourceFile)
     ? structT(node.typeName.text)
     : undefined);
 
@@ -226,6 +234,14 @@ export function collectModuleVars(
       }
       // `let q: override<f32>` is overrides.ts's refusal, with the fix (`const`).
       if (isOverrideType(decl.type)) continue;
+      // `let g = (x: f32): f32 => …` is a function, which the local-function collector says is
+      // declared with const (TS8020); it is no module variable to refuse a second time.
+      if (
+        decl.initializer !== undefined &&
+        (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
+      ) {
+        continue;
+      }
       if (!ts.isIdentifier(decl.name)) {
         diagnostics.push(
           diag(
@@ -346,6 +362,21 @@ function declaredResourceText(type: ts.TypeNode, sourceFile: ts.SourceFile): str
   return `storage<${args[0].getText(sourceFile)}, "read_write">`;
 }
 
+/** Whether a module variable's initializer is a list with a spread, refused as one sentence
+ *  before the list is counted or asked for its type (expression-array.ts). */
+function spreadRefused(
+  decl: VarSite,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  return (
+    decl.initializer !== undefined &&
+    ts.isArrayLiteralExpression(decl.initializer) &&
+    refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)
+  );
+}
+
 /** `let seed: u32 = 7`, `let hits: u32`, `let v = 1.5`: the per-invocation variable, its type
  *  from the annotation or, without one, from the initializer by §12's rule for a `const`. */
 function lowerPlain(
@@ -388,6 +419,8 @@ function lowerPlain(
     }
     const type = typeOf(decl.type, sourceFile, diagnostics);
     if (!type) return undefined;
+    // A list refused for its spread is that one sentence (Rule 12.4).
+    if (spreadRefused(decl, sourceFile, scope, diagnostics)) return undefined;
     return finish(
       decl,
       decl.type,
@@ -412,6 +445,8 @@ function lowerPlain(
     return undefined;
   }
   if (ts.isArrayLiteralExpression(decl.initializer)) {
+    // A spread is the list's one sentence, said before the list is counted (Rule 12.4).
+    if (spreadRefused(decl, sourceFile, scope, diagnostics)) return undefined;
     diagnostics.push(
       diag(
         sourceFile,

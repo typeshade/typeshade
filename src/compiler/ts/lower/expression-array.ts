@@ -13,6 +13,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { captureArguments, declaresFunction } from './local-functions.js';
 import { declarationOf, functionAround } from './closures.js';
+import { nameListSpread } from '../semantic.js';
 import type { FunctionShape } from './function-types.js';
 
 export function lowerArrayCtor(
@@ -169,10 +170,11 @@ export function lowerArrayLiteral(
     );
     return undefined;
   }
+  // Checked before the count: `[...xs]` is one element syntactically, so counting it first
+  // would report an arity the author never wrote.
+  if (refuseListSpread(node, sourceFile, scope, diagnostics)) return undefined;
   for (const element of node.elements) {
-    // Checked before the count: `[...xs]` is one element syntactically, so counting it first
-    // would report an arity the author never wrote.
-    if (ts.isSpreadElement(element) || ts.isOmittedExpression(element)) {
+    if (ts.isOmittedExpression(element)) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -224,6 +226,57 @@ export function lowerArrayLiteral(
     args.push(typed);
   }
   return { op: 'construct', type: target, args };
+}
+
+/** `[...a, 3.]`: a spread in a list, which a shader array does not do, since its length is its
+ *  type's. semantic.ts refuses each one wherever it is written (TS8013); here, where the operand's
+ *  type is known, the sentence is given the elements to write in its place, `a[0], a[1]`. A
+ *  position that holds a list asks this first, before the count or the annotation it would
+ *  otherwise ask for, so the spread is the list's one sentence (Rule 12.4). Returns whether the
+ *  list holds a spread. */
+export function refuseListSpread(
+  node: ts.ArrayLiteralExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const spreads = node.elements.filter(ts.isSpreadElement);
+  for (const spread of spreads) {
+    nameListSpread(spread, spreadElements(spread, sourceFile, scope), sourceFile, diagnostics);
+  }
+  return spreads.length > 0;
+}
+
+/** The elements a spread's operand stands for, as an author writes them: `a[0], a[1]` for a
+ *  sized array, `v.x, v.y, v.z` for a vector. Undefined for anything else, a struct, a scalar or
+ *  a name nothing declares, which has no elements to name. */
+function spreadElements(
+  spread: ts.SpreadElement,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+): string | undefined {
+  const operand = spread.expression;
+  // Only its type is read; what the operand itself may be refused for is not this mistake.
+  const type = lowerExpression(operand, sourceFile, scope, [])?.type;
+  const written = operand.getText(sourceFile);
+  const shown =
+    ts.isIdentifier(operand) ||
+    ts.isPropertyAccessExpression(operand) ||
+    ts.isElementAccessExpression(operand) ||
+    ts.isCallExpression(operand)
+      ? written
+      : `(${written})`;
+  if (type?.kind === 'vec' || type?.kind === 'vec64') {
+    return ['x', 'y', 'z', 'w']
+      .slice(0, type.n)
+      .map((c) => `${shown}.${c}`)
+      .join(', ');
+  }
+  if (type?.kind !== 'array' || type.size === undefined) return undefined;
+  const at = (i: number): string => `${shown}[${String(i)}]`;
+  const n = type.size;
+  if (n <= 4) return Array.from({ length: n }, (_, i) => at(i)).join(', ');
+  return `${at(0)}, ${at(1)}, …, ${at(n - 1)}`;
 }
 
 /** One element of an `array<T, N>`, list or call, given the element type it sits in. Shared by

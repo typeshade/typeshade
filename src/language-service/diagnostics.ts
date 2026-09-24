@@ -3,6 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { refusedVars, refusedWhole } from '../compiler/ts/semantic.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
 import { ERASING_OPERATORS, ERASING_UNARY_OPERATORS } from './projection.js';
@@ -1744,6 +1745,155 @@ function isKnockOn(
   return typedFromFailure(context, subject, failures);
 }
 
+/** What the compiler refused whole, as spans of the document: the nodes whose operand or body
+ *  is part of the one mistake refused at them (`refusedWhole`, a `throw`, an `await`, an async
+ *  function, a spread), and the `var` statements it refused (`refusedVars`). */
+interface Refusals {
+  readonly whole: readonly TypeshadeTextSpan[];
+  readonly vars: readonly TypeshadeTextSpan[];
+}
+
+/** The global type an async function, a generator, an `await`, a `yield`, a `for await` or a
+ *  tagged template names, which the ambient library leaves out (TS2318, `Cannot find global type
+ *  'Promise'`), since the form that needs it has no shader form. */
+const MISSING_GLOBAL_TYPE = 2318;
+
+/** Whether `node` is a form TypeScript types with a global type the ambient library leaves out:
+ *  an async function or a generator, an `await`, a `yield`, a `for await`, a tagged template. */
+function needsHostGlobal(node: ts.Node): boolean {
+  return (
+    ts.isAwaitExpression(node) ||
+    ts.isYieldExpression(node) ||
+    ts.isTaggedTemplateExpression(node) ||
+    (ts.isForOfStatement(node) && node.awaitModifier !== undefined) ||
+    (ts.isFunctionLike(node) &&
+      ((node as { asteriskToken?: ts.AsteriskToken }).asteriskToken !== undefined ||
+        (ts.canHaveModifiers(node) &&
+          (ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false))))
+  );
+}
+
+/** The value a TS2322 reported on a class field's or a parameter's name judges: its
+ *  initializer, `static K: array<f32, 3> = [...A, 3.]`, `xs: array<f32, 3> = [...A, 3.]`. */
+function initializerNamedAt(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+): ts.Expression | undefined {
+  if (ruleCodeOf(diagnostic.code) !== 2322) return undefined;
+  for (
+    let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+    node !== undefined;
+    node = node.parent
+  ) {
+    if (ts.isPropertyDeclaration(node) || ts.isParameter(node)) {
+      return node.name.getStart(context.sourceFile) === diagnostic.span.start
+        ? node.initializer
+        : undefined;
+    }
+  }
+  return undefined;
+}
+
+/** Whether a TypeScript error sits in the head of a `for await` the compiler refused whole:
+ *  TS1103 on its `await`, which the refusal already says. */
+function forAwaitHeadAt(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const loop = ts.findAncestor(
+    nodeAtPosition(context.sourceFile, diagnostic.span.start),
+    (n): n is ts.ForOfStatement => ts.isForOfStatement(n) && n.awaitModifier !== undefined,
+  );
+  if (loop === undefined) return false;
+  const whole = spanOfNode(loop, context.sourceFile);
+  return (
+    spanEnd(diagnostic.span) <= loop.statement.getStart(context.sourceFile) &&
+    compilerErrors.some((e) => e.span.start === whole.start && e.span.length === whole.length)
+  );
+}
+
+/** Whether a TypeScript error sits on the rest element of a list the compiler refused as an
+ *  assignment target (TS8018), `[p, ...q] = a`: TypeScript's word on what `...q` collects is
+ *  about the one target refused. */
+function restOfRefusedTarget(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const rest = ts.findAncestor(
+    nodeAtPosition(context.sourceFile, diagnostic.span.start),
+    ts.isSpreadElement,
+  );
+  if (rest === undefined || !ts.isArrayLiteralExpression(rest.parent)) return false;
+  const target = spanOfNode(rest.parent, context.sourceFile);
+  return compilerErrors.some(
+    (e) =>
+      e.code === TS_CODES.ASSIGN_TARGET &&
+      e.span.start === target.start &&
+      e.span.length === target.length,
+  );
+}
+
+/**
+ * Whether a TypeScript error repeats a mistake the compiler refused whole (Rule 12.4):
+ *
+ * - it lies inside a node the compiler refused with what it holds, so `throw new Error("x")`
+ *   is the compiler's one sentence and not also TypeScript's `Cannot find name 'Error'`, and an
+ *   `await` its `'await' expressions are only allowed within async functions`;
+ * - the value it judges holds such a node: the list `[...a, 3.]` TypeScript finds unassignable
+ *   to the `array<f32, 3>` it initializes;
+ * - it sits in the head of a `for await` the compiler refused, TS1103 on its `await`, or on the
+ *   rest element of a list the compiler refused as an assignment target;
+ * - it is a global type TypeScript cannot find (`MISSING_GLOBAL_TYPE`), and a form that names
+ *   one stands inside a compiler error: `Promise` for an async function the compiler refused;
+ * - it is TypeScript's word on a `var` the compiler refused, which the compiler lowers as the
+ *   `let` it would have been: a read of it after the block it is written in, as used before
+ *   being assigned (TS2454), or its redeclaration with another type (TS2403).
+ */
+function repeatsRefusal(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  refusals: Refusals,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  if (refusals.whole.some((span) => within(diagnostic.span, span))) return true;
+  const subject = subjectOf(context, diagnostic) ?? initializerNamedAt(context, diagnostic);
+  if (subject !== undefined) {
+    const judged = spanOfNode(subject, context.sourceFile);
+    if (refusals.whole.some((span) => within(span, judged))) return true;
+  }
+  if (forAwaitHeadAt(context, diagnostic, compilerErrors)) return true;
+  if (restOfRefusedTarget(context, diagnostic, compilerErrors)) return true;
+  if (diagnostic.code === MISSING_GLOBAL_TYPE) {
+    let found = false;
+    const visit = (node: ts.Node): void => {
+      if (found) return;
+      if (needsHostGlobal(node)) {
+        const span = spanOfNode(node, context.sourceFile);
+        found = compilerErrors.some((error) => within(span, error.span));
+        if (found) return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(context.sourceFile);
+    return found;
+  }
+  if (diagnostic.code === 2403) return refusals.vars.some((span) => within(diagnostic.span, span));
+  if (diagnostic.code === 2454 && context.checker !== undefined) {
+    const name = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+    const declaration = ts.isIdentifier(name)
+      ? context.checker.getSymbolAtLocation(name)?.valueDeclaration
+      : undefined;
+    if (declaration === undefined || !ts.isVariableDeclaration(declaration)) return false;
+    const statement = declaration.parent.parent;
+    if (!ts.isVariableStatement(statement)) return false;
+    const span = spanOfNode(statement, context.sourceFile);
+    return refusals.vars.some((v) => v.start === span.start && v.length === span.length);
+  }
+  return false;
+}
+
 /**
  * The operation an operator's own diagnostic is about: the one TS2447 (`^` on two booleans)
  * spans, or the one whose left operand TS2362, or right operand TS2363, it is reported on.
@@ -1901,7 +2051,7 @@ function isInRefusedDecorator(
 
 /**
  * The merged list for one document: `typescript` (already filtered by
- * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Four
+ * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Five
  * rules drop a report, and each only ever drops an ERROR that another error already covers:
  *
  * - a TypeScript error that is TypeScript's own knock-on of a call it failed to resolve
@@ -1911,7 +2061,9 @@ function isInRefusedDecorator(
  * - a TypeScript error inside a decorator the compiler refuses whole (`isInRefusedDecorator`)
  *   goes;
  * - a TypeScript error that `SAME_MISTAKE` pairs by code with a compiler error, and whose span
- *   sits where one mistake would put the two (`sameMistakeSpans`), goes: the compiler's stays.
+ *   sits where one mistake would put the two (`sameMistakeSpans`), goes: the compiler's stays;
+ * - a TypeScript error about what the compiler refused whole, a `throw` and what it throws, an
+ *   async function, a spread in a list, a `var` (`repeatsRefusal`), goes.
  *
  * Without `analysis` nothing is dropped: the service passes none when a test asks for the two
  * halves unmerged (`TypeshadeLanguageServiceTestOptions`).
@@ -1928,12 +2080,17 @@ export function mergeDiagnostics(
   }
   const context: DiagnosticFilterContext = { sourceFile, checker };
   const compilerErrors = typeshade.filter((d) => d.severity === 'error');
-  const refusals = compilerErrors.filter((d) => d.code === TS_CODES.TYPE_MISMATCH);
+  const operatorRefusals = compilerErrors.filter((d) => d.code === TS_CODES.TYPE_MISMATCH);
+  const refusals: Refusals = {
+    whole: refusedWhole(analysis.sourceFile).map((n) => spanOfNode(n, analysis.sourceFile)),
+    vars: refusedVars(analysis.sourceFile).map((n) => spanOfNode(n, analysis.sourceFile)),
+  };
   const keptTypescript = typescript.filter((diagnostic) => {
     if (diagnostic.severity !== 'error') return true;
     if (isKnockOn(context, diagnostic, typescript)) return false;
-    if (isAboutRefusedOperation(context, diagnostic, refusals)) return false;
+    if (isAboutRefusedOperation(context, diagnostic, operatorRefusals)) return false;
     if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
+    if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     const pair = SAME_MISTAKE.find((p) => p.typescript === ruleCodeOf(diagnostic.code));
     if (pair === undefined) return true;
     return !compilerErrors.some(

@@ -1407,10 +1407,15 @@ describe('a field that holds a function (Rule 8.16)', () => {
     );
     // An expression body with no return type returns its value, whose type it is (Rule 8.19).
     expect(errorsOf(C('f = () => this.x'))).toEqual([]);
-    // The sentence a method of the same shape gets, beside the one its `Promise` gets.
-    expect(errorsOf(C('f = async (): Promise<f32> => 1.'))).toContain(
-      `${M} "A.f" is a plain method or nothing: no async, no generator.`,
+    // The sentence a method of the same shape gets, said once where it is written, and the
+    // `Promise` it names adds nothing to it (Rule 12.4); the remedy names the type a plain
+    // function returns in its place, and that one compiles (Rule 12.1).
+    expect(only(C('f = async (): Promise<f32> => 1.'))).toBe(
+      `${M} "A.f" is async, and a shader function runs to completion in one call: there is no ` +
+        `event loop to wait on. Remove "async" and each "await", and write its return type as ` +
+        `f32.`,
     );
+    expect(errorsOf(C('f = (): f32 => 1.'))).toEqual([]);
   });
 
   it('a member keeps its kind down a class chain, as TypeScript requires', () => {

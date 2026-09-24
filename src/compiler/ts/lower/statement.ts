@@ -58,8 +58,9 @@ import {
 } from '../lit-coerce.js';
 import { lowerExpression, unknownIdentifierSentence } from './expression.js';
 import { lowerCall } from './expression-call.js';
-import { lowerArrayLiteral } from './expression-array.js';
+import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
 import { lowerFor, lowerForOf, lowerSwitch, lowerUpdate, lowerWhile } from './control.js';
+import { refusedBySemantics } from '../semantic.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { foldNumericLit } from '../lit-coerce.js';
@@ -284,6 +285,9 @@ function lowerStatementKind(
     );
     return undefined;
   }
+  // `for…in`, `try` and `throw` are semantic.ts's refusals (TS8013), each with its reason, and
+  // one mistake reads as one diagnostic (Rule 12.4).
+  if (refusedBySemantics(node)) return undefined;
   pushDiag(
     diagnostics,
     sourceFile,
@@ -314,19 +318,9 @@ function lowerVariableStatement(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | Stmt[] | undefined {
-  const flags = node.declarationList.flags;
-  const isConst = (flags & ts.NodeFlags.Const) !== 0;
-  const isLet = (flags & ts.NodeFlags.Let) !== 0;
-  if (!isConst && !isLet) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'Use "const" or "let". The JS "var" keyword is not supported.',
-      TS_CODES.UNSUPPORTED,
-    );
-    return undefined;
-  }
+  // A `var` is semantic.ts's refusal (TS8013), and is lowered as the `let` it would have been,
+  // so the names it declares stay bound and their uses say nothing more (Rule 12.4).
+  const isConst = (node.declarationList.flags & ts.NodeFlags.Const) !== 0;
   // One declarator is the overwhelmingly common case, and there the statement IS the
   // declaration: stamping the declarator alone gives a span starting after the `const`/`let`
   // keyword, so a breakpoint on that line points mid-statement. Several declarators genuinely
@@ -404,6 +398,31 @@ function builtThisType(
     : annotated;
 }
 
+/** Whether a `var` declares a name its function already bound as a parameter or by an earlier
+ *  `var`, which JavaScript reads as the one variable, where a `let` of it would be refused. */
+function redeclaresVar(decl: ts.VariableDeclaration, name: string): boolean {
+  const fn = ts.findAncestor(decl.parent, ts.isFunctionLike);
+  if (fn === undefined) return false;
+  if (fn.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === name)) return true;
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found || node.pos >= decl.pos || ts.isFunctionLike(node) || ts.isClassLike(node)) return;
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === name &&
+      ts.isVariableDeclarationList(node.parent) &&
+      (node.parent.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(fn, visit);
+  return found;
+}
+
 function lowerDeclarationKind(
   decl: ts.VariableDeclaration,
   isConst: boolean,
@@ -429,7 +448,16 @@ function lowerDeclarationKind(
     return undefined;
   }
   const name = decl.name.text;
+  // A `var` is lowered as the `let` it would have been (semantic.ts refused it), and quoted as
+  // the author wrote it; the remedies name `let`.
+  const isVar =
+    ts.isVariableDeclarationList(decl.parent) &&
+    (decl.parent.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0;
+  const written = isConst ? 'const' : isVar ? 'var' : 'let';
   if (scope.hasInCurrent(name)) {
+    // JavaScript lets a `var` declare a name its function has already bound, a parameter or an
+    // earlier `var`, as the same variable; the one mistake is the `var` (Rule 12.4).
+    if (isVar && redeclaresVar(decl, name)) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,
@@ -468,7 +496,8 @@ function lowerDeclarationKind(
         diagnostics,
         sourceFile,
         decl,
-        `"let ${name}" without an initializer needs a type annotation, e.g. let ${name}: f32;`,
+        `"${written} ${name}" without an initializer needs a type annotation, e.g. let ` +
+          `${name}: f32;`,
         TS_CODES.UNSUPPORTED,
       );
       return undefined;
@@ -499,13 +528,16 @@ function lowerDeclarationKind(
   // literal to take its type, and everything else ignores it.
   let init: Expr | undefined;
   if (ts.isArrayLiteralExpression(decl.initializer)) {
+    // A spread is the list's one mistake, said before the annotation it would otherwise be
+    // asked for; the name's uses then say nothing more (refused-names.ts, Rule 12.4).
+    if (refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)) return undefined;
     if (!annotated) {
       const kw = isConst ? 'const' : 'let';
       pushDiag(
         diagnostics,
         sourceFile,
         decl,
-        `"${kw} ${name}" needs an array type annotation to take a list, e.g. ${kw} ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
+        `"${written} ${name}" needs an array type annotation to take a list, e.g. ${kw} ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
         TS_CODES.UNKNOWN_TYPE,
       );
       return undefined;
@@ -1126,6 +1158,8 @@ function lowerExpressionAsStatement(
       return undefined;
     }
   }
+  // `yield x;`, `await x;` or a template string standing alone: semantic.ts's refusal.
+  if (refusedBySemantics(expr)) return undefined;
   pushDiag(
     diagnostics,
     sourceFile,

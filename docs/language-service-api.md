@@ -330,7 +330,7 @@ The merged list reads one diagnostic per mistake (Rule 12.4). A mistake both hal
 be reported by both: `y = 2.` on a `const` as TypeScript's TS2588 and the compiler's `TS8005`,
 `g(x)` one argument short as TS2554 and `TS8019`, `colr` as TS2304 and `TS8022`. A person reads
 past the second sentence, and a coding agent fixes both. `mergeDiagnostics` drops a report by
-four rules, and only ever an error that another error already covers:
+five rules, and only ever an error that another error already covers:
 
 - **The same mistake.** A TypeScript error and a compiler error that its table pairs by code
   (TS2304, TS2552, TS2448 and TS2454 with the unknown-name codes `TS8022`, `TS8004`, `TS8002`
@@ -398,6 +398,16 @@ four rules, and only ever an error that another error already covers:
   parameter's), TS2304 or TS2552 on a name the ambient library does not declare, and TS2318 for
   the `TypedPropertyDescriptor` TypeScript checks a method's decorator against, which carries no
   span.
+- **What the compiler refused whole.** A TypeScript error about something the compiler refused
+  together with what it holds (proposal 0008) goes: one inside a refused `throw`, `await`,
+  `yield`, template string or spread, or inside an async function or a generator, so
+  `throw new Error("x")` is the compiler's one sentence and not also TS2304 for `Error`; one
+  about a value that holds such a node, the TS2322 on a list with a spread; a global type
+  TypeScript cannot find (TS2318, `Promise` for an async function) when a form that names one
+  stands inside a compiler error; TS1103 on the head of a `for await` the compiler refused; and
+  TypeScript's type of the rest element of a list the compiler refused as an assignment target.
+  A `var` the compiler refused is lowered as the `let` it would have been, and TypeScript's
+  TS2454 at a read of it after its block and its TS2403 on a redeclaration go too.
 
 `typeshade check` reads the same merged list, and adds from `compile()` only what the service
 cannot compute: the backends' `TS8015` and the opt-in `TS8053`. That check is exported from this

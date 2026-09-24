@@ -218,6 +218,13 @@ function noStaticFunction(
   ]);
 }
 
+/** Whether `member` of the class `name`, or of a class above it, was refused where it is
+ *  written, having said why (`collectClassFunctions`): a call of it adds nothing (Rule 12.4). */
+const refusedMember = (name: string, member: string, scope: LoweringScope): boolean =>
+  [name, ...scope.ancestorsOf(name)].some((c) =>
+    scope.declarationRefused(methodFnName(c, emittedMemberName(member))),
+  );
+
 function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
@@ -1016,11 +1023,15 @@ function accessorSignature(
 
 /** The functions every class in `structs` contributes, with their signatures parsed and
  *  their bodies still empty: a method (`self` first), a static function, and a constructor for
- *  a class that declares one, has a field initializer, or is constructed with `new`. */
+ *  a class that declares one, has a field initializer, or is constructed with `new`. One that
+ *  was refused where it is written, having said why (an async method or a generator, a
+ *  signature that names a type refused at its declaration), goes into `refused` under the name
+ *  it would have been emitted as, so a call of it adds nothing (Rule 12.4). */
 export function collectClassFunctions(
   structs: readonly CollectedStruct[],
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  refused?: Set<string>,
 ): ClassFunction[] {
   const out: ClassFunction[] = [];
   const byName = new Map(structs.map((s) => [s.decl.name, s]));
@@ -1060,11 +1071,13 @@ export function collectClassFunctions(
       const effective = effectiveOf.get(name)!;
       const bodies = bodiesOf(struct);
       const mutating = mutatingOf.get(name)!;
-      // The function names a member of the chain lost to another, already reported where the
-      // two were declared (structs.ts); a call that misses because of it adds nothing.
+      // The function names a member of the chain lost to another, or a field holding a
+      // function that was refused, each already reported where it was declared (structs.ts);
+      // a call that misses because of it adds nothing.
       const lost = new Set(
         [struct, ...ancestorsOf(name, byName)].flatMap((s) => [...(s.withheldFunctions ?? [])]),
       );
+      for (const suffix of lost) refused?.add(methodFnName(name, suffix));
       // A collision down the chain is reported once, at the member, however many classes below
       // it inherit the pair.
       for (const c of effective.collisions) {
@@ -1100,16 +1113,12 @@ export function collectClassFunctions(
               `function.`,
           );
         }
+        // An async method or a generator was refused where it is written (semantic.ts), once.
         if (
           (ts.isMethodDeclaration(method) && method.asteriskToken) ||
           method.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
         ) {
-          pushDiag(
-            diagnostics,
-            sourceFile,
-            method,
-            `"${shown}" is a plain method or nothing: no async, no generator.`,
-          );
+          refused?.add(body.fnName);
           continue;
         }
         // An `abstract` member written with a body was refused where the class that declares it
@@ -1118,6 +1127,7 @@ export function collectClassFunctions(
         // functions its calls hand it (Rule 8.18); an accessor's value is refused where it is
         // parsed.
         const fnAt = half === undefined ? functionParams(method) : new Set<number>();
+        const parsed = diagnostics.length;
         const signature =
           half === undefined
             ? methodSignature(
@@ -1139,7 +1149,11 @@ export function collectClassFunctions(
                 diagnostics,
                 structs,
               );
-        if (!signature) continue;
+        if (!signature) {
+          // A type the signature names was refused where it is declared, and said why there.
+          if (diagnostics.length === parsed) refused?.add(body.fnName);
+          continue;
+        }
         const { params } = signature;
         // A method whose every `return` is `return this` hands back the object it runs on. Its
         // return type names the class that wrote it, and lowered for a class that inherits it
@@ -1249,6 +1263,7 @@ export function collectClassFunctions(
       // A constructor that takes a function is copied for each set of functions `new` hands it
       // (Rule 8.18), as a method is.
       const ctorFnAt = ctor ? functionParams(ctor) : new Set<number>();
+      const parsed = diagnostics.length;
       const params = ctor
         ? parseParams(
             ctor.parameters.filter((_, i) => !ctorFnAt.has(i)),
@@ -1259,7 +1274,11 @@ export function collectClassFunctions(
             { owner: shown, forbidSelf: true },
           )
         : [];
-      if (!params) continue;
+      if (!params) {
+        // The same, for a parameter whose type was refused where it is declared.
+        if (diagnostics.length === parsed) refused?.add(ctorFnName(name));
+        continue;
+      }
       const stub: FuncDecl = { name: ctorFnName(name), params, ret: selfT, body: [] };
       if (ctor && ctorFnAt.size === 0) recordParamDefaults(stub, ctor.parameters);
       // The parameter properties of the constructor this class runs, which may be a base's: the
@@ -1604,8 +1623,8 @@ export function lowerNew(
   if (decl === undefined || cf?.kind !== 'ctor') {
     // An abstract class has no constructor function of its own (T5, #92) and the semantic pass
     // already said why a `new` on one is refused; repeating it here in weaker words sends the
-    // author to the second message.
-    if (!scope.isAbstractStruct(name)) {
+    // author to the second message. A constructor refused where it is written said why too.
+    if (!scope.isAbstractStruct(name) && !scope.declarationRefused(ctorFnName(name))) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -1823,6 +1842,8 @@ export function lowerClassCall(
         if (scope.isGenericFunction(qualified)) {
           return lowerGenericCall(node, qualified, shown, sourceFile, scope, diagnostics);
         }
+        // One the namespace declares and whose declaration was refused, having said why.
+        if (scope.declarationRefused(qualified)) return undefined;
         // On the member, as TypeScript's TS2339 is, with the function it is spelled like.
         pushDiag(
           diagnostics,
@@ -1835,8 +1856,10 @@ export function lowerClassCall(
         return undefined;
       }
       // A static that lost its emitted name to another member was reported where the two are
-      // declared (structs.ts); a call of it adds nothing (Rule 12.4).
+      // declared (structs.ts), and one whose signature was refused where it is written; a call
+      // of either adds nothing (Rule 12.4).
       if (scope.isWithheld(name, emittedMemberName(member))) return undefined;
+      if (refusedMember(name, member, scope)) return undefined;
       pushDiag(
         diagnostics,
         sourceFile,
@@ -1903,6 +1926,7 @@ export function lowerClassCall(
     }
     const taken = scope.resolveCallee(methodFnName(name, emittedMemberName(member)));
     if (taken !== undefined && isCollidedFunction(taken)) return undefined;
+    if (refusedMember(name, member, scope)) return undefined;
     const accessor =
       memberFunctionOf(name, member, 'get', scope) ?? memberFunctionOf(name, member, 'set', scope);
     const field = visibleField(name, member, callee.name, scope) !== undefined;

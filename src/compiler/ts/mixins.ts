@@ -129,6 +129,38 @@ export function isMixinHeritage(expression: ts.Expression, sourceFile: ts.Source
   return ts.isIdentifier(expression) && constBoundCall(expression, sourceFile) !== undefined;
 }
 
+/** The first class this file declares that applies the mixin whose body returns `cls`, by its
+ *  written name: `TD` for `class TD extends Tinted(Disc)`. A mixin's class has no name of its
+ *  own, and its members are the applying class's, which is where the author calls them. */
+export function mixinAppliedBy(
+  cls: ts.ClassLikeDeclaration,
+  sourceFile: ts.SourceFile,
+): string | undefined {
+  const fn = ts.findAncestor(cls, ts.isFunctionDeclaration);
+  if (fn?.name === undefined || returnedClass(fn) !== cls) return undefined;
+  const mixin = fn.name.text;
+  const seen = new Set<ts.Node>();
+  const applies = (e: ts.Expression): boolean => {
+    if (seen.has(e)) return false;
+    seen.add(e);
+    if (ts.isIdentifier(e)) {
+      const bound = constBoundCall(e, sourceFile);
+      return bound !== undefined && applies(bound);
+    }
+    if (!ts.isCallExpression(e)) return false;
+    return (
+      (ts.isIdentifier(e.expression) && e.expression.text === mixin) || e.arguments.some(applies)
+    );
+  };
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isClassDeclaration(stmt) || stmt.name === undefined) continue;
+    const base = stmt.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)
+      ?.types[0]?.expression;
+    if (base !== undefined && applies(base)) return stmt.name.text;
+  }
+  return undefined;
+}
+
 /** Run the mixins in one `extends` clause and return what is left: the declared bases, and the
  *  class expressions whose members the applying class carries. Reports and returns undefined
  *  for a shape this cannot run, naming what a mixin looks like here. */

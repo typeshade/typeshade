@@ -47,7 +47,9 @@ export function collectOverrides(
   const seen = new Set<string>();
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
-    const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
+    // A top-level `var` is semantic.ts's refusal (TS8014), and one that declares an override is
+    // read as the `const` an override is, so it says nothing more (Rule 12.4).
+    const isConst = (stmt.declarationList.flags & ts.NodeFlags.Let) === 0;
     for (const decl of stmt.declarationList.declarations) {
       if (!ts.isIdentifier(decl.name) || !isOverrideType(decl.type)) continue;
       const one = lowerOne(decl, isConst, sourceFile, diagnostics);

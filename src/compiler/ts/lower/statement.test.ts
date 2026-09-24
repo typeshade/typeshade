@@ -161,9 +161,12 @@ describe('Phase 4 - statement lowering', () => {
     }
   });
 
-  it('rejects JS var keyword', () => {
-    const { diagnostics } = lower('var x = 1;');
-    expect(diagnostics[0]!.message).toMatch(/const.*let/);
+  it('lowers a var as the let it would have been, which semantic.ts refuses', () => {
+    // The refusal is semantic.ts's one sentence (TS8013); the lowering keeps the name bound so
+    // that no use of it says more (Rule 12.4). honest-refusals.test.ts pins the compile.
+    const { stmts, diagnostics } = lower('var x: f32 = 1.;\nx += 2.;');
+    expect(diagnostics).toEqual([]);
+    expect(stmts.map((s) => s.s)).toEqual(['var', 'assignOp']);
   });
 
   it('rejects type mismatch on annotation', () => {
@@ -232,10 +235,5 @@ describe('Phase 4 - statement lowering', () => {
     const { stmts, diagnostics } = lower('return;');
     expect(diagnostics).toEqual([]);
     expect(stripSpans(stmts[0])).toEqual({ s: 'return' });
-  });
-
-  it('rejects JS var keyword message mentions const/let', () => {
-    const { diagnostics } = lower('var z = 1;');
-    expect(diagnostics[0]!.message).toMatch(/const|let/);
   });
 });

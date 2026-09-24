@@ -8,6 +8,7 @@ import { f32T, boolT, i32T, u32T, isF64, isVec64, typeKey } from '../../../core/
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { irNameOf, type LoweringScope } from '../context.js';
 import { LANG_CONST, resolveLangConst } from '../math-alias.js';
+import { refusedBySemantics } from '../semantic.js';
 import { constShiftAmountOutOfRange, foldConstComponents, foldConstNumber } from '../loop-bound.js';
 import {
   broadcastResultType,
@@ -16,9 +17,9 @@ import {
   retargetLit,
 } from '../numeric.js';
 import { foldNumericLit, retargetIntLitCtx, shiftAmountMessage } from '../lit-coerce.js';
-import { mapTsTypeToShaderType } from '../type-map.js';
+import { mapTsTypeToShaderType, writesRefusedType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
-import { lowerArrayLiteral } from './expression-array.js';
+import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
 import { refuseBareAtomic } from './atomics.js';
 import { builtinCalleeNames, lowerCall } from './expression-call.js';
 import { declarationOf } from './closures.js';
@@ -95,6 +96,9 @@ function lowerTypeClaim(
     ts.isIdentifier(typeNode.typeName) &&
     typeNode.typeName.text === 'const';
   const claimed = isConst ? undefined : mapTsTypeToShaderType(typeNode, sourceFile, /* quiet */ []);
+  // A claim of a generic interface or alias, `{ x: a } as G<f32>`, names a declaration refused
+  // where it is written, which said why; the operand, built for it, adds nothing (Rule 12.4).
+  if (claimed === undefined && writesRefusedType(typeNode, sourceFile)) return undefined;
   const lowered = lowerExpression(operand, sourceFile, scope, diagnostics, claimed ?? contextual);
   if (!lowered || claimed === undefined) return lowered;
   if (typeKey(lowered.type) !== typeKey(claimed)) {
@@ -228,6 +232,9 @@ function lowerExpressionNode(
     if (contextual?.kind === 'array') {
       return lowerArrayLiteral(node, contextual, sourceFile, scope, diagnostics);
     }
+    // A spread is the list's one sentence, and counting `[...a, 1.]` as two elements would name
+    // an arity the author never wrote (Rule 12.4).
+    if (refuseListSpread(node, sourceFile, scope, diagnostics)) return undefined;
     // With no type declared anywhere there is nothing to fill, so say which spelling does work
     // rather than repeating the generic "Unsupported expression".
     pushDiag(
@@ -254,6 +261,9 @@ function lowerExpressionNode(
     );
     return undefined;
   }
+  // `await x`, `yield`, a template string and a spread argument are semantic.ts's refusals
+  // (TS8013), each with its reason, and one mistake reads as one diagnostic (Rule 12.4).
+  if (refusedBySemantics(node)) return undefined;
   if (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)) {
     pushDiag(
       diagnostics,
