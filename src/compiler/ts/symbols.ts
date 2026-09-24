@@ -128,3 +128,74 @@ export function inferredReturnAt(
 ): ShaderType | undefined {
   return inferredReturns.get(sourceFile)?.get(offset) ?? undefined;
 }
+
+// ─── the type the front end gave each expression it lowered (0015) ──────────────────────────
+//
+// `symbols` answers "what type is this NAME"; this table answers "what type is this
+// EXPRESSION", for every expression `lowerExpression` returned a value for. The language
+// service's TypeScript checker gives the same expressions a type of its own, from the ambient
+// library, and Rule 12.7 says the two agree. The table is what lets a test hold them to it
+// (`expression-parity.test.ts`) rather than to a hand-picked hover.
+//
+// Keyed by the source file, like the inferred returns above, so recording needs nothing but the
+// node: every lowering reaches `lowerExpression` with its source file, and no scope has to carry
+// a sink. `compileTsSource` opens the table before lowering and closes it into its result; a
+// lowering outside one (a unit test that calls `lowerExpression` directly) records nothing.
+
+/**
+ * One expression the front end lowered, with the type it gave it.
+ *
+ * `start`/`length` are the UTF-16 span of the expression, `node.getStart(sf)` and
+ * `node.getEnd() - node.getStart(sf)`, the convention `DeclaredSymbol` uses. A span the front end
+ * lowered to two different types (a generic function's body, once per instance, or a literal
+ * read once without its context and once with it) has no one type and is left out.
+ *
+ * The spans are offsets into ONE file: `CompileTsSourceResult.expressions` belongs to that
+ * result's `sourceFile`, never to an imported document.
+ */
+export interface LoweredExpression {
+  /** UTF-16 offset where the expression begins, leading trivia excluded. */
+  readonly start: number;
+  /** Length of the expression, in UTF-16 code units. */
+  readonly length: number;
+  /** The type the front end gave the expression. */
+  readonly type: ShaderType;
+}
+
+/** Per source file being compiled: each lowered span, `start:length`, and its type, or `null`
+ *  for a span lowered to two types. */
+const loweredExpressions = new WeakMap<ts.SourceFile, Map<string, ShaderType | null>>();
+
+/** Start recording the expressions lowered in `sourceFile`, dropping any earlier table. */
+export function openExpressionTable(sourceFile: ts.SourceFile): void {
+  loweredExpressions.set(sourceFile, new Map());
+}
+
+/** Record that `node` was lowered to `type`. A no-op when no table is open for its file. */
+export function recordLoweredExpression(
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  type: ShaderType,
+): void {
+  const table = loweredExpressions.get(sourceFile);
+  if (table === undefined) return;
+  const start = node.getStart(sourceFile);
+  const key = `${start}:${node.getEnd() - start}`;
+  const seen = table.get(key);
+  if (seen === undefined) table.set(key, type);
+  else if (seen !== null && JSON.stringify(seen) !== JSON.stringify(type)) table.set(key, null);
+}
+
+/** Stop recording for `sourceFile` and return what was recorded, in source order. */
+export function closeExpressionTable(sourceFile: ts.SourceFile): LoweredExpression[] {
+  const table = loweredExpressions.get(sourceFile);
+  loweredExpressions.delete(sourceFile);
+  if (table === undefined) return [];
+  const out: LoweredExpression[] = [];
+  for (const [key, type] of table) {
+    if (type === null) continue;
+    const [start, length] = key.split(':').map(Number) as [number, number];
+    out.push({ start, length, type });
+  }
+  return out.sort((a, b) => a.start - b.start || b.length - a.length);
+}

@@ -5228,6 +5228,27 @@ rule. Accepting it means synthesising an anonymous struct: a name, a place in th
 structs, a layout. That is a compiler feature and not an editor-parity fix, and it is pinned
 here as it stands so both layers move together the day it lands.
 
+### The type the editor gives an expression
+
+Agreeing on which programs are valid is half of this section. The other half is the TYPE each
+expression has. The front end gives every expression it lowers a type, and the editor's checker
+gives the same expression a type of its own from the ambient library. Because the scalar brands
+are optional, a declaration that says `number` where the compiler means `u32` draws no error in
+either layer. It shows only in what an author reads: a hover, a completion list, signature help.
+`src.length` on a runtime-sized storage array was one: the compiler reads it as `arrayLength(&src)`,
+a `u32` (§20), and the editor said `number` until #271.
+
+The front end now records the type of every expression it lowers
+(`CompileTsSourceResult.expressions`). `src/language-service/expression-parity.test.ts` compares
+that type with the checker's on every program under `examples/` and `journeys/`. What it
+reports is the first divergence: a property access, an element access or a call whose receiver
+and arguments agree, but whose own type does not. The divergences still open are listed in the
+test's own table, which is the one list of them, by what each reads and the two types. The table
+is shrink-only: a divergence it does not list fails, and so does a row that no longer occurs.
+Proposal 0015 names the three classes the table holds today: a builtin's result (`dot`, `length`,
+`smoothstep`, `max` on a `u32`, …), an unannotated scalar a document declares, and a constructor
+or method that loses a type argument (`array(...)`, `.map`).
+
 ## 50. `enable`, `requires`, and the built-in values behind an extension
 
 WGSL turns a language extension on with a module-scope `enable f16;` and names a *language*
