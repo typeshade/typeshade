@@ -563,8 +563,10 @@ describe('a class named while the structs are collected, and a sentence about a 
     };
     const slot = (members: string): string =>
       `class Slot<T> { v: T; ${members} constructor(v: T) { this.v = v; } }`;
+    // A second constructor is said once where the class is written, whatever instantiates it
+    // (memberShapeSentences), so it names the class as its declaration writes it.
     expect(one(slot('constructor() {}'), 's: Slot<f32>')).toEqual([
-      'TS8035 "Slot<f32>" declares two constructors; a shader function has one body.',
+      'TS8035 "Slot" declares two constructors; a shader function has one body.',
     ]);
     expect(one(slot('x: f32 = 0.; x: f32 = 1.;'), 's: Slot<f32>')).toEqual([
       'TS8010 Field "x" is declared twice on "Slot<f32>"; a struct has one member of a name.',
@@ -596,9 +598,14 @@ describe('a class named while the structs are collected, and a sentence about a 
         'are three spellings of one struct, not declarations that merge — TypeScript would merge ' +
         'two interfaces, and the merged layout would disagree with this one at every use site.',
     ]);
-    // The base is named as it is written, and the class that extends it as it is.
+    // The base is named as it is written, and the class that extends it as it is. A base
+    // nothing declares is an unknown type (host-names.test.ts); one the file declares and does
+    // not collect as a struct, an enum here, is the collector's sentence.
     expect(
-      one('namespace N { export class Q extends Missing { y: f32 = 0.; } }', 'q: N.Q'),
+      one(
+        'enum Missing { A = 1 }\nnamespace N { export class Q extends Missing { y: f32 = 0.; } }',
+        'q: N.Q',
+      ),
     ).toEqual([
       'TS8010 "N.Q" extends "Missing", which this file does not declare as a struct. A base has ' +
         'to be a class or an interface whose fields are shader types.',
@@ -662,9 +669,11 @@ describe('a class named while the structs are collected, and a sentence about a 
         ].join('\n'),
       ),
     ).toEqual([
+      // A type name nothing declares is said before the lowering (semantic.ts), the matrix the
+      // fp64 pass has no form for while the bindings are lowered.
+      'TS8002 Unknown type "vec2h". Did you mean "vec2"?',
       'TS8027 mat2x3<f64> has no emulated-double form: the fp64 pass carries a square matrix of ' +
         'doubles only (mat2, mat3, mat4). Declare it mat2x3 and narrow, or use a square shape.',
-      'TS8002 Unknown type "vec2h". Did you mean "vec2"?',
     ]);
   });
 
