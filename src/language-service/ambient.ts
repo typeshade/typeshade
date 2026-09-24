@@ -736,13 +736,15 @@ type Numeric = number | vec2 | vec3 | vec4 | vec2i | vec3i | vec4i | vec2u | vec
  * The source spelling is the standard \`console.*\` API; the compiler currently lowers the
  * logging-level methods below. Other Console methods remain visible to TypeScript only when
  * they are added here deliberately, so editor completion never advertises an unsupported
- * shader operation. */
+ * shader operation. Each takes what the standard one does: a value of any type, or a string
+ * literal, which is a label the host keeps (surface §66). What the compiler refuses among
+ * them (a template with a value in it, a string that is not a literal) it says itself. */
 interface Console {
-  log(...data: (Numeric | boolean)[]): void
-  info(...data: (Numeric | boolean)[]): void
-  debug(...data: (Numeric | boolean)[]): void
-  warn(...data: (Numeric | boolean)[]): void
-  error(...data: (Numeric | boolean)[]): void
+  log(...data: any[]): void
+  info(...data: any[]): void
+  debug(...data: any[]): void
+  warn(...data: any[]): void
+  error(...data: any[]): void
 }
 /** The standard console. Its logging methods are the ones declared on Console above; a
  * call to one is delivered to the host's console sink when the program runs on the CPU. */
@@ -814,7 +816,13 @@ declare const arrayTag: unique symbol
 type ArrayOps = 'map' | 'forEach' | 'some' | 'every' | 'reduce'
 // Iterable, so \`for (const x of xs)\` type-checks (Rule 7.5): the compiler lowers it to a counted
 // loop over the indices. The iterator's shape is written inline so it adds no global name.
-type array<T, N extends number = number> = Pick<Array<T>, ArrayOps> & { readonly [arrayTag]?: readonly [T, N]; readonly length: N } & {
+//
+// \`length\` is the size \`N\` when the array has one, and a \`u32\` when it has none. \`N\` is
+// two things here, the size the tag compares and the type \`length\` reads, and a runtime-sized
+// array fills it with its default \`number\`: \`src.length\` hovered as \`number\` while the
+// compiler reads it as \`arrayLength(&src)\`, a \`u32\` (#46), the type \`arrayLength\` below
+// already declares. \`number extends N\` is true only for that default, never for a literal size.
+type array<T, N extends number = number> = Pick<Array<T>, ArrayOps> & { readonly [arrayTag]?: readonly [T, N]; readonly length: number extends N ? u32 : N } & {
   [index: number]: T
   [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
 }

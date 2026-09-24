@@ -471,6 +471,13 @@ A `const` nothing writes into stays WGSL's `let`.
 - Derives from: ECMAScript [`let` and `const` declarations](https://tc39.es/ecma262/#sec-let-and-const-declarations) (a `const` binding cannot be assigned again, and what it holds is not frozen); [Value Declarations](https://gpuweb.github.io/gpuweb/wgsl/#value-decls) and [`var` Declarations](https://gpuweb.github.io/gpuweb/wgsl/#var-decls); Rule 8.10; surface §26.
 - Enforced by: `TS8005 CONST_ASSIGN` for a write through a `const` that may hold a shared value (`"v" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to write a copy, or write through the value itself.`), `TS8035 CLASS_MEMBER` for a method that writes its object called on one; pinned by `src/compiler/ts/member-assign.test.ts`, `src/compiler/ts/class-methods.test.ts` and `src/compiler/ts/class-syntax.test.ts`, which also holds the three CPU paths to one value for a write through a `const` that built its value; `examples/class-parts.shade.ts` in the compile gate.
 
+**Rule 6.11.** The compiler adds one binding an author did not write for a `console` call, and only when a compile asks for GPU recording (`compile(src, { console: 'gpu' })`): `_console`, a `read_write` storage buffer of `struct _Console { cursor: atomic<u32>, dropped: atomic<u32>, words: array<u32> }`, at group 0, the first binding past the module's own group-0 bindings, the slot the `_fp64` guard takes by the same rule (the guard, when there is one, comes one past it).
+`reflect(m, { console: 'gpu' })` must report it, as it reports `_fp64`, and `CompileResult.console` must say where it is.
+
+- Rationale: a binding the author did not declare is one the host must still bind, so it has to be where the host already looks for the compiler's own binding, and absent from every compile that did not ask for it, so that no host meets a layout it did not expect.
+- Derives from: `changes/0014-gpu-console.md` ("the slot"); the `_fp64` guard's placement in `src/core/passes/fp64-lower.ts`; surface §66.
+- Enforced by: `src/core/passes/console-buffer.test.ts` (`binds the buffer at group 0 past the module bindings, and reflect reports it when asked`; `adds nothing and moves no byte under the default option`).
+
 ## 7. Expressions and statements
 
 ### 7.1. Definition
@@ -561,10 +568,12 @@ The check closes over the call graph, and `discard()` is not a call the surface 
 - Enforced by: `src/compiler/ts/builtins.test.ts` (`discard`: lowers to the discard statement, emits it on both targets); `TS8099` names the entry, or the helper and the entry, on the wrong stage; `discard()` is `TS8004`, which says that `discard` is a statement and is written without the parentheses (`src/compiler/ts/unknown-names.test.ts`).
 
 **Rule 7.8.** The refusals of surface §28 (a union of two GPU types, a string type, a nullable, a mixed tuple, a rest tuple, `symbol`, an intersection of carriers, `instanceof`, `in`) must apply to expressions as they do to types, each in one sentence.
+The one string an expression may be is a string literal written as an argument of a `console` call: it is a label, which the host keeps and the event carries in its place, and it never reaches a target (surface §66).
+A template with a value in it is refused there with the arguments to write instead.
 
-- Rationale: see Rule 4.5.
-- Derives from: surface §28.
-- Enforced by: `src/compiler/ts/honest-refusals.test.ts`.
+- Rationale: see Rule 4.5; a label is text a human reads, which belongs on the host, and a console call is the one place the host receives it.
+- Derives from: surface §28 and §66; `changes/0014-gpu-console.md`.
+- Enforced by: `src/compiler/ts/honest-refusals.test.ts`; `src/compiler/ts/console.test.ts`, for the label and the template, in the compiler and in the language service.
 
 **Rule 7.9.** An expression must be evaluated left to right, as TypeScript and WGSL both evaluate it, and a call that writes (its object, a module variable, a storage binding, an atomic location) inside a larger expression must take effect in that order on every target.
 The compiler binds each such call to a temporary ahead of its statement, in source order, and binds ahead of the call an operand evaluated before it that reads what it writes; a call TypeScript evaluates conditionally, in an arm of `?:` or the right operand of `&&` or `||`, keeps its condition as an `if`.
@@ -1064,6 +1073,15 @@ An _emit golden_ is a recorded emitted module under `examples/__emit-goldens__/`
 - Derives from: change `0009` in `changes/` ("The CPU tier's precision"); `src/core/oracle.ts` (the `'f32'` mode, "a correctly-rounding f32 machine over the same IR"); Rule 11.1.
 - Enforced by: `hostFace` in `src/compiler/ts/host-face.ts`, which generates at `precision: 'f32'`, and `src/core/host-runtime.ts`, what a generated module imports; pinned by `src/compiler/ts/host-face.test.ts`, where every call equals `compileModule(m, { precision: 'f32' })` on inputs chosen so the `f32` and `f64` answers part, and the generated module holds no `new Function`.
 
+**Rule 11.9.** A `console` call computes nothing a shader reads: its arguments must be evaluated once, in order, on every target, and the call then delivers an event, `{ method, args, span, invocation }`.
+On the CPU (the oracle, the generated CPU code, the lockstep dispatch) the event goes to the host's sink.
+On WGSL under `console: 'gpu'`, a call a compute or fragment entry reaches must be written into the console buffer (Rule 6.11), and `decodeConsole` must turn the buffer into the same events in the order the CPU runs a dispatch in: by invocation, `z`, then `y`, then `x`, and in program order within one.
+A call the WGSL cannot record (one a vertex entry reaches, one with an argument that has no fixed size or is not a value, one in a stage that already binds eight storage buffers) must be a `TS8071` warning on the call; GLSL ES 3.00 records nothing, with no diagnostic (Rule 10.5).
+
+- Rationale: the GPU is an optimization level of the CPU program (`docs/dx.md`), so what a program logs must not depend on where it ran; the order a GPU wrote in is the scheduler's and means nothing, so the decoder restores the CPU's.
+- Derives from: `changes/0014-gpu-console.md`, measured on Tint and SwiftShader in Chromium 141 (a vertex stage that reaches the buffer: `var with 'storage' address space and 'read_write' access mode cannot be used by vertex pipeline stage`); a fragment's helper invocations and a discarded one write nothing, measured on the same browser; surface §66.
+- Enforced by: `src/core/passes/console-buffer.test.ts`, which runs the lowered module on the oracle and holds the decoded events equal to the sink's, overflow included, and pins each `TS8071` reason; `src/compiler/ts/console.test.ts`, for the CPU delivery.
+
 ## 12. Diagnostics
 
 ### 12.1. Definition
@@ -1117,7 +1135,7 @@ For a name the compiler cannot find (a value, a callee, a type, a field, a membe
 
 - Rationale: an editor that accepts what the compiler refuses, or the reverse, is a second surface.
 - Derives from: the head of `src/language-service/ambient.ts`; #157 for the remaining gaps.
-- Enforced by: `src/language-service/ambient.test.ts` (among it `accepts an unsigned coordinate on textureLoad and textureStore`, the `vec2u` coordinate WGSL and the compiler take, and every example with no diagnostic) and `surface-names.test.ts`; `src/language-service/editor-parity.test.ts`, over every swizzle of every vector type and the vector index; `src/language-service/diagnostics.test.ts` (`an operation other than arithmetic loses a vector type the same way`) and `src/language-service/projection.test.ts`, over every operator TypeScript types as a `number` or a `boolean` (the `ERASING_OPERATORS` table the projection and the diagnostics filters share), used in place and through a local; `src/compiler/ts/doc-snippets.test.ts`, which checks each documentation snippet in the editor as well as in the compiler.
+- Enforced by: `src/language-service/ambient.test.ts` (among it `accepts an unsigned coordinate on textureLoad and textureStore`, the `vec2u` coordinate WGSL and the compiler take, and every example with no diagnostic) and `surface-names.test.ts`; `src/language-service/editor-parity.test.ts`, over every swizzle of every vector type and the vector index; `src/language-service/diagnostics.test.ts` (`an operation other than arithmetic loses a vector type the same way`) and `src/language-service/projection.test.ts`, over every operator TypeScript types as a `number` or a `boolean` (the `ERASING_OPERATORS` table the projection and the diagnostics filters share), used in place and through a local; `src/compiler/ts/doc-snippets.test.ts`, which checks each documentation snippet in the editor as well as in the compiler; `src/language-service/expression-parity.test.ts`, which compares the type the front end gives every property access, element access and call in every program under `examples/` and `journeys/` with the type the editor's checker gives it, and fails on a first divergence its shrink-only table does not list (0015).
 
 ## 13. Change control
 

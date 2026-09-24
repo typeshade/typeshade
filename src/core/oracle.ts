@@ -74,7 +74,7 @@ import {
 } from './cpu-runtime.js';
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js';
 import { fnWrites } from './passes/effects.js';
-import type { ConsoleMethod, ConsoleSink } from './console.js';
+import { consoleArgs, type ConsoleMethod, type ConsoleSink } from './console.js';
 import { dispatchCompute, type WorkgroupCount } from './debug/dispatch.js';
 
 // Preserve the historical `typeshade` oracle surface: the value-model
@@ -242,7 +242,11 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (e.declRef === undefined && e.fn.startsWith('console.')) {
         const method = e.fn.slice('console.'.length);
         if (ctx.consoleSink)
-          ctx.consoleSink({ method: method as ConsoleMethod, args, span: e.span });
+          ctx.consoleSink({
+            method: method as ConsoleMethod,
+            args: consoleArgs(args, e.labels),
+            span: e.span,
+          });
         return undefined as unknown as CpuValue;
       }
       // f32→u32/i32 SATURATES per WGSL (integer sources keep wrapping — see

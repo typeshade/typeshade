@@ -9,7 +9,7 @@
 // not the generator (Rule 11.7).
 
 import type { CmpOp } from './ir/nodes.js';
-import type { ConsoleMethod, ConsoleSink } from './console.js';
+import { consoleArgs, type ConsoleMethod, type ConsoleSink } from './console.js';
 import type { SourceSpan } from './ir/span.js';
 import {
   type CpuValue,
@@ -67,7 +67,12 @@ export interface CodegenRuntime {
   bit: (fn: string, kind: 'u32' | 'i32', args: CpuValue[]) => CpuValue;
   selVec: (cond: readonly CpuValue[], ifTrue: CpuValue, ifFalse: CpuValue) => CpuValue;
   gpuStub: (name: string, ...args: CpuValue[]) => CpuValue;
-  console: (method: string, args: CpuValue[], span?: unknown) => void;
+  console: (
+    method: string,
+    args: CpuValue[],
+    span?: unknown,
+    labels?: readonly (string | number)[],
+  ) => void;
   /** One atomic builtin on `base[key]` (roadmap 0.2 item 4): read, `atomicStep`, write back. */
   atomicAt: (
     fn: string,
@@ -161,10 +166,10 @@ export function createCodegenRuntime(opts?: CodegenRuntimeOptions): CodegenRunti
         );
       return GPU_STUBS[name]!(...args);
     },
-    console: (method, args, span) => {
+    console: (method, args, span, labels) => {
       opts?.consoleSink?.({
         method: method as ConsoleMethod,
-        args,
+        args: consoleArgs(args, labels),
         span: typeof span === 'string' ? JSON.parse(span) : (span as SourceSpan | undefined),
       });
     },

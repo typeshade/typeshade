@@ -1,11 +1,14 @@
 import type { ModuleDecl } from '../../core/ir/nodes.js';
+import type { SourceSpan } from '../../core/ir/span.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { emitGlslStages } from '../../core/backends/glsl.js';
 import { determinismReport, type DeterminismEntry } from '../../core/passes/determinism.js';
 import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js';
 import { backendDiagnostic } from './diagnostic.js';
 import { evalEntry } from './eval-entry.js';
-import type { ConsoleSink } from '../../core/console.js';
+import type { ConsoleLog, ConsoleSink } from '../../core/console.js';
+import { consoleBuffer } from '../../core/passes/console-buffer.js';
+import { TS_CODES } from './codes.js';
 import { emittedStructDecls } from './structs.js';
 
 /**
@@ -69,6 +72,13 @@ export interface CompileResult {
    * It also throws for a function name the module does not have.
    */
   readonly eval: (name: string, args?: readonly unknown[]) => unknown;
+  /**
+   * Where the WGSL records its `console` calls and what each entry of the buffer means, under
+   * `console: 'gpu'`: the slot of the `_console` storage buffer and the site table
+   * {@link decodeConsole} reads. `undefined` when the option is `'cpu'`, when the module did not
+   * compile, or when no call is recorded. Surface §66.
+   */
+  readonly console?: ConsoleLog;
 }
 
 /**
@@ -108,6 +118,17 @@ export interface CompileOptions {
    * will move, one release ahead of it.
    */
   readonly deprecations?: boolean;
+  /**
+   * Where a `console` call is recorded. `'cpu'`, the default, is what `compile()` always did: the
+   * CPU run delivers each call to {@link CompileOptions.consoleSink}, and the WGSL and GLSL
+   * record nothing, so no emitted byte depends on a console call. `'gpu'` makes the WGSL also
+   * record each call a compute or fragment entry reaches, in a `_console` storage buffer the
+   * compiler binds at group 0 past the module's own bindings; {@link CompileResult.console}
+   * says where, and {@link decodeConsole} turns the buffer the host copies back into the same
+   * events. A call the WGSL cannot record is a `TS8071` warning. GLSL ES 3.00 records nothing
+   * either way. Surface §66, Rule 11.9.
+   */
+  readonly console?: 'cpu' | 'gpu';
 }
 
 /**
@@ -151,9 +172,18 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
 
   let wgsl: string | undefined;
   let glsl: CompileResult['glsl'];
+  let consoleLog: ConsoleLog | undefined;
   if (!firstError()) {
     try {
-      wgsl = r.wgsl ?? emitModule(module);
+      if (options.console === 'gpu') {
+        const recorded = consoleBuffer(module);
+        consoleLog = recorded.log;
+        for (const n of recorded.notRecorded)
+          diagnostics.push(notRecordedDiagnostic(n, r.sourceFile.fileName));
+        wgsl = emitModule(recorded.module);
+      } else {
+        wgsl = r.wgsl ?? emitModule(module);
+      }
     } catch (e) {
       diagnostics.push(backendDiagnostic(r.sourceFile, e));
     }
@@ -178,6 +208,7 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
     wgsl,
     glsl,
     determinism: determinismReport(module),
+    ...(wgsl !== undefined && consoleLog !== undefined ? { console: consoleLog } : {}),
     eval: (name, args = []) => {
       const err = firstError();
       if (err) {
@@ -189,5 +220,27 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
       }
       return evalEntry(module, name, args, options.consoleSink);
     },
+  };
+}
+
+/** The `TS8071` warning for a console call the WGSL does not record. */
+function notRecordedDiagnostic(
+  n: { readonly span?: SourceSpan; readonly method: string; readonly reason: string },
+  fileName: string,
+): TsCompilerDiagnostic {
+  const at = n.span;
+  return {
+    message:
+      `This console.${n.method}() is not recorded on the GPU, because ${n.reason}. ` +
+      `It still reaches the sink when the function runs on the CPU.`,
+    fileName: at?.file ?? fileName,
+    line: (at?.line ?? 0) + 1,
+    character: (at?.character ?? 0) + 1,
+    endLine: (at?.endLine ?? 0) + 1,
+    endCharacter: (at?.endCharacter ?? 0) + 1,
+    category: 'warning',
+    code: TS_CODES.CONSOLE_NOT_RECORDED,
+    start: at?.start ?? 0,
+    length: at?.length ?? 0,
   };
 }

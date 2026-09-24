@@ -48,6 +48,7 @@ import type {
   StructDecl,
   BindingDecl,
   ConstDecl,
+  ModuleVarDecl,
   BinOp,
   CmpOp,
 } from '../ir/nodes.js';
@@ -1606,6 +1607,20 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
     return { ...b, type: mapType(b.type) };
   });
 
+  // A module variable (§24) is rewritten as a binding is, with its initializer. The front end
+  // folds an f64 initializer to literals (`1.5 * 2.` is the literal 3), so it lowers to pair
+  // literals and stays the constant expression a module-scope initializer must be on both
+  // targets. Left out, an `f64` variable reached the writers as `f64` (SD0040).
+  const vars: ModuleVarDecl[] | undefined = m.vars?.map((v) => {
+    if (!containsF64(v.type)) return v;
+    recordWidths(v.type);
+    return {
+      ...v,
+      type: mapType(v.type),
+      ...(v.init !== undefined ? { init: lowerExpr(v.init, ctx) } : {}),
+    };
+  });
+
   const funcs: FuncDecl[] = m.funcs.map((f) => {
     const stage = stageOf(f);
     const params = f.params.map((p) => {
@@ -1693,6 +1708,7 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
     consts: guardedConsts,
     structs,
     bindings,
+    ...(vars !== undefined ? { vars } : {}),
     funcs: [...threaded, ...helpers],
   };
 }

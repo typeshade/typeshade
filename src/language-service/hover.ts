@@ -140,7 +140,7 @@ function declaredSymbolAt(
  * what TypeScript said: a data class is one, since `class Vertex` already names it and the
  * compiler's `struct:Vertex` would only be noise.
  */
-function declarationLine(symbol: DeclaredSymbol): string | undefined {
+function declarationLine(symbol: DeclaredSymbol, moduleVar: boolean): string | undefined {
   const type = spellShaderType(symbol.type);
   switch (symbol.kind) {
     case 'local':
@@ -154,8 +154,11 @@ function declarationLine(symbol: DeclaredSymbol): string | undefined {
     // The keyword is always `const` because a binding is always declared `const` (design rule
     // 6.1); what used to be read out of `symbol.mutable` here is the ACCESS MODE now, and the
     // resource line below is where it belongs, beside the address space it is part of.
+    //
+    // A module variable is recorded as a binding too (module-vars.ts), since it is mutable
+    // module state with no layout, and it is declared `let` (Rule 6.5), so it says `let`.
     case 'binding':
-      return `const ${symbol.name}: ${type}`;
+      return `${moduleVar ? 'let' : 'const'} ${symbol.name}: ${type}`;
     case 'function': {
       const params = (symbol.params ?? [])
         .map((p) => `${p.name}: ${spellShaderType(p.type)}`)
@@ -240,8 +243,10 @@ export function getHover(
       analysis.bindings.some((b) => b.name === node.text));
   const defs = mayResolve ? (languageService.getDefinitionAtPosition(uri, offset) ?? []) : [];
   const declared = declaredSymbolAt(analysis, uri, defs);
+  // A module variable is recorded as a binding, and the module's variables tell the two apart.
+  const moduleVar = declared !== undefined && analysis.vars.some((v) => v.name === declared.name);
   const display =
-    (declared !== undefined ? declarationLine(declared) : undefined) ??
+    (declared !== undefined ? declarationLine(declared, moduleVar) : undefined) ??
     ts.displayPartsToString(quickInfo.displayParts);
   const documentation = ts.displayPartsToString(quickInfo.documentation);
   const resource = resourceBindingLine(analysis, sourceFile, uri, defs, node);

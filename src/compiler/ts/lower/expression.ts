@@ -28,6 +28,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
+import { recordLoweredExpression } from '../symbols.js';
 import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 
 const ARITH: Readonly<Record<number, BinOp>> = {
@@ -111,6 +112,20 @@ function lowerTypeClaim(
 }
 
 export function lowerExpression(
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  contextual?: ShaderType,
+): Expr | undefined {
+  const lowered = lowerExpressionNode(node, sourceFile, scope, diagnostics, contextual);
+  // Every expression goes through here, so this one line is the whole of the expression table
+  // an editor is held to (`symbols.ts`, 0015). A refused expression records nothing.
+  if (lowered !== undefined) recordLoweredExpression(sourceFile, node, lowered.type);
+  return lowered;
+}
+
+function lowerExpressionNode(
   node: ts.Expression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,

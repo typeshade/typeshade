@@ -21,7 +21,8 @@ import { collectBindings } from './bindings.js';
 import { collectOverrides } from './overrides.js';
 import { collectModuleVars } from './module-vars.js';
 import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js';
-import type { DeclaredSymbol } from './symbols.js';
+import type { DeclaredSymbol, LoweredExpression } from './symbols.js';
+import { closeExpressionTable, openExpressionTable } from './symbols.js';
 import { reportReservedNames } from './reserved-names.js';
 import { TS_CODES } from './codes.js';
 import {
@@ -138,6 +139,12 @@ export interface CompileTsSourceResult {
    *  the compiler types `f32`. Empty when nothing was lowered (no directive, a parse error).
    *  A side output: nothing here feeds lowering, the IR or emitted text. See `DeclaredSymbol`. */
   readonly symbols: readonly DeclaredSymbol[];
+  /** Every expression the front end lowered in `sourceFile`, with the `ShaderType` it gave it
+   *  and its UTF-16 span, in source order: the table an editor's own type for an expression is
+   *  held to (Rule 12.7, 0015). A span lowered to two types is left out, and a refused
+   *  expression records nothing. Empty when nothing was lowered. A side output, like `symbols`:
+   *  nothing here feeds lowering, the IR or emitted text. See `LoweredExpression`. */
+  readonly expressions: readonly LoweredExpression[];
   readonly wgsl?: string;
 }
 
@@ -180,6 +187,7 @@ export function compileTsSource(
     enables: [] as DeclarableCapability[],
     directives: [] as DiagnosticDirective[],
     symbols,
+    expressions: [] as LoweredExpression[],
   };
 
   if (!hasDirective) {
@@ -207,6 +215,7 @@ export function compileTsSource(
   }
 
   reportMisplacedDirective(sourceFile, directive, diagnostics);
+  openExpressionTable(sourceFile);
   analyzeSemantics(sourceFile, diagnostics);
   // Opt-in, and additive: warnings only, no emitted byte moves (§13, #148).
   if (options.deprecations === true) reportIntegerLiteralDeprecations(sourceFile, diagnostics);
@@ -362,6 +371,7 @@ export function compileTsSource(
     vars,
     enables,
     symbols,
+    expressions: closeExpressionTable(sourceFile),
     wgsl,
   };
 }
