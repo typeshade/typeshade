@@ -77,6 +77,7 @@ Most other `core/*.ts` files are the production-emit and host-integration layer:
 | `core/passes/required-caps.ts`        | `requiredCaps` / `assertCaps`: the fail-closed capability gate.                                                                                        |
 | `core/passes/match-lower.ts`          | `lowerModule`: each `matchExpr` becomes a hoisted `var` plus a `switch`, so the emit walk never sees one.                                              |
 | `core/passes/fp64-lower.ts`           | The single authority for `f64` semantics: `f64` IR to `vec2<f32>` and `df64_*` calls.                                                                  |
+| `core/passes/console-buffer.ts`       | Under `compile(src, { console: 'gpu' })`, rewrites each recorded `console` call into writes to the `_console` storage buffer (Rule 6.11, surface §66). |
 | `core/passes/opt/`                    | `autoVars`, `cse`, and the `optimize` fixpoint (const / copy propagation, folding, dead branches, LICM, DCE). `expr-utils.ts` is the shared traversal. |
 | `core/passes/compose.ts`              | `composeModule(base, swaps)`: swaps tagged `placeholder` statements. Strict by default.                                                                |
 | `core/passes/mangle.ts`, `inline*.ts` | Identifier mangling for `obfuscate`; function inlining.                                                                                                |

@@ -471,6 +471,13 @@ A `const` nothing writes into stays WGSL's `let`.
 - Derives from: ECMAScript [`let` and `const` declarations](https://tc39.es/ecma262/#sec-let-and-const-declarations) (a `const` binding cannot be assigned again, and what it holds is not frozen); [Value Declarations](https://gpuweb.github.io/gpuweb/wgsl/#value-decls) and [`var` Declarations](https://gpuweb.github.io/gpuweb/wgsl/#var-decls); Rule 8.10; surface §26.
 - Enforced by: `TS8005 CONST_ASSIGN` for a write through a `const` that may hold a shared value (`"v" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to write a copy, or write through the value itself.`), `TS8035 CLASS_MEMBER` for a method that writes its object called on one; pinned by `src/compiler/ts/member-assign.test.ts`, `src/compiler/ts/class-methods.test.ts` and `src/compiler/ts/class-syntax.test.ts`, which also holds the three CPU paths to one value for a write through a `const` that built its value; `examples/class-parts.shade.ts` in the compile gate.
 
+**Rule 6.11.** The compiler adds one binding an author did not write for a `console` call, and only when a compile asks for GPU recording (`compile(src, { console: 'gpu' })`): `_console`, a `read_write` storage buffer of `struct _Console { cursor: atomic<u32>, dropped: atomic<u32>, words: array<u32> }`, at group 0, the first binding past the module's own group-0 bindings, the slot the `_fp64` guard takes by the same rule (the guard, when there is one, comes one past it).
+`reflect(m, { console: 'gpu' })` must report it, as it reports `_fp64`, and `CompileResult.console` must say where it is.
+
+- Rationale: a binding the author did not declare is one the host must still bind, so it has to be where the host already looks for the compiler's own binding, and absent from every compile that did not ask for it, so that no host meets a layout it did not expect.
+- Derives from: `changes/0014-gpu-console.md` ("the slot"); the `_fp64` guard's placement in `src/core/passes/fp64-lower.ts`; surface §66.
+- Enforced by: `src/core/passes/console-buffer.test.ts` (`binds the buffer at group 0 past the module bindings, and reflect reports it when asked`; `adds nothing and moves no byte under the default option`).
+
 ## 7. Expressions and statements
 
 ### 7.1. Definition
@@ -1038,6 +1045,15 @@ An _emit golden_ is a recorded emitted module under `examples/__emit-goldens__/`
 - Rationale: 1.0 is a promise about that file.
 - Derives from: `docs/roadmap.md` 0.8 item 24.
 - Enforced by: `src/api-surface.test.ts`.
+
+**Rule 11.9.** A `console` call computes nothing a shader reads: its arguments must be evaluated once, in order, on every target, and the call then delivers an event, `{ method, args, span, invocation }`.
+On the CPU (the oracle, the generated CPU code, the lockstep dispatch) the event goes to the host's sink.
+On WGSL under `console: 'gpu'`, a call a compute or fragment entry reaches must be written into the console buffer (Rule 6.11), and `decodeConsole` must turn the buffer into the same events in the order the CPU runs a dispatch in: by invocation, `z`, then `y`, then `x`, and in program order within one.
+A call the WGSL cannot record (one a vertex entry reaches, one with an argument that has no fixed size or is not a value, one in a stage that already binds eight storage buffers) must be a `TS8071` warning on the call; GLSL ES 3.00 records nothing, with no diagnostic (Rule 10.5).
+
+- Rationale: the GPU is an optimization level of the CPU program (`docs/dx.md`), so what a program logs must not depend on where it ran; the order a GPU wrote in is the scheduler's and means nothing, so the decoder restores the CPU's.
+- Derives from: `changes/0014-gpu-console.md`, measured on Tint and SwiftShader in Chromium 141 (a vertex stage that reaches the buffer: `var with 'storage' address space and 'read_write' access mode cannot be used by vertex pipeline stage`); a fragment's helper invocations and a discarded one write nothing, measured on the same browser; surface §66.
+- Enforced by: `src/core/passes/console-buffer.test.ts`, which runs the lowered module on the oracle and holds the decoded events equal to the sink's, overflow included, and pins each `TS8071` reason; `src/compiler/ts/console.test.ts`, for the CPU delivery.
 
 ## 12. Diagnostics
 

@@ -6308,12 +6308,46 @@ used. Its arguments are evaluated once, in order, as any call's are, so an argum
 (a method that changes its object, a helper that bumps a module variable) writes on every
 target.
 
-**Where it is delivered.** On the CPU (the oracle, the generated CPU code), each call delivers
-its event to the sink when it runs, and to nothing when no sink is passed. The debugger steps
-through it. WGSL and GLSL ES 3.00 record nothing: the call is removed, and the writes of its
-arguments stay. The WebGPU half of `changes/0014-gpu-console.md`, which records the call in a
-buffer the host decodes into the same events, is being implemented and is written here when it
-lands.
+**Where it is delivered.** On the CPU (the oracle, the generated CPU code, `dispatch`), each call
+delivers its event to the sink when it runs, and to nothing when no sink is passed. An event from
+an entry that takes `global_invocation_id`, or from a `dispatch`, carries its `invocation`; a
+fragment entry's is the pixel, `[x, y, 0]`. The debugger steps through a call. By default WGSL
+and GLSL ES 3.00 record nothing: the call is removed, and the writes of its arguments stay, so no
+emitted byte depends on a console call.
+
+**On WebGPU, when the compile asks.** `compile(src, { console: 'gpu' })` makes the WGSL record
+each call a compute or fragment entry reaches. The compiler binds one storage buffer the author
+did not write, `_console`, at group 0 past the module's own bindings (Rule 6.11), and
+`result.console` says where, with the table of calls the decoder reads. The host does four
+things:
+
+```js
+const log = result.console;
+const buf = device.createBuffer({ size: 8 + 4 * 16384, usage: STORAGE | COPY_SRC | COPY_DST });
+// bind `buf` at @group(log.group) @binding(log.binding), with the module's other resources;
+device.queue.writeBuffer(buf, 0, new Uint32Array([0, 0])); // before each dispatch or draw
+// after it: copy `buf` into a MAP_READ buffer, map it, and
+const { events, dropped } = decodeConsole(new Uint32Array(mapped), log);
+for (const e of events) sink(e);
+```
+
+The size is the host's: a call reserves its words with one `atomicAdd`, and one that does not fit
+is dropped whole and counted in `dropped`. `decodeConsole` returns the events the CPU run
+delivers, in the order the CPU runs a dispatch in (by invocation, `z`, then `y`, then `x`, and in
+program order within one), each with its `invocation`. `reflect(m, { console: 'gpu' })` lists the
+buffer beside the module's bindings, as it lists `_fp64`. `typeshade/emit-prod` never records.
+
+**What is not recorded says so.** Under `console: 'gpu'`, `TS8071` is a warning on a call the
+WGSL cannot record, and the call still reaches the sink on the CPU:
+
+- a vertex entry reaches it: a vertex stage cannot write a storage buffer, and Tint refuses the
+  module, so a function a vertex entry reaches records nothing on any stage. Log on the fragment
+  side;
+- an argument has no fixed size or is not a value: a runtime-sized array, a texture, a sampler;
+- the stage already binds eight storage buffers, WebGPU's default limit.
+
+GLSL ES 3.00 has no storage buffer and records nothing, with no diagnostic. A discarded fragment
+writes nothing after its `discard`.
 
 **The editor** declares each method as the standard console does, taking any argument, and
 reports what the compiler refuses among them in the compiler's words.

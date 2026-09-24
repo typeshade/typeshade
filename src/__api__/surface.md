@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 464 exports
+## `.` — 467 exports
 
 ```
 abs
@@ -83,8 +83,10 @@ ComposeOptions
 condExpr
 CONSOLE_METHODS
 ConsoleEvent
+ConsoleLog
 ConsoleMethod
 ConsoleSink
+ConsoleSite
 constDecl
 ConstDecl
 constExpr
@@ -102,6 +104,7 @@ CpuValue
 cross
 cse
 DeclarableCapability
+decodeConsole
 degrees
 DERIVATIVE_INTRINSICS
 DeterminismAccuracy
@@ -895,11 +898,11 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 581 definitions
+## Shapes — 584 definitions
 
 ```
-src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string }
-src/compiler/ts/compile.ts#CompileResult  interface  { determinism: readonly DeterminismEntry[]; diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
+src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string }
+src/compiler/ts/compile.ts#CompileResult  interface  { console?: ConsoleLog; determinism: readonly DeterminismEntry[]; diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
 src/compiler/ts/compile.ts#compile  function  (source: string, options?: CompileOptions) => CompileResult
 src/compiler/ts/directive.ts#USE_TYPESHADE  const  "use typeshade"
 src/compiler/ts/directive.ts#findUseTypeshadeDirective  function  (sourceFile: SourceFile) => ExpressionStatement
@@ -949,9 +952,12 @@ src/core/backends/wgsl.ts#lowerWgsl  const  (m: ModuleDecl, level: OptLevel) => 
 src/core/backends/wgsl.ts#wgslBackend  const  Backend
 src/core/backends/wgsl.ts#wgslType  function  (t: ShaderType) => string
 src/core/console.ts#CONSOLE_METHODS  const  ReadonlySet<ConsoleMethod>
-src/core/console.ts#ConsoleEvent  interface  { args: readonly (string | CpuValue)[]; method: ConsoleMethod; span?: SourceSpan }
+src/core/console.ts#ConsoleEvent  interface  { args: readonly (string | CpuValue)[]; invocation?: readonly number[]; method: ConsoleMethod; span?: SourceSpan }
+src/core/console.ts#ConsoleLog  interface  { binding: number; group: number; sites: readonly ConsoleSite[] }
 src/core/console.ts#ConsoleMethod  type  "debug" | "error" | "info" | "log" | "warn"
 src/core/console.ts#ConsoleSink  type  (event: ConsoleEvent) => void
+src/core/console.ts#ConsoleSite  interface  { args: readonly ({ readonly label: string; } | { readonly shape: ConsoleShape; })[]; method: ConsoleMethod; span?: SourceSpan; words: number }
+src/core/console.ts#decodeConsole  function  (buffer: Uint32Array, log: ConsoleLog) => { events: ConsoleEvent[]; dropped: number; }
 src/core/console.ts#isConsoleMethod  function  (name: string) => name is ConsoleMethod
 src/core/cpu-codegen.ts#compileModuleJs  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink; }) => CpuModule
 src/core/cpu-runtime.ts#CpuStruct  interface  CpuStruct
@@ -1365,7 +1371,7 @@ src/core/reflect.ts#ExternRequirement  interface  { glsl: string; name: string; 
 src/core/reflect.ts#FieldLayout  interface  { align: number; name: string; offset: number; size: number; type: string }
 src/core/reflect.ts#LayoutKind  type  "std140" | "std430"
 src/core/reflect.ts#OverrideInfo  interface  { default: boolean | number; name: string; type: string }
-src/core/reflect.ts#ReflectOptions  interface  { fp64Flavor?: Fp64Flavor }
+src/core/reflect.ts#ReflectOptions  interface  { console?: "cpu" | "gpu"; fp64Flavor?: Fp64Flavor }
 src/core/reflect.ts#Reflection  interface  { bindGroups: readonly BindGroup[]; entries: readonly EntryInfo[]; overrides: readonly OverrideInfo[]; requiredFeatures: readonly Capability[]; requiredLanguageFeatures: readonly LanguageFeature[]; requires: readonly ExternRequirement[]; storage: readonly StructLayout[]; uniforms: readonly StructLayout[]; vertex?: VertexLayout }
 src/core/reflect.ts#ResourceKind  type  "sampler" | "storage-buffer" | "storage-texture" | "texture" | "uniform-buffer"
 src/core/reflect.ts#StructLayout  interface  { align: number; fields: readonly FieldLayout[]; name: string; size: number }

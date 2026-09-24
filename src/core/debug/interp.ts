@@ -46,6 +46,7 @@
 // `for`. The condition of an `if`, a `for` or a `switch` is evaluated as part of pausing on
 // that statement, never on its own: a shader statement is the unit the author wrote.
 
+import { consoleArgs, type ConsoleMethod, type ConsoleSink } from '../console.js';
 import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt, StructDecl } from '../ir/index.js';
 import type { SourceSpan } from '../ir/span.js';
 import {
@@ -145,6 +146,10 @@ export interface StepCtx {
    *  other name, and this set is what tells the two apart. */
   readonly bindingNames: Set<string>;
   readonly gpuStubs: boolean;
+  /** Where a `console.*` call goes (surface §66): `dispatch` passes the sink `compileModule`
+   *  took, with the invocation each event came from. Absent, a call delivers nothing. */
+  readonly consoleSink?: ConsoleSink;
+  readonly invocation?: readonly number[];
   readonly frames: StepFrame[];
   /** The INTRINSICS that stood in at some point during this run, by name: `dpdx`,
    *  `textureSample`.
@@ -287,6 +292,17 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
         const before = ctx.stubHits;
         args.push(yield* evalExpr(a, env, ctx));
         argStubbed.push(ctx.stubHits > before);
+      }
+      // A console call computes nothing (Rule 11.9): its arguments are evaluated above, once, in
+      // order, and the event goes to the sink when there is one.
+      if (e.declRef === undefined && e.fn.startsWith('console.')) {
+        ctx.consoleSink?.({
+          method: e.fn.slice('console.'.length) as ConsoleMethod,
+          args: consoleArgs(args, e.labels),
+          ...(e.span ? { span: e.span } : {}),
+          ...(ctx.invocation ? { invocation: ctx.invocation } : {}),
+        });
+        return undefined as unknown as CpuValue;
       }
       if (e.fn === 'u32' || e.fn === 'i32') {
         const src = e.args[0]!.type;

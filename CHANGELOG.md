@@ -383,6 +383,21 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **`console` calls reach the host from WebGPU, when the compile asks** (§66, design rules 6.11
+  and 11.9, `changes/0014-gpu-console.md`; roadmap 0.2 item 6). `compile(src, { console: 'gpu' })`
+  makes the WGSL record each `console.*` call a compute or fragment entry reaches, in one storage
+  buffer the compiler binds, `_console`, at group 0 past the module's bindings (the `_fp64` rule).
+  `result.console` gives the slot and the table of calls. `decodeConsole(words, result.console)`
+  turns the buffer the host copies back into the `ConsoleEvent`s the CPU sink receives, ordered
+  as the CPU runs a dispatch, each with its `invocation`. A call reserves its words with one
+  `atomicAdd`; one that does not fit the buffer, whose size is the host's, is dropped whole and
+  counted. `reflect(m, { console: 'gpu' })` lists the buffer. Measured on Tint and SwiftShader in
+  Chromium 141: 331 events of a kernel decoded equal to the CPU's, invocation ids included; a
+  fragment's helper and discarded invocations write nothing; a vertex stage that reaches the
+  buffer is refused by Tint, so such a call is a new `TS8071` warning, as are an argument with no
+  fixed size and a stage that already binds eight storage buffers. The default, `'cpu'`, moves no
+  emitted byte, and GLSL ES 3.00 records nothing.
+
 - **A string literal argument of a `console` call is a label** (§66, design rule 7.8,
   `changes/0014-gpu-console.md`). `console.warn("large value at", gid.x, y)` compiles; it was
   `TS8099 A string has no GPU representation`. The label never reaches a target: it is kept on
@@ -1391,6 +1406,11 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   surface on both targets.
 
 ### Fixed
+
+- **`dispatch` and the debugger no longer throw on a `console` call.** The lockstep interpreter
+  (`src/core/debug/interp.ts`) had no arm for one: `cpu.dispatch` of a kernel that logged threw
+  `typeshade/debug: unknown fn console.log`, as did stepping over the call. It now evaluates the
+  arguments and delivers the event to the sink `compileModule` took, with the invocation.
 
 - **`f64()` keeps the whole double of a negated or computed literal** (Rule 5.2, §39).
   `f64(-0.1)`, `f64(-(0.1))` and `f64(1. / 3.)` carried only the `f32` rounding of their value,
