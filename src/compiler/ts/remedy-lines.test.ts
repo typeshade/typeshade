@@ -726,9 +726,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'lower/function.ts',
-      sites: 1,
+      sites: 2,
       lines: 0,
-      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open, for a setter whose value has no type and no getter that returns one',
+      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open, for a setter whose value has no type and no getter that returns one; and a return type annotation, `: f32`, for a void function that returns a value',
     },
     {
       file: 'lower/function-types.ts',
