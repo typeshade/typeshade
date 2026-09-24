@@ -1271,7 +1271,9 @@ Each string carries its own `#version 300 es` line, the precision preamble, and 
 declarations that stage reaches. The two stages still agree on every shared name, because
 the lowering is deterministic, so the pair links. `emitGlslStages` also takes
 `vertexEntry` and `fragmentEntry` for a module that carries several entry points in one
-stage, and naming them keeps the single lowering. The GLSL calls take the WGSL emit
+stage, and naming them keeps the single lowering. GLSL has one `main()` per stage, so such a
+stage with no entry named is refused, by `emitGlslStages` and `emitGlslModule` alike, and
+`compile()` reports it as a `TS8015` warning with `glsl` left undefined. The GLSL calls take the WGSL emit
 options plus their own; the `GlslEmitOptions` reference lists them.
 
 ### Module fragments
