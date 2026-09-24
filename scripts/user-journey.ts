@@ -36,8 +36,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:http';
 import { chromium } from 'playwright';
 import { derivePublishManifest } from './publish-manifest.js';
@@ -145,6 +145,12 @@ const HOST_DEPS = [
 async function hostImport(work: string, tarball: string): Promise<number> {
   const app = join(work, 'host-import');
   cpSync(join(REPO, 'journeys', '_host-import'), app, { recursive: true });
+  // The particles and plasma journeys' shaders, which `src/gpu.ts` runs through the import.
+  for (const [id, file] of [
+    ['particles', 'particles.shade.ts'],
+    ['plasma', 'plasma.shade.ts'],
+  ] as const)
+    cpSync(join(REPO, 'journeys', id, file), join(app, 'src', file));
   writeFileSync(
     join(app, 'package.json'),
     `${JSON.stringify(
@@ -223,7 +229,22 @@ async function hostImport(work: string, tarball: string): Promise<number> {
   // entries in a page with WebGPU. `blockSum` reaches a barrier, which has no CPU tier, so it answers only
   // where WebGPU ran it.
   sh('npx', ['vite', 'build', '--config', 'vite.web.config.ts', '--logLevel', 'warn'], app);
-  const web = await inBrowser(join(app, 'out-web'));
+  // Each copied journey's own starting data and reference (its `journey.mjs`).
+  const journeyOf = async (id: string): Promise<Record<string, unknown>> =>
+    (
+      (await import(pathToFileURL(join(REPO, 'journeys', id, 'journey.mjs')).href)) as {
+        default: { runs: Record<string, unknown>[] };
+      }
+    ).default.runs[0]!;
+  const particlesRun = await journeyOf('particles');
+  const plasmaRun = await journeyOf('plasma');
+  const pb = particlesRun['bindings'] as Record<string, { cpu: unknown }>;
+  const web = await inBrowser(join(app, 'out-web'), {
+    sim: pb['sim']!.cpu,
+    particles: pb['particles']!.cpu,
+    frames: particlesRun['repeat'],
+    frame: (plasmaRun['bindings'] as Record<string, { cpu: unknown }>)['frame']!.cpu,
+  });
   check(web.webgpu, 'the page has WebGPU, so the entries ran on it');
   const gpuRef = JSON.parse(
     spawnSync(
@@ -286,7 +307,100 @@ async function hostImport(work: string, tarball: string): Promise<number> {
       /TypeError: tiled\(\).*"image", which the CPU tier cannot read/.test(noCpu),
     `a sampled texture has no CPU tier, and the draw says so (${String(noCpu)})`,
   );
+
+  // The particles and plasma journeys through the import (change 0016): `step` 20 frames on
+  // WebGPU, and `fs` drawn into a 64x64 canvas, each against its journey's own reference.
+  const ranParticles = web.journeys?.particles ?? [];
+  const wantParticles = (particlesRun['expected'] as () => number[])();
+  const worstParticle = Math.max(
+    ...wantParticles.map((w, i) => Math.abs((ranParticles[i] ?? NaN) - w)),
+  );
+  check(
+    ranParticles.length === wantParticles.length &&
+      worstParticle <= (particlesRun['tolerance'] as number),
+    `the particles journey's step, called through the import, matches its reference (worst ${worstParticle})`,
+  );
+  const ranPlasma = web.journeys?.plasma ?? [];
+  const pixel = plasmaRun['expected'] as (x: number, y: number) => number[];
+  let worstPlasma = 0;
+  for (let y = 0; y < 64; y++)
+    for (let x = 0; x < 64; x++) {
+      const want = pixel(x, y).map((v) => Math.min(1, Math.max(0, v)));
+      for (let i = 0; i < 4; i++)
+        worstPlasma = Math.max(
+          worstPlasma,
+          Math.abs((ranPlasma[4 * (y * 64 + x) + i] ?? NaN) / 255 - want[i]!),
+        );
+    }
+  check(
+    ranPlasma.length === 64 * 64 * 4 && worstPlasma <= (plasmaRun['tolerance'] as number),
+    `the plasma journey's fs, drawn through the import, matches its reference (worst ${(worstPlasma * 255).toFixed(2)} of 255)`,
+  );
+
+  // `console.*` from the GPU (change 0014 through 0016): a production build records nothing, and
+  // `vite dev` prints `report`'s four calls from WebGPU in invocation order.
+  check(
+    web.logs !== undefined && web.logs.length === 0,
+    `a production build records no console call (got ${JSON.stringify(web.logs)})`,
+  );
+  const dev = await inDevServer(app);
+  const printed4 = ['x 0 1.5', 'x 1 2.5', 'x 2 3.5', 'x 3 4.5'];
+  check(
+    JSON.stringify(dev.logs) === JSON.stringify(printed4),
+    `vite dev prints the entry's console calls from WebGPU in order (got ${JSON.stringify(dev.logs)}${dev.error ? `; ${dev.error}` : ''})`,
+  );
   return failures.length === 0 ? 0 : 1;
+}
+
+/** Start `vite` (the dev server) in `app`, load the page and run `logged()` from `src/gpu.ts`,
+ *  collecting what the page prints. */
+async function inDevServer(app: string): Promise<{ logs: string[]; error?: string }> {
+  const port = 5170 + Math.floor(Math.random() * 500);
+  const server = spawn(
+    'npx',
+    ['vite', '--port', String(port), '--strictPort', '--host', '127.0.0.1'],
+    {
+      cwd: app,
+      stdio: 'ignore',
+    },
+  );
+  const url = `http://127.0.0.1:${port}/`;
+  const browser = await chromium.launch({
+    executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
+    args: CHROMIUM_ARGS,
+  });
+  try {
+    for (let i = 0; ; i++) {
+      try {
+        await fetch(url);
+        break;
+      } catch {
+        if (i === 100) return { logs: [], error: 'the dev server did not start' };
+        await new Promise((done) => setTimeout(done, 200));
+      }
+    }
+    const page = await browser.newPage();
+    const logs: string[] = [];
+    page.on('console', (m) => {
+      if (m.type() === 'log') logs.push(m.text());
+    });
+    await page.goto(url);
+    const error = await page.evaluate(async () => {
+      try {
+        const m = (await import('/src/gpu.ts' as string)) as { logged(): Promise<void> };
+        await m.logged();
+        return undefined;
+      } catch (e) {
+        return String(e);
+      }
+    });
+    // The console events are page messages, delivered after the call resolves.
+    await page.waitForTimeout(200);
+    return { logs, ...(error !== undefined ? { error } : {}) };
+  } finally {
+    await browser.close();
+    server.kill();
+  }
 }
 
 /** The four flags that make WebGPU exist on SwiftShader, as the compile gate passes them. */
@@ -298,12 +412,17 @@ const CHROMIUM_ARGS = [
   '--enable-features=Vulkan',
 ];
 
-/** Load `dir/gpu.js` in a page served from localhost (a secure context, which WebGPU needs) and
- *  run its `run()` and `draws()`. */
-async function inBrowser(dir: string): Promise<{
+/** Load `dir/gpu.js` in a page served from localhost (a secure context, which WebGPU needs),
+ *  run its `run()`, `draws()` and `logged()`, and collect what the page prints. */
+async function inBrowser(
+  dir: string,
+  input: unknown,
+): Promise<{
   webgpu: boolean;
   result?: Record<string, number[]>;
   draws?: Record<string, number[] | string>;
+  logs?: string[];
+  journeys?: { particles: number[]; plasma: number[] };
   error?: string;
 }> {
   const js = readFileSync(join(dir, 'gpu.js'), 'utf8');
@@ -325,19 +444,31 @@ async function inBrowser(dir: string): Promise<{
     const page = await browser.newPage();
     const { port } = server.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
-    return await page.evaluate(async () => {
+    const logs: string[] = [];
+    page.on('console', (m) => {
+      if (m.type() === 'log') logs.push(m.text());
+    });
+    const out = await page.evaluate(async (input) => {
       const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
       const webgpu = gpu !== undefined && (await gpu.requestAdapter()) !== null;
       try {
         const m = (await import('/gpu.js' as string)) as {
           run(): Promise<Record<string, number[]>>;
           draws(): Promise<Record<string, number[] | string>>;
+          logged(): Promise<void>;
+          journeys(input: unknown): Promise<{ particles: number[]; plasma: number[] }>;
         };
-        return { webgpu, result: await m.run(), draws: await m.draws() };
+        const result = await m.run();
+        const draws = await m.draws();
+        await m.logged();
+        const journeys = await m.journeys(input);
+        return { webgpu, result, draws, journeys };
       } catch (e) {
         return { webgpu, error: String(e) };
       }
-    });
+    }, input);
+    await page.waitForTimeout(200);
+    return { ...out, logs };
   } finally {
     await browser.close();
     server.close();

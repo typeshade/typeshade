@@ -6630,6 +6630,18 @@ requestAnimationFrame(frame);
   WebGL2 tier out too. A texture has no CPU tier. When the canvas's tier cannot draw the entry,
   the draw is refused with a `TypeError` that names why.
 
+### `console.*` from an entry
+
+In `vite dev`, the plugin compiles each module with the console recorded (§66): each
+`console.*` call a compute or fragment entry reaches is written into the `_console` buffer on
+the GPU. The runtime binds a fresh buffer for each dispatch and each draw, reads it back once
+the GPU has run it, and prints the events to the page's console in the order the CPU tier prints
+them: by invocation, `z`, then `y`, then `x`, and in program order within one. A call's
+promise resolves after its events are printed; a draw's frame is submitted first, and its
+events follow. Calls that do not fit the buffer are counted in one warning. A production build
+records nothing, and the WebGL2 tier records nothing (Rule 10.5). The CPU tier prints each call
+as it runs.
+
 **Not yet.** A storage texture, a depth texture, a texture of another dimension and an emulated
 `f64` keep the entry `never` in the view, with the reason, as do a vertex entry and a fragment
 entry that reads what a vertex entry writes (#204, the rendering design, adds a mesh). A

@@ -23,6 +23,7 @@
 // through the small structural interfaces below, as `core/compute/runner.ts` does.
 
 import type { CpuValue } from './cpu-runtime.js';
+import { decodeConsole, type ConsoleEvent, type ConsoleLog } from './console.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
 
@@ -53,6 +54,8 @@ export interface EntryBinding {
   readonly space: 'uniform' | 'storage';
   /** Whether the entry writes it, so the call reads it back. */
   readonly writes: boolean;
+  /** A storage binding declared `read_write`, which its bind group layout says. */
+  readonly rw?: true;
   readonly layout: Layout;
   readonly s: string;
 }
@@ -91,7 +94,10 @@ export interface ComputeEntry {
   readonly barrier?: string;
   /** Why the CPU tier cannot run the entry otherwise, when it cannot (a texture, a call only a
    *  GPU computes). */
-  readonly noCpu?: string;
+  readonly noCpu?: string; /** Whether the entry's WGSL records `console.*` calls (`vite dev`), and `log`, the table the
+   *  runtime decodes the `_console` buffer with. */
+  readonly console?: true;
+  readonly log?: ConsoleLog;
 }
 
 /** What the generated module hands the call: the CPU tier's functions and the runtime they
@@ -507,9 +513,11 @@ interface GpuShaderModule {
 export interface GpuDevice {
   createShaderModule(d: { code: string }): GpuShaderModule;
   createComputePipeline(d: {
-    layout: 'auto';
+    layout: unknown;
     compute: { module: GpuShaderModule; entryPoint: string };
   }): GpuPipeline;
+  createBindGroupLayout(d: { entries: readonly object[] }): unknown;
+  createPipelineLayout(d: { bindGroupLayouts: readonly unknown[] }): unknown;
   createBuffer(d: { size: number; usage: number }): GpuBuffer;
   createBindGroup(d: {
     layout: unknown;
@@ -562,6 +570,49 @@ export function gpuDevice(): Promise<GpuDevice | null> {
   })());
 }
 
+/** `GPUShaderStage`, whose values the WebGPU specification fixes. */
+export const STAGE = { FRAGMENT: 2, COMPUTE: 4 } as const;
+
+/**
+ * The pipeline's layout, written out from the entry's bindings rather than `'auto'`: an
+ * automatic layout holds only the bindings the WGSL still uses after the optimizer, and a read
+ * the optimizer drops (a production build drops a `console.*` call and what only it read) would
+ * leave a binding the call binds out of it.
+ */
+export function pipelineLayout(
+  d: GpuDevice,
+  bindings: readonly DrawBinding[],
+  log: ConsoleLog | undefined,
+  visibility: number,
+): unknown {
+  const groups = new Map<number, object[]>();
+  const add = (g: number, entry: object): void => {
+    let list = groups.get(g);
+    if (list === undefined) groups.set(g, (list = []));
+    list.push(entry);
+  };
+  for (const b of bindings) {
+    const at = { binding: b.binding, visibility };
+    if (b.space === 'texture')
+      add(b.group, { ...at, texture: { sampleType: 'float', viewDimension: '2d' } });
+    else if (b.space === 'sampler') add(b.group, { ...at, sampler: { type: 'filtering' } });
+    else if (b.space === 'uniform') add(b.group, { ...at, buffer: { type: 'uniform' } });
+    else
+      add(b.group, {
+        ...at,
+        buffer: { type: 'rw' in b && b.rw ? 'storage' : 'read-only-storage' },
+      });
+  }
+  if (log !== undefined)
+    add(log.group, { binding: log.binding, visibility, buffer: { type: 'storage' } });
+  const last = Math.max(-1, ...groups.keys());
+  return d.createPipelineLayout({
+    bindGroupLayouts: Array.from({ length: last + 1 }, (_, g) =>
+      d.createBindGroupLayout({ entries: groups.get(g) ?? [] }),
+    ),
+  });
+}
+
 const pipelines = new WeakMap<GpuDevice, Map<ComputeEntry, Promise<GpuPipeline>>>();
 
 async function pipelineFor(d: GpuDevice, e: ComputeEntry): Promise<GpuPipeline> {
@@ -576,7 +627,10 @@ async function pipelineFor(d: GpuDevice, e: ComputeEntry): Promise<GpuPipeline> 
         throw new Error(
           `${e.name}: WebGPU refused the module's WGSL: ${errors.map((m) => `line ${m.lineNum}:${m.linePos} ${m.message}`).join('; ')}`,
         );
-      return d.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: e.fn } });
+      return d.createComputePipeline({
+        layout: pipelineLayout(d, e.bindings, e.log, STAGE.COMPUTE),
+        compute: { module, entryPoint: e.fn },
+      });
     })();
     per.set(e, p);
   }
@@ -716,6 +770,74 @@ export function gpuHandle(
   });
 }
 
+// ─── console.* from the GPU, in `vite dev` (change 0014) ───────────────────────────────────
+
+/** The `_console` buffer's size: room for a debugging session's calls. A call that does not
+ *  fit is counted, and the count is printed after the events that did. */
+const CONSOLE_BYTES = 1 << 20;
+
+/** A `_console` buffer bound for one dispatch or draw, and how to read it back. */
+export interface ConsoleBinding {
+  readonly group: number;
+  readonly entry: { readonly binding: number; readonly resource: { buffer: GpuBuffer } };
+  /** Copy the buffer to a staging buffer, in `encoder`, before the work is submitted. */
+  copy(encoder: {
+    copyBufferToBuffer(s: GpuBuffer, so: number, d: GpuBuffer, dO: number, n: number): void;
+  }): void;
+  /** After the submit: map the copy, decode it and hand each event to the host's console. */
+  print(): Promise<void>;
+}
+
+/** A new, zeroed `_console` buffer for `name`'s entry, or undefined when its WGSL records none. */
+export function consoleFor(
+  d: GpuDevice,
+  name: string,
+  log: ConsoleLog | undefined,
+): ConsoleBinding | undefined {
+  if (log === undefined) return undefined;
+  // A new buffer is zero, so its cursor and dropped count start at 0 with no reset.
+  const buffer = d.createBuffer({ size: CONSOLE_BYTES, usage: USAGE.STORAGE | USAGE.COPY_SRC });
+  const staging = d.createBuffer({ size: CONSOLE_BYTES, usage: USAGE.MAP_READ | USAGE.COPY_DST });
+  return {
+    group: log.group,
+    entry: { binding: log.binding, resource: { buffer } },
+    copy: (encoder) => encoder.copyBufferToBuffer(buffer, 0, staging, 0, CONSOLE_BYTES),
+    async print() {
+      buffer.destroy();
+      await staging.mapAsync(MAP_READ);
+      const words = new Uint32Array(staging.getMappedRange().slice(0));
+      staging.unmap();
+      staging.destroy();
+      const { events, dropped } = decodeConsole(words, log);
+      for (const ev of events) printEvent(ev);
+      if (dropped > 0)
+        console.warn(`${name}(): ${dropped} console calls did not fit the console buffer.`);
+    },
+  };
+}
+
+/** A console event, printed as the CPU tier's sink prints it. */
+const printEvent = (e: ConsoleEvent): void => {
+  console[e.method](...e.args);
+};
+
+/** The bind groups of `bindings`, with the console buffer in its own group or beside them. */
+export function groupEntries(
+  bindings: readonly DrawBinding[],
+  resource: (b: DrawBinding) => unknown,
+  log: ConsoleBinding | undefined,
+): Map<number, { binding: number; resource: unknown }[]> {
+  const groups = new Map<number, { binding: number; resource: unknown }[]>();
+  const add = (g: number, e: { binding: number; resource: unknown }): void => {
+    let list = groups.get(g);
+    if (list === undefined) groups.set(g, (list = []));
+    list.push(e);
+  };
+  for (const b of bindings) add(b.group, { binding: b.binding, resource: resource(b) });
+  if (log !== undefined) add(log.group, log.entry);
+  return new Map([...groups].sort(([a], [b]) => a - b));
+}
+
 /**
  * Call a `@compute` entry from host code (Rule 8.24): dispatch `workgroups` workgroups of it
  * with `bindings`, on WebGPU when there is one and on the CPU tier otherwise, and read every
@@ -774,22 +896,15 @@ async function onGpu(
     resources.set(b, { buffer });
     owned.push(buffer);
   }
-  const groups = [...new Set(e.bindings.map((b) => b.group))].sort((a, b) => a - b);
+  const log = consoleFor(d, e.name, e.log);
   const encoder = d.createCommandEncoder();
   const pass = encoder.beginComputePass();
   pass.setPipeline(pipeline);
-  for (const g of groups)
-    pass.setBindGroup(
-      g,
-      d.createBindGroup({
-        layout: pipeline.getBindGroupLayout(g),
-        entries: e.bindings
-          .filter((b) => b.group === g)
-          .map((b) => ({ binding: b.binding, resource: resources.get(b) })),
-      }),
-    );
+  for (const [g, entries] of groupEntries(e.bindings, (b) => resources.get(b), log))
+    pass.setBindGroup(g, d.createBindGroup({ layout: pipeline.getBindGroupLayout(g), entries }));
   pass.dispatchWorkgroups(wg[0], wg[1], wg[2]);
   pass.end();
+  log?.copy(encoder);
   const reads: { b: EntryBinding; staging: GpuBuffer }[] = [];
   for (const [b, { buffer, size }] of buffers) {
     if (!b.writes) continue;
@@ -810,6 +925,7 @@ async function onGpu(
     else readInto(dv, 0, b.layout, values[b.name]);
   }
   for (const o of owned) o.destroy();
+  await log?.print();
 }
 
 function onCpu(

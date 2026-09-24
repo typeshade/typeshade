@@ -1,8 +1,9 @@
 "use typeshade";
 
-// Two compute entries a host file calls through the import (change 0016): a map, and a block
-// sum through a scratch buffer and a barrier. A barrier has no CPU tier, so `blockSum` answers
-// only where WebGPU ran it.
+// Three compute entries a host file calls through the import (change 0016): a map, a block sum
+// through a scratch buffer and a barrier, and a report that logs. A barrier has no CPU tier, so
+// `blockSum` answers only where WebGPU ran it; `report`'s console calls print from WebGPU in
+// `vite dev`, and a production build records none.
 
 declare const k: uniform<f32>;
 declare const xs: storage<array<f32>>;
@@ -33,4 +34,9 @@ export function blockSum(
     }
     sums[wid.x] = s;
   }
+}
+
+@compute([4])
+export function report(@builtin("global_invocation_id") gid: vec3u) {
+  console.log("x", gid.x, xs[gid.x]);
 }
