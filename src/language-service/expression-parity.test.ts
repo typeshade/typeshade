@@ -141,17 +141,28 @@ function spellTs(
   }
   if (t.flags & ts.TypeFlags.NumberLike) return 'number';
   const name = t.aliasSymbol?.name ?? t.getSymbol()?.name;
-  // A namespaced shader class is represented to TypeScript by its authored short name
-  // ('SdfSphere') while the compiler emits its flattened struct name ('SDF_SdfSphere').
-  // Match only that explicit namespace-lowering pattern before falling back to TypeScript's
-  // symbol spelling; structural matching here can mistake generic class instances for fields.
-  if (name !== undefined) {
+  // Keep named TypeScript classes/aliases first. This prevents a generic class such as Level<T>
+  // from being mistaken for an unrelated struct that happens to have the same field shape.
+  if (name !== undefined && name !== '__type' && name !== '__object') {
+    // A namespaced shader class is represented to TypeScript by its authored short name
+    // ('SdfSphere') while the compiler emits its flattened struct name ('SDF_SdfSphere').
     const namespacedStruct = [...structs.values()].find((structName) =>
       structName.endsWith(`_${name}`),
     );
-    if (namespacedStruct !== undefined) return namespacedStruct;
+    return namespacedStruct ?? name;
   }
-  if (name !== undefined && name !== '__type' && name !== '__object') return name;
+
+  // Read-only storage views can erase the named class symbol and leave an anonymous mapped object
+  // whose fields are still exactly one emitted struct. Only use structural matching in that
+  // anonymous case, so `rays[gid.x]` can recover `Ray` without regressing generic classes.
+  const fields = checker
+    .getPropertiesOfType(t)
+    .map((p) => p.name)
+    .filter((n) => !n.startsWith('__@'))
+    .sort()
+    .join(',');
+  const structName = structs.get(fields);
+  if (structName !== undefined) return structName;
   return checker.typeToString(t);
 }
 
