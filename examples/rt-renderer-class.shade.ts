@@ -8,6 +8,8 @@
 }
 */
 
+// SDF renderer: the site/CI example surface exercises classes, namespaces and inheritance.
+
 const SURFACE_EPSILON: f32 = 0.001;
 const RAY_EPSILON: f32 = 0.003;
 const MAX_DISTANCE: f32 = 40.;
