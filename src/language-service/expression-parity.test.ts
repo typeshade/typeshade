@@ -140,19 +140,17 @@ function spellTs(
     }
   }
   if (t.flags & ts.TypeFlags.NumberLike) return 'number';
+  const name = t.aliasSymbol?.name ?? t.getSymbol()?.name;
   // A namespaced shader class is represented to TypeScript by its authored short name
   // ('SdfSphere') while the compiler emits its flattened struct name ('SDF_SdfSphere').
-  // Match the structural fields before falling back to TypeScript's symbol spelling so
-  // namespace/class lowering does not look like a language-service type drift.
-  const fields = checker
-    .getPropertiesOfType(t)
-    .map((p) => p.name)
-    .filter((n) => !n.startsWith('__@'))
-    .sort()
-    .join(',');
-  const structName = structs.get(fields);
-  if (structName !== undefined) return structName;
-  const name = t.aliasSymbol?.name ?? t.getSymbol()?.name;
+  // Match only that explicit namespace-lowering pattern before falling back to TypeScript's
+  // symbol spelling; structural matching here can mistake generic class instances for fields.
+  if (name !== undefined) {
+    const namespacedStruct = [...structs.values()].find((structName) =>
+      structName.endsWith(`_${name}`),
+    );
+    if (namespacedStruct !== undefined) return namespacedStruct;
+  }
   if (name !== undefined && name !== '__type' && name !== '__object') return name;
   return checker.typeToString(t);
 }
