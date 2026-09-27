@@ -91,114 +91,117 @@ class Material {
   }
 }
 
-abstract class SdfShape {
-  material: Material;
+namespace SDF {
+  /** Base SDF primitive. Concrete shapes only supply distanceTo(). */
+  abstract class SdfShape {
+    material: Material;
 
-  constructor(material: Material) {
-    this.material = material;
+    constructor(material: Material) {
+      this.material = material;
+    }
+
+    /** Every concrete primitive supplies its signed distance; the shared normal uses that method. */
+    abstract distanceTo(point: vec3): f32;
+
+    normalAt(point: vec3): vec3 {
+      const epsilon = 0.0015;
+      const dx = this.distanceTo(point + vec3(epsilon, 0., 0.))
+        - this.distanceTo(point - vec3(epsilon, 0., 0.));
+      const dy = this.distanceTo(point + vec3(0., epsilon, 0.))
+        - this.distanceTo(point - vec3(0., epsilon, 0.));
+      const dz = this.distanceTo(point + vec3(0., 0., epsilon))
+        - this.distanceTo(point - vec3(0., 0., epsilon));
+
+      return normalize(vec3(dx, dy, dz));
+    }
   }
 
-  /** Every concrete primitive supplies its signed distance; the shared normal uses that method. */
-  abstract distanceTo(point: vec3): f32;
+  class SdfSphere extends SdfShape {
+    center: vec3;
+    radius: f32;
 
-  normalAt(point: vec3): vec3 {
-    const epsilon = 0.0015;
-    const dx = this.distanceTo(point + vec3(epsilon, 0., 0.))
-      - this.distanceTo(point - vec3(epsilon, 0., 0.));
-    const dy = this.distanceTo(point + vec3(0., epsilon, 0.))
-      - this.distanceTo(point - vec3(0., epsilon, 0.));
-    const dz = this.distanceTo(point + vec3(0., 0., epsilon))
-      - this.distanceTo(point - vec3(0., 0., epsilon));
+    constructor(
+      center: vec3,
+      radius: f32,
+      material: Material,
+    ) {
+      super(material);
+      this.center = center;
+      this.radius = radius;
+    }
 
-    return normalize(vec3(dx, dy, dz));
-  }
-}
-
-class SdfSphere extends SdfShape {
-  center: vec3;
-  radius: f32;
-
-  constructor(
-    center: vec3,
-    radius: f32,
-    material: Material,
-  ) {
-    super(material);
-    this.center = center;
-    this.radius = radius;
+    distanceTo(point: vec3): f32 {
+      return length(point - this.center) - this.radius;
+    }
   }
 
-  distanceTo(point: vec3): f32 {
-    return length(point - this.center) - this.radius;
-  }
-}
+  class SdfBox extends SdfShape {
+    center: vec3;
+    halfSize: vec3;
 
-class SdfBox extends SdfShape {
-  center: vec3;
-  halfSize: vec3;
+    constructor(
+      center: vec3,
+      halfSize: vec3,
+      material: Material,
+    ) {
+      super(material);
+      this.center = center;
+      this.halfSize = halfSize;
+    }
 
-  constructor(
-    center: vec3,
-    halfSize: vec3,
-    material: Material,
-  ) {
-    super(material);
-    this.center = center;
-    this.halfSize = halfSize;
-  }
-
-  distanceTo(point: vec3): f32 {
-    const local = abs(point - this.center) - this.halfSize;
-    const outside = max(local, vec3(0.));
-    const inside = min(
-      max(local.x, max(local.y, local.z)),
-      0.,
-    );
-    return length(outside) + inside;
-  }
-}
-
-class SdfTorus extends SdfShape {
-  center: vec3;
-  majorRadius: f32;
-  minorRadius: f32;
-
-  constructor(
-    center: vec3,
-    majorRadius: f32,
-    minorRadius: f32,
-    material: Material,
-  ) {
-    super(material);
-    this.center = center;
-    this.majorRadius = majorRadius;
-    this.minorRadius = minorRadius;
+    distanceTo(point: vec3): f32 {
+      const local = abs(point - this.center) - this.halfSize;
+      const outside = max(local, vec3(0.));
+      const inside = min(
+        max(local.x, max(local.y, local.z)),
+        0.,
+      );
+      return length(outside) + inside;
+    }
   }
 
-  distanceTo(point: vec3): f32 {
-    const local = point - this.center;
-    const ring = length(vec2(local.x, local.z)) - this.majorRadius;
-    return length(vec2(ring, local.y)) - this.minorRadius;
+  class SdfTorus extends SdfShape {
+    center: vec3;
+    majorRadius: f32;
+    minorRadius: f32;
+
+    constructor(
+      center: vec3,
+      majorRadius: f32,
+      minorRadius: f32,
+      material: Material,
+    ) {
+      super(material);
+      this.center = center;
+      this.majorRadius = majorRadius;
+      this.minorRadius = minorRadius;
+    }
+
+    distanceTo(point: vec3): f32 {
+      const local = point - this.center;
+      const ring = length(vec2(local.x, local.z)) - this.majorRadius;
+      return length(vec2(ring, local.y)) - this.minorRadius;
+    }
   }
-}
 
-class SdfPlane extends SdfShape {
-  height: f32;
+  class SdfPlane extends SdfShape {
+    height: f32;
 
-  constructor(
-    height: f32,
-    material: Material,
-  ) {
-    super(material);
-    this.height = height;
+    constructor(
+      height: f32,
+      material: Material,
+    ) {
+      super(material);
+      this.height = height;
+    }
+
+    distanceTo(point: vec3): f32 {
+      return point.y - this.height;
+    }
   }
 
-  distanceTo(point: vec3): f32 {
-    return point.y - this.height;
-  }
-}
 
-class Hit {
+}class Hit {
   distance: f32;
   objectIndex: i32;
 
@@ -266,14 +269,14 @@ class Camera {
 }
 
 class Scene {
-  redSphere: SdfSphere;
-  blueBox: SdfBox;
-  goldTorus: SdfTorus;
-  ground: SdfPlane;
+  redSphere: SDF.SdfSphere;
+  blueBox: SDF.SdfBox;
+  goldTorus: SDF.SdfTorus;
+  ground: SDF.SdfPlane;
   light: PointLight;
 
   constructor() {
-    this.redSphere = new SdfSphere(
+    this.redSphere = new SDF.SdfSphere(
       vec3(-1.15, 0.2, -1.7),
       1.0,
       new Material(
@@ -284,7 +287,7 @@ class Scene {
       ),
     );
 
-    this.blueBox = new SdfBox(
+    this.blueBox = new SDF.SdfBox(
       vec3(1.05, 0.25, -2.0),
       vec3(0.75, 0.75, 0.75),
       new Material(
@@ -295,7 +298,7 @@ class Scene {
       ),
     );
 
-    this.goldTorus = new SdfTorus(
+    this.goldTorus = new SDF.SdfTorus(
       vec3(0., 1.35, -2.9),
       0.72,
       0.24,
@@ -307,7 +310,7 @@ class Scene {
       ),
     );
 
-    this.ground = new SdfPlane(
+    this.ground = new SDF.SdfPlane(
       -1.0,
       new Material(
         vec3(0.68, 0.72, 0.8),
@@ -606,7 +609,8 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 @fragment
 export function fs(v: VsOut): vec4 {
   const camera = createCamera(u.time);
-  const renderer = new Renderer(new Scene());
+  const scene = new Scene();
+  const renderer = new Renderer(scene);
 
   let color = vec3(0.);
   for (let sample: i32 = 0; sample < SAMPLES_PER_PIXEL; sample++) {
