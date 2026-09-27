@@ -29,7 +29,7 @@ name: ci
 #                 language service and plain tsc, run on WebGPU, and matched against its own
 #                 plain-JavaScript reference and the CPU oracle. See scripts/user-journey.ts.
 #   render-gate the merged class-based 3D SDF ray tracer is actually rendered on WebGPU in
-#                 headless Chromium and its 64x64 RGBA8 pixels are compared exactly against
+#                 headless Chromium and its 48x48 RGBA8 pixels are compared exactly against
 #                 the committed image golden. See scripts/render-rt-golden.ts.
 #
 # The browser is installed with the PROJECT-LOCAL playwright bin, never `bunx playwright`:
@@ -153,6 +153,6 @@ jobs:
         if: always()
         with:
           name: rt-renderer-render
-          path: artifacts/rt-renderer-class-64.png
+          path: artifacts/rt-renderer-class-48.png
           if-no-files-found: error
 # LINT.ThenChange(AGENTS.md:tests)
