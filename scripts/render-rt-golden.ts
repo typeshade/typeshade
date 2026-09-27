@@ -10,12 +10,12 @@ import { chromium } from 'playwright';
 import { compile, reflect } from '../src/index.js';
 import type { Page } from 'playwright';
 
-const WIDTH = 64;
-const HEIGHT = 64;
+const WIDTH = 48;
+const HEIGHT = 48;
 const TIME = 1.25;
 const FRAME = 0;
 const UPDATE = process.env.UPDATE_RT_GOLDEN === '1';
-const GOLDEN_URL = new URL('./__render-goldens__/rt-renderer-class-64.png', import.meta.url);
+const GOLDEN_URL = new URL('./__render-goldens__/rt-renderer-class-48.png', import.meta.url);
 
 const sourceUrl = new URL('../examples/rt-renderer-class.shade.ts', import.meta.url);
 const source = readFileSync(sourceUrl, 'utf8');
@@ -396,7 +396,7 @@ try {
   mkdirSync('artifacts', { recursive: true });
   const rgba = new Uint8Array(first.pixels);
   const png = pngRgba8(WIDTH, HEIGHT, rgba);
-  writeFileSync('artifacts/rt-renderer-class-64.png', png);
+  writeFileSync('artifacts/rt-renderer-class-48.png', png);
 
   if (UPDATE) {
     mkdirSync(new URL('.', GOLDEN_URL), { recursive: true });
