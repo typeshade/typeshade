@@ -5,8 +5,8 @@
   noEmit pass over tests, examples and scripts.
 - `bun run lint` (ESLint) and `bun run format:check` (Prettier, then the shader-source `;`).
 - `bun run test`: vitest over `src/**` and `examples/**`.
-- The CI check job refreshes generated emit goldens after the unit suite and commits any intentional changes
-  back to the pull request branch before the remaining checks.
+- The CI check job refreshes generated emit goldens after the unit suite and commits any intentional
+  changes back to the pull request branch before the remaining checks.
 - `bun run gate:compile`: every registered example emitted and compiled. Needs Chromium once:
   `./node_modules/.bin/playwright install --only-shell chromium`.
 - `bun run gate:render`: the class-based 3D SDF example is rendered on headless WebGPU and its 48x48 RGBA8 pixels are compared exactly with the committed image golden. Use `UPDATE_RT_GOLDEN=1 bun run gate:render` only for an intentional golden refresh.
