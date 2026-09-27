@@ -440,43 +440,66 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
   };
 }
 
-@fragment
-export function fs(v: VsOut): vec4 {
-  const uv = (v.pos.xy + u.resolution * 0.5 - vec2(0.5))
-    / u.resolution.y;
-  const camera = new Camera(
+function createCamera(time: f32): Camera {
+  return new Camera(
     vec3(
-      sin(u.time * 0.17) * 6.2,
-      2.0 + sin(u.time * 0.31) * 0.12,
-      cos(u.time * 0.17) * 6.2,
+      sin(time * 0.17) * 6.2,
+      2.0 + sin(time * 0.31) * 0.12,
+      cos(time * 0.17) * 6.2,
     ),
     vec3(0., 0.65, -1.7),
     1.0,
   );
+}
+
+function renderSample(
+  renderer: Renderer,
+  camera: Camera,
+  position: vec2,
+  resolution: vec2,
+  frame: f32,
+  sample: i32,
+): vec3 {
+  const uv = (position - resolution * 0.5 + vec2(0.5))
+    / resolution.y;
+  const jitter = pixelJitter(position, frame, sample);
+  const sampleUv = vec2(
+    uv.x + jitter.x / resolution.x,
+    uv.y + jitter.y / resolution.y,
+  );
+  const ray = camera.rayFor(
+    sampleUv * vec2(resolution.x / resolution.y, 1.),
+  );
+  const seed = dot(position, vec2(17.17, 73.19))
+    + frame * 11.3
+    + f32(sample) * 3.7;
+
+  return renderer.trace(ray, seed);
+}
+
+function toneMap(color: vec3): vec3 {
+  const mapped = color / (color + vec3(1.));
+  return pow(mapped, vec3(1. / 2.2));
+}
+
+@fragment
+export function fs(v: VsOut): vec4 {
+  const camera = createCamera(u.time);
   const renderer = new Renderer(new Scene());
 
   let color = vec3(0.);
   for (let sample: i32 = 0; sample < SAMPLES_PER_PIXEL; sample++) {
-    const seed = dot(v.pos.xy, vec2(17.17, 73.19))
-      + u.frame * 11.3
-      + f32(sample) * 3.7;
-    const jitter = pixelJitter(v.pos.xy, u.frame, sample);
-
-    const sampleUv = vec2(
-      uv.x + jitter.x / u.resolution.x,
-      uv.y + jitter.y / u.resolution.y,
+    color += renderSample(
+      renderer,
+      camera,
+      v.pos.xy,
+      u.resolution,
+      u.frame,
+      sample,
     );
-    const ray = camera.rayFor(
-      sampleUv * vec2(u.resolution.x / u.resolution.y, 1.),
-    );
-
-    color += renderer.trace(ray, seed);
   }
 
-  color = color / f32(SAMPLES_PER_PIXEL);
-  color = color / (color + vec3(1.));
-  color = pow(color, vec3(1. / 2.2));
-
+  color = toneMap(color / f32(SAMPLES_PER_PIXEL));
   return vec4(color, 1.);
 }
 
