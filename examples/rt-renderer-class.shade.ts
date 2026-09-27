@@ -14,7 +14,6 @@ const SAMPLES_PER_PIXEL: i32 = 2;
 
 class VsOut {
   @builtin("position") pos: vec4;
-  @location(0) uv: vec2;
 }
 
 interface Frame {
@@ -206,14 +205,14 @@ class Camera {
 }
 
 class Scene {
-  primary: Sphere;
-  secondary: Sphere;
-  gold: Sphere;
-  ground: Sphere;
+  redSphere: Sphere;
+  blueSphere: Sphere;
+  goldSphere: Sphere;
+  groundSphere: Sphere;
   light: PointLight;
 
   constructor() {
-    this.primary = new Sphere(
+    this.redSphere = new Sphere(
       vec3(-1.1, 0., -1.6),
       1.,
       new Material(
@@ -224,7 +223,7 @@ class Scene {
       ),
     );
 
-    this.secondary = new Sphere(
+    this.blueSphere = new Sphere(
       vec3(1.0, 0.15, -1.9),
       1.05,
       new Material(
@@ -235,7 +234,7 @@ class Scene {
       ),
     );
 
-    this.gold = new Sphere(
+    this.goldSphere = new Sphere(
       vec3(0., 1.25, -2.8),
       1.,
       new Material(
@@ -246,7 +245,7 @@ class Scene {
       ),
     );
 
-    this.ground = new Sphere(
+    this.groundSphere = new Sphere(
       vec3(0., -1001.1, -1.5),
       1000.,
       new Material(
@@ -268,25 +267,25 @@ class Scene {
     let closestDistance = 1e30;
     let closestSphereIndex: i32 = -1;
 
-    const primaryDistance = this.primary.intersect(ray);
+    const primaryDistance = this.redSphere.intersect(ray);
     if (this.isCloser(primaryDistance, closestDistance)) {
       closestDistance = primaryDistance;
       closestSphereIndex = 0;
     }
 
-    const secondaryDistance = this.secondary.intersect(ray);
+    const secondaryDistance = this.blueSphere.intersect(ray);
     if (this.isCloser(secondaryDistance, closestDistance)) {
       closestDistance = secondaryDistance;
       closestSphereIndex = 1;
     }
 
-    const goldDistance = this.gold.intersect(ray);
+    const goldDistance = this.goldSphere.intersect(ray);
     if (this.isCloser(goldDistance, closestDistance)) {
       closestDistance = goldDistance;
       closestSphereIndex = 2;
     }
 
-    const groundDistance = this.ground.intersect(ray);
+    const groundDistance = this.groundSphere.intersect(ray);
     if (this.isCloser(groundDistance, closestDistance)) {
       closestDistance = groundDistance;
       closestSphereIndex = 3;
@@ -339,15 +338,15 @@ class Scene {
 
   sphereAt(index: i32): Sphere {
     if (index == 0) {
-      return this.primary;
+      return this.redSphere;
     }
     if (index == 1) {
-      return this.secondary;
+      return this.blueSphere;
     }
     if (index == 2) {
-      return this.gold;
+      return this.goldSphere;
     }
-    return this.ground;
+    return this.groundSphere;
   }
 
   private isCloser(distance: f32, currentBest: f32): bool {
@@ -436,7 +435,6 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 
   return {
     pos: vec4(x, y, 0., 1.),
-    uv: vec2(x, y),
   };
 }
 
