@@ -263,6 +263,7 @@ try {
       rgba[i + 3] !== 255
     )
       nonBackground++;
+  }
 
   console.log('WGSL messages: ' + String(first.compileMessages.length));
   console.log('uniform binding: ' + String(uniform.binding));
