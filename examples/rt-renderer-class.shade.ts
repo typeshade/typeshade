@@ -313,12 +313,11 @@ class Scene {
     let closestDistance = MAX_DISTANCE;
     let closestObjectIndex: i32 = -1;
 
-    this.pickObject(
-      this.redSphere.distanceTo(point),
-      0,
-      closestDistance,
-      closestObjectIndex,
-    );
+    const sphereDistance = this.redSphere.distanceTo(point);
+    if (sphereDistance < closestDistance) {
+      closestDistance = sphereDistance;
+      closestObjectIndex = 0;
+    }
 
     const boxDistance = this.blueBox.distanceTo(point);
     if (boxDistance < closestDistance) {
@@ -401,18 +400,6 @@ class Scene {
       return this.goldTorus.material;
     }
     return this.ground.material;
-  }
-
-  private pickObject(
-    distance: f32,
-    objectIndex: i32,
-    currentDistance: f32,
-    currentObjectIndex: i32,
-  ): void {
-    if (distance < currentDistance) {
-      currentDistance = distance;
-      currentObjectIndex = objectIndex;
-    }
   }
 }
 
