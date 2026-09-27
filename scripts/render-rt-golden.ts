@@ -5,7 +5,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
 import { compile, reflect } from '../src/index.js';
 import type { Page } from 'playwright';
@@ -14,6 +14,8 @@ const WIDTH = 128;
 const HEIGHT = 128;
 const TIME = 1.25;
 const FRAME = 0;
+const UPDATE = process.env.UPDATE_RT_GOLDEN === '1';
+const GOLDEN_URL = new URL('./__render-goldens__/rt-renderer-class-128.png', import.meta.url);
 
 const sourceUrl = new URL('../examples/rt-renderer-class.shade.ts', import.meta.url);
 const source = readFileSync(sourceUrl, 'utf8');
@@ -97,6 +99,148 @@ function pngRgba8(width: number, height: number, rgba: Uint8Array): Uint8Array {
     offset += part.length;
   }
   return result;
+}
+
+
+type DecodedPng = {
+  width: number;
+  height: number;
+  pixels: Uint8Array;
+};
+
+function paeth(a: number, b: number, c: number): number {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+}
+
+function decodePngRgba8(bytes: Uint8Array): DecodedPng {
+  const signature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  for (let i = 0; i < signature.length; i++) {
+    if (bytes[i] !== signature[i])
+      throw new Error('golden is not a PNG');
+  }
+
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  let interlace = 0;
+  const idat: Uint8Array[] = [];
+
+  while (offset + 12 <= bytes.length) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 8);
+    const length = view.getUint32(0);
+    const type = String.fromCharCode(
+      bytes[offset + 4]!,
+      bytes[offset + 5]!,
+      bytes[offset + 6]!,
+      bytes[offset + 7]!,
+    );
+    const start = offset + 8;
+    const end = start + length;
+    if (end + 4 > bytes.length) throw new Error('golden PNG chunk is truncated');
+
+    if (type === 'IHDR') {
+      const header = new DataView(bytes.buffer, bytes.byteOffset + start, length);
+      width = header.getUint32(0);
+      height = header.getUint32(4);
+      bitDepth = header.getUint8(8);
+      colorType = header.getUint8(9);
+      interlace = header.getUint8(12);
+    } else if (type === 'IDAT') {
+      idat.push(bytes.slice(start, end));
+    } else if (type === 'IEND') {
+      break;
+    }
+
+    offset = end + 4;
+  }
+
+  if (width === 0 || height === 0) throw new Error('golden PNG has no dimensions');
+  if (bitDepth !== 8 || colorType !== 6 || interlace !== 0)
+    throw new Error('golden PNG must be non-interlaced 8-bit RGBA');
+
+  const compressed = new Uint8Array(idat.reduce((n, part) => n + part.length, 0));
+  let write = 0;
+  for (const part of idat) {
+    compressed.set(part, write);
+    write += part.length;
+  }
+
+  const raw = new Uint8Array(inflateSync(compressed));
+  const stride = width * 4;
+  const rowSize = stride + 1;
+  if (raw.length !== rowSize * height)
+    throw new Error('golden PNG has an unexpected decompressed size');
+
+  const pixels = new Uint8Array(width * height * 4);
+  const previous = new Uint8Array(stride);
+  const current = new Uint8Array(stride);
+
+  for (let y = 0; y < height; y++) {
+    const rawOffset = y * rowSize;
+    const filter = raw[rawOffset]!;
+    for (let x = 0; x < stride; x++) {
+      const value = raw[rawOffset + 1 + x]!;
+      const a = x >= 4 ? current[x - 4]! : 0;
+      const b = previous[x]!;
+      const c = x >= 4 ? previous[x - 4]! : 0;
+      const restored =
+        filter === 0
+          ? value
+          : filter === 1
+            ? value + a
+            : filter === 2
+              ? value + b
+              : filter === 3
+                ? value + Math.floor((a + b) / 2)
+                : filter === 4
+                  ? value + paeth(a, b, c)
+                  : (() => {
+                      throw new Error('golden PNG uses an unsupported filter');
+                    })();
+      current[x] = restored & 255;
+    }
+    pixels.set(current, y * stride);
+    previous.set(current);
+  }
+
+  return { width, height, pixels };
+}
+
+function compareGolden(actual: Uint8Array, png: Uint8Array): {
+  differingPixels: number;
+  maxChannelDelta: number;
+} {
+  const expected = decodePngRgba8(png);
+  if (expected.width !== WIDTH || expected.height !== HEIGHT)
+    throw new Error(
+      'golden dimensions are ' +
+        String(expected.width) +
+        'x' +
+        String(expected.height) +
+        ', expected ' +
+        String(WIDTH) +
+        'x' +
+        String(HEIGHT),
+    );
+
+  let differingPixels = 0;
+  let maxChannelDelta = 0;
+  for (let i = 0; i < actual.length; i += 4) {
+    let pixelDiff = false;
+    for (let c = 0; c < 4; c++) {
+      const delta = Math.abs(actual[i + c]! - expected.pixels[i + c]!);
+      if (delta !== 0) pixelDiff = true;
+      maxChannelDelta = Math.max(maxChannelDelta, delta);
+    }
+    if (pixelDiff) differingPixels++;
+  }
+  return { differingPixels, maxChannelDelta };
 }
 
 type RenderResult = {
@@ -254,6 +398,24 @@ try {
   const png = pngRgba8(WIDTH, HEIGHT, rgba);
   writeFileSync('artifacts/rt-renderer-class-128.png', png);
 
+  if (UPDATE) {
+    mkdirSync(new URL('.', GOLDEN_URL), { recursive: true });
+    writeFileSync(GOLDEN_URL, png);
+    console.log('updated committed RT golden');
+  } else {
+    const golden = new Uint8Array(readFileSync(GOLDEN_URL));
+    const comparison = compareGolden(rgba, golden);
+    if (comparison.differingPixels !== 0) {
+      throw new Error(
+        'RT render differs from golden: ' +
+          String(comparison.differingPixels) +
+          ' pixels differ; max channel delta ' +
+          String(comparison.maxChannelDelta),
+      );
+    }
+    console.log('RT render matches golden: exact RGBA pixel equality');
+  }
+
   const min = Math.min(...rgba);
   const max = Math.max(...rgba);
   let nonBackground = 0;
@@ -273,7 +435,7 @@ try {
   console.log('byte-identical rerender: yes');
   console.log('channel range: ' + String(min) + '..' + String(max));
   console.log('non-background pixels: ' + String(nonBackground) + '/' + String(WIDTH * HEIGHT));
-  console.log('wrote artifacts/rt-renderer-class-256.png');
+  console.log('wrote artifacts/rt-renderer-class-128.png');
 } finally {
   await browser.close();
   server.close();
