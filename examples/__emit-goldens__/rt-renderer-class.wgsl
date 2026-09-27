@@ -27,28 +27,32 @@ struct Material {
   emission: vec3<f32>,
 }
 
-struct SdfSphere {
+struct SdfShape {
+  material: Material,
+}
+
+struct SDF_SdfSphere {
+  material: Material,
   center: vec3<f32>,
   radius: f32,
-  material: Material,
 }
 
-struct SdfBox {
+struct SDF_SdfBox {
+  material: Material,
   center: vec3<f32>,
   halfSize: vec3<f32>,
-  material: Material,
 }
 
-struct SdfTorus {
+struct SDF_SdfTorus {
+  material: Material,
   center: vec3<f32>,
   majorRadius: f32,
   minorRadius: f32,
-  material: Material,
 }
 
-struct SdfPlane {
-  height: f32,
+struct SDF_SdfPlane {
   material: Material,
+  height: f32,
 }
 
 struct Hit {
@@ -69,10 +73,10 @@ struct Camera {
 }
 
 struct Scene {
-  redSphere: SdfSphere,
-  blueBox: SdfBox,
-  goldTorus: SdfTorus,
-  ground: SdfPlane,
+  redSphere: SDF_SdfSphere,
+  blueBox: SDF_SdfBox,
+  goldTorus: SDF_SdfTorus,
+  ground: SDF_SdfPlane,
   light: PointLight,
 }
 
@@ -119,64 +123,111 @@ fn Material_new(albedo: vec3<f32>, metallic: f32, roughness: f32, emission: vec3
   return self_;
 }
 
-fn SdfSphere_distanceTo(self_: SdfSphere, point: vec3<f32>) -> f32 {
-  return (length((point - self_.center)) - self_.radius);
-}
-
-fn SdfSphere_normalAt(self_: SdfSphere, point: vec3<f32>) -> vec3<f32> {
-  return normalize((point - self_.center));
-}
-
-fn SdfSphere_new(center: vec3<f32>, radius: f32, material: Material) -> SdfSphere {
+fn SdfShape_new(material: Material) -> SdfShape {
   let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  var self_: SdfSphere = SdfSphere(_cse0, 0.0, Material(_cse0, 0.0, 0.0, _cse0));
-  self_.center = center;
-  self_.radius = radius;
+  var self_: SdfShape = SdfShape(Material(_cse0, 0.0, 0.0, _cse0));
   self_.material = material;
   return self_;
 }
 
-fn SdfBox_distanceTo(self_: SdfBox, point: vec3<f32>) -> f32 {
+fn SDF_SdfSphere_distanceTo(self_: SDF_SdfSphere, point: vec3<f32>) -> f32 {
+  return (length((point - self_.center)) - self_.radius);
+}
+
+fn SDF_SdfSphere_normalAt(self_: SDF_SdfSphere, point: vec3<f32>) -> vec3<f32> {
+  let _cse0 = vec3<f32>(0.0015, 0.0, 0.0);
+  let dx = (SDF_SdfSphere_distanceTo(self_, (point + _cse0)) - SDF_SdfSphere_distanceTo(self_, (point - _cse0)));
+  let _cse1 = vec3<f32>(0.0, 0.0015, 0.0);
+  let dy = (SDF_SdfSphere_distanceTo(self_, (point + _cse1)) - SDF_SdfSphere_distanceTo(self_, (point - _cse1)));
+  let _cse2 = vec3<f32>(0.0, 0.0, 0.0015);
+  let dz = (SDF_SdfSphere_distanceTo(self_, (point + _cse2)) - SDF_SdfSphere_distanceTo(self_, (point - _cse2)));
+  return normalize(vec3<f32>(dx, dy, dz));
+}
+
+fn SDF_SdfSphere_new(center: vec3<f32>, radius: f32, material: Material) -> SDF_SdfSphere {
+  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
+  var self_: SDF_SdfSphere = SDF_SdfSphere(Material(_cse0, 0.0, 0.0, _cse0), _cse0, 0.0);
+  let _sup = SdfShape_new(material);
+  self_.material = _sup.material;
+  self_.center = center;
+  self_.radius = radius;
+  return self_;
+}
+
+fn SDF_SdfBox_distanceTo(self_: SDF_SdfBox, point: vec3<f32>) -> f32 {
   let local = (abs((point - self_.center)) - self_.halfSize);
   let outside = max(local, vec3<f32>(0.0, 0.0, 0.0));
   let inside = min(max(local.x, max(local.y, local.z)), 0.0);
   return (length(outside) + inside);
 }
 
-fn SdfBox_new(center: vec3<f32>, halfSize: vec3<f32>, material: Material) -> SdfBox {
+fn SDF_SdfBox_normalAt(self_: SDF_SdfBox, point: vec3<f32>) -> vec3<f32> {
+  let _cse0 = vec3<f32>(0.0015, 0.0, 0.0);
+  let dx = (SDF_SdfBox_distanceTo(self_, (point + _cse0)) - SDF_SdfBox_distanceTo(self_, (point - _cse0)));
+  let _cse1 = vec3<f32>(0.0, 0.0015, 0.0);
+  let dy = (SDF_SdfBox_distanceTo(self_, (point + _cse1)) - SDF_SdfBox_distanceTo(self_, (point - _cse1)));
+  let _cse2 = vec3<f32>(0.0, 0.0, 0.0015);
+  let dz = (SDF_SdfBox_distanceTo(self_, (point + _cse2)) - SDF_SdfBox_distanceTo(self_, (point - _cse2)));
+  return normalize(vec3<f32>(dx, dy, dz));
+}
+
+fn SDF_SdfBox_new(center: vec3<f32>, halfSize: vec3<f32>, material: Material) -> SDF_SdfBox {
   let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  var self_: SdfBox = SdfBox(_cse0, _cse0, Material(_cse0, 0.0, 0.0, _cse0));
+  var self_: SDF_SdfBox = SDF_SdfBox(Material(_cse0, 0.0, 0.0, _cse0), _cse0, _cse0);
+  let _sup = SdfShape_new(material);
+  self_.material = _sup.material;
   self_.center = center;
   self_.halfSize = halfSize;
-  self_.material = material;
   return self_;
 }
 
-fn SdfTorus_distanceTo(self_: SdfTorus, point: vec3<f32>) -> f32 {
+fn SDF_SdfTorus_distanceTo(self_: SDF_SdfTorus, point: vec3<f32>) -> f32 {
   let local = (point - self_.center);
   let ring = (length(vec2<f32>(local.x, local.z)) - self_.majorRadius);
   return (length(vec2<f32>(ring, local.y)) - self_.minorRadius);
 }
 
-fn SdfTorus_new(center: vec3<f32>, majorRadius: f32, minorRadius: f32, material: Material) -> SdfTorus {
+fn SDF_SdfTorus_normalAt(self_: SDF_SdfTorus, point: vec3<f32>) -> vec3<f32> {
+  let _cse0 = vec3<f32>(0.0015, 0.0, 0.0);
+  let dx = (SDF_SdfTorus_distanceTo(self_, (point + _cse0)) - SDF_SdfTorus_distanceTo(self_, (point - _cse0)));
+  let _cse1 = vec3<f32>(0.0, 0.0015, 0.0);
+  let dy = (SDF_SdfTorus_distanceTo(self_, (point + _cse1)) - SDF_SdfTorus_distanceTo(self_, (point - _cse1)));
+  let _cse2 = vec3<f32>(0.0, 0.0, 0.0015);
+  let dz = (SDF_SdfTorus_distanceTo(self_, (point + _cse2)) - SDF_SdfTorus_distanceTo(self_, (point - _cse2)));
+  return normalize(vec3<f32>(dx, dy, dz));
+}
+
+fn SDF_SdfTorus_new(center: vec3<f32>, majorRadius: f32, minorRadius: f32, material: Material) -> SDF_SdfTorus {
   let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  var self_: SdfTorus = SdfTorus(_cse0, 0.0, 0.0, Material(_cse0, 0.0, 0.0, _cse0));
+  var self_: SDF_SdfTorus = SDF_SdfTorus(Material(_cse0, 0.0, 0.0, _cse0), _cse0, 0.0, 0.0);
+  let _sup = SdfShape_new(material);
+  self_.material = _sup.material;
   self_.center = center;
   self_.majorRadius = majorRadius;
   self_.minorRadius = minorRadius;
-  self_.material = material;
   return self_;
 }
 
-fn SdfPlane_distanceTo(self_: SdfPlane, point: vec3<f32>) -> f32 {
+fn SDF_SdfPlane_distanceTo(self_: SDF_SdfPlane, point: vec3<f32>) -> f32 {
   return (point.y - self_.height);
 }
 
-fn SdfPlane_new(height: f32, material: Material) -> SdfPlane {
+fn SDF_SdfPlane_normalAt(self_: SDF_SdfPlane, point: vec3<f32>) -> vec3<f32> {
+  let _cse0 = vec3<f32>(0.0015, 0.0, 0.0);
+  let dx = (SDF_SdfPlane_distanceTo(self_, (point + _cse0)) - SDF_SdfPlane_distanceTo(self_, (point - _cse0)));
+  let _cse1 = vec3<f32>(0.0, 0.0015, 0.0);
+  let dy = (SDF_SdfPlane_distanceTo(self_, (point + _cse1)) - SDF_SdfPlane_distanceTo(self_, (point - _cse1)));
+  let _cse2 = vec3<f32>(0.0, 0.0, 0.0015);
+  let dz = (SDF_SdfPlane_distanceTo(self_, (point + _cse2)) - SDF_SdfPlane_distanceTo(self_, (point - _cse2)));
+  return normalize(vec3<f32>(dx, dy, dz));
+}
+
+fn SDF_SdfPlane_new(height: f32, material: Material) -> SDF_SdfPlane {
   let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  var self_: SdfPlane = SdfPlane(0.0, Material(_cse0, 0.0, 0.0, _cse0));
+  var self_: SDF_SdfPlane = SDF_SdfPlane(Material(_cse0, 0.0, 0.0, _cse0), 0.0);
+  let _sup = SdfShape_new(material);
+  self_.material = _sup.material;
   self_.height = height;
-  self_.material = material;
   return self_;
 }
 
@@ -227,22 +278,22 @@ fn Camera_new(position: vec3<f32>, lookAt: vec3<f32>, fov: f32) -> Camera {
 fn Scene_sample(self_: Scene, point: vec3<f32>) -> Hit {
   var closestDistance: f32 = MAX_DISTANCE;
   var closestObjectIndex: i32 = -1;
-  let sphereDistance = SdfSphere_distanceTo(self_.redSphere, point);
+  let sphereDistance = SDF_SdfSphere_distanceTo(self_.redSphere, point);
   if ((sphereDistance < closestDistance)) {
     closestDistance = sphereDistance;
     closestObjectIndex = 0;
   }
-  let boxDistance = SdfBox_distanceTo(self_.blueBox, point);
+  let boxDistance = SDF_SdfBox_distanceTo(self_.blueBox, point);
   if ((boxDistance < closestDistance)) {
     closestDistance = boxDistance;
     closestObjectIndex = 1;
   }
-  let torusDistance = SdfTorus_distanceTo(self_.goldTorus, point);
+  let torusDistance = SDF_SdfTorus_distanceTo(self_.goldTorus, point);
   if ((torusDistance < closestDistance)) {
     closestDistance = torusDistance;
     closestObjectIndex = 2;
   }
-  let groundDistance = SdfPlane_distanceTo(self_.ground, point);
+  let groundDistance = SDF_SdfPlane_distanceTo(self_.ground, point);
   if ((groundDistance < closestDistance)) {
     closestDistance = groundDistance;
     closestObjectIndex = 3;
@@ -268,14 +319,17 @@ fn Scene_raymarch(self_: Scene, ray: Ray, maxDistance: f32) -> Hit {
   return Hit_new(-1.0, objectIndex);
 }
 
-fn Scene_normalAt(self_: Scene, point: vec3<f32>) -> vec3<f32> {
-  let _cse0 = vec3<f32>(0.0015, 0.0, 0.0);
-  let dx = (Scene_sample(self_, (point + _cse0)).distance - Scene_sample(self_, (point - _cse0)).distance);
-  let _cse1 = vec3<f32>(0.0, 0.0015, 0.0);
-  let dy = (Scene_sample(self_, (point + _cse1)).distance - Scene_sample(self_, (point - _cse1)).distance);
-  let _cse2 = vec3<f32>(0.0, 0.0, 0.0015);
-  let dz = (Scene_sample(self_, (point + _cse2)).distance - Scene_sample(self_, (point - _cse2)).distance);
-  return normalize(vec3<f32>(dx, dy, dz));
+fn Scene_normalAt(self_: Scene, index: i32, point: vec3<f32>) -> vec3<f32> {
+  if ((index == 0)) {
+    return SDF_SdfSphere_normalAt(self_.redSphere, point);
+  }
+  if ((index == 1)) {
+    return SDF_SdfBox_normalAt(self_.blueBox, point);
+  }
+  if ((index == 2)) {
+    return SDF_SdfTorus_normalAt(self_.goldTorus, point);
+  }
+  return SDF_SdfPlane_normalAt(self_.ground, point);
 }
 
 fn Scene_isVisible(self_: Scene, point: vec3<f32>, normal: vec3<f32>) -> bool {
@@ -303,11 +357,11 @@ fn Scene_materialAt(self_: Scene, index: i32) -> Material {
 fn Scene_new() -> Scene {
   let _cse1 = vec3<f32>(0.0, 0.0, 0.0);
   let _cse0 = Material(_cse1, 0.0, 0.0, _cse1);
-  var self_: Scene = Scene(SdfSphere(_cse1, 0.0, _cse0), SdfBox(_cse1, _cse1, _cse0), SdfTorus(_cse1, 0.0, 0.0, _cse0), SdfPlane(0.0, _cse0), PointLight(_cse1, _cse1, 0.0));
-  self_.redSphere = SdfSphere_new(vec3<f32>(-1.15, 0.2, -1.7), 1.0, Material_new(vec3<f32>(0.78, 0.12, 0.08), 0.0, 0.4, _cse1));
-  self_.blueBox = SdfBox_new(vec3<f32>(1.05, 0.25, -2.0), vec3<f32>(0.75, 0.75, 0.75), Material_new(vec3<f32>(0.08, 0.3, 0.84), 0.2, 0.3, _cse1));
-  self_.goldTorus = SdfTorus_new(vec3<f32>(0.0, 1.35, -2.9), 0.72, 0.24, Material_new(vec3<f32>(0.95, 0.65, 0.1), 0.9, 0.12, _cse1));
-  self_.ground = SdfPlane_new(-1.0, Material_new(vec3<f32>(0.68, 0.72, 0.8), 0.0, 0.92, _cse1));
+  var self_: Scene = Scene(SDF_SdfSphere(_cse0, _cse1, 0.0), SDF_SdfBox(_cse0, _cse1, _cse1), SDF_SdfTorus(_cse0, _cse1, 0.0, 0.0), SDF_SdfPlane(_cse0, 0.0), PointLight(_cse1, _cse1, 0.0));
+  self_.redSphere = SDF_SdfSphere_new(vec3<f32>(-1.15, 0.2, -1.7), 1.0, Material_new(vec3<f32>(0.78, 0.12, 0.08), 0.0, 0.4, _cse1));
+  self_.blueBox = SDF_SdfBox_new(vec3<f32>(1.05, 0.25, -2.0), vec3<f32>(0.75, 0.75, 0.75), Material_new(vec3<f32>(0.08, 0.3, 0.84), 0.2, 0.3, _cse1));
+  self_.goldTorus = SDF_SdfTorus_new(vec3<f32>(0.0, 1.35, -2.9), 0.72, 0.24, Material_new(vec3<f32>(0.95, 0.65, 0.1), 0.9, 0.12, _cse1));
+  self_.ground = SDF_SdfPlane_new(-1.0, Material_new(vec3<f32>(0.68, 0.72, 0.8), 0.0, 0.92, _cse1));
   self_.light = PointLight_new(vec3<f32>(-2.5, 4.8, 2.0), vec3<f32>(1.0, 0.88, 0.72), 70.0);
   return self_;
 }
@@ -325,7 +379,7 @@ fn Renderer_trace(self_: Renderer, primaryRay: Ray, seed0: f32) -> vec3<f32> {
       break;
     }
     let point = Ray_at(ray, hit.distance);
-    let normal = Scene_normalAt(_licm0, point);
+    let normal = Scene_normalAt(_licm0, hit.objectIndex, point);
     let material = Scene_materialAt(_licm0, hit.objectIndex);
     radiance += (throughput * Renderer_shade(self_, ray, point, normal, material));
     seed = (seed + 7.13);
@@ -359,7 +413,7 @@ fn Renderer_sky(self_: Renderer, ray: Ray) -> vec3<f32> {
 fn Renderer_new(scene: Scene) -> Renderer {
   let _cse1 = vec3<f32>(0.0, 0.0, 0.0);
   let _cse0 = Material(_cse1, 0.0, 0.0, _cse1);
-  var self_: Renderer = Renderer(Scene(SdfSphere(_cse1, 0.0, _cse0), SdfBox(_cse1, _cse1, _cse0), SdfTorus(_cse1, 0.0, 0.0, _cse0), SdfPlane(0.0, _cse0), PointLight(_cse1, _cse1, 0.0)));
+  var self_: Renderer = Renderer(Scene(SDF_SdfSphere(_cse0, _cse1, 0.0), SDF_SdfBox(_cse0, _cse1, _cse1), SDF_SdfTorus(_cse0, _cse1, 0.0, 0.0), SDF_SdfPlane(_cse0, 0.0), PointLight(_cse1, _cse1, 0.0)));
   self_.scene = scene;
   return self_;
 }
@@ -415,7 +469,8 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let _licm1 = u.resolution;
   let _licm2 = u.frame;
   let camera = createCamera(u.time);
-  let renderer = Renderer_new(Scene_new());
+  let scene = Scene_new();
+  let renderer = Renderer_new(scene);
   var color: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
   for (var sample: i32 = 0; (sample < SAMPLES_PER_PIXEL); sample = (sample + 1)) {
     color += renderSample(renderer, camera, _licm0, _licm1, _licm2, sample);

@@ -14,28 +14,32 @@ struct Material {
   vec3 emission;
 };
 
-struct SdfSphere {
+struct SdfShape {
+  Material material;
+};
+
+struct SDF_SdfSphere {
+  Material material;
   vec3 center;
   float radius;
-  Material material;
 };
 
-struct SdfBox {
+struct SDF_SdfBox {
+  Material material;
   vec3 center;
   vec3 halfSize;
-  Material material;
 };
 
-struct SdfTorus {
+struct SDF_SdfTorus {
+  Material material;
   vec3 center;
   float majorRadius;
   float minorRadius;
-  Material material;
 };
 
-struct SdfPlane {
-  float height;
+struct SDF_SdfPlane {
   Material material;
+  float height;
 };
 
 struct Hit {
@@ -56,10 +60,10 @@ struct Camera {
 };
 
 struct Scene {
-  SdfSphere redSphere;
-  SdfBox blueBox;
-  SdfTorus goldTorus;
-  SdfPlane ground;
+  SDF_SdfSphere redSphere;
+  SDF_SdfBox blueBox;
+  SDF_SdfTorus goldTorus;
+  SDF_SdfPlane ground;
   PointLight light;
 };
 
@@ -114,60 +118,111 @@ Material Material_new(vec3 albedo, float metallic, float roughness, vec3 emissio
   return self_;
 }
 
-float SdfSphere_distanceTo(SdfSphere self_, vec3 point) {
-  return (length((point - self_.center)) - self_.radius);
-}
-
-SdfSphere SdfSphere_new(vec3 center, float radius, Material material) {
+SdfShape SdfShape_new(Material material) {
   vec3 _cse0 = vec3(0.0, 0.0, 0.0);
-  SdfSphere self_ = SdfSphere(_cse0, 0.0, Material(_cse0, 0.0, 0.0, _cse0));
-  self_.center = center;
-  self_.radius = radius;
+  SdfShape self_ = SdfShape(Material(_cse0, 0.0, 0.0, _cse0));
   self_.material = material;
   return self_;
 }
 
-float SdfBox_distanceTo(SdfBox self_, vec3 point) {
+float SDF_SdfSphere_distanceTo(SDF_SdfSphere self_, vec3 point) {
+  return (length((point - self_.center)) - self_.radius);
+}
+
+vec3 SDF_SdfSphere_normalAt(SDF_SdfSphere self_, vec3 point) {
+  vec3 _cse0 = vec3(0.0015, 0.0, 0.0);
+  float dx = (SDF_SdfSphere_distanceTo(self_, (point + _cse0)) - SDF_SdfSphere_distanceTo(self_, (point - _cse0)));
+  vec3 _cse1 = vec3(0.0, 0.0015, 0.0);
+  float dy = (SDF_SdfSphere_distanceTo(self_, (point + _cse1)) - SDF_SdfSphere_distanceTo(self_, (point - _cse1)));
+  vec3 _cse2 = vec3(0.0, 0.0, 0.0015);
+  float dz = (SDF_SdfSphere_distanceTo(self_, (point + _cse2)) - SDF_SdfSphere_distanceTo(self_, (point - _cse2)));
+  return normalize(vec3(dx, dy, dz));
+}
+
+SDF_SdfSphere SDF_SdfSphere_new(vec3 center, float radius, Material material) {
+  vec3 _cse0 = vec3(0.0, 0.0, 0.0);
+  SDF_SdfSphere self_ = SDF_SdfSphere(Material(_cse0, 0.0, 0.0, _cse0), _cse0, 0.0);
+  SdfShape _sup = SdfShape_new(material);
+  self_.material = _sup.material;
+  self_.center = center;
+  self_.radius = radius;
+  return self_;
+}
+
+float SDF_SdfBox_distanceTo(SDF_SdfBox self_, vec3 point) {
   vec3 local = (abs((point - self_.center)) - self_.halfSize);
   vec3 outside = max(local, vec3(0.0, 0.0, 0.0));
   float inside = min(max(local.x, max(local.y, local.z)), 0.0);
   return (length(outside) + inside);
 }
 
-SdfBox SdfBox_new(vec3 center, vec3 halfSize, Material material) {
+vec3 SDF_SdfBox_normalAt(SDF_SdfBox self_, vec3 point) {
+  vec3 _cse0 = vec3(0.0015, 0.0, 0.0);
+  float dx = (SDF_SdfBox_distanceTo(self_, (point + _cse0)) - SDF_SdfBox_distanceTo(self_, (point - _cse0)));
+  vec3 _cse1 = vec3(0.0, 0.0015, 0.0);
+  float dy = (SDF_SdfBox_distanceTo(self_, (point + _cse1)) - SDF_SdfBox_distanceTo(self_, (point - _cse1)));
+  vec3 _cse2 = vec3(0.0, 0.0, 0.0015);
+  float dz = (SDF_SdfBox_distanceTo(self_, (point + _cse2)) - SDF_SdfBox_distanceTo(self_, (point - _cse2)));
+  return normalize(vec3(dx, dy, dz));
+}
+
+SDF_SdfBox SDF_SdfBox_new(vec3 center, vec3 halfSize, Material material) {
   vec3 _cse0 = vec3(0.0, 0.0, 0.0);
-  SdfBox self_ = SdfBox(_cse0, _cse0, Material(_cse0, 0.0, 0.0, _cse0));
+  SDF_SdfBox self_ = SDF_SdfBox(Material(_cse0, 0.0, 0.0, _cse0), _cse0, _cse0);
+  SdfShape _sup = SdfShape_new(material);
+  self_.material = _sup.material;
   self_.center = center;
   self_.halfSize = halfSize;
-  self_.material = material;
   return self_;
 }
 
-float SdfTorus_distanceTo(SdfTorus self_, vec3 point) {
+float SDF_SdfTorus_distanceTo(SDF_SdfTorus self_, vec3 point) {
   vec3 local = (point - self_.center);
   float ring = (length(vec2(local.x, local.z)) - self_.majorRadius);
   return (length(vec2(ring, local.y)) - self_.minorRadius);
 }
 
-SdfTorus SdfTorus_new(vec3 center, float majorRadius, float minorRadius, Material material) {
+vec3 SDF_SdfTorus_normalAt(SDF_SdfTorus self_, vec3 point) {
+  vec3 _cse0 = vec3(0.0015, 0.0, 0.0);
+  float dx = (SDF_SdfTorus_distanceTo(self_, (point + _cse0)) - SDF_SdfTorus_distanceTo(self_, (point - _cse0)));
+  vec3 _cse1 = vec3(0.0, 0.0015, 0.0);
+  float dy = (SDF_SdfTorus_distanceTo(self_, (point + _cse1)) - SDF_SdfTorus_distanceTo(self_, (point - _cse1)));
+  vec3 _cse2 = vec3(0.0, 0.0, 0.0015);
+  float dz = (SDF_SdfTorus_distanceTo(self_, (point + _cse2)) - SDF_SdfTorus_distanceTo(self_, (point - _cse2)));
+  return normalize(vec3(dx, dy, dz));
+}
+
+SDF_SdfTorus SDF_SdfTorus_new(vec3 center, float majorRadius, float minorRadius, Material material) {
   vec3 _cse0 = vec3(0.0, 0.0, 0.0);
-  SdfTorus self_ = SdfTorus(_cse0, 0.0, 0.0, Material(_cse0, 0.0, 0.0, _cse0));
+  SDF_SdfTorus self_ = SDF_SdfTorus(Material(_cse0, 0.0, 0.0, _cse0), _cse0, 0.0, 0.0);
+  SdfShape _sup = SdfShape_new(material);
+  self_.material = _sup.material;
   self_.center = center;
   self_.majorRadius = majorRadius;
   self_.minorRadius = minorRadius;
-  self_.material = material;
   return self_;
 }
 
-float SdfPlane_distanceTo(SdfPlane self_, vec3 point) {
+float SDF_SdfPlane_distanceTo(SDF_SdfPlane self_, vec3 point) {
   return (point.y - self_.height);
 }
 
-SdfPlane SdfPlane_new(float height, Material material) {
+vec3 SDF_SdfPlane_normalAt(SDF_SdfPlane self_, vec3 point) {
+  vec3 _cse0 = vec3(0.0015, 0.0, 0.0);
+  float dx = (SDF_SdfPlane_distanceTo(self_, (point + _cse0)) - SDF_SdfPlane_distanceTo(self_, (point - _cse0)));
+  vec3 _cse1 = vec3(0.0, 0.0015, 0.0);
+  float dy = (SDF_SdfPlane_distanceTo(self_, (point + _cse1)) - SDF_SdfPlane_distanceTo(self_, (point - _cse1)));
+  vec3 _cse2 = vec3(0.0, 0.0, 0.0015);
+  float dz = (SDF_SdfPlane_distanceTo(self_, (point + _cse2)) - SDF_SdfPlane_distanceTo(self_, (point - _cse2)));
+  return normalize(vec3(dx, dy, dz));
+}
+
+SDF_SdfPlane SDF_SdfPlane_new(float height, Material material) {
   vec3 _cse0 = vec3(0.0, 0.0, 0.0);
-  SdfPlane self_ = SdfPlane(0.0, Material(_cse0, 0.0, 0.0, _cse0));
+  SDF_SdfPlane self_ = SDF_SdfPlane(Material(_cse0, 0.0, 0.0, _cse0), 0.0);
+  SdfShape _sup = SdfShape_new(material);
+  self_.material = _sup.material;
   self_.height = height;
-  self_.material = material;
   return self_;
 }
 
@@ -218,22 +273,22 @@ Camera Camera_new(vec3 position, vec3 lookAt, float fov) {
 Hit Scene_sample(Scene self_, vec3 point) {
   float closestDistance = MAX_DISTANCE;
   int closestObjectIndex = -1;
-  float sphereDistance = SdfSphere_distanceTo(self_.redSphere, point);
+  float sphereDistance = SDF_SdfSphere_distanceTo(self_.redSphere, point);
   if ((sphereDistance < closestDistance)) {
     closestDistance = sphereDistance;
     closestObjectIndex = 0;
   }
-  float boxDistance = SdfBox_distanceTo(self_.blueBox, point);
+  float boxDistance = SDF_SdfBox_distanceTo(self_.blueBox, point);
   if ((boxDistance < closestDistance)) {
     closestDistance = boxDistance;
     closestObjectIndex = 1;
   }
-  float torusDistance = SdfTorus_distanceTo(self_.goldTorus, point);
+  float torusDistance = SDF_SdfTorus_distanceTo(self_.goldTorus, point);
   if ((torusDistance < closestDistance)) {
     closestDistance = torusDistance;
     closestObjectIndex = 2;
   }
-  float groundDistance = SdfPlane_distanceTo(self_.ground, point);
+  float groundDistance = SDF_SdfPlane_distanceTo(self_.ground, point);
   if ((groundDistance < closestDistance)) {
     closestDistance = groundDistance;
     closestObjectIndex = 3;
@@ -259,14 +314,17 @@ Hit Scene_raymarch(Scene self_, Ray ray, float maxDistance) {
   return Hit_new(-1.0, objectIndex);
 }
 
-vec3 Scene_normalAt(Scene self_, vec3 point) {
-  vec3 _cse0 = vec3(0.0015, 0.0, 0.0);
-  float dx = (Scene_sample(self_, (point + _cse0)).distance - Scene_sample(self_, (point - _cse0)).distance);
-  vec3 _cse1 = vec3(0.0, 0.0015, 0.0);
-  float dy = (Scene_sample(self_, (point + _cse1)).distance - Scene_sample(self_, (point - _cse1)).distance);
-  vec3 _cse2 = vec3(0.0, 0.0, 0.0015);
-  float dz = (Scene_sample(self_, (point + _cse2)).distance - Scene_sample(self_, (point - _cse2)).distance);
-  return normalize(vec3(dx, dy, dz));
+vec3 Scene_normalAt(Scene self_, int index, vec3 point) {
+  if ((index == 0)) {
+    return SDF_SdfSphere_normalAt(self_.redSphere, point);
+  }
+  if ((index == 1)) {
+    return SDF_SdfBox_normalAt(self_.blueBox, point);
+  }
+  if ((index == 2)) {
+    return SDF_SdfTorus_normalAt(self_.goldTorus, point);
+  }
+  return SDF_SdfPlane_normalAt(self_.ground, point);
 }
 
 bool Scene_isVisible(Scene self_, vec3 point, vec3 normal) {
@@ -294,11 +352,11 @@ Material Scene_materialAt(Scene self_, int index) {
 Scene Scene_new() {
   vec3 _cse1 = vec3(0.0, 0.0, 0.0);
   Material _cse0 = Material(_cse1, 0.0, 0.0, _cse1);
-  Scene self_ = Scene(SdfSphere(_cse1, 0.0, _cse0), SdfBox(_cse1, _cse1, _cse0), SdfTorus(_cse1, 0.0, 0.0, _cse0), SdfPlane(0.0, _cse0), PointLight(_cse1, _cse1, 0.0));
-  self_.redSphere = SdfSphere_new(vec3(-1.15, 0.2, -1.7), 1.0, Material_new(vec3(0.78, 0.12, 0.08), 0.0, 0.4, _cse1));
-  self_.blueBox = SdfBox_new(vec3(1.05, 0.25, -2.0), vec3(0.75, 0.75, 0.75), Material_new(vec3(0.08, 0.3, 0.84), 0.2, 0.3, _cse1));
-  self_.goldTorus = SdfTorus_new(vec3(0.0, 1.35, -2.9), 0.72, 0.24, Material_new(vec3(0.95, 0.65, 0.1), 0.9, 0.12, _cse1));
-  self_.ground = SdfPlane_new(-1.0, Material_new(vec3(0.68, 0.72, 0.8), 0.0, 0.92, _cse1));
+  Scene self_ = Scene(SDF_SdfSphere(_cse0, _cse1, 0.0), SDF_SdfBox(_cse0, _cse1, _cse1), SDF_SdfTorus(_cse0, _cse1, 0.0, 0.0), SDF_SdfPlane(_cse0, 0.0), PointLight(_cse1, _cse1, 0.0));
+  self_.redSphere = SDF_SdfSphere_new(vec3(-1.15, 0.2, -1.7), 1.0, Material_new(vec3(0.78, 0.12, 0.08), 0.0, 0.4, _cse1));
+  self_.blueBox = SDF_SdfBox_new(vec3(1.05, 0.25, -2.0), vec3(0.75, 0.75, 0.75), Material_new(vec3(0.08, 0.3, 0.84), 0.2, 0.3, _cse1));
+  self_.goldTorus = SDF_SdfTorus_new(vec3(0.0, 1.35, -2.9), 0.72, 0.24, Material_new(vec3(0.95, 0.65, 0.1), 0.9, 0.12, _cse1));
+  self_.ground = SDF_SdfPlane_new(-1.0, Material_new(vec3(0.68, 0.72, 0.8), 0.0, 0.92, _cse1));
   self_.light = PointLight_new(vec3(-2.5, 4.8, 2.0), vec3(1.0, 0.88, 0.72), 70.0);
   return self_;
 }
@@ -347,7 +405,7 @@ vec3 Renderer_trace(Renderer self_, Ray primaryRay, float seed0) {
       break;
     }
     vec3 point = Ray_at(ray, hit.distance);
-    vec3 normal = Scene_normalAt(_licm0, point);
+    vec3 normal = Scene_normalAt(_licm0, hit.objectIndex, point);
     Material material = Scene_materialAt(_licm0, hit.objectIndex);
     radiance += (throughput * Renderer_shade(self_, ray, point, normal, material));
     seed = (seed + 7.13);
@@ -364,7 +422,7 @@ vec3 Renderer_trace(Renderer self_, Ray primaryRay, float seed0) {
 Renderer Renderer_new(Scene scene) {
   vec3 _cse1 = vec3(0.0, 0.0, 0.0);
   Material _cse0 = Material(_cse1, 0.0, 0.0, _cse1);
-  Renderer self_ = Renderer(Scene(SdfSphere(_cse1, 0.0, _cse0), SdfBox(_cse1, _cse1, _cse0), SdfTorus(_cse1, 0.0, 0.0, _cse0), SdfPlane(0.0, _cse0), PointLight(_cse1, _cse1, 0.0)));
+  Renderer self_ = Renderer(Scene(SDF_SdfSphere(_cse0, _cse1, 0.0), SDF_SdfBox(_cse0, _cse1, _cse1), SDF_SdfTorus(_cse0, _cse1, 0.0, 0.0), SDF_SdfPlane(_cse0, 0.0), PointLight(_cse1, _cse1, 0.0)));
   self_.scene = scene;
   return self_;
 }
@@ -399,7 +457,8 @@ void main() {
   vec2 _licm1 = u.resolution;
   float _licm2 = u.frame;
   Camera camera = createCamera(u.time);
-  Renderer renderer = Renderer_new(Scene_new());
+  Scene scene = Scene_new();
+  Renderer renderer = Renderer_new(scene);
   vec3 color = vec3(0.0, 0.0, 0.0);
   for (int sample_ = 0; (sample_ < SAMPLES_PER_PIXEL); sample_ = (sample_ + 1)) {
     color += renderSample(renderer, camera, _licm0, _licm1, _licm2, sample_);
