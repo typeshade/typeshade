@@ -1,0 +1,29 @@
+name: RT renderer image golden proof
+
+on:
+  push:
+    branches:
+      - test/rt-renderer-image-golden
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    name: render RT golden (WebGPU + SwiftShader)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - run: bun run build
+      - run: bun scripts/render-rt-golden.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rt-renderer-image-golden
+          path: artifacts/rt-renderer-class-256.png
+          if-no-files-found: error
