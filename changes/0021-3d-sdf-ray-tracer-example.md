@@ -12,7 +12,7 @@ examples:
 downstream: []
 ---
 
-<!-- doc-refs: skip-file — this proposal names the example and tests it adds; it does not change language rules or the public API -->
+<!-- doc-refs: skip-file — a proposal names the tests and the messages it will add, which this tree does not have yet -->
 
 ## What changes
 
