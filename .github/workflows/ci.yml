@@ -2,7 +2,7 @@ name: ci
 
 # Verifies: Rule 13.4 (docs/language-design.md; traced in reqs/).
 
-# TypeShade's gate. Three jobs, on every push to main and every pull request:
+# TypeShade's gate. Four jobs, on every push to main and every pull request:
 #
 #   check         `tsc --build` (the emitting project) + `tsc -p tsconfig.tests.json` (the
 #                 noEmit pass over tests, examples and scripts), ESLint, the format check
@@ -28,6 +28,9 @@ name: ci
 #                 journeys/ is compiled with the installed `compile()`, checked by the
 #                 language service and plain tsc, run on WebGPU, and matched against its own
 #                 plain-JavaScript reference and the CPU oracle. See scripts/user-journey.ts.
+#   render-gate the merged class-based 3D SDF ray tracer is actually rendered on WebGPU in
+#                 headless Chromium and its 48x48 RGBA8 pixels are compared exactly against
+#                 the committed image golden. See scripts/render-rt-golden.ts.
 #
 # The browser is installed with the PROJECT-LOCAL playwright bin, never `bunx playwright`:
 # bunx fetches the standalone package at whatever version is newest, installs THAT
@@ -133,4 +136,23 @@ jobs:
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - run: bun run build
       - run: bun run gate:journeys
+
+  render-gate:
+    name: render gate (WebGPU + pixel golden)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - run: bun run gate:render
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rt-renderer-render
+          path: artifacts/rt-renderer-class-48.png
+          if-no-files-found: error
 # LINT.ThenChange(AGENTS.md:tests)
