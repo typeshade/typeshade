@@ -1,5 +1,5 @@
 // Render the merged class-based 3D SDF example on a real WebGPU device (SwiftShader in CI),
-// read the RGBA8 render target back, and write a dependency-free PNG.
+// read the RGBA8 render target back, and validate it against a dependency-free PNG golden.
 // This is deliberately separate from emit goldens: the source text may emit correctly while the
 // executable shader still renders the wrong pixels.
 
