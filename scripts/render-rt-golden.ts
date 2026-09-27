@@ -396,7 +396,7 @@ try {
   mkdirSync('artifacts', { recursive: true });
   const rgba = new Uint8Array(first.pixels);
   const png = pngRgba8(WIDTH, HEIGHT, rgba);
-  writeFileSync('artifacts/rt-renderer-class-128.png', png);
+  writeFileSync('artifacts/rt-renderer-class-64.png', png);
 
   if (UPDATE) {
     mkdirSync(new URL('.', GOLDEN_URL), { recursive: true });
