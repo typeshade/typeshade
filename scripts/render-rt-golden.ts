@@ -4,6 +4,7 @@
 // executable shader still renders the wrong pixels.
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { Buffer } from 'node:buffer';
 import { createServer } from 'node:http';
 import { deflateSync, inflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
@@ -397,6 +398,9 @@ try {
     const golden = new Uint8Array(readFileSync(GOLDEN_URL));
     const comparison = compareGolden(rgba, golden);
     if (comparison.differingPixels !== 0) {
+      if (process.env.RT_PRINT_MISMATCH_BASE64 === '1') {
+        console.log('RT_RENDER_GOLDEN_BASE64=' + Buffer.from(png).toString('base64'));
+      }
       throw new Error(
         'RT render differs from golden: ' +
           String(comparison.differingPixels) +
@@ -421,7 +425,7 @@ try {
   console.log('byte-identical rerender: yes');
   console.log('channel range: ' + String(min) + '..' + String(max));
   console.log('non-background pixels: ' + String(nonBackground) + '/' + String(WIDTH * HEIGHT));
-  console.log('wrote artifacts/rt-renderer-class-128.png');
+  console.log('wrote artifacts/rt-renderer-class-48.png');
 } finally {
   await browser.close();
   server.close();
