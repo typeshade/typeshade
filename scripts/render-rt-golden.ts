@@ -4,7 +4,6 @@
 // executable shader still renders the wrong pixels.
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { Buffer } from 'node:buffer';
 import { createServer } from 'node:http';
 import { deflateSync, inflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
@@ -398,9 +397,6 @@ try {
     const golden = new Uint8Array(readFileSync(GOLDEN_URL));
     const comparison = compareGolden(rgba, golden);
     if (comparison.differingPixels !== 0) {
-      if (process.env.RT_PRINT_MISMATCH_BASE64 === '1') {
-        console.log('RT_RENDER_GOLDEN_BASE64=' + Buffer.from(png).toString('base64'));
-      }
       throw new Error(
         'RT render differs from golden: ' +
           String(comparison.differingPixels) +
