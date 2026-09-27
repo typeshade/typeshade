@@ -10,12 +10,12 @@ import { chromium } from 'playwright';
 import { compile, reflect } from '../src/index.js';
 import type { Page } from 'playwright';
 
-const WIDTH = 128;
-const HEIGHT = 128;
+const WIDTH = 64;
+const HEIGHT = 64;
 const TIME = 1.25;
 const FRAME = 0;
 const UPDATE = process.env.UPDATE_RT_GOLDEN === '1';
-const GOLDEN_URL = new URL('./__render-goldens__/rt-renderer-class-128.png', import.meta.url);
+const GOLDEN_URL = new URL('./__render-goldens__/rt-renderer-class-64.png', import.meta.url);
 
 const sourceUrl = new URL('../examples/rt-renderer-class.shade.ts', import.meta.url);
 const source = readFileSync(sourceUrl, 'utf8');
