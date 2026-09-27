@@ -3,11 +3,11 @@
 // This is deliberately separate from emit goldens: the source text may emit correctly while the
 // executable shader still renders the wrong pixels.
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { deflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
-import { compile, reflect } from '../src/index.ts';
+import { compile, reflect } from '../src/index.js';
 import type { Page } from 'playwright';
 
 const WIDTH = 256;
@@ -16,7 +16,7 @@ const TIME = 1.25;
 const FRAME = 0;
 
 const sourceUrl = new URL('../examples/rt-renderer-class.shade.ts', import.meta.url);
-const source = await Bun.file(sourceUrl).text();
+const source = readFileSync(sourceUrl, 'utf8');
 const result = compile(source, { fileName: 'examples/rt-renderer-class.shade.ts' });
 
 if (result.diagnostics.length > 0) {
@@ -27,6 +27,7 @@ if (result.diagnostics.length > 0) {
 if (!result.wgsl || !result.module) {
   throw new Error('RT renderer did not produce WGSL + IR module');
 }
+const wgsl = result.wgsl;
 
 const reflection = reflect(result.module);
 const uniform = reflection.bindGroups
@@ -34,6 +35,7 @@ const uniform = reflection.bindGroups
   ?.entries.find((e) => e.space === 'uniform');
 
 if (!uniform) throw new Error('RT renderer has no group(0) uniform binding');
+const uniformBinding = uniform.binding;
 
 function crc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
@@ -202,8 +204,8 @@ async function renderOnGpu(page: Page): Promise<RenderResult> {
       };
     },
     {
-      wgsl: result.wgsl,
-      binding: uniform.binding,
+      wgsl,
+      binding: uniformBinding,
       width: WIDTH,
       height: HEIGHT,
       time: TIME,
