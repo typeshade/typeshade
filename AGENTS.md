@@ -66,7 +66,7 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
 - `bun run test`: vitest over `src/**` and `examples/**`.
 - `bun run gate:compile`: every registered example emitted and compiled. Needs Chromium once:
   `./node_modules/.bin/playwright install --only-shell chromium`.
-- `bun run gate:render`: the class-based 3D SDF example is rendered on headless WebGPU and its 128x128 RGBA8 pixels are compared exactly with the committed image golden. Use `UPDATE_RT_GOLDEN=1 bun run gate:render` only for an intentional golden refresh.
+- `bun run gate:render`: the class-based 3D SDF example is rendered on headless WebGPU and its 64x64 RGBA8 pixels are compared exactly with the committed image golden. Use `UPDATE_RT_GOLDEN=1 bun run gate:render` only for an intentional golden refresh.
 - `bun run gate:journeys` (after `build`): the packed tarball installed into a fresh project,
   and every program in `journeys/` checked the way a user meets it: `compile()`, the language
   service, the README's `tsconfig.shade.json` <!-- doc-refs: skip — the file a user writes, not one in this tree -->, WebGPU and the CPU oracle against the journey's
