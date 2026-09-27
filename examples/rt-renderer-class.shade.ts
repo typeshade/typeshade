@@ -8,7 +8,7 @@
 }
 */
 
-// SDF renderer: the site/CI example exercises classes, namespaces, inheritance, and golden emission.
+// Real 3D SDF renderer example: classes, namespaces, inheritance, and target goldens.
 
 const SURFACE_EPSILON: f32 = 0.001;
 const RAY_EPSILON: f32 = 0.003;
