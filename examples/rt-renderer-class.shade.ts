@@ -19,6 +19,7 @@ const SAMPLES_PER_PIXEL: i32 = 2;
 
 class VsOut {
   @builtin("position") pos: vec4;
+  @location(0) ndc: vec2;
 }
 
 interface Frame {
@@ -573,22 +574,26 @@ function pixelJitter(
 function renderSample(
   renderer: Renderer,
   camera: Camera,
-  position: vec2,
+  ndc: vec2,
   resolution: vec2,
   frame: f32,
   sample: i32,
 ): vec3 {
-  const uv = (position - resolution * 0.5 + vec2(0.5))
-    / resolution.y;
-  const jitter = pixelJitter(position, frame, sample);
-  const sampleUv = vec2(
-    uv.x + jitter.x / resolution.x,
-    uv.y + jitter.y / resolution.y,
+  // Use a user-defined NDC varying instead of @builtin(position): WGSL fragment position is
+  // top-left-origin while GLSL gl_FragCoord is bottom-left-origin. NDC is shared by both targets.
+  const pixel = (ndc * 0.5 + vec2(0.5)) * resolution;
+  const jitter = pixelJitter(pixel, frame, sample);
+  const sampleNdc = ndc + vec2(
+    jitter.x * 2. / resolution.x,
+    jitter.y * 2. / resolution.y,
   );
   const ray = camera.rayFor(
-    sampleUv * vec2(resolution.x / resolution.y, 1.),
+    vec2(
+      sampleNdc.x * resolution.x / resolution.y,
+      sampleNdc.y,
+    ),
   );
-  const seed = dot(position, vec2(17.17, 73.19))
+  const seed = dot(pixel, vec2(17.17, 73.19))
     + frame * 11.3
     + f32(sample) * 3.7;
 
@@ -607,6 +612,7 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 
   return {
     pos: vec4(x, y, 0., 1.),
+    ndc: vec2(x, y),
   };
 }
 
@@ -621,7 +627,7 @@ export function fs(v: VsOut): vec4 {
     color += renderSample(
       renderer,
       camera,
-      v.pos.xy,
+      v.ndc,
       u.resolution,
       u.frame,
       sample,

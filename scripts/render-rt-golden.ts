@@ -421,7 +421,7 @@ try {
   console.log('byte-identical rerender: yes');
   console.log('channel range: ' + String(min) + '..' + String(max));
   console.log('non-background pixels: ' + String(nonBackground) + '/' + String(WIDTH * HEIGHT));
-  console.log('wrote artifacts/rt-renderer-class-128.png');
+  console.log('wrote artifacts/rt-renderer-class-48.png');
 } finally {
   await browser.close();
   server.close();
