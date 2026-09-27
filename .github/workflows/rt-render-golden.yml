@@ -25,5 +25,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: rt-renderer-image-golden
-          path: artifacts/rt-renderer-class-256.png
+          path: artifacts/rt-renderer-class-128.png
           if-no-files-found: error
