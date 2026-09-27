@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Class-based 3D SDF ray tracer",
-  "blurb": "A 3D signed-distance-field renderer written as ordinary TypeShade classes. Sphere, box, torus and plane objects expose distance functions; Scene performs sphere tracing and finite-difference normals, while Renderer handles lighting, reflections and sampling.",
+  "blurb": "A 3D signed-distance-field renderer built with an abstract SdfShape base class and concrete Sphere, Box, Torus and Plane subclasses. The shared base owns materials and finite-difference normals; each subclass supplies its distance field, while Scene performs sphere tracing and Renderer handles lighting, reflections and sampling.",
   "renderable": true
 }
 */
@@ -91,43 +91,60 @@ class Material {
   }
 }
 
-class SdfSphere {
+abstract class SdfShape {
+  material: Material;
+
+  constructor(material: Material) {
+    this.material = material;
+  }
+
+  /** Every concrete primitive supplies its signed distance; the shared normal uses that method. */
+  abstract distanceTo(point: vec3): f32;
+
+  normalAt(point: vec3): vec3 {
+    const epsilon = 0.0015;
+    const dx = this.distanceTo(point + vec3(epsilon, 0., 0.))
+      - this.distanceTo(point - vec3(epsilon, 0., 0.));
+    const dy = this.distanceTo(point + vec3(0., epsilon, 0.))
+      - this.distanceTo(point - vec3(0., epsilon, 0.));
+    const dz = this.distanceTo(point + vec3(0., 0., epsilon))
+      - this.distanceTo(point - vec3(0., 0., epsilon));
+
+    return normalize(vec3(dx, dy, dz));
+  }
+}
+
+class SdfSphere extends SdfShape {
   center: vec3;
   radius: f32;
-  material: Material;
 
   constructor(
     center: vec3,
     radius: f32,
     material: Material,
   ) {
+    super(material);
     this.center = center;
     this.radius = radius;
-    this.material = material;
   }
 
   distanceTo(point: vec3): f32 {
     return length(point - this.center) - this.radius;
   }
-
-  normalAt(point: vec3): vec3 {
-    return normalize(point - this.center);
-  }
 }
 
-class SdfBox {
+class SdfBox extends SdfShape {
   center: vec3;
   halfSize: vec3;
-  material: Material;
 
   constructor(
     center: vec3,
     halfSize: vec3,
     material: Material,
   ) {
+    super(material);
     this.center = center;
     this.halfSize = halfSize;
-    this.material = material;
   }
 
   distanceTo(point: vec3): f32 {
@@ -141,11 +158,10 @@ class SdfBox {
   }
 }
 
-class SdfTorus {
+class SdfTorus extends SdfShape {
   center: vec3;
   majorRadius: f32;
   minorRadius: f32;
-  material: Material;
 
   constructor(
     center: vec3,
@@ -153,10 +169,10 @@ class SdfTorus {
     minorRadius: f32,
     material: Material,
   ) {
+    super(material);
     this.center = center;
     this.majorRadius = majorRadius;
     this.minorRadius = minorRadius;
-    this.material = material;
   }
 
   distanceTo(point: vec3): f32 {
@@ -166,16 +182,15 @@ class SdfTorus {
   }
 }
 
-class SdfPlane {
+class SdfPlane extends SdfShape {
   height: f32;
-  material: Material;
 
   constructor(
     height: f32,
     material: Material,
   ) {
+    super(material);
     this.height = height;
-    this.material = material;
   }
 
   distanceTo(point: vec3): f32 {
@@ -363,17 +378,17 @@ class Scene {
     return new Hit(-1., objectIndex);
   }
 
-  normalAt(point: vec3): vec3 {
-    const epsilon = 0.0015;
-
-    const dx = this.sample(point + vec3(epsilon, 0., 0.)).distance
-      - this.sample(point - vec3(epsilon, 0., 0.)).distance;
-    const dy = this.sample(point + vec3(0., epsilon, 0.)).distance
-      - this.sample(point - vec3(0., epsilon, 0.)).distance;
-    const dz = this.sample(point + vec3(0., 0., epsilon)).distance
-      - this.sample(point - vec3(0., 0., epsilon)).distance;
-
-    return normalize(vec3(dx, dy, dz));
+  normalAt(index: i32, point: vec3): vec3 {
+    if (index === 0) {
+      return this.redSphere.normalAt(point);
+    }
+    if (index === 1) {
+      return this.blueBox.normalAt(point);
+    }
+    if (index === 2) {
+      return this.goldTorus.normalAt(point);
+    }
+    return this.ground.normalAt(point);
   }
 
   isVisible(point: vec3, normal: vec3): bool {
@@ -425,7 +440,7 @@ class Renderer {
       }
 
       const point = ray.at(hit.distance);
-      const normal = this.scene.normalAt(point);
+      const normal = this.scene.normalAt(hit.objectIndex, point);
       const material = this.scene.materialAt(hit.objectIndex);
 
       radiance += throughput * this.shade(
