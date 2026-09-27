@@ -221,21 +221,21 @@ class PointLight {
 
 class Camera {
   position: vec3;
-  target: vec3;
+  lookAt: vec3;
   fov: f32;
 
   constructor(
     position: vec3,
-    target: vec3,
+    lookAt: vec3,
     fov: f32,
   ) {
     this.position = position;
-    this.target = target;
+    this.lookAt = lookAt;
     this.fov = fov;
   }
 
   rayFor(ndc: vec2): Ray {
-    const forward = normalize(this.target - this.position);
+    const forward = normalize(this.lookAt - this.position);
     const right = normalize(cross(forward, vec3(0., 1., 0.)));
     const up = cross(right, forward);
     const scale = tan(this.fov * 0.5);
@@ -390,13 +390,13 @@ class Scene {
   }
 
   materialAt(index: i32): Material {
-    if (index == 0) {
+    if (index === 0) {
       return this.redSphere.material;
     }
-    if (index == 1) {
+    if (index === 1) {
       return this.blueBox.material;
     }
-    if (index == 2) {
+    if (index === 2) {
       return this.goldTorus.material;
     }
     return this.ground.material;
