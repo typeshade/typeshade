@@ -315,7 +315,10 @@ class Scene {
     const normal = sphere.normalAt(point);
     const viewDirection = -ray.direction;
     const lightDirection = normalize(this.light.position - point);
-    const visibility = this.isVisible(point, normal) ? 1. : 0.;
+    let visibility: f32 = 0.;
+    if (this.isVisible(point, normal)) {
+      visibility = 1.;
+    }
 
     return sphere.material.emission
       + visibility
@@ -381,7 +384,7 @@ class Renderer {
 
       seed = seed + 7.13;
       const diffuseDirection = cosineDirection(normal, seed);
-      const reflectedDirection = reflect(ray.direction, normal);
+      const reflectedDirection = reflectDirection(ray.direction, normal);
       const bounceAmount = sphere.material.metallic
         + (1. - sphere.material.roughness) * 0.25;
       const nextDirection = normalize(
@@ -422,7 +425,7 @@ function cosineDirection(normal: vec3, seed: f32): vec3 {
   );
 }
 
-function reflect(direction: vec3, normal: vec3): vec3 {
+function reflectDirection(direction: vec3, normal: vec3): vec3 {
   return direction - normal * (2. * dot(direction, normal));
 }
 
