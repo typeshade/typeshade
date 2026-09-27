@@ -30,7 +30,7 @@ jobs:
           const result = compile(source);
           const errors = result.diagnostics.filter((d) => d.category === 'error');
           if (errors.length > 0) {
-            throw new Error(errors.map((d) => \`\${d.line}:\${d.character} \${d.code ?? '—'} \${d.message}\`).join('\\n'));
+            throw new Error(errors.map((d) => String(d.line) + ':' + String(d.character) + ' ' + String(d.code ?? '—') + ' ' + d.message).join(String.fromCharCode(10)));
           }
 
           writeFileSync('examples/__emit-goldens__/rt-renderer-class.wgsl', emitModule(result.module));
