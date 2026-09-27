@@ -117,42 +117,6 @@ jobs:
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - run: bun run gate:compile
 
-  bake-rt-goldens:
-    name: bake RT renderer goldens
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - run: bun install
-      - name: emit RT renderer goldens
-        run: |
-          mkdir -p examples/__emit-goldens__
-          bun - <<'EOF'
-          import { readFileSync, writeFileSync } from 'node:fs';
-          import { compile, emitModule, emitGlslModule } from './src/index.ts';
-
-          const source = readFileSync('examples/rt-renderer-class.shade.ts', 'utf8');
-          const result = compile(source);
-          const errors = result.diagnostics.filter((d) => d.category === 'error');
-          if (errors.length > 0) {
-            throw new Error(errors.map((d) => `${d.line}:${d.character} ${d.code ?? '—'} ${d.message}`).join('\n'));
-          }
-
-          writeFileSync('examples/__emit-goldens__/rt-renderer-class.wgsl', emitModule(result.module));
-          writeFileSync('examples/__emit-goldens__/rt-renderer-class.vertex.glsl', emitGlslModule(result.module, 'vertex'));
-          writeFileSync('examples/__emit-goldens__/rt-renderer-class.fragment.glsl', emitGlslModule(result.module, 'fragment'));
-          EOF
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rt-renderer-goldens
-          path: |
-            examples/__emit-goldens__/rt-renderer-class.wgsl
-            examples/__emit-goldens__/rt-renderer-class.vertex.glsl
-            examples/__emit-goldens__/rt-renderer-class.fragment.glsl
-
   user-journeys:
     name: user journeys (packed tarball, WebGPU)
     runs-on: ubuntu-latest
