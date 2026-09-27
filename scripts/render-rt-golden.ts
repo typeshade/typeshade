@@ -22,9 +22,7 @@ const source = readFileSync(sourceUrl, 'utf8');
 const result = compile(source, { fileName: 'examples/rt-renderer-class.shade.ts' });
 
 if (result.diagnostics.length > 0) {
-  throw new Error(
-    result.diagnostics.map((d) => String(d.code) + ': ' + d.message).join('\n'),
-  );
+  throw new Error(result.diagnostics.map((d) => String(d.code) + ': ' + d.message).join('\n'));
 }
 if (!result.wgsl || !result.module) {
   throw new Error('RT renderer did not produce WGSL + IR module');
@@ -44,7 +42,7 @@ function crc32(bytes: Uint8Array): number {
   for (const byte of bytes) {
     crc ^= byte;
     for (let bit = 0; bit < 8; bit++) {
-      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
     }
   }
   return (crc ^ 0xffffffff) >>> 0;
@@ -64,10 +62,7 @@ function pngRgba8(width: number, height: number, rgba: Uint8Array): Uint8Array {
   const rows = new Uint8Array(height * (width * 4 + 1));
   for (let y = 0; y < height; y++) {
     rows[y * (width * 4 + 1)] = 0;
-    rows.set(
-      rgba.subarray(y * width * 4, (y + 1) * width * 4),
-      y * (width * 4 + 1) + 1,
-    );
+    rows.set(rgba.subarray(y * width * 4, (y + 1) * width * 4), y * (width * 4 + 1) + 1);
   }
 
   const ihdr = new Uint8Array(13);
@@ -80,27 +75,18 @@ function pngRgba8(width: number, height: number, rgba: Uint8Array): Uint8Array {
   ihdr[11] = 0;
   ihdr[12] = 0;
 
-  const signature = Uint8Array.from([
-    137, 80, 78, 71, 13, 10, 26, 10,
-  ]);
+  const signature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
   const idat = deflateSync(rows);
-  const result = new Uint8Array(
-    signature.length + (12 + ihdr.length) + (12 + idat.length) + 12,
-  );
+  const result = new Uint8Array(signature.length + (12 + ihdr.length) + (12 + idat.length) + 12);
   let offset = 0;
   result.set(signature, offset);
   offset += signature.length;
-  for (const part of [
-    chunk('IHDR', ihdr),
-    chunk('IDAT', idat),
-    chunk('IEND', new Uint8Array()),
-  ]) {
+  for (const part of [chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', new Uint8Array())]) {
     result.set(part, offset);
     offset += part.length;
   }
   return result;
 }
-
 
 type DecodedPng = {
   width: number;
@@ -119,8 +105,7 @@ function paeth(a: number, b: number, c: number): number {
 function decodePngRgba8(bytes: Uint8Array): DecodedPng {
   const signature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
   for (let i = 0; i < signature.length; i++) {
-    if (bytes[i] !== signature[i])
-      throw new Error('golden is not a PNG');
+    if (bytes[i] !== signature[i]) throw new Error('golden is not a PNG');
   }
 
   let offset = 8;
@@ -212,7 +197,10 @@ function decodePngRgba8(bytes: Uint8Array): DecodedPng {
   return { width, height, pixels };
 }
 
-function compareGolden(actual: Uint8Array, png: Uint8Array): {
+function compareGolden(
+  actual: Uint8Array,
+  png: Uint8Array,
+): {
   differingPixels: number;
   maxChannelDelta: number;
 } {
@@ -260,7 +248,8 @@ async function renderOnGpu(page: Page): Promise<RenderResult> {
       const module = device.createShaderModule({ code: wgsl });
       const info = await module.getCompilationInfo();
       const compileMessages = info.messages.map(
-        (m) => String(m.type) + ': ' + String(m.lineNum) + ':' + String(m.linePos) + ' ' + m.message,
+        (m) =>
+          String(m.type) + ': ' + String(m.lineNum) + ':' + String(m.linePos) + ' ' + m.message,
       );
       const compileErrors = info.messages.filter((m) => m.type === 'error');
       if (compileErrors.length > 0) {
@@ -283,18 +272,16 @@ async function renderOnGpu(page: Page): Promise<RenderResult> {
         size: 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
-      device.queue.writeBuffer(
-        buffer,
-        0,
-        new Float32Array([width, height, time, frame]),
-      );
+      device.queue.writeBuffer(buffer, 0, new Float32Array([width, height, time, frame]));
 
       const bindGroup = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
-        entries: [{
-          binding,
-          resource: { buffer },
-        }],
+        entries: [
+          {
+            binding,
+            resource: { buffer },
+          },
+        ],
       });
 
       const texture = device.createTexture({
@@ -311,12 +298,14 @@ async function renderOnGpu(page: Page): Promise<RenderResult> {
 
       const encoder = device.createCommandEncoder();
       const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: texture.createView(),
-          loadOp: 'clear',
-          storeOp: 'store',
-          clearValue: [0, 0, 0, 1],
-        }],
+        colorAttachments: [
+          {
+            view: texture.createView(),
+            loadOp: 'clear',
+            storeOp: 'store',
+            clearValue: [0, 0, 0, 1],
+          },
+        ],
       });
       pass.setPipeline(pipeline);
       pass.setBindGroup(0, bindGroup);
@@ -390,7 +379,9 @@ try {
     if (first.pixels[i] !== second.pixels[i]) differingBytes++;
 
   if (differingBytes !== 0) {
-    throw new Error('RT renderer is not deterministic: ' + String(differingBytes) + ' bytes differ');
+    throw new Error(
+      'RT renderer is not deterministic: ' + String(differingBytes) + ' bytes differ',
+    );
   }
 
   mkdirSync('artifacts', { recursive: true });
@@ -420,12 +411,7 @@ try {
   const max = Math.max(...rgba);
   let nonBackground = 0;
   for (let i = 0; i < rgba.length; i += 4) {
-    if (
-      rgba[i] !== 0 ||
-      rgba[i + 1] !== 0 ||
-      rgba[i + 2] !== 0 ||
-      rgba[i + 3] !== 255
-    )
+    if (rgba[i] !== 0 || rgba[i + 1] !== 0 || rgba[i + 2] !== 0 || rgba[i + 3] !== 255)
       nonBackground++;
   }
 
