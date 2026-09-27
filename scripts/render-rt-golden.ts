@@ -10,8 +10,8 @@ import { chromium } from 'playwright';
 import { compile, reflect } from '../src/index.js';
 import type { Page } from 'playwright';
 
-const WIDTH = 256;
-const HEIGHT = 256;
+const WIDTH = 128;
+const HEIGHT = 128;
 const TIME = 1.25;
 const FRAME = 0;
 
@@ -252,7 +252,7 @@ try {
   mkdirSync('artifacts', { recursive: true });
   const rgba = new Uint8Array(first.pixels);
   const png = pngRgba8(WIDTH, HEIGHT, rgba);
-  writeFileSync('artifacts/rt-renderer-class-256.png', png);
+  writeFileSync('artifacts/rt-renderer-class-128.png', png);
 
   const min = Math.min(...rgba);
   const max = Math.max(...rgba);
