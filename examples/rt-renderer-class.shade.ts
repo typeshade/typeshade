@@ -93,7 +93,7 @@ class Material {
 
 namespace SDF {
   /** Base SDF primitive. Concrete shapes only supply distanceTo(). */
-  abstract class SdfShape {
+  export abstract class SdfShape {
     material: Material;
 
     constructor(material: Material) {
@@ -116,7 +116,7 @@ namespace SDF {
     }
   }
 
-  class SdfSphere extends SdfShape {
+  export class SdfSphere extends SdfShape {
     center: vec3;
     radius: f32;
 
@@ -135,7 +135,7 @@ namespace SDF {
     }
   }
 
-  class SdfBox extends SdfShape {
+  export class SdfBox extends SdfShape {
     center: vec3;
     halfSize: vec3;
 
@@ -160,7 +160,7 @@ namespace SDF {
     }
   }
 
-  class SdfTorus extends SdfShape {
+  export class SdfTorus extends SdfShape {
     center: vec3;
     majorRadius: f32;
     minorRadius: f32;
@@ -184,7 +184,7 @@ namespace SDF {
     }
   }
 
-  class SdfPlane extends SdfShape {
+  export class SdfPlane extends SdfShape {
     height: f32;
 
     constructor(
@@ -201,7 +201,9 @@ namespace SDF {
   }
 
 
-}class Hit {
+}
+
+class Hit {
   distance: f32;
   objectIndex: i32;
 
