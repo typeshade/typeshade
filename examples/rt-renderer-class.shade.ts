@@ -212,7 +212,7 @@ class Renderer {
   shadeSphere(s: Sphere, ray: Ray, t: f32): vec3 {
     const p = ray.at(t);
     const n = s.normalAt(p);
-    const view = ray.direction.neg();
+    const view = -ray.direction;
 
     const l = this.light.position - p;
     const distance2 = max(dot(l, l), 1.);
@@ -221,8 +221,10 @@ class Renderer {
 
     const shadowRay = new Ray(p + n * 0.003, ld);
     const shadowT = this.hit(shadowRay);
-    const occluded = shadowT > 0. && shadowT * shadowT < distance2 - 0.01;
-    const visibility = 1. - f32(occluded);
+    let visibility = f32(1.);
+    if (shadowT > 0. && shadowT * shadowT < distance2 - 0.01) {
+      visibility = 0.;
+    }
 
     const irradiance = this.light.irradiance(p);
     const diffuse = s.material.albedo * (1. - s.material.metallic) * ndl;
@@ -316,11 +318,14 @@ class Renderer {
         emission = this.gold.material.emission;
       }
 
-      const direct = this.shadeSphere(
-        d0 == t ? this.primary : d1 == t ? this.secondary : d2 == t ? this.gold : this.ground,
-        ray,
-        t,
-      );
+      let direct = this.shadeSphere(this.ground, ray, t);
+      if (d0 == t) {
+        direct = this.shadeSphere(this.primary, ray, t);
+      } else if (d1 == t) {
+        direct = this.shadeSphere(this.secondary, ray, t);
+      } else if (d2 == t) {
+        direct = this.shadeSphere(this.gold, ray, t);
+      }
 
       radiance += throughput * direct;
 
