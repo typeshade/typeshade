@@ -19,7 +19,7 @@ const SAMPLES_PER_PIXEL: i32 = 2;
 
 class VsOut {
   @builtin("position") pos: vec4;
-  ndc: vec2;
+  @location(0) ndc: vec2;
 }
 
 interface Frame {
