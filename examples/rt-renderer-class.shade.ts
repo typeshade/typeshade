@@ -3,17 +3,21 @@
 /* @example
 {
   "title": "Class-based ray tracer",
-  "blurb": "A conventional object-oriented ray tracer expressed with TypeShade classes: Ray, Material, Sphere, PointLight, Camera and Renderer. The same class methods used by ordinary TypeScript-style code are lowered to the shader program; the renderer traces three reflection bounces with direct lighting and emissive surfaces.",
+  "blurb": "A conventional object-oriented ray tracer expressed with TypeShade classes: Ray, Material, Sphere, PointLight, Camera, Scene and Renderer. Geometry intersection, material response and path tracing are separated into small class responsibilities while the full program remains ordinary TypeScript-style source.",
   "renderable": true
 }
 */
+
+const RAY_EPSILON: f32 = 0.003;
+const MAX_BOUNCES: i32 = 3;
+const SAMPLES_PER_PIXEL: i32 = 2;
 
 class VsOut {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
 }
 
-class Frame {
+interface Frame {
   resolution: vec2;
   time: f32;
   frame: f32;
@@ -30,8 +34,8 @@ class Ray {
     this.direction = direction;
   }
 
-  at(t: f32): vec3 {
-    return this.origin + this.direction * t;
+  at(distance: f32): vec3 {
+    return this.origin + this.direction * distance;
   }
 }
 
@@ -52,6 +56,41 @@ class Material {
     this.roughness = roughness;
     this.emission = emission;
   }
+
+  directResponse(
+    normal: vec3,
+    viewDirection: vec3,
+    lightDirection: vec3,
+  ): vec3 {
+    const ndl = max(dot(normal, lightDirection), 0.);
+    const diffuse = this.albedo * (1. - this.metallic) * ndl;
+
+    const halfDirection = normalize(lightDirection + viewDirection);
+    const shininess = mix(
+      16.,
+      128.,
+      1. - this.roughness,
+    );
+    const specular = pow(
+      max(dot(normal, halfDirection), 0.),
+      shininess,
+    );
+
+    const baseReflectance = mix(
+      vec3(0.04),
+      this.albedo,
+      this.metallic,
+    );
+    const fresnel = baseReflectance
+      + (vec3(1.) - baseReflectance)
+      * pow(1. - max(dot(normal, viewDirection), 0.), 5.);
+
+    return diffuse + fresnel * specular;
+  }
+
+  bounceWeight(): vec3 {
+    return mix(this.albedo, vec3(1.), this.metallic) * 0.65;
+  }
 }
 
 class Sphere {
@@ -69,32 +108,47 @@ class Sphere {
     this.material = material;
   }
 
-  hit(ray: Ray): f32 {
-    const oc = ray.origin - this.center;
-    const b = dot(oc, ray.direction);
-    const c = dot(oc, oc) - this.radius * this.radius;
-    const h = b * b - c;
+  intersect(ray: Ray): f32 {
+    const offset = ray.origin - this.center;
+    const halfB = dot(offset, ray.direction);
+    const c = dot(offset, offset) - this.radius * this.radius;
+    const discriminant = halfB * halfB - c;
 
-    if (h < 0.) {
+    if (discriminant < 0.) {
       return -1.;
     }
 
-    const root = sqrt(h);
-    const near = -b - root;
-    if (near > 0.001) {
-      return near;
+    const root = sqrt(discriminant);
+    const nearDistance = -halfB - root;
+
+    if (nearDistance > RAY_EPSILON) {
+      return nearDistance;
     }
 
-    const far = -b + root;
-    if (far > 0.001) {
-      return far;
+    const farDistance = -halfB + root;
+    if (farDistance > RAY_EPSILON) {
+      return farDistance;
     }
 
     return -1.;
   }
 
-  normalAt(p: vec3): vec3 {
-    return normalize(p - this.center);
+  normalAt(point: vec3): vec3 {
+    return normalize(point - this.center);
+  }
+}
+
+class Hit {
+  distance: f32;
+  sphereIndex: i32;
+
+  constructor(distance: f32, sphereIndex: i32) {
+    this.distance = distance;
+    this.sphereIndex = sphereIndex;
+  }
+
+  isValid(): bool {
+    return this.sphereIndex >= 0;
   }
 }
 
@@ -103,16 +157,20 @@ class PointLight {
   color: vec3;
   intensity: f32;
 
-  constructor(position: vec3, color: vec3, intensity: f32) {
+  constructor(
+    position: vec3,
+    color: vec3,
+    intensity: f32,
+  ) {
     this.position = position;
     this.color = color;
     this.intensity = intensity;
   }
 
-  irradiance(p: vec3): vec3 {
-    const delta = this.position - p;
-    const d2 = max(dot(delta, delta), 1.);
-    return this.color * (this.intensity / d2);
+  irradianceAt(point: vec3): vec3 {
+    const offset = this.position - point;
+    const distanceSquared = max(dot(offset, offset), 1.);
+    return this.color * (this.intensity / distanceSquared);
   }
 }
 
@@ -121,26 +179,33 @@ class Camera {
   target: vec3;
   fov: f32;
 
-  constructor(position: vec3, target: vec3, fov: f32) {
+  constructor(
+    position: vec3,
+    target: vec3,
+    fov: f32,
+  ) {
     this.position = position;
     this.target = target;
     this.fov = fov;
   }
 
-  ray(ndc: vec2): Ray {
+  rayFor(ndc: vec2): Ray {
     const forward = normalize(this.target - this.position);
     const right = normalize(cross(forward, vec3(0., 1., 0.)));
     const up = cross(right, forward);
     const scale = tan(this.fov * 0.5);
 
-    return new Ray(
-      this.position,
-      normalize(forward + right * ndc.x * scale + up * ndc.y * scale),
+    const direction = normalize(
+      forward
+        + right * ndc.x * scale
+        + up * ndc.y * scale,
     );
+
+    return new Ray(this.position, direction);
   }
 }
 
-class Renderer {
+class Scene {
   primary: Sphere;
   secondary: Sphere;
   gold: Sphere;
@@ -151,25 +216,45 @@ class Renderer {
     this.primary = new Sphere(
       vec3(-1.1, 0., -1.6),
       1.,
-      new Material(vec3(0.72, 0.12, 0.08), 0., 0.42, vec3(0.)),
+      new Material(
+        vec3(0.72, 0.12, 0.08),
+        0.,
+        0.42,
+        vec3(0.),
+      ),
     );
 
     this.secondary = new Sphere(
       vec3(1.0, 0.15, -1.9),
       1.05,
-      new Material(vec3(0.08, 0.3, 0.82), 0.15, 0.24, vec3(0.)),
+      new Material(
+        vec3(0.08, 0.3, 0.82),
+        0.15,
+        0.24,
+        vec3(0.),
+      ),
     );
 
     this.gold = new Sphere(
       vec3(0., 1.25, -2.8),
       1.,
-      new Material(vec3(0.9, 0.66, 0.12), 0.95, 0.1, vec3(0.)),
+      new Material(
+        vec3(0.9, 0.66, 0.12),
+        0.95,
+        0.1,
+        vec3(0.),
+      ),
     );
 
     this.ground = new Sphere(
       vec3(0., -1001.1, -1.5),
       1000.,
-      new Material(vec3(0.7, 0.73, 0.78), 0., 0.9, vec3(0.)),
+      new Material(
+        vec3(0.7, 0.73, 0.78),
+        0.,
+        0.9,
+        vec3(0.),
+      ),
     );
 
     this.light = new PointLight(
@@ -179,92 +264,99 @@ class Renderer {
     );
   }
 
-  hit(ray: Ray): f32 {
-    let closest = 1e30;
+  intersect(ray: Ray): Hit {
+    let closestDistance = 1e30;
+    let closestSphereIndex: i32 = -1;
 
-    const t0 = this.primary.hit(ray);
-    if (t0 > 0. && t0 < closest) {
-      closest = t0;
+    const primaryDistance = this.primary.intersect(ray);
+    if (this.isCloser(primaryDistance, closestDistance)) {
+      closestDistance = primaryDistance;
+      closestSphereIndex = 0;
     }
 
-    const t1 = this.secondary.hit(ray);
-    if (t1 > 0. && t1 < closest) {
-      closest = t1;
+    const secondaryDistance = this.secondary.intersect(ray);
+    if (this.isCloser(secondaryDistance, closestDistance)) {
+      closestDistance = secondaryDistance;
+      closestSphereIndex = 1;
     }
 
-    const t2 = this.gold.hit(ray);
-    if (t2 > 0. && t2 < closest) {
-      closest = t2;
+    const goldDistance = this.gold.intersect(ray);
+    if (this.isCloser(goldDistance, closestDistance)) {
+      closestDistance = goldDistance;
+      closestSphereIndex = 2;
     }
 
-    const t3 = this.ground.hit(ray);
-    if (t3 > 0. && t3 < closest) {
-      closest = t3;
+    const groundDistance = this.ground.intersect(ray);
+    if (this.isCloser(groundDistance, closestDistance)) {
+      closestDistance = groundDistance;
+      closestSphereIndex = 3;
     }
 
-    if (closest == 1e30) {
-      return -1.;
-    }
-
-    return closest;
+    return new Hit(closestDistance, closestSphereIndex);
   }
 
-  shadeSphere(s: Sphere, ray: Ray, t: f32): vec3 {
-    const p = ray.at(t);
-    const n = s.normalAt(p);
-    const view = -ray.direction;
-
-    const l = this.light.position - p;
-    const distance2 = max(dot(l, l), 1.);
-    const ld = normalize(l);
-    const ndl = max(dot(n, ld), 0.);
-
-    const shadowRay = new Ray(p + n * 0.003, ld);
-    const shadowT = this.hit(shadowRay);
-    let visibility = f32(1.);
-    if (shadowT > 0. && shadowT * shadowT < distance2 - 0.01) {
-      visibility = 0.;
-    }
-
-    const irradiance = this.light.irradiance(p);
-    const diffuse = s.material.albedo * (1. - s.material.metallic) * ndl;
-
-    const h = normalize(ld + view);
-    const specular = pow(
-      max(dot(n, h), 0.),
-      mix(16., 128., 1. - s.material.roughness),
+  isVisible(point: vec3, normal: vec3): bool {
+    const toLight = this.light.position - point;
+    const lightDistanceSquared = dot(toLight, toLight);
+    const lightDirection = normalize(toLight);
+    const shadowRay = new Ray(
+      point + normal * RAY_EPSILON,
+      lightDirection,
     );
 
-    const f0 = mix(
-      vec3(0.04),
-      s.material.albedo,
-      s.material.metallic,
-    );
-    const fresnel = f0 + (vec3(1.) - f0) * pow(1. - max(dot(n, view), 0.), 5.);
-
-    return s.material.emission
-      + visibility * irradiance * (diffuse + fresnel * specular);
+    const shadowHit = this.intersect(shadowRay);
+    return !shadowHit.isValid()
+      || shadowHit.distance * shadowHit.distance >= lightDistanceSquared - 0.01;
   }
 
-  shadeHit(ray: Ray, t: f32): vec3 {
-    const p = ray.at(t);
+  shade(ray: Ray, hit: Hit): vec3 {
+    const sphere = this.sphereAt(hit.sphereIndex);
+    const point = ray.at(hit.distance);
+    const normal = sphere.normalAt(point);
+    const viewDirection = -ray.direction;
+    const lightDirection = normalize(this.light.position - point);
+    const visibility = this.isVisible(point, normal) ? 1. : 0.;
 
-    const d0 = this.primary.hit(ray);
-    if (d0 == t) {
-      return this.shadeSphere(this.primary, ray, t);
+    return sphere.material.emission
+      + visibility
+      * this.light.irradianceAt(point)
+      * sphere.material.directResponse(
+        normal,
+        viewDirection,
+        lightDirection,
+      );
+  }
+
+  sky(ray: Ray): vec3 {
+    const horizon = vec3(0.12, 0.17, 0.28);
+    const zenith = vec3(0.55, 0.72, 0.95);
+    const skyFactor = max(ray.direction.y, 0.);
+    return mix(horizon, zenith, skyFactor);
+  }
+
+  sphereAt(index: i32): Sphere {
+    if (index == 0) {
+      return this.primary;
     }
-
-    const d1 = this.secondary.hit(ray);
-    if (d1 == t) {
-      return this.shadeSphere(this.secondary, ray, t);
+    if (index == 1) {
+      return this.secondary;
     }
-
-    const d2 = this.gold.hit(ray);
-    if (d2 == t) {
-      return this.shadeSphere(this.gold, ray, t);
+    if (index == 2) {
+      return this.gold;
     }
+    return this.ground;
+  }
 
-    return this.shadeSphere(this.ground, ray, t);
+  private isCloser(distance: f32, currentBest: f32): bool {
+    return distance > RAY_EPSILON && distance < currentBest;
+  }
+}
+
+class Renderer {
+  scene: Scene;
+
+  constructor(scene: Scene) {
+    this.scene = scene;
   }
 
   trace(primaryRay: Ray, seed0: f32): vec3 {
@@ -273,97 +365,65 @@ class Renderer {
     let radiance = vec3(0.);
     let seed = seed0;
 
-    for (let bounce: i32 = 0; bounce < 3; bounce++) {
-      const t = this.hit(ray);
+    for (let bounce: i32 = 0; bounce < MAX_BOUNCES; bounce++) {
+      const hit = this.scene.intersect(ray);
 
-      if (t < 0.) {
-        const sky = max(ray.direction.y, 0.);
-        radiance += throughput * mix(
-          vec3(0.12, 0.17, 0.28),
-          vec3(0.55, 0.72, 0.95),
-          sky,
-        );
+      if (!hit.isValid()) {
+        radiance += throughput * this.scene.sky(ray);
         break;
       }
 
-      const p = ray.at(t);
+      radiance += throughput * this.scene.shade(ray, hit);
 
-      const d0 = this.primary.hit(ray);
-      const d1 = this.secondary.hit(ray);
-      const d2 = this.gold.hit(ray);
-
-      let n = vec3(0., 1., 0.);
-      let albedo = this.ground.material.albedo;
-      let metallic = this.ground.material.metallic;
-      let roughness = this.ground.material.roughness;
-      let emission = this.ground.material.emission;
-
-      if (d0 == t) {
-        n = this.primary.normalAt(p);
-        albedo = this.primary.material.albedo;
-        metallic = this.primary.material.metallic;
-        roughness = this.primary.material.roughness;
-        emission = this.primary.material.emission;
-      } else if (d1 == t) {
-        n = this.secondary.normalAt(p);
-        albedo = this.secondary.material.albedo;
-        metallic = this.secondary.material.metallic;
-        roughness = this.secondary.material.roughness;
-        emission = this.secondary.material.emission;
-      } else if (d2 == t) {
-        n = this.gold.normalAt(p);
-        albedo = this.gold.material.albedo;
-        metallic = this.gold.material.metallic;
-        roughness = this.gold.material.roughness;
-        emission = this.gold.material.emission;
-      }
-
-      let direct = this.shadeSphere(this.ground, ray, t);
-      if (d0 == t) {
-        direct = this.shadeSphere(this.primary, ray, t);
-      } else if (d1 == t) {
-        direct = this.shadeSphere(this.secondary, ray, t);
-      } else if (d2 == t) {
-        direct = this.shadeSphere(this.gold, ray, t);
-      }
-
-      radiance += throughput * direct;
+      const sphere = this.scene.sphereAt(hit.sphereIndex);
+      const point = ray.at(hit.distance);
+      const normal = sphere.normalAt(point);
 
       seed = seed + 7.13;
-      const diffuse = cosineDir(n, seed);
-      const reflected = normalize(ray.direction - n * (2. * dot(ray.direction, n)));
-      const next = normalize(mix(
-        diffuse,
-        reflected,
-        metallic + (1. - roughness) * 0.25,
-      ));
+      const diffuseDirection = cosineDirection(normal, seed);
+      const reflectedDirection = reflect(ray.direction, normal);
+      const bounceAmount = sphere.material.metallic
+        + (1. - sphere.material.roughness) * 0.25;
+      const nextDirection = normalize(
+        mix(diffuseDirection, reflectedDirection, bounceAmount),
+      );
 
-      throughput = throughput * mix(albedo, vec3(1.), metallic) * 0.65;
-      ray = new Ray(p + n * 0.003, next);
+      throughput = throughput * sphere.material.bounceWeight();
+      ray = new Ray(
+        point + normal * RAY_EPSILON,
+        nextDirection,
+      );
     }
 
     return radiance;
   }
 }
 
-function cosineDir(n: vec3, seed: f32): vec3 {
+function cosineDirection(normal: vec3, seed: f32): vec3 {
   const r1 = random(seed);
   const r2 = random(seed + 17.13);
   const phi = 6.2831853 * r1;
-  const r = sqrt(r2);
-  const t = normalize(
+  const radius = sqrt(r2);
+
+  const tangent = normalize(
     cross(
-      abs(n.x) > 0.9 ? vec3(0., 1., 0.) : vec3(1., 0., 0.),
-      n,
+      abs(normal.x) > 0.9
+        ? vec3(0., 1., 0.)
+        : vec3(1., 0., 0.),
+      normal,
     ),
   );
-  const b = cross(n, t);
+  const bitangent = cross(normal, tangent);
 
   return normalize(
-    t * (cos(phi) * r) +
-    b * (sin(phi) * r) +
-    n * sqrt(1. - r2),
+    tangent * (cos(phi) * radius)
+      + bitangent * (sin(phi) * radius)
+      + normal * sqrt(1. - r2),
   );
+}
+
+function reflect(direction: vec3, normal: vec3): vec3 {
+  return direction - normal * (2. * dot(direction, normal));
 }
 
 @vertex
@@ -379,7 +439,8 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 
 @fragment
 export function fs(v: VsOut): vec4 {
-  const uv = (v.pos.xy + u.resolution * 0.5 - vec2(0.5)) / u.resolution.y;
+  const uv = (v.pos.xy + u.resolution * 0.5 - vec2(0.5))
+    / u.resolution.y;
   const camera = new Camera(
     vec3(
       sin(u.time * 0.17) * 6.2,
@@ -389,36 +450,49 @@ export function fs(v: VsOut): vec4 {
     vec3(0., 0.65, -1.7),
     1.0,
   );
-
-  const renderer = new Renderer();
+  const renderer = new Renderer(new Scene());
 
   let color = vec3(0.);
-  for (let sample: i32 = 0; sample < 2; sample++) {
-    const jx = random(
-      dot(v.pos.xy, vec2(12.9898, 78.233)) +
-      u.frame * 0.71 +
-      f32(sample) * 19.17,
-    ) - 0.5;
-    const jy = random(
-      dot(v.pos.xy, vec2(39.346, 11.135)) +
-      u.frame * 1.17 +
-      f32(sample) * 7.91,
-    ) - 0.5;
+  for (let sample: i32 = 0; sample < SAMPLES_PER_PIXEL; sample++) {
+    const seed = dot(v.pos.xy, vec2(17.17, 73.19))
+      + u.frame * 11.3
+      + f32(sample) * 3.7;
+    const jitter = pixelJitter(v.pos.xy, u.frame, sample);
+
     const sampleUv = vec2(
-      uv.x + jx / u.resolution.x,
-      uv.y + jy / u.resolution.y,
+      uv.x + jitter.x / u.resolution.x,
+      uv.y + jitter.y / u.resolution.y,
+    );
+    const ray = camera.rayFor(
+      sampleUv * vec2(u.resolution.x / u.resolution.y, 1.),
     );
 
-    const ray = camera.ray(sampleUv * vec2(u.resolution.x / u.resolution.y, 1.));
-    color += renderer.trace(
-      ray,
-      dot(v.pos.xy, vec2(17.17, 73.19)) + f32(sample) * 3.7 + u.frame * 11.3,
-    );
+    color += renderer.trace(ray, seed);
   }
 
-  color = color / 2.;
+  color = color / f32(SAMPLES_PER_PIXEL);
   color = color / (color + vec3(1.));
   color = pow(color, vec3(1. / 2.2));
 
   return vec4(color, 1.);
 }
+
+function pixelJitter(
+  position: vec2,
+  frame: f32,
+  sample: i32,
+): vec2 {
+  return vec2(
+    random(
+      dot(position, vec2(12.9898, 78.233))
+        + frame * 0.71
+        + f32(sample) * 19.17,
+    ) - 0.5,
+    random(
+      dot(position, vec2(39.346, 11.135))
+        + frame * 1.17
+        + f32(sample) * 7.91,
+    ) - 0.5,
+  );
+}
+"
