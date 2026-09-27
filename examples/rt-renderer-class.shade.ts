@@ -91,31 +91,31 @@ class Material {
   }
 }
 
-namespace SDF {
-  /** Base SDF primitive. Concrete shapes only supply distanceTo(). */
-  export abstract class SdfShape {
-    material: Material;
+/** Base SDF primitive. Concrete shapes only supply distanceTo(). */
+abstract class SdfShape {
+  material: Material;
 
-    constructor(material: Material) {
-      this.material = material;
-    }
-
-    /** Every concrete primitive supplies its signed distance; the shared normal uses that method. */
-    abstract distanceTo(point: vec3): f32;
-
-    normalAt(point: vec3): vec3 {
-      const epsilon = 0.0015;
-      const dx = this.distanceTo(point + vec3(epsilon, 0., 0.))
-        - this.distanceTo(point - vec3(epsilon, 0., 0.));
-      const dy = this.distanceTo(point + vec3(0., epsilon, 0.))
-        - this.distanceTo(point - vec3(0., epsilon, 0.));
-      const dz = this.distanceTo(point + vec3(0., 0., epsilon))
-        - this.distanceTo(point - vec3(0., 0., epsilon));
-
-      return normalize(vec3(dx, dy, dz));
-    }
+  constructor(material: Material) {
+    this.material = material;
   }
 
+  /** Every concrete primitive supplies its signed distance; the shared normal uses that method. */
+  abstract distanceTo(point: vec3): f32;
+
+  normalAt(point: vec3): vec3 {
+    const epsilon = 0.0015;
+    const dx = this.distanceTo(point + vec3(epsilon, 0., 0.))
+      - this.distanceTo(point - vec3(epsilon, 0., 0.));
+    const dy = this.distanceTo(point + vec3(0., epsilon, 0.))
+      - this.distanceTo(point - vec3(0., epsilon, 0.));
+    const dz = this.distanceTo(point + vec3(0., 0., epsilon))
+      - this.distanceTo(point - vec3(0., 0., epsilon));
+
+    return normalize(vec3(dx, dy, dz));
+  }
+}
+
+namespace SDF {
   export class SdfSphere extends SdfShape {
     center: vec3;
     radius: f32;
