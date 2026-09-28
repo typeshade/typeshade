@@ -11,12 +11,23 @@
 
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { hostFace, type HostExport } from '../src/compiler/ts/host-face.js';
 
-const ROOT = resolve(import.meta.dir, '..');
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RUNTIME = join(ROOT, 'src/core/host-runtime.ts');
 const PAGE = join(ROOT, 'scripts/entry-calls-page.ts');
+
+/** The part of Bun's bundler this uses. The gate runs under Bun (`bun scripts/compile-gate.ts`),
+ *  and the repository's type check has no Bun types, so it is named structurally. */
+interface Bundler {
+  build(options: { entrypoints: string[]; target: 'browser'; format: 'esm' }): Promise<{
+    success: boolean;
+    logs: unknown[];
+    outputs: { text(): Promise<string> }[];
+  }>;
+}
 
 /** The bundle, and how many entries of each kind it calls. */
 export interface EntryBundle {
@@ -77,7 +88,9 @@ export async function entryBundle(): Promise<EntryBundle> {
         '',
       ].join('\n'),
     );
-    const built = await Bun.build({ entrypoints: [main], target: 'browser', format: 'esm' });
+    const bun = (globalThis as { Bun?: Bundler }).Bun;
+    if (bun === undefined) throw new Error('the entry bundle needs Bun: run the gate with bun');
+    const built = await bun.build({ entrypoints: [main], target: 'browser', format: 'esm' });
     if (!built.success)
       throw new Error(`the entry bundle did not build: ${built.logs.map(String).join('\n')}`);
     return { js: await built.outputs[0]!.text(), compute, fragment };

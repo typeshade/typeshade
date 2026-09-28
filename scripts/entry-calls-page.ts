@@ -89,7 +89,9 @@ function valueOf(l: Layout, boxed: boolean, k: { n: number }): unknown {
       if (l.n === null && (l.e.k === 's' || l.e.k === 'v')) {
         const t = l.e.t;
         const lanes = l.e.k === 'v' ? l.e.n : 1;
-        return TYPED[t].from({ length: count * lanes }, () => numberAt(t, k.n++));
+        const out = new TYPED[t](count * lanes);
+        for (let i = 0; i < out.length; i++) out[i] = numberAt(t, k.n++);
+        return out;
       }
       return Array.from({ length: count }, () => valueOf(l.e, false, k));
     }
