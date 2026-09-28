@@ -1035,3 +1035,211 @@ function notShareable(t: ShaderType, m: ModuleDecl, seen: Set<string>): string |
       return `a ${t.kind}, which the call does not pack yet`;
   }
 }
+
+// ─── the WebGL2 tier (Rule 11.8) ─────────────────────────────────────────────────────────────
+
+/** One loop of a kernel function as the WebGL2 tier runs it: a fragment program over an `R32UI`
+ *  target, one texel per iteration (`lowerComputeToFragment`, `backends/glsl.ts`). */
+export interface KernelGlLoopPlan {
+  /** The module of the loop's portable `@compute` entry, which the GLSL writer lowers. */
+  readonly module: ModuleDecl;
+  /** The array the loop writes, at exactly `i`, and its element's scalar. */
+  readonly out: string;
+  readonly outScalar: 'f32' | 'i32' | 'u32';
+  /** The arrays the loop reads, each a data texture of its name. */
+  readonly reads: readonly string[];
+  /** The loose uniforms the program reads: the scalar parameters, then `_start`. */
+  readonly uniforms: readonly { readonly name: string; readonly type: ShaderType }[];
+}
+
+/** The binding that carries the dispatch: `.x` the iteration count, `.y` the grid's width. */
+export const GL_DISPATCH = '_dispatch';
+/** The `R32UI` target the loop's writes land in. */
+export const GL_OUT = '_out';
+
+/**
+ * Lower kernel function `f`'s loops for the WebGL2 tier, or say why it cannot run there.
+ *
+ * WebGL2 has no compute stage and no storage buffer; the fragment lowering the compute runner
+ * uses takes a loop that writes one array of 4-byte elements (`f32`, `i32`, `u32`) at exactly
+ * `i`, reads others as data textures, and takes its scalars as uniforms. Each such loop is one
+ * program; every other shape goes to the next tier.
+ */
+export function lowerKernelGl(
+  f: FuncDecl,
+  m: ModuleDecl,
+  proof: KernelProof,
+): { readonly loops: readonly KernelGlLoopPlan[] } | { readonly noWebgl2: string } {
+  if (proof.shape !== undefined) return { noWebgl2: "its body is not the kernel call's shape" };
+  const scalars = f.params.filter((p) => !isRuntimeArray(p.type));
+  const arrays = f.params.filter((p) => isRuntimeArray(p.type));
+  for (const p of scalars) {
+    const t = p.type;
+    const s = t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined;
+    if (s !== 'f32' && s !== 'i32' && s !== 'u32')
+      return {
+        noWebgl2: `parameter "${p.name}" is not a number or a vector, which a uniform holds`,
+      };
+  }
+  const argsStruct = `${f.name}_GlArgs`;
+  const argsBinding = `${f.name}_glargs`;
+  const plans: KernelGlLoopPlan[] = [];
+  const prelude: Stmt[] = [];
+  let j = 0;
+  for (const st of f.body) {
+    if (st.s !== 'for') {
+      if (st.s !== 'return') prelude.push(st);
+      continue;
+    }
+    const v = proof.loops[j];
+    const loopNo = ++j;
+    if (v === undefined || !v.ok) return { noWebgl2: `loop ${loopNo} runs on the CPU` };
+    if (v.reductions.length > 0)
+      return { noWebgl2: `loop ${loopNo} reduces, which WebGL2 has no workgroup memory for` };
+    const w = v.writes[0];
+    if (v.writes.length !== 1 || w === undefined)
+      return { noWebgl2: `loop ${loopNo} writes more than one array, and WebGL2 draws one` };
+    if (w.kind !== 'affine' || w.a !== 1 || w.c.length !== 1 || w.c[0] !== 0)
+      return { noWebgl2: `loop ${loopNo} writes "${w.name}" other than at i` };
+    const outParam = arrays.find((p) => p.name === w.name);
+    const elem = (outParam?.type as { elem?: ShaderType } | undefined)?.elem;
+    const outScalar = elem?.kind === 'scalar' ? elem.scalar : undefined;
+    if (
+      outParam === undefined ||
+      (outScalar !== 'f32' && outScalar !== 'i32' && outScalar !== 'u32')
+    )
+      return {
+        noWebgl2: `loop ${loopNo} writes "${w.name}", whose element is not one f32, i32 or u32`,
+      };
+    const header = rangeOf(st);
+    if (header === undefined) return { noWebgl2: `loop ${loopNo} compares its counter oddly` };
+    const uniforms = [
+      ...scalars.map((p) => ({ name: p.name, type: p.type })),
+      { name: '_start', type: header.type },
+    ];
+    const c: LoopCtx = {
+      f,
+      loop: st,
+      j: loopNo - 1,
+      counter: st.counted!.name,
+      counterType: header.type,
+      step: st.counted!.step,
+      prelude: [...prelude],
+      scalars: scalars.map((p) => p.name),
+      arrays: arrays.map((p) => p.name),
+      argsBinding,
+      argsStruct,
+      scatter: new Map(),
+    };
+    const vec3uT: ShaderType = { kind: 'vec', n: 3, elem: 'u32' };
+    const gidParam: Expr = { op: 'param', type: vec3uT, name: '_gid' };
+    const gidX: Expr = { op: 'member', type: u32T, base: gidParam, field: 'x' };
+    const dispatchT: ShaderType = { kind: 'vec', n: 4, elem: 'u32' };
+    const count: Expr = {
+      op: 'member',
+      type: u32T,
+      base: { op: 'varref', type: dispatchT, name: GL_DISPATCH },
+      field: 'x',
+    };
+    const outT: ShaderType = { kind: 'array', elem: u32T };
+    const bits = (e: Expr): Expr =>
+      outScalar === 'u32'
+        ? e
+        : outScalar === 'f32'
+          ? { op: 'call', type: u32T, fn: 'bitcastU32', args: [e] }
+          : { op: 'call', type: u32T, fn: 'u32', args: [e] };
+    // The loop's one write, at `i`, is the invocation's texel.
+    const toTexel = (s: Stmt): Stmt => {
+      const inner = mapStmtExpr(s, (e) => e, toTexel);
+      if (inner.s !== 'assign') return inner;
+      let root: Expr = inner.target;
+      while (root.op === 'index' || root.op === 'member') root = root.base;
+      if (!((root.op === 'varref' || root.op === 'param') && root.name === w.name)) return inner;
+      return {
+        s: 'assign',
+        target: {
+          op: 'index',
+          type: u32T,
+          base: { op: 'varref', type: outT, name: GL_OUT },
+          idx: gidX,
+        },
+        expr: bits(inner.expr),
+        ...(inner.span !== undefined ? { span: inner.span } : {}),
+      };
+    };
+    const body: Stmt[] = [
+      { s: 'let', name: '_k', expr: gidX },
+      {
+        s: 'if',
+        arms: [
+          {
+            cond: { op: 'compare', type: boolT, cop: '>=', a: kRef, b: count },
+            body: [{ s: 'return' }],
+          },
+        ],
+      },
+      ...iterationOf(c, undefined, []).map(toTexel),
+    ];
+    // What the body reads of the arrays: each is a data texture of its name.
+    const read = new Set<string>();
+    const names = new Set(arrays.map((p) => p.name));
+    const see = (e: Expr): void => {
+      if (e.op === 'varref' && names.has(e.name)) read.add(e.name);
+      forEachChild(e, see);
+    };
+    body.forEach((s) =>
+      mapStmt(s, (e) => {
+        see(e);
+        return e;
+      }),
+    );
+    const entry: FuncDecl = {
+      name: `${f.name}_gl${loopNo - 1}`,
+      params: [{ name: '_gid', type: vec3uT, builtin: 'global_invocation_id' }],
+      ret: { kind: 'void' },
+      body,
+      stage: 'compute',
+      portable: true,
+      workgroupSize: KERNEL_WORKGROUP,
+      attrs: [`@compute @workgroup_size(${KERNEL_WORKGROUP})`],
+    };
+    const module: ModuleDecl = {
+      consts: m.consts,
+      structs: [...m.structs, { name: argsStruct, fields: uniforms }],
+      bindings: [
+        { group: 0, binding: 0, name: GL_DISPATCH, space: 'uniform', type: dispatchT },
+        {
+          group: 0,
+          binding: 1,
+          name: argsBinding,
+          space: 'uniform',
+          type: { kind: 'struct', name: argsStruct },
+          owner: 'host',
+          glsl: 'loose',
+        },
+        ...[...read].map((name, k): BindingDecl => ({
+          group: 0,
+          binding: 2 + k,
+          name,
+          space: 'storage',
+          access: 'read',
+          type: arrays.find((p) => p.name === name)!.type,
+        })),
+        {
+          group: 0,
+          binding: 2 + read.size,
+          name: GL_OUT,
+          space: 'storage',
+          access: 'read_write',
+          type: outT,
+        },
+      ],
+      funcs: [...m.funcs.filter((x) => x.kernel !== true && x.stage === undefined), entry],
+      overrides: m.overrides ?? [],
+      vars: (m.vars ?? []).filter((x) => x.space !== 'workgroup'),
+    };
+    plans.push({ module, out: w.name, outScalar, reads: [...read], uniforms });
+  }
+  if (plans.length === 0) return { noWebgl2: 'it has no loop to draw' };
+  return { loops: plans };
+}

@@ -127,5 +127,10 @@ export function loopReference() {
     residentRender: render,
     residentStats: stats,
     residentScaled: scaled,
+    glRender: render,
+    glSkip: Array.from({ length: 512 }, (_, i) => {
+      const x = f(Math.sin(i) * 10);
+      return x < 0 ? -1 : f(x * 0.5);
+    }),
   };
 }
