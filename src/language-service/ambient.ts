@@ -212,18 +212,20 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
     // The same gap at width 4, for the THREE-argument compositions.
     lines.push(`${head}(x: ${c}, v: ${shorter(2)}, w: ${c}): ${type}`);
     lines.push(`${head}(x: ${c}, y: ${c}, v: ${shorter(2)}): ${type}`);
-    // NOT declared, and the omission is measured rather than an oversight: `vec4(x, v3)` and
-    // `vec4(v2, v2)` are real WGSL and the compiler accepts both, but adding a SECOND
-    // two-argument overload costs TypeScript the contextual type it uses to infer through
-    // vector arithmetic. With one candidate, `vec4(mix(c * 0.5, d, 0.5), 1.)` contextually
-    // types its first argument `vec3` and `mix` infers `vec3`; with two, the context is gone,
-    // `mix` infers from the `number` the arithmetic erased `c * 0.5` to, and the call reports
-    // TS2769 on a program that compiles. `vec4(c * 0.5, 1.)` is a far more common spelling
-    // than either of the two, so the editor is better off without them until the #43 filter
-    // can restore a shape through a NESTED call. Tracked on #157.
-    // The same gap at width 4: a vec2 or a vec3 anywhere but first, and the two-vector form.
+    // `vec4(x, v3)` and `vec4(v2, v2)`, the two-argument compositions WGSL has beside
+    // `vec4(v3, w)` (#157). They were left out because a second two-argument overload cost
+    // TypeScript the contextual type it inferred `vec4(mix(c * 0.5, d, 0.5), 1.)` through, and
+    // the call reported TS2769 on a program that compiles. The projection now writes `c * 0.5`
+    // its vector type before TypeScript reads it (`projection.ts`), so `mix` infers `vec3` from
+    // its own arguments and the context is not needed; `ambient-parity.test.ts` holds both
+    // compositions and that call to both halves.
+    lines.push(`${head}(x: ${c}, v: ${shorter(3)}): ${type}`);
+    lines.push(`${head}(a: ${shorter(2)}, b: ${shorter(2)}): ${type}`);
   }
   lines.push(`${head}(scalar: ${c}): ${type}`);
+  // The identity, `vec3(v)` on a `vec3` (core.def's `vec3<T>(vec3<T>)`): the compiler takes it
+  // and the converting forms below skip their own element, so the editor refused it.
+  if (elem !== 'f64') lines.push(`${head}(v: ${vecTypeName(elem, n)}): ${type}`);
   // `vec3<bool>(true, false, true)` and `vec3<bool>(true)`. Generic with NO default, so the
   // type argument has to be written: an inferable `T` here would make the bare
   // `vec3(true, false, true)` legal in the editor, which the compiler refuses.

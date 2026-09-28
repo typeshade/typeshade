@@ -17,6 +17,12 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **The editor takes `vec4(x, v3)`, `vec4(v2, v2)` and `vec3(v)` on a `vec3`** (surface §49, Rule
+  12.7, proposal 0017). The compiler and WGSL always took them; the editor reported "No overload
+  matches this call". The two compositions were left out while declaring them broke the
+  inference of `vec4(mix(c * 0.5, d, 0.5), 1.)`, which the projection has since fixed. Every
+  constructor and conversion over scalars and vectors is now held to both halves.
+
 - **A static builder says the class the call names with a `this` parameter** (surface §26, Rule
   8.13, proposal 0020). `static unit<C extends Disc>(this: { new (): C; SIZE: f32 }): C` is the
   TypeScript spelling of a static that builds its value with `new this()`, and `Capped.unit()` is a

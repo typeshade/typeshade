@@ -5216,19 +5216,17 @@ the declaration, TypeScript checks an assignable constraint. The third is the co
 — a refusal that keeps the binding alive so the rest of the file still resolves cannot also
 reach back into the ambient library and change the type it was declared with.
 
-### Two compositions the editor still does not take
+### Three compositions the editor now takes
 
-`vec4(x, v3)` and `vec4(v2, v2)` are real WGSL and the compiler takes both. They are
-deliberately not declared, and the cost of declaring them is measured: adding a SECOND
-two-argument `vec4` overload costs TypeScript the contextual type it uses to infer through
-vector arithmetic. With one candidate, `vec4(mix(c * 0.5, d, 0.5), 1.)` contextually types its
-first argument `vec3` and `mix` infers `vec3`; with two, that context is gone, `mix` infers from
-the `number` the arithmetic erased `c * 0.5` to, and the call reports TS2769 on a program that
-compiles.
-
-`vec4(c * 0.5, 1.)` is a far more common spelling than either of the two, so the editor is
-better off without them until the #43 arithmetic filter can restore a shape through a NESTED
-call. Both are pinned as `it.fails` so the day that changes is a deliberate edit.
+`vec4(x, v3)` and `vec4(v2, v2)` are real WGSL and the compiler takes both, and they were left
+undeclared: a second two-argument `vec4` overload cost TypeScript the contextual type it used to
+infer through vector arithmetic, and `vec4(mix(c * 0.5, d, 0.5), 1.)` reported TS2769 on a
+program that compiles. The projection now writes `c * 0.5` its vector type before TypeScript
+reads it, so `mix` infers `vec3` from its own arguments and needs no context, and both
+compositions are declared. So is the identity, `vec3(v)` on a `vec3`, which the converting
+forms skipped. A measurement over every constructor and conversion row of Tint's `core.def`
+whose types are scalars and vectors (92 instances) found these three shapes and nothing else;
+`coredef-overloads.test.ts` now holds every one of those instances to both halves.
 
 ### A binding still needs a named type
 
