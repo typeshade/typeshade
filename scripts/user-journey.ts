@@ -264,8 +264,10 @@ async function hostImport(work: string, tarball: string): Promise<number> {
       ...exp.map((e, i) => Math.abs((got[i] ?? NaN) - e) / Math.max(1, Math.abs(e))),
     );
     // f32 on both sides, in the same order: WebGPU rounds each add and multiply as IEEE does.
+    // An emulated double is held to a double's reference, far inside what an f32 could reach.
+    const bound = key.startsWith('double') ? 1e-12 : 1e-6;
     check(
-      got.length === exp.length && worst <= 1e-6,
+      got.length === exp.length && worst <= bound,
       `WebGPU ${key} match the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,
     );
   }
@@ -283,7 +285,7 @@ async function hostImport(work: string, tarball: string): Promise<number> {
       ],
       { cwd: app, encoding: 'utf8' },
     ).stdout,
-  ) as { plasma: number[]; tiled: number[]; ramped: number[] };
+  ) as { plasma: number[]; tiled: number[]; ramped: number[]; deep: number[] };
   const drawn = web.draws ?? {};
   const compare = (key: string, want: number[], steps: number): void => {
     const got = drawn[key];
@@ -304,6 +306,9 @@ async function hostImport(work: string, tarball: string): Promise<number> {
   // A Resident a kernel function filled, bound as it is on WebGPU and read on the CPU tier
   // (Rule 11.8): each element k/32 exactly, rounded to 8 bits.
   for (const tier of ['webgpu', '2d']) compare(`ramped ${tier}`, drawRef.ramped, 1);
+  // Emulated doubles on every tier, the `_fp64` guard bound on the GPU ones: a band an f32
+  // would smear across the frame, within two 8-bit steps of the double reference.
+  for (const tier of ['webgpu', 'webgl2', '2d']) compare(`deep ${tier}`, drawRef.deep, 2);
   const noCpu = drawn['tiled 2d'];
   check(
     typeof noCpu === 'string' &&

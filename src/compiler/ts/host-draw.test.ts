@@ -358,6 +358,44 @@ export function show(@builtin("position") p: vec4): vec4 {
   });
 });
 
+describe('a draw that computes in f64 (change 0013, the f64 split)', () => {
+  const DEEP = `"use typeshade";
+class Zoom {
+  cx: f64;
+  scale: f64;
+}
+declare const zoom: uniform<Zoom>;
+@fragment
+export function deep(@builtin("position") p: vec4): vec4 {
+  const x: f64 = zoom.cx + f64(p.x) * zoom.scale;
+  return vec4(f32(fract(x * 1000)), 0, 0, 1);
+}
+`;
+
+  it('draws on every tier, the guard bound where the program reads it', () => {
+    const e = fragmentOf(face(DEEP).exports, 'deep');
+    expect(e.entry.bindings.map((b) => b.name)).toEqual(['zoom', '_fp64']);
+    expect(e.entry.gl?.samplers).toHaveProperty('_fp64', null);
+    expect(e.entry.noCpu).toBeUndefined();
+    expect(face(DEEP).view).toContain(
+      'bindings: { readonly zoom: { readonly cx: number; readonly scale: number } }',
+    );
+  });
+
+  it('computes each pixel as a double on the CPU tier, where an f32 would lose the band', async () => {
+    const m = await load(DEEP);
+    const c = new FakeCanvas(8, 1);
+    await (m.deep as (c: unknown, b: unknown) => Promise<void>)(c, {
+      zoom: { cx: 12345.678, scale: 1e-6 },
+    });
+    const want = Array.from({ length: 8 }, (_, x) => {
+      const band = (12345.678 + (x + 0.5) * 1e-6) * 1000;
+      return Math.round((band - Math.floor(band)) * 255);
+    });
+    expect([...c.pixels!].filter((_, i) => i % 4 === 0)).toEqual(want);
+  });
+});
+
 describe('a draw refuses what does not fit, naming the entry and the binding', () => {
   it('refuses the arguments', async () => {
     const m = await load(PLASMA);

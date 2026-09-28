@@ -160,7 +160,6 @@ const REASON = {
     `parameter "${p}" is what a vertex entry writes, and a draw has no vertex entry but its full-screen triangle; #204, the rendering design, adds a mesh`,
   fragmentOutput:
     'a draw writes one @location(0) vec4 colour, a vec4 result or a struct of that one field',
-  fp64: 'its module emulates f64, whose guard binding the call does not create yet; change 0013 adds the f64 split',
   generic:
     'it is generic, and a generic function exists only as the instances the module uses; no proposal adds it yet',
   takesFunction:
@@ -451,8 +450,7 @@ function layoutOf(
       if (t.elem === 'bool') return { none: `a ${authorTypeText(t)} is not host-shareable` };
       return { k: 'v', n: t.n, t: t.elem };
     case 'mat': {
-      if (t.elem === 'f64')
-        return { none: `a ${authorTypeText(t)} waits for change 0013's f64 split` };
+      if (t.elem === 'f64') return { none: `a ${authorTypeText(t)} has no host value yet` };
       if (kind === 'std140' && t.rows === 2)
         return {
           none: `a ${authorTypeText(t)} in a uniform has no one layout both targets share`,
@@ -482,11 +480,12 @@ function layoutOf(
       }
       return { k: 'o', f, sz: typeLayout(t, kind, structs).size };
     }
+    // An emulated `f64` is a `vec2<f32>` (hi, lo), and `vecN<f64>` a `DF64VecN` struct of a `hi`
+    // and a `lo` plane of `vecN<f32>`, whose `lo` sits at the plane's aligned size.
     case 'f64':
+      return { k: 's', t: 'f64' };
     case 'vec64':
-      return {
-        none: `${t.kind === 'f64' ? 'an' : 'a'} ${authorTypeText(t)} waits for change 0013's f64 split`,
-      };
+      return { k: 'v', n: t.n, t: 'f64', lo: t.n === 2 ? 8 : 16 };
     default:
       return { none: `a ${authorTypeText(t)} has no host value` };
   }
@@ -501,7 +500,12 @@ function spell(t: ShaderType): string {
   return authorTypeText(t);
 }
 
-const TYPED_NAME = { f32: 'Float32Array', i32: 'Int32Array', u32: 'Uint32Array' } as const;
+const TYPED_NAME = {
+  f32: 'Float32Array',
+  i32: 'Int32Array',
+  u32: 'Uint32Array',
+  f64: 'Float64Array',
+} as const;
 
 /** The TypeScript type of a binding's host value in the bindings object: read-only where the
  *  entry only reads it, mutable where the call writes it back in place (Rule 8.21). */
@@ -643,7 +647,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
               .filter((v) => v.space === 'workgroup')
               .map((v) => [v.name, zeroOf(v.type, structs)]),
           ),
-          fp64: r.wgsl !== undefined && /\b_fp64\b/.test(r.wgsl),
+          ...guardOf(r.wgsl),
         },
       }),
     );
@@ -745,8 +749,20 @@ interface EntryCtx {
   readonly callees: ReadonlyMap<string, ReadonlySet<string>>;
   readonly declared: ReadonlySet<string>;
   readonly workgroupZero: Readonly<Record<string, unknown>>;
-  /** Whether the module emulates f64, which injects a guard binding the call cannot create. */
-  readonly fp64: boolean;
+  /** Where the `_fp64` guard is, when the module emulates `f64`: the runtime binds it. */
+  readonly guard?: { readonly group: number; readonly binding: number };
+}
+
+/** The `_fp64` guard binding the WGSL of a module that emulates `f64` declares, if any. */
+function guardOf(wgsl: string | undefined): { guard?: { group: number; binding: number } } {
+  const m =
+    wgsl === undefined ? null : /@group\((\d+)\)\s*@binding\((\d+)\)\s*var\s+_fp64\b/.exec(wgsl);
+  return m === null ? {} : { guard: { group: Number(m[1]), binding: Number(m[2]) } };
+}
+
+/** The guard as a binding of an entry: a texture the runtime supplies (Rule 8.24). */
+function guardBinding(at: { group: number; binding: number }): DrawBinding {
+  return { name: '_fp64', ...at, space: 'texture', s: 'texture_2d<f32>', guard: true };
 }
 
 /** The bindings an entry reaches through its calls, each with its host value's layout and
@@ -831,7 +847,10 @@ function noCpuTier(
   bindings: readonly DrawBinding[],
   c: FaceCtx,
 ): string | undefined {
-  const handle = bindings.find((b) => b.space === 'texture' || b.space === 'sampler');
+  // The guard is the GPU's alone: the CPU tier computes an `f64` as a double.
+  const handle = bindings.find(
+    (b) => (b.space === 'texture' || b.space === 'sampler') && !('guard' in b),
+  );
   if (handle !== undefined)
     return `it reaches the ${handle.s} "${handle.name}", which the CPU tier cannot read`;
   for (const g of closure) {
@@ -846,13 +865,13 @@ function noCpuTier(
  *  layout and host type, its workgroup shape and builtins, and the barrier it reaches, if any. */
 function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const x = c.entry;
-  if (x.fp64) return never(name, REASON.fp64);
   for (const p of f.params)
     if (p.builtin === undefined || !COMPUTE_BUILTINS.has(p.builtin))
       return never(name, `parameter "${p.name}" is not a builtin the call can fill in`);
   const reached = entryBindings(f, c);
   if ('none' in reached) return never(name, reached.none);
   const { bindings, types, queued, closure } = reached;
+  if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
   const barrier = barrierIn(closure, c.byName, x.declared);
   const noCpu = noCpuTier(closure, bindings, c);
   return {
@@ -889,7 +908,6 @@ const FRAGMENT_BUILTINS = new Set(['position', 'front_facing']);
  *  colour is, and what the WebGL2 and CPU tiers need to draw it, or why they cannot. */
 function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const x = c.entry;
-  if (x.fp64) return never(name, REASON.fp64);
   for (const p of f.params)
     if (p.builtin === undefined || !FRAGMENT_BUILTINS.has(p.builtin))
       return never(name, REASON.fragmentInput(p.name));
@@ -898,6 +916,7 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const reached = entryBindings(f, c);
   if ('none' in reached) return never(name, reached.none);
   const { bindings, types, closure } = reached;
+  if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
   const gl = glslFor(f, bindings, closure, c);
   const noCpu = noCpuTier(closure, bindings, c);
   return {
@@ -964,8 +983,10 @@ function glslFor(
       blocks[b.name] = m[1]!;
       declared.add(b.name);
     } else if (b.space === 'texture') {
-      if (!new RegExp(`uniform sampler2D ${b.name};`).test(frag))
-        return { none: `its GLSL declares no sampler2D for "${b.name}"` };
+      const has = new RegExp(`uniform (?:\\w+ )*sampler2D ${b.name};`).test(frag);
+      // The guard is bound only where the program reads it.
+      if (!has && 'guard' in b) continue;
+      if (!has) return { none: `its GLSL declares no sampler2D for "${b.name}"` };
       declared.add(b.name);
     }
   }
@@ -973,7 +994,7 @@ function glslFor(
   // calls pass it, so the WebGL2 tier can set that sampler's filter and address on it.
   const pairs = texturePairs(closure, c);
   for (const b of bindings) {
-    if (b.space !== 'texture') continue;
+    if (b.space !== 'texture' || ('guard' in b && !declared.has(b.name))) continue;
     const with_ = [...(pairs.get(b.name) ?? [])];
     if (with_.length > 1)
       return {
