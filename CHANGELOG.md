@@ -576,6 +576,17 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **The compile gate calls every entry of the examples on every tier** (change 0016, Rule 8.24).
+  - The new leg, `scripts/entry-calls.ts` with its page half `scripts/entry-calls-page.ts`,
+    bundles each `.shade.ts` example's generated host module with `typeshade/runtime`.
+  - In the gate's Chromium it calls each `@compute` entry on WebGPU and on the CPU tier, and
+    draws each full-screen `@fragment` entry on WebGPU, WebGL2 and the CPU tier. Each tier is
+    compared with WebGPU.
+  - A tier an entry has no form for is printed as skipped, with the reason.
+  - Coverage: 9 compute entries (3 of them WebGPU only, through a barrier) and 10 fragment
+    entries. Today every one matches WebGPU exactly.
+  - With the leg in place, proposal 0016 is implemented.
+
 - **A draw reads a `Resident`** (change 0016; Rules 8.21 and 11.8, surface §67).
   - A full-screen `@fragment` entry's storage array with no size may be a `Resident`, as a
     compute entry's may.
