@@ -50,6 +50,8 @@ import type { AddressInfo } from 'node:net';
 import { chromium } from 'playwright';
 import { examples } from '../examples/index.js';
 import { shadeExamples } from '../examples/_shade.js';
+import { proveKernels } from '../src/core/passes/parallel-loop.js';
+import { lowerKernel } from '../src/core/passes/kernel-lower.js';
 import { consoleBuffer, hasConsoleCall } from '../src/core/passes/console-buffer.js';
 import {
   emitGlslModule,
@@ -274,25 +276,52 @@ const CONSOLE_EXAMPLES = ALL_EXAMPLES.filter((ex) => hasConsoleCall(ex.module)).
   renderable: false,
 }));
 
+/** The WGSL each kernel function of the corpus lowers to (change 0013): the `@compute` entries
+ *  its call dispatches, which `emitModule` of the example itself leaves out. A function that
+ *  runs on the CPU has none. */
+function kernelJobs(): Job[] {
+  return ALL_EXAMPLES.flatMap((ex) =>
+    proveKernels(ex.module).flatMap((proof): Job[] => {
+      const f = ex.module.funcs.find((x) => x.name === proof.fn)!;
+      const plan = lowerKernel(f, ex.module, proof);
+      if ('noGpu' in plan) return [];
+      const id = `${ex.id}#${proof.fn}`;
+      const wgsl = emitModule(plan.module);
+      return [
+        {
+          id,
+          wgsl: id === CUT ? corrupt(wgsl) : wgsl,
+          glsl: null,
+          pipeline: null,
+          pipelineSkip: "a kernel function's loops, dispatched as compute",
+        },
+      ];
+    }),
+  );
+}
+
 function jobs(): Job[] {
-  return [...ALL_EXAMPLES, ...CONSOLE_EXAMPLES].map((ex) => {
-    const cut = ex.id === CUT;
-    const wgsl = emitModule(ex.module);
-    const glsl = ex.renderable
-      ? {
-          vertex: emitGlslModule(ex.module, 'vertex'),
-          fragment: emitGlslModule(ex.module, 'fragment'),
-        }
-      : null;
-    const [pipeline, pipelineSkip] = pipelineOf(ex.module);
-    return {
-      id: ex.id,
-      wgsl: cut ? corrupt(wgsl) : wgsl,
-      glsl: glsl && cut ? { vertex: corrupt(glsl.vertex), fragment: corrupt(glsl.fragment) } : glsl,
-      pipeline,
-      pipelineSkip,
-    };
-  });
+  return [...ALL_EXAMPLES, ...CONSOLE_EXAMPLES]
+    .map((ex) => {
+      const cut = ex.id === CUT;
+      const wgsl = emitModule(ex.module);
+      const glsl = ex.renderable
+        ? {
+            vertex: emitGlslModule(ex.module, 'vertex'),
+            fragment: emitGlslModule(ex.module, 'fragment'),
+          }
+        : null;
+      const [pipeline, pipelineSkip] = pipelineOf(ex.module);
+      return {
+        id: ex.id,
+        wgsl: cut ? corrupt(wgsl) : wgsl,
+        glsl:
+          glsl && cut ? { vertex: corrupt(glsl.vertex), fragment: corrupt(glsl.fragment) } : glsl,
+        pipeline,
+        pipelineSkip,
+      };
+    })
+    .concat(kernelJobs());
 }
 
 /** The optional WebGPU features the corpus needs, derived from the modules themselves rather

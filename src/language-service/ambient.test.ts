@@ -56,6 +56,20 @@ const REQUIRED_EXAMPLES = [
   'hello.shade.ts',
 ];
 
+/** The examples that carry warnings on purpose, with each warning's code and its first words:
+ *  `loop-on-cpu` shows one loop the proof refuses per rule (change 0013), and the editor reports
+ *  each `TS8070` as the compiler does (Rule 12.7). */
+const EXPECTED_WARNINGS: Readonly<Record<string, readonly string[]>> = {
+  'loop-on-cpu.shade.ts': [
+    'typeshade TS8070: This loop runs on the CPU because it is a while loop',
+    'typeshade TS8070: This loop runs on the CPU because line 32 returns from inside it',
+    'typeshade TS8070: This loop runs on the CPU because line 43 writes "nearest"',
+    'typeshade TS8070: This loop runs on the CPU because line 52 reads "out[i - 1]"',
+    'typeshade TS8070: This loop runs on the CPU because line 59 calls "tally"',
+    'typeshade TS8070: This loop runs on the CPU because line 66 calls console.log',
+  ],
+};
+
 describe('SHADE_DTS: every .shade.ts example produces zero diagnostics', () => {
   it('reads a corpus that still holds every example this suite was built on', () => {
     for (const name of REQUIRED_EXAMPLES) {
@@ -72,10 +86,13 @@ describe('SHADE_DTS: every .shade.ts example produces zero diagnostics', () => {
       // Zero, not "zero but for TS1206": `@vertex`/`@compute` on a top-level function and
       // `@builtin(...)` on its parameters are the one grammar no ambient lib can declare away,
       // and `diagnostics.ts` already filters exactly that shape (design doc §6).
+      const expected = EXPECTED_WARNINGS[name] ?? [];
+      const got = diagnostics.map((d) => `${d.source} ${d.code}: ${d.message}`);
       expect(
-        diagnostics.map((d) => `${d.source} ${d.code}: ${d.message}`),
-        `${name} should compile clean under the ambient lib`,
-      ).toEqual([]);
+        got.length,
+        `${name} should compile clean under the ambient lib: ${got.join('; ')}`,
+      ).toBe(expected.length);
+      expected.forEach((start, i) => expect(got[i]).toContain(start));
     });
   }
 });

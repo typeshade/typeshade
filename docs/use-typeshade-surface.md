@@ -7050,6 +7050,10 @@ array it holds, and costs nothing.
 call it cannot run on throws, naming why (`render(): no tier it may use can run it (webgpu: there
 is no WebGPU device).`).
 
+**Examples.** `loop-kernel` (the terrain above), `loop-reduction` (a sum, a mean and a variance, and
+a histogram), `loop-struct-array` (the particle step over `array<Particle>`) and `loop-on-cpu` (one
+refused loop per rule, each with its `TS8070`) are in `examples/`.
+
 **Not yet.** A texture and an `f64` reduction on the GPU, and the WebGL2 tier, are the next parts of
 change 0013. Until then such a function runs on the CPU.
 

@@ -174,7 +174,13 @@ export function f(): f32 {
         .filter((d) => d.severity === 'error')
         .map((d) => `${d.file}:${d.line} ${d.code} ${d.message}`),
     ).toEqual([]);
-    for (const d of report.diagnostics) expect(`${d.severity} ${d.code}`).toBe('warning TS8015');
+    // …and the six TS8070 warnings of `loop-on-cpu`, which shows one refused loop per rule
+    // of change 0013's proof on purpose.
+    for (const d of report.diagnostics)
+      expect(`${d.severity} ${d.code}${d.code === 'TS8070' ? ` ${d.file}` : ''}`).toMatch(
+        /^warning (TS8015|TS8070 examples\/loop-on-cpu\.shade\.ts)$/,
+      );
+    expect(report.diagnostics.filter((d) => d.code === 'TS8070')).toHaveLength(6);
   });
 });
 

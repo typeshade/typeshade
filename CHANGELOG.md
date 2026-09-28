@@ -576,6 +576,14 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **Four examples of a loop that becomes a kernel** (change 0013, part 6, surface §65).
+  `loop-kernel` is the roadmap's terrain, `loop-reduction` a sum, a mean and a variance, and a
+  histogram, `loop-struct-array` the particle step over `array<Particle>`, and `loop-on-cpu` one
+  loop the proof refuses per rule (R1 to R6), each carrying its `TS8070` warning; the module still
+  compiles. `examples/loop-examples.test.ts` holds every kernel function of the four to one answer
+  on the CPU tier and the oracle, reductions included, and the compile gate now also hands Tint the
+  WGSL each kernel function lowers to.
+
 - **`resident` and `configure`: a kernel function's arrays stay on the device, and the caller
   orders the tiers** (change 0013, part 5; Rules 8.21 and 11.8, surface §65). `resident(array)`,
   from `typeshade` and `typeshade/runtime`, wraps a typed array or an array of objects once; a call
