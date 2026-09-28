@@ -26,6 +26,7 @@ import type {
   StructDecl,
 } from '../ir/index.js';
 import { f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, voidT } from '../ir/index.js';
+import { accuracyOf } from '../passes/determinism.js';
 
 /** Deterministic PRNG — mulberry32. Same seed, same module, on every machine and run. */
 export function mulberry32(seed: number): () => number {
@@ -51,6 +52,11 @@ export interface GenOptions {
   readonly nest?: number;
   /** Types a generated function may take and return (default: all scalars + f32 vectors). */
   readonly types?: readonly ShaderType[];
+  /** Only the operations WGSL gives one answer (default false): the ones the determinism report
+   *  (`passes/determinism.ts`) calls exact, over float literals with a few bits each, so that no
+   *  grouping a driver may choose (WGSL §15.7.5, #378) rounds, and a GPU must match the f32
+   *  oracle bit for bit. */
+  readonly exact?: boolean;
 }
 
 const SCALARS: readonly ShaderType[] = [f32T, i32T, u32T];
@@ -98,6 +104,24 @@ const INT_BINARY = ['min', 'max'] as const;
 const VEC_REDUCE = ['length'] as const;
 
 const F32_BINOPS: readonly BinOp[] = ['+', '-', '*', '/'];
+
+const F32_LITERALS = [0, 1, -1, 0.5, -0.25, 2, 3.5, 1e-3, 1e3, Math.PI];
+/** `F32_LITERALS` with a few bits each, so that a sum or a product of them rounds in no order:
+ *  WGSL lets a driver reassociate (§15.7.5), and SwiftShader groups two constants across the
+ *  operation between them, so `3.5 + (0.001 - x)` came back as `(3.5 + 0.001) - x`, 1 ULP from
+ *  the oracle (#378). The same length, so a seed draws the same shape in both modes. */
+const EXACT_F32_LITERALS = [0, 1, -1, 0.5, -0.25, 2, 3.5, 0.125, 1e3, -8];
+
+/** Each list above, kept to what `accuracyOf` calls exact: every target computes one answer, the
+ *  f32 oracle's, so `GenOptions.exact`'s programs are held to the GPU bit for bit. */
+const onlyExact = <T extends string>(xs: readonly T[]): readonly T[] =>
+  xs.filter((x) => accuracyOf(x)?.kind === 'exact');
+const EXACT = {
+  unary: onlyExact(F32_UNARY),
+  binary: onlyExact(F32_BINARY),
+  ternary: onlyExact(F32_TERNARY),
+  binops: onlyExact(F32_BINOPS),
+};
 // Integer ops carry WGSL's own semantics (wrap, truncating `/`, `x/0 = x`, `x%0 = 0`) — the
 // exact surface X-GIS #2274 got wrong, so `/` and `%` are generated on purpose, over divisors that
 // CAN be zero.
@@ -116,7 +140,10 @@ class Gen {
   private n = 0;
   readonly features: Record<string, number> = {};
 
-  constructor(private readonly rnd: () => number) {}
+  constructor(
+    private readonly rnd: () => number,
+    private readonly exact = false,
+  ) {}
 
   private mark(f: string): void {
     this.features[f] = (this.features[f] ?? 0) + 1;
@@ -146,8 +173,7 @@ class Gen {
       const v = this.pick(pool);
       return { op: 'lit', type: t, value: t.scalar === 'u32' ? v >>> 0 : v | 0 };
     }
-    const pool = [0, 1, -1, 0.5, -0.25, 2, 3.5, 1e-3, 1e3, Math.PI];
-    const v = this.pick(pool);
+    const v = this.pick(this.exact ? EXACT_F32_LITERALS : F32_LITERALS);
     if (isVec(t))
       return {
         op: 'construct',
@@ -198,7 +224,7 @@ class Gen {
     const arms: Array<() => Expr> = [];
 
     arms.push(() => {
-      const bop = this.pick(isInt(t) ? INT_BINOPS : F32_BINOPS);
+      const bop = this.pick(isInt(t) ? INT_BINOPS : this.exact ? EXACT.binops : F32_BINOPS);
       if (isInt(t) && (bop === '/' || bop === '%')) this.mark(`int${bop}`);
       if (isInt(t) && (bop === '<<' || bop === '>>')) this.mark('intShift');
       else if (isInt(t)) this.mark('intArith');
@@ -227,18 +253,22 @@ class Gen {
         const k = this.rnd();
         const [fn, n] =
           k < 0.5
-            ? [this.pick(F32_UNARY), 1]
+            ? [this.pick(this.exact ? EXACT.unary : F32_UNARY), 1]
             : k < 0.8
-              ? [this.pick(F32_BINARY), 2]
-              : [this.pick(F32_TERNARY), 3];
+              ? [this.pick(this.exact ? EXACT.binary : F32_BINARY), 2]
+              : [this.pick(this.exact ? EXACT.ternary : F32_TERNARY), 3];
         // smoothstep/mix/clamp take same-typed args on both targets; scalars broadcast is
         // NOT generated, so the emit is always spellable.
-        return {
-          op: 'call',
-          type: t,
-          fn,
-          args: Array.from({ length: n as number }, () => this.expr(t, depth - 1, scope, fns)),
-        };
+        const args = Array.from({ length: n as number }, () => this.expr(t, depth - 1, scope, fns));
+        // A float `clamp` whose `low` passes its `high` has two answers in WGSL, `min(max(e, low),
+        // high)` or the median of the three, and Tint refuses it outright in a constant. Its exact
+        // form orders the bounds.
+        if (this.exact && fn === 'clamp') {
+          const [lo, hi] = [args[1]!, args[2]!];
+          args[1] = { op: 'call', type: t, fn: 'min', args: [lo, hi] };
+          args[2] = { op: 'call', type: t, fn: 'max', args: [lo, hi] };
+        }
+        return { op: 'call', type: t, fn, args };
       });
     }
     if (isInt(t)) {
@@ -285,16 +315,18 @@ class Gen {
         const field = this.pick(['x', 'y', 'z', 'w'].slice(0, arity(src)));
         return { op: 'member', type: f32T, base: this.expr(src, depth - 1, scope, fns), field };
       });
-      arms.push(() => {
-        this.mark('reduce');
-        const src = this.pick([vec2fT, vec3fT, vec4fT] as const);
-        return {
-          op: 'call',
-          type: f32T,
-          fn: this.pick(VEC_REDUCE),
-          args: [this.expr(src, depth - 1, scope, fns)],
-        };
-      });
+      // `length` is inherited from `sqrt`, which a driver may evaluate its own way.
+      if (!this.exact)
+        arms.push(() => {
+          this.mark('reduce');
+          const src = this.pick([vec2fT, vec3fT, vec4fT] as const);
+          return {
+            op: 'call',
+            type: f32T,
+            fn: this.pick(VEC_REDUCE),
+            args: [this.expr(src, depth - 1, scope, fns)],
+          };
+        });
     }
 
     const callable = fns.filter((f) => typeKey(f.ret) === typeKey(t));
@@ -350,7 +382,11 @@ class Gen {
             this.mark('assign');
           } else {
             const bop = this.pick(
-              isInt(t) ? INT_BINOPS.filter((b) => b !== '<<' && b !== '>>') : F32_BINOPS,
+              isInt(t)
+                ? INT_BINOPS.filter((b) => b !== '<<' && b !== '>>')
+                : this.exact
+                  ? EXACT.binops
+                  : F32_BINOPS,
             );
             out.push({ s: 'assignOp', target, bop, expr: this.expr(t, depth, scope, fns) });
             this.mark('assignOp');
@@ -861,7 +897,7 @@ export function generateModule(seed: number, opts: GenOptions = {}): Corpus {
   const depth = opts.depth ?? 3;
   const nest = opts.nest ?? 2;
   const types = opts.types ?? DEFAULT_TYPES;
-  const gen = new Gen(mulberry32(seed));
+  const gen = new Gen(mulberry32(seed), opts.exact ?? false);
   const rnd = mulberry32(seed ^ 0x5bf03635);
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
 
@@ -917,6 +953,8 @@ export interface KernelGenOptions {
   readonly stmts?: number;
   /** Maximum expression nesting (default 2). */
   readonly depth?: number;
+  /** Only the operations WGSL gives one answer, as `GenOptions.exact` (default false). */
+  readonly exact?: boolean;
 }
 
 /** A generated module whose kernel function is `kernel`, with the arrays it takes. A caller
@@ -929,7 +967,7 @@ export interface KernelCorpus extends Corpus {
 
 /** Generate a module with one kernel function from `seed`. Same seed ⇒ the same module. */
 export function generateKernelModule(seed: number, opts: KernelGenOptions = {}): KernelCorpus {
-  const gen = new Gen(mulberry32(seed ^ 0x2545f491));
+  const gen = new Gen(mulberry32(seed ^ 0x2545f491), opts.exact ?? false);
   const rnd = mulberry32(seed ^ 0x68e31da4);
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
   const count = (lo: number, hi: number): number => lo + Math.floor(rnd() * (hi - lo + 1));

@@ -35,6 +35,9 @@ import {
   type KernelCorpus,
 } from './random-ir.js';
 import { copy, runKernelPlan, type KernelRun, type PlanFault } from './kernel-plan.js';
+import { determinismReport } from '../passes/determinism.js';
+import { eachExpr, eachStmtExpr } from '../ir/visit.js';
+import type { Stmt } from '../ir/index.js';
 
 const SEEDS = 24;
 /** Seeds that caught a defect, kept in the corpus whatever the sweep. */
@@ -349,5 +352,37 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
   it('L notices a plan run wrong: an iteration skipped, a partial dropped', () => {
     expect(lowering('skip-first-iteration').divergences.length).toBeGreaterThan(0);
     expect(lowering('drop-last-partial').divergences.length).toBeGreaterThan(0);
+  });
+});
+
+// The GPU differential (`scripts/gpu-differential.ts`, `bun run gate:differential`) holds the
+// exact corpus to the f32 oracle bit for bit on WebGPU. Its claim rests on two facts about the
+// corpus, held here where there is no GPU: the determinism report lists nothing but a reduction's
+// `order`, and every float literal has a few bits, so that no grouping a driver may choose
+// (WGSL §15.7.5) rounds a sum or a product of them (#378).
+describe("the GPU differential's exact corpus (#349)", () => {
+  it('reports nothing but order rows, and writes only float literals of a few bits', () => {
+    const rows = new Set<string>();
+    const literals = new Set<number>();
+    const walk = (st: Stmt): void =>
+      eachStmtExpr(
+        st,
+        (e) =>
+          eachExpr(e, (x) => {
+            if (x.op === 'lit' && typeof x.value === 'number' && isFloat(x.type))
+              literals.add(x.value);
+          }),
+        walk,
+      );
+    for (let seed = 1; seed <= 48; seed++) {
+      const c = generateKernelModule(seed, { exact: true });
+      for (const r of determinismReport(c.module)) rows.add(`${r.op} ${r.elem} ${r.kind}`);
+      for (const f of c.module.funcs) f.body.forEach(walk);
+    }
+    expect([...rows].filter((r) => !r.endsWith(' order'))).toEqual([]);
+    expect(rows.size).toBeGreaterThan(0);
+    expect(literals.size).toBeGreaterThan(4);
+    for (const v of literals)
+      expect(Number.isInteger(v * 8) && Math.abs(v) <= 1000, `${v}`).toBe(true);
   });
 });

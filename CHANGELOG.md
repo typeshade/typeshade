@@ -17,6 +17,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **The user journeys run on the program runtime** (proposal 0025, step 5, first half; Rule
+  11.11). `journeys/_harness.mjs` wrote its own WebGPU, 521 lines of it, to run each journey. It
+  now imports `typeshade/runtime` in the page as the packed tarball installs it, with no
+  bundler; loads each run's manifest from `packModule`; binds each binding by name with the
+  journey's host value; and reads the result back through a `Resident` or the target texture.
+  The console lines come from the runtime's sink, and its dropped count from its warning. A
+  journey's `bindings` are now `{ name: value }`, the host value alone, which the runtime and the
+  CPU oracle both take, in place of the packed bytes each journey wrote beside it.
+
 - **The license is Apache 2.0** (was MIT). `LICENSE` holds the Apache License, Version 2.0,
   `NOTICE` is new and ships in the package, and `package.json` says `"license": "Apache-2.0"`.
   Apache 2.0 adds an explicit patent grant and says the license grants no right to use the
@@ -590,6 +599,17 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   spelling of its own (Rule 6.5).
 
 ### Added
+
+- **The engine journey** (proposal 0025, step 5; Rule 11.11; the gate #335 set before a reference
+  engine). `journeys/engine/` is a small engine written as a host application writes one, on
+  `typeshade/runtime`'s public exports alone. It has two materials that share a camera and lights,
+  a shadow pass read by comparison, a render to a half-float texture and a tonemap pass. The
+  camera is a `Resident` both materials bind, rewritten every frame for 60 frames. The harness
+  (`kind: 'engine'`) refuses the engine on any import but `typeshade/runtime` and on any WebGPU
+  call of its own. It runs the frames on a device it instruments and fails on any GPU object
+  made after the first frame. It holds the last frame to a reference computed pixel by pixel in
+  plain JavaScript: on SwiftShader the worst error is 0. Each check was shown to fail when broken:
+  a texture made each frame, the shadow pass left out, and a buffer the engine makes itself.
 
 - **A console line says where it ran, and a production build records when asked** (proposal
   0025, step 4; design rule 8.24; surface §64, §66 and §67).
@@ -1965,6 +1985,28 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   The compile gate's passes leg drew each graph on WebGL2 alone; it now draws each on WebGPU too
   and holds frame 30 to WebGL2's.
 
+- **The oracle's `abs` and negation of the least `i32` are that value itself, as on both
+  targets** (Rule 1.3, surface §45). 2^31 has no `i32`, so `abs(-2147483648)` and
+  `-(-2147483648)` wrap back to `-2147483648` on WebGPU and WebGL2 (wgsl.txt:21451-21453). The
+  interpreter, the generated CPU code and the stepper answered `2147483648`, a value no `i32`
+  holds: `max(2, abs(i32(u)))` over `u = 2147483648` was 2 on WebGL2 and 2147483648 on the CPU.
+  A builtin is handed plain numbers, and the `f32` of the same magnitude has the real
+  `+2147483648` answer, so each CPU walk now wraps an integer-typed builtin's result and a
+  negation by its IR type. The GPU differential's GLSL arm (#349) drew it; the row #154 had left
+  as an `it.fails` now passes.
+
+- **A name that contains `$` is refused on its declaration** (Rule 3.2, surface §62, #376).
+  TypeScript takes `$` in an identifier and WGSL does not, so `function scale$()` compiled with
+  no diagnostic and Tint refused the module with `invalid character found`. Rule 3.2 required
+  the refusal, and Appendix B listed it as not enforced. It is now `TS8068` on the declaration,
+  in the compiler and in the editor alike, for a struct, a field, a binding, a module constant,
+  a function, a parameter and a local:
+
+  ```text
+  "k$" contains "$", which a WGSL identifier cannot hold, so a local of that name cannot be
+  emitted for the WebGPU target. Rename it.
+  ```
+
 - **A runtime-sized array's length on WebGPU is the length the host passed** (Rules 8.21, 8.24
   and 11.11, #367). The call layer packed a storage binding padded to a multiple of 16 bytes and
   bound the buffer whole, and the program runtime bound the buffer its pool had rounded up.
@@ -2001,7 +2043,9 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   value its type cannot hold was refused at every level over a module `const` (the third line,
   and `M / -1` and `M % -1` over `i32`'s most negative value), and at O0 and O1 over literals,
   which O2 folded (`i32(2147483647) + i32(1)`); `u32(n)` of a negative local `const n` was
-  refused at O1. Each emit now writes the value the target computes at run time, which is the
+  refused at O1. A float constant converted to an integer divided by zero too: `u32(K)` of a
+  module `const K: f32 = 0.5` at every level, and `u32(k)` of a local `const k: f32 = -0.25`
+  at O2. Each emit now writes the value the target computes at run time, which is the
   value the CPU oracle already gave: `a / 0` is `a` and `a % 0` is 0, a shift amount keeps its
   low five bits, the operation over constants is its wrapped value, and a `clamp` whose
   constant bounds cross is `min(max(e, low), high)`. A module Tint accepted emits the same

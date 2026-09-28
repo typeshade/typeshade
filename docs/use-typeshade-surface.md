@@ -5023,12 +5023,12 @@ const bits = countOneBits(5); // was "takes an i32 or u32 … got f32"
 `abs(e1 - e2)`; both targets compile them, and the CPU oracle used to throw `v.reduce is not a
 function` on a program the GPU ran. It answers now.
 
-One row of this is recorded rather than fixed: `abs(-2147483648)` on an `i32` is that value
-itself on both targets, because 2^31 has no `i32`, and the oracle answers `2147483648`. A
-builtin there is handed plain numbers, and the `f32` of the same magnitude is the same number
-with a genuine `+2147483648` answer — so telling them apart needs the oracle and the codegen to
-wrap a call's result by its IR type, which is a change to every integer builtin rather than to
-this one. It is pinned as an `it.fails` so the day that changes is a deliberate edit.
+`abs(-2147483648)` on an `i32` is that value itself on both targets, because 2^31 has no
+`i32`, and so is `-(-2147483648)`. The oracle answers the same. A builtin there is handed plain
+numbers, and the `f32` of the same magnitude is the same number with a genuine `+2147483648`
+answer, so each CPU walk wraps an integer-typed builtin's result, and a negation, by its IR
+type. The oracle used to answer `2147483648` for both, until the GPU differential drew such a
+program on WebGL2 (#349).
 
 ## 46. What a texture is asked, and by which integer
 
@@ -6511,8 +6511,9 @@ name that collides with a GLSL word is rewritten with every reference to it (`le
 `out_`), and that has always worked. The module surface it cannot rename is what this check
 covers: a struct and its fields (the std140 offsets and the cross-stage varying contract), a
 module constant, an override's `#define`, a module variable and a binding, whose name is the
-host's reflection key. WGSL renames nothing, so every kind is checked for it, including the two
-rules that are shapes rather than words: a name beginning with `__`, and the bare `_`. GLSL ES
+host's reflection key. WGSL renames nothing, so every kind is checked for it, including the three
+rules that are shapes rather than words: a name beginning with `__`, the bare `_`, and a name
+that contains `$`, which TypeScript takes and WGSL's identifier profile leaves out. GLSL ES
 3.00 §3.6 has two shape rules of its own, and both are read here too: a name beginning with
 `gl_`, which it keeps for built-ins, and one containing `__` anywhere, not only at the front.
 
@@ -6531,6 +6532,7 @@ gives. Measured in Chromium, through the compile gate's instrument:
 | a local named `discard` | `expected identifier for variable declaration` | — |
 | a name named `filter` | `'filter' is a reserved keyword` | `'filter' : Illegal use of reserved word` |
 | a local named `__x` | `identifiers must not start with two or more underscores` | — |
+| a function, a parameter, a local, a field or a module variable named `scale$`, `$a`, `k$` | `invalid character found` | — |
 | a name named `input`, `sample`, `image2D` | accepted | `Illegal use of reserved word` |
 | a name named `gl_Scale` | accepted | `'gl_' : reserved built-in name` |
 | a name named `a__b` | accepted | `identifiers containing two consecutive underscores (__) are reserved` |
@@ -6760,8 +6762,8 @@ writes nothing after its `discard`.
 `examples/gpu-console.shade.ts` is the kernel above with a helper that warns and a `console.table`
 of a matrix; the compile gate
 hands Tint its WGSL both ways, as written and under `console: 'gpu'`. The `console-log` journey
-runs it on WebGPU from the packed tarball and holds the lines `decodeConsole` returns equal to
-the CPU run's and to its host's own, line for line.
+runs its own kernel on WebGPU from the packed tarball, through `typeshade/runtime` (§69), and
+holds the lines the runtime decodes equal to the CPU run's and to its host's own, line for line.
 
 **How a line is printed.** The call layer (§64, §67) and the program runtime (§69) print each
 event to the host's console with one prefix, whether the GPU recorded it or the CPU tier ran it:

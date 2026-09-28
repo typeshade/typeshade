@@ -54,6 +54,7 @@ import {
   f32ToU32Sat,
   f32ToI32Sat,
   numKindOf,
+  wrapValue,
   cloneValue,
   copiedParams,
   inoutReturn,
@@ -216,8 +217,9 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       return applyBin(e.bop, av, bv, numKindOf(e.type));
     }
     case 'unop': {
+      // The negation of the least `i32` is itself on both targets, as `wrapValue` says.
       const a = evalExpr(e.a, env, ctx);
-      return isArr(a) ? a.map((v) => -(v as number)) : -(a as number);
+      return wrapValue(isArr(a) ? a.map((v) => -(v as number)) : -(a as number), numKindOf(e.type));
     }
     case 'compare': {
       // == / != reflect f32 rounding when comparing f32 operands — the GPU computes f32, so
@@ -292,8 +294,9 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         const declared = ctx.fns[e.fn];
         if (declared) return storeBack(e, declared(...args), env, ctx);
       }
+      // An integer result wraps into its type, which a builtin handed plain numbers cannot know.
       const b = BUILTINS[e.fn];
-      if (b) return b(...args);
+      if (b) return wrapValue(b(...args), numKindOf(e.type));
       const stub = GPU_STUBS[e.fn];
       if (stub) {
         if (!ctx.gpuStubs) {

@@ -11,6 +11,8 @@ import { compileTsSource } from './source-file.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { BUILTINS, type CpuValue } from '../../core/cpu-runtime.js';
+import { startDebugSession } from '../../core/debug/session.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const U = `class U { k: u32; s: i32; v: vec2i; m: mat4; w: vec4 }
 declare const u: uniform<U>`;
@@ -574,16 +576,33 @@ ${body}
   });
 
   // 2^31 has no i32, so `abs(-2147483648)` is that value itself on both targets
-  // (wgsl.txt:21451-21453) and the oracle answers 2147483648. NOT fixable at the builtin: it
-  // is handed plain numbers, and the f32 `-2147483648.` is the same number with a genuine
-  // `+2147483648` answer. It needs the oracle and the codegen to wrap a call's result by its
-  // IR type, which is a change to every integer builtin rather than to this row; an id of its
-  // own is not open either, since a portable id spells as its own name and the registry's map
-  // is for genuinely divergent spellings. Pinned as it stands rather than left unstated.
-  it.fails('abs of the smallest i32 is itself, as it is on both targets (#154, oracle)', () => {
+  // (wgsl.txt:21451-21453). The builtin is handed plain numbers, and the f32 `-2147483648.` is
+  // the same number with a genuine `+2147483648` answer, so each CPU walk wraps an
+  // integer-typed call's result by its IR type (`wrapValue`). This was pinned as failing until
+  // the GPU differential's GLSL arm drew it (#349): WebGL2 answered the least i32, and the
+  // oracle 2147483648.
+  it('abs of the smallest i32 is itself, as it is on both targets (#154, oracle)', () => {
     expect(value('  const m: i32 = -2147483648\n  return vec4(f32(abs(m)), 0., 0., 1.)')).toEqual([
       -2147483648, 0, 0, 1,
     ]);
+  });
+
+  // The negation wraps the same way, and so does each lane of a vector. The third walk, the
+  // stepper, answers what the two backends answer, and the editor reads the program the
+  // compiler accepts: `-m` is an i32.
+  it('so is its negation, and each lane of an integer vector, on every CPU walk', () => {
+    const body =
+      '  const m: i32 = -2147483648\n  const v = abs(vec2i(m, -3))\n  const n = -m\n  return vec4(f32(n), f32(v.x), f32(v.y), 1.)';
+    expect(value(body)).toEqual([-2147483648, -2147483648, 3, 1]);
+    const src = `"use typeshade"\n@fragment\nexport function fs(): vec4 {\n${body}\n}\n`;
+    const stepped = startDebugSession(compile(src).module, 'fs', [], { precision: 'f64' });
+    stepped.continue();
+    expect(stepped.result).toEqual([-2147483648, -2147483648, 3, 1]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', src);
+    expect(service.getDiagnostics('a.ts')).toEqual([]);
+    const at = service.positionAt('a.ts', src.indexOf('const n') + 'const '.length);
+    expect(service.getHover('a.ts', at)?.contents).toMatch(/\bn: i32\b/);
   });
 
   it('and the float of that magnitude keeps its real answer', () => {

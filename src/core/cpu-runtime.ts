@@ -132,6 +132,18 @@ export function atomicStep(
 export const wrapInt = (v: number, kind: NumKind): number =>
   kind === 'i32' ? v | 0 : kind === 'u32' ? v >>> 0 : v;
 
+/** An integer-typed result wrapped into its type, component-wise for a vector: what the value is
+ *  on both targets. A builtin is handed plain numbers and cannot tell an `i32` from an `f32`, so
+ *  each CPU backend wraps a builtin's result and a negation by the call's IR TYPE, which it
+ *  knows: `abs` of the least `i32` is 2147483648 as a number and the least `i32` itself on both
+ *  targets (wgsl.txt:21451-21453), and so is its negation. Identity for the float kind. */
+export const wrapValue = (v: CpuValue, kind: NumKind): CpuValue =>
+  kind === 'f32'
+    ? v
+    : isArr(v)
+      ? (v as number[]).map((x) => wrapInt(x, kind))
+      : wrapInt(v as number, kind);
+
 /** WGSL integer division: truncating; `x / 0 = x`; i32 `MIN / -1` wraps back to MIN. */
 export const intDiv = (a: number, b: number, kind: NumKind): number =>
   b === 0 ? a : wrapInt(Math.trunc(a / b), kind);
@@ -504,13 +516,10 @@ export const BUILTINS: Record<string, Builtin> = {
   round: map1(roundTiesToEven),
   floor: map1(Math.floor),
   ceil: map1(Math.ceil),
-  // KNOWN LIMIT (#154): `abs(-2147483648)` on an `i32` is that value itself on both targets —
-  // 2^31 has no i32, so the result wraps (wgsl.txt:21451-21453) — and this gives 2147483648.
-  // It is not fixable here: a builtin is handed plain numbers, and the f32 `-2147483648.` is
-  // the same number with a genuine `+2147483648` answer. Fixing it needs the oracle and the
-  // codegen to wrap a call's result by its IR TYPE, which is a change to every integer
-  // builtin rather than to this row; an id of its own is not open either, since a portable id
-  // spells as its own name and the registry's map is for genuinely divergent spellings.
+  // `abs(-2147483648)` on an `i32` is that value itself on both targets: 2^31 has no i32, so
+  // the result wraps (wgsl.txt:21451-21453). This gives 2147483648, since the f32
+  // `-2147483648.` is the same number with a genuine `+2147483648` answer, and each CPU backend
+  // wraps an integer-typed call's result by its IR type (`wrapValue`).
   abs: map1(Math.abs),
   sign: map1(Math.sign),
   radians: map1((d) => (d * Math.PI) / 180),

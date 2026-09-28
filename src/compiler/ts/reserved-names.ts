@@ -81,9 +81,12 @@ const GLSL_VERBATIM: ReadonlySet<DeclaredSymbolKind> = new Set<DeclaredSymbolKin
 const WEBGPU = 'WebGPU';
 const WEBGL2 = 'WebGL2';
 
-/** Why WGSL refuses this spelling, or `undefined` if it does not. The spec has three rules:
- *  a keyword or reserved word, the single `_`, and any name beginning with `__`. */
+/** Why WGSL refuses this spelling, or `undefined` if it does not. The spec has four rules:
+ *  a keyword or reserved word, the single `_`, any name beginning with `__`, and the identifier
+ *  profile, whose characters are XID_Start and XID_Continue and `_`, which leaves out the `$`
+ *  that TypeScript takes (Rule 3.2, #376). */
 function wgslRefusal(name: string): string | undefined {
+  if (name.includes('$')) return `contains "$", which a WGSL identifier cannot hold`;
   if (WGSL_RESERVED.has(name)) return `is reserved in WGSL`;
   if (name.startsWith('__')) return `begins with two underscores, which WGSL reserves`;
   if (name === '_') return `is WGSL's phony assignment target, not an identifier`;

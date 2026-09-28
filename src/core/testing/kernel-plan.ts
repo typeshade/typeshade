@@ -10,6 +10,12 @@
 // agree bit for bit in f32, and a difference is a lowering that changed what the function
 // computes (#361 was one).
 //
+// `scheduleKernelPlan` is the dispatch alone: every step in order, with its workgroups and the
+// values of the plan's uniform, the partials each reduction folds into, and where its folded value
+// ends up. The loops write no scalar a range reads (Rule 8.22), so the whole schedule is known
+// before anything runs. `runKernelPlan` runs it on the oracle, and the GPU differential
+// (`scripts/gpu-differential.ts`) runs the same schedule on WebGPU.
+//
 // It follows `callKernel`'s WebGPU tier step for step: the trip count, the grid that spills past
 // 65535 workgroups into y, the levels of partials, and the identity a loop that runs no iteration
 // folds to. It is a second copy of that sequence, because `callKernel` needs a device. The import
@@ -30,32 +36,50 @@ export interface KernelRun {
 /** A step of the dispatch to run wrong on purpose, so a comparison can be shown to notice it. */
 export type PlanFault = 'skip-first-iteration' | 'drop-last-partial';
 
-/**
- * Run kernel function `fn` of `m` through `plan` on the f32 oracle, as its call does on WebGPU.
- * `args` are the function's parameters in order, an array as a JavaScript array of its elements;
- * they are copied, and the copies written in place and returned.
- */
-export function runKernelPlan(
+/** One dispatch: the entry, its workgroups, and the values of the plan's uniform. */
+export interface PlanStep {
+  readonly entry: string;
+  readonly workgroups: readonly [number, number, number];
+  readonly args: Readonly<Record<string, CpuValue>>;
+}
+
+/** Where a reduced variable's folded value is once the steps have run: a slot of its partials'
+ *  binding, or, for a loop that ran no iteration, the operator's identity. */
+export type PlanFold =
+  { readonly binding: string; readonly at: number } | { readonly identity: CpuValue };
+
+/** What a call dispatches for one set of arguments. */
+export interface PlanSchedule {
+  readonly steps: readonly PlanStep[];
+  /** Each reduction's partials: its binding, its type, and how many slots it holds. */
+  readonly partials: readonly {
+    readonly binding: string;
+    readonly type: ShaderType;
+    readonly slots: number;
+  }[];
+  /** Each reduced variable, in loop order. */
+  readonly folds: readonly PlanFold[];
+}
+
+/** The dispatch of kernel function `fn` of `m` through `plan` for `args`, its parameters in order,
+ *  an array as a JavaScript array of its elements. */
+export function scheduleKernelPlan(
   m: ModuleDecl,
   fn: string,
   plan: KernelPlan,
   args: readonly CpuValue[],
   fault?: PlanFault,
-): KernelRun {
-  const f = m.funcs.find((x) => x.name === fn);
-  if (f === undefined) throw new Error(`runKernelPlan: no function "${fn}"`);
+): PlanSchedule {
+  const f = functionOf(m, fn);
   const host = compileModule({ ...m, funcs: [...m.funcs, ...plan.ranges] }, { precision: 'f32' });
-  const device = compileModule(plan.module, { precision: 'f32' });
-  const values = args.map(copy);
-  const isArray = (i: number): boolean => f.params[i]!.type.kind === 'array';
-  // The range functions and the tail read an array only by its length, as the call hands it them.
-  const lengths = values.map((v, i) =>
-    isArray(i) ? ({ length: (v as unknown[]).length } as unknown as CpuValue) : v,
-  );
+  const lengths = lengthsOf(f.params, args);
+  const scalars: Record<string, CpuValue> = {};
   f.params.forEach((p, i) => {
-    if (isArray(i)) device.setBinding(p.name, values[i]!);
+    if (p.type.kind !== 'array') scalars[p.name] = args[i]!;
   });
-  const folded: CpuValue[] = [];
+  const steps: PlanStep[] = [];
+  const partials: PlanSchedule['partials'][number][] = [];
+  const folds: PlanFold[] = [];
   for (const loop of plan.loops) {
     const range = host.fns[loop.range]!(...lengths) as unknown as readonly number[];
     let start = range[0]!;
@@ -66,50 +90,108 @@ export function runKernelPlan(
     }
     const vars = loop.reduce?.vars ?? [];
     if (n === 0) {
-      for (const v of vars) folded.push(identityOf(v.op, v.type));
+      for (const v of vars) folds.push({ identity: identityOf(v.op, v.type) });
       continue;
     }
-    const args_: Record<string, CpuValue> = { _start: start, _n: n, _in: 0, _out: 0 };
-    f.params.forEach((p, i) => {
-      if (!isArray(i)) args_[p.name] = values[i]!;
-    });
-    const bind = (): void => device.setBinding(plan.argsBinding, { ...args_ });
-    bind();
+    const step = (entry: string, workgroups: [number, number, number], at = {}): void => {
+      steps.push({
+        entry,
+        workgroups,
+        args: { ...scalars, _start: start, _n: n, _in: 0, _out: 0, ...at },
+      });
+    };
     const first = grid(Math.ceil(n / loop.wg));
-    if (vars.length === 0) {
-      device.dispatch(loop.entry, first.wg);
-      continue;
-    }
-    const levels: { wg: [number, number, number]; slots: number; count: number }[] = [];
+    step(loop.entry, first.wg);
+    if (vars.length === 0) continue;
     let count = Math.ceil(n / loop.wg);
     let slots = first.slots;
+    let at = 0;
     while (count > 1) {
       const next = grid(Math.ceil(count / KERNEL_TREE));
-      levels.push({ ...next, count });
+      step(loop.reduce!.entry, next.wg, {
+        _n: fault === 'drop-last-partial' ? count - 1 : count,
+        _in: at,
+        _out: slots,
+      });
+      at = slots;
       slots += next.slots;
       count = Math.ceil(count / KERNEL_TREE);
     }
-    const parts = vars.map((v) => {
-      const part = Array.from({ length: slots }, () => zeroOf(v.type));
-      device.setBinding(v.binding, part as unknown as CpuValue);
-      return part;
-    });
-    device.dispatch(loop.entry, first.wg);
-    let at = 0;
-    let out = first.slots;
-    for (const level of levels) {
-      args_._n = fault === 'drop-last-partial' ? level.count - 1 : level.count;
-      args_._in = at;
-      args_._out = out;
-      bind();
-      device.dispatch(loop.reduce!.entry, level.wg);
-      at = out;
-      out += level.slots;
+    for (const v of vars) {
+      partials.push({ binding: v.binding, type: v.type, slots });
+      folds.push({ binding: v.binding, at });
     }
-    for (const part of parts) folded.push(copy(part[at]!));
   }
-  const result = plan.tail === undefined ? undefined : host.fns[plan.tail]!(...lengths, ...folded);
-  return { result, arrays: values.filter((_, i) => isArray(i)) };
+  return { steps, partials, folds };
+}
+
+/** The result of kernel function `fn` from what its loops folded, by the plan's tail on the CPU
+ *  tier; undefined for a function that returns nothing. */
+export function tailOf(
+  m: ModuleDecl,
+  fn: string,
+  plan: KernelPlan,
+  args: readonly CpuValue[],
+  folded: readonly CpuValue[],
+): CpuValue | undefined {
+  if (plan.tail === undefined) return undefined;
+  const host = compileModule({ ...m, funcs: [...m.funcs, ...plan.ranges] }, { precision: 'f32' });
+  return host.fns[plan.tail]!(...lengthsOf(functionOf(m, fn).params, args), ...folded);
+}
+
+/**
+ * Run kernel function `fn` of `m` through `plan` on the f32 oracle, as its call does on WebGPU.
+ * `args` are copied, and the copies written in place and returned.
+ */
+export function runKernelPlan(
+  m: ModuleDecl,
+  fn: string,
+  plan: KernelPlan,
+  args: readonly CpuValue[],
+  fault?: PlanFault,
+): KernelRun {
+  const f = functionOf(m, fn);
+  const schedule = scheduleKernelPlan(m, fn, plan, args, fault);
+  const device = compileModule(plan.module, { precision: 'f32' });
+  const values = args.map(copy);
+  f.params.forEach((p, i) => {
+    if (p.type.kind === 'array') device.setBinding(p.name, values[i]!);
+  });
+  const parts = new Map<string, CpuValue[]>();
+  for (const p of schedule.partials) {
+    const part = Array.from({ length: p.slots }, () => zeroOf(p.type));
+    parts.set(p.binding, part);
+    device.setBinding(p.binding, part as unknown as CpuValue);
+  }
+  for (const s of schedule.steps) {
+    device.setBinding(plan.argsBinding, { ...s.args });
+    device.dispatch(s.entry, s.workgroups as [number, number, number]);
+  }
+  const folded = schedule.folds.map((x) =>
+    'identity' in x ? x.identity : copy(parts.get(x.binding)![x.at]!),
+  );
+  return {
+    result: tailOf(m, fn, plan, values, folded),
+    arrays: values.filter((_, i) => f.params[i]!.type.kind === 'array'),
+  };
+}
+
+function functionOf(m: ModuleDecl, fn: string): ModuleDecl['funcs'][number] {
+  const f = m.funcs.find((x) => x.name === fn);
+  if (f === undefined) throw new Error(`kernel-plan: no function "${fn}"`);
+  return f;
+}
+
+/** The parameters as the range functions and the tail take them: each array by its length. */
+function lengthsOf(
+  params: ModuleDecl['funcs'][number]['params'],
+  args: readonly CpuValue[],
+): CpuValue[] {
+  return args.map((v, i) =>
+    params[i]!.type.kind === 'array'
+      ? ({ length: (v as unknown[]).length } as unknown as CpuValue)
+      : v,
+  );
 }
 
 /** Iterations from `start` toward `bound` by `step`, as the loop's comparison counts them. */

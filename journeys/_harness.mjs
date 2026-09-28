@@ -13,17 +13,27 @@
 //   4. each run, on WebGPU, produces what the journey's plain-JavaScript reference computes;
 //   5. the same run on the CPU oracle (`compileModule`) produces it too.
 //
+// The WebGPU half is `typeshade/runtime` (change 0025, Rule 11.11): the page imports the
+// runtime the tarball ships, loads the run's manifest (`packModule`), binds each binding by its
+// name with the journey's host value, and reads the result back through a `Resident` or the
+// target texture. The harness writes no WebGPU of its own.
+//
+// A run of an engine (`kind: 'engine'`, change 0025) is a host module that draws frames on the
+// runtime's public exports alone: the harness refuses any other import and any WebGPU call in
+// it, hands it a device, runs its frames, counts the GPU objects each frame after the first
+// creates, which must be none, and holds the last frame to the journey's reference.
+//
 // A run of a kernel function (`kind: 'kernel'`, change 0013) is called with the journey's own
 // host values. It runs here on the CPU oracle, and on WebGPU through the import, which is how a
 // host calls one and which `journeys/_host-import` checks (`scripts/user-journey.ts`).
 
-import { compile, reflect, compileModule, decodeConsole } from 'typeshade';
+import { compile, compileModule, packModule } from 'typeshade';
 import { createTypeshadeLanguageService } from 'typeshade/language-service';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, extname, join, normalize, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = 'journeys';
 const PLAYWRIGHT = process.env.TYPESHADE_PLAYWRIGHT;
@@ -85,30 +95,75 @@ for (const id of journeys) {
 }
 
 // ---- 4 and 5: WebGPU and the CPU oracle ---------------------------------------------------------
-/** A typed array as the page can receive it. */
-const wire = (a) => ({
-  type: a instanceof Uint32Array ? 'u32' : a instanceof Int32Array ? 'i32' : 'f32',
-  data: [...a],
-});
+/** A binding's host value (Rule 8.21) from the journey's CPU value, as the page can receive it:
+ *  an array of scalars or vectors is the typed array of its component type, its components in
+ *  order, and anything else (a struct, an array of structs, a scalar) is the value itself. */
+function wire(layout, v) {
+  const leaf = (l) => (l.kind === 'scalar' || l.kind === 'vector' ? l.type : undefined);
+  const type = layout.kind === 'array' ? leaf(layout.element) : undefined;
+  if (type !== undefined && (Array.isArray(v) || ArrayBuffer.isView(v)))
+    return { typed: type, data: [...v].flat(Infinity) };
+  return { value: v };
+}
 
-/** Every binding of group 0, as a bind group layout entry needs it. */
-function layoutOf(module, console) {
-  const group = reflect(module, console ? { console: 'gpu' } : undefined).bindGroups.find(
-    (g) => g.group === 0,
+/** The bindings the run's entries reach, by the manifest. */
+function reached(pack, run) {
+  const names = run.kind === 'render' ? [run.vertex, run.fragment] : [run.entry];
+  return new Set(
+    pack.entries
+      .filter((e) => names.includes(e.name))
+      .flatMap((e) => e.bindings.map((b) => b.name)),
   );
-  return (group?.entries ?? []).map((e) => ({
-    binding: e.binding,
-    name: e.name,
-    type: e.space === 'uniform' ? 'uniform' : e.access === 'read' ? 'read-only-storage' : 'storage',
-  }));
 }
 
 const jobs = [];
 const kernels = [];
+const engines = [];
+
+/** What an engine may import: the runtime's public subpath, and nothing else. */
+const ENGINE_IMPORTS = new Set(['typeshade/runtime']);
+/** A WebGPU call or global an engine's own code must not reach for: the runtime makes and
+ *  records everything, and `raw` is the pass the runtime hands a host that owns its frame. */
+const WEBGPU_CALL =
+  /\bnavigator\s*\.\s*gpu\b|\bGPU[A-Z]\w*|\.\s*(createBuffer|createTexture|createView|createSampler|createBindGroup|createBindGroupLayout|createPipelineLayout|createShaderModule|createRenderPipeline|createRenderPipelineAsync|createComputePipeline|createComputePipelineAsync|createCommandEncoder|beginRenderPass|beginComputePass|setPipeline|setBindGroup|setVertexBuffer|setIndexBuffer|setScissorRect|setViewport|writeBuffer|writeTexture|queue|raw|mapAsync|getMappedRange)\b/;
+
+/** Why an engine's source is not on the public runtime alone, or '' when it is. */
+function engineOffence(source) {
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  for (const m of code.matchAll(
+    /\bimport\s*(?:[^'"]*?\bfrom\s*)?['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]/g,
+  )) {
+    const spec = m[1] ?? m[2];
+    if (!ENGINE_IMPORTS.has(spec))
+      return `imports "${spec}", which is not the runtime's public subpath`;
+  }
+  const call = WEBGPU_CALL.exec(code);
+  return call ? `calls WebGPU itself: "${call[0].trim()}"` : '';
+}
 for (const id of journeys) {
   const spec = (await import(pathToFileURL(join(process.cwd(), ROOT, id, 'journey.mjs')).href))
     .default;
   for (const [n, run] of spec.runs.entries()) {
+    if (run.kind === 'engine') {
+      const source = readFileSync(join(ROOT, id, run.engine), 'utf8');
+      const offence = engineOffence(source);
+      if (offence) fail(`${id}#${n}`, `${run.engine} ${offence}`);
+      const programs = {};
+      for (const [name, file] of Object.entries(run.programs)) {
+        const r = compiled.get(join(ROOT, id, file));
+        if (r?.module) programs[name] = packModule(r.module);
+      }
+      if (Object.keys(programs).length === Object.keys(run.programs).length)
+        engines.push({
+          id: `${id}#${n}`,
+          spec,
+          run,
+          url: `/journeys/${id}/${run.engine}`,
+          programs,
+          offence,
+        });
+      continue;
+    }
     const path = join(ROOT, id, run.shader);
     const r = compiled.get(path);
     if (!r?.wgsl) continue;
@@ -118,13 +173,18 @@ for (const id of journeys) {
       kernels.push({ id: `${id}#${n}`, run, module: r.module, spec });
       continue;
     }
+    // The runtime binds each binding the entries reach by its name, with the host value
+    // (Rule 8.21) of the journey's value, which the CPU oracle is handed too.
+    const pack = packModule(r.module, { console: run.console !== undefined });
+    const layouts = new Map(pack.bindings.map((b) => [b.name, b.layout]));
+    const reach = reached(pack, run);
     const bindings = Object.fromEntries(
-      Object.entries(run.bindings).map(([k, v]) => [k, wire(v.gpu)]),
+      Object.entries(run.bindings)
+        .filter(([k]) => reach.has(k))
+        .map(([k, v]) => [k, wire(layouts.get(k), v)]),
     );
-    // A run with `console` is compiled again with the WGSL recording its console calls, and
-    // the harness binds the `_console` buffer the reflection reports (surface §66).
-    let wgsl = r.wgsl;
-    let consoleLog;
+    // A run with `console` loads the recorded variant, and the runtime binds the console buffer
+    // (surface §66, §69). The compile is asked once more for what it says about recording.
     if (run.console) {
       const rc = compile(readFileSync(path, 'utf8'), { fileName: path, console: 'gpu' });
       for (const d of rc.diagnostics)
@@ -133,165 +193,139 @@ for (const id of journeys) {
         fail(path, "compile({ console: 'gpu' }) recorded no console call");
         continue;
       }
-      wgsl = rc.wgsl;
-      consoleLog = rc.console;
-      bindings._console = wire(new Uint32Array(2 + run.console.capacity));
     }
     jobs.push({
       id: `${id}#${n}`,
       spec,
       run,
       module: r.module,
-      wgsl,
-      consoleLog,
-      layout: layoutOf(r.module, run.console !== undefined),
+      pack,
       bindings,
     });
   }
 }
 
-/** Runs INSIDE the page: plain WebGPU, nothing from this package. */
+/** Runs INSIDE the page, on `typeshade/runtime` as the tarball ships it: no WebGPU of its own. */
 async function runOnGpu(job) {
-  const adapter = await navigator.gpu.requestAdapter();
-  const device = await adapter.requestDevice();
-  device.pushErrorScope('validation');
-  const module = device.createShaderModule({ code: job.wgsl });
-  const info = await module.getCompilationInfo();
-  const stages =
-    job.kind === 'render'
-      ? GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT
-      : GPUShaderStage.COMPUTE;
-  // A writable storage buffer (the `_console` buffer of a render) is the fragment stage's
-  // alone: WebGPU refuses one the vertex stage can see.
-  const bgl = device.createBindGroupLayout({
-    entries: job.layout.map((l) => ({
-      binding: l.binding,
-      visibility: job.kind === 'render' && l.type === 'storage' ? GPUShaderStage.FRAGMENT : stages,
-      buffer: { type: l.type },
-    })),
+  const { createRuntime, resident } = await import('/typeshade/runtime.js');
+  const events = [];
+  const rt = await createRuntime({
+    console: (e) => events.push(e),
+    ...(job.consoleCapacity !== undefined ? { consoleBytes: 4 * (2 + job.consoleCapacity) } : {}),
   });
-  const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl] });
-  const buffers = {};
-  for (const l of job.layout) {
-    const b = job.bindings[l.name];
-    if (!b) throw new Error(`the journey supplies no data for binding "${l.name}"`);
-    const Ctor = b.type === 'u32' ? Uint32Array : b.type === 'i32' ? Int32Array : Float32Array;
-    const bytes = new Ctor(b.data);
-    const usage =
-      (l.type === 'uniform' ? GPUBufferUsage.UNIFORM : GPUBufferUsage.STORAGE) |
-      GPUBufferUsage.COPY_SRC |
-      GPUBufferUsage.COPY_DST;
-    const buffer = device.createBuffer({ size: Math.max(16, bytes.byteLength), usage });
-    device.queue.writeBuffer(buffer, 0, bytes);
-    buffers[l.name] = { buffer, size: bytes.byteLength };
-  }
-  const bindGroup = device.createBindGroup({
-    layout: bgl,
-    entries: job.layout.map((l) => ({
-      binding: l.binding,
-      resource: { buffer: buffers[l.name].buffer },
-    })),
-  });
-  const encoder = device.createCommandEncoder();
-  let readback;
-  let consoleReadback;
-  if (job.kind === 'compute') {
-    const pipeline = device.createComputePipeline({
-      layout,
-      compute: { module, entryPoint: job.entry },
-    });
-    for (let i = 0; i < job.repeat; i++) {
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, bindGroup);
-      pass.dispatchWorkgroups(...job.workgroups);
-      pass.end();
-    }
-    const { buffer, size } = buffers[job.read];
-    readback = {
-      buffer: device.createBuffer({
-        size,
-        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-      }),
-      float: true,
-    };
-    encoder.copyBufferToBuffer(buffer, 0, readback.buffer, 0, size);
-    if (job.readConsole) {
-      const c = buffers._console;
-      readback.console = device.createBuffer({
-        size: c.size,
-        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-      });
-      encoder.copyBufferToBuffer(c.buffer, 0, readback.console, 0, c.size);
-    }
-  } else {
-    const [w, h] = job.size;
-    const format = 'rgba8unorm';
-    const pipeline = device.createRenderPipeline({
-      layout,
-      vertex: { module, entryPoint: job.vertex },
-      fragment: { module, entryPoint: job.fragment, targets: [{ format }] },
-      primitive: { topology: 'triangle-list' },
-    });
-    const texture = device.createTexture({
-      size: [w, h],
-      format,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-    });
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        { view: texture.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
-      ],
-    });
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bindGroup);
-    if (job.scissor) pass.setScissorRect(...job.scissor);
-    pass.draw(3);
-    pass.end();
-    if (job.readConsole) {
-      const c = buffers._console;
-      consoleReadback = device.createBuffer({
-        size: c.size,
-        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-      });
-      encoder.copyBufferToBuffer(c.buffer, 0, consoleReadback, 0, c.size);
-    }
-    const bytesPerRow = Math.ceil((w * 4) / 256) * 256;
-    readback = {
-      buffer: device.createBuffer({
-        size: bytesPerRow * h,
-        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-      }),
-      float: false,
-      bytesPerRow,
-    };
-    encoder.copyTextureToBuffer({ texture }, { buffer: readback.buffer, bytesPerRow }, [w, h]);
-  }
-  device.queue.submit([encoder.finish()]);
-  await readback.buffer.mapAsync(GPUMapMode.READ);
-  const raw = readback.buffer.getMappedRange().slice(0);
-  let consoleWords = null;
-  const consoleBuffer = readback.console ?? consoleReadback;
-  if (consoleBuffer) {
-    await consoleBuffer.mapAsync(GPUMapMode.READ);
-    consoleWords = [...new Uint32Array(consoleBuffer.getMappedRange().slice(0))];
-  }
-  const error = await device.popErrorScope();
+  const TYPED = { u32: Uint32Array, i32: Int32Array, f32: Float32Array, f64: Float64Array };
+  const bindings = {};
+  for (const [name, b] of Object.entries(job.bindings))
+    bindings[name] = b.typed ? new TYPED[b.typed](b.data) : b.value;
+  const program = rt.load(job.pack);
+  // The calls that did not fit the console buffer are one warning the runtime prints, and not
+  // an event: it is read here, where the page prints it.
+  let dropped = 0;
+  const warn = console.warn;
+  console.warn = (...a) => {
+    const m = /(\d+) console calls did not fit the console buffer/.exec(a.join(' '));
+    if (m) dropped += Number(m[1]);
+    else warn(...a);
+  };
   let values;
-  if (readback.float) values = [...new Float32Array(raw)];
-  else {
-    const [w, h] = job.size;
-    const px = new Uint8Array(raw);
-    values = [];
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w * 4; x++) values.push(px[y * readback.bytesPerRow + x] / 255);
+  let error = null;
+  try {
+    if (job.kind === 'compute') {
+      // The binding read back is a Resident: it stays on the device across the repeats, and
+      // `read()` brings it back.
+      const out = resident(bindings[job.read]);
+      bindings[job.read] = out;
+      const pipeline = await program.compute(job.entry);
+      const f = rt.frame();
+      for (let i = 0; i < job.repeat; i++) f.dispatch(pipeline, bindings, job.workgroups);
+      await f.submit();
+      const got = await out.read();
+      values = ArrayBuffer.isView(got) ? [...got] : got;
+    } else {
+      const [w, h] = job.size;
+      const pipeline = await program.render({ vertex: job.vertex, fragment: job.fragment });
+      const target = rt.texture({ size: [w, h], format: 'rgba8unorm' });
+      const f = rt.frame();
+      f.pass({ color: [{ target, clear: [0, 0, 0, 0] }] }, (p) => {
+        // The scissor is the one call on the pass the runtime leaves to the host.
+        if (job.scissor) p.raw.setScissorRect(...job.scissor);
+        p.draw(pipeline, bindings, { count: 3 });
+      });
+      await f.submit();
+      values = [...(await target.read())].map((v) => v / 255);
+    }
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  } finally {
+    console.warn = warn;
   }
+  rt.destroy();
   return {
     values,
-    consoleWords,
-    error: error ? error.message : null,
-    messages: info.messages.map((m) => `${m.type}: ${m.message}`),
+    dropped,
+    events: events.map((e) => ({
+      method: e.method,
+      args: e.args,
+      invocation: e.invocation ? [...e.invocation] : undefined,
+    })),
+    error,
   };
+}
+
+/** Runs INSIDE the page: an engine's frames, on a device the harness instruments. Every GPU
+ *  object the device makes while the frames after the first run is counted; an engine whose
+ *  frames repeat their shapes makes none. Command encoders and passes are per submit, and not
+ *  counted. */
+async function runEngine(job) {
+  const COUNTED = [
+    'createBuffer',
+    'createTexture',
+    'createSampler',
+    'createBindGroup',
+    'createBindGroupLayout',
+    'createPipelineLayout',
+    'createShaderModule',
+    'createComputePipeline',
+    'createComputePipelineAsync',
+    'createRenderPipeline',
+    'createRenderPipelineAsync',
+    'createQuerySet',
+  ];
+  const adapter = await navigator.gpu.requestAdapter();
+  const device = await adapter.requestDevice();
+  const made = {};
+  let counting = false;
+  const count = (what) => {
+    if (counting) made[what] = (made[what] ?? 0) + 1;
+  };
+  for (const name of COUNTED) {
+    const make = device[name].bind(device);
+    device[name] = (...args) => {
+      count(name);
+      const object = make(...args);
+      if (name === 'createTexture') {
+        const view = object.createView.bind(object);
+        object.createView = (...v) => (count('createView'), view(...v));
+      }
+      return object;
+    };
+  }
+  device.pushErrorScope('validation');
+  let values;
+  let error = null;
+  try {
+    const engine = await import(job.url);
+    const scene = await engine.setup({ device, programs: job.programs, size: job.size });
+    await scene.frame(0);
+    counting = true;
+    for (let i = 1; i < job.frames; i++) await scene.frame(i / 60);
+    counting = false;
+    values = [...(await scene.read())].map((v) => v / 255);
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+  const invalid = await device.popErrorScope();
+  return { values, made, error: error ?? (invalid ? invalid.message : null) };
 }
 
 const browser = await chromium.launch({
@@ -304,10 +338,47 @@ const browser = await chromium.launch({
     '--enable-features=Vulkan',
   ],
 });
-// WebGPU needs a secure context, and http://127.0.0.1 is one.
-const server = createServer((_req, res) => {
+// WebGPU needs a secure context, and http://127.0.0.1 is one. The page imports the runtime the
+// tarball installed, `/typeshade/runtime.js`, from the directory `typeshade/runtime` resolves
+// into: its modules import one another by relative path, and nothing else.
+const RUNTIME_DIR = dirname(fileURLToPath(import.meta.resolve('typeshade/runtime')));
+const server = createServer((req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  if (url.pathname.startsWith('/typeshade/')) {
+    const file = normalize(join(RUNTIME_DIR, url.pathname.slice('/typeshade/'.length)));
+    if (!file.startsWith(RUNTIME_DIR + sep) || extname(file) !== '.js') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    try {
+      const text = readFileSync(file, 'utf8');
+      res.setHeader('content-type', 'text/javascript; charset=utf-8');
+      res.end(text);
+    } catch {
+      res.statusCode = 404;
+      res.end();
+    }
+    return;
+  }
+  // An engine's own module, which imports the runtime by its package name: the page's import
+  // map resolves it, as an application's bundler would.
+  if (url.pathname.startsWith('/journeys/') && url.pathname.endsWith('.mjs')) {
+    const file = normalize(join(process.cwd(), url.pathname.slice(1)));
+    if (!file.startsWith(join(process.cwd(), ROOT) + sep)) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    res.setHeader('content-type', 'text/javascript; charset=utf-8');
+    res.end(readFileSync(file, 'utf8'));
+    return;
+  }
   res.setHeader('content-type', 'text/html; charset=utf-8');
-  res.end('<!doctype html><title>typeshade journeys</title>');
+  res.end(
+    '<!doctype html><title>typeshade journeys</title>' +
+      '<script type="importmap">{"imports":{"typeshade/runtime":"/typeshade/runtime.js"}}</script>',
+  );
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const page = await browser.newPage();
@@ -379,9 +450,9 @@ for (const job of jobs) {
   try {
     gpu = await page.evaluate(runOnGpu, {
       kind: run.kind,
-      wgsl: job.wgsl,
-      layout: job.layout,
+      pack: job.pack,
       bindings: job.bindings,
+      consoleCapacity: run.console?.capacity,
       entry: run.entry,
       workgroups: run.workgroups,
       repeat: run.repeat ?? 1,
@@ -390,14 +461,15 @@ for (const job of jobs) {
       fragment: run.fragment,
       size: run.size,
       scissor: run.scissor,
-      readConsole: job.consoleLog !== undefined,
     });
   } catch (e) {
     fail(job.id, `WebGPU threw: ${e.message.split('\n')[0]}`);
     continue;
   }
-  if (gpu.error) fail(job.id, `WebGPU validation: ${gpu.error}`);
-  for (const m of gpu.messages) fail(job.id, `createShaderModule ${m}`);
+  if (gpu.error) {
+    fail(job.id, `WebGPU, through typeshade/runtime: ${gpu.error}`);
+    continue;
+  }
   const g = worst(gpu.values, expected, run.tolerance);
   if (!g.ok) fail(job.id, `WebGPU result off by ${g.text} (tolerance ${run.tolerance})`);
 
@@ -413,8 +485,7 @@ for (const job of jobs) {
       consoleSink: (e) =>
         cpuLines.push({ method: e.method, args: e.args, invocation: e.invocation ?? pixel }),
     });
-    for (const [name, b] of Object.entries(run.bindings))
-      m.setBinding(name, structuredClone(b.cpu));
+    for (const [name, b] of Object.entries(run.bindings)) m.setBinding(name, structuredClone(b));
     if (run.kind === 'render') {
       const [w, h] = run.size;
       cpuValues = [];
@@ -430,7 +501,7 @@ for (const job of jobs) {
           cpuValues.push(...color.map((c) => Math.round(Math.min(1, Math.max(0, c)) * 255) / 255));
         }
     } else {
-      const bound = structuredClone(run.bindings[run.read].cpu);
+      const bound = structuredClone(run.bindings[run.read]);
       m.setBinding(run.read, bound);
       for (let i = 0; i < (run.repeat ?? 1); i++) m.dispatch(run.entry, run.workgroups);
       cpuValues = run.flattenCpu ? run.flattenCpu(bound) : bound;
@@ -443,15 +514,13 @@ for (const job of jobs) {
   if (!c.ok) fail(job.id, `CPU oracle result off by ${c.text} (tolerance ${run.tolerance})`);
 
   // The console lines: decoded from WebGPU, delivered on the CPU, and the host's own, all equal.
-  if (job.consoleLog) {
+  if (run.console) {
     const want = run.console.expected();
     const tolerance = run.console.tolerance ?? 0;
-    const decoded = decodeConsole(new Uint32Array(gpu.consoleWords ?? []), job.consoleLog);
-    const gpuLines = decoded.events.map((e) => ({
-      method: e.method,
-      args: e.args,
-      invocation: [...e.invocation],
-    }));
+    // The runtime hands the sink every event it decoded, and counts the calls that did not fit
+    // in one warning it prints.
+    const gpuLines = gpu.events;
+    const decoded = { dropped: gpu.dropped };
     const cpuPlain = cpuLines.map((l) => ({ ...l, invocation: [...l.invocation] }));
     if (run.console.kept === undefined) {
       if (decoded.dropped > 0) fail(job.id, `WebGPU dropped ${decoded.dropped} console lines`);
@@ -486,6 +555,37 @@ for (const job of jobs) {
     `${g.ok && c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${expected.length} values, worst relative error WebGPU ${g.text}, CPU oracle ${c.text}`,
   );
 }
+for (const job of engines) {
+  const { run } = job;
+  let got;
+  try {
+    got = await page.evaluate(runEngine, {
+      url: job.url,
+      programs: job.programs,
+      size: run.size,
+      frames: run.frames,
+    });
+  } catch (e) {
+    fail(job.id, `the engine threw: ${e.message.split('\n')[0]}`);
+    continue;
+  }
+  if (got.error) {
+    fail(job.id, `the engine, on typeshade/runtime: ${got.error}`);
+    continue;
+  }
+  const made = Object.entries(got.made);
+  if (made.length > 0)
+    fail(
+      job.id,
+      `frames 2 to ${run.frames} made GPU objects: ${made.map(([k, v]) => `${k} ${v}`).join(', ')}`,
+    );
+  const g = worst(got.values, run.expected(), run.tolerance);
+  if (!g.ok) fail(job.id, `the last frame is off by ${g.text} (tolerance ${run.tolerance})`);
+  const after = made.reduce((n, [, v]) => n + v, 0);
+  console.log(
+    `${g.ok && after === 0 && !job.offence ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${run.frames} frames, ${after} GPU objects made after the first; the last frame's worst error ${g.text}`,
+  );
+}
 await browser.close();
 server.close();
 
@@ -517,5 +617,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  `\n${journeys.length} journeys, ${jobs.length + kernels.length} runs: every check passed.`,
+  `\n${journeys.length} journeys, ${jobs.length + kernels.length + engines.length} runs: every check passed.`,
 );
