@@ -319,14 +319,15 @@ function identifiersIn(node: ts.Node, out: ts.Identifier[] = []): ts.Identifier[
 
 /**
  * The relative path the package refusal suggests for `specifier`: its last segment, named once
- * as a shader file. Its extension (`.ts`, `.js`, `.mjs` and the like) and a `.shade` are left
- * off before `.shade.ts` goes on, so `"shade-noise"` suggests `"./shade-noise.shade.ts"` and
- * `"shade-noise/noise.shade.ts"` suggests `"./noise.shade.ts"`, not `"./noise.shade.ts.shade.ts"`.
+ * as a shader file. A scope's `@` or an import map's `#`, its extension (`.ts`, `.js`, `.mjs`
+ * and the like) and a `.shade` are left off before `.shade.ts` goes on, so `"shade-noise"`
+ * suggests `"./shade-noise.shade.ts"` and `"shade-noise/noise.shade.ts"` suggests
+ * `"./noise.shade.ts"`, not `"./noise.shade.ts.shade.ts"`.
  */
 function suggestedFile(specifier: string): string {
   const last = specifier.split('/').filter(Boolean).pop() ?? specifier;
   const stem = last
-    .replace(/^@/, '')
+    .replace(/^[@#]/, '')
     .replace(/\.[mc]?[jt]sx?$/, '')
     .replace(/\.shade$/, '');
   return `./${stem}.shade.ts`;

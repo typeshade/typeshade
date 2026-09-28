@@ -307,6 +307,13 @@ const REFUSED: readonly (readonly [string, Files, string])[] = [
     '2:21 "@shade/noise/lib/noise.shade.js" is a package, and a shader module imports only a file of its own program, by a relative path such as "./noise.shade.ts".',
   ],
   [
+    'a specifier of a package import map, suggested without its #',
+    {
+      '/p/main.shade.ts': `${D}import { fbm } from "#noise";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
+    },
+    '2:21 "#noise" is a package, and a shader module imports only a file of its own program, by a relative path such as "./noise.shade.ts".',
+  ],
+  [
     'a name the file declares and does not export',
     {
       '/p/main.shade.ts': `${D}import { hash } from "./noise.shade.ts";\nexport function f(p: vec2): f32 { return hash(p); }\n`,
