@@ -1,5 +1,5 @@
 // Ordinary TypeScript under the project's own tsconfig (lib es2022 and dom): it imports the
-// shader module and calls what it exports. `tsc` reads the host view `typeshade sync` wrote for
+// shader module and calls what it exports. `tsc` reads the host view `tshc sync` wrote for
 // the import; Vite reads the module the plugin generates. Run as a bundle, it prints what each
 // call returned, which the journey compares with `reference.mjs`.
 import { EPS, height, normal, ridged } from './terrain.shade.ts';

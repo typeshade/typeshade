@@ -1,4 +1,4 @@
-// === `typeshade check`: the whole answer about a set of `"use typeshade"` files, host-free ===
+// === `tshc check`: the whole answer about a set of `"use typeshade"` files, host-free ===
 //
 // One call that says whether a file compiles, in the words an editor would show for it. It is
 // the union of two answers that already exist:
@@ -146,7 +146,7 @@ const sameReport = (a: CheckDiagnostic, b: CheckDiagnostic): boolean =>
   a.code === b.code && a.offset === b.offset && a.length === b.length;
 
 /**
- * One document's diagnostics, as `typeshade check` reports them: `service`'s merged list for
+ * One document's diagnostics, as `tshc check` reports them: `service`'s merged list for
  * `doc.uri`, which the caller has opened in `service`, and then what `compile()` adds that the
  * service does not compute. In document order.
  *

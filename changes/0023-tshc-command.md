@@ -1,7 +1,7 @@
 ---
 id: '0023'
 title: An author runs the compiler as `tshc` (`tshc check`, `tshc sync`), the command the `typeshade` package installs the way `typescript` installs `tsc`
-status: accepted
+status: implemented
 rules:
 - '3.8'
 - '3.9'
@@ -143,11 +143,12 @@ The code:
 The prose that names the command, which `bun run docs:impact` lists for the implementing pull
 request: `README.md` ("Checking shaders from the command line", with the `npx -p` form, and the
 host-import setup), `AUTHORING.md` ("The CPU oracle"), `AGENTS.md` (the `src/cli/` row),
-`RELEASING.md`, `docs/dx.md`, `docs/use-typeshade-plan.md`, `docs/language-service-api.md` and
-`journeys/README.md`; `reqs/` follows by `bun run reqs:sync`. `CHANGELOG.md` has nothing to
-rename: the command was never published, and `[Unreleased]` does not name it. The proposals
-that name `typeshade check` or `typeshade sync` (0007, 0009, 0010, 0016, 0017, 0022) record
-what was decided then, and stay.
+`RELEASING.md`, `docs/dx.md`, `docs/use-typeshade-plan.md`, `docs/language-service-api.md`,
+`docs/roadmap.md` and `journeys/README.md`; `reqs/` follows by `bun run reqs:sync`.
+`CHANGELOG.md`'s `[Unreleased]` entries that name `typeshade check` and `typeshade sync` record
+each change as it was made, and stay; an entry under `### Changed` records the rename and the
+edit it asks of a `prepare` script. The proposals that name `typeshade check` or
+`typeshade sync` (0007, 0009, 0010, 0016, 0017, 0022) record what was decided then, and stay.
 
 The tests that will pin it:
 

@@ -1239,7 +1239,7 @@ interface SameMistake {
 
 /**
  * The pairs. The compiler's diagnostic is the one kept, for three reasons: it is what
- * `compile()` and the build report, so the editor, `typeshade check` and the build agree
+ * `compile()` and the build report, so the editor, `tshc check` and the build agree
  * (Rule 12.7); it is written in the surface's words and names the remedy (Rule 12.1), where
  * TypeScript's spells a brand's internals (`'{ readonly [vecTag]: readonly ["f32", 3]; }'`);
  * and it is the authority on what combines with what, as it already is for TS2365.

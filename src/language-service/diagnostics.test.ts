@@ -850,7 +850,7 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
 
 // Both halves on the same source (CLAUDE.md, "A test reads both halves"). The table above reads
 // the editor's codes alone, and the compiler's refusal of a return was pinned by its text alone,
-// which is how two mistakes reached the packed `typeshade check` reading twice: a value computed
+// which is how two mistakes reached the packed `tshc check` reading twice: a value computed
 // from an unknown name drew a TypeScript knock-on, and a return of the wrong type was reported on
 // the function's name by the compiler and on the `return` by TypeScript. Each program here is one
 // mistake: the compiler reports one error, and the editor shows that error and nothing beside

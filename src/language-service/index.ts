@@ -37,7 +37,7 @@ export {
   MATH_MEMBER_DOCS,
 } from './docs.js';
 export { positionAt, offsetAt, rangeForSpan, spanForRange } from './positions.js';
-// `typeshade check` as a function, for a tool that reports on shader files: one check, so the
+// `tshc check` as a function, for a tool that reports on shader files: one check, so the
 // command, the editor and an agent's tools cannot give two answers about one file (Rule 12.7).
 export {
   checkDocuments,

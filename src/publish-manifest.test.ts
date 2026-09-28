@@ -130,19 +130,22 @@ describe('the manifest npm publishes', () => {
 
   it.skipIf(BUILT)('D3 — SKIPPED: no dist/ in this tree; run `bun run build` first', () => {});
 
-  // D6 — the `typeshade` command is published as the emitted JavaScript, by the same one rule
+  // D6 — the `tshc` command is published as the emitted JavaScript, by the same one rule
   // as `exports`. In this tree the `bin` names the TypeScript source (`bun src/cli/bin.ts`
-  // runs it); a tarball whose `bin` still named a `.ts` file would hand `npx typeshade` to
-  // Node, which cannot load it. The shebang is checked on the SOURCE because `tsc` copies a
-  // first-line `#!` into the emit verbatim, and on the emit when there is one.
+  // runs it); a tarball whose `bin` still named a `.ts` file would hand `npx tshc` to Node,
+  // which cannot load it. The shebang is checked on the SOURCE because `tsc` copies a
+  // first-line `#!` into the emit verbatim, and on the emit when there is one. The command is
+  // `tshc`, and the package that installs it stays `typeshade` (change 0023).
   it('D6 — `bin` is derived to dist/ and the entry carries a Node shebang', () => {
     const bin = PKG.bin ?? {};
-    expect(Object.keys(bin), 'package.json declares no `typeshade` command').toEqual(['typeshade']);
+    expect(Object.keys(bin), 'package.json declares one command, `tshc`, and no other').toEqual([
+      'tshc',
+    ]);
     const derived = derivePublishManifest(PKG)['bin'] as Record<string, string>;
-    expect(derived).toEqual({ typeshade: `${distStem(bin['typeshade']!)}.js` });
-    const source = readFileSync(join(PKG_DIR, bin['typeshade']!.slice(2)), 'utf8');
+    expect(derived).toEqual({ tshc: `${distStem(bin['tshc']!)}.js` });
+    const source = readFileSync(join(PKG_DIR, bin['tshc']!.slice(2)), 'utf8');
     expect(source.split('\n')[0]).toBe('#!/usr/bin/env node');
-    const emitted = join(PKG_DIR, derived['typeshade']!.slice(2));
+    const emitted = join(PKG_DIR, derived['tshc']!.slice(2));
     if (existsSync(emitted))
       expect(readFileSync(emitted, 'utf8').split('\n')[0]).toBe('#!/usr/bin/env node');
   });
