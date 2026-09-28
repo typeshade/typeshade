@@ -4,9 +4,13 @@
 // `trail` texture, which a pass that reads itself receives as the frame before, fades it, and
 // adds a dot where the orbit is now. On the first frame there is no frame before: the texture
 // reads zeroes, and `frame` says so, so the fade starts from nothing on every backend.
+//
+// The frame before is read at the pixel's own position. A texture's rows run down from the top
+// on WebGPU and up from the bottom on WebGL2, and a pass writes each pixel where its position
+// says on both, so the position finds the pixel it drew. `uv` runs up the screen on both, and
+// read through it the texture would come back upside down on WebGPU, every frame.
 
 declare const trail: texture_2d<f32>;
-declare const smp: sampler;
 
 class Uniforms {
   time: f32;
@@ -34,7 +38,7 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 
 @fragment
 export function fs(v: VsOut): Color {
-  const before = textureSampleLevel(trail, smp, v.uv, 0.).rgb;
+  const before = textureLoad(trail, vec2i(v.pos.xy), 0).rgb;
   const keep = u.frame === u32(0) ? 0. : 0.96;
   const aspect = u.resolution.x / max(u.resolution.y, 1.);
   const at = vec2(0.5, 0.5) + vec2(cos(u.time * 1.3), sin(u.time * 2.1)) * 0.3;

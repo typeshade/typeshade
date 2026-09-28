@@ -13,7 +13,7 @@ in vec2 uv;
 layout(location = 0) out vec4 color;
 
 void main() {
-  vec3 before = textureLod(trail, uv, 0.0).rgb;
+  vec3 before = texelFetch(trail, ivec2(gl_FragCoord.xy), int(0u)).rgb;
   float keep = ((u.frame == 0u) ? 0.0 : 0.96);
   float aspect = (u.resolution.x / max(u.resolution.y, 1.0));
   vec2 at = (vec2(0.5, 0.5) + (vec2(cos((u.time * 1.3)), sin((u.time * 2.1))) * 0.3));

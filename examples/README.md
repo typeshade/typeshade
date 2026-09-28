@@ -116,6 +116,13 @@ used twice, a pass without one vertex and one fragment entry, a binding named li
 not a `texture_2d<f32>`, and a pass no file reads. `separable-blur` reads a pass in the frame it
 was drawn, and `feedback-trail` reads one the frame after.
 
+A pass's output is read at the pixel's own position: `textureLoad(trail, vec2i(v.pos.xy), 0)`
+for the pixel itself, or the position divided by the resolution for a sampled read. A texture's
+rows run down from the top on WebGPU and up from the bottom on WebGL2, and a pass writes each
+pixel where its position says on both, so the position finds the pixel the pass drew. A `uv`
+computed from the clip-space position runs up the screen on both backends, and read through it
+the texture comes back upside down on WebGPU.
+
 The table lists the first seven, the hello programs and the first twin; every other file's
 title and blurb are in its own `@example` block.
 
@@ -152,7 +159,8 @@ entry-point signatures).
   and every pass of the ones drawn in several, and hands the WGSL to Tint and every renderable
   GLSL pair to a real WebGL2 context. It then draws each example with passes on WebGL2, reads
   the canvas at frame 0 and frame 30, and for one that reads a frame before, checks that frame
-  30 differs from the same frame drawn with no history.
+  30 differs from the same frame drawn with no history. It draws each one on WebGPU too, and
+  frame 30 there must match WebGL2's, which a pass read upside down on one backend does not.
 - **Render gate** — not run in this repository. It was
   X-GIS's `playground/e2e/_shader-dsl-examples-render.spec.ts`, which compiles + links + draws
   each renderable example on a real WebGL2 context (packing the UBO from `reflect()`) and reads
