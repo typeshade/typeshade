@@ -7046,10 +7046,14 @@ added to what it held. A scatter with `*`, which no atomic does, an array one lo
 and another writes in place or reads, and a scatter into anything but an element, run the function
 on the CPU.
 
-**Resident arrays.** `resident(array)`, from `typeshade` or `typeshade/runtime`, wraps a typed array
-or an array of objects once, and a kernel function takes the handle wherever it takes the array
+**Resident arrays.** `resident(value)`, from `typeshade` or `typeshade/runtime`, wraps a host
+value once: a typed array, an array of objects, or any other host value (Rule 8.21), such as a
+struct a frame's draws share. A kernel function takes the handle wherever it takes the array
 (Rule 11.8). The first call on WebGPU uploads it; the calls after bind the same buffer and read
-nothing back, and `await dev.read()` returns a new array of what it holds:
+nothing back, and `await dev.read()` returns a new copy of what it holds. `dev.write(value)`
+replaces what it holds and `dev.destroy()` releases its buffer, each after the calls made before
+it. The handle is a buffer of the program runtime too (§69), and `configure({ runtime })` puts
+the calls on that runtime's device, so one `Resident` serves both:
 
 ```ts
 import { resident } from 'typeshade/runtime';
@@ -7134,7 +7138,7 @@ the binding's host value (Rule 8.21):
 | `storage<array<S>>` of a struct                 | an array of objects                                                                          |
 | an atomic, `storage<array<atomic<u32>>>`        | its integer's value, or `Uint32Array` / `Int32Array` for an array                            |
 | a written `storage<T>` whose `T` is one scalar  | a typed array of length one, which the call writes back                                     |
-| `texture_2d<f32>`                               | an image source: `ImageBitmap`, `ImageData`, `HTMLImageElement`, `HTMLCanvasElement`, `HTMLVideoElement` or `OffscreenCanvas`, uploaded at each call |
+| `texture_2d<f32>`                               | an image source: `ImageBitmap`, `ImageData`, `HTMLImageElement`, `HTMLCanvasElement`, `HTMLVideoElement` or `OffscreenCanvas`, uploaded at each call, or a program runtime's `Texture` (§69), bound as it is |
 | `sampler`                                       | `{ filter?: 'nearest' \| 'linear', address?: 'clamp' \| 'repeat' \| 'mirror' }`, or nothing for linear and clamp |
 
 The call packs each value by the layout the WGSL gives it, padding a `vec3` element to its
@@ -7169,10 +7173,12 @@ another in the order they were made, so an entry and a kernel function can share
 view's comment on the entry gives its `@workgroup_size`, so the host divides, and the entry
 checks its own bound, as WGSL runs it. Nothing is added to the WGSL the author wrote.
 
-**Where it runs.** On WebGPU where there is a device, which the call requests on first use and
-every later call shares. Where there is none, as in Node or a test runner, it runs on the CPU
-tier: the generated code (§64), every invocation of every workgroup in turn, `z`, then `y`, then
-`x`, with the workgroup memory zeroed per workgroup, as the interpreter's own dispatch runs it.
+**Where it runs.** On WebGPU where there is a device: the device of the runtime
+`configure({ runtime })` names (§69), or else one the call requests on first use, which every
+later call and the default program runtime share. Where there is none, as in Node or a test
+runner, it runs on the CPU tier: the generated code (§64), every invocation of every workgroup in
+turn, `z`, then `y`, then `x`, with the workgroup memory zeroed per workgroup, as the
+interpreter's own dispatch runs it.
 An entry that reaches a barrier needs WebGPU; without it the call is refused, naming the barrier
 and its line. So does one that reads a texture, which the CPU tier cannot. `configure({ prefer
 })` (§65) orders and restricts the two tiers as it does a kernel call's. WebGL2 has no compute
@@ -7429,9 +7435,10 @@ await frame.submit(); // console lines print here
   topology, culling and multisampling; a target whose format cannot hold the output at its
   location is refused before WebGPU sees it.
 - **Bindings go by name.** A draw or a dispatch takes `{ name: value }`: a plain host value
-  (Rule 8.21), packed by the binding's layout into buffers the runtime reuses; a `Texture` or a
-  `Sampler` from `rt.texture()` and `rt.sampler()`; or the host's own `GPUBuffer`, `GPUTexture`
-  or `GPUSampler`. An unknown name, a missing binding and a value of the wrong shape are a
+  (Rule 8.21), packed by the binding's layout into buffers the runtime reuses; a `Resident`
+  (§65), uploaded on its first use and bound as it is after; a `Texture` or a `Sampler` from
+  `rt.texture()` and `rt.sampler()`; or the host's own `GPUBuffer`, `GPUTexture` or
+  `GPUSampler`. An unknown name, a missing binding and a value of the wrong shape are a
   `TypeError` naming the entry, its line and the binding. A frame that repeats its shapes
   creates no GPU object.
 - **A frame** is one encoder: `frame.dispatch()` and `frame.pass(targets, record)`, a render pass
@@ -7442,6 +7449,11 @@ await frame.submit(); // console lines print here
   default when the manifest carries one) binds a console buffer for each dispatch and draw, and
   the submit reads it back: each event reaches `createRuntime({ console: sink })`, or the host's
   console.
+
+**One device for both layers.** `configure({ runtime: rt })` puts the calls of §64, §65 and §67
+on `rt`'s device, and `runtime()`, the default runtime, is on the device the calls use, so a
+`Resident` or a `Texture` made on either layer is used on the other; a call that takes an image
+takes a runtime's `Texture` as it is, and a draw that falls to WebGL2 refuses one.
 
 The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67). The
 load-time emitter is a later part of change 0025.

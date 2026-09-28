@@ -1,15 +1,18 @@
 // The program runtime (change 0025 step 2, Rule 11.11) against a recording fake device: what
 // it creates and when, its bind-group layouts, its refusals and their sentences, and the
 // console's events. Its results on a real device are the compile gate's program tier
-// (`scripts/entry-calls-page.ts`), which dispatches every compute entry of the examples.
+// (`scripts/entry-calls-page.ts`), which dispatches every compute entry of the examples. Step 3's
+// tests hold the call layer and the runtime to one device and one `Resident` (Rule 11.8).
 //
-// Verifies: Rule 11.11.
+// Verifies: Rule 11.8, Rule 11.11.
 
 import { describe, expect, it } from 'vitest';
 import { compile } from '../compiler/ts/compile.js';
 import { packModule } from '../compiler/ts/pack.js';
 import type { ConsoleEvent } from '../core/console.js';
-import { createRuntime } from './runtime.js';
+import { configure, resident, residentState } from '../core/resident.js';
+import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
+import { createRuntime, runtime } from './runtime.js';
 
 /** A device that records every object it creates and every command it is given. */
 function fakeDevice(features: string[] = []) {
@@ -51,7 +54,9 @@ function fakeDevice(features: string[] = []) {
     features: new Set(features),
     queue: {
       submit: () => commands.push('submit'),
-      writeBuffer: () => {},
+      writeBuffer: () => {
+        count('writeBuffer');
+      },
       writeTexture: () => {},
       onSubmittedWorkDone: async () => {},
     },
@@ -143,9 +148,10 @@ describe('the program runtime (Rule 11.11)', () => {
     };
     await frame();
     await frame();
-    const after2 = { ...fake.made };
+    const { writeBuffer: _w, ...after2 } = fake.made;
     for (let i = 0; i < 58; i++) await frame();
-    expect(fake.made).toEqual(after2);
+    const { writeBuffer: _w2, ...after60 } = fake.made;
+    expect(after60).toEqual(after2);
     expect(fake.made.pipeline).toBe(1);
     expect(fake.made.shaderModule).toBe(1);
   });
@@ -253,5 +259,87 @@ describe('the program runtime (Rule 11.11)', () => {
       'draw 3',
       'end',
     ]);
+  });
+});
+
+describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)', () => {
+  it('configure({ runtime }) puts the call layer and the default runtime on its device', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    configure({ runtime: rt });
+    try {
+      expect(await gpuDevice()).toBe(fake.device);
+      expect(await runtime()).toBe(rt);
+    } finally {
+      configure({ runtime: null });
+    }
+    expect(() => configure({ runtime: {} as never })).toThrow(
+      'configure(): runtime takes a runtime from createRuntime(), or null.',
+    );
+  });
+
+  it('binds a Resident as one buffer, uploaded once and again after write()', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(DRAW)).render();
+    const tint = resident([1, 0, 0, 1] as [number, number, number, number]);
+    const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
+    const frame = async () => {
+      const f = rt.frame();
+      f.pass({ color: [target] }, (p) =>
+        p.draw(pipeline, { tint }, { vertices: new Float32Array(6), count: 3 }),
+      );
+      await f.submit();
+    };
+    await frame();
+    const buffers = fake.made.buffer;
+    const writes = fake.made.writeBuffer;
+    await frame();
+    // The Resident's buffer is made once; the second frame writes only the vertices.
+    expect(fake.made.buffer).toBe(buffers);
+    expect(fake.made.writeBuffer! - writes!).toBe(1);
+    tint.write([0, 1, 0, 1]);
+    await frame();
+    expect(fake.made.writeBuffer! - writes!).toBe(3);
+    expect(await tint.read()).toEqual([0, 1, 0, 1]);
+    tint.destroy();
+    await expect(frame()).rejects.toThrow('This Resident was destroyed');
+  });
+
+  it('keeps the device copy the newer when a later use only reads it', () => {
+    const fake = fakeDevice();
+    const s = residentState(resident(new Float32Array(4)))!;
+    const d = fake.device as unknown as Parameters<typeof s.bufferFor>[0];
+    const layout = undefined as unknown as Parameters<typeof s.bufferFor>[1];
+    const bytes = () => new ArrayBuffer(16);
+    s.bufferFor(d, layout, bytes, false);
+    expect(s.fresh).toBe('both');
+    s.bufferFor(d, layout, bytes, true);
+    expect(s.fresh).toBe('device');
+    // A map writes it on the device, and the reduction after only reads it: read() must still
+    // download what the map wrote.
+    s.bufferFor(d, layout, bytes, false);
+    expect(s.fresh).toBe('device');
+  });
+
+  it('holds any host value, and refuses what no binding holds', () => {
+    expect(() => resident({ viewProj: new Array(16).fill(0), time: 0 })).not.toThrow();
+    expect(() => resident(3)).not.toThrow();
+    expect(() => resident(undefined)).toThrow(
+      'resident(): takes a host value (a number, a tuple, a typed array, an array or an object), not a undefined.',
+    );
+    expect(() => resident(new Uint8Array(4))).toThrow('not a Uint8Array, which no binding holds');
+    expect(() => resident([1]).write(null as never)).toThrow(
+      'write(): takes a host value, not null.',
+    );
+  });
+
+  it("hands the call layer a Texture's view, which it binds as it is", async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const t = rt.texture({ size: [8, 8], format: 'rgba8unorm' });
+    expect(DEVICE_VIEW in t).toBe(true);
+    const img = imageOf(t);
+    expect(typeof img === 'object' && img.view !== undefined && img.width === 8).toBe(true);
   });
 });

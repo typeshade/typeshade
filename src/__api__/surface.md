@@ -1440,9 +1440,9 @@ src/core/registry.ts#BuildRegistryOptions  interface  { imports?: readonly strin
 src/core/registry.ts#BuiltRegistry  interface  { ids: readonly string[]; source: string }
 src/core/registry.ts#RegistryEntry  interface  { exportName: string; id: string; importPath: string }
 src/core/registry.ts#buildRegistry  function  (entries: readonly RegistryEntry[], opts?: BuildRegistryOptions) => BuiltRegistry
-src/core/resident.ts#Resident  interface  { [residentBrand]: T; read: () => Promise<T> }
-src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly Tier[]; }) => void
-src/core/resident.ts#resident  function  <T extends ResidentArray>(array: T) => Resident<T>
+src/core/resident.ts#Resident  interface  { [residentBrand]: T; destroy: () => void; read: () => Promise<T>; write: (value: T) => void }
+src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly Tier[]; readonly runtime?: { readonly device: object; }; }) => void
+src/core/resident.ts#resident  function  <T>(value: T) => Resident<T>
 src/core/semantic-diff.ts#ClassifiedSemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; explained: readonly ExplainedDiffEntry[]; interface: readonly string[]; resources: readonly string[] }
 src/core/semantic-diff.ts#ExplainedDiffEntry  interface  { bucket: keyof SemanticDiff; line: string; transform: string }
 src/core/semantic-diff.ts#SemanticAspect  type  "declOrder" | "names"

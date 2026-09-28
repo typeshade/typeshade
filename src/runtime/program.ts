@@ -4,7 +4,15 @@
 // state is the host's, written in `RenderState`.
 
 import type { ConsoleLog } from '../core/console.js';
-import { byteSize, describe, Misfit, pack, type Layout } from '../core/host-entry.js';
+import {
+  byteSize,
+  describe,
+  Misfit,
+  pack,
+  type GpuDevice,
+  type Layout,
+} from '../core/host-entry.js';
+import { residentState } from '../core/resident.js';
 import {
   layoutFromPack,
   type Pack,
@@ -490,6 +498,33 @@ export class ProgramImpl implements Program {
     if (v === undefined) throw new TypeError(`${where} is not given.`);
     if (RESOURCE_KINDS.has(b.resource.resourceKind)) {
       if (isGpuBuffer(v)) return { buffer: v };
+      const state = residentState(v);
+      if (state !== undefined) {
+        // One buffer of both layers (change 0025): the Resident's, uploaded on its first use.
+        if (s.layout === undefined)
+          throw new TypeError(
+            `${where} has no host value${b.noLayout !== undefined ? `: ${b.noLayout}` : ''}.`,
+          );
+        const layout = s.layout;
+        const writes = entry.bindings?.find((x) => x.name === b.name)?.writes ?? false;
+        try {
+          return {
+            buffer: state.bufferFor(
+              this.device as unknown as GpuDevice,
+              layout,
+              () => {
+                const bytes = new ArrayBuffer(byteSize(layout, state.host, b.name));
+                pack(new DataView(bytes), 0, layout, state.host, b.name);
+                return bytes;
+              },
+              writes,
+            ),
+          };
+        } catch (err) {
+          if (err instanceof Misfit) throw new TypeError(`${where}: ${err.path} ${err.problem}.`);
+          throw err;
+        }
+      }
       if (s.layout === undefined)
         throw new TypeError(
           `${where} has no host value${b.noLayout !== undefined ? `: ${b.noLayout}` : ''}; pass a GPUBuffer.`,

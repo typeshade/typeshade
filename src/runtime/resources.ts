@@ -11,6 +11,7 @@ import {
   type Texture as GpuTexture,
   type TextureView,
 } from './gpu.js';
+import { DEVICE_VIEW } from '../core/host-entry.js';
 
 /** What `rt.texture()` makes. `format` is any `GPUTextureFormat` the device can render to or
  *  sample: `rgba8unorm`, `rgba16float`, `depth24plus`, `r32float`. */
@@ -90,6 +91,11 @@ const TEXEL_BYTES: Readonly<Record<string, number>> = {
 };
 
 export class TextureImpl implements Texture {
+  /** The view the call layer binds when a call takes this texture as an image (change 0025). */
+  [DEVICE_VIEW](): object {
+    return this.view();
+  }
+
   #gpu: GpuTexture;
   #view: TextureView | undefined;
   readonly #owned: boolean;

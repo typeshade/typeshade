@@ -371,7 +371,13 @@ export interface Image {
   readonly height: number;
   /** An `ImageData`'s pixels, which WebGPU uploads with `writeTexture`. */
   readonly data?: Uint8ClampedArray;
+  /** A program runtime's `Texture`'s view (change 0025): bound as it is, uploaded never. */
+  readonly view?: object;
 }
+
+/** The key under which a program runtime's `Texture` hands the call layer its view, so a
+ *  texture made on the device reaches a call without the call layer importing the runtime. */
+export const DEVICE_VIEW: unique symbol = Symbol.for('typeshade.deviceView') as never;
 
 const IMAGE_KINDS = [
   'ImageBitmap',
@@ -383,6 +389,10 @@ const IMAGE_KINDS = [
 ] as const;
 
 export function imageOf(v: unknown): Image | string {
+  if (typeof v === 'object' && v !== null && DEVICE_VIEW in v) {
+    const t = v as { width: number; height: number; [DEVICE_VIEW](): object };
+    return { source: v, width: t.width, height: t.height, view: t[DEVICE_VIEW]() };
+  }
   const g = globalThis as unknown as Record<string, (abstract new () => unknown) | undefined>;
   const kind = IMAGE_KINDS.find((k) => g[k] !== undefined && v instanceof g[k]);
   if (kind === undefined) return `got ${describe(v)}, not an image source`;
@@ -574,14 +584,25 @@ export interface GpuDevice {
 }
 
 /** `GPUBufferUsage` and `GPUMapMode`, whose values the WebGPU specification fixes. */
-const USAGE = { MAP_READ: 1, COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128 } as const;
+const USAGE = {
+  MAP_READ: 1,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+} as const;
 const MAP_READ = 1;
 
 /** A storage buffer holding `bytes`, which stays on the device: a `Resident`'s (Rule 11.8). */
 export function storageBuffer(d: GpuDevice, bytes: ArrayBuffer): GpuBuffer {
   const buffer = d.createBuffer({
     size: bytes.byteLength,
-    usage: USAGE.STORAGE | USAGE.COPY_DST | USAGE.COPY_SRC,
+    // A Resident's buffer serves any binding of the program runtime too (change 0025): storage,
+    // uniform, vertex or index data.
+    usage:
+      USAGE.STORAGE | USAGE.UNIFORM | USAGE.VERTEX | USAGE.INDEX | USAGE.COPY_DST | USAGE.COPY_SRC,
   });
   d.queue.writeBuffer(buffer, 0, bytes);
   return buffer;
@@ -606,9 +627,24 @@ export async function download(d: GpuDevice, buffer: GpuBuffer, size: number): P
 }
 
 let device: Promise<GpuDevice | null> | undefined;
+/** The runtime `configure({ runtime })` named, whose device every call uses instead. */
+let hostRuntime: { readonly device: object } | undefined;
 
-/** The device every call shares, requested on the first call; null where WebGPU is absent. */
+/** Make every call run on `rt`'s device, or on the default one again (`undefined`). */
+export function useRuntime(rt: { readonly device: object } | undefined): void {
+  hostRuntime = rt;
+}
+
+/** The runtime `configure({ runtime })` named, if any: the program runtime's default is it. */
+export function configuredRuntime(): { readonly device: object } | undefined {
+  return hostRuntime;
+}
+
+/** The device every call shares: the configured runtime's (change 0025), or one requested on
+ *  the first call; null where WebGPU is absent. The program runtime's default runtime is on it
+ *  too, so a resource made on either layer is used on the other. */
 export function gpuDevice(): Promise<GpuDevice | null> {
+  if (hostRuntime !== undefined) return Promise.resolve(hostRuntime.device as GpuDevice);
   return (device ??= (async () => {
     const gpu = (
       globalThis as {
@@ -820,6 +856,7 @@ export function gpuHandle(
   }
   if (b.space === 'texture') {
     const img = c.images.get(b.name)!;
+    if (img.view !== undefined) return img.view;
     const texture = d.createTexture({
       size: [img.width, img.height],
       format: 'rgba8unorm',

@@ -586,6 +586,17 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **The call layer runs on the program runtime** (proposal 0025, step 3; design rules 8.24 and
+  11.8; surface §65 and §69). `configure({ runtime })` hands the call layer a runtime, and every
+  generated host function then dispatches and draws on its device; `runtime()` with no runtime
+  configured wraps the device the call layer requested, so the two layers share one device either
+  way. A `Resident` is a runtime binding as well as a call argument: `resident(value)` takes any
+  host value, `write(value)` replaces its contents and `destroy()` frees its buffer, and a value
+  both layers read is uploaded once and not again until a write. A `Texture` the runtime made is
+  an image argument of a generated function on WebGPU; the WebGL2 path refuses it with a
+  `TypeError` that says so. `typeshade/runtime` is now 10,151 bytes minified and gzipped, still
+  inside its budget.
+
 - **The program runtime, `typeshade/runtime`** (proposal 0025, step 2; design rules 11.7 and
   11.11; surface §64 and §69). A host loads a compiled program's manifest and runs it on WebGPU:
   `createRuntime({ device })` on the host's device, or with no device on one it requests with the

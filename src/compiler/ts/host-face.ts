@@ -765,7 +765,7 @@ function entryBindings(
 
 /** A `texture_2d<f32>`'s host value (Rule 8.21), in the host view. */
 const IMAGE_SOURCE =
-  'ImageBitmap | ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | OffscreenCanvas';
+  'ImageBitmap | ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | OffscreenCanvas | Texture';
 /** A `sampler`'s host value (Rule 8.21), in the host view. */
 const SAMPLING =
   "{ readonly filter?: 'nearest' | 'linear'; readonly address?: 'clamp' | 'repeat' | 'mirror' }";
@@ -1187,6 +1187,14 @@ function viewText(stem: string, exports: readonly HostExport[], runtime: string)
   )
     out.push(`import type { Resident } from ${JSON.stringify(runtime)};`);
   out.push(`import type { Pack } from ${JSON.stringify(runtime)};`);
+  // A texture binding also takes a program runtime's Texture, bound as it is (change 0025).
+  if (
+    exports.some(
+      (e) =>
+        (e.kind === 'compute' || e.kind === 'fragment') && e.bindingsType.includes('| Texture'),
+    )
+  )
+    out.push(`import type { Texture } from ${JSON.stringify(runtime)};`);
   for (const e of exports) {
     switch (e.kind) {
       case 'function': {
