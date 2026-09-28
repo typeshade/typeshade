@@ -815,10 +815,16 @@ export function checkBindings(
 /** A written storage binding whose type is one scalar is passed boxed. */
 export const boxed = (b: EntryBinding): boolean => b.writes && b.layout.k === 's';
 
-/** A buffer binding's bytes, packed by its layout and padded to a multiple of 16. */
+/** A buffer binding's bytes, packed by its layout. A uniform's are padded to a multiple of 16.
+ *  A storage binding's are its data and no more: the buffer is made at their size and bound
+ *  whole, and WGSL's `arrayLength` is the bound size over the stride, so five `u32`s padded to
+ *  32 bytes were an array of 8 to the kernel (#367). Every element size is a multiple of 4, as
+ *  a storage binding's size must be, and `byteSize` refuses an empty array. */
 export function packed(b: EntryBinding, v: unknown): ArrayBuffer {
   const size = byteSize(b.layout, v, '');
-  const bytes = new ArrayBuffer(Math.max(16, Math.ceil(size / 16) * 16));
+  const bytes = new ArrayBuffer(
+    b.space === 'uniform' ? Math.max(16, Math.ceil(size / 16) * 16) : size,
+  );
   pack(new DataView(bytes), 0, b.layout, v, '', boxed(b));
   return bytes;
 }

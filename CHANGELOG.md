@@ -1965,6 +1965,26 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   emitted for the WebGPU target. Rename it.
   ```
 
+- **A runtime-sized array's length on WebGPU is the length the host passed** (Rules 8.21, 8.24
+  and 11.11, #367). The call layer packed a storage binding padded to a multiple of 16 bytes and
+  bound the buffer whole, and the program runtime bound the buffer its pool had rounded up.
+  WGSL's `arrayLength` is the bound size over the stride, so five `u32`s were an array of 8 to
+  the kernel:
+
+  ```ts
+  export function stamp(out: array<u32>) {
+    for (let i: u32 = 0; i < out.length; i++) { out[i] = out.length; }
+  }
+  ```
+
+  `stamp(new Uint32Array(5))` wrote `[8, 8, 8, 8, 8]` on WebGPU and `[5, 5, 5, 5, 5]` on the CPU
+  tier, and `bins[ks[i] % bins.length] += 1` over five bins lost the counts of the three it
+  thought were past the fifth. An array whose byte size is a multiple of 16 was right, which is
+  every array the journeys passed. A storage binding's bytes are now its data and no more, in a
+  kernel call, an entry call, a draw and a `Resident`, and the program runtime binds a pooled
+  buffer at its data's size. A uniform's bytes stay padded to 16. The GPU differential of #349
+  found it: its own harness padded buffers the same way.
+
 - **`compile()` emits no constant expression Tint refuses** (Rule 1.1, #368). WGSL evaluates a
   constant expression when it creates the shader, and refuses some that have an answer at run
   time. Each of these compiled with no diagnostic, and Tint refused the WGSL:
