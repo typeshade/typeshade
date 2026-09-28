@@ -37,6 +37,7 @@ import {
   compareValues,
   selectComponents,
   bitBuiltin,
+  wrapValue,
 } from './cpu-runtime.js';
 import { barrierOutsideDispatch } from './intrinsics.js';
 import { kernelTree } from './kernel-tree.js';
@@ -62,6 +63,8 @@ export interface CodegenRuntime {
   splat: (n: number, v: number) => number[];
   swiz: (a: number[], idx: number[]) => number[];
   negVec: (a: number[]) => number[];
+  /** An integer vector wrapped into its type (`wrapValue`): a negation's or a builtin's. */
+  wrap: (v: CpuValue, kind: NumKind) => CpuValue;
   /** A componentwise comparison of two vectors, and a per-component select (§27). */
   cmpVec: (cop: CmpOp, a: CpuValue, b: CpuValue, f32: boolean) => CpuValue;
   /** One of the kind-dependent bit builtins (§10) on already-evaluated arguments. */
@@ -143,6 +146,7 @@ export function createCodegenRuntime(opts?: CodegenRuntimeOptions): CodegenRunti
     splat: (n, v) => new Array(n).fill(v),
     swiz: (a, idx) => idx.map((i) => a[i]!),
     negVec: (a) => a.map((v) => -v),
+    wrap: wrapValue,
     cmpVec: compareValues,
     bit: (fn, kind, args) => bitBuiltin(fn, args, kind),
     selVec: selectComponents,

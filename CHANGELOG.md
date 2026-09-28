@@ -1962,6 +1962,16 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **The oracle's `abs` and negation of the least `i32` are that value itself, as on both
+  targets** (Rule 1.3, surface §45). 2^31 has no `i32`, so `abs(-2147483648)` and
+  `-(-2147483648)` wrap back to `-2147483648` on WebGPU and WebGL2 (wgsl.txt:21451-21453). The
+  interpreter, the generated CPU code and the stepper answered `2147483648`, a value no `i32`
+  holds: `max(2, abs(i32(u)))` over `u = 2147483648` was 2 on WebGL2 and 2147483648 on the CPU.
+  A builtin is handed plain numbers, and the `f32` of the same magnitude has the real
+  `+2147483648` answer, so each CPU walk now wraps an integer-typed builtin's result and a
+  negation by its IR type. The GPU differential's GLSL arm (#349) drew it; the row #154 had left
+  as an `it.fails` now passes.
+
 - **A name that contains `$` is refused on its declaration** (Rule 3.2, surface §62, #376).
   TypeScript takes `$` in an identifier and WGSL does not, so `function scale$()` compiled with
   no diagnostic and Tint refused the module with `invalid character found`. Rule 3.2 required

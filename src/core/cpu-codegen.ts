@@ -99,6 +99,15 @@ function isArrayValued(t: ShaderType): boolean {
 }
 const isF32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32';
 
+/** `js`, a value of type `t`, wrapped into its integer type as the interpreter's `wrapValue`
+ *  does: inline for a scalar, through the runtime for a vector. A float type is left alone. */
+function wrapped(js: string, t: ShaderType): string {
+  const kind = numKindOf(t);
+  if (kind === 'f32') return js;
+  if (isArrayValued(t)) return `$.wrap(${js}, ${q(kind)})`;
+  return kind === 'i32' ? `(${js} | 0)` : `(${js} >>> 0)`;
+}
+
 /** The zero value literal for a `var` with no initializer — mirrors
  *  cpu-runtime `zeroOf` (vec/vec64 → N zeros, mat → N² zeros, struct → every field zeroed
  *  recursively, array → N zeros of its element, bool → false, everything else → 0). The two
@@ -238,7 +247,7 @@ function emitExpr(e: Expr, S: FnCtx): string {
       return emitBinop(e, S);
     case 'unop': {
       const a = emitExpr(e.a, S);
-      return isArrayValued(e.a.type) ? `$.negVec(${a})` : `(-${a})`;
+      return wrapped(isArrayValued(e.a.type) ? `$.negVec(${a})` : `(-${a})`, e.type);
     }
     case 'compare': {
       const a = emitExpr(e.a, S);
@@ -319,7 +328,7 @@ function emitExpr(e: Expr, S: FnCtx): string {
       if (e.declRef !== undefined && S.mod.fnNames.has(e.fn)) {
         return storeBackJs(e, `$.F[${q(e.fn)}](${args.join(', ')})`, S);
       }
-      if (BUILTINS[e.fn]) return `$.B[${q(e.fn)}](${args.join(', ')})`;
+      if (BUILTINS[e.fn]) return wrapped(`$.B[${q(e.fn)}](${args.join(', ')})`, e.type);
       if (GPU_STUBS[e.fn]) return `$.gpuStub(${[q(e.fn), ...args].join(', ')})`;
       // User fn — dispatched through $.F so a compiled fn can call a fn that fell
       // back to the interpreter (and vice versa).
