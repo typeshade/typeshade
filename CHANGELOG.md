@@ -591,6 +591,12 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   the compiler does not follow is the new `TS8072` on the import, and the use of its names says
   nothing more; before, every public path compiled one file, and a call into another was
   `TS8004`. A package import (roadmap X6) is `TS8072` too.
+- **The particles journey is a loop** (change 0013, part 7). Its `step` is a kernel function over
+  `array<Particle>` with the simulation's settings as a struct argument: no `@compute`, no
+  `global_invocation_id`, no binding and no packing, and the host hands it plain objects. The
+  harness gains a `kind: 'kernel'` run, which it checks on the CPU oracle; the import journey
+  steps the particles 20 frames on WebGPU on a `resident` array, which only queues until its one
+  read, against the same reference.
 
 - **Four examples of a loop that becomes a kernel** (change 0013, part 6, surface §65).
   `loop-kernel` is the roadmap's terrain, `loop-reduction` a sum, a mean and a variance, and a

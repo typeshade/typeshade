@@ -51,7 +51,42 @@ const entryOf = (exports: readonly HostExport[], name: string) => {
   return e;
 };
 
-const PARTICLES = readFileSync(join(ROOT, 'journeys/particles/particles.shade.ts'), 'utf8');
+// The particle step as the `@compute` entry the particles journey was before it became a loop
+// (change 0013): a uniform, a storage array of structs and a bound check of the author's own.
+const PARTICLES = `"use typeshade";
+
+class Particle {
+  pos: vec4;
+  vel: vec4;
+}
+
+class Sim {
+  dt: f32;
+  gravity: f32;
+  floor: f32;
+  bounce: f32;
+}
+
+declare const sim: uniform<Sim>;
+declare const particles: storage<array<Particle>, "read_write">;
+
+@compute([64])
+export function step(@builtin("global_invocation_id") gid: vec3u) {
+  if (gid.x >= particles.length) {
+    return;
+  }
+  const p = particles[gid.x];
+  let pos: vec3 = p.pos.xyz;
+  let vel: vec3 = p.vel.xyz;
+  vel = vel + vec3(0, -sim.gravity * sim.dt, 0);
+  pos = pos + vel * sim.dt;
+  if (pos.y < sim.floor) {
+    pos.y = sim.floor;
+    vel.y = -vel.y * sim.bounce;
+  }
+  particles[gid.x] = { pos: vec4(pos, 1), vel: vec4(vel, 0) };
+}
+`;
 const HISTOGRAM = readFileSync(join(ROOT, 'examples/atomic-histogram.shade.ts'), 'utf8');
 const SYNC = readFileSync(join(ROOT, 'examples/compute-sync.shade.ts'), 'utf8');
 

@@ -77,13 +77,17 @@ export async function logged(): Promise<void> {
  *  the journey copies beside this file, run through the import: no packing, no layout, no WebGPU
  *  code. `input` is each journey's own starting data. */
 export async function journeys(input: {
-  sim: Parameters<typeof step>[0]['sim'];
-  particles: Parameters<typeof step>[0]['particles'];
+  sim: Parameters<typeof step>[1];
+  particles: { pos: [number, number, number, number]; vel: [number, number, number, number] }[];
   frames: number;
   frame: Parameters<typeof fs>[1]['frame'];
 }): Promise<{ particles: number[]; plasma: number[] }> {
-  const { sim, particles, frames, frame } = input;
-  for (let f = 0; f < frames; f++) await step({ sim, particles }, Math.ceil(particles.length / 64));
+  const { sim, frames, frame } = input;
+  // The particles stay on the device across the frames (Rule 11.8): each step only queues, and
+  // the one read is after the last.
+  const dev = resident(input.particles);
+  for (let f = 0; f < frames; f++) step(dev, sim);
+  const particles = await dev.read();
   const c = document.createElement('canvas');
   c.width = 64;
   c.height = 64;

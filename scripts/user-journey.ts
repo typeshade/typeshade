@@ -238,10 +238,10 @@ async function hostImport(work: string, tarball: string): Promise<number> {
     ).default.runs[0]!;
   const particlesRun = await journeyOf('particles');
   const plasmaRun = await journeyOf('plasma');
-  const pb = particlesRun['bindings'] as Record<string, { cpu: unknown }>;
+  const pa = particlesRun['args'] as Record<string, unknown>;
   const web = await inBrowser(join(app, 'out-web'), {
-    sim: pb['sim']!.cpu,
-    particles: pb['particles']!.cpu,
+    sim: pa['sim'],
+    particles: pa['particles'],
     frames: particlesRun['repeat'],
     frame: (plasmaRun['bindings'] as Record<string, { cpu: unknown }>)['frame']!.cpu,
   });
