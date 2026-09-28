@@ -13,7 +13,7 @@
     "typescript",
     "reflection"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "Seungup Noh <seungup.noh@gmail.com>",
   "homepage": "https://typeshade.dev",
   "bugs": {
@@ -54,6 +54,7 @@
     "AUTHORING.md",
     "CHANGELOG.md",
     "LICENSE",
+    "NOTICE",
     "README.md",
     "!**/*.test.ts",
     "!**/__emit-goldens__",

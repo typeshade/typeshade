@@ -79,7 +79,7 @@ rendered as an ellipse. Every gate passed; only visual review caught it.
 > Mandelbrot/Julia, metaballs, seascape, starfield, domain warping, truchet, raymarching,
 > kaleidoscope) as ORIGINAL DSL implementations of the well-known techniques — no code is
 > ported from shadertoy.com listings, whose default license (CC BY-NC-SA) is incompatible
-> with this repository's MIT license.
+> with this repository's Apache 2.0 license.
 
 ## `"use typeshade"` source examples
 
