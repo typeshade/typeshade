@@ -27,7 +27,7 @@ function withInvocation(
 ): ConsoleSink | undefined {
   if (!sink) return sink;
   const decl = m.funcs.find((f) => f.name === name);
-  const invocation = decl && consoleInvocation(decl, args);
+  const invocation = decl && consoleInvocation(decl, args, m.structs);
   if (!invocation) return sink;
   return (e) => sink(e.invocation ? e : { ...e, invocation });
 }

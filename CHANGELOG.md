@@ -1795,6 +1795,14 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A fragment entry that takes its position in a struct marks its console lines with the pixel
+  on the CPU, as it does on the GPU** (surface §66; design rule 11.9). `compile().eval` and a
+  debug session looked for the invocation of a `console.*` event only in a parameter that takes
+  `global_invocation_id` or `position`, so `fs(v: VsOut)`, whose position is a field of its
+  input struct, delivered its lines with no `invocation`, where the same call decoded from the
+  GPU carries `[x, y, 0]`: the recorded WGSL reads `v.pos`. The CPU now reads the builtin where
+  the recorded WGSL reads it, from the parameter that takes it, else from the struct field that
+  carries it.
 - **One mistake is one diagnostic where two passes both refused it, in `compile()` and in the
   editor** (proposal 0008 §3; design rule 12.4; surface §28 and §32). `semantic.ts` refused
   `for…in`, `try`, `throw`, `await`, `yield`, a template string and a spread, and the lowering then

@@ -73,6 +73,37 @@ describe('a debug session delivers console calls to its sink (surface §66)', ()
     expect(sessionEvents('fs', args)).toEqual(expected);
   });
 
+  it('marks a fragment entry that takes its position in a struct with the pixel, as the recorded WGSL does', () => {
+    const src = `"use typeshade";
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+class Color {
+  @location(0) color: vec4;
+}
+@fragment
+export function fs(v: VsOut): Color {
+  console.log("pixel", v.uv);
+  return { color: vec4(v.uv, 0., 1.) };
+}`;
+    // On the GPU the recorded WGSL takes the invocation from the struct's position field.
+    const recorded = compile(src, { console: 'gpu' });
+    expect(recorded.diagnostics).toEqual([]);
+    expect(recorded.wgsl).toContain('_console_inv = vec3<u32>(u32(v.pos.x), u32(v.pos.y), 0u);');
+    // On the CPU, compile().eval and a stepped run mark the line with the same pixel.
+    const args = [{ pos: [10.5, 20.5, 0, 1], uv: [0.25, 0.5] }];
+    const expected: ConsoleEvent[] = [];
+    compile(src, { consoleSink: (e) => expected.push(e) }).eval('fs', args);
+    expect(expected.map((e) => e.invocation)).toEqual([[10, 20, 0]]);
+    const got: ConsoleEvent[] = [];
+    const s = startDebugSession(compile(src).module, 'fs', args as never[], {
+      consoleSink: (e) => got.push(e),
+    });
+    s.continue();
+    expect(got).toEqual(expected);
+  });
+
   it('delivers each event at the step that runs its call, and nothing at a step that skips it', () => {
     const src = compile(KERNEL);
     const lines: ConsoleEvent[] = [];
