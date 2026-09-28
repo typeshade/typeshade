@@ -38,7 +38,10 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { compile } from '../../compiler/ts/compile.js';
+import { SHADE_DTS } from '../../language-service/ambient.js';
+import { readCall } from './coredef-witness.js';
 
 /** One `fn texture*` overload of `core.def`, as `scripts/bake-coredef-textures.ts` writes it. */
 interface CoreDefRow {
@@ -94,7 +97,11 @@ const ACCESS: Readonly<Record<string, string>> = {
 
 /** The handle declaration for the row's `texture:` parameter, or `null` when this package has
  *  no spelling for the type at all (`texel_buffer`, `texture_external`). */
-function textureDecl(type: string, implicit: Readonly<Record<string, string>>): string | null {
+function textureDecl(
+  type: string,
+  implicit: Readonly<Record<string, string>>,
+  elem: Elem = 'f32',
+): string | null {
   const storage = /^texture_storage_(\w+)<(\w+), (\w+)>$/.exec(type);
   if (storage !== null) {
     const kind = implicit[storage[2] ?? ''] ?? 'texel_format';
@@ -104,9 +111,13 @@ function textureDecl(type: string, implicit: Readonly<Record<string, string>>): 
     return `texture_storage_${storage[1] ?? ''}<"${format}", "${access}">`;
   }
   if (type.includes('texel_buffer') || type === 'texture_external') return null;
-  // `implicit(T: fiu32)` ranges over the three element kinds; f32 stands for the row.
-  return type.replace('<T>', '<f32>');
+  // `implicit(T: fiu32)` ranges over the three element kinds; the witness names one.
+  return type.replace('<T>', `<${elem}>`);
 }
+
+/** The row's result with `T` bound to `elem`: `vec4<T>` for an `i32` texture is `vec4<i32>`. */
+const resultOf = (row: CoreDefRow, elem: Elem): string =>
+  row.ret === '' ? 'void' : row.ret.replace('<T>', `<${elem}>`);
 
 /** How a witness CONSUMES the result, as one `f32`. Without a use the optimizer may drop the
  *  call, and "the witness emits the call" would be vacuously checkable. */
@@ -154,15 +165,20 @@ function argOf(name: string, type: string, stage: Stage): string | null {
   }
 }
 
+/** The element kinds a sampled or loaded texture holds, which a row's `T: fiu32` ranges over. */
+type Elem = 'f32' | 'i32' | 'u32';
+const ELEMS: readonly Elem[] = ['f32', 'i32', 'u32'];
+
 /** A complete `"use typeshade"` module calling the row's overload once in `stage`, or `null`
- *  when the row names a type or an argument this package cannot spell at all. */
-function witnessFor(row: CoreDefRow, stage: Stage): string | null {
+ *  when the row names a type or an argument this package cannot spell at all. `elem` is the
+ *  element a row's `T` is bound to. */
+function witnessFor(row: CoreDefRow, stage: Stage, elem: Elem = 'f32'): string | null {
   const decls: string[] = [];
   const args: string[] = [];
   for (const p of row.params) {
     const name = p.name.replace('@const ', '');
     if (name === 'texture') {
-      const decl = textureDecl(p.type, row.implicit);
+      const decl = textureDecl(p.type, row.implicit, elem);
       if (decl === null) return null;
       decls.push(`declare const tex: ${decl}`);
       args.push('tex');
@@ -180,7 +196,7 @@ function witnessFor(row: CoreDefRow, stage: Stage): string | null {
   const call = `${row.fn}(${args.join(', ')})`;
   let sink: string | null = null;
   if (row.ret !== '') {
-    const s = SINK[row.ret];
+    const s = SINK[resultOf(row, elem)];
     if (s === undefined) return null;
     sink = s;
   }
@@ -474,4 +490,83 @@ describe('every core.def texture overload is claimed (S1)', () => {
     }
     expect(closed).toEqual([]);
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Both halves (0017)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The texture family is the one 0017 did not generate: its declarations are the ambient
+// library's own, and a measurement found none of them parted from the compiler. So the rows are
+// held to both halves here instead, the guard the generated families get from
+// `coredef-overloads.test.ts`: every SUPPORTED row, for each element its `T` ranges over, must
+// be accepted by `compile()` and by the language service, and both must type the call as
+// core.def does. A texture change that moves one half alone fails here; the declarations move
+// to the generator in the pull request that changes the texture surface.
+
+/** The call a witness makes: the expression after `const r = `, or the statement itself. */
+function callIn(src: string, row: CoreDefRow): string {
+  const line = src.split('\n').find((l) => l.includes(`${row.fn}(`));
+  if (line === undefined) throw new Error(`no ${row.fn} call in its witness`);
+  return line.trim().replace(/^const r = /, '');
+}
+
+/** Where the two halves part from core.def on `row` with `T` bound to `elem`, if they do. */
+function partOf(
+  row: CoreDefRow,
+  elem: Elem,
+  ambientLib: string,
+  registry: ts.DocumentRegistry,
+): string | undefined {
+  const src = witnessFor(row, homeStage(row), elem);
+  if (src === null) return undefined;
+  const { compiler, editor } = readCall(src, callIn(src, row), ambientLib, registry);
+  const at = `${row.signature} [T = ${elem}]`;
+  if (!compiler.accepts) return `${at}: the compiler reports ${compiler.errors[0] ?? '?'}`;
+  if (!editor.accepts) return `${at}: the editor reports ${editor.errors[0] ?? '?'}`;
+  const expected = resultOf(row, elem);
+  if (compiler.type !== expected)
+    return `${at}: core.def says ${expected}, the compiler ${compiler.type ?? '?'}`;
+  if (editor.type !== expected)
+    return `${at}: core.def says ${expected}, the editor ${editor.type ?? '?'}`;
+  return undefined;
+}
+
+/** Each SUPPORTED row, once per element its `T` ranges over (once when it has no `T`). */
+const INSTANCES: readonly (readonly [CoreDefRow, Elem])[] = ROWS.filter(
+  (row) => !(row.signature in DEFERRED) && witnessFor(row, homeStage(row)) !== null,
+).flatMap((row) =>
+  row.implicit.T === undefined ? [[row, 'f32'] as const] : ELEMS.map((e) => [row, e] as const),
+);
+
+describe('every SUPPORTED texture row is typed by both halves as core.def types it (0017)', () => {
+  it('holds each instance to compile() and the language service', () => {
+    // A floor, so a suite that stopped finding rows cannot pass on nothing: 101 rows, 151
+    // instances when this was written.
+    expect(INSTANCES.length).toBeGreaterThanOrEqual(150);
+    const registry = ts.createDocumentRegistry();
+    const parted = INSTANCES.map(([row, elem]) => partOf(row, elem, SHADE_DTS, registry)).filter(
+      (d) => d !== undefined,
+    );
+    expect(parted).toEqual([]);
+  }, 240_000);
+
+  it('sees a disagreement when one is there: a textureLoad declared to return an f32 vector', () => {
+    // The shape of the drift this guards against: a declaration that forgot the element. An
+    // integer texture's load must then be named, and the float one beside it must not.
+    const decl = 'tex: texture_2d<E>,\n  coord: TexelCoord2,\n  level: number,\n): Vec4OfElem<E>';
+    expect(SHADE_DTS).toContain(decl);
+    const doctored = SHADE_DTS.replace(decl, decl.replace('Vec4OfElem<E>', 'vec4'));
+    const row = ROWS.find(
+      (r) => r.signature === 'textureLoad(texture_2d<T>, vec2<C>, L) -> vec4<T>',
+    );
+    expect(row).toBeDefined();
+    const registry = ts.createDocumentRegistry();
+    const parted = ELEMS.map((e) => partOf(row!, e, doctored, registry));
+    expect(parted).toEqual([
+      undefined,
+      'textureLoad(texture_2d<T>, vec2<C>, L) -> vec4<T> [T = i32]: core.def says vec4<i32>, the editor vec4<f32>',
+      'textureLoad(texture_2d<T>, vec2<C>, L) -> vec4<T> [T = u32]: core.def says vec4<u32>, the editor vec4<f32>',
+    ]);
+  }, 60_000);
 });
