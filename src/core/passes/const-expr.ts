@@ -31,11 +31,14 @@
 //   (x + (M / -1)), M: i32 = MIN    '-2147483648 / -1' cannot be represented as 'i32'
 //   (x + (M % -1)), M: i32 = MIN    '-2147483648 % -1' cannot be represented as 'i32'
 //   (x + u32(-1))                   value -1 cannot be represented as 'u32'
+//   (x / u32(-0.25))                integer division by zero is invalid
+//   (x % u32(K)), K: f32 = 0.5      integer division by zero is invalid
 //   clamp(x, 5u, 2u)                clamp called with 'low' (5) greater than 'high' (2)
 //
 // and their neighbours, which Tint accepts: `S * 1000000000` and `S + 1` over a concrete `i32`
 // constant wrap, as do `-M` and `(-2147483648 % -1)`; `u32(N)` for an `i32` constant `N = -1`;
-// `S << 31u` for `S: i32 = -1` and for `S: u32 = 1`; `y / 0.0` on an `f32` the shader computes.
+// `S << 31u` for `S: i32 = -1` and for `S: u32 = 1`; `y / 0.0` on an `f32` the shader computes;
+// `x / u32(K)` for `K: f32 = 1.5`.
 //
 // Each program above has an answer when the operand is not a constant: an integer `x / 0` is
 // `x` and `x % 0` is 0, a shift amount is taken modulo 32, integer arithmetic wraps, `u32(e)`
@@ -131,10 +134,10 @@ function builtinValue(
  * The value of `e` where `e` is a const-expression this evaluates, one number per component,
  * else undefined: a literal, a module constant, a vector built from those, a component of one,
  * a `select` on a literal, an integer operation over those, and an integer `abs`, `min`, `max`,
- * `clamp` or conversion of them. An integer is evaluated as the target computes it at run
- * time: it wraps, `x / 0` is `x` and a shift takes its amount modulo 32 (`scalarBin`, the
- * oracle's). A float is taken only as it is written, since the rounding of its arithmetic is
- * the target's.
+ * `clamp` or conversion of them, a float constant's included. An integer is evaluated as the
+ * target computes it at run time: it wraps, `x / 0` is `x` and a shift takes its amount modulo
+ * 32 (`scalarBin`, the oracle's). A float is taken only as it is written, since the rounding of
+ * its arithmetic is the target's.
  */
 function constValue(e: Expr, env: Env): Components | undefined {
   const hit = env.memo?.get(e);
@@ -199,6 +202,11 @@ function evaluate(e: Expr, env: Env): Components | undefined {
     }
     case 'call': {
       if (e.declRef !== undefined || int === undefined) return undefined;
+      if ((e.fn === 'i32' || e.fn === 'u32') && e.args.length === 1 && e.type.kind === 'scalar') {
+        const arg = e.args[0]!;
+        if (arg.type.kind === 'scalar' && arg.type.scalar === 'f32')
+          return truncated(arg, int, env);
+      }
       const args: Components[] = [];
       for (const a of e.args) {
         if (intElemOf(a.type) === undefined) return undefined;
@@ -214,6 +222,23 @@ function evaluate(e: Expr, env: Env): Components | undefined {
     default:
       return undefined;
   }
+}
+
+/** `i32(f)` or `u32(f)` of a float constant: its value truncated toward zero, as WGSL converts
+ *  one, or undefined outside the integer's range. A literal is an abstract float to WGSL, which
+ *  converts the value as written (`u32(-0.25)` is 0). A named `f32` constant is its `f32` value,
+ *  so it is taken only where that and the value as written truncate alike: `u32(0.1)` is 0 in
+ *  either reading, and `u32(2.99999999)` is 2 or 3. */
+function truncated(arg: Expr, int: 'i32' | 'u32', env: Env): Components | undefined {
+  const v = constValue(arg, env);
+  if (v === undefined || v.length !== 1) return undefined;
+  // `+ 0` makes the -0 that `Math.trunc(-0.25)` gives a 0.
+  const t = Math.trunc(v[0]!) + 0;
+  const literal = arg.op === 'lit' || (arg.op === 'unop' && arg.a.op === 'lit');
+  if (!literal && Math.trunc(Math.fround(v[0]!)) + 0 !== t) return undefined;
+  const lo = int === 'i32' ? I32_MIN : 0;
+  const hi = int === 'i32' ? 2147483647 : 4294967295;
+  return t >= lo && t <= hi ? [t] : undefined;
 }
 
 /** `values` spelled as a constant of type `t`: a literal, or a vector constructor of literals
