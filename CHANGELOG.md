@@ -1991,6 +1991,13 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A storage array of vectors or structs indexed with an `i32` has GLSL** (#388). WebGL2
+  reads a storage array from a data texture, and an element's first lane is its index times the
+  element's stride, a `u32`. An index written as a literal (`vs[0]`, `ls[1].b`) or held in an
+  `i32` made that product `i32 * u32`, which the module validator refuses. `compile()` gave the
+  WGSL and no GLSL, with a `TS8015` warning in the validator's words. The index is now converted
+  to `u32` first. The five shapes, and their `u32` neighbour, compile and link on WebGL2.
+
 - **A kernel loop's row-major write runs on the GPU only with one width for the whole loop**
   (Rule 8.22, surface §65, #398). R3 takes a write at `i*W + x` over a nested loop of `x` below
   `W`, and the proof checked only that the width at the index and the inner loop's bound were
