@@ -233,9 +233,12 @@ export function createTypeshadeLanguageServiceWith(
 
   /** How the front end reads what a document imports: the text the TypeScript program holds for
    *  it (an open document's, or one `readDocument` pulled in), resolved by the host's one rule,
-   *  so the two halves analyse the same program. */
+   *  so the two halves analyse the same program. What TypeScript does not hold, a package's
+   *  `package.json` or its JavaScript, is read as the rule read it, so a refused package import
+   *  is worded as `compile()` words it. */
   const imports: ImportHooks = {
-    readDocument: (uri) => sourceFileOf(uri)?.text ?? tsHost.getDocumentText(uri),
+    readDocument: (uri) =>
+      sourceFileOf(uri)?.text ?? tsHost.getDocumentText(uri) ?? tsHost.readOutsideProgram(uri),
     resolveImport: (fromUri, specifier) => tsHost.resolveImportUri(fromUri, specifier),
   };
 

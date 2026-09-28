@@ -35,7 +35,7 @@ import {
   importHooksOf,
   type TypeshadeLanguageService,
 } from './service.js';
-import { resolveRelativeSpecifier } from '../compiler/ts/specifier.js';
+import { resolveSpecifierFile } from '../compiler/ts/specifier.js';
 import { isTypeshadeSource } from '../compiler/ts/source-file.js';
 import type { TypeshadeDiagnostic } from './types.js';
 
@@ -55,8 +55,9 @@ export interface CheckDocument {
  *
  *  Exported from `typeshade/language-service`. */
 export interface CheckOptions {
-  /** Reads an imported file the caller did not hand in, by the uri an import resolves to.
-   *  Omitted, an import of a file outside the checked set is reported as unresolved. */
+  /** Reads an imported file the caller did not hand in, by the uri an import resolves to, and
+   *  a package's `package.json`, which the resolution reads to find a package. Omitted, an
+   *  import of a file outside the checked set is reported as unresolved. */
   readonly readDocument?: (uri: string) => string | undefined;
   /** Also report the deprecation warnings `compile({ deprecations: true })` reports (§13). */
   readonly deprecations?: boolean;
@@ -247,7 +248,7 @@ function importedDocuments(
   const seen = new Set([doc.uri]);
   const visit = (uri: string, text: string): void => {
     for (const ref of ts.preProcessFile(text, true, false).importedFiles) {
-      const dep = resolveRelativeSpecifier(uri, ref.fileName);
+      const dep = resolveSpecifierFile(uri, ref.fileName, readDocument);
       if (dep === undefined || seen.has(dep)) continue;
       seen.add(dep);
       const depText = readDocument(dep);

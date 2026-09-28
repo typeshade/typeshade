@@ -6916,10 +6916,12 @@ runtime-sized array parameter belongs to roadmap item 15, and a binding is what 
 a `.ts` the bundle reads that begins with `"use typeshade"` under any other name, with the
 rename. A module with a compile error fails the build with each `TS80xx` diagnostic at its file,
 line and column. A `.shade.ts` that imports another shader module is compiled with it (§68): the
-plugin reads each file the module imports from disk and hands it to the bundler to watch, so an
-edit to the imported file rebuilds the importer. The view names the module's own exports and what
-it re-exports, and a struct another file declares is written into it as its host type, so a view
-never imports another view.
+plugin reads each file the module imports from disk, a package's found in `node_modules` from the
+module's directory up, and hands each to the bundler to watch, so an edit to the imported file
+rebuilds the importer. The view names the module's own exports and what it re-exports, and a
+struct another file declares is written into it as its host type, so a view never imports another
+view. A host file that imports a package's `.shade.ts` itself is not supported yet: the plugin
+writes a module's view beside it, and a package's directory is not the project's to write.
 
 **What ships.** The plugin writes the CPU tier's code into the module the bundler reads, as module
 code, with no `new Function`, so a strict content security policy is no obstacle. That module
@@ -7245,9 +7247,10 @@ tiers are fixed: `configure` orders a compute entry's and a kernel function's.
 
 ## 68. Importing another shader module
 
-A `"use typeshade"` file imports what another one exports (Rule 3.9, change 0022). The file a
-compile starts from and every shader file it imports, directly or through another, are one
-program, which emits one WGSL module, one pair of GLSL ES 3.00 stages and one CPU module.
+A `"use typeshade"` file imports what another one exports (Rule 3.9, change 0022), a file of its
+own project by a relative path or one a package publishes by the package's name (change 0024).
+The file a compile starts from and every shader file it imports, directly or through another, are
+one program, which emits one WGSL module, one pair of GLSL ES 3.00 stages and one CPU module.
 
 ```ts
 // noise.shade.ts
@@ -7311,11 +7314,50 @@ and an inline `type`, `import * as x from "./x.shade.ts"` read one name at a tim
 `x.Light` as a type), and the re-exports `export { a } from`, `export { a as b } from` and
 `export * from`.
 
-**The specifier** is relative (`./`, `../`) and resolves against the importing file:
+**The specifier.** A relative one (`./`, `../`) resolves against the importing file:
 `./noise.shade.ts` as written, `./noise.shade.js` and `./noise.shade.mjs` as `.ts`, and `.ts` <!-- doc-refs: skip — specifiers an importing file writes, not paths of this tree -->
-appended to any other path, so `./noise.shade` names `noise.shade.ts`. The language service
-resolves an import by the same rule. A file is a shader module by its directive (Rule 3.1), not by
-its name; `*.shade.ts` stays the name a host imports (Rule 3.8).
+appended to any other path, so `./noise.shade` names `noise.shade.ts`. Any other names a package,
+`name` or `@scope/name`, then an optional subpath: `shade-noise`, `shade-noise/hash`. The package is
+the first `node_modules/<name>/package.json` found from the importing file's directory up, a
+directory named `node_modules` skipped, the order Node and TypeScript search in.
+
+- With `exports`, the subpath (`.` for the name alone) is looked up in it as Node looks it up: a
+  string target, a map of subpaths with single-`*` patterns (the most specific first), an array's
+  first valid target, and `null` blocking a path. At each map of conditions the conditions
+  `typeshade`, `import` and `default` are tried in that order, wherever the package wrote them. A
+  target is a file inside the package: it begins with `./`, and no segment of it is empty, `.`,
+  `..` or `node_modules`.
+- Without `exports`, a subpath names a file of the package by the rule for a relative specifier,
+  so `shade-noise/noise.shade.js` reads `noise.shade.ts`. The name alone names nothing. <!-- doc-refs: skip — files of an example package, not paths of this tree -->
+- A package's own imports resolve by the same rule: a relative one against the package's file, a
+  package it depends on from that file's directory up.
+
+The language service resolves an import by the same rule, `resolveSpecifier` in
+`src/compiler/ts/specifier.ts`. A file is a shader module by its directive (Rule 3.1), not by its
+name; `*.shade.ts` stays the name a host imports (Rule 3.8).
+
+**Publishing a package.** The `typeshade` condition lets one package publish its shader modules
+beside the JavaScript it publishes for hosts, the way `types` sits beside `import`:
+
+```json
+{
+  "name": "shade-noise",
+  "version": "1.2.0",
+  "exports": {
+    ".": { "typeshade": "./src/index.shade.ts", "default": "./dist/index.js" },
+    "./*": { "typeshade": "./src/*.shade.ts" }
+  }
+}
+```
+
+`import { fbm } from "shade-noise"` reads `src/index.shade.ts`, and
+`import { hash } from "shade-noise/hash"` reads `src/hash.shade.ts`. A package that publishes <!-- doc-refs: skip — files of an example package, not paths of this tree -->
+only shader modules needs no condition: `"exports": { "./*": "./src/*.shade.ts" }` resolves
+through `default`. Write `typeshade` first in each map of conditions: plain `tsc` with the
+README's `customConditions` takes the first condition a package writes that it knows, where this
+rule tries `typeshade` wherever it is written, and the two then read one file. A package states
+the compiler version it was written for as a `peerDependencies` range on `typeshade`, which npm
+checks.
 
 **One program, one module.**
 
@@ -7327,10 +7369,18 @@ its name; `*.shade.ts` stays the name a host imports (Rule 3.8).
   variables, overrides and bindings are its own, and its functions read them.
 - The module has one namespace (Rule 3.2). A declaration keeps its written name unless a
   declaration emitted before it holds that name, or it would hide a builtin another file calls;
-  then it is emitted as `stem_name`, `stem` being its file's name without `.shade.ts`. The entry
-  file's declarations are emitted first, so its names are its own. An entry point, a binding and
-  an override are never renamed, since the pipeline, `reflect()` and the host know them by name;
-  two of one name in one module are `TS8023`, naming both files.
+  then it is emitted as `stem_name`, `stem` being its file's name without `.shade.ts`, and for a
+  file of a package the package's name made a name before it, `shade_noise_noise_hash`, so the
+  WGSL says where the function came from. A second rename of one name takes a number,
+  `shade_noise_noise_hash_2`. The entry file's declarations are emitted first, so its names are
+  its own. An entry point, a binding and an override are never renamed, since the pipeline,
+  `reflect()` and the host know them by name; two of one name in one module are `TS8023`, naming
+  both files.
+- A program holds one copy of a package version. A file of a package is keyed by the package's
+  `name`, its `version` and the file's path inside it, so two paths that reach one version, as a
+  pnpm layout or a nested install gives a dependent its own, read one file: a binding it declares
+  is declared once, and its functions are emitted once. Two versions of a package are two sets of
+  files, each with its own scope, as two relative files are.
 - A `declare` binding with no slot is numbered after the entry's own, so an import never moves a
   slot of the entry's.
 - A generic function or class is compiled once per set of type arguments the program uses
@@ -7338,13 +7388,17 @@ its name; `*.shade.ts` stays the name a host imports (Rule 3.8).
 - Two files may import each other. A call cycle through them is still refused (Rule 8.4).
 
 **How each path reads the files.** `compile(source, { fileName, readDocument })` reads each import
-through `readDocument`, which returns a file's text or `undefined`; `resolveImport` replaces the
-rule above. A compile with no `readDocument` reads nothing: a file with no import compiles as it
-always has, and an import in one is `TS8072`. A diagnostic located in an imported file carries
-that file's `fileName` and offsets. The Vite plugin (§64) and `tshc sync` read from disk.
-`tshc check` checks a shader module a checked file imports too, once, under its own path.
-The language service reads an import as its TypeScript half does, from an open document or the
-host's `readDocument`, and shows a mistake in an imported file on that file, as `tsc` does.
+through `readDocument`, which returns a file's text or `undefined`, and a package's
+`package.json` through it too, so a host that reads from disk follows a package with no change;
+`resolveImport` replaces the rule above, packages included. A compile with no `readDocument`
+reads nothing: a file with no import compiles as it always has, and an import in one is
+`TS8072`. A diagnostic located in an imported file carries that file's `fileName` and offsets.
+The Vite plugin (§64) and `tshc sync` read from disk, and find a package from the module's own
+directory up. `tshc check` checks a shader module a checked file imports too, a package's
+included, once, under its own path. The language service reads an import as its TypeScript half
+does, from an open document or the host's `readDocument`, which it asks for `package.json` as
+well, and shows a mistake in an imported file on that file, as `tsc` does. A host that serves
+only files that begin with the directive serves `package.json` too.
 
 **What is refused.** One code, `TS8072`, on the import, for every import the compiler does not
 follow; a use of what it would have bound reports nothing more (Rule 12.4), and the editor merges
@@ -7356,7 +7410,12 @@ TypeScript's report of the same mistake (`TS2307`, `TS2305`, `TS2724`, `TS2459`,
 | a path that names no file                    | `Cannot find the shader module "./nosie.shade.ts" (looked for "src/nosie.shade.ts").`                                                 |
 | a compile with no `readDocument`             | `"./noise.shade.ts" was not read: this compile has no readDocument. Pass compile() a readDocument that returns the file's text.`       |
 | a file without the directive                 | `"./util.ts" is not a shader module: it does not begin with "use typeshade". A shader module imports only another shader module.`     |
-| a package                                    | `"shade-noise" is a package, and a shader module imports only a file of its own program, by a relative path such as "./shade-noise.shade.ts".` |
+| a package no `node_modules` holds            | `Cannot find the package "shade-noise" (looked in node_modules from "src" up).`                                                       |
+| a subpath `exports` does not name, or maps to `null` | `"shade-noise" does not export "./warp": its package.json "exports" names no module for it.`                                   |
+| the name alone, with no `exports`            | `"shade-noise" has no module to import by its name alone: its package.json has no "exports". Import one of its files, such as "shade-noise/noise.shade.ts".` The example is its `main`, or an `index.shade.ts` at its root or in `src/`, when that is a shader module; with none, `Import one of its files by its path in the package, "shade-noise/<path>".` |
+| a package's file without the directive       | `"shade-noise" resolves to "node_modules/shade-noise/dist/index.js", which does not begin with "use typeshade". A package publishes its shader modules under the "typeshade" condition of "exports".` |
+| a `#` specifier (a package's `imports` field) | `"#noise" names a package's own import map, which a shader module does not read. Import the file by a relative path.`                |
+| neither a relative path nor a package name   | `"/src/noise.shade.ts" is not a relative path or a package name. A shader module imports a file of its program by a relative path, such as "./noise.shade.ts", or a package by its name.` |
 | a name the file declares and does not export | `"./noise.shade.ts" declares "hash" and does not export it. Export it there, or declare what you need in this file.`                  |
 | a name the file does not declare             | `"./noise.shade.ts" has no export "fmb". Did you mean "fbm"?`                                                                         |
 | a default import                             | `A shader module has no default export. Import the names you use: import { name } from "./noise.shade.ts".`                           |
@@ -7364,7 +7423,9 @@ TypeScript's report of the same mistake (`TS2307`, `TS2305`, `TS2724`, `TS2459`,
 | `import(...)`, `require(...)` or `import x = require(...)` | `A shader module is imported by an import declaration at the top of the file: import { name } from "./noise.shade.ts".` |
 | a module namespace used as a value           | `"noise" is a module namespace, read one name at a time (noise.name). It is not a value.`                                             |
 
-**Not yet.** A package, imported by a bare specifier through `node_modules`, is roadmap X6.
+**Not yet.** A host file that imports a package's `.shade.ts` itself, through the Vite plugin: the
+plugin writes a module's host view beside it, and a package's directory is not the project's to
+write. A package's `imports` map (`#name`) is refused, as above.
 
 ## 69. Running a compiled program
 

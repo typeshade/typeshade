@@ -133,16 +133,22 @@ export interface CompileOptions {
    * Reads a file this source imports (Rule 3.9, surface §68): its text, or `undefined` when
    * there is none. The source and every shader file it imports, directly or through another,
    * are one program, compiled into one module, and a diagnostic located in an imported file
-   * carries that file's name and offsets. Without it nothing is read: a source with no import
-   * compiles as it always has, and an import is `TS8072`. The same hook as the language
-   * service's `TypeshadeLanguageServiceHost.readDocument`, so both halves read one program.
+   * carries that file's name and offsets. It is asked for a package's `package.json` too, which
+   * the default `resolveImport` reads to find a package in `node_modules`, so a `readDocument`
+   * that reads from disk follows a package with no change. Without it nothing is read: a source
+   * with no import compiles as it always has, and an import is `TS8072`. The same hook as the
+   * language service's `TypeshadeLanguageServiceHost.readDocument`, so both halves read one
+   * program.
    */
   readonly readDocument?: (fileName: string) => string | undefined;
   /**
    * The file a specifier written in `fromFile` names, or `undefined` when it names none. The
    * default, which the language service applies too, resolves a relative specifier against the
    * importing file (`fileName` for the source), reads `.js` and `.mjs` as `.ts`, and appends
-   * `.ts` to any other path. A package, a bare specifier, is `TS8072`.
+   * `.ts` to any other path. Any other specifier names a package: the first
+   * `node_modules/<name>/package.json` from the importing file's directory up, read through
+   * `readDocument`, and the file its `exports` publishes under the `typeshade` condition
+   * (surface §68, change 0024). A hook passed here replaces the rule for every specifier.
    */
   readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
 }

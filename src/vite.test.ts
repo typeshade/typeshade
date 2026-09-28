@@ -7,7 +7,7 @@
 // calls what it exports; the rest drive the plugin's hook and the command directly.
 
 import { afterAll, describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { typeshade } from './vite.js';
@@ -159,6 +159,47 @@ describe('a .shade.ts that imports another, through the plugin (Rule 3.9)', () =
   });
 });
 
+/** `shade-tint` installed in `dir`'s node_modules, publishing `LIB` under the `typeshade`
+ *  condition beside the JavaScript it publishes for hosts (proposal 0024). */
+const installTint = (dir: string): string => {
+  const root = join(dir, 'node_modules', 'shade-tint');
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(
+    join(root, 'package.json'),
+    JSON.stringify({
+      name: 'shade-tint',
+      version: '1.0.0',
+      exports: { '.': { typeshade: './src/tint.shade.ts', default: './dist/index.js' } },
+    }),
+  );
+  writeFileSync(join(root, 'src', 'tint.shade.ts'), LIB);
+  return join(root, 'src', 'tint.shade.ts');
+};
+const APP_OF_PACKAGE = APP.replace('"./lib.shade.ts"', '"shade-tint"');
+
+describe("a .shade.ts that imports a package's shader module, through the plugin (0024)", () => {
+  it('calls the export, which runs the function the package publishes', async () => {
+    const dir = tempDir();
+    installTint(dir);
+    const file = join(dir, 'app.shade.ts');
+    writeFileSync(file, APP_OF_PACKAGE);
+    const m = (await import(/* @vite-ignore */ file)) as { brighten: (x: number) => number };
+    expect(m.brighten(2)).toBe(7);
+  });
+
+  it("hands the package's file the module read to the bundler to watch", async () => {
+    const dir = tempDir();
+    const tint = installTint(dir);
+    const watched: string[] = [];
+    await typeshade().transform.call(
+      { addWatchFile: (id: string) => void watched.push(id) } as never,
+      APP_OF_PACKAGE,
+      join(dir, 'app.shade.ts'),
+    );
+    expect(watched).toEqual([tint]);
+  });
+});
+
 describe('the plugin hook', () => {
   it('records console calls in vite dev, and none in a build', async () => {
     const src = `"use typeshade";
@@ -215,11 +256,11 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { console.log(
 });
 
 describe('tshc sync', () => {
-  function memoryHost(files: Record<string, string>) {
+  function memoryHost(files: Record<string, string>, cwd = '/p') {
     const out: string[] = [];
     const err: string[] = [];
     const host: CliHost = {
-      cwd: '/p',
+      cwd,
       readFile: (path) => files[path],
       writeFile: (path, text) => void (files[path] = text),
       kind(path) {
@@ -286,6 +327,33 @@ describe('tshc sync', () => {
     expect(files['/p/src/app.shade.typeshade.ts']).toContain(
       'export declare function brighten(x: number): number;',
     );
+  });
+
+  it('writes the view of a module that imports a package installed above the working directory', () => {
+    const files: Record<string, string> = {
+      '/p/node_modules/shade-tint/package.json': JSON.stringify({
+        name: 'shade-tint',
+        version: '1.0.0',
+        exports: { typeshade: './src/tint.shade.ts' },
+      }),
+      '/p/node_modules/shade-tint/src/tint.shade.ts': LIB,
+      '/p/app/src/app.shade.ts': APP_OF_PACKAGE,
+    };
+    const a = memoryHost(files, '/p/app');
+    expect(runCli(['sync', 'src/app.shade.ts'], a.host, info)).toBe(0);
+    expect(files['/p/app/src/app.shade.typeshade.ts']).toContain(
+      'export declare function brighten(x: number): number;',
+    );
+    // An error is printed at its file: relative to the working directory, or in full above it.
+    files['/p/node_modules/shade-tint/src/tint.shade.ts'] = LIB.replace('x * t.gain', 'x * t.gian');
+    files['/p/app/src/other.shade.ts'] =
+      `"use typeshade";\nexport function f(x: f32): f32 { return y; }\n`;
+    const b = memoryHost(files, '/p/app');
+    expect(runCli(['sync', 'src/app.shade.ts', 'src/other.shade.ts'], b.host, info)).toBe(1);
+    expect(b.stderr()).toMatch(
+      /^\/p\/node_modules\/shade-tint\/src\/tint\.shade\.ts:8:16 TS8022 /m,
+    );
+    expect(b.stderr()).toMatch(/^src\/other\.shade\.ts:2:\d+ TS80\d\d /m);
   });
 
   it('refuses a file not named *.shade.ts (Rule 3.8)', () => {
