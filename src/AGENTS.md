@@ -83,7 +83,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `core/builtins/`                              | Tint's overload table baked from `core.def` (`coredef.ts`), the claim on each row (`overlay.ts`), and the row types both halves read (0017).                                                                      |
 | `core/debug/`                                 | The stepping interpreter (`interp.ts`), sessions, launch config, watch expressions, lockstep workgroup dispatch.                                                                                                  |
 | `core/compute/runner.ts`                      | The engine behind `./compute`.                                                                                                                                                                                    |
-| `core/testing/`                               | Test utilities only: seeded random IR, helpers and kernel functions (exact ones for the GPU differential), a kernel's plan scheduled as a call runs it (`kernel-plan.ts`), span stamping and stripping.           |
+| `core/testing/`                               | Test utilities only: seeded random IR and kernel functions (exact ones for the GPU differential), a kernel plan (`kernel-plan.ts`), a function drawn on WebGL2 (`draw-harness.ts`), span stamping and stripping.  |
 
 Most other `core/*.ts` files are the production-emit and host-integration layer:
 `emit-minify.ts`, `emit-alias.ts`, `shader-lex.ts`, `decode-log.ts`, `emit-prune.ts`,
