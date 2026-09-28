@@ -6,7 +6,13 @@
 // padding is ever needed. `reflect().vertex`, `packModule()` and the manifest all read this one
 // layout, so a host that packs by one of them binds by the others.
 
-import type { FuncDecl, ModuleDecl, StructDecl, StructField } from './ir/nodes.js';
+import {
+  stageOf,
+  type FuncDecl,
+  type ModuleDecl,
+  type StructDecl,
+  type StructField,
+} from './ir/nodes.js';
 import type { ShaderType } from './ir/types.js';
 import { typeKey } from './ir/types.js';
 
@@ -27,7 +33,7 @@ export interface GpuVertexLayout {
 
 /** The layout of the module's first `@vertex` entry, or undefined when it reads no attribute. */
 export function vertexLayoutOf(m: ModuleDecl): GpuVertexLayout | undefined {
-  const vs = m.funcs.find((f) => f.stage === 'vertex');
+  const vs = m.funcs.find((f) => stageOf(f) === 'vertex');
   return vs === undefined ? undefined : vertexLayoutOfEntry(vs, m.structs);
 }
 

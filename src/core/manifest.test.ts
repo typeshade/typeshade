@@ -12,7 +12,11 @@ import { compile } from '../compiler/ts/compile.js';
 import { hostFace } from '../compiler/ts/host-face.js';
 import { reflect } from './reflect.js';
 import { buildManifest, packLayout, PACK_SCHEMA, type PackLayout } from './manifest.js';
-import type { ModuleDecl } from './ir/nodes.js';
+import { stageOf, type ModuleDecl } from './ir/nodes.js';
+import { fn, module, vec4 } from './ir/index.js';
+import { vec2fT, vec4fT } from './ir/types.js';
+import { builtin, ioStruct, location } from './sot.js';
+import { emitGlslStages } from './backends/glsl.js';
 import { VERSION } from './version.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
@@ -49,6 +53,20 @@ describe('the manifest (Rule 11.10)', () => {
       expect(JSON.parse(JSON.stringify(p))).toEqual(p);
 
       const r = reflect(m);
+      // The GLSL pair is there exactly when the module has an entry of each stage and the GLSL
+      // writer spells them, whether the entries were written in TypeScript or with `fn()`.
+      const pair = (['vertex', 'fragment'] as const).every((s) =>
+        m.funcs.some((f) => stageOf(f) === s),
+      );
+      let spelled = false;
+      if (pair)
+        try {
+          emitGlslStages(m);
+          spelled = true;
+        } catch {
+          spelled = false;
+        }
+      expect(p.glsl !== undefined, 'glsl').toBe(spelled);
       // The same slots, the injected ones among them.
       const slots = (xs: readonly { name: string; group: number; binding: number }[]) =>
         xs.map((b) => `${b.group}:${b.binding}:${b.name}`).sort();
@@ -162,5 +180,35 @@ export function fs(o: VsOut): Color {
     });
     // reflect() gave none for a struct parameter before the manifest (change 0025).
     expect(reflect(r.module).vertex?.attributes.map((a) => a.offset)).toEqual([0, 12]);
+  });
+
+  it("reads an entry's stage through stageOf, so a module written with fn() has its GLSL and vertex layout", () => {
+    // A `fn()` handle, what `module()` puts in `funcs`, carries the stage in `attrs` and no
+    // `stage` field. Read from the field, this module had neither its GLSL pair nor its vertex
+    // layout, though the writer spells both and reflect() reports the layout.
+    const VsOut = ioStruct('VsOut', {
+      pos: builtin('position', vec4fT),
+      uv: location(0, vec2fT),
+    });
+    const vs = fn(
+      'vs',
+      { p: location(0, vec2fT) },
+      ({ p }) => VsOut.construct({ pos: vec4(p, 0, 1), uv: p }),
+      { stage: 'vertex' },
+    );
+    const fs = fn('fs', { vo: VsOut }, ({ vo }) => vec4(vo.uv, 0, 1), {
+      stage: 'fragment',
+      retAttr: '@location(0)',
+    });
+    const m = module({ structs: [VsOut.decl], funcs: [vs, fs] });
+    expect(m.funcs.map((f) => f.stage)).toEqual([undefined, undefined]);
+    const p = buildManifest(m);
+    expect(p.glsl).toEqual(emitGlslStages(m));
+    expect(p.vertexLayout).toEqual({
+      attributes: [{ name: 'p', location: 0, offset: 0, format: 'float32x2', type: 'vec2<f32>' }],
+      arrayStride: 8,
+    });
+    expect(p.vertexLayout?.arrayStride).toBe(reflect(m).vertex?.arrayStride);
+    expect(p.entries.find((e) => e.name === 'vs')?.vertex).toEqual(p.vertexLayout);
   });
 });

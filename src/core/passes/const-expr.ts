@@ -44,8 +44,8 @@
 // Each program above has an answer when the operand is not a constant: an integer `x / 0` is
 // `x` and `x % 0` is 0, a shift amount is taken modulo 32, integer arithmetic wraps, `u32(e)`
 // keeps the bits of an `i32`, and an integer `clamp` is `min(max(e, low), high)`. The CPU
-// oracle computes exactly that (`intDiv`, `intRem` and `clampVal` in `cpu-runtime.ts`), and so
-// does a GPU the moment the operand is not constant. This pass writes that answer where WGSL
+// oracle computes exactly that (`intDiv` and `intRem` in `scalar-arith.ts`, `clampVal` in
+// `cpu-runtime.ts`), and so does a GPU the moment the operand is not constant. This pass writes that answer where WGSL
 // would refuse to compute it: the zero of a divisor becomes a 1 (`x / 1` is `x`, `x % 1` is 0),
 // a shift amount keeps its low five bits, an operation over constants that Tint refuses for a
 // value its type cannot hold becomes the wrapped value, and a `clamp` whose constant bounds
@@ -68,7 +68,7 @@ import type { BinOp, Expr, ModuleDecl, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
 import { typeKey } from '../ir/types.js';
 import { mapStmtExpr } from '../ir/visit.js';
-import { scalarBin } from '../cpu-runtime.js';
+import { scalarBin } from '../scalar-arith.js';
 import { exprHasEffect, fnWrites, type FnWrites } from './effects.js';
 import { mapExpr } from './opt/ir-transform.js';
 import { intElemOf, wrapInt } from './opt/expr-utils.js';

@@ -84,6 +84,36 @@ describe('the portable IR emits the same program (Rule 11.10)', () => {
     expect(emitModule(roundTrip(ex.module))).toBe(emitModule(ex.module));
   });
 
+  it("keeps a call's callee where a declared function shadows a builtin", () => {
+    // A call resolves to the module's own `pack4xU8` because it carries `declRef`, and no example
+    // declares a builtin's name: without it the call is the builtin, which GLSL ES 3.00 lacks.
+    const r = compile(`"use typeshade";
+export function pack4xU8(v: vec4u): u32 {
+  return v.x;
+}
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const p = pack4xU8(vec4u(7, 0, 0, 0));
+  return vec4(f32(p) * 0., 0., 0., 1.);
+}
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const m = r.module!;
+    const back = roundTrip(m);
+    expect(emitModule(back)).toBe(emitModule(m));
+    expect(glslOf(back)).toEqual(glslOf(m));
+    expect(glslOf(back)[1]).toContain('uint pack4xU8(');
+    expect(reflect(back)).toEqual(reflect(m));
+    // Read back without its callee, the call is the builtin.
+    const text = JSON.stringify(toPortable(m, VERSION));
+    const lost = fromPortable(
+      JSON.parse(text, (k, v: unknown) => (k === 'declRef' ? undefined : v)) as ReturnType<
+        typeof toPortable
+      >,
+    );
+    expect(glslOf(lost)[1]).toBe('refused: glsl-es300: pack4xU8 has no GLSL ES 3.00 form');
+  });
+
   it('keeps one node one node where it is used twice', () => {
     // `gradient` reads one vector variable in three places; copies of it were three variables.
     const ex = corpus.find((e) => e.id === 'gradient')!;
