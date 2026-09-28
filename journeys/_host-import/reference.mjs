@@ -115,5 +115,16 @@ export function loopReference() {
   const lo = f(-1000.123);
   const scale = f(64 / 2000.246);
   for (const x of xs) histogram[Math.min(Math.trunc(Math.max(f(f(x - lo) * scale), 0)), 63)]++;
-  return { render, drift, odds, stats, scaled, tally: [tally], histogram };
+  return {
+    render,
+    drift,
+    odds,
+    stats,
+    scaled,
+    tally: [tally],
+    histogram,
+    residentRender: render,
+    residentStats: stats,
+    residentScaled: scaled,
+  };
 }

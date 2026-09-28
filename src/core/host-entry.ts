@@ -294,7 +294,7 @@ function unbox(t: LayoutNumber, v: unknown, path: string): number {
 
 /** Read `l` at `at` into the caller's value `target` in place, and return what to store where
  *  it came from when `target` cannot be updated in place (a number). */
-function readInto(dv: DataView, at: number, l: Layout, target: unknown): unknown {
+export function readInto(dv: DataView, at: number, l: Layout, target: unknown): unknown {
   switch (l.k) {
     case 's':
       return readNumber(dv, at, l.t);
@@ -496,7 +496,7 @@ const copy = (v: CpuValue): CpuValue => JSON.parse(JSON.stringify(v)) as CpuValu
 
 // ─── WebGPU, structurally ────────────────────────────────────────────────────────────────────
 
-interface GpuBuffer {
+export interface GpuBuffer {
   mapAsync(mode: number): Promise<void>;
   getMappedRange(): ArrayBuffer;
   unmap(): void;
@@ -545,6 +545,34 @@ export interface GpuDevice {
 /** `GPUBufferUsage` and `GPUMapMode`, whose values the WebGPU specification fixes. */
 const USAGE = { MAP_READ: 1, COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128 } as const;
 const MAP_READ = 1;
+
+/** A storage buffer holding `bytes`, which stays on the device: a `Resident`'s (Rule 11.8). */
+export function storageBuffer(d: GpuDevice, bytes: ArrayBuffer): GpuBuffer {
+  const buffer = d.createBuffer({
+    size: bytes.byteLength,
+    usage: USAGE.STORAGE | USAGE.COPY_DST | USAGE.COPY_SRC,
+  });
+  d.queue.writeBuffer(buffer, 0, bytes);
+  return buffer;
+}
+
+/** Overwrite a storage buffer with `bytes`. */
+export function uploadTo(d: GpuDevice, buffer: GpuBuffer, bytes: ArrayBuffer): void {
+  d.queue.writeBuffer(buffer, 0, bytes);
+}
+
+/** What a storage buffer holds, once every submitted command has run. */
+export async function download(d: GpuDevice, buffer: GpuBuffer, size: number): Promise<DataView> {
+  const staging = d.createBuffer({ size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
+  const encoder = d.createCommandEncoder();
+  encoder.copyBufferToBuffer(buffer, 0, staging, 0, size);
+  d.queue.submit([encoder.finish()]);
+  await staging.mapAsync(MAP_READ);
+  const dv = new DataView(staging.getMappedRange().slice(0));
+  staging.unmap();
+  staging.destroy();
+  return dv;
+}
 
 let device: Promise<GpuDevice | null> | undefined;
 
@@ -662,6 +690,9 @@ export interface Checked {
   readonly values: Record<string, unknown>;
   readonly images: Map<string, Image>;
   readonly samplers: Map<string, Sampling>;
+  /** Storage bindings already on the device (a `Resident`, Rule 11.8): bound as they are,
+   *  neither uploaded nor read back. */
+  readonly onDevice?: ReadonlyMap<string, GpuBuffer>;
 }
 
 /** Check the bindings object: exactly the entry's bindings, each fitting its type. A sampler
@@ -883,6 +914,11 @@ export async function onGpu(
   for (const b of e.bindings) {
     if (!isBuffer(b)) {
       resources.set(b, gpuHandle(d as unknown as HandleDevice, b, checked, owned));
+      continue;
+    }
+    const resident = checked.onDevice?.get(b.name);
+    if (resident !== undefined) {
+      resources.set(b, { buffer: resident });
       continue;
     }
     const bytes = packed(b, values[b.name]);

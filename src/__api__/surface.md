@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 467 exports
+## `.` — 470 exports
 
 ```
 abs
@@ -81,6 +81,7 @@ CompileTsSourceResult
 composeModule
 ComposeOptions
 condExpr
+configure
 CONSOLE_METHODS
 ConsoleEvent
 ConsoleLog
@@ -314,6 +315,8 @@ Reflection
 ReflectOptions
 RegistryEntry
 renameVarrefsInFunc
+resident
+Resident
 resource
 Resource
 ResourceKind
@@ -905,7 +908,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 586 definitions
+## Shapes — 589 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string }
@@ -1391,6 +1394,9 @@ src/core/registry.ts#BuildRegistryOptions  interface  { imports?: readonly strin
 src/core/registry.ts#BuiltRegistry  interface  { ids: readonly string[]; source: string }
 src/core/registry.ts#RegistryEntry  interface  { exportName: string; id: string; importPath: string }
 src/core/registry.ts#buildRegistry  function  (entries: readonly RegistryEntry[], opts?: BuildRegistryOptions) => BuiltRegistry
+src/core/resident.ts#Resident  interface  { [residentBrand]: T; read: () => Promise<T> }
+src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly Tier[]; }) => void
+src/core/resident.ts#resident  function  <T extends ResidentArray>(array: T) => Resident<T>
 src/core/semantic-diff.ts#ClassifiedSemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; explained: readonly ExplainedDiffEntry[]; interface: readonly string[]; resources: readonly string[] }
 src/core/semantic-diff.ts#ExplainedDiffEntry  interface  { bucket: keyof SemanticDiff; line: string; transform: string }
 src/core/semantic-diff.ts#SemanticAspect  type  "declOrder" | "names"

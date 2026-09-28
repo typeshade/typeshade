@@ -7,15 +7,16 @@ links:
 - RULE-0705: Grnoi1wC9Ly-hwvXTNvh5zWJW6HqK5j7xcntpkjziyY=
 - RULE-0806: qW_RUaBjL-O-OIZTeHrwOCT5o9siV0waqA7BNLo7WfU=
 - RULE-0808: P6fpj_bywzy4Bq7fc4mbXbB2YqZUns1nGSpusCsnG3I=
-- RULE-0822: YtTQPtlaIBoR56rFco_dDIZXp_8kqOw4hyW2Z4tL49c=
+- RULE-0822: KydPschTgLl_4uJgoTykGBb138T7JxiN4hba6ET_72g=
 - RULE-0823: 5X2lEcDkoSD2N8ZiiXRKk3_AVJlejFcaPJl4X4n611U=
 - RULE-1107: cZmTxRqYvxVGaEwAiyxN7aFMJiQp7Jk0s5Z1E3O5Je4=
+- RULE-1108: 9NI-MPqrEyMkLd_uCMSjEwPoov3_Nq_mF5TdfJ3pt_A=
 normative: true
 ref: ''
-reviewed: itlA2glOiR0n10PV3yZrTwRHDONxRoJ-Vkr7a-AjtJs=
+reviewed: nNNnxWFH5VN-ebA6s7I69PxGAAyFoq7x8UjvsYCEmO8=
 source: docs/use-typeshade-surface.md §65
 ---
 
 # A loop that runs as a kernel
 
-docs/use-typeshade-surface.md §65, "A loop that runs as a kernel": the surface section that explains Rule 7.2, Rule 7.5, Rule 8.6, Rule 8.8, Rule 8.22, Rule 8.23, Rule 11.7.
+docs/use-typeshade-surface.md §65, "A loop that runs as a kernel": the surface section that explains Rule 7.2, Rule 7.5, Rule 8.6, Rule 8.8, Rule 8.22, Rule 8.23, Rule 11.7, Rule 11.8.

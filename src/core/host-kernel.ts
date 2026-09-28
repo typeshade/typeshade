@@ -16,6 +16,7 @@
 
 import type { CpuValue } from './cpu-runtime.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
+import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } from './resident.js';
 import { fromShader, toShader, type HostType } from './host-values.js';
 import {
   byteSize,
@@ -24,6 +25,8 @@ import {
   Misfit,
   onGpu,
   pack,
+  packed,
+  type GpuBuffer,
   runtimeCount,
   toCpu,
   type ComputeEntry,
@@ -136,13 +139,34 @@ function entriesOf(k: KernelFace): { loop: ComputeEntry; fold?: ComputeEntry }[]
 
 /**
  * Call a kernel function from host code (Rule 8.21): dispatch each of its loops on WebGPU when
- * it lowers and there is a device, and otherwise run it on the CPU tier; either way each array it
- * writes is read back into the caller's array in place, and the promise resolves to its result.
+ * it lowers and there is a device, and otherwise run it on the CPU tier, in the order of the
+ * tiers `configure` sets (Rule 11.8); either way each array it writes is read back into the
+ * caller's array in place, or left on the device in a `Resident`, and the promise resolves to
+ * its result. Calls run one after another, in the order they were made.
  *
  * @throws `TypeError` naming the function and the parameter for a value that does not fit, and
- *   for an array shorter than the index range a loop writes.
+ *   for an array shorter than the index range a loop writes; `Error` when no tier it may use can
+ *   run it.
  */
-export async function callKernel(
+export function callKernel(
+  cpu: GeneratedCpu,
+  k: KernelFace,
+  argc: number,
+  args: readonly unknown[],
+): Promise<unknown> {
+  const written = k.params.flatMap((p, i) =>
+    p.k === 'array' && p.writes ? [residentState(args[i])].filter((s) => s !== undefined) : [],
+  ) as ResidentArrayState[];
+  const call = kernelQueue.run(() => runKernel(cpu, k, argc, args));
+  // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
+  call.then(
+    () => written.forEach((s) => (s.error = undefined)),
+    (e: unknown) => written.forEach((s) => (s.error = e)),
+  );
+  return call;
+}
+
+async function runKernel(
   cpu: GeneratedCpu,
   k: KernelFace,
   argc: number,
@@ -152,22 +176,50 @@ export async function callKernel(
     throw new TypeError(
       `${k.name}() takes ${k.params.length} argument${k.params.length === 1 ? '' : 's'}; got ${argc}.`,
     );
+  // A `Resident` stands for the array it holds.
+  const states = args.map((a) => residentState(a));
+  states.forEach((s, i) => {
+    if (s !== undefined && states.indexOf(s) !== i)
+      throw new TypeError(
+        `${k.name}(): parameter "${k.params[i]!.name}" is the same resident array as parameter "${k.params[states.indexOf(s)]!.name}".`,
+      );
+  });
+  const hosts = args.map((a, i) => states[i]?.host ?? a);
   // Every value is checked before anything runs or is uploaded.
   const values = k.params.map((p, i) =>
-    p.k === 'value' ? toShader(k.name, p.name, p.type, args[i]) : checkArray(k, p, args[i]),
+    p.k === 'value' ? toShader(k.name, p.name, p.type, hosts[i]) : checkArray(k, p, hosts[i]),
   );
   // Each loop's range, and each array against the indices it writes, before anything runs: the
   // loops write no scalar the ranges read (Rule 8.22), so every range is known up front.
   const ranges = k.gpu !== undefined ? rangesOf(cpu, k, values) : undefined;
-  const d = k.gpu !== undefined ? await gpuDevice() : null;
-  if (d !== null && ranges !== undefined) {
-    const folded = await onDevice(d, k, args, ranges);
-    const tail = k.gpu!.tail;
-    if (tail === undefined) return undefined;
-    cpu.F['$initPrivates']?.();
-    return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values), ...folded));
+  const why: string[] = [];
+  for (const tier of preferredTiers()) {
+    if (tier === 'webgpu') {
+      if (k.gpu === undefined || ranges === undefined) {
+        why.push(`webgpu: it runs on the CPU, ${k.noGpu ?? 'unknown'}`);
+        continue;
+      }
+      const d = await gpuDevice();
+      if (d === null) {
+        why.push('webgpu: there is no WebGPU device');
+        continue;
+      }
+      const folded = await onDevice(d, k, hosts, states, ranges);
+      const tail = k.gpu.tail;
+      if (tail === undefined) return undefined;
+      cpu.F['$initPrivates']?.();
+      return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values), ...folded));
+    }
+    if (tier === 'webgl2') {
+      why.push(
+        'webgl2: no kernel function runs on WebGL2 yet, which a later part of change 0013 adds',
+      );
+      continue;
+    }
+    for (const s of states) await s?.sync();
+    return onCpu(cpu, k, hosts, values);
   }
-  return onCpu(cpu, k, args, values);
+  throw new Error(`${k.name}(): no tier it may use can run it (${why.join('; ')}).`);
 }
 
 /** Check an array argument against its layout; its element count. */
@@ -256,11 +308,24 @@ async function onDevice(
   d: NonNullable<Awaited<ReturnType<typeof gpuDevice>>>,
   k: KernelFace,
   args: readonly unknown[],
+  states: readonly (ResidentArrayState | undefined)[],
   ranges: readonly { start: number; n: number }[],
 ): Promise<CpuValue[]> {
   const g = k.gpu!;
   const es = entriesOf(k);
   const folded: CpuValue[] = [];
+  // A `Resident` is bound as the buffer it already has on the device.
+  const onDevice = new Map<string, GpuBuffer>();
+  k.params.forEach((p, i) => {
+    const s = states[i];
+    if (p.k !== 'array' || s === undefined) return;
+    const b = g.arrays.find((x) => x.name === p.name)!;
+    const writes = g.loops.some((l) => l.writes.includes(p.name));
+    onDevice.set(
+      p.name,
+      s.bufferFor(d, p.layout, () => packed(b, s.host), writes),
+    );
+  });
   for (const [j, loop] of g.loops.entries()) {
     const { start, n } = ranges[j]!;
     const vars = loop.reduce?.vars ?? [];
@@ -282,7 +347,7 @@ async function onDevice(
       await onGpu(
         d,
         es[j]!.loop,
-        { values: bound_, images: new Map(), samplers: new Map() },
+        { values: bound_, images: new Map(), samplers: new Map(), onDevice },
         first.wg,
       );
       continue;
@@ -298,7 +363,7 @@ async function onDevice(
       count = Math.ceil(count / KERNEL_TREE);
     }
     for (const v of vars) bound_[v.binding.name] = new TYPED[v.scalar](slots * v.n);
-    const checked = { values: bound_, images: new Map(), samplers: new Map() };
+    const checked = { values: bound_, images: new Map(), samplers: new Map(), onDevice };
     await onGpu(d, es[j]!.loop, checked, first.wg);
     let at = 0;
     let out = first.slots;
