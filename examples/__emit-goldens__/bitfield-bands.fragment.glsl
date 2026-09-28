@@ -2,18 +2,21 @@
 precision highp float;
 precision highp int;
 
+int _f2i(float x) {
+  return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
+}
 in vec2 uv;
 layout(location = 0) out vec4 color;
 
 void main() {
-  int band = int((uv.x * 4.0));
+  int band = _f2i((uv.x * 4.0));
   band &= 3;
   band |= 0;
   int shade = band;
-  int amount = int((uv.y * 2.0));
+  int amount = _f2i((uv.y * 2.0));
   uint _gv0 = uint(amount);
-  shade <<= _gv0;
-  shade >>= _gv0;
+  shade = (shade << (_gv0 & 31u));
+  shade = (shade >> (_gv0 & 31u));
   shade <<= 1u;
   shade >>= 1u;
   shade ^= 0;

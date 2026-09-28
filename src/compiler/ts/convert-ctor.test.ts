@@ -94,8 +94,10 @@ describe('a vector converts to another element kind', () => {
     expect(c.wgsl).toContain('return vec3<u32>(v);');
     expect(c.wgsl).toContain('return vec3<i32>(v);');
     expect(c.glsl?.fragment).toContain('return vec3(v);');
-    expect(c.glsl?.fragment).toContain('return uvec3(v);');
-    expect(c.glsl?.fragment).toContain('return ivec3(v);');
+    // A float source saturates on GLSL through the writer's helpers, as it does in WGSL
+    // (Rule 11.12): GLSL's bare `uvec3(v)` leaves an out-of-range component undefined.
+    expect(c.glsl?.fragment).toContain('return _f2u(v);');
+    expect(c.glsl?.fragment).toContain('return _f2i(v);');
   });
 });
 

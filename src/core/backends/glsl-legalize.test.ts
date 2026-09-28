@@ -427,7 +427,8 @@ describe('glsl-legalize — the ctor is reached through a nested expression posi
       { stage: 'fragment' },
     );
     const g = emitGlslModule(dslModule({ uses: [OutX], funcs: [helperX, fsX] }), 'fragment');
-    expect(g).toContain('vec4 _dh0 = lut[int(helper_x(pos.x))];');
+    // The float index converts through `_f2i`, which saturates as WGSL does (Rule 11.12).
+    expect(g).toContain('vec4 _dh0 = lut[_f2i(helper_x(pos.x))];');
     expect(g).toContain('color = _dh0;');
     expect(ctorSpans(g, ['OutX']).filter((s) => s.includes('helper_x('))).toEqual([]);
   });
@@ -513,7 +514,7 @@ describe('glsl-legalize — switch scrutinee', () => {
   it('hoists the ctor argument to a local declared BEFORE the switch', () => {
     const g = emitGlslModule(dslModule({ uses: [OutW, GateW], funcs: [helperW, fsW] }), 'fragment');
     expect(g).toContain('vec4 _dh0 = helper_w(pos.x);');
-    expect(g).toContain('switch (int(GateW(_dh0).c.x)) {');
+    expect(g).toContain('switch (_f2i(GateW(_dh0).c.x)) {');
     expect(ctorSpans(g, ['GateW']).filter((s) => s.includes('helper_w('))).toEqual([]);
   });
 });
@@ -544,7 +545,7 @@ describe('glsl-legalize — for-loop init', () => {
   it('hoists the init ctor argument to a local declared BEFORE the for', () => {
     const g = emitGlslModule(dslModule({ uses: [OutF, GateF], funcs: [helperF, fsF] }), 'fragment');
     expect(g).toContain('vec4 _dh0 = helper_f(pos.x);');
-    expect(g).toMatch(/vec4 _dh0 = helper_f\(pos\.x\);\n\s*for \(int \w+ = int\(GateF\(_dh0\)/);
+    expect(g).toMatch(/vec4 _dh0 = helper_f\(pos\.x\);\n\s*for \(int \w+ = _f2i\(GateF\(_dh0\)/);
     expect(ctorSpans(g, ['GateF']).filter((s) => s.includes('helper_f('))).toEqual([]);
   });
 });
@@ -743,7 +744,7 @@ describe('glsl-legalize — assignment target index expressions', () => {
       'fragment',
     );
     expect(g).toContain('vec4 _dh0 = helper_at(pos.x);');
-    expect(g).toContain('lut[int(GateT(_dh0).c.x)] = vec4(1.0, 0.0, 0.0, 1.0);');
+    expect(g).toContain('lut[_f2i(GateT(_dh0).c.x)] = vec4(1.0, 0.0, 0.0, 1.0);');
     expect(ctorSpans(g, ['GateT']).filter((s) => s.includes('helper_at('))).toEqual([]);
   });
 

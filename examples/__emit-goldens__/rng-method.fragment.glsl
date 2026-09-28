@@ -5,9 +5,12 @@ precision highp int;
 struct Rng {
   uint state;
 };
+uint _f2u(float x) {
+  return uint(mix(clamp(x, 0.0, 4294967040.0), 0.0, isnan(x)));
+}
 float Rng_next(inout Rng self_) {
   self_.state = ((self_.state * 747796405u) + 2891336453u);
-  uint word = (((self_.state >> ((self_.state >> 28u) + 4u)) ^ self_.state) * 277803737u);
+  uint word = (((self_.state >> (((self_.state >> 28u) + 4u) & 31u)) ^ self_.state) * 277803737u);
   return (float((((word >> 22u) ^ word) >> 8u)) * 5.960464477539063e-8);
 }
 
@@ -21,7 +24,7 @@ in vec2 uv;
 layout(location = 0) out vec4 color;
 
 void main() {
-  uvec2 cell = uvec2(uint(((uv.x + 1.0) * 96.0)), uint(((uv.y + 1.0) * 96.0)));
+  uvec2 cell = uvec2(_f2u(((uv.x + 1.0) * 96.0)), _f2u(((uv.y + 1.0) * 96.0)));
   Rng rng = Rng_new((((cell.x * 1973u) + (cell.y * 9277u)) + 26699u));
   float _seq0 = Rng_next(rng);
   float _seq1 = Rng_next(rng);

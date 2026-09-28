@@ -6,6 +6,9 @@ struct Palette {
   vec3 lo;
   vec3 hi;
 };
+int _f2i(float x) {
+  return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
+}
 layout(location = 0) out vec4 _ret;
 
 void main() {
@@ -29,7 +32,7 @@ void main() {
     _sel1 = falling;
   }
   float[3] steps = _sel1;
-  int band = int(floor((uv.y * 3.0)));
+  int band = _f2i(floor((uv.y * 3.0)));
   float t = smoothstep(0.0, 1.0, steps[band]);
   _ret = vec4(mix(shade.lo, shade.hi, t), 1.0);
 }

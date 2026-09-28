@@ -683,14 +683,19 @@ both give you: a float source saturates into an integer target (`vec3u(vec3(-3.2
 `0`, not `-3`), and `i32` and `u32` are reinterpreted two's-complement. An emulated-double
 vector is not converted this way.
 
-**GLSL ES 3.00 does not promise that.** It leaves an out-of-range or NaN float→int conversion
-undefined, and the WebGL2 context the compile gate uses disagrees with WGSL on exactly those
-inputs — measured against an RGBA32UI target, `uvec3(vec3(1e30)).x` reads back `0` where the
-oracle gives `4294967040`, `ivec3(vec3(1e30)).x` reads `-2147483648` where the oracle gives
-`2147483520`, and `uvec3(vec3(NaN)).x` reads `2147483648` where the oracle gives `0`. The
-`-3.2` above happens to agree, and an in-range source always does. So the cross-backend
-ground a portable shader can stand on is **in-range values**; clamp before you convert if the
-source might not be.
+**GLSL ES 3.00 does not promise that, so the GLSL writer does it** (Rule 11.12, change 0027). GLSL
+leaves an out-of-range or NaN float→int conversion undefined, and the WebGL2 context the compile
+gate uses disagreed with the oracle on exactly those inputs: measured against an RGBA32UI target,
+`uvec3(vec3(1e30)).x` read back `0` where the oracle gives `4294967040`, `ivec3(vec3(1e30)).x`
+read `-2147483648` where the oracle gives `2147483520`, and `uvec3(vec3(NaN)).x` read `2147483648`
+where the oracle gives `0`. A conversion from a float is now spelled through `_f2i` or `_f2u`,
+which clamp to the largest integers an `f32` holds in the target's range and turn NaN into 0, so
+every source but NaN converts the same way on every target, and nothing needs clamping first. An
+integer source is reinterpreted as it was.
+
+A NaN source has no one answer: WGSL leaves its conversion indeterminate. The oracle and the GLSL
+writer give 0, and the WebGPU adapter the compile gate uses gave `i32(NaN)` the least `i32` and
+`u32(NaN)` 0.
 
 ---
 
@@ -1999,10 +2004,11 @@ the GLSL writer owed the compound assignment.
 
 **A shift amount is 0 to 31.** WGSL requires the amount of `<<` and `>>` on a 32-bit integer
 to be less than 32 when it is a constant, and masks a run-time amount to its low five bits;
-GLSL ES 3.00 leaves both undefined. So `x << 32` is `x << 0` on one target and anything on the
-other. An amount the front end can fold (a literal, arithmetic over literals, a module const)
-that is outside 0 to 31 is refused with TS8003, for `x >> 33`, `x >> (16 + 16)` and `x <<= 32`
-alike (issue #71). A run-time amount passes; the mask is the GPU's business.
+GLSL ES 3.00 leaves both undefined. An amount the front end can fold (a literal, arithmetic over
+literals, a module const) that is outside 0 to 31 is refused with TS8003, for `x >> 33`,
+`x >> (16 + 16)` and `x <<= 32` alike (issue #71). A run-time amount passes, and the GLSL writer
+masks it the way WGSL does, `x << (n & 31u)`, so `x << n` with `n` at 32 is `x` on every target
+(Rule 11.12).
 
 **A divisor that is provably zero is refused where the division is lowered.** The proof is a
 componentwise constant folder over literals, negation, vector constructors, whole module consts
@@ -2011,16 +2017,20 @@ component is enough, because the division is componentwise and Tint refuses the 
 component it cannot represent. The refusal is TS8003, `Division by zero: "K" is 0 on every
 invocation`, in a function body, in a compound `/=` or `%=`, and in a module const's initializer,
 which used to be the one place it was checked (issue #68). A divisor the folder cannot prove
-anything about passes: the point is to refuse what is certainly undefined, not to demand a proof
-of safety.
+anything about passes: the point is to refuse what is certainly a mistake, not to demand a proof
+of safety. Such a divisor that is zero at run time gives WGSL's answer on every target, `x / 0`
+is `x` and `x % 0` is 0: the GLSL writer spells an integer `/` and `%` by a run-time divisor
+through `_idiv`, `_irem`, `_udiv` and `_urem`, which also give WGSL's least `i32` over -1 and its
+truncating remainder of a negative operand (Rule 11.12).
 
 **A float `%=` on GLSL ES 3.00** is written `x = (x - y * trunc(x / y));`, the `floatMod`
 spelling the binary `%` has always taken there, because GLSL's `%` is for integers. The compound
 assignment wrote `x %= y;` and the driver refused it while the WGSL beside it was fine (issue
-#20). WGSL keeps `x %= y;`, and an integer `%=` keeps the native operator on both. The rule
-holds at any width: a `vec2` target takes the same componentwise
-`cell = (cell - 1.0 * trunc(cell / 1.0));`, since GLSL ES 3.00 has no float `%` for a vector
-either. `examples/block-scope.shade.ts` carries a scalar and a vector `%=` and is the gate's
+#20). WGSL keeps `x %= y;`. The spelling holds at any width: a `vec2` target takes the same
+componentwise `cell = (cell - 1.0 * trunc(cell / 1.0));`, since GLSL ES 3.00 has no float `%` for
+a vector either. An integer `%=` keeps the native operator on WGSL, and on GLSL ES 3.00 it takes
+the spelling its binary operator takes, `x = _irem(x, y);` for an `i32` (Rule 11.12).
+`examples/block-scope.shade.ts` carries a scalar and a vector `%=` and is the gate's
 evidence on both targets.
 
 ```ts

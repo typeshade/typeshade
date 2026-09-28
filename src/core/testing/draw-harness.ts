@@ -15,12 +15,13 @@
 //   - a `%` with a negative operand (§5.9);
 //   - a float's conversion to an integer that does not hold it, and a negative float's to `u32`
 //     (§5.4.1).
-// Rule 11.5 has the oracle follow WGSL there, and a GLSL driver answers otherwise: on ANGLE over
-// SwiftShader, `7 / 0` is -7, `-7 % 3` is 2 and `i32(3e9)` is the least `i32` (#382).
-// `taintGlslUndefined` finds the runs that reach such an input. It routes each of those
-// operations through a helper that sets a private flag when its operands are undefined on GLSL,
-// and adds a function that runs a generated function and returns the flag. A value such an input
-// reaches carries no claim on GLSL.
+// Rule 11.5 has the oracle follow WGSL there, and a GLSL driver answered otherwise with the bare
+// operator: on ANGLE over SwiftShader, `7 / 0` was -7, `-7 % 3` 2 and `i32(3e9)` the least `i32`
+// (#382). The GLSL writer now settles each such input the way WGSL does (Rule 11.12), and
+// `taintGlslUndefined` finds the runs that reach one, so the gate can show its corpus reaches
+// what the writer settles. It routes each of those operations through a helper that sets a
+// private flag when its operands are ones the bare operator leaves undefined, and adds a function
+// that runs a generated function and returns the flag.
 //
 // Test code only.
 

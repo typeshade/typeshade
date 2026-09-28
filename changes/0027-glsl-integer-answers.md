@@ -1,7 +1,7 @@
 ---
 id: '0027'
 title: An integer division, remainder and shift, and a float's conversion to an integer, give WGSL's answer on WebGL2 for every input
-status: accepted
+status: implemented
 rules:
 - '7.4'
 - '11.12'

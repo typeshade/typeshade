@@ -15,6 +15,9 @@ layout(std140) uniform Uniforms {
 } u;
 
 uniform highp sampler2D _fp64;
+uint _f2u(float x) {
+  return uint(mix(clamp(x, 0.0, 4294967040.0), 0.0, isnan(x)));
+}
 vec2 escape_f32(float cx, float cy, uint iters) {
   float _v0 = 0.0;
   float _v1 = 0.0;
@@ -136,7 +139,7 @@ void main() {
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
   float _v3 = ((_v2 - 0.5) * _v0);
   float _v4 = (((uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
-  uint _v5 = uint(u.max_iter);
+  uint _v5 = _f2u(u.max_iter);
   vec2 _v6 = vec2(0.0, 0.0);
   vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
   vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);

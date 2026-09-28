@@ -232,7 +232,8 @@ describe('extended stdlib builtins — the Mercator identities (metamorphic)', (
 
 describe('float→int casts — the CPU mirror follows WGSL saturation', () => {
   // WGSL float→integer conversion SATURATES (Tint polyfills it on every driver):
-  // u32(-0.75) is 0, u32(4.5e9) is 4294967295, i32(-3e9) is -2147483648, NaN → 0.
+  // u32(-0.75) is 0, u32(4.5e9) is 4294967040, i32(-3e9) is -2147483648. A NaN source is
+  // indeterminate in WGSL, and the mirror takes it as 0.
   // The mirror used to wrap (u32(-0.75) → 4294967295 via >>>0) — a plausible-wrong
   // divergence for any dispatch value that dips below 0 by rounding. Integer-SOURCE
   // casts keep two's-complement wrapping (u32 of i32(-1) IS 0xFFFFFFFF), which the
@@ -262,7 +263,7 @@ describe('float→int casts — the CPU mirror follows WGSL saturation', () => {
 });
 
 describe('float % — the .mod METHOD is now portable (GLSL % is integer-only)', () => {
-  it('GLSL spells float % as WGSL trunc-mod; int % stays native; WGSL unchanged', () => {
+  it('GLSL spells float % as WGSL trunc-mod and int % through _urem; WGSL unchanged', () => {
     const m = module({
       funcs: [
         fn('fm', { a: f32T, b: f32T }, ({ a, b }) => a.mod(b)),
@@ -273,7 +274,8 @@ describe('float % — the .mod METHOD is now portable (GLSL % is integer-only)',
     // Deliberately NOT GLSL mod() (floor-mod): trunc-mod matches WGSL float-%
     // AND the CPU oracle's JS `%`, so all three backends agree on negatives.
     expect(glsl).toContain('(a - b * trunc(a / b))');
-    expect(glsl).toContain('(p % q)');
+    // An unsigned `%` by a run-time divisor settles `q == 0` as WGSL does (Rule 11.12).
+    expect(glsl).toContain('_urem(p, q)');
     const wgsl = emitModule(m);
     expect(wgsl).toContain('(a % b)'); // WGSL keeps its native float % — bytes unchanged
     expect(wgsl).toContain('(p % q)');

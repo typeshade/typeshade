@@ -278,6 +278,9 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // cast spelling). GLSL spells the same cast `float(x)`/`int(x)`/`uint(x)`; without these
   // entries the writer would leak `f32(...)` verbatim into GLSL (no such GLSL function — a
   // hard compile error). Vector conversions go through `construct` (typeName-spelled), not here.
+  // A FLOAT source never reaches the i32/u32 rows on GLSL: GLSL ES 3.00 leaves an out-of-range
+  // or NaN one undefined, and a WebGL2 driver answered otherwise than WGSL's saturation (#382),
+  // so the writer's `floatToInt` spells it `_f2i(x)`/`_f2u(x)` (glsl-int.ts, Rule 11.12).
   f32: { wgsl: (a) => `f32(${join(a)})`, glsl: (a) => `float(${join(a)})` },
   i32: { wgsl: (a) => `i32(${join(a)})`, glsl: (a) => `int(${join(a)})` },
   u32: { wgsl: (a) => `u32(${join(a)})`, glsl: (a) => `uint(${join(a)})` },

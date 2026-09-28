@@ -7,6 +7,9 @@ layout(std140) uniform Uniforms {
   vec2 resolution;
   float swell;
 } U;
+int _f2i(float x) {
+  return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
+}
 uint hash32(uint x) {
   uint a = ((x ^ (x >> 16u)) * 2246822519u);
   uint b = ((a ^ (a >> 13u)) * 3266489917u);
@@ -14,7 +17,7 @@ uint hash32(uint x) {
 }
 
 float hash(vec2 p) {
-  uint h = hash32((uint(int(p.x)) ^ hash32(uint(int(p.y)))));
+  uint h = hash32((uint(_f2i(p.x)) ^ hash32(uint(_f2i(p.y)))));
   return (float((h >> 8u)) * 5.960464477539063e-8);
 }
 

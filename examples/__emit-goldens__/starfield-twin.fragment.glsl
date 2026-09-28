@@ -7,6 +7,9 @@ layout(std140) uniform Uniforms {
   vec2 resolution;
   float density;
 } U;
+int _f2i(float x) {
+  return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
+}
 vec2 screenCoords(vec2 uv, vec2 resolution) {
   float asp = (resolution.x / resolution.y);
   return vec2((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
@@ -19,7 +22,7 @@ uint hash32(uint x) {
 }
 
 float hash(vec2 p) {
-  uint h = hash32((uint(int(p.x)) ^ hash32(uint(int(p.y)))));
+  uint h = hash32((uint(_f2i(p.x)) ^ hash32(uint(_f2i(p.y)))));
   return (float((h >> 8u)) * 5.960464477539063e-8);
 }
 in vec2 uv;

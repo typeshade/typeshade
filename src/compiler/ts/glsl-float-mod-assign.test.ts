@@ -43,7 +43,7 @@ describe('a float %= on GLSL ES 3.00 (#20)', () => {
     expect(r.glsl?.fragment).toContain('x = (x - 0.7 * trunc(x / 0.7));');
   });
 
-  it('an integer %= stays the native operator on both', () => {
+  it('an integer %= stays the native operator on WGSL, and takes _irem on GLSL', () => {
     const r = compile(`"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2): vec4 {
@@ -54,7 +54,9 @@ export function fs(@location(0) uv: vec2): vec4 {
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('i %= 3;');
-    expect(r.glsl?.fragment).toContain('i %= 3;');
+    // GLSL leaves a remainder of a negative operand undefined, and `i` may be negative, so the
+    // compound assignment takes the helper its operator takes (Rule 11.12).
+    expect(r.glsl?.fragment).toContain('i = _irem(i, 3);');
   });
 
   it('parenthesizes an operand the spelling repeats', () => {

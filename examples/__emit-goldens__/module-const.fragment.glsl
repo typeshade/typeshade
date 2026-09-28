@@ -6,13 +6,16 @@ const uint TILES = 8u;
 const int PHASE = -3;
 const float GAMMA = 2.2;
 const bool INVERT = true;
+uint _f2u(float x) {
+  return uint(mix(clamp(x, 0.0, 4294967040.0), 0.0, isnan(x)));
+}
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
   float _cse0 = float(TILES);
-  uint cx = uint((uv.x * _cse0));
-  uint cy = uint((uv.y * _cse0));
+  uint cx = _f2u((uv.x * _cse0));
+  uint cy = _f2u((uv.y * _cse0));
   uint parity = (((cx + cy) + uint((PHASE + 8))) & 1u);
   float ramp = pow(uv.y, GAMMA);
   float dark = (ramp * 0.25);
