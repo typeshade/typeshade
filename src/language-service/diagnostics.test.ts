@@ -137,10 +137,12 @@ describe('an argument that is not vector arithmetic still reports (issue #43)', 
     ).toBe(true);
   };
 
-  it('vec4(1., c.a) keeps TS2345: two scalars are not a vec3 and a scalar', () => {
+  it('vec4(1., c.a) keeps its TypeScript report: two scalars are not a vec4', () => {
+    // `vec4` has two two-argument overloads since `vec4(x, v3)` is declared (#157), so the
+    // report is TS2769, the overload code, where it was TS2345.
     stillReports(
       '"use typeshade"\nexport function f(c: vec4): vec4 {\n  return vec4(1., c.a)\n}\n',
-      2345,
+      2769,
     );
   });
 

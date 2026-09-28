@@ -27,7 +27,16 @@ import { rowTypes } from '../builtins/row-types.js';
 import { NOT_WGSL, claimOf as claimOfRow, familyOf, type Claim } from '../builtins/overlay.js';
 import { COREDEF } from '../builtins/coredef.js';
 import type { CoreDefRow } from '../builtins/coredef-types.js';
-import { compilerReadings, disagreement, editorReadings, instancesOf } from './coredef-witness.js';
+import ts from 'typescript';
+import {
+  compilerReadings,
+  disagreement,
+  editorReadings,
+  instancesOf,
+  readCall,
+  spellWitnessable,
+  type Instance,
+} from './coredef-witness.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const fixture = COREDEF;
@@ -184,4 +193,69 @@ describe('the both-halves check sees a disagreement on a location form', () => {
       'atomicAdd(atomic<u32>, u32): core.def says u32, the editor number',
     ]);
   }, 60_000);
+});
+
+describe('the value constructors and conversions are read by both halves as core.def reads them (0017)', () => {
+  // The family 0017 does not generate: `vec3(…)` and its siblings are declared by
+  // `vecCtorOverloads` in the ambient library, in the short names an author writes (`vec3u`,
+  // not `vec3<u32>` composed from a vector), and a scalar conversion by its cast. A measurement
+  // over every row whose types are scalars and vectors found the editor refusing three shapes
+  // the compiler and WGSL take (#157): the identity `vecN(vecN)`, `vec4(x, v3)` and
+  // `vec4(v2, v2)`. They are declared now, and every instance is held to both halves here.
+  // The matrix rows have no row form yet.
+  const SUFFIX: Readonly<Record<string, string>> = { f32: '', i32: 'i', u32: 'u', bool: 'b' };
+  const spelled = (t: Instance['ret']): string =>
+    t.k === 'scalar' ? t.s : t.k === 'vec' ? `vec${t.n}${SUFFIX[t.s] ?? ''}` : '';
+  const value = (t: Instance['ret']): string => {
+    const scalar: Readonly<Record<string, string>> = {
+      f32: 'v.uv.x',
+      i32: 'i32(v.uv.x)',
+      u32: 'u32(v.uv.x)',
+      bool: 'v.uv.x > 0.5',
+    };
+    const s = t.k === 'scalar' || t.k === 'vec' ? (scalar[t.s] ?? 'v.uv.x') : 'v.uv.x';
+    return t.k === 'scalar' ? s : `${spelled(t)}(${s})`;
+  };
+  const witness = (inst: Instance): { text: string; call: string } => {
+    const call = `${spelled(inst.ret)}(${inst.params.map((_, j) => `a${String(j)}`).join(', ')})`;
+    const decls = inst.params.map((p, j) => `  const a${String(j)}: ${spelled(p)} = ${value(p)};`);
+    const text = [
+      '"use typeshade"',
+      'class V {',
+      '  @builtin("position") pos: vec4;',
+      '  @location(0) uv: vec2;',
+      '}',
+      '@fragment',
+      'export function fs(v: V): vec4 {',
+      ...decls,
+      `  const r = ${call};`,
+      '  return vec4(0., 0., 0., 1.);',
+      '}',
+      '',
+    ].join('\n');
+    return { text, call };
+  };
+  const instances = fixture.rows
+    .filter((r) => (r.kind === 'ctor' || r.kind === 'conv') && claimOf(r)?.status !== 'REFUSED')
+    .flatMap((r) => instancesOf(r, fixture.matchers) ?? [])
+    .filter((inst) => inst.ret.k === 'scalar' || inst.ret.k === 'vec');
+
+  it('holds every instance over scalars and vectors to both halves', () => {
+    // A floor: 33 rows and 92 instances when this was written.
+    expect(instances.length).toBeGreaterThanOrEqual(90);
+    const registry = ts.createDocumentRegistry();
+    const parted = instances.flatMap((inst) => {
+      const { text, call } = witness(inst);
+      const { compiler, editor } = readCall(text, call, SHADE_DTS, registry);
+      const at = `${inst.row.kind} ${spelled(inst.ret)}(${inst.params.map(spellWitnessable).join(', ')})`;
+      const expected = spellWitnessable(inst.ret);
+      if (!compiler.accepts) return [`${at}: the compiler reports ${compiler.errors[0] ?? '?'}`];
+      if (!editor.accepts) return [`${at}: the editor reports ${editor.errors[0] ?? '?'}`];
+      if (compiler.type !== expected)
+        return [`${at}: the compiler types it ${compiler.type ?? '?'}`];
+      if (editor.type !== expected) return [`${at}: the editor types it ${editor.type ?? '?'}`];
+      return [];
+    });
+    expect(parted).toEqual([]);
+  }, 240_000);
 });
