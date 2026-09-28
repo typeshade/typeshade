@@ -3,7 +3,7 @@
 // of its own. The page runs `run()` and `draws()`.
 import { blockSum, report, scale } from './kernels.shade.ts';
 import { plasma, tiled } from './draw.shade.ts';
-import { drift, odds, render, stats, tally } from './loops.shade.ts';
+import { drift, histogram, odds, render, stats, tally } from './loops.shade.ts';
 // Copied in by the journey from journeys/particles and journeys/plasma.
 import { step } from './particles.shade.ts';
 import { fs } from './plasma.shade.ts';
@@ -97,7 +97,7 @@ export async function journeys(input: {
   return { particles: particles.flatMap((p) => [...p.pos, ...p.vel]), plasma: plasmaPixels };
 }
 
-/** Call five kernel functions (change 0013): their loops run on WebGPU, one invocation per
+/** Call six kernel functions (change 0013): their loops run on WebGPU, one invocation per
  *  iteration, what they write comes back into these arrays in place, and what they reduce is
  *  folded in the tree order into what they return. */
 export async function loops(): Promise<Record<string, number[] | string>> {
@@ -121,6 +121,8 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   const summary = await stats(xs, scaled, 0.5);
   const ints = Int32Array.from({ length: 70000 }, (_, i) => (i % 7) - 3);
   const total = await tally(ints);
+  const bins = new Uint32Array(64);
+  await histogram(xs, bins, -1000.123, 64 / 2000.246);
   return {
     render: [...img],
     drift: ps.flatMap((p) => [...p.pos, ...p.vel]),
@@ -128,6 +130,7 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     stats: [...summary],
     scaled: [...scaled.subarray(0, 256)],
     tally: [total],
+    histogram: [...bins],
     short,
   };
 }

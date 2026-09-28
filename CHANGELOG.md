@@ -422,6 +422,13 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A kernel function's scatter runs on the GPU by atomics** (change 0013, part 4; Rules 7.2 and
+  8.22, surface §65). A loop the proof accepts that adds into an integer array at an index it
+  computes, `bins[k] += 1` (and `&= |= ^=`, `min`, `max`), lowers to `atomicAdd(&bins[k], 1u)` on
+  an `array<atomic<u32>>` binding, the same bytes as the caller's `Uint32Array`, which comes back
+  with the counts added. The import journey builds a 64-bin histogram of 300 000 values on WebGPU
+  in Chromium and matches the reference exactly.
+
 - **A kernel function's reduction runs on the GPU, in one order on every tier** (change 0013,
   part 3; Rules 7.2 and 8.22, surface §65). `s += x`, `s *= x`, `min`, `max` (and `& | ^` on
   integers) in a loop the proof accepts are folded as the GPU folds them: each iteration from the

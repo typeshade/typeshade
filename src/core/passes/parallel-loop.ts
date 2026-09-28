@@ -569,8 +569,9 @@ function writesIn(body: readonly Stmt[], c: Ctx): Write[] {
   return out;
 }
 
-/** `s op= e`, `s = s op e`, `s = e op s` (for a commutative op) and `s = min(s, e)`. */
-function combineOf(st: Stmt & { s: 'assign' | 'assignOp' }): Pick<Write, 'combine'> {
+/** `s op= e`, `s = s op e`, `s = e op s` (for a commutative op) and `s = min(s, e)`: the op
+ *  and `e`, which the lowering of a scatter reads too (`kernel-lower.ts`). */
+export function combineOf(st: Stmt & { s: 'assign' | 'assignOp' }): Pick<Write, 'combine'> {
   if (st.s === 'assignOp') {
     return REDUCE_BOPS.has(st.bop)
       ? { combine: { op: st.bop as LoopReduction['op'], with: st.expr } }
