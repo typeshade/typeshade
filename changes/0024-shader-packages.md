@@ -35,7 +35,7 @@ that a package installed, by the package's name. Measured on `main` at `77b77c0`
 | `import { fbm } from "./node_modules/shade-noise/src/noise.shade.ts"` | compiles, and breaks with the next install that lays `node_modules` out differently                |
 
 After this change the first two compile, the same way on every path: `compile()`, the Vite
-plugin, `typeshade check`, `typeshade sync` and the language service. Nothing changes for a
+plugin, `tshc check`, `tshc sync` and the language service. Nothing changes for a
 relative import.
 
 ### The specifier
@@ -115,7 +115,7 @@ merges TypeScript's report of the same mistake into the one `TS8072`, as it does
 - **The language service.** The same rule, through its host's `readDocument`. TypeScript's half
   resolves through it (`resolveModuleNameLiterals` in `src/language-service/host.ts`), so the
   editor and the compiler read one file for one import.
-- **The Vite plugin, `typeshade check` and `typeshade sync`** read from disk and follow a
+- **The Vite plugin, `tshc check` and `tshc sync`** read from disk and follow a
   package; the plugin watches each file of it that the module read.
 - **`readDocument` is asked for `package.json`** as well as for shader modules. A host that
   serves only a file that begins with the directive serves `package.json` too.
