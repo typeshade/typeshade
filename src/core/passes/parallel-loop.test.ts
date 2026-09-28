@@ -141,6 +141,23 @@ export function step(ps: array<P>, dt: f32) {
       `export function histogram(xs: array<u32>, bins: array<u32>) { for (const x of xs) { bins[x % 16] += 1; } }`,
       'scatter bins',
     ],
+    [
+      'a body that reads the length of the array it writes, which no iteration moves (#345)',
+      `export function fill(out: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = f32(out.length); }
+}`,
+      'affine out',
+    ],
+    [
+      'a volume stencil that bounds its +z neighbour by the length of what it writes (#345)',
+      `export function diffuse(d: array<f32>, out: array<f32>, w: u32, h: u32, k: f32) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    const zf = i + w * h < out.length ? i + w * h : i;
+    out[i] = d[i] + k * (d[zf] - d[i]);
+  }
+}`,
+      'affine out',
+    ],
   ])('%s', (_name, body, want) => {
     expect(verdict(body)).toBe(want);
   });

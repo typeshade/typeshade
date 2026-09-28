@@ -146,6 +146,31 @@ export function total(xs: array<f32>): f32 {
     expect(edited(body)).toEqual([]);
   });
 
+  it('runs a loop that reads the length of the array it writes on the GPU, in both halves (#345)', () => {
+    // The length is fixed when the host binds the buffer, so reading it is no element read: the
+    // proof reads it as `access.ts` says, as the Rule 7.5 bound check already did.
+    const body = `export function fill(out: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = f32(out.length);
+  }
+}`;
+    expect(compiled(body)).toEqual([]);
+    expect(edited(body)).toEqual([]);
+    const face = hostFace(module(body), { fileName: '/app/m.shade.ts' });
+    const kernel = face.exports?.find((e) => e.kind === 'kernel');
+    expect(kernel?.kind === 'kernel' ? kernel.face.gpu?.loops.length : undefined).toBe(1);
+    // An element of the array it writes, read at another index, is still refused.
+    expect(
+      compiled(`export function smear(a: array<f32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = a[i] + a[i > 0 ? i - 1 : i];
+  }
+}`),
+    ).toEqual([
+      'warning TS8070 This loop runs on the CPU because line 4 reads "a[…]", which another iteration writes. Read from an array the loop does not write.',
+    ]);
+  });
+
   it('runs the whole function on the CPU when its body is not a kernel call', () => {
     const body = `export function f(a: array<f32>) {
   a[0] = 1.;

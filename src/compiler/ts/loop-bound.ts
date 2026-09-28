@@ -5,7 +5,8 @@
 
 import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js';
 import { typeKey } from '../../core/ir/types.js';
-import { eachExpr, mapChildren } from '../../core/ir/visit.js';
+import { eachExpr } from '../../core/ir/visit.js';
+import { eachOperand } from '../../core/passes/access.js';
 import { authorTypeText, type LoweringScope } from './context.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { BUILTINS } from '../../core/cpu-runtime.js';
@@ -393,14 +394,13 @@ export function boundWrittenIn(
  *  array's length is not one: it is fixed when the host binds the buffer, so `arrayLength(xs)`
  *  (what `xs.length` lowers to) reads no element of `xs`, and a body that writes `xs[i]` leaves
  *  it where it was. Without this, `for (let i = 0; i < xs.length; i++) { xs[i] = ... }`, the
- *  loop Rule 7.5 is written around, was refused as a loop whose body writes its bound. A
+ *  loop Rule 7.5 is written around, was refused as a loop whose body writes its bound. Which
+ *  operand is only measured is `access.ts`'s to say, for every analysis at once (#348). A
  *  fixed-size array's `.length` is already a literal by the time it gets here. */
 function eachBoundRead(e: Expr, visit: (e: Expr) => void): void {
-  if (e.op === 'call' && e.fn === 'arrayLength') return;
   visit(e);
-  mapChildren(e, (c) => {
-    eachBoundRead(c, visit);
-    return c;
+  eachOperand(e, (c, access) => {
+    if (access !== 'length') eachBoundRead(c, visit);
   });
 }
 
