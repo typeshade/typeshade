@@ -317,6 +317,22 @@ function identifiersIn(node: ts.Node, out: ts.Identifier[] = []): ts.Identifier[
   return out;
 }
 
+/**
+ * The relative path the package refusal suggests for `specifier`: its last segment, named once
+ * as a shader file. A scope's `@` or an import map's `#`, its extension (`.ts`, `.js`, `.mjs`
+ * and the like) and a `.shade` are left off before `.shade.ts` goes on, so `"shade-noise"`
+ * suggests `"./shade-noise.shade.ts"` and `"shade-noise/noise.shade.ts"` suggests
+ * `"./noise.shade.ts"`, not `"./noise.shade.ts.shade.ts"`.
+ */
+function suggestedFile(specifier: string): string {
+  const last = specifier.split('/').filter(Boolean).pop() ?? specifier;
+  const stem = last
+    .replace(/^[@#]/, '')
+    .replace(/\.[mc]?[jt]sx?$/, '')
+    .replace(/\.shade$/, '');
+  return `./${stem}.shade.ts`;
+}
+
 /** Link `roots[0]`, the entry, with the shader files it imports; see the head of this file. The
  *  other roots, which `compileTsSources` passes, are kept whole like the entry. */
 export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): LinkedProgram {
@@ -366,7 +382,7 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     if (!isRelativeSpecifier(specifier)) {
       return fail(
         `"${specifier}" is a package, and a shader module imports only a file of its own ` +
-          `program, by a relative path such as "./${specifier.replace(/^@/, '').split('/').pop()}.shade.ts".`,
+          `program, by a relative path such as "${suggestedFile(specifier)}".`,
       );
     }
     const target = resolveImport(from.name, specifier);
