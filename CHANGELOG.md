@@ -1805,6 +1805,14 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **The `TS8072` refusal of a package names the file once** (design rule 3.9; surface §68). For a
+  specifier with a path after the package, the relative path it suggests took the last segment
+  whole and added `.shade.ts`, so `import { fbm } from "shade-noise/noise.shade.ts"` was told to
+  write `"./noise.shade.ts.shade.ts"`. The suggestion now leaves the segment's extension and a
+  `.shade` off first, and says `"./noise.shade.ts"`; `"shade-noise"` still suggests
+  `"./shade-noise.shade.ts"`. `src/compiler/ts/link.test.ts` pins both halves on a subpath and on
+  a scoped package written with `.js`.
+
 - **One mistake is one diagnostic where two passes both refused it, in `compile()` and in the
   editor** (proposal 0008 §3; design rule 12.4; surface §28 and §32). `semantic.ts` refused
   `for…in`, `try`, `throw`, `await`, `yield`, a template string and a spread, and the lowering then
