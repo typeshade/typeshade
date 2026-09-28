@@ -779,6 +779,27 @@ export function run(): f32 { return Derived.make().x }${TAIL}`;
     expect(compile(alone).diagnostics).toEqual([]);
   });
 
+  it('names an instance of a generic base as the author writes it in the 0020 refusal', () => {
+    // The struct `Base<f32>` is emitted as `Base_f32`; the sentence names the class `Base` and
+    // spells its type `Base<f32>` (Rule 12.7, proposal 0008 §5), where it said `Base_f32`.
+    const src = `"use typeshade"
+class Base<T = f32> {
+  x: f32 = 1.
+  static SCALE = 2.
+  static make(): Base { let b = new this(); b.x = this.SCALE; return b }
+}
+class Derived extends Base<f32> {}
+export function run(): f32 { return Derived.make().x }${TAIL}`;
+    expect(compile(src).diagnostics.map((d) => [d.code, d.message])).toEqual([
+      [
+        'TS8035',
+        '"Base.make" builds its value with "new this()", so "Derived.make()" returns a Derived, ' +
+          'but it is declared to return a Base<f32>, which is the type the editor gives the call. ' +
+          'Declare the class the call names: static make<C extends Base<f32>>(this: { new (): C; SCALE: f32 }): C',
+      ],
+    ]);
+  });
+
   it("a static a class inherits writes that class's own static through this", () => {
     const src = `"use typeshade"
 class Base { x: f32 = 1.; static hits = 0.; static record(): void { this.hits += 1. } }

@@ -67,6 +67,19 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
     `@compute([1]) export function cs() { let a: array<f32>; b[0] = 1.; }`,
     `TS8099 "a" would be array<f32>, ${WHY}. Give the array a size: array<f32, N>.`,
   ],
+  // Each type is spelled as the author writes it (Rule 12.7, proposal 0008 §5): `vec4`, not
+  // the compiler's key `vec4<f32>`, which the editor says is not generic; a class in a
+  // namespace by its written name, not the struct it is emitted as.
+  [
+    'a declared local of vectors, in the author spelling',
+    `@compute([1]) export function cs() { let a: array<vec4f>; b[0] = 1.; }`,
+    `TS8099 "a" would be array<vec4>, ${WHY}. Give the array a size: array<vec4, N>.`,
+  ],
+  [
+    'a parameter of a class in a namespace, by its written name',
+    `namespace N { export class T { n: u32; xs: array<f32>; } }\nfunction first(v: N.T): f32 { return v.xs[0]; }\n@compute([1]) export function cs() { b[0] = 1.; }`,
+    `TS8020 Parameter "v" is N.T, whose field "xs" is array<f32>, ${WHY}. Give it a size, array<f32, N>, or read the binding by its name inside the function instead.`,
+  ],
 ];
 
 /** What Tint accepts, beside each refusal. */

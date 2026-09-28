@@ -993,7 +993,9 @@ export function callerClassForm(
 }
 
 /** The refusal of a static declared to return the class that declares it, which builds its value
- *  with `new this()` and which the class `caller` inherits (0020), with the form to write. */
+ *  with `new this()` and which the class `caller` inherits (0020), with the form to write. The
+ *  classes are named as the author writes them, and their types spelled so (Rule 12.7): `Slot`
+ *  and `Slot<f32>` for the struct `Slot_f32`. */
 function callerClassRefusal(
   method: MemberFunction,
   declaredIn: string,
@@ -1034,10 +1036,12 @@ function callerClassRefusal(
   if (method.body !== undefined) walk(method.body);
   const members = ['new (): C', ...[...statics].map(([k, t]) => `${k}: ${t}`)].join('; ');
   const params = method.parameters.map((p) => p.getText()).join(', ');
+  const declaredType = authorTypeText(structT(declaredIn));
   return (
-    `"${declaredIn}.${member}" builds its value with "new this()", so "${caller}.${member}()" returns a ` +
-    `${caller}, but it is declared to return a ${declaredIn}, which is the type the editor ` +
-    `gives the call. Declare the class the call names: static ${member}<C extends ${declaredIn}>` +
+    `"${classOfStruct(declaredIn).written}.${member}" builds its value with "new this()", so ` +
+    `"${classOfStruct(caller).written}.${member}()" returns a ${authorTypeText(structT(caller))}, ` +
+    `but it is declared to return a ${declaredType}, which is the type the editor ` +
+    `gives the call. Declare the class the call names: static ${member}<C extends ${declaredType}>` +
     `(this: { ${members} }${params === '' ? '' : `, ${params}`}): C`
   );
 }

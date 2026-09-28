@@ -37,7 +37,8 @@ name cannot be declared. Rename it.`, where the editor says TS1215 (which merges
   host import's generated module binds no name the file declares: each export is bound under a
   name of the generator's own and exported under the file's, so an export named `Object`, `Math`
   or `NaN` no longer shadows the `Object.freeze` of an enum or the `Math.imul` of the CPU tier,
-  which left the module unable to load. A name nothing declares is one diagnostic, in proposal
+  which left the module unable to load; a kernel function (0013) is bound the same way, where it
+  was exported as written. A name nothing declares is one diagnostic, in proposal
   0007's words and with its remedy, in a body a call lowers and in one no call lowers alike (an
   uncalled generic, a function that takes a function, a method of a class nothing builds), where
   the lowering never reads it (`window`
@@ -2105,7 +2106,11 @@ mismatch.` and nothing more: TypeScript takes one class for another with the sam
   base and a derived class names them as written;
   and the host import names a type as written where a call or a binding has no host value, `a
 vec3f64 waits for change 0013's f64 split` for `an vec3<f64>`, and a binding in its runtime
-  errors, `binding "pts" (array<vec2>)` for `(array<vec2<f32>>)`. The backend's TS8015, from
+  errors, `binding "pts" (array<vec2>)` for `(array<vec2<f32>>)`. So do the sentences main
+  added since: an array with no size in a parameter, a result or a local (Rule 12.6) reads
+  `array<vec4>` for `array<vec4<f32>>` and `N.T` for the struct `N_T`, and 0020's refusal of a
+  static builder names an instance of a generic base `Base` and `Base<f32>`, where it said
+  `Base_f32`. The backend's TS8015, from
   `src/core`'s uniform layout, keeps WGSL's spelling (`array<vec2<f32>,4>`). Measured: the
   audit's and three reviews' probe programs (a class, a namespaced and a generic class, a
   vector, a matrix, an array, a sampler and a texture in each message family) print the author's

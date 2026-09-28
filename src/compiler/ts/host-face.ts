@@ -1333,12 +1333,12 @@ function moduleText(
       }
       case 'kernel': {
         const id = `__ts_e${t++}`;
-        const ps = e.face.params.map((p) => p.name);
+        const ps = e.face.params.map((_, i) => `__ts_p${i}`);
         out.push(
           `const ${id} = ${JSON.stringify(e.face)};`,
-          `export function ${e.name}(${ps.join(', ')}) {`,
-          `  return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}]);`,
-          `}`,
+          ...callable(e.name, ps, [
+            `return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}]);`,
+          ]),
         );
         break;
       }
