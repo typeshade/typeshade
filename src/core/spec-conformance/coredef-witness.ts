@@ -305,3 +305,64 @@ export function disagreement(
     return `${call}: core.def says ${expected}, the editor ${editor.type ?? '?'}`;
   return undefined;
 }
+
+let witnessCount = 0;
+
+/**
+ * Both halves' reading of one call in one whole program: `compile()`'s errors and the type it
+ * gives the call, and the language service's errors and the type its checker gives it. For a
+ * family whose witnesses are programs of their own (a texture row declares its handle), where
+ * `editorReadings`' one shared document cannot hold them.
+ */
+export function readCall(
+  source: string,
+  call: string,
+  ambientLib: string,
+  registry: ts.DocumentRegistry = ts.createDocumentRegistry(),
+): { readonly compiler: HalfReading; readonly editor: HalfReading } {
+  const at = source.indexOf(call);
+  if (at < 0) throw new Error(`the call ${call} is not in its witness`);
+  const result = compileTsSource(source);
+  const compilerErrors = result.diagnostics
+    .filter((d) => d.category === 'error')
+    .map((d) => `${d.code} ${d.message}`);
+  const e = result.expressions.find((x) => x.start === at && x.length === call.length);
+
+  // A name of its own per program: the registry keys what it caches by name and version, and a
+  // second program under the first one's name would be read as the first.
+  const uri = `/witness-${String(++witnessCount)}.shade.ts`;
+  const service = createTypeshadeLanguageServiceWith({ ambientLib }, analyzeSourceFile, {
+    merge: false,
+  });
+  service.openDocument(uri, source);
+  const editorErrors = service
+    .getDiagnostics(uri)
+    .filter((d) => d.source === 'typescript' && d.severity === 'error')
+    .map((d) => `TS${String(d.code)} ${d.message}`);
+  const host = new TypeshadeHost({ ambientLib });
+  host.openDocument(uri, source);
+  const program = ts.createLanguageService(host, registry).getProgram()!;
+  const checker = program.getTypeChecker();
+  const sf = program.getSourceFile(uri)!;
+  const projection = host.projectionOf(uri)!;
+  const from = projection.toProjected(at);
+  const to = projection.toProjected(at + call.length);
+  let node: ts.Node | undefined;
+  const visit = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && n.getStart(sf) === from && n.getEnd() === to) node = n;
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return {
+    compiler: {
+      accepts: compilerErrors.length === 0,
+      type: e ? spellShader(e.type) : undefined,
+      errors: compilerErrors,
+    },
+    editor: {
+      accepts: editorErrors.length === 0,
+      type: node === undefined ? undefined : spellChecked(checker, checker.getTypeAtLocation(node)),
+      errors: editorErrors,
+    },
+  };
+}

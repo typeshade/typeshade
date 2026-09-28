@@ -5271,7 +5271,9 @@ writes bare (`atomicAdd(bins[i], 1)`, `arrayLength(xs)`). `dot(a, b)` on two
 both said `number`. The compiler reads the same rows for the call's result and its argument
 check; `ATOMIC_INTRINSICS` and `BARRIER_INTRINSICS`, which the CPU runtime carries, are held to
 them by the same suite. `src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both
-halves on a witness per instance.
+halves on a witness per instance. The texture builtins keep the declarations the ambient library
+writes, which types every call as `core.def` does, and `coredef-texture-overloads.test.ts` holds
+each supported texture row to both halves in the same way, for each element a texture holds.
 
 A class field or a function's return the document leaves unannotated is written in by the
 projection when the front end types it a scalar: `#width = 0.05` hovers as `f32`, and `get
