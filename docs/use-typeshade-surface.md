@@ -7075,7 +7075,8 @@ then such a function runs on the CPU.
 
 A host file calls a module's `@compute` entry through the same import (§64), and the entry runs
 on the GPU. `entry(bindings, workgroups)` dispatches it as written over `workgroups` workgroups
-on WebGPU, and reads every storage binding it writes back into the caller's value (Rule 8.24).
+on WebGPU, and reads every storage binding it writes back into the caller's value, or leaves it
+on the device in a `Resident` (Rules 8.24 and 11.8).
 A full-screen `@fragment` entry draws into a canvas the same way, as `entry(target, bindings)`
 (below).
 
@@ -7123,6 +7124,28 @@ binding and its type (`scale(): binding "xs" (array<f32>): got an array of lengt
 Float32Array.`). When the promise resolves, every storage binding the entry wrote holds what the
 GPU left in it: a typed array element by element, an array of structs object by object.
 
+**Resident bindings** (Rule 11.8, §65). A `storage<array<T>>` with no size may be a `Resident` of
+its host value instead, the handle a kernel function takes. On WebGPU it is bound as the buffer it
+already has on the device, and nothing is read back until `await r.read()`. So the output of one
+call can be the input of the next without leaving the GPU. When every binding the entry writes
+is a `Resident`, the view's first signature returns `void`, and the call only queues:
+
+```ts
+import { resident } from 'typeshade';
+import { scale, blockSum } from './kernels.shade.ts';
+
+const xs = Float32Array.from({ length: 256 }, (_, i) => Math.sin(i));
+const ys = resident(new Float32Array(256));
+const sums = resident(new Float32Array(4));
+scale({ k: 2.5, xs, ys }, 4); // queued
+blockSum({ xs: ys, sums, scratch: resident(new Float32Array(256)) }, 4); // reads scale's output
+const out = await sums.read(); // the one wait
+```
+
+A `Resident` where the binding has a size, or is not a storage array, is a `TypeError`, and so
+is one `Resident` passed as two bindings of one call. Entry calls and kernel calls run one after
+another in the order they were made, so an entry and a kernel function can share a `Resident`.
+
 **The workgroup count** is `n` or `[x, y, z]`, passed to `dispatchWorkgroups` as written. The
 view's comment on the entry gives its `@workgroup_size`, so the host divides, and the entry
 checks its own bound, as WGSL runs it. Nothing is added to the WGSL the author wrote.
@@ -7132,7 +7155,9 @@ every later call shares. Where there is none, as in Node or a test runner, it ru
 tier: the generated code (§64), every invocation of every workgroup in turn, `z`, then `y`, then
 `x`, with the workgroup memory zeroed per workgroup, as the interpreter's own dispatch runs it.
 An entry that reaches a barrier needs WebGPU; without it the call is refused, naming the barrier
-and its line. So does one that reads a texture, which the CPU tier cannot.
+and its line. So does one that reads a texture, which the CPU tier cannot. `configure({ prefer
+})` (§65) orders and restricts the two tiers as it does a kernel call's. WebGL2 has no compute
+stage, so an entry never runs there, and a list that leaves no other tier throws, naming why.
 
 ### Drawing a fragment entry
 
@@ -7183,9 +7208,9 @@ as it runs.
 
 **Not yet.** A storage texture, a depth texture, a texture of another dimension and an emulated
 `f64` keep the entry `never` in the view, with the reason, as do a vertex entry and a fragment
-entry that reads what a vertex entry writes (#204, the rendering design, adds a mesh). A
-`Resident` binding that stays on the device, and `configure({ prefer })` to order or require the
-tiers, come with change 0013.
+entry that reads what a vertex entry writes (#204, the rendering design, adds a mesh). A draw
+takes no `Resident` yet, and its tiers are fixed: `configure` orders a compute entry's and a
+kernel function's.
 
 ## 68. Importing another shader module
 

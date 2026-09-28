@@ -37,7 +37,7 @@ import { typeLayout } from '../../core/reflect.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
 import { sourceSpanOf } from '../../core/ir/span.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
-import type { ComputeEntry, DrawBinding, Layout } from '../../core/host-entry.js';
+import type { ComputeEntry, DrawBinding, EntryBinding, Layout } from '../../core/host-entry.js';
 import type { FragmentEntry } from '../../core/host-draw.js';
 import type { KernelFace, KernelLoop, KernelParam } from '../../core/host-kernel.js';
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
@@ -104,6 +104,9 @@ export type HostExport =
       readonly name: string;
       readonly entry: Omit<ComputeEntry, 'wgsl' | 'log'>;
       readonly bindingsType: string;
+      /** The bindings object of the call that only queues, when every binding the entry
+       *  writes is a storage array with no size, which a `Resident` may stand for. */
+      readonly queuedType?: string;
     }
   | {
       /** A full-screen `@fragment` entry a host can draw into a canvas (Rule 8.24): everything
@@ -751,7 +754,16 @@ interface EntryCtx {
 function entryBindings(
   f: FuncDecl,
   c: FaceCtx,
-): { bindings: DrawBinding[]; types: string[]; closure: ReadonlySet<string> } | { none: string } {
+):
+  | {
+      bindings: DrawBinding[];
+      types: string[];
+      /** A compute entry's bindings as the call that only queues takes them: each written
+       *  storage array with no size a `Resident` alone. */
+      queued: string[];
+      closure: ReadonlySet<string>;
+    }
+  | { none: string } {
   const x = c.entry;
   const closure = closureOf(f.name, x.callees);
   const touched = new Set<string>();
@@ -765,17 +777,20 @@ function entryBindings(
   }
   const bindings: DrawBinding[] = [];
   const types: string[] = [];
+  const queued: string[] = [];
   for (const b of x.bindings) {
     if (!touched.has(b.name)) continue;
     const at = { name: b.name, group: b.group, binding: b.binding, s: spell(b.type) };
     if (b.type.kind === 'texture' && b.type.dim === '2d' && b.type.elem === 'f32') {
       bindings.push({ ...at, space: 'texture' });
       types.push(`readonly ${b.name}: ${IMAGE_SOURCE}`);
+      queued.push(types.at(-1)!);
       continue;
     }
     if (b.type.kind === 'sampler') {
       bindings.push({ ...at, space: 'sampler' });
       types.push(`readonly ${b.name}?: ${SAMPLING}`);
+      queued.push(types.at(-1)!);
       continue;
     }
     const handle = ['texture', 'storage-texture', 'depth-texture', 'sampler-comparison'];
@@ -789,9 +804,17 @@ function entryBindings(
     const writes = f.stage === 'compute' && space === 'storage' && written.has(b.name);
     const rw = space === 'storage' && b.access === 'read_write';
     bindings.push({ ...at, space, writes, ...(rw ? { rw: true as const } : {}), layout });
-    types.push(`readonly ${b.name}: ${bindingTsType(layout, writes)}`);
+    const t = bindingTsType(layout, writes);
+    // A compute entry's storage array with no size may be a `Resident` of it (Rule 11.8).
+    if (f.stage === 'compute' && space === 'storage' && layout.k === 'a' && layout.n === null) {
+      types.push(`readonly ${b.name}: ${t} | Resident<${t}>`);
+      queued.push(`readonly ${b.name}: ${writes ? `Resident<${t}>` : `${t} | Resident<${t}>`}`);
+    } else {
+      types.push(`readonly ${b.name}: ${t}`);
+      queued.push(types.at(-1)!);
+    }
   }
-  return { bindings, types, closure };
+  return { bindings, types, queued, closure };
 }
 
 /** A `texture_2d<f32>`'s host value (Rule 8.21), in the host view. */
@@ -829,7 +852,7 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       return never(name, `parameter "${p.name}" is not a builtin the call can fill in`);
   const reached = entryBindings(f, c);
   if ('none' in reached) return never(name, reached.none);
-  const { bindings, types, closure } = reached;
+  const { bindings, types, queued, closure } = reached;
   const barrier = barrierIn(closure, c.byName, x.declared);
   const noCpu = noCpuTier(closure, bindings, c);
   return {
@@ -846,8 +869,18 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ...(noCpu !== undefined ? { noCpu } : {}),
     },
     bindingsType: objectType(types),
+    // With every written binding a `Resident`, nothing waits: the call only queues.
+    ...(bindings.some((b) => isBufferBinding(b) && b.writes) &&
+    bindings.every(
+      (b) => !isBufferBinding(b) || !b.writes || (b.layout.k === 'a' && b.layout.n === null),
+    )
+      ? { queuedType: objectType(queued) }
+      : {}),
   };
 }
+
+const isBufferBinding = (b: DrawBinding): b is EntryBinding =>
+  b.space === 'uniform' || b.space === 'storage';
 
 /** The builtins a full-screen draw fills in for a `@fragment` entry. */
 const FRAGMENT_BUILTINS = new Set(['position', 'front_facing']);
@@ -1258,8 +1291,13 @@ function viewText(stem: string, exports: readonly HostExport[], runtime: string)
   const named = new Map<string, string>();
   for (const e of exports) if (e.kind === 'struct') named.set(e.type.s, e.name);
   const out: string[] = [header(stem)];
-  // A kernel function takes a `Resident` wherever it takes an array (Rule 11.8).
-  if (exports.some((e) => e.kind === 'kernel'))
+  // A kernel function takes a `Resident` wherever it takes an array, and a compute entry
+  // wherever it takes a storage array with no size (Rule 11.8).
+  if (
+    exports.some(
+      (e) => e.kind === 'kernel' || (e.kind === 'compute' && e.bindingsType.includes('Resident<')),
+    )
+  )
     out.push(`import type { Resident } from ${JSON.stringify(runtime)};`);
   for (const e of exports) {
     switch (e.kind) {
@@ -1286,7 +1324,12 @@ function viewText(stem: string, exports: readonly HostExport[], runtime: string)
       case 'compute': {
         const [x, y, z] = e.entry.wg;
         out.push(
-          `/** A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, and each binding the entry writes is read back into your value in place (Rule 8.24). */`,
+          `/** A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, and each binding the entry writes is read back into your value in place, or stays on the device in a Resident (Rules 8.24 and 11.8). */`,
+          ...(e.queuedType !== undefined
+            ? [
+                `export declare function ${e.name}(bindings: ${e.queuedType}, workgroups: number | readonly [number, number?, number?]): void;`,
+              ]
+            : []),
           `export declare function ${e.name}(bindings: ${e.bindingsType}, workgroups: number | readonly [number, number?, number?]): Promise<void>;`,
         );
         break;

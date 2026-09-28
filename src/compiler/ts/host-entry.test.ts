@@ -171,20 +171,34 @@ describe('the host view of an entry', () => {
   it('types the bindings object exactly, read-only where the entry only reads', () => {
     const f = face(SCALE);
     expect(f.view).toContain(
-      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array; readonly ys: Float32Array; readonly pts: Float32Array }, workgroups: number | readonly [number, number?, number?]): Promise<void>;',
+      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Float32Array | Resident<Float32Array>; readonly pts: Float32Array | Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?]): Promise<void>;',
     );
     expect(f.view).toContain('`@workgroup_size(8, 1, 1)`');
+  });
+
+  it('takes a Resident for a storage array with no size, and only queues when every written binding is one (Rule 11.8)', () => {
+    const f = face(SCALE);
+    expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
+    expect(f.view).toContain(
+      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Resident<Float32Array>; readonly pts: Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?]): void;',
+    );
+    // A written binding a Resident cannot stand for (a struct, a boxed scalar) always waits.
+    expect(entryOf(face(HISTOGRAM).exports, 'histogram').queuedType).toBeUndefined();
+    // An array of structs takes one too.
+    expect(entryOf(face(PARTICLES).exports, 'step').queuedType).toContain(
+      'readonly particles: Resident<',
+    );
   });
 
   it('boxes a written scalar, takes an atomic array as a typed array, and a written struct mutable', () => {
     const f = face(HISTOGRAM);
     const e = entryOf(f.exports, 'histogram');
     expect(e.bindingsType).toBe(
-      '{ readonly src: Float32Array; readonly bins: Uint32Array; readonly summary: { count: number; maxBin: number }; readonly firstValue: Uint32Array }',
+      '{ readonly src: Float32Array | Resident<Float32Array>; readonly bins: Uint32Array | Resident<Uint32Array>; readonly summary: { count: number; maxBin: number }; readonly firstValue: Uint32Array }',
     );
   });
 
-  it('type-checks a host call with plain tsc, and catches a misspelled binding at the host line', () => {
+  it('type-checks a host call with plain tsc, a queued one with Residents, and catches a misspelled binding at the host line', () => {
     const f = face(SCALE);
     const dir = tempDir();
     writeFileSync(join(dir, 'm.shade.ts'), SCALE);
@@ -212,9 +226,15 @@ describe('the host view of an entry', () => {
     ).toEqual([]);
     expect(
       check(
+        `import { scale } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst ys = resident(${xs});\nconst queued: void = scale({ k: 2, xs: ${xs}, ys, pts: resident(new Float32Array(32)) }, 2);\nexport const out: Float32Array = await ys.read();\nvoid queued;\n`,
+      ),
+    ).toEqual([]);
+    // No overload takes a misspelled binding.
+    expect(
+      check(
         `import { scale } from './m.shade.ts';\nawait scale({ k: 2, xz: ${xs}, ys: ${xs}, pts: ${xs} }, 2);\nexport {};\n`,
       ),
-    ).toEqual(['TS2353']);
+    ).toEqual(['TS2769']);
   });
 });
 
@@ -335,6 +355,86 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     await expect(call(bindings, 1)).rejects.toThrow(
       /^cs\(\) needs WebGPU: it reaches workgroupBarrier\(\) at m\.shade\.ts:\d+, and a barrier has no CPU tier\.$/,
     );
+  });
+});
+
+describe('a resident binding, the order of calls and the tiers (Rule 11.8)', () => {
+  const runtime = async () =>
+    (await import(pathToFileURL(RUNTIME).href)) as typeof import('../../core/host-runtime.js');
+  const xs = Float32Array.from({ length: 16 }, (_, i) => i * 0.25);
+  // The entry, and a kernel function of the same module that writes what it writes.
+  const SHARED = `${SCALE}
+export function double(vs: array<f32>) {
+  for (let i: u32 = 0; i < vs.length; i++) {
+    vs[i] = vs[i] * 2.;
+  }
+}
+`;
+
+  it('runs queued entry and kernel calls in order on a shared Resident, and read() waits for them', async () => {
+    const m = await load(SHARED);
+    const rt = await runtime();
+    const ys = rt.resident(new Float32Array(16));
+    const pts = rt.resident(new Float32Array(32));
+    const scale = m.scale as (b: unknown, w: unknown) => Promise<void>;
+    const double = m.double as (ys: unknown) => Promise<void>;
+    // Neither is awaited: each runs after the call before it.
+    void scale({ k: 3, xs, ys, pts }, 2);
+    void double(ys);
+    const out = await ys.read();
+    expect([...out]).toEqual([...xs].map((x) => Math.fround(x * 3) * 2));
+    expect([...(await pts.read())].filter((_, i) => i % 2 === 0)).toEqual(
+      Array.from({ length: 16 }, (_, i) => i),
+    );
+    // A plain array beside a Resident is still read back in place.
+    const plain = new Float32Array(16);
+    await scale({ k: 1, xs, ys: plain, pts }, 2);
+    expect([...plain]).toEqual([...xs]);
+  });
+
+  it('refuses a Resident where the binding has a size or is not a storage array, and one Resident as two bindings', async () => {
+    const m = await load(SCALE);
+    const rt = await runtime();
+    const scale = m.scale as (b: unknown, w: unknown) => Promise<void>;
+    const r = rt.resident(new Float32Array(16));
+    await expect(
+      scale({ k: rt.resident(new Float32Array(1)), xs, ys: r, pts: new Float32Array(32) }, 2),
+    ).rejects.toThrow(
+      new TypeError(
+        'scale(): binding "k" (f32) takes no Resident: only a storage array with no size does.',
+      ),
+    );
+    await expect(scale({ k: 1, xs: r, ys: r, pts: new Float32Array(32) }, 2)).rejects.toThrow(
+      new TypeError('scale(): binding "ys" is the same resident array as binding "xs".'),
+    );
+    // A call that fails while nobody awaits it keeps its error for read() to throw.
+    void scale({ k: 1, xs: new Float32Array(3), ys: r, pts: 7 }, 2).catch(() => undefined);
+    await expect(r.read()).rejects.toThrow(/^scale\(\): binding "pts"/);
+  });
+
+  it('runs on the tiers configure names, and says why none could', async () => {
+    const m = await load(SCALE);
+    const rt = await runtime();
+    const scale = m.scale as (b: unknown, w: unknown) => Promise<void>;
+    const args = () => ({ k: 2, xs, ys: new Float32Array(16), pts: new Float32Array(32) });
+    try {
+      rt.configure({ prefer: ['webgpu'] });
+      await expect(scale(args(), 2)).rejects.toThrow(
+        new Error('scale(): no tier it may use can run it (webgpu: there is no WebGPU device).'),
+      );
+      rt.configure({ prefer: ['webgl2'] });
+      await expect(scale(args(), 2)).rejects.toThrow(
+        new Error(
+          'scale(): no tier it may use can run it (webgl2: a @compute entry has no WebGL2 tier).',
+        ),
+      );
+      rt.configure({ prefer: ['webgl2', 'cpu'] });
+      const a = args();
+      await scale(a, 2);
+      expect([...a.ys]).toEqual([...xs].map((x) => Math.fround(x * 2)));
+    } finally {
+      rt.configure({});
+    }
   });
 });
 

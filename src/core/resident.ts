@@ -2,16 +2,17 @@
 // ═══ (Rule 11.8, surface §65, change 0013)                                               ═══
 //
 // `resident(array)` wraps a typed array or an array of objects once. A kernel function called
-// with it (`core/host-kernel.ts`) uploads it on the first call that runs on WebGPU and then
+// with it (`core/host-kernel.ts`), or a `@compute` entry given it for a storage array with no
+// size (`core/host-compute.ts`), uploads it on the first call that runs on WebGPU and then
 // binds the same buffer at every call after, reading nothing back: a chain of calls costs one
 // upload and, at `await r.read()`, one read. On the CPU tier it is an array the handle holds.
 //
-// Every kernel call runs in the order it was made, one after another, whether or not the
-// caller awaits it; `read()` waits for the calls made before it. A call that fails while
+// Every kernel call and entry call runs in the order it was made, one after another, whether or
+// not the caller awaits it; `read()` waits for the calls made before it. A call that fails while
 // nobody awaits it keeps its error on each handle it writes, and `read()` throws it.
 //
-// `configure({ prefer })` is the order of the tiers a kernel call tries: WebGPU, WebGL2, the
-// CPU. A one-entry list makes that tier required.
+// `configure({ prefer })` is the order of the tiers a kernel call or an entry call tries:
+// WebGPU, WebGL2, the CPU. A one-entry list makes that tier required.
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
@@ -33,7 +34,8 @@ type ResidentArray =
 
 /**
  * An array that stays on the device across kernel calls (Rule 11.8, surface §65), made by
- * {@link resident}. Pass it where a kernel function takes an array: the first call on WebGPU
+ * {@link resident}. Pass it where a kernel function takes an array, or as a `@compute` entry's
+ * storage array with no size (surface §67): the first call on WebGPU
  * uploads it, the calls after bind it as it is, and nothing is read back until
  * {@link Resident.read}. A call whose written arrays are all resident, and that returns
  * nothing, only queues.
@@ -138,7 +140,8 @@ export function resident<T extends ResidentArray>(array: T): Resident<T> {
 
 // ─── the order of calls ──────────────────────────────────────────────────────────────────────
 
-/** The kernel calls in the order they were made: each runs when the one before has settled. */
+/** The kernel calls and entry calls in the order they were made: each runs when the one before
+ *  has settled. */
 export const kernelQueue = {
   last: Promise.resolve() as Promise<unknown>,
   /** Run `f` after every call made before it. */
@@ -155,21 +158,21 @@ export const kernelQueue = {
 
 // ─── the tiers ───────────────────────────────────────────────────────────────────────────────
 
-/** A tier a kernel call may run on (Rule 11.8). */
+/** A tier a kernel call or an entry call may run on (Rule 11.8). */
 type Tier = 'webgpu' | 'webgl2' | 'cpu';
 
 const TIERS: readonly Tier[] = ['webgpu', 'webgl2', 'cpu'];
 
 let preferred: readonly Tier[] = TIERS;
 
-/** The tiers a kernel call tries, in order. */
+/** The tiers a kernel call or an entry call tries, in order. */
 export function preferredTiers(): readonly Tier[] {
   return preferred;
 }
 
 /**
- * Set the order of the tiers a kernel call tries (Rule 11.8): WebGPU, WebGL2 and the CPU tier,
- * the default being all three in that order. A one-entry list makes that tier required, and a
+ * Set the order of the tiers a kernel call or a `@compute` entry's call tries (Rule 11.8):
+ * WebGPU, WebGL2 and the CPU tier, the default being all three in that order. A one-entry list makes that tier required, and a
  * call that cannot run on it throws, naming why: `configure({ prefer: ['webgpu'] })`.
  *
  * Exported from `typeshade`.
