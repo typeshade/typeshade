@@ -148,6 +148,10 @@ export function loopReference() {
     scaled,
     tally: [tally],
     histogram,
+    // Each array's own length, and twelve keys counted into five bins.
+    stamp: [5, 5, 5, 5, 5],
+    countMod: [3, 3, 2, 2, 2],
+    residentStamp: [7, 7, 7, 7, 7, 7, 7],
     residentRender: render,
     residentStats: stats,
     residentScaled: scaled,

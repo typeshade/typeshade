@@ -7,7 +7,17 @@ import { axpy, dstats } from './doubles.shade.ts';
 import { deep } from './deep.shade.ts';
 import { fillRamp, plasma, ramped, tiled } from './draw.shade.ts';
 import { configure, resident } from 'typeshade/runtime';
-import { drift, histogram, odds, render, scaleNonNegative, stats, tally } from './loops.shade.ts';
+import {
+  countMod,
+  drift,
+  histogram,
+  odds,
+  render,
+  scaleNonNegative,
+  stamp,
+  stats,
+  tally,
+} from './loops.shade.ts';
 // Copied in by the journey from journeys/particles and journeys/plasma.
 import { step } from './particles.shade.ts';
 import { fs } from './plasma.shade.ts';
@@ -144,7 +154,7 @@ export async function journeys(input: {
   return { particles: particles.flatMap((p) => [...p.pos, ...p.vel]), plasma: plasmaPixels };
 }
 
-/** Call six kernel functions (change 0013): their loops run on WebGPU, one invocation per
+/** Call the kernel functions (change 0013): their loops run on WebGPU, one invocation per
  *  iteration, what they write comes back into these arrays in place, and what they reduce is
  *  folded in the tree order into what they return. */
 export async function loops(): Promise<Record<string, number[] | string>> {
@@ -182,6 +192,21 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   const devSummary = await stats(devXs, devScaled, 0.5);
   const bins = new Uint32Array(64);
   await histogram(xs, bins, -1000.123, 64 / 2000.246);
+  // Lengths that are no multiple of 4, read inside the iterations (#367), on WebGPU: a plain
+  // array, a scatter's bins and a Resident.
+  const stamped = new Uint32Array(5);
+  const counted = new Uint32Array(5);
+  const devStamped = resident(new Uint32Array(7));
+  configure({ prefer: ['webgpu'] });
+  const residentStamp = await (async () => {
+    await stamp(stamped);
+    await countMod(
+      Uint32Array.from({ length: 12 }, (_, i) => i),
+      counted,
+    );
+    stamp(devStamped);
+    return [...(await devStamped.read())];
+  })().finally(() => configure({}));
   // The WebGL2 tier, required (Rule 11.8): a map that writes one f32 array at `i` runs as a
   // fragment program, one texel per iteration.
   const glImg = new Float32Array(64 * 64);
@@ -204,6 +229,9 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     scaled: [...scaled.subarray(0, 256)],
     tally: [total],
     histogram: [...bins],
+    stamp: [...stamped],
+    countMod: [...counted],
+    residentStamp,
     residentRender: [...(await dev.read())],
     residentStats: [...devSummary],
     residentScaled: [...(await devScaled.read()).subarray(0, 256)],

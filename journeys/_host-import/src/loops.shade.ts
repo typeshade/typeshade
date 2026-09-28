@@ -79,3 +79,18 @@ export function scaleNonNegative(xs: array<f32>, out: array<f32>, a: f32) {
     out[i] = xs[i] * a;
   }
 }
+
+// An array's length read inside an iteration is the host's (#367). The call bound each buffer
+// padded to 16 bytes, so on WebGPU five `u32`s were an array of 8 to `out.length`, and
+// `% bins.length` over five bins lost the counts that belonged to the fifth and past it.
+export function stamp(out: array<u32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = out.length;
+  }
+}
+
+export function countMod(ks: array<u32>, bins: array<u32>) {
+  for (let i: u32 = 0; i < ks.length; i++) {
+    bins[ks[i] % bins.length] += 1;
+  }
+}
