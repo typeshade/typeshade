@@ -1,7 +1,7 @@
 ---
 id: '0023'
 title: An author runs the compiler as `tshc` (`tshc check`, `tshc sync`), the command the `typeshade` package installs the way `typescript` installs `tsc`
-status: draft
+status: accepted
 rules:
 - '3.8'
 - '3.9'
