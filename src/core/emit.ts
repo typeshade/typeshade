@@ -17,6 +17,7 @@ import { validate } from './passes/validate.js';
 import { assertCaps, assertBuiltins } from './passes/required-caps.js';
 import { lowerModule } from './passes/match-lower.js';
 import { selectComposite } from './passes/select-composite.js';
+import { settleConstExprs } from './passes/const-expr.js';
 import { fp64Lower, hoistGuardFetch, type Fp64Flavor } from './passes/fp64-lower.js';
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js';
 import { mapExpr, mapStmt } from './passes/opt/ir-transform.js';
@@ -394,9 +395,11 @@ export function lowerForBackend(
   const lowered = be.preOptimize === undefined ? pre : be.preOptimize(pre);
   // The fp64 guard is read once per function AFTER the optimizer (fp64-lower's "The guard"),
   // so a df64 call over loop-invariant operands stays input-only while the optimizer runs.
-  // Identity for a module that never fetches the guard.
+  // Identity for a module that never fetches the guard. Before it, after every tier, O0
+  // included: a constant expression the target would refuse to evaluate is given its value
+  // at run time, whether the author's constants made it or the optimizer's (#368).
   const optimized = hoistGuardFetch(
-    level === undefined ? be.optimize(lowered) : optimizeAt(lowered, level),
+    settleConstExprs(level === undefined ? be.optimize(lowered) : optimizeAt(lowered, level)),
   );
   // After every tier, so a target whose spelling needs a shape the IR does not carry gets it
   // whichever optimizer ran. Identity for a backend that declares none.
@@ -442,7 +445,8 @@ function lowerTimed(
   const optimized = step('optimize', () =>
     level === undefined ? be.optimize(pre) : optimizeAt(pre, level),
   );
-  return step('hoistGuardFetch', () => hoistGuardFetch(optimized));
+  const settled = step('settleConstExprs', () => settleConstExprs(optimized));
+  return step('hoistGuardFetch', () => hoistGuardFetch(settled));
 }
 
 /** Resolve each `externref` to the spelling THIS target's host uses (X-GIS #1713).

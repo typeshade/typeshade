@@ -1923,6 +1923,35 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **`compile()` emits no constant expression Tint refuses** (Rule 1.1, #368). WGSL evaluates a
+  constant expression when it creates the shader, and refuses some that have an answer at run
+  time. Each of these compiled with no diagnostic, and Tint refused the WGSL:
+
+  ```ts
+  data[1] = 7 / (x - x); // (7u / 0u): integer division by zero is invalid
+  data[1] = y << ((x - x) + 33); // (y << 33u): shift left value must be less than the bit width…
+  data[1] = x + (S << 31); // const S: i32 = 3: shift left operation results in sign change
+  data[1] = clamp(x, (y - y) + 5, (y - y) + 2); // clamp called with 'low' (5) greater than 'high' (2)
+  ```
+
+  The optimizer folds `x - x`, `x ^ x` and `x * 0` to 0 on an integer, so the first, second and
+  last lines were refused at the default level, O2, only. An operation over constants whose
+  value its type cannot hold was refused at every level over a module `const` (the third line,
+  and `M / -1` and `M % -1` over `i32`'s most negative value), and at O0 and O1 over literals,
+  which O2 folded (`i32(2147483647) + i32(1)`); `u32(n)` of a negative local `const n` was
+  refused at O1. Each emit now writes the value the target computes at run time, which is the
+  value the CPU oracle already gave: `a / 0` is `a` and `a % 0` is 0, a shift amount keeps its
+  low five bits, the operation over constants is its wrapped value, and a `clamp` whose
+  constant bounds cross is `min(max(e, low), high)`. A module Tint accepted emits the same
+  bytes. GLSL ES 3.00 gets the same answers: ANGLE compiled `(7u / 0u)` with a divide-by-zero
+  warning and a value of its own. The generated-kernel differential of #349 found the first
+  line on Tint.
+
+- **An integer vector the optimizer folds to zero compiles** (#370). `(v - v).x`, `(v ^ v).y` and
+  `(v * 0).x` over a `vec2u` failed with `TS8015`, whose text names the cause:
+  `SD0017: literal cannot be spelled by the target`. The fold's zero was a vector-typed literal,
+  which no target spells; it is `vec2<u32>(0u, 0u)` now.
+
 - **Each scatter of a kernel function runs its own operator's atomic on WebGPU** (Rule 8.22). A
   kernel function whose loops combine one integer array at any index with different operators
   ran every loop's combine as the last loop's atomic:

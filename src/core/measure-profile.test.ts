@@ -35,6 +35,7 @@ describe('profileEmit', () => {
       'fp64Lower',
       'spellExterns',
       'optimize',
+      'settleConstExprs',
       'hoistGuardFetch',
     ]);
     expect(p.target).toBe('wgsl');

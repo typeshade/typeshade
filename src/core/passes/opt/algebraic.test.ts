@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { algebraicSimplify, fixpoint } from './index.js';
-import { module, fn, f32T, i32T, i32, type ReadonlyNode } from '../../ir/index.js';
+import { module, fn, f32T, i32T, i32, u32, vec2uT, type ReadonlyNode } from '../../ir/index.js';
 
 type NodeF = ReadonlyNode<'f32'>;
 type NodeI = ReadonlyNode<'i32'>;
+type NodeV = ReadonlyNode<'vec2<u32>'>;
 import { emitModule } from '../../backends/wgsl.js';
 import { compileModule } from '../../oracle.js';
 
@@ -119,6 +120,20 @@ describe('optimize — algebraic identities vs gcc -O2', () => {
     it('i ^ 0 -> i', () => expect(I((i) => i.bitXor(0))).toBe('i'));
     it('i << 0 -> i', () => expect(I((i) => i.shl(0))).toBe('i'));
     it('i % 1 -> 0', () => expect(I((i) => i.mod(i32(1)))).toBe('0'));
+
+    // A vector's zero is a constructor of zeros. It was a vector-typed literal, which neither
+    // target can spell: `compile()` failed on `(v - v).x` with `SD0017 literal cannot be
+    // spelled by the target — vec constant with no valueExpr` (#370).
+    it('v - v and v * 0 on an integer vector -> a constructor of zeros', () => {
+      const builds: ((v: NodeV) => unknown)[] = [(v) => v.sub(v), (v) => v.mul(u32(0))];
+      for (const build of builds) {
+        const m = module({
+          funcs: [fn('k', { v: vec2uT }, vec2uT, (p, b) => b.ret(build(p.v) as never))],
+        });
+        expect(emitModule(fixpoint(m))).toMatch(/return vec2<u32>\(0u, 0u\);/);
+        expect(compileModule(fixpoint(m)).fns.k!([3, 4])).toEqual([0, 0]);
+      }
+    });
 
     // The gate on `intElemOf` is the load-bearing half: the same shapes on a FLOAT must
     // survive, or the pass has silently acquired -ffast-math semantics.
