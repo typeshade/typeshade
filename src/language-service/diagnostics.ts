@@ -1269,12 +1269,14 @@ const SAME_MISTAKE: readonly SameMistake[] = [
   },
   {
     typescript: 2591,
-    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
-    reason: 'The same for a name of Node (`process`, `require`, `Buffer`).',
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002', 'TS8072']),
+    reason:
+      'The same for a name of Node (`process`, `require`, `Buffer`), and `require("./x")`, which ' +
+      'the compiler refuses as an import (Rule 3.9).',
   },
   {
     typescript: 2580,
-    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002', 'TS8072']),
     reason: 'The same for a name of Node, where TypeScript offers its types to install.',
   },
   {
@@ -1397,8 +1399,10 @@ const SAME_MISTAKE: readonly SameMistake[] = [
   },
   {
     typescript: 1202,
-    typeshade: new Set(['TS8014']),
-    reason: 'An `import x = require("./m")` at the top level.',
+    typeshade: new Set(['TS8014', 'TS8072']),
+    reason:
+      'An `import x = require("./m")` at the top level, which the compiler refuses as an import ' +
+      'it does not follow (Rule 3.9).',
   },
   {
     typescript: 1315,
@@ -1531,14 +1535,59 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     typeshade: new Set(['TS8068', 'TS8022']),
     reason: 'The same in a file TypeScript does not take for a module.',
   },
+  {
+    typescript: 2307,
+    typeshade: new Set(['TS8072']),
+    reason:
+      'An import of a file that is not there, or that the host does not serve as a shader ' +
+      'module (Rule 3.9): both on the module specifier.',
+  },
+  {
+    typescript: 2305,
+    typeshade: new Set(['TS8072']),
+    reason: 'An import of a name the module does not export, on the name.',
+  },
+  {
+    typescript: 2724,
+    typeshade: new Set(['TS8072']),
+    reason: 'The same, where TypeScript has a spelling to suggest, which the compiler names too.',
+  },
+  {
+    typescript: 2614,
+    typeshade: new Set(['TS8072']),
+    reason: 'The same, where TypeScript suggests a default import, which no shader module has.',
+  },
+  {
+    typescript: 2459,
+    typeshade: new Set(['TS8072']),
+    reason: 'An import of a name the module declares and does not export.',
+  },
+  {
+    typescript: 1192,
+    typeshade: new Set(['TS8072']),
+    reason: 'A default import, which no shader module has, on the name it binds.',
+  },
+  {
+    typescript: 2613,
+    typeshade: new Set(['TS8072']),
+    reason: 'The same, where TypeScript suggests the named import the module does have.',
+  },
+  {
+    typescript: 2711,
+    typeshade: new Set(['TS8072']),
+    reason:
+      'An `import(...)` call, which TypeScript reports as a call that needs a `Promise` and the ' +
+      'compiler refuses as an import on its specifier (Rule 3.9).',
+  },
 ];
 
 /** The TypeScript codes of a binding or a write of `eval` or `arguments` in strict code: in a
  *  module (TS1215), in a class (TS1210), and in any other file (TS1100). */
 const STRICT_MODE_CODES: ReadonlySet<number> = new Set([1100, 1210, 1215]);
 
-/** The TypeScript codes reported about a CALL, on its callee or on one of its arguments. */
-const CALL_CODES: ReadonlySet<number> = new Set([2345, 2554, 2769]);
+/** The TypeScript codes reported about a CALL, on its callee or on one of its arguments, or on
+ *  the whole call (`import(...)`). */
+const CALL_CODES: ReadonlySet<number> = new Set([2345, 2554, 2769, 2711]);
 
 const spanEnd = (span: TypeshadeTextSpan): number => span.start + span.length;
 
@@ -2342,7 +2391,7 @@ function isInRefusedDecorator(
 
 /**
  * The merged list for one document: `typescript` (already filtered by
- * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Seven
+ * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Eight
  * rules drop a report, and each only ever drops an ERROR that another error already covers:
  *
  * - a TypeScript error that is TypeScript's own knock-on of a call it failed to resolve
@@ -2359,7 +2408,9 @@ function isInRefusedDecorator(
  *   refused, or a read of `arguments` it takes for a function's own object
  *   (`repeatsStrictModeRefusal`), goes;
  * - a TypeScript error about the value of an enum, a class, a namespace or a function the
- *   compiler refused to read as a value (`readsDeclarationAsValue`), goes.
+ *   compiler refused to read as a value (`readsDeclarationAsValue`), goes;
+ * - TypeScript's `Cannot find global type 'Promise'` (TS2318) for an `import(...)` the compiler
+ *   refused as an import (`TS8072`, Rule 3.9), goes.
  *
  * Without `analysis` nothing is dropped: the service passes none when a test asks for the two
  * halves unmerged (`TypeshadeLanguageServiceTestOptions`).
@@ -2392,6 +2443,15 @@ export function mergeDiagnostics(
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
     if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;
+    // `Cannot find global type 'Promise'`, which TypeScript reports at the top of the file for
+    // an `import(...)` the compiler refuses as an import (TS8072, Rule 3.9): the same mistake.
+    if (
+      ruleCodeOf(diagnostic.code) === 2318 &&
+      diagnostic.message.includes("'Promise'") &&
+      compilerErrors.some((e) => e.code === 'TS8072' && insideDynamicImport(context, e.span))
+    ) {
+      return false;
+    }
     const pair = SAME_MISTAKE.find((p) => p.typescript === ruleCodeOf(diagnostic.code));
     if (pair === undefined) return true;
     return !compilerErrors.some(
@@ -2400,6 +2460,18 @@ export function mergeDiagnostics(
     );
   });
   return [...keptTypescript, ...typeshade];
+}
+
+/** Whether `span` lies inside an `import(...)` call. */
+function insideDynamicImport(context: DiagnosticFilterContext, span: TypeshadeTextSpan): boolean {
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, span.start);
+  while (node !== undefined) {
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      return true;
+    }
+    node = node.parent;
+  }
+  return false;
 }
 
 function severityOfTs(category: ts.DiagnosticCategory): TypeshadeSeverity {
@@ -2504,6 +2576,9 @@ export function getTypeshadeDiagnostics(
       // own `TS1005`-style codes. The compiler's `SYNTAX` copies of them exist so a `compile()`
       // caller sees them without `tsc`; here they would underline the same token twice.
       .filter((d) => d.code !== TS_CODES.SYNTAX)
+      // A document's list is what is located in it (Rule 3.9): a mistake in a file it imports
+      // is shown on that file, as `tsc` shows it, and its offsets index that file's text.
+      .filter((d) => d.fileName === sourceFile.fileName)
       .map((d) => fromCompilerDiagnostic(sourceFile, uri, d))
   );
 }

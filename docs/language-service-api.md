@@ -1011,9 +1011,10 @@ dist/src/compiler/ts/source-file.js`. npm installs a required peer automatically
   lowered, which neither form did — a module constant referenced inside a function was
   `TS8022 Unknown identifier` in every multi-file program). The part of this question the
   document store actually needs, structs and bindings collected across a source set, landed
-  with #74: every file's structs, bindings and overrides are merged into the one module, so a
-  struct declared in one file resolves in another. What stays open is naming it in an import:
-  `import { P } from "./types"` for a class `P` is `TS8099` (`"types.ts" has no function "P"`),
-  since the resolver imports functions only, and the struct is used without importing it.
+  with #74. What stayed open, naming a struct in an import, was closed by change 0022: a file
+  imports any declaration another exports, and every path compiles a document with the files
+  it imports through one linker (`src/compiler/ts/link.ts`, Rule 3.9). The service's TypeShade
+  half analyses a document as the entry of that program, reading an import as its TypeScript
+  half does, and lists what is located in the document.
 - Bundle strategy for the browser: worker only, or also a lexical tier without `typescript`
   for the first paint.

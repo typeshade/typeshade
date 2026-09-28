@@ -211,7 +211,9 @@ const SHADE_ORDER: readonly ShadeSpec[] = readdirSync(HERE)
 function shadeExample(spec: ShadeSpec): ShaderExample {
   const file = `${spec.id}${SHADE_EXT}`;
   const source = readFileSync(join(HERE, file), 'utf8');
-  const { diagnostics, module } = compile(source);
+  // A file that imports another is one program with it (Rule 3.9), read from this directory:
+  // `imported-noise` reads `lib/noise.shade.ts`, which is not an example of its own.
+  const { diagnostics, module } = compile(source, { fileName: file, readDocument: readHere });
   const errors = diagnostics.filter((d) => d.category === 'error');
   if (errors.length > 0) {
     const lines = errors.map(
@@ -228,6 +230,15 @@ function shadeExample(spec: ShadeSpec): ShaderExample {
     module,
     renderable: spec.renderable,
   };
+}
+
+/** A file of this directory, by its path relative to it, or `undefined` when there is none. */
+function readHere(name: string): string | undefined {
+  try {
+    return readFileSync(join(HERE, name), 'utf8');
+  } catch {
+    return undefined;
+  }
 }
 
 /** Every `"use typeshade"` example, compiled. Iterated by `scripts/compile-gate.ts` and

@@ -184,10 +184,21 @@ Roadmap 0.6 item B1 (#97) will let a file hold both a shader and its host half; 
 - Derives from: change `0009` in `changes/` ("The shader module is picked by its name"); `docs/roadmap.md` item 16.
 - Enforced by: the Vite plugin in `src/vite.ts`, which refuses a project `.ts` that begins with the directive and is not named `*.shade.ts` (`… begins with "use typeshade", so it is a shader module, and a host imports a shader module by the name *.shade.ts (Rule 3.8). Rename it to terrain.shade.ts and import it by that name.`), and `typeshade sync`, which writes a view for a `*.shade.ts` only; pinned by `src/vite.test.ts`.
 
+**Rule 3.9.** A shader file may import what another shader file exports, by a relative specifier; the file a compile starts from and every shader file it imports, directly or through another, are one program, which emits one module, and each file keeps the scope TypeScript gives it.
+Every declaration a file can make at the top level can be exported and imported, by name (`import { a, b as c }`), as a type (`import type`), through a module namespace read one name at a time (`import * as ns`, then `ns.f`), and through a re-export (`export { a } from`, `export { a as b } from`, `export * from`); the module holds the entry's declarations and what it re-exports and, of each imported file, what those reach, so an imported file's own entry points are not in it.
+A specifier resolves against the importing file, with `.js` and `.mjs` read as `.ts` and `.ts` appended to any other path, by the one rule the language service resolves it by.
+An import the compiler does not follow must be refused with `TS8072`, on the import: a path that names no file or one the compile cannot read, a file that does not begin with the directive (Rule 3.1), a package, a name the file does not export, a default import or export, an import that names nothing, `import(...)` and `require`, and a module namespace used as a value; a use of what it would have bound reports nothing more (Rule 12.4).
+
+- Rationale: TypeShade code is shared the way TypeScript code is (`docs/dx.md` principle 8), and the editor's TypeScript half reads an import as TypeScript does, so a compiler that refused one would give a second answer about the same program (Rule 12.7).
+  A module is one WGSL module whichever file declared what, so scope is TypeScript's and only the emitted names are the module's (Rule 3.2).
+- Derives from: change `0022` in `changes/`; #187; ECMAScript [Modules](https://tc39.es/ecma262/#sec-modules), as TypeScript checks them.
+- Enforced by: `linkProgram` in `src/compiler/ts/link.ts`, which `compileTsSource` runs for a file that imports, and so `compile()`, the Vite plugin, `typeshade check` and the language service; `TS8072 IMPORT`; pinned by `src/compiler/ts/link.test.ts`, which holds `compile()` and the language service to one answer on each program and each refusal.
+
 ### 3.3. Identifiers
 
 **Rule 3.2.** An identifier is a TypeScript identifier that is also a WGSL identifier: a name that contains `$`, a name that is exactly `_`, and a name that starts with `__` must be refused on the declaration; the compiler must emit a declared name as written, and a member of a class or namespace as the flattened name `Owner_member`.
 A private member `#m` is emitted without its `#` (Rule 8.12), and the two halves of an accessor `m` as `Owner_get_m` and `Owner_set_m` (Rule 8.11).
+Across the files of one program (Rule 3.9), a declaration whose name a declaration emitted before it already holds, or whose name would hide a builtin another file of the program calls, is emitted as `stem_name`, `stem` being its file's name without `.shade.ts`, the entry file's declarations being emitted first; an entry point, a binding and an override are never renamed, and two of one name in one module are refused.
 
 - Rationale: an author reads a diagnostic and an emitted module against the name they typed, so a rename the author cannot predict breaks that, and a name WGSL's identifier profile excludes is one Tint refuses in text the author never sees.
 - Derives from: [Identifiers](https://gpuweb.github.io/gpuweb/wgsl/#identifiers) (`<Start> := XID_Start + U+005F`, which admits no `$`; "an identifier must not be `_`"; "an identifier must not start with `__`", each a shader-creation error); surface §26 and §29 for the flattening.
@@ -195,6 +206,7 @@ A private member `#m` is emitted without its `#` (Rule 8.12), and the two halves
   - the emit goldens (`examples/emit-goldens.test.ts`) for the spelling;
   - `TS8068 RESERVED_NAME` (`reportReservedNames` in `src/compiler/ts/reserved-names.ts`, PR #165) for the name that is exactly `_` and for a `__` prefix, pinned by `src/compiler/ts/reserved-names.test.ts`;
   - its two sentences, `"_" is WGSL's phony assignment target, not an identifier, so a local of that name cannot be emitted for the WebGPU target. Rename it.` and `"__a" begins with two underscores, which WGSL reserves, …`;
+  - `linkProgram` in `src/compiler/ts/link.ts` for the names one program's files share (Rule 3.9), pinned by `src/compiler/ts/link.test.ts`: two private helpers of one name are two functions, a builtin another file calls keeps its name, and two bindings of one name are `TS8023`, naming both files;
   - nothing for a `$` in a name, which is not enforced: `let $a: f32` is emitted as written with zero diagnostics (Appendix B).
 
 ### 3.4. Reserved words
@@ -677,7 +689,7 @@ The one exception an author writes is a kernel function's parameter of an array 
 - Derives from: `docs/roadmap.md` After 1.0 ("pointers and reference parameters"); [Function Calls](https://gpuweb.github.io/gpuweb/wgsl/#function-calls).
 - Enforced by: `TS8020 FUNCTION_SHAPE` for a parameter shape the surface does not take.
 
-**Rule 8.9.** Method dispatch must be static, and a generic function or class must be compiled once per set of type arguments the file uses.
+**Rule 8.9.** Method dispatch must be static, and a generic function or class must be compiled once per set of type arguments the program uses (Rule 3.9).
 A body a class inherits is compiled again for that class; what fails only there (a call that takes the base, a static the class does not have) must be refused when a function that is not a class's own reaches it through calls, and must not be when nothing does, the body being dropped with every function that calls it.
 
 - Rationale: a WGSL struct is one layout and a WGSL function has one overload, so the only meaning a generic or a method can have is the monomorphised one.
@@ -710,7 +722,7 @@ Two members of one class chain that would share an emitted name (`#x` beside `x`
 - Derives from: ECMAScript [private names](https://tc39.es/ecma262/#sec-private-names) as TypeScript spells them (TS18013 for an access from outside, TS2741 for a literal of such a class); Rule 3.2; surface §26.
 - Enforced by: `TS8035 CLASS_MEMBER` for an access from outside the class, for two members on one function name and for a static field and a function on one module name (`The static field "Base.#n" and the function "Base.n" would both be "Base_n": a private name is emitted without its "#". Rename one of them.`), `TS8010 STRUCT_FIELD` for two members on one struct member and for an object literal of a class with a private field, pinned by `src/compiler/ts/class-syntax.test.ts`; `examples/class-syntax.shade.ts`.
 
-**Rule 8.13.** A static field must be a module constant `Owner_x` when nothing in the file writes it, and a module variable in the per-invocation space (Rule 6.5) when something does; a `readonly` static is never written.
+**Rule 8.13.** A static field must be a module constant `Owner_x` when nothing in the program writes it, and a module variable in the per-invocation space (Rule 6.5) when something does; a `readonly` static is never written.
 A class inherits the statics of the classes it extends: `D.K`, `D.f()` and `D.x` reach the nearest class above `D` that declares them, and a static function or accessor `D` inherits must be lowered again for `D`.
 Inside a static member `this` is the class the call names, `D` in `D.f()`: `this.K`, `this.f()` and `this.x = v` name its statics, `new this(...)` builds it, and a static that returns the class the call names says so with a `this` parameter, `static make<C extends B>(this: { new (): C; K: f32 }): C`, which is a type and not a parameter anything passes, and returns `D`; `super.K`, `super.f()` and `super.x` name the statics of the class above the one that wrote the member.
 A write to a static field through a class that does not declare it (`D.K = v`, `this.K = v`, `super.K = v`), `this.#x` where `this` is a class that extends the one declaring `#x`, `this` as a value, a static block, and a static declared to return the class that declares it that builds its value with `new this(...)` where a class inherits it must be refused with the remedy; a write into such a static (`D.origin.y = v`, a method that changes it) changes the one object both classes read, and a generic base's statics are its class's, one for every instance.
@@ -801,7 +813,7 @@ An entry point writes its return type, which is its output (Rule 8.2).
 
 **Rule 8.20.** A function a host file can call through an import of its module is an exported function that is not an entry point, is not generic, takes no function, has a host value (Rule 8.21) for each parameter and for its result, and reaches, through the calls of its body, no binding, no workgroup variable and no builtin only a GPU computes (a derivative, a barrier, an atomic, an implicit-LOD texture sample).
 An exported `@compute` entry is callable too, and a full-screen `@fragment` entry draws into a canvas, as Rule 8.24 says; a kernel function (Rule 8.22) is callable, asynchronously, as this rule's last paragraph says; a vertex entry is not callable yet.
-An exported constant and an `enum` are values of the host face, and an exported struct is a type of it; every other export is declared `never` in the host view, with the reason and the work that adds it, so a call of one is a type error at the host's own line.
+An exported constant and an `enum` are values of the host face, and an exported struct is a type of it, as is a struct another file declares where an export's signature names it; what a module re-exports from a shader file it imports (Rule 3.9) is one of its exports; every other export is declared `never` in the host view, with the reason and the work that adds it, so a call of one is a type error at the host's own line.
 
 - Rationale: a host call runs on the CPU tier (Rule 11.7), which has no device, so what it reaches must be computable there with nothing a host call does not pass; a generic function and a function that takes a function exist only as the copies the module's own calls make (Rules 8.9 and 8.18), and a host call names no such copy.
   The IR does not keep the source's export list (a generic function is its instances, a method is `P_len`, an enum is its member constants), so the host face is read off the source's `export`s and the lowering's symbol table.
@@ -901,7 +913,7 @@ A name of the f64 family, which has no WGSL signature, must take the signatures 
 - Derives from: `MATH_FN_ALIAS` and `MATH_EXPAND_ALIAS` in `src/compiler/ts/math-alias.ts`.
 - Enforced by: `surface-names.test.ts` and `src/compiler/ts/math-expand.test.ts`.
 
-**Rule 9.5.** A function the file declares must win over a builtin of the same name, as a module-scope declaration hides a predeclared object in WGSL.
+**Rule 9.5.** A function the file declares or imports (Rule 3.9) must win over a builtin of the same name, as a module-scope declaration hides a predeclared object in WGSL.
 The builtins that predate the rule (those not in `USER_FIRST_BUILTINS`: `clamp`, `pow`, `f32`, and the rest of the original set) keep their precedence over a function of the module, which is a recorded divergence from WGSL in the direction of Rule 4.2.
 A name a function's body declares, a local function (Rule 8.17) or a parameter that takes a function (Rule 8.18), must win over every builtin, as TypeScript's lookup finds it before any global.
 

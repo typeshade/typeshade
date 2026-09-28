@@ -77,10 +77,23 @@ describe('SHADE_DTS: every .shade.ts example produces zero diagnostics', () => {
     }
   });
 
+  // An example that imports another file reads it from the examples directory, as `compile()`
+  // does in `examples/_shade.ts`: `imported-noise.shade.ts` imports `lib/noise.shade.ts` (§68).
+  const readExample = (name: string): string | undefined => {
+    try {
+      return readFileSync(join(EXAMPLES_DIR, name), 'utf8');
+    } catch {
+      return undefined;
+    }
+  };
   for (const name of SHADE_EXAMPLES) {
     it(`${name}: zero TypeScript diagnostics and zero TypeShade diagnostics`, () => {
       const text = readFileSync(join(EXAMPLES_DIR, name), 'utf8');
-      const service = ambientService();
+      const service = createTypeshadeLanguageServiceWith(
+        { readDocument: readExample },
+        analyzeSourceFile,
+        { merge: false },
+      );
       service.openDocument(name, text);
       const diagnostics = service.getDiagnostics(name);
       // Zero, not "zero but for TS1206": `@vertex`/`@compute` on a top-level function and

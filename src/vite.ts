@@ -4,8 +4,9 @@
 // host's Vite accepts as it is, so the package gains no dependency (change 0009, "Ship unplugin
 // as a dependency"). For each `*.shade.ts` the bundle reads, it:
 //
-//   - compiles the module, and fails the build with each TS80xx diagnostic at its file, line
-//     and column when one is an error;
+//   - compiles the module with the shader files it imports, read from disk (Rule 3.9), watches
+//     each of them, and fails the build with each TS80xx diagnostic at its file, line and column
+//     when one is an error;
 //   - returns the generated module in its place: the CPU tier's code for the functions a host
 //     can call, at `f32` (Rules 8.20, 11.7), each checking its arguments (Rule 8.21), and for
 //     each `@compute` entry its WGSL and the byte layout of each binding it reaches, which the
@@ -54,7 +55,9 @@ export interface TypeshadeVitePlugin {
   configResolved(config: { readonly command: string }): void;
   /** The module the bundle reads for `id`: the generated host module for a `*.shade.ts`,
    *  nothing for any other file, and a thrown error for a module that does not compile or a
-   *  shader module under another name (Rule 3.8). */
+   *  shader module under another name (Rule 3.8). A module that imports another shader module
+   *  is compiled with it (Rule 3.9), and each file it read is handed to the bundler's
+   *  `addWatchFile`, read off the plugin context the bundler calls this with. */
   transform(code: string, id: string): Promise<{ code: string; map: null } | null>;
 }
 
@@ -103,11 +106,26 @@ export function typeshade(): TypeshadeVitePlugin {
         }
         return null;
       }
-      const face = hostFace(code, { fileName: path, ...(dev ? { console: 'gpu' as const } : {}) });
+      const fs = await nodeFs();
+      const readDocument = (fileName: string): string | undefined => {
+        try {
+          return fs.readFileSync(fileName, 'utf8');
+        } catch {
+          return undefined;
+        }
+      };
+      const face = hostFace(code, {
+        fileName: path,
+        readDocument,
+        ...(dev ? { console: 'gpu' as const } : {}),
+      });
+      // The files the module imports, so an edit to one rebuilds this module (Rule 3.9). Rollup
+      // and Vite call a plugin hook with their context as `this`; a direct call has none.
+      const context = this as unknown as { addWatchFile?: (id: string) => void } | undefined;
+      for (const file of face.files) if (file !== path) context?.addWatchFile?.(file);
       if (face.code === undefined || face.view === undefined) {
         throw new Error(`${path} does not compile:\n${formatBuildErrors(face.diagnostics)}`);
       }
-      const fs = await nodeFs();
       const viewPath = hostViewPath(path);
       let current: string | undefined;
       try {

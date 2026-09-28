@@ -593,9 +593,9 @@ argument. An emulated double (`f64`, `vec3f64`) is left to the fp64 pass, whose 
 its own. The result type follows the operand deciding the shape: `dot` of integer vectors is that
 integer, and a written number in the first position takes an integer peer's kind (§13).
 
-A function the file declares wins over any name in the table above, and over `bool` and
-`f64`: those names meant the author's function before they were builtins, and an addition
-does not change what a program means. The builtins that came earlier (`min`, `max`, `mix`,
+A function the file declares or imports (§68) wins over any name in the table above, and over
+`bool` and `f64`: those names meant the author's function before they were builtins, and an
+addition does not change what a program means. The builtins that came earlier (`min`, `max`, `mix`,
 `clamp`, `pow`, `f32` …) keep their precedence, for the same reason pointing the other way:
 a program that resolves to one today must keep resolving to it. That precedence is a function
 of the module's: a name a body declares, a local function (§14) or a parameter that takes a
@@ -2531,7 +2531,7 @@ TS2511, TS2708 and TS7017), and its report of any name in the target (TS2304, TS
 | `new c()` on a local or a parameter, `new PI()`, `new E.A()`, `new N()` on a namespace, `new T()` on a type parameter | `TS8035`: it is a value, a namespace or a type parameter, and not a class |
 | `new Math()`, `new console()` | `TS8035`: it is an object of functions, and one of them is called, `Math.sin(x)` |
 | `new A()` on `const A = B`, or on `const A = class {…}` | Nothing more: the declaration is refused, since a class is no value |
-| `new g()` on a function the file imports | `TS8035`: `g` is a function, which is called without `new`, `g()`; in a file compiled on its own, which sees no other file, as the editor compiles each document, `TS8022`, as a call of it is `TS8004`. An import that resolves to no file is its own `TS8099`, and the `new` and the local it builds add nothing |
+| `new g()` on a function the file imports | `TS8035`: `g` is a function, which is called without `new`, `g()`, in the compiler and in the editor, which both read the file with what it imports (§68). An import neither follows is its own `TS8072`, and the `new` and the local it builds add nothing |
 | `new M()` on a mixin applied to a class, `const M = Tinted(B)` | `TS8035`: it is built through a class that extends it, `class C extends M {}` (§29) |
 | `new Math.Foo()`, `new C.q()` | `TS8022`: `Math` has no member `Foo`, `C` no static member `q` |
 | `new I()` on an interface or a type alias | `TS8035`: it is a type, not a value, and carries no constructor; write the object literal or declare it as a class |
@@ -2545,9 +2545,10 @@ The class of statics alone follows from a class with no fields not being a struc
 module-scope row from WGSL, whose module scope calls no function the module declares (Tint:
 "user-declared functions cannot be called at module-scope"). The rest are TypeScript's own
 refusals. A constructor refused where it is written, at its signature or for the name it would
-be emitted under, is not refused again at the `new`; any other `new` with no constructor to call,
-such as one in a multi-file program, which lowers no class function, is `TS8035` "has no
-constructor here" and is never dropped without a word. Until proposal 0008 every refusal but the
+be emitted under, is not refused again at the `new`; any other `new` with no constructor to call
+is `TS8035` "has no constructor here" and is never dropped without a word. A program of more than
+one file builds a class as one file does: its files are linked into one module first (§68), where
+a multi-file program once lowered no class function. Until proposal 0008 every refusal but the
 statics one was `TS8013`, and every target the file did not declare as a class was told that
 `new` "allocates a JS object, which a shader has no heap for": `new P(1., 2.)` on the file's own
 class allocates nothing either.
@@ -2944,11 +2945,11 @@ top-level const does. A static field with no initializer is refused: it is a con
 constant has a value. Reading a name the class does not declare says so, and naming a static
 function without calling it says to call it.
 
-**A static field the file writes is a module variable** (Rule 8.13). `Stats.hits += 1` anywhere
-in the file, or `this.hits += 1` in a static member, makes `hits` the per-invocation variable a
-top-level `let` is (§24), `var<private> Stats_hits`, and every read of it reads the variable. Its
-initializer is a constant by §24's measure. A `readonly` static is never written, and a write to
-one is TS8005.
+**A static field the program writes is a module variable** (Rule 8.13). `Stats.hits += 1`
+anywhere in the program, in a file it imports too (§68), or `this.hits += 1` in a static member,
+makes `hits` the per-invocation variable a top-level `let` is (§24), `var<private> Stats_hits`,
+and every read of it reads the variable. Its initializer is a constant by §24's measure. A
+`readonly` static is never written, and a write to one is TS8005.
 
 ```ts
 "use typeshade";
@@ -3779,8 +3780,9 @@ mixin that extends its parameter and is given nothing.
 
 Roadmap 0.3 item T9. WGSL and GLSL ES 3.00 have no generics: a function has one signature and a
 struct one layout. TypeScript has them, and a shader author reaches for them, so a generic
-declaration is compiled **once per set of argument types the file uses it with**. That is what
-monomorphisation is, and it is the only way a generic can reach either target.
+declaration is compiled **once per set of argument types the program uses it with**, the files
+it imports included (§68). That is what monomorphisation is, and it is the only way a generic
+can reach either target.
 
 ```ts
 function pick<T>(c: bool, a: T, b: T): T {
@@ -3881,8 +3883,8 @@ one binding, so it takes a runtime condition AND two distinguishable arms to rea
 ## 32. A generic class
 
 Roadmap 0.3 item T9, the class half of §30. A WGSL or GLSL struct is **one layout**, its fields'
-types fixed, so a generic class is collected **once per set of type arguments the file writes it
-with**.
+types fixed, so a generic class is collected **once per set of type arguments the program writes
+it with** (§68).
 
 ```ts
 class Slot<T> {
@@ -6858,7 +6860,9 @@ stale. The views are generated files, and git-ignored.
 **What a host can call** (Rule 8.20): an exported function that is not an entry point, is not
 generic, takes no function, has a host value for each parameter and for its result, and reaches
 no binding, no workgroup variable and no builtin only a GPU computes. An exported constant and an
-`enum` are values too, and an exported struct is a type. A `@compute` entry is called, and a
+`enum` are values too, and an exported struct is a type, as is a struct another file declares
+where an export's signature names it; what the module re-exports from a shader file it imports
+(§68) is one of its exports. A `@compute` entry is called, and a
 full-screen `@fragment` entry drawn, as §67 says, and a kernel function called as §65 says. Every other export is in the view as `never`, with the reason in a comment, so calling one
 is a type error at the host's own line.
 
@@ -6899,8 +6903,11 @@ runtime-sized array parameter belongs to roadmap item 15, and a binding is what 
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
 a `.ts` the bundle reads that begins with `"use typeshade"` under any other name, with the
 rename. A module with a compile error fails the build with each `TS80xx` diagnostic at its file,
-line and column. A `.shade.ts` that imports another `.shade.ts` is still `TS8004`: one file is
-one module.
+line and column. A `.shade.ts` that imports another shader module is compiled with it (§68): the
+plugin reads each file the module imports from disk and hands it to the bundler to watch, so an
+edit to the imported file rebuilds the importer. The view names the module's own exports and what
+it re-exports, and a struct another file declares is written into it as its host type, so a view
+never imports another view.
 
 **What ships.** The plugin writes the CPU tier's code into the module the bundler reads, as module
 code, with no `new Function`, so a strict content security policy is no obstacle. That module
@@ -7172,5 +7179,128 @@ as it runs.
 entry that reads what a vertex entry writes (#204, the rendering design, adds a mesh). A
 `Resident` binding that stays on the device, and `configure({ prefer })` to order or require the
 tiers, come with change 0013.
+
+## 68. Importing another shader module
+
+A `"use typeshade"` file imports what another one exports (Rule 3.9, change 0022). The file a
+compile starts from and every shader file it imports, directly or through another, are one
+program, which emits one WGSL module, one pair of GLSL ES 3.00 stages and one CPU module.
+
+```ts
+// noise.shade.ts
+"use typeshade";
+
+function hash32(x: u32): u32 {
+  const a = (x ^ (x >> 16)) * 0x85ebca77;
+  const b = (a ^ (a >> 13)) * 0xc2b2ae3d;
+  return b ^ (b >> 16);
+}
+
+function hash(p: vec2): f32 {
+  const h = hash32(u32(i32(p.x)) ^ hash32(u32(i32(p.y))));
+  return f32(h >> 8) * 5.9604644775390625e-8;
+}
+
+export function noise(p: vec2): f32 {
+  const i = floor(p);
+  const f = fract(p);
+  const u: vec2 = f * f * (vec2(3.) - f * 2.);
+  return mix(
+    mix(hash(i), hash(i + vec2(1., 0.)), u.x),
+    mix(hash(i + vec2(0., 1.)), hash(i + vec2(1., 1.)), u.x),
+    u.y,
+  );
+}
+
+export function fbm(p: vec2): f32 {
+  return noise(p) * 0.5 + noise(p * 2.02) * 0.25 + noise(p * 4.08) * 0.125;
+}
+
+// clouds.shade.ts
+"use typeshade";
+import { fbm } from "./noise.shade.ts";
+
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): VsOut {
+  const x = f32(vi & 1) * 4. - 1.;
+  const y = f32(vi >> 1) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+}
+
+@fragment
+export function fs(vo: VsOut): vec4 {
+  return vec4(vec3(fbm(vo.uv * 6.)), 1.);
+}
+```
+
+`clouds.shade.ts` emits `vs`, `fs` and the four functions of `noise.shade.ts` that `fs` reaches.
+
+**What a file may import.** Every declaration a file can make at the top level can be exported
+and imported: a function, generic ones and ones that take a function included; a class, an
+interface or a type alias; an `enum`; a module constant; an override; a binding; a module
+variable; a `namespace`. The forms are `import { a, b as c } from "./x.shade.ts"`, `import type`
+and an inline `type`, `import * as x from "./x.shade.ts"` read one name at a time (`x.fbm(p)`,
+`x.Light` as a type), and the re-exports `export { a } from`, `export { a as b } from` and
+`export * from`.
+
+**The specifier** is relative (`./`, `../`) and resolves against the importing file:
+`./noise.shade.ts` as written, `./noise.shade.js` and `./noise.shade.mjs` as `.ts`, and `.ts` <!-- doc-refs: skip — specifiers an importing file writes, not paths of this tree -->
+appended to any other path, so `./noise.shade` names `noise.shade.ts`. The language service
+resolves an import by the same rule. A file is a shader module by its directive (Rule 3.1), not by
+its name; `*.shade.ts` stays the name a host imports (Rule 3.8).
+
+**One program, one module.**
+
+- The module holds the entry file's declarations and what it re-exports and, of each imported
+  file, the declarations those reach. An imported file's own entry points are left out, with the
+  bindings only they read: nothing may call an entry point (Rule 8.6).
+- Scope is TypeScript's. A declaration is named in its own file and, exported, in the files that
+  import it, so a private `hash` in two files is two functions. Each file's constants, module
+  variables, overrides and bindings are its own, and its functions read them.
+- The module has one namespace (Rule 3.2). A declaration keeps its written name unless a
+  declaration emitted before it holds that name, or it would hide a builtin another file calls;
+  then it is emitted as `stem_name`, `stem` being its file's name without `.shade.ts`. The entry
+  file's declarations are emitted first, so its names are its own. An entry point, a binding and
+  an override are never renamed, since the pipeline, `reflect()` and the host know them by name;
+  two of one name in one module are `TS8023`, naming both files.
+- A `declare` binding with no slot is numbered after the entry's own, so an import never moves a
+  slot of the entry's.
+- A generic function or class is compiled once per set of type arguments the program uses
+  (Rule 8.9), and a static field is a constant when nothing in the program writes it (Rule 8.13).
+- Two files may import each other. A call cycle through them is still refused (Rule 8.4).
+
+**How each path reads the files.** `compile(source, { fileName, readDocument })` reads each import
+through `readDocument`, which returns a file's text or `undefined`; `resolveImport` replaces the
+rule above. A compile with no `readDocument` reads nothing: a file with no import compiles as it
+always has, and an import in one is `TS8072`. A diagnostic located in an imported file carries
+that file's `fileName` and offsets. The Vite plugin (§64) and `typeshade sync` read from disk.
+`typeshade check` checks a shader module a checked file imports too, once, under its own path.
+The language service reads an import as its TypeScript half does, from an open document or the
+host's `readDocument`, and shows a mistake in an imported file on that file, as `tsc` does.
+
+**What is refused.** One code, `TS8072`, on the import, for every import the compiler does not
+follow; a use of what it would have bound reports nothing more (Rule 12.4), and the editor merges
+TypeScript's report of the same mistake (`TS2307`, `TS2305`, `TS2724`, `TS2459`, `TS2613`,
+`TS1202`) into it.
+
+| What the file writes                         | `TS8072`                                                                                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| a path that names no file                    | `Cannot find the shader module "./nosie.shade.ts" (looked for "src/nosie.shade.ts").`                                                 |
+| a compile with no `readDocument`             | `"./noise.shade.ts" was not read: this compile has no readDocument. Pass compile() a readDocument that returns the file's text.`       |
+| a file without the directive                 | `"./util.ts" is not a shader module: it does not begin with "use typeshade". A shader module imports only another shader module.`     |
+| a package                                    | `"shade-noise" is a package, and a shader module imports only a file of its own program, by a relative path such as "./shade-noise.shade.ts".` |
+| a name the file declares and does not export | `"./noise.shade.ts" declares "hash" and does not export it. Export it there, or declare what you need in this file.`                  |
+| a name the file does not declare             | `"./noise.shade.ts" has no export "fmb". Did you mean "fbm"?`                                                                         |
+| a default import                             | `A shader module has no default export. Import the names you use: import { name } from "./noise.shade.ts".`                           |
+| an import that names nothing                 | `This import names nothing, and importing a shader module does nothing else. Import the names you use: import { name } from "./noise.shade.ts".` |
+| `import(...)`, `require(...)` or `import x = require(...)` | `A shader module is imported by an import declaration at the top of the file: import { name } from "./noise.shade.ts".` |
+| a module namespace used as a value           | `"noise" is a module namespace, read one name at a time (noise.name). It is not a value.`                                             |
+
+**Not yet.** A package, imported by a bare specifier through `node_modules`, is roadmap X6.
 
 Last updated: 2026-09-22

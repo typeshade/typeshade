@@ -702,22 +702,23 @@ describe('a class named while the structs are collected, and a sentence about a 
   });
 
   it('a struct two files declare, named as the author wrote it', () => {
-    const twice = (decl: string, param: string): string[] =>
+    // Two files of one program that each declare a struct of one name declare two structs, and
+    // the module emits the second under a generated name (Rule 3.2, change 0022). A sentence about
+    // the second names it as its own file writes it, not as the module emits it (`b_N_P`).
+    const twice = (decl: string, param: string, returned: string): string[] =>
       compileTsSources(
         ['a.ts', 'b.ts'].map((fileName, i) => ({
           fileName,
-          source: `"use typeshade";\n${decl}\nexport function f${String(i)}(${param}): f32 { return 1.; }\n`,
+          source: `"use typeshade";\n${decl}\nexport function f${String(i)}(${param}): f32 { return ${i === 1 ? returned : '1.'}; }\n`,
         })),
-      ).diagnostics.map((d) => `${d.code} ${d.message}`);
-    const rest =
-      'is declared in both "a.ts" and "b.ts". A multi-file program is one module, so a name is ' +
-      'declared once; rename one or move it.';
-    expect(twice('namespace N { export class P { x: f32 = 0.; } }', 'p: N.P')).toEqual([
-      `TS8023 Struct "N.P" ${rest}`,
+      ).diagnostics.map((d) => `${d.fileName} ${d.code} ${d.message}`);
+    expect(twice('namespace N { export class P { x: f32 = 0.; } }', 'p: N.P', '1.')).toEqual([]);
+    expect(twice('namespace N { export class P { x: f32 = 0.; } }', 'p: N.P', 'p')).toEqual([
+      'b.ts TS8003 Function "f1" return type mismatch: declared f32, got N.P.',
     ]);
     expect(
-      twice('class Slot<T> { v: T; constructor(v: T) { this.v = v; } }', 's: Slot<f32>'),
-    ).toEqual([`TS8023 Struct "Slot<f32>" ${rest}`]);
+      twice('class Slot<T> { v: T; constructor(v: T) { this.v = v; } }', 's: Slot<f32>', 's'),
+    ).toEqual(['b.ts TS8003 Function "f1" return type mismatch: declared f32, got Slot<f32>.']);
   });
 
   it('a write to a binding whose type was refused says nothing more', () => {

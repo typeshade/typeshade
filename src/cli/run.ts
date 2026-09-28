@@ -208,7 +208,15 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
     readDocument: (uri) => (host.kind(uri) === 'file' ? host.readFile(uri) : undefined),
     deprecations: args.deprecations,
   });
-  host.stdout(formatCheckReport(report, args.format, new Map(docs.map((d) => [d.path, d.text]))));
+  // A module a document imports is checked under its own path too (Rule 3.9); its text is
+  // read for the report's code frames like the rest.
+  const texts = new Map(docs.map((d) => [d.path, d.text]));
+  for (const path of report.files) {
+    if (texts.has(path)) continue;
+    const text = host.readFile(resolvePath(host.cwd, path));
+    if (text !== undefined) texts.set(path, text);
+  }
+  host.stdout(formatCheckReport(report, args.format, texts));
   return report.errors > 0 ? 1 : 0;
 }
 
@@ -234,7 +242,14 @@ function sync(files: readonly string[], host: CliHost, check: boolean): number {
       host.stderr(`typeshade: cannot read ${shown}.\n`);
       return 2;
     }
-    const face = hostFace(text, { fileName: shown });
+    // The shader files the module imports, read from disk beside it (Rule 3.9).
+    const face = hostFace(text, {
+      fileName: shown,
+      readDocument: (f) => {
+        const at = resolvePath(host.cwd, f);
+        return host.kind(at) === 'file' ? host.readFile(at) : undefined;
+      },
+    });
     if (face.view === undefined) {
       host.stderr(`${formatBuildErrors(face.diagnostics)}\n`);
       status = 1;

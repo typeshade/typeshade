@@ -9,6 +9,8 @@
 import ts from 'typescript';
 import { SHADE_DTS } from './ambient.js';
 import { Projection, planInsertions } from './projection.js';
+import { isRelativeSpecifier, resolveRelativeSpecifier } from '../compiler/ts/specifier.js';
+import type { ImportHooks } from '../compiler/ts/link.js';
 
 /**
  * Configuration for a `TypeshadeHost` / `createTypeshadeLanguageService` instance (design doc §4).
@@ -18,8 +20,9 @@ export interface TypeshadeLanguageServiceHost {
    * the rest of the authoring vocabulary). Defaults to the bundled `SHADE_DTS`. */
   readonly ambientLib?: string;
   /** Resolves a relative import from a document to another document's uri, for multi-file
-   * units. Default: same directory, with a `.ts` extension appended when the specifier has
-   * none. */
+   * units. Default: `resolveRelativeSpecifier` (`src/compiler/ts/specifier.ts`), the rule the
+   * compiler follows an import by too: the importing document's directory, `.js` and `.mjs`
+   * read as `.ts`, and `.ts` appended to any other path. */
   readonly resolveImport?: (fromUri: string, specifier: string) => string | undefined;
   /** Reads a document the adapter has not opened itself (an imported file). Return `undefined`
    * when the uri is unknown; the import is then reported as unresolved. */
@@ -59,39 +62,6 @@ export function typeshadeCompilerOptions(): ts.CompilerOptions {
   };
 }
 
-/** The default `resolveImport`: same directory as `fromUri`, with a trailing `.js`/`.mjs`
- * specifier rewritten to `.ts` (matching `tsc`'s own Bundler/NodeNext resolution, and the
- * extension this repository's own source uses everywhere) and a `.ts` extension appended when
- * the specifier has none at all. No `node:path` — the host must stay filesystem-free so it can
- * run in a browser worker (design doc §1, §7). */
-function defaultResolveImport(fromUri: string, specifier: string): string {
-  const dir = fromUri.includes('/') ? fromUri.slice(0, fromUri.lastIndexOf('/') + 1) : '';
-  const joined = joinPath(dir, specifier);
-  const rewritten = joined.replace(/\.m?js$/, '.ts');
-  return /\.[a-zA-Z0-9]+$/.test(rewritten) ? rewritten : `${rewritten}.ts`;
-}
-
-/** Joins `dir` (a uri prefix ending in `/`, or `''`) with `specifier`, resolving only the
- * specifier's own `.`/`..` segments against `dir`'s path. `dir`'s own scheme and authority
- * (`file://`) or leading `/` are matched once up front and reattached verbatim rather than
- * re-split with everything else — re-splitting the whole concatenated string on `/` (the
- * previous approach) silently ate a `file://` authority's slashes and an absolute uri's leading
- * `/`, so `./lib.ts` from `file:///main.ts` resolved to `file:/lib.ts` and from `/main.ts` to
- * `lib.ts`, neither of which is ever an open document's uri. */
-function joinPath(dir: string, specifier: string): string {
-  const scheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/{0,2}/.exec(dir);
-  const prefix = scheme ? scheme[0] : '';
-  const pathPart = dir.slice(prefix.length);
-  const isAbsolute = pathPart.startsWith('/');
-  const out: string[] = [];
-  for (const seg of `${pathPart}${specifier}`.split('/')) {
-    if (seg === '' || seg === '.') continue;
-    if (seg === '..') out.pop();
-    else out.push(seg);
-  }
-  return prefix + (isAbsolute ? '/' : '') + out.join('/');
-}
-
 /** One open or updated document: its text, the version an adapter supplied (or the store's
  * own monotonic counter when none was given), and the store-wide `revision` at which its text
  * last changed. */
@@ -101,6 +71,13 @@ interface StoredDocument {
   revision: number;
   /** The text TypeScript reads for this document (`projection.ts`), computed on first use. */
   projection?: Projection;
+  /** What the projection was planned against: this document's imports, transitively, each
+   *  with the revision of its text then. A projection reads the types of what the document
+   *  imports (Rule 3.9), so an edit to one of them plans it again. */
+  projectedAgainst?: string;
+  /** The store revision `projectedAgainst` was last checked at: nothing changed since, nothing
+   *  to check. */
+  checkedAt?: number;
 }
 
 /** A file pulled in through `readDocument` because an open document imports it: its text as
@@ -131,7 +108,9 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
 
   constructor(hostOptions: TypeshadeLanguageServiceHost = {}) {
     this.ambientLib = hostOptions.ambientLib ?? SHADE_DTS;
-    this.resolveImport = hostOptions.resolveImport ?? defaultResolveImport;
+    this.resolveImport =
+      hostOptions.resolveImport ??
+      ((fromUri, specifier) => resolveRelativeSpecifier(fromUri, specifier));
     this.readDocument = hostOptions.readDocument ?? (() => undefined);
   }
 
@@ -192,7 +171,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
    * `service.ts` can key its per-document caches on the versions of the documents a file
    * imports (design doc §8), without a second resolution rule that could drift from this one. */
   resolveImportUri(fromUri: string, specifier: string): string | undefined {
-    if (!specifier.startsWith('.')) return undefined;
+    if (!isRelativeSpecifier(specifier)) return undefined;
     return this.resolveImport(fromUri, specifier);
   }
 
@@ -211,7 +190,11 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
   getScriptVersion(uri: string): string {
     if (uri === AMBIENT_LIB_URI) return '1';
     const doc = this.docs.get(uri);
-    if (doc) return `${doc.version}.${doc.revision}`;
+    if (doc) {
+      // The projection first: planned again against a changed import, it moves the revision.
+      this.projectionOf(uri);
+      return `${doc.version}.${doc.revision}`;
+    }
     const imported = this.imported.get(uri);
     if (imported) return `imported.${imported.revision}`;
     return '0';
@@ -230,8 +213,50 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
   projectionOf(uri: string): Projection | undefined {
     const doc = this.docs.get(uri);
     if (!doc) return undefined;
-    doc.projection ??= new Projection(doc.text, planInsertions(doc.text, uri));
+    if (doc.projection !== undefined && doc.checkedAt === this.revision) return doc.projection;
+    const against = this.importRevisions(uri, doc.text);
+    if (doc.projection === undefined || doc.projectedAgainst !== against) {
+      const next = new Projection(doc.text, planInsertions(doc.text, uri, this.imports));
+      // A new plan for the same text is a new text for TypeScript only when it writes something
+      // else; then the document takes a new revision, so its script version moves with it.
+      if (doc.projection !== undefined && next.projected !== doc.projection.projected) {
+        doc.revision = ++this.revision;
+      }
+      doc.projection = next;
+      doc.projectedAgainst = against;
+    }
+    doc.checkedAt = this.revision;
     return doc.projection;
+  }
+
+  /** How the front end reads what a document imports when it plans the projection: an open
+   *  document's text or one already read, else the adapter's `readDocument`, resolved by the
+   *  one rule `resolveImportUri` applies. */
+  private readonly imports: ImportHooks = {
+    readDocument: (uri) => this.getDocumentText(uri) ?? this.readDocument(uri),
+    resolveImport: (fromUri, specifier) => this.resolveImportUri(fromUri, specifier),
+  };
+
+  /** Every document `uri` imports, transitively, with the revision of the text the store holds
+   *  for it, as one key: it moves when any of them changes. Empty for a document that imports
+   *  nothing, which is most, and then costs one scan of the text. */
+  private importRevisions(uri: string, text: string): string {
+    const parts: string[] = [];
+    const seen = new Set<string>([uri]);
+    const visit = (from: string, source: string): void => {
+      for (const ref of ts.preProcessFile(source, true, false).importedFiles) {
+        const dep = this.resolveImportUri(from, ref.fileName);
+        if (dep === undefined || seen.has(dep)) continue;
+        seen.add(dep);
+        const open = this.docs.get(dep);
+        const read = this.imported.get(dep);
+        parts.push(`${dep}@${open?.revision ?? (read ? `r${read.revision}` : '-')}`);
+        const depText = open?.text ?? read?.text;
+        if (depText !== undefined) visit(dep, depText);
+      }
+    };
+    visit(uri, text);
+    return parts.join('|');
   }
 
   /** The text the TypeScript program holds for `uri`. */

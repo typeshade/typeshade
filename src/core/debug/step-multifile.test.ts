@@ -3,15 +3,15 @@
 // A `"use typeshade"` program can import a helper from another file, and once it does, every
 // part of a stepped run that names a location has to name the RIGHT file: the statement the
 // run is stopped on, the frame the call came from, and the breakpoint the author set. Nothing
-// covered that. The machinery turned out to be right already: `compileTsSources` parses each
-// input under its own name, so each statement's span carries the file it was written in, and
-// `stepIn` follows a `declRef` without caring which file it lands in, so this file is a lock
-// on behaviour rather than a fix. It is worth locking because the failure it prevents is
+// covered that. The machinery turned out to be right already: the compile parses each file under
+// its own name, and since change 0022 the one linked source it lowers maps every span back to the
+// file it was written in (Rule 3.9), and `stepIn` follows a `declRef` without caring which file it
+// lands in, so this file is a lock on behaviour rather than a fix. It is worth locking because the failure it prevents is
 // invisible: a breakpoint in the wrong file arms nothing, and a frame naming the wrong file
 // sends an editor to the wrong line of the wrong document.
 
 import { describe, expect, it } from 'vitest';
-import { compileTsSources } from '../../compiler/ts/module.js';
+import { compile } from '../../compiler/ts/compile.js';
 import type { ModuleDecl } from '../ir/nodes.js';
 import { startDebugSession, type DebugBreakpoint } from './session.js';
 
@@ -33,12 +33,12 @@ export function fs(): f32 {
 `;
 
 function program(): ModuleDecl {
-  const r = compileTsSources([
-    { fileName: 'lib/util.ts', source: UTIL },
-    { fileName: 'app/main.ts', source: MAIN },
-  ]);
+  const r = compile(MAIN, {
+    fileName: 'app/main.ts',
+    readDocument: (f) => (f === 'lib/util.ts' ? UTIL : undefined),
+  });
   expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-  return { consts: [], structs: [], bindings: [], funcs: [...r.funcs] };
+  return r.module;
 }
 
 /** Every stop of a full single-step run, as `file:line`. */

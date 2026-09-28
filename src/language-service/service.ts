@@ -4,6 +4,7 @@ import ts from 'typescript';
 import { emitModule } from '../core/backends/wgsl.js';
 import { emitGlslModule } from '../core/backends/glsl.js';
 import { compileTsSource, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
+import type { ImportHooks } from '../compiler/ts/link.js';
 import { TypeshadeHost, type TypeshadeLanguageServiceHost } from './host.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
 import { makeDiagnostic } from '../compiler/ts/diagnostic.js';
@@ -112,11 +113,21 @@ export interface TypeshadeLanguageService {
  * that reads the front end (diagnostics, symbols, semantic tokens, hover, compiled output)
  * reads one cached result of this per document version instead of running it itself.
  */
-export type AnalyzeSourceFile = (sourceFile: ts.SourceFile) => CompileTsSourceResult;
+export type AnalyzeSourceFile = (
+  sourceFile: ts.SourceFile,
+  imports?: ImportHooks,
+) => CompileTsSourceResult;
 
-/** The production `AnalyzeSourceFile`. */
-export const analyzeSourceFile: AnalyzeSourceFile = (sourceFile) =>
-  compileTsSource(sourceFile.text, { sourceFile, requireDirective: true, emit: false });
+/** The production `AnalyzeSourceFile`. `imports` reads the shader files the document imports,
+ *  so its analysis is the program's (Rule 3.9), through the same resolution and the same texts
+ *  as its TypeScript half. */
+export const analyzeSourceFile: AnalyzeSourceFile = (sourceFile, imports) =>
+  compileTsSource(sourceFile.text, {
+    sourceFile,
+    requireDirective: true,
+    emit: false,
+    ...imports,
+  });
 
 /** Everything the service has computed about one document under one `dependencyKey`
  * (design doc §8): the front-end analysis, always, and the merged diagnostics once
@@ -220,6 +231,14 @@ export function createTypeshadeLanguageServiceWith(
     return program().getSourceFile(uri);
   }
 
+  /** How the front end reads what a document imports: the text the TypeScript program holds for
+   *  it (an open document's, or one `readDocument` pulled in), resolved by the host's one rule,
+   *  so the two halves analyse the same program. */
+  const imports: ImportHooks = {
+    readDocument: (uri) => sourceFileOf(uri)?.text ?? tsHost.getDocumentText(uri),
+    resolveImport: (fromUri, specifier) => tsHost.resolveImportUri(fromUri, specifier),
+  };
+
   /**
    * The cache key for everything computed about `uri` (design doc §8): its own script version
    * followed by the version of every document it imports, transitively, each resolved through
@@ -256,7 +275,7 @@ export function createTypeshadeLanguageServiceWith(
     const key = dependencyKey(uri);
     const cached = cache.get(uri);
     if (cached && cached.key === key) return cached;
-    const entry: DocumentCacheEntry = { key, analysis: analyze(sourceFile) };
+    const entry: DocumentCacheEntry = { key, analysis: analyze(sourceFile, imports) };
     cache.set(uri, entry);
     return entry;
   }
@@ -425,7 +444,22 @@ export function createTypeshadeLanguageServiceWith(
       return offsetAt(sourceFile, position);
     },
   };
-  return projected(inner, (uri) => tsHost.projectionOf(uri));
+  const service = projected(inner, (uri) => tsHost.projectionOf(uri));
+  readers.set(service, {
+    readDocument: (uri) => tsHost.getDocumentText(uri) ?? host.readDocument?.(uri),
+    resolveImport: (fromUri, specifier) => tsHost.resolveImportUri(fromUri, specifier),
+  });
+  return service;
+}
+
+/** Each service's way of reading what a document imports, as written: an open document's text,
+ *  else the host's `readDocument`, by the host's one resolution rule. */
+const readers = new WeakMap<TypeshadeLanguageService, ImportHooks>();
+
+/** How `service` reads the files a document imports, so a compile beside it (`check.ts`) reads
+ *  the program the service analyses (Rule 3.9, Rule 12.7). Not exported from the package. */
+export function importHooksOf(service: TypeshadeLanguageService): ImportHooks {
+  return readers.get(service) ?? {};
 }
 
 /**

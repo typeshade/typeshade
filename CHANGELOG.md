@@ -576,6 +576,22 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A `"use typeshade"` file imports what another one exports** (change 0022; Rules 3.9 and 3.2,
+  surface §68). `import { fbm } from "./noise.shade.ts"` compiles on every path: `compile()` reads
+  each import through a new `readDocument` option (with `resolveImport` beside it, the rule the
+  language service resolves by), the Vite plugin and `typeshade sync` read from disk and the
+  plugin watches what it read, `typeshade check` checks an imported module under its own path,
+  and the editor's TypeShade half analyses the program its TypeScript half already read. Any
+  top-level declaration can be imported (functions, generic ones included, classes, enums,
+  constants, bindings, module variables, namespaces), by name, as a type, through `import * as`
+  or a re-export. The file and what it imports are one module, holding what the file reaches and
+  none of an imported file's own entry points; each file keeps its own scope, so two private
+  `hash` helpers are two functions, the second emitted as `b_hash`, and an entry point, a binding
+  or an override keeps its name. A mistake in an imported file is reported at that file. An import
+  the compiler does not follow is the new `TS8072` on the import, and the use of its names says
+  nothing more; before, every public path compiled one file, and a call into another was
+  `TS8004`. A package import (roadmap X6) is `TS8072` too.
+
 - **Four examples of a loop that becomes a kernel** (change 0013, part 6, surface §65).
   `loop-kernel` is the roadmap's terrain, `loop-reduction` a sum, a mean and a variance, and a
   histogram, `loop-struct-array` the particle step over `array<Particle>`, and `loop-on-cpu` one

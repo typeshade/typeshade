@@ -29,7 +29,14 @@
 import { compile } from '../compiler/ts/compile.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
 import type { TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
-import { createTypeshadeLanguageService, type TypeshadeLanguageService } from './service.js';
+import ts from 'typescript';
+import {
+  createTypeshadeLanguageService,
+  importHooksOf,
+  type TypeshadeLanguageService,
+} from './service.js';
+import { resolveRelativeSpecifier } from '../compiler/ts/specifier.js';
+import { isTypeshadeSource } from '../compiler/ts/source-file.js';
 import type { TypeshadeDiagnostic } from './types.js';
 
 /** One file to check.
@@ -166,12 +173,17 @@ export function checkOpenDocument(
   // `TS8022` with its "Did you mean", and TypeScript's `TS2552` beside it is dropped), or was
   // left out of it on purpose: a parse error is TypeScript's own `TS1005`-style row in place of
   // the compiler's `TS8030` copy of it.
+  // Under the document's uri, with the service's own reader, so an import resolves to the
+  // program the service analyses (Rule 3.9); what is located in an imported file is that
+  // file's to report.
   const compiled = compile(doc.text, {
-    fileName: doc.path,
+    fileName: doc.uri,
+    ...importHooksOf(service),
     ...(options.deprecations === true ? { deprecations: true } : {}),
   });
   for (const d of compiled.diagnostics) {
     if (d.code !== TS_CODES.BACKEND && d.code !== TS_CODES.INT_LITERAL_DEPRECATION) continue;
+    if (d.fileName !== doc.uri) continue;
     const row = fromCompiler(doc, d);
     if (!found.some((f) => sameReport(f, row))) found.push(row);
   }
@@ -187,6 +199,10 @@ export function checkOpenDocument(
  * each other's `class VsOut` as a duplicate — a diagnostic about the check, not about either
  * file. One service still serves them all, so the ambient lib is parsed once.
  *
+ * A shader module a document imports is checked too, once, under its own path, whether or not
+ * it was handed in: a program is the file and what it imports (Rule 3.9), and a mistake in an
+ * imported file is that file's to report.
+ *
  * Exported from `typeshade/language-service`.
  */
 export function checkDocuments(
@@ -197,15 +213,50 @@ export function checkDocuments(
     options.readDocument === undefined ? {} : { readDocument: options.readDocument },
   );
   const diagnostics: CheckDiagnostic[] = [];
-  for (const doc of docs) {
+  const queue = [...docs];
+  const queued = new Set(docs.map((d) => d.uri));
+  for (let i = 0; i < queue.length; i++) {
+    const doc = queue[i]!;
     service.openDocument(doc.uri, doc.text);
     diagnostics.push(...checkOpenDocument(service, doc, options));
     service.closeDocument(doc.uri);
+    for (const imported of importedDocuments(doc, options.readDocument)) {
+      if (queued.has(imported.uri)) continue;
+      queued.add(imported.uri);
+      queue.push(imported);
+    }
   }
   return {
-    files: docs.map((d) => d.path),
+    files: queue.map((d) => d.path),
     diagnostics,
     errors: diagnostics.filter((d) => d.severity === 'error').length,
     warnings: diagnostics.filter((d) => d.severity === 'warning').length,
   };
+}
+
+/** The shader modules `doc` imports, directly or through another, read through `readDocument`
+ *  and resolved by the rule the service applies, each named for the report the way `doc` is:
+ *  relative to the directory `doc.path` is relative to, when the file is under it. */
+function importedDocuments(
+  doc: CheckDocument,
+  readDocument: CheckOptions['readDocument'],
+): CheckDocument[] {
+  if (readDocument === undefined) return [];
+  const base = doc.uri.endsWith(doc.path) ? doc.uri.slice(0, doc.uri.length - doc.path.length) : '';
+  const out: CheckDocument[] = [];
+  const seen = new Set([doc.uri]);
+  const visit = (uri: string, text: string): void => {
+    for (const ref of ts.preProcessFile(text, true, false).importedFiles) {
+      const dep = resolveRelativeSpecifier(uri, ref.fileName);
+      if (dep === undefined || seen.has(dep)) continue;
+      seen.add(dep);
+      const depText = readDocument(dep);
+      if (depText === undefined || !isTypeshadeSource(depText, dep)) continue;
+      const path = base !== '' && dep.startsWith(base) ? dep.slice(base.length) : dep;
+      out.push({ path, uri: dep, text: depText });
+      visit(dep, depText);
+    }
+  };
+  visit(doc.uri, doc.text);
+  return out;
 }

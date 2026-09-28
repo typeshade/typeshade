@@ -164,13 +164,14 @@ Each principle comes with the question a reviewer asks of a new public API.
    feature.
 8. **TypeShade code is shared the way TypeScript code is.** A library of TypeShade functions is
    an npm package, and it is imported by name.
-   **Today this is the gap that blocks an ecosystem.** The compiler takes relative imports only.
-   A multi-file program refuses a package import with TS8099:
+   **Today this is the gap that blocks an ecosystem.** A shader file imports another by a
+   relative path on every path (change 0022, surface §68), and a package import is refused with
+   TS8072:
 
-   `Only relative imports are supported (got "shade-noise").`
+   `"shade-noise" is a package, and a shader module imports only a file of its own program, by a relative path such as "./shade-noise.shade.ts".`
 
-   The check is in `src/compiler/ts/module.ts`. A single file reports the imported function as
-   `TS8004 Unknown function`. So no library of TypeShade code can be published and used.
+   The check is in `src/compiler/ts/link.ts`. So a library of TypeShade code can be shared as
+   files in one project, and not yet published and used as a package (roadmap X6).
    _Test:_ can a developer use a library of TypeShade functions from npm without copying its
    source?
 

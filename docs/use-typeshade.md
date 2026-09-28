@@ -17,10 +17,13 @@ export function add(a: f32, b: f32): f32 {
 ```
 
 - Language builtins (`f32`, `vec3`, `sin`, `vec4(...)`) are global. No import.
-- User code uses `import` / `export`. Only relative named imports.
+- User code uses `import` / `export`: a file imports what another shader file exports, by a
+  relative path (Rule 3.9, surface §68).
 - `Math.sin` / `Math.PI` are aliases onto the same IR.
 
 ## Modules
+
+A file and the shader files it imports are one program, which compiles into one module:
 
 ```ts
 // math.ts
@@ -39,15 +42,23 @@ export function foo(x: f32): f32 {
 
 ## Compiling
 
-The public entry points take **one** source string:
+The public entry points take **one** source string, and read what it imports through a
+`readDocument` you pass them (surface §68):
 
 ```ts
 import { compile, compileTsSource } from 'typeshade'
 
-const { diagnostics, module, wgsl, glsl, eval: run } = compile(appSrc)
+const files: Record<string, string> = { 'math.ts': mathSrc }
+const { diagnostics, module, wgsl, glsl, eval: run } = compile(appSrc, {
+  fileName: 'app.ts',
+  readDocument: (fileName) => files[fileName],
+})
 
 // Lower-level: IR + WGSL, no GLSL and no CPU eval.
-const r = compileTsSource(appSrc, { fileName: 'app.ts' })
+const r = compileTsSource(appSrc, {
+  fileName: 'app.ts',
+  readDocument: (fileName) => files[fileName],
+})
 r.diagnostics.filter((d) => d.category === 'error') // must be empty
 ```
 
@@ -154,10 +165,13 @@ A file without `"use typeshade"` is a `TS8001` error from both entry points. Pas
 `requireDirective: false` to `compileTsSource` to get the silently empty result instead, for a
 probe that only reads `hasDirective`.
 
-Bundling several files into one compilation unit is **not** on the public surface yet.
-`compileTsSources(files, entry)` in `src/compiler/ts/module.ts` does it — it takes a list of
-`{ fileName, source }` and the entry's file name — but it is reachable only by a deep import
-and is not exported from the package entry.
+A source that imports another shader file is linked with it before it is lowered
+(`src/compiler/ts/link.ts`): `compile(appSrc, { fileName: 'app.ts', readDocument })` reads
+`math.ts` through `readDocument(fileName)`, which returns a file's text or `undefined`, and a
+diagnostic located in `math.ts` carries that file's name. With no `readDocument` nothing is
+read, and an import is `TS8072`. `compileTsSources(files, entry)` in `src/compiler/ts/module.ts`
+is the in-tree form that takes the files as a list and keeps each one whole; it is not exported
+from the package entry.
 
 ## Graphics
 

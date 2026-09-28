@@ -129,6 +129,22 @@ export interface CompileOptions {
    * either way. Surface §66, Rule 11.9.
    */
   readonly console?: 'cpu' | 'gpu';
+  /**
+   * Reads a file this source imports (Rule 3.9, surface §68): its text, or `undefined` when
+   * there is none. The source and every shader file it imports, directly or through another,
+   * are one program, compiled into one module, and a diagnostic located in an imported file
+   * carries that file's name and offsets. Without it nothing is read: a source with no import
+   * compiles as it always has, and an import is `TS8072`. The same hook as the language
+   * service's `TypeshadeLanguageServiceHost.readDocument`, so both halves read one program.
+   */
+  readonly readDocument?: (fileName: string) => string | undefined;
+  /**
+   * The file a specifier written in `fromFile` names, or `undefined` when it names none. The
+   * default, which the language service applies too, resolves a relative specifier against the
+   * importing file (`fileName` for the source), reads `.js` and `.mjs` as `.ts`, and appends
+   * `.ts` to any other path. A package, a bare specifier, is `TS8072`.
+   */
+  readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
 }
 
 /**
@@ -155,6 +171,8 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
   const r = compileTsSource(source, {
     fileName: options.fileName,
     ...(options.deprecations === true ? { deprecations: true } : {}),
+    ...(options.readDocument ? { readDocument: options.readDocument } : {}),
+    ...(options.resolveImport ? { resolveImport: options.resolveImport } : {}),
   });
   const module: ModuleDecl = {
     consts: [...r.consts],

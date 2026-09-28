@@ -225,6 +225,13 @@ export const TS_CODES = {
    *  size or is not a value, the stage has no room for another storage buffer). The call still
    *  reaches the sink on the CPU (Rule 11.9, surface §66, proposal 0014). */
   CONSOLE_NOT_RECORDED: 'TS8071',
+  /** An import the compiler does not follow (Rule 3.9, surface §68, proposal 0022): a path that
+   *  names no file or one this compile cannot read, a file that is not a shader module, a
+   *  package, a name the module does not export, and the forms a shader module has no use for
+   *  (a default import or export, an import that names nothing, `import(...)`, `require`, a
+   *  module namespace used as a value). Reported on the import, and a use of the name it would
+   *  have bound reports nothing more (Rule 12.4). */
+  IMPORT: 'TS8072',
   UNSUPPORTED: 'TS8099',
 } as const;
 

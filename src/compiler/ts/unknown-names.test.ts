@@ -8,7 +8,6 @@
 // so a coding agent that reads only `compile()` gets the fix too (Rule 12.7).
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
-import { compileTsSources } from './module.js';
 import { TS_CODES } from './codes.js';
 import { didYouMean, similarName, unknownNameRemedy } from './unknown-names.js';
 
@@ -196,23 +195,18 @@ describe('every place a name is written names the one it is spelled like (Rule 1
   });
 
   it('an import from another shader module', () => {
-    const r = compileTsSources(
-      [
-        {
-          fileName: 'light.shade.ts',
-          source: '"use typeshade";\nexport function luminance(c: vec3): f32 {\n  return c.x;\n}\n',
-        },
-        {
-          fileName: 'main.shade.ts',
-          source:
-            '"use typeshade";\nimport { luminace } from "./light.shade";\n@fragment\nexport function fs(): vec4 {\n  return vec4(luminace(vec3(1.)));\n}\n',
-        },
-      ],
-      'main.shade.ts',
+    const files: Record<string, string> = {
+      'light.shade.ts':
+        '"use typeshade";\nexport function luminance(c: vec3): f32 {\n  return c.x;\n}\n',
+    };
+    const r = compile(
+      '"use typeshade";\nimport { luminace } from "./light.shade";\n@fragment\nexport function fs(): vec4 {\n  return vec4(luminace(vec3(1.)));\n}\n',
+      { fileName: 'main.shade.ts', readDocument: (f) => files[f] },
     );
-    expect(r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toContain(
-      '"light.shade.ts" has no function "luminace". Did you mean "luminance"?',
-    );
+    // On the imported name, and the call of it reports nothing more (Rule 12.4).
+    expect(r.diagnostics.map((d) => `${d.code} ${d.line}:${d.character} ${d.message}`)).toEqual([
+      `${TS_CODES.IMPORT} 2:10 "./light.shade" has no export "luminace". Did you mean "luminance"?`,
+    ]);
   });
 });
 

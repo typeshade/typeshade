@@ -212,4 +212,33 @@ export function g(x: f32): f32 {
     // The service keeps the other document open, and its rows are not this one's.
     expect(kept.every((d) => d.file === 'a.shade.ts')).toBe(true);
   });
+
+  // Verifies: Rule 3.9 (docs/language-design.md; traced in reqs/).
+  it('checks a module a document imports once, under its own path, and its mistakes there', () => {
+    const app = `"use typeshade";
+import { g } from "./lib/util.shade.ts";
+export function f(x: f32): f32 {
+  return g(x);
+}
+`;
+    const util = `"use typeshade";
+export function g(x: f32): f32 {
+  return zork(x);
+}
+`;
+    const disk: Record<string, string> = { '/p/lib/util.shade.ts': util };
+    const report = checkDocuments([doc('app.shade.ts', app)], { readDocument: (u) => disk[u] });
+    // The import is followed, so the call is not an unknown function in app.shade.ts; the
+    // mistake is util's, reported at util's line and under the path it was named by.
+    expect(report.files).toEqual(['app.shade.ts', 'lib/util.shade.ts']);
+    expect(report.diagnostics.map((d) => `${d.file}:${d.line}:${d.column} ${d.code}`)).toEqual([
+      'lib/util.shade.ts:3:10 TS8004',
+    ]);
+    // Handed in too, it is checked once.
+    const both = checkDocuments([doc('app.shade.ts', app), doc('lib/util.shade.ts', util)], {
+      readDocument: (u) => disk[u],
+    });
+    expect(both.files).toEqual(['app.shade.ts', 'lib/util.shade.ts']);
+    expect(both.errors).toBe(1);
+  });
 });

@@ -315,6 +315,58 @@ export function withWrittenStructs<R>(f: () => R): R {
   }
 }
 
+/** While a linked source (Rule 3.9, `link.ts`) is lowered: that source, and the file and the text
+ *  each of its spans was written as. The linker renames a declaration two files of one program
+ *  share (Rule 3.2), and a sentence still names it as its own file writes it. */
+export interface LinkedOrigin {
+  readonly sourceFile: ts.SourceFile;
+  readonly written: (
+    start: number,
+    end: number,
+  ) => { readonly file: string; readonly text: string } | undefined;
+}
+
+let LINKED_ORIGIN: LinkedOrigin | undefined;
+
+/** Run `f`, the lowering of the linked source `origin.sourceFile`, with {@link writtenName} and
+ *  {@link sameFile} reading `origin`, and restore whatever was in force before. */
+export function withLinkedOrigin<R>(origin: LinkedOrigin, f: () => R): R {
+  const saved = LINKED_ORIGIN;
+  LINKED_ORIGIN = origin;
+  try {
+    return f();
+  } finally {
+    LINKED_ORIGIN = saved;
+  }
+}
+
+/** A declared name as its own file writes it: `hash` for the `b_hash` the linker emits. */
+export function writtenName(id: ts.Identifier): string {
+  const sf = id.getSourceFile();
+  if (LINKED_ORIGIN?.sourceFile !== sf) return id.text;
+  return LINKED_ORIGIN.written(id.getStart(sf), id.getEnd())?.text ?? id.text;
+}
+
+/** The text of `node` as its own file writes it: `hash(p)` for the `b_hash(p)` the linker
+ *  emits. */
+export function writtenText(node: ts.Node): string {
+  const sf = node.getSourceFile();
+  if (LINKED_ORIGIN?.sourceFile !== sf) return node.getText(sf);
+  return LINKED_ORIGIN.written(node.getStart(sf), node.getEnd())?.text ?? node.getText(sf);
+}
+
+/** Whether `a` and `b` were written in one file: one file of the program a linked source joins,
+ *  or the one source being lowered. */
+export function sameFile(a: ts.Node, b: ts.Node): boolean {
+  const sf = a.getSourceFile();
+  if (b.getSourceFile() !== sf) return false;
+  const origin = LINKED_ORIGIN;
+  if (origin?.sourceFile !== sf) return true;
+  const fileOf = (n: ts.Node): string | undefined =>
+    origin.written(n.getStart(sf), n.getStart(sf))?.file;
+  return fileOf(a) === fileOf(b);
+}
+
 /** What {@link useWrittenStructs} reads a struct's written form off: the name it is emitted
  *  under, the class declaration it comes from, and what that class's type parameters are bound
  *  to. A `CollectedStruct` is one. */
@@ -333,12 +385,18 @@ export function useWrittenStructs(structs: readonly StructOrigin[]): void {
   for (const s of structs) {
     const node = s.classNode;
     if (node?.name === undefined) continue;
+    // `path` is the class as the module names it, `shown` as its own file does: the two differ
+    // where the linker renamed a declaration another file of the program shares (Rule 3.2).
     const path = [node.name.text];
+    const shown = [writtenName(node.name)];
     for (let at: ts.Node = node.parent; !ts.isSourceFile(at); at = at.parent) {
-      if (ts.isModuleDeclaration(at)) path.unshift(at.name.text);
+      if (ts.isModuleDeclaration(at)) {
+        path.unshift(at.name.text);
+        shown.unshift(ts.isIdentifier(at.name) ? writtenName(at.name) : at.name.text);
+      }
     }
     const args = (node.typeParameters ?? []).flatMap((p) => s.binding?.get(p.name.text) ?? []);
-    const name = path.join('.');
+    const name = shown.join('.');
     if (name !== s.decl.name || args.length > 0) {
       written.set(s.decl.name, { name, args, base: path.join('_') });
     }

@@ -591,7 +591,8 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
     'a name of the DOM (TS2584)': [fn('  const d = document\n  return x'), 'typeshade TS8022'],
     // A name of Node, which TypeScript offers to find in its type definitions (TS2591).
     'a name of Node (TS2591)': [fn('  const d = process\n  return x'), 'typeshade TS8022'],
-    'a function of Node (TS2591)': [fn('  const d = require("x")\n  return x'), 'typeshade TS8004'],
+    // `require`, the one function of Node, is an import the compiler does not follow (Rule 3.9).
+    'a function of Node (TS2591)': [fn('  const d = require("x")\n  return x'), 'typeshade TS8072'],
     'a type of Node (TS2591)': [
       'export function f(x: Buffer): f32 {\n  return 1.\n}',
       'typeshade TS8002',

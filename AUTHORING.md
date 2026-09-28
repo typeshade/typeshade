@@ -1610,6 +1610,37 @@ the call. The setup is four lines, a plugin in `vite.config.ts`, two in `tsconfi
 `typeshade sync` in `prepare`. The surface reference has them, with the full table of host
 values: `docs/use-typeshade-surface.md` §64.
 
+### A shader module that imports another
+
+A `"use typeshade"` file imports what another one exports, as any TypeScript module does:
+`import { fbm } from './noise.shade.ts'`. The file you compile and the shader files it imports,
+directly or through another, are one program, and the program becomes one module. What your file
+reaches in an imported file comes with it, its helpers, structs, constants and bindings, and the
+imported file's own entry points do not. Each file keeps its own scope, so two files can each have
+a private `hash`; the module emits the second one under a name of its own.
+
+`compile()` reads what a source imports through a `readDocument` you pass it, which returns a
+file's text by its path, or `undefined` when there is none. The Vite plugin, `typeshade check`,
+`typeshade sync` and the editor read the files themselves.
+
+```ts
+import { existsSync, readFileSync } from 'node:fs'
+import { compile } from 'typeshade'
+
+const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : undefined)
+const { wgsl, diagnostics } = compile(read('src/clouds.shade.ts')!, {
+  fileName: 'src/clouds.shade.ts',
+  readDocument: read,
+})
+```
+
+A mistake in an imported file is reported at that file, line and column. An import the compiler
+cannot follow is a `TS8072` on the import: a path that names no file, a file that does not begin
+with the directive, a name the file does not export, a default import. A package, imported by a
+bare specifier through `node_modules`, is not supported yet. The surface reference has every form
+an import takes, the names the module emits and each refusal: `docs/use-typeshade-surface.md`
+§68.
+
 ## Diagnostics
 
 After this page you can read a coded error, branch your own code on the code it carries,

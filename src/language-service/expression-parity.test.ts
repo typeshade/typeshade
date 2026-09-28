@@ -34,6 +34,17 @@ import { createTypeshadeLanguageService } from './service.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+/** A file of the repository by the uri a program here names it with, `/examples/x.shade.ts`, for
+ *  a program that imports another (`imported-noise` reads `lib/noise.shade.ts`, surface §68):
+ *  both halves read it, so the expressions compared are the program's. */
+const readRoot = (uri: string): string | undefined => {
+  try {
+    return readFileSync(join(ROOT, uri), 'utf8');
+  } catch {
+    return undefined;
+  }
+};
+
 /** Every program the repository ships: the examples, and each journey's shader. */
 function shippedPrograms(): { readonly uri: string; readonly text: string }[] {
   const files: string[] = [];
@@ -257,9 +268,9 @@ function firstDivergences(
   const divergences: Divergence[] = [];
   let compared = 0;
   for (const { uri, text } of programs) {
-    const result = compileTsSource(text, { fileName: uri });
+    const result = compileTsSource(text, { fileName: uri, readDocument: readRoot });
     const written = result.sourceFile;
-    const host = new TypeshadeHost({ ambientLib });
+    const host = new TypeshadeHost({ ambientLib, readDocument: readRoot });
     host.openDocument(uri, text);
     const program = ts.createLanguageService(host, registry).getProgram()!;
     const checker = program.getTypeChecker();

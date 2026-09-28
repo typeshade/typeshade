@@ -13,8 +13,8 @@
 //
 //   single   the first code line is the `"use typeshade"` directive → compileTsSource
 //   multi    `// name.ts` headers split the block into several files, each with the
-//            directive → compileTsSources (a list of { fileName, source }); the LAST
-//            section is the entry, which is how the docs order them
+//            directive → compile() of the LAST section, the entry, which is how the docs
+//            order them, reading the others through `readDocument` (Rule 3.9)
 //
 // A fence with no directive anywhere is a grammar fragment (a bare `class` body, a host-side
 // snippet) and is not a compilation unit — those are skipped. The gate is that a fence which
@@ -38,7 +38,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js';
-import { compileTsSources } from './module.js';
+import { compile } from './compile.js';
 import { USE_TYPESHADE } from './directive.js';
 import { checkDocuments } from '../../language-service/check.js';
 
@@ -209,11 +209,22 @@ describe('documentation snippets compile', () => {
   for (const u of multi) {
     const names = Object.keys(u.files).join(' + ');
     it(`${u.fence.file}:${u.fence.line} compiles as a module (${names})`, () => {
-      const r = compileTsSources(
-        Object.entries(u.files).map(([fileName, source]) => ({ fileName, source })),
-        u.entry,
-      );
+      const r = compile(u.files[u.entry]!, {
+        fileName: u.entry,
+        readDocument: (f) => u.files[f],
+      });
       expect(errorsOf(r.diagnostics)).toEqual([]);
+    });
+    it(`${u.fence.file}:${u.fence.line} draws no error in the editor (${names})`, () => {
+      const report = checkDocuments(
+        [{ path: u.entry, uri: `/docs/${u.entry}`, text: u.files[u.entry]! }],
+        { readDocument: (uri) => u.files[uri.slice('/docs/'.length)] },
+      );
+      expect(
+        report.diagnostics
+          .filter((d) => d.severity === 'error')
+          .map((d) => `${d.file}:${d.line}:${d.column} ${d.source} ${d.code} ${d.message}`),
+      ).toEqual([]);
     });
   }
 });
