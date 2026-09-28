@@ -1,4 +1,4 @@
-// === The `typeshade` command, over an injected host ===
+// === The `tshc` command, over an injected host ===
 //
 // Argument parsing, file discovery and output, with every filesystem and process call behind
 // `CliHost`. `bin.ts` supplies the Node host; a test supplies an in-memory one. Keeping the
@@ -19,7 +19,7 @@ export interface CliHost {
   /** The working directory, absolute. */
   readonly cwd: string;
   readFile(path: string): string | undefined;
-  /** Write `text` to the file at `path`, replacing it; `typeshade sync` writes host views. */
+  /** Write `text` to the file at `path`, replacing it; `tshc sync` writes host views. */
   writeFile(path: string, text: string): void;
   /** `'file'`, `'directory'`, or `undefined` when nothing is at `path`. */
   kind(path: string): 'file' | 'directory' | undefined;
@@ -40,8 +40,8 @@ const SKIPPED_DIRECTORIES = new Set(['node_modules', 'dist', '.git']);
 /** The file suffix a directory walk collects, the same default filter the Vite plugin uses. */
 const SHADE_SUFFIX = '.shade.ts';
 
-export const USAGE = `Usage: typeshade check [options] [paths...]
-       typeshade sync [--check] [paths...]
+export const USAGE = `Usage: tshc check [options] [paths...]
+       tshc sync [--check] [paths...]
 
 Checks "use typeshade" files the way the editor does, and runs the WGSL and GLSL
 backends the way compile() does. A directory is searched for *.shade.ts files
@@ -158,7 +158,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
 export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): number {
   const args = parseArgs(argv);
   if (args.error !== undefined) {
-    host.stderr(`typeshade: ${args.error}\n\n${USAGE}`);
+    host.stderr(`tshc: ${args.error}\n\n${USAGE}`);
     return 2;
   }
   if (args.version) {
@@ -170,7 +170,7 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
     return args.help ? 0 : 2;
   }
   if (args.command !== 'check' && args.command !== 'sync') {
-    host.stderr(`typeshade: unknown command ${JSON.stringify(args.command)}.\n\n${USAGE}`);
+    host.stderr(`tshc: unknown command ${JSON.stringify(args.command)}.\n\n${USAGE}`);
     return 2;
   }
 
@@ -179,7 +179,7 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
     const path = resolvePath(host.cwd, given);
     const kind = host.kind(path);
     if (kind === undefined) {
-      host.stderr(`typeshade: no file or directory at ${given}.\n`);
+      host.stderr(`tshc: no file or directory at ${given}.\n`);
       return 2;
     }
     if (kind === 'file') files.push(path);
@@ -188,7 +188,7 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
   const unique = [...new Set(files)];
   if (unique.length === 0) {
     host.stderr(
-      `typeshade: no ${SHADE_SUFFIX} files under ${args.paths.length > 0 ? args.paths.join(', ') : 'the working directory'}.\n`,
+      `tshc: no ${SHADE_SUFFIX} files under ${args.paths.length > 0 ? args.paths.join(', ') : 'the working directory'}.\n`,
     );
     return 2;
   }
@@ -199,7 +199,7 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
   for (const path of unique) {
     const text = host.readFile(path);
     if (text === undefined) {
-      host.stderr(`typeshade: cannot read ${relativeTo(host.cwd, path)}.\n`);
+      host.stderr(`tshc: cannot read ${relativeTo(host.cwd, path)}.\n`);
       return 2;
     }
     docs.push({ path: relativeTo(host.cwd, path), uri: path, text });
@@ -221,7 +221,7 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
 }
 
 /**
- * `typeshade sync`: write the host view of each shader module beside it (surface §64), or with
+ * `tshc sync`: write the host view of each shader module beside it (surface §64), or with
  * `check`, report each one that is missing or stale and write nothing. A module that does not
  * compile has no view; its errors are printed, and the status is 1.
  */
@@ -233,13 +233,13 @@ function sync(files: readonly string[], host: CliHost, check: boolean): number {
     const shown = relativeTo(host.cwd, path);
     if (!isShaderModulePath(path)) {
       host.stderr(
-        `typeshade: ${shown} is not named *.shade.ts; a host imports a shader module by that name (Rule 3.8).\n`,
+        `tshc: ${shown} is not named *.shade.ts; a host imports a shader module by that name (Rule 3.8).\n`,
       );
       return 2;
     }
     const text = host.readFile(path);
     if (text === undefined) {
-      host.stderr(`typeshade: cannot read ${shown}.\n`);
+      host.stderr(`tshc: cannot read ${shown}.\n`);
       return 2;
     }
     // The shader files the module imports, read from disk beside it (Rule 3.9).
@@ -263,7 +263,7 @@ function sync(files: readonly string[], host: CliHost, check: boolean): number {
     }
     if (check) {
       host.stderr(
-        `${viewShown} is ${host.kind(viewPath) === 'file' ? 'stale' : 'missing'}; run typeshade sync.\n`,
+        `${viewShown} is ${host.kind(viewPath) === 'file' ? 'stale' : 'missing'}; run tshc sync.\n`,
       );
       status = 1;
       continue;

@@ -77,7 +77,7 @@ describe('two entries of one stage, with none named (#213)', () => {
       for (const name of names.split(', ')) expect(wgsl.text).toContain(`fn ${name}(`);
     });
 
-    it(`${label}: typeshade check reports the same warning`, () => {
+    it(`${label}: tshc check reports the same warning`, () => {
       const result = checkDocuments([{ path: 'a.shade.ts', uri: 'a.shade.ts', text: src }]);
       expect(result.diagnostics.map((d) => `${d.severity} ${d.code} ${d.message}`)).toEqual([
         `warning TS8015 Backend emit failed: ${refusal(stage, names)}`,

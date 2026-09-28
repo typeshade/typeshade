@@ -18,7 +18,7 @@
 //     (`moduleSuffixes: [".typeshade", ""]`) makes `tsc` read for the import.
 //
 // A `.ts` the bundle reads that begins with the directive and is not named `*.shade.ts` is
-// refused with the rename (Rule 3.8). `typeshade sync` writes the same views for a clean
+// refused with the rename (Rule 3.8). `tshc sync` writes the same views for a clean
 // checkout before `tsc` runs.
 //
 // Like `src/cli/bin.ts`, this runs on Node, and the library build has no host types
@@ -73,7 +73,7 @@ const isProjectTs = (path: string): boolean =>
  * the module's code on the CPU tier at `f32` precision (Rule 11.7), with host values (Rule 8.21); a
  * call of a `@compute` entry dispatches it on WebGPU (Rule 8.24).
  * The plugin writes each module's host view beside it, `name.shade.typeshade.ts`, when the
- * module changes, in `vite dev` and in `vite build`; `typeshade sync` writes them all for a
+ * module changes, in `vite dev` and in `vite build`; `tshc sync` writes them all for a
  * clean checkout.
  *
  * @example

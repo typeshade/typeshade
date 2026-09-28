@@ -1,4 +1,4 @@
-// === How `typeshade check` prints a report: text, short, or JSON ===
+// === How `tshc check` prints a report: text, short, or JSON ===
 //
 // `text` is `tsc --pretty`'s layout without the colour: a `file:line:col - error TSxxxx:`
 // header, then the offending line under a line-number gutter with `~` beneath the span. It is
@@ -9,7 +9,7 @@
 
 import type { CheckDiagnostic, CheckReport } from '../language-service/check.js';
 
-/** The output formats `typeshade check --format` accepts. */
+/** The output formats `tshc check --format` accepts. */
 export const CHECK_FORMATS = ['text', 'short', 'json'] as const;
 export type CheckFormat = (typeof CHECK_FORMATS)[number];
 

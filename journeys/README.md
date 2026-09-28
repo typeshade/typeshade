@@ -44,7 +44,7 @@ A third kind, `kind: 'kernel'`, runs a kernel function (change 0013) and needs n
 
 ## The import path
 
-`journeys/_host-import/` is a different kind of journey, and the harness skips it (a name that starts with `_`). It is a Vite project that imports a `.shade.ts` and calls its functions on the CPU tier (surface §64) and its `@compute` entries on WebGPU (surface §67). `scripts/user-journey.ts` sets it up with the documented lines, from the same tarball, beside `vite` and `typescript`, and `typeshade sync` runs as its `prepare` script. It then checks five things:
+`journeys/_host-import/` is a different kind of journey, and the harness skips it (a name that starts with `_`). It is a Vite project that imports a `.shade.ts` and calls its functions on the CPU tier (surface §64) and its `@compute` entries on WebGPU (surface §67). `scripts/user-journey.ts` sets it up with the documented lines, from the same tarball, beside `vite` and `typescript`, and `tshc sync` runs as its `prepare` script. It then checks five things:
 
 1. `tsc` over the host program reports 0 errors, and a wrong-length vector argument is TS2345 at the host line;
 2. `vite build` bundles it, and the bundle holds no compiler and no `new Function`;

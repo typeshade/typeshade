@@ -72,7 +72,7 @@ import type { ShaderExample } from './_shared.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** The extension that marks a TypeShade source module — the same one the Vite plugin
- *  (`src/vite.ts`) and `typeshade sync` pick modules by (Rule 3.8), so the corpus on disk and the
+ *  (`src/vite.ts`) and `tshc sync` pick modules by (Rule 3.8), so the corpus on disk and the
  *  bundler plugin agree on what a shade module is. */
 export const SHADE_EXT = '.shade.ts';
 

@@ -91,10 +91,11 @@ Every `"use typeshade"` block in this README, `AUTHORING.md`, `docs/` and `examp
 
 ## Checking shaders from the command line
 
-`typeshade check` reports what the editor reports for a `"use typeshade"` file, plus what the WGSL and GLSL backends report when `compile()` runs them, and exits non-zero on an error. It is the check to run in CI and the one to hand a coding agent: plain `tsc` over the same files reports errors the compiler does not have (next section), and a tool that reports errors on correct code gets correct code rewritten.
+The package installs one command, `tshc`, as `typescript` installs `tsc`. `tshc check` reports what the editor reports for a `"use typeshade"` file, plus what the WGSL and GLSL backends report when `compile()` runs them, and exits non-zero on an error. It is the check to run in CI and the one to hand a coding agent: plain `tsc` over the same files reports errors the compiler does not have (next section), and a tool that reports errors on correct code gets correct code rewritten.
 
 ```sh
-npx typeshade check src/                          # from the npm package
+npx tshc check src/                               # in a project that installs typeshade
+npx -p typeshade tshc check src/                  # anywhere: the package is typeshade, the command tshc
 bun vendor/typeshade/src/cli/bin.ts check src/    # from a submodule, which resolves to source
 ```
 
@@ -128,7 +129,7 @@ import { height } from './terrain.shade.ts';
 const h = height([0.5, 0.5], [1, 0.5, 2, 0.25]); // a number
 ```
 
-The setup is the Vite plugin, two lines of the host `tsconfig.json`, and `typeshade sync` in `prepare`, which writes the host view `tsc` reads for the import (`terrain.shade.typeshade.ts`, git-ignored):
+The setup is the Vite plugin, two lines of the host `tsconfig.json`, and `tshc sync` in `prepare`, which writes the host view `tsc` reads for the import (`terrain.shade.typeshade.ts`, git-ignored):
 
 ```ts
 // vite.config.ts

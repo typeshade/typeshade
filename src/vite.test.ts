@@ -1,7 +1,7 @@
 // Verifies: Rule 3.8 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 3.9 (docs/language-design.md; traced in reqs/).
 //
-// The Vite plugin (`typeshade/vite`, change 0009) and `typeshade sync`, the two writers of a
+// The Vite plugin (`typeshade/vite`, change 0009) and `tshc sync`, the two writers of a
 // shader module's host face. Vitest runs on Vite with the plugin in its pipeline
 // (`vitest.config.ts`), so the first case imports a `.shade.ts` the way a host file does and
 // calls what it exports; the rest drive the plugin's hook and the command directly.
@@ -178,7 +178,7 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { console.log(
   });
 });
 
-describe('typeshade sync', () => {
+describe('tshc sync', () => {
   function memoryHost(files: Record<string, string>) {
     const out: string[] = [];
     const err: string[] = [];
@@ -221,12 +221,12 @@ describe('typeshade sync', () => {
     const files: Record<string, string> = { '/p/src/terrain.shade.ts': TERRAIN };
     const a = memoryHost(files);
     expect(runCli(['sync', '--check'], a.host, info)).toBe(1);
-    expect(a.stderr()).toBe('src/terrain.shade.typeshade.ts is missing; run typeshade sync.\n');
+    expect(a.stderr()).toBe('src/terrain.shade.typeshade.ts is missing; run tshc sync.\n');
     expect(files[VIEW]).toBeUndefined();
     files[VIEW] = '// old\n';
     const b = memoryHost(files);
     expect(runCli(['sync', '--check'], b.host, info)).toBe(1);
-    expect(b.stderr()).toBe('src/terrain.shade.typeshade.ts is stale; run typeshade sync.\n');
+    expect(b.stderr()).toBe('src/terrain.shade.typeshade.ts is stale; run tshc sync.\n');
     expect(files[VIEW]).toBe('// old\n');
   });
 

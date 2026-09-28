@@ -327,7 +327,7 @@ exist; a caller-facing GPU-versus-oracle comparison does not (roadmap 0.7 item 1
 `typeshade()` (`typeshade/vite`, `src/vite.ts`, `src/vite.test.ts`) compiles each `*.shade.ts` a
 host imports at build time, fails the build on an error diagnostic, and writes the host view
 `tsc` reads (surface §64); the language service (`typeshade/language-service`,
-`docs/language-service-api.md`) serves the editor. The `typeshade` command has `check` and
+`docs/language-service-api.md`) serves the editor. The `tshc` command has `check` and
 `sync`; `build`, `inspect`, `profile` and `explain` are unimplemented.
 
 ---
@@ -376,7 +376,7 @@ Milestone F  (21–22) <- Phase 21 partial (oracle + stepper), Phase 22 partial 
 | 19 Optimization    | 🟨 partial | IR optimizer (`passes/opt/`); no fusion or buffer reuse                                           |
 | 20 Runtime         | ⬜         |                                                                                                   |
 | 21 Verification    | 🟨 partial | oracle + stepper (`typeshade/debug`); no GPU divergence report                                    |
-| 22 Tooling         | 🟨 partial | `typeshade/vite` plugin, language service; `typeshade check` and `typeshade sync`                 |
+| 22 Tooling         | 🟨 partial | `typeshade/vite` plugin, language service; `tshc check` and `tshc sync`                           |
 
 Docs follow the same rule as code: every `"use typeshade"` block in `README.md` and
 `docs/*.md` is compiled by `src/compiler/ts/doc-snippets.test.ts` and must produce zero

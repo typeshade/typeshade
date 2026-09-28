@@ -264,7 +264,7 @@ change is hardest to see. So a change of meaning ships in two steps:
 
 1. **Warn, in a published release.** The new meaning is reported as a `category: 'warning'`
    diagnostic behind the opt-in option, `compile(src, { deprecations: true })` and
-   `typeshade check --deprecations`, naming the edit that keeps today's meaning. The emitted
+   `tshc check --deprecations`, naming the edit that keeps today's meaning. The emitted
    bytes are identical with the option on and off. A consumer turns the option on in CI, sees
    every line the change will move, and edits them at their own pace. The release's CHANGELOG
    names the warning and the release that will change the default.
