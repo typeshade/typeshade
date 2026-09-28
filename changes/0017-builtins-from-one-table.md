@@ -177,7 +177,11 @@ The work lands in pull requests of one family each, with `Change: 0017`, in this
 2. the math family, which the measurement above covers;
 3. derivatives, bit operations and packing;
 4. atomics;
-5. textures, whose rows the fixture already holds;
+5. textures, whose rows the fixture already holds. Measured before the move (every SUPPORTED
+   texture row, for each element its `T` ranges over: 101 rows, 151 instances), the hand-written
+   declarations and the compiler already typed every call as `core.def` does, so the family is
+   held to both halves by `coredef-texture-overloads.test.ts` rather than generated, and its
+   declarations move to the generator in the pull request that next changes the texture surface;
 6. value constructors and conversions;
 7. operators, whose result shapes then also drive the projection's `ERASING_OPERATORS`.
 

@@ -165,6 +165,12 @@ this file` or `"P" has no constructor here`, then `TS8022` at every read. A read
   says it: `f = clmap(f, 0., 1.)` after `const f` is the write's `TS8005` and `Unknown function
 "clmap". Did you mean "clamp"?`, where the typo was TypeScript's alone.
 
+- **The editor takes `vec4(x, v3)`, `vec4(v2, v2)` and `vec3(v)` on a `vec3`** (surface §49, Rule
+  12.7, proposal 0017). The compiler and WGSL always took them; the editor reported "No overload
+  matches this call". The two compositions were left out while declaring them broke the
+  inference of `vec4(mix(c * 0.5, d, 0.5), 1.)`, which the projection has since fixed. Every
+  constructor and conversion over scalars and vectors is now held to both halves.
+
 - **A static builder says the class the call names with a `this` parameter** (surface §26, Rule
   8.13, proposal 0020). `static unit<C extends Disc>(this: { new (): C; SIZE: f32 }): C` is the
   TypeScript spelling of a static that builds its value with `new this()`, and `Capped.unit()` is a
@@ -569,6 +575,37 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   spelling of its own (Rule 6.5).
 
 ### Added
+
+- **`resident` and `configure`: a kernel function's arrays stay on the device, and the caller
+  orders the tiers** (change 0013, part 5; Rules 8.21 and 11.8, surface §65). `resident(array)`,
+  from `typeshade` and `typeshade/runtime`, wraps a typed array or an array of objects once; a call
+  on WebGPU uploads it the first time and binds the same buffer after, reading nothing back, and
+  `await dev.read()` returns a new array of what it holds. A call whose written arrays are all
+  resident and that returns nothing is typed `void` and only queues; kernel calls run in the order
+  they were made, and a queued call's error is thrown by `read()`. `configure({ prefer })` sets the
+  order of WebGPU, WebGL2 and the CPU tier; a list of one makes that tier required, and a call it
+  cannot run on throws, naming why. With two signatures, a wrong array at a kernel call is `TS2769`
+  in `tsc` where it was `TS2345`. The import journey renders into and reduces over resident arrays
+  on WebGPU in Chromium.
+
+- **A kernel function's scatter runs on the GPU by atomics** (change 0013, part 4; Rules 7.2 and
+  8.22, surface §65). A loop the proof accepts that adds into an integer array at an index it
+  computes, `bins[k] += 1` (and `&= |= ^=`, `min`, `max`), lowers to `atomicAdd(&bins[k], 1u)` on
+  an `array<atomic<u32>>` binding, the same bytes as the caller's `Uint32Array`, which comes back
+  with the counts added. The import journey builds a 64-bin histogram of 300 000 values on WebGPU
+  in Chromium and matches the reference exactly.
+
+- **A kernel function's reduction runs on the GPU, in one order on every tier** (change 0013,
+  part 3; Rules 7.2 and 8.22, surface §65). `s += x`, `s *= x`, `min`, `max` (and `& | ^` on
+  integers) in a loop the proof accepts are folded as the GPU folds them: each iteration from the
+  operator's identity, 256 at a time by the workgroup tree, then the partials the same way until
+  one is left. On WebGPU that is the loop's dispatch and one more per level of partials, and the
+  function's `return` runs on the CPU tier with what they folded, so `await total(img)` returns
+  the sum; the CPU tier, the oracle and the generated CPU code run the same tree
+  (`core/kernel-tree.ts`), so a sum is the same bits on every tier, where the sequential reading
+  differs in the last places. An `f32` `min` or `max` starts from the largest finite `f32`, since
+  WGSL refuses an infinity in a constant expression. The import journey sums 300 000 `f32`s on
+  WebGPU in Chromium and gets the tree's bits.
 
 - **`console.table` in a shader** (§66, design rule 11.9, `changes/0019-console-table.md`). It
   takes one value (an array, a struct, a vector, a matrix or a scalar) and the host prints it with
@@ -2229,6 +2266,12 @@ holds functions, constants, classes and namespaces. Move it into a function.`, t
   A `new` of a class of statics alone names one of its statics, `Call "U.half(...)" directly.`,
   or for one of static fields alone `"K" declares only static members, so there is no value of
 it to build. Read "K.a" directly.`, where it named a literal `U.f(...)` the class need not have.
+
+- **A compound assignment to an `f32` rounds in the CPU backends' `f32` mode.** `s += x` computed
+  its sum inside the statement, where `froundF32` (`core/passes/precision.ts`) did not reach it, so
+  the interpreter and the generated CPU code kept it an f64 sum where `s = s + x` rounded; a host
+  call (Rule 11.7) summing in a loop could part from the GPU in the last places. The pass now spells
+  it `s = s + x` first, component-wise for a vector.
 
 - **An array with no size is refused where it would leave its storage binding, not by Tint**
   (Rule 12.6, surface §20). A parameter or a result typed `array<T>`, or a struct whose last field

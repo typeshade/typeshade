@@ -69,6 +69,11 @@ export function drift(ps: array<Particle>, dt: f32) {
     ps[i].pos = ps[i].pos + ps[i].vel * dt;
   }
 }
+export function prefix(out: array<f32>) {
+  for (let i: u32 = 1; i < out.length; i++) {
+    out[i] = out[i] + out[i - 1];
+  }
+}
 `;
 
 describe('the host view of a kernel function (Rule 8.21)', () => {
@@ -76,12 +81,23 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
 
   it('is asynchronous, and types each array as the typed array or objects it takes', () => {
     expect(f.view).toContain(
-      'export declare function render(k: readonly [number, number, number, number], size: number, out: Float32Array): Promise<void>;',
+      'export declare function render(k: readonly [number, number, number, number], size: number, out: Float32Array | Resident<Float32Array>): Promise<void>;',
     );
-    expect(f.view).toContain('export declare function total(xs: Float32Array): Promise<number>;');
     expect(f.view).toContain(
-      'export declare function drift(ps: { pos: [number, number, number, number]; vel: [number, number, number, number] }[], dt: number): Promise<void>;',
+      'export declare function total(xs: Float32Array | Resident<Float32Array>): Promise<number>;',
     );
+    expect(f.view).toContain(
+      'export declare function drift(ps: { pos: [number, number, number, number]; vel: [number, number, number, number] }[] | Resident<{ pos: [number, number, number, number]; vel: [number, number, number, number] }[]>, dt: number): Promise<void>;',
+    );
+  });
+
+  it('gives a call whose written arrays are all resident, and that returns nothing, a void signature', () => {
+    expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
+    expect(f.view).toContain(
+      'export declare function render(k: readonly [number, number, number, number], size: number, out: Resident<Float32Array>): void;',
+    );
+    // A function with a result always waits.
+    expect(f.view).not.toMatch(/function total\([^)]*\): void/);
     // A helper stays synchronous (0009).
     expect(f.view).toContain('export declare function height(p: readonly [number, number]');
   });
@@ -91,11 +107,14 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
       /Each of its loops runs on the GPU, one invocation per iteration.*\n.*function render/,
     );
     expect(f.view).toMatch(
-      /It runs on the CPU: a loop of it reduces, which a later part of change 0013 lowers\..*\n.*function total/,
+      /Each of its loops runs on the GPU, one invocation per iteration.*\n.*function total/,
+    );
+    expect(f.view).toMatch(
+      /It runs on the CPU: a loop of it runs on the CPU \(TS8070\)\..*\n.*function prefix/,
     );
   });
 
-  it('type-checks a host program with plain tsc, and a wrong array at the host line', () => {
+  it('type-checks a host program with plain tsc, and a wrong array at the host line (no overload takes it)', () => {
     const errors = (app: string): string[] => {
       const dir = tempDir();
       writeFileSync(join(dir, 'm.shade.ts'), TERRAIN);
@@ -109,7 +128,7 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
         moduleResolution: ts.ModuleResolutionKind.Bundler,
         allowImportingTsExtensions: true,
         moduleSuffixes: ['.typeshade', ''],
-        lib: ['lib.es2022.d.ts'],
+        lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
         types: [],
       });
       return ts.getPreEmitDiagnostics(program).map((d) => `TS${d.code}`);
@@ -121,9 +140,14 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
     ).toEqual([]);
     expect(
       errors(
+        `import { render, total } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst dev = resident(new Float32Array(16));\nconst queued: void = render([1, 0.5, 2, 0.25], 4, dev);\nexport const s: number = await total(dev);\nexport const img: Float32Array = await dev.read();\nvoid queued;\n`,
+      ),
+    ).toEqual([]);
+    expect(
+      errors(
         `import { render } from './m.shade.ts';\nawait render([1, 0.5, 2, 0.25], 4, [1, 2]);\nexport {};\n`,
       ),
-    ).toEqual(['TS2345']);
+    ).toEqual(['TS2769']);
   });
 });
 
@@ -194,7 +218,92 @@ export function Object(xs: array<f32>) {
   });
 });
 
-describe('what the call dispatches (change 0013 part 2: maps)', () => {
+describe('a resident array and the tiers (Rule 11.8)', () => {
+  it('holds its own array across calls on the CPU tier, and read() waits for the calls before it', async () => {
+    const m = await load(TERRAIN);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const src = new Float32Array(16);
+    const dev = rt.resident(src);
+    const k = [1, 0.5, 2, 0.25];
+    // Queued, not awaited: read() waits for it.
+    void (m.render as (...a: unknown[]) => Promise<void>)(k, 4, dev);
+    const img = await dev.read();
+    const oracle = compileModule(compile(TERRAIN).module, { precision: 'f32' });
+    const want = new Array<number>(16).fill(0);
+    oracle.fns.render!(k as never, 4 as never, want as never);
+    expect([...img]).toEqual(want);
+    // The caller's array is not the handle's.
+    expect([...src]).toEqual(new Array(16).fill(0));
+    // A reduction reads it where it takes an array.
+    await expect((m.total as (xs: unknown) => Promise<number>)(dev)).resolves.toBeCloseTo(
+      want.reduce((a, b) => a + b, 0),
+      4,
+    );
+  });
+
+  it('keeps the error of a queued call for read() to throw', async () => {
+    const m = await load(TERRAIN);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const short = rt.resident(new Float32Array(10));
+    void (m.render as (...a: unknown[]) => Promise<void>)([1, 0.5, 2, 0.25], 4, short).catch(
+      () => undefined,
+    );
+    await expect(short.read()).rejects.toThrow(
+      'render(): parameter "out" holds 10 elements, and loop 1 writes it at indices 0 to 15.',
+    );
+  });
+
+  it('runs on the tiers configure names, and says why none could', async () => {
+    const m = await load(TERRAIN);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const render = m.render as (...a: unknown[]) => Promise<void>;
+    try {
+      rt.configure({ prefer: ['webgpu'] });
+      await expect(render([1, 0.5, 2, 0.25], 4, new Float32Array(16))).rejects.toThrow(
+        'render(): no tier it may use can run it (webgpu: there is no WebGPU device).',
+      );
+      rt.configure({ prefer: ['webgl2', 'webgpu'] });
+      await expect(render([1, 0.5, 2, 0.25], 4, new Float32Array(16))).rejects.toThrow(
+        'render(): no tier it may use can run it (webgl2: no kernel function runs on WebGL2 yet, which a later part of change 0013 adds; webgpu: there is no WebGPU device).',
+      );
+      rt.configure({ prefer: ['webgl2', 'cpu'] });
+      await expect(render([1, 0.5, 2, 0.25], 4, new Float32Array(16))).resolves.toBeUndefined();
+      expect(() => rt.configure({ prefer: [] })).toThrow(
+        new TypeError('configure(): prefer takes a non-empty list of tiers.'),
+      );
+      expect(() => rt.configure({ prefer: ['gpu' as never] })).toThrow(
+        new TypeError('configure(): "gpu" is not a tier; the tiers are webgpu, webgl2 and cpu.'),
+      );
+    } finally {
+      rt.configure({});
+    }
+  });
+
+  it('refuses one resident array passed as two parameters', async () => {
+    const m = await load(`"use typeshade";
+export function copy(src: array<f32>, dst: array<f32>) {
+  for (let i: u32 = 0; i < src.length; i++) {
+    dst[i] = src[i];
+  }
+}
+`);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const r = rt.resident(new Float32Array(4));
+    await expect((m.copy as (...a: unknown[]) => Promise<void>)(r, r)).rejects.toThrow(
+      new TypeError('copy(): parameter "dst" is the same resident array as parameter "src".'),
+    );
+  });
+});
+
+describe('what the call dispatches (change 0013 parts 2 and 3: maps and reductions)', () => {
   const lowered = (source: string, fn: string) => {
     const r = compile(source, { fileName: 'm.shade.ts' });
     const f = r.module.funcs.find((x) => x.name === fn)!;
@@ -227,6 +336,7 @@ export function odds(out: array<f32>, n: i32) {
         step: -1,
         writes: ['out'],
         checks: [{ param: 'out', a: 3, c: 0 }],
+        wg: 64,
       },
     ]);
     const entry = plan.module.funcs.find((f) => f.name === 'odds_loop0')!;
@@ -238,12 +348,109 @@ export function odds(out: array<f32>, n: i32) {
     ]);
   });
 
+  it('lowers a reduction to a tree per workgroup, a fold of the partials, and a tail on the CPU', () => {
+    const plan = lowered(
+      `"use typeshade";
+export function stats(xs: array<f32>, out: array<f32>): f32 {
+  let s = 0.;
+  let m = -1e30;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out[i] = xs[i] * 2.;
+    s += xs[i];
+    m = max(m, xs[i]);
+  }
+  return s / f32(xs.length) + m;
+}`,
+      'stats',
+    );
+    if ('noGpu' in plan) throw new Error(plan.noGpu);
+    const [loop] = plan.loops;
+    expect(loop).toMatchObject({
+      entry: 'stats_loop0',
+      wg: 256,
+      writes: ['out'],
+      reduce: {
+        entry: 'stats_loop0_fold',
+        vars: [
+          { name: 's', op: '+', binding: 'stats_loop0_s' },
+          { name: 'm', op: 'max', binding: 'stats_loop0_m' },
+        ],
+      },
+    });
+    expect(plan.tail).toBe('stats__tail');
+    expect(plan.module.bindings.map((b) => `${b.name} ${b.space} ${b.access ?? ''}`)).toEqual([
+      'stats_args uniform ',
+      'xs storage read',
+      'out storage read_write',
+      'stats_loop0_s storage read_write',
+      'stats_loop0_m storage read_write',
+    ]);
+    const fold = plan.module.funcs.find((f) => f.name === 'stats_loop0_fold')!;
+    expect(fold.workgroupSize).toBe(256);
+    // The tail combines what the GPU folded, then returns: no loop is left in it.
+    const tail = plan.ranges.find((f) => f.name === 'stats__tail')!;
+    expect(tail.params.map((p) => p.name)).toEqual(['xs', 'out', '_t0_s', '_t0_m']);
+    expect(tail.body.some((st) => st.s === 'for')).toBe(false);
+  });
+
+  it('lowers a scatter into an integer array to an atomic on array<atomic<T>>', () => {
+    const plan = lowered(
+      `"use typeshade";
+export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32) {
+  const top = bins.length - 1;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    const k = min(u32(max((xs[i] - lo) * scale, 0.)), top);
+    bins[k] += 1;
+  }
+}`,
+      'histogram',
+    );
+    if ('noGpu' in plan) throw new Error(plan.noGpu);
+    expect(plan.loops[0]).toMatchObject({ entry: 'histogram_loop0', writes: ['bins'], checks: [] });
+    const bins = plan.module.bindings.find((b) => b.name === 'bins')!;
+    expect(bins.type).toEqual({ kind: 'array', elem: { kind: 'atomic', elem: 'u32' } });
+    expect(bins.access).toBe('read_write');
+    expect(
+      JSON.stringify(plan.module.funcs.find((f) => f.name === 'histogram_loop0')!.body),
+    ).toContain('"fn":"atomicAdd"');
+  });
+
   it.each([
     [
-      'a reduction',
-      `export function total(xs: array<f32>): f32 { let s = 0.; for (const x of xs) { s += x; } return s; }`,
+      'a scatter with *',
+      `export function scale(bins: array<u32>, ks: array<u32>) { for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] *= 2; } }`,
+      'scale',
+      'it scatters into "bins" with *, which no atomic does',
+    ],
+    [
+      'a scattered array another loop writes in place',
+      `export function both(bins: array<u32>, ks: array<u32>) { for (let i: u32 = 0; i < bins.length; i++) { bins[i] = 0; } for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] += 1; } }`,
+      'both',
+      'a loop writes "bins" in place, and another scatters into it',
+    ],
+    [
+      'a scattered array another loop reads',
+      `export function peek(bins: array<u32>, ks: array<u32>, out: array<u32>) { for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] += 1; } for (let i: u32 = 0; i < out.length; i++) { out[i] = bins[i]; } }`,
+      'peek',
+      'a loop reads "bins", which a loop scatters into: an atomic is read only by an atomic',
+    ],
+    [
+      'an f64 reduction',
+      `export function total(xs: array<f64>): f64 { let s = f64(0.); for (const x of xs) { s += x; } return s; }`,
       'total',
-      'a loop of it reduces, which a later part of change 0013 lowers',
+      'it reduces "s", an emulated f64, which a later part of change 0013 folds on the GPU',
+    ],
+    [
+      'a statement after a reduction that a later loop replays',
+      `export function norm(xs: array<f32>) { let s = 0.; for (const x of xs) { s += x; } const inv = 1. / s; for (let i: u32 = 0; i < xs.length; i++) { xs[i] = xs[i] * inv; } }`,
+      'norm',
+      'a statement before loop 2 reads "s", which an earlier loop reduces',
+    ],
+    [
+      'a result that reads an element',
+      `export function head(xs: array<f32>): f32 { let s = 0.; for (const x of xs) { s += x; } return s + xs[0]; }`,
+      'head',
+      "its result reads an array's elements, which the call computes on the CPU tier",
     ],
     [
       'a refused loop',

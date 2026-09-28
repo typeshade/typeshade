@@ -39,6 +39,18 @@ describe('sanity: the tree reads the whole document', () => {
     expect(ruleBlocks(design).map(([n]) => n)).toEqual(declared);
   });
 
+  it('keeps each rule whole, through its Rationale, Derives from and Enforced by', () => {
+    // Rule 8.22 has a list of its own (R1 to R6) and a paragraph after it. The reader ended a
+    // rule at the first plain line after any bullet, which cut 8.22 before its three parts and
+    // wrote an item the site's reader refuses; the item was then repaired by hand.
+    for (const [n, lines] of ruleBlocks(design)) {
+      const parts = lines
+        .map((l) => /^- (Rationale|Derives from|Enforced by):/.exec(l)?.[1])
+        .filter(Boolean);
+      expect(parts, `Rule ${n}`).toEqual(['Rationale', 'Derives from', 'Enforced by']);
+    }
+  });
+
   it('finds verifying files for most rules, and surface sections for many', () => {
     const rules = buildRules();
     expect(rules.filter((r) => r.verification === 'test').length).toBeGreaterThanOrEqual(80);

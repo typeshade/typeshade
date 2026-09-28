@@ -3,7 +3,8 @@
 // of its own. The page runs `run()` and `draws()`.
 import { blockSum, report, scale } from './kernels.shade.ts';
 import { plasma, tiled } from './draw.shade.ts';
-import { drift, odds, render } from './loops.shade.ts';
+import { resident } from 'typeshade/runtime';
+import { drift, histogram, odds, render, stats, tally } from './loops.shade.ts';
 // Copied in by the journey from journeys/particles and journeys/plasma.
 import { step } from './particles.shade.ts';
 import { fs } from './plasma.shade.ts';
@@ -97,8 +98,9 @@ export async function journeys(input: {
   return { particles: particles.flatMap((p) => [...p.pos, ...p.vel]), plasma: plasmaPixels };
 }
 
-/** Call three kernel functions (change 0013): their loops run on WebGPU, one invocation per
- *  iteration, and what they write comes back into these arrays in place. */
+/** Call six kernel functions (change 0013): their loops run on WebGPU, one invocation per
+ *  iteration, what they write comes back into these arrays in place, and what they reduce is
+ *  folded in the tree order into what they return. */
 export async function loops(): Promise<Record<string, number[] | string>> {
   const img = new Float32Array(64 * 64);
   await render([1, 0.5, 2, 0.25], 64, img);
@@ -114,10 +116,32 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     () => 'no error',
     (e: unknown) => String(e),
   );
+  // 300 000 elements: 1172 partials, folded twice more to one.
+  const xs = Float32Array.from({ length: 300000 }, (_, i) => Math.sin(i) * 1000.123);
+  const scaled = new Float32Array(xs.length);
+  const summary = await stats(xs, scaled, 0.5);
+  const ints = Int32Array.from({ length: 70000 }, (_, i) => (i % 7) - 3);
+  const total = await tally(ints);
+  // Resident arrays (Rule 11.8): uploaded once, kept on the device across the calls, which only
+  // queue, and read back once.
+  const dev = resident(new Float32Array(64 * 64));
+  render([1, 0.5, 2, 0.25], 64, dev);
+  const devXs = resident(xs);
+  const devScaled = resident(new Float32Array(xs.length));
+  const devSummary = await stats(devXs, devScaled, 0.5);
+  const bins = new Uint32Array(64);
+  await histogram(xs, bins, -1000.123, 64 / 2000.246);
   return {
     render: [...img],
     drift: ps.flatMap((p) => [...p.pos, ...p.vel]),
     odds: [...every],
+    stats: [...summary],
+    scaled: [...scaled.subarray(0, 256)],
+    tally: [total],
+    histogram: [...bins],
+    residentRender: [...(await dev.read())],
+    residentStats: [...devSummary],
+    residentScaled: [...(await devScaled.read()).subarray(0, 256)],
     short,
   };
 }

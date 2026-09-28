@@ -207,20 +207,27 @@ describe('the ambient library declares what the compiler lowers, no wider and no
     });
   }
 
-  // The two compositions left UNDECLARED on purpose, with the cost that declaring them carries.
-  // They are real WGSL and the compiler takes both; the editor does not, and this pins that as
-  // a known, reasoned gap rather than letting it read as a row nobody looked at.
+  // The compositions that were left UNDECLARED, with the call that declaring them used to
+  // break (#157): a second two-argument `vec4` overload cost TypeScript the contextual type
+  // `mix` inferred through. The projection writes the erased vector's type in now, so all
+  // three are accepted by both halves, and so is the identity the converting forms skipped.
   for (const [name, source] of [
     ['vec4(x, v3)', FS('', '  const v = vec3(uv, 1.)\n  const w = vec4(uv.x, v)\n  return w')],
     ['vec4(v2, v2)', FS('', '  const w = vec4(uv, uv)\n  return w')],
+    [
+      'vec4(mix(c * 0.5, d, 0.5), 1.) beside them',
+      FS(
+        '',
+        '  const c = vec3(uv, 1.)\n  const d = vec3(0.5)\n  return vec4(mix(c * 0.5, d, 0.5), 1.)',
+      ),
+    ],
+    ['vec3(v3), the identity', FS('', '  const v = vec3(uv, 1.)\n  return vec4(vec3(v), 1.)')],
+    [
+      'vec2u(v2u), the identity',
+      FS('', '  const v = vec2u(1, 2)\n  return vec4(vec2(vec2u(v)), 0., 1.)'),
+    ],
   ] as const) {
-    it.fails(`${name} is accepted by the compiler and NOT by the editor (#157)`, () => {
-      // Adding a second TWO-argument `vec4` overload costs TypeScript the contextual type it
-      // uses to infer through vector arithmetic: `vec4(mix(c * 0.5, d, 0.5), 1.)` then reports
-      // TS2769 on a program that compiles, because `mix` infers from the `number` the
-      // arithmetic erased rather than from the `vec3` the context supplied. `vec4(c * 0.5, 1.)`
-      // is a far more common spelling than either of these two, so the editor is better off
-      // without them until the #43 filter can restore a shape through a NESTED call.
+    it(`${name} is accepted by the editor and the compiler (#157)`, () => {
       expect(editorRefusal(source)).toBeNull();
       expect(compilerRefusal(source)).toBeNull();
     });

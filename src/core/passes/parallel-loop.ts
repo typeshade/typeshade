@@ -24,6 +24,7 @@
 // (src/compiler/ts/kernel-loops.ts).
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
+import type { ShaderType } from '../ir/types.js';
 import type { SourceSpan } from '../ir/span.js';
 import { sourceSpanOf } from '../ir/span.js';
 import { eachExpr } from '../ir/visit.js';
@@ -101,6 +102,8 @@ export type LoopWrite =
 export interface LoopReduction {
   readonly name: string;
   readonly op: '+' | '*' | '&' | '|' | '^' | 'min' | 'max';
+  /** The variable's type. */
+  readonly type: ShaderType;
 }
 
 /** The verdict on one candidate loop. */
@@ -139,6 +142,45 @@ export interface KernelProof {
 /** Prove each kernel function of `m`. */
 export function proveKernels(m: ModuleDecl): KernelProof[] {
   return m.funcs.filter((f) => f.kernel === true).map((f) => proveKernel(f, m));
+}
+
+// ─── the tree order of a reduction (Rule 7.2) ────────────────────────────────────────────────
+
+/**
+ * The loops of `target` that the CPU tier and the oracle combine in the tree order
+ * (`core/kernel-tree.ts`): each accepted loop of a kernel function that reduces, with what it
+ * reduces. The proof reads `source`, the module before the CPU backends round it; `target` is
+ * that module after, whose functions keep their top-level loops in the same order.
+ */
+export function treeLoops(
+  source: ModuleDecl,
+  target: ModuleDecl,
+): ReadonlyMap<Stmt, readonly LoopReduction[]> {
+  const out = new Map<Stmt, readonly LoopReduction[]>();
+  if (!source.funcs.some((f) => f.kernel === true)) return out;
+  for (const proof of proveKernels(source)) {
+    const f = target.funcs.find((x) => x.name === proof.fn);
+    if (f === undefined) continue;
+    const loops = f.body.filter((st) => st.s === 'for');
+    proof.loops.forEach((v, j) => {
+      const loop = loops[j];
+      if (v.ok && v.reductions.length > 0 && loop !== undefined) out.set(loop, v.reductions);
+    });
+  }
+  return out;
+}
+
+/** `$ta op $tb` in `r`'s type, rounded to `f32` when `f32` is true and the type is `f32`: the
+ *  step the tree combines two values with, and the variable with the tree's result. */
+export function treeCombine(r: LoopReduction, f32: boolean): Expr {
+  const a: Expr = { op: 'varref', type: r.type, name: '$ta' };
+  const b: Expr = { op: 'varref', type: r.type, name: '$tb' };
+  const e: Expr =
+    r.op === 'min' || r.op === 'max'
+      ? { op: 'call', type: r.type, fn: r.op, args: [a, b] }
+      : { op: 'binop', type: r.type, bop: r.op, a, b };
+  const elem = r.type.kind === 'scalar' ? r.type.scalar : r.type.kind === 'vec' ? r.type.elem : '';
+  return f32 && elem === 'f32' ? { op: 'call', type: r.type, fn: '__fround', args: [e] } : e;
 }
 
 // ─── the module the proof reads ──────────────────────────────────────────────────────────────
@@ -305,7 +347,7 @@ function proveLoop(
       const op = first.combine?.op;
       if (op === undefined || ws.some((w) => w.combine?.op !== op || reads(w.combine.with, root)))
         return refuse({ rule: 'R3', why: 'carried', name: root, at: first.at });
-      reductions.push({ name: root, op });
+      reductions.push({ name: root, op, type: first.target.type });
       continue;
     }
     if (ws.some((w) => isName(w.target)))
@@ -527,8 +569,9 @@ function writesIn(body: readonly Stmt[], c: Ctx): Write[] {
   return out;
 }
 
-/** `s op= e`, `s = s op e`, `s = e op s` (for a commutative op) and `s = min(s, e)`. */
-function combineOf(st: Stmt & { s: 'assign' | 'assignOp' }): Pick<Write, 'combine'> {
+/** `s op= e`, `s = s op e`, `s = e op s` (for a commutative op) and `s = min(s, e)`: the op
+ *  and `e`, which the lowering of a scatter reads too (`kernel-lower.ts`). */
+export function combineOf(st: Stmt & { s: 'assign' | 'assignOp' }): Pick<Write, 'combine'> {
   if (st.s === 'assignOp') {
     return REDUCE_BOPS.has(st.bop)
       ? { combine: { op: st.bop as LoopReduction['op'], with: st.expr } }

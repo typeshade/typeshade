@@ -5465,19 +5465,17 @@ the declaration, TypeScript checks an assignable constraint. The third is the co
 — a refusal that keeps the binding alive so the rest of the file still resolves cannot also
 reach back into the ambient library and change the type it was declared with.
 
-### Two compositions the editor still does not take
+### Three compositions the editor now takes
 
-`vec4(x, v3)` and `vec4(v2, v2)` are real WGSL and the compiler takes both. They are
-deliberately not declared, and the cost of declaring them is measured: adding a SECOND
-two-argument `vec4` overload costs TypeScript the contextual type it uses to infer through
-vector arithmetic. With one candidate, `vec4(mix(c * 0.5, d, 0.5), 1.)` contextually types its
-first argument `vec3` and `mix` infers `vec3`; with two, that context is gone, `mix` infers from
-the `number` the arithmetic erased `c * 0.5` to, and the call reports TS2769 on a program that
-compiles.
-
-`vec4(c * 0.5, 1.)` is a far more common spelling than either of the two, so the editor is
-better off without them until the #43 arithmetic filter can restore a shape through a NESTED
-call. Both are pinned as `it.fails` so the day that changes is a deliberate edit.
+`vec4(x, v3)` and `vec4(v2, v2)` are real WGSL and the compiler takes both, and they were left
+undeclared: a second two-argument `vec4` overload cost TypeScript the contextual type it used to
+infer through vector arithmetic, and `vec4(mix(c * 0.5, d, 0.5), 1.)` reported TS2769 on a
+program that compiles. The projection now writes `c * 0.5` its vector type before TypeScript
+reads it, so `mix` infers `vec3` from its own arguments and needs no context, and both
+compositions are declared. So is the identity, `vec3(v)` on a `vec3`, which the converting
+forms skipped. A measurement over every constructor and conversion row of Tint's `core.def`
+whose types are scalars and vectors (92 instances) found these three shapes and nothing else;
+`coredef-overloads.test.ts` now holds every one of those instances to both halves.
 
 ### A binding still needs a named type
 
@@ -5520,7 +5518,9 @@ writes bare (`atomicAdd(bins[i], 1)`, `arrayLength(xs)`). `dot(a, b)` on two
 both said `number`. The compiler reads the same rows for the call's result and its argument
 check; `ATOMIC_INTRINSICS` and `BARRIER_INTRINSICS`, which the CPU runtime carries, are held to
 them by the same suite. `src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both
-halves on a witness per instance.
+halves on a witness per instance. The texture builtins keep the declarations the ambient library
+writes, which types every call as `core.def` does, and `coredef-texture-overloads.test.ts` holds
+each supported texture row to both halves in the same way, for each element a texture holds.
 
 A class field or a function's return the document leaves unannotated is written in by the
 projection when the front end types it a scalar: `#width = 0.05` hovers as `f32`, and `get
@@ -6985,7 +6985,7 @@ import { render, total } from './terrain.shade.ts';
 
 const img = new Float32Array(512 * 512);
 await render([1, 0.5, 2, 0.25], 512, img); // each loop ran on the GPU; img is filled in place
-const sum = await total(img); // a reduction: on the CPU until change 0013's next part
+const sum = await total(img); // a reduction: a tree per workgroup, then its partials
 ```
 
 It is asynchronous from the start, and it returns `Promise<void>` or `Promise<R>` for a result.
@@ -6997,16 +6997,61 @@ Each array it writes is read back into yours in place.
 | `array<f32>`, `array<i32>`, `array<u32>` | `Float32Array`, `Int32Array`, `Uint32Array`                                  |
 | `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element |
 | `array<S>`, a struct                | an array of objects                                                               |
+| any of the above | a `Resident` of it (below) |
 
-**Where it runs.** When every loop of the function is a map the proof accepts, each loop is one
-dispatch on WebGPU, one invocation per iteration, in order; the call reads back what each loop
-wrote before the next. Before anything runs it checks each array against the indices a loop
-writes at `a*i + c`, and refuses one too short (`render(): parameter "out" holds 10 elements, and
-loop 1 writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, the whole
-function runs on the CPU tier (Rule 11.7), and the view's comment says why.
+**Where it runs.** When the proof accepts every loop of the function, each loop is one dispatch
+on WebGPU, one invocation per iteration, in order; the call reads back what each loop wrote
+before the next. Before anything runs it checks each array against the indices a loop writes at
+`a*i + c`, and refuses one too short (`render(): parameter "out" holds 10 elements, and loop 1
+writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, the whole function
+runs on the CPU tier (Rule 11.7), and the view's comment says why.
 
-**Not yet.** A reduction, a scatter and a returned value on the GPU, `resident` and `configure`,
-and the WebGL2 tier are the next parts of change 0013. Until then such a function runs on the CPU.
+**A reduction.** A variable a loop combines, `s += x`, `s *= x`, `s = min(s, x)` or `s = max(s, x)`
+(and `& | ^` on integers), is folded in one order on every tier, the GPU's (Rule 7.2): each
+iteration from the operator's identity, 256 at a time by the workgroup tree, then the partials the
+same way until one is left, and the variable is combined with that last. On WebGPU that is the
+loop's dispatch and one more per level of partials; the CPU tier and the oracle run the same tree,
+so a sum is the same bits everywhere. It is not the order TypeScript adds in: an `f32` sum of many
+values differs from the sequential reading in the last places, and the tree is the more accurate
+of the two. An `f32` `min` or `max` starts from the largest finite `f32`, since WGSL lets a driver
+assume no infinity. The function's `return` then runs on the CPU tier with what the GPU folded; a
+`return` that reads an array's elements, and a statement a later loop replays that reads a
+reduced variable, run the whole function on the CPU.
+
+**A scatter.** A loop that adds into an integer array at an index it computes, `bins[k] += 1`
+(or `&= |= ^=`, `min`, `max`), may have two iterations land on one element. On WebGPU the array is
+`array<atomic<u32>>` (or `i32`) in the generated module, the same bytes, and each such write is an
+atomic, which is exact in any order for an integer; the caller's array comes back with the counts
+added to what it held. A scatter with `*`, which no atomic does, an array one loop scatters into
+and another writes in place or reads, and a scatter into anything but an element, run the function
+on the CPU.
+
+**Resident arrays.** `resident(array)`, from `typeshade` or `typeshade/runtime`, wraps a typed array
+or an array of objects once, and a kernel function takes the handle wherever it takes the array
+(Rule 11.8). The first call on WebGPU uploads it; the calls after bind the same buffer and read
+nothing back, and `await dev.read()` returns a new array of what it holds:
+
+```ts
+import { resident } from 'typeshade/runtime';
+
+const dev = resident(new Float32Array(512 * 512));
+render(k, 512, dev); // queued: every array it writes is resident, and it returns nothing
+const sum = await total(dev); // reads the same buffer
+const img = await dev.read(); // the one read of the chain
+```
+
+A call whose written arrays are all resident and that returns nothing is typed `void`: nothing
+waits on it. Calls run in the order they were made, and `read()` waits for the ones before it; a
+queued call that fails leaves its error for `read()` to throw. On the CPU tier the handle is an
+array it holds, and costs nothing.
+
+**The tiers.** A call runs on the first of WebGPU, WebGL2 and the CPU tier that can run it.
+`configure({ prefer: ['webgpu'] })` changes the order, and a list of one tier makes it required: a
+call it cannot run on throws, naming why (`render(): no tier it may use can run it (webgpu: there
+is no WebGPU device).`).
+
+**Not yet.** A texture and an `f64` reduction on the GPU, and the WebGL2 tier, are the next parts of
+change 0013. Until then such a function runs on the CPU.
 
 ## 67. Calling an entry point from host code
 
