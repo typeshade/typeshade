@@ -96,8 +96,20 @@ describe('pack', () => {
     expect(p.wgsl).toMatch(/@vertex/);
     expect(p.wgsl).toMatch(/var<uniform> camera/);
     expect(p.glsl?.vertex).toMatch(/#version 300 es/);
-    expect(p.bindings).toEqual([
-      { name: 'camera', space: 'uniform', group: 0, binding: 0, type: 'struct:Camera' },
+    expect(p.schema).toBe(1);
+    // The fields packModule() has always given, and schema 1's resource and layout.
+    expect(p.bindings).toMatchObject([
+      {
+        name: 'camera',
+        space: 'uniform',
+        group: 0,
+        binding: 0,
+        type: 'struct:Camera',
+        resource: { resourceKind: 'uniform-buffer' },
+        stages: [],
+        rule: 'std140',
+        layout: { kind: 'struct' },
+      },
     ]);
     expect(p.vertexLayout?.arrayStride).toBe(20);
     expect(p.entries.map((e) => e.stage).sort()).toEqual(['fragment', 'vertex']);

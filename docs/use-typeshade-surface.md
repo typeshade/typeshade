@@ -6859,6 +6859,16 @@ checkout `tsc` often runs before Vite (create-vite's `build` script is `tsc && v
 `tshc sync` writes every view first; `tshc sync --check` fails on one that is missing or
 stale. The views are generated files, and git-ignored.
 
+**The default export is the program.** A module's host import has one more export than the module
+writes: its default export is the compiled program's manifest (§69), which the view types as
+`Pack`. The module's own default export, if it writes one, has no host face, as it never had. A
+bundle that imports the default export alone carries the manifest and none of the CPU tier.
+
+```ts
+import program from './terrain.shade.ts'; // the manifest: WGSL, bindings, entries (§69)
+import { height } from './terrain.shade.ts'; // a helper, on the CPU tier
+```
+
 **What a host can call** (Rule 8.20): an exported function that is not an entry point, is not
 generic, takes no function, has a host value for each parameter and for its result, and reaches
 no binding, no workgroup variable and no builtin only a GPU computes. An exported constant and an
@@ -7355,5 +7365,46 @@ TypeScript's report of the same mistake (`TS2307`, `TS2305`, `TS2724`, `TS2459`,
 | a module namespace used as a value           | `"noise" is a module namespace, read one name at a time (noise.name). It is not a value.`                                             |
 
 **Not yet.** A package, imported by a bare specifier through `node_modules`, is roadmap X6.
+
+## 69. Running a compiled program
+
+A host that runs a compiled program with a pipeline of its own reads everything it needs from one
+object, the program's **manifest** (Rule 11.10). `packModule(compile(source).module)` returns it,
+and a module's host import gives it as its default export (§64). It is plain JSON, so a build
+writes it to disk, a worker posts it and a cache stores it unchanged.
+
+```ts
+import { compile, packModule } from 'typeshade';
+
+const program = packModule(compile(source).module, { console: true });
+program.schema; // 1: a reader refuses a schema it does not know
+program.wgsl; // the shader module's code
+program.bindings; // each slot: group, binding, resource, the stages that reach it, its layout
+program.entries; // each entry: stage, workgroup size, inputs, outputs, the bindings it reaches
+program.console; // with { console: true }: the WGSL that records console.*, and its log table
+```
+
+**A binding** carries its `group` and `binding`, its `resource` in `reflect()`'s words (a
+uniform or storage buffer, a texture with its dimension and sample type, a storage texture with
+its format, a sampler and whether it compares), the `stages` whose entries reach it, and a
+buffer's byte `layout` under its `rule`, `std140` for a uniform and `std430` for storage, with
+every offset, size and stride the emitted WGSL assumes (Rule 6.8). A buffer with no host layout
+says why in `noLayout`. The `_fp64` guard of a module that emulates `f64` is a binding like any
+other, marked `injected`: a 1 × 1 texture holding 1.0.
+
+**An entry** carries its `stage`, its `workgroupSize`, its `inputs` and `outputs` with their
+locations, builtins and interpolation, the `bindings` it reaches through its calls with whether it
+writes each, a vertex entry's `vertex` buffer (its `@location` inputs, loose or fields of a struct
+parameter, tightly packed with their formats, the layout `reflect().vertex` reports too), and the
+`line` it is declared on.
+
+**The rest.** `overrides` with their types and defaults; `features`, the `GPUFeatureName`s a device
+needs; `console`, on request, the recorded variant's WGSL, its log table and its bindings, where
+`_console` is added; and `gl`, what the WebGL2 tier draws each full-screen fragment entry with, or
+why it cannot. A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its
+internal format and the texels per element.
+
+The program runtime that loads a manifest, and the load-time emitter, are the next parts of change
+0025.
 
 Last updated: 2026-09-22

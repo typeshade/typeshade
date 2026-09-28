@@ -586,6 +586,22 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A compiled program has a manifest, with a version** (proposal 0025, step 1; design rules 6.8
+  and 11.10; surface §64 and §69). `packModule(m, options)` returns schema 1: `schema` and
+  `compiler`, the version that wrote it; each binding with its `resource` in `reflect()`'s words,
+  the `stages` that reach it, and a buffer's byte `layout` with every offset, size and stride
+  under its `rule`, the `_fp64` guard among them; each entry with its `workgroupSize`, its
+  `inputs` and `outputs` with their interpolation, the `bindings` it reaches and writes, a vertex
+  entry's `vertex` buffer and its `line`; `overrides` and `features`; with `{ console: true }` the
+  recorded variant; and `gl`, how the WebGL2 tier draws each full-screen fragment entry, and a
+  storage array's `dataTexture`. The fields `packModule()` always gave keep their meaning. The
+  builder is `src/core/manifest.ts`, which imports no TypeScript. A module's host import has a
+  default export, its manifest, typed `Pack` in the host view; a bundle that imports it alone
+  carries no CPU tier. `reflect().vertex` now reports the tightly packed layout the manifest
+  carries, and the located fields of a struct parameter, where it gave std430-aligned offsets for
+  loose parameters only (for `f32`, `vec3`, `vec2`: 0, 4, 16 and a stride of 24, where it said 0,
+  16, 32 and 40).
+
 - **A kernel function over doubles runs on the GPU** (change 0013, the last part; Rule 8.22,
   surface §65). A kernel function that takes an `f64` or an `array<f64>` now lowers and
   dispatches on WebGPU. Each double is two `f32`s in the buffers, and the runtime binds the
