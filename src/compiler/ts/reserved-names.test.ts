@@ -39,6 +39,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const ofCategory = (src: string, category: 'error' | 'warning') =>
   compileTsSource(src)
@@ -162,6 +163,76 @@ export function fs(): vec4 { return vec4(g(1.), 0., 0., 1.); }
     expect(errorsOf(render('', 'let _: f32 = 1.; return vec4(_, 0., 0., 1.)'))).toEqual([
       `${TS_CODES.RESERVED_NAME} "_" is WGSL's phony assignment target, not an identifier, so a local of that name cannot be emitted for the WebGPU target. Rename it.`,
     ]);
+  });
+});
+
+describe('a name WGSL cannot spell: a $ anywhere in it (Rule 3.2, #376)', () => {
+  // WGSL's identifiers are XID_Start, XID_Continue and `_`. Before #376 a `$` name was emitted as
+  // written, with no diagnostic, and the module failed in text the author never saw. Measured on
+  // Tint (Chromium, `createShaderModule` and `getCompilationInfo`):
+  //
+  //   fn scale$() {}             REFUSED  invalid character found
+  //   fn $a() {}                 REFUSED  invalid character found
+  //   let k$ = 1.0;              REFUSED  invalid character found
+  //   fn f(x$: f32) {}           REFUSED  invalid character found
+  //   struct P { v$: f32 }       REFUSED  invalid character found
+  //   var<private> g$: f32;      REFUSED  invalid character found
+  //   fn scale_() {}             accepted
+  //   fn _a() {}                 accepted
+  //   fn café() {}               accepted
+  //   fn a1() {}                 accepted
+  const dollar = (quoted: string, noun: string) =>
+    `${TS_CODES.RESERVED_NAME} ${quoted} contains "$", which a WGSL identifier cannot hold, so ${noun} of that name cannot be emitted for the WebGPU target. Rename it.`;
+  const PROGRAM = `"use typeshade";
+class P$ { v$: f32; }
+declare const out$: storage<array<f32>, "read_write">;
+const K$: f32 = 2.;
+function scale$(x$: f32): f32 { let k$: f32 = K$; k$ = k$ * x$; return k$; }
+@compute([1])
+export function main() { const p: P$ = { v$: 1. }; out$[0] = scale$(p.v$); }
+`;
+  const EXPECTED = [
+    dollar('"P$"', 'a struct'),
+    dollar('"v$"', 'a field'),
+    dollar('"out$"', 'a binding'),
+    dollar('"K$"', 'a module constant'),
+    dollar('"scale$"', 'a function'),
+    dollar('"x$"', 'a parameter'),
+    dollar('"k$"', 'a local'),
+  ];
+
+  it('refuses each declaration, in the compiler, and emits no WGSL', () => {
+    const r = compile(PROGRAM);
+    const errors = r.diagnostics
+      .filter((d) => d.category === 'error')
+      .map((d) => `${d.code} ${d.message}`);
+    expect([...errors].sort()).toEqual([...EXPECTED].sort());
+    expect(r.wgsl).toBeUndefined();
+  });
+
+  it('refuses each declaration in the editor, in the same words', () => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', PROGRAM);
+    const errors = service
+      .getDiagnostics('a.ts')
+      .filter((d) => d.severity === 'error')
+      .map((d) => `${d.code} ${d.message}`);
+    expect([...errors].sort()).toEqual([...EXPECTED].sort());
+  });
+
+  it('underlines the name as written', () => {
+    expect(underlines(render('', 'let a$b: f32 = 1.; return vec4(a$b, 0., 0., 1.)'))).toBe('a$b');
+  });
+
+  it('leaves the neighbours Tint accepts alone: a trailing _, a leading _, a non-ASCII letter, a digit', () => {
+    const r = compile(`"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+function scale_(_a: f32): f32 { const café: f32 = 2.; const a1: f32 = café * _a; return a1; }
+@compute([1])
+export function main() { out[0] = scale_(3.); }
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('fn scale_(_a: f32)');
   });
 });
 

@@ -1953,6 +1953,18 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A name that contains `$` is refused on its declaration** (Rule 3.2, surface §62, #376).
+  TypeScript takes `$` in an identifier and WGSL does not, so `function scale$()` compiled with
+  no diagnostic and Tint refused the module with `invalid character found`. Rule 3.2 required
+  the refusal, and Appendix B listed it as not enforced. It is now `TS8068` on the declaration,
+  in the compiler and in the editor alike, for a struct, a field, a binding, a module constant,
+  a function, a parameter and a local:
+
+  ```text
+  "k$" contains "$", which a WGSL identifier cannot hold, so a local of that name cannot be
+  emitted for the WebGPU target. Rename it.
+  ```
+
 - **A runtime-sized array's length on WebGPU is the length the host passed** (Rules 8.21, 8.24
   and 11.11, #367). The call layer packed a storage binding padded to a multiple of 16 bytes and
   bound the buffer whole, and the program runtime bound the buffer its pool had rounded up.

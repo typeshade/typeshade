@@ -6511,8 +6511,9 @@ name that collides with a GLSL word is rewritten with every reference to it (`le
 `out_`), and that has always worked. The module surface it cannot rename is what this check
 covers: a struct and its fields (the std140 offsets and the cross-stage varying contract), a
 module constant, an override's `#define`, a module variable and a binding, whose name is the
-host's reflection key. WGSL renames nothing, so every kind is checked for it, including the two
-rules that are shapes rather than words: a name beginning with `__`, and the bare `_`. GLSL ES
+host's reflection key. WGSL renames nothing, so every kind is checked for it, including the three
+rules that are shapes rather than words: a name beginning with `__`, the bare `_`, and a name
+that contains `$`, which TypeScript takes and WGSL's identifier profile leaves out. GLSL ES
 3.00 §3.6 has two shape rules of its own, and both are read here too: a name beginning with
 `gl_`, which it keeps for built-ins, and one containing `__` anywhere, not only at the front.
 
@@ -6531,6 +6532,7 @@ gives. Measured in Chromium, through the compile gate's instrument:
 | a local named `discard` | `expected identifier for variable declaration` | — |
 | a name named `filter` | `'filter' is a reserved keyword` | `'filter' : Illegal use of reserved word` |
 | a local named `__x` | `identifiers must not start with two or more underscores` | — |
+| a function, a parameter, a local, a field or a module variable named `scale$`, `$a`, `k$` | `invalid character found` | — |
 | a name named `input`, `sample`, `image2D` | accepted | `Illegal use of reserved word` |
 | a name named `gl_Scale` | accepted | `'gl_' : reserved built-in name` |
 | a name named `a__b` | accepted | `identifiers containing two consecutive underscores (__) are reserved` |
