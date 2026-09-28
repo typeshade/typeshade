@@ -359,7 +359,7 @@ async function hostImport(work: string, tarball: string): Promise<number> {
         : NaN;
     // f32 on both sides. WGSL gives sin and cos an absolute error of 2^-11 in [-pi, pi], and
     // render sums k.x * sin + k.z * cos with |k.x| + |k.z| = 3; the other kernels are exact.
-    const bound = key === 'render' ? 3 * 2 ** -11 : 0;
+    const bound = key === 'render' || key === 'residentRender' ? 3 * 2 ** -11 : 0;
     check(
       typeof got === 'object' && got.length === want.length && worst <= bound,
       `the kernel function ${key}, called through the import, writes the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,

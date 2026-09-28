@@ -428,6 +428,18 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **`resident` and `configure`: a kernel function's arrays stay on the device, and the caller
+  orders the tiers** (change 0013, part 5; Rules 8.21 and 11.8, surface §65). `resident(array)`,
+  from `typeshade` and `typeshade/runtime`, wraps a typed array or an array of objects once; a call
+  on WebGPU uploads it the first time and binds the same buffer after, reading nothing back, and
+  `await dev.read()` returns a new array of what it holds. A call whose written arrays are all
+  resident and that returns nothing is typed `void` and only queues; kernel calls run in the order
+  they were made, and a queued call's error is thrown by `read()`. `configure({ prefer })` sets the
+  order of WebGPU, WebGL2 and the CPU tier; a list of one makes that tier required, and a call it
+  cannot run on throws, naming why. With two signatures, a wrong array at a kernel call is `TS2769`
+  in `tsc` where it was `TS2345`. The import journey renders into and reduces over resident arrays
+  on WebGPU in Chromium.
+
 - **A kernel function's scatter runs on the GPU by atomics** (change 0013, part 4; Rules 7.2 and
   8.22, surface §65). A loop the proof accepts that adds into an integer array at an index it
   computes, `bins[k] += 1` (and `&= |= ^=`, `min`, `max`), lowers to `atomicAdd(&bins[k], 1u)` on

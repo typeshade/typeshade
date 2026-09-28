@@ -6665,6 +6665,7 @@ Each array it writes is read back into yours in place.
 | `array<f32>`, `array<i32>`, `array<u32>` | `Float32Array`, `Int32Array`, `Uint32Array`                                  |
 | `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element |
 | `array<S>`, a struct                | an array of objects                                                               |
+| any of the above | a `Resident` of it (below) |
 
 **Where it runs.** When the proof accepts every loop of the function, each loop is one dispatch
 on WebGPU, one invocation per iteration, in order; the call reads back what each loop wrote
@@ -6693,8 +6694,32 @@ added to what it held. A scatter with `*`, which no atomic does, an array one lo
 and another writes in place or reads, and a scatter into anything but an element, run the function
 on the CPU.
 
-**Not yet.** A texture and an `f64` reduction on the GPU, `resident` and `configure`, and the WebGL2
-tier are the next parts of change 0013. Until then such a function runs on the CPU.
+**Resident arrays.** `resident(array)`, from `typeshade` or `typeshade/runtime`, wraps a typed array
+or an array of objects once, and a kernel function takes the handle wherever it takes the array
+(Rule 11.8). The first call on WebGPU uploads it; the calls after bind the same buffer and read
+nothing back, and `await dev.read()` returns a new array of what it holds:
+
+```ts
+import { resident } from 'typeshade/runtime';
+
+const dev = resident(new Float32Array(512 * 512));
+render(k, 512, dev); // queued: every array it writes is resident, and it returns nothing
+const sum = await total(dev); // reads the same buffer
+const img = await dev.read(); // the one read of the chain
+```
+
+A call whose written arrays are all resident and that returns nothing is typed `void`: nothing
+waits on it. Calls run in the order they were made, and `read()` waits for the ones before it; a
+queued call that fails leaves its error for `read()` to throw. On the CPU tier the handle is an
+array it holds, and costs nothing.
+
+**The tiers.** A call runs on the first of WebGPU, WebGL2 and the CPU tier that can run it.
+`configure({ prefer: ['webgpu'] })` changes the order, and a list of one tier makes it required: a
+call it cannot run on throws, naming why (`render(): no tier it may use can run it (webgpu: there
+is no WebGPU device).`).
+
+**Not yet.** A texture and an `f64` reduction on the GPU, and the WebGL2 tier, are the next parts of
+change 0013. Until then such a function runs on the CPU.
 
 ## 67. Calling an entry point from host code
 

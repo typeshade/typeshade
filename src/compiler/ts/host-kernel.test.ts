@@ -81,12 +81,23 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
 
   it('is asynchronous, and types each array as the typed array or objects it takes', () => {
     expect(f.view).toContain(
-      'export declare function render(k: readonly [number, number, number, number], size: number, out: Float32Array): Promise<void>;',
+      'export declare function render(k: readonly [number, number, number, number], size: number, out: Float32Array | Resident<Float32Array>): Promise<void>;',
     );
-    expect(f.view).toContain('export declare function total(xs: Float32Array): Promise<number>;');
     expect(f.view).toContain(
-      'export declare function drift(ps: { pos: [number, number, number, number]; vel: [number, number, number, number] }[], dt: number): Promise<void>;',
+      'export declare function total(xs: Float32Array | Resident<Float32Array>): Promise<number>;',
     );
+    expect(f.view).toContain(
+      'export declare function drift(ps: { pos: [number, number, number, number]; vel: [number, number, number, number] }[] | Resident<{ pos: [number, number, number, number]; vel: [number, number, number, number] }[]>, dt: number): Promise<void>;',
+    );
+  });
+
+  it('gives a call whose written arrays are all resident, and that returns nothing, a void signature', () => {
+    expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
+    expect(f.view).toContain(
+      'export declare function render(k: readonly [number, number, number, number], size: number, out: Resident<Float32Array>): void;',
+    );
+    // A function with a result always waits.
+    expect(f.view).not.toMatch(/function total\([^)]*\): void/);
     // A helper stays synchronous (0009).
     expect(f.view).toContain('export declare function height(p: readonly [number, number]');
   });
@@ -103,7 +114,7 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
     );
   });
 
-  it('type-checks a host program with plain tsc, and a wrong array at the host line', () => {
+  it('type-checks a host program with plain tsc, and a wrong array at the host line (no overload takes it)', () => {
     const errors = (app: string): string[] => {
       const dir = tempDir();
       writeFileSync(join(dir, 'm.shade.ts'), TERRAIN);
@@ -117,7 +128,7 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
         moduleResolution: ts.ModuleResolutionKind.Bundler,
         allowImportingTsExtensions: true,
         moduleSuffixes: ['.typeshade', ''],
-        lib: ['lib.es2022.d.ts'],
+        lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
         types: [],
       });
       return ts.getPreEmitDiagnostics(program).map((d) => `TS${d.code}`);
@@ -129,9 +140,14 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
     ).toEqual([]);
     expect(
       errors(
+        `import { render, total } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst dev = resident(new Float32Array(16));\nconst queued: void = render([1, 0.5, 2, 0.25], 4, dev);\nexport const s: number = await total(dev);\nexport const img: Float32Array = await dev.read();\nvoid queued;\n`,
+      ),
+    ).toEqual([]);
+    expect(
+      errors(
         `import { render } from './m.shade.ts';\nawait render([1, 0.5, 2, 0.25], 4, [1, 2]);\nexport {};\n`,
       ),
-    ).toEqual(['TS2345']);
+    ).toEqual(['TS2769']);
   });
 });
 
@@ -179,6 +195,91 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     );
     await expect(render([1, 0.5, 2, 0.25], 4)).rejects.toThrow(
       new TypeError('render() takes 3 arguments; got 2.'),
+    );
+  });
+});
+
+describe('a resident array and the tiers (Rule 11.8)', () => {
+  it('holds its own array across calls on the CPU tier, and read() waits for the calls before it', async () => {
+    const m = await load(TERRAIN);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const src = new Float32Array(16);
+    const dev = rt.resident(src);
+    const k = [1, 0.5, 2, 0.25];
+    // Queued, not awaited: read() waits for it.
+    void (m.render as (...a: unknown[]) => Promise<void>)(k, 4, dev);
+    const img = await dev.read();
+    const oracle = compileModule(compile(TERRAIN).module, { precision: 'f32' });
+    const want = new Array<number>(16).fill(0);
+    oracle.fns.render!(k as never, 4 as never, want as never);
+    expect([...img]).toEqual(want);
+    // The caller's array is not the handle's.
+    expect([...src]).toEqual(new Array(16).fill(0));
+    // A reduction reads it where it takes an array.
+    await expect((m.total as (xs: unknown) => Promise<number>)(dev)).resolves.toBeCloseTo(
+      want.reduce((a, b) => a + b, 0),
+      4,
+    );
+  });
+
+  it('keeps the error of a queued call for read() to throw', async () => {
+    const m = await load(TERRAIN);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const short = rt.resident(new Float32Array(10));
+    void (m.render as (...a: unknown[]) => Promise<void>)([1, 0.5, 2, 0.25], 4, short).catch(
+      () => undefined,
+    );
+    await expect(short.read()).rejects.toThrow(
+      'render(): parameter "out" holds 10 elements, and loop 1 writes it at indices 0 to 15.',
+    );
+  });
+
+  it('runs on the tiers configure names, and says why none could', async () => {
+    const m = await load(TERRAIN);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const render = m.render as (...a: unknown[]) => Promise<void>;
+    try {
+      rt.configure({ prefer: ['webgpu'] });
+      await expect(render([1, 0.5, 2, 0.25], 4, new Float32Array(16))).rejects.toThrow(
+        'render(): no tier it may use can run it (webgpu: there is no WebGPU device).',
+      );
+      rt.configure({ prefer: ['webgl2', 'webgpu'] });
+      await expect(render([1, 0.5, 2, 0.25], 4, new Float32Array(16))).rejects.toThrow(
+        'render(): no tier it may use can run it (webgl2: no kernel function runs on WebGL2 yet, which a later part of change 0013 adds; webgpu: there is no WebGPU device).',
+      );
+      rt.configure({ prefer: ['webgl2', 'cpu'] });
+      await expect(render([1, 0.5, 2, 0.25], 4, new Float32Array(16))).resolves.toBeUndefined();
+      expect(() => rt.configure({ prefer: [] })).toThrow(
+        new TypeError('configure(): prefer takes a non-empty list of tiers.'),
+      );
+      expect(() => rt.configure({ prefer: ['gpu' as never] })).toThrow(
+        new TypeError('configure(): "gpu" is not a tier; the tiers are webgpu, webgl2 and cpu.'),
+      );
+    } finally {
+      rt.configure({});
+    }
+  });
+
+  it('refuses one resident array passed as two parameters', async () => {
+    const m = await load(`"use typeshade";
+export function copy(src: array<f32>, dst: array<f32>) {
+  for (let i: u32 = 0; i < src.length; i++) {
+    dst[i] = src[i];
+  }
+}
+`);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const r = rt.resident(new Float32Array(4));
+    await expect((m.copy as (...a: unknown[]) => Promise<void>)(r, r)).rejects.toThrow(
+      new TypeError('copy(): parameter "dst" is the same resident array as parameter "src".'),
     );
   });
 });
