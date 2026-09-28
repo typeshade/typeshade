@@ -422,6 +422,18 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A kernel function's reduction runs on the GPU, in one order on every tier** (change 0013,
+  part 3; Rules 7.2 and 8.22, surface §65). `s += x`, `s *= x`, `min`, `max` (and `& | ^` on
+  integers) in a loop the proof accepts are folded as the GPU folds them: each iteration from the
+  operator's identity, 256 at a time by the workgroup tree, then the partials the same way until
+  one is left. On WebGPU that is the loop's dispatch and one more per level of partials, and the
+  function's `return` runs on the CPU tier with what they folded, so `await total(img)` returns
+  the sum; the CPU tier, the oracle and the generated CPU code run the same tree
+  (`core/kernel-tree.ts`), so a sum is the same bits on every tier, where the sequential reading
+  differs in the last places. An `f32` `min` or `max` starts from the largest finite `f32`, since
+  WGSL refuses an infinity in a constant expression. The import journey sums 300 000 `f32`s on
+  WebGPU in Chromium and gets the tree's bits.
+
 - **`console.table` in a shader** (§66, design rule 11.9, `changes/0019-console-table.md`). It
   takes one value (an array, a struct, a vector, a matrix or a scalar) and the host prints it with
   its own `console.table`: an array of structs as a row per element. A matrix is delivered as its
@@ -1546,6 +1558,12 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   surface on both targets.
 
 ### Fixed
+
+- **A compound assignment to an `f32` rounds in the CPU backends' `f32` mode.** `s += x` computed
+  its sum inside the statement, where `froundF32` (`core/passes/precision.ts`) did not reach it, so
+  the interpreter and the generated CPU code kept it an f64 sum where `s = s + x` rounded; a host
+  call (Rule 11.7) summing in a loop could part from the GPU in the last places. The pass now spells
+  it `s = s + x` first, component-wise for a vector.
 
 - **An array with no size is refused where it would leave its storage binding, not by Tint**
   (Rule 12.6, surface §20). A parameter or a result typed `array<T>`, or a struct whose last field

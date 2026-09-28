@@ -39,6 +39,7 @@ import {
   bitBuiltin,
 } from './cpu-runtime.js';
 import { barrierOutsideDispatch } from './intrinsics.js';
+import { kernelTree } from './kernel-tree.js';
 
 /** The runtime object closed over by every generated fn (the factory's `$`). */
 export interface CodegenRuntime {
@@ -107,6 +108,9 @@ export interface CodegenRuntime {
    *  `construct` case calls, so the two CPU backends convert identically. */
   cvt: typeof convertComponent;
   cvtVec: typeof convertComponents;
+  /** A kernel function's reduction, folded in the tree order (Rule 7.2) — the SAME helper the
+   *  interpreter calls. */
+  tree: typeof kernelTree;
 }
 
 /** What the runtime is built with: whether a GPU-only intrinsic answers a placeholder (the
@@ -158,6 +162,7 @@ export function createCodegenRuntime(opts?: CodegenRuntimeOptions): CodegenRunti
     inout: inoutReturn,
     cvt: convertComponent,
     cvtVec: convertComponents,
+    tree: kernelTree,
     intDiv,
     intRem,
     gpuStub: (name, ...args) => {

@@ -13,7 +13,8 @@
 // It runs on the CPU engines only — `compileModule(m, { precision: 'f32' })` and its codegen
 // twin — and never before a WGSL/GLSL writer, which would reject `__fround` as unknown.
 
-import type { Expr, FuncDecl, ModuleDecl, ShaderType } from '../ir/index.js';
+import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt } from '../ir/index.js';
+import { mapStmtExpr } from '../ir/visit.js';
 import { mapStmt } from './opt/ir-transform.js';
 
 /** f32 scalar or a vector of f32 — the values the GPU rounds and the host does not. */
@@ -58,8 +59,25 @@ export function froundF32(m: ModuleDecl): ModuleDecl {
     ...m,
     funcs: m.funcs.map((fn): FuncDecl => {
       const f = rounding(fn);
-      return { ...fn, body: fn.body.map((s) => mapStmt(s, f)) };
+      return { ...fn, body: fn.body.map((s) => mapStmt(compoundRounds(s), f)) };
     }),
+  };
+}
+
+/** `s` with each compound assignment to an f32 value (`x += y`) spelled out as `x = x + y`, so
+ *  the sum is an expression the rounding below wraps. A compound assignment computes its value
+ *  inside the statement, which no expression rewrite sees, so without this `s += x` stayed an
+ *  f64 sum in `'f32'` precision. The target is read twice, which on the CPU changes nothing:
+ *  the front end hoists a call that writes out of an expression (Rule 7.9), so an index or a
+ *  member path reads the same value both times. */
+function compoundRounds(s: Stmt): Stmt {
+  const inner = mapStmtExpr(s, (e) => e, compoundRounds);
+  if (inner.s !== 'assignOp' || !isF32ish(inner.target.type)) return inner;
+  return {
+    s: 'assign',
+    target: inner.target,
+    expr: { op: 'binop', type: inner.target.type, bop: inner.bop, a: inner.target, b: inner.expr },
+    ...(inner.span !== undefined ? { span: inner.span } : {}),
   };
 }
 

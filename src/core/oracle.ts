@@ -41,6 +41,8 @@ import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType, FuncDecl } from '.
 import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
 import { froundF32 } from './passes/precision.js';
+import { treeCombine, treeLoops, type LoopReduction } from './passes/parallel-loop.js';
+import { kernelTree, treeIdentity } from './kernel-tree.js';
 import {
   type CpuValue,
   FIELD_IDX,
@@ -107,6 +109,10 @@ interface Ctx {
    *  mode for a reference backend. */
   gpuStubs: boolean;
   consoleSink?: ConsoleSink;
+  /** The loops a kernel function's reduction is combined in the tree order by (Rule 7.2),
+   *  and whether an `f32` combine rounds. */
+  trees?: ReadonlyMap<Stmt, readonly LoopReduction[]>;
+  f32?: boolean;
 }
 
 /** The shape both CPU backends return, so a caller can compile with {@link compileModuleJs}
@@ -535,6 +541,54 @@ function bindValue(v: CpuValue, t: ShaderType): CpuValue {
   return isAggregateType(t) ? cloneValue(v) : v;
 }
 
+/** A kernel function's reduction loop (Rule 7.2): each iteration combines into the variable
+ *  from the identity, what it holds after the iteration is collected, and after the loop the
+ *  variable is combined with the collection folded in the tree order (`kernel-tree.ts`). The
+ *  proof leaves no `return` and no `break` of the loop's own, so only a `discard` leaves. */
+function execTreeFor(
+  s: Stmt & { s: 'for' },
+  reductions: readonly LoopReduction[],
+  env: Map<string, CpuValue>,
+  ctx: Ctx,
+): Signal | undefined {
+  const saved = reductions.map((r) => env.get(r.name) as CpuValue);
+  const bags = reductions.map((): CpuValue[] => []);
+  const identity = (r: LoopReduction) => (): CpuValue => {
+    const t = r.type;
+    const scalar = t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : 'f64';
+    const one = treeIdentity(r.op, scalar) as CpuValue;
+    return t.kind === 'vec' || t.kind === 'vec64'
+      ? (new Array<CpuValue>(t.n).fill(one) as unknown as CpuValue)
+      : one;
+  };
+  const combine = (r: LoopReduction) => {
+    const e = treeCombine(r, ctx.f32 ?? false);
+    return (a: CpuValue, b: CpuValue): CpuValue =>
+      evalExpr(
+        e,
+        new Map([
+          ['$ta', a],
+          ['$tb', b],
+        ]),
+        ctx,
+      );
+  };
+  execBody([s.init], env, ctx);
+  while (evalExpr(s.cond, env, ctx)) {
+    reductions.forEach((r) => env.set(r.name, identity(r)()));
+    const res = execBody(s.body, env, ctx);
+    reductions.forEach((r, k) => bags[k]!.push(env.get(r.name) as CpuValue));
+    if (res.kind === 'return' || res.kind === 'discard') return res;
+    execBody([s.update], env, ctx);
+  }
+  reductions.forEach((r, k) => {
+    const c = combine(r);
+    const folded = kernelTree(bags[k]!, c, identity(r));
+    env.set(r.name, folded === undefined ? saved[k]! : c(saved[k]!, folded));
+  });
+  return undefined;
+}
+
 function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): Signal {
   for (const s of body) {
     switch (s.s) {
@@ -596,6 +650,12 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         break;
       }
       case 'for': {
+        const reductions = ctx.trees?.get(s);
+        if (reductions !== undefined) {
+          const r = execTreeFor(s, reductions, env, ctx);
+          if (r !== undefined) return r;
+          break;
+        }
         execBody([s.init], env, ctx);
         while (evalExpr(s.cond, env, ctx)) {
           const r = execBody(s.body, env, ctx);
@@ -721,6 +781,7 @@ export function compileModule(
   // Materialise auto-vars (plain `const x = …; assign(x, …)`) into real `var` bindings, exactly
   // as the WGSL backend does, so the CPU mirror evaluates the same assignable lvalues.
   m = autoVars(m);
+  const unrounded = m;
   // …then, in f32 mode, round after every f32 operation. AFTER autoVars, so the `var` bindings
   // it materialises have their initialisers rounded like any other.
   if (opts?.precision === 'f32') m = froundF32(m);
@@ -735,6 +796,8 @@ export function compileModule(
     structs: new Map(m.structs.map((s) => [s.name, s])),
     gpuStubs: opts?.gpuStubs ?? false,
     consoleSink: opts?.consoleSink,
+    trees: treeLoops(unrounded, m),
+    f32: opts?.precision === 'f32',
   };
   // Populate consts in declaration order so a later const may reference an
   // earlier one. A `valueExpr` const (vec / array / struct literal) is evaluated

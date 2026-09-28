@@ -40,7 +40,7 @@ import { sourceSpanOf } from '../../core/ir/span.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
 import type { ComputeEntry, DrawBinding, Layout } from '../../core/host-entry.js';
 import type { FragmentEntry } from '../../core/host-draw.js';
-import type { KernelFace, KernelParam } from '../../core/host-kernel.js';
+import type { KernelFace, KernelLoop, KernelParam } from '../../core/host-kernel.js';
 import { proveKernels } from '../../core/passes/parallel-loop.js';
 import { lowerKernel } from '../../core/passes/kernel-lower.js';
 import { emitGlslStages } from '../../core/backends/glsl.js';
@@ -991,7 +991,44 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const argsLayout = layoutOf({ kind: 'struct', name: plan.argsStruct }, 'std140', structs);
   if ('none' in argsLayout)
     return { kind: 'kernel', name, face: { ...face, noGpu: argsLayout.none }, ranges: [] };
-  const arrays = plan.module.bindings.filter((b) => b.name !== plan.argsBinding);
+  const partNames = new Set(
+    plan.loops.flatMap((l) => (l.reduce?.vars ?? []).map((v) => v.binding)),
+  );
+  const arrays = plan.module.bindings.filter(
+    (b) => b.name !== plan.argsBinding && !partNames.has(b.name),
+  );
+  const loops: KernelLoop[] = [];
+  for (const l of plan.loops) {
+    if (l.reduce === undefined) {
+      loops.push(l as KernelLoop);
+      continue;
+    }
+    const vars: NonNullable<KernelLoop['reduce']>['vars'][number][] = [];
+    for (const v of l.reduce.vars) {
+      const b = plan.module.bindings.find((x) => x.name === v.binding)!;
+      const layout = layoutOf(b.type, 'std430', structs);
+      if ('none' in layout)
+        return { kind: 'kernel', name, face: { ...face, noGpu: layout.none }, ranges: [] };
+      const t = v.type;
+      vars.push({
+        name: v.name,
+        op: v.op,
+        scalar: (t.kind === 'vec' ? t.elem : (t as { scalar: string }).scalar) as 'f32',
+        n: t.kind === 'vec' ? t.n : 1,
+        binding: {
+          name: b.name,
+          group: b.group,
+          binding: b.binding,
+          space: 'storage',
+          writes: true,
+          rw: true,
+          layout,
+          s: spell(b.type),
+        },
+      });
+    }
+    loops.push({ ...l, reduce: { entry: l.reduce.entry, vars } });
+  }
   return {
     kind: 'kernel',
     name,
@@ -1021,7 +1058,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
             s: p.s,
           };
         }),
-        loops: plan.loops,
+        loops,
+        ...(plan.tail !== undefined ? { tail: plan.tail } : {}),
       },
     },
     ranges: plan.ranges,
