@@ -1,6 +1,7 @@
-// The host half of the particle journey, as its author would write it: pack the particles the
-// way WGSL lays them out (two vec4 per particle, 32 bytes), pack the uniform (four f32), run
-// the kernel once per frame for 20 frames, and step the same simulation in plain JavaScript.
+// The host half of the particle journey, as its author would write it: the particles are plain
+// objects and the simulation's settings one more, handed to `step` as they are, once per frame for
+// 20 frames; and the same simulation stepped in plain JavaScript. Nothing is packed: the kernel
+// function takes host values (change 0013, surface §65).
 
 const COUNT = 200;
 const FRAMES = 20;
@@ -31,27 +32,20 @@ function simulate() {
 }
 
 export default {
-  title: 'A particle system stepped once per frame',
+  title: 'A particle system stepped once per frame, as a loop',
   runs: [
     {
-      kind: 'compute',
+      kind: 'kernel',
       shader: 'particles.shade.ts',
-      entry: 'step',
-      workgroups: [Math.ceil(COUNT / 64), 1, 1],
-      repeat: FRAMES,
-      bindings: {
-        sim: {
-          gpu: new Float32Array([sim.dt, sim.gravity, sim.floor, sim.bounce]),
-          cpu: sim,
-        },
-        particles: {
-          gpu: new Float32Array(particles.flatMap((p) => [...p.pos, ...p.vel])),
-          cpu: particles.map((p) => ({ pos: [...p.pos], vel: [...p.vel] })),
-        },
+      fn: 'step',
+      // The kernel function's arguments, in its parameters' order.
+      args: {
+        particles: particles.map((p) => ({ pos: [...p.pos], vel: [...p.vel] })),
+        sim,
       },
+      repeat: FRAMES,
       read: 'particles',
-      // The CPU module holds an array of structs; the GPU buffer holds their floats in order.
-      flattenCpu: (value) => value.flatMap((p) => [...p.pos, ...p.vel]),
+      flatten: (ps) => ps.flatMap((p) => [...p.pos, ...p.vel]),
       expected: simulate,
       tolerance: 1e-4,
     },

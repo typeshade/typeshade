@@ -46,10 +46,10 @@ The table is the answer to the owner's question. Work that is parallel reaches t
 scalar function does in PyTorch. TypeGPU is the same: a `'use gpu'` function called from
 JavaScript runs as JavaScript, and it reaches the GPU through a pipeline and a dispatch.
 
-Today the journeys' host halves do by hand what the runtime will do.
-`journeys/particles/journey.mjs` packs "the particles the way WGSL lays them out (two vec4 per
-particle, 32 bytes)" and the uniform, and `runOnGpu` in `journeys/_harness.mjs` is 115 lines of
-WebGPU:
+When this proposal was written, the journeys' host halves did by hand what the runtime will do.
+The particles journey's host packed "the particles the way WGSL lays them out (two vec4 per
+particle, 32 bytes)" and the uniform (it is a loop with no packing since change 0013), and
+`runOnGpu` in `journeys/_harness.mjs` is 115 lines of WebGPU:
 
 - the adapter and the device;
 - the module and the bind group layout;

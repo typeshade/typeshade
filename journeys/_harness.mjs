@@ -12,6 +12,10 @@
 //      README documents (decorators, and operators on vectors);
 //   4. each run, on WebGPU, produces what the journey's plain-JavaScript reference computes;
 //   5. the same run on the CPU oracle (`compileModule`) produces it too.
+//
+// A run of a kernel function (`kind: 'kernel'`, change 0013) is called with the journey's own
+// host values. It runs here on the CPU oracle, and on WebGPU through the import, which is how a
+// host calls one and which `journeys/_host-import` checks (`scripts/user-journey.ts`).
 
 import { compile, reflect, compileModule, decodeConsole } from 'typeshade';
 import { createTypeshadeLanguageService } from 'typeshade/language-service';
@@ -100,6 +104,7 @@ function layoutOf(module, console) {
 }
 
 const jobs = [];
+const kernels = [];
 for (const id of journeys) {
   const spec = (await import(pathToFileURL(join(process.cwd(), ROOT, id, 'journey.mjs')).href))
     .default;
@@ -107,6 +112,12 @@ for (const id of journeys) {
     const path = join(ROOT, id, run.shader);
     const r = compiled.get(path);
     if (!r?.wgsl) continue;
+    // A kernel function (change 0013) runs on WebGPU through the import, which
+    // `journeys/_host-import` checks; here it runs on the CPU oracle.
+    if (run.kind === 'kernel') {
+      kernels.push({ id: `${id}#${n}`, run, module: r.module, spec });
+      continue;
+    }
     const bindings = Object.fromEntries(
       Object.entries(run.bindings).map(([k, v]) => [k, wire(v.gpu)]),
     );
@@ -392,9 +403,33 @@ for (const job of jobs) {
 await browser.close();
 server.close();
 
+// A kernel function on the CPU oracle: called with the journey's own host values, `repeat`
+// times, and the array it writes read back.
+for (const job of kernels) {
+  const { run } = job;
+  const expected = run.expected();
+  let values;
+  try {
+    const m = compileModule(job.module);
+    const args = structuredClone(run.args);
+    for (let i = 0; i < (run.repeat ?? 1); i++) m.fns[run.fn](...Object.values(args));
+    values = run.flatten(args[run.read]);
+  } catch (e) {
+    fail(job.id, `CPU oracle threw: ${e.message}`);
+    continue;
+  }
+  const c = worst(values, expected, run.tolerance);
+  if (!c.ok) fail(job.id, `CPU oracle result off by ${c.text} (tolerance ${run.tolerance})`);
+  console.log(
+    `${c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${expected.length} values, worst relative error CPU oracle ${c.text} (WebGPU through the import journey)`,
+  );
+}
+
 if (failures.length > 0) {
   console.log(`\n${failures.length} failure(s):`);
   for (const f of failures) console.log(`  ${f}`);
   process.exit(1);
 }
-console.log(`\n${journeys.length} journeys, ${jobs.length} runs: every check passed.`);
+console.log(
+  `\n${journeys.length} journeys, ${jobs.length + kernels.length} runs: every check passed.`,
+);
