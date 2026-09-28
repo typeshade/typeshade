@@ -1,7 +1,7 @@
 ---
 id: '0024'
 title: A `"use typeshade"` file imports a shader module from an installed package by the package's name, and every path resolves it by one rule
-status: accepted
+status: implemented
 rules:
 - '3.2'
 - '3.9'

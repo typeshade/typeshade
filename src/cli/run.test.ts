@@ -89,6 +89,35 @@ describe('tshc (command line)', () => {
     expect(run(['check', 'src/helper.ts', '--format=short'], files).status).toBe(1);
   });
 
+  it("checks a module that imports a package's shader module, and the package's files once each", () => {
+    const files = {
+      '/p/node_modules/shade-lib/package.json': JSON.stringify({
+        name: 'shade-lib',
+        version: '1.0.0',
+        exports: { '.': { typeshade: './src/index.shade.ts' } },
+      }),
+      '/p/node_modules/shade-lib/src/index.shade.ts': `"use typeshade";\nexport { f } from "./f.shade.ts";\n`,
+      '/p/node_modules/shade-lib/src/f.shade.ts': GOOD,
+      '/p/src/a.shade.ts': `"use typeshade";\nimport { f } from "shade-lib";\nexport function g(x: f32): f32 {\n  return f(x);\n}\n`,
+    };
+    expect(run(['check'], files)).toMatchObject({
+      status: 0,
+      stdout: 'No problems found in 3 files.\n',
+    });
+    const refused = run(['check', '--format', 'short'], {
+      ...files,
+      '/p/src/a.shade.ts': `"use typeshade";\nimport { f } from "shade-lib/f";\nexport function g(x: f32): f32 {\n  return f(x);\n}\n`,
+    });
+    expect(refused.status).toBe(1);
+    expect(refused.stdout).toBe(
+      [
+        'src/a.shade.ts:2:19 - error TS8072: "shade-lib" does not export "./f": its package.json "exports" names no module for it.',
+        'Found 1 error in 1 file (1 file checked).',
+        '',
+      ].join('\n'),
+    );
+  });
+
   it('exits 2 when it cannot run, and says why', () => {
     expect(run(['check', 'nope'], { '/p/a.shade.ts': GOOD })).toMatchObject({
       status: 2,

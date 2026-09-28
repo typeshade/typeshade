@@ -120,7 +120,7 @@ describe('compileTsSources — ported from sources.test.ts', () => {
     expect(r.wgsl).toMatch(/square\(/);
   });
 
-  it('PORTED: rejects non-relative imports', () => {
+  it('PORTED: refuses a package the files it is handed do not hold (change 0024)', () => {
     const r = compileTsSources(
       [
         {
@@ -134,7 +134,11 @@ describe('compileTsSources — ported from sources.test.ts', () => {
       ],
       'app.ts',
     );
-    expect(r.diagnostics.some((d) => /relative/.test(d.message))).toBe(true);
+    // A package is found through the files handed in, as through any readDocument: no
+    // `node_modules/some-pkg/package.json` among them, so it is not found.
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      'TS8072 Cannot find the package "some-pkg" (looked in node_modules from "." up).',
+    ]);
   });
 });
 

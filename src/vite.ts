@@ -56,8 +56,9 @@ export interface TypeshadeVitePlugin {
   /** The module the bundle reads for `id`: the generated host module for a `*.shade.ts`,
    *  nothing for any other file, and a thrown error for a module that does not compile or a
    *  shader module under another name (Rule 3.8). A module that imports another shader module
-   *  is compiled with it (Rule 3.9), and each file it read is handed to the bundler's
-   *  `addWatchFile`, read off the plugin context the bundler calls this with. */
+   *  is compiled with it (Rule 3.9), a package's found in `node_modules` from the module's
+   *  directory up, and each file it read is handed to the bundler's `addWatchFile`, read off
+   *  the plugin context the bundler calls this with. */
   transform(code: string, id: string): Promise<{ code: string; map: null } | null>;
 }
 

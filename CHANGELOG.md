@@ -586,6 +586,38 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A shader module imports a package's by the package's name** (change 0024; Rules 3.9 and 3.2,
+  surface §68 and §64, roadmap X6). `import { fbm } from "shade-noise"` in a `"use typeshade"`
+  file finds `shade-noise` in `node_modules` from the file's directory up and reads the shader
+  module its `package.json` publishes under the `typeshade` condition of `exports`, beside the
+  JavaScript it publishes for hosts. `compile()`, the Vite plugin, `tshc check`, `tshc sync` and
+  the language service resolve it by one rule, `resolveSpecifier` in
+  `src/compiler/ts/specifier.ts`.
+  - `exports` is read as Node reads it: a string target, subpaths with `*` patterns, an array's
+    first valid target and `null` blocking a path, with the conditions `typeshade`, `import` and
+    `default` tried in that order. Without `exports`, a subpath names a file of the package by
+    the relative rule, and the name alone is refused with the file to write.
+  - `readDocument` is asked for each `package.json` too, so a host that reads from disk follows a
+    package with no change. A host that serves only files that begin with the directive serves
+    `package.json` as well.
+  - A program holds one copy of a package version, keyed by its name, its version and the file's
+    path in it, however many paths reach it; the language service gives TypeScript the same
+    `packageId`. Two versions are two copies, and a helper the module renames is named for its
+    package and file, `shade_noise_noise_hash`, then `shade_noise_noise_hash_2`.
+  - `TS8072`'s sentence for a package ("… is a package, and a shader module imports only a file
+    of its own program …") is gone. A package no `node_modules` holds, a subpath `exports` does
+    not name or blocks, the name alone of a package with no `exports`, a package's file that does
+    not begin with the directive, a `#` specifier and a specifier that is neither relative nor a
+    package name each have their own sentence (surface §68's table).
+  - `tshc sync` compiles each module under its full path, so a package installed above the
+    working directory is found; an error is still printed relative to it.
+  - The README's `tsconfig.shade.json` sets `customConditions: ["typeshade"]`, so plain `tsc`
+    reads the package's shader module too. Without it, measured on a package that publishes
+    `dist/index.js` under `default`, the import is `TS7016` and a subpath only `typeshade` names
+    is `TS2307`.
+  - The import journey installs a packed shader package with npm, `journeys/_shade-package/`, and
+    calls a function of it through a module that imports it by name.
+
 - **An emulated `f64` crosses the host boundary** (changes 0013 and 0016, the f64 split; Rules
   8.21 and 8.24, surface §65 and §67). The host passes an `f64` binding as a `number`, a
   `vecNf64` as a tuple, and an array of either as a `Float64Array`. The WGSL and the GLSL hold

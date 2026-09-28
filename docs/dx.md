@@ -164,16 +164,14 @@ Each principle comes with the question a reviewer asks of a new public API.
    feature.
 8. **TypeShade code is shared the way TypeScript code is.** A library of TypeShade functions is
    an npm package, and it is imported by name.
-   **Today this is the gap that blocks an ecosystem.** A shader file imports another by a
-   relative path on every path (change 0022, surface §68), and a package import is refused with
-   TS8072:
-
-   `"shade-noise" is a package, and a shader module imports only a file of its own program, by a relative path such as "./shade-noise.shade.ts".`
-
-   The check is in `src/compiler/ts/link.ts`. So a library of TypeShade code can be shared as
-   files in one project, and not yet published and used as a package (roadmap X6).
+   A shader file imports another by a relative path (change 0022) and a package's by the
+   package's name (change 0024), the same way on every path: `compile()`, the Vite plugin,
+   `tshc` and the language service find the package in `node_modules` and read the shader module
+   it publishes under the `typeshade` condition of its `exports` (surface §68). The rule is
+   `resolveSpecifier` in `src/compiler/ts/specifier.ts`, one for the compiler and the editor.
    _Test:_ can a developer use a library of TypeShade functions from npm without copying its
-   source?
+   source? The import path of `bun run gate:journeys` installs a packed shader package with npm
+   and calls a function of it through a module that imports it by name.
 
 ## The two layers
 
@@ -201,7 +199,7 @@ CI once the thing it measures exists.
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | A program written the way a TypeScript developer writes it compiles, is clean in the editor, and runs on a GPU as written. A line spelled differently only to get past a gap names its issue                                  | `bun run gate:journeys` (CI `user-journeys`): the published tarball in a fresh project, each journey through `compile()`, the language service, plain `tsc`, WebGPU and the oracle | Holds on `main` for seven journeys (#214)                                                            |
 | No GPU vocabulary in a compute program. A caller's file never names a device, buffer, bind group, pipeline, workgroup or WGSL. The one word that keeps a value on the device is allowed, and only where `explain` asks for it | A test scans each domain's example application for those words, and fails on any                                                                                                   | Waits on items 15 and 16                                                                             |
-| A library of TypeShade code installs from npm and imports by name                                                                                                                                                             | A test installs a TypeShade package into a fresh project and imports a function from it                                                                                            | Relative imports only today                                                                          |
+| A library of TypeShade code installs from npm and imports by name                                                                                                                                                             | A test installs a TypeShade package into a fresh project and imports a function from it                                                                                            | Holds: the import path of `bun run gate:journeys` installs `journeys/_shade-package/` (change 0024)  |
 | No configuration from install to a first result but the lines the setup lists (surface §64), each checked by the journey                                                                                                      | A test in a fresh project: install, write the example, run it                                                                                                                      | Holds on the CPU tier (`journeys/_host-import/`); the GPU result waits on the second half of item 16 |
 | Every program runs without a GPU                                                                                                                                                                                              | The run layer's CPU tier runs every example under the test runner, with no device                                                                                                  | The compute runner has a CPU tier today, for portable kernels only                                   |
 | Every failure names a source line                                                                                                                                                                                             | Front end: every `TS80xx` diagnostic has a span. Run time: every refusal and every divergence carries one                                                                          | Front end holds on `main`. Run time waits on item 19                                                 |

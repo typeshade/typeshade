@@ -67,9 +67,9 @@ export interface HostFaceOptions {
    *  (change 0014), which the runtime decodes into the host's console after the dispatch or
    *  draw. The Vite plugin sets it in `vite dev`; a production build records nothing. */
   readonly console?: 'gpu';
-  /** Reads a shader file the module imports (Rule 3.9): the module and what it imports are one
-   *  program, and its face is the module's own exports and re-exports. The Vite plugin reads
-   *  from disk. */
+  /** Reads a shader file the module imports (Rule 3.9), and a package's `package.json`: the
+   *  module and what it imports are one program, and its face is the module's own exports and
+   *  re-exports. The Vite plugin reads from disk. */
   readonly readDocument?: (fileName: string) => string | undefined;
   /** The file a specifier written in `fromFile` names; defaults to the rule `compile()` uses. */
   readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;

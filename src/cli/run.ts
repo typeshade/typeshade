@@ -242,16 +242,19 @@ function sync(files: readonly string[], host: CliHost, check: boolean): number {
       host.stderr(`tshc: cannot read ${shown}.\n`);
       return 2;
     }
-    // The shader files the module imports, read from disk beside it (Rule 3.9).
+    // The shader files the module imports, read from disk (Rule 3.9): beside it, or a package's,
+    // looked for in node_modules from its directory up, above the working directory too. Each
+    // error is printed at its file relative to the working directory.
     const face = hostFace(text, {
-      fileName: shown,
-      readDocument: (f) => {
-        const at = resolvePath(host.cwd, f);
-        return host.kind(at) === 'file' ? host.readFile(at) : undefined;
-      },
+      fileName: path,
+      readDocument: (f) => (host.kind(f) === 'file' ? host.readFile(f) : undefined),
     });
     if (face.view === undefined) {
-      host.stderr(`${formatBuildErrors(face.diagnostics)}\n`);
+      const errors = face.diagnostics.map((d) => ({
+        ...d,
+        fileName: relativeTo(host.cwd, d.fileName),
+      }));
+      host.stderr(`${formatBuildErrors(errors)}\n`);
       status = 1;
       continue;
     }
