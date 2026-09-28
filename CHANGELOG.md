@@ -1986,6 +1986,30 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   and `out[row + x]` over `const row = y * w` now run on the GPU as `out[y * w + x]` does. The
   metamorphic tests of #350 found that they were refused.
 
+- **Surface §38 no longer says an empty determinism report means one answer on every driver**
+  (#378). WGSL lets a driver regroup a chain of operations (§15.7.5, "An implementation may
+  reassociate operations"), and SwiftShader computed `(x + 1e8) - 1e8` as 2, where the expression
+  as written gives 0 in `f32`. The report still reads one operation at a time. §38 now says that
+  an empty list means each operation has one answer on its own, and names regrouping as the room
+  outside the report, with the measurement.
+
+- **A `clamp` whose constant bounds cross, and an `f32` constant expression past the range, are
+  refused where they are written** (Rule 12.6, surface §22 and §52, #373, #374). Tint refused
+  both, and `compile()` accepted both:
+  - `clamp(x, 5, 2)`, and the same pair through module or local consts, compiled as
+    `min(max(x, 5u), 2u)`, since #372 writes a pair the optimizer makes constant that way. It is
+    now TS8003, which gives the value of a const bound and the component of a vector pair:
+    `Crossed clamp bounds: the low bound 5 is above the high bound 2 on every invocation.`
+  - `y + 1e30 * 1e30`, `const K: f32 = 1e30 * 1e30`, and `K * K` over `const K: f32 = 1e30`,
+    reached Tint as a value no `f32` holds. Each is now TS8003 in the sentence a literal past
+    the range gets, `"K * K" is about 1e+60, outside the range of f32 (about ±3.4e38)`.
+
+  Both fold as the zero-divisor proof does. A float value is refused only where both of WGSL's
+  readings leave the range or cross, exactly and in `f32` steps, so `clamp(y, 1.00000001, 1.)`
+  and `1e38 * 3.4028234` compile as Tint compiles them. Each was measured on Tint with its valid
+  neighbours, and each test reads both halves: `compile()`'s diagnostics and the language
+  service's.
+
 - **On WebGL2, an integer division, remainder and shift, and a float's conversion to an integer,
   give WGSL's answer on every input** (proposal 0027, Rule 11.12, surface §11 and §22, #382). The
   GLSL writer spelled each with the bare GLSL operator, and GLSL ES 3.00 gives some inputs no

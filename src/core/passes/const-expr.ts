@@ -8,7 +8,8 @@
 //   - the optimizer makes one: `x - x`, `x ^ x` and `x * 0` fold to 0 on integers, a `select`
 //     on a literal folds to one arm, and const-prop moves a local's literal into its uses;
 //   - the author writes one with constants, a literal or a module `const`, where the front end
-//     refuses only a divisor it proves zero and a shift amount past 31 (Rule 7.4). An `i32`
+//     refuses a divisor it proves zero and a shift amount past 31 (Rule 7.4), and a `clamp`
+//     whose bounds cross and an `f32` value past the range (Rule 12.6, #373, #374). An `i32`
 //     literal is spelled with no suffix, so WGSL reads it as an abstract integer, and an
 //     operation on two of them is refused when its value does not fit the `i32` it meets.
 //

@@ -1999,7 +1999,7 @@ steps as `p_1`.
 
 ## 22. Constant checks on a shift amount and a divisor
 
-Two more things a program is told at compile time instead of by the driver, and one spelling
+Three more things a program is told at compile time instead of by the driver, and one spelling
 the GLSL writer owed the compound assignment.
 
 **A shift amount is 0 to 31.** WGSL requires the amount of `<<` and `>>` on a 32-bit integer
@@ -2022,6 +2022,16 @@ of safety. Such a divisor that is zero at run time gives WGSL's answer on every 
 is `x` and `x % 0` is 0: the GLSL writer spells an integer `/` and `%` by a run-time divisor
 through `_idiv`, `_irem`, `_udiv` and `_urem`, which also give WGSL's least `i32` over -1 and its
 truncating remainder of a negative operand (Rule 11.12).
+
+**A `clamp` whose constant bounds cross is refused.** WGSL makes `clamp(e, low, high)` with
+`low` above `high` a shader-creation error when both bounds are constant, and GLSL ES 3.00 leaves
+the result undefined. The bounds fold as a divisor does, and one crossed component of a vector
+pair is enough. The refusal is TS8003, `Crossed clamp bounds: the low bound 5 is above the high
+bound 2 on every invocation`, and it gives the value of a bound written as a const and the
+component of a vector pair that crosses (issue #373). A float pair is compared in `f32`, so
+`clamp(y, 1.00000001, 1.)`, whose bounds are one `f32`, compiles as Tint compiles it. A pair
+that only the optimizer makes constant, `(k - k) + 5` against `(k - k) + 2`, is written
+`min(max(e, low), high)`, the answer an integer `clamp` gives crossed bounds (issue #372).
 
 **A float `%=` on GLSL ES 3.00** is written `x = (x - y * trunc(x / y));`, the `floatMod`
 spelling the binary `%` has always taken there, because GLSL's `%` is for integers. The compound
@@ -4400,14 +4410,30 @@ const { determinism } = compile(source);
 ```
 
 The multiply, the scale and the offset are correctly rounded and do not appear; `sin` does, with
-the bound the spec gives it. An empty list means every operation in the module has one answer,
-so a GPU result and the oracle can differ only by the oracle's own rounding, never by the
-driver's choice.
+the bound the spec gives it. An empty list means every operation in the module has one answer on
+its own. A GPU result and the oracle can then differ by the oracle's own rounding, and by a chain
+of operations the driver groups otherwise (below), never by one operation's answer.
 
 "One answer" is the report's assumption, stated once. WGSL fixes no rounding mode, so a
 correctly rounded result may be either neighbour of the exact value, and any operation may
 flush a subnormal to zero. Every shipping driver rounds to nearest even, so the report counts a
 correctly rounded result as one value and leaves the subnormal corners alone.
+
+**Regrouping.** The report reads one operation at a time, and WGSL lets a driver change more than
+one: "An implementation may reassociate operations" (§15.7.5), with no condition, and it may fuse
+them where the result is at least as accurate. A chain of correctly rounded operations is a
+formula the driver may regroup, and under cancellation the difference has no bound. Measured on
+Chromium's WebGPU (SwiftShader), with `x = 2.0` read from a storage buffer (issue #378):
+
+| WGSL                | `f32`, as written  | WebGPU                                          |
+| ------------------- | ------------------ | ----------------------------------------------- |
+| `3.5 + (0.001 - x)` | 1.5010000467300415 | 1.500999927520752, which is `(3.5 + 0.001) - x` |
+| `(x + 1e8) - 1e8`   | 0                  | 2                                               |
+
+That driver grouped the two constants together, and computed an expression over run-time values
+as written. The report does not list a chain: nearly every float expression in a shader is one,
+and a list of them would stop naming the operation to look at. A result that must not depend on
+the grouping is computed in integers, or in values no step rounds.
 
 **The kinds.** `kind` says why an entry is there, and `accuracy` says how far it may go:
 
@@ -4466,8 +4492,8 @@ the intrinsic tables and fails on a new builtin that has not been placed in one 
 other.
 
 The list is the input to the divergence report of roadmap item 19: when a GPU result and the
-oracle disagree, the operations here are where the spec allows it, and everything else is a bug
-in one of the two.
+oracle disagree, the operations here, and a chain the driver regrouped, are where the spec allows
+it, and everything else is a bug in one of the two.
 
 ## 39. `f64`: the emulated double
 
@@ -5967,7 +5993,11 @@ past it. One function raises it, so the three sites cannot drift apart again.
   builtin. The editor reads the line as the compiler does and draws no `TS2304` on its `_`
   (§19).
 - A decimal literal past the f32 range is refused. `1e40` reached the writer, which printed
-  `1e+40` — a value no f32 holds, so the shader ran on a number nobody wrote.
+  `1e+40` — a value no f32 holds, so the shader ran on a number nobody wrote. Arithmetic over
+  literals and consts whose value is past the range is refused in the same sentence,
+  `"1e30 * 1e30" is about 1e+60, outside the range of f32 (about ±3.4e38)`, and so is `K * K`
+  over `const K: f32 = 1e30` (issue #374). The value folds as a divisor's does (§22). A value
+  within an `f32` rounding of the largest one is left to Tint.
 
 **What this deliberately does not reach.**
 
