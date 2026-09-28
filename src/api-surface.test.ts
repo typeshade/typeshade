@@ -80,7 +80,7 @@ const REBAKE = 'bun run bake:api-surface';
  *  api-doc-coverage.test.ts's 284 / 33 / 17 / 193 gone stale: that file counts the same `.`
  *  and `./core/ir` surface at an older commit, and its own arms pin its numbers.) This arm
  *  answers "is the reader alive"; the snapshot diff answers "did the surface change". A floor
- *  set AT the true count would make every legitimate addition fail HERE — in the arm whose
+ *  set AT the true count would make every legitimate removal fail HERE — in the arm whose
  *  message says the reader is broken — instead of in the snapshot diff, which is the only arm
  *  that can name what actually moved. */
 const FLOOR: Readonly<Record<string, number>> = {
