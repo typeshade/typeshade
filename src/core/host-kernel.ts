@@ -15,6 +15,7 @@
 // call needs into the generated module at build time.
 
 import type { CpuValue } from './cpu-runtime.js';
+import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
 import { fromShader, toShader, type HostType } from './host-values.js';
 import {
   byteSize,
@@ -52,6 +53,20 @@ export interface KernelLoop {
   readonly step: number;
   readonly writes: readonly string[];
   readonly checks: readonly { readonly param: string; readonly a: number; readonly c: number }[];
+  /** The workgroup size of its entry: 256 when it reduces. */
+  readonly wg: number;
+  /** What it reduces, when it does (Rule 7.2): the entry that folds a level of partials, and
+   *  per variable its operator, its scalar, its component count and its partials' binding. */
+  readonly reduce?: {
+    readonly entry: string;
+    readonly vars: readonly {
+      readonly name: string;
+      readonly op: TreeOp;
+      readonly scalar: 'f32' | 'i32' | 'u32';
+      readonly n: number;
+      readonly binding: EntryBinding;
+    }[];
+  };
 }
 
 /** A kernel function a host can call, as the generated module writes it. */
@@ -69,28 +84,51 @@ export interface KernelFace {
     /** Each array parameter's storage binding. */
     readonly arrays: readonly EntryBinding[];
     readonly loops: readonly KernelLoop[];
+    /** The CPU-tier function that gives the result from the parameters and what the GPU folded
+     *  for each reduction, in loop order; absent when the function returns nothing. */
+    readonly tail?: string;
   };
   /** Why it runs on the CPU tier, when it does. */
   readonly noGpu?: string;
 }
 
-/** The compute entry of each loop, built once per kernel, since a pipeline is cached per
- *  entry object. */
-const entries = new WeakMap<KernelFace, ComputeEntry[]>();
+/** The compute entries of each loop, built once per kernel, since a pipeline is cached per
+ *  entry object: the loop's, and the one that folds its partials when it reduces. */
+const entries = new WeakMap<KernelFace, { loop: ComputeEntry; fold?: ComputeEntry }[]>();
 
-function entriesOf(k: KernelFace): ComputeEntry[] {
+const TREE_PARAMS = [
+  'global_invocation_id',
+  'num_workgroups',
+  'local_invocation_index',
+  'workgroup_id',
+] as const;
+
+function entriesOf(k: KernelFace): { loop: ComputeEntry; fold?: ComputeEntry }[] {
   let es = entries.get(k);
   if (es === undefined) {
     const g = k.gpu!;
-    es = g.loops.map((loop): ComputeEntry => ({
-      name: k.name,
-      fn: loop.entry,
-      wgsl: g.wgsl,
-      wg: [64, 1, 1],
-      params: ['global_invocation_id', 'num_workgroups'],
-      bindings: [g.args, ...g.arrays.map((b) => ({ ...b, writes: loop.writes.includes(b.name) }))],
-      workgroupZero: {},
-    }));
+    es = g.loops.map((loop) => {
+      const parts = (loop.reduce?.vars ?? []).map((v) => v.binding);
+      const entry = (fn: string, bindings: EntryBinding[]): ComputeEntry => ({
+        name: k.name,
+        fn,
+        wgsl: g.wgsl,
+        wg: [loop.wg, 1, 1],
+        params: loop.reduce !== undefined ? TREE_PARAMS : TREE_PARAMS.slice(0, 2),
+        bindings,
+        workgroupZero: {},
+      });
+      return {
+        loop: entry(loop.entry, [
+          g.args,
+          ...g.arrays.map((b) => ({ ...b, writes: loop.writes.includes(b.name) })),
+          ...parts,
+        ]),
+        ...(loop.reduce !== undefined
+          ? { fold: entry(loop.reduce.entry, [g.args, ...parts]) }
+          : {}),
+      };
+    });
     entries.set(k, es);
   }
   return es;
@@ -123,8 +161,11 @@ export async function callKernel(
   const ranges = k.gpu !== undefined ? rangesOf(cpu, k, values) : undefined;
   const d = k.gpu !== undefined ? await gpuDevice() : null;
   if (d !== null && ranges !== undefined) {
-    await onDevice(d, k, args, ranges);
-    return undefined;
+    const folded = await onDevice(d, k, args, ranges);
+    const tail = k.gpu!.tail;
+    if (tail === undefined) return undefined;
+    cpu.F['$initPrivates']?.();
+    return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values), ...folded));
   }
   return onCpu(cpu, k, args, values);
 }
@@ -167,11 +208,7 @@ function rangesOf(
 ): { start: number; n: number }[] {
   const g = k.gpu!;
   // The range functions read an array only by its length.
-  const lengths = k.params.map((p, i) =>
-    p.k === 'array'
-      ? ({ length: values[i] as number } as unknown as CpuValue)
-      : (values[i] as CpuValue),
-  );
+  const lengths = lengthsOf(k, values);
   const init = cpu.F['$initPrivates'];
   return g.loops.map((loop, j) => {
     init?.();
@@ -195,18 +232,44 @@ function rangesOf(
   });
 }
 
+/** The parameters as the range functions and the tail take them: each array by its length. */
+function lengthsOf(k: KernelFace, values: readonly unknown[]): CpuValue[] {
+  return k.params.map((p, i) =>
+    p.k === 'array'
+      ? ({ length: values[i] as number } as unknown as CpuValue)
+      : (values[i] as CpuValue),
+  );
+}
+
+/** The workgroups of a dispatch of `groups`, past 65535 spilling into y, and how many that is. */
+function grid(groups: number): { wg: [number, number, number]; slots: number } {
+  const x = Math.max(1, Math.min(groups, 65535));
+  const y = Math.ceil(groups / x);
+  return { wg: [x, y, 1], slots: x * y };
+}
+
+const TYPED = { f32: Float32Array, i32: Int32Array, u32: Uint32Array } as const;
+
+/** Dispatch each loop in order; for a loop that reduces, fold its partials level by level and
+ *  return what each variable folded to, in loop order. */
 async function onDevice(
   d: NonNullable<Awaited<ReturnType<typeof gpuDevice>>>,
   k: KernelFace,
   args: readonly unknown[],
   ranges: readonly { start: number; n: number }[],
-): Promise<void> {
+): Promise<CpuValue[]> {
   const g = k.gpu!;
   const es = entriesOf(k);
-  for (const [j] of g.loops.entries()) {
+  const folded: CpuValue[] = [];
+  for (const [j, loop] of g.loops.entries()) {
     const { start, n } = ranges[j]!;
-    if (n === 0) continue;
-    const uniform: Record<string, unknown> = { _start: start, _n: n };
+    const vars = loop.reduce?.vars ?? [];
+    if (n === 0) {
+      // No iteration: the variable is combined with the identity, which leaves it.
+      for (const v of vars) folded.push(identityValue(v.op, v.scalar, v.n));
+      continue;
+    }
+    const uniform: Record<string, unknown> = { _start: start, _n: n, _in: 0, _out: 0 };
     k.params.forEach((p, i) => {
       if (p.k === 'value') uniform[p.name] = args[i];
     });
@@ -214,14 +277,54 @@ async function onDevice(
     k.params.forEach((p, i) => {
       if (p.k === 'array') bound_[p.name] = args[i];
     });
-    const groups = Math.ceil(n / 64);
-    const x = Math.min(groups, 65535);
-    await onGpu(d, es[j]!, { values: bound_, images: new Map(), samplers: new Map() }, [
-      x,
-      Math.ceil(groups / x),
-      1,
-    ]);
+    const first = grid(Math.ceil(n / loop.wg));
+    if (vars.length === 0) {
+      await onGpu(
+        d,
+        es[j]!.loop,
+        { values: bound_, images: new Map(), samplers: new Map() },
+        first.wg,
+      );
+      continue;
+    }
+    // The partials of every level, one region after another.
+    const levels: { wg: [number, number, number]; slots: number; count: number }[] = [];
+    let count = Math.ceil(n / loop.wg);
+    let slots = first.slots;
+    while (count > 1) {
+      const next = grid(Math.ceil(count / KERNEL_TREE));
+      levels.push({ ...next, count });
+      slots += next.slots;
+      count = Math.ceil(count / KERNEL_TREE);
+    }
+    for (const v of vars) bound_[v.binding.name] = new TYPED[v.scalar](slots * v.n);
+    const checked = { values: bound_, images: new Map(), samplers: new Map() };
+    await onGpu(d, es[j]!.loop, checked, first.wg);
+    let at = 0;
+    let out = first.slots;
+    for (const level of levels) {
+      uniform._n = level.count;
+      uniform._in = at;
+      uniform._out = out;
+      await onGpu(d, es[j]!.fold!, checked, level.wg);
+      at = out;
+      out += level.slots;
+    }
+    for (const v of vars) {
+      const part = bound_[v.binding.name] as ArrayLike<number>;
+      folded.push(
+        (v.n === 1
+          ? part[at]!
+          : Array.from({ length: v.n }, (_, c) => part[at * v.n + c]!)) as CpuValue,
+      );
+    }
   }
+  return folded;
+}
+
+function identityValue(op: TreeOp, scalar: string, n: number): CpuValue {
+  const one = treeIdentity(op, scalar) as number;
+  return (n === 1 ? one : new Array<number>(n).fill(one)) as CpuValue;
 }
 
 // ─── the CPU tier ────────────────────────────────────────────────────────────────────────────

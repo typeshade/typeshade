@@ -79,5 +79,36 @@ export function loopReference() {
   }
   const odds = new Array(30).fill(0);
   for (let i = 9; i >= 0; i--) if (i % 2 === 1) odds.splice(i * 3, 3, 1, 2, i);
-  return { render, drift, odds };
+  // The tree order (Rule 7.2): each iteration from the identity, blocks of 256 folded at
+  // stride 128 down to 1, the last block padded with the identity, then the partials the same
+  // way until one is left; the variable is combined with that last.
+  const tree = (values, op, id) => {
+    const level = (vs) => {
+      const out = [];
+      for (let b = 0; b < vs.length; b += 256) {
+        const w = Array.from({ length: 256 }, (_, t) => (b + t < vs.length ? vs[b + t] : id));
+        for (let s = 128; s > 0; s >>= 1) for (let t = 0; t < s; t++) w[t] = op(w[t], w[t + s]);
+        out.push(w[0]);
+      }
+      return out;
+    };
+    let l = level(values);
+    while (l.length > 1) l = level(l);
+    return l[0];
+  };
+  const xs = Array.from({ length: 300000 }, (_, i) => f(Math.sin(i) * 1000.123));
+  const sum = f(
+    0 +
+      tree(
+        xs.map((x) => f(-0 + x)),
+        (a, b) => f(a + b),
+        -0,
+      ),
+  );
+  const top = Math.max(-1e30, tree(xs, Math.max, -3.4028234663852886e38));
+  const stats = [sum, f(top), f(sum / xs.length)];
+  const scaled = xs.slice(0, 256).map((x) => f(x * 0.5));
+  let tally = 0;
+  for (let i = 0; i < 70000; i++) tally += (i % 7) - 3;
+  return { render, drift, odds, stats, scaled, tally: [tally] };
 }
