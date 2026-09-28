@@ -529,7 +529,7 @@ export class ProgramImpl implements Program {
         throw new TypeError(
           `${where} has no host value${b.noLayout !== undefined ? `: ${b.noLayout}` : ''}; pass a GPUBuffer.`,
         );
-      return { buffer: this.#packed(s.layout, v, b, where) };
+      return this.#packed(s.layout, v, b, where);
     }
     if (v instanceof TextureImpl) return v.view();
     if (v instanceof SamplerImpl) return v.sampler;
@@ -542,7 +542,15 @@ export class ProgramImpl implements Program {
     );
   }
 
-  #packed(l: Layout, v: unknown, b: PackBinding, where: string): Buffer {
+  /** The binding of `v` packed into a buffer the pool hands out. The pool rounds a buffer up
+   *  to reuse it, so a storage binding names its size: WGSL's `arrayLength` is the bound size
+   *  over the stride, and the whole buffer held an array of 8 where the host passed 5 (#367). */
+  #packed(
+    l: Layout,
+    v: unknown,
+    b: PackBinding,
+    where: string,
+  ): { readonly buffer: Buffer; readonly size?: number } {
     let bytes: ArrayBuffer;
     try {
       const size = byteSize(l, v, b.name);
@@ -557,7 +565,9 @@ export class ProgramImpl implements Program {
       BUFFER.COPY_DST;
     const buffer = this.rt.pool.take(bytes.byteLength, usage);
     this.device.queue.writeBuffer(buffer, 0, bytes);
-    return buffer;
+    return b.resource.resourceKind === 'uniform-buffer'
+      ? { buffer }
+      : { buffer, size: bytes.byteLength };
   }
 }
 

@@ -21,6 +21,7 @@ function fakeDevice(features: string[] = []) {
     made[k] = (made[k] ?? 0) + 1;
   };
   const layouts: object[] = [];
+  const groups: { entries: { binding: number; resource: { size?: number } }[] }[] = [];
   const commands: string[] = [];
   let consoleWords: Uint32Array | undefined;
   const buffer = (d: { size: number; usage: number }) => {
@@ -79,7 +80,7 @@ function fakeDevice(features: string[] = []) {
       return { entries: d.entries };
     },
     createPipelineLayout: () => (count('pipelineLayout'), {}),
-    createBindGroup: () => (count('bindGroup'), {}),
+    createBindGroup: (d: (typeof groups)[number]) => (count('bindGroup'), groups.push(d), {}),
     createComputePipelineAsync: async () => (count('pipeline'), {}),
     createRenderPipelineAsync: async (d: object) => (count('pipeline'), { d }),
     createCommandEncoder: () => ({
@@ -96,6 +97,7 @@ function fakeDevice(features: string[] = []) {
     device,
     made,
     layouts,
+    groups,
     commands,
     setConsole: (w: Uint32Array) => {
       consoleWords = w;
@@ -154,6 +156,25 @@ describe('the program runtime (Rule 11.11)', () => {
     expect(after60).toEqual(after2);
     expect(fake.made.pipeline).toBe(1);
     expect(fake.made.shaderModule).toBe(1);
+  });
+
+  it('binds a storage array at the size of its data, which the pool rounds up (#367)', async () => {
+    // WGSL's `arrayLength` is the bound size over the stride. The pool hands out a buffer
+    // rounded to 16 bytes, and bound whole it made five `f32`s an array of 8.
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pack = manifest(SCALE);
+    const pipeline = await rt.load(pack).compute();
+    const f = rt.frame();
+    const values = { params: { scale: 2 }, xs: new Float32Array(5), out: new Float32Array(5) };
+    f.dispatch(pipeline, values, 1);
+    await f.submit();
+    const size = (name: string) => {
+      const b = pack.bindings.find((x) => x.name === name)!;
+      return fake.groups.flatMap((g) => g.entries).find((x) => x.binding === b.binding)!.resource
+        .size;
+    };
+    expect([size('xs'), size('out'), size('params')]).toEqual([20, 20, undefined]);
   });
 
   it("lays out each binding the pipeline's entries reach, visible to the stages that reach it", async () => {

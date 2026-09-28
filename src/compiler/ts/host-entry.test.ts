@@ -19,7 +19,7 @@ import { hostFace, type HostExport } from './host-face.js';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
 import { wgslLayout } from '../../core/reflect.js';
-import type { EntryBinding } from '../../core/host-entry.js';
+import { packed, type EntryBinding } from '../../core/host-entry.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const ROOT = resolve(__dirname, '../../..');
@@ -260,6 +260,21 @@ export function touch(@builtin("global_invocation_id") gid: vec3u) { s.b = u.b +
       );
       expect(b.layout.k === 'o' && b.layout.sz).toBe(want.size);
     }
+  });
+});
+
+describe('the bytes the call binds (#367)', () => {
+  // The call makes a storage binding's buffer at the size of its bytes and binds it whole, and
+  // WGSL's `arrayLength` is the bound size over the stride. Padded to 16, five `u32`s were an
+  // array of 8 to `out.length` on WebGPU. A uniform's bytes stay padded to 16.
+  it('packs a storage binding to its data and a uniform to a multiple of 16', () => {
+    const e = entryOf(face(SCALE).exports, 'scale');
+    const binding = (name: string) =>
+      e.entry.bindings.find((x) => x.name === name)! as EntryBinding;
+    expect(packed(binding('xs'), new Float32Array(5)).byteLength).toBe(20);
+    expect(packed(binding('ys'), new Float32Array(7)).byteLength).toBe(28);
+    expect(packed(binding('pts'), new Float32Array(6)).byteLength).toBe(24);
+    expect(packed(binding('k'), 2).byteLength).toBe(16);
   });
 });
 
