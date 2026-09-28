@@ -4,7 +4,7 @@
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js';
-import { typeKey } from '../../core/ir/types.js';
+import { typeKey, type ShaderType } from '../../core/ir/types.js';
 import { eachExpr } from '../../core/ir/visit.js';
 import { eachOperand } from '../../core/passes/access.js';
 import { authorTypeText, type LoweringScope } from './context.js';
@@ -691,6 +691,65 @@ export function constShiftAmountOutOfRange(amount: Expr, scope: LoweringScope): 
   return parts.map((v) => (int === undefined ? v : wrapInt(v, int))).find(shiftAmountOutOfRange);
 }
 
+/** The largest finite `f32`, the bound a float literal is held to as well. */
+const MAX_F32 = 3.4028234663852886e38;
+
+const isF32Valued = (t: ShaderType): boolean =>
+  (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32');
+
+/** The value of a constant `f32` expression, scalar or vector, in its first component that no
+ *  `f32` holds, or undefined (#374). WGSL evaluates the expression when it creates the shader and
+ *  refuses that value: `1e30 * 1e30`, or `K * K` over `const K: f32 = 1e30`. It evaluates
+ *  literals alone exactly and converts the result, and an expression over `f32` constants step
+ *  by step in `f32`, and which reading the emitted module takes depends on what the optimizer
+ *  folds first. So the value is refused only where both readings leave the range: the exact
+ *  value is past ±3.4e38 and the `f32` steps overflow. A value within an `f32` rounding of the
+ *  bound is left to Tint: a false negative, never a false refusal. So is an infinite one, which
+ *  only an operand no double holds reaches (`1e400`): the writer refuses that operand, SD0017. */
+export function constF32OutOfRange(e: Expr, scope: LoweringScope): number | undefined {
+  if (!isF32Valued(e.type)) return undefined;
+  const exact = foldConstComponents(e, scope);
+  const past = (v: number): boolean => Number.isFinite(v) && Math.abs(v) > MAX_F32;
+  if (exact === undefined || !exact.some(past)) return undefined;
+  const steps = foldConstComponents(e, scope, undefined, undefined, Math.fround);
+  if (steps === undefined || steps.length !== exact.length) return undefined;
+  return exact.find((v, i) => past(v) && !Number.isFinite(steps[i]!));
+}
+
+/** A `clamp` whose constant bounds cross: the first component where `low` is above `high`,
+ *  with both values, or undefined (#373). WGSL makes that a shader-creation error when both
+ *  bounds are constant, and GLSL ES 3.00 leaves the result undefined. The bounds fold as a
+ *  divisor does (#68). An integer bound is wrapped to its type the way the GPU computes it,
+ *  and one that is not a whole number (an integer division, which the fold does not truncate)
+ *  is left to Tint. A float pair is compared in `f32` and must cross under both readings
+ *  {@link constF32OutOfRange} names, so `clamp(y, 1.00000001, 1.)`, one `f32` apart from
+ *  nothing, compiles as Tint compiles it. */
+export function crossedClampBounds(
+  low: Expr,
+  high: Expr,
+  scope: LoweringScope,
+): { readonly index: number; readonly low: number; readonly high: number } | undefined {
+  const lo = foldConstComponents(low, scope);
+  const hi = foldConstComponents(high, scope);
+  if (lo === undefined || hi === undefined || lo.length !== hi.length) return undefined;
+  const int = intElemOf(low.type);
+  if (int !== undefined) {
+    if (![...lo, ...hi].every((v) => Number.isInteger(v))) return undefined;
+    const index = lo.findIndex((v, i) => wrapInt(v, int) > wrapInt(hi[i]!, int));
+    return index < 0
+      ? undefined
+      : { index, low: wrapInt(lo[index]!, int), high: wrapInt(hi[index]!, int) };
+  }
+  if (!isF32Valued(low.type)) return undefined;
+  const loSteps = foldConstComponents(low, scope, undefined, undefined, Math.fround);
+  const hiSteps = foldConstComponents(high, scope, undefined, undefined, Math.fround);
+  if (loSteps === undefined || hiSteps === undefined) return undefined;
+  const index = lo.findIndex(
+    (v, i) => Math.fround(v) > Math.fround(hi[i]!) && loSteps[i]! > hiSteps[i]!,
+  );
+  return index < 0 ? undefined : { index, low: lo[index]!, high: hi[index]! };
+}
+
 /** The components of a constant vector or scalar expression, or undefined when any part does not
  *  fold: a literal, a scalar const, a vector constructor over those (one scalar splats), a
  *  negation, and `+ - * /` over those with the vector-against-scalar broadcast the language has.
@@ -700,18 +759,24 @@ export function constShiftAmountOutOfRange(amount: Expr, scope: LoweringScope): 
  *  is the thing in question. Written for the zero-divisor proof (#68), where a false negative
  *  (a zero this cannot see) only lets Tint refuse the module later, and a false positive would
  *  refuse a program that runs; integer division is computed in floating point here, which can
- *  miss an integer zero (`1 / 2`) but never invent one. */
+ *  miss an integer zero (`1 / 2`) but never invent one.
+ *
+ *  `round`, when given, is applied to every constant the fold reads and to every result it
+ *  computes: `Math.fround` folds step by step in `f32`, the way WGSL evaluates an expression of
+ *  `f32` constants when it creates the shader, where the default folds in doubles, the way it
+ *  evaluates literals alone (#373, #374). */
 export function foldConstComponents(
   e: Expr,
   scope: LoweringScope,
   valueExprs?: ReadonlyMap<string, Expr>,
   seen: ReadonlySet<string> = new Set(),
+  round: (v: number) => number = (v) => v,
 ): number[] | undefined {
   const fold = (x: Expr, s: ReadonlySet<string> = seen): number[] | undefined =>
-    foldConstComponents(x, scope, valueExprs, s);
+    foldConstComponents(x, scope, valueExprs, s, round);
   switch (e.op) {
     case 'lit':
-      return typeof e.value === 'number' ? [e.value] : undefined;
+      return typeof e.value === 'number' ? [round(e.value)] : undefined;
     case 'unop': {
       const a = fold(e.a);
       return a === undefined ? undefined : a.map((v) => -v);
@@ -735,11 +800,11 @@ export function foldConstComponents(
       const value = valueExprs?.get(e.name) ?? scope.resolveIr(e.name)?.valueExpr;
       if (value !== undefined) return fold(value, new Set([...seen, e.name]));
       const n = foldConstNumber(e, scope);
-      return n === undefined ? undefined : [n];
+      return n === undefined ? undefined : [round(n)];
     }
     case 'varref': {
       const n = foldConstNumber(e, scope);
-      return n === undefined ? undefined : [n];
+      return n === undefined ? undefined : [round(n)];
     }
     case 'binop': {
       const a = fold(e.a);
@@ -754,17 +819,17 @@ export function foldConstComponents(
         const y = at(b, i);
         switch (e.bop) {
           case '+':
-            out.push(x + y);
+            out.push(round(x + y));
             break;
           case '-':
-            out.push(x - y);
+            out.push(round(x - y));
             break;
           case '*':
-            out.push(x * y);
+            out.push(round(x * y));
             break;
           case '/':
             if (y === 0) return undefined;
-            out.push(x / y);
+            out.push(round(x / y));
             break;
           default:
             return undefined;

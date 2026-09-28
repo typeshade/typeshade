@@ -1999,7 +1999,7 @@ steps as `p_1`.
 
 ## 22. Constant checks on a shift amount and a divisor
 
-Two more things a program is told at compile time instead of by the driver, and one spelling
+Three more things a program is told at compile time instead of by the driver, and one spelling
 the GLSL writer owed the compound assignment.
 
 **A shift amount is 0 to 31.** WGSL requires the amount of `<<` and `>>` on a 32-bit integer
@@ -2022,6 +2022,16 @@ of safety. Such a divisor that is zero at run time gives WGSL's answer on every 
 is `x` and `x % 0` is 0: the GLSL writer spells an integer `/` and `%` by a run-time divisor
 through `_idiv`, `_irem`, `_udiv` and `_urem`, which also give WGSL's least `i32` over -1 and its
 truncating remainder of a negative operand (Rule 11.12).
+
+**A `clamp` whose constant bounds cross is refused.** WGSL makes `clamp(e, low, high)` with
+`low` above `high` a shader-creation error when both bounds are constant, and GLSL ES 3.00 leaves
+the result undefined. The bounds fold as a divisor does, and one crossed component of a vector
+pair is enough. The refusal is TS8003, `Crossed clamp bounds: the low bound 5 is above the high
+bound 2 on every invocation`, and it gives the value of a bound written as a const and the
+component of a vector pair that crosses (issue #373). A float pair is compared in `f32`, so
+`clamp(y, 1.00000001, 1.)`, whose bounds are one `f32`, compiles as Tint compiles it. A pair
+that only the optimizer makes constant, `(k - k) + 5` against `(k - k) + 2`, is written
+`min(max(e, low), high)`, the answer an integer `clamp` gives crossed bounds (issue #372).
 
 **A float `%=` on GLSL ES 3.00** is written `x = (x - y * trunc(x / y));`, the `floatMod`
 spelling the binary `%` has always taken there, because GLSL's `%` is for integers. The compound
@@ -5983,7 +5993,11 @@ past it. One function raises it, so the three sites cannot drift apart again.
   builtin. The editor reads the line as the compiler does and draws no `TS2304` on its `_`
   (§19).
 - A decimal literal past the f32 range is refused. `1e40` reached the writer, which printed
-  `1e+40` — a value no f32 holds, so the shader ran on a number nobody wrote.
+  `1e+40` — a value no f32 holds, so the shader ran on a number nobody wrote. Arithmetic over
+  literals and consts whose value is past the range is refused in the same sentence,
+  `"1e30 * 1e30" is about 1e+60, outside the range of f32 (about ±3.4e38)`, and so is `K * K`
+  over `const K: f32 = 1e30` (issue #374). The value folds as a divisor's does (§22). A value
+  within an `f32` rounding of the largest one is left to Tint.
 
 **What this deliberately does not reach.**
 
