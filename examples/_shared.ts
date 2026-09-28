@@ -72,6 +72,18 @@ export type Control =
       readonly offset: number;
     };
 
+/** One pass of an example drawn in several (change 0026): a program drawn before the example's
+ *  own file each frame, into a texture the size of the canvas. A `texture_2d<f32>` binding
+ *  named `name`, in any pass or in the example's own file, reads that texture: this frame's
+ *  when the pass was drawn earlier, the frame before's when it is the reader or a later pass. */
+export interface ShaderPass {
+  /** The pass's name, which is also the name of every binding that reads its output. */
+  readonly name: string;
+  /** Its source file, relative to `examples/` (`passes/trail.shade.ts`). */
+  readonly file: string;
+  readonly module: ModuleDecl;
+}
+
 export interface ShaderExample {
   readonly id: string;
   readonly title: string;
@@ -102,4 +114,7 @@ export interface ShaderExample {
   /** For split-screen comparison examples: on-canvas badges naming the halves
    *  ([left, right]) — the host overlays them so the comparison reads at a glance. */
   readonly splitLabels?: readonly [string, string];
+  /** The passes drawn before this example's own file each frame, in draw order (change 0026).
+   *  Absent for an example drawn in one pass, which is every example but a few. */
+  readonly passes?: readonly ShaderPass[];
 }

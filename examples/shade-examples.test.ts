@@ -39,10 +39,11 @@ import {
   SHADE_TWINS,
   NO_ENTRY_POINT,
   readSpecForTest,
+  checkPassesForTest,
 } from './_shade.js';
 import { examples } from './index.js';
 import { checkGolden } from './_goldens.js';
-import { emitModule, emitGlslModule, reflect } from '../src/index.js';
+import { compile, emitModule, emitGlslModule, reflect } from '../src/index.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -216,6 +217,147 @@ describe('"use typeshade" examples — emit goldens', () => {
   }
 });
 
+// ═══ Change 0026: an example drawn in several passes ═══
+//
+// A pass is a program of its own under `passes/`, which the scan above does not read, so the
+// arms below do for that directory what the drift arms do for this one, pin every pass's emits
+// beside its example's, and drive `checkPasses` with a graph that breaks each rule it holds.
+describe('"use typeshade" examples — passes (change 0026)', () => {
+  const withPasses = shadeExamples.filter((e) => e.passes !== undefined);
+
+  it('has examples drawn in several passes (the arms below are not vacuous)', () => {
+    expect(withPasses.map((e) => e.id).sort()).toEqual(['feedback-trail', 'separable-blur']);
+  });
+
+  it('every file under passes/ is a pass of exactly one example, and every pass has its file', () => {
+    const passFiles = readdirSync(join(HERE, 'passes'), { recursive: true })
+      .map(String)
+      .filter((f) => f.endsWith(SHADE_EXT))
+      .map((f) => `passes/${f.replaceAll('\\', '/')}`)
+      .sort();
+    const named = withPasses.flatMap((e) => (e.passes ?? []).map((p) => p.file)).sort();
+    expect(named).toEqual(passFiles);
+  });
+
+  it('records the passes in the order the block names them', () => {
+    const trail = shadeExamples.find((e) => e.id === 'feedback-trail');
+    expect(trail?.passes?.map((p) => [p.name, p.file])).toEqual([
+      ['trail', 'passes/trail.shade.ts'],
+    ]);
+    expect(trail?.passes?.[0]?.module.bindings.some((b) => b.name === 'trail')).toBe(true);
+  });
+
+  for (const ex of withPasses) {
+    for (const pass of ex.passes ?? []) {
+      it(`${ex.id}, pass ${pass.name}: emits both targets, byte-stable`, () => {
+        const vs = emitGlslModule(pass.module, 'vertex');
+        const fs = emitGlslModule(pass.module, 'fragment');
+        expect(vs).toContain('void main()');
+        expect(fs).toContain('void main()');
+        checkGolden(`${ex.id}.${pass.name}.wgsl`, emitModule(pass.module));
+        checkGolden(`${ex.id}.${pass.name}.vertex.glsl`, vs);
+        checkGolden(`${ex.id}.${pass.name}.fragment.glsl`, fs);
+      });
+    }
+  }
+
+  /** A program with a fullscreen vertex entry and a fragment entry that declares `decls`. */
+  const program = (decls: string, entries = 'both'): ReturnType<typeof compile>['module'] => {
+    const vs = `
+class VsOut { @builtin("position") pos: vec4; @location(0) uv: vec2; }
+class Color { @location(0) color: vec4; }
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): VsOut {
+  const x = f32(vi & u32(1)) * 4. - 1.;
+  const y = f32(vi >> u32(1)) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) * 0.5 + vec2(0.5, 0.5) };
+}`;
+    const fs = `
+@fragment
+export function fs(v: VsOut): Color {
+  return { color: vec4(v.uv, 0., 1.) };
+}`;
+    const src = `"use typeshade";\n${decls}\n${vs}\n${entries === 'both' ? fs : ''}`;
+    const { diagnostics, module } = compile(src, { fileName: 'probe.shade.ts' });
+    const errors = diagnostics.filter((d) => d.category === 'error');
+    if (errors.length > 0) throw new Error(errors.map((d) => d.message).join('\n'));
+    return module;
+  };
+  const reads = (name: string): string =>
+    `declare const ${name}: texture_2d<f32>;\ndeclare const smp: sampler;`;
+  const pass = (name: string, decls = '', entries = 'both') => ({
+    name,
+    file: `passes/${name}.shade.ts`,
+    module: program(decls, entries),
+  });
+
+  it('accepts a graph of three passes that read each other', () => {
+    // The positive control: a chain, a pass that reads itself, and the example reading the last.
+    expect(() =>
+      checkPassesForTest('probe.shade.ts', 'probe', program(reads('c')), [
+        pass('a', reads('a')),
+        pass('b', `declare const a: texture_2d<f32>;\n${reads('b')}`),
+        pass('c', `declare const b: texture_2d<f32>;\ndeclare const smp: sampler;`),
+      ]),
+    ).not.toThrow();
+  });
+
+  it('refuses a graph that cannot be drawn, naming the rule it breaks', () => {
+    const example = program(reads('a'));
+    for (const [why, build, message] of [
+      [
+        'a name that is no identifier',
+        () => [pass('a'), { ...pass('a'), name: 'a-b' }],
+        /not an identifier/,
+      ],
+      ['a name used twice', () => [pass('a'), pass('a')], /twice/],
+      ["the example's own id", () => [pass('a'), pass('probe')], /own id/],
+      ['a pass with no fragment entry', () => [pass('a', '', 'vertex')], /1 vertex and 0 fragment/],
+      [
+        'a binding named like a pass that is no texture_2d<f32>',
+        () => [pass('a'), pass('b', 'declare const a: texture_2d<u32>;')],
+        /other than a texture_2d<f32>/,
+      ],
+      ['a pass no file reads', () => [pass('a'), pass('lonely')], /read by no file/],
+    ] as const) {
+      expect(() => checkPassesForTest('probe.shade.ts', 'probe', example, build()), why).toThrow(
+        message,
+      );
+    }
+  });
+
+  it('refuses a passes list of the wrong shape, and passes on an example that is not renderable', () => {
+    const hello = readFileSync(join(HERE, `hello${SHADE_EXT}`), 'utf8').replace(
+      /\/\*\s*@example[\s\S]*?\*\//,
+      '',
+    );
+    const withBlock = (json: string): string =>
+      `"use typeshade"\n\n/* @example\n${json}\n*/\n${hello}`;
+    for (const [why, json] of [
+      ['not a list', '{ "title": "x", "blurb": "y", "renderable": true, "passes": {} }'],
+      ['an empty list', '{ "title": "x", "blurb": "y", "renderable": true, "passes": [] }'],
+      [
+        'no file',
+        '{ "title": "x", "blurb": "y", "renderable": true, "passes": [{ "name": "a" }] }',
+      ],
+      [
+        'not renderable',
+        '{ "title": "x", "blurb": "y", "renderable": false, "reason": "a reason", "passes": [{ "name": "a", "file": "passes/a.shade.ts" }] }',
+      ],
+    ] as const) {
+      expect(() => readSpecForTest('probe', withBlock(json)), why).toThrow();
+    }
+    expect(
+      readSpecForTest(
+        'probe',
+        withBlock(
+          '{ "title": "x", "blurb": "y", "renderable": true, "passes": [{ "name": "a", "file": "passes/a.shade.ts" }] }',
+        ),
+      ).passes,
+    ).toEqual([{ name: 'a', file: 'passes/a.shade.ts' }]);
+  });
+});
+
 // ═══ P1-40 and P1-41 of #155 ═══
 //
 // The arms above check coverage in ONE direction — every example has its goldens — and accept
@@ -235,6 +377,12 @@ describe('"use typeshade" examples — the goldens and the refusals are both exa
       if (ex.renderable) {
         want.add(`${ex.id}.vertex.glsl`);
         want.add(`${ex.id}.fragment.glsl`);
+      }
+      // One set per pass of an example drawn in several (change 0026).
+      for (const pass of ex.passes ?? []) {
+        want.add(`${ex.id}.${pass.name}.wgsl`);
+        want.add(`${ex.id}.${pass.name}.vertex.glsl`);
+        want.add(`${ex.id}.${pass.name}.fragment.glsl`);
       }
     }
     for (const id of SHADE_TWINS.keys()) {
