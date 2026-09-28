@@ -118,9 +118,16 @@ describe('optimize — integer literal folding matches the target, not JS f64', 
     expect(emitModule(fixpoint(m))).toMatch(/return 3\.5;/);
   });
 
-  it('does not fold a division by a literal zero', () => {
+  // The fold leaves a division by zero standing: its value is the question, not the fold's to
+  // answer. The emit then writes WGSL's run-time answer, `7`, since Tint refuses `7 / 0` as a
+  // constant expression (#368, passes/const-expr.ts).
+  it('does not fold a division by a literal zero; the emit writes its run-time answer', () => {
     const m = module({ funcs: [fn('k', {}, i32T, (_p, b) => b.ret(i32(7).div(i32(0))))] });
-    expect(emitModule(fixpoint(m))).toMatch(/7 \/ 0/);
+    expect(fixpoint(m).funcs[0]!.body[0]).toMatchObject({
+      s: 'return',
+      expr: { op: 'binop', bop: '/' },
+    });
+    expect(emitModule(fixpoint(m))).toMatch(/return 7;/);
   });
 });
 

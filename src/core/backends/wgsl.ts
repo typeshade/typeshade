@@ -34,6 +34,7 @@ import { spellIntrinsic } from '../intrinsics.js';
 import { fp64Lower } from '../passes/fp64-lower.js';
 import { pointerSpaces, ptrSpaceOf } from './wgsl-ptr.js';
 import { selectComposite } from '../passes/select-composite.js';
+import { settleConstExprs } from '../passes/const-expr.js';
 import {
   REQUIRES_DIRECTIVE,
   requiredCaps,
@@ -532,9 +533,11 @@ export function emitFuncs(funcs: readonly FuncDecl[]): string {
   funcs = funcs.filter((f) => f.kernel !== true);
   const lowered = pointerSpaces(
     selectComposite(
-      fixpoint(
-        fp64Lower(
-          lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })),
+      settleConstExprs(
+        fixpoint(
+          fp64Lower(
+            lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })),
+          ),
         ),
       ),
     ),

@@ -103,6 +103,7 @@ Most other `core/*.ts` files are the production-emit and host-integration layer:
 | `core/passes/parallel-loop.ts`        | `proveKernels`: the independence proof of a kernel function's loops (Rule 8.22), R1 to R6, as facts in IR names.                                                                                                                                                                 |
 | `core/passes/kernel-lower.ts`         | `lowerKernel`: a kernel function whose loops the proof accepts, lowered to one `@compute` entry per loop, a workgroup tree and a fold entry for a loop that reduces, an atomic for a scatter, a range function the call runs first and a tail that gives the result (Rule 8.22). |
 | `core/passes/access.ts`               | How each builtin uses each argument (a value, the length `arrayLength` measures, an atomic's place, the texture `textureStore` writes), and `eachOperand`, which hands an analysis the operands of one expression with that access (#348).                                       |
+| `core/passes/const-expr.ts`           | `settleConstExprs`: a constant expression WGSL would refuse to evaluate (a zero divisor, a shift past 31, an overflow, crossed `clamp` bounds) given its value at run time, after every optimizer tier (#368).                                                                   |
 | `core/passes/opt/`                    | `autoVars`, `cse`, and the `optimize` fixpoint (const / copy propagation, folding, dead branches, LICM, DCE). `expr-utils.ts` is the shared traversal.                                                                                                                           |
 | `core/passes/compose.ts`              | `composeModule(base, swaps)`: swaps tagged `placeholder` statements. Strict by default.                                                                                                                                                                                          |
 | `core/passes/mangle.ts`, `inline*.ts` | Identifier mangling for `obfuscate`; function inlining.                                                                                                                                                                                                                          |
@@ -135,7 +136,9 @@ table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
   a pointer gets its row there, or `argument-access.test.ts` fails.
 - **The pre-emit pipeline is shared.** `lowerForBackend` runs `validate`, `assertCaps`,
   `assertBuiltins`, then `autoVars`, `lowerModule`, `fp64Lower`, `selectComposite`, the
-  backend's own lowerings and its `optimize`. Put a target-neutral rewrite there, not in a backend.
+  backend's own lowerings, its `optimize` at any tier, and `settleConstExprs`, which gives a
+  constant expression the target would refuse to evaluate its value at run time (#368). Put a
+  target-neutral rewrite there, not in a backend.
 - **Mutability is a type split.** Produced values and `Var` are `Node` (has `.assign`); a `Let`,
   a parameter and a module constant are `ReadonlyNode`, so assigning one is a `tsc` error. The
   runtime is one class, so emit is unaffected. `autoVars` turns `const x = expr; x.assign(…)`

@@ -40,7 +40,18 @@ const isLit = (e: Expr, v: number): boolean =>
 
 const same = (a: Expr, b: Expr): boolean => keyOf(a) === keyOf(b);
 
-const zeroOf = (t: ShaderType): Expr => ({ op: 'lit', type: t, value: 0 });
+/** The zero of an integer scalar or vector. A vector's is a constructor of zeros: a
+ *  vector-typed literal has no spelling on either target, and `compile()` failed on `(v - v).x`
+ *  with `SD0017 literal cannot be spelled by the target` (#370). */
+const zeroOf = (t: ShaderType): Expr => {
+  if (t.kind !== 'vec') return { op: 'lit', type: t, value: 0 };
+  const elem: ShaderType = { kind: 'scalar', scalar: t.elem };
+  return {
+    op: 'construct',
+    type: t,
+    args: Array.from({ length: t.n }, (): Expr => ({ op: 'lit', type: elem, value: 0 })),
+  };
+};
 
 /** True for a native f32 scalar / vector — the only types the reciprocal rewrite may touch.
  *  `f64T` is its own kind and is NOT matched: an emulated double divides through the df64
