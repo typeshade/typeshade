@@ -615,7 +615,7 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
     both versions, and a manifest with no IR. The runtime refuses `console: true` without the
     emitter, naming the remedy.
   - The emitter's closure is 107 modules of `src/core/` and no front end or `typescript`,
-    74,954 bytes minified and gzipped. `scripts/bundle-boundary.ts` holds both in CI with a
+    74,968 bytes minified and gzipped. `scripts/bundle-boundary.ts` holds both in CI with a
     budget of 82,500. Of what the proposal names the backends pulling in without using it:
     - the CPU runtime is gone, 3,112 bytes. Constant folding imported the CPU tier's builtin
       table, which is built when its module loads, so the whole table was bundled. It now folds
@@ -2015,6 +2015,17 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   surface on both targets.
 
 ### Fixed
+
+- **A module written with `fn()` has its GLSL and its vertex layout in its manifest** (Rule
+  11.10). `buildManifest` read each entry's stage from the `stage` field, and a `fn()` handle,
+  which is what `module()` puts in `funcs`, has none: its stage is in `attrs`. `stageOf`, which
+  every other stage decision goes through, reads either. So each of the 34 examples assembled
+  from `fn()` entries had no `glsl` pair in its manifest, though the GLSL ES 3.00 writer spells
+  it. A module of `fn()` entries with a vertex input also lost its vertex layout, which
+  `reflect()` reports. The manifest builder and `vertexLayoutOf` now read `stageOf`.
+  `src/core/manifest.test.ts` holds, over every example, that the pair is there exactly when the
+  module has an entry of each stage and the writer spells them. It also holds a `fn()` module's
+  vertex layout to `reflect()`'s.
 
 - **The editor takes vector arithmetic written as a texture read's argument** (Rule 12.7, #387).
   `textureSample(hdr, smp, p.xy / size)` compiled, but the editor reported TS2769, "No

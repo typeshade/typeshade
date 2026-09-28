@@ -10,7 +10,13 @@
 // manifest, the load-time emitter included (change 0025, section 5). The byte layouts are the
 // ones the emitted WGSL assumes, the same `reflect()` reports (Rule 6.8).
 
-import type { BindingDecl, FuncDecl, ModuleDecl, StructDecl } from './ir/nodes.js';
+import {
+  stageOf,
+  type BindingDecl,
+  type FuncDecl,
+  type ModuleDecl,
+  type StructDecl,
+} from './ir/nodes.js';
 import { typeKey, type ShaderType } from './ir/types.js';
 import { eachExpr, eachStmtExpr } from './ir/visit.js';
 import { sourceSpanOf } from './ir/span.js';
@@ -345,8 +351,9 @@ function typeOfInjected(e: BindEntry): string {
 export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
   const wgsl = emitModule(m);
   const structs = new Map(m.structs.map((s) => [s.name, s]));
-  const hasVs = m.funcs.some((f) => f.stage === 'vertex');
-  const hasFs = m.funcs.some((f) => f.stage === 'fragment');
+  // Through `stageOf`, as every stage decision is: a `fn()` handle carries `attrs`, not `stage`.
+  const hasVs = m.funcs.some((f) => stageOf(f) === 'vertex');
+  const hasFs = m.funcs.some((f) => stageOf(f) === 'fragment');
   let glsl: Pack['glsl'];
   if (hasVs && hasFs) {
     try {
@@ -396,7 +403,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
     const { closure, list } = reached(f);
     const io = ioOf(f, structs);
     const span = sourceSpanOf(f);
-    const vertex = f.stage === 'vertex' ? vertexLayoutOfEntry(f, m.structs) : undefined;
+    const vertex = info.stage === 'vertex' ? vertexLayoutOfEntry(f, m.structs) : undefined;
     entries.push({
       name: info.name,
       stage: info.stage,
@@ -407,7 +414,10 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
       ...(vertex !== undefined ? { vertex } : {}),
       ...(span !== undefined ? { line: { file: span.file, line: span.line + 1 } } : {}),
     });
-    if (f.stage === 'fragment' && f.params.every((p) => FRAGMENT_BUILTINS.has(p.builtin ?? ''))) {
+    if (
+      info.stage === 'fragment' &&
+      f.params.every((p) => FRAGMENT_BUILTINS.has(p.builtin ?? ''))
+    ) {
       const drawBindings: DrawBinding[] = list.map((x) => {
         const b = byBinding.get(x.name)!;
         return toDrawBinding(b);
