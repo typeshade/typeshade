@@ -185,6 +185,26 @@ describe('a constant expression the target refuses is given its value at run tim
     expect(settle(bin('+', XI, bin('%', MIN, i(-1))))).toEqual(bin('+', XI, bin('%', MIN, i(-1))));
   });
 
+  it("a float constant's conversion to an integer is evaluated: u32(-0.25) is a zero divisor", () => {
+    // Truncated toward zero, as WGSL converts it: Tint refused `(1 % i32(-0.25))` and
+    // `(u32(0.125) / u32(-0.25))` with "integer division by zero is invalid" (#349's seeds 82, 104).
+    const f = (v: number): Expr => lit(f32T, v);
+    expect(settle(bin('%', i(1), call('i32', i32T, f(-0.25))))).toEqual(i(0));
+    expect(settle(bin('/', X, call('u32', u32T, f(0.125))))).toEqual(X);
+    const K = konst('K', f32T, 0.5);
+    expect(settle(bin('/', X, call('u32', u32T, constref(K))), [K])).toEqual(X);
+    // Neighbours: a conversion that is not zero stays, and a named constant whose f32 value
+    // truncates otherwise than its written value (2.99999999 is 3 as an f32) is not taken.
+    const kept = [
+      [bin('/', X, call('u32', u32T, f(1.5))), []],
+      [
+        bin('/', X, call('u32', u32T, constref(konst('N', f32T, 2.99999999)))),
+        [konst('N', f32T, 2.99999999)],
+      ],
+    ] as const;
+    for (const [e, consts] of kept) expect(settle(e, [...consts])).toEqual(e);
+  });
+
   it('a clamp whose constant bounds cross is min(max(e, low), high)', () => {
     const minMax = (x: Expr, lo: Expr, hi: Expr): Expr =>
       call('min', x.type, call('max', x.type, x, lo), hi);

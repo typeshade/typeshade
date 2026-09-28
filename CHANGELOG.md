@@ -2001,7 +2001,9 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   value its type cannot hold was refused at every level over a module `const` (the third line,
   and `M / -1` and `M % -1` over `i32`'s most negative value), and at O0 and O1 over literals,
   which O2 folded (`i32(2147483647) + i32(1)`); `u32(n)` of a negative local `const n` was
-  refused at O1. Each emit now writes the value the target computes at run time, which is the
+  refused at O1. A float constant converted to an integer divided by zero too: `u32(K)` of a
+  module `const K: f32 = 0.5` at every level, and `u32(k)` of a local `const k: f32 = -0.25`
+  at O2. Each emit now writes the value the target computes at run time, which is the
   value the CPU oracle already gave: `a / 0` is `a` and `a % 0` is 0, a shift amount keeps its
   low five bits, the operation over constants is its wrapped value, and a `clamp` whose
   constant bounds cross is `min(max(e, low), high)`. A module Tint accepted emits the same
