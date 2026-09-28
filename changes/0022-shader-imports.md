@@ -1,7 +1,7 @@
 ---
 id: '0022'
 title: A `"use typeshade"` file imports what another one exports, and `compile()`, the Vite plugin, `typeshade check` and the editor all follow the import
-status: draft
+status: accepted
 rules:
 - '3.2'
 - '3.9'
