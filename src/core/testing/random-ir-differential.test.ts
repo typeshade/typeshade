@@ -10,7 +10,8 @@
 //      in prose ("an O1 build's runtime values are bit-identical to O0's on every target")
 //      and which nothing tested until now. O2 folds floats, so it gets a tolerance.
 //
-// (The third differential, GPU ≡ f32 oracle, waits for D2.2's f32 oracle mode.)
+// Generated kernel functions, and the plan `lowerKernel` makes of them for the GPU, are held to
+// the oracle in `random-kernel-differential.test.ts` (#349).
 //
 // A fuzzer that finds nothing looks exactly like a fuzzer that cannot see, so the first test
 // here is the INSTRUMENT CHECK: the corpus must contain the constructs the known defects

@@ -15,8 +15,17 @@
 // (opaque by construction — they have no CPU semantics to differentiate against), textures
 // and samplers (they need GPU stubs, not values), and `f64` (its own lowering pass owns it).
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl, ShaderType, BinOp, CmpOp } from '../ir/index.js';
-import { f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT } from '../ir/index.js';
+import type {
+  Expr,
+  Stmt,
+  ModuleDecl,
+  FuncDecl,
+  ShaderType,
+  BinOp,
+  CmpOp,
+  StructDecl,
+} from '../ir/index.js';
+import { f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, voidT } from '../ir/index.js';
 
 /** Deterministic PRNG — mulberry32. Same seed, same module, on every machine and run. */
 export function mulberry32(seed: number): () => number {
@@ -494,7 +503,340 @@ class Gen {
     body.push({ s: 'return', expr: this.expr(ret, opts.depth, scope, fns) });
     return { name, params, ret, body, attrs: [] };
   }
+
+  // ─── kernel functions (#349) ─────────────────────────────────────────────────────────────
+
+  /** A kernel function (Rule 8.22) over `sig`: scalar statements, then `opts.loops` loops over
+   *  the length the arrays share, then a `return` of what the loops combined. */
+  kernel(
+    name: string,
+    sig: KernelSig,
+    structs: ReadonlyMap<string, StructDecl>,
+    opts: Required<Pick<KernelGenOptions, 'loops' | 'stmts' | 'depth'>>,
+    fns: readonly FuncSig[],
+  ): FuncDecl {
+    this.resetNames();
+    this.mark('kernel');
+    const params: FuncDecl['params'] = [
+      ...sig.arrays.map((a) => ({ name: a.name, type: arrayOf(a), mode: 'inout' as const })),
+      ...sig.scalars.map((s) => ({ name: s.name, type: s.type })),
+    ];
+    const scope: Scope = sig.scalars.map((s) => ({
+      name: s.name,
+      type: s.type,
+      op: 'param' as const,
+    }));
+    const body: Stmt[] = [];
+    // Loop-invariant values the loops may read.
+    for (let k = Math.floor(this.rnd() * 3); k > 0; k--) {
+      const t = this.pick(DEFAULT_TYPES);
+      const v = this.fresh();
+      body.push({ s: 'let', name: v, expr: this.expr(t, 1, scope, fns) });
+      scope.push({ name: v, type: t, op: 'varref' });
+    }
+    // Every combined variable is declared before the first loop and read only after the last:
+    // a loop that read its own would carry it (R3), and a loop that read an earlier loop's would
+    // split the function (the shape refusal). Each loop combines its own.
+    const perLoop: Reduction[][] = [];
+    for (let l = 0; l < opts.loops; l++) {
+      const rs: Reduction[] = [];
+      for (let k = Math.floor(this.rnd() * 3); k > 0; k--) {
+        const type = this.pick(REDUCE_TYPES);
+        const op = this.pick(isInt(type) ? INT_COMBINES : FLOAT_COMBINES);
+        const v = this.fresh();
+        body.push({ s: 'var', name: v, type, init: this.expr(type, 1, scope, fns) });
+        rs.push({ name: v, type, op });
+      }
+      perLoop.push(rs);
+    }
+    for (const rs of perLoop) body.push(this.kernelLoop(sig, structs, opts, [...scope], fns, rs));
+    const reduced = perLoop.flat();
+    const ret =
+      reduced.length > 0 ? reduced[0]!.type : this.chance(0.5) ? this.pick(SCALARS) : voidT;
+    if (ret.kind !== 'void') {
+      const after: Scope = [
+        ...scope,
+        ...reduced.map((r) => ({ name: r.name, type: r.type, op: 'varref' as const })),
+      ];
+      // What the loops combined is read, so no reduction is dead code an optimizer may drop.
+      const same = reduced.filter((r) => typeKey(r.type) === typeKey(ret));
+      let e = this.expr(ret, 1, after, fns);
+      for (const r of same)
+        e = {
+          op: 'binop',
+          type: ret,
+          bop: '+',
+          a: { op: 'varref', type: ret, name: r.name },
+          b: e,
+        };
+      body.push({ s: 'return', expr: e });
+    }
+    return { name, params, ret, body, attrs: [], kernel: true };
+  }
+
+  /** One loop of a kernel function: `for (i = 0u; i < arrayLength(x); i++)`, reading the arrays
+   *  at `i` or at an index kept in range by `%`, writing each output at `i`, combining `rs`, and
+   *  combining an integer array at any index. */
+  private kernelLoop(
+    sig: KernelSig,
+    structs: ReadonlyMap<string, StructDecl>,
+    opts: Required<Pick<KernelGenOptions, 'stmts' | 'depth'>>,
+    scope: Scope,
+    fns: readonly FuncSig[],
+    rs: readonly Reduction[],
+  ): Stmt {
+    this.mark('kernelLoop');
+    const i = this.fresh();
+    const iRef: Expr = { op: 'varref', type: u32T, name: i };
+    scope.push({ name: i, type: u32T, op: 'varref' });
+    const shared = sig.arrays.filter((a) => a.role !== 'scatter');
+    const body: Stmt[] = [];
+    for (const a of shared) {
+      if (!this.chance(a.role === 'in' ? 0.85 : 0.3)) continue;
+      // An output is read only at `i`, before it is written: another index is R4's refusal.
+      const shifted = a.role === 'in' && this.chance(0.3);
+      this.mark(shifted ? 'shiftedRead' : 'arrayRead');
+      const idx = shifted ? this.inRange(plus(iRef, 1 + Math.floor(this.rnd() * 4)), a) : iRef;
+      const el: Expr = { op: 'index', type: a.elem, base: arrayRef(a), idx };
+      const reads: { expr: Expr; type: ShaderType }[] =
+        a.elem.kind === 'struct'
+          ? structs
+              .get(a.elem.name)!
+              .fields.filter(() => this.chance(0.7))
+              .map((f) => {
+                this.mark('structRead');
+                return {
+                  expr: { op: 'member', type: f.type, base: el, field: f.name },
+                  type: f.type,
+                };
+              })
+          : [{ expr: el, type: a.elem }];
+      for (const r of reads) {
+        const v = this.fresh();
+        body.push({ s: 'let', name: v, expr: r.expr });
+        scope.push({ name: v, type: r.type, op: 'varref' });
+      }
+    }
+    // A `continue` of the loop's own, which the lowering makes the invocation's `return`.
+    if (this.chance(0.2)) {
+      this.mark('loopContinue');
+      body.push({
+        s: 'if',
+        arms: [{ cond: this.boolExpr(1, scope, fns), body: [{ s: 'continue' }] }],
+      });
+    }
+    // Locals, branches and loops over constants, which write only the iteration's own values.
+    body.push(...this.stmts(opts.stmts, opts.depth, scope, fns, false, 1));
+    for (const a of sig.arrays.filter((x) => x.role === 'out')) {
+      if (!this.chance(0.85)) continue;
+      const write = this.writeAt(a, iRef, structs, opts.depth, scope, fns);
+      if (this.chance(0.25)) {
+        this.mark('conditionalWrite');
+        body.push({
+          s: 'if',
+          arms: [{ cond: this.boolExpr(opts.depth, scope, fns), body: [write] }],
+        });
+      } else body.push(write);
+    }
+    for (const r of rs) body.push(this.combine(r, opts.depth, scope, fns));
+    for (const h of sig.arrays.filter((x) => x.role === 'scatter'))
+      if (this.chance(0.75)) body.push(this.scatter(h, opts.depth, scope, fns));
+    // Now and then a shape the proof refuses, so the CPU path of a refused loop is generated too.
+    if (this.chance(0.3)) body.push(this.refused(sig, iRef, opts.depth, scope, fns));
+    const bound = this.pick(shared);
+    return {
+      s: 'for',
+      init: { s: 'var', name: i, type: u32T, init: { op: 'lit', type: u32T, value: 0 } },
+      cond: { op: 'compare', type: boolT, cop: '<', a: iRef, b: lengthOf(bound) },
+      update: { s: 'assign', target: iRef, expr: plus(iRef, 1) },
+      body,
+      counted: { name: i, op: 'add', step: 1, start: 0 },
+    };
+  }
+
+  /** `idx % arrayLength(a)`: an index every target reads the same element at. */
+  private inRange(idx: Expr, a: KernelArray): Expr {
+    return { op: 'binop', type: u32T, bop: '%', a: idx, b: lengthOf(a) };
+  }
+
+  /** A write of output `a` at `i`: the element, a struct whole, or one of its fields. */
+  private writeAt(
+    a: KernelArray,
+    iRef: Expr,
+    structs: ReadonlyMap<string, StructDecl>,
+    depth: number,
+    scope: Scope,
+    fns: readonly FuncSig[],
+  ): Stmt {
+    const place: Expr = { op: 'index', type: a.elem, base: arrayRef(a), idx: iRef };
+    if (a.elem.kind !== 'struct') {
+      this.mark('affineWrite');
+      return { s: 'assign', target: place, expr: this.expr(a.elem, depth, scope, fns) };
+    }
+    const decl = structs.get(a.elem.name)!;
+    if (this.chance(0.5)) {
+      this.mark('structWrite');
+      return {
+        s: 'assign',
+        target: place,
+        expr: {
+          op: 'construct',
+          type: a.elem,
+          args: decl.fields.map((f) => this.expr(f.type, depth, scope, fns)),
+        },
+      };
+    }
+    this.mark('fieldWrite');
+    const f = this.pick(decl.fields);
+    return {
+      s: 'assign',
+      target: { op: 'member', type: f.type, base: place, field: f.name },
+      expr: this.expr(f.type, depth, scope, fns),
+    };
+  }
+
+  /** `s op= e`, `s = s op e` or `s = min(s, e)`: forms the proof reads as one combine. */
+  private combine(r: Reduction, depth: number, scope: Scope, fns: readonly FuncSig[]): Stmt {
+    this.mark('combine');
+    this.mark(`combine${r.op}`);
+    if (r.type.kind === 'vec') this.mark('vecCombine');
+    const target: Expr = { op: 'varref', type: r.type, name: r.name };
+    const e = this.expr(r.type, depth, scope, fns);
+    const [a, b] = this.chance(0.5) ? [target, e] : [e, target];
+    if (r.op === 'min' || r.op === 'max')
+      return { s: 'assign', target, expr: { op: 'call', type: r.type, fn: r.op, args: [a, b] } };
+    if (this.chance(0.7)) return { s: 'assignOp', target, bop: r.op, expr: e };
+    this.mark('combineSpelled');
+    return { s: 'assign', target, expr: { op: 'binop', type: r.type, bop: r.op, a, b } };
+  }
+
+  /** An integer array combined at an index any iteration may reach, which the lowering makes
+   *  one atomic (`*` has none, so that one runs on the CPU). */
+  private scatter(h: KernelArray, depth: number, scope: Scope, fns: readonly FuncSig[]): Stmt {
+    const op = this.chance(0.1) ? '*' : this.pick(SCATTER_COMBINES);
+    this.mark('scatter');
+    this.mark(`scatter${op}`);
+    return {
+      s: 'assignOp',
+      target: {
+        op: 'index',
+        type: h.elem,
+        base: arrayRef(h),
+        idx: this.anyIndex(h, depth, scope, fns),
+      },
+      bop: op,
+      expr: this.expr(h.elem, depth, scope, fns),
+    };
+  }
+
+  /** An index into `a` computed from the iteration's values, kept in range. */
+  private anyIndex(a: KernelArray, depth: number, scope: Scope, fns: readonly FuncSig[]): Expr {
+    const t = this.pick([i32T, u32T] as const);
+    const k = this.expr(t, depth, scope, fns);
+    return this.inRange(t === u32T ? k : { op: 'call', type: u32T, fn: 'u32', args: [k] }, a);
+  }
+
+  /** A statement the proof refuses (Rule 8.22), so the loop runs on the CPU tier as written. */
+  private refused(
+    sig: KernelSig,
+    iRef: Expr,
+    depth: number,
+    scope: Scope,
+    fns: readonly FuncSig[],
+  ): Stmt {
+    const outs = sig.arrays.filter((a) => a.role === 'out');
+    const hs = sig.arrays.filter((a) => a.role === 'scatter');
+    const kind = this.pick([
+      ...(outs.length > 0 ? ['read' as const] : []),
+      ...(hs.length > 0 ? ['scatter' as const] : []),
+      'break' as const,
+    ]);
+    if (kind === 'read') {
+      // R4: an element of an array the loop writes, read at another index.
+      this.mark('refusedRead');
+      const o = this.pick(outs);
+      const from: Expr = {
+        op: 'index',
+        type: o.elem,
+        base: arrayRef(o),
+        idx: this.inRange(plus(iRef, 1), o),
+      };
+      return {
+        s: 'assign',
+        target: { op: 'index', type: o.elem, base: arrayRef(o), idx: iRef },
+        expr: from,
+      };
+    }
+    if (kind === 'scatter') {
+      // R3: an integer element combined through `min` or `max`, a form the proof reads as
+      // carried where `+=` would be a scatter.
+      this.mark('refusedScatter');
+      const h = this.pick(hs);
+      const place: Expr = {
+        op: 'index',
+        type: h.elem,
+        base: arrayRef(h),
+        idx: this.anyIndex(h, depth, scope, fns),
+      };
+      return {
+        s: 'assign',
+        target: place,
+        expr: {
+          op: 'call',
+          type: h.elem,
+          fn: this.pick(['min', 'max'] as const),
+          args: [place, this.expr(h.elem, depth, scope, fns)],
+        },
+      };
+    }
+    // R2: a `break`, after which no later iteration runs.
+    this.mark('refusedBreak');
+    return { s: 'if', arms: [{ cond: this.boolExpr(1, scope, fns), body: [{ s: 'break' }] }] };
+  }
 }
+
+/** One array a generated kernel function takes: read, written at `i`, or combined at any index. */
+export interface KernelArray {
+  readonly name: string;
+  readonly elem: ShaderType;
+  readonly role: 'in' | 'out' | 'scatter';
+}
+interface KernelSig {
+  readonly arrays: readonly KernelArray[];
+  readonly scalars: readonly { readonly name: string; readonly type: ShaderType }[];
+}
+type CombineOp = '+' | '*' | '&' | '|' | '^' | 'min' | 'max';
+interface Reduction {
+  readonly name: string;
+  readonly type: ShaderType;
+  readonly op: CombineOp;
+}
+
+/** What an array of a generated kernel function holds. */
+const ELEMS: readonly ShaderType[] = [f32T, i32T, u32T, vec2fT, vec3fT, vec4fT];
+/** What a loop combines: every scalar, and the `f32` vectors component-wise. */
+const REDUCE_TYPES: readonly ShaderType[] = [...SCALARS, vec2fT, vec4fT];
+const FLOAT_COMBINES: readonly CombineOp[] = ['+', '*', 'min', 'max'];
+const INT_COMBINES: readonly CombineOp[] = ['+', '*', '&', '|', '^', 'min', 'max'];
+/** An integer element combined at any index, each lowered to its atomic. `*` has no atomic, so a
+ *  scatter with it runs on the CPU; one in ten is generated. */
+const SCATTER_COMBINES = ['+', '&', '|', '^'] as const;
+
+const arrayOf = (a: KernelArray): ShaderType => ({ kind: 'array', elem: a.elem });
+const arrayRef = (a: KernelArray): Expr => ({ op: 'param', type: arrayOf(a), name: a.name });
+const lengthOf = (a: KernelArray): Expr => ({
+  op: 'call',
+  type: u32T,
+  fn: 'arrayLength',
+  args: [arrayRef(a)],
+});
+const plus = (a: Expr, n: number): Expr => ({
+  op: 'binop',
+  type: u32T,
+  bop: '+',
+  a,
+  b: { op: 'lit', type: u32T, value: n },
+});
 
 type Scope = Array<{ name: string; type: ShaderType; op: 'param' | 'varref' }>;
 interface FuncSig {
@@ -545,4 +887,105 @@ export function describeCorpus(corpora: readonly Corpus[]): Record<string, numbe
   for (const c of corpora)
     for (const [k, v] of Object.entries(c.features)) out[k] = (out[k] ?? 0) + v;
   return out;
+}
+
+// ═══ Kernel functions (#349): storage arrays, runtime-sized loops, reductions and scatters ═══
+//
+// `generateModule`'s helpers take and return values, so no array the caller owns, no loop over a
+// runtime length, no reduction and no scatter reached a differential, and those are what a kernel
+// function (Rule 8.22) is made of. `generateKernelModule` builds helpers and one kernel function
+// `k` over arrays of scalars, `f32` vectors and a struct: scalar statements, then one or two
+// loops over the length the arrays share, then a `return` of what the loops combined. The loops
+// take the shapes the proof (`passes/parallel-loop.ts`) judges: a write at `i`, a variable
+// combined with `+ * min max & | ^`, an integer element combined at any index, and now and then
+// one the proof refuses (`refused*` in the features), so a refused loop's CPU path is generated
+// as well as the accepted loop's lowering.
+//
+// Every index is in range by construction: `i` below the length every array but a scatter target
+// shares, or `% arrayLength(...)`. An index past the end reads a different value on each target,
+// which would be a finding about the generator, not the compiler. The caller keeps the lengths
+// equal and nonzero (`KernelCorpus.arrays`). Its own PRNG stream leaves `generateModule`'s
+// modules, and the seeds pinned against them, as they were.
+
+/** What {@link generateKernelModule} was asked to build. Every field has a documented default. */
+export interface KernelGenOptions {
+  /** Helper functions the kernel function may call (default 3). */
+  readonly helpers?: number;
+  /** Loops in the kernel function (default: one, or two for 40% of seeds). */
+  readonly loops?: number;
+  /** Statements in a loop body besides its reads, writes and combines (default 2). */
+  readonly stmts?: number;
+  /** Maximum expression nesting (default 2). */
+  readonly depth?: number;
+}
+
+/** A generated module whose kernel function is `kernel`, with the arrays it takes. A caller
+ *  passes every array but a scatter target the same nonzero length, and a scatter target any
+ *  nonzero length. */
+export interface KernelCorpus extends Corpus {
+  readonly kernel: string;
+  readonly arrays: readonly KernelArray[];
+}
+
+/** Generate a module with one kernel function from `seed`. Same seed ⇒ the same module. */
+export function generateKernelModule(seed: number, opts: KernelGenOptions = {}): KernelCorpus {
+  const gen = new Gen(mulberry32(seed ^ 0x2545f491));
+  const rnd = mulberry32(seed ^ 0x68e31da4);
+  const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
+  const count = (lo: number, hi: number): number => lo + Math.floor(rnd() * (hi - lo + 1));
+
+  const structs: StructDecl[] =
+    rnd() < 0.6
+      ? [
+          {
+            name: 'S0',
+            fields: Array.from({ length: count(1, 4) }, (_, f) => ({
+              name: `f${f}`,
+              type: pick(ELEMS),
+            })),
+          },
+        ]
+      : [];
+  const decls: FuncDecl[] = [];
+  const sigs: FuncSig[] = [];
+  for (let i = 0; i < (opts.helpers ?? 3); i++) {
+    const ret = pick(DEFAULT_TYPES);
+    const params = Array.from({ length: count(1, 3) }, () => pick(DEFAULT_TYPES));
+    decls.push(gen.func(`f${i}`, ret, params, { stmts: 3, depth: 2, nest: 1 }, [...sigs]));
+    sigs.push({ name: `f${i}`, ret, params });
+  }
+  const elems = [...ELEMS, ...structs.map((s): ShaderType => ({ kind: 'struct', name: s.name }))];
+  const arrays: KernelArray[] = [
+    ...Array.from({ length: count(1, 3) }, (_, n) => ({
+      name: `a${n}`,
+      elem: pick(elems),
+      role: 'in' as const,
+    })),
+    ...Array.from({ length: count(1, 2) }, (_, n) => ({
+      name: `o${n}`,
+      // A struct is one of seven element types; the first output holds it half the time, so
+      // whole-struct and field writes are reached as often as the others.
+      elem: n === 0 && structs.length > 0 && rnd() < 0.5 ? elems[elems.length - 1]! : pick(elems),
+      role: 'out' as const,
+    })),
+    ...(rnd() < 0.7 ? [{ name: 'h0', elem: pick([i32T, u32T]), role: 'scatter' as const }] : []),
+  ];
+  const scalars = Array.from({ length: count(0, 2) }, (_, n) => ({
+    name: `p${n}`,
+    type: pick(SCALARS),
+  }));
+  const k = gen.kernel(
+    'k',
+    { arrays, scalars },
+    new Map(structs.map((s) => [s.name, s])),
+    { loops: opts.loops ?? (rnd() < 0.4 ? 2 : 1), stmts: opts.stmts ?? 2, depth: opts.depth ?? 2 },
+    sigs,
+  );
+  return {
+    module: { consts: [], structs, bindings: [], funcs: [...decls, k] },
+    seed,
+    features: { ...gen.features },
+    kernel: 'k',
+    arrays,
+  };
 }
