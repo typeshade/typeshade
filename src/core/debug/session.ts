@@ -338,7 +338,7 @@ export function startDebugSession(
 
   const filled = fillArgs(decl, args);
   const sink = opts?.consoleSink;
-  const invocation = sink && consoleInvocation(decl, filled);
+  const invocation = sink && consoleInvocation(decl, filled, prepared.structs);
   const ctx: ReturnType<typeof makeCtx> = {
     ...makeCtx(prepared, opts?.gpuStubs ?? false),
     ...(sink ? { consoleSink: sink } : {}),
