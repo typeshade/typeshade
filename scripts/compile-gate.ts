@@ -23,6 +23,17 @@
 // instrument is a comparison that must report one changed value, and a compute entry whose
 // WebGPU call wrote nothing fails, since it would match any tier.
 //
+// THE PASSES LEG (change 0026). An example drawn in several passes has a program per pass, and
+// each is a job of the sweep above under `<example>.<pass>`. After the sweep, the page draws
+// every such example on WebGL2 the way a host does: the passes in order into textures the
+// size of the canvas, each binding named like a pass reading this frame's output of an earlier
+// pass or the frame before's of itself or a later one, then the example into the canvas. It
+// reads the canvas back at frame 0 and at frame 30, and both must paint. For an example with a
+// pass read as the frame before, frame 30 is drawn a second time with no history, and the two
+// must differ: that is what shows the previous frame was read. Its own instrument is the same
+// comparison made on an example whose passes read nothing of the frame before, which must
+// report no difference.
+//
 // BOTH CORPORA. The sweep is `examples` (the curated `fn()` EDSL registry) followed by
 // `shadeExamples` (the `"use typeshade"` `.shade.ts` files, compiled by `_shade.ts`). They
 // are two authoring surfaces over ONE IR, so they are one list here: what this gate asks —
@@ -324,8 +335,18 @@ function kernelJobs(): Job[] {
   );
 }
 
+/** Every pass of an example drawn in several (change 0026), as an example of its own under
+ *  `<example>.<pass>`. A pass is drawn, so it has a GLSL ES 3.00 form. */
+const PASS_EXAMPLES = ALL_EXAMPLES.flatMap((ex) =>
+  (ex.passes ?? []).map((pass) => ({
+    id: `${ex.id}.${pass.name}`,
+    module: pass.module,
+    renderable: true,
+  })),
+);
+
 function jobs(): Job[] {
-  return [...ALL_EXAMPLES, ...CONSOLE_EXAMPLES]
+  return [...ALL_EXAMPLES, ...PASS_EXAMPLES, ...CONSOLE_EXAMPLES]
     .map((ex) => {
       const cut = ex.id === CUT;
       const wgsl = emitModule(ex.module);
@@ -354,7 +375,8 @@ function jobs(): Job[] {
  *  example that opts into nothing contributes nothing, so this is empty for most corpora. */
 function wantedFeatures(): string[] {
   const caps = new Set<Capability>();
-  for (const ex of ALL_EXAMPLES) for (const c of reflect(ex.module).requiredFeatures) caps.add(c);
+  for (const ex of [...ALL_EXAMPLES, ...PASS_EXAMPLES])
+    for (const c of reflect(ex.module).requiredFeatures) caps.add(c);
   return [...new Set(hostFeaturesFor(wgslBackend, [...caps]))].sort();
 }
 
@@ -522,6 +544,300 @@ async function compileInPage(input: {
   };
 }
 
+/** One program of a pass graph as the page draws it: '' names the example's own file, drawn
+ *  last into the canvas. */
+interface GraphProgram {
+  readonly name: string;
+  readonly vertex: string;
+  readonly fragment: string;
+}
+
+/** An example drawn in several passes, for the passes leg. */
+interface Graph {
+  readonly id: string;
+  readonly programs: readonly GraphProgram[];
+  /** Whether some pass is read as the frame before: by itself, or by a pass drawn before it. */
+  readonly history: boolean;
+}
+
+interface GraphVerdict {
+  readonly id: string;
+  readonly errors: readonly string[];
+  /** Distinct colours in the canvas at frame 0 and at frame 30. */
+  readonly colours: readonly [number, number];
+  /** Pixels that differ at frame 30 between the draw with history and the one without. */
+  readonly historyDiffers: number;
+  /** The float render target, or `RGBA8` where `EXT_color_buffer_float` is absent. */
+  readonly target: string;
+}
+
+/** The pass graphs of the corpus, with what each program reads. */
+function graphs(): Graph[] {
+  return ALL_EXAMPLES.filter((ex) => ex.passes !== undefined).map((ex) => {
+    const passes = ex.passes ?? [];
+    const modules = [...passes.map((p) => p.module), ex.module];
+    // A pass is read as the frame before by itself or by a pass drawn before it.
+    const history = passes.some((p, i) =>
+      modules.slice(0, i + 1).some((m) => m.bindings.some((b) => b.name === p.name)),
+    );
+    const cut = (text: string, name: string): string =>
+      `${ex.id}.${name}` === CUT ? corrupt(text) : text;
+    return {
+      id: ex.id,
+      history,
+      programs: [
+        ...passes.map((p) => ({ name: p.name, module: p.module })),
+        { name: '', module: ex.module },
+      ].map(({ name, module }) => ({
+        name,
+        vertex: emitGlslModule(module, 'vertex'),
+        fragment: cut(emitGlslModule(module, 'fragment'), name),
+      })),
+    };
+  });
+}
+
+/** Runs INSIDE the browser. Draws each pass graph on WebGL2 as a host does (change 0026). */
+function drawGraphsInPage(input: { graphs: Graph[]; size: [number, number] }): GraphVerdict[] {
+  const [W, H] = input.size;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true });
+  if (gl === null) throw new Error('getContext("webgl2") returned null — WebGL2 is not reachable');
+  const float = gl.getExtension('EXT_color_buffer_float') !== null;
+  const verdicts: GraphVerdict[] = [];
+
+  for (const graph of input.graphs) {
+    const errors: string[] = [];
+    const passNames = graph.programs.filter((p) => p.name !== '').map((p) => p.name);
+    const link = (program: GraphProgram): WebGLProgram | null => {
+      const shader = (type: number, source: string): WebGLShader | null => {
+        const sh = gl.createShader(type);
+        if (sh === null) return null;
+        gl.shaderSource(sh, source);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+          errors.push(
+            `${program.name || 'example'}: ${gl.getShaderInfoLog(sh) ?? 'compile failed'}`,
+          );
+          return null;
+        }
+        return sh;
+      };
+      const vs = shader(gl.VERTEX_SHADER, program.vertex);
+      const fs = shader(gl.FRAGMENT_SHADER, program.fragment);
+      if (vs === null || fs === null) return null;
+      const p = gl.createProgram();
+      if (p === null) {
+        errors.push(`${program.name || 'example'}: createProgram returned null`);
+        return null;
+      }
+      gl.attachShader(p, vs);
+      gl.attachShader(p, fs);
+      gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+        errors.push(`${program.name || 'example'}: ${gl.getProgramInfoLog(p) ?? 'link failed'}`);
+        return null;
+      }
+      return p;
+    };
+    const programs = graph.programs.map(link);
+    if (programs.some((p) => p === null)) {
+      verdicts.push({ id: graph.id, errors, colours: [0, 0], historyDiffers: 0, target: '' });
+      continue;
+    }
+
+    // Two textures a pass, written in turn: this frame's, and the frame before's.
+    const target = (): WebGLTexture => {
+      const t = gl.createTexture();
+      if (t === null) throw new Error('createTexture returned null');
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        float ? gl.RGBA16F : gl.RGBA8,
+        W,
+        H,
+        0,
+        gl.RGBA,
+        float ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE,
+        null,
+      );
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      return t;
+    };
+    const fbo = gl.createFramebuffer();
+    const fresh = () => passNames.map(() => [target(), target()] as [WebGLTexture, WebGLTexture]);
+    const clear = (textures: [WebGLTexture, WebGLTexture][]) => {
+      for (const pair of textures)
+        for (const t of pair) {
+          gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+          gl.clearColor(0, 0, 0, 0);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+        }
+    };
+
+    // The uniform block, laid out as the driver reports it, and the three fields a host fills.
+    const blocks = programs.map((p) => {
+      const program = p as WebGLProgram;
+      const index = gl.getUniformBlockIndex(program, 'Uniforms');
+      if (index === gl.INVALID_INDEX) return null;
+      const size = gl.getActiveUniformBlockParameter(
+        program,
+        index,
+        gl.UNIFORM_BLOCK_DATA_SIZE,
+      ) as number;
+      const fields = ['time', 'resolution', 'frame'];
+      const found =
+        gl.getUniformIndices(
+          program,
+          fields.map((f) => `Uniforms.${f}`),
+        ) ?? [];
+      const indices = [...found];
+      const offsets = new Map<string, number>();
+      fields.forEach((f, i) => {
+        const at = indices[i];
+        if (at === undefined || at === gl.INVALID_INDEX) return;
+        offsets.set(f, (gl.getActiveUniforms(program, [at], gl.UNIFORM_OFFSET) as number[])[0]!);
+      });
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.UNIFORM_BUFFER, buffer);
+      gl.bufferData(gl.UNIFORM_BUFFER, size, gl.DYNAMIC_DRAW);
+      gl.uniformBlockBinding(program, index, 0);
+      return { size, offsets, buffer };
+    });
+
+    const drawFrame = (frame: number, textures: [WebGLTexture, WebGLTexture][]): void => {
+      programs.forEach((p, i) => {
+        const program = p as WebGLProgram;
+        gl.useProgram(program);
+        const block = blocks[i];
+        if (block) {
+          const bytes = new DataView(new ArrayBuffer(block.size));
+          const at = (f: string) => block.offsets.get(f);
+          if (at('time') !== undefined) bytes.setFloat32(at('time')!, frame / 60, true);
+          if (at('resolution') !== undefined) {
+            bytes.setFloat32(at('resolution')!, W, true);
+            bytes.setFloat32(at('resolution')! + 4, H, true);
+          }
+          if (at('frame') !== undefined) bytes.setUint32(at('frame')!, frame, true);
+          gl.bindBuffer(gl.UNIFORM_BUFFER, block.buffer);
+          gl.bufferSubData(gl.UNIFORM_BUFFER, 0, bytes);
+          gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, block.buffer);
+        }
+        // Rule 3 of change 0026: an earlier pass is read as this frame's output, the pass
+        // itself or a later one as the frame before's.
+        passNames.forEach((name, j) => {
+          const location = gl.getUniformLocation(program, name);
+          if (location === null) return;
+          const pair = textures[j]!;
+          const written = pair[frame % 2]!;
+          const before = pair[(frame + 1) % 2]!;
+          gl.activeTexture(gl.TEXTURE0 + j);
+          gl.bindTexture(gl.TEXTURE_2D, j < i ? written : before);
+          gl.uniform1i(location, j);
+        });
+        const last = i === programs.length - 1;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, last ? null : fbo);
+        if (!last)
+          gl.framebufferTexture2D(
+            gl.FRAMEBUFFER,
+            gl.COLOR_ATTACHMENT0,
+            gl.TEXTURE_2D,
+            textures[i]![frame % 2]!,
+            0,
+          );
+        gl.viewport(0, 0, W, H);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      });
+    };
+    const read = (): Uint8Array => {
+      const pixels = new Uint8Array(W * H * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      return pixels;
+    };
+    const colours = (pixels: Uint8Array): number => {
+      const seen = new Set<number>();
+      for (let k = 0; k < pixels.length; k += 4)
+        seen.add((pixels[k]! << 16) | (pixels[k + 1]! << 8) | pixels[k + 2]!);
+      return seen.size;
+    };
+
+    const textures = fresh();
+    clear(textures);
+    drawFrame(0, textures);
+    const first = read();
+    for (let frame = 1; frame <= 30; frame += 1) drawFrame(frame, textures);
+    const withHistory = read();
+    // Frame 30 again with no frame before it: every pass output starts from zeroes.
+    const blank = fresh();
+    clear(blank);
+    drawFrame(30, blank);
+    const without = read();
+    let differs = 0;
+    for (let k = 0; k < withHistory.length; k += 4)
+      if (
+        Math.abs(withHistory[k]! - without[k]!) > 2 ||
+        Math.abs(withHistory[k + 1]! - without[k + 1]!) > 2 ||
+        Math.abs(withHistory[k + 2]! - without[k + 2]!) > 2
+      )
+        differs += 1;
+    const glError = gl.getError();
+    if (glError !== gl.NO_ERROR) errors.push(`gl error 0x${glError.toString(16)}`);
+    verdicts.push({
+      id: graph.id,
+      errors,
+      colours: [colours(first), colours(withHistory)],
+      historyDiffers: differs,
+      target: float ? 'RGBA16F' : 'RGBA8',
+    });
+  }
+  return verdicts;
+}
+
+/** Print the passes leg's verdicts; the number of failures. */
+function graphVerdicts(all: readonly Graph[], verdicts: readonly GraphVerdict[]): number {
+  let failures = 0;
+  const history = new Map(all.map((g) => [g.id, g.history]));
+  // The instrument: a graph with no pass read as the frame before must show no difference
+  // between frame 30 with history and without, or the comparison cannot tell them apart.
+  const control = verdicts.filter((v) => history.get(v.id) === false);
+  const blind = control.length === 0 || control.some((v) => v.historyDiffers !== 0);
+  if (blind) {
+    console.error(
+      'FAIL instrument: the passes leg has no graph without history, or one of them differs ' +
+        'from itself drawn with no frame before — its history verdicts would be blind',
+    );
+    failures += 1;
+  } else {
+    console.log(
+      `instrument: ${control.map((v) => v.id).join(', ')} reads no frame before and draws frame 30 ` +
+        'the same with history and without — the history verdicts can fail',
+    );
+  }
+  for (const v of verdicts) {
+    const painted = v.colours[0] > 1 && v.colours[1] > 1;
+    const needsHistory = history.get(v.id) === true;
+    const bad = v.errors.length > 0 || !painted || (needsHistory && v.historyDiffers === 0);
+    if (bad) failures += 1;
+    console.log(
+      `${bad ? 'FAIL' : 'ok  '}  ${v.id}  passes on WebGL2 into ${v.target || '—'}: ` +
+        `${String(v.colours[0])} colours at frame 0, ${String(v.colours[1])} at frame 30` +
+        (needsHistory
+          ? `, ${String(v.historyDiffers)} pixels differ from frame 30 drawn with no frame before`
+          : ', reads no frame before'),
+    );
+    for (const e of v.errors) console.log(`        ${e}`);
+  }
+  return failures;
+}
+
 /** How far a tier may land from WebGPU: a compute entry's values relative to 1 or their own
  *  size, and a draw's channels in 8-bit steps. */
 const ENTRY_TOLERANCE = { compute: 1e-5, fragment: 2 } as const;
@@ -591,6 +907,8 @@ async function main(): Promise<number> {
   });
   let report: PageReport;
   let entryReport: EntryReport;
+  let graphReport: GraphVerdict[];
+  const allGraphs = graphs();
   try {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${String(port)}/`);
@@ -608,6 +926,11 @@ struct Out { @builtin(position) pos: vec4<f32> }
         fragmentEntry: 'fs_probe',
       },
       wanted: wantedFeatures(),
+    });
+    // The passes leg (change 0026): every example drawn in several passes, on WebGL2.
+    graphReport = await page.evaluate(drawGraphsInPage, {
+      graphs: allGraphs,
+      size: [96, 72] as [number, number],
     });
     // The entry-call leg (Rule 8.24): the examples' entries, called through their generated
     // host modules on every tier.
@@ -674,6 +997,7 @@ struct Out { @builtin(position) pos: vec4<f32> }
       console.log(`        pipeline: not built — ${skipReason.get(v.id) ?? 'unknown'}`);
     }
   }
+  failures += graphVerdicts(allGraphs, graphReport);
   failures += entryVerdicts(entryReport, bundle);
   const withGlsl = report.verdicts.filter((v) => v.glslErrors !== null).length;
   const withPipeline = report.verdicts.filter((v) => v.pipelineErrors !== null).length;

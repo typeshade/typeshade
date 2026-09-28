@@ -105,6 +105,17 @@ rather than going unregistered. The scan reads this directory's top level only, 
 library in `lib/` is not an example of its own: `imported-noise.shade.ts` imports
 `lib/noise.shade.ts` (surface §68), and `_shade.ts` compiles it with what it imports.
 
+An example can be drawn in several passes (change 0026). Its block names them in draw order,
+`"passes": [{ "name": "trail", "file": "passes/trail.shade.ts" }]`, and the example's own file
+is drawn last, into the canvas. A pass is a complete program under `passes/`, which the scan
+does not read either, drawn into a texture the size of the canvas. A `texture_2d<f32>` binding
+named like a pass reads that texture: this frame's output of a pass drawn earlier, and the frame
+before's of the pass itself or a later one, which reads zeroes on the first frame. `_shade.ts`
+compiles every pass and refuses a graph that cannot be drawn: a name that is no identifier or is
+used twice, a pass without one vertex and one fragment entry, a binding named like a pass that is
+not a `texture_2d<f32>`, and a pass no file reads. `separable-blur` reads a pass in the frame it
+was drawn, and `feedback-trail` reads one the frame after.
+
 The table lists the first seven, the hello programs and the first twin; every other file's
 title and blurb are in its own `@example` block.
 
@@ -137,8 +148,11 @@ entry-point signatures).
 - **Source-corpus gate** — `shade-examples.test.ts` compiles every `*.shade.ts` file, pins its
   WGSL (and both GLSL stages, where it has them) in `__emit-goldens__/`, and checks the directory
   against the registry in both directions so an unregistered file cannot go quiet.
-- **Compile gate** — `bun run gate:compile` emits all 107 registered examples (both corpora) and
-  hands the WGSL to Tint and every renderable GLSL pair to a real WebGL2 context.
+- **Compile gate** — `bun run gate:compile` emits all 127 registered examples (both corpora),
+  and every pass of the ones drawn in several, and hands the WGSL to Tint and every renderable
+  GLSL pair to a real WebGL2 context. It then draws each example with passes on WebGL2, reads
+  the canvas at frame 0 and frame 30, and for one that reads a frame before, checks that frame
+  30 differs from the same frame drawn with no history.
 - **Render gate** — not run in this repository. It was
   X-GIS's `playground/e2e/_shader-dsl-examples-render.spec.ts`, which compiles + links + draws
   each renderable example on a real WebGL2 context (packing the UBO from `reflect()`) and reads

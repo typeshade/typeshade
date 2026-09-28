@@ -67,7 +67,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compile } from '../src/index.js';
-import type { ShaderExample } from './_shared.js';
+import type { ModuleDecl } from '../src/index.js';
+import type { ShaderExample, ShaderPass } from './_shared.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -87,6 +88,9 @@ type ShadeSpec = {
    *  side and compares the lowered modules — which is what turns "the EDSL corpus is the
    *  oracle" from a claim in the surface document into something a suite can fail on. */
   readonly twinOf?: string;
+  /** The passes drawn before this file each frame, in draw order (change 0026), as the block
+   *  names them: each pass's name and its file under `examples/passes/`. */
+  readonly passes?: readonly { readonly name: string; readonly file: string }[];
 } & (
   | {
       /** Has a GLSL ES 3.00 form — both stages emit AND link. Authored, never derived: a flag
@@ -152,7 +156,7 @@ function readSpec(id: string, source: string): ShadeSpec {
     );
   }
   const spec = parsed as Partial<Record<string, unknown>>;
-  const { title, blurb, renderable, twinOf, reason } = spec;
+  const { title, blurb, renderable, twinOf, reason, passes } = spec;
   if (typeof title !== 'string' || title === '')
     throw new Error(`typeshade: ${file}'s @example block has no "title"`);
   if (typeof blurb !== 'string' || blurb === '')
@@ -165,7 +169,40 @@ function readSpec(id: string, source: string): ShadeSpec {
     );
   if (twinOf !== undefined && typeof twinOf !== 'string')
     throw new Error(`typeshade: ${file}'s "twinOf" is not a string`);
-  const common = { id, title, blurb, ...(twinOf === undefined ? {} : { twinOf }) };
+  if (
+    passes !== undefined &&
+    (!Array.isArray(passes) ||
+      passes.length === 0 ||
+      !passes.every(
+        (x: unknown) =>
+          typeof x === 'object' &&
+          x !== null &&
+          typeof (x as Record<string, unknown>)['name'] === 'string' &&
+          typeof (x as Record<string, unknown>)['file'] === 'string',
+      ))
+  )
+    throw new Error(
+      `typeshade: ${file}'s "passes" is not a list of { "name", "file" } with string fields`,
+    );
+  if (passes !== undefined && renderable !== true)
+    throw new Error(
+      `typeshade: ${file} names passes and is not "renderable": true — an example drawn in ` +
+        `several passes is drawn, so it has a GLSL ES 3.00 form the compile gate links`,
+    );
+  const common = {
+    id,
+    title,
+    blurb,
+    ...(twinOf === undefined ? {} : { twinOf }),
+    ...(passes === undefined
+      ? {}
+      : {
+          passes: (passes as { name: string; file: string }[]).map(({ name, file: f }) => ({
+            name,
+            file: f,
+          })),
+        }),
+  };
   if (renderable) return { ...common, renderable: true };
   if (typeof reason !== 'string' || reason === '')
     throw new Error(
@@ -221,6 +258,8 @@ function shadeExample(spec: ShadeSpec): ShaderExample {
     );
     throw new Error(`typeshade: ${file} does not compile\n${lines.join('\n')}`);
   }
+  const passes = spec.passes?.map((pass) => compilePass(file, pass));
+  if (passes !== undefined) checkPasses(file, spec.id, module, passes);
   return {
     id: spec.id,
     title: spec.title,
@@ -229,8 +268,120 @@ function shadeExample(spec: ShadeSpec): ShaderExample {
     file,
     module,
     renderable: spec.renderable,
+    ...(passes === undefined ? {} : { passes }),
   };
 }
+
+/** Where a pass's file lives: a `.shade.ts` path under `examples/passes/`, which the corpus
+ *  scan does not read, the way it does not read `lib/`. */
+const PASS_FILE = /^passes\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.shade\.ts$/;
+
+/** A pass's name is the name of the bindings that read it, so it is an identifier. */
+const PASS_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Compile one pass of `file` from its own bytes, as the example itself is compiled.
+ *  @throws when the path is not under `passes/`, the file is missing, or it does not compile. */
+function compilePass(
+  file: string,
+  pass: { readonly name: string; readonly file: string },
+): ShaderPass {
+  if (!PASS_FILE.test(pass.file))
+    throw new Error(
+      `typeshade: ${file}'s pass "${pass.name}" names ${JSON.stringify(pass.file)}, and a pass ` +
+        `file is a .shade.ts path under passes/`,
+    );
+  const source = readHere(pass.file);
+  if (source === undefined)
+    throw new Error(
+      `typeshade: ${file}'s pass "${pass.name}" names ${pass.file}, which is no file`,
+    );
+  const { diagnostics, module } = compile(source, { fileName: pass.file, readDocument: readHere });
+  const errors = diagnostics.filter((d) => d.category === 'error');
+  if (errors.length > 0) {
+    const lines = errors.map(
+      (d) => `  ${d.category} ${d.line}:${d.character} ${d.code ?? '—'} ${d.message}`,
+    );
+    throw new Error(
+      `typeshade: ${pass.file}, pass "${pass.name}" of ${file}, does not compile\n${lines.join('\n')}`,
+    );
+  }
+  return { name: pass.name, file: pass.file, module };
+}
+
+/**
+ * Refuse a pass graph that cannot be drawn (change 0026). The rules are the host's, and this
+ * is where the corpus holds its examples to them:
+ *
+ * - a pass's name is an identifier, used once, and is not the example's own id;
+ * - a pass is a program with one vertex entry and one fragment entry, the pair a host draws;
+ * - a binding named like a pass, in any pass or in the example's own file, is a
+ *   `texture_2d<f32>`, since that is what a pass's output is;
+ * - a pass that no file binds by name is drawn for nothing, so it is refused.
+ *
+ * @param file - the example's file name, for the messages.
+ * @param id - the example's id.
+ * @param module - the example's own module, drawn last.
+ * @param passes - the passes, in draw order.
+ * @throws naming the example, the pass and the rule it breaks.
+ */
+function checkPasses(
+  file: string,
+  id: string,
+  module: ModuleDecl,
+  passes: readonly Pick<ShaderPass, 'name' | 'file' | 'module'>[],
+): void {
+  const names = new Set<string>();
+  for (const pass of passes) {
+    if (!PASS_NAME.test(pass.name))
+      throw new Error(
+        `typeshade: ${file}'s pass "${pass.name}" is not an identifier, and a pass's name is ` +
+          `the name of the bindings that read it`,
+      );
+    if (names.has(pass.name))
+      throw new Error(`typeshade: ${file} names the pass "${pass.name}" twice`);
+    if (pass.name === id)
+      throw new Error(
+        `typeshade: ${file}'s pass "${pass.name}" has the example's own id, and the example is ` +
+          `the last pass, drawn into the canvas`,
+      );
+    names.add(pass.name);
+    const stages = pass.module.funcs.map((f) => f.stage);
+    const vertices = stages.filter((stage) => stage === 'vertex').length;
+    const fragments = stages.filter((stage) => stage === 'fragment').length;
+    if (vertices !== 1 || fragments !== 1)
+      throw new Error(
+        `typeshade: ${pass.file}, pass "${pass.name}" of ${file}, has ${String(vertices)} ` +
+          `vertex and ${String(fragments)} fragment entries, and a pass is drawn by exactly one of each`,
+      );
+  }
+  const bound = new Set<string>();
+  const readers: readonly (readonly [string, ModuleDecl])[] = [
+    ...passes.map((pass) => [pass.file, pass.module] as const),
+    [file, module],
+  ];
+  for (const [where, m] of readers) {
+    for (const b of m.bindings) {
+      if (!names.has(b.name)) continue;
+      const t = b.type;
+      if (t.kind !== 'texture' || t.dim !== '2d' || t.elem !== 'f32')
+        throw new Error(
+          `typeshade: ${where} declares "${b.name}", the name of a pass of ${file}, as something ` +
+            `other than a texture_2d<f32>, and a binding named like a pass reads that pass's output`,
+        );
+      bound.add(b.name);
+    }
+  }
+  for (const pass of passes)
+    if (!bound.has(pass.name))
+      throw new Error(
+        `typeshade: ${file}'s pass "${pass.name}" is read by no file: no binding is named ` +
+          `"${pass.name}", so the pass would be drawn for nothing`,
+      );
+}
+
+/** `checkPasses` under a name a suite may import: `shade-examples.test.ts` drives it with
+ *  graphs that break each rule. Not part of the corpus. */
+export const checkPassesForTest = checkPasses;
 
 /** A file of this directory, by its path relative to it, or `undefined` when there is none. */
 function readHere(name: string): string | undefined {
