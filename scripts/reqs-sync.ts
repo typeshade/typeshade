@@ -91,10 +91,20 @@ export function ruleBlocks(md: string): [string, string[]][] {
     const m = /^\*\*Rule (\d+\.\d+)\.\*\*/.exec(lines[i]!);
     if (!m) continue;
     let j = i + 1;
+    // The block ends after its own bullets, the Rationale, Derives-from and Enforced-by list. A
+    // list inside the rule's text (Rule 8.22's R1 to R6, then a paragraph) is part of the text,
+    // so the bullets that end the block are the ones from `- Rationale:` on; a rule that writes
+    // none ends at its first list, as before.
+    const hasRationale = lines
+      .slice(i + 1)
+      .findIndex((l) => /^\*\*Rule /.test(l) || /^#{1,6} /.test(l) || /^- Rationale:/.test(l));
+    const rationaleAhead =
+      hasRationale >= 0 && /^- Rationale:/.test(lines[i + 1 + hasRationale] ?? '');
     let bullets = false;
     for (; j < lines.length; j++) {
       const l = lines[j]!;
       if (/^\*\*Rule /.test(l) || /^#{1,6} /.test(l)) break;
+      if (rationaleAhead && !bullets && !/^- Rationale:/.test(l)) continue;
       if (/^\s*- /.test(l) || /^\s{2,}\S/.test(l)) bullets = true;
       else if (l.trim() !== '' && bullets) break;
     }
