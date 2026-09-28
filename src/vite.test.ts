@@ -257,6 +257,22 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { console.log(
     );
   });
 
+  it("puts the program's portable IR in the manifest with ir: true, and only then (change 0025)", async () => {
+    const src = `"use typeshade";
+declare const ys: storage<array<f32>, "read_write">;
+@compute([1])
+export function note(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] = 1.; }
+`;
+    const file = join(tempDir(), 'note.shade.ts');
+    const code = async (options: Parameters<typeof typeshade>[0]): Promise<string> => {
+      const p = typeshade(options);
+      p.configResolved({ command: 'build' });
+      return (await p.transform(src, file))?.code ?? '';
+    };
+    expect(await code({ ir: true })).toContain('"ir":{"version":');
+    expect(await code({})).not.toContain('"ir":');
+  });
+
   it('passes a host file through untouched', async () => {
     expect(await typeshade().transform('export const x = 1;', '/app/main.ts')).toBeNull();
   });

@@ -14,25 +14,26 @@ Concrete shaders live in `examples/` and in consuming projects, never here.
 ## Entry points
 
 Every file below but the last is a `package.json` `exports` subpath, and every one of those but
-`runtime.ts` is public API: `API_SUBPATHS` in `api-subpaths.ts`, the one list that
+`runtime-internal.ts` is public API: `API_SUBPATHS` in `api-subpaths.ts`, the one list that
 `api-doc-coverage.test.ts` and `api-surface.test.ts` both read. `__api__/surface.md` lists every
 symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 `api-surface.test.ts` fails when it and the tree disagree.
 
-| File                  | Subpath                                                                                                                                                                             |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`            | `.`: `compile()` and the source compiler, the EDSL, the emitters, `reflect`, `validate`. The only surface most consumers need.                                                      |
-| `dev.ts`              | `./dev`: lint, `diagnose()` / `formatReport()`, source tracing, optimizer measurement. Dev-time only.                                                                               |
-| `debug.ts`            | `./debug`: stepping one invocation on the CPU (`startDebugSession`), for IDE adapters and the Playground (`docs/debugging.md`).                                                     |
-| `compute.ts`          | `./compute`: `createComputeRunner`, one dispatch for a `portable: true` kernel across WebGPU, WebGL2 and the CPU.                                                                   |
-| `emit-prod.ts`        | `./emit-prod`: ship-time text plugins (`obfuscate`, minify, type aliasing) and `decodeShaderLog` to map a driver error back.                                                        |
-| `vite.ts`             | `./vite`: `typeshade()`, the Vite plugin a host project imports a `.shade.ts` through (surface §64), with its `console` option (`TypeshadeViteOptions`), and `TypeshadeVitePlugin`. |
-| `runtime.ts`          | `./runtime`: the program runtime (change 0025, Rule 11.11), `createRuntime` and its types, over `runtime/`; no compiler in its closure.                                             |
-| `runtime-internal.ts` | `./runtime/internal`: not API. What a module the plugin generates imports (the CPU tier's runtime and the host-value checks).                                                       |
-| `runtime/`            | The program runtime: `runtime.ts` (device, frames, submit, console), `program.ts` (pipelines, layouts, binding by name), `resources.ts`, `gpu.ts`.                                  |
-| `language-service/`   | `./language-service`: the editor-neutral, document-based service (`createTypeshadeLanguageService`) and `SHADE_DTS`.                                                                |
-| `core/ir/index.ts`    | `./core/ir`: the IR barrel. The one piece of `core/` that is published; everything else under `core/` is private.                                                                   |
-| `language-service.ts` | Not a subpath: a compatibility adapter keeping the older string-based `TypeshadeLanguageService` API over the real service.                                                         |
+| File                  | Subpath                                                                                                                                                                                       |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`            | `.`: `compile()` and the source compiler, the EDSL, the emitters, `reflect`, `validate`. The only surface most consumers need.                                                                |
+| `dev.ts`              | `./dev`: lint, `diagnose()` / `formatReport()`, source tracing, optimizer measurement. Dev-time only.                                                                                         |
+| `debug.ts`            | `./debug`: stepping one invocation on the CPU (`startDebugSession`), for IDE adapters and the Playground (`docs/debugging.md`).                                                               |
+| `compute.ts`          | `./compute`: `createComputeRunner`, one dispatch for a `portable: true` kernel across WebGPU, WebGL2 and the CPU.                                                                             |
+| `emit-prod.ts`        | `./emit-prod`: ship-time text plugins (`obfuscate`, minify, type aliasing) and `decodeShaderLog` to map a driver error back.                                                                  |
+| `vite.ts`             | `./vite`: `typeshade()`, the Vite plugin a host project imports a `.shade.ts` through (surface §64), with its `console` and `ir` options (`TypeshadeViteOptions`), and `TypeshadeVitePlugin`. |
+| `runtime.ts`          | `./runtime`: the program runtime (change 0025, Rule 11.11), `createRuntime` and its types, over `runtime/`; no compiler in its closure.                                                       |
+| `emit.ts`             | `./emit`: the load-time emitter (change 0025, Rule 11.11), `repack`, which emits a manifest again from the portable IR it carries; no front end in its closure.                               |
+| `runtime-internal.ts` | `./runtime/internal`: not API. What a module the plugin generates imports (the CPU tier's runtime and the host-value checks).                                                                 |
+| `runtime/`            | The program runtime: `runtime.ts` (device, frames, submit, console), `program.ts` (pipelines, layouts, binding by name), `resources.ts`, `gpu.ts`.                                            |
+| `language-service/`   | `./language-service`: the editor-neutral, document-based service (`createTypeshadeLanguageService`) and `SHADE_DTS`.                                                                          |
+| `core/ir/index.ts`    | `./core/ir`: the IR barrel. The one piece of `core/` that is published; everything else under `core/` is private.                                                                             |
+| `language-service.ts` | Not a subpath: a compatibility adapter keeping the older string-based `TypeshadeLanguageService` API over the real service.                                                                   |
 
 ## Key directories
 
@@ -59,6 +60,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `core/ir/types.ts`, `core/ir/nodes.ts`        | `ShaderType` and the typed constants; the `Expr` / `Stmt` unions and the module declarations (`ConstDecl`, `StructDecl`, `FuncDecl`, …).                                                                          |
 | `core/ir/node.ts`, `core/ir/builder.ts`       | `Node<K>` (chaining operators, `.assign()`) and `ReadonlyNode<K>`; the `Builder`, `fn` / `externFn` / `module`, `constExpr`, `Let` / `Var`.                                                                       |
 | `core/ir/visit.ts`                            | One walker per operation over the closed `Expr` / `Stmt` unions, so a new node kind reaches every pass.                                                                                                           |
+| `core/ir/portable.ts`                         | The portable IR (Rule 11.10): a module as JSON, a callee by reference, one node where it is used twice, `-0` kept, spans only where an output reads them, for the manifest's `ir` and `repack`.                   |
 | `core/emit.ts`                                | The one neutral tree walk, and `lowerForBackend`, the shared pre-emit pipeline (below).                                                                                                                           |
 | `core/backend.ts`                             | The `Backend` contract: type / literal / intrinsic spelling, the divergent fragments, capabilities, `UnsupportedFeatureError`.                                                                                    |
 | `core/intrinsics.ts`                          | Neutral intrinsic ids mapped to each target's spelling. Only divergent intrinsics need an entry.                                                                                                                  |

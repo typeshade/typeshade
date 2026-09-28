@@ -7,6 +7,7 @@
 import type { ConsoleLog } from './console.js';
 import type { Layout } from './host-entry.js';
 import type { GpuVertexLayout } from './vertex-layout.js';
+import type { PortableIr } from './ir/portable.js';
 
 /** The manifest's schema. A reader refuses one it does not know (Rule 11.10). */
 export const PACK_SCHEMA = 1;
@@ -153,6 +154,9 @@ export interface PackGlDraw {
 export interface PackOptions {
   /** Add the recorded variant, `console`: the WGSL that records the `console.*` calls. */
   readonly console?: boolean;
+  /** Add the program as portable IR, `ir`, which the load-time emitter (`typeshade/emit`) emits
+   *  again without the front end. About three times the WGSL gzipped, so on request only. */
+  readonly ir?: boolean;
 }
 
 /** The serialisable result of {@link buildManifest}: see there. */
@@ -175,6 +179,9 @@ export interface Pack {
   /** The `GPUFeatureName`s a device must have to create the program's pipelines. */
   readonly features: readonly string[];
   readonly console?: PackConsole;
+  /** The program as portable IR, when the build asked for it: what `repack()` emits again. Only
+   *  the package version that wrote it reads it. */
+  readonly ir?: PortableIr;
   /** What the WebGL2 tier uses: each full-screen fragment entry's draw, or why it has none. */
   readonly gl?: {
     readonly draws: Readonly<Record<string, PackGlDraw | { readonly none: string }>>;

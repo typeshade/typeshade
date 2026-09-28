@@ -29,6 +29,7 @@ export const API_SUBPATHS = [
   './compute',
   './dev',
   './debug',
+  './emit',
   './emit-prod',
   './vite',
   './runtime',
@@ -48,5 +49,5 @@ export const API_SUBPATHS = [
  *  `./runtime/internal` is what a module the Vite plugin generates imports, and nothing else
  *  does (changes 0009 and 0025): its names are the contract between the generator and its
  *  output, from the same package version, and change with them, so no reader is promised them.
- *  `./runtime`, the program runtime, is API since change 0025. */
+ *  `./runtime`, the program runtime, and `./emit`, its load-time emitter, are API since change 0025. */
 export const NOT_API_SUBPATHS = ['./examples', './shade', './runtime/internal'] as const;

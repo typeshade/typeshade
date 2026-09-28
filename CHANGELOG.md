@@ -600,6 +600,25 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **The load-time emitter, `typeshade/emit`** (proposal 0025, step 6; design rules 11.10 and
+  11.11; surface §64 and §69). `repack(manifest, { console })` emits a manifest again from the
+  portable IR it carries. The program runtime takes it as a plug-in,
+  `createRuntime({ emit: repack })`, so `load(m, { console: true })` records a program whose
+  build did not record, as a host needs in a deployed build for one session.
+  - The manifest carries the IR only on request: `packModule(m, { ir: true })` or
+    `typeshade({ ir: true })`. The IR is written by `src/core/ir/portable.ts`: a callee by
+    reference, one node where it is used twice, `-0`, `NaN` and the infinities kept, and spans
+    only where an output reads them.
+  - Emitted again, the IR gives every example's WGSL, GLSL, `reflect()`, console variant and
+    manifest byte for byte.
+  - Only the version that wrote the IR reads it. `repack` refuses another version's IR, naming
+    both versions, and a manifest with no IR. The runtime refuses `console: true` without the
+    emitter, naming the remedy.
+  - The emitter's closure is 106 modules of `src/core/` and no front end or `typescript`,
+    78,066 bytes minified and gzipped. `scripts/bundle-boundary.ts` holds both in CI with a
+    budget of 85,900. The trimming the proposal names (the IR builder, the CPU runtime and the
+    lint engine the backends pull in) is not done yet.
+
 - **The kernel proof's corpus, and what a nested loop dispatches** (Rule 8.22, surface §65,
   #350). `src/compiler/ts/kernel-corpus.test.ts` holds 15 loop patterns, each with the answer the
   proof must give, read in the compiler and in the editor. The accepted patterns are a stencil, a

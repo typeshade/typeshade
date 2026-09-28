@@ -53,6 +53,13 @@ export interface TypeshadeViteOptions {
    * production WGSL.
    */
   readonly console?: 'dev' | 'always' | 'never';
+  /**
+   * Put each module's portable IR in its manifest, the default export, so the load-time emitter
+   * (`repack` from `typeshade/emit`) can emit the program again where it runs: with the console
+   * recorded in a deployed build, for one. About three times the WGSL gzipped, so off by
+   * default.
+   */
+  readonly ir?: boolean;
 }
 
 /** The plugin {@link typeshade} returns: a Vite and Rollup plugin object, typed structurally so
@@ -158,6 +165,7 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
         fileName: path,
         readDocument,
         ...(records() ? { console: 'gpu' as const } : {}),
+        ...(options.ir === true ? { ir: true } : {}),
       });
       // The files the module imports, so an edit to one rebuilds this module (Rule 3.9). Rollup
       // and Vite call a plugin hook with their context as `this`; a direct call has none.
