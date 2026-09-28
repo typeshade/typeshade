@@ -7644,7 +7644,7 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
 - `load(m, { console: true })` of a manifest with no recorded variant records through the
   emitter, and without one is refused with the remedy.
 - The emitter carries the IR, the WGSL and GLSL writers, the console lowering and the manifest
-  builder, and no file of the front end and no `typescript` (Rule 11.11): about 78 KB gzipped,
+  builder, and no file of the front end and no `typescript` (Rule 11.11): about 75 KB gzipped,
   held to its budget in CI.
 
 The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67).
