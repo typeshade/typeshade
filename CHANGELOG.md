@@ -1973,6 +1973,19 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A kernel loop's row-major write runs on the GPU only with one width for the whole loop**
+  (Rule 8.22, surface §65, #398). R3 takes a write at `i*W + x` over a nested loop of `x` below
+  `W`, and the proof checked only that the width at the index and the inner loop's bound were
+  the same expression. It accepted a width that changes from row to row, such as
+  `out[y * (h - y) + x]` over `x < h - y`, or the same through a const the body declares. Rows of
+  different widths overlap, so two invocations raced on one element: rows 0 and 1 both write
+  `out[3]` when `h` is 4. It also accepted a const whose initializer reads a `let` set again
+  before the loop (`const W2 = s * w; s = 2;`), and compared that initializer with the bound as
+  if `s` had not changed. Each now runs on the CPU with TS8070. The proof now reads a row-major
+  index through constants, as it already read `a*i + c`, so `const at = y * w + x; out[at] = …`
+  and `out[row + x]` over `const row = y * w` now run on the GPU as `out[y * w + x]` does. The
+  metamorphic tests of #350 found that they were refused.
+
 - **On WebGL2, an integer division, remainder and shift, and a float's conversion to an integer,
   give WGSL's answer on every input** (proposal 0027, Rule 11.12, surface §11 and §22, #382). The
   GLSL writer spelled each with the bare GLSL operator, and GLSL ES 3.00 gives some inputs no

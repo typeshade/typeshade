@@ -258,3 +258,54 @@ export function cs() {
     expect(f.view).toContain('export declare function height(');
   });
 });
+
+describe('a row-major write needs one width for the whole loop (#398)', () => {
+  const gpuLoops = (body: string): number | undefined => {
+    const face = hostFace(module(body), { fileName: '/app/m.shade.ts' });
+    const kernel = face.exports?.find((e) => e.kind === 'kernel');
+    return kernel?.kind === 'kernel' ? kernel.face.gpu?.loops.length : undefined;
+  };
+  const grid = (width: string, before = '', inner = ''): string =>
+    `export function f(w: u32, h: u32, out: array<f32>) {${before}
+  for (let y: u32 = 0; y < h; y++) {${inner}
+    for (let x: u32 = 0; x < ${width.split('|')[0]!}; x++) {
+      out[${width.split('|')[1]!}] = f32(y);
+    }
+  }
+}`;
+
+  it('runs a width that changes from row to row on the CPU, in both halves', () => {
+    // Rows of different widths overlap: `y * (h - y) + x` over `x < h - y` writes out[3] from
+    // rows 0 and 1 when h is 4, and the two invocations would race on the GPU. `W2` was made
+    // when `s` was 1 and the bound reads `s` at 2, so each row is two widths long.
+    const cases: [string, string, number][] = [
+      [grid('h - y|y * (h - y) + x'), 'y * (h - y) + x', 5],
+      [grid('W|y * W + x', '', '\n    const W = h - y;'), 'y * W + x', 6],
+      [
+        grid('s * w|y * W2 + x', '\n  let s: u32 = 1;\n  const W2 = s * w;\n  s = 2;'),
+        'y * W2 + x',
+        8,
+      ],
+    ];
+    for (const [body, index, line] of cases) {
+      const want = `warning TS8070 This loop runs on the CPU because line ${String(line)} writes "out[${index}]", an element two iterations can share. Write at an index made from "y".`;
+      expect(compiled(body), index).toEqual([want]);
+      expect(edited(body), index).toEqual([want]);
+      expect(gpuLoops(body), index).toBeUndefined();
+    }
+  });
+
+  it('runs one width on the GPU, written inline, through a const or through a let it never sets again', () => {
+    for (const body of [
+      grid('w|y * w + x'),
+      grid('w|at', '', '').replace('out[at]', 'const at = y * w + x;\n      out[at]'),
+      grid('w|row + x', '', '\n    const row = y * w;'),
+      grid('W|y * W + x', '\n  const W = w;'),
+      grid('s|y * s + x', '\n  let s: u32 = w;'),
+    ]) {
+      expect(compiled(body), body).toEqual([]);
+      expect(edited(body), body).toEqual([]);
+      expect(gpuLoops(body), body).toBe(1);
+    }
+  });
+});

@@ -208,8 +208,10 @@ function ctxOf(m: ModuleDecl): Ctx {
 function proveKernel(f: FuncDecl, m: ModuleDecl): KernelProof {
   const c = ctxOf(m);
   const loops: LoopVerdict[] = [];
-  // A `let` at the top of the body is a name the loops may read through, as a constant.
+  // A `let` at the top of the body is a name the loops may read through, as a constant, when
+  // what it was made from cannot change after it (#398).
   const lets = new Map<string, Expr>();
+  const mutable = mutableNames(f);
   const arrays = new Set(
     f.params.filter((p) => p.type.kind === 'array' && p.type.size === undefined).map((p) => p.name),
   );
@@ -229,7 +231,7 @@ function proveKernel(f: FuncDecl, m: ModuleDecl): KernelProof {
       if (v.ok) for (const r of v.reductions) reduced.set(r.name, sourceSpanOf(st));
       return;
     }
-    if (st.s === 'let') lets.set(st.name, st.expr);
+    if (st.s === 'let' && !readsAny(st.expr, mutable)) lets.set(st.name, st.expr);
     if (shape !== undefined) return;
     // What only a loop may do: write an array, or anything but a plain scalar statement.
     const last = index === f.body.length - 1;
@@ -309,13 +311,16 @@ function proveLoop(
   const effect = callEffects(loop.body, c);
   if (effect !== undefined) return refuse(effect);
 
-  // What the body declares is per iteration; a `let` is read through as a constant.
+  // What the body declares is per iteration; a `let` is read through as a constant when what it
+  // was made from cannot change after it: `const W2 = s * w` over a `let s` that is then set
+  // again is not `s * w` where the loop reads `s` (#398).
   const local = new Set<string>();
   const lets = new Map(outerLets);
+  const mutable = mutableNames(f);
   walk(loop.body, (st) => {
     if (st.s === 'let') {
       local.add(st.name);
-      lets.set(st.name, st.expr);
+      if (!readsAny(st.expr, mutable)) lets.set(st.name, st.expr);
     } else if (st.s === 'var') local.add(st.name);
   });
   // The counters of the loops nested in it, and their bounds, for the row-major form.
@@ -355,7 +360,7 @@ function proveLoop(
       return refuse({ rule: 'R3', why: 'shared', target: first.target, at: first.at });
     // (d) a texture at `vec2(i % W, i / W)`.
     if (ws.every((w) => w.texel !== undefined)) {
-      const widths = ws.map((w) => texelWidth(w.texel!, i, lets));
+      const widths = ws.map((w) => texelWidth(w.texel!, i, lets, local));
       if (widths.some((x) => x === undefined) || !allSame(widths as Expr[]))
         return refuse({ rule: 'R3', why: 'shared', target: first.target, at: first.at });
       out.push({ kind: 'texel', name: root, width: widths[0]! });
@@ -755,8 +760,8 @@ function distinctForm(
     }
     return undefined;
   }
-  // (c) `i*W + x` over a nested loop of `x` from 0 to `< W`.
-  const rows = idx.map((e) => rowMajor(e, i, lets, inner));
+  // (c) `i*W + x` over a nested loop of `x` from 0 to `< W`, with one `W` for the whole loop.
+  const rows = idx.map((e) => rowMajor(e, i, lets, inner, local));
   if (rows.every((w) => w !== undefined) && allSame(rows as Expr[]))
     return { kind: 'row-major', width: rows[0]! };
   // (b') one index, the same at every write, whose coefficient of `i` is loop-invariant.
@@ -767,32 +772,88 @@ function distinctForm(
   return undefined;
 }
 
-/** `W` for `i*W + x` (either order), with `x` a nested loop's counter bounded by `W`. */
+/** `e` through casts and the constant `let`s it names, as {@link affine} reads an index: the
+ *  index of `const at = y * w + x; out[at] = …` is `y * w + x`, and so is `row + x` over
+ *  `const row = y * w` (#398). */
+function through(e: Expr, lets: ReadonlyMap<string, Expr>, depth = 0): Expr {
+  const x = transparent(e);
+  if (depth < 16 && isName(x) && lets.has(x.name))
+    return through(lets.get(x.name)!, lets, depth + 1);
+  return x;
+}
+
+/** `W` for `i*W + x` (either order), with `x` a nested loop's counter bounded by `W`, and `W`
+ *  one value for the whole loop. A width that reads `i`, a nested counter or anything the body
+ *  declares gives each row its own width, and rows of different widths overlap:
+ *  `out[y * (h - y) + x]` over `x < h - y` writes `out[3]` from rows 0 and 1 when `h` is 4
+ *  (#398). */
 function rowMajor(
   e: Expr,
   i: string,
   lets: ReadonlyMap<string, Expr>,
   inner: ReadonlyMap<string, Expr | undefined>,
+  local: ReadonlySet<string>,
 ): Expr | undefined {
-  const x = transparent(e);
+  const x = through(e, lets);
   if (x.op !== 'binop' || x.bop !== '+') return undefined;
+  const isI = (y: Expr): boolean => {
+    const z = through(y, lets);
+    return isName(z) && z.name === i;
+  };
+  const invariant = (y: Expr): boolean => loopInvariant(y, i, lets, local);
   for (const [mul, add] of [
     [x.a, x.b],
     [x.b, x.a],
   ] as const) {
-    const m = transparent(mul);
-    const counter = transparent(add);
+    const m = through(mul, lets);
+    const counter = through(add, lets);
     if (m.op !== 'binop' || m.bop !== '*' || !isName(counter) || !inner.has(counter.name)) continue;
-    const w =
-      isName(transparent(m.a)) && (transparent(m.a) as { name: string }).name === i
-        ? m.b
-        : isName(transparent(m.b)) && (transparent(m.b) as { name: string }).name === i
-          ? m.a
-          : undefined;
+    const w = isI(m.a) ? m.b : isI(m.b) ? m.a : undefined;
     const bound = inner.get(counter.name);
-    if (w !== undefined && bound !== undefined && sameExpr(w, bound, lets)) return w;
+    if (
+      w !== undefined &&
+      bound !== undefined &&
+      invariant(w) &&
+      invariant(bound) &&
+      sameExpr(w, bound, lets)
+    )
+      return w;
   }
   return undefined;
+}
+
+/** Whether `e` has one value for the whole loop over `i`: it reads neither `i` nor a name the
+ *  body declares, a nested loop's counter included, other than a constant it reads through. */
+function loopInvariant(
+  e: Expr,
+  i: string,
+  lets: ReadonlyMap<string, Expr>,
+  local: ReadonlySet<string>,
+  depth = 0,
+): boolean {
+  if (depth > 16) return false;
+  let ok = true;
+  eachExpr(e, (x) => {
+    if (!ok || !isName(x)) return;
+    if (x.name === i) ok = false;
+    else if (lets.has(x.name)) ok = loopInvariant(lets.get(x.name)!, i, lets, local, depth + 1);
+    else if (local.has(x.name)) ok = false;
+  });
+  return ok;
+}
+
+/** The names a function may assign after they are declared: every `let` of the source (an IR
+ *  `var`) but a counted loop's counter, which holds still for one iteration of its loop, the
+ *  only place a constant made from it is read. */
+function mutableNames(f: FuncDecl): Set<string> {
+  const counters = new Set<string>();
+  const vars = new Set<string>();
+  walk(f.body, (st) => {
+    if (st.s === 'for' && st.counted !== undefined) counters.add(st.counted.name);
+    if (st.s === 'var') vars.add(st.name);
+  });
+  for (const n of counters) vars.delete(n);
+  return vars;
 }
 
 /** The coefficient `k` of `i*k` or `i*k + j` with `k` and `j` loop-invariant. */
@@ -812,8 +873,13 @@ function scaledCoefficient(e: Expr, i: string, local: ReadonlySet<string>): Expr
   return undefined;
 }
 
-/** `W` for a texture coordinate `vec2(i % W, i / W)`. */
-function texelWidth(coord: Expr, i: string, lets: ReadonlyMap<string, Expr>): Expr | undefined {
+/** `W` for a texture coordinate `vec2(i % W, i / W)`, with `W` one value for the whole loop. */
+function texelWidth(
+  coord: Expr,
+  i: string,
+  lets: ReadonlyMap<string, Expr>,
+  local: ReadonlySet<string>,
+): Expr | undefined {
   if (coord.op !== 'construct' || coord.args.length !== 2) return undefined;
   const [x, y] = coord.args.map(transparent) as [Expr, Expr];
   if (x.op !== 'binop' || x.bop !== '%' || y.op !== 'binop' || y.bop !== '/') return undefined;
@@ -822,6 +888,7 @@ function texelWidth(coord: Expr, i: string, lets: ReadonlyMap<string, Expr>): Ex
     return isName(t) && t.name === i;
   };
   if (!isI(x.a) || !isI(y.a) || !sameExpr(x.b, y.b, lets)) return undefined;
+  if (!loopInvariant(x.b, i, lets, local)) return undefined;
   return x.b;
 }
 
