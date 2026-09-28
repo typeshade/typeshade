@@ -59,3 +59,13 @@ export function tally(xs: array<i32>): i32 {
   }
   return n;
 }
+
+// A scatter: two iterations may add to the same bin, so each add is an atomic on the GPU, which
+// is exact in any order for an integer.
+export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32) {
+  const top = bins.length - 1;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    const k = min(u32(max((xs[i] - lo) * scale, 0.)), top);
+    bins[k] += 1;
+  }
+}

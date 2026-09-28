@@ -273,7 +273,47 @@ export function stats(xs: array<f32>, out: array<f32>): f32 {
     expect(tail.body.some((st) => st.s === 'for')).toBe(false);
   });
 
+  it('lowers a scatter into an integer array to an atomic on array<atomic<T>>', () => {
+    const plan = lowered(
+      `"use typeshade";
+export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32) {
+  const top = bins.length - 1;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    const k = min(u32(max((xs[i] - lo) * scale, 0.)), top);
+    bins[k] += 1;
+  }
+}`,
+      'histogram',
+    );
+    if ('noGpu' in plan) throw new Error(plan.noGpu);
+    expect(plan.loops[0]).toMatchObject({ entry: 'histogram_loop0', writes: ['bins'], checks: [] });
+    const bins = plan.module.bindings.find((b) => b.name === 'bins')!;
+    expect(bins.type).toEqual({ kind: 'array', elem: { kind: 'atomic', elem: 'u32' } });
+    expect(bins.access).toBe('read_write');
+    expect(
+      JSON.stringify(plan.module.funcs.find((f) => f.name === 'histogram_loop0')!.body),
+    ).toContain('"fn":"atomicAdd"');
+  });
+
   it.each([
+    [
+      'a scatter with *',
+      `export function scale(bins: array<u32>, ks: array<u32>) { for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] *= 2; } }`,
+      'scale',
+      'it scatters into "bins" with *, which no atomic does',
+    ],
+    [
+      'a scattered array another loop writes in place',
+      `export function both(bins: array<u32>, ks: array<u32>) { for (let i: u32 = 0; i < bins.length; i++) { bins[i] = 0; } for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] += 1; } }`,
+      'both',
+      'a loop writes "bins" in place, and another scatters into it',
+    ],
+    [
+      'a scattered array another loop reads',
+      `export function peek(bins: array<u32>, ks: array<u32>, out: array<u32>) { for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] += 1; } for (let i: u32 = 0; i < out.length; i++) { out[i] = bins[i]; } }`,
+      'peek',
+      'a loop reads "bins", which a loop scatters into: an atomic is read only by an atomic',
+    ],
     [
       'an f64 reduction',
       `export function total(xs: array<f64>): f64 { let s = f64(0.); for (const x of xs) { s += x; } return s; }`,

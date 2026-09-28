@@ -6685,8 +6685,16 @@ assume no infinity. The function's `return` then runs on the CPU tier with what 
 `return` that reads an array's elements, and a statement a later loop replays that reads a
 reduced variable, run the whole function on the CPU.
 
-**Not yet.** A scatter, a texture and an `f64` reduction on the GPU, `resident` and `configure`,
-and the WebGL2 tier are the next parts of change 0013. Until then such a function runs on the CPU.
+**A scatter.** A loop that adds into an integer array at an index it computes, `bins[k] += 1`
+(or `&= |= ^=`, `min`, `max`), may have two iterations land on one element. On WebGPU the array is
+`array<atomic<u32>>` (or `i32`) in the generated module, the same bytes, and each such write is an
+atomic, which is exact in any order for an integer; the caller's array comes back with the counts
+added to what it held. A scatter with `*`, which no atomic does, an array one loop scatters into
+and another writes in place or reads, and a scatter into anything but an element, run the function
+on the CPU.
+
+**Not yet.** A texture and an `f64` reduction on the GPU, `resident` and `configure`, and the WebGL2
+tier are the next parts of change 0013. Until then such a function runs on the CPU.
 
 ## 67. Calling an entry point from host code
 
