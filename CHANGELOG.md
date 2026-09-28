@@ -1923,6 +1923,20 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **Each scatter of a kernel function runs its own operator's atomic on WebGPU** (Rule 8.22). A
+  kernel function whose loops combine one integer array at any index with different operators
+  ran every loop's combine as the last loop's atomic:
+
+  ```ts
+  for (let i: u32 = 0; i < ks.length; i++) { bits[ks[i] % bits.length] &= ks[i]; }
+  for (let i: u32 = 0; i < ks.length; i++) { bits[ks[i] % bits.length] |= 1; }
+  ```
+
+  The first loop's `&=` was dispatched as `atomicOr`. It set the bits of `ks[i]` where the program
+  keeps only those bits. The CPU tier ran it as written. The lowering recorded one operator per
+  array, the last it saw; each write now takes its own. The generated-kernel differential of #349
+  found it.
+
 - **A kernel loop may read the length of the array it writes** (Rule 8.22, #345). This loop ran
   on the CPU with `TS8070`, "line 5 reads "out", which another iteration writes":
 

@@ -20,6 +20,7 @@ import { compileModule } from '../../core/oracle.js';
 import { proveKernels } from '../../core/passes/parallel-loop.js';
 import { lowerKernel, lowerKernelGl } from '../../core/passes/kernel-lower.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const dirs: string[] = [];
@@ -470,6 +471,37 @@ export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32)
     expect(
       JSON.stringify(plan.module.funcs.find((f) => f.name === 'histogram_loop0')!.body),
     ).toContain('"fn":"atomicAdd"');
+  });
+
+  it("gives each scatter its own operator's atomic when two loops scatter into one array", () => {
+    // The lowering kept one operator per array, the last loop's, so the first loop's `&=` ran as
+    // `atomicOr` on WebGPU. The generated-kernel differential found it (#349).
+    const source = `"use typeshade";
+export function mask(ks: array<u32>, bits: array<u32>) {
+  for (let i: u32 = 0; i < ks.length; i++) {
+    bits[ks[i] % bits.length] &= ks[i];
+  }
+  for (let i: u32 = 0; i < ks.length; i++) {
+    bits[ks[i] % bits.length] |= 1;
+  }
+}`;
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', source);
+    expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
+    const plan = lowered(source, 'mask');
+    if ('noGpu' in plan) throw new Error(plan.noGpu);
+    const atomics = (entry: string): string[] =>
+      [
+        ...JSON.stringify(plan.module.funcs.find((f) => f.name === entry)!.body).matchAll(
+          /"fn":"(atomic\w+)"/g,
+        ),
+      ].map((m) => m[1]!);
+    expect(atomics('mask_loop0')).toEqual(['atomicAnd']);
+    expect(atomics('mask_loop1')).toEqual(['atomicOr']);
+    // What the plugin writes into the generated module, which the WebGPU tier dispatches.
+    const kernel = face(source).exports.find((e) => e.kind === 'kernel');
+    const wgsl = kernel?.kind === 'kernel' ? (kernel.face.gpu?.wgsl ?? '') : '';
+    expect(wgsl.match(/atomic(And|Or)\(&bits\[/g)).toEqual(['atomicAnd(&bits[', 'atomicOr(&bits[']);
   });
 
   it('lowers a map that writes one f32 array at i to a WebGL2 fragment program', () => {
