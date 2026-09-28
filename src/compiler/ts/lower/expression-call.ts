@@ -70,6 +70,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 import { checkMathArgs, mathTakesElem } from './math-args.js';
+import { crossedClampBounds } from '../loop-bound.js';
 import { parseSwizzle } from '../swizzle.js';
 import { libraryNameSentence } from '../type-map.js';
 import { isConsoleMethod } from '../../../core/console.js';
@@ -797,6 +798,37 @@ export function lowerCall(
   // that does not fit, with the fix.
   const display = `${viaMath ? 'Math.' : ''}${intrinsicId === 'atan2' ? 'atan' : intrinsicId}`;
   if (!checkMathArgs(intrinsicId, display, args, node, sourceFile, diagnostics)) return undefined;
+  // A `clamp` whose constant bounds cross (#373, Rule 12.6). WGSL refuses the pair when both
+  // bounds are constant, and GLSL ES 3.00 leaves the result undefined. `settleConstExprs` writes
+  // a pair only the optimizer makes constant as `min(max(e, low), high)` (#372); a pair the
+  // author wrote is most likely swapped, and is refused here, where the two can be named.
+  if (intrinsicId === 'clamp' && args.length === 3) {
+    const crossed = crossedClampBounds(args[1]!, args[2]!, scope);
+    if (crossed !== undefined) {
+      const [e, low, high] = node.arguments.map((a) => a.getText(sourceFile)) as [
+        string,
+        string,
+        string,
+      ];
+      // Two plain numbers say their own values; a name or a vector is given the value it has.
+      const pair =
+        Number(low) === crossed.low && Number(high) === crossed.high
+          ? `the low bound ${low} is above the high bound ${high}`
+          : `${args[1]!.type.kind === 'vec' ? `in .${'xyzw'[crossed.index]!}, ` : ''}the low ` +
+            `bound "${low}" is ${String(crossed.low)} and the high bound "${high}" is ` +
+            `${String(crossed.high)}`;
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Crossed clamp bounds: ${pair} on every invocation. WGSL refuses the pair when both are ` +
+          `constant, and GLSL ES 3.00 leaves the result undefined. Swap them, or write ` +
+          `min(max(${e}, ${low}), ${high}) for the answer a crossed pair gives.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+  }
   const type = mathResultType(intrinsicId, args);
   return { op: 'call', type, fn: divergentIntegerId(intrinsicId, args[0]?.type, type), args };
 }
