@@ -576,6 +576,21 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A `@compute` entry takes a `Resident`, queues, and follows `configure`** (change 0016; Rules
+  8.24 and 11.8, surface §67).
+  - A storage array binding with no size may be a `Resident`, 0013's handle. On WebGPU it is
+    bound as the buffer it already has on the device, and nothing is read back until
+    `await r.read()`. So one entry's output can be the next one's input without leaving the GPU.
+  - When every binding the entry writes is a `Resident`, the host view's first signature returns
+    `void`, and the call only queues.
+  - Entry calls run in the same order as kernel calls, so the two can share a handle.
+  - `configure({ prefer })` orders and restricts the entry's tiers, WebGPU and the CPU. A list
+    that leaves only WebGL2, which has no compute stage, throws, naming why.
+  - A `Resident` for a sized or non-storage binding, or one handle passed as two bindings, is a
+    `TypeError`.
+  - A misspelled binding in the bindings object is now `TS2769` (no overload matches) rather than
+    `TS2353`, as it is for a kernel function.
+
 - **The determinism report lists a kernel function's floating-point reduction** (change 0013;
   Rule 7.2, surface §38 and §65). `compile().determinism` gains the kind `order`: an `f32` or
   `f64` sum or product that a kernel function's accepted loop reduces. Every tier folds it in the

@@ -24,17 +24,20 @@ export default {
   ridges: points.map((p) => 1 - Math.abs(height(p))),
 };
 
-/** What `src/gpu.ts` should return: the same map and block sums, in f32 as the GPU computes. */
+/** What `src/gpu.ts`'s `run()` should return: the same map and block sums, plain and resident,
+ *  in f32 as the GPU computes. */
 export function gpuReference() {
   const f = Math.fround;
   const xs = Array.from({ length: 256 }, (_, i) => f(Math.sin(i * 0.37) * 4));
   const ys = xs.map((x) => f(x * f(2.5)));
-  const sums = [0, 1, 2, 3].map((w) => {
-    let s = 0;
-    for (let i = 0; i < 64; i++) s = f(s + xs[w * 64 + i]);
-    return s;
-  });
-  return { ys, sums };
+  const sumsOf = (vs) =>
+    [0, 1, 2, 3].map((w) => {
+      let s = 0;
+      for (let i = 0; i < 64; i++) s = f(s + vs[w * 64 + i]);
+      return s;
+    });
+  // The resident chain sums the map's output, which never left the device.
+  return { ys, sums: sumsOf(xs), residentYs: ys, residentSums: sumsOf(ys) };
 }
 
 /** What `draws()` in `src/gpu.ts` should read back, RGBA, top row first: the plasma at each

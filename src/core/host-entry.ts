@@ -7,7 +7,7 @@
 // it, and its byte layout. So the runtime packs, dispatches and reads back from data alone, and
 // the application ships no compiler (Rule 11.7).
 //
-// Two tiers:
+// Two tiers, which `core/host-compute.ts` tries in the order `configure` sets (Rule 11.8):
 //
 //   1. WebGPU. The module is created and the pipeline built on the first call, and both are
 //      kept per device. Each binding is packed into a buffer by its layout, the entry is
@@ -668,7 +668,7 @@ async function pipelineFor(d: GpuDevice, e: ComputeEntry): Promise<GpuPipeline> 
 // ─── the call ────────────────────────────────────────────────────────────────────────────────
 
 /** The workgroup count, checked: `n` or `[x, y?, z?]`, whole numbers. */
-function workgroupsOf(e: ComputeEntry, w: unknown): [number, number, number] {
+export function workgroupsOf(e: ComputeEntry, w: unknown): [number, number, number] {
   const xs = typeof w === 'number' ? [w] : Array.isArray(w) ? w : undefined;
   if (xs === undefined || xs.length < 1 || xs.length > 3)
     throw new TypeError(
@@ -869,36 +869,8 @@ export function groupEntries(
   return new Map([...groups].sort(([a], [b]) => a - b));
 }
 
-/**
- * Call a `@compute` entry from host code (Rule 8.24): dispatch `workgroups` workgroups of it
- * with `bindings`, on WebGPU when there is one and on the CPU tier otherwise, and read every
- * storage binding it writes back into the caller's value in place.
- *
- * @throws `TypeError` naming the entry and the binding for a value that does not fit, and for
- *   an entry the CPU tier cannot run (a barrier, a texture) where there is no WebGPU.
- */
-export async function callCompute(
-  cpu: GeneratedCpu,
-  e: ComputeEntry,
-  argc: number,
-  bindings: unknown,
-  workgroups: unknown,
-): Promise<void> {
-  if (argc !== 2)
-    throw new TypeError(`${e.name}() takes 2 arguments, (bindings, workgroups); got ${argc}.`);
-  const checked = checkBindings(e, bindings);
-  const wg = workgroupsOf(e, workgroups);
-  const d = await gpuDevice();
-  if (d !== null) return onGpu(d, e, checked, wg);
-  if (e.barrier !== undefined)
-    throw new TypeError(
-      `${e.name}() needs WebGPU: it reaches ${e.barrier}, and a barrier has no CPU tier.`,
-    );
-  if (e.noCpu !== undefined)
-    throw new TypeError(`${e.name}() needs WebGPU: ${e.noCpu}, and the CPU tier cannot.`);
-  onCpu(cpu, e, checked.values, wg);
-}
-
+/** Dispatch the entry once on WebGPU, reading each storage binding it writes back into the
+ *  caller's value in place; a binding in `checked.onDevice` is bound as it is. */
 export async function onGpu(
   d: GpuDevice,
   e: ComputeEntry,
@@ -964,7 +936,9 @@ export async function onGpu(
   await log?.print();
 }
 
-function onCpu(
+/** Run every invocation of every workgroup on the CPU tier, reading each storage binding it
+ *  writes back into the caller's value in place. */
+export function onCpu(
   cpu: GeneratedCpu,
   e: ComputeEntry,
   values: Record<string, unknown>,

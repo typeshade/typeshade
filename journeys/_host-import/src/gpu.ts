@@ -1,6 +1,7 @@
-// The browser half of the journey: ordinary TypeScript that calls two compute entries and draws
-// two fragment entries through the import, with plain typed arrays and no WebGPU or WebGL code
-// of its own. The page runs `run()` and `draws()`.
+// The browser half of the journey: ordinary TypeScript that calls two compute entries, with plain
+// typed arrays and then with arrays resident on the device, and draws two fragment entries
+// through the import, with no WebGPU or WebGL code of its own. The page runs `run()` and
+// `draws()`.
 import { blockSum, report, scale } from './kernels.shade.ts';
 import { plasma, tiled } from './draw.shade.ts';
 import { configure, resident } from 'typeshade/runtime';
@@ -9,13 +10,24 @@ import { drift, histogram, odds, render, scaleNonNegative, stats, tally } from '
 import { step } from './particles.shade.ts';
 import { fs } from './plasma.shade.ts';
 
-export async function run(): Promise<{ ys: number[]; sums: number[] }> {
+export async function run(): Promise<Record<string, number[]>> {
   const xs = Float32Array.from({ length: 256 }, (_, i) => Math.sin(i * 0.37) * 4);
   const ys = new Float32Array(256);
   await scale({ k: 2.5, xs, ys }, 4); // ys is filled in place
   const sums = new Float32Array(4);
   await blockSum({ xs, sums, scratch: new Float32Array(256) }, 4); // WebGPU only: a barrier
-  return { ys: [...ys], sums: [...sums] };
+  // Resident bindings (Rule 11.8): the map's output stays on the device and is the block sum's
+  // input, the two calls only queue, and each handle is read back once.
+  const devYs = resident(new Float32Array(256));
+  const devSums = resident(new Float32Array(4));
+  scale({ k: 2.5, xs, ys: devYs }, 4);
+  blockSum({ xs: devYs, sums: devSums, scratch: resident(new Float32Array(256)) }, 4);
+  return {
+    ys: [...ys],
+    sums: [...sums],
+    residentYs: [...(await devYs.read())],
+    residentSums: [...(await devSums.read())],
+  };
 }
 
 /** The size of each canvas `draws()` draws into. */

@@ -8,8 +8,8 @@
 import type { ConsoleEvent } from './console.js';
 
 export { createCodegenRuntime, type CodegenRuntime } from './cpu-codegen-runtime.js';
+export { callCompute } from './host-compute.js';
 export {
-  callCompute,
   type ComputeEntry,
   type DrawBinding,
   type EntryBinding,
