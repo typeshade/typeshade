@@ -186,7 +186,7 @@ describe('documentation snippets compile', () => {
       });
       expect(errorsOf(r.diagnostics)).toEqual([]);
     });
-    // What the editor and `typeshade check` show for it too: a snippet is what an author, and a
+    // What the editor and `tshc check` show for it too: a snippet is what an author, and a
     // coding agent, copies, and an error the editor raises on a program the compiler takes is a
     // second surface (Rule 12.7).
     it(`${u.fence.file}:${u.fence.line} draws no error in the editor`, () => {

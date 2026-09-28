@@ -141,7 +141,7 @@ Each principle comes with the question a reviewer asks of a new public API.
    refusal, for a GPU result that differs from the oracle, and for a performance warning.
    _Test:_ does any failure this API can produce name generated text instead of the source?
 4. **No ceremony, and one honest boundary.** There is no device setup, and the configuration is
-   the setup surface §64 lists: the plugin line, two `tsconfig` lines and `typeshade sync`. A
+   the setup surface §64 lists: the plugin line, two `tsconfig` lines and `tshc sync`. A
    call that runs on the GPU is queued, and it returns without waiting. `await` appears only
    where the host reads a GPU result, because that read is asynchronous in every browser. It is
    shown once, where it costs something. This is how CuPy, PyTorch and JAX already work: calls

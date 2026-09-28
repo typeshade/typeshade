@@ -1607,7 +1607,7 @@ What a host can call is an exported function that is not an entry point, not gen
 function, and reaches no binding and no GPU-only builtin. Everything else the module exports
 appears to the host as `never`, with the reason, so calling it is a type error where you wrote
 the call. The setup is four lines, a plugin in `vite.config.ts`, two in `tsconfig.json` and
-`typeshade sync` in `prepare`. The surface reference has them, with the full table of host
+`tshc sync` in `prepare`. The surface reference has them, with the full table of host
 values: `docs/use-typeshade-surface.md` §64.
 
 ### A shader module that imports another
@@ -1620,8 +1620,8 @@ imported file's own entry points do not. Each file keeps its own scope, so two f
 a private `hash`; the module emits the second one under a name of its own.
 
 `compile()` reads what a source imports through a `readDocument` you pass it, which returns a
-file's text by its path, or `undefined` when there is none. The Vite plugin, `typeshade check`,
-`typeshade sync` and the editor read the files themselves.
+file's text by its path, or `undefined` when there is none. The Vite plugin, `tshc check`,
+`tshc sync` and the editor read the files themselves.
 
 ```ts
 import { existsSync, readFileSync } from 'node:fs'

@@ -1,4 +1,4 @@
-// The `typeshade` command over an in-memory host: argument handling, the directory walk and
+// The `tshc` command over an in-memory host: argument handling, the directory walk and
 // the exit status. One test runs the real Node host (`bin.ts`) end to end.
 
 import { describe, it, expect } from 'vitest';
@@ -52,7 +52,7 @@ const run = (argv: string[], files: Record<string, string>, cwd?: string) => {
   return { status, stdout: m.stdout(), stderr: m.stderr() };
 };
 
-describe('typeshade (command line)', () => {
+describe('tshc (command line)', () => {
   it('exits 0 on a clean tree and 1 when an error is found', () => {
     expect(run(['check'], { '/p/src/a.shade.ts': GOOD })).toMatchObject({
       status: 0,
@@ -92,18 +92,26 @@ describe('typeshade (command line)', () => {
   it('exits 2 when it cannot run, and says why', () => {
     expect(run(['check', 'nope'], { '/p/a.shade.ts': GOOD })).toMatchObject({
       status: 2,
-      stderr: 'typeshade: no file or directory at nope.\n',
+      stderr: 'tshc: no file or directory at nope.\n',
     });
     expect(run(['check'], { '/p/readme.md': '' })).toMatchObject({
       status: 2,
-      stderr: 'typeshade: no .shade.ts files under the working directory.\n',
+      stderr: 'tshc: no .shade.ts files under the working directory.\n',
     });
     const badFormat = run(['check', '--format', 'xml'], { '/p/a.shade.ts': GOOD });
     expect(badFormat.status).toBe(2);
     expect(badFormat.stderr).toContain('--format takes one of text, short, json; got "xml".');
-    expect(run(['check', '--frob'], {}).stderr).toContain('Unknown option --frob.');
-    expect(run(['lint'], {}).stderr).toContain('unknown command "lint"');
+    expect(run(['check', '--frob'], {}).stderr).toContain('tshc: Unknown option --frob.');
+    expect(run(['lint'], {}).stderr).toContain('tshc: unknown command "lint".');
     expect(run([], {})).toMatchObject({ status: 2, stderr: USAGE });
+  });
+
+  it('names itself tshc, the command the typeshade package installs (change 0023)', () => {
+    expect(USAGE.split('\n').slice(0, 2)).toEqual([
+      'Usage: tshc check [options] [paths...]',
+      '       tshc sync [--check] [paths...]',
+    ]);
+    expect(USAGE).not.toMatch(/\btypeshade (check|sync)\b/);
   });
 
   it('answers --help and --version on stdout', () => {
@@ -113,7 +121,7 @@ describe('typeshade (command line)', () => {
   });
 
   it('runs end to end on the Node host (bin.ts) against a real directory', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'typeshade-check-'));
+    const dir = mkdtempSync(join(tmpdir(), 'tshc-check-'));
     try {
       mkdirSync(join(dir, 'src'));
       writeFileSync(join(dir, 'src', 'b.shade.ts'), BAD);

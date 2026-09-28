@@ -172,7 +172,7 @@ describe('a uniform block struct used as a value, on GLSL ES 3.00', () => {
         expect(pane.text).toBe(compile(src).glsl!.fragment);
       });
 
-      it('typeshade check reports nothing', () => {
+      it('tshc check reports nothing', () => {
         const report = checkDocuments([{ path: 'a.shade.ts', uri: 'a.shade.ts', text: src }]);
         expect(report.diagnostics).toEqual([]);
       });

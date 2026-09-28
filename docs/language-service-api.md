@@ -433,7 +433,7 @@ seven rules, and only ever an error that another error already covers:
   where that value goes: the TS2322 of `const k: f32 = E`, the TS2362 of `TAU * 2.`, the TS2367
   of `m === Mode`, an argument's TS2345. Each goes when the value it judges holds the read.
 
-`typeshade check` reads the same merged list, and adds from `compile()` only what the service
+`tshc check` reads the same merged list, and adds from `compile()` only what the service
 cannot compute: the backends' `TS8015` and the opt-in `TS8053`. That check is exported from this
 subpath as `checkDocuments(docs, options)`, and as `checkOpenDocument(service, doc, options)` for
 a tool that keeps its own service and documents open across requests, such as the MCP server in

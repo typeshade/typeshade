@@ -1,4 +1,4 @@
-// `typeshade check`: the merged answer is the editor's answer plus the backends', and it never
+// `tshc check`: the merged answer is the editor's answer plus the backends', and it never
 // reports the false positives plain `tsc` reports on code the compiler accepts.
 
 import { describe, it, expect } from 'vitest';
@@ -48,7 +48,7 @@ function plainTsc(text: string): readonly ts.Diagnostic[] {
   return program.getSemanticDiagnostics(program.getSourceFile('a.shade.ts'));
 }
 
-describe('typeshade check', () => {
+describe('tshc check', () => {
   it('reports nothing on vector arithmetic the compiler accepts, where plain tsc reports it', () => {
     expect(
       plainTsc(VALID).map((d) => d.code),

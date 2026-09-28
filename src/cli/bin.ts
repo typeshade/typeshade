@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// === `typeshade`: the Node host for the command in run.ts ===
+// === `tshc`: the Node host for the command in run.ts ===
 //
 // The one file in `src/` that runs on a host. The library build carries no host types
 // (tsconfig.json `types: []`), so the handful of Node calls this makes are imported

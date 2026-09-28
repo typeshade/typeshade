@@ -18,7 +18,7 @@
 //      only `typeshade`, and checks each journey through the compiler, the language service,
 //      plain `tsc`, WebGPU (headless Chromium on SwiftShader) and the CPU oracle;
 //   4. the import path (change 0009): `journeys/_host-import/` becomes a fresh Vite project with
-//      the documented setup, whose `prepare` runs `typeshade sync`. Its host file type-checks
+//      the documented setup, whose `prepare` runs `tshc sync`. Its host file type-checks
 //      with plain `tsc` (and a wrong call is caught), `vite build` bundles it, and Node runs the
 //      bundle, which must print what the plain-JavaScript reference computes and ship no compiler.
 //
@@ -159,7 +159,7 @@ async function hostImport(work: string, tarball: string): Promise<number> {
         version: '1.0.0',
         private: true,
         type: 'module',
-        scripts: { prepare: 'typeshade sync' },
+        scripts: { prepare: 'tshc sync' },
       },
       null,
       2,

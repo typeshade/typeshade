@@ -1,4 +1,4 @@
-// How `typeshade check` prints a report: the `tsc --pretty` layout, one line per diagnostic,
+// How `tshc check` prints a report: the `tsc --pretty` layout, one line per diagnostic,
 // or versioned JSON (`src/cli/format.ts`).
 
 import { describe, it, expect } from 'vitest';
@@ -16,7 +16,7 @@ export function shade(n: vec3, l: vec3, albedo: vec3): vec3 {
 }
 `;
 
-describe('typeshade check output', () => {
+describe('tshc check output', () => {
   const text = `"use typeshade";
 export function f(x: f32): f32 {
   const y = x;

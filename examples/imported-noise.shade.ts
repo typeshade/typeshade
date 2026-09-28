@@ -9,7 +9,7 @@
 */
 
 // A shader file imports what another one exports (Rule 3.9, surface §68). `compile()` reads the
-// library through its `readDocument` option, the Vite plugin and `typeshade sync` read it from
+// library through its `readDocument` option, the Vite plugin and `tshc sync` read it from
 // disk, and the editor resolves the import as TypeScript does. The module holds this file's
 // declarations and, of the library, `fbm` and what it calls: `noise`, `hash` and `hash32`.
 

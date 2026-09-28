@@ -17,6 +17,16 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **The command is `tshc`** (proposal 0023; design rules 3.8, 3.9, 12.7 and 13.10; surface §64
+  and §68). The package installs its command as `tshc`, the way `typescript` installs `tsc`:
+  `typeshade check` and `typeshade sync`, in the entries below, are `tshc check` and `tshc sync`,
+  with the same options, output and exit statuses. A `prepare` script that runs `typeshade sync`
+  runs `tshc sync`, and a run that may not have the package installed names it:
+  `npx -p typeshade tshc check src/`. The command's usage text and the prefix of its errors say
+  `tshc`, and a host view's first line names `tshc sync` as what rewrites it. The package, its
+  import specifiers, the directive, the host view's name and a diagnostic's `source` stay
+  `typeshade`.
+
 - **A name is what declares it, not how it is spelled, and `new` answers by its target** (proposal
   0008 §1 and §2; design rules 2.1, 2.2 and 8.13; surface §7, §26 and §28). The front end kept a
   list of 59 JavaScript globals and refused an identifier by its text as `TS8012` "is a host/JS
