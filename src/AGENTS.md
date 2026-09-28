@@ -149,8 +149,9 @@ table of `docs/language-design.md` §9.
 - `bun run test`: the vitest suite over `src/**` and `examples/**`.
 - `bun run build`: the type check, including the `@ts-expect-error` probes in the
   `core/ir/*.test.ts` files; a stale directive fails it.
-- `bun run gate:compile`: every registered example compiled by Tint and a WebGL2 context. Run it
-  for any change to emitted text.
+- `bun run gate:compile`: every registered example compiled by Tint and a WebGL2 context, and
+  every entry of the `.shade.ts` examples called on each tier. Run it for any change to emitted
+  text or to the runtime.
 - `bun run gate:journeys` (after `build`): the packed tarball checked the way a user meets it.
 - After writing shader source, `bun run format:semicolons`; before pushing, `bun run lint` and
   `bun run format:check`.

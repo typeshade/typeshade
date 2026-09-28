@@ -16,6 +16,13 @@
 //                    loose scalar uniform, which GLSL ES 3.00 has no std140 block for). Those
 //                    print `—`, never `ok`, so the count stays honest.
 //
+// THE ENTRY-CALL LEG (change 0016, Rule 8.24). After the compilers, the same page calls every
+// `@compute` and full-screen `@fragment` entry of the `.shade.ts` examples through the host
+// module the Vite plugin generates (`scripts/entry-calls.ts`): a compute entry on WebGPU and on
+// the CPU tier, a draw on WebGPU, WebGL2 and the CPU tier, each tier against WebGPU. Its own
+// instrument is a comparison that must report one changed value, and a compute entry whose
+// WebGPU call wrote nothing fails, since it would match any tier.
+//
 // BOTH CORPORA. The sweep is `examples` (the curated `fn()` EDSL registry) followed by
 // `shadeExamples` (the `"use typeshade"` `.shade.ts` files, compiled by `_shade.ts`). They
 // are two authoring surfaces over ONE IR, so they are one list here: what this gate asks —
@@ -53,6 +60,8 @@ import { shadeExamples } from '../examples/_shade.js';
 import { proveKernels } from '../src/core/passes/parallel-loop.js';
 import { lowerKernel, lowerKernelGl } from '../src/core/passes/kernel-lower.js';
 import { consoleBuffer, hasConsoleCall } from '../src/core/passes/console-buffer.js';
+import { entryBundle } from './entry-calls.js';
+import type { EntryReport } from './entry-calls-page.js';
 import {
   emitGlslModule,
   emitModule,
@@ -350,9 +359,14 @@ function wantedFeatures(): string[] {
 }
 
 /** A page on loopback — a secure context, so `navigator.gpu` exists. Serves one empty document. */
-function serve(): Promise<Server> {
+function serve(entries: string): Promise<Server> {
   return new Promise((resolveServer) => {
-    const server = createServer((_req, res) => {
+    const server = createServer((req, res) => {
+      if (req.url === '/entries.js') {
+        res.setHeader('content-type', 'text/javascript; charset=utf-8');
+        res.end(entries);
+        return;
+      }
       res.setHeader('content-type', 'text/html; charset=utf-8');
       res.end('<!doctype html><title>typeshade compile gate</title>');
     });
@@ -508,6 +522,53 @@ async function compileInPage(input: {
   };
 }
 
+/** How far a tier may land from WebGPU: a compute entry's values relative to 1 or their own
+ *  size, and a draw's channels in 8-bit steps. */
+const ENTRY_TOLERANCE = { compute: 1e-5, fragment: 2 } as const;
+
+/** Print the entry-call leg's verdicts; the number of failures. */
+function entryVerdicts(r: EntryReport, b: { compute: number; fragment: number }): number {
+  let failures = 0;
+  if (r.perturbedReported) {
+    console.log(
+      'instrument: the entry comparison REPORTED a changed value — its verdicts can fail',
+    );
+  } else {
+    console.error('FAIL instrument: the entry comparison missed a changed value');
+    failures += 1;
+  }
+  const width = Math.max(...r.verdicts.map((v) => `${v.id}#${v.name}`.length));
+  for (const v of r.verdicts) {
+    const label = `${v.id}#${v.name}`.padEnd(width);
+    if (v.error !== undefined) {
+      failures += 1;
+      console.log(`FAIL  ${label}  ${v.kind} on webgpu: ${v.error}`);
+      continue;
+    }
+    const cells = v.tiers.map((t) => {
+      if (t.skipped !== undefined) return `${t.tier} — (${t.skipped})`;
+      if (t.error !== undefined) return `${t.tier} FAIL (${t.error})`;
+      const ok = (t.worst ?? Infinity) <= ENTRY_TOLERANCE[v.kind];
+      return `${t.tier} ${ok ? 'ok' : 'FAIL'} (worst ${String(t.worst)} over ${String(t.values)})`;
+    });
+    // A compute reference that wrote nothing would match any tier. A draw's reference is held
+    // to WebGPU by its canvas's context in the page, and one flat colour is a frame like any.
+    const blind = v.kind === 'compute' && (v.changed ?? 0) === 0;
+    const produced =
+      v.kind === 'compute' ? `${String(v.changed)} values written` : `${String(v.changed)} colours`;
+    const bad = blind || cells.some((c) => c.includes(' FAIL'));
+    if (bad) failures += 1;
+    console.log(
+      `${bad ? 'FAIL' : 'ok  '}  ${label}  ${v.kind} on webgpu (${produced}${blind ? ', which compares nothing' : ''}) against: ${cells.join(' · ')}`,
+    );
+  }
+  console.log(
+    `entry calls: ${String(b.compute)} compute entries and ${String(b.fragment)} fragment entries of the examples, ` +
+      `called through their host modules · failures: ${String(failures)}`,
+  );
+  return failures;
+}
+
 async function main(): Promise<number> {
   const all = jobs();
   if (all.length < 10) {
@@ -521,13 +582,15 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  const server = await serve();
+  const bundle = await entryBundle();
+  const server = await serve(bundle.js);
   const port = (server.address() as AddressInfo).port;
   const browser = await chromium.launch({
     executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
     args: CHROMIUM_ARGS,
   });
   let report: PageReport;
+  let entryReport: EntryReport;
   try {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${String(port)}/`);
@@ -546,6 +609,13 @@ struct Out { @builtin(position) pos: vec4<f32> }
       },
       wanted: wantedFeatures(),
     });
+    // The entry-call leg (Rule 8.24): the examples' entries, called through their generated
+    // host modules on every tier.
+    await page.addScriptTag({ url: '/entries.js', type: 'module' });
+    await page.waitForFunction(() => '__runEntries' in globalThis);
+    entryReport = await page.evaluate(() =>
+      (globalThis as unknown as { __runEntries(): Promise<EntryReport> }).__runEntries(),
+    );
   } finally {
     await browser.close();
     server.close();
@@ -604,6 +674,7 @@ struct Out { @builtin(position) pos: vec4<f32> }
       console.log(`        pipeline: not built — ${skipReason.get(v.id) ?? 'unknown'}`);
     }
   }
+  failures += entryVerdicts(entryReport, bundle);
   const withGlsl = report.verdicts.filter((v) => v.glslErrors !== null).length;
   const withPipeline = report.verdicts.filter((v) => v.pipelineErrors !== null).length;
   console.log(
