@@ -30,10 +30,10 @@ function stridedSums() {
 }
 
 const bindings = () => ({
-  params: { gpu: new Uint32Array([COUNT, ROOTS, 0, 0]), cpu: { count: COUNT, roots: ROOTS } },
-  values: { gpu: new Float32Array(values), cpu: values },
-  sums: { gpu: new Float32Array(ROOTS), cpu: new Array(ROOTS).fill(0) },
-  partial: { gpu: new Float32Array(64), cpu: new Array(64).fill(0) },
+  params: { count: COUNT, roots: ROOTS },
+  values: values,
+  sums: new Array(ROOTS).fill(0),
+  partial: new Array(64).fill(0),
 });
 
 export default {

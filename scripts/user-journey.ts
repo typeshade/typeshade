@@ -274,7 +274,7 @@ async function hostImport(work: string, tarball: string, shadePackage: string): 
     sim: pa['sim'],
     particles: pa['particles'],
     frames: particlesRun['repeat'],
-    frame: (plasmaRun['bindings'] as Record<string, { cpu: unknown }>)['frame']!.cpu,
+    frame: (plasmaRun['bindings'] as Record<string, unknown>)['frame'],
   });
   check(web.webgpu, 'the page has WebGPU, so the entries ran on it');
   const gpuRef = JSON.parse(

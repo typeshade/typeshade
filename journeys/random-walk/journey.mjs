@@ -37,8 +37,8 @@ export default {
       entry: 'walk',
       workgroups: [WALKERS / 64, 1, 1],
       bindings: {
-        params: { gpu: new Float32Array([params.stride, params.bias, 0, 0]), cpu: params },
-        out: { gpu: new Float32Array(WALKERS * 3), cpu: new Array(WALKERS * 3).fill(0) },
+        params: params,
+        out: new Array(WALKERS * 3).fill(0),
       },
       read: 'out',
       expected: walkAll,

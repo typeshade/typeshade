@@ -28,7 +28,7 @@ export default {
       fragment: 'fs',
       size: [64, 64],
       bindings: {
-        frame: { gpu: new Float32Array([time, scale, 0, 0]), cpu: { time, scale } },
+        frame: { time, scale },
       },
       // The fragment entry takes the pixel's position; its centre is at +0.5.
       fragmentArgs: (x, y) => [[x + 0.5, y + 0.5, 0, 1]],

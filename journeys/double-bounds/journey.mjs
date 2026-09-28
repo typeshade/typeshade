@@ -1,20 +1,8 @@
 // The host half of the double-bounds journey, as its author would write it. On the GPU a vec3f64
-// is two vec3<f32> planes, the high word of each component and then the low word, laid out as
-// WGSL lays out a struct of two vec3s: 16 bytes each, 32 in all. So the host splits every double
-// into its two words, packs the box and the points that way, and tests the same points against
-// the same box in plain JavaScript, whose numbers are doubles.
-
-/** The two f32 words whose sum is `x`: the f32 nearest it, and the f32 nearest what is left. */
-const split = (x) => {
-  const hi = Math.fround(x);
-  return [hi, Math.fround(x - hi)];
-};
-
-/** One vec3f64 as eight floats: the three high words, a pad, the three low words, a pad. */
-const pack = (v) => {
-  const words = v.map(split);
-  return [...words.map((w) => w[0]), 0, ...words.map((w) => w[1]), 0];
-};
+// is two vec3<f32> planes, the high word of each component and then the low word, 32 bytes in
+// all. The host passes plain doubles: the runtime splits each into its two words and lays them
+// out (Rule 8.21), and the journey tests the same points against the same box in plain
+// JavaScript, whose numbers are doubles.
 
 // Near 1e7 the f32 grid is 1 wide, so an f32 reads both corners' x as 1e7 and 1e7 + 1 and every
 // point below as inside in x; y is the same near -1e7. Only the double sees the margins.
@@ -42,12 +30,9 @@ export default {
       entry: 'test',
       workgroups: [Math.ceil(points.length / 64), 1, 1],
       bindings: {
-        box: { gpu: new Float32Array([...pack(box.lo), ...pack(box.hi)]), cpu: box },
-        points: { gpu: new Float32Array(points.flatMap(pack)), cpu: points },
-        inside: {
-          gpu: new Float32Array(points.length),
-          cpu: new Array(points.length).fill(0),
-        },
+        box: box,
+        points: points,
+        inside: new Array(points.length).fill(0),
       },
       read: 'inside',
       expected: insideAll,
