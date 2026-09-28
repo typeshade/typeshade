@@ -17,6 +17,17 @@
 
 import type { BinOp, ShaderType, StructDecl } from './ir/index.js';
 import type { CmpOp } from './ir/nodes.js';
+import {
+  EXACT_BUILTINS,
+  maxNum,
+  minNum,
+  roundTiesToEven,
+  scalarBin,
+  wrapInt,
+  type NumKind,
+} from './scalar-arith.js';
+
+export { intDiv, intRem, scalarBin, wrapInt, type NumKind } from './scalar-arith.js';
 
 /** A value as the CPU backends ({@link compileModule} and {@link compileModuleJs})
  *  represent it: a plain JavaScript value, never a typed array or a GPU buffer. A scalar
@@ -46,15 +57,6 @@ export interface CpuStruct {
 export const FIELD_IDX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3, r: 0, g: 1, b: 2, a: 3 };
 
 export const isArr = Array.isArray;
-
-/** The numeric kind a binary op evaluates in. WGSL integer arithmetic is two's-complement
- *  modulo 2^32 with truncating `/` and `%` (`x / 0 = x`, `x % 0 = 0`, i32 `MIN / -1 = MIN`);
- *  JS number arithmetic is none of that, so every integer op in `scalarBin` is spelled
- *  kind-directed (X-GIS #2274). `'f32'` covers every float kind (f32 and the lowered f64 lanes):
- *  plain f64 JS arithmetic, the f64-algebra caveat in this file's header. Derived from the
- *  STATIC operand type by `numKindOf`; both CPU backends pass it (the codegen bakes it into
- *  the generated JS). */
-export type NumKind = 'f32' | 'i32' | 'u32';
 
 /** Every element kind a value can carry where {@link convertComponent} is asked about it:
  *  the three {@link NumKind}s, plus `'f64'` for an emulated double and `'bool'`, neither of
@@ -126,12 +128,6 @@ export function atomicStep(
   }
 }
 
-/** Two's-complement wrap of an integer-valued double into the kind's 32-bit range —
- *  `| 0` for i32, `>>> 0` for u32 (ToInt32/ToUint32 are exact modulo-2^32 reductions for
- *  any finite double). Also normalises `-0` to `0`. Identity for the float kind. */
-export const wrapInt = (v: number, kind: NumKind): number =>
-  kind === 'i32' ? v | 0 : kind === 'u32' ? v >>> 0 : v;
-
 /** An integer-typed result wrapped into its type, component-wise for a vector: what the value is
  *  on both targets. A builtin is handed plain numbers and cannot tell an `i32` from an `f32`, so
  *  each CPU backend wraps a builtin's result and a negation by the call's IR TYPE, which it
@@ -144,48 +140,6 @@ export const wrapValue = (v: CpuValue, kind: NumKind): CpuValue =>
       ? (v as number[]).map((x) => wrapInt(x, kind))
       : wrapInt(v as number, kind);
 
-/** WGSL integer division: truncating; `x / 0 = x`; i32 `MIN / -1` wraps back to MIN. */
-export const intDiv = (a: number, b: number, kind: NumKind): number =>
-  b === 0 ? a : wrapInt(Math.trunc(a / b), kind);
-
-/** WGSL integer remainder: `x % 0 = 0`; i32 `MIN % -1 = 0`; otherwise JS `%` (trunc-rem,
- *  the same sign rule as C and WGSL: `-7 % 2 = -1`). */
-export const intRem = (a: number, b: number, kind: NumKind): number =>
-  b === 0 ? 0 : wrapInt(a % b, kind);
-
-export function scalarBin(bop: BinOp, a: number, b: number, kind: NumKind = 'f32'): number {
-  const int = kind !== 'f32';
-  switch (bop) {
-    case '+':
-      return int ? wrapInt(a + b, kind) : a + b;
-    case '-':
-      return int ? wrapInt(a - b, kind) : a - b;
-    case '*':
-      // Math.imul is the wrapping 32-bit product; `a * b` in f64 loses bits above 2^53
-      // and would wrap the WRONG value (the same rule const-fold's foldIntLit follows).
-      return int ? wrapInt(Math.imul(a, b), kind) : a * b;
-    case '/':
-      return int ? intDiv(a, b, kind) : a / b;
-    case '%':
-      return int ? intRem(a, b, kind) : a % b;
-    // Bitwise — JS `& | ^ <<` produce int32; the kind decides the sign of the result:
-    // i32 keeps it (`-1 & -1` is -1), u32 normalises with `>>> 0`. The float kind is
-    // unreachable here (validate's `mixed-scalar` rejects a float operand) and falls
-    // into the u32 spelling, the historical default.
-    case '&':
-      return kind === 'i32' ? a & b : (a & b) >>> 0;
-    case '|':
-      return kind === 'i32' ? a | b : (a | b) >>> 0;
-    case '^':
-      return kind === 'i32' ? a ^ b : (a ^ b) >>> 0;
-    case '<<':
-      return kind === 'i32' ? a << b : (a << b) >>> 0;
-    // i32 uses arithmetic shift (sign-preserving JS `>>`); u32 uses logical `>>>`.
-    case '>>':
-      return kind === 'i32' ? a >> b : a >>> b;
-  }
-}
-
 export function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, kind: NumKind = 'f32'): CpuValue {
   if (isArr(a) && isArr(b))
     return a.map((x, i) => scalarBin(bop, x as number, b[i] as number, kind));
@@ -194,11 +148,6 @@ export function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, kind: NumKind = '
   return scalarBin(bop, a as number, b as number, kind);
 }
 
-// WGSL min/max: "if one operand is a NaN, the other is returned" — where Math.min/Math.max
-// propagate the NaN (X-GIS #2274). GLSL ES 3.00 leaves NaN behaviour undefined; WGSL is the
-// canonical target.
-const minNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.min(a, b));
-const maxNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.max(a, b));
 /** An integer clamped into a byte range, for the saturating packs (#152). Plain `Math` rather
  *  than the NaN-aware pair above: the operands are integers by the time they reach it. */
 const clampNum = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
@@ -209,16 +158,6 @@ const map1 =
   (f: (x: number) => number): Builtin =>
   (x) =>
     isArr(x) ? x.map((v) => f(v as number)) : f(x as number);
-
-// WGSL / GLSL-ES `round` rounds halfway cases to the nearest EVEN integer, unlike
-// JS `Math.round` (ties toward +∞). round(2.5)=2, round(3.5)=4, round(-2.5)=-2.
-const roundTiesToEven = (x: number): number => {
-  const f = Math.floor(x),
-    d = x - f;
-  if (d < 0.5) return f;
-  if (d > 0.5) return f + 1;
-  return f % 2 === 0 ? f : f + 1;
-};
 
 const _bitcastView = new DataView(new ArrayBuffer(4));
 
@@ -555,7 +494,7 @@ export const BUILTINS: Record<string, Builtin> = {
   clamp: (x, lo, hi) => clampVal(x, lo, hi),
   // saturate(x) = clamp(x, 0, 1) — WGSL's dedicated builtin (GLSL inlines the
   // clamp; see the intrinsic registry). Same min(max(·, 0), 1) composition as clamp.
-  saturate: map1((x) => minNum(maxNum(x, 0), 1)),
+  saturate: map1(EXACT_BUILTINS.saturate),
   mix: (a, b, t) => mixVal(a, b, t),
   // smoothstep — component-wise; the vector overload (X-GIS #763 X15) makes the vec
   // path reachable, and the old scalar-cast body silently returned NaN for it
@@ -577,7 +516,7 @@ export const BUILTINS: Record<string, Builtin> = {
   },
   // step(edge, x) — component-wise; edge may be a scalar broadcast over a vector x.
   step: (edge, x) => {
-    const s = (e: number, v: number): number => (v < e ? 0 : 1);
+    const s = EXACT_BUILTINS.step;
     return isArr(x)
       ? (x as number[]).map((v, i) =>
           s(isArr(edge) ? (edge[i] as number) : (edge as number), v as number),
@@ -650,7 +589,7 @@ export const BUILTINS: Record<string, Builtin> = {
           Math.pow(x as number, isArr(b) ? ((b as number[])[i] as number) : (b as number)),
         )
       : Math.pow(a as number, b as number),
-  fract: map1((x) => x - Math.floor(x)),
+  fract: map1(EXACT_BUILTINS.fract),
   // fma(a, b, c) = a·b + c with a SINGLE rounding. For f32 operands the product
   // a·b is EXACT in a JS double (24+24 = 48 ≤ 53 significand bits), so
   // fround(a·b + c) is the correctly-rounded f32 fma up to the double-rounding
