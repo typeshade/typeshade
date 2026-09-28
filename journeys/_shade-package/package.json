@@ -1,0 +1,20 @@
+{
+  "name": "shade-contour",
+  "version": "1.0.0",
+  "description": "A shader package the import journey packs and installs with npm (proposal 0024).",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "typeshade": "./src/index.shade.ts",
+      "default": "./lib/index.js"
+    },
+    "./*": {
+      "typeshade": "./src/*.shade.ts"
+    }
+  },
+  "files": [
+    "src",
+    "lib"
+  ]
+}

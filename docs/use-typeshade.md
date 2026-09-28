@@ -19,7 +19,7 @@ export function add(a: f32, b: f32): f32 {
 
 - Language builtins (`f32`, `vec3`, `sin`, `vec4(...)`) are global. No import.
 - User code uses `import` / `export`: a file imports what another shader file exports, by a
-  relative path (Rule 3.9, surface §68).
+  relative path, or what a package publishes, by the package's name (Rule 3.9, surface §68).
 - `Math.sin` / `Math.PI` are aliases onto the same IR.
 
 ## Modules

@@ -116,8 +116,9 @@ export function lowerKernel(
   const scalars = f.params.filter((p) => !isRuntimeArray(p.type));
   const arrays = f.params.filter((p) => isRuntimeArray(p.type));
   // An integer array a loop scatters into (`bins[k] += 1`) is `array<atomic<T>>` in the
-  // module, and each such write an atomic, which is exact in any order.
-  const scatter = new Map<string, string>();
+  // module, and each such write an atomic, which is exact in any order. Each write keeps its own
+  // operator: two loops may scatter into one array with `&` and `|`.
+  const scatter = new Set<string>();
   for (const v of proof.loops)
     if (v.ok)
       for (const w of v.writes)
@@ -126,7 +127,7 @@ export function lowerKernel(
             return { noGpu: `it scatters into "${w.name}" with ${w.op}, which no atomic does` };
           if (!arrays.some((p) => p.name === w.name))
             return { noGpu: `it scatters into "${w.name}", which is not a parameter` };
-          scatter.set(w.name, w.op);
+          scatter.add(w.name);
         }
   for (const v of proof.loops)
     if (v.ok)
@@ -371,7 +372,7 @@ export function lowerKernel(
     vars: [...(m.vars ?? []).filter((x) => x.space !== 'workgroup'), ...extraVars],
     ...(m.enables !== undefined ? { enables: m.enables } : {}),
   };
-  for (const name of scatter.keys()) {
+  for (const name of scatter) {
     if (entries.some((e) => readsOutsideAtomics(e.body, name)))
       return {
         noGpu: `a loop reads "${name}", which a loop scatters into: an atomic is read only by an atomic`,
@@ -404,8 +405,8 @@ interface LoopCtx {
   readonly arrays: readonly string[];
   readonly argsBinding: string;
   readonly argsStruct: string;
-  /** The arrays the function scatters into, by name, with the op. */
-  readonly scatter: ReadonlyMap<string, string>;
+  /** The arrays the function scatters into, by name. */
+  readonly scatter: ReadonlySet<string>;
 }
 
 const vec3u: ShaderType = { kind: 'vec', n: 3, elem: 'u32' };
@@ -867,7 +868,7 @@ function atomicArray(t: ShaderType): ShaderType {
 
 /** `st` with each write into an array it scatters into, `a[k] op= e`, as the atomic of `op` on
  *  `a[k]`, in nested statements too. A write at any other place is left for `stillPlain`. */
-function toAtomics(st: Stmt, scatter: ReadonlyMap<string, string>): Stmt {
+function toAtomics(st: Stmt, scatter: ReadonlySet<string>): Stmt {
   if (scatter.size === 0) return st;
   const inner = mapStmtExpr(
     st,
@@ -887,7 +888,7 @@ function toAtomics(st: Stmt, scatter: ReadonlyMap<string, string>): Stmt {
     expr: {
       op: 'call',
       type: t.type,
-      fn: ATOMIC_OF[scatter.get(t.base.name)!]!,
+      fn: ATOMIC_OF[combine.op]!,
       args: [place, combine.with],
     },
     ...(inner.span !== undefined ? { span: inner.span } : {}),
@@ -1151,7 +1152,7 @@ export function lowerKernelGl(
       arrays: arrays.map((p) => p.name),
       argsBinding,
       argsStruct,
-      scatter: new Map(),
+      scatter: new Set(),
     };
     const vec3uT: ShaderType = { kind: 'vec', n: 3, elem: 'u32' };
     const gidParam: Expr = { op: 'param', type: vec3uT, name: '_gid' };

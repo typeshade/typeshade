@@ -94,13 +94,15 @@ export interface CompileTsSourceOptions {
    *  oracle, where WGSL's identifier rules do not apply. */
   readonly checkReservedNames?: boolean;
   /** Reads a file this source imports (Rule 3.9, surface §68): its text, or `undefined` when
-   *  there is none. The source and every shader file it imports, directly or through another,
-   *  are compiled as one program into one module. Without it nothing is read, a source with no
-   *  import compiles as it always has, and an import is `TS8072`. */
+   *  there is none, and a package's `package.json`, which the default `resolveImport` reads.
+   *  The source and every shader file it imports, directly or through another, are compiled as
+   *  one program into one module. Without it nothing is read, a source with no import compiles
+   *  as it always has, and an import is `TS8072`. */
   readonly readDocument?: (fileName: string) => string | undefined;
   /** The file a specifier written in `fromFile` names, or `undefined` when it names none. The
    *  default is the rule the language service resolves an import by: relative to the importing
-   *  file, `.js` and `.mjs` read as `.ts`, and `.ts` appended to any other path. */
+   *  file, `.js` and `.mjs` read as `.ts`, and `.ts` appended to any other path; any other
+   *  specifier a package, found in `node_modules` through `readDocument` (surface §68). */
   readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
 }
 

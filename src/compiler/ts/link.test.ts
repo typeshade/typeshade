@@ -10,7 +10,9 @@
 // runs the same linker. Each program here is asserted on both halves, on the same files: both
 // accept it, or both refuse it with the same TS8072 sentence on the same import (Rule 12.7,
 // Rule 12.4). Before 0022 every public path compiled one file, and each accepted program below
-// was TS8004 on the call into the other file in `compile()` and in the editor alike.
+// was TS8004 on the call into the other file in `compile()` and in the editor alike. A file may
+// import a package's shader module by the package's name too (change 0024), found in
+// `node_modules` through the `package.json` files the same `readDocument` reads.
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
@@ -71,8 +73,29 @@ export function fbm(p: vec2): f32 {
 }
 `;
 
+/** A `package.json`, as `readDocument` returns it. */
+const manifest = (fields: object): string => JSON.stringify(fields);
+
+/** `shade-noise` at `root`, publishing `src/*.shade.ts` under the `typeshade` condition beside
+ *  the JavaScript it publishes for hosts, as surface §68's example writes it. */
+const SHADE_NOISE = (root: string, version = '1.2.0'): Files => ({
+  [`${root}package.json`]: manifest({
+    name: 'shade-noise',
+    version,
+    exports: {
+      '.': { typeshade: './src/index.shade.ts', default: './dist/index.js' },
+      './*': { typeshade: './src/*.shade.ts' },
+    },
+  }),
+  [`${root}src/index.shade.ts`]: `${D}export { fbm } from "./noise.shade.ts";\n`,
+  [`${root}src/noise.shade.ts`]: NOISE,
+  [`${root}src/scale.shade.ts`]: `${D}export function scale(x: f32): f32 {\n  return x * 3.;\n}\n`,
+  [`${root}dist/index.js`]: 'export function fbm() {\n  return 0;\n}\n',
+});
+
 /** Programs both halves accept, each with what `eval` of the entry's `f` answers, when it has
- *  one. Each is a row the second table of the proposal measured refused before 0022. */
+ *  one. Each is a row the second table of the proposal measured refused before 0022, or a
+ *  package import 0024 measured refused. */
 const ACCEPTED: readonly (readonly [string, Files, (readonly unknown[])?, unknown?])[] = [
   [
     'a function, called from an entry point',
@@ -254,6 +277,68 @@ export function bump(): f32 {
 `,
     },
   ],
+  [
+    'a function from a package, by its name, through the "typeshade" condition, two directories up',
+    {
+      '/p/src/scenes/main.shade.ts': `${D}import { fbm } from "shade-noise";
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  return vec4(vec3(fbm(uv * 6.)), 1.);
+}
+`,
+      ...SHADE_NOISE('/p/node_modules/shade-noise/'),
+    },
+  ],
+  [
+    'a subpath of a package, by a * pattern of its "exports"',
+    {
+      '/p/main.shade.ts': `${D}import { scale } from "shade-noise/scale";
+export function f(x: f32): f32 {
+  return scale(x);
+}
+`,
+      ...SHADE_NOISE('/p/node_modules/shade-noise/'),
+    },
+    [2],
+    6,
+  ],
+  [
+    'a scoped package with no "exports", by the path of its file',
+    {
+      '/p/main.shade.ts': `${D}import { scale } from "@shade/lib/scale.shade.js";
+export function f(x: f32): f32 {
+  return scale(x) + 1.;
+}
+`,
+      '/p/node_modules/@shade/lib/package.json': manifest({ name: '@shade/lib', version: '0.1.0' }),
+      '/p/node_modules/@shade/lib/scale.shade.ts': `${D}export function scale(x: f32): f32 {\n  return x * 4.;\n}\n`,
+    },
+    [2],
+    9,
+  ],
+  [
+    'a package that imports a package installed inside it',
+    {
+      '/p/main.shade.ts': `${D}import { warp } from "shade-warp";
+export function f(x: f32): f32 {
+  return warp(x);
+}
+`,
+      '/p/node_modules/shade-warp/package.json': manifest({
+        name: 'shade-warp',
+        version: '0.3.0',
+        exports: { '.': { typeshade: './src/warp.shade.ts' } },
+      }),
+      '/p/node_modules/shade-warp/src/warp.shade.ts': `${D}import { scale } from "shade-noise/scale";
+export function warp(x: f32): f32 {
+  return scale(x) + 0.5;
+}
+`,
+      ...SHADE_NOISE('/p/node_modules/shade-warp/node_modules/shade-noise/'),
+    },
+    [2],
+    6.5,
+  ],
 ];
 
 describe('a program the two halves both accept (Rule 3.9)', () => {
@@ -286,32 +371,102 @@ const REFUSED: readonly (readonly [string, Files, string])[] = [
     '2:19 "./util.ts" is not a shader module: it does not begin with "use typeshade". A shader module imports only another shader module.',
   ],
   [
-    'a package',
+    'a package no node_modules holds',
     {
       '/p/main.shade.ts': `${D}import { fbm } from "shade-noise";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
     },
-    '2:21 "shade-noise" is a package, and a shader module imports only a file of its own program, by a relative path such as "./shade-noise.shade.ts".',
+    '2:21 Cannot find the package "shade-noise" (looked in node_modules from "/p" up).',
   ],
   [
-    'a package path that names its shader file, suggested once',
+    'a scoped package path no node_modules holds, found by its name',
     {
-      '/p/main.shade.ts': `${D}import { fbm } from "shade-noise/noise.shade.ts";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
+      '/p/src/main.shade.ts': `${D}import { fbm } from "@shade/noise/lib/noise.shade.js";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
     },
-    '2:21 "shade-noise/noise.shade.ts" is a package, and a shader module imports only a file of its own program, by a relative path such as "./noise.shade.ts".',
+    '2:21 Cannot find the package "@shade/noise" (looked in node_modules from "/p/src" up).',
   ],
   [
-    'a scoped package path written with .js, suggested as the .ts it reads',
+    'a subpath the package\'s "exports" does not name',
     {
-      '/p/main.shade.ts': `${D}import { fbm } from "@shade/noise/lib/noise.shade.js";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
+      '/p/main.shade.ts': `${D}import { fbm } from "shade-noise/warp/domain";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
+      '/p/node_modules/shade-noise/package.json': manifest({
+        name: 'shade-noise',
+        exports: { '.': { typeshade: './src/index.shade.ts' } },
+      }),
     },
-    '2:21 "@shade/noise/lib/noise.shade.js" is a package, and a shader module imports only a file of its own program, by a relative path such as "./noise.shade.ts".',
+    '2:21 "shade-noise" does not export "./warp/domain": its package.json "exports" names no module for it.',
   ],
   [
-    'a specifier of a package import map, suggested without its #',
+    'a subpath the package\'s "exports" maps to null',
+    {
+      '/p/main.shade.ts': `${D}import { fbm } from "shade-noise/internal/seed";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
+      '/p/node_modules/shade-noise/package.json': manifest({
+        name: 'shade-noise',
+        exports: { './*': { typeshade: './src/*.shade.ts' }, './internal/*': null },
+      }),
+      '/p/node_modules/shade-noise/src/internal/seed.shade.ts': NOISE,
+    },
+    '2:21 "shade-noise" does not export "./internal/seed": its package.json "exports" names no module for it.',
+  ],
+  [
+    'the name alone of a package with no "exports", suggested from its main field',
+    {
+      '/p/main.shade.ts': `${D}import { fbm } from "shade-noise";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
+      '/p/node_modules/shade-noise/package.json': manifest({
+        name: 'shade-noise',
+        main: './noise.shade.js',
+      }),
+      '/p/node_modules/shade-noise/noise.shade.ts': NOISE,
+    },
+    '2:21 "shade-noise" has no module to import by its name alone: its package.json has no "exports". Import one of its files, such as "shade-noise/noise.shade.ts".',
+  ],
+  [
+    'the name alone of a package with no "exports" and no shader module to suggest',
+    {
+      '/p/main.shade.ts': `${D}import { fbm } from "shade-noise";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
+      '/p/node_modules/shade-noise/package.json': manifest({
+        name: 'shade-noise',
+        main: 'dist/index.js',
+      }),
+    },
+    '2:21 "shade-noise" has no module to import by its name alone: its package.json has no "exports". Import one of its files by its path in the package, "shade-noise/<path>".',
+  ],
+  [
+    'a package whose "exports" names JavaScript and no shader module',
+    {
+      '/p/main.shade.ts': `${D}import { fbm } from "shade-noise";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
+      '/p/node_modules/shade-noise/package.json': manifest({
+        name: 'shade-noise',
+        exports: { '.': { import: './dist/index.js', require: './dist/index.cjs' } },
+      }),
+      '/p/node_modules/shade-noise/dist/index.js': 'export function fbm() {\n  return 0;\n}\n',
+    },
+    '2:21 "shade-noise" resolves to "node_modules/shade-noise/dist/index.js", which does not begin with "use typeshade". A package publishes its shader modules under the "typeshade" condition of "exports".',
+  ],
+  [
+    'a package whose "exports" names a file it does not hold',
+    {
+      '/p/main.shade.ts': `${D}import { fbm } from "shade-noise";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
+      '/p/node_modules/shade-noise/package.json': manifest({
+        name: 'shade-noise',
+        exports: { typeshade: './src/index.shade.ts' },
+      }),
+    },
+    '2:21 Cannot find the shader module "shade-noise" (looked for "node_modules/shade-noise/src/index.shade.ts").',
+  ],
+  [
+    'a specifier of a package import map',
     {
       '/p/main.shade.ts': `${D}import { fbm } from "#noise";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
     },
-    '2:21 "#noise" is a package, and a shader module imports only a file of its own program, by a relative path such as "./noise.shade.ts".',
+    '2:21 "#noise" names a package\'s own import map, which a shader module does not read. Import the file by a relative path.',
+  ],
+  [
+    'an absolute path, suggested as a relative one',
+    {
+      '/p/main.shade.ts': `${D}import { fbm } from "/p/lib/noise.shade.ts";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
+      '/p/lib/noise.shade.ts': NOISE,
+    },
+    '2:21 "/p/lib/noise.shade.ts" is not a relative path or a package name. A shader module imports a file of its program by a relative path, such as "./noise.shade.ts", or a package by its name.',
   ],
   [
     'a name the file declares and does not export',
@@ -393,6 +548,187 @@ describe('an import the two halves both refuse, with one TS8072 (Rule 3.9, Rule 
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
       `${TS_CODES.IMPORT} "./lib.shade.ts" was not read: this compile has no readDocument. Pass compile() a readDocument that returns the file's text.`,
     ]);
+  });
+
+  it('a package in a compile that reads nothing, on the import alone', () => {
+    const r = compile(
+      `${D}import { fbm } from "shade-noise";\nexport function f(x: f32): f32 { return fbm(x); }\n`,
+    );
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      `${TS_CODES.IMPORT} "shade-noise" was not read: this compile has no readDocument. Pass compile() a readDocument that returns the file's text.`,
+    ]);
+  });
+});
+
+describe('a package, as the editor reads it (Rule 12.7)', () => {
+  const files: Files = {
+    '/p/main.shade.ts': `${D}import { scale } from "shade-noise/scale";
+export function f(x: f32): f32 {
+  return scale(x);
+}
+`,
+    ...SHADE_NOISE('/p/node_modules/shade-noise/'),
+  };
+
+  it('shows a function from a package with the type its file declares', () => {
+    const service = createTypeshadeLanguageService({ readDocument: (u) => files[u] });
+    const text = files['/p/main.shade.ts']!;
+    service.openDocument('/p/main.shade.ts', text);
+    const at = text.indexOf('scale(x)');
+    const position = service.positionAt('/p/main.shade.ts', at + 1);
+    // TypeScript's hover of an imported name: `(alias) scale(x: f32): f32`.
+    expect(service.getHover('/p/main.shade.ts', position)?.contents).toContain(
+      'scale(x: f32): f32',
+    );
+    expect(compiled(files).eval('f', [2])).toBe(6);
+  });
+
+  it("asks readDocument for each package.json from the file's directory up, as compile() does", () => {
+    const program: Record<string, string> = {
+      ...files,
+      '/p/src/main.shade.ts': files['/p/main.shade.ts']!,
+    };
+    delete program['/p/main.shade.ts'];
+    const byCompile: string[] = [];
+    compile(program['/p/src/main.shade.ts']!, {
+      fileName: '/p/src/main.shade.ts',
+      readDocument: (f) => (byCompile.push(f), program[f]),
+    });
+    const byEditor: string[] = [];
+    const service = createTypeshadeLanguageService({
+      readDocument: (u) => (byEditor.push(u), program[u]),
+    });
+    service.openDocument('/p/src/main.shade.ts', program['/p/src/main.shade.ts']!);
+    expect(service.getDiagnostics('/p/src/main.shade.ts')).toEqual([]);
+    const manifests = (names: string[]) => [
+      ...new Set(names.filter((n) => n.endsWith('package.json'))),
+    ];
+    expect(manifests(byCompile)).toEqual([
+      '/p/src/node_modules/shade-noise/package.json',
+      '/p/node_modules/shade-noise/package.json',
+    ]);
+    expect(manifests(byEditor)).toEqual(manifests(byCompile));
+  });
+
+  it('sees a package installed while the document is open at its next edit', () => {
+    let installed = false;
+    const service = createTypeshadeLanguageService({
+      readDocument: (u) => (installed || !u.includes('node_modules') ? files[u] : undefined),
+    });
+    const text = files['/p/main.shade.ts']!;
+    service.openDocument('/p/main.shade.ts', text);
+    expect(service.getDiagnostics('/p/main.shade.ts').map((d) => `${d.code} ${d.message}`)).toEqual(
+      [
+        `${TS_CODES.IMPORT} Cannot find the package "shade-noise" (looked in node_modules from "/p" up).`,
+      ],
+    );
+    installed = true;
+    service.updateDocument('/p/main.shade.ts', `${text}\n`);
+    expect(service.getDiagnostics('/p/main.shade.ts')).toEqual([]);
+  });
+});
+
+describe('one copy of one package version (surface §68)', () => {
+  /** `shade-noise` at `root` and `version`: a binding, and a private helper `fbm` calls. */
+  const noiseAt = (root: string, version: string, factor: string): Files => ({
+    [`${root}package.json`]: manifest({
+      name: 'shade-noise',
+      version,
+      exports: { typeshade: './src/noise.shade.ts' },
+    }),
+    [`${root}src/noise.shade.ts`]: `${D}export class NoiseParams {
+  octaves: f32;
+}
+export declare const params: uniform<NoiseParams>;
+function hash(x: f32): f32 {
+  return x * ${factor};
+}
+export function fbm(x: f32): f32 {
+  return hash(x);
+}
+export function octaves(): f32 {
+  return params.octaves;
+}
+`,
+  });
+  /** An entry that calls `shade-noise` itself and through `shade-warp`, whose own
+   *  `shade-noise` is installed inside it at `version`. */
+  const program = (entry: string, version: string, factor: string): Files => ({
+    '/p/main.shade.ts': entry,
+    '/p/node_modules/shade-warp/package.json': manifest({
+      name: 'shade-warp',
+      version: '0.3.0',
+      exports: { typeshade: './warp.shade.ts' },
+    }),
+    '/p/node_modules/shade-warp/warp.shade.ts': `${D}import { fbm, octaves } from "shade-noise";
+export function warp(x: f32): f32 {
+  return fbm(x) * 10.;
+}
+export function warpOctaves(): f32 {
+  return octaves();
+}
+`,
+    ...noiseAt('/p/node_modules/shade-noise/', '1.2.0', '2.'),
+    ...noiseAt('/p/node_modules/shade-warp/node_modules/shade-noise/', version, factor),
+  });
+  const imports = `${D}import { fbm, octaves } from "shade-noise";
+import { warp, warpOctaves } from "shade-warp";
+`;
+  const calls = `export function f(x: f32): f32 {
+  return fbm(x) + warp(x);
+}
+`;
+
+  it('reads one version reached by two paths once: one binding, one of each function', () => {
+    const files = program(
+      `${imports}${calls}@fragment
+export function fs(): vec4 {
+  return vec4(octaves() + warpOctaves());
+}
+`,
+      '1.2.0',
+      '2.',
+    );
+    expect(errorsOf(files)).toEqual([]);
+    expect(edited(files).map((d) => `${d.source} ${d.code} ${d.message}`)).toEqual([]);
+    const r = compiled(files);
+    expect(r.wgsl!.match(/\bfn fbm\(/g)).toHaveLength(1);
+    expect(r.wgsl!.match(/\bfn hash\(/g)).toHaveLength(1);
+    expect(r.wgsl!.match(/var<uniform> params\b/g)).toHaveLength(1);
+    expect(r.wgsl).not.toContain('shade_noise');
+    expect(r.eval('f', [1])).toBe(2 + 20);
+  });
+
+  it('reads two versions as two copies, the second named for its package and file (Rule 3.2)', () => {
+    const files = program(`${imports}${calls}`, '2.0.0', '3.');
+    expect(errorsOf(files)).toEqual([]);
+    expect(edited(files).map((d) => `${d.source} ${d.code} ${d.message}`)).toEqual([]);
+    const r = compiled(files);
+    expect(r.wgsl).toContain('fn fbm(x: f32) -> f32');
+    expect(r.wgsl).toContain('fn shade_noise_noise_fbm(x: f32) -> f32');
+    expect(r.wgsl).toContain('fn shade_noise_noise_hash(x: f32) -> f32');
+    expect(r.eval('f', [1])).toBe(2 + 30);
+  });
+
+  it('numbers the second version of a declaration both versions rename (Rule 3.2)', () => {
+    const files = program(
+      `${imports}function hash(x: f32): f32 {
+  return x;
+}
+export function f(x: f32): f32 {
+  return fbm(x) + warp(x) + hash(x);
+}
+`,
+      '2.0.0',
+      '3.',
+    );
+    expect(errorsOf(files)).toEqual([]);
+    expect(edited(files).map((d) => `${d.source} ${d.code} ${d.message}`)).toEqual([]);
+    const r = compiled(files);
+    expect(r.wgsl).toContain('fn hash(x: f32) -> f32');
+    expect(r.wgsl).toContain('fn shade_noise_noise_hash(x: f32) -> f32');
+    expect(r.wgsl).toContain('fn shade_noise_noise_hash_2(x: f32) -> f32');
+    expect(r.eval('f', [1])).toBe(2 + 30 + 1);
   });
 });
 
