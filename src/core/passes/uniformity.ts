@@ -86,18 +86,80 @@
 //   • A barrier under a condition this walk cannot PROVE uniform keeps the refusal the old
 //     rule had, so `if (edge(k)) { workgroupBarrier() }` on a uniform `k` is refused where
 //     Tint accepts it: a user call's floor is `unknown`, and the barrier threshold takes
-//     nothing less than `uniform`. Also #180 — the summary could answer it.
+//     nothing less than `uniform`. Also #180 — the summary could answer it. Only where an old
+//     rule refused, though: a `break` or `continue` under such a condition narrows nothing, and
+//     a `workgroupUniformLoad` takes `unknown` as a refusal only inside an `if` or `switch`.
 //   • An `inout` parameter is not modelled: `classify` answers a call's RESULT, so a value a
 //     callee writes back through one does not reach the caller's class for it.
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { stageOf } from '../ir/nodes.js';
-import { eachExpr, eachStmtExpr, mapChildren } from '../ir/visit.js';
-import { DERIVATIVE_INTRINSICS, isBarrierIntrinsic, isKnownIntrinsic } from '../intrinsics.js';
+import { eachStmtExpr, mapChildren } from '../ir/visit.js';
+import { BARRIER_INTRINSICS, DERIVATIVE_INTRINSICS, isKnownIntrinsic } from '../intrinsics.js';
 import type { SourceSpan } from '../ir/span.js';
+import type { ShaderType } from '../ir/types.js';
 
 /** How a value varies across the invocations that run together. */
 export type Uniformity = 'uniform' | 'non-uniform' | 'unknown';
+
+/** The calls every invocation of the workgroup has to reach together, which the BARRIER
+ *  threshold below applies to: the barriers, and `workgroupUniformLoad`, a read with a barrier
+ *  on each side of it (wgsl.txt:26057). Measured on Tint, it is "'workgroupUniformLoad' must
+ *  only be called from uniform control flow" after a `return` taken under `local_invocation_id`,
+ *  in a helper called under a branch on it, and in a loop bounded by it, and it is accepted
+ *  under `if (k > 0.5)` on a uniform: the barrier's rule, to the row.
+ *
+ *  One difference, at `unknown`. A barrier's refusal of a flow this walk cannot classify is the
+ *  one its old rule had; the load's old rule refused an `if` or `switch` the author wrote around
+ *  it and nothing else, so the load takes `unknown` as a refusal only inside one (see
+ *  `armDepth`). Outside, an early `return` under `opaque()`, a loop bounded by `count()` and
+ *  the right side of `opaque() > 0.5 && bump(…)`, which the sequencing pass writes as an `if`,
+ *  compiled before and Tint accepts all three, measured, so they still compile.
+ *
+ *  A sibling of `BARRIER_INTRINSICS`, read here and nowhere else, and not that set itself: the
+ *  CPU oracle, the debugger and the JS codegen read `isBarrierIntrinsic` as "a statement to
+ *  wait at", and to them `workgroupUniformLoad` is a value. */
+const WORKGROUP_UNIFORM_CALLS: ReadonlySet<string> = new Set([
+  ...BARRIER_INTRINSICS,
+  'workgroupUniformLoad',
+]);
+
+/** WHICH statement made the control flow reaching a call non-uniform, so that a message can
+ *  name the remedy that fits the program (Rule 12.1): "move it out of the branch" said of a
+ *  barrier that sits in no branch points at nothing the author can find.
+ *
+ *  - `branch`: an `if` or `switch` on the value.
+ *  - `short-circuit`: the left side of an `&&` or `||` that reads it, which decides whether
+ *    the right side runs.
+ *  - `conditional`: the condition of a `?:` that reads it, which decides which arm runs.
+ *  - `loop`: a loop whose condition reads it.
+ *  - `return`: a `return` taken under it, earlier in the function.
+ *  - `loop-return`: the same, inside a loop, so the rest of that loop, its next iterations and
+ *    everything after it are reached by a subset of the invocations.
+ *  - `bound-return`: a `return` inside a loop whose condition reads it, taken on a value every
+ *    invocation shares: the invocations the condition kept in the loop take it, the others
+ *    do not.
+ *  - `break` / `continue`: one taken under it inside a loop, which leaves the rest of that loop
+ *    and its next iterations to a subset of the invocations.
+ *  - `switch-break`: a `break` out of a `switch` case taken under it, which leaves the rest of
+ *    that case to a subset.
+ *
+ *  A jump is named only when its OWN condition is what made the flow non-uniform. One taken
+ *  on a shared value, in a loop that was already non-uniform, leaves the flow as it was and
+ *  keeps its reason: `if (k > 0.5) { break; }` in a loop bounded by `lid.x` is not a break
+ *  taken under `lid`, and "break on a value the whole workgroup shares" said of it is advice
+ *  the program already follows. */
+export type Via =
+  | 'branch'
+  | 'short-circuit'
+  | 'conditional'
+  | 'loop'
+  | 'return'
+  | 'loop-return'
+  | 'bound-return'
+  | 'break'
+  | 'continue'
+  | 'switch-break';
 
 /** The built-in values WGSL declares uniform (wgsl.txt:17870-17883). Every OTHER builtin and
  *  every user input varies by invocation — that is the whole of the seed table, and it is
@@ -133,25 +195,38 @@ export interface UniformityViolation {
   /** What made the control flow non-uniform, as a phrase a message can carry:
    *  `"uv" (a fragment input at @location(0))`. */
   readonly cause: string;
+  /** Which statement made it non-uniform: see {@link Via}. */
+  readonly via: Via;
   /** Where the call was authored, when the IR carries it. */
   readonly span?: SourceSpan;
 }
 
-/** A value's class, with the phrase a diagnostic uses for it. */
+/** A value's class, with the phrase a diagnostic uses for it. A class of CONTROL FLOW also
+ *  says which statement made it what it is; absent reads as `branch`. */
 interface Known {
   readonly at: Uniformity;
   readonly why: string;
+  readonly via?: Via;
 }
 
 const UNKNOWN: Known = { at: 'unknown', why: 'a value this compiler cannot classify' };
 
-/** Join two classes, keeping the phrase that names the one an author would act on: the
- *  non-uniform side if there is one, since that is the value to change. */
+/** The order {@link join} and {@link joinKnown} read the three classes in, least uniform last. */
+const rank = (u: Uniformity): number => (u === 'uniform' ? 0 : u === 'unknown' ? 1 : 2);
+
+/** Join two classes, keeping the phrase that names the one an author would act on: the less
+ *  uniform side, the first on a tie, since that is the value to change. An `unknown` side's
+ *  phrase wins over a `uniform` one's too. Keeping the first side's named `opaque() > 0.5`
+ *  "the expression" and an `else` after `if (opaque() > 0.5)` "the entry", each "which this
+ *  compiler cannot prove uniform", where the author has to find `opaque`. */
 function joinKnown(a: Known, b: Known): Known {
-  const at = join(a.at, b.at);
-  if (a.at === 'non-uniform') return { at, why: a.why };
-  if (b.at === 'non-uniform') return { at, why: b.why };
-  return { at, why: a.why };
+  return rank(b.at) > rank(a.at) ? b : a;
+}
+
+/** The class of control flow `flow` is at once `by` has also happened to it, if it has: the
+ *  less uniform of the two, with THAT one's phrase, which is {@link joinKnown}. */
+function degrade(flow: Known, by: Known | undefined): Known {
+  return by === undefined ? flow : joinKnown(flow, by);
 }
 
 /** The environment: what this walk knows about each local, at a point in the statement order. */
@@ -331,6 +406,8 @@ function returnDepsOf(
         for (const d of localDeps.get(x.name) ?? []) acc.add(d);
         return;
       }
+      // The buffer's size, not its contents: see `classify`.
+      if (x.op === 'call' && x.fn === 'arrayLength') return;
       if (x.op === 'call' && byName.has(x.fn)) {
         const summary = known.get(x.fn);
         if (summary !== undefined) {
@@ -426,7 +503,15 @@ function returnDepsOf(
           walk([s.init], control);
           const loopCond = readOf(s.cond);
           if (loopCond.nonUniform) resultNonUniform = true;
-          const inner = new Set([...control, ...loopCond.deps]);
+          // …and the condition of every `break` and `continue`, which decides how many times
+          // the body runs as much as the loop's own does: `count(x)` that breaks on `x > 0.5`
+          // and returns its count depends on `x`. Measured: Tint refuses a `textureSample`
+          // under `if (count(v.uv.x) > 2.)`, through a `break` and through a `continue`.
+          const inner = new Set([
+            ...control,
+            ...loopCond.deps,
+            ...exitConditions(s.body, LOOP_JUMPS).flatMap((c) => [...depsOf(c)]),
+          ]);
           walk(s.body, inner);
           walk([s.update], inner);
           break;
@@ -435,8 +520,14 @@ function returnDepsOf(
           const scrut = readOf(s.scrut);
           if (scrut.nonUniform) resultNonUniform = true;
           const inner = new Set([...control, ...scrut.deps]);
-          for (const cs of s.cases) walk(cs.body, inner);
-          if (s.defaultBody) walk(s.defaultBody, inner);
+          // A case a `break` leaves early depends on that break's condition, the same way.
+          const caseControl = (body: readonly Stmt[]): Set<number> =>
+            new Set([
+              ...inner,
+              ...exitConditions(body, SWITCH_JUMPS).flatMap((c) => [...depsOf(c)]),
+            ]);
+          for (const cs of s.cases) walk(cs.body, caseControl(cs.body));
+          if (s.defaultBody) walk(s.defaultBody, caseControl(s.defaultBody));
           break;
         }
         default:
@@ -458,6 +549,43 @@ function returnDepsOf(
     if (size() === before) break;
   }
   return { params: result, nonUniform: resultNonUniform };
+}
+
+/** The jumps a loop takes back, and the one a `switch` does: a `continue` in a `switch`
+ *  continues the loop around it. */
+const LOOP_JUMPS: ReadonlySet<Stmt['s']> = new Set(['break', 'continue']);
+const SWITCH_JUMPS: ReadonlySet<Stmt['s']> = new Set(['break']);
+
+/** Every `if` condition and `switch` scrutinee in `body` that a jump in `jumps` sits under:
+ *  the values that decide which invocations leave the loop or `switch` holding `body` early.
+ *  A nested loop takes its own jumps back, and a nested `switch` its breaks. */
+function exitConditions(body: readonly Stmt[], jumps: ReadonlySet<Stmt['s']>): Expr[] {
+  const out: Expr[] = [];
+  const holds = (stmts: readonly Stmt[], js: ReadonlySet<Stmt['s']>): boolean => {
+    let found = false;
+    for (const s of stmts) {
+      if (js.has(s.s)) found = true;
+      else if (s.s === 'if') {
+        // Every arm is visited, not the first that holds one: a later arm's own conditions
+        // are collected on the way.
+        const arms = [...s.arms.map((a) => a.body), ...(s.elseBody ? [s.elseBody] : [])];
+        if (arms.map((b) => holds(b, js)).some(Boolean)) {
+          out.push(...s.arms.map((a) => a.cond));
+          found = true;
+        }
+      } else if (s.s === 'switch') {
+        const inner = new Set([...js].filter((j) => j !== 'break'));
+        const cases = [...s.cases.map((c) => c.body), ...(s.defaultBody ? [s.defaultBody] : [])];
+        if (cases.map((b) => holds(b, inner)).some(Boolean)) {
+          out.push(s.scrut);
+          found = true;
+        }
+      }
+    }
+    return found;
+  };
+  holds(body, jumps);
+  return out;
 }
 
 /** Every function's return-dependency summary, to a fixpoint over the call graph: a callee's
@@ -484,6 +612,22 @@ function returnDependencies(
   return out;
 }
 
+/** What the walk needs to know about a module that its IR does not say, which the
+ *  `"use typeshade"` front end knows and supplies. Each is optional, and the walk without it
+ *  reads every `if` as one the author wrote and names a callee by its IR name. */
+export interface UniformitySource {
+  /** The `if` statements a pass built for an operator the author wrote, and the operator: the
+   *  right side of an `&&` or `||` that holds a call that writes, and the arms of a `?:` that
+   *  hold one (`sequence.ts`). A call reached in one is reached on the right of that `&&` or
+   *  in that arm, and the message says so; and `workgroupUniformLoad`'s old rule, which the
+   *  `unknown` threshold keeps, never refused one, since the author wrote no `if` there. */
+  readonly builtIfs?: ReadonlyMap<Stmt, 'short-circuit' | 'conditional'>;
+  /** A call's callee as the author wrote it, `Lim.hit` for the IR's `Lim_hit` and `done` for
+   *  a closure's `main_done`, so that a message names what the author can find (Rule 12.1);
+   *  `undefined` where it cannot tell, and the IR name stands. */
+  readonly calleeText?: (call: Extract<Expr, { op: 'call' }>) => string | undefined;
+}
+
 /** What a walk of one function reads that does not change as it steps: the module, the
  *  function, and the class each PARAMETER was called with.
  *
@@ -502,6 +646,8 @@ interface Cx {
   /** Which parameters each function's RETURN VALUE depends on — see the summary pass above.
    *  A call site joins the arguments at those positions and no others. */
   readonly retDeps: ReturnDeps;
+  /** What the front end knows that the IR does not say: see {@link UniformitySource}. */
+  readonly source: UniformitySource;
 }
 
 /** How one expression varies, read against the environment at this point. */
@@ -597,6 +743,15 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       if (e.fn === 'workgroupUniformLoad') {
         return { at: 'uniform', why: 'workgroupUniformLoad(…), one value for the workgroup' };
       }
+      // `arrayLength(&xs)`, which `.length` on a runtime-sized storage array lowers to, reads
+      // the size the host bound, not an element: one value for the dispatch, `read_write`
+      // or not. Joining its argument classified it as a READ of a `read_write` buffer, and
+      // refused a barrier under `if (out.length > 4)`, below a `break` on `i >= out.length`
+      // and a `workgroupUniformLoad` in a loop it bounds; Tint accepts all three, measured,
+      // and refuses the same barrier under `if (out[0] > 4)`.
+      if (e.fn === 'arrayLength') {
+        return { at: 'uniform', why: 'arrayLength(…), the size of the bound buffer' };
+      }
       // A derivative's own result varies by invocation by construction.
       if (DERIVATIVE_INTRINSICS.has(e.fn)) {
         return { at: 'non-uniform', why: `${e.fn}(…), which differences neighbouring invocations` };
@@ -617,11 +772,13 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       const summary = cx.retDeps.get(e.fn);
       const reaching =
         summary === undefined ? e.args : e.args.filter((_a, i) => summary.params.has(i));
-      const fromArgs = joinAll(cx, env, reaching, `${e.fn}(…)`);
+      // Named as the author wrote the call, not by the IR's flattened name (Rule 12.1).
+      const callee = `${cx.source.calleeText?.(e) ?? e.fn}(…)`;
+      const fromArgs = joinAll(cx, env, reaching, callee);
       // A result read out of `private`, `workgroup` or `read_write` storage is non-uniform
       // however few arguments the call has — see `Summary.nonUniform`.
       if (summary?.nonUniform === true) {
-        return { at: 'non-uniform', why: `${e.fn}(…), which reads memory the invocations share` };
+        return { at: 'non-uniform', why: `${callee}, which reads memory the invocations share` };
       }
       // A call into a USER function is AT LEAST `unknown` and AT MOST as uniform as its
       // arguments. Both halves are load-bearing and each was wrong on its own:
@@ -643,7 +800,7 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       // `unknown` (allowed through, as Tint allows it), and `edge(v.uv.x)` is `non-uniform`.
       return {
         at: join('unknown', fromArgs.at),
-        why: fromArgs.at === 'non-uniform' ? fromArgs.why : `${e.fn}(…)`,
+        why: fromArgs.at === 'non-uniform' ? fromArgs.why : callee,
       };
     }
     case 'binop':
@@ -684,6 +841,8 @@ interface Flow {
   env: Env;
   at: Uniformity;
   why: string;
+  /** Which statement made `at` what it is; absent reads as `branch`. */
+  via?: Via;
   /** Set once a `return` runs under control flow that is not uniform: those invocations are
    *  gone, so everything after is reached by a subset of them. Measured — `if (id.x > 4u)
    *  { return }` above a barrier is `'workgroupBarrier' must only be called from uniform
@@ -693,17 +852,76 @@ interface Flow {
    *  condition is ACCEPTED above both a `fwidth` and a `textureSample`: the invocation is
    *  demoted to a helper rather than ended, so it goes on contributing the neighbour a
    *  derivative differences against — which is why `discard` beside `fwidth` is the ordinary
-   *  antialiased-cutout idiom and `examples/cutout.shade.ts` compiles on Tint. A `break` out
-   *  of a loop under a non-uniform condition, above a barrier, is ACCEPTED too. */
+   *  antialiased-cutout idiom and `examples/cutout.shade.ts` compiles on Tint. A `break` or
+   *  `continue` is not here either: it leaves a loop or a case, not the function, and
+   *  {@link Flow.broke} carries it. */
   diverged: Known | undefined;
+  /** A `break` taken in the statements walked so far that the loop or `switch` it leaves has
+   *  not yet taken back. See {@link Exit}. */
+  broke?: Exit;
+  /** The same for a `continue`, which only a loop takes back: inside a `switch` it still
+   *  continues the loop around it. */
+  continued?: Exit;
 }
 
-/** Runs the analysis over `m` and returns every call it has an answer about.
+/** A `break` or `continue` on its way to the statement it lands on: after the loop or
+ *  `switch` for a `break`, at the loop's update and next iteration for a `continue`.
+ *
+ *  Two things travel with it, and each was a silent acceptance of a program Tint refuses:
+ *
+ *  - The ENVIRONMENT at the jump, since that is what the landing point reads.
+ *    `x = f32(lid.x); if (k > 0.5) { break; } x = 0.;` leaves the loop with `x` non-uniform
+ *    along the `break`, though the body ends with `x` a constant, and a barrier under
+ *    `if (x > 0.5)` after the loop is refused, measured; so is the same through a `continue`,
+ *    read at the top of the next iteration.
+ *  - The class of the control flow it was taken under, when that is non-uniform. A `break` or
+ *    `continue` under `if (lid.x > 2u)` leaves the rest of the loop body, the update and every
+ *    later iteration to the invocations that did not take it, so a barrier ABOVE the jump is
+ *    refused as well as one below it: on the second iteration some invocations are gone.
+ *    Measured on Tint for `for`, `while` and `for…of`, a `break` and a `continue` alike, a
+ *    `textureSample` too. The flow AFTER the loop is the loop's own again: a barrier below a
+ *    loop a non-uniform `break` left is accepted, measured. A `break` out of a `switch` case
+ *    leaves only the rest of that case, since a case runs once. */
+interface Exit {
+  readonly env: Env;
+  readonly at?: Known;
+}
+
+/** Two jumps to one landing point: the environments merged, and the less uniform class. */
+function joinExit(a: Exit | undefined, b: Exit | undefined): Exit | undefined {
+  if (a === undefined || b === undefined) return a ?? b;
+  const at = a.at === undefined ? b.at : degrade(a.at, b.at);
+  return { env: mergeEnv(a.env, b.env), ...(at === undefined ? {} : { at }) };
+}
+
+/** What a `return` taken inside a loop, for the reason `via` names, is to the statements after
+ *  that loop: one taken on the loop's own condition is a `bound-return`, whose remedy is the
+ *  bound; any other a `loop-return`, whose remedy is the return. */
+const afterLoop = (via: Via | undefined): Via =>
+  via === 'loop' || via === 'bound-return' ? 'bound-return' : 'loop-return';
+
+/** How many statements in `stmts`, at any depth, write a local: what bounds how many rounds a
+ *  loop's fixpoint can take before it settles. */
+function writesIn(stmts: readonly Stmt[]): number {
+  let n = 0;
+  const count = (s: Stmt): void => {
+    if (s.s === 'let' || s.s === 'var' || s.s === 'assign' || s.s === 'assignOp') n++;
+    eachStmtExpr(s, () => undefined, count);
+  };
+  for (const s of stmts) count(s);
+  return n;
+}
+
+/** Runs the analysis over `m` and returns every call it has an answer about; `source` is what
+ *  the front end knows of `m` that its IR does not say.
  *
  *  A `derivative` violation is reported only when the enclosing control flow is DEFINITELY
  *  non-uniform; a `barrier` one whenever it is not definitely uniform. See the header for why
  *  the two thresholds differ. */
-export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
+export function uniformityViolations(
+  m: ModuleDecl,
+  source: UniformitySource = {},
+): UniformityViolation[] {
   const byName = new Map(m.funcs.map((f) => [f.name, f]));
   /** Whether a NAME lives in an address space a read of which is non-uniform on sight. The
    *  same table `classify`'s varref arm applies, asked by name so the summary pass can carry
@@ -787,6 +1005,7 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
         startAt.get(f.name),
         seedArgs(f.name, startArgs.get(f.name) ?? []),
         retDeps,
+        source,
         [],
         record,
       );
@@ -808,20 +1027,24 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
       startAt.get(f.name),
       seedArgs(f.name, startArgs.get(f.name) ?? []),
       retDeps,
+      source,
       found,
       () => undefined,
     );
   }
   // One call, one violation. A loop body is walked more than once — the fixpoint that follows
   // a value carried round the loop — so a barrier inside one was reported once per iteration,
-  // and an author saw the same sentence twice about the same line.
-  const seen = new Set<string>();
-  return found.filter((v) => {
-    const key = `${v.fn}|${v.callee}|${v.kind}|${v.span?.start ?? -1}|${v.cause}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  // and an author saw the same sentence twice about the same line. Keyed on the CALL, not on
+  // the sentence: a later iteration can reach the same call for another reason (the first
+  // under a branch, the next after a `return` an earlier iteration took), and the walk of the
+  // settled iteration, which comes last, is the one that says why. A call with no span, from
+  // an EDSL-assembled module, is told from its neighbours by its cause, as before.
+  const byCall = new Map<string, UniformityViolation>();
+  for (const v of found) {
+    const at = v.span === undefined ? `-|${v.cause}|${v.via}` : String(v.span.start);
+    byCall.set(`${v.fn}|${v.callee}|${v.kind}|${at}`, v);
+  }
+  return [...byCall.values()];
 }
 
 function walkFunction(
@@ -830,58 +1053,116 @@ function walkFunction(
   start: Known | undefined,
   paramAt: ReadonlyMap<string, Known>,
   retDeps: ReturnDeps,
+  source: UniformitySource,
   found: UniformityViolation[],
   record: (callee: string, at: Known, args: readonly Known[]) => void,
 ): void {
-  const cx: Cx = { m, f, paramAt, retDeps };
+  const cx: Cx = { m, f, paramAt, retDeps, source };
   const entry: Flow = {
     env: new Map(),
     at: start?.at ?? 'unknown',
     why: start?.why ?? 'the control flow this function is called under',
+    ...(start?.via === undefined ? {} : { via: start.via }),
     diverged: undefined,
+  };
+  /** What a `break` leaves: the innermost loop or `switch` the walk is inside. */
+  let breakLeaves: 'loop' | 'switch' = 'loop';
+  /** The class every statement of the innermost loop's iteration is already at, or of the
+   *  function's body outside a loop: a `return` taken under nothing less uniform than this made
+   *  nothing non-uniform that was not already. See {@link Via}. */
+  let loopBase: Uniformity = entry.at;
+  /** How many `if` arms and `switch` cases the author wrote the walk is inside, which is
+   *  where `workgroupUniformLoad`'s old rule refused it. See `WORKGROUP_UNIFORM_CALLS`. */
+  let armDepth = 0;
+
+  /** `flow` narrowed to what an operator's condition `cond` lets run, for the operator `via`
+   *  names. Only a DEFINITELY non-uniform condition narrows it: a helper holding a barrier,
+   *  called right of `done(k) &&` or in an arm of `opaque() > 0.5 ? … : …`, compiled before,
+   *  and Tint accepts both. */
+  const narrowed = (flow: Flow, cond: Expr, via: 'short-circuit' | 'conditional'): Flow => {
+    const c = classify(cx, flow.env, cond);
+    if (c.at !== 'non-uniform') return flow;
+    const to = degrade({ at: flow.at, why: flow.why, via: flow.via }, { ...c, via });
+    return { ...flow, at: to.at, why: to.why, via: to.via };
   };
 
   /** Every call inside one Expr TREE, checked under the control flow `flow` is at. */
   const checkExpr = (e: Expr, flow: Flow): void => {
-    eachExpr(e, (x) => {
-      if (x.op !== 'call') return;
-      // The divergence's OWN class, not the literal `non-uniform`: an early `return` under a
-      // condition this walk cannot follow leaves the rest of the function `unknown`, which is
-      // what the header promises and what keeps a derivative under it from being refused
-      // though Tint accepts it. The barrier threshold is unchanged, since `unknown` is still
-      // not `uniform`.
-      const at = flow.diverged ? join(flow.at, flow.diverged.at) : flow.at;
-      const why = flow.diverged ? flow.diverged.why : flow.why;
-      // The flow the call is under, AND the class of each argument: a helper's body needs
-      // both, and seeding its parameters `unknown` regardless of what it was handed is what
-      // let a derivative under `if (x > 0.5)` inside it pass while Tint refused it.
-      record(
-        x.fn,
-        { at, why },
-        x.args.map((a) => classify(cx, flow.env, a)),
-      );
-      if (DERIVATIVE_INTRINSICS.has(x.fn)) {
-        if (at === 'non-uniform') {
-          found.push({
-            fn: f.name,
-            callee: x.fn,
-            kind: 'derivative',
-            isDerivativeBuiltin: /^(dpdx|dpdy|fwidth)/.test(x.fn),
-            cause: why,
-            span: x.span,
-          });
-        }
-      } else if (isBarrierIntrinsic(x.fn) && at !== 'uniform') {
+    // The right side of `&&` and `||` runs only where the left side lets it, so it is under a
+    // branch on the left side's value: Tint refuses `workgroupUniformLoad` right of
+    // `lid.x > 2 &&` and of `lid.x > 2 ||`, and a `textureSample` right of a fragment input,
+    // measured.
+    if (e.op === 'logical') {
+      checkExpr(e.a, flow);
+      checkExpr(e.b, narrowed(flow, e.a, 'short-circuit'));
+      return;
+    }
+    // So do the arms of a `?:` that WGSL writes as an `if`: its `select` takes a scalar or a
+    // vector, so a struct, an array, a matrix or a vector of doubles is picked by
+    // `select-composite.ts`'s `if` and `else`. Tint refuses `workgroupUniformLoad` in one
+    // under `lid.x > 2`, for an array, a struct, a matrix and a `vec3f64`, and a
+    // `textureSample` under a fragment input, measured. A `?:` that is WGSL's `select`
+    // evaluates both arms wherever it stands, and narrows nothing.
+    if (e.op === 'select' && e.cond.type.kind === 'scalar' && !pickedBySelect(e.type)) {
+      checkExpr(e.cond, flow);
+      const arms = narrowed(flow, e.cond, 'conditional');
+      checkExpr(e.ifTrue, arms);
+      checkExpr(e.ifFalse, arms);
+      return;
+    }
+    if (e.op === 'call') checkCall(e, flow);
+    mapChildren(e, (c) => {
+      checkExpr(c, flow);
+      return c;
+    });
+  };
+
+  /** One call, checked under the control flow `flow` is at. */
+  const checkCall = (x: Extract<Expr, { op: 'call' }>, flow: Flow): void => {
+    // The divergence's OWN class, not the literal `non-uniform`: an early `return` under a
+    // condition this walk cannot follow leaves the rest of the function `unknown`, which is
+    // what the header promises and what keeps a derivative under it from being refused
+    // though Tint accepts it. The barrier threshold is unchanged, since `unknown` is still
+    // not `uniform`. The divergence names the reason unless the flow is less uniform than
+    // it: a branch on `lid.x` after a `return` under a helper call is refused for the
+    // branch, and names it.
+    const own: Known = { at: flow.at, why: flow.why, via: flow.via };
+    const { at, why, via } = flow.diverged === undefined ? own : degrade(flow.diverged, own);
+    // The flow the call is under, AND the class of each argument: a helper's body needs
+    // both, and seeding its parameters `unknown` regardless of what it was handed is what
+    // let a derivative under `if (x > 0.5)` inside it pass while Tint refused it.
+    record(
+      x.fn,
+      { at, why, via },
+      x.args.map((a) => classify(cx, flow.env, a)),
+    );
+    if (DERIVATIVE_INTRINSICS.has(x.fn)) {
+      if (at === 'non-uniform') {
         found.push({
           fn: f.name,
           callee: x.fn,
-          kind: 'barrier',
-          isDerivativeBuiltin: false,
-          cause: at === 'non-uniform' ? why : `${why}, which this compiler cannot prove uniform`,
+          kind: 'derivative',
+          isDerivativeBuiltin: /^(dpdx|dpdy|fwidth)/.test(x.fn),
+          cause: why,
+          via: via ?? 'branch',
           span: x.span,
         });
       }
-    });
+    } else if (
+      WORKGROUP_UNIFORM_CALLS.has(x.fn) &&
+      (at === 'non-uniform' ||
+        (at === 'unknown' && (x.fn !== 'workgroupUniformLoad' || armDepth > 0)))
+    ) {
+      found.push({
+        fn: f.name,
+        callee: x.fn,
+        kind: 'barrier',
+        isDerivativeBuiltin: false,
+        cause: at === 'non-uniform' ? why : `${why}, which this compiler cannot prove uniform`,
+        via: via ?? 'branch',
+        span: x.span,
+      });
+    }
   };
 
   /** Walks `stmts` in order, threading `flow`, and returns the flow after them. */
@@ -942,36 +1223,45 @@ function walkFunction(
           break;
         }
         case 'if': {
+          // One the sequencing pass built for `&&`, `||` or `?:` is named as that operator, and
+          // is not an `if` the author wrote: see `UniformitySource.builtIfs`.
+          const built = cx.source.builtIfs?.get(s);
+          const walkBody = built === undefined ? walkArm : walk;
+          const via: Via = built ?? 'branch';
           let merged: Env | undefined;
           let after = cur;
           let armsCond: Known = { at: 'uniform', why: cur.why };
           for (const arm of s.arms) {
             const c = classify(cx, cur.env, arm.cond);
             armsCond = joinKnown(armsCond, c);
-            const inner = walk(arm.body, {
+            const inner = walkBody(arm.body, {
               env: new Map(cur.env),
               at: join(cur.at, c.at),
               why: c.at === 'uniform' ? cur.why : c.why,
+              via: c.at === 'uniform' ? cur.via : via,
               diverged: cur.diverged,
             });
             merged = merged === undefined ? inner.env : mergeEnv(merged, inner.env);
             if (inner.diverged !== undefined && cur.diverged === undefined) {
               after = { ...after, diverged: inner.diverged };
             }
+            after = rejoin(after, inner);
           }
           // The `else` runs under the negation of every arm's condition, so it is exactly as
           // uniform as the arms are.
           if (s.elseBody) {
-            const inner = walk(s.elseBody, {
+            const inner = walkBody(s.elseBody, {
               env: new Map(cur.env),
               at: join(cur.at, armsCond.at),
               why: armsCond.at === 'uniform' ? cur.why : armsCond.why,
+              via: armsCond.at === 'uniform' ? cur.via : via,
               diverged: cur.diverged,
             });
             merged = merged === undefined ? inner.env : mergeEnv(merged, inner.env);
             if (inner.diverged !== undefined && cur.diverged === undefined) {
               after = { ...after, diverged: inner.diverged };
             }
+            after = rejoin(after, inner);
           }
           cur = { ...after, env: merged === undefined ? cur.env : mergeEnv(cur.env, merged) };
           break;
@@ -980,60 +1270,160 @@ function walkFunction(
           // The init runs once, before the condition; the body and the update run under it.
           // A value carried round the loop is seen by iterating to a fixpoint, which is what
           // makes `a = b; b = c; c = <non-uniform>` reach `a` however long the chain is.
-          let outer = walk([s.init], cur);
-          for (let i = 0; i <= s.body.length + 2; i++) {
-            const c = classify(cx, outer.env, s.cond);
-            const body = walk(s.body, {
-              env: new Map(outer.env),
-              at: join(outer.at, c.at),
-              why: c.at === 'uniform' ? outer.why : c.why,
-              diverged: outer.diverged,
-            });
-            const afterUpdate = walk([s.update], body);
-            const next = mergeEnv(outer.env, afterUpdate.env);
-            const settled = sameEnv(next, outer.env);
-            outer = {
-              env: next,
-              at: outer.at,
-              why: outer.why,
-              diverged: outer.diverged ?? afterUpdate.diverged,
+          //
+          // So is the class an iteration STARTS at. The first starts at the loop's own; once
+          // one has taken a `break` or a `continue` under control flow that is not uniform, or
+          // the condition has read a value the invocations do not share, the next is reached
+          // by a subset of the invocations, and so is every statement of the body, the ones
+          // above the jump included (see `Exit`), and the condition itself: Tint refuses the
+          // `workgroupUniformLoad` in `i < lid.x + workgroupUniformLoad(w)`, measured, since
+          // the condition is a `break` at the top of the body. The flow after the loop is the
+          // loop's own again, with what a `break` carried out of it.
+          const outer = walk([s.init], cur);
+          let env = outer.env;
+          let enter: Known = { at: outer.at, why: outer.why, via: outer.via };
+          let diverged = outer.diverged;
+          let broke: Exit | undefined;
+          const saved = { breakLeaves, loopBase };
+          breakLeaves = 'loop';
+          // Until it settles, which the lattice bounds: a round that does not settle degrades
+          // a local the body writes, the start class or the divergence, and each degrades
+          // twice at most. The body's top-level length was the bound before, and a chain of
+          // copies inside an `if` outran it: `a = b; b = c; c = d; d = f32(lid.x)` under
+          // `if (k > 0.5)` left `a` uniform, and Tint refuses a barrier under `a`, measured.
+          const rounds = 2 * writesIn(s.body) + 4;
+          for (let i = 0; i <= rounds; i++) {
+            const c = classify(cx, env, s.cond);
+            // Named for the condition only when it is less uniform than the flow the iteration
+            // starts at. A counter written under a non-uniform `if` around the loop, or after a
+            // non-uniform `break`, is itself non-uniform, and "a loop whose condition reads
+            // lid" said of `i < 4` points at nothing the author wrote.
+            const named = degrade(enter, { ...c, via: 'loop' });
+            const iteration: Flow = {
+              env: new Map(env),
+              at: named.at,
+              why: named.why,
+              via: named.via,
+              diverged,
             };
+            // The condition is evaluated at the start of every iteration, the later ones too.
+            checkExpr(s.cond, { ...iteration, at: enter.at, why: enter.why, via: enter.via });
+            loopBase = iteration.at;
+            const body = walk(s.body, iteration);
+            // A `continue` lands on the update, with the environment it was taken in.
+            const afterUpdate = walk([s.update], {
+              ...body,
+              env: body.continued ? mergeEnv(body.env, body.continued.env) : body.env,
+            });
+            const next = mergeEnv(env, afterUpdate.env);
+            const exits = c.at === 'non-uniform' ? { ...c, via: 'loop' as const } : undefined;
+            const nextEnter = degrade(
+              degrade(degrade(enter, exits), body.broke?.at),
+              body.continued?.at,
+            );
+            // A `return` taken in this loop reaches its later iterations and what follows it.
+            const nextDiverged =
+              diverged ??
+              (afterUpdate.diverged && {
+                ...afterUpdate.diverged,
+                via: afterLoop(afterUpdate.diverged.via),
+              });
+            const settled =
+              sameEnv(next, env) && nextEnter.at === enter.at && nextDiverged?.at === diverged?.at;
+            env = next;
+            enter = nextEnter;
+            diverged = nextDiverged;
+            broke = body.broke;
             if (settled) break;
           }
-          cur = outer;
+          ({ breakLeaves, loopBase } = saved);
+          cur = { ...outer, env: broke ? mergeEnv(env, broke.env) : env, diverged };
           break;
         }
         case 'switch': {
           const c = classify(cx, cur.env, s.scrut);
           const inner = join(cur.at, c.at);
           const w = c.at === 'uniform' ? cur.why : c.why;
+          const via = c.at === 'uniform' ? cur.via : 'branch';
           let merged: Env | undefined;
           let diverged = cur.diverged;
+          let after = cur;
+          const leaves = breakLeaves;
+          breakLeaves = 'switch';
           for (const body of [
             ...s.cases.map((x) => x.body),
             ...(s.defaultBody ? [s.defaultBody] : []),
           ]) {
-            const out = walk(body, {
+            const out = walkArm(body, {
               env: new Map(cur.env),
               at: inner,
               why: w,
+              via,
               diverged: cur.diverged,
             });
-            merged = merged === undefined ? out.env : mergeEnv(merged, out.env);
+            // A `break` lands just after the switch, with the environment it was taken in; a
+            // case runs once, so the rest of it was all the break made non-uniform.
+            const landed = out.broke ? mergeEnv(out.env, out.broke.env) : out.env;
+            merged = merged === undefined ? landed : mergeEnv(merged, landed);
             diverged = diverged ?? out.diverged;
+            // A `continue` goes on to the loop around the switch.
+            after = rejoin(after, { ...out, broke: undefined });
           }
+          breakLeaves = leaves;
           cur = {
-            ...cur,
+            ...after,
             diverged,
             env: merged === undefined ? cur.env : mergeEnv(cur.env, merged),
           };
           break;
         }
         case 'return':
+          // Named for the return only when its own condition made the flow less uniform than
+          // the loop iteration or body it sits in, since the divergence it leaves outlives the
+          // flow it was taken in: one on a uniform inside a loop `lid.x` bounds keeps the loop's
+          // reason, and `afterLoop` reads it as a `bound-return`.
           if (cur.at !== 'uniform' && cur.diverged === undefined) {
-            cur = { ...cur, diverged: { at: cur.at, why: cur.why } };
+            cur = {
+              ...cur,
+              diverged: {
+                at: cur.at,
+                why: cur.why,
+                via: rank(cur.at) > rank(loopBase) ? 'return' : cur.via,
+              },
+            };
           }
           break;
+        case 'break':
+        case 'continue': {
+          // Only a jump under DEFINITELY non-uniform control flow narrows what follows it. No
+          // old rule refused a barrier beside `if (done(i)) { break; }`, where `done` is a
+          // helper this walk cannot see through, and Tint accepts it, measured; so `unknown`
+          // keeps no refusal here. Named for the jump, and `degrade` keeps the flow it lands in
+          // when that was already as non-uniform, so a `break` on a uniform in a loop `lid.x`
+          // bounds leaves the loop named.
+          const exit: Exit = {
+            env: cur.env,
+            ...(cur.at === 'non-uniform'
+              ? {
+                  at: {
+                    at: cur.at,
+                    why: cur.why,
+                    via:
+                      s.s === 'continue'
+                        ? 'continue'
+                        : breakLeaves === 'switch'
+                          ? 'switch-break'
+                          : 'break',
+                  },
+                }
+              : {}),
+          };
+          cur =
+            s.s === 'break'
+              ? { ...cur, broke: joinExit(cur.broke, exit) }
+              : { ...cur, continued: joinExit(cur.continued, exit) };
+          break;
+        }
         default:
           break;
       }
@@ -1041,7 +1431,46 @@ function walkFunction(
     return cur;
   };
 
+  /** {@link walk} over an `if` arm, an `else` or a `switch` case the author wrote. */
+  const walkArm = (stmts: readonly Stmt[], flow: Flow): Flow => {
+    armDepth++;
+    try {
+      return walk(stmts, flow);
+    } finally {
+      armDepth--;
+    }
+  };
+
+  /** `after` once an arm has rejoined it: a `break` or `continue` the arm took stays on its way
+   *  to the loop or `switch` it leaves, and when it was taken under control flow that is not
+   *  uniform, the statements from here to there are reached only by the invocations that did
+   *  not take it. */
+  const rejoin = (after: Flow, arm: Flow): Flow => {
+    const broke = joinExit(after.broke, arm.broke);
+    const continued = joinExit(after.continued, arm.continued);
+    const { at, why, via } = degrade(
+      degrade({ at: after.at, why: after.why, via: after.via }, arm.broke?.at),
+      arm.continued?.at,
+    );
+    return {
+      ...after,
+      at,
+      why,
+      ...(via === undefined ? {} : { via }),
+      ...(broke === undefined ? {} : { broke }),
+      ...(continued === undefined ? {} : { continued }),
+    };
+  };
+
   walk(f.body, entry);
+}
+
+/** Whether WGSL's `select` takes a value of type `t`, so that a `?:` choosing one is a call
+ *  that evaluates both arms: a scalar, a vector, and a double, whose emulated form is a
+ *  `vec2<f32>`. Anything else is picked by an `if` (`select-composite.ts`), a vector of
+ *  doubles included, whose emulated form is a struct. */
+function pickedBySelect(t: ShaderType): boolean {
+  return t.kind === 'scalar' || t.kind === 'vec' || t.kind === 'f64';
 }
 
 /** Every INDEX expression a write's target evaluates on its way to the root: `i` for `a[i]`,

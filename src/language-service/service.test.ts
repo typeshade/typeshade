@@ -138,6 +138,190 @@ describe('getDiagnostics: a broken program', () => {
       .filter((d) => d.source === 'typescript' && d.code === 1206);
     expect(ts1206).toEqual([]);
   });
+
+  // A decorator on a declaration that takes none is the compiler's TS8028 now (Rule 6.7), with
+  // the sentence that says what the attribute is, so TypeScript's TS1206 "Decorators are not
+  // valid here" on the same decorator would be the one mistake said twice (Rule 12.4). That
+  // holds at any depth: a namespace's constant and a function's local are declarations too.
+  it('says a decorator on a declaration once, as the compiler does', () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class U { a: f32 }\n' +
+      '@group(2) @binding(5) declare const u: uniform<U>;\n' +
+      '@id(7) declare const k: override<f32>;\n' +
+      '@bogus const K: f32 = 1.;\n' +
+      'namespace N { @group(1) export const J: f32 = 1.; }\n' +
+      '@fragment\n' +
+      'export function fs(): vec4 { @bogus const l = 1.; return vec4(u.a + k + K + N.J + l); }\n';
+    service.openDocument('decorated.ts', text);
+    const diagnostics = service.getDiagnostics('decorated.ts');
+    expect(
+      diagnostics.map((d) => [
+        d.source,
+        d.code,
+        text.slice(d.span.start, d.span.start + d.span.length),
+      ]),
+    ).toEqual([
+      ['typeshade', 'TS8028', '@group(2)'],
+      ['typeshade', 'TS8028', '@binding(5)'],
+      ['typeshade', 'TS8028', '@id(7)'],
+      ['typeshade', 'TS8028', '@bogus'],
+      ['typeshade', 'TS8028', '@group(1)'],
+      ['typeshade', 'TS8028', '@bogus'],
+    ]);
+  });
+
+  // A class and its fields take decorators in TypeScript, so `@size` there is TypeScript's
+  // TS2304 "Cannot find name 'size'" as well as the compiler's TS8028 on the same decorator.
+  it("says a WGSL attribute on a field once, without TypeScript's unresolved name", () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class S { @size(16) x: f32; @align(16) y: f32; @locaton(0) z: f32 }\n' +
+      'declare const u: uniform<S>;\n' +
+      '@fragment\n' +
+      'export function fs(): vec4 { return vec4(u.x + u.y + u.z); }\n';
+    service.openDocument('field.ts', text);
+    expect(
+      service
+        .getDiagnostics('field.ts')
+        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+    ).toEqual([
+      ['typeshade', 'TS8028', '@size(16)'],
+      ['typeshade', 'TS8010', '@align(16)'],
+      ['typeshade', 'TS8028', '@locaton(0)'],
+    ]);
+  });
+
+  // `a + b` on two class instances was TypeScript's TS2365 alone before the compiler refused
+  // the operator (Rule 7.1); now the compiler's TS8003 says it, and TypeScript's gives way, as
+  // do TS2362 and TS2363 on two bools and the TS2322 their `number` result draws (Rule 12.4).
+  it('says an operator WGSL has no overload for once, as the compiler does', () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class A { x: f32 = 0.; }\n' +
+      'export function k(): f32 { const a = new A(); const b = new A(); return (a + b).x; }\n' +
+      'export function m(p: bool, q: bool): bool { return p * q; }\n';
+    service.openDocument('operators.ts', text);
+    expect(
+      service
+        .getDiagnostics('operators.ts')
+        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+    ).toEqual([
+      ['typeshade', 'TS8003', 'a + b'],
+      ['typeshade', 'TS8003', 'p * q'],
+    ]);
+  });
+
+  // TypeScript types an operation from the operator alone, a `number` whatever the operands,
+  // so where the compiler refuses the operation, every report about its value is that guess
+  // again: TS2339 on a member of it, TS7053 on an element, TS2322 where it is returned, in
+  // place or through a local declared from it, and TS2769 where it is an argument. Each was a
+  // second diagnostic for the one refused operator (Rule 12.4).
+  it("says a refused operator once, without TypeScript's report about its value", () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class A { x: f32 = 0.; }\n' +
+      'declare const t: texture_2d<f32>;\n' +
+      'export function f(a: A, b: A): f32 { return (a & b).x; }\n' +
+      'export function g(a: A): f32 { return (-a).x; }\n' +
+      'export function h(a: array<f32, 2>): f32 { const b = -a; return b[0]; }\n' +
+      'export function i(p: bool, q: bool): bool { const c = p * q; return c; }\n' +
+      'export function j(a: A): f32 { let v = a; v += new A(); return v.x; }\n' +
+      'export function l(a: A): f32 { const b = +a; return b.x; }\n' +
+      'export function m(): vec4f { return textureLoad(+t, vec2i(0, 0), 0); }\n';
+    service.openDocument('knock-on.ts', text);
+    expect(
+      service
+        .getDiagnostics('knock-on.ts')
+        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+    ).toEqual([
+      ['typeshade', 'TS8003', 'a & b'],
+      ['typeshade', 'TS8003', '-a'],
+      ['typeshade', 'TS8003', '-a'],
+      ['typeshade', 'TS8003', 'p * q'],
+      ['typeshade', 'TS8003', 'v'],
+      ['typeshade', 'TS8003', '+a'],
+      ['typeshade', 'TS8003', '+t'],
+    ]);
+  });
+
+  // A decorator nothing reads is the compiler's TS8028, and its TS8035 on a method (Rule 6.7):
+  // on a function declared in another function's body TypeScript also says TS1206, and on a
+  // static field or a method, which it lets a decorator name, TS2304 for a name the ambient
+  // library does not declare. Either would be the one mistake said twice (Rule 12.4).
+  it('says a decorator on a local function, a static field or a method once', () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class A { @bogus static K: f32 = 2.; x: f32 = 0.; @bogus m(): f32 { return 1.; } }\n' +
+      'namespace N { @bogus export function f(): f32 { return 1.; } }\n' +
+      '@fragment\n' +
+      'export function fs(): vec4 { @bogus function g(): f32 { return 1.; } ' +
+      'return vec4(A.K + N.f() + g()); }\n';
+    service.openDocument('unread.ts', text);
+    expect(
+      service
+        .getDiagnostics('unread.ts')
+        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+    ).toEqual([
+      ['typeshade', 'TS8028', '@bogus'],
+      ['typeshade', 'TS8035', '@bogus'],
+      ['typeshade', 'TS8028', '@bogus'],
+      ['typeshade', 'TS8028', '@bogus'],
+    ]);
+  });
+
+  // The places TypeScript refuses a decorator the compiler did not read: a constructor (TS1206),
+  // an abstract method (TS1249), a local function's parameter, where Tint refuses the WGSL
+  // (TS1206), and the second decorator of a method (TS2304). Each is the compiler's refusal
+  // alone. A method's `@fragment`, which TypeScript checks against a `TypedPropertyDescriptor`
+  // the ambient library does not declare, adds nothing of TypeScript's either (TS2318).
+  it('says a decorator on a constructor, an abstract method or a helper parameter once', () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class M { x: f32 = 0.; @bogus constructor() { this.x = 1.; } @a @b f(): f32 { return 1.; } ' +
+      '@fragment g(): f32 { return 2.; } }\n' +
+      'abstract class B { x: f32 = 0.; @bogus abstract f(): f32; }\n' +
+      'class C extends B { f(): f32 { return this.x; } }\n' +
+      '@fragment\n' +
+      'export function fs(@builtin("position") p: vec4): vec4 {\n' +
+      '  function g(@location(0) x: f32): f32 { return x; }\n' +
+      '  const m = new M();\n' +
+      '  return vec4(g(p.x) + m.f() + m.g() + new C().f());\n' +
+      '}\n';
+    service.openDocument('unread2.ts', text);
+    expect(
+      service
+        .getDiagnostics('unread2.ts')
+        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+    ).toEqual([
+      ['typeshade', 'TS8028', '@bogus'],
+      ['typeshade', 'TS8035', '@a'],
+      ['typeshade', 'TS8035', '@fragment'],
+      ['typeshade', 'TS8028', '@bogus'],
+      ['typeshade', 'TS8028', '@location(0)'],
+    ]);
+  });
+
+  // A namespace's function is an entry as a top-level one is (`@fragment fn N_fs`), so its
+  // decorators and its parameters' are the grammar, as they are on a top-level function: no
+  // TS1206 (Rule 12.7).
+  it("says nothing about a namespace entry's decorators", () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'namespace N {\n' +
+      '  @fragment export function fs(@builtin("position") p: vec4): vec4 { return p; }\n' +
+      '}\n';
+    service.openDocument('ns-entry.ts', text);
+    expect(service.getDiagnostics('ns-entry.ts')).toEqual([]);
+    expect(service.getCompiledOutput('ns-entry.ts', 'wgsl')?.text).toContain('@fragment');
+  });
 });
 
 describe('getCompiledOutput', () => {
@@ -267,7 +451,7 @@ describe('getDiagnostics: Stage 3 TypeShade checks (design doc §10 step 5)', ()
       .find((d) => d.source === 'typeshade' && d.code === 'TS8021');
     expect(d, 'expected a TS8021 (RETURN_SHAPE) diagnostic').toBeDefined();
     expect(d!.severity).toBe('error');
-    expect(d!.message).toContain('vec4<f32>');
+    expect(d!.message).toContain('inferred type vec4)');
   });
 
   // `mat2<f32>` used to be the TS8027 sample here. Every `matCxR` is a type since #149, so

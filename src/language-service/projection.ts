@@ -30,6 +30,12 @@
 //     TypeScript takes the running value's type from `0.`, a `number`, before it reads the
 //     function; the front end concretizes it (0015's class C).
 //
+//   - `&` or `|` on two `bool`s, which WGSL takes as its logical and and or that do not
+//     short-circuit, and TypeScript refuses (TS2447) and types as a `number`: the operation is
+//     read as the `bool` the front end gives it, `((a & b) as unknown as bool)`, so a `bool`
+//     return, local, argument or field it flows into is not an error on a program the compiler
+//     accepts (Rule 12.7). The refusal itself is the diagnostics filter's to drop.
+//
 // Everything else is served as written. An insertion never spans a line break, so the two texts
 // have the same lines and differ only in the columns after an insertion on its own line.
 //
@@ -112,6 +118,27 @@ export const ERASING_UNARY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.MinusMinusToken,
 ]);
 
+/** `&` and `|`, which on two `bool`s the front end takes as WGSL's non-short-circuiting logical
+ *  operators and TypeScript types as a `number`. */
+const LOGICAL_BITWISE_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.AmpersandToken,
+  ts.SyntaxKind.BarToken,
+]);
+
+/** Every `a & b` and `a | b` in `sourceFile`, the operations TypeScript may type as a `number`
+ *  where the front end reads a `bool`. */
+function logicalBitwiseOperations(sourceFile: ts.SourceFile): ts.BinaryExpression[] {
+  const out: ts.BinaryExpression[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isBinaryExpression(node) && LOGICAL_BITWISE_OPERATORS.has(node.operatorToken.kind)) {
+      out.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return out;
+}
+
 /** Whether `node` applies such an operator anywhere inside it: the only way TypeScript turns a
  *  vector into a `number` or a `boolean`. A call, a swizzle or a constructor keeps its type. */
 function hasOperator(node: ts.Node): boolean {
@@ -168,7 +195,8 @@ export function planInsertions(text: string, fileName: string): Insertion[] {
     candidates(syntax).length === 0 &&
     functionCandidates(syntax).length === 0 &&
     fieldCandidates(syntax).length === 0 &&
-    reduceCandidates(syntax).length === 0
+    reduceCandidates(syntax).length === 0 &&
+    logicalBitwiseOperations(syntax).length === 0
   ) {
     return [];
   }
@@ -238,6 +266,15 @@ export function planInsertions(text: string, fileName: string): Insertion[] {
     const size = receiver?.kind === 'array' ? receiver.size : undefined;
     const args = size === undefined ? spelled : `${spelled}, ${String(size)}`;
     out.push({ at: call.expression.getEnd(), text: `<${args}>` });
+  }
+  // The same record decides a `bool` operation: one it refused, or lowered to an integer or a
+  // vector, is served as written. Two operations that start or end together (`a & b | c`)
+  // insert the same text there, in either order.
+  for (const op of logicalBitwiseOperations(sf)) {
+    const type = typeOf(op);
+    if (type?.kind !== 'scalar' || type.scalar !== 'bool') continue;
+    out.push({ at: op.getStart(sf), text: '((' });
+    out.push({ at: op.getEnd(), text: ') as unknown as bool)' });
   }
   return out.sort((a, b) => a.at - b.at);
 }
@@ -383,12 +420,17 @@ export class Projection {
   }
 
   /** An offset into the document as written, as an offset into the projected text. An offset
-   *  AT an insertion stays before it, so a cursor at the end of `uv` is at the end of `uv`. */
+   *  AT an insertion stays before it, so a cursor at the end of `uv` is at the end of `uv`,
+   *  except an insertion that opens a parenthesis there (`(` before an arrow's parameter, `((`
+   *  before a `bool` `&` or `|`): the cursor on the first character of the operand stays on the
+   *  operand, past the parenthesis. */
   toProjected(offset: number): number {
     let shift = 0;
     for (const insertion of this.insertions) {
-      if (insertion.at < offset) shift += insertion.text.length;
-      else break;
+      if (insertion.at > offset) break;
+      if (insertion.at < offset || insertion.text.startsWith('(')) {
+        shift += insertion.text.length;
+      }
     }
     return offset + shift;
   }

@@ -507,7 +507,7 @@ export function run(k: f32): f32 {
 }`),
       ),
     ).toBe(
-      `${TS_CODES.TYPE_MISMATCH} Function "f" returns f32 at its first "return" and vec2<f32> at another; a function returns one type (Rule 8.19): make them agree, or write the return type.`,
+      `${TS_CODES.TYPE_MISMATCH} Function "f" returns f32 at its first "return" and vec2 at another; a function returns one type (Rule 8.19): make them agree, or write the return type.`,
     );
     expect(
       only(
@@ -573,7 +573,7 @@ export function fs() {
 }
 `),
     ).toBe(
-      `${TS_CODES.RETURN_SHAPE} Entry function "fs" returns a value (inferred type vec4<f32>) but has no return type annotation; add ": vec4<f32>" to the signature.`,
+      `${TS_CODES.RETURN_SHAPE} Entry function "fs" returns a value (inferred type vec4) but has no return type annotation; add ": vec4" to the signature.`,
     );
   });
 });

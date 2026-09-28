@@ -115,7 +115,14 @@ TS2542 and `camera.fov = 1.` is TS2540 as they are typed, before `compile()` is 
 copied out of a read array, `length(p.offset)`, `.length` on a read array and a method on a
 class-typed read binding all behave exactly as before. §49 has the row for row.
 
-Duplicate `@group @binding` is an error.
+A decorator on a declaration is refused, `TS8028`, because nothing reads one there:
+`@group(2) @binding(5) declare const u: uniform<U>` does not move the slot, which is the source
+order above and which `reflect()` hands the host, and the sentence says so:
+`"@group" is WGSL's attribute, and is not applied: reflect() reports the group and slot each binding gets. Remove it, and read the slot from reflect() on the host.`
+`@id(7)` on an override is refused the same way, since the host sets an override by its name.
+
+Two bindings on one group and slot are an error that names both; only the call form below can
+name its slot.
 
 Sketch form still exists and occupies the same slot sequence, and takes the access mode in the
 same place:
@@ -208,9 +215,11 @@ Of that list the compiler applies `@location`, `@builtin`, `@interpolate`, `@inv
 `@blend_src` today (§53). `@location`, `@builtin` and `@interpolate` also apply to a bare entry
 PARAMETER, which is how a fragment entry that takes one varying writes it. The rest are refused
 rather than silently dropped, under two codes: `@align` on a field is `TS8010` ("@align on a
-field is not applied"), so the `@align(16)` above is *(target)*; `@size`, `@offset` and
-`@ignore` are `TS8028` ("Unknown attribute"), because the compiler's attribute list does not
-carry them. Measured, not assumed: each of the five was compiled to read back its code.
+field is not applied"), so the `@align(16)` above is *(target)*; `@size` is `TS8028`, named as
+WGSL's attribute and not applied, since a field takes the size WGSL's layout gives its type
+(§51); `@offset` and `@ignore` are `TS8028` ("Unknown attribute"), because neither WGSL nor the
+compiler's attribute list has them. Measured, not assumed: each of the five was compiled to read
+back its code.
 
 `class` here is a struct with attributes, not an object.
 
@@ -339,7 +348,7 @@ entry may also return nothing, which is what a program that only writes to stora
 
 | Idea | Why not |
 |------|--------|
-| `@uniform const scale` | TS does not parse decorators on `const` |
+| `@uniform const scale` | A resource is spelled by its type, `declare const scale: uniform<f32>` (§1). TypeScript parses a decorator on a `const` and refuses it itself (TS1206); the compiler refuses every decorator on a declaration as `TS8028` (§7) |
 | `class Scene { @compute paint() {} }` | `this` is not a GPU instance |
 | Static class as bind group | Extra ban list; emit `.d.ts` instead |
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
@@ -401,6 +410,13 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | the retired `{ access }` option on the call form | `TS8099`, naming the type-argument spelling to write (§1). Reported and ignored: the mode comes from the type argument |
 | assign to a read resource: a `uniform<T>`, or a `storage<T>` with no `"read_write"` | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a multi-component swizzle `v.xy` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
 | two resources share `@binding` | name both |
+| a decorator on a declaration: a binding, an override, a `const` or `let` at any depth, an enum, an interface, a type alias, a namespace, a function declared in another function's body, or a `static` field | `TS8028`, one per decorator, saying what it is: `@group` and `@binding` are WGSL's and not applied, since `reflect()` reports the group and slot each binding gets (§1); `@id` is not applied, since the host sets an override by its name; `@size` and `@align` are named as a struct field's (§51); an attribute the compiler reads elsewhere by what it marks (`"@fragment" does not apply to a local function: it marks an entry function. Remove it.`); a name WGSL does not have either is `Unknown attribute`. The editor shows this sentence alone, without TypeScript's TS1206, or its TS2304 on a name the ambient library does not declare |
+| `@size` on a function, a parameter or a class, `@align` on a function or a parameter | `TS8028`, `"@align" is WGSL's attribute for a struct field, not a function. Remove it.` On a field, and `@align` on a class, they keep their own sentences (§51) |
+| `@std140` anywhere but on a class | `TS8028`, `"@std140" is not applied: WGSL lays out a struct by its own rules, which reflect() reports. Remove it.` On a class it keeps `TS8010`, `@std140 on a class is not applied.` |
+| a decorator on a constructor, an overload signature, an abstract member, a mixin, a class expression, a class declared in a function's body, an index signature, or a parameter of one of those | `TS8028`, one per decorator, answered as on a declaration. On an overload signature an attribute its implementation reads is to be written there: `"@fragment" does not apply to an overload signature: it marks an entry function. Write it on the implementation.` The overload carrying `@fragment` used to leave the module with no entry |
+| a decorator that is not a name, anywhere: `@N.k`, `@a.b(1)`, `@(fragment)` | `TS8028`, `"@N.k" is not applied: an attribute is written "@name" or "@name(...)". Remove it.` |
+| an attribute where the place does not apply it: `@location`, `@builtin`, `@interpolate`, `@invariant` or `@diagnostic` on a class, `@location` or `@builtin` on a function, a stage or `@diagnostic` on a field or a parameter, `@blend_src` on a parameter, `@diagnostic` on a namespace's function | `TS8028`, naming what it marks: `"@location" does not apply to a class: it marks an entry's input or output. Remove it.` Each was dropped with no word |
+| `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter of a function that is not an entry: a helper, a local function, a method, a constructor | `TS8028`, `"@location" does not apply to a parameter of a function that is not an entry: it marks an entry's input or output. Remove it.` Tint refuses the WGSL it was (`'@location' is not valid for non-entry point function parameters`) |
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
@@ -409,8 +425,10 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
 | A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
 | A call that writes in a `while` condition, anywhere but as one side of its comparison | `TS8006`. The condition runs on every iteration, so the call cannot move ahead of the loop to run in source order; compare the call alone, or call it into a `let` at the end of the body (§26, Rule 7.9) |
-| A name the file does not declare: a value, a callee, a type, a field, a member, an assignment target, an attribute, a `@builtin` id, an `enable` extension, an import | `TS8022`, `TS8004`, `TS8002` and the rest, on the name, with the remedy in one order (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name (`lerp` is `mix`), else the name of the same kind it is spelled like (`Did you mean "clamp"?`), else the declaration it needs |
+| A name the file does not declare: a value, a callee, a type, a field, a member, an assignment target, an attribute, a `@builtin` id, an `enable` extension, an import | `TS8022`, `TS8004`, `TS8002` and the rest, on the name, with the remedy in one order (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name (`lerp` is `mix`), else the name of the same kind it is spelled like (`Did you mean "clamp"?`), else the declaration it needs. `window`, `Date` and `fetch` are such names, once, where they are used, in a body a call lowers or not; a type nothing declares is `TS8002` wherever it is written, a claim, a type argument (`B<vec3<Foo>>` included), an alias, an `implements` clause and the base a class or an interface extends included. A type the library declares for TypeScript's own use (`Number`, `Object`) read or called is said to be one, and `Math`, `console` and `Symbol` to be what they are. A name the file declares is the file's, whatever it spells, `class Mat` and `interface Pick` included (§28), except `eval` and `arguments`, which strict mode lets no variable, parameter or function bind (`TS8068`) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
+| `new` on anything but a class the file declares | `TS8035`, once for the file, naming what the target is and what to write: a WGSL constructor or a function is called without `new`, a WGSL type with no constructor (`sampler`, a texture) and a type the library declares for TypeScript (`Array`) are types, `Symbol` is the library's own, an enum's values are its members, a mixin applied to a class is built through a class that extends it, and an interface, a type alias, a namespace, a type parameter, a value and an `abstract` class are no class to build. A target nothing declares, and a member the object before it does not have, is `TS8022` (§26) |
+| A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
 
 ---
 
@@ -1301,7 +1319,7 @@ return of a call, a constructor or a field keeps its type either way.
 
 Refused, each with the reason: a function whose type waits on itself, which is a call cycle and
 refused as one (§4); `return`s of two types (`Function "f" returns f32 at its first "return" and
-vec2<f32> at another`); a bare `return` beside one with a value; a default parameter value that
+vec2 at another`); a bare `return` beside one with a value; a default parameter value that
 calls such a function, since every default is lowered before any body; and a setter's value with
 no type and no getter, or beside a getter that returns nothing, since nothing says what it takes.
 A setter's value that writes no type beside a getter takes what the getter returns, written or
@@ -1508,8 +1526,9 @@ so `{ ...v }` is refused. A value that is not a plain read: the spread reads its
 per field, so a call would run once per field with it; bind it to a const first. And a field the
 target struct has not got, which names the field rather than saying the literal does not match.
 
-Every other spread is still a runtime operation this surface has no form for: `f(...args)` needs
-an argument count known only at run time, and `[...xs]` a list that grows.
+Every other spread has no form here. `f(...args)` needs an argument count known only at run
+time. `[...xs]` spreads a list into a list, which a shader array does not do, and the refusal
+names the elements to write in its place, `xs[0], xs[1]` (§18).
 
 ## 17. What a `for` loop may say, and what it is told
 
@@ -1562,6 +1581,34 @@ refuses the header that moves it away from its bound:
 | `let i: i32 = 1; i < n; i *= -2` | `TS8006`: with a runtime bound, a factor has to be a whole number of 2 or more, or its direction is unknown. |
 | a body that writes `n` | `TS8006 for bound reads "n", which the loop body writes, so it does not bound the loop.` Read it into a `const` first, or write a `while`. |
 
+**The update is one of the counted forms, or the loop is refused.** `i++`, `i--`, `i += c`,
+`i -= c`, `i *= c` and `i /= c` step the counter, and so do `i = i + c`, `i = c + i` and
+`i = i - c`, which are `i += c` and `i -= c` spelled out (Rule 7.5); those three were
+`TS8099 Unsupported for-update.` The sum is typed as the same assignment in the body is
+(Rule 7.1): `i = i + 2.` and `i = i + u32(1)` on an `i32` counter are
+`TS8003 Type mismatch: cannot + i32 and f32 …` and `… cannot + i32 and u32 …` in the header as
+there. Every other update gets the sentence an update of another
+variable (`j += 1`) gets: `i <<= 1`, `i %= 3`, `i = i * 2`, `i++, j++`, and a compound assignment
+to a member or an element (`v.x += 1.`, `xs[0] += 1`) are each
+`TS8008 for-update must be i++ / i += <const>, or i *= / /= <const>.`, and one to a name nothing
+declares (`zz += 1`) is `TS8022 Cannot assign to unknown name "zz".`, as `zz++` is. The last
+three used to compile with no diagnostic and no loop: the whole `for`, body and all, was missing
+from both targets. A `for` the compiler does not lower now always leaves an error, and one that
+no other refusal explains is `TS8099` with that reason.
+
+**An exit is the bound alone.** `for (let i: i32 = 0; i < 8 && i !== 3; i++)` does compare `i`
+to a bound, and it was told it must. The other clause is the refused part, and the answer names
+it with the loop that says the same thing:
+`TS8006 for exit joins the bound "i < 8" with "i !== 3", and a counted loop's exit is its bound alone. Make "if (i === 3) { break; }" the body's first statement, or write the loop as a while.`
+The test is written as one comparison where that is its exact negation (an equality, or an
+ordering of integers), as `ok` for a clause `!ok`, and as `!(…)` otherwise, since `!(x > 0.)` is
+not `x <= 0.` for a NaN. A clause keeps the parentheses that make it one clause:
+`i < 8 && (a > 0 || b > 0) && c > 0` is told `"(a > 0 || b > 0) && c > 0"` and
+`if (!((a > 0 || b > 0) && c > 0)) { break; }`; the clauses joined bare read as
+`a > 0 || (b > 0 && c > 0)`, a different test. The bound may stand on either side of the `&&`,
+and an unannotated counter takes its type from it, so `i < data.length && data[i] > 0.` is told
+this and not `cannot compare i32 and u32`.
+
 What is not checked, because the value is not known before the loop runs: that the counter
 reaches a runtime bound before it leaves its type. `i <= n` with `n` at the type's maximum never
 fails, and `i += 4` wraps past a bound within 4 of it. All three engines run such a loop the same
@@ -1577,10 +1624,27 @@ and its condition may be anything of type `bool`: `while (sp > 0)` over a stack,
 BVH is traversed, or `while (true)` with a `break` once an iteration has converged. The one
 `while` refused is the one that certainly never ends, a constant `true` with nothing in its body
 that leaves it:
-`TS8007 while (true) has no break or return in its body, so it never ends.` A `break` inside a
-nested loop or a `switch` leaves that statement, not this loop, and is not counted as a way out.
+`TS8007 while (true) has no break or return in its body, so it never ends.` A constant that
+holds `true` is the same loop: `const ON = true;` then `while (ON) { … }` is
+`TS8007 while (ON) has no break or return in its body, so it never ends.`, and so is a namespace's
+constant or a static readonly (`while (C.ON)`), and `!`, `&&`, `||` or a comparison over constants
+(`while (!PAUSED)`, `while (N > 0)`). Each used to compile, and never end. A comparison of
+floats is read this way only over literals and module constants that f32 holds exactly, with no
+arithmetic between (`while (H > 0.)` for `const H = 0.5`), because the targets compute it in
+f32: `const A = 0.1; const B = 0.2;` then `while (A + B > 0.3)` is false there, and the loop runs
+no trip, where doubles make it true. A `?:`, a call, a float comparison over arithmetic or a
+local, or a local `const` holding one of those (`const go = !OFF`) is still read as a runtime
+condition (Appendix B of the language design). A `break` inside a nested loop or a `switch`
+leaves that statement, not this loop, and is not counted as a way out.
 A `for` with no condition says to write this form: `for (;;)` is refused and points at
 `while (true) { … }`.
+
+A condition that is not a `bool` is refused as it is in an `if` or a `for`. TypeScript reads any
+value there by its truthiness, and `while (k)` on an `f32` compiled with no word, then failed in
+Tint (`for-loop condition must be bool, got f32`). Now it is
+`TS8003 while condition must be bool, got f32. Compare it with zero: while (k !== 0.).`, and a
+vector of bools is told `Reduce it: while (any(b)) or while (all(b)).` A struct, an array, a
+vector of numbers or a constant (`while (E.A)`) is told its type alone.
 
 The compiler does not check that a `while` body moves toward its exit. An open loop is the
 author's to end, as it is in WGSL, and one that spins on a GPU is ended by the device's watchdog,
@@ -1618,6 +1682,12 @@ It lowers to `for (var _i: u32 = 0u; _i < 4u; _i = _i + 1u) { let l = scene.ligh
 with `arrayLength(&xs)` as the bound of a runtime-sized array. The element is read at the top
 of each trip, as TypeScript's array iterator reads it, and `for (let x of xs)` gives a copy the
 body may change without writing the array. `break` and `continue` do what they do in any loop.
+The counter `_i`, like the `_w` a `while` counts with, is a name of the compiler's own, and the
+source cannot reach it (Rule 2.2): an `_i` the body reads is the author's, and a counter whose
+name a local, a module constant, a binding, a function or a struct already has takes the next free
+one, `_i_1` or `_w_1`. An author's `_i` read in the body used to read the counter, silently; an
+author's `_w` beside a `while`, or a second `while` in the function, failed in the backend; and a
+call in the body to an author's `function _w` reached the counter, which Tint refused.
 
 Three shapes are refused. A vector is not an array (`TS8003`): index it, or write it into an
 `array<T, N>`. The array has to be a name, or a member or index path to one (`TS8006`), because
@@ -1730,7 +1800,10 @@ means:
   *arrays of arrays supported in GLSL ES 3.10 and above only*, so the two targets would
   disagree about the same source. Flatten it: one `array<f32, 4>` indexed by
   `row * width + column`.
-- A spread and a hole are refused: `[...xs]` would need the size of `xs` at lowering time.
+- A spread and a hole are refused. A spread is one sentence that names the elements to write in
+  its place: `[...xs, 3.]` with an `array<f32, 2>` `xs` is `"...xs" spreads a list into a list,
+  which a shader array does not do: write its elements, xs[0], xs[1].` A hole is an element with
+  no value.
 
 The call form types its arguments by the same rule and the same check, so
 `array<i32, 3>(1, 2, 3)` emits `array<i32, 3>(1, 2, 3)` (GLSL `int[3](1, 2, 3)`) and
@@ -1781,6 +1854,14 @@ codegen and the debug stepper evaluate the call for its effect.
 legal), and the optimizer drops it as the nothing it computes. **A value that is not a call
 may not**: `vec3(1., 2., 3.)`, a `select`, an array fold build a value and drop it, and the
 statement is refused (TS8099) with the two ways out, assign the value or remove the line.
+
+**`_ = f(x)` says the drop in WGSL's words** (§52) and lowers to the same `call` statement; a
+right-hand side that is not a call is refused (TS8099), as the bare statement is. The editor
+takes it as the compiler does. `_` is not a name the ambient library declares, since no source
+of the surface gives it one, so the language service drops TypeScript's `TS2304` ("Cannot find
+name '_'") on the `_` of that statement and nowhere else: `_ = max(a, 1.)` is clean, `_ = a + 1.`
+reads as the compiler's one refusal, and a `_` read as a value is an unknown name, the
+compiler's `TS8022`.
 
 **A call that writes a binding is the one impure expression the IR has**, and the optimizer
 knows it. The effect table (`src/core/passes/effects.ts`) names the bindings each function
@@ -1844,6 +1925,11 @@ struct's last field, is refused (TS8020), and so is a local that would hold a co
 (TS8099): read the binding by its name instead. A `uniform<array<f32>>` is refused (TS8051), and
 `.length` or `arrayLength` on it (TS8032) with the one fix that works: give the type a size,
 `array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
+
+**The editor gives it the same type.** The ambient `array<T, N>` declares `length` as its size
+`N` when it has one and as `u32` when it has none, so the hover over `src.length` reads
+`(property) length: u32`, the type `src.length * 0.5` is then refused for (TS8003), and a sized
+array's hover keeps its literal, `length: 4`.
 
 **The CPU oracle** reads the bound buffer's length, so `compile().eval` and the debug stepper
 agree with the GPU. **GLSL ES 3.00 has no form**: it has no storage buffer and no runtime-sized
@@ -2149,8 +2235,9 @@ on a value the invocations do not share, which is how a workgroup waits forever 
 second rule used to refuse every `if` and `switch` body; it is the uniformity analysis of §54
 now, so a branch on a uniform buffer value or on `workgroup_id` is accepted, and the `if` above,
 on `local_invocation_id`, holds no barrier. A `for` whose bound every invocation shares (a constant, a
-uniform, `workgroup_id`) is uniform and allowed; one bounded by `local_invocation_id` is not, and
-a barrier in it is TS8052, which is the shape the reduction above needs: the loop steps by `/= 2`, one of §17's four counted steps. The optimizer
+uniform, `workgroup_id`) is uniform and allowed, unless a `break` or `continue` taken under a
+value the invocations do not share leaves it early (§54); one bounded by `local_invocation_id` is
+not, and a barrier in it is TS8052, which is the shape the reduction above needs: the loop steps by `/= 2`, one of §17's four counted steps. The optimizer
 treats a barrier as an effect (§19), so it is never dropped, merged or moved, and no read of
 workgroup memory crosses it.
 
@@ -2395,9 +2482,15 @@ TypeScript refuses would compile. They were accepted and meant nothing until thi
 
 **Refused, with the fix (TS8035).** A static block (give each static field its value where it
 is declared), a static field holding a function (a static method), a decorator on a method (an
-entry is a top-level function), an `async` or generator method, two constructors or two
-methods of one name (no overloads), a call of a method on the class or of a static function on
-a value, a member the class does not have, a field called as a method and an accessor called as
+entry is a top-level function), an `async` or generator method, two bodies for one constructor
+or one method, in a class or in the class a mixin returns (overload signatures above the one
+body compile), a static and an instance method of one name (they would be emitted under one
+name), an `abstract` member written with a body or an initializer (remove `abstract`, or the
+body), an `abstract` method or accessor in a class that is not abstract or in the class a mixin
+returns (mark the class abstract, or give the member a body), an `abstract` overload signature
+of a method whose body is not (remove `abstract`), a class that is not abstract and leaves an
+abstract method or accessor of its base unimplemented (write it there), a call of a method on
+the class or of a static function on a value, a member the class does not have, a field called as a method and an accessor called as
 one, a member a class that extends declares as another kind than its base does, a method that
 changes its object called on a `const` whose value something else may hold, a parameter or a
 value that is dropped, one that returns nothing used as a value, and a parameter named `self_`.
@@ -2407,8 +2500,8 @@ A field holding an arrow function was on this list; it is the method it is writt
 only; it takes the object by reference now, as any method that writes it does (below). A class
 with only static functions and no fields is a namespace of functions (below). `abstract` and
 `extends` are a struct's base since roadmap item T5. A `new`
-on anything but a class the file declares stays TS8013, and says which of the four reasons it
-is.
+on anything but a class the file declares is TS8035 too, and says what its target is (below);
+one on a name nothing declares is an unknown name, TS8022.
 
 ### `new` is how a class is built, and the refusals say why
 
@@ -2417,18 +2510,47 @@ without one, with field initializers, inside a method, as an argument, and on a 
 There is no shader rule against it. A class is a struct and a constructor is a function, so
 `new P(1., 2.)` is `P_new(1.0, 2.0)` and nothing is allocated.
 
-What is refused is refused for its own reason, and the message says which:
+A `new` finds its target as TypeScript does, from where it is written (Rule 2.1): the innermost
+declaration of the name, what another block of a namespace around it exports, and a dotted name
+through what the namespaces it names export. `new (C)()` is `new C()`. What the target is, once
+it is not a class, is said once for the file, in a generic body lowered for several type
+arguments and in a body no call lowers alike; a class of statics alone and the wrong arguments
+are said where a body that builds it is lowered. In the editor each is one diagnostic, the
+compiler's, with TypeScript's report of the same `new` merged into it (TS7009, TS2351, TS2693,
+TS2511, TS2708 and TS7017), and its report of any name in the target (TS2304, TS2339):
 
-| written | why |
+| written | what it says |
 | --- | --- |
-| `new Date()` | the file declares no class of that name, and `new` on anything else allocates a JS object |
-| `new I()` on an interface or a type alias | it is a type, not a value, and carries no constructor; write the object literal or declare it as a class |
-| `new S()` on an `abstract` class | there is no instance of it to build; construct a class that extends it |
-| `new U()` on a class of statics alone | it is a group of functions with no fields, so there is no value to build |
-| `new P(1., 2.)` where `P` declares no constructor | TypeScript's implicit constructor takes no arguments; declare one, or write the fields |
+| `new Date()`, and nothing declares `Date` | `TS8022`: `Date` is an unknown name, as it is in any other position, and the name a misspelled one is spelled like is a class, never a value: `new Pos()` beside a parameter `pos` names none |
+| `new vec3f(1., 2., 3.)`, `new f32(1)` | `TS8035`: a WGSL constructor is called without `new`, `vec3f(1., 2., 3.)` |
+| `new sampler()`, `new texture_2d<f32>()` | `TS8035`: it is a type, not a value, and WGSL gives it no constructor |
+| `new Array(4)`, `new Number(1)` | `TS8035`: it is a type the library declares for TypeScript's own use, not a value |
+| `new Symbol()` | `TS8035`: it is no class a shader has, which the library declares for TypeScript's own use |
+| `new F()` on a function, `new Math.sin(1.)` | `TS8035`: `F` is a function, which is called without `new`, `F()` |
+| `new E()` on an enum | `TS8035`: an enum's values are its members, `E.A` |
+| `new c()` on a local or a parameter, `new PI()`, `new E.A()`, `new N()` on a namespace, `new T()` on a type parameter | `TS8035`: it is a value, a namespace or a type parameter, and not a class |
+| `new Math()`, `new console()` | `TS8035`: it is an object of functions, and one of them is called, `Math.sin(x)` |
+| `new A()` on `const A = B`, or on `const A = class {…}` | Nothing more: the declaration is refused, since a class is no value |
+| `new g()` on a function the file imports | `TS8035`: `g` is a function, which is called without `new`, `g()`; in a file compiled on its own, which sees no other file, as the editor compiles each document, `TS8022`, as a call of it is `TS8004`. An import that resolves to no file is its own `TS8099`, and the `new` and the local it builds add nothing |
+| `new M()` on a mixin applied to a class, `const M = Tinted(B)` | `TS8035`: it is built through a class that extends it, `class C extends M {}` (§29) |
+| `new Math.Foo()`, `new C.q()` | `TS8022`: `Math` has no member `Foo`, `C` no static member `q` |
+| `new I()` on an interface or a type alias | `TS8035`: it is a type, not a value, and carries no constructor; write the object literal or declare it as a class |
+| `new S()` on `type S = vec3` | `TS8035`: its target is built without `new`, `vec3()` |
+| `new S()` on an `abstract` class | `TS8035`: there is no instance of it to build; construct a class that extends it |
+| `new U()` on a class of statics alone | `TS8035`: it is a group of functions with no fields, so there is no value to build |
+| `new P(1., 2.)` where `P` declares no constructor | `TS8019`: TypeScript's implicit constructor takes no arguments; declare one, or write the fields |
+| `const K = new P(1.)` or `const K = g()` at module scope, or in a static field (`this.f()` included) | `TS8003` from the constant's own check: a module constant is folded before any function exists, so build the value inside the function that reads it. A module `let` says it as `TS8033`, and a read or a write of `K` adds nothing |
 
-Only the first of those is a shader rule. The other four are TypeScript's own, or follow from a
-class with no fields not being a struct at all.
+The class of statics alone follows from a class with no fields not being a struct, and the
+module-scope row from WGSL, whose module scope calls no function the module declares (Tint:
+"user-declared functions cannot be called at module-scope"). The rest are TypeScript's own
+refusals. A constructor refused where it is written, at its signature or for the name it would
+be emitted under, is not refused again at the `new`; any other `new` with no constructor to call,
+such as one in a multi-file program, which lowers no class function, is `TS8035` "has no
+constructor here" and is never dropped without a word. Until proposal 0008 every refusal but the
+statics one was `TS8013`, and every target the file did not declare as a class was told that
+`new` "allocates a JS object, which a shader has no heap for": `new P(1., 2.)` on the file's own
+class allocates nothing either.
 
 **In the editor.** Hover on a method, at its declaration or a call, reads `(method) Ray.at(t:
 f32): vec3`; on `new Ray(...)`, `constructor Ray(origin: vec3, dir: vec3): Ray`; go to
@@ -2928,7 +3050,7 @@ variable cannot be; it is TS8005 with the fix, `Shape.count += 1.`. The same wri
 nowhere if nothing makes one; so is `this.#k` there, since a private static lives on `Shape` alone
 and TypeScript throws when `Big` reaches it (TS8035, with the fix `Shape.#k`). `super.K = v` in a
 static member writes `this.K` in TypeScript, not the field the class above declares, and is
-refused with both spellings to choose from. `new this()` outside a static member is TS8013:
+refused with both spellings to choose from. `new this()` outside a static member is TS8035:
 `this` there is an object, not a class.
 
 A write INTO a static a base declares is another matter: `Big.origin.y = 5.`, or a method that
@@ -3223,16 +3345,22 @@ declare const cam: uniform<Scene.Camera>;
 ```
 
 emits `struct Scene_Camera`, and everything named after a struct follows: a method is
-`Scene_Camera_at`, the constructor `Scene_Camera_new`, and `new Scene.Camera(...)` calls it.
-Inside the namespace's own bodies the short name works, `new Camera(...)`, and a nested
-namespace nests the name, `A_B_Inner`.
+`Scene_Camera_at`, the constructor `Scene_Camera_new`, and `new Scene.Camera(...)` calls it,
+whether the class writes a constructor or not. Inside the namespace's own bodies the short name
+works, `new Camera(...)`, and a nested namespace nests the name, `A_B_Inner`. What a `new` is
+refused for names the class as written, `Scene.Camera`, never the emitted `Scene_Camera`.
 
-The short name is read from anywhere in the file, which is more than TypeScript's lexical rule
-allows, so the two places it could disagree are refused rather than guessed at. A short name two
-namespaces both declare says which ones and asks for the one you mean. A top-level declaration
-of the same name wins, which is what TypeScript does outside the namespace; write `N.P` for the
-other one. Resolving it exactly needs the enclosing namespace, which a type annotation does not
-carry to the mapper today.
+A `new` and a type annotation read the short name where TypeScript does: inside the namespace,
+the class its own block declares, or one another of its blocks exports, comes first, ahead of a
+top-level class of the same name, so `const p: P = new P()` there is `N.P` on both sides. A
+class another block does not export is not merged into this one, as TypeScript merges only what
+a block exports. A top-level `new Camera()` is
+an unknown name. Outside every namespace that declares it, a type annotation still reads the
+short name, which is more than TypeScript's lexical rule allows: the editor answers a top-level
+`c: Camera` with TS2304 and the compiler takes it, a Rule 12.7 divergence. There a top-level
+declaration of the same name wins, which is what TypeScript does outside the namespace (write
+`N.P` for the other one), and a short name two namespaces both declare says which ones and asks
+for the one you mean.
 
 An enum, a type alias, an interface and a variable inside a namespace keep their refusal: each
 is collected by a route that has no declaration site to flatten from, which is its own step.
@@ -3245,10 +3373,13 @@ parent (`B.two()` inside `A`), and a top-level function is reachable from inside
 A call written through a dotted name is in the cycle check (§ recursion), so `A.f()` calling
 itself is TS8031 rather than WGSL Tint refuses.
 
-A namespace holds functions, constants and namespaces. A class, an enum, a type or a variable
+A namespace holds functions, constants, classes and namespaces. An enum, a type or a variable
 inside one is refused and told to be declared at the top level of the file, because each already
-has a home there and a second spelling would be a second thing. A `declare namespace` has no
-members to emit.
+has a home there and a second spelling would be a second thing. A statement that declares
+nothing, an `if`, a loop or a block, is named by its keyword and told to move into a function,
+since the top level of the file refuses it too; a `try`, a `throw` and a `for…in` keep the one
+refusal they have anywhere (TS8013). A statement refused whole is that one sentence: what it
+holds adds nothing. A `declare namespace` has no members to emit.
 
 ## 27. Boolean vectors
 
@@ -3310,8 +3441,12 @@ _ret = vec4(c, float(any(equal(m, bvec3(false, false, false)))));
   and bools, one bool broadcast, or a numeric vector of the same size (nonzero is true). A
   component reads as a bool: `m.x`, `m.xy`.
 - **Not vectors of bools:** `&&` and `||` stay scalar (TS8003), as on both targets; combine
-  masks with `all`, `any` or a `select`. A bool vector has no arithmetic and is not
-  host-shareable, so it cannot be a binding's type.
+  masks with `all`, `any` or a `select`. A bool vector has no arithmetic and no negation:
+  `a + b`, `a ^ b` and `-a` are TS8003, and the sentence names `vec3u(a)`, `a !== b` or `!a`
+  (Rule 7.1). It is not host-shareable either, so a binding cannot hold one, as a struct field,
+  a runtime array's element or the binding's whole type: `uniform<vec3b>` is TS8051,
+  `"u" is a vec3b; a uniform binding holds no bool, alone or in a vector (WGSL's host-shareable rule). Use vec3u.`
+  (§51). A workgroup variable, a module `let` and a local hold one as before.
 
 **On the CPU.** The oracle, the CPU codegen and the debug stepper share one comparison and one
 per-component pick (`compareValues`, `selectComponents` in `cpu-runtime.ts`), so a vector of
@@ -3386,7 +3521,20 @@ class means the same thing TypeScript's dynamic dispatch would.
 derived one can be described in terms of it, its methods reach each concrete class through
 inheritance rather than becoming functions of its own, and a constructor it declares is emitted
 because a derived `super(...)` calls it. An `abstract` member declares no body and contributes
-nothing; TypeScript already requires a concrete class to implement it.
+nothing. One written with a body or an initializer is refused where it is written, once, as
+TypeScript refuses it (TS1245, TS1267): on the class that declares it, whatever it is
+instantiated with and whether or not anything extends it, or on the mixin whose class
+expression writes it, whether or not a class applies the mixin or writes the member over it. So
+is an abstract method or accessor in a class that is not abstract, a mixin's class expression
+among them (TS1244), and an abstract overload signature of a method whose body is not
+(TS2512). A class that is not abstract and leaves an abstract method or accessor unimplemented
+is refused on that class, whether or not anything calls the member (TS2515); a method one of
+whose declarations in the class that declares it has a body is implemented. An abstract field
+is a member of every struct below the class that declares it, so a class that does not declare
+it again compiles, where TypeScript refuses it (TS2515). None of these sentences says why a
+class has no field, so a class with none is told that too. Until proposal 0008 an abstract
+member with a body was said of each class that inherited it, and one left unimplemented only at
+a call, as `"D" has no method "m"`.
 
 **`super`.** Both forms work. `super(a, b)` in a constructor calls the base's constructor and
 copies its fields into the object being built, which is what a flat struct makes of it:
@@ -3466,6 +3614,45 @@ operator whose meaning the **operand's** kind fixes — `>>` on a `u32` is alrea
 shift, and on an `i32` the arithmetic one — so there is no third operator for `>>>` to be. §52
 has the rest of the operator surface.
 
+**And a host name is an unknown name.** `Date`, `Map`, `window`, `JSON` and `fetch` have no
+source in a `"use typeshade"` file (Rule 2.1): not WGSL, not the part of ECMAScript the ambient
+library restates, and no §9.3 row. So they do not exist there, and a use of one is an unknown
+name like any other, said once where it is used, by the code that owns the position: `TS8022`
+for a value (`window`, `Date.now()`), a written target included (`Date = 1.`), and `TS8004` for
+a callee (`fetch("x")`, where a string or a function handed to it adds nothing), in a body a call
+lowers and in one no call lowers alike (an uncalled generic, a function that takes a function, a
+method of a class nothing builds), where the lowering never reads it; and `TS8002` for a type
+wherever it is written (`x: Date`, which emitted a struct of that name that Tint refused as an
+unresolved type, and `B<Date>`, `B<vec3<Foo>>`, `0.5 as window`, `type A = Date`,
+`implements Date`, `class C extends Date`, `interface I extends Date`, which said nothing once
+the list was gone or were the struct collector's `TS8010`, which it keeps for a base the file
+declares and does not collect as a struct). A binding of such a type, `uniform<Foo>`, adds
+nothing at a read of it. A name the ambient library declares is declared, so `AnyClass` in a
+mixin's constraint (§29) is taken. A type it declares for TypeScript's own use says so where a
+shader type is due (`x: Number` is "not a shader type", with `f32`, `i32` or `u32` to write) and
+where a value is (`Number(x)` is "a type, not a value", with `f32(x)`, `i32(x)` or `u32(x)` to
+write); `Math` and `console` read as a value are objects of functions; and `Symbol`, which
+TypeScript's `for…of` reads an iterator through, is no value a shader has. A name the file
+imports is another file's. A name the file declares is the file's, whatever it spells, ahead of
+the library's: an `enum Status { Error }`, a `window` parameter, a `class Date`, a local function
+`self`, a `class Mat` or `class String`, an `interface Pick`. Two spellings are the exception,
+`eval` and `arguments`: ECMAScript's strict mode, which every `"use typeshade"` file is in, lets
+no declaration bind them, so a variable, a parameter or a function of either name is `TS8068`,
+once, on the name, as it is TypeScript's TS1215 in the editor; a class, an enum, a namespace or
+a type of the name is the file's, as TypeScript takes it. The front end kept a list of 59
+such names and refused
+each by its spelling, at the declaration and at every use, as `TS8012`, which is retired; its <!-- doc-refs: skip — a retired code, named as retired -->
+number stays a gap. A declaration of the file also wins over a §9.3 constant of its name: an
+`enum E`, a `namespace PI`, a `class TAU` or a `function PI` read as a value is the file's, as
+the editor reads it, and never e, π or τ. None of the four is a value a shader holds, and the
+sentence says what the name is and the value it offers, once, where TypeScript's TS2322 about
+`typeof E` stood beside it in the editor:
+`TS8022 "E" is an enum, whose values are its members: E.A.`,
+`"PI" is a namespace, not a value: its values are its members, PI.a.`,
+`"TAU" is a class, not a value. Build one with "new TAU(...)".`, and `TS8099` for the function.
+Any enum, namespace, class or type the file declares is told the same (`"I" is a type, not a
+value.`); each said `Unknown identifier` of a name the file declares.
+
 **And one mistake reads as one sentence.** A parameter whose annotation was refused no longer
 adds that it "requires a TypeShade type annotation", which it has; a return no longer adds
 "Unsupported return type"; a call to a function this file declares and could not lower no
@@ -3475,6 +3662,42 @@ is spelled like (§7). A local whose declaration was refused, or that is declare
 was, says nothing more where it is read, assigned or written through (#171): after a refused
 `const t = a * b`, `const u = t * 2.` binds no `u` either, and `return u` is not an unknown
 identifier.
+
+**And where two passes both saw the mistake, one of them stops** (proposal 0008). `for…in`,
+`try` and `throw` in a body are refused once, with their reason, and no "Unsupported statement"
+follows; at the top level the one sentence is that the top level cannot hold them. What a refused
+`throw`, `await`, `yield`, template string or spread holds is part of the same mistake and is not
+read again, so `throw new Error("x")` is one diagnostic, not four. An `async` function or a
+generator is refused once, on the function, wherever it is written, in a body no call lowers too:
+a shader function runs to completion in one call, with no event loop to wait on and nothing to
+suspend it. The code is the one its position had: `TS8013` on a declaration, `TS8020` on a
+function written as a value, `TS8035` on a class's method; a mixin's method is named on the
+class that applies it, `TD.m`. The remedy removes `async` and `await`, or the `*`, and when the
+return type written is the wrapper they return, `Promise<f32>` or `IterableIterator<f32>`, it
+names the type to write instead, `f32`. An `await` or a `yield` inside it adds nothing, and
+neither does a call of it, `h(a)`, `N.h(a)`, `c.m()` or `C.s()`, or a local declared from one,
+`const y = h(a)`. An object literal's async method is the literal's one refusal, since a literal
+holds fields. A `var` is refused once, `TS8013` in a body and `TS8014` at the top level or in a
+namespace. One in a body is lowered as the `let` it would have been: a `var` that declares a
+parameter or an earlier `var` again is that variable, as in JavaScript, and a sentence about the
+declaration quotes it as written, `"var b" needs an array type annotation`, with `let` in its
+remedy. Wherever it is written, a use of the name says nothing more, as for any refused
+declaration: a read after the block the `var` is written in, and `N.x` for one in a namespace,
+included. An interface or a type alias inside a namespace is refused once, and a type that names
+it, `N.I`, says nothing more. A spread in a list is refused wherever it is written, before the
+list is counted or asked for a type. When the lowering reads its operand as a vector or an array
+of fixed length, the sentence names the elements to write, `"...a" spreads a list into a list,
+which a shader array does not do: write its elements, a[0], a[1].`; where it reads none (a body
+no call lowers, a namespace's constant, which reads no other by its short name, a struct), it
+says `"...s" spreads into a list, which a shader array does not do: write the elements one by
+one.` The name the list initializes, a local, a constant, a variable, a field or a static field,
+says nothing more where it is used. A spread argument, `f(...args)`, keeps its own sentence, and
+`...q` in a list assigned to, `[p, ...q] = a`, is a rest element, which the assignment's refusal of
+its target says. A generic interface or object-type alias is refused at its declaration with the
+class that says it (§32). Each of these is one diagnostic in the editor too: TypeScript's own
+report of what the compiler refused whole (`Cannot find name 'Error'` in the `throw`, TS1308 on an
+`await`, the `Promise` an async function names, a list with a spread as unassignable) is not in
+its merged list, and neither is its TS2454 at a read of a refused `var`.
 
 ## 29. The mixin pattern
 
@@ -3721,6 +3944,18 @@ selects, indexes and returns, and the arithmetic happens on what it gives back.
 names no layout until the declaration around it is instantiated; the wrong number of type
 arguments. A surplus argument is reported once and the instance is still collected from the ones
 the class declares, so the mistake does not take the struct, and every use of it, down with it.
+
+**A generic interface or object-type alias is not collected per instance**, so one that something
+uses, directly or through a plain alias (`type GF = G<f32>`), is refused at its declaration with
+the spelling that is: `"G" is a generic interface; a generic struct is written as a class, class
+G<T> { x: T } (surface §32).` Nothing that names `G<f32>` adds to that sentence (proposal 0008): a
+parameter or a return of a function, a method, a static function, a constructor or a function a
+field holds, and a call, a `new` or a local declared from one, in the file that declares it or
+one that imports it; a local, a module constant or variable, a binding that holds one or an array
+of them, and an `as` that claims one, with a read of each; and a field of a class or an
+interface, which a literal of it leaves out, and a struct left with no other field, which is
+refused with it. A generic alias of another type, `type Arr<T> = array<T, 4>`, is not refused at
+its declaration; each use of it is (`TS8002`).
 
 ## 33. A storage texture
 
@@ -4050,7 +4285,7 @@ the same rule (`textureGather`, `…Array`, `…Depth`, `…DepthArray`, `…Com
 **What a 1d texture cannot do.** WGSL gives it `textureSample`, `textureSampleLevel` and
 `textureLoad` only — no bias, no gradients, no gather, no layers — and each is refused in one
 sentence naming the reads it has. A coordinate is checked for width like every other dim: a
-`vec2` on a `texture_1d` is "takes a single f32 coordinate; got vec2<f32>".
+`vec2` on a `texture_1d` is "takes a single f32 coordinate; got vec2".
 
 **Fragment-only, under the name the author wrote.** `textureSample`, `textureSampleBias` and
 `textureSampleCompare` on a cube array join the fragment-only set as their own ids, and the
@@ -4425,7 +4660,7 @@ the two look.
 ```ts
 export function bad(a: mat2x3, b: mat2x3): mat3 {
   return a * b;
-  // Type mismatch: cannot * mat2x3<f32> and mat2x3<f32>. WGSL's matrix product is
+  // Type mismatch: cannot * mat2x3 and mat2x3. WGSL's matrix product is
   // matKxR * matCxK -> matCxR: the left operand's 2 columns must meet the right operand's
   // 3 rows. transpose(b) turns this pair into one that meets.
 }
@@ -4511,11 +4746,11 @@ textureSampleLevel level must be an f32; got i32. Write f32(l).
 
 The same check covers the element kind of a coordinate, which nothing looked at:
 `textureSample(t, s, vec2i(0, 0))` is `textureSample on a texture_2d<f32> takes an f32
-coordinate; got vec2<i32>.`, and `textureLoad(t, vec2(0., 0.), 0)` is `textureLoad on a
-texture_2d<f32> takes an integer coordinate, an i32 or a u32; got vec2<f32>.` A storage texture
+coordinate; got vec2i.`, and `textureLoad(t, vec2(0., 0.), 0)` is `textureLoad on a
+texture_2d<f32> takes an integer coordinate, an i32 or a u32; got vec2.` A storage texture
 is checked like every other one, where its coordinate was previously left to nobody:
 `textureStore(dst, vec3i(0, 0, 0), …)` on a `texture_storage_2d` is `takes a vec2 coordinate;
-got vec3<i32>.`
+got vec3i.`
 
 A bare number is still retargeted rather than refused, because a literal has no type of its own
 on this surface: `textureSampleLevel(t, s, uv, 0)` emits `0.0`, `textureLoad(t, c, 0)` emits the
@@ -4593,7 +4828,7 @@ beside them:
 
 A pack takes exactly the vector its name says and yields a `u32`; an unpack takes a `u32` and
 yields the vector. There is one overload each, and a wrong shape says so:
-`pack4x8unorm takes a vec4<f32>; got vec2<f32>. WGSL gives it one overload, and GLSL ES 3.00
+`pack4x8unorm takes a vec4; got vec2. WGSL gives it one overload, and GLSL ES 3.00
 the same.` The bit pattern of an unpack may be written as
 a bare number — `unpack2x16unorm(65536)` — because an integer literal is retargeted in every
 integer position.
@@ -4707,7 +4942,7 @@ values for a float that does not. Measured: u32(-1.) is 0 on WGSL and 4294967295
 3.00, and u32(4.3e9) is 4294967295 there and 5032960 here. Clamp it first if you want one
 answer, e.g. u32(clamp(x, 0., 4294967295.)).
 
-f32() takes a scalar; got vec3<f32>. A vector is converted component-wise by its own
+f32() takes a scalar; got vec3. A vector is converted component-wise by its own
 constructor, e.g. vec3(v).
 ```
 
@@ -5043,9 +5278,23 @@ It carries a barrier's placement rules, because it *is* two barriers around a re
 | spelling | Tint |
 | --- | --- |
 | in a compute entry, outside any branch | accepts |
-| inside an `if` | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
+| inside an `if` or a `switch` on a uniform, or on `workgroup_id` | accepts |
+| inside an `if` on `local_invocation_id`, after a `return` or a `break` taken under one, or in a loop it bounds | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
+| right of `lid.x > 2 &&` or `lid.x > 2 \|\|` | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
+| in an arm of `lid.x > 2 ? … : …` that picks an array or a struct | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
+| in the condition of a loop that a `continue` under `local_invocation_id` cuts short | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
 | of a storage pointer | **"no matching call"**, both candidates workgroup pointers |
 | of a `vec4`, of an array element | accepts — any shape that memory holds |
+
+The compiler reads the call with §54's uniformity walk, as it reads a barrier, so the refused
+rows are TS8052 at the call, worded as the barrier's, and the accepted ones compile. It used
+to refuse every `if` and `switch` around the call with TS8034, the uniform ones included, and to
+pass an early `return`, a helper called under a branch and a loop bound, which Tint refuses.
+Where the walk cannot classify the flow, as under a helper it does not see through (#180), the
+call is refused inside an `if` or a `switch` the author wrote, as the old rule refused it, and
+compiles anywhere else, as it did: right of `opaque() > 0.5 &&` and in an arm of
+`opaque() > 0.5 ? … : …` too, where a helper that writes makes the compiler write the operand as
+an `if` of its own (§26).
 
 A render entry needs no rule of its own here: a workgroup variable read from one is already
 refused where it is read, which is the sentence that names what the author has to move.
@@ -5539,18 +5788,22 @@ bytes `reflect()` reports for it:
 A list of `vec4` is exempt from all three — its stride is already 16 — which is what keeps them
 from reading as a blanket ban on lists.
 
-**`@size` and `@align` are still not author attributes.** `@align` on a field is `TS8010` and
-`@size` is an unknown attribute, as before. Applying them would mean teaching the layout engine
-`reflect()` shares with the GLSL writer to read them, and an attribute the emit honoured while
-reflection ignored it is the very disagreement this section closes. They stay refused until
-both halves move together.
+**`@size` and `@align` are still not author attributes.** `@align` on a field is `TS8010`, and
+`@size` is `TS8028`, whose sentence names it as WGSL's attribute and says it is not applied: a
+field takes the size WGSL's layout gives its type, which `reflect()` reports. Written anywhere
+but a field, each is named as a struct field's attribute (§7), except `@align` on a class,
+which keeps `TS8010`, `@align on a class is not applied.` Applying them would mean
+teaching the layout engine `reflect()` shares with the GLSL writer to read them, and an
+attribute the emit honoured while reflection ignored it is the very disagreement this section
+closes. They stay refused until both halves move together.
 
-**Three shapes a struct used to hide.** The type map sees a field's type; it does not see which
+**Four shapes a struct used to hide.** The type map sees a field's type; it does not see which
 address space the field ends up in, so these reached the backend as text a driver refuses:
 
 | Written | Refused with |
 | --- | --- |
 | `interface U { flag: bool }` in a `uniform` or `storage` | `TS8051` — `"U.flag" is a bool; a uniform struct holds numeric scalars only (WGSL's host-shareable rule). Use u32.` |
+| `class U { a: f32; b: vec3b }` in a `uniform`, `storage<array<vec2b>>`, `uniform<vec4b>` | `TS8051` — `"U.b" is a vec3b; a uniform binding holds no bool, alone or in a vector (WGSL's host-shareable rule). Use vec3u.`, the path naming the field, `xs[]` for an element or the binding for its whole type (§27) |
 | `interface S { xs: array<f32>; k: f32 }` | `TS8051` — a runtime-sized list that is not the last field, so nothing after it has an offset |
 | `uniform<array<f32>>` | `TS8051` — a uniform buffer has one size; give the list a length or declare it `storage<T>` |
 
@@ -5561,8 +5814,10 @@ no use and every index into it is out of range.
 `bool` is the one worth dwelling on: Tint says `type 'bool' cannot be used in address space
 'uniform' as it is non-host-shareable`, while the GLSL writer emitted it into the std140 block
 without complaint. That is a silent divergence between the two targets, not a shared failure,
-and silent divergence is what this compiler exists to remove. A `bool` local, parameter or
-return is untouched — the rule is about host-shared bytes.
+and silent divergence is what this compiler exists to remove. A vector of bools is the same
+rule (`type 'vec3<bool>' cannot be used ...`), and was refused only as a scalar until proposal
+0008. A `bool` or `vec3b` local, parameter or return is untouched — the rule is about
+host-shared bytes.
 
 ## 52. Operators, switch and statements: what WGSL spells, and what it does not
 
@@ -5695,7 +5950,8 @@ past it. One function raises it, so the three sites cannot drift apart again.
   the **line** is accepted: a pure call whose result is dropped is then removed outright by the
   optimizer, and one that writes emits as the bare call `g(1.0);`, since WGSL takes a user
   function's dropped result without the phony — which `emit.ts` reserves for a `@must_use`
-  builtin.
+  builtin. The editor reads the line as the compiler does and draws no `TS2304` on its `_`
+  (§19).
 - A decimal literal past the f32 range is refused. `1e40` reached the writer, which printed
   `1e+40` — a value no f32 holds, so the shader ran on a number nobody wrote.
 
@@ -5821,7 +6077,21 @@ broken-shader instrument check passing on both compilers first:
 | the same, **with** `diagnostic(off, derivative_uniformity);` in the module | still `'workgroupBarrier' must only be called from uniform control flow` |
 | `if (uv.x > 1.) { return … }` above a `textureSample` | `'textureSample' must only be called from uniform control flow` |
 | `if (uv.x > 1.) { discard }` above a `textureSample`, and above a `fwidth` | accepted |
-| `break` out of a loop under a non-uniform condition, above a barrier | accepted |
+| `if (id.x > 4u) { break }` or `{ continue }` in a loop, a barrier below the loop | accepted |
+| the same, a barrier in the loop body, below the jump or above it | `'workgroupBarrier' must only be called from uniform control flow` |
+| the same, a `textureSample` in the loop body | `'textureSample' must only be called from uniform control flow` |
+| the same, a barrier after the loop under a branch on a local the loop writes | `'workgroupBarrier' must only be called from uniform control flow` |
+| `if (id.x > 4u) { break }` out of a `switch` case, a barrier after the `switch` | accepted |
+| the same, `if (k > 0.5) { break }` on a uniform, or `if (done(i)) { break }` on a helper that compares to one | accepted |
+| `workgroupUniformLoad` under `if (k > 0.5)` on a uniform buffer value | accepted |
+| `workgroupUniformLoad` after `if (id.x > 4u) { return }`, or in a loop `id.x` bounds | `'workgroupUniformLoad' must only be called from uniform control flow` |
+| `workgroupUniformLoad` in the condition `i < id.x + workgroupUniformLoad(&w)` | `'workgroupUniformLoad' must only be called from uniform control flow` |
+| `workgroupUniformLoad`, or a `textureSample`, right of `&&` or `\|\|` whose left side reads `id.x` or `uv.x` | `'workgroupUniformLoad'` (or `'textureSample'`) `must only be called from uniform control flow` |
+| `workgroupUniformLoad` handed to a helper that writes, right of `id.x > 2u &&`, which the compiler writes as `var _seq0 = …; if (_seq0) { … }` | `'workgroupUniformLoad' must only be called from uniform control flow` |
+| the same right of `opaque() > 0.5 &&` or `\|\|`, or in an arm of `opaque() > 0.5 ? … : …`, where `opaque` returns a uniform | accepted |
+| `workgroupUniformLoad` in an arm of a `?:` on `id.x` that picks an array, a struct, a matrix or a `vec3f64`, which WGSL writes as an `if`, or a `textureSample` in one on `uv.x` that picks a struct | `'workgroupUniformLoad'` (or `'textureSample'`) `must only be called from uniform control flow` |
+| the same on a uniform, or in a `?:` that picks a scalar or a vector, which is WGSL's `select` | accepted |
+| a barrier under `if (arrayLength(&rw) > 4u)` on a `read_write` storage array, or in a loop it bounds | accepted |
 
 Every one of those is reported by `createShaderModule`, not only by `createRenderPipeline` — so
 the compile gate already runs Tint's own uniformity check on every example, and the acceptance
@@ -5837,6 +6107,31 @@ invocation is demoted to a helper rather than ended, so it goes on contributing 
 derivative differences against, which is why `discard` beside `fwidth` is the ordinary
 antialiased-cutout idiom and `examples/cutout.shade.ts` compiles.
 
+**A `break` or `continue` under a non-uniform condition makes the rest of its loop
+non-uniform**, the next iterations included: a barrier above the jump is refused as well as one
+below it, because on the second iteration the invocations that left are not there. The flow
+after the loop is the loop's own again, so a barrier below the loop is accepted. The same holds
+for `for`, `while` and `for…of`. A `break` out of a `switch` case makes the rest of that case
+non-uniform and nothing after the `switch`, since a case runs once. The environment at the jump
+goes where the jump lands, so a local written before a `break`, even a uniform one, reaches the
+code after the loop with the value it had there, and a local the loop writes after a
+non-uniform jump is non-uniform after the loop. A loop's own condition is a `break` at the top of
+its body, so a condition that reads a value the invocations do not share makes the condition
+non-uniform from the second iteration on, and a `workgroupUniformLoad` in it is refused. A jump
+under a condition the walk cannot classify narrows nothing: no rule refused a barrier beside
+one before, and Tint accepts one on a helper that compares to a uniform.
+
+**The right side of `&&` and `||` runs only where the left side lets it**, so a call there is
+under a branch on the left side's value: `lid.x > 2 && workgroupUniformLoad(w) > 0` is refused,
+and so is a `textureSample` right of a fragment input. A left side the walk cannot classify
+narrows nothing, as a jump's condition does not. **So does an arm of a `?:` that WGSL writes as
+an `if`**: its `select` takes a scalar or a vector, so a `?:` that picks a struct, an array, a
+matrix or a vector of doubles is an `if` and an `else` there, and a call in either arm is under
+the condition. A `?:` that picks a scalar or a vector is `select`, which evaluates both arms,
+and narrows nothing. Where a helper that writes stands on the right of `&&` or `||`, or in an
+arm of `?:`, the compiler writes that operand as an `if` of its own (§26); the walk reads it as
+the operator the author wrote, and names it so.
+
 **What the compiler says now.** The call is refused at the call, naming the value the control
 flow depends on and the three ways out:
 
@@ -5849,6 +6144,35 @@ detail is the one you wrote, or write @diagnostic("off", "derivative_uniformity"
 to take the module as written.
 ```
 
+The sentence names the statement that made the flow non-uniform, and the move that fits it.
+Each move compiles on Tint:
+
+| The call is reached | The sentence says it is reached | The move |
+| --- | --- | --- |
+| under an `if` or a `switch` on the value | under … | out of the branch, or the call hoisted above it |
+| right of an `&&` or `\|\|` whose left side reads it | on the right of an && or \|\| whose left side reads … | before the `&&` or `\|\|` |
+| in an arm of a `?:` WGSL writes as an `if`, whose condition reads it | in an arm of a ?: whose condition reads … | before the `?:` |
+| after a `return` taken under it | after a return taken under … | above the return |
+| in a loop whose condition reads it | in a loop whose condition reads … | out of the loop |
+| in a loop a `break` taken under it leaves early | in a loop some invocations leave by a break taken under … | out of the loop |
+| in a loop a `continue` taken under it cuts short | in a loop where some invocations skip ahead by a continue taken under … | out of the loop |
+| after a `break` taken under it out of a `switch` case | after a break out of the switch taken under … | above the break |
+| in or after a loop a `return` taken under it leaves | after a return taken inside a loop under … | above the loop |
+| after a loop whose condition reads it, which a `return` on a shared value left | after a return inside a loop whose condition reads … | above the loop |
+
+The sentence names the statement whose own condition made the flow non-uniform first. A loop
+inside an `if` on the value is reached under that `if`, whatever its bound, and a `break` on a
+uniform inside a loop the value bounds leaves the loop's condition as the reason. A barrier's
+sentence also names the other way out, a value the whole workgroup shares to branch, return,
+break, continue, bound the loop, test on the left side or test in the condition on; a
+derivative's names the explicit-LOD sample and the filter. The filter is offered where the file
+can carry it: on the entry when every entry is a top-level function, on a top-level function
+when an entry is a namespace's, since a namespace's function refuses `@diagnostic` (`TS8028`,
+§7) and the directive is read off any top-level function, and not at all in a file with no
+top-level function. The value is named as the author
+wrote it: a helper as it is called, `Lim.hit(…)` or `done(…)`, never the name the emit gives it,
+and a helper the walk cannot see through by its own name, not as "the expression".
+
 **The analysis is three-valued, and that is the design, not a hedge.** A value is `uniform`,
 `non-uniform`, or `unknown`, and the two callers want opposite answers from the same walk:
 
@@ -5856,9 +6180,13 @@ to take the module as written.
   the walk cannot follow — a helper's parameters, a storage read whose index it does not track
   — stays `unknown` and goes through to Tint, which owns the complete rule. A false positive
   here would refuse a program both targets run.
-- A **barrier** is accepted only when its control flow is DEFINITELY uniform. The rule it
-  replaces refused every `if` and `switch` outright, so `unknown` keeps that refusal and the
-  relaxation can only ever admit a condition the walk has proven uniform.
+- A **barrier** is accepted only when its control flow is DEFINITELY uniform, with the old
+  rules' reach and no more. The rule it replaces refused every `if` and `switch` outright, so
+  `unknown` keeps that refusal there and the relaxation can only ever admit a condition the walk
+  has proven uniform. Where no old rule refused, `unknown` refuses nothing: a `break`, a
+  `continue`, the left side of an `&&` or `||` and the condition of a `?:` narrow the flow only
+  when the walk has proven them non-uniform, and a `workgroupUniformLoad` takes `unknown` as a
+  refusal only inside an `if` or a `switch` the author wrote (§48).
 
 The seeds are the spec's (wgsl.txt:17870-17883): `workgroup_id`, `num_workgroups`,
 `subgroup_size` and `num_subgroups` are uniform, a `uniform` buffer is uniform, a module or
@@ -5949,11 +6277,15 @@ ADDRESS SPACE, and Tint does not look at the write side at all — it refuses a 
 | a read-only storage binding (`declare const`) | uniform |
 | a module `const`, an `override` | uniform |
 | `workgroupUniformLoad(x)` | uniform, by construction |
+| `.length` of a runtime-sized storage array, `read_write` included (`arrayLength`) | uniform: the size the host bound, not an element |
 
 `workgroupUniformLoad` is the carve-out and it is load-bearing: with a workgroup read
 non-uniform on sight, it is the only spelling left that can carry a barrier — which is exactly
 what the builtin is for, since it *is* one value for the whole workgroup with a barrier on each
-side. It is the value the CALL produces that is uniform, not the argument.
+side. It is the value the CALL produces that is uniform, not the argument. The call itself is
+held to the barrier's threshold, for the same reason: a `workgroupUniformLoad` reached where the
+walk has proven the flow non-uniform is TS8052, worded as a barrier's, and so is one inside an
+`if` or `switch` the walk cannot classify, which the old rule refused (§48).
 
 An earlier round classified those three spaces by the join of every write in the module
 instead, on the theory that a location written only constants stays uniform. That refinement is
@@ -5976,10 +6308,10 @@ flow-insensitive over locals, so `gate(x, y) { let acc = x * 2.; acc = y; return
 `x` where the same statements inline do not. Both only ever refuse.
 
 **The barrier rule is the spec's now, not a stricter one.** It used to refuse every `if` and
-`switch`. `if (k > 0.5)` on a uniform buffer value is accepted by Tint, and is accepted here —
-which is the shape a kernel branching on a dispatch-wide flag needs. What is still refused is a
-branch on a value the invocations do not share, and a branch this compiler cannot read, which
-keeps the old answer.
+`switch`, and `workgroupUniformLoad` kept that rule until proposal 0008. `if (k > 0.5)` on a
+uniform buffer value is accepted by Tint, and is accepted here, for both — which is the shape a
+kernel branching on a dispatch-wide flag needs. What is still refused is a branch on a value the
+invocations do not share, and a branch this compiler cannot read, which keeps the old answer.
 
 **Switching it off.** `@diagnostic("off", "derivative_uniformity")` on an entry silences the
 analysis and emits WGSL's module-scope directive:
@@ -6080,7 +6412,7 @@ declaration reads `random(seed: f32 | vec2 | vec3): f32`, which is what the comp
 | Written | Verdict |
 | --- | --- |
 | `random(s)` on a `u32`, an `i32` or an `f64` | `TS8003 random(seed) seed must be f32, vec2, or vec3; got u32.` (and `i32`, `f64`) |
-| `random(v)` on a `vec4` | the same sentence with `vec4<f32>`, and TypeScript's own `Argument of type 'vec4' is not assignable to parameter of type 'f32 \| vec2 \| vec3'` |
+| `random(v)` on a `vec4` | the same sentence with `vec4`, and TypeScript's own `Argument of type 'vec4' is not assignable to parameter of type 'f32 \| vec2 \| vec3'` |
 | `random(3)` | accepted: an integer literal in a float position is an `f32` (the language design rules' 5.1, and §13 here), so this is `random(3.)` |
 | `random()` | `TS8019`, one sentence naming the three shapes; `Math.random()` with no seed does not compile either |
 

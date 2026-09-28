@@ -455,6 +455,64 @@ describe('getHover: a module variable says let, the keyword it is declared with'
   });
 });
 
+// Surface §20: a runtime-sized storage array's `.length` is `arrayLength(&src)`, a `u32`, in the
+// compiler. The ambient member was `length: N` with `N` defaulting to `number`, so the editor
+// hovered `(property) length: number` over the value the compiler then refused in `n * 0.5`
+// (Rule 12.7). A sized array keeps its literal, which is the compile-time length.
+describe("getHover: an array's length is the type the compiler reads", () => {
+  const source = [
+    '"use typeshade";',
+    'declare const src: storage<array<f32>>;',
+    'declare const dst: storage<array<f32>, "read_write">;',
+    'declare const four: storage<array<f32, 4>>;',
+    '@compute([64, 1, 1])',
+    'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
+    '  const xs: array<f32, 3> = [1., 2., 3.];',
+    '  dst[gid.x] = f32(src.length) + f32(dst.length) + f32(four.length) + f32(xs.length);',
+    '}',
+  ].join('\n');
+
+  function lengthHoverAfter(receiver: string): string | undefined {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('l.ts', source);
+    const offset = source.indexOf(`${receiver}.length`) + receiver.length + 2;
+    return service.getHover('l.ts', service.positionAt('l.ts', offset))?.contents;
+  }
+
+  it('is u32 on a runtime-sized array, read and read_write alike', () => {
+    expect(lengthHoverAfter('src')).toContain('(property) length: u32');
+    expect(lengthHoverAfter('dst')).toContain('(property) length: u32');
+  });
+
+  it('keeps the literal on a sized array, a binding or a local', () => {
+    expect(lengthHoverAfter('four')).toContain('(property) length: 4');
+    expect(lengthHoverAfter('xs')).toContain('(property) length: 3');
+  });
+
+  it("is the u32 the compiler refuses in f32 arithmetic, and the editor says only the compiler's sentence", () => {
+    const service = createTypeshadeLanguageService();
+    const program = [
+      '"use typeshade";',
+      'declare const src: storage<array<f32>>;',
+      'declare const dst: storage<array<f32>, "read_write">;',
+      '@compute([64, 1, 1])',
+      'export function cs(): void {',
+      '  dst[0] = src.length * 0.5;',
+      '}',
+    ].join('\n');
+    service.openDocument('m.ts', program);
+    const at = program.indexOf('src.length') + 5;
+    expect(service.getHover('m.ts', service.positionAt('m.ts', at))?.contents).toContain(
+      '(property) length: u32',
+    );
+    expect(
+      service.getDiagnostics('m.ts').map((d) => `${d.source} ${d.code}: ${d.message}`),
+    ).toEqual([
+      'typeshade TS8003: Type mismatch: cannot * u32 and f32 — no implicit int/float conversion. Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
+    ]);
+  });
+});
+
 describe('getHover: a symbol declared in another document', () => {
   it("keeps TypeScript's quick info, since the compiler's table is this document's", () => {
     const service = createTypeshadeLanguageService();

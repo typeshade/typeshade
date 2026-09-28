@@ -18,6 +18,7 @@ import {
   typeKey,
 } from '../../core/ir/types.js';
 import { fitsTarget, foldNumericLit, retargetIntLit } from './lit-coerce.js';
+import { authorTypeText } from './context.js';
 import { wrapInt } from '../../core/passes/opt/expr-utils.js';
 
 export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
@@ -122,16 +123,25 @@ export function broadcastResultType(
 
 const VEC_CTOR_SUFFIX: Readonly<Record<string, string>> = { f32: '', i32: 'i', u32: 'u' };
 
+/** The sentence for two types `op` does not take together. `op` is an operator (`+`, `+=`,
+ *  `compare`, `bitwise`), a declaration's phrase, or `assign`: an assignment reads in the order
+ *  it is written, `cannot assign B to A`, with `left` the place and `right` the value, and its
+ *  example casts the value it assigns (`a = u32(b)`), where an operator's casts an operand. */
 export function numericMismatch(op: string, left: ShaderType, right: ShaderType): string {
   const lk = typeKey(left);
   const rk = typeKey(right);
   if (lk === rk) return `Type mismatch in ${op}: unexpected same-type mismatch.`;
-  const pair = `${lk} and ${rk}`;
+  const assign = op === 'assign';
+  const pair = assign
+    ? `${authorTypeText(right)} to ${authorTypeText(left)}`
+    : `${authorTypeText(left)} and ${authorTypeText(right)}`;
   const ints = (lk === 'i32' && rk === 'u32') || (lk === 'u32' && rk === 'i32');
   if (ints) {
     return (
       `Type mismatch: cannot ${op} ${pair} — WGSL has no implicit integer conversion. ` +
-      `Cast one side: ${lk}(…) or ${rk}(…), e.g. a + ${lk === 'i32' ? 'i32' : 'u32'}(b).`
+      (assign
+        ? `Cast the value: ${lk}(…), e.g. a = ${lk}(b).`
+        : `Cast one side: ${lk}(…) or ${rk}(…), e.g. a + ${lk === 'i32' ? 'i32' : 'u32'}(b).`)
     );
   }
   if (
@@ -157,7 +167,9 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
     const example = /^[-+*/%]$/.test(op) ? op : '+';
     return (
       `Type mismatch: cannot ${op} ${pair}. Vectors must have the same element type. ` +
-      `Cast one side per component, e.g. a ${example} ${rebuilt}.`
+      (assign
+        ? `Cast the value per component, e.g. a = ${rebuilt}.`
+        : `Cast one side per component, e.g. a ${example} ${rebuilt}.`)
     );
   }
   if ((op === '%' || op === '%=') && (isVec64(left) || isVec64(right))) {
@@ -188,8 +200,14 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
       `splat the scalar with vec${vec64.n}f64(f64(x)) to get a vector.`
     );
   }
+  // No splat fixes a vector assigned to a scalar place either.
   const [vec, scalar] = isVec(left) ? [left, right] : [right, left];
-  if (isVec(vec) && isScalar(scalar) && scalar.scalar in VEC_CTOR_SUFFIX) {
+  if (
+    isVec(vec) &&
+    isScalar(scalar) &&
+    scalar.scalar in VEC_CTOR_SUFFIX &&
+    !(assign && vec === right)
+  ) {
     const splat = `vec${vec.n}${VEC_CTOR_SUFFIX[vec.elem]}(x)`;
     if (scalar.scalar === vec.elem) {
       return (
@@ -232,7 +250,7 @@ export function lowerScalarCast(
   if (name === 'bool') {
     if (typeKey(arg.type) === 'bool') return arg;
     if (!isNumericScalarType(arg.type)) {
-      return `bool() takes a numeric scalar, got ${typeKey(arg.type)}.`;
+      return `bool() takes a numeric scalar, got ${authorTypeText(arg.type)}.`;
     }
     if (arg.op === 'lit' && typeof arg.value === 'number') {
       return { op: 'lit', type: boolT, value: arg.value !== 0 };
@@ -274,7 +292,7 @@ export function lowerScalarCast(
       return { op: 'lit', type: f64T, value: narrowed ? Math.fround(lit.value) : lit.value };
     }
     if (typeKey(arg.type) !== 'f32') {
-      return `f64() widens an f32, got ${typeKey(arg.type)}. Cast to f32 first, e.g. f64(f32(x)).`;
+      return `f64() widens an f32, got ${authorTypeText(arg.type)}. Cast to f32 first, e.g. f64(f32(x)).`;
     }
     return { op: 'call', type: f64T, fn: 'f64', args: [arg] };
   }
@@ -283,7 +301,7 @@ export function lowerScalarCast(
   // span-less backend failure. Said here, at the cast, with the two-step form that works.
   if ((name === 'i32' || name === 'u32') && (isF64(arg.type) || isVec64(arg.type))) {
     return (
-      `${name}() has no emulated-double form, got ${typeKey(arg.type)}. A double narrows to ` +
+      `${name}() has no emulated-double form, got ${authorTypeText(arg.type)}. A double narrows to ` +
       `f32 first, so write ${name}(f32(x)).`
     );
   }
@@ -298,7 +316,7 @@ export function lowerScalarCast(
   if (arg.type.kind !== 'scalar' && arg.type.kind !== 'f64') {
     const width = arg.type.kind === 'vec' || arg.type.kind === 'vec64' ? arg.type.n : undefined;
     return (
-      `${name}() takes a scalar; got ${typeKey(arg.type)}.` +
+      `${name}() takes a scalar; got ${authorTypeText(arg.type)}.` +
       (width === undefined
         ? ''
         : ` A vector is converted component-wise by its own constructor, ` +
@@ -349,7 +367,7 @@ export function lowerScalarCast(
         // every value the type holds.
         const bounds = unsigned ? '0., 4294967295.' : '-2147483648., 2147483647.';
         return (
-          `${name}(${String(v)}) is out of range: ${unsigned ? 'a' : 'an'} ${typeKey(type)} ` +
+          `${name}(${String(v)}) is out of range: ${unsigned ? 'a' : 'an'} ${authorTypeText(type)} ` +
           `holds ${unsigned ? '0 to 4294967295' : '-2147483648 to 2147483647'}, and the two ` +
           `targets compute different values for a float that does not. Measured: u32(-1.) is ` +
           `0 on WGSL and 4294967295 on GLSL ES 3.00, and u32(4.3e9) is 4294967295 there and ` +

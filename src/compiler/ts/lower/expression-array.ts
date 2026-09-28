@@ -3,7 +3,7 @@ import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, type LoweringScope } from '../context.js';
 import { fillArray, noneOf, unrollMinMax, unrollPred, unrollSum, unrollZip } from '../array-ops.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { foldNumericLit, isIntScalar, retargetDeclaredIntLit } from '../lit-coerce.js';
@@ -13,6 +13,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { captureArguments, declaresFunction } from './local-functions.js';
 import { declarationOf, functionAround } from './closures.js';
+import { nameListSpread } from '../semantic.js';
 import type { FunctionShape } from './function-types.js';
 
 export function lowerArrayCtor(
@@ -105,9 +106,9 @@ function inferredArrayCtor(
       diagnostics,
       sourceFile,
       node.arguments[odd]!,
-      `array(...) infers one element type from its elements; element 0 is ${typeKey(elem)} ` +
-        `and element ${odd} is ${typeKey(args[odd]!.type)}. Cast the odd one, or write the ` +
-        `type out: array<${typeKey(elem)}, ${args.length}>(...).`,
+      `array(...) infers one element type from its elements; element 0 is ${authorTypeText(elem)} ` +
+        `and element ${odd} is ${authorTypeText(args[odd]!.type)}. Cast the odd one, or write the ` +
+        `type out: array<${authorTypeText(elem)}, ${args.length}>(...).`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -137,7 +138,7 @@ export function lowerArrayLiteral(
       diagnostics,
       sourceFile,
       node,
-      `An array literal needs a declared array type, got ${typeKey(target)}.`,
+      `An array literal needs a declared array type, got ${authorTypeText(target)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -154,7 +155,7 @@ export function lowerArrayLiteral(
       diagnostics,
       sourceFile,
       node,
-      `array<${typeKey(target.elem)}, ${target.size ?? node.elements.length}> is an array of arrays, which GLSL ES 3.00 does not have. Flatten it: one array<${typeKey(target.elem.elem)}, N> indexed by row * width + column.`,
+      `array<${authorTypeText(target.elem)}, ${target.size ?? node.elements.length}> is an array of arrays, which GLSL ES 3.00 does not have. Flatten it: one array<${authorTypeText(target.elem.elem)}, N> indexed by row * width + column.`,
       TS_CODES.UNSUPPORTED,
     );
     return undefined;
@@ -164,15 +165,16 @@ export function lowerArrayLiteral(
       diagnostics,
       sourceFile,
       node,
-      `A list needs a fixed size to fill: write the size, e.g. array<${typeKey(target.elem)}, ${node.elements.length}>.`,
+      `A list needs a fixed size to fill: write the size, e.g. array<${authorTypeText(target.elem)}, ${node.elements.length}>.`,
       TS_CODES.UNKNOWN_TYPE,
     );
     return undefined;
   }
+  // Checked before the count: `[...xs]` is one element syntactically, so counting it first
+  // would report an arity the author never wrote.
+  if (refuseListSpread(node, sourceFile, scope, diagnostics)) return undefined;
   for (const element of node.elements) {
-    // Checked before the count: `[...xs]` is one element syntactically, so counting it first
-    // would report an arity the author never wrote.
-    if (ts.isSpreadElement(element) || ts.isOmittedExpression(element)) {
+    if (ts.isOmittedExpression(element)) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -188,7 +190,7 @@ export function lowerArrayLiteral(
       diagnostics,
       sourceFile,
       node,
-      `array<${typeKey(target.elem)}, ${target.size}> takes ${target.size} element(s), got ${node.elements.length}.`,
+      `array<${authorTypeText(target.elem)}, ${target.size}> takes ${target.size} element(s), got ${node.elements.length}.`,
       TS_CODES.ARITY_MISMATCH,
     );
     return undefined;
@@ -204,7 +206,7 @@ export function lowerArrayLiteral(
         diagnostics,
         sourceFile,
         element,
-        `array<${typeKey(target.elem)}, ${target.size}> element ${i} must be ${typeKey(target.elem)}, and a list is not one.`,
+        `array<${authorTypeText(target.elem)}, ${target.size}> element ${i} must be ${authorTypeText(target.elem)}, and a list is not one.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -224,6 +226,57 @@ export function lowerArrayLiteral(
     args.push(typed);
   }
   return { op: 'construct', type: target, args };
+}
+
+/** `[...a, 3.]`: a spread in a list, which a shader array does not do, since its length is its
+ *  type's. semantic.ts refuses each one wherever it is written (TS8013); here, where the operand's
+ *  type is known, the sentence is given the elements to write in its place, `a[0], a[1]`. A
+ *  position that holds a list asks this first, before the count or the annotation it would
+ *  otherwise ask for, so the spread is the list's one sentence (Rule 12.4). Returns whether the
+ *  list holds a spread. */
+export function refuseListSpread(
+  node: ts.ArrayLiteralExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const spreads = node.elements.filter(ts.isSpreadElement);
+  for (const spread of spreads) {
+    nameListSpread(spread, spreadElements(spread, sourceFile, scope), sourceFile, diagnostics);
+  }
+  return spreads.length > 0;
+}
+
+/** The elements a spread's operand stands for, as an author writes them: `a[0], a[1]` for a
+ *  sized array, `v.x, v.y, v.z` for a vector. Undefined for anything else, a struct, a scalar or
+ *  a name nothing declares, which has no elements to name. */
+function spreadElements(
+  spread: ts.SpreadElement,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+): string | undefined {
+  const operand = spread.expression;
+  // Only its type is read; what the operand itself may be refused for is not this mistake.
+  const type = lowerExpression(operand, sourceFile, scope, [])?.type;
+  const written = operand.getText(sourceFile);
+  const shown =
+    ts.isIdentifier(operand) ||
+    ts.isPropertyAccessExpression(operand) ||
+    ts.isElementAccessExpression(operand) ||
+    ts.isCallExpression(operand)
+      ? written
+      : `(${written})`;
+  if (type?.kind === 'vec' || type?.kind === 'vec64') {
+    return ['x', 'y', 'z', 'w']
+      .slice(0, type.n)
+      .map((c) => `${shown}.${c}`)
+      .join(', ');
+  }
+  if (type?.kind !== 'array' || type.size === undefined) return undefined;
+  const at = (i: number): string => `${shown}[${String(i)}]`;
+  const n = type.size;
+  if (n <= 4) return Array.from({ length: n }, (_, i) => at(i)).join(', ');
+  return `${at(0)}, ${at(1)}, …, ${at(n - 1)}`;
 }
 
 /** One element of an `array<T, N>`, list or call, given the element type it sits in. Shared by
@@ -257,11 +310,16 @@ function typeArrayElement(
     }
   }
   if (typeKey(out.type) !== typeKey(elem)) {
+    // A cast converts a number or a vector of them; a struct, an array or a matrix has none to
+    // name, so the sentence stops at the reason.
+    const castable = (t: ShaderType): boolean =>
+      t.kind === 'scalar' || t.kind === 'vec' || t.kind === 'f64' || t.kind === 'vec64';
+    const cast = castable(elem) && castable(out.type) ? '; cast it' : '';
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `array<${typeKey(elem)}${size === undefined ? '' : `, ${size}`}> element ${i} must be ${typeKey(elem)}, got ${typeKey(out.type)}. There is no implicit conversion; cast it.`,
+      `array<${authorTypeText(elem)}${size === undefined ? '' : `, ${size}`}> element ${i} must be ${authorTypeText(elem)}, got ${authorTypeText(out.type)}. There is no implicit conversion${cast}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -470,14 +528,18 @@ function foldCallbackShape(name: string, arrays: readonly Expr[]): FunctionShape
     const x = elem(arrays[0]);
     return x === undefined
       ? undefined
-      : { params: [x], ret: boolT, text: `(x: ${typeKey(x)}) => bool` };
+      : { params: [x], ret: boolT, text: `(x: ${authorTypeText(x)}) => bool` };
   }
   if (name === 'zip') {
     const a = elem(arrays[0]);
     const b = elem(arrays[1]);
     return a === undefined || b === undefined
       ? undefined
-      : { params: [a, b], ret: undefined, text: `(a: ${typeKey(a)}, b: ${typeKey(b)}) => …` };
+      : {
+          params: [a, b],
+          ret: undefined,
+          text: `(a: ${authorTypeText(a)}, b: ${authorTypeText(b)}) => …`,
+        };
   }
   return undefined;
 }

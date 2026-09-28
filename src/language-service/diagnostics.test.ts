@@ -403,11 +403,16 @@ export function shade(n: vec3, l: vec3, albedo: vec3, d: f32): vec3 {
   // The projection spells the compiler's type in the ambient library's words (`ambientSpelling`),
   // and a parameter's type is the ambient declaration itself; this is the test that the
   // spelling names that declaration, for every vector and matrix type there is an operation on:
-  // arithmetic, and `&` on a mask.
+  // arithmetic, `&` on a mask, and `*` on a matrix of doubles, which takes no other operator
+  // (surface §39, Rule 7.1).
   const OPERATED_TYPES = [...VECTOR_AND_MATRIX_NAMES, 'mat2<f64>', 'mat3<f64>', 'mat4<f64>'];
   for (const type of OPERATED_TYPES) {
     it(`carries its type into a parameter of type ${type}`, () => {
-      const operation = /^vec\db$/.test(type) ? 'a & a' : 'a + a';
+      const operation = /^vec\db$/.test(type)
+        ? 'a & a'
+        : type.endsWith('<f64>')
+          ? 'a * a'
+          : 'a + a';
       const source = `"use typeshade"
 function g(v: ${type}): ${type} {
   return v
@@ -438,7 +443,7 @@ export function f(a: ${type}): ${type} {
   it('leaves a bad swizzle of such a name to the compiler, which reports it once', () => {
     const source = entry('  const lit = a * s\n  const p = lit.w\n');
     expect(diagnosticsOf(source).map((x) => `${x.source} ${String(x.code)} ${x.message}`)).toEqual([
-      'typeshade TS8022 .w out of range on vec3<f32>.',
+      'typeshade TS8022 .w out of range on vec3.',
     ]);
   });
 
@@ -488,11 +493,52 @@ describe('an operation other than arithmetic loses a vector type the same way', 
     });
   }
 
-  it('keeps TS2447 for a bitwise operator on two scalar booleans', () => {
-    // A mask is a vector to the compiler; two scalar booleans are not, and the rule is about
-    // masks only.
-    const source = entry('  const k = (s < 1.) & (s > 0.)\n');
-    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2447:']);
+  it('reads & and | on two scalar booleans as the bool the compiler reads', () => {
+    // WGSL's logical and and or, which do not short-circuit, compile; the editor kept
+    // TypeScript's TS2447 on the operator and, where the `number` it types the result as
+    // flowed into a `bool`, TS2322, TS2345, TS2363, TS2367 or TS2769 (Rule 12.7).
+    const bools = 'a: bool, b: bool, c: bool, x: f32';
+    const programs = [
+      'export function f(a: bool, b: bool): bool {\n  return a & b\n}',
+      'export function f(a: bool, b: bool): bool {\n  const k = a | b\n  return k\n}',
+      `export function f(${bools}): bool {\n  let k = false\n  k = a & b | c\n  return k\n}`,
+      `export function f(${bools}): bool {\n  return (a & b) === c\n}`,
+      `export function f(${bools}): bool {\n  return (x > 0.) & (a | b) && c\n}`,
+      `export function f(${bools}): f32 {\n  return select(0., x, a & b)\n}`,
+      `function g(k: bool): bool {\n  return !k\n}\nexport function f(${bools}): bool {\n  return g(a | b)\n}`,
+      `class R {\n  ok: bool = false\n}\nexport function f(${bools}): bool {\n  const r = new R()\n  r.ok = a & b\n  return r.ok\n}`,
+      `export function f(${bools}): u32 {\n  if (a | b) {\n    return u32(a & b)\n  }\n  return 0\n}`,
+    ];
+    for (const body of programs) {
+      const source = `"use typeshade"\n${body}\n`;
+      expect(compile(source).diagnostics, source).toEqual([]);
+      expect(diagnosticsOf(source), source).toEqual([]);
+    }
+  });
+
+  it("shows the compiler's refusal alone for ^ and a compound form on two booleans", () => {
+    // WGSL has neither on a bool: the compiler refuses each, and TypeScript's TS2447 on the
+    // same operator is that mistake again (Rule 12.4).
+    for (const [body, sentence] of [
+      [
+        'export function f(a: bool, b: bool): bool {\n  return a ^ b\n}',
+        "TS8003 Cannot ^ bool: WGSL's ^ takes integers, not a bool. Write a !== b, which is the same.",
+      ],
+      [
+        'export function f(a: bool, b: bool): bool {\n  let k = a\n  k &= b\n  return k\n}',
+        'TS8003 Bitwise "&=" needs an i32 or u32 target, got bool.',
+      ],
+    ] as const) {
+      const source = `"use typeshade"\n${body}\n`;
+      expect(
+        compile(source).diagnostics.map((d) => `${d.code} ${d.message}`),
+        source,
+      ).toEqual([sentence]);
+      expect(
+        diagnosticsOf(source).map((d) => `${String(d.code)} ${d.message}`),
+        source,
+      ).toEqual([sentence]);
+    }
   });
 });
 
@@ -539,7 +585,62 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'export function f(v: vec5): f32 {\n  return 1.\n}',
       'typeshade TS8002',
     ],
-    'a host API (TS2304)': [fn('  return Date.now()'), 'typeshade TS8012'],
+    'a name nothing declares, Date (TS2304)': [fn('  return Date.now()'), 'typeshade TS8022'],
+    // A name of a later ECMAScript library or of the DOM, which a shader has no more than `Date`.
+    'a name of a later library (TS2583)': [fn('  const m = Map\n  return x'), 'typeshade TS8022'],
+    'a name of the DOM (TS2584)': [fn('  const d = document\n  return x'), 'typeshade TS8022'],
+    // A name of Node, which TypeScript offers to find in its type definitions (TS2591).
+    'a name of Node (TS2591)': [fn('  const d = process\n  return x'), 'typeshade TS8022'],
+    'a function of Node (TS2591)': [fn('  const d = require("x")\n  return x'), 'typeshade TS8004'],
+    'a type of Node (TS2591)': [
+      'export function f(x: Buffer): f32 {\n  return 1.\n}',
+      'typeshade TS8002',
+    ],
+    // A type the library declares for TypeScript's own use, read or called (TS2693).
+    'a library type called (TS2693)': [fn('  return Number("1")'), 'typeshade TS8004'],
+    'a library type read (TS2693)': [fn('  const o = Object\n  return x'), 'typeshade TS8022'],
+    'a library type read through (TS2693)': [
+      fn('  const k = Object.keys(x)\n  return x'),
+      'typeshade TS8022',
+    ],
+    // An undeclared base of a class or an interface is a type nothing declares (TS2304).
+    'a class base nothing declares (TS2304)': [
+      'class C extends Date {\n  a: f32 = 1.\n}\nexport function f(x: f32): f32 {\n  return new C().a\n}',
+      'typeshade TS8002',
+    ],
+    'an interface base nothing declares (TS2304)': [
+      'interface I extends Date {\n  a: f32\n}\nexport function f(i: I): f32 {\n  return i.a\n}',
+      'typeshade TS8002',
+    ],
+    // A `new` is refused whole, and TypeScript names its target (proposal 0008 §2).
+    'a new of a name nothing declares (TS2304)': [
+      fn('  const d = new Date()\n  return x'),
+      'typeshade TS8022',
+    ],
+    'a new of a WGSL constructor (TS7009)': [
+      fn('  const d = new vec3f(1.)\n  return x'),
+      'typeshade TS8035',
+    ],
+    'a new of an enum (TS2351)': [
+      'enum E {\n  A = 1,\n}\nexport function f(x: f32): f32 {\n  const d = new E()\n  return x\n}',
+      'typeshade TS8035',
+    ],
+    'a new of an interface (TS2693)': [
+      'interface I {\n  a: f32\n}\nexport function f(x: f32): f32 {\n  const d = new I()\n  return x\n}',
+      'typeshade TS8035',
+    ],
+    'a new of the library’s Symbol (TS2351)': [
+      fn('  const d = new Symbol()\n  return x'),
+      'typeshade TS8035',
+    ],
+    'a new through globalThis (TS7017)': [
+      fn('  const d = new globalThis.Date()\n  return x'),
+      'typeshade TS8022',
+    ],
+    'a new of an abstract class (TS2511)': [
+      'abstract class B {\n  a: f32 = 1.\n}\nexport function f(x: f32): f32 {\n  const d = new B()\n  return x\n}',
+      'typeshade TS8035',
+    ],
     'a swizzle out of range (TS2339)': [fn('  return v.w'), 'typeshade TS8022'],
     'a swizzle out of range with a suggestion (TS2551)': [
       fn('  return v.xyzw', 'v: vec3', 'vec4'),
@@ -704,12 +805,24 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
     ).toEqual(['typescript 2588', 'typeshade TS8005']);
   });
 
+  it('merges a new through a namespace of types, beside the refusal of its interface', () => {
+    // TypeScript's TS2708, "Cannot use namespace 'N' as a value", is the `new`'s mistake, which
+    // the compiler's TS8035 says; an interface inside a namespace is refused where it is written.
+    expect(
+      shown(
+        fn(
+          'namespace N {\n  export interface I {\n    a: f32\n  }\n}\nexport function f(x: f32): f32 {\n  const d = new N.I()\n  return x\n}',
+        ),
+      ),
+    ).toEqual(['typeshade TS8014', 'typeshade TS8035']);
+  });
+
   it('keeps two mistakes as two diagnostics', () => {
-    // The write is both halves' mistake and reads once; the typo in the call only TypeScript
-    // sees, since the compiler refused the statement at the write.
+    // The write is both halves' mistake and reads once; so is the typo in the call, which the
+    // compiler says too, although it refused the statement at the write (Rule 2.1).
     expect(shown(fn('  const f = x\n  f = clmap(f, 0., 1.)\n  return f'))).toEqual([
       'typeshade TS8005',
-      'typescript 2552',
+      'typeshade TS8004',
     ]);
   });
 
@@ -757,15 +870,15 @@ describe("the editor shows the compiler's one diagnostic, at its span (both halv
     ],
     'a scalar returned for a vector': [
       '"use typeshade"\nexport function f(v: vec3): vec3 {\n  return length(v)\n}\n',
-      'TS8003 Function "f" return type mismatch: declared vec3<f32>, got f32. @return length(v)',
+      'TS8003 Function "f" return type mismatch: declared vec3, got f32. @return length(v)',
     ],
     'the second of two returns': [
       '"use typeshade"\nexport function f(x: f32, v: vec3): vec3 {\n  if (x > 0.) {\n    return v\n  }\n  return x\n}\n',
-      'TS8003 Function "f" return type mismatch: declared vec3<f32>, got f32. @return x',
+      'TS8003 Function "f" return type mismatch: declared vec3, got f32. @return x',
     ],
     'a vector returned for an entry output struct': [
       '"use typeshade"\nclass C {\n  @location(0) color: vec4;\n}\n@fragment\nexport function fs(): C {\n  return vec4(1.)\n}\n',
-      'TS8003 Function "fs" return type mismatch: declared struct:C, got vec4<f32>. @return vec4(1.)',
+      'TS8003 Function "fs" return type mismatch: declared C, got vec4. @return vec4(1.)',
     ],
   };
   const at = (source: string, start: number, length: number): string =>
@@ -922,5 +1035,57 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     expect(typeScriptDiagnosticsOf(source)).toEqual([
       "TS2454: Variable 'tile' is used before being assigned.",
     ]);
+  });
+});
+
+// WGSL's phony assignment `_ = f(x)` compiles (surface §19, §52), and the editor said TS2304
+// "Cannot find name '_'" on every one of them, so a program the compiler accepts was red and the
+// one it refuses read as two diagnostics (Rule 12.4, Rule 12.7). `_` is not a name the ambient
+// library can declare (no WGSL, ECMAScript or §9.3 source gives it, `surface-names.test.ts`), so
+// the editor drops TS2304 on the `_` of the statement the compiler reads as phony, and nowhere
+// else.
+describe("the _ of a phony assignment is the compiler's to judge (Rule 12.7)", () => {
+  const said = (body: string): string[] =>
+    diagnosticsOf(`"use typeshade"\n${body}\n`).map((d) => `${d.source} ${d.code}: ${d.message}`);
+
+  it('_ = max(a, 1.) is clean, as it compiles', () => {
+    expect(said('export function f(a: f32): f32 { _ = max(a, 1.); return a; }')).toEqual([]);
+  });
+
+  it('the phony statement inside a block, a loop and an arrow that returns nothing is clean', () => {
+    expect(
+      said(
+        [
+          'function g(x: f32): f32 { return x * 2.; }',
+          'export function f(a: f32): f32 {',
+          '  if (a > 0.) { _ = sqrt(a); }',
+          '  for (let i = 0; i < 3; i++) { _ = g(a); }',
+          '  const h = (x: f32) => _ = max(x, 1.);',
+          '  h(a);',
+          '  return a;',
+          '}',
+        ].join('\n'),
+      ),
+    ).toEqual([]);
+  });
+
+  it("_ = a + 1. keeps the compiler's one refusal and no TS2304", () => {
+    expect(said('export function f(a: f32): f32 { _ = a + 1.; return a; }')).toEqual([
+      'typeshade TS8099: "_ = ..." drops the result of a call. "a + 1." is not one, so there is nothing to drop; remove the line.',
+    ]);
+  });
+
+  it('a `_` read as a value, or written by any other operator, keeps TS2304', () => {
+    // TypeScript's half keeps it, and the merged list reads it as the compiler's unknown name,
+    // one diagnostic (Rule 12.4).
+    const read = 'export function f(a: f32): f32 { const y = _; return a; }';
+    const added = 'export function f(a: f32): f32 { _ += 1.; return a; }';
+    for (const body of [read, added]) {
+      expect(typeScriptDiagnosticsOf(`"use typeshade"\n${body}\n`)).toEqual([
+        "TS2304: Cannot find name '_'.",
+      ]);
+    }
+    expect(said(read)).toEqual(['typeshade TS8022: Unknown identifier "_".']);
+    expect(said(added)).toEqual(['typeshade TS8022: Cannot assign to unknown name "_".']);
   });
 });

@@ -138,7 +138,7 @@ describe('what a spread has no form for', () => {
         ),
       )[0],
     ).toBe(
-      `${TS_CODES.UNSUPPORTED} "..." spreads the fields of a struct, and vec2<f32> has none. Write the components by name.`,
+      `${TS_CODES.UNSUPPORTED} "..." spreads the fields of a struct, and vec2 has none. Write the components by name.`,
     );
   });
 
@@ -176,7 +176,7 @@ class Big {
     ).toBe(`${TS_CODES.STRUCT_FIELD} Struct Small has no field "y", which this spread brings in.`);
   });
 
-  it('and every other spread is still a runtime operation', () => {
+  it('and every other spread is still a runtime operation, said once', () => {
     expect(
       errorsOf(
         file(
@@ -186,7 +186,7 @@ class Big {
 `,
           `  const xs: array<f32, 2> = [1., 2.]\n  return vec4(take(...xs), 0., 0., 1.)`,
         ),
-      )[0],
-    ).toBe(`${TS_CODES.HOST_STMT} Spread is a JS runtime operation.`);
+      ),
+    ).toEqual([`${TS_CODES.HOST_STMT} Spread is a JS runtime operation.`]);
   });
 });

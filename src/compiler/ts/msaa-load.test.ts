@@ -144,7 +144,7 @@ describe('what a multisampled texture cannot do, each in one sentence', () => {
       'A texture sample index must be a whole number of 0 or more, got 1.5',
     );
     expect(errorsOf(fragment(`  return textureLoad(msaa, vec3i(0), 0)`))).toEqual([
-      'textureLoad on a texture_multisampled_2d<f32> takes a vec2 coordinate; got vec3<i32>.',
+      'textureLoad on a texture_multisampled_2d<f32> takes a vec2 coordinate; got vec3i.',
     ]);
   });
 

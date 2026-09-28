@@ -14,10 +14,10 @@
 import type ts from 'typescript';
 import type { StructDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { makeDiagnostic } from '../diagnostic.js';
+import { authorTypeText } from '../context.js';
 
 /** Where `t` holds an array with no size: `t` itself, or the struct field that does (a struct's
  *  last field, through nested structs); `undefined` when it holds none. */
@@ -35,12 +35,13 @@ export function runtimeArrayWithin(
 }
 
 /** How `t` holds its array with no size, for a message: `array<f32>, an array with no size,` or
- *  `S, whose field "xs" is array<f32>, an array with no size,`. */
+ *  `S, whose field "xs" is array<f32>, an array with no size,`, each type spelled as the author
+ *  writes it (Rule 12.7). */
 function described(t: ShaderType, within: { array: ShaderType; field?: string }): string {
-  const own = t.kind === 'struct' ? t.name : typeKey(t);
+  const own = authorTypeText(t);
   return within.field === undefined
-    ? `${typeKey(within.array)}, ${WHY}`
-    : `${own}, whose field "${within.field}" is ${typeKey(within.array)}, ${WHY}`;
+    ? `${authorTypeText(within.array)}, ${WHY}`
+    : `${own}, whose field "${within.field}" is ${authorTypeText(within.array)}, ${WHY}`;
 }
 
 const WHY =
@@ -63,7 +64,7 @@ export function refuseRuntimeArraySignature(
   if (within === undefined) return false;
   const message =
     what.kind === 'parameter'
-      ? `Parameter "${what.name}" is ${described(t, within)}. Give it a size, array<${typeKey(elemOf(within.array))}, N>, or read the binding by its name inside the function instead.`
+      ? `Parameter "${what.name}" is ${described(t, within)}. Give it a size, array<${authorTypeText(elemOf(within.array))}, N>, or read the binding by its name inside the function instead.`
       : `This function returns ${described(t, within)}. Read the binding by its name where the value is needed.`;
   push(diagnostics, sourceFile, node, message, TS_CODES.FUNCTION_SHAPE);
   return true;
@@ -89,7 +90,7 @@ export function refuseRuntimeArrayLocal(
   if (within === undefined) return false;
   const message =
     from === undefined
-      ? `"${name}" would be ${described(t, within)}. Give the array a size: array<${typeKey(elemOf(within.array))}, ${count ?? 'N'}>.`
+      ? `"${name}" would be ${described(t, within)}. Give the array a size: array<${authorTypeText(elemOf(within.array))}, ${count ?? 'N'}>.`
       : `"${name}" would copy "${from}", which is ${described(t, within)}. Read "${from}" by its name instead.`;
   push(diagnostics, sourceFile, node, message, TS_CODES.UNSUPPORTED);
   return true;

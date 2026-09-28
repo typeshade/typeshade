@@ -1,7 +1,7 @@
 // Implements: Rule 6.2, the remedy a read-only resource names (docs/language-design.md; traced in reqs/).
 // === Lowering context / symbol table ===
 
-import type ts from 'typescript';
+import ts from 'typescript';
 import type { ShaderType } from '../../core/ir/types.js';
 import { CAS_RESULT_STRUCTS, typeKey } from '../../core/ir/types.js';
 import { authorTypeName } from './type-map.js';
@@ -222,6 +222,23 @@ export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
 export const refusedDeclarationsOf = (callees: Map<string, FuncDecl>): Set<string> =>
   fileFunctionsOf(callees).refused;
 
+/** The module-scope names of a file whose declaration was refused before any function existed:
+ *  a module constant, a module variable, a static field or an enum member whose initializer calls
+ *  a function or builds a class the file declares. Every function's scope takes them as refused
+ *  declarations, so a use of one adds nothing to the sentence its declaration got (Rule 12.4). */
+const REFUSED_MODULE_NAMES = new WeakMap<ts.SourceFile, Set<string>>();
+
+/** Records `name`, as the module emits it (`K`, `S_K`, `E_A`), as refused in `sourceFile`. */
+export function refuseModuleName(sourceFile: ts.SourceFile, name: string): void {
+  const names = REFUSED_MODULE_NAMES.get(sourceFile) ?? new Set<string>();
+  names.add(name);
+  REFUSED_MODULE_NAMES.set(sourceFile, names);
+}
+
+/** The names {@link refuseModuleName} recorded for `sourceFile`. */
+export const refusedModuleNames = (sourceFile: ts.SourceFile): ReadonlySet<string> =>
+  REFUSED_MODULE_NAMES.get(sourceFile) ?? new Set();
+
 /** What a name in scope refers to.
  *
  *  `module` and `binding` were one kind until #14, and conflating them is what broke stage
@@ -263,25 +280,126 @@ export function readOnlyPhrase(kind: BindingKind): string {
   }
 }
 
-/** How a refusal spells a binding's value type back to the author. {@link typeKey} is the
- *  COMPILER's key and is NOT a spelling: it writes a struct as `struct:Params`, an array with
- *  no space after the comma, and a vector or a non-square matrix with a type argument the
- *  ambient library does not declare (`vec4<f32>`, `mat2x3<f32>`). A remedy quoting any of
- *  those goes red the moment the author pastes it — measured, `declare const a:
- *  storage<array<vec4<f32>>, "read_write">` is TS2315 "Type 'vec4' is not generic" in the
- *  editor while the compiler is clean.
+/** A struct the module emits under a name the author did not write, and what they wrote: a
+ *  class inside a namespace is emitted `N_P` and written `N.P` (#107), an instance of a generic
+ *  class is emitted `Slot_f32` and written `Slot<f32>` (T9, #92). The emitted name is one the
+ *  editor does not know (TS2304 "Cannot find name 'N_P'"), so a message that printed it named
+ *  a type the author cannot find. */
+interface WrittenStruct {
+  /** The class's name behind the namespaces that hold it, dotted: `N.P`. */
+  readonly name: string;
+  /** What its type parameters are bound to, in the order it declares them; empty for a class
+   *  that is not generic. */
+  readonly args: readonly ShaderType[];
+  /** The name the class's statics are emitted under, which no type argument reaches: `N_P`,
+   *  `Slot` for the struct `Slot_f32`. */
+  readonly base: string;
+}
+
+/** The written form of each struct of the module being compiled whose emitted name is not what
+ *  the author wrote. Dynamically scoped, for the reason `generics.ts` binds type arguments that
+ *  way: every message that names a type reaches {@link authorTypeText} many frames below the
+ *  compile that collected the structs, and threading the table down would touch every lowering
+ *  signature. {@link withWrittenStructs} restores what it found. */
+let WRITTEN_STRUCTS: ReadonlyMap<string, WrittenStruct> | undefined;
+
+/** Run `f`, one compile, with no struct's written form in force until {@link useWrittenStructs}
+ *  binds the ones it collects, and restore whatever was in force before. */
+export function withWrittenStructs<R>(f: () => R): R {
+  const saved = WRITTEN_STRUCTS;
+  WRITTEN_STRUCTS = undefined;
+  try {
+    return f();
+  } finally {
+    WRITTEN_STRUCTS = saved;
+  }
+}
+
+/** What {@link useWrittenStructs} reads a struct's written form off: the name it is emitted
+ *  under, the class declaration it comes from, and what that class's type parameters are bound
+ *  to. A `CollectedStruct` is one. */
+export interface StructOrigin {
+  readonly decl: { readonly name: string };
+  readonly classNode?: ts.ClassDeclaration;
+  readonly binding?: ReadonlyMap<string, ShaderType>;
+}
+
+/** Binds the written form of every class in `structs` whose emitted name differs from it, for
+ *  the rest of the compile {@link withWrittenStructs} is running. Read off the declaration the
+ *  struct was collected from, not off its emitted name, which cannot be split back: a
+ *  top-level class may be called `N_P` itself. */
+export function useWrittenStructs(structs: readonly StructOrigin[]): void {
+  const written = new Map<string, WrittenStruct>();
+  for (const s of structs) {
+    const node = s.classNode;
+    if (node?.name === undefined) continue;
+    const path = [node.name.text];
+    for (let at: ts.Node = node.parent; !ts.isSourceFile(at); at = at.parent) {
+      if (ts.isModuleDeclaration(at)) path.unshift(at.name.text);
+    }
+    const args = (node.typeParameters ?? []).flatMap((p) => s.binding?.get(p.name.text) ?? []);
+    const name = path.join('.');
+    if (name !== s.decl.name || args.length > 0) {
+      written.set(s.decl.name, { name, args, base: path.join('_') });
+    }
+  }
+  WRITTEN_STRUCTS = written;
+}
+
+/** The class the struct `name` is emitted from, for a sentence about one of its statics: as the
+ *  author names it with no type arguments (`N.P`, `Slot` for the struct `Slot_f32`), the name
+ *  its statics are emitted under (`N_P`, `Slot`), and whether a namespace holds it. A class
+ *  written as it is emitted is its own struct's name. */
+export function classOfStruct(name: string): {
+  readonly written: string;
+  readonly base: string;
+  readonly inNamespace: boolean;
+} {
+  const w = WRITTEN_STRUCTS?.get(name);
+  if (w === undefined) return { written: name, base: name, inNamespace: false };
+  return { written: w.name, base: w.base, inNamespace: w.name.includes('.') };
+}
+
+/** How a diagnostic spells a type back to the author (Rule 12.1, Rule 12.7): a message the front
+ *  end writes names the type of a value, a field, a parameter or a return through this, and a
+ *  class its sentence is about as a whole (`Struct "N.E" has no fields`, `"N.D" extends
+ *  "Missing"`), and so does the interstage check it runs from `src/core`. A sentence about one
+ *  member of a class names the member its own way (`class-methods.ts`), and so does one that
+ *  `new` says of the class it builds. {@link typeKey} is the COMPILER's key and is NOT a spelling: it
+ *  writes a struct as `struct:Params`, an array with no space after the comma, and a vector or a
+ *  non-square matrix with a type argument the ambient library does not declare (`vec4<f32>`,
+ *  `mat2x3<f32>`). A remedy quoting any of those goes red the moment the author pastes it —
+ *  measured, `declare const a: storage<array<vec4<f32>>, "read_write">` is TS2315 "Type 'vec4' is
+ *  not generic" in the editor while the compiler is clean — and a message naming one names a type
+ *  the editor says does not exist.
  *
  *  So this spells the type in the SOURCE language, and every name it can produce comes from
  *  {@link authorTypeName}, the inverse of the very table `type-map.ts` parses a declaration
- *  with. A type spelled from its parts is composed here: a struct is its name, an array is
- *  `array<E>` or `array<E, N>` with a space after the comma, an atomic is `atomic<u32>`.
+ *  with. A type spelled from its parts is composed here: a struct is its name as written
+ *  ({@link useWrittenStructs}: `N.P`, `Slot<f32>`), an array is `array<E>` or `array<E, N>`
+ *  with a space after the comma, an atomic is `atomic<u32>`, a storage texture takes its
+ *  format and access as the string literals the author writes.
  *  `remedy-lines.test.ts` pastes every remedy back into its own program and is what keeps
  *  this honest.
  */
 export function authorTypeText(t: ShaderType): string {
   switch (t.kind) {
-    case 'struct':
+    case 'struct': {
+      const written = WRITTEN_STRUCTS?.get(t.name);
+      if (written !== undefined) {
+        return written.args.length > 0
+          ? `${written.name}<${written.args.map(authorTypeText).join(', ')}>`
+          : written.name;
+      }
+      // What `atomicCompareExchangeWeak` returns is a struct WGSL predeclares and no one
+      // writes; the ambient library declares the call to return this object type, and it is
+      // what the editor shows for it.
+      const cas = CAS_RESULT_STRUCTS.find((c) => c.name === t.name);
+      if (cas !== undefined) {
+        return `{ ${cas.fields.map((f) => `${f.name}: ${authorTypeText(f.type)}`).join('; ')} }`;
+      }
       return t.name;
+    }
     case 'array':
       return t.size !== undefined
         ? `array<${authorTypeText(t.elem)}, ${t.size}>`
@@ -290,11 +408,15 @@ export function authorTypeText(t: ShaderType): string {
     // name rather than a nested `ShaderType`, so it is composed here and not looked up.
     case 'atomic':
       return `atomic<${t.elem}>`;
+    case 'storage-texture': {
+      const name = t.dim === '2d-array' ? 'texture_storage_2d_array' : 'texture_storage_2d';
+      return `${name}<"${t.format}", "${t.access}">`;
+    }
     default:
       // A SQUARE `f64` matrix is the one shape with no row in the parse table (it goes through
       // the generic `matN<f64>` arm), and `typeKey` already writes what an author writes for
-      // it, `mat3x3<f64>`. Every other type without a name of its own is a handle, which is
-      // never a storage binding's value type.
+      // it, `mat3x3<f64>`. Every other type without a name of its own is a sampled or depth
+      // texture, a sampler or `void`, which `typeKey` writes as the author does.
       return authorTypeName(t) ?? typeKey(t);
   }
 }
@@ -347,6 +469,35 @@ export function recordRecoveredBinding(sourceFile: ts.SourceFile, name: string):
   else RECOVERED_BINDINGS.set(sourceFile, new Set([name]));
 }
 
+/** Whether `name`'s declared value type drew a refusal and was recovered: what the binding
+ *  holds is then a placeholder the mapper made (`storage<mat2x3<f64>>` holds a struct called
+ *  `mat2x3`), and a sentence about it would name a type the author never declared. */
+export function isRecoveredBinding(sourceFile: ts.SourceFile, name: string): boolean {
+  return RECOVERED_BINDINGS.get(sourceFile)?.has(name) ?? false;
+}
+
+/** How many reads and writes of a recovered binding the lowering has dropped without a word.
+ *  Only ever compared with itself, so it is never reset. */
+let recoveredUsesDropped = 0;
+
+/** Whether a read or a write of `binding` is dropped without a word, because its declared type
+ *  was refused and a sentence about the placeholder would name a type the author never wrote
+ *  (Rule 12.4); counts the drop. A body that dropped one did not lower, as a body whose own
+ *  statement was refused did not, and {@link recoveredUsesDroppedSoFar} is how the function
+ *  lowering tells: a function that says its return type in its body and never got to say it
+ *  would otherwise return `void` to its callers, `cannot assign void to f32`. */
+export function dropsRecoveredUse(sourceFile: ts.SourceFile, binding: Binding): boolean {
+  if (binding.kind !== 'binding' || !isRecoveredBinding(sourceFile, binding.name)) return false;
+  recoveredUsesDropped++;
+  return true;
+}
+
+/** The count {@link dropsRecoveredUse} keeps: a body lowered between two reads of it dropped a
+ *  use when they differ. */
+export function recoveredUsesDroppedSoFar(): number {
+  return recoveredUsesDropped;
+}
+
 /** The second sentence of a "cannot assign" refusal: the declaration that WOULD permit the
  *  write, or `''` where there is none. Design rule 6.2 puts a storage binding's access mode in
  *  its second type argument, so the remedy names the TYPE and never the declaration keyword.
@@ -361,7 +512,7 @@ export function recordRecoveredBinding(sourceFile: ts.SourceFile, name: string):
 export function writableRemedy(binding: Binding, sourceFile?: ts.SourceFile): string {
   if (binding.kind !== 'binding' || binding.space !== 'storage') return '';
   // Nothing to say about a type the compiler could not read: see {@link RECOVERED_BINDINGS}.
-  if (sourceFile && RECOVERED_BINDINGS.get(sourceFile)?.has(binding.name)) return '';
+  if (sourceFile && isRecoveredBinding(sourceFile, binding.name)) return '';
   const type = `storage<${authorTypeText(binding.type)}, \"read_write\">`;
   const args = sourceFile && CALL_FORM_BINDINGS.get(sourceFile)?.get(binding.name);
   const line =
@@ -480,7 +631,6 @@ export class LoweringScope {
   private readonly symbols: DeclaredSymbolSink | undefined;
   private loopDepth = 0;
   private atomicOperandDepth = 0;
-  private branchDepth = 0;
   private stage: 'vertex' | 'fragment' | 'compute' | undefined;
   private retType: ShaderType | undefined;
   private inferInto: FuncDecl | undefined;
@@ -621,21 +771,6 @@ export class LoweringScope {
 
   exitLoop(): void {
     this.loopDepth = Math.max(0, this.loopDepth - 1);
-  }
-
-  /** Raised while an `if` arm, an `else`, or a `switch` case body is lowered: the positions a
-   *  barrier may not stand in (§25). A loop body is not one; a `for` with a constant bound is
-   *  uniform control flow. */
-  enterBranch(): void {
-    this.branchDepth++;
-  }
-
-  exitBranch(): void {
-    this.branchDepth = Math.max(0, this.branchDepth - 1);
-  }
-
-  inBranch(): boolean {
-    return this.branchDepth > 0;
   }
 
   /** The stage of the entry whose body is being lowered, `undefined` for a helper function
@@ -940,18 +1075,16 @@ export class LoweringScope {
    *  related. `want` is the type the place has, `got` the type of the value. */
   inheritanceNote(want: ShaderType, got: ShaderType): string {
     if (want.kind !== 'struct' || got.kind !== 'struct') return '';
+    const [w, g] = [authorTypeText(want), authorTypeText(got)];
     if (this.extendsStruct(got.name, want.name)) {
       return (
-        ` "${got.name}" extends "${want.name}", and a name typed as the base cannot hold a ` +
+        ` "${g}" extends "${w}", and a name typed as the base cannot hold a ` +
         `derived value here: method dispatch is static, so a call through it would run ` +
-        `"${want.name}"'s body. Write "${got.name}" as the type.`
+        `"${w}"'s body. Write "${g}" as the type.`
       );
     }
     if (this.extendsStruct(want.name, got.name)) {
-      return (
-        ` "${want.name}" extends "${got.name}", and a "${got.name}" has none of the fields ` +
-        `"${want.name}" adds.`
-      );
+      return ` "${w}" extends "${g}", and a "${g}" has none of the fields "${w}" adds.`;
     }
     return '';
   }
@@ -1116,12 +1249,23 @@ export class LoweringScope {
   /** An internal local the lowering needs and the source never named: the value a
    *  destructuring declaration reads from, lowered once (roadmap 0.3 item T7, #92). It takes an
    *  IR name no other local can take and binds no source name, so two of them in one block do
-   *  not collide with each other and neither collides with a name the program declares. Returns
-   *  the IR name to write into the statement. */
+   *  not collide with each other and neither collides with a name the program declares. Nor is
+   *  it the name of a function or a struct of the module: a loop's counter named `_w` hid the
+   *  author's `function _w` from the loop's body, and Tint refused the call to it. Returns the
+   *  IR name to write into the statement. */
   defineTemp(prefix: string, type: ShaderType, mutable = false): string {
-    const ir = this.allocIrName(prefix);
+    const ir = this.allocIrName(prefix, (n) => this.namesModuleDecl(n));
     this.byIr.set(ir, { kind: 'local', name: ir, type, mutable });
     return ir;
+  }
+
+  /** Whether the module emits a function or a struct as `name`. The module's constants,
+   *  bindings, overrides and variables are in {@link takenIr} already, defined in each
+   *  function's scope; these are not, since a source name reaches them by a call or a type. */
+  private namesModuleDecl(name: string): boolean {
+    if (this.structs.has(name) || this.callees.has(name)) return true;
+    for (const fn of this.callees.values()) if (fn.name === name) return true;
+    return false;
   }
 
   /** What an expression node stands for once a chain has run the calls before it (Rule 8.10):
@@ -1135,14 +1279,17 @@ export class LoweringScope {
     return this.chainAliases.get(node);
   }
 
-  private allocIrName(name: string): string {
-    if (!this.takenIr.has(name)) {
+  /** `name`, or the first of `name_1`, `name_2`, ... that no `define` has handed out and
+   *  `reserved` does not hold, marked taken. */
+  private allocIrName(name: string, reserved: (n: string) => boolean = () => false): string {
+    const free = (n: string): boolean => !this.takenIr.has(n) && !reserved(n);
+    if (free(name)) {
       this.takenIr.add(name);
       return name;
     }
     for (let n = 1; ; n++) {
       const candidate = `${name}_${n}`;
-      if (!this.takenIr.has(candidate)) {
+      if (free(candidate)) {
         this.takenIr.add(candidate);
         return candidate;
       }

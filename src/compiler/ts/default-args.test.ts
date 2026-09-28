@@ -243,9 +243,7 @@ export function fs(@location(0) uv: vec2 = vec2(0.)): vec4 {
           `  return vec4(f(1.), 0., 0., 1.)`,
         ),
       ),
-    ).toEqual([
-      `${TS_CODES.TYPE_MISMATCH} The default for "b" is f32, and the parameter is vec2<f32>.`,
-    ]);
+    ).toEqual([`${TS_CODES.TYPE_MISMATCH} The default for "b" is f32, and the parameter is vec2.`]);
   });
 
   it('a default that waits on itself', () => {

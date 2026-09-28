@@ -213,15 +213,16 @@ describe('what a list is refused for', () => {
   });
 
   it('rejects a spread, before counting the elements it cannot see', () => {
+    // One sentence naming the elements to write, and nothing after it: not the count, not a
+    // second refusal of the spread from semantic.ts, and not "xs" unknown where it is read
+    // (proposal 0008 §3, Rule 12.4).
     const r = compileTsSource(
       src('  const xs: array<f32, 2> = [...a];\n  return xs[0];', 'f32', 'a: array<f32, 2>'),
     );
-    expect(r.diagnostics.map((d) => d.message)).toContain(
-      'An array literal element must be a value; a spread or a hole is not supported.',
-    );
-    expect(r.diagnostics.map((d) => d.message)).not.toContain(
-      'array<f32, 2> takes 2 element(s), got 1.',
-    );
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      'TS8013 "...a" spreads a list into a list, which a shader array does not do: write its ' +
+        'elements, a[0], a[1].',
+    ]);
   });
 
   it('names the two spellings that do work when a list is written where no type is declared', () => {
@@ -267,7 +268,7 @@ describe('what a list is refused for', () => {
         src('  const xs: array<array<f32, 2>, 2> = [[1., 2.], [3., 4.]];\n  return xs[0][0];'),
       ),
     ).toBe(
-      'array<array<f32,2>, 2> is an array of arrays, which GLSL ES 3.00 does not have. ' +
+      'array<array<f32, 2>, 2> is an array of arrays, which GLSL ES 3.00 does not have. ' +
         'Flatten it: one array<f32, N> indexed by row * width + column.',
     );
     // A list where the element type does not take one says which type is wanted, rather than

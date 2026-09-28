@@ -27,7 +27,6 @@ import type {
   StructDecl,
 } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { typeKey } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
 import { GPU_STUBS } from '../../core/cpu-runtime.js';
@@ -50,6 +49,7 @@ import type { ConsoleLog } from '../../core/console.js';
 import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js';
 import { emittedStructDecls } from './structs.js';
 import { staticConstName } from './module-const.js';
+import { authorTypeText } from './context.js';
 
 /** How {@link hostFace} is called. */
 export interface HostFaceOptions {
@@ -214,7 +214,7 @@ export function hostTypeOf(
     case 'void':
       return { k: 'void', s: 'void' };
     default:
-      return { none: `a ${typeKey(t)} has no host value; ${GPU_HALF}` };
+      return { none: `a ${authorTypeText(t)} has no host value; ${GPU_HALF}` };
   }
 }
 
@@ -431,12 +431,15 @@ function layoutOf(
     case 'atomic':
       return { k: 's', t: t.elem };
     case 'vec':
-      if (t.elem === 'bool') return { none: `a ${typeKey(t)} is not host-shareable` };
+      if (t.elem === 'bool') return { none: `a ${authorTypeText(t)} is not host-shareable` };
       return { k: 'v', n: t.n, t: t.elem };
     case 'mat': {
-      if (t.elem === 'f64') return { none: `a ${typeKey(t)} waits for change 0013's f64 split` };
+      if (t.elem === 'f64')
+        return { none: `a ${authorTypeText(t)} waits for change 0013's f64 split` };
       if (kind === 'std140' && t.rows === 2)
-        return { none: `a ${typeKey(t)} in a uniform has no one layout both targets share` };
+        return {
+          none: `a ${authorTypeText(t)} in a uniform has no one layout both targets share`,
+        };
       return { k: 'm', c: t.cols, r: t.rows, cs: t.rows === 2 ? 8 : 16 };
     }
     case 'array': {
@@ -464,9 +467,11 @@ function layoutOf(
     }
     case 'f64':
     case 'vec64':
-      return { none: `an ${typeKey(t)} waits for change 0013's f64 split` };
+      return {
+        none: `${t.kind === 'f64' ? 'an' : 'a'} ${authorTypeText(t)} waits for change 0013's f64 split`,
+      };
     default:
-      return { none: `a ${typeKey(t)} has no host value` };
+      return { none: `a ${authorTypeText(t)} has no host value` };
   }
 }
 
@@ -476,7 +481,7 @@ function spell(t: ShaderType): string {
   if (t.kind === 'array')
     return t.size === undefined ? `array<${spell(t.elem)}>` : `array<${spell(t.elem)}, ${t.size}>`;
   if (t.kind === 'atomic') return `atomic<${t.elem}>`;
-  return typeKey(t);
+  return authorTypeText(t);
 }
 
 const TYPED_NAME = { f32: 'Float32Array', i32: 'Int32Array', u32: 'Uint32Array' } as const;
@@ -1278,7 +1283,16 @@ const RT = '__ts_rt';
 const MOD = '__ts_m';
 
 /** The JavaScript a bundler reads for the import: the CPU tier's code as module code, with no
- *  `new Function`, and one checking wrapper per callable export. */
+ *  `new Function`, and one checking wrapper per callable export.
+ *
+ *  No name the file declares is bound here. An export is bound under a name of the generator's
+ *  own, `__ts_x0`, and exported under the file's (`export { __ts_x0 as Object }`), and a
+ *  wrapper's parameters are `__ts_p0` and on: a name the file declares is the file's whatever it
+ *  spells (Rule 2.1), and bound at the top of this module it would shadow a global the code
+ *  here reads, `Object.freeze` for an enum, and `Math`, `Array`, `NaN`, `Infinity` and
+ *  `undefined` in the CPU tier's code, so one export named `Object` left the module unable to
+ *  load. A name the author cannot write, one that begins with `__` (Rule 3.2), cannot meet
+ *  these. */
 function moduleText(
   stem: string,
   exports: readonly HostExport[],
@@ -1305,6 +1319,20 @@ function moduleText(
     out.push(`const __ts_wgsl = ${q(wgsl)};`);
   if (log !== undefined) out.push(`const __ts_console = ${JSON.stringify(log)};`);
   let t = 0;
+  // Each export's own binding, and the name the file exports it under.
+  const bound: string[] = [];
+  const bind = (name: string): string => {
+    const id = `__ts_x${bound.length}`;
+    bound.push(`${id} as ${name}`);
+    return id;
+  };
+  // A callable export is a method of an object literal, read off it, so it keeps the file's
+  // name as its own (`m.Object.name` is "Object") with no binding of that name here.
+  const callable = (name: string, params: readonly string[], body: readonly string[]): string[] => [
+    `const ${bind(name)} = { ${q(name)}(${params.join(', ')}) {`,
+    ...body.map((line) => `  ${line}`),
+    `} }[${q(name)}];`,
+  ];
   for (const e of exports) {
     switch (e.kind) {
       case 'function': {
@@ -1315,29 +1343,29 @@ function moduleText(
         });
         const ret = `__ts_t${t++}`;
         out.push(`const ${ret} = ${JSON.stringify(e.result)};`);
-        const ps = e.params.map((p) => p.name);
+        const ps = e.params.map((_, i) => `__ts_p${i}`);
         const args = e.params.map(
-          (p, i) => `${RT}.toShader(${q(e.name)}, ${q(p.name)}, ${types[i]}, ${p.name})`,
+          (p, i) => `${RT}.toShader(${q(e.name)}, ${q(p.name)}, ${types[i]}, ${ps[i]})`,
         );
         out.push(
-          `export function ${e.name}(${ps.join(', ')}) {`,
-          `  ${RT}.arity(${q(e.name)}, ${ps.length}, arguments.length);`,
-          ...(args.length > 0 ? [`  const __ts_a = [${args.join(', ')}];`] : []),
-          ...(hasPrivates ? [`  ${MOD}.F.$initPrivates();`] : []),
-          `  return ${RT}.fromShader(${ret}, ${MOD}.F[${q(e.fn)}](${args.length > 0 ? '...__ts_a' : ''}));`,
-          `}`,
+          ...callable(e.name, ps, [
+            `${RT}.arity(${q(e.name)}, ${ps.length}, arguments.length);`,
+            ...(args.length > 0 ? [`const __ts_a = [${args.join(', ')}];`] : []),
+            ...(hasPrivates ? [`${MOD}.F.$initPrivates();`] : []),
+            `return ${RT}.fromShader(${ret}, ${MOD}.F[${q(e.fn)}](${args.length > 0 ? '...__ts_a' : ''}));`,
+          ]),
         );
         break;
       }
       case 'const':
         out.push(
-          `export const ${e.name} = ${RT}.constantOf(${JSON.stringify(e.type)}, ${MOD}.C[${q(e.const)}]);`,
+          `const ${bind(e.name)} = ${RT}.constantOf(${JSON.stringify(e.type)}, ${MOD}.C[${q(e.const)}]);`,
         );
         break;
       case 'enum': {
         const fwd = e.members.map(([n, v]) => `${q(n)}: ${v}`);
         const back = e.members.map(([n, v]) => `${q(String(v))}: ${q(n)}`);
-        out.push(`export const ${e.name} = Object.freeze({ ${[...fwd, ...back].join(', ')} });`);
+        out.push(`const ${bind(e.name)} = Object.freeze({ ${[...fwd, ...back].join(', ')} });`);
         break;
       }
       case 'struct':
@@ -1346,20 +1374,22 @@ function moduleText(
         const id = `__ts_e${t++}`;
         out.push(
           `const ${id} = { ...${JSON.stringify(e.entry)}, wgsl: __ts_wgsl${e.entry.console === true ? ', log: __ts_console' : ''} };`,
-          `export function ${e.name}(bindings, workgroups) {`,
-          `  return ${RT}.callCompute(${MOD}, ${id}, arguments.length, bindings, workgroups);`,
-          `}`,
+          ...callable(
+            e.name,
+            ['bindings', 'workgroups'],
+            [`return ${RT}.callCompute(${MOD}, ${id}, arguments.length, bindings, workgroups);`],
+          ),
         );
         break;
       }
       case 'kernel': {
         const id = `__ts_e${t++}`;
-        const ps = e.face.params.map((p) => p.name);
+        const ps = e.face.params.map((_, i) => `__ts_p${i}`);
         out.push(
           `const ${id} = ${JSON.stringify(e.face)};`,
-          `export function ${e.name}(${ps.join(', ')}) {`,
-          `  return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}]);`,
-          `}`,
+          ...callable(e.name, ps, [
+            `return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}]);`,
+          ]),
         );
         break;
       }
@@ -1367,9 +1397,11 @@ function moduleText(
         const id = `__ts_e${t++}`;
         out.push(
           `const ${id} = { ...${JSON.stringify(e.entry)}, wgsl: __ts_wgsl${e.entry.console === true ? ', log: __ts_console' : ''} };`,
-          `export function ${e.name}(target, bindings) {`,
-          `  return ${RT}.callDraw(${MOD}, ${id}, arguments.length, target, bindings);`,
-          `}`,
+          ...callable(
+            e.name,
+            ['target', 'bindings'],
+            [`return ${RT}.callDraw(${MOD}, ${id}, arguments.length, target, bindings);`],
+          ),
         );
         break;
       }
@@ -1377,10 +1409,11 @@ function moduleText(
         if (e.typeOnly) break;
         if (e.name === 'default')
           out.push(`export default ${RT}.notCallable("default", ${q(e.reason)});`);
-        else out.push(`export const ${e.name} = ${RT}.notCallable(${q(e.name)}, ${q(e.reason)});`);
+        else out.push(`const ${bind(e.name)} = ${RT}.notCallable(${q(e.name)}, ${q(e.reason)});`);
         break;
     }
   }
+  if (bound.length > 0) out.push(`export { ${bound.join(', ')} };`);
   return `${out.join('\n')}\n`;
 }
 

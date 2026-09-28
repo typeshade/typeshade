@@ -104,7 +104,7 @@ describe('a seed the compiler refuses', () => {
   it('a vec4 seed is the shape a required brand gives: TypeScript speaks too', () => {
     const verdict = measure(seeded('vec4'));
     expect(verdict.compiler).toEqual([
-      'TS8003 random(seed) seed must be f32, vec2, or vec3; got vec4<f32>.',
+      'TS8003 random(seed) seed must be f32, vec2, or vec3; got vec4.',
     ]);
     expect(verdict.typescript.map((d) => d.split(' ')[0])).toEqual(['TS2345']);
     expect(verdict.typescript[0]).toContain(
@@ -113,7 +113,7 @@ describe('a seed the compiler refuses', () => {
     // One mistake, one diagnostic in the editor (Rule 12.4): the compiler's sentence, which
     // names the three types a seed may have in the surface's own words.
     expect(verdict.editor).toEqual([
-      'typeshade TS8003 random(seed) seed must be f32, vec2, or vec3; got vec4<f32>.',
+      'typeshade TS8003 random(seed) seed must be f32, vec2, or vec3; got vec4.',
     ]);
     expect(verdict.emits).toBe(false);
   });

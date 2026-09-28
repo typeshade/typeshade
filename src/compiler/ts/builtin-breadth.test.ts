@@ -436,10 +436,10 @@ export function fs(@location(0) uv: vec2): vec4 {
 
   it('refuses the wrong shape, naming the one overload each has', () => {
     expect(errorsOf(FS('  return vec4(f32(pack4x8unorm(uv)), 0., 0., 1.)'))).toEqual([
-      'TS8003 pack4x8unorm takes a vec4<f32>; got vec2<f32>. WGSL gives it one overload, and GLSL ES 3.00 the same.',
+      'TS8003 pack4x8unorm takes a vec4; got vec2. WGSL gives it one overload, and GLSL ES 3.00 the same.',
     ]);
     expect(errorsOf(FS('  return unpack2x16float(uv)'))).toEqual([
-      'TS8003 unpack2x16float takes a u32; got vec2<f32>. WGSL gives it one overload, and GLSL ES 3.00 the same.',
+      'TS8003 unpack2x16float takes a u32; got vec2. WGSL gives it one overload, and GLSL ES 3.00 the same.',
     ]);
     expect(errorsOf(FS('  return vec4(f32(quantizeToF16(u.k)), 0., 0., 1.)'))).toEqual([
       'TS8003 quantizeToF16 takes an f32 or a vector of them; got u32.',

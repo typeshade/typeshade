@@ -9,6 +9,8 @@ import { isF64, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
+  authorTypeText,
+  dropsRecoveredUse,
   irNameOf,
   readOnlyPhrase,
   writableRemedy,
@@ -17,10 +19,11 @@ import {
 } from '../context.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { parseSwizzle } from '../swizzle.js';
-import { staticThisClass } from '../class-names.js';
+import { emittedMemberName, staticThisClass } from '../class-names.js';
 import { refuseAtomicDeclaration } from './atomics.js';
 import { refuseRuntimeArrayLocal, runtimeArrayWithin } from './runtime-array.js';
 import { lowerBarrierStatement } from './barriers.js';
+import { refuseOperatorKind } from './operator-kinds.js';
 import { classFunctionOf, lowerMutatingCall } from './class-methods.js';
 import { lowerChainPrelude } from './chains.js';
 import {
@@ -59,8 +62,9 @@ import {
 } from '../lit-coerce.js';
 import { lowerExpression, unknownIdentifierSentence } from './expression.js';
 import { lowerCall } from './expression-call.js';
-import { lowerArrayLiteral } from './expression-array.js';
+import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
 import { lowerFor, lowerForOf, lowerSwitch, lowerUpdate, lowerWhile } from './control.js';
+import { refusedBySemantics } from '../semantic.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { foldNumericLit } from '../lit-coerce.js';
@@ -285,6 +289,9 @@ function lowerStatementKind(
     );
     return undefined;
   }
+  // `for…in`, `try` and `throw` are semantic.ts's refusals (TS8013), each with its reason, and
+  // one mistake reads as one diagnostic (Rule 12.4).
+  if (refusedBySemantics(node)) return undefined;
   pushDiag(
     diagnostics,
     sourceFile,
@@ -315,19 +322,9 @@ function lowerVariableStatement(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | Stmt[] | undefined {
-  const flags = node.declarationList.flags;
-  const isConst = (flags & ts.NodeFlags.Const) !== 0;
-  const isLet = (flags & ts.NodeFlags.Let) !== 0;
-  if (!isConst && !isLet) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'Use "const" or "let". The JS "var" keyword is not supported.',
-      TS_CODES.UNSUPPORTED,
-    );
-    return undefined;
-  }
+  // A `var` is semantic.ts's refusal (TS8013), and is lowered as the `let` it would have been,
+  // so the names it declares stay bound and their uses say nothing more (Rule 12.4).
+  const isConst = (node.declarationList.flags & ts.NodeFlags.Const) !== 0;
   // One declarator is the overwhelmingly common case, and there the statement IS the
   // declaration: stamping the declarator alone gives a span starting after the `const`/`let`
   // keyword, so a breakpoint on that line points mid-statement. Several declarators genuinely
@@ -405,6 +402,31 @@ function builtThisType(
     : annotated;
 }
 
+/** Whether a `var` declares a name its function already bound as a parameter or by an earlier
+ *  `var`, which JavaScript reads as the one variable, where a `let` of it would be refused. */
+function redeclaresVar(decl: ts.VariableDeclaration, name: string): boolean {
+  const fn = ts.findAncestor(decl.parent, ts.isFunctionLike);
+  if (fn === undefined) return false;
+  if (fn.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === name)) return true;
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found || node.pos >= decl.pos || ts.isFunctionLike(node) || ts.isClassLike(node)) return;
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === name &&
+      ts.isVariableDeclarationList(node.parent) &&
+      (node.parent.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(fn, visit);
+  return found;
+}
+
 function lowerDeclarationKind(
   decl: ts.VariableDeclaration,
   isConst: boolean,
@@ -430,7 +452,16 @@ function lowerDeclarationKind(
     return undefined;
   }
   const name = decl.name.text;
+  // A `var` is lowered as the `let` it would have been (semantic.ts refused it), and quoted as
+  // the author wrote it; the remedies name `let`.
+  const isVar =
+    ts.isVariableDeclarationList(decl.parent) &&
+    (decl.parent.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0;
+  const written = isConst ? 'const' : isVar ? 'var' : 'let';
   if (scope.hasInCurrent(name)) {
+    // JavaScript lets a `var` declare a name its function has already bound, a parameter or an
+    // earlier `var`, as the same variable; the one mistake is the `var` (Rule 12.4).
+    if (isVar && redeclaresVar(decl, name)) return undefined;
     pushDiag(
       diagnostics,
       sourceFile,
@@ -476,7 +507,8 @@ function lowerDeclarationKind(
         diagnostics,
         sourceFile,
         decl,
-        `"let ${name}" without an initializer needs a type annotation, e.g. let ${name}: f32;`,
+        `"${written} ${name}" without an initializer needs a type annotation, e.g. let ` +
+          `${name}: f32;`,
         TS_CODES.UNSUPPORTED,
       );
       return undefined;
@@ -507,13 +539,16 @@ function lowerDeclarationKind(
   // literal to take its type, and everything else ignores it.
   let init: Expr | undefined;
   if (ts.isArrayLiteralExpression(decl.initializer)) {
+    // A spread is the list's one mistake, said before the annotation it would otherwise be
+    // asked for; the name's uses then say nothing more (refused-names.ts, Rule 12.4).
+    if (refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)) return undefined;
     if (!annotated) {
       const kw = isConst ? 'const' : 'let';
       pushDiag(
         diagnostics,
         sourceFile,
         decl,
-        `"${kw} ${name}" needs an array type annotation to take a list, e.g. ${kw} ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
+        `"${written} ${name}" needs an array type annotation to take a list, e.g. ${kw} ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
         TS_CODES.UNKNOWN_TYPE,
       );
       return undefined;
@@ -962,7 +997,7 @@ function readField(
         diagnostics,
         sourceFile,
         at,
-        unknownNameSentence(`"${base.type.name}" has no field "${field}".`, field, [
+        unknownNameSentence(`"${authorTypeText(base.type)}" has no field "${field}".`, field, [
           publicFieldNames(base.type.name, scope),
         ]),
         TS_CODES.UNKNOWN_NAME,
@@ -1181,6 +1216,8 @@ function lowerExpressionAsStatement(
       return undefined;
     }
   }
+  // `yield x;`, `await x;` or a template string standing alone: semantic.ts's refusal.
+  if (refusedBySemantics(expr)) return undefined;
   pushDiag(
     diagnostics,
     sourceFile,
@@ -1222,7 +1259,7 @@ function lowerAssign(
       diagnostics,
       sourceFile,
       right,
-      numericMismatch(`assign to ${typeKey(want)}`, want, value.type),
+      numericMismatch('assign', want, value.type),
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -1285,7 +1322,7 @@ function lowerBitwiseAssignOpTo(
       diagnostics,
       sourceFile,
       left,
-      `Bitwise "${bop}=" needs an i32 or u32 target, got ${k}.`,
+      `Bitwise "${bop}=" needs an i32 or u32 target, got ${authorTypeText(target.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -1339,7 +1376,7 @@ function lowerBitwiseAssignOpTo(
       sourceFile,
       right,
       isShift
-        ? `Bitwise "${bop}=" needs an i32 or u32 shift amount, got ${typeKey(value.type)}.`
+        ? `Bitwise "${bop}=" needs an i32 or u32 shift amount, got ${authorTypeText(value.type)}.`
         : numericMismatch(`${bop}=`, target.type, value.type),
       TS_CODES.TYPE_MISMATCH,
     );
@@ -1421,8 +1458,8 @@ function lowerAssignOpTo(
     if (!broadcast || typeKey(broadcast) !== typeKey(target.type)) {
       const message =
         broadcast !== undefined
-          ? `Type mismatch: cannot ${bop}= ${typeKey(target.type)} and ${typeKey(value.type)}. ` +
-            `The result would be ${typeKey(broadcast)}, which does not fit the ${typeKey(target.type)} ` +
+          ? `Type mismatch: cannot ${bop}= ${authorTypeText(target.type)} and ${authorTypeText(value.type)}. ` +
+            `The result would be ${authorTypeText(broadcast)}, which does not fit the ${authorTypeText(target.type)} ` +
             `target; assign it to a vector, or reduce the vector to a scalar first.`
           : numericMismatch(`${bop}=`, target.type, value.type);
       pushDiag(diagnostics, sourceFile, right, message, TS_CODES.TYPE_MISMATCH);
@@ -1440,6 +1477,12 @@ function lowerAssignOpTo(
       };
     }
   }
+  // `a += b` is `a = a + b`, so WGSL's operator table decides it by kind as the binary form
+  // does: a struct, an array, a bool or a matrix of doubles as the target has no `+=`, and the
+  // equal-key check above let each through to Tint (Rule 7.1, lower/operator-kinds.ts).
+  if (refuseOperatorKind(bop, target.type, left, sourceFile, diagnostics, true)) {
+    return undefined;
+  }
   // `m *= n` is `m = m * n`, so WGSL's product rule decides it: `matKxR * matCxK -> matCxR`,
   // the left operand's columns against the right operand's rows. Two matrices of one
   // non-square shape have one type key, so the mismatch check above never saw the pair and
@@ -1451,7 +1494,7 @@ function lowerAssignOpTo(
         diagnostics,
         sourceFile,
         right,
-        `Type mismatch: cannot *= ${typeKey(target.type)} and ${typeKey(value.type)}. WGSL's ` +
+        `Type mismatch: cannot *= ${authorTypeText(target.type)} and ${authorTypeText(value.type)}. WGSL's ` +
           `matrix product is matKxR * matCxK -> matCxR: the target's ` +
           `${String(target.type.cols)} columns must meet the right operand's ` +
           `${String(value.type.rows)} rows, and the product must keep the target's own shape.`,
@@ -1469,7 +1512,7 @@ function lowerAssignOpTo(
       diagnostics,
       sourceFile,
       right,
-      `Cannot ${bop}= ${typeKey(target.type)}: a matrix has + - and * on both targets and no ` +
+      `Cannot ${bop}= ${authorTypeText(target.type)}: a matrix has + - and * on both targets and no ` +
         `${bop}. Divide the columns, or multiply by the inverse you computed.`,
       TS_CODES.TYPE_MISMATCH,
     );
@@ -1485,7 +1528,7 @@ function lowerAssignOpTo(
       diagnostics,
       sourceFile,
       right,
-      `Cannot %= ${typeKey(target.type)}: the emulated double has no remainder — the fp64 ` +
+      `Cannot %= ${authorTypeText(target.type)}: the emulated double has no remainder — the fp64 ` +
         `pass has a df64 body for + - * / and the comparisons only.`,
       TS_CODES.TYPE_MISMATCH,
     );
@@ -1584,6 +1627,8 @@ export function lowerLValue(
     return undefined;
   }
   const binding = scope.resolve(node.text);
+  // A declaration refused where it is written said why there (Rule 12.4).
+  if (!binding && scope.declarationRefused(node.text)) return undefined;
   if (!binding) {
     // A refused declaration already said why the name is unbound (Rule 12.4, #171).
     if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined;
@@ -1625,6 +1670,9 @@ export function lowerLValue(
     refuseParamWrite(node, node.text, sourceFile, diagnostics);
     return undefined;
   }
+  // A write to a binding whose declared type was refused says nothing more, as a read of it
+  // does (`lowerIdentifier`, Rule 12.4): its type is the mapper's placeholder, not one written.
+  if (dropsRecoveredUse(sourceFile, binding)) return undefined;
   binding.capture?.byRef();
   return withSpan(
     {
@@ -1662,6 +1710,7 @@ function staticRootOf(
 ):
   | { binding: Binding; owner: string; written: string; whole: boolean }
   | { refused: string }
+  | { said: true }
   | undefined {
   const target = unwrapParens(node);
   let at = target;
@@ -1673,6 +1722,11 @@ function staticRootOf(
         // `whole`: the write is to the static itself, not into what it holds.
         if (binding !== undefined) {
           return { binding, owner, written: at.name.text, whole: at === target && !into };
+        }
+        // A static field whose initializer was refused said why there, and a write of it adds
+        // nothing (Rule 12.4).
+        if (scope.declarationRefused(`${owner}_${emittedMemberName(at.name.text)}`)) {
+          return { said: true };
         }
         // `this.#n += 1.` in a static body a class inherits, `#n` being the declaring class's.
         const refused = inheritedPrivateStaticField(owner, at.name.text, scope, sourceFile);
@@ -1748,6 +1802,7 @@ function checkRootNamed(
   // A chain rooted in a static field, `C.v.x` or `this.v.x` in a static member: the static is
   // the root that has to take the write (Rule 8.13).
   const statik = staticRootOf(node, scope, sourceFile, into);
+  if (statik !== undefined && 'said' in statik) return false;
   if (statik !== undefined && 'refused' in statik) {
     pushDiag(diagnostics, sourceFile, node, statik.refused, TS_CODES.CLASS_MEMBER);
     return false;
@@ -1773,6 +1828,8 @@ function checkRootNamed(
     return false;
   }
   const binding = scope.resolve(rootName);
+  // A declaration refused where it is written said why there (Rule 12.4).
+  if (!binding && scope.declarationRefused(rootName)) return false;
   if (!binding) {
     // A refused declaration already said why the root is unbound (Rule 12.4, #171).
     if (rootName !== 'this' && unknownNameAlreadyReported(node, rootName, sourceFile, diagnostics))
@@ -1901,7 +1958,7 @@ function refuseVec64LaneWrite(
     diagnostics,
     sourceFile,
     node,
-    `Cannot assign to ${what} of a ${typeKey(base)}: an emulated-double vector is a pair of ` +
+    `Cannot assign to ${what} of a ${authorTypeText(base)}: an emulated-double vector is a pair of ` +
       `hi/lo planes after lowering, so a lane of it is a read, not a place. Rebuild the ` +
       `vector instead, e.g. v = vec${(base as { n: number }).n}f64(x, …).`,
     TS_CODES.ASSIGN_TARGET,
@@ -1955,7 +2012,7 @@ function lowerMemberLValue(
       sourceFile,
       node,
       `Cannot assign to the swizzle ".${target.field}" — WGSL writes one component at a time. ` +
-        `Assign each component (e.g. v.x = …; v.y = …), or build a whole ${typeKey(base)} and assign that.`,
+        `Assign each component (e.g. v.x = …; v.y = …), or build a whole ${authorTypeText(base)} and assign that.`,
       TS_CODES.ASSIGN_TARGET,
     );
     return undefined;
@@ -1983,7 +2040,7 @@ function lowerIf(
       diagnostics,
       sourceFile,
       node.expression,
-      `if condition must be bool, got ${typeKey(cond.type)}.`,
+      `if condition must be bool, got ${authorTypeText(cond.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -2011,19 +2068,14 @@ function lowerBranch(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt[] {
-  scope.enterBranch();
+  if (ts.isBlock(node)) return lowerBlock(node, sourceFile, scope, diagnostics);
+  scope.push();
   try {
-    if (ts.isBlock(node)) return lowerBlock(node, sourceFile, scope, diagnostics);
-    scope.push();
-    try {
-      const one = lowerStatement(node, sourceFile, scope, diagnostics);
-      if (!one) return [];
-      return Array.isArray(one) ? one : [one];
-    } finally {
-      scope.pop();
-    }
+    const one = lowerStatement(node, sourceFile, scope, diagnostics);
+    if (!one) return [];
+    return Array.isArray(one) ? one : [one];
   } finally {
-    scope.exitBranch();
+    scope.pop();
   }
 }
 

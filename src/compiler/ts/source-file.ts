@@ -5,18 +5,21 @@ import type {
   BindingDecl,
   ConstDecl,
   DeclarableCapability,
+  Expr,
   FuncDecl,
   DiagnosticDirective,
   ModuleDecl,
   ModuleVarDecl,
   OverrideDecl,
 } from '../../core/ir/nodes.js';
+import { stageOf } from '../../core/ir/nodes.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
 import { lowerSourceFunctions } from './lower/function.js';
 import { sequenceEffects } from './sequence.js';
-import { analyzeSemantics } from './semantic.js';
+import { analyzeSemantics, reportUndeclaredValues } from './semantic.js';
+import { reportImportedNews } from './lower/new-target.js';
 import { collectModuleConsts } from './module-const.js';
 import { collectBindings } from './bindings.js';
 import { collectOverrides } from './overrides.js';
@@ -29,6 +32,7 @@ import { TS_CODES } from './codes.js';
 import {
   backendDiagnostic,
   diagnosticAtSpan,
+  dropRepeatedDiagnostics,
   makeDiagnostic,
   syntaxDiagnostics,
 } from './diagnostic.js';
@@ -40,6 +44,7 @@ import {
 } from './diagnostic-directive.js';
 import { uniformityViolations, type UniformityViolation } from '../../core/passes/uniformity.js';
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js';
+import { authorTypeText, withWrittenStructs } from './context.js';
 
 /** Options controlling compilation of a TypeShade TypeScript source string. */
 export interface CompileTsSourceOptions {
@@ -162,6 +167,12 @@ export function compileTsSource(
   source: string,
   options: CompileTsSourceOptions = {},
 ): CompileTsSourceResult {
+  // A message names a struct as the author wrote it, `N.P` and `Slot<f32>`, for this compile's
+  // structs and no other's (see `useWrittenStructs`).
+  return withWrittenStructs(() => compileOneSource(source, options));
+}
+
+function compileOneSource(source: string, options: CompileTsSourceOptions): CompileTsSourceResult {
   const sourceFile =
     options.sourceFile ??
     ts.createSourceFile(
@@ -218,6 +229,8 @@ export function compileTsSource(
   reportMisplacedDirective(sourceFile, directive, diagnostics);
   openExpressionTable(sourceFile);
   analyzeSemantics(sourceFile, diagnostics);
+  // A file compiled on its own sees no file it imports from, and says so of a `new` on an import.
+  reportImportedNews(sourceFile, undefined, diagnostics);
   // Opt-in, and additive: warnings only, no emitted byte moves (§13, #148).
   if (options.deprecations === true) reportIntegerLiteralDeprecations(sourceFile, diagnostics);
   // The file's `"enable <extension>";` directives (§50), before anything that could emit.
@@ -269,7 +282,7 @@ export function compileTsSource(
   // A call that writes, inside a larger expression, in the order the source evaluates it
   // (Rule 7.9, §26). After every function is lowered, since what a helper writes is read off its
   // body, and before anything reads the bodies, so every backend runs the one order.
-  sequenceEffects(
+  const builtIfs = sequenceEffects(
     {
       consts: [...consts],
       structs: emittedStructDecls(structs),
@@ -286,7 +299,7 @@ export function compileTsSource(
   // CORE lint rule answers the same question on the IR, so every authoring surface is covered
   // at every emit; this runs the same function here because it can point at the fragment
   // declaration the author wrote, and a backend throw cannot.
-  for (const m of interstageMismatches(emittedStructDecls(structs), funcs)) {
+  for (const m of interstageMismatches(emittedStructDecls(structs), funcs, authorTypeText)) {
     diagnostics.push(
       makeDiagnostic(
         sourceFile,
@@ -314,7 +327,20 @@ export function compileTsSource(
     // `derivative_uniformity` and is not filterable, measured on Tint with the directive in
     // the module. `off` drops the derivative rows, `info` and `warning` demote them.
     const severity = derivativeUniformitySeverity(directives);
-    for (const v of uniformityViolations(shaped)) {
+    const calleeText = calleesAsWritten(sourceFile, funcs);
+    // `@diagnostic` is read off any top-level function (`collectDiagnosticDirectives`), and a
+    // namespace's entry refuses the attribute (`TS8028`). So the sentence offers it on the entry
+    // when every entry is top-level, on a top-level function when one is not and the file has
+    // one, and not at all when it has none.
+    const namespaceEntry = funcs.some(
+      (f) => stageOf(f) !== undefined && entryDeclaration(sourceFile, f.name) === undefined,
+    );
+    const directivePlace = !namespaceEntry
+      ? 'the entry'
+      : sourceFile.statements.some((st) => ts.isFunctionDeclaration(st) && st.body !== undefined)
+        ? 'a top-level function'
+        : undefined;
+    for (const v of uniformityViolations(shaped, { builtIfs, calleeText })) {
       if (v.kind === 'derivative' && severity === 'off') continue;
       const category =
         v.kind === 'derivative' && (severity === 'warning' || severity === 'info')
@@ -325,7 +351,7 @@ export function compileTsSource(
           sourceFile,
           v.span,
           entryDeclaration(sourceFile, v.fn),
-          uniformityMessage(v),
+          uniformityMessage(v, directivePlace),
           TS_CODES.UNIFORMITY,
           category,
         ),
@@ -356,6 +382,9 @@ export function compileTsSource(
   if (options.checkReservedNames ?? true) {
     reportReservedNames(sourceFile, diagnostics, symbols, funcs, vars);
   }
+  // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
+  reportUndeclaredValues(sourceFile, diagnostics);
+  dropRepeatedDiagnostics(diagnostics);
   let wgsl: string | undefined;
   const shouldEmit = options.emit ?? true;
   if (shouldEmit && funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
@@ -483,16 +512,134 @@ function entryDeclaration(sourceFile: ts.SourceFile, name: string): ts.Node | un
   );
 }
 
+/** A call's callee as the author wrote it, for the uniformity walk to name a user function by
+ *  (Rule 12.1): `Lim.hit` for the IR's `Lim_hit`, `done` for a closure's `main_done`,
+ *  `Gate.open` for a namespace's `Gate_open`. Read off the call expression the IR call's span
+ *  covers, or, for a call the source does not spell as one (a getter, `new`), off the name
+ *  its function was declared with. Indexed once, on the first question: the walk asks for
+ *  every user call it classifies, round after round. */
+function calleesAsWritten(
+  sourceFile: ts.SourceFile,
+  funcs: readonly FuncDecl[],
+): (call: Extract<Expr, { op: 'call' }>) => string | undefined {
+  let calls: Map<string, string> | undefined;
+  const byName = new Map(funcs.map((f) => [f.name, f]));
+  const textOf = (start: number, length: number): string =>
+    sourceFile.text.slice(start, start + length).replace(/\s+/g, '');
+  return (call) => {
+    if (call.span !== undefined) {
+      if (calls === undefined) {
+        const index = new Map<string, string>();
+        const visit = (node: ts.Node): void => {
+          if (ts.isCallExpression(node)) {
+            const start = node.getStart(sourceFile);
+            const callee = node.expression;
+            const at = callee.getStart(sourceFile);
+            index.set(`${start}:${node.getEnd() - start}`, textOf(at, callee.getEnd() - at));
+          }
+          ts.forEachChild(node, visit);
+        };
+        visit(sourceFile);
+        calls = index;
+      }
+      const written = calls.get(`${call.span.start}:${call.span.length}`);
+      if (written !== undefined) return written;
+    }
+    const name = byName.get(call.fn)?.nameSpan;
+    return name === undefined ? undefined : textOf(name.start, name.length);
+  };
+}
+
+/** Where a {@link UniformityViolation}'s call is reached, before the value that made it
+ *  non-uniform, and the two remedies that fit that statement: where to move a barrier or hoist
+ *  a derivative, and what to write the statement on instead. Each remedy compiles on Tint in
+ *  the shape it names (Rule 12.1), and the loop rows are why there are rows: a barrier moved
+ *  ABOVE a non-uniform `break` is still refused, because the next iteration is reached by fewer
+ *  invocations, so a `break` or `continue` sends it out of the loop; and a `return` taken in a
+ *  loop reaches that loop's later iterations and everything after it, so it sends it above.
+ *  The value comes last, because its phrase can end in "which this compiler cannot prove
+ *  uniform", and a clause after that one reads as part of it. */
+const UNIFORMITY_SITES: Readonly<
+  Record<UniformityViolation['via'], { reached: string; move: string; hoist: string; on: string }>
+> = {
+  branch: {
+    reached: 'under',
+    move: 'Move it out of the branch',
+    hoist: 'Hoist the call above the branch',
+    on: 'branch on',
+  },
+  'short-circuit': {
+    reached: 'on the right of an && or || whose left side reads',
+    move: 'Call it before the && or ||',
+    hoist: 'Hoist the call above the && or ||',
+    on: 'make the left side',
+  },
+  conditional: {
+    reached: 'in an arm of a ?: whose condition reads',
+    move: 'Call it before the ?:',
+    hoist: 'Hoist the call above the ?:',
+    on: 'make the condition',
+  },
+  loop: {
+    reached: 'in a loop whose condition reads',
+    move: 'Move it out of the loop',
+    hoist: 'Hoist the call out of the loop',
+    on: 'bound the loop by',
+  },
+  return: {
+    reached: 'after a return taken under',
+    move: 'Move it above the return',
+    hoist: 'Hoist the call above the return',
+    on: 'return on',
+  },
+  'loop-return': {
+    reached: 'after a return taken inside a loop under',
+    move: 'Move it above the loop',
+    hoist: 'Hoist the call above the loop',
+    on: 'return on',
+  },
+  'bound-return': {
+    reached: 'after a return inside a loop whose condition reads',
+    move: 'Move it above the loop',
+    hoist: 'Hoist the call above the loop',
+    on: 'bound the loop by',
+  },
+  break: {
+    reached: 'in a loop some invocations leave by a break taken under',
+    move: 'Move it out of the loop',
+    hoist: 'Hoist the call out of the loop',
+    on: 'break on',
+  },
+  continue: {
+    reached: 'in a loop where some invocations skip ahead by a continue taken under',
+    move: 'Move it out of the loop',
+    hoist: 'Hoist the call out of the loop',
+    on: 'continue on',
+  },
+  'switch-break': {
+    reached: 'after a break out of the switch taken under',
+    move: 'Move it above the break',
+    hoist: 'Hoist the call above the break',
+    on: 'break on',
+  },
+};
+
 /** The sentence a {@link UniformityViolation} reads as. Two rules with one walk behind them,
  *  so two wordings: a derivative needs uniform control flow because its value is a difference
  *  between neighbouring invocations, and a barrier because a workgroup where some invocations
- *  arrive and some do not waits forever. */
-function uniformityMessage(v: UniformityViolation): string {
+ *  arrive and some do not waits forever. A derivative's sentence offers `@diagnostic` at
+ *  `directivePlace`, where the file can carry it, and not at all when it has no such place. */
+function uniformityMessage(
+  v: UniformityViolation,
+  directivePlace: 'the entry' | 'a top-level function' | undefined,
+): string {
+  const site = UNIFORMITY_SITES[v.via];
+  const reached = `${site.reached} ${v.cause}`;
   if (v.kind === 'barrier') {
     return (
-      `${v.callee}() is reached under ${v.cause}, and every invocation of the workgroup has ` +
-      `to reach it: one that does not is a workgroup that waits forever. Move it out of the ` +
-      `branch, or branch on a value the whole workgroup shares (a uniform, a module const, ` +
+      `${v.callee}() is reached ${reached}, and every invocation of the workgroup has ` +
+      `to reach it: one that does not is a workgroup that waits forever. ${site.move}, or ` +
+      `${site.on} a value the whole workgroup shares (a uniform, a module const, ` +
       `@builtin("workgroup_id")).`
     );
   }
@@ -501,17 +648,21 @@ function uniformityMessage(v: UniformityViolation): string {
   // is what `dpdx` IS, so there is nothing to swap it for and the fix is to restructure. The
   // `fragment-only-builtin` rule splits its fix string for the same reason.
   const fix = v.isDerivativeBuiltin
-    ? `Hoist the call above the branch and select from its result, or compute the quantity ` +
+    ? `${site.hoist} and select from its result, or compute the quantity ` +
       `some other way — a screen-space derivative has no alternative form`
-    : `Hoist the call above the branch, or use textureSampleLevel or textureSampleGrad, whose ` +
+    : `${site.hoist}, or use textureSampleLevel or textureSampleGrad, whose ` +
       `level of detail is the one you wrote`;
   return (
-    `${v.callee}() is reached under ${v.cause}, which WGSL's derivative_uniformity rule ` +
+    `${v.callee}() is reached ${reached}, which WGSL's derivative_uniformity rule ` +
     `refuses: ${
       v.isDerivativeBuiltin
         ? 'it differences neighbouring invocations'
         : 'the implicit level of detail is a difference between neighbouring invocations'
-    }, and one that did not run has no value to difference against. ${fix}, or write ` +
-    `@diagnostic("off", "derivative_uniformity") on the entry to take the module as written.`
+    }, and one that did not run has no value to difference against. ${fix}${
+      directivePlace === undefined
+        ? '.'
+        : `, or write @diagnostic("off", "derivative_uniformity") on ${directivePlace} to ` +
+          `take the module as written.`
+    }`
   );
 }

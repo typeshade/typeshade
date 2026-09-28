@@ -908,6 +908,9 @@ export function lowerStaticFieldTarget(
   const owner = read?.declaredOn ?? staticOwner;
   const b = read?.binding ?? staticFieldBinding(owner, written, scope, sourceFile);
   if (b === undefined) {
+    // A static field whose initializer was refused said why there, and a write of it adds
+    // nothing (Rule 12.4).
+    if (scope.declarationRefused(`${owner}_${emittedMemberName(written)}`)) return 'refused';
     const inherited = inheritedStaticWrite(owner, written, scope, sourceFile);
     if (inherited !== undefined) {
       pushDiag(diagnostics, sourceFile, node, inherited, TS_CODES.CONST_ASSIGN);

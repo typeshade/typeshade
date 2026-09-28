@@ -197,6 +197,25 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
       new TypeError('render() takes 3 arguments; got 2.'),
     );
   });
+
+  it('loads when a kernel function is named after a global the module reads', async () => {
+    // A name the file declares is the file's (Rule 2.1), and the generated module binds none of
+    // them (proposal 0008 §1): a kernel function bound as written, `Object`, left the enum's
+    // `Object.freeze` undefined, and the module did not load.
+    const m = await load(`"use typeshade";
+export enum Mode { A, B = 4 }
+export function Object(xs: array<f32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = xs[i] * 2.;
+  }
+}
+`);
+    expect(m.Mode).toEqual({ A: 0, B: 4, 0: 'A', 4: 'B' });
+    const xs = Float32Array.of(1, 2, 3);
+    await (m.Object as (xs: Float32Array) => Promise<void>)(xs);
+    expect([...xs]).toEqual([2, 4, 6]);
+    expect((m.Object as () => unknown).name).toBe('Object');
+  });
 });
 
 describe('a resident array and the tiers (Rule 11.8)', () => {

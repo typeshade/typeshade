@@ -115,6 +115,21 @@ export function deep(@builtin("global_invocation_id") gid: vec3u) {
       'binding "vol" is a texture_3d<f32>, which has no host value yet; #204, the rendering design, adds it',
     );
   });
+
+  it('names the type of a binding with no host layout as the author writes it', () => {
+    // It printed the IR's key, `an vec3<f64>`, a spelling the editor refuses (proposal 0008 §5).
+    const f = face(`"use typeshade";
+declare const u: storage<array<vec3f64>, "read_write">;
+@compute([1])
+export function k() {
+  u[0] = u[0];
+}
+`);
+    const k = f.exports.find((x) => x.name === 'k')!;
+    expect(k.kind === 'never' && k.reason).toBe(
+      `binding "u": a vec3f64 waits for change 0013's f64 split`,
+    );
+  });
 });
 
 describe('the host view of an entry', () => {
@@ -255,10 +270,10 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
       'scale(): binding "xs" (array<f32>): got an array of length 2, not a Float32Array.',
     );
     await expect(s({ k: 1, xs, ys: xs, pts: new Float32Array(3) }, 1)).rejects.toThrow(
-      'scale(): binding "pts" (array<vec2<f32>>): got 3 numbers, which is not a whole number of 2-component elements.',
+      'scale(): binding "pts" (array<vec2>): got 3 numbers, which is not a whole number of 2-component elements.',
     );
     await expect(s({ k: 1, xs, ys: xs }, 1)).rejects.toThrow(
-      'scale(): binding "pts" (array<vec2<f32>>) is missing.',
+      'scale(): binding "pts" (array<vec2>) is missing.',
     );
     await expect(s({ k: 1, xs, ys: xs, pts: new Float32Array(8) }, [1, 0.5])).rejects.toThrow(
       '"workgroups" counts workgroups, so each is a whole number; got number 0.5.',

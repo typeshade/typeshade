@@ -3,7 +3,7 @@ import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, i32T, structT, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, type LoweringScope } from '../context.js';
 import {
   MATH_MEMBER_NAMES,
   resolveMathConst,
@@ -24,6 +24,7 @@ import {
   visibleField,
 } from './class-access.js';
 import { parseSwizzle } from '../swizzle.js';
+import { declaredTypeNamesOf, isLibraryTypeName } from '../type-map.js';
 import { numericMismatch } from '../numeric.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
@@ -33,6 +34,7 @@ import { isArrayMethod, otherArrayMethod } from './array-methods.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { enumMemberNames, staticMemberNames, unknownNameSentence } from '../unknown-names.js';
+import { staticFieldRefused } from '../refused-names.js';
 
 const JS_ARRAY_METHODS = new Set([
   'map',
@@ -117,7 +119,7 @@ export function arrayLengthOf(
       diagnostics,
       sourceFile,
       node,
-      `arrayLength takes a runtime-sized storage array, not a ${typeKey(base.type)}.`,
+      `arrayLength takes a runtime-sized storage array, not a ${authorTypeText(base.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -241,9 +243,20 @@ export function lowerPropertyAccess(
       pushDiag(diagnostics, sourceFile, node, inheritedPrivate, TS_CODES.CLASS_MEMBER);
       return undefined;
     }
+    // A static field or an enum member whose initializer was refused said why there, and a read
+    // of it adds nothing (Rule 12.4).
+    if (scope.declarationRefused(`${owner}_${emittedMemberName(prop)}`)) return undefined;
     // The name is a type, not a value, so lowering the receiver would report an unknown
     // identifier. Say what it is instead, when it is a class or an enum the file declares.
     if (scope.structByName(owner) !== undefined) {
+      // A static field its class declares whose declaration was refused, having said why.
+      if (
+        [owner, ...scope.ancestorsOf(owner)].some((c) =>
+          staticFieldRefused(c, prop, sourceFile, diagnostics),
+        )
+      ) {
+        return undefined;
+      }
       const fn = scope.resolveCallee(methodFnName(owner, emittedMemberName(prop)));
       // `#n` and `n` are two members, so a function of the name answers only as the one written.
       const asFunction = fn !== undefined && classFunctionOf(fn)?.member === prop;
@@ -288,13 +301,15 @@ export function lowerPropertyAccess(
     }
     return { op: 'lit', type: i32T, value: base.type.size };
   }
-  if (JS_ARRAY_METHODS.has(prop)) {
+  // Said of an array only: a class field `reverse`, an interface field `map` and a getter `join`
+  // are the struct's own members, looked up below (Rule 2.1).
+  if (JS_ARRAY_METHODS.has(prop) && base.type.kind === 'array') {
     // One of the five an array has is called; read as a value it is a function (Rule 8.18).
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      base.type.kind === 'array' && isArrayMethod(prop)
+      isArrayMethod(prop)
         ? `".${prop}" is a method of the array, and a shader has no function values: call it ` +
             `where its value is needed, "${node.expression.getText(sourceFile)}.${prop}(…)".`
         : otherArrayMethod(prop),
@@ -313,6 +328,20 @@ export function lowerPropertyAccess(
       // A field its class declared and the struct does not carry was refused where it was
       // written; a read of it adds nothing (Rule 12.4).
       if (scope.isWithheld(base.type.name, emittedMemberName(prop))) return undefined;
+      // Nor does a read through a struct nothing declares, `u.a` of `uniform<Foo>`, which a
+      // binding recovers from a type refused where it is written (`TS8002`).
+      if (
+        scope.structByName(base.type.name) === undefined &&
+        !declaredTypeNamesOf(sourceFile).has(base.type.name) &&
+        !isLibraryTypeName(base.type.name)
+      ) {
+        return undefined;
+      }
+      // Nor a read through a class whose chain has a base the file does not collect, refused
+      // where it extends it (structs.ts): what that base would have given it is not known here.
+      if (scope.ancestorsOf(base.type.name).some((a) => scope.structByName(a) === undefined)) {
+        return undefined;
+      }
       const hidden = isPrivateName(prop)
         ? scope.privateField(base.type.name, emittedMemberName(prop))
         : undefined;
@@ -325,7 +354,7 @@ export function lowerPropertyAccess(
           ? `"${prop}" is private to "${owner}", and this code is outside its class body. Reach ` +
               `it through a member "${owner}" declares without the "#".`
           : // On the member, as TypeScript's TS2339 is, with the field it is spelled like.
-            unknownNameSentence(`Unknown field "${prop}" on ${base.type.name}.`, prop, [
+            unknownNameSentence(`Unknown field "${prop}" on ${authorTypeText(base.type)}.`, prop, [
               publicFieldNames(base.type.name, scope),
             ]),
         hidden !== undefined ? TS_CODES.CLASS_MEMBER : TS_CODES.UNKNOWN_NAME,
@@ -435,8 +464,9 @@ export function lowerObjectLiteral(
       diagnostics,
       sourceFile,
       node,
-      `"${declared.name}" has the ${hidden.access} field "${hidden.written}", which an object ` +
-        `literal cannot set. Build it with "new ${declared.name}(...)".`,
+      `"${authorTypeText(structT(declared.name))}" has the ${hidden.access} field ` +
+        `"${hidden.written}", which an object literal cannot set. Build it with ` +
+        `"new ${authorTypeText(structT(declared.name))}(...)".`,
       TS_CODES.STRUCT_FIELD,
     );
     return undefined;
@@ -452,6 +482,8 @@ export function lowerObjectLiteral(
     );
     return undefined;
   }
+  // A class in a namespace or an instance of a generic one is named as written, `N.P`.
+  const written = authorTypeText(structT(match.name));
   // Only where the struct is DECLARED. On the fallback path `matchStruct` has already equated
   // the struct's field count with the literal's UNIQUE name count and checked that every field
   // is among those names, so a name it does not have cannot reach here — and the count guard
@@ -460,9 +492,16 @@ export function lowerObjectLiteral(
   // been refused after it, while the same literal in a return position stayed accepted. A
   // repeated field is TypeScript's own TS1117 and the editor says so; the compiler keeps
   // taking the last, in every position, as it always did.
+  // A field the struct's declaration withholds was refused where it is written, having said
+  // why; what the literal sets it to is not lowered, and adds nothing (Rule 12.4).
+  const withheld = (p: LiteralProp): boolean =>
+    declared !== undefined &&
+    !('ready' in p) &&
+    scope.isWithheld(match.name, emittedMemberName(p.name));
   if (declared) {
     for (const p of props) {
       if (match.fields.some((f) => f.name === p.name)) continue;
+      if (withheld(p)) continue;
       if ('ready' in p) {
         // A spread of a struct the target does not have every field of: the literal names a
         // field the struct has not got, and says which, rather than "does not match".
@@ -470,7 +509,7 @@ export function lowerObjectLiteral(
           diagnostics,
           sourceFile,
           p.at,
-          `Struct ${match.name} has no field "${p.name}", which this spread brings in.`,
+          `Struct ${written} has no field "${p.name}", which this spread brings in.`,
           TS_CODES.STRUCT_FIELD,
         );
         return undefined;
@@ -480,7 +519,7 @@ export function lowerObjectLiteral(
         diagnostics,
         sourceFile,
         p.key,
-        unknownNameSentence(`Struct ${match.name} has no field "${p.name}".`, p.name, [
+        unknownNameSentence(`Struct ${written} has no field "${p.name}".`, p.name, [
           match.fields.map((f) => f.name),
         ]),
         TS_CODES.STRUCT_FIELD,
@@ -495,6 +534,7 @@ export function lowerObjectLiteral(
       given.push({ name: p.name, expr: p.ready, node: undefined });
       continue;
     }
+    if (withheld(p)) continue;
     const expr = lowerExpression(p.value, sourceFile, scope, diagnostics, fieldType.get(p.name));
     if (!expr) return undefined;
     given.push({ name: p.name, expr, node: p.value });
@@ -520,7 +560,7 @@ export function lowerObjectLiteral(
         diagnostics,
         sourceFile,
         node,
-        `Missing field "${field.name}" for struct ${match.name}.`,
+        `Missing field "${field.name}" for struct ${written}.`,
         TS_CODES.STRUCT_FIELD,
       );
       return undefined;
@@ -530,7 +570,7 @@ export function lowerObjectLiteral(
         diagnostics,
         sourceFile,
         node,
-        numericMismatch(`field ${match.name}.${field.name}`, field.type, expr.type),
+        numericMismatch(`field ${written}.${field.name}`, field.type, expr.type),
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -591,7 +631,7 @@ function lowerSpreadInto(
       diagnostics,
       sourceFile,
       prop,
-      `"..." spreads the fields of a struct, and ${typeKey(value.type)} has none. Write the ` +
+      `"..." spreads the fields of a struct, and ${authorTypeText(value.type)} has none. Write the ` +
         `components by name.`,
       TS_CODES.UNSUPPORTED,
     );

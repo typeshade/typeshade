@@ -15,17 +15,20 @@ import type {
 import { toWorkgroupShape, workgroupSizeAttr } from '../../../core/ir/workgroup.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import type { SourceSpan } from '../../../core/ir/span.js';
-import { voidT, typeKey } from '../../../core/ir/types.js';
+import { structT, voidT, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
-  authorTypeText,
   THIS_CAPTURE,
+  authorTypeText,
+  recoveredUsesDroppedSoFar,
   fileFunctionsOf,
   writeRules,
   type CaptureKey,
   privateFieldTableOf,
   readonlyFieldTableOf,
+  refusedDeclarationsOf,
+  refusedModuleNames,
   restrictedFieldTableOf,
   withheldTableOf,
 } from '../context.js';
@@ -74,6 +77,7 @@ import { ATOMIC_INTRINSICS, isBarrierIntrinsic } from '../../../core/intrinsics.
 import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { isAsyncOrGenerator, isVarStatement, refusalWithin } from '../semantic.js';
 import {
   checkLoweredRecursion,
   checkRecursion,
@@ -125,8 +129,17 @@ export function lowerSourceFunctions(
       // A namespace holds functions, constants, classes and namespaces. The consts are
       // module-const.ts's and the classes are structs.ts's, under the same flattened name
       // (#107); the rest has no flattened form. Only the namespace's own statements are refused
-      // here, since a top-level statement of any kind is semantic.ts's to judge.
-      if (prefix !== '' && !isNamespaceConst(stmt) && !ts.isClassDeclaration(stmt)) {
+      // here, since a top-level statement of any kind is semantic.ts's to judge. An interface
+      // and an object-type alias are structs.ts's too, which refuses one here itself, and a
+      // `var` is semantic.ts's, in a namespace as anywhere else.
+      if (
+        prefix !== '' &&
+        !isNamespaceConst(stmt) &&
+        !ts.isClassDeclaration(stmt) &&
+        !ts.isInterfaceDeclaration(stmt) &&
+        !(ts.isTypeAliasDeclaration(stmt) && ts.isTypeLiteralNode(stmt.type)) &&
+        !(ts.isVariableStatement(stmt) && isVarStatement(stmt))
+      ) {
         refuseNamespaceStatement(stmt, prefix, sourceFile, diagnostics);
       }
       return;
@@ -168,6 +181,13 @@ export function lowerSourceFunctions(
       !isAmbient(stmt) &&
       implemented.has(irName ?? stmt.name.text)
     ) {
+      continue;
+    }
+    // An async function or a generator is semantic.ts's refusal, and its body is that one
+    // mistake: it is not lowered, and a call to it, `h(a)` or `N.h(a)`, says nothing more
+    // (Rule 12.4).
+    if (isAsyncOrGenerator(stmt)) {
+      refused.add(irName ?? stmt.name?.text ?? '');
       continue;
     }
     // A generic function is compiled once per set of argument types the file calls it with
@@ -222,7 +242,7 @@ export function lowerSourceFunctions(
   // A class's methods, static functions and constructor are functions of the module (#86),
   // registered before any body is lowered so a call in either direction resolves. The emitted
   // name is `Struct_member`; a top-level function of that name is a clash, said on both.
-  const classFns = collectClassFunctions(structs, sourceFile, diagnostics).filter((cf) => {
+  const classFns = collectClassFunctions(structs, sourceFile, diagnostics, refused).filter((cf) => {
     const taken = callees.get(cf.stub.name);
     if (taken !== undefined) {
       const at = cf.node ?? cf.struct.members?.node ?? sourceFile;
@@ -413,14 +433,17 @@ export function lowerSourceFunctions(
   const shownOf = (f: FuncDecl): string =>
     writtenAs.get(f.name) ?? classFns.find((cf) => cf.stub === f)?.shown ?? f.name;
   /** Lower a body with `stub` on the stack of those being lowered; `infers` when its return
-   *  type is the body's to say. */
+   *  type is the body's to say. `node` is the function written, which may hold a refusal
+   *  semantic.ts said, at which its lowering stopped and added nothing. */
   const track = (
     stub: FuncDecl,
     infers: boolean,
     said: readonly TsCompilerDiagnostic[],
+    node: ts.Node,
     run: () => void,
   ): void => {
     const before = said.length;
+    const droppedBefore = recoveredUsesDroppedSoFar();
     filling.push(stub);
     if (infers) inferring.add(stub);
     try {
@@ -432,8 +455,15 @@ export function lowerSourceFunctions(
     if (
       infers &&
       (cyclic.has(stub) ||
-        (typeKey(stub.ret) === 'void' && said.slice(before).some((d) => d.category === 'error')))
+        (typeKey(stub.ret) === 'void' &&
+          (said.slice(before).some((d) => d.category === 'error') || refusalWithin(node))))
     ) {
+      unsaid.add(stub);
+    }
+    // A body that dropped a use of a binding whose declared type was refused did not lower
+    // either, and its refusal was said at the declaration (`dropsRecoveredUse`). It never got to
+    // the `return` that says its type, so its callers would be told it returns `void` (Rule 12.4).
+    if (infers && typeKey(stub.ret) === 'void' && recoveredUsesDroppedSoFar() > droppedBefore) {
       unsaid.add(stub);
     }
   };
@@ -532,7 +562,7 @@ export function lowerSourceFunctions(
     return false;
   };
   const fillReady = (r: (typeof ready)[number], infers: boolean): void => {
-    track(r.stub, infers, diagnostics, () => {
+    track(r.stub, infers, diagnostics, r.node, () => {
       fillFunctionBody(
         r.node,
         r.stub,
@@ -574,7 +604,7 @@ export function lowerSourceFunctions(
     infers: boolean,
   ): void => {
     const said = saidFor(cf);
-    track(cf.stub, infers, said, () =>
+    track(cf.stub, infers, said, node, () =>
       fillFunctionBody(
         node,
         cf.stub,
@@ -672,7 +702,7 @@ export function lowerSourceFunctions(
     const bound = captureBindings(l, file);
     if (bound === undefined) return false;
     const into = l.said ?? said;
-    track(fn.stub, fn.infers, into, () => {
+    track(fn.stub, fn.infers, into, fn.node, () => {
       fillFunctionBody(
         fn.node,
         fn.stub,
@@ -923,7 +953,7 @@ export function lowerSourceFunctions(
         }
         // With no return type written, the body says it (Rule 8.19).
         const infers = generic.node.type === undefined;
-        track(stub, infers, diags, () =>
+        track(stub, infers, diags, generic.node, () =>
           fillFunctionBody(
             generic.node,
             stub,
@@ -1131,7 +1161,7 @@ export function lowerSourceFunctions(
         holdLifted(lifts, sf, diags);
       }
       const arrow = ts.isArrowFunction(fn.node);
-      track(stub, fn.infers, diags, () =>
+      track(stub, fn.infers, diags, fn.node, () =>
         fillFunctionBody(
           fn.node,
           stub,
@@ -1360,7 +1390,7 @@ export function lowerSourceFunctions(
         holdLifted(mine, sf, said);
       }
       const infers = cf.infers === true;
-      track(stub, infers, said, () =>
+      track(stub, infers, said, member, () =>
         fillFunctionBody(
           member,
           stub,
@@ -1532,7 +1562,7 @@ export function lowerSourceFunctions(
     holdLifted(mine, sf, diags);
     const arrow = ts.isArrowFunction(node);
     const infers = signature.ret === undefined;
-    track(stub, infers, diags, () =>
+    track(stub, infers, diags, node, () =>
       fillFunctionBody(
         node,
         stub,
@@ -1946,8 +1976,12 @@ export function parseParams(
   // `@location` slot → the parameter already holding it, for the collision rule below.
   const paramLocations = new Map<number, string>();
   const fnName = opts.fnName ?? opts.owner ?? 'this entry';
+  // A function that is not an entry has no IO: WGSL refuses `@builtin` and `@location` on its
+  // parameter (Tint: "not valid for non-entry point function parameters"), so each is refused
+  // at the decorator and not read.
+  const site = stage ? 'a parameter' : 'a parameter of a function that is not an entry';
   for (const p of parameters) {
-    for (const d of decoratorsOf(p)) checkAttributeName(diagnostics, sourceFile, d);
+    for (const d of decoratorsOf(p)) checkAttributeName(diagnostics, sourceFile, d, site);
     if (!ts.isIdentifier(p.name)) {
       pushDiag(
         diagnostics,
@@ -2058,7 +2092,7 @@ export function parseParams(
       )
     )
       return undefined;
-    const builtinArg = builtinDecoratorArg(decoratorsOf(p));
+    const builtinArg = stage ? builtinDecoratorArg(decoratorsOf(p)) : undefined;
     let builtin: string | undefined;
     if (builtinArg) {
       const validName = checkBuiltinName(
@@ -2085,7 +2119,7 @@ export function parseParams(
     if (stage && pType.kind === 'struct') {
       checkStructBuiltinFields(diagnostics, sourceFile, p, pType.name, structs, stage, 'input');
     }
-    const location = numberDecorator(p, sourceFile, 'location');
+    const location = stage ? numberDecorator(p, sourceFile, 'location') : undefined;
     // An emulated double on the entry's IO boundary (#151 F64-09). A FRAGMENT @location input
     // is interpolated; a VERTEX one is a buffer read, which carries a scalar f64's pair in one
     // slot but cannot carry a vec64's two.
@@ -2108,7 +2142,9 @@ export function parseParams(
     // attribute an author wrote here was dropped with no diagnostic and reached neither
     // target (§53). The whole argument list is kept, as the struct path keeps it: the GLSL
     // writer needs the sampling as well as the type.
-    const interpolateAttr = interpolateDecoratorArg(diagnostics, sourceFile, decoratorsOf(p));
+    const interpolateAttr = stage
+      ? interpolateDecoratorArg(diagnostics, sourceFile, decoratorsOf(p))
+      : undefined;
     if (interpolateAttr !== undefined && location === undefined) {
       pushDiag(
         diagnostics,
@@ -2460,7 +2496,7 @@ function refuseF64EntryIo(
     diagnostics,
     sourceFile,
     node,
-    `${what} carries ${typeKey(type)}: ${reason}. ${bridge}`,
+    `${what} carries ${authorTypeText(type)}: ${reason}. ${bridge}`,
     TS_CODES.F64_ENTRY_IO,
   );
   return true;
@@ -2498,7 +2534,7 @@ function refuseVertexWithoutPosition(
       sourceFile,
       node,
       `"${name}" is a @vertex entry, so what it returns has to carry the position: give ` +
-        `"${ret.name}" a field with @builtin("position"), typed vec4.`,
+        `"${authorTypeText(ret)}" a field with @builtin("position"), typed vec4.`,
       TS_CODES.FUNCTION_SHAPE,
     );
     return;
@@ -2509,7 +2545,7 @@ function refuseVertexWithoutPosition(
     node,
     `"${name}" is a @vertex entry, so it returns the position: a vec4, which takes ` +
       `@builtin("position") on its own, or a struct with a vec4 field that carries it. ` +
-      `${typeKey(ret) === 'void' ? 'It returns nothing' : `It returns ${typeKey(ret)}`}.`,
+      `${typeKey(ret) === 'void' ? 'It returns nothing' : `It returns ${authorTypeText(ret)}`}.`,
     TS_CODES.FUNCTION_SHAPE,
   );
 }
@@ -2541,6 +2577,10 @@ export function functionScope(
   nsPrefix?: string,
 ): LoweringScope {
   const scope = new LoweringScope(callees, symbols);
+  // A module-scope declaration refused before any function existed stays refused in every body.
+  if (sourceFile) {
+    for (const name of refusedModuleNames(sourceFile)) refusedDeclarationsOf(callees).add(name);
+  }
   scope.setNamespacePrefix(nsPrefix);
   scope.setStructs(structs.map((s) => s.decl));
   scope.setPrivateFields(privateFieldTableOf(structs));
@@ -2721,7 +2761,7 @@ export function lowerParamDefaults(
       // A call that omits an argument whose default has no value yet lowers to nothing and
       // says nothing, because on an earlier pass that is not an error. On the last pass it is
       // the one shape this cannot fill: a default that waits on itself.
-      if (final && diagnostics.length === before) {
+      if (final && diagnostics.length === before && !refusalWithin(node)) {
         pushDiag(
           diagnostics,
           sourceFile,
@@ -2739,8 +2779,8 @@ export function lowerParamDefaults(
         diagnostics,
         sourceFile,
         node,
-        `The default for "${stub.params[i]!.name}" is ${typeKey(fixed.type)}, and the ` +
-          `parameter is ${typeKey(want)}.`,
+        `The default for "${stub.params[i]!.name}" is ${authorTypeText(fixed.type)}, and the ` +
+          `parameter is ${authorTypeText(want)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       continue;
@@ -2978,7 +3018,7 @@ export function fillFunctionBody(
           diagnostics,
           sourceFile,
           node.name ?? node,
-          `Entry function "${stub.name}" returns a value (inferred type ${typeKey(valued.expr.type)}) but has no return type annotation; add ": ${typeKey(valued.expr.type)}" to the signature.`,
+          `Entry function "${stub.name}" returns a value (inferred type ${authorTypeText(valued.expr.type)}) but has no return type annotation; add ": ${authorTypeText(valued.expr.type)}" to the signature.`,
           TS_CODES.RETURN_SHAPE,
         );
       }
@@ -2996,7 +3036,7 @@ export function fillFunctionBody(
           r.span,
           node.name ?? node,
           `Function "${shown ?? stub.name}" returns void but returns a value of type ` +
-            `${typeKey(r.expr.type)}: write ": ${authorTypeText(r.expr.type)}" as its return ` +
+            `${authorTypeText(r.expr.type)}: write ": ${authorTypeText(r.expr.type)}" as its return ` +
             `type, or return nothing.`,
           TS_CODES.TYPE_MISMATCH,
         ),
@@ -3016,7 +3056,7 @@ export function fillFunctionBody(
           sourceFile,
           r.span,
           node.name ?? node,
-          `Function "${stub.name}" returns ${typeKey(stub.ret)} but has a bare "return".`,
+          `Function "${stub.name}" returns ${authorTypeText(stub.ret)} but has a bare "return".`,
           TS_CODES.RETURN_SHAPE,
         ),
       );
@@ -3037,10 +3077,10 @@ export function fillFunctionBody(
           r.span,
           node.name ?? node,
           inferRet === true
-            ? `Function "${shown ?? stub.name}" returns ${typeKey(stub.ret)} at its first ` +
-                `"return" and ${typeKey(r.expr.type)} at another; a function returns one type ` +
+            ? `Function "${shown ?? stub.name}" returns ${authorTypeText(stub.ret)} at its first ` +
+                `"return" and ${authorTypeText(r.expr.type)} at another; a function returns one type ` +
                 `(Rule 8.19): make them agree, or write the return type.`
-            : `Function "${shown ?? stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`,
+            : `Function "${shown ?? stub.name}" return type mismatch: declared ${authorTypeText(stub.ret)}, got ${authorTypeText(r.expr.type)}.`,
           TS_CODES.TYPE_MISMATCH,
         ),
       );
@@ -3057,7 +3097,12 @@ function parseStage(
   let stage: FuncDecl['stage'] | undefined;
   let workgroupShape: WorkgroupShape | undefined;
   for (const d of decos) {
-    checkAttributeName(diagnostics, sourceFile, d);
+    checkAttributeName(
+      diagnostics,
+      sourceFile,
+      d,
+      ts.isSourceFile(node.parent) ? 'a function' : "a namespace's function",
+    );
     const text = d.getText(sourceFile);
     if (/^@vertex\b/.test(text)) stage = 'vertex';
     else if (/^@fragment\b/.test(text)) stage = 'fragment';
@@ -3171,6 +3216,8 @@ function checkStructBuiltinFields(
 ): void {
   const collected = structs.find((s) => s.decl.name === structName);
   if (!collected) return;
+  // The struct as the author wrote it, `N.VOut` for the `N_VOut` a namespace's class emits as.
+  const shown = authorTypeText(structT(structName));
   // Only a class can carry the decorator the message asks for: writing `@location(0)` on an
   // interface or type-literal member is a TypeScript syntax error, so telling that author to
   // add one names a fix they cannot apply. Say what they can do instead.
@@ -3194,7 +3241,7 @@ function checkStructBuiltinFields(
         diagnostics,
         sourceFile,
         node,
-        `Struct "${structName}" field "${field.name}" is at a @location and "${structName}" is ` +
+        `Struct "${shown}" field "${field.name}" is at a @location and "${shown}" is ` +
           `a compute entry ${direction}, which has no user IO: a compute shader reads its work ` +
           `from resources and the @builtin invocation ids.`,
         TS_CODES.STRUCT_FIELD_MISSING_ATTR,
@@ -3206,7 +3253,7 @@ function checkStructBuiltinFields(
         diagnostics,
         sourceFile,
         node,
-        `Struct "${structName}" field "${field.name}" is used as a ${stage} ${direction} but ` +
+        `Struct "${shown}" field "${field.name}" is used as a ${stage} ${direction} but ` +
           `has neither @builtin(...) nor @location(...): ${remedy}`,
         TS_CODES.STRUCT_FIELD_MISSING_ATTR,
       );
@@ -3216,7 +3263,7 @@ function checkStructBuiltinFields(
       field.location !== undefined &&
       refuseF64EntryIo(
         field.type,
-        `Struct "${structName}" field "${field.name}", a ${stage} ${direction},`,
+        `Struct "${shown}" field "${field.name}", a ${stage} ${direction},`,
         'io-struct-field',
         node,
         sourceFile,

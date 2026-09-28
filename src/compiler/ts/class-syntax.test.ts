@@ -280,7 +280,7 @@ export function run(): f32 { return new Sq(3.).describe() }${TAIL}`;
       `${M} "C.y" has two getters; an accessor has one body.`,
     );
     expect(only(C('  get y(): f32 { return 1. }\n  get_y(): f32 { return 2. }'))).toBe(
-      `${M} "C.get y" and "C.get_y" would both be the function "C_get_y". Rename one of them.`,
+      `${M} The getter "C.y" and "C.get_y" would be emitted under one name. Rename one of them.`,
     );
     expect(only(C('  y: f32\n  get y(): f32 { return 2. }'))).toBe(
       `${M} "C.y" is declared as a field and as an accessor; a class member has one kind. Rename one of them.`,
@@ -480,7 +480,7 @@ export function run(): f32 { C.K = 4.; return C.K }${TAIL}`),
       only(`"use typeshade"
 class A { x: f32 = 1.; clone(): A { return new this() } }${TAIL}`),
     ).toBe(
-      `${TS_CODES.HOST_STMT} "this" here is an object, not a class, so "new" cannot build one from it. Name the class, "new A(...)"; "new this()" builds the class in a static member.`,
+      `${TS_CODES.CLASS_MEMBER} "this" here is an object, not a class, so "new" cannot build one from it. Name the class, "new A(...)"; "new this()" builds the class in a static member.`,
     );
   });
 });
@@ -777,6 +777,46 @@ export function run(): f32 { return Derived.make().x }${TAIL}`;
       .replace('class Derived extends Base {}\n', '')
       .replace('Derived.make()', 'Base.make()');
     expect(compile(alone).diagnostics).toEqual([]);
+  });
+
+  it('names an instance of a generic base as the author writes it in the 0020 refusal', () => {
+    // The struct `Base<f32>` is emitted as `Base_f32`; the sentence names the class `Base` and
+    // spells its type `Base<f32>` (Rule 12.7, proposal 0008 §5), where it said `Base_f32`.
+    const src = `"use typeshade"
+class Base<T = f32> {
+  x: f32 = 1.
+  static SCALE = 2.
+  static make(): Base { let b = new this(); b.x = this.SCALE; return b }
+}
+class Derived extends Base<f32> {}
+export function run(): f32 { return Derived.make().x }${TAIL}`;
+    const message =
+      '"Base.make" builds its value with "new this()", so "Derived.make()" returns a Derived, ' +
+      'but it is declared to return a Base<f32>, which is the type the editor gives the call. ' +
+      'Declare the class the call names: static make<C extends Base<f32>>(this: { new (): C; SCALE: f32 }): C';
+    expect(compile(src).diagnostics.map((d) => [d.code, d.message])).toEqual([['TS8035', message]]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/m.shade.ts', src);
+    expect(
+      service
+        .getDiagnostics('/m.shade.ts')
+        .filter((d) => d.severity === 'error')
+        .map((d) => [d.code, d.message]),
+    ).toEqual([['TS8035', message]]);
+    // The form it names compiles: the generic class's own copy returns the instance its
+    // constraint names, `Base<f32>`, which is what its `new this()` builds.
+    const fixed = src.replace(
+      'static make(): Base {',
+      'static make<C extends Base<f32>>(this: { new (): C; SCALE: f32 }): C {',
+    );
+    expect(compile(fixed).diagnostics).toEqual([]);
+    service.openDocument('/f.shade.ts', fixed);
+    expect(service.getDiagnostics('/f.shade.ts')).toEqual([]);
+    expect(runAll(fixed)).toBe(2);
+    // Called on the generic class itself, the copy returns `Base<f32>` too.
+    const own = fixed.replace('Derived.make().x', 'Base.make().x');
+    expect(compile(own).diagnostics).toEqual([]);
+    expect(compile(own).wgsl).toContain('fn Base_make() -> Base_f32 {');
   });
 
   it("a static a class inherits writes that class's own static through this", () => {
@@ -1455,10 +1495,15 @@ describe('a field that holds a function (Rule 8.16)', () => {
     );
     // An expression body with no return type returns its value, whose type it is (Rule 8.19).
     expect(errorsOf(C('f = () => this.x'))).toEqual([]);
-    // The sentence a method of the same shape gets, beside the one its `Promise` gets.
-    expect(errorsOf(C('f = async (): Promise<f32> => 1.'))).toContain(
-      `${M} "A.f" is a plain method or nothing: no async, no generator.`,
+    // The sentence a method of the same shape gets, said once where it is written, and the
+    // `Promise` it names adds nothing to it (Rule 12.4); the remedy names the type a plain
+    // function returns in its place, and that one compiles (Rule 12.1).
+    expect(only(C('f = async (): Promise<f32> => 1.'))).toBe(
+      `${M} "A.f" is async, and a shader function runs to completion in one call: there is no ` +
+        `event loop to wait on. Remove "async" and each "await", and write its return type as ` +
+        `f32.`,
     );
+    expect(errorsOf(C('f = (): f32 => 1.'))).toEqual([]);
   });
 
   it('a member keeps its kind down a class chain, as TypeScript requires', () => {
@@ -1742,6 +1787,14 @@ export function f(a: A): f32 { return a.x }`,
     'an index signature': `class A { x: f32; [k: string]: f32 }
 export function f(a: A): f32 { return a.x }`,
     'a second constructor': `class A { x: f32; constructor(x: f32) { this.x = x } constructor(y: f32) { this.x = y } }
+export function f(a: A): f32 { return a.x }`,
+    'a second body for a method': `class A { x: f32; m(): f32 { return 1. } m(): f32 { return 2. } }
+export function f(a: A): f32 { return a.x }`,
+    'an abstract member with a body': `abstract class B { x: f32; abstract m(): f32 { return 1. } }
+class A extends B { y: f32 }
+export function f(a: A): f32 { return a.x }`,
+    'a class that leaves an abstract member unimplemented': `abstract class B { x: f32; abstract m(): f32 }
+class A extends B { y: f32 }
 export function f(a: A): f32 { return a.x }`,
     'a decorator on a method': `class A { x: f32; @vertex m(): f32 { return this.x } }
 export function f(a: A): f32 { return a.x }`,

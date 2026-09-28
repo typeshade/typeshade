@@ -70,6 +70,8 @@ interface Fn {
   /** `callWrites` per call node, and whether a subtree holds a call that writes. */
   readonly callCache: WeakMap<Call, ReadonlySet<string>>;
   readonly writeCache: WeakMap<Expr, boolean>;
+  /** Every `if` this pass builds for an operator, and the operator: what it returns. */
+  readonly built: Map<Stmt, 'short-circuit' | 'conditional'>;
 }
 
 const NONE: ReadonlySet<string> = new Set();
@@ -77,12 +79,17 @@ const NONE: ReadonlySet<string> = new Set();
 /** Put every call that writes in `m`'s functions in source order, rewriting each body in place.
  *  Called by `compileTsSource` once every function is lowered, since what a helper writes is
  *  read off its body. In place, like the lowering that filled the bodies: a call's `declRef`
- *  and `classFunctionOf` both key on the declaration object. */
+ *  and `classFunctionOf` both key on the declaration object.
+ *
+ *  Returns the `if` statements it built for the right side of an `&&` or `||` and for the arms
+ *  of a `?:`, with the operator each stands for. The uniformity walk reads them as that
+ *  operator and not as an `if` the author wrote (§54): nothing branches in the source there. */
 export function sequenceEffects(
   m: ModuleDecl,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): void {
+): ReadonlyMap<Stmt, 'short-circuit' | 'conditional'> {
+  const built = new Map<Stmt, 'short-circuit' | 'conditional'>();
   const writes = fnWrites(m);
   const byName = new Map(m.funcs.map((f) => [f.name, f]));
   const moduleNames = new Set<string>(
@@ -108,12 +115,14 @@ export function sequenceEffects(
       diagnostics,
       callCache: new WeakMap(),
       writeCache: new WeakMap(),
+      built,
     };
     if (!f.body.some((s) => stmtWrites(s, fn))) continue;
     for (const s of f.body) noteNames(s, fn.taken);
     const body = seqBody(f.body, fn);
     if (body !== f.body) (f as { body: readonly Stmt[] }).body = body;
   }
+  return built;
 }
 
 // ── What writes ──
@@ -430,7 +439,9 @@ function seqExpr(e: Expr, out: Stmt[], whole: boolean, fn: Fn): Expr {
               a: t,
               b: { op: 'lit', type: boolT, value: false },
             };
-      out.push({ s: 'if', arms: [{ cond, body }] });
+      const branch: Stmt = { s: 'if', arms: [{ cond, body }] };
+      fn.built.set(branch, 'short-circuit');
+      out.push(branch);
       return t;
     }
     case 'select': {
@@ -459,7 +470,9 @@ function seqExpr(e: Expr, out: Stmt[], whole: boolean, fn: Fn): Expr {
       const otherwise: Stmt[] = [];
       assignInto(t, e.ifTrue, then, fn);
       assignInto(t, e.ifFalse, otherwise, fn);
-      out.push({ s: 'if', arms: [{ cond, body: then }], elseBody: otherwise });
+      const branch: Stmt = { s: 'if', arms: [{ cond, body: then }], elseBody: otherwise };
+      fn.built.set(branch, 'conditional');
+      out.push(branch);
       return t;
     }
     default:

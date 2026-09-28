@@ -5,10 +5,9 @@ import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, f32T, f64T, i32T, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, type LoweringScope } from '../context.js';
 import { resolveMathExpand } from '../math-alias.js';
 import { expandMath } from '../math-expand.js';
-import { parseSwizzle } from '../swizzle.js';
 import { lowerRandomHash } from '../random-hash.js';
 import { lowerScalarCast } from '../numeric.js';
 import { foldConstNumber } from '../loop-bound.js';
@@ -94,44 +93,6 @@ export function lowerExpandCall(
   return out;
 }
 
-export function lowerSwizzleCall(
-  node: ts.CallExpression,
-  receiver: ts.Expression,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): Expr | undefined {
-  if (node.arguments.length !== 1) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'swizzle takes one string argument, e.g. v.swizzle("yxz").',
-      TS_CODES.ARITY_MISMATCH,
-    );
-    return undefined;
-  }
-  const arg = node.arguments[0]!;
-  if (!ts.isStringLiteral(arg) && !ts.isNoSubstitutionTemplateLiteral(arg)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'swizzle components must be a string literal.',
-      TS_CODES.UNSUPPORTED,
-    );
-    return undefined;
-  }
-  const base = lowerExpression(receiver, sourceFile, scope, diagnostics);
-  if (!base) return undefined;
-  const sw = parseSwizzle(base.type, arg.text);
-  if (!sw.ok) {
-    pushDiag(diagnostics, sourceFile, node, sw.message, TS_CODES.UNKNOWN_NAME);
-    return undefined;
-  }
-  return { op: 'member', type: sw.type, base, field: sw.field };
-}
-
 export function lowerRandomCall(
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
@@ -156,7 +117,7 @@ export function lowerRandomCall(
       diagnostics,
       sourceFile,
       node,
-      `random(seed) seed must be f32, vec2, or vec3; got ${typeKey(seed.type)}.`,
+      `random(seed) seed must be f32, vec2, or vec3; got ${authorTypeText(seed.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -287,12 +248,21 @@ export function lowerUserCall(
     args[i] = retargetIntLitCtx(args[i]!, argNode, want);
     args[i] = reportIntLitRange(args[i]!, argNode, want, sourceFile, diagnostics) ?? args[i]!;
     if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {
+      const got = args[i]!.type;
+      const note = scope.inheritanceNote(want, got);
+      const nth = `Argument ${i + 1 - leading.length} of "${shown}"`;
+      // Two unrelated structs are named: TypeScript takes one for the other when their fields
+      // match, so the editor is silent, and the sentence is the only place that says why
+      // (`N.f(new P())` where `N.f` takes the namespace's own `P`).
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        `Argument ${i + 1 - leading.length} of "${shown}" type mismatch.` +
-          scope.inheritanceNote(decl.params[i]!.type, args[i]!.type),
+        note === '' && want.kind === 'struct' && got.kind === 'struct'
+          ? `${nth} is ${authorTypeText(got)}, and "${shown}" takes ${authorTypeText(want)}. ` +
+              `A struct is its own type whatever its fields, so pass a value of type ` +
+              `${authorTypeText(want)}.`
+          : `${nth} type mismatch.${note}`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;

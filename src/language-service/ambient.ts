@@ -805,7 +805,9 @@ declare const arrayTag: unique symbol
 // [1., 2., 3.]\` compiles, and with a required tag the editor reported TS2322 ("Property
 // '[arrayTag]' is missing") on a program the compiler accepts. \`length\` stays required and
 // stays \`N\`, which is what still separates the sizes — a three-element list is not an
-// \`array<f32, 2>\` in the editor either.
+// \`array<f32, 2>\` in the editor either. A runtime-sized array leaves \`N\` at \`number\` and has
+// no size to give, so its \`length\` is the \`u32\` the compiler reads from the buffer
+// (\`arrayLength\`, surface §20), and the editor shows the type \`n * 0.5\` is refused for.
 //
 // WHERE AN ARRAY MEMBER GOES. \`Pick<Array<T>, ArrayOps>\` is how this type takes its members
 // from the \`interface Array<T>\` at the bottom of this file, the way dom.d.ts picks from the
@@ -1613,8 +1615,8 @@ interface Array<T> {
   reduce<N extends number>(this: array<T, N>, callbackfn: (previousValue: T, currentValue: T, currentIndex: i32, array: array<T, N>) => T): T
   reduce<U, N extends number = number>(this: array<T, N>, callbackfn: (previousValue: U, currentValue: T, currentIndex: i32, array: array<T, N>) => U, initialValue: U): U
 }
-// What \`[Symbol.iterator]\` above resolves through. \`Symbol\` itself stays a host API: the
-// compiler refuses it as a value (TS8012), so declaring it here gives an author nothing to write.
+// What \`[Symbol.iterator]\` above resolves through. \`Symbol\` itself is no name of the shader:
+// the compiler refuses it as a value (TS8022), so declaring it gives an author nothing to write.
 interface SymbolConstructor {
   readonly iterator: unique symbol
 }

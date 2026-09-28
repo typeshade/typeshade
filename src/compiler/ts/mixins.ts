@@ -47,7 +47,7 @@ function mixinFunction(
 /** The class expression a mixin function returns, when its body is exactly one return of one.
  *  A mixin has no other shape here: there is nothing for a second statement to do at compile
  *  time, and a body that returns something else returns no class. */
-function returnedClass(fn: ts.FunctionDeclaration): ts.ClassExpression | undefined {
+export function returnedClass(fn: ts.FunctionDeclaration): ts.ClassExpression | undefined {
   const statements = fn.body?.statements ?? [];
   if (statements.length !== 1) return undefined;
   const only = statements[0];
@@ -127,6 +127,38 @@ export function isMixinApplication(
 export function isMixinHeritage(expression: ts.Expression, sourceFile: ts.SourceFile): boolean {
   if (ts.isCallExpression(expression)) return true;
   return ts.isIdentifier(expression) && constBoundCall(expression, sourceFile) !== undefined;
+}
+
+/** The first class this file declares that applies the mixin whose body returns `cls`, by its
+ *  written name: `TD` for `class TD extends Tinted(Disc)`. A mixin's class has no name of its
+ *  own, and its members are the applying class's, which is where the author calls them. */
+export function mixinAppliedBy(
+  cls: ts.ClassLikeDeclaration,
+  sourceFile: ts.SourceFile,
+): string | undefined {
+  const fn = ts.findAncestor(cls, ts.isFunctionDeclaration);
+  if (fn?.name === undefined || returnedClass(fn) !== cls) return undefined;
+  const mixin = fn.name.text;
+  const seen = new Set<ts.Node>();
+  const applies = (e: ts.Expression): boolean => {
+    if (seen.has(e)) return false;
+    seen.add(e);
+    if (ts.isIdentifier(e)) {
+      const bound = constBoundCall(e, sourceFile);
+      return bound !== undefined && applies(bound);
+    }
+    if (!ts.isCallExpression(e)) return false;
+    return (
+      (ts.isIdentifier(e.expression) && e.expression.text === mixin) || e.arguments.some(applies)
+    );
+  };
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isClassDeclaration(stmt) || stmt.name === undefined) continue;
+    const base = stmt.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)
+      ?.types[0]?.expression;
+    if (base !== undefined && applies(base)) return stmt.name.text;
+  }
+  return undefined;
 }
 
 /** Run the mixins in one `extends` clause and return what is left: the declared bases, and the
@@ -246,6 +278,12 @@ export function applyMixins(
     return undefined;
   }
   return { bases: extended === undefined ? [] : [extended.text], bodies: [body] };
+}
+
+/** A mixin's class expression as a message names it: the call that applies it, `Tinted(…)`,
+ *  since the class it returns has no name of its own the author can use. */
+export function mixinShown(body: ts.Node): string {
+  return `${ts.findAncestor(body, ts.isFunctionDeclaration)?.name?.text ?? 'mixin'}(…)`;
 }
 
 /** The name a class member is declared under, when it has a plain one. A constructor answers

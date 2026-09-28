@@ -9,24 +9,45 @@ import type {
   OverrideDecl,
   StructDecl,
 } from '../../core/ir/nodes.js';
-import { typeKey } from '../../core/ir/types.js';
+import { structT, typeKey } from '../../core/ir/types.js';
 import { emitFuncs, emitModule } from '../../core/backends/wgsl.js';
 import { requiredCaps } from '../../core/passes/required-caps.js';
 import { hasUseTypeshadeDirective } from './directive.js';
 import { reportCrossDeclarationCollisions, type TsCompilerDiagnostic } from './source-file.js';
-import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js';
+import {
+  collectStructs,
+  emittedStructDecls,
+  noteRefusedGenerics,
+  type CollectedStruct,
+} from './structs.js';
 import { collectBindings } from './bindings.js';
 import { collectEnables } from './enables.js';
 import { collectOverrides } from './overrides.js';
 import { fillFunctionBody, parseSignature } from './lower/function.js';
 import { kernelLoopDiagnostics } from './kernel-loops.js';
-import { analyzeSemantics } from './semantic.js';
+import {
+  analyzeSemantics,
+  isAsyncOrGenerator,
+  refusalWithin,
+  reportUndeclaredValues,
+} from './semantic.js';
+import { reportImportedNews } from './lower/new-target.js';
 import { collectModuleConsts } from './module-const.js';
 import { collectModuleVars } from './module-vars.js';
 import { TS_CODES } from './codes.js';
 import { checkRecursion, type RecursionNode } from './recursion.js';
-import { fileFunctionsOf } from './context.js';
-import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
+import {
+  authorTypeText,
+  fileFunctionsOf,
+  useWrittenStructs,
+  withWrittenStructs,
+} from './context.js';
+import {
+  backendDiagnostic,
+  dropRepeatedDiagnostics,
+  makeDiagnostic,
+  syntaxDiagnostics,
+} from './diagnostic.js';
 import type { DeclaredSymbol } from './symbols.js';
 import { unknownNameSentence } from './unknown-names.js';
 
@@ -93,6 +114,14 @@ export function compileTsSources(
   files: readonly TsSourceFileInput[],
   entry?: string,
 ): CompileTsSourcesResult {
+  // A message names a struct as the author wrote it (see `useWrittenStructs`).
+  return withWrittenStructs(() => compileAllSources(files, entry));
+}
+
+function compileAllSources(
+  files: readonly TsSourceFileInput[],
+  entry: string | undefined,
+): CompileTsSourcesResult {
   const diagnostics: TsCompilerDiagnostic[] = [];
   const symbols: DeclaredSymbol[] = [];
   const parsed = new Map<string, ts.SourceFile>();
@@ -100,6 +129,8 @@ export function compileTsSources(
     string,
     Map<string, { stub: FuncDecl; node: ts.FunctionDeclaration; sf: ts.SourceFile }>
   >();
+  // Per file, the functions it declares whose declaration was refused, having said why.
+  const refusedIn = new Map<string, ReadonlySet<string>>();
 
   for (const f of files) {
     const name = normalizePath(f.fileName);
@@ -142,15 +173,30 @@ export function compileTsSources(
     // two-file one — including in the documentation gate, which compiles every multi-file
     // fence in README.md and docs/ through this function.
     analyzeSemantics(sf, diagnostics);
+    // A generic interface or alias is refused at its declaration, before a signature names it.
+    noteRefusedGenerics(sf);
     const table = new Map<
       string,
       { stub: FuncDecl; node: ts.FunctionDeclaration; sf: ts.SourceFile }
     >();
+    const refused = new Set<string>();
+    refusedIn.set(name, refused);
     for (const stmt of sf.statements) {
       if (!ts.isFunctionDeclaration(stmt)) continue;
+      // An async function or a generator is semantic.ts's refusal, and its body is that one
+      // mistake: it is not lowered, and a call or an import of it says nothing more (Rule 12.4).
+      if (isAsyncOrGenerator(stmt)) {
+        if (stmt.name !== undefined) refused.add(stmt.name.text);
+        continue;
+      }
       const exported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
       const stub = parseSignature(stmt, sf, diagnostics);
-      if (!stub) continue;
+      // A signature that could not be read said why, or names a type refused where it is
+      // declared, which did: the function is refused, as in one file, and so is an import of it.
+      if (!stub) {
+        if (stmt.name !== undefined) refused.add(stmt.name.text);
+        continue;
+      }
       if (table.has(stub.name)) {
         diagnostics.push(
           makeDiagnostic(
@@ -172,6 +218,7 @@ export function compileTsSources(
   for (const [name, table] of exports) {
     const callees = new Map<string, FuncDecl>();
     for (const [fn, rec] of table) callees.set(fn, rec.stub);
+    for (const fn of refusedIn.get(name) ?? []) fileFunctionsOf(callees).refused.add(fn);
     fileCallees.set(name, callees);
   }
 
@@ -235,6 +282,10 @@ export function compileTsSources(
         const imported = el.propertyName?.text ?? el.name.text;
         const local = el.name.text;
         const rec = targetTable.get(imported);
+        if (!rec && refusedIn.get(target)?.has(imported) === true) {
+          fileFunctionsOf(callees).refused.add(local);
+          continue;
+        }
         if (!rec) {
           // On the imported name, as TypeScript's TS2305 is, with the export it is spelled like.
           const exported = [...targetTable]
@@ -266,6 +317,17 @@ export function compileTsSources(
         callees.set(local, rec.stub);
       }
     }
+    // A `new` on a name the file imports, now that what it is is known (Rule 8.13).
+    const imported = new Set(
+      sf.statements.flatMap((st) =>
+        ts.isImportDeclaration(st) &&
+        st.importClause?.namedBindings !== undefined &&
+        ts.isNamedImports(st.importClause.namedBindings)
+          ? st.importClause.namedBindings.elements.map((el) => el.name.text)
+          : [],
+      ),
+    );
+    reportImportedNews(sf, (n) => imported.has(n) && callees.has(n), diagnostics);
   }
 
   const entryName = entry === undefined ? [...parsed.keys()][0] : normalizePath(entry);
@@ -319,6 +381,9 @@ export function compileTsSources(
       enables: collectEnables(sf, diagnostics),
     });
   }
+  // Each file's collection bound its own classes' written forms; the merge and the lowering read
+  // every file's.
+  useWrittenStructs(perFile.flatMap((f) => f.structs));
   const merged = mergeDeclarations(perFile, diagnostics);
 
   // BEFORE the bodies are filled, not after. `fillFunctionBody` takes the module constants as
@@ -440,7 +505,8 @@ export function compileTsSources(
           infers &&
           (cyclic.has(rec.stub) ||
             (typeKey(rec.stub.ret) === 'void' &&
-              diagnostics.slice(before).some((d) => d.category === 'error')))
+              (diagnostics.slice(before).some((d) => d.category === 'error') ||
+                refusalWithin(rec.node))))
         ) {
           unsaid.add(rec.stub);
         }
@@ -468,6 +534,8 @@ export function compileTsSources(
   // A call cycle emits WGSL Tint refuses (#48). Across files it can be spelled through an
   // import, which is exactly why the resolver above goes through `callees`.
   checkRecursion(graph, diagnostics);
+  // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
+  for (const sf of parsed.values()) reportUndeclaredValues(sf, diagnostics);
   // A kernel function's loops that run on the CPU, each named in its own file (Rule 8.22).
   if (funcs.some((f) => f.kernel === true) && !diagnostics.some((d) => d.category === 'error')) {
     const fileOf = new Map<FuncDecl, ts.SourceFile>();
@@ -488,6 +556,7 @@ export function compileTsSources(
     );
   }
 
+  dropRepeatedDiagnostics(diagnostics);
   let wgsl: string | undefined;
   if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
     try {
@@ -577,14 +646,15 @@ function mergeDeclarations(
   // A multi-file program is one module, so its `"enable ..."` directives are one set: two
   // files naming the same extension is not a duplicate declaration, it is one enable.
   const enables: DeclarableCapability[] = [];
-  const claim = (kind: string, name: string, file: FileDeclarations): boolean => {
+  // `shown` is the name as the author wrote it, `N.P` for the struct `N_P`.
+  const claim = (kind: string, name: string, file: FileDeclarations, shown = name): boolean => {
     const prev = owner.get(name);
     if (prev !== undefined && prev !== file.name) {
       diagnostics.push(
         makeDiagnostic(
           file.sf,
           undefined,
-          `${kind} "${name}" is declared in both "${prev}" and "${file.name}". A multi-file ` +
+          `${kind} "${shown}" is declared in both "${prev}" and "${file.name}". A multi-file ` +
             `program is one module, so a name is declared once; rename one or move it.`,
           TS_CODES.DUPLICATE_SYMBOL,
         ),
@@ -596,7 +666,9 @@ function mergeDeclarations(
   };
   for (const f of files) {
     for (const c of f.enables) if (!enables.includes(c)) enables.push(c);
-    for (const s of f.structs) if (claim('Struct', s.decl.name, f)) structs.push(s);
+    for (const s of f.structs) {
+      if (claim('Struct', s.decl.name, f, authorTypeText(structT(s.decl.name)))) structs.push(s);
+    }
     for (const o of f.overrides) if (claim('Override', o.name, f)) overrides.push(o);
     for (const b of f.bindings) {
       if (!claim('Binding', b.name, f)) continue;

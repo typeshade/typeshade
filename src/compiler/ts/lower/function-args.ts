@@ -14,12 +14,19 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { typeKey, voidT } from '../../../core/ir/types.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { THIS_CAPTURE, fileFunctionsOf, type CaptureKey, type LoweringScope } from '../context.js';
+import {
+  THIS_CAPTURE,
+  authorTypeText,
+  fileFunctionsOf,
+  type CaptureKey,
+  type LoweringScope,
+} from '../context.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { closureUse } from './closures.js';
 import { captureArguments, declaresFunction } from './local-functions.js';
 import { misfit, type FunctionShape } from './function-types.js';
+import { isAsyncOrGenerator } from '../semantic.js';
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -184,13 +191,8 @@ export function argumentSignature(
     push(diagnostics, sourceFile, at, message, code);
     return undefined;
   };
-  if (node.asteriskToken || node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)) {
-    return refuse(
-      node,
-      'A function written as an argument is a plain function: no async, no generator.',
-      TS_CODES.FUNCTION_SHAPE,
-    );
-  }
+  // An async function or a generator was refused where it is written, once (semantic.ts).
+  if (isAsyncOrGenerator(node)) return undefined;
   if (node.typeParameters !== undefined) {
     return refuse(
       node.typeParameters[0]!,
@@ -234,7 +236,7 @@ export function argumentSignature(
       if (typeKey(mapped) !== typeKey(want)) {
         return refuse(
           p.type,
-          `"${p.name.text}" is written ${typeKey(mapped)}, and "${shape.text}" passes ${typeKey(want)}.`,
+          `"${p.name.text}" is written ${authorTypeText(mapped)}, and "${shape.text}" passes ${authorTypeText(want)}.`,
           TS_CODES.TYPE_MISMATCH,
         );
       }
@@ -256,7 +258,7 @@ export function argumentSignature(
       ) {
         return refuse(
           node.type,
-          `This function returns ${typeKey(mapped)}, and "${shape.text}" returns ${typeKey(shape.ret!)}.`,
+          `This function returns ${authorTypeText(mapped)}, and "${shape.text}" returns ${authorTypeText(shape.ret!)}.`,
           TS_CODES.TYPE_MISMATCH,
         );
       }

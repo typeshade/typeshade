@@ -3,6 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { refusedVars, refusedWhole, STRICT_MODE_NAMES } from '../compiler/ts/semantic.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
 import { ERASING_OPERATORS, ERASING_UNARY_OPERATORS } from './projection.js';
@@ -43,16 +44,20 @@ interface DiagnosticFilterContext {
 }
 
 /**
- * A top-level function declaration, exported or not. `lower/function.ts`'s
- * `lowerSourceFunctions` is the authority on what counts as a `"use typeshade"` entry point —
- * it collects every `sourceFile.statements.filter(ts.isFunctionDeclaration)` with no `export`
- * requirement at all, so `@vertex`/`@fragment`/`@compute` on a non-exported top-level function
- * compiles and emits today. The old `export`-only predicate here disagreed with that and left
- * TS1206 red on a program the compiler accepts outright.
+ * A function declaration at the top level or directly in a namespace's body, exported or not.
+ * `lower/function.ts`'s `lowerSourceFunctions` is the authority on what counts as a
+ * `"use typeshade"` entry point — it collects every function declaration of the file's
+ * statements and of each namespace's (`namespaces.ts`'s `eachNamespaceStatement`), with no
+ * `export` requirement at all, so `@vertex`/`@fragment`/`@compute` on a non-exported function
+ * compiles and emits `@fragment fn N_fs` for one in `namespace N`. The old `export`-only
+ * predicate here disagreed with that and left TS1206 red on a program the compiler accepts
+ * outright, and so did a top-level-only one on a namespace's entry.
  */
 function isTopLevelFunctionDeclaration(node: ts.Node): node is ts.FunctionDeclaration {
   return (
-    ts.isFunctionDeclaration(node) && node.parent !== undefined && ts.isSourceFile(node.parent)
+    ts.isFunctionDeclaration(node) &&
+    node.parent !== undefined &&
+    (ts.isSourceFile(node.parent) || ts.isModuleBlock(node.parent))
   );
 }
 
@@ -64,8 +69,9 @@ function isTopLevelFunctionDeclaration(node: ts.Node): node is ts.FunctionDeclar
  * `@compute` on a top-level function (exported or not — see `isTopLevelFunctionDeclaration`)
  * and `@builtin`/`@location` on that function's parameters, so this is the one syntax-level
  * restriction no ambient `.d.ts` can configure away (§6); this predicate recognizes exactly
- * that shape, on the entry function itself or on one of its parameters, so any other TS1206
- * (a decorator TypeShade does not define) still surfaces.
+ * that shape, on the entry function itself or on one of its parameters. The compiler reads
+ * every decorator there, and refuses one it does not apply (`TS8028`); any other TS1206 still
+ * surfaces unless the compiler refuses the decorator itself (`mergeDiagnostics`).
  */
 function isDecoratorOnTopLevelFunction(
   context: DiagnosticFilterContext,
@@ -234,19 +240,24 @@ const BOOLEAN_BITWISE_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
 ]);
 
 /**
- * TS2447 ("The '&' operator is not allowed for boolean types"), on two masks: `(a < b) & (c < d)`.
- * A comparison of two vectors is the `bool` vector of their width to the compiler and a
- * `boolean` to TypeScript, which refuses a bitwise operator on two booleans. On `vecN<bool>`,
- * `&`, `|` and `^` are WGSL's componentwise and, or and xor, and the `&&` and `||` TypeScript
- * suggests instead take a scalar `bool` only. Dropped when either operand is a vector
- * (`isGpuValue`); the compiler reports two masks of different widths itself. On two scalar
- * booleans the code stands.
+ * TS2447 ("The '&' operator is not allowed for boolean types"), where WGSL has the operator.
+ * `&` and `|` on two `bool`s are WGSL's logical and and or, which do not short-circuit, and on
+ * two masks (`(a < b) & (c < d)`, a comparison of vectors being the `bool` vector of their width
+ * to the compiler and a `boolean` to TypeScript) its componentwise and and or; `&&` and `||`,
+ * which TypeScript suggests instead, take a scalar `bool` only. So `&` and `|` are dropped
+ * whatever their operands: the compiler reports a scalar beside a mask itself, and the
+ * projection types the `bool` result (`projection.ts`). `^`, and every compound form, is
+ * dropped only when either operand is a vector (`isGpuValue`): WGSL has neither on a bool or a
+ * vector of bools, and the compiler refuses each with its own sentence, which the merge keeps
+ * (`SAME_MISTAKE`).
  */
 function isGpuMaskOperation(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
   const binary = binaryExpressionSpanning(context, diagnostic);
   if (binary === undefined || !BOOLEAN_BITWISE_OPERATORS.has(binary.operatorToken.kind)) {
     return false;
   }
+  const kind = binary.operatorToken.kind;
+  if (kind === ts.SyntaxKind.AmpersandToken || kind === ts.SyntaxKind.BarToken) return true;
   return isGpuValue(context, binary.left) || isGpuValue(context, binary.right);
 }
 
@@ -966,11 +977,45 @@ function isGpuArithmeticOverloadCall(
 }
 
 /**
+ * Whether TS2304 ("Cannot find name '_'") is on the `_` of a phony assignment, `_ = f(x)`, in a
+ * place the compiler lowers it as one (surface §19, §52): the `_ = …` a statement is made of, or
+ * the body of an arrow that returns nothing (no annotation, or `void`), whose body the compiler
+ * runs as that statement. The shape is the one `lowerExpressionAsStatement` reads, so a
+ * right-hand side that is not a call keeps the compiler's own sentence, and a `_` anywhere else
+ * (`const y = _`, `_ += 1.`, `(_ = f(x));`) keeps this code.
+ */
+function isPhonyAssignmentTarget(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  const target = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
+  if (!ts.isIdentifier(target) || target.text !== '_') return false;
+  const assignment = target.parent;
+  if (
+    assignment === undefined ||
+    !ts.isBinaryExpression(assignment) ||
+    assignment.left !== target ||
+    assignment.operatorToken.kind !== ts.SyntaxKind.EqualsToken
+  ) {
+    return false;
+  }
+  if (ts.isExpressionStatement(assignment.parent)) return true;
+  let body: ts.Node = assignment;
+  while (ts.isParenthesizedExpression(body.parent)) body = body.parent;
+  const arrow = body.parent;
+  return (
+    ts.isArrowFunction(arrow) &&
+    arrow.body === body &&
+    (arrow.type === undefined || arrow.type.kind === ts.SyntaxKind.VoidKeyword)
+  );
+}
+
+/**
  * TS2339 ("Property 'xy' does not exist on type 'number'"): a member read on a vector whose type
  * an operation erased, in place (`(n * 2.).xy`, `(a < b).x`) or through a name declared from
  * one that the projection could not type (`erasedNameOf`). TypeScript has no vector there to
  * find the member on. The front end checks every swizzle itself and names what is wrong with a
- * bad one (`TS8022 .w out of range on vec3<f32>`), so it is the authority here, as `TS8003` is
+ * bad one (`TS8022 .w out of range on vec3`), so it is the authority here, as `TS8003` is
  * for TS2365: the whole family of this code on such a value is dropped, and a real mistake is
  * reported once, by the compiler.
  *
@@ -1030,11 +1075,11 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
     reason:
-      '@vertex/@fragment/@compute on a top-level function, and @builtin/@location on that ' +
-      'function\'s parameters, are exactly the grammar "use typeshade" defines (the compiler ' +
-      'does not require export either — see lower/function.ts) — legacy decorators otherwise ' +
-      'forbid a function declaration or its parameters as a target, and no compiler option ' +
-      'relaxes that. See design doc §6.',
+      "@vertex/@fragment/@compute on a top-level or a namespace's function, and " +
+      "@builtin/@location on that function's parameters, are exactly the grammar " +
+      '"use typeshade" defines (the compiler does not require export either — see ' +
+      'lower/function.ts) — legacy decorators otherwise forbid a function declaration or its ' +
+      'parameters as a target, and no compiler option relaxes that. See design doc §6.',
     when: isDecoratorOnTopLevelFunction,
   },
   {
@@ -1068,11 +1113,14 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 2447,
     reason:
-      '`&`, `|` or `^` on two masks, `(a < b) & (c < d)`: a comparison of vectors is a `bool` ' +
-      'vector to the compiler and a `boolean` to TypeScript, which refuses a bitwise operator ' +
-      "on two booleans. On `vecN<bool>` the three are WGSL's componentwise and, or and xor, and " +
-      'the `&&` and `||` suggested instead take a scalar `bool` only. Dropped when either ' +
-      'operand is a vector to the compiler; on two scalar booleans the code stands.',
+      "`&` and `|` on two `bool`s are WGSL's logical and and or, which do not short-circuit, " +
+      'and on two masks, `(a < b) & (c < d)` (a comparison of vectors is a `bool` vector to the ' +
+      'compiler and a `boolean` to TypeScript), its componentwise and and or; the `&&` and `||` ' +
+      'suggested instead take a scalar `bool` only. Both are dropped whatever their operands, ' +
+      'and the projection types the `bool` result. WGSL has no `^` on a bool or a vector of ' +
+      'bools, nor a compound form of the three: those are dropped when an operand is a vector ' +
+      "and the compiler's refusal stands, and on two scalar booleans the merge keeps that " +
+      'refusal in place of this code.',
     when: isGpuMaskOperation,
   },
   {
@@ -1129,12 +1177,23 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
     when: isGpuArithmeticOverloadCall,
   },
   {
+    code: 2304,
+    reason:
+      "`_ = f(x)` is WGSL's phony assignment, which the compiler lowers as the call with its " +
+      'result dropped (surface §19, §52), and `_` names no value for the ambient library to ' +
+      'declare: it is not a WGSL, ECMAScript or §9.3 name (`surface-names.test.ts`), and ' +
+      'Rule 3.2 refuses it as an author name. Dropped only on the `_` of the statement form ' +
+      "the compiler reads as phony, so `_ = a + 1.` keeps the compiler's one refusal and a `_` " +
+      'read as a value keeps this code.',
+    when: isPhonyAssignmentTarget,
+  },
+  {
     code: 2339,
     reason:
       'A swizzle of a vector whose type an operation erased, in place (`(n * 2.).xy`, ' +
       '`(a < b).x`) or through a name declared from one that the projection could not type, ' +
       'because the compiler refused the declaration. The front end checks every swizzle and ' +
-      'names a bad one (`TS8022 .w out of range on vec3<f32>`), so it is the authority and a ' +
+      'names a bad one (`TS8022 .w out of range on vec3`), so it is the authority and a ' +
       'real mistake is reported once. A value TypeScript still types as a vector keeps this ' +
       'code, and so does a matrix.',
     when: isLostBrandMember,
@@ -1168,7 +1227,7 @@ function isFiltered(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic)
 // TypeScript and the compiler front end both check a `"use typeshade"` file, and a mistake both
 // can see was reported by both: `y = 2.` on a `const` as TS2588 and TS8005, `g(x)` one argument
 // short as TS2554 and TS8019, `colr` as TS2304 and TS8022. A person reads past the second
-// sentence; a coding agent fixes both. The merged list keeps one, by two rules.
+// sentence; a coding agent fixes both. The merged list keeps one, by the rules below.
 
 /** A mistake both halves report, by code: TypeScript's `typescript` and the compiler's
  *  `typeshade`. The merged list keeps the compiler's. */
@@ -1193,8 +1252,30 @@ interface SameMistake {
 const SAME_MISTAKE: readonly SameMistake[] = [
   {
     typescript: 2304,
-    typeshade: new Set(['TS8022', 'TS8004', 'TS8002', 'TS8012']),
-    reason: 'An unknown name: a value, a function, a type or a host API (`Date`).',
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'An unknown name: a value, a function or a type, `Date` among them.',
+  },
+  {
+    typescript: 2583,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason:
+      'The same for a name of a later ECMAScript library (`Map`, `Promise`), which TypeScript ' +
+      'offers to find there, and which a shader does not have either.',
+  },
+  {
+    typescript: 2584,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same for a name of the DOM (`document`).',
+  },
+  {
+    typescript: 2591,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same for a name of Node (`process`, `require`, `Buffer`).',
+  },
+  {
+    typescript: 2580,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same for a name of Node, where TypeScript offers its types to install.',
   },
   {
     typescript: 2552,
@@ -1228,6 +1309,103 @@ const SAME_MISTAKE: readonly SameMistake[] = [
       'member it is spelled like, or what is out of range.',
   },
   {
+    typescript: 1245,
+    typeshade: new Set(['TS8035']),
+    reason: 'An `abstract` method written with a body.',
+  },
+  {
+    typescript: 1318,
+    typeshade: new Set(['TS8035']),
+    reason: 'An `abstract` accessor written with a body.',
+  },
+  {
+    typescript: 1267,
+    typeshade: new Set(['TS8035']),
+    reason: 'An `abstract` field written with an initializer, a function or a value.',
+  },
+  {
+    typescript: 1244,
+    typeshade: new Set(['TS8035']),
+    reason: 'An `abstract` method or accessor in a class that is not abstract, or in a mixin.',
+  },
+  {
+    typescript: 1253,
+    typeshade: new Set(['TS8035']),
+    reason: 'The same for an `abstract` field, which the compiler refuses when it has a body.',
+  },
+  {
+    typescript: 2676,
+    typeshade: new Set(['TS8035']),
+    reason: 'A getter and a setter of which one is `abstract`, and has a body.',
+  },
+  {
+    typescript: 2512,
+    typeshade: new Set(['TS8035']),
+    reason: 'An `abstract` overload signature of a method whose body is not.',
+  },
+  {
+    typescript: 2393,
+    typeshade: new Set(['TS8035']),
+    reason: 'A method with two bodies, which TypeScript reports on each and the compiler once.',
+  },
+  {
+    typescript: 2392,
+    typeshade: new Set(['TS8035']),
+    reason: 'The same for a constructor.',
+  },
+  {
+    typescript: 2300,
+    typeshade: new Set(['TS8035']),
+    reason: 'The same for two getters, or a field and a member of one name.',
+  },
+  {
+    typescript: 2515,
+    typeshade: new Set(['TS8035']),
+    reason:
+      'A class that is not abstract and leaves an abstract member unimplemented, where the ' +
+      'compiler says so of the class, or of a member of a base that is abstract and has a body.',
+  },
+  {
+    typescript: 2654,
+    typeshade: new Set(['TS8035']),
+    reason: 'The same for several members.',
+  },
+  {
+    typescript: 1108,
+    typeshade: new Set(['TS8014']),
+    reason: 'A `return` at the top level of the file.',
+  },
+  {
+    typescript: 1105,
+    typeshade: new Set(['TS8014']),
+    reason: 'A `break` at the top level.',
+  },
+  {
+    typescript: 1104,
+    typeshade: new Set(['TS8014']),
+    reason: 'A `continue` at the top level.',
+  },
+  {
+    typescript: 1101,
+    typeshade: new Set(['TS8014']),
+    reason: 'A `with` statement at the top level.',
+  },
+  {
+    typescript: 2410,
+    typeshade: new Set(['TS8014']),
+    reason: 'The same `with` statement, which TypeScript reports twice.',
+  },
+  {
+    typescript: 1202,
+    typeshade: new Set(['TS8014']),
+    reason: 'An `import x = require("./m")` at the top level.',
+  },
+  {
+    typescript: 1315,
+    typeshade: new Set(['TS8014']),
+    reason: 'An `export as namespace` at the top level.',
+  },
+  {
     typescript: 2353,
     typeshade: new Set(['TS8010']),
     reason: 'An object literal that names a field its struct does not have.',
@@ -1253,6 +1431,44 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     typescript: 2349,
     typeshade: new Set(['TS8004']),
     reason: 'A call of a name that is not a function (`discard()`).',
+  },
+  {
+    typescript: 7009,
+    typeshade: new Set(['TS8035', 'TS8022']),
+    reason:
+      'A `new` on a function or a WGSL constructor, which is called without it, or on a name a ' +
+      'file compiled on its own imports and cannot see.',
+  },
+  {
+    typescript: 2351,
+    typeshade: new Set(['TS8035']),
+    reason:
+      'A `new` on a value, an enum, `Math`, `console` or `Symbol`, none of which has a ' +
+      'constructor.',
+  },
+  {
+    typescript: 2693,
+    typeshade: new Set(['TS8035', 'TS8022', 'TS8004']),
+    reason:
+      'A type read as a value: a `new` on an interface, a type alias or a WGSL type with no ' +
+      'constructor, and a type the library declares read or called (`Number(x)`).',
+  },
+  {
+    typescript: 2708,
+    typeshade: new Set(['TS8035', 'TS8022']),
+    reason:
+      'A `new` through a namespace that holds types alone (`new N.I()`), and such a namespace ' +
+      'read as a value.',
+  },
+  {
+    typescript: 7017,
+    typeshade: new Set(['TS8022']),
+    reason: 'A `new` on a member of `globalThis`, a name nothing declares.',
+  },
+  {
+    typescript: 2511,
+    typeshade: new Set(['TS8035']),
+    reason: 'A `new` on an `abstract` class.',
   },
   {
     typescript: 2588,
@@ -1298,7 +1514,28 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     typeshade: new Set(['TS8003', 'TS8019', 'TS8036']),
     reason: 'The same at an overloaded callee, the math builtins and the vector constructors.',
   },
+  {
+    typescript: 1215,
+    typeshade: new Set(['TS8068', 'TS8022']),
+    reason:
+      'A declaration that binds `eval` or `arguments`, which strict mode forbids, and a write of ' +
+      'such a name nothing declares (`eval = 1.`).',
+  },
+  {
+    typescript: 1210,
+    typeshade: new Set(['TS8068', 'TS8022']),
+    reason: 'The same in a class, which TypeScript says is strict code of its own.',
+  },
+  {
+    typescript: 1100,
+    typeshade: new Set(['TS8068', 'TS8022']),
+    reason: 'The same in a file TypeScript does not take for a module.',
+  },
 ];
+
+/** The TypeScript codes of a binding or a write of `eval` or `arguments` in strict code: in a
+ *  module (TS1215), in a class (TS1210), and in any other file (TS1100). */
+const STRICT_MODE_CODES: ReadonlySet<number> = new Set([1100, 1210, 1215]);
 
 /** The TypeScript codes reported about a CALL, on its callee or on one of its arguments. */
 const CALL_CODES: ReadonlySet<number> = new Set([2345, 2554, 2769]);
@@ -1314,6 +1551,119 @@ const spanOfNode = (node: ts.Node, sourceFile: ts.SourceFile): TypeshadeTextSpan
   return { start, length: node.getEnd() - start };
 };
 
+/** The TypeScript codes about how one class member is declared, reported on its name or on a
+ *  modifier of it (`abstract`), where the compiler reports the name. */
+const MEMBER_CODES: ReadonlySet<number> = new Set([1244, 1245, 1253, 1267, 1318, 2512, 2676]);
+
+/** The TypeScript codes about a name a class declares twice, reported on every declaration of
+ *  it, where the compiler reports the later one. */
+const DUPLICATE_CODES: ReadonlySet<number> = new Set([2300, 2392, 2393]);
+
+/** The TypeScript codes about a class that leaves an abstract member unimplemented, reported on
+ *  the class's name. */
+const UNIMPLEMENTED_CODES: ReadonlySet<number> = new Set([2515, 2654]);
+
+const modifiersOf = (member: ts.ClassElement): readonly ts.ModifierLike[] =>
+  (ts.canHaveModifiers(member) ? ts.getModifiers(member) : undefined) ?? [];
+
+/** The class member `span` starts on: the member itself, its name or one of its modifiers. */
+function memberAt(
+  context: DiagnosticFilterContext,
+  span: TypeshadeTextSpan,
+): ts.ClassElement | undefined {
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, span.start);
+  while (node !== undefined && !(ts.isClassElement(node) && ts.isClassLike(node.parent))) {
+    node = node.parent;
+  }
+  if (node === undefined) return undefined;
+  const member = node;
+  const parts: readonly (ts.Node | undefined)[] = [member, member.name, ...modifiersOf(member)];
+  return parts.some((p) => p?.getStart(context.sourceFile) === span.start) ? member : undefined;
+}
+
+/** A member's name as the class declares it, `static` apart: two of one key are one name
+ *  declared twice. */
+function memberKey(member: ts.ClassElement): string | undefined {
+  const isStatic = modifiersOf(member).some((m) => m.kind === ts.SyntaxKind.StaticKeyword);
+  if (ts.isConstructorDeclaration(member)) return 'constructor';
+  const name = member.name;
+  if (name === undefined || !(ts.isIdentifier(name) || ts.isPrivateIdentifier(name))) {
+    return undefined;
+  }
+  return `${isStatic ? 'static ' : ''}${name.text}`;
+}
+
+/** Whether the class `derived` extends `base`, through any number of classes between. */
+function extendsClass(
+  context: DiagnosticFilterContext,
+  derived: ts.ClassLikeDeclaration,
+  base: ts.ClassLikeDeclaration,
+): boolean {
+  const checker = context.checker;
+  if (checker === undefined) return false;
+  const seen = new Set<ts.Type>();
+  // A base is a class, an instance of a generic one (`B<f32>`), or what a mixin returns, the
+  // class it writes with the class it was handed (an intersection).
+  const reaches = (type: ts.Type): boolean => {
+    if (seen.has(type)) return false;
+    seen.add(type);
+    if (type.isIntersection()) return type.types.some(reaches);
+    if (type.symbol?.declarations?.includes(base) === true) return true;
+    const target = (type as ts.TypeReference).target ?? type;
+    return target.isClassOrInterface() && checker.getBaseTypes(target).some(reaches);
+  };
+  const type = checker.getTypeAtLocation(derived);
+  return type.isClassOrInterface() && checker.getBaseTypes(type).some(reaches);
+}
+
+/**
+ * Whether a TypeScript diagnostic about how a class is declared and a compiler one are one
+ * mistake; `undefined` for any other code. TypeScript reports a member on its name or on a
+ * modifier (`abstract` in a class that is not abstract, TS1244), and on each declaration of
+ * its name: each overload signature, and both bodies of a method written twice (TS2393). The
+ * compiler reports the name once, on one of them. A class that leaves an abstract member
+ * unimplemented TypeScript reports on the class (TS2515), as the compiler does, and also when
+ * the member of the base is `abstract` with a body, which the compiler refuses on that member
+ * and then gives each class that extends it.
+ */
+function sameClassDeclaration(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  error: TypeshadeDiagnostic,
+): boolean | undefined {
+  const code = diagnostic.code;
+  if (typeof code !== 'number') return undefined;
+  if (MEMBER_CODES.has(code) || DUPLICATE_CODES.has(code)) {
+    const member = memberAt(context, diagnostic.span);
+    const other = memberAt(context, error.span);
+    if (member === undefined || other === undefined) return false;
+    const key = memberKey(member);
+    return (
+      member === other ||
+      (member.parent === other.parent && key !== undefined && key === memberKey(other))
+    );
+  }
+  if (UNIMPLEMENTED_CODES.has(code)) {
+    if (
+      diagnostic.span.start === error.span.start &&
+      diagnostic.span.length === error.span.length
+    ) {
+      return true;
+    }
+    const member = memberAt(context, error.span);
+    if (member === undefined) return false;
+    if (!modifiersOf(member).some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)) return false;
+    const named = nodeAtPosition(context.sourceFile, diagnostic.span.start).parent;
+    return (
+      named !== undefined &&
+      ts.isClassLike(named) &&
+      ts.isClassLike(member.parent) &&
+      extendsClass(context, named, member.parent)
+    );
+  }
+  return undefined;
+}
+
 /** The call a TypeScript diagnostic in `CALL_CODES` is about: the one whose argument it covers,
  * or whose callee (TypeScript's span for a failed overload on a later argument, and for too few
  * arguments). */
@@ -1322,6 +1672,21 @@ function callOf(
   span: TypeshadeTextSpan,
 ): ts.CallExpression | undefined {
   return argumentAt(context, span)?.call ?? calleeCallAt(context, span);
+}
+
+/** The `new` a compiler diagnostic covers whole, `new Date()`, when it covers one. */
+function newCovering(
+  context: DiagnosticFilterContext,
+  span: TypeshadeTextSpan,
+): ts.NewExpression | undefined {
+  for (
+    let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, span.start);
+    node !== undefined && node.getStart(context.sourceFile) === span.start;
+    node = node.parent
+  ) {
+    if (ts.isNewExpression(node) && node.getEnd() === spanEnd(span)) return node;
+  }
+  return undefined;
 }
 
 /**
@@ -1339,17 +1704,31 @@ function callOf(
  * names at the end of the access the compiler names; a declared type mismatch is the name at
  * the start of the declaration. Inside alone is not enough, since a second mistake can sit
  * inside the span of a first: a misspelled argument inside a call the compiler refuses whole.
+ *
+ * A `new` is refused whole by the compiler, once for the file, for what its target is, where
+ * TypeScript reports the target or a name in it (`Date` in `new Date()`, TS2304; `E` in
+ * `new E()`, TS2351; `Foo` in `new Math.Foo()`, TS2339): TypeScript's span then lies inside the
+ * target of the `new` the compiler's covers.
  */
 function sameMistakeSpans(
   context: DiagnosticFilterContext,
   diagnostic: TypeshadeDiagnostic,
   error: TypeshadeDiagnostic,
 ): boolean {
+  const built = newCovering(context, error.span);
+  if (
+    built !== undefined &&
+    within(diagnostic.span, spanOfNode(built.expression, context.sourceFile))
+  ) {
+    return true;
+  }
   if (typeof diagnostic.code === 'number' && CALL_CODES.has(diagnostic.code)) {
     const call = callOf(context, diagnostic.span);
     const region = call === undefined ? diagnostic.span : spanOfNode(call, context.sourceFile);
     return within(error.span, region) || within(diagnostic.span, error.span);
   }
+  const declared = sameClassDeclaration(context, diagnostic, error);
+  if (declared !== undefined) return declared;
   return (
     within(diagnostic.span, error.span) &&
     (diagnostic.span.start === error.span.start || spanEnd(diagnostic.span) === spanEnd(error.span))
@@ -1359,8 +1738,8 @@ function sameMistakeSpans(
 /**
  * The expression a TypeScript diagnostic finds fault with the type of: the value TS2322 found
  * unassignable, the argument TS2345 or TS2769 names (or the call, when TS2769 is on its
- * callee), the object whose member TS2339 or TS2551 did not find, and the operation TS2365 or
- * TS2367 could not apply to its operands.
+ * callee), the object whose member TS2339 or TS2551 did not find, the object TS7053 could not
+ * index, and the operation TS2365 or TS2367 could not apply to its operands.
  */
 function subjectOf(
   context: DiagnosticFilterContext,
@@ -1382,6 +1761,13 @@ function subjectOf(
       let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
       while (node !== undefined && !ts.isPropertyAccessExpression(node)) node = node.parent;
       return node !== undefined && node.name.getStart(context.sourceFile) === diagnostic.span.start
+        ? node.expression
+        : undefined;
+    }
+    case 7053: {
+      let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+      while (node !== undefined && !ts.isElementAccessExpression(node)) node = node.parent;
+      return node !== undefined && node.getStart(context.sourceFile) === diagnostic.span.start
         ? node.expression
         : undefined;
     }
@@ -1520,15 +1906,460 @@ function isKnockOn(
   return typedFromFailure(context, subject, failures);
 }
 
+/** What the compiler refused whole, as spans of the document: the nodes whose operand or body
+ *  is part of the one mistake refused at them (`refusedWhole`, a `throw`, an `await`, an async
+ *  function, a spread, and a statement a namespace does not hold), and the `var` statements it
+ *  refused (`refusedVars`). */
+interface Refusals {
+  readonly whole: readonly TypeshadeTextSpan[];
+  readonly vars: readonly TypeshadeTextSpan[];
+}
+
+/** The statements of a namespace the compiler refused whole (namespaces.ts): a `TS8014` whose
+ *  span is the statement itself, `export let T: array<f32, 3> = [...A, 3.]` in `namespace N`.
+ *  semantic.ts does not read what such a statement holds, so nothing inside it is a mistake of
+ *  its own, and TypeScript's word on what it holds repeats the one refusal (Rule 12.4). */
+function namespaceStatementsRefused(
+  sourceFile: ts.SourceFile,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): TypeshadeTextSpan[] {
+  const out: TypeshadeTextSpan[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isModuleBlock(node)) {
+      for (const stmt of node.statements) {
+        const span = spanOfNode(stmt, sourceFile);
+        const refused = compilerErrors.some(
+          (e) =>
+            e.code === TS_CODES.TOP_LEVEL &&
+            e.span.start === span.start &&
+            e.span.length === span.length,
+        );
+        if (refused) out.push(span);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return out;
+}
+
+/** The global type an async function, a generator, an `await`, a `yield`, a `for await` or a
+ *  tagged template names, which the ambient library leaves out (TS2318, `Cannot find global type
+ *  'Promise'`), since the form that needs it has no shader form. */
+const MISSING_GLOBAL_TYPE = 2318;
+
+/** Whether `node` is a form TypeScript types with a global type the ambient library leaves out:
+ *  an async function or a generator, an `await`, a `yield`, a `for await`, a tagged template. */
+function needsHostGlobal(node: ts.Node): boolean {
+  return (
+    ts.isAwaitExpression(node) ||
+    ts.isYieldExpression(node) ||
+    ts.isTaggedTemplateExpression(node) ||
+    (ts.isForOfStatement(node) && node.awaitModifier !== undefined) ||
+    (ts.isFunctionLike(node) &&
+      ((node as { asteriskToken?: ts.AsteriskToken }).asteriskToken !== undefined ||
+        (ts.canHaveModifiers(node) &&
+          (ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false))))
+  );
+}
+
+/** The value a TS2322 reported on a class field's or a parameter's name judges: its
+ *  initializer, `static K: array<f32, 3> = [...A, 3.]`, `xs: array<f32, 3> = [...A, 3.]`. */
+function initializerNamedAt(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+): ts.Expression | undefined {
+  if (ruleCodeOf(diagnostic.code) !== 2322) return undefined;
+  for (
+    let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+    node !== undefined;
+    node = node.parent
+  ) {
+    if (ts.isPropertyDeclaration(node) || ts.isParameter(node)) {
+      return node.name.getStart(context.sourceFile) === diagnostic.span.start
+        ? node.initializer
+        : undefined;
+    }
+  }
+  return undefined;
+}
+
+/** Whether a TypeScript error sits in the head of a `for await` or a `for…in` the compiler
+ *  refused whole: TS1103 on the `await`, and TS2407 on what a `for…in` enumerates when it is no
+ *  object (`for (const k in 1.)`), which the refusal already says. What the loop's body says is
+ *  its own. */
+function forAwaitHeadAt(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const loop = ts.findAncestor(
+    nodeAtPosition(context.sourceFile, diagnostic.span.start),
+    (n): n is ts.ForOfStatement | ts.ForInStatement =>
+      (ts.isForOfStatement(n) && n.awaitModifier !== undefined) || ts.isForInStatement(n),
+  );
+  if (loop === undefined) return false;
+  const whole = spanOfNode(loop, context.sourceFile);
+  return (
+    spanEnd(diagnostic.span) <= loop.statement.getStart(context.sourceFile) &&
+    compilerErrors.some((e) => e.span.start === whole.start && e.span.length === whole.length)
+  );
+}
+
+/** Whether a TypeScript error sits on the rest element of a list the compiler refused as an
+ *  assignment target (TS8018), `[p, ...q] = a`: TypeScript's word on what `...q` collects is
+ *  about the one target refused. */
+function restOfRefusedTarget(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const rest = ts.findAncestor(
+    nodeAtPosition(context.sourceFile, diagnostic.span.start),
+    ts.isSpreadElement,
+  );
+  if (rest === undefined || !ts.isArrayLiteralExpression(rest.parent)) return false;
+  const target = spanOfNode(rest.parent, context.sourceFile);
+  return compilerErrors.some(
+    (e) =>
+      e.code === TS_CODES.ASSIGN_TARGET &&
+      e.span.start === target.start &&
+      e.span.length === target.length,
+  );
+}
+
+/**
+ * Whether a TypeScript error repeats a mistake the compiler refused whole (Rule 12.4):
+ *
+ * - it lies inside a node the compiler refused with what it holds, so `throw new Error("x")`
+ *   is the compiler's one sentence and not also TypeScript's `Cannot find name 'Error'`, and an
+ *   `await` its `'await' expressions are only allowed within async functions`;
+ * - the value it judges holds such a node: the list `[...a, 3.]` TypeScript finds unassignable
+ *   to the `array<f32, 3>` it initializes;
+ * - it sits in the head of a `for await` or a `for…in` the compiler refused, TS1103 on the
+ *   `await` or TS2407 on a scalar a `for…in` enumerates, or on the rest element of a list the
+ *   compiler refused as an assignment target;
+ * - it is a global type TypeScript cannot find (`MISSING_GLOBAL_TYPE`), and a form that names
+ *   one stands inside a compiler error: `Promise` for an async function the compiler refused;
+ * - it is TypeScript's word on a `var` the compiler refused, which the compiler lowers as the
+ *   `let` it would have been: a read of it after the block it is written in, as used before
+ *   being assigned (TS2454), or its redeclaration with another type (TS2403).
+ */
+function repeatsRefusal(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  refusals: Refusals,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  if (refusals.whole.some((span) => within(diagnostic.span, span))) return true;
+  const subject = subjectOf(context, diagnostic) ?? initializerNamedAt(context, diagnostic);
+  if (subject !== undefined) {
+    const judged = spanOfNode(subject, context.sourceFile);
+    if (refusals.whole.some((span) => within(span, judged))) return true;
+  }
+  if (forAwaitHeadAt(context, diagnostic, compilerErrors)) return true;
+  if (restOfRefusedTarget(context, diagnostic, compilerErrors)) return true;
+  if (diagnostic.code === MISSING_GLOBAL_TYPE) {
+    let found = false;
+    const visit = (node: ts.Node): void => {
+      if (found) return;
+      if (needsHostGlobal(node)) {
+        const span = spanOfNode(node, context.sourceFile);
+        found = compilerErrors.some((error) => within(span, error.span));
+        if (found) return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(context.sourceFile);
+    return found;
+  }
+  if (diagnostic.code === 2403) return refusals.vars.some((span) => within(diagnostic.span, span));
+  if (diagnostic.code === 2454 && context.checker !== undefined) {
+    const name = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+    const declaration = ts.isIdentifier(name)
+      ? context.checker.getSymbolAtLocation(name)?.valueDeclaration
+      : undefined;
+    if (declaration === undefined || !ts.isVariableDeclaration(declaration)) return false;
+    const statement = declaration.parent.parent;
+    if (!ts.isVariableStatement(statement)) return false;
+    const span = spanOfNode(statement, context.sourceFile);
+    return refusals.vars.some((v) => v.start === span.start && v.length === span.length);
+  }
+  return false;
+}
+
+/**
+ * Whether a TypeScript error repeats what the compiler said of `eval` or `arguments` (Rule 12.4):
+ *
+ * - TypeScript's word on a write of such a name whose declaration the compiler refused
+ *   (`TS8068`, Rule 2.1), `arguments = 2.` or `arguments++`, which it reports as it does the
+ *   binding;
+ * - what it says of a read of `arguments` in a function, which it takes for the function's own
+ *   `arguments` object (`IArguments`): the file's declaration of the name the compiler refused,
+ *   or a name the compiler found no declaration of (`TS8022`), is what that read is about.
+ */
+function repeatsStrictModeRefusal(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const text = (span: TypeshadeTextSpan): string =>
+    context.sourceFile.text.slice(span.start, spanEnd(span));
+  const refused = new Set(
+    compilerErrors
+      .filter((e) => e.code === TS_CODES.RESERVED_NAME && STRICT_MODE_NAMES.has(text(e.span)))
+      .map((e) => text(e.span)),
+  );
+  if (typeof diagnostic.code === 'number' && STRICT_MODE_CODES.has(diagnostic.code)) {
+    return refused.has(text(diagnostic.span));
+  }
+  const checker = context.checker;
+  if (checker === undefined || !context.sourceFile.text.includes('arguments')) return false;
+  const subject = subjectOf(context, diagnostic);
+  const region = subject === undefined ? diagnostic.span : spanOfNode(subject, context.sourceFile);
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (
+      found ||
+      node.getEnd() <= region.start ||
+      node.getStart(context.sourceFile) >= spanEnd(region)
+    ) {
+      return;
+    }
+    if (ts.isIdentifier(node) && node.text === 'arguments') {
+      const span = spanOfNode(node, context.sourceFile);
+      // The function's own object is the one `arguments` symbol with no declaration.
+      const symbol = checker.getSymbolAtLocation(node);
+      found =
+        within(span, region) &&
+        symbol !== undefined &&
+        symbol.declarations === undefined &&
+        (refused.has('arguments') ||
+          compilerErrors.some(
+            (e) =>
+              e.code === TS_CODES.UNKNOWN_NAME &&
+              e.span.start === span.start &&
+              e.span.length === span.length,
+          ));
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(context.sourceFile);
+  return found;
+}
+
+/** What a name can be declared as that holds no value a shader reads: an enum, a class, a
+ *  namespace with a value in it, and a function. A namespace of types alone is TypeScript's
+ *  TS2708, which `SAME_MISTAKE` pairs. */
+const NO_VALUE_SYMBOLS =
+  ts.SymbolFlags.Enum | ts.SymbolFlags.Class | ts.SymbolFlags.ValueModule | ts.SymbolFlags.Function;
+
+/**
+ * Whether a TypeScript error is about the value of a name the compiler refused to read as one,
+ * because the file declares it as an enum, a class, a namespace or a function: the compiler says
+ * what the name is (`TS8022 "E" is an enum, whose values are its members: E.A.`, and `TS8099`
+ * for a function), and TypeScript, which types the read as the declaration itself (`typeof E`,
+ * `() => f32`), reports where that value flows, `const k: f32 = E` (TS2322), `TAU * 2.`
+ * (TS2362), `m === Mode` (TS2367) or an argument (TS2345). One mistake, the compiler's sentence
+ * (Rule 12.4). The error goes when the value it judges (`subjectOf`, or the operation of an
+ * operand's report), or its own span, holds such a read.
+ */
+function readsDeclarationAsValue(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const checker = context.checker;
+  if (checker === undefined) return false;
+  const reads = compilerErrors.filter((e) => {
+    if (e.code !== TS_CODES.UNKNOWN_NAME && e.code !== TS_CODES.UNSUPPORTED) return false;
+    const node = nodeAtPosition(context.sourceFile, e.span.start);
+    if (!ts.isIdentifier(node) || node.getEnd() !== spanEnd(e.span)) return false;
+    const symbol = checker.getSymbolAtLocation(node);
+    return symbol !== undefined && (symbol.flags & NO_VALUE_SYMBOLS) !== 0;
+  });
+  if (reads.length === 0) return false;
+  const subject = operationOf(context, diagnostic) ?? subjectOf(context, diagnostic);
+  const region = subject === undefined ? diagnostic.span : spanOfNode(subject, context.sourceFile);
+  return reads.some((read) => within(read.span, region) || within(read.span, diagnostic.span));
+}
+
+/**
+ * The operation an operator's own diagnostic is about: the one TS2447 (`^` on two booleans)
+ * spans, or the one whose left operand TS2362, or right operand TS2363, it is reported on.
+ * TS2365 is `subjectOf`'s.
+ */
+function operationOf(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+): ts.BinaryExpression | undefined {
+  if (diagnostic.code === 2447) return binaryExpressionSpanning(context, diagnostic.span);
+  if (diagnostic.code !== 2362 && diagnostic.code !== 2363) return undefined;
+  const binary = binaryExpressionAt(context, diagnostic.span);
+  if (binary === undefined) return undefined;
+  const operand = diagnostic.code === 2362 ? binary.left : binary.right;
+  const start = diagnostic.span.start;
+  return start >= operand.getStart(context.sourceFile) && start < operand.getEnd()
+    ? binary
+    : undefined;
+}
+
+/**
+ * Whether the compiler refused `node`, an operation, with one of `refusals` (its `TS8003`s): on
+ * the operation, or on an operand of a compound assignment or a shift, where it reports the
+ * target, the amount and a compound form's mismatch (`v += new A()` on `v`). An operand of any
+ * other operator is refused for itself, not for the operator.
+ */
+function isRefusedOperation(
+  context: DiagnosticFilterContext,
+  node: ts.Expression,
+  refusals: readonly TypeshadeDiagnostic[],
+): boolean {
+  const refusedAt = (at: ts.Node): boolean => {
+    const span = spanOfNode(at, context.sourceFile);
+    return refusals.some((r) => r.span.start === span.start && r.span.length === span.length);
+  };
+  if (ts.isPrefixUnaryExpression(node)) return refusedAt(node);
+  if (!ts.isBinaryExpression(node)) return false;
+  if (refusedAt(node)) return true;
+  const op = node.operatorToken.kind;
+  const atOperand =
+    (op >= ts.SyntaxKind.FirstCompoundAssignment && op <= ts.SyntaxKind.LastCompoundAssignment) ||
+    op === ts.SyntaxKind.LessThanLessThanToken ||
+    op === ts.SyntaxKind.GreaterThanGreaterThanToken;
+  return atOperand && (refusedAt(node.left) || refusedAt(node.right));
+}
+
+/**
+ * Whether `value` is, or is read from, an operation the compiler refused (`isRefusedOperation`):
+ * in place, through a member or an element of it, through a local declared from it with no type,
+ * and through a further operation on it. `seen` ends a walk through locals declared from each
+ * other.
+ */
+function fromRefusedOperation(
+  context: DiagnosticFilterContext,
+  value: ts.Expression,
+  refusals: readonly TypeshadeDiagnostic[],
+  seen: Set<ts.Node> = new Set(),
+): boolean {
+  const inner = unparenthesized(value);
+  if (seen.has(inner)) return false;
+  seen.add(inner);
+  const from = (e: ts.Expression): boolean => fromRefusedOperation(context, e, refusals, seen);
+  if (isRefusedOperation(context, inner, refusals)) return true;
+  if (ts.isIdentifier(inner)) {
+    const initializer = initializerBehind(context, inner);
+    return initializer !== undefined && from(initializer);
+  }
+  if (ts.isPropertyAccessExpression(inner) || ts.isElementAccessExpression(inner)) {
+    return from(inner.expression);
+  }
+  if (ts.isBinaryExpression(inner) && ERASING_OPERATORS.has(inner.operatorToken.kind)) {
+    return from(inner.left) || from(inner.right);
+  }
+  if (ts.isPrefixUnaryExpression(inner) && ERASING_UNARY_OPERATORS.has(inner.operator)) {
+    return from(inner.operand);
+  }
+  return false;
+}
+
+/**
+ * Whether a TypeScript error is about an operation the compiler refuses with a `TS8003` by
+ * WGSL's operator table (Rule 7.1): TypeScript's own refusal of the operator (TS2365, TS2447,
+ * TS2362, TS2363), or a report about its value (`subjectOf`). `a + b` on two class instances,
+ * `a * b` on two bools and `-a` on a struct are one mistake each, which the compiler's sentence
+ * names. TypeScript types any such operation from the operator alone, a `number` whatever the
+ * operands, so the value it then judges is a guess, as a failed call's is (`isKnockOn`): `(a &
+ * b).x` is TS2339 on a `number`, `return a * b` in a function that returns a `bool` is TS2322,
+ * and so is `return c` for a `const c = a * b`. An operation the compiler accepts, or refuses
+ * with another code (a string operand's `TS8099`), keeps TypeScript's reports.
+ */
+function isAboutRefusedOperation(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  refusals: readonly TypeshadeDiagnostic[],
+): boolean {
+  if (refusals.length === 0) return false;
+  const subject = operationOf(context, diagnostic) ?? subjectOf(context, diagnostic);
+  return subject !== undefined && fromRefusedOperation(context, subject, refusals);
+}
+
+/** The codes the compiler refuses a whole decorator with: `TS8028` for a name nothing reads
+ *  there, `TS8010` for `@align` or `@std140` it does not apply, `TS8035` for one on a method. */
+const DECORATOR_REFUSALS: ReadonlySet<string> = new Set([
+  TS_CODES.ATTRIBUTE_NAME,
+  TS_CODES.STRUCT_FIELD,
+  TS_CODES.CLASS_MEMBER,
+]);
+
+/** The code the compiler refuses every decorator of a method with, at the first. */
+const METHOD_DECORATOR_REFUSAL: ReadonlySet<string> = new Set([TS_CODES.CLASS_MEMBER]);
+
+/**
+ * Whether a TypeScript error sits inside a decorator the compiler refuses whole, with one of
+ * `DECORATOR_REFUSALS` on the decorator (Rule 6.7): TypeScript's TS1206 ("Decorators are not
+ * valid here") or TS1249 (a decorator on an overload) on a declaration that takes none, TS1239
+ * on a parameter's, and TS2304 or TS2552 on the name of an attribute the ambient library does
+ * not declare (`@size`, `@group`, a misspelled `@locaton`). The compiler's sentence says what
+ * the attribute is and where its intent goes, and the whole decorator is to be removed, so
+ * anything TypeScript says inside it is the same mistake (Rule 12.4). A method's decorators are
+ * refused together, at the first (`TS8035`, `class-methods.ts`), so an error in any of them
+ * goes; and so does TypeScript's TS2318 for `TypedPropertyDescriptor`, the global type it
+ * checks a method's decorator against and the ambient library does not declare, which carries
+ * no span.
+ */
+function isInRefusedDecorator(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  const refused = (decorator: ts.Decorator, codes: ReadonlySet<string>): boolean => {
+    const span = spanOfNode(decorator, context.sourceFile);
+    return compilerErrors.some(
+      (error) =>
+        codes.has(String(error.code)) &&
+        error.span.start === span.start &&
+        error.span.length === span.length,
+    );
+  };
+  if (diagnostic.code === 2318 && diagnostic.message.includes("'TypedPropertyDescriptor'")) {
+    return compilerErrors.some((error) => {
+      if (error.code !== TS_CODES.CLASS_MEMBER) return false;
+      let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, error.span.start);
+      while (node !== undefined && !ts.isDecorator(node)) node = node.parent;
+      return node !== undefined && refused(node, METHOD_DECORATOR_REFUSAL);
+    });
+  }
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+  while (node !== undefined && !ts.isDecorator(node)) node = node.parent;
+  if (node === undefined) return false;
+  if (refused(node, DECORATOR_REFUSALS)) return true;
+  const declaration = node.parent;
+  const siblings = ts.canHaveDecorators(declaration) ? (ts.getDecorators(declaration) ?? []) : [];
+  return siblings.some((d) => refused(d, METHOD_DECORATOR_REFUSAL));
+}
+
 /**
  * The merged list for one document: `typescript` (already filtered by
- * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Two
+ * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Seven
  * rules drop a report, and each only ever drops an ERROR that another error already covers:
  *
  * - a TypeScript error that is TypeScript's own knock-on of a call it failed to resolve
  *   (`isKnockOn`) goes;
+ * - a TypeScript error about an operation the compiler refuses by WGSL's operator table, or
+ *   about the value of one (`isAboutRefusedOperation`), goes;
+ * - a TypeScript error inside a decorator the compiler refuses whole (`isInRefusedDecorator`)
+ *   goes;
  * - a TypeScript error that `SAME_MISTAKE` pairs by code with a compiler error, and whose span
- *   sits where one mistake would put the two (`sameMistakeSpans`), goes: the compiler's stays.
+ *   sits where one mistake would put the two (`sameMistakeSpans`), goes: the compiler's stays;
+ * - a TypeScript error about what the compiler refused whole, a `throw` and what it throws, an
+ *   async function, a spread in a list, a `var` (`repeatsRefusal`), goes;
+ * - a TypeScript error about a write of `eval` or `arguments` whose declaration the compiler
+ *   refused, or a read of `arguments` it takes for a function's own object
+ *   (`repeatsStrictModeRefusal`), goes;
+ * - a TypeScript error about the value of an enum, a class, a namespace or a function the
+ *   compiler refused to read as a value (`readsDeclarationAsValue`), goes.
  *
  * Without `analysis` nothing is dropped: the service passes none when a test asks for the two
  * halves unmerged (`TypeshadeLanguageServiceTestOptions`).
@@ -1545,9 +2376,22 @@ export function mergeDiagnostics(
   }
   const context: DiagnosticFilterContext = { sourceFile, checker };
   const compilerErrors = typeshade.filter((d) => d.severity === 'error');
+  const operatorRefusals = compilerErrors.filter((d) => d.code === TS_CODES.TYPE_MISMATCH);
+  const refusals: Refusals = {
+    whole: [
+      ...refusedWhole(analysis.sourceFile).map((n) => spanOfNode(n, analysis.sourceFile)),
+      ...namespaceStatementsRefused(analysis.sourceFile, compilerErrors),
+    ],
+    vars: refusedVars(analysis.sourceFile).map((n) => spanOfNode(n, analysis.sourceFile)),
+  };
   const keptTypescript = typescript.filter((diagnostic) => {
     if (diagnostic.severity !== 'error') return true;
     if (isKnockOn(context, diagnostic, typescript)) return false;
+    if (isAboutRefusedOperation(context, diagnostic, operatorRefusals)) return false;
+    if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
+    if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
+    if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
+    if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;
     const pair = SAME_MISTAKE.find((p) => p.typescript === ruleCodeOf(diagnostic.code));
     if (pair === undefined) return true;
     return !compilerErrors.some(

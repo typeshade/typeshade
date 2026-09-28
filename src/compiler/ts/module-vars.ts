@@ -23,17 +23,33 @@ import type { Expr, ModuleVarDecl, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { structT, typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { LoweringScope } from './context.js';
+import {
+  LoweringScope,
+  authorTypeText,
+  refuseModuleName,
+  refusedDeclarationsOf,
+  refusedModuleNames,
+} from './context.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
-import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js';
+import {
+  mapTsTypeToShaderType,
+  RETIRED_VAR_WRAPPER,
+  retiredWrapperMessage,
+  writesRefusedType,
+} from './type-map.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { foldConstComponents } from './loop-bound.js';
 import { reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
 import { lowerExpression } from './lower/expression.js';
-import { lowerArrayLiteral } from './lower/expression-array.js';
+import { lowerArrayLiteral, refuseListSpread } from './lower/expression-array.js';
 import { isOverrideType } from './overrides.js';
-import { isFoldableConstExpr, staticConstName } from './module-const.js';
+import {
+  declaredCallIn,
+  isFoldableConstExpr,
+  staticConstName,
+  writtenModuleName,
+} from './module-const.js';
 import { eachNamespaceStatement } from './namespaces.js';
 import {
   emittedMemberName,
@@ -98,16 +114,24 @@ function typeRefusal(t: ShaderType, space: ModuleVarDecl['space']): string | und
 }
 
 /** The shader type a module variable's annotation names: a mapped type, or a struct the file
- *  declares under that name. */
-const typeOf = (
+ *  declares under that name. A name the mapper refused, `Foo` that nothing declares, names no
+ *  struct either, and a struct of its name would refuse the initializer a second time against
+ *  a type the program does not have (Rule 12.4). */
+function typeOf(
   node: ts.TypeNode,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): ShaderType | undefined =>
-  mapTsTypeToShaderType(node, sourceFile, diagnostics) ??
-  (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)
+): ShaderType | undefined {
+  const before = diagnostics.length;
+  const mapped = mapTsTypeToShaderType(node, sourceFile, diagnostics);
+  if (mapped !== undefined || diagnostics.length > before) return mapped;
+  // One that names a generic interface or alias was refused at that declaration (Rule 12.4).
+  return ts.isTypeReferenceNode(node) &&
+    ts.isIdentifier(node.typeName) &&
+    !writesRefusedType(node, sourceFile)
     ? structT(node.typeName.text)
-    : undefined);
+    : undefined;
+}
 
 /** The type argument of a retired `perInvocation<T>` annotation as the author wrote it, `T`
  *  when it has none, or `undefined` when the annotation is not one. */
@@ -146,6 +170,11 @@ export function collectModuleVars(
   const seen = new Set<string>();
   const scope = new LoweringScope(undefined, undefined);
   scope.setStructs(structs);
+  // A module constant refused before this said why, and an initializer that reads it adds
+  // nothing (Rule 12.4).
+  for (const refused of refusedModuleNames(sourceFile)) {
+    refusedDeclarationsOf(scope.calleeTable()).add(refused);
+  }
   for (const c of consts) {
     scope.define({
       kind: 'module',
@@ -226,6 +255,14 @@ export function collectModuleVars(
       }
       // `let q: override<f32>` is overrides.ts's refusal, with the fix (`const`).
       if (isOverrideType(decl.type)) continue;
+      // `let g = (x: f32): f32 => …` is a function, which the local-function collector says is
+      // declared with const (TS8020); it is no module variable to refuse a second time.
+      if (
+        decl.initializer !== undefined &&
+        (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
+      ) {
+        continue;
+      }
       if (!ts.isIdentifier(decl.name)) {
         diagnostics.push(
           diag(
@@ -308,7 +345,7 @@ function lowerWrapped(
     name,
     space,
     type,
-    `a ${word}<${typeKey(type)}>`,
+    `a ${word}<${authorTypeText(type)}>`,
     asPrivate,
     sourceFile,
     scope,
@@ -346,6 +383,21 @@ function declaredResourceText(type: ts.TypeNode, sourceFile: ts.SourceFile): str
   return `storage<${args[0].getText(sourceFile)}, "read_write">`;
 }
 
+/** Whether a module variable's initializer is a list with a spread, refused as one sentence
+ *  before the list is counted or asked for its type (expression-array.ts). */
+function spreadRefused(
+  decl: VarSite,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  return (
+    decl.initializer !== undefined &&
+    ts.isArrayLiteralExpression(decl.initializer) &&
+    refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)
+  );
+}
+
 /** `let seed: u32 = 7`, `let hits: u32`, `let v = 1.5`: the per-invocation variable, its type
  *  from the annotation or, without one, from the initializer by §12's rule for a `const`. */
 function lowerPlain(
@@ -355,6 +407,16 @@ function lowerPlain(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): ModuleVarDecl | undefined {
+  // A call of a function or a class the file declares is no constant, and has nothing to call
+  // yet: it is said here, before the initializer is lowered into "Unknown function" about a
+  // function the file declares (Rule 12.4).
+  if (decl.initializer !== undefined && declaredCallIn(decl.initializer, sourceFile)) {
+    diagnostics.push(
+      diag(sourceFile, decl.initializer, notConstantMessage(decl, decl.initializer, sourceFile)),
+    );
+    refuse(name, sourceFile, scope);
+    return undefined;
+  }
   if (decl.type !== undefined) {
     // `let seed: perInvocation<u32> = 7` (#83, removed in §24). Refused here, at the
     // annotation and before `typeOf` runs, so it is the author's only diagnostic: `typeOf`
@@ -386,15 +448,22 @@ function lowerPlain(
       );
       return undefined;
     }
+    const before = diagnostics.length;
     const type = typeOf(decl.type, sourceFile, diagnostics);
-    if (!type) return undefined;
+    if (!type) {
+      // Refused where its type is written: a read or a write of it adds nothing (Rule 12.4).
+      if (diagnostics.length > before) refuse(name, sourceFile, scope);
+      return undefined;
+    }
+    // A list refused for its spread is that one sentence (Rule 12.4).
+    if (spreadRefused(decl, sourceFile, scope, diagnostics)) return undefined;
     return finish(
       decl,
       decl.type,
       name,
       'private',
       type,
-      typeKey(type),
+      authorTypeText(type),
       undefined,
       sourceFile,
       scope,
@@ -412,6 +481,8 @@ function lowerPlain(
     return undefined;
   }
   if (ts.isArrayLiteralExpression(decl.initializer)) {
+    // A spread is the list's one sentence, said before the list is counted (Rule 12.4).
+    if (spreadRefused(decl, sourceFile, scope, diagnostics)) return undefined;
     diagnostics.push(
       diag(
         sourceFile,
@@ -422,15 +493,19 @@ function lowerPlain(
     );
     return undefined;
   }
+  const before = diagnostics.length;
   const init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics);
-  if (!init) return undefined;
+  if (!init) {
+    refuseIfSilent(name, before, sourceFile, scope, diagnostics);
+    return undefined;
+  }
   return finish(
     decl,
     decl,
     name,
     'private',
     init.type,
-    typeKey(init.type),
+    authorTypeText(init.type),
     undefined,
     sourceFile,
     scope,
@@ -478,12 +553,16 @@ function finish(
     );
     return undefined;
   }
+  const before = diagnostics.length;
   let init: Expr | undefined =
     lowered ??
     (ts.isArrayLiteralExpression(decl.initializer)
       ? lowerArrayLiteral(decl.initializer, type, sourceFile, scope, diagnostics)
       : lowerExpression(decl.initializer, sourceFile, scope, diagnostics, type));
-  if (!init) return undefined;
+  if (!init) {
+    refuseIfSilent(name, before, sourceFile, scope, diagnostics);
+    return undefined;
+  }
   init = retargetDeclaredIntLit(init, decl.initializer, type);
   init = reportIntLitRange(init, decl.initializer, type, sourceFile, diagnostics) ?? init;
   if (typeKey(init.type) !== typeKey(type)) {
@@ -491,7 +570,7 @@ function finish(
       diag(
         sourceFile,
         decl.initializer,
-        `"${name}" is declared ${typeKey(type)} but its initializer is ${typeKey(init.type)}.`,
+        `"${name}" is declared ${authorTypeText(type)} but its initializer is ${authorTypeText(init.type)}.`,
       ),
     );
     return undefined;
@@ -505,14 +584,42 @@ function finish(
     isFoldableConstExpr(init, scope);
   if (!folds) {
     diagnostics.push(
-      diag(
-        sourceFile,
-        decl.initializer,
-        `"${name}" needs a constant initializer (a literal, a module const, arithmetic or a math ` +
-          `builtin over those); "${decl.initializer.getText(sourceFile)}" is not one. Assign it inside the entry.`,
-      ),
+      diag(sourceFile, decl.initializer, notConstantMessage(decl, decl.initializer, sourceFile)),
     );
+    refuse(name, sourceFile, scope);
     return undefined;
   }
   return { name, space, type, init };
+}
+
+/** The sentence for a module variable whose initializer is not a constant by §12's measure,
+ *  naming it as written: `K`, or `S.K` for a static field the file writes. */
+const notConstantMessage = (
+  decl: VarSite,
+  init: ts.Expression,
+  sourceFile: ts.SourceFile,
+): string =>
+  `"${writtenModuleName(decl, sourceFile)}" needs a constant initializer (a literal, a module ` +
+  `const, arithmetic or a math builtin over those); "${init.getText(sourceFile)}" is not one. ` +
+  `Assign it inside the entry.`;
+
+/** Records a module variable whose declaration was refused, so a read or a write of it adds
+ *  nothing to what the declaration said (Rule 12.4). */
+function refuse(name: string, sourceFile: ts.SourceFile, scope: LoweringScope): void {
+  refusedDeclarationsOf(scope.calleeTable()).add(name);
+  refuseModuleName(sourceFile, name);
+}
+
+/** Refuses a module variable whose initializer failed without a word, which is an initializer
+ *  that read a declaration already refused, in a file that already has its error. */
+function refuseIfSilent(
+  name: string,
+  before: number,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: readonly TsCompilerDiagnostic[],
+): void {
+  if (diagnostics.length === before && diagnostics.some((d) => d.category === 'error')) {
+    refuse(name, sourceFile, scope);
+  }
 }

@@ -6,8 +6,9 @@ import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, boolT, i32T, u32T, isF64, isVec64, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { irNameOf, type LoweringScope } from '../context.js';
+import { authorTypeText, dropsRecoveredUse, irNameOf, type LoweringScope } from '../context.js';
 import { LANG_CONST, resolveLangConst } from '../math-alias.js';
+import { refusedBySemantics } from '../semantic.js';
 import { constShiftAmountOutOfRange, foldConstComponents, foldConstNumber } from '../loop-bound.js';
 import {
   broadcastResultType,
@@ -16,17 +17,19 @@ import {
   retargetLit,
 } from '../numeric.js';
 import { foldNumericLit, retargetIntLitCtx, shiftAmountMessage } from '../lit-coerce.js';
-import { mapTsTypeToShaderType } from '../type-map.js';
+import { libraryNameSentence, mapTsTypeToShaderType, writesRefusedType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
-import { lowerArrayLiteral } from './expression-array.js';
+import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
 import { refuseBareAtomic } from './atomics.js';
 import { builtinCalleeNames, lowerCall } from './expression-call.js';
 import { declarationOf } from './closures.js';
 import { lowerNew, lowerThis } from './class-methods.js';
+import { notAValueSentence } from './new-target.js';
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { refuseIdentityKind, refuseNegationKind, refuseOperatorKind } from './operator-kinds.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { recordLoweredExpression } from '../symbols.js';
 import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
@@ -94,6 +97,9 @@ function lowerTypeClaim(
     ts.isIdentifier(typeNode.typeName) &&
     typeNode.typeName.text === 'const';
   const claimed = isConst ? undefined : mapTsTypeToShaderType(typeNode, sourceFile, /* quiet */ []);
+  // A claim of a generic interface or alias, `{ x: a } as G<f32>`, names a declaration refused
+  // where it is written, which said why; the operand, built for it, adds nothing (Rule 12.4).
+  if (claimed === undefined && writesRefusedType(typeNode, sourceFile)) return undefined;
   const lowered = lowerExpression(operand, sourceFile, scope, diagnostics, claimed ?? contextual);
   if (!lowered || claimed === undefined) return lowered;
   if (typeKey(lowered.type) !== typeKey(claimed)) {
@@ -102,7 +108,7 @@ function lowerTypeClaim(
       sourceFile,
       node,
       `"${keyword}" states a type, it does not convert: "${node.getText(sourceFile)}" is ` +
-        `${typeKey(lowered.type)}, not ${typeNode.getText(sourceFile)}. Write ` +
+        `${authorTypeText(lowered.type)}, not ${typeNode.getText(sourceFile)}. Write ` +
         `${typeNode.getText(sourceFile)}(...) to convert, or drop the "${keyword}".`,
       TS_CODES.TYPE_MISMATCH,
     );
@@ -227,6 +233,9 @@ function lowerExpressionNode(
     if (contextual?.kind === 'array') {
       return lowerArrayLiteral(node, contextual, sourceFile, scope, diagnostics);
     }
+    // A spread is the list's one sentence, and counting `[...a, 1.]` as two elements would name
+    // an arity the author never wrote (Rule 12.4).
+    if (refuseListSpread(node, sourceFile, scope, diagnostics)) return undefined;
     // With no type declared anywhere there is nothing to fill, so say which spelling does work
     // rather than repeating the generic "Unsupported expression".
     pushDiag(
@@ -253,6 +262,9 @@ function lowerExpressionNode(
     );
     return undefined;
   }
+  // `await x`, `yield`, a template string and a spread argument are semantic.ts's refusals
+  // (TS8013), each with its reason, and one mistake reads as one diagnostic (Rule 12.4).
+  if (refusedBySemantics(node)) return undefined;
   if (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)) {
     pushDiag(
       diagnostics,
@@ -275,6 +287,25 @@ function lowerExpressionNode(
   return undefined;
 }
 
+/** Whether `decl`, what the file declares under a name where it is read, declares a VALUE of
+ *  that name: anything {@link declarationOf} finds but a namespace that holds only types, which
+ *  TypeScript does not instantiate. An interface and a type alias declare no value and are not
+ *  found at all. */
+function declaresValue(decl: ts.Node | undefined): boolean {
+  if (decl === undefined) return false;
+  if (!ts.isModuleDeclaration(decl)) return true;
+  const body = decl.body;
+  if (body === undefined) return false;
+  if (ts.isModuleDeclaration(body)) return declaresValue(body);
+  if (!ts.isModuleBlock(body)) return false;
+  return body.statements.some(
+    (st) =>
+      !ts.isInterfaceDeclaration(st) &&
+      !ts.isTypeAliasDeclaration(st) &&
+      (!ts.isModuleDeclaration(st) || declaresValue(st)),
+  );
+}
+
 /** The two operators that ask what a value is at run time, and why neither can (roadmap 0.3
  *  item T10, #92). Both are read before the operands are lowered. */
 const RUNTIME_TYPE_TEST: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
@@ -292,7 +323,7 @@ const RUNTIME_TYPE_TEST: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
 /** The builtin values a name may be meant as: the language constants, `Math` and `console`, and
  *  every builtin function, which TypeScript's own suggestion offers for a value too. */
 let builtinValues: readonly string[] | undefined;
-const builtinValueNames = (): readonly string[] =>
+export const builtinValueNames = (): readonly string[] =>
   (builtinValues ??= [...Object.keys(LANG_CONST), 'Math', 'console', ...builtinCalleeNames()]);
 
 /** The candidates for a misspelled value where `node` is written: the names in scope there,
@@ -301,6 +332,21 @@ export const valueScopes = (node: ts.Node): NameScopes => [
   ...namesInScope(node, 'value'),
   builtinValueNames(),
 ];
+
+/** The sentence for a value read that names no binding: what a name the library declares is
+ *  where the file declares nothing of it (`Number`, `Math`), what a name the file declares is
+ *  when it is an enum, a namespace, a class or a type ({@link notAValueSentence}), else {@link
+ *  unknownIdentifierSentence}'s (Rule 2.1, Rule 12.1). Undefined where the declaration's own
+ *  refusal already said it: an enum inside a namespace (Rule 12.4). */
+export function unknownValueSentence(node: ts.Identifier): string | undefined {
+  const library =
+    declarationOf(node) === undefined ? libraryNameSentence(node.text, 'value') : undefined;
+  if (library !== undefined) return library;
+  const what = notAValueSentence(node, node.getSourceFile());
+  // Null: the declaration's own refusal is the one diagnostic (Rule 12.4).
+  if (what === null) return undefined;
+  return what ?? unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`);
+}
 
 /**
  * The sentence for an identifier that names no binding, `mistake` followed by its remedy
@@ -329,12 +375,22 @@ function lowerIdentifier(
 ): Expr | undefined {
   const binding = scope.resolve(node.text);
   if (!binding) {
+    // A §9.3 constant is the ambient library's, and a name the file declares shadows it, as
+    // TypeScript resolves it: `enum E`, `namespace PI`, `class TAU` and `function PI` read as
+    // the file's, never as e, π or τ (Rule 2.1).
     const c = resolveLangConst(node.text);
-    if (c !== undefined) return { op: 'lit', type: f32T, value: c };
+    const declared = c === undefined ? undefined : declarationOf(node);
+    if (c !== undefined && !declaresValue(declared)) return { op: 'lit', type: f32T, value: c };
     // A function named where a value is read (Rule 8.17). A call of it is lowered where the call
     // is, and a function handed to a fold is read there, so what reaches here asks for the
     // function as a value: to hold, return, compare or choose at run time.
-    if (scope.resolveCallee(node.text) !== undefined || scope.isGenericFunction(node.text)) {
+    if (
+      scope.resolveCallee(node.text) !== undefined ||
+      scope.isGenericFunction(node.text) ||
+      (declared !== undefined &&
+        ts.isFunctionDeclaration(declared) &&
+        !scope.declarationRefused(node.text))
+    ) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -351,13 +407,10 @@ function lowerIdentifier(
     // A name whose declaration was refused, or one an error already covers, says nothing
     // more: the refusal is the one diagnostic for the one mistake (Rule 12.4, #171).
     if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined;
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`),
-      TS_CODES.UNKNOWN_NAME,
-    );
+    const sentence = unknownValueSentence(node);
+    if (sentence !== undefined) {
+      pushDiag(diagnostics, sourceFile, node, sentence, TS_CODES.UNKNOWN_NAME);
+    }
     return undefined;
   }
   switch (binding.kind) {
@@ -389,6 +442,11 @@ function lowerIdentifier(
     }
     case 'binding':
     case 'local':
+      // A binding whose declared type was refused holds the mapper's placeholder, not a type the
+      // author wrote: `storage<array<vec2h>>` holds a struct called `array`. A sentence about a
+      // use of it would name that placeholder as theirs, "Cannot index array", and the refusal
+      // at the declaration is already the one mistake to fix (Rule 12.4).
+      if (dropsRecoveredUse(sourceFile, binding)) return undefined;
       // A `storage<atomic<u32>>` binding is a location, not a value (lower/atomics.ts).
       if (refuseBareAtomic(binding.type, node, sourceFile, scope, diagnostics)) return undefined;
       return { op: 'varref', type: binding.type, name: irNameOf(binding) };
@@ -428,12 +486,14 @@ function lowerPrefixUnary(
         diagnostics,
         sourceFile,
         node,
-        `Unary "-" is not defined on ${typeKey(operand.type)}; WGSL has no negation for an ` +
+        `Unary "-" is not defined on ${authorTypeText(operand.type)}; WGSL has no negation for an ` +
           `unsigned integer. Write ${zero} - x to wrap, or ${signed} to change kind first.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
     }
+    // A bool, a matrix, a struct and an array have no negation in WGSL either (Rule 7.1).
+    if (refuseNegationKind(operand.type, node, sourceFile, diagnostics)) return undefined;
     return { op: 'unop', type: operand.type, a: operand };
   }
   // Unary `+` is the identity WGSL and GLSL both give it, so it lowers to its operand and
@@ -446,11 +506,14 @@ function lowerPrefixUnary(
         diagnostics,
         sourceFile,
         node,
-        `Unary "+" requires a numeric operand, got ${typeKey(operand.type)}.`,
+        `Unary "+" requires a numeric operand, got ${authorTypeText(operand.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
     }
+    // A struct, an array or a texture is not a number either: TypeScript's `+x` on one is `NaN`,
+    // and the identity would hand the shader the value itself (Rule 7.1).
+    if (refuseIdentityKind(operand.type, node, sourceFile, diagnostics)) return undefined;
     return operand;
   }
   // `~x`, the bitwise complement (§52). Both targets spell it `~x`; it is an INTRINSIC rather
@@ -462,7 +525,7 @@ function lowerPrefixUnary(
         diagnostics,
         sourceFile,
         node,
-        `Unary "~" requires an i32 or u32 operand, got ${typeKey(operand.type)}.`,
+        `Unary "~" requires an i32 or u32 operand, got ${authorTypeText(operand.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -496,7 +559,7 @@ function lowerPrefixUnary(
         diagnostics,
         sourceFile,
         node,
-        `Unary "!" requires a bool operand, got ${typeKey(operand.type)}.`,
+        `Unary "!" requires a bool operand, got ${authorTypeText(operand.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -570,7 +633,11 @@ function lowerBinary(
       // A vector against a scalar of its element kind broadcasts, as it does in WGSL, GLSL and
       // the fn() EDSL; the result is the vector's type and the operand order stays as written.
       const broadcast = broadcastResultType(left.type, right.type, arith);
-      if (broadcast) return { op: 'binop', type: broadcast, bop: arith, a: left, b: right };
+      if (broadcast) {
+        // A vector of bools broadcasts its element as any vector does, and has no arithmetic.
+        if (refuseOperatorKind(arith, broadcast, node, sourceFile, diagnostics)) return undefined;
+        return { op: 'binop', type: broadcast, bop: arith, a: left, b: right };
+      }
       // An f32 beside a scalar f64 widens exactly, as it does in the fn() EDSL and as the
       // fp64 pass's contract states (#151 F64-02).
       const widened = f64WidenResultType(left.type, right.type, arith);
@@ -584,6 +651,11 @@ function lowerBinary(
       );
       return undefined;
     }
+    // Two operands of one type still need a kind WGSL has the operator for: two structs, two
+    // arrays, two bools, or a matrix of doubles under anything but `*` passed the check above
+    // and reached Tint as `no matching overload for 'operator + (A, A)'` (Rule 7.1,
+    // lower/operator-kinds.ts).
+    if (refuseOperatorKind(arith, left.type, node, sourceFile, diagnostics)) return undefined;
     // WGSL gives a matrix `+`, `-` and `*` and no `/` or `%` (and GLSL ES 3.00 agrees). Two
     // matrices of one shape pass the key check above without ever reaching `binResultType`,
     // so `m / n` was accepted here and emitted `(a / b)`, which both compilers refuse.
@@ -592,7 +664,7 @@ function lowerBinary(
         diagnostics,
         sourceFile,
         node,
-        `Cannot ${arith} ${typeKey(left.type)}: a matrix has + - and * on both targets and no ` +
+        `Cannot ${arith} ${authorTypeText(left.type)}: a matrix has + - and * on both targets and no ` +
           `${arith}. Divide the columns, or multiply by the inverse you computed.`,
         TS_CODES.TYPE_MISMATCH,
       );
@@ -620,7 +692,7 @@ function lowerBinary(
         diagnostics,
         sourceFile,
         node,
-        `Type mismatch: cannot * ${typeKey(left.type)} and ${typeKey(right.type)}. WGSL's ` +
+        `Type mismatch: cannot * ${authorTypeText(left.type)} and ${authorTypeText(right.type)}. WGSL's ` +
           `matrix product is matKxR * matCxK -> matCxR: the left operand's ` +
           `${String(left.type.cols)} columns must meet the right operand's ` +
           `${String(right.type.rows)} rows.${meets}`,
@@ -637,7 +709,7 @@ function lowerBinary(
         diagnostics,
         sourceFile,
         node,
-        `Cannot % ${typeKey(left.type)}: the emulated double has no remainder — the fp64 ` +
+        `Cannot % ${authorTypeText(left.type)}: the emulated double has no remainder — the fp64 ` +
           `pass has a df64 body for + - * / and the comparisons only. Narrow first, e.g. ` +
           `${isF64(left.type) ? 'f32(x) % f32(y)' : `vec${(left.type as { n: number }).n}(v) % vec${(left.type as { n: number }).n}(w)`}.`,
         TS_CODES.TYPE_MISMATCH,
@@ -658,7 +730,7 @@ function lowerBinary(
         diagnostics,
         sourceFile,
         node,
-        `Type mismatch: cannot ** ${typeKey(left.type)} and ${typeKey(right.type)}. ` +
+        `Type mismatch: cannot ** ${authorTypeText(left.type)} and ${authorTypeText(right.type)}. ` +
           '** is pow(a, b), which takes two values of one type; ' +
           'splat the exponent, e.g. v ** vec3(2.).',
         TS_CODES.TYPE_MISMATCH,
@@ -670,7 +742,7 @@ function lowerBinary(
         diagnostics,
         sourceFile,
         node,
-        `Cannot ** ${typeKey(left.type)}. ** is pow(a, b), which WGSL and GLSL ES 3.00 define ` +
+        `Cannot ** ${authorTypeText(left.type)}. ** is pow(a, b), which WGSL and GLSL ES 3.00 define ` +
           'for f32 only; cast first, e.g. f32(a) ** f32(b).',
         TS_CODES.TYPE_MISMATCH,
       );
@@ -723,7 +795,7 @@ function lowerBinary(
           diagnostics,
           sourceFile,
           node.right,
-          `Bitwise "${bit}" needs an i32 or u32 shift amount, got ${typeKey(right.type)}.`,
+          `Bitwise "${bit}" needs an i32 or u32 shift amount, got ${authorTypeText(right.type)}.`,
           TS_CODES.TYPE_MISMATCH,
         );
         return undefined;
@@ -734,7 +806,7 @@ function lowerBinary(
           diagnostics,
           sourceFile,
           node.left,
-          `Bitwise "${bit}" needs an i32 or u32 target, got ${typeKey(left.type)}.`,
+          `Bitwise "${bit}" needs an i32 or u32 target, got ${authorTypeText(left.type)}.`,
           TS_CODES.TYPE_MISMATCH,
         );
         return undefined;
@@ -749,8 +821,8 @@ function lowerBinary(
           diagnostics,
           sourceFile,
           node,
-          `Bitwise "${bit}" shifts ${typeKey(left.type)} by ${typeKey(right.type)}: a shift amount ` +
-            `has the width of its target. Splat it, e.g. ${typeKey(left.type)} << vec${String(lanes)}u(n).`,
+          `Bitwise "${bit}" shifts ${authorTypeText(left.type)} by ${authorTypeText(right.type)}: a shift amount ` +
+            `has the width of its target. Splat it, e.g. ${authorTypeText(left.type)} << vec${String(lanes)}u(n).`,
           TS_CODES.TYPE_MISMATCH,
         );
         return undefined;
@@ -802,6 +874,10 @@ function lowerBinary(
       );
       return undefined;
     }
+    // `&` and `|` take integers and bools, `^` integers alone: two bools under `^`, and two
+    // structs, arrays or matrices under any of them, have one type and reached Tint as `no
+    // matching overload` (Rule 7.1).
+    if (refuseOperatorKind(bit, left.type, node, sourceFile, diagnostics)) return undefined;
     return { op: 'binop', type: left.type, bop: bit, a: left, b: right };
   }
   const log = LOGICAL[node.operatorToken.kind];
@@ -847,7 +923,7 @@ function lowerBinary(
           diagnostics,
           sourceFile,
           node,
-          `"${cmp}" has no meaning on ${typeKey(left.type)}: compare bool vectors with === or !==, or reduce them with any() or all().`,
+          `"${cmp}" has no meaning on ${authorTypeText(left.type)}: compare bool vectors with === or !==, or reduce them with any() or all().`,
           TS_CODES.TYPE_MISMATCH,
         );
         return undefined;
@@ -859,6 +935,19 @@ function lowerBinary(
         a: left,
         b: right,
       };
+    }
+    // An ordering takes numbers, and `===` a scalar or a vector: two bools under `<`, and two
+    // matrices, structs or arrays under either, have one type and no WGSL overload (Rule 7.1).
+    if (
+      refuseOperatorKind(
+        node.operatorToken.getText(sourceFile),
+        left.type,
+        node,
+        sourceFile,
+        diagnostics,
+      )
+    ) {
+      return undefined;
     }
     return { op: 'compare', type: boolT, cop: cmp, a: left, b: right };
   }
@@ -934,7 +1023,7 @@ function bitwiseFloatMessage(bit: BinOp, t: ShaderType): string {
         : isF64(t)
           ? `Narrow and convert first, e.g. u32(f32(a)) ${bit} u32(f32(b)).`
           : `Convert first, e.g. u32(a) ${bit} u32(b), or reinterpret the bits with bitcast<u32>(a).`;
-  return `Bitwise "${bit}" needs i32 or u32 operands, got ${typeKey(t)}. ${fix}`;
+  return `Bitwise "${bit}" needs i32 or u32 operands, got ${authorTypeText(t)}. ${fix}`;
 }
 
 function pushDiag(

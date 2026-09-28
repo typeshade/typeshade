@@ -78,7 +78,6 @@ describe('mat4 multiply', () => {
     `);
     const errors = r.diagnostics.filter((d) => d.category === 'error');
     expect(errors).toHaveLength(1);
-    expect(errors[0]!.message).toContain('mat2x3<f32>');
-    expect(errors[0]!.message).toContain('vec3<f32>');
+    expect(errors[0]!.message).toContain('mat2x3 and vec3.');
   });
 });

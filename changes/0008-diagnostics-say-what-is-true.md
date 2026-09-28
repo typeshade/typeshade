@@ -1,7 +1,7 @@
 ---
 id: '0008'
 title: A diagnostic says what the program is — a name is what declares it, `new` answers by its target, one refusal per mistake, and what Tint would refuse is refused on the line
-status: accepted
+status: implemented
 rules:
 - '2.1'
 - '2.2'

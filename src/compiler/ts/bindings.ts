@@ -7,10 +7,10 @@ import ts from 'typescript';
 import type { BindingDecl, StructDecl } from '../../core/ir/nodes.js';
 import { structT, type ShaderType } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES } from './type-map.js';
+import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES, writesRefusedType } from './type-map.js';
 import { atomicWithin } from './lower/atomics.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
-import { recordCallFormBinding, recordRecoveredBinding } from './context.js';
+import { authorTypeText, recordCallFormBinding, recordRecoveredBinding } from './context.js';
 import { isOverrideType } from './overrides.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
@@ -274,9 +274,13 @@ function fromType(
   // A remedy built from a recovered type quotes a line that is refused again (see
   // `recordRecoveredBinding`), so the site that would quote one is told not to.
   const beforeType = diagnostics.length;
+  // A type that names a generic interface or alias was refused at that declaration, which
+  // said why; the binding is not collected, and a read of it adds nothing (Rule 12.4).
   const mapped =
     mapTsTypeToShaderType(inner, sourceFile, diagnostics) ??
-    (ts.isTypeReferenceNode(inner) && ts.isIdentifier(inner.typeName)
+    (ts.isTypeReferenceNode(inner) &&
+    ts.isIdentifier(inner.typeName) &&
+    !writesRefusedType(inner, sourceFile)
       ? structT(inner.typeName.text)
       : undefined);
   if (diagnostics.slice(beforeType).some((d) => d.category === 'error')) {
@@ -349,7 +353,9 @@ function fromCall(
   const beforeType = diagnostics.length;
   const type =
     mapTsTypeToShaderType(typeArg, sourceFile, diagnostics) ??
-    (ts.isTypeReferenceNode(typeArg) && ts.isIdentifier(typeArg.typeName)
+    (ts.isTypeReferenceNode(typeArg) &&
+    ts.isIdentifier(typeArg.typeName) &&
+    !writesRefusedType(typeArg, sourceFile)
       ? structT(typeArg.typeName.text)
       : undefined);
   if (diagnostics.slice(beforeType).some((d) => d.category === 'error')) {
@@ -553,9 +559,10 @@ function isStorageBufferAccess(word: string): word is StorageBufferAccess {
  *
  *  Three rules, each measured against the Tint the compile gate runs:
  *
- *  - `bool` is not host-shareable in any address space: `type 'bool' cannot be used in address
- *    space 'uniform' as it is non-host-shareable`. The GLSL writer happily emits `out bool`
- *    into a std140 block, so this is a silent target divergence, not a shared failure.
+ *  - `bool` is not host-shareable in any address space, alone or as a vector's element: `type
+ *    'bool' cannot be used in address space 'uniform' as it is non-host-shareable`, and the
+ *    same of `vec3<bool>`. The GLSL writer happily emits `out bool` into a std140 block, so
+ *    this is a silent target divergence, not a shared failure.
  *  - A runtime-sized `array<T>` must be the LAST member of its struct; anything after it has
  *    no offset.
  *  - A runtime-sized array may not sit in the uniform address space at all: a uniform buffer's
@@ -583,6 +590,21 @@ function checkHostShareable(
           node,
           `"${path}" is a bool; a ${space} struct holds numeric scalars only (WGSL's ` +
             `host-shareable rule). Use u32.`,
+        ),
+      );
+      return;
+    }
+    // A vector of bools is no more host-shareable than its element (surface §27): Tint says
+    // `type 'vec3<bool>' cannot be used in address space 'uniform' as it is non-host-shareable`
+    // for a field, a runtime array's element and a bare `uniform<vec3b>` alike, the path
+    // naming which.
+    if (t.kind === 'vec' && t.elem === 'bool') {
+      diagnostics.push(
+        layoutDiag(
+          sourceFile,
+          node,
+          `"${path}" is a ${authorTypeText(t)}; a ${space} binding holds no bool, alone or in a ` +
+            `vector (WGSL's host-shareable rule). Use vec${String(t.n)}u.`,
         ),
       );
       return;
@@ -617,19 +639,21 @@ function checkHostShareable(
     seen.add(t.name);
     const decl = structs.get(t.name);
     if (decl === undefined) return;
+    // A class in a namespace or an instance of a generic one is named as written, `N.P`.
+    const shown = authorTypeText(t);
     for (const [i, f] of decl.fields.entries()) {
       if (f.type.kind === 'array' && f.type.size === undefined && i !== decl.fields.length - 1) {
         diagnostics.push(
           layoutDiag(
             sourceFile,
             node,
-            `"${t.name}.${f.name}" is a list of no fixed length and is not the last field of ` +
-              `"${t.name}": nothing after it has an offset. Move it last, or give it a length.`,
+            `"${shown}.${f.name}" is a list of no fixed length and is not the last field of ` +
+              `"${shown}": nothing after it has an offset. Move it last, or give it a length.`,
           ),
         );
         continue;
       }
-      walk(f.type, `${t.name}.${f.name}`);
+      walk(f.type, `${shown}.${f.name}`);
     }
   };
   walk(binding.type, binding.name);

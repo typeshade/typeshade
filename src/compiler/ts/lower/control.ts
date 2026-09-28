@@ -3,13 +3,15 @@ import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, dropsRecoveredUse, type LoweringScope } from '../context.js';
 import { irNameOf, readOnlyPhrase, writableRemedy, writeRules } from '../context.js';
 import {
   analyzeCountedFor,
   type CountedLoop,
   boundWrittenIn,
+  comparesToBound,
   foldConstNumber,
+  forUpdateRefusal,
   openLoopError,
 } from '../loop-bound.js';
 import { fitsTarget, isIntScalar } from '../lit-coerce.js';
@@ -26,7 +28,66 @@ import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from '.
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { fallsIntoABody } from '../fallthrough.js';
 
+/**
+ * A counted `for` (Rule 7.5), or undefined after an error that says why it is not one.
+ *
+ * The caller drops a statement this returns nothing for, so a refusal that reports nothing
+ * deletes the loop, body and all, from both targets: `for (…; v.x += 1.)` and `for (…; zz += 1)`
+ * compiled that way with no diagnostic (Rule 12.6). Each refusal below says why; this keeps
+ * the invariant for any that does not, with a `TS8099` that says the loop was refused, not
+ * dropped. A header that reads a name whose declaration was refused, a `const` or a function
+ * alike, is explained by that refusal, which a read of the name does not repeat (Rule 12.4,
+ * #171).
+ */
 export function lowerFor(
+  node: ts.ForStatement,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  const errors = errorCount(diagnostics);
+  const loop = lowerCountedFor(node, sourceFile, scope, diagnostics);
+  if (
+    loop === undefined &&
+    errorCount(diagnostics) === errors &&
+    !readsARefusedName(node, sourceFile, scope, diagnostics)
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'for loop could not be lowered, and no other diagnostic says why. It is refused rather ' +
+        'than left out of the module; report it as a compiler bug.',
+      TS_CODES.UNSUPPORTED,
+    );
+  }
+  return loop;
+}
+
+function errorCount(diagnostics: readonly TsCompilerDiagnostic[]): number {
+  return diagnostics.filter((d) => d.category === 'error').length;
+}
+
+/** Whether the `for` header reads a name an error already stands for: `i < n` for a refused
+ *  `declare const n: i32` is not lowered, and says nothing more than the declaration's
+ *  refusal. Nor is `i < lim(1)` for a `function lim(x?: i32)` whose signature was refused,
+ *  which a call of it answers by the same predicate (`declarationRefused`). The header is
+ *  where every `undefined` of {@link lowerCountedFor} comes from. */
+function readsARefusedName(
+  node: ts.ForStatement,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: readonly TsCompilerDiagnostic[],
+): boolean {
+  const refused = (n: ts.Identifier): boolean =>
+    scope.declarationRefused(n.text) ||
+    unknownNameAlreadyReported(n, n.text, sourceFile, diagnostics);
+  const reads = (n: ts.Node): boolean =>
+    (ts.isIdentifier(n) && refused(n)) || ts.forEachChild(n, (c) => reads(c) || undefined) === true;
+  return [node.initializer, node.condition, node.incrementor].some((h) => h && reads(h));
+}
+
+function lowerCountedFor(
   node: ts.ForStatement,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
@@ -80,12 +141,21 @@ export function lowerFor(
         diagnostics,
         sourceFile,
         node.condition,
-        `for condition must be bool, got ${typeKey(cond.type)}.`,
+        `for condition must be bool, got ${authorTypeText(cond.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
     }
-    const update = lowerUpdate(node.incrementor, sourceFile, scope, diagnostics);
+    // lowerForInit took exactly one identifier, the counter as the author spelled it.
+    const counter = node.initializer.declarations[0]!.name.getText(sourceFile);
+    if (initStmt.s === 'var') {
+      const extra = extraExitClause(node.condition, cond, initStmt.name, sourceFile, scope);
+      if (extra !== undefined) {
+        pushDiag(diagnostics, sourceFile, node.condition, extra, TS_CODES.LOOP_BOUND);
+        return undefined;
+      }
+    }
+    const update = lowerUpdate(node.incrementor, sourceFile, scope, diagnostics, counter);
     if (!update) return undefined;
     withSpan(update, sourceFile, node.incrementor);
     const counted = analyzeCountedFor(initStmt, cond, update, scope);
@@ -140,15 +210,23 @@ function counterTypeFromBound(
   let start = decl.initializer;
   while (start && ts.isParenthesizedExpression(start)) start = start.expression;
   if (!start || !ts.isNumericLiteral(start) || !/^\d+$/.test(start.text)) return undefined;
-  let cond = node.condition;
-  while (cond && ts.isParenthesizedExpression(cond)) cond = cond.expression;
-  if (!cond || !ts.isBinaryExpression(cond) || !COMPARISONS.has(cond.operatorToken.kind)) {
-    return undefined;
-  }
   const name = decl.name.text;
   const isCounter = (e: ts.Expression): boolean => ts.isIdentifier(e) && e.text === name;
-  const bound = isCounter(cond.left) ? cond.right : isCounter(cond.right) ? cond.left : undefined;
-  if (!bound) return undefined;
+  // Under an `&&` exit, the clause that compares the counter: the loop is refused for its
+  // other clause (`extraExitClause`), and it should be told that, not "cannot compare i32 and
+  // u32" about the counter's type.
+  const compared = (e: ts.Expression): ts.BinaryExpression | undefined => {
+    if (ts.isParenthesizedExpression(e)) return compared(e.expression);
+    if (!ts.isBinaryExpression(e)) return undefined;
+    if (e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      return compared(e.left) ?? compared(e.right);
+    }
+    const counted = isCounter(e.left) || isCounter(e.right);
+    return COMPARISONS.has(e.operatorToken.kind) && counted ? e : undefined;
+  };
+  const cond = node.condition && compared(node.condition);
+  if (!cond) return undefined;
+  const bound = isCounter(cond.left) ? cond.right : cond.left;
   const lowered = lowerExpression(bound, sourceFile, scope, []);
   return lowered && typeKey(lowered.type) === 'u32' ? lowered.type : undefined;
 }
@@ -161,6 +239,126 @@ const COMPARISONS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.EqualsEqualsEqualsToken,
   ts.SyntaxKind.ExclamationEqualsEqualsToken,
 ]);
+
+/**
+ * The refusal of an exit that joins the counter's bound with `&&` to another test, or
+ * undefined when the exit is not that shape (Rule 7.5).
+ *
+ * `for (let i: i32 = 0; i < 8 && i !== 3; i++)` does compare `i` to a bound, so the general
+ * sentence, that the exit must compare it to one, was false of it. The refused part is the
+ * other clause, and the loop that says the same thing tests it as the body's first statement,
+ * negated, and leaves with a `break`: the header's clauses and that test end the same trips.
+ * The negation is written as one comparison where that is exact, which is `===` against `!==`
+ * always and an ordering on integers; `!(a < b)` is not `a >= b` for a NaN, so a float
+ * ordering, and anything else, is negated whole.
+ */
+function extraExitClause(
+  written: ts.Expression,
+  cond: Expr,
+  counter: string,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+): string | undefined {
+  const clauses: ts.Expression[] = [];
+  const lowered: Expr[] = [];
+  const split = (w: ts.Expression): void => {
+    if (ts.isParenthesizedExpression(w)) return split(w.expression);
+    if (
+      ts.isBinaryExpression(w) &&
+      w.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    ) {
+      split(w.left);
+      split(w.right);
+    } else clauses.push(w);
+  };
+  const splitIr = (e: Expr): void => {
+    if (e.op === 'logical' && e.lop === '&&') {
+      splitIr(e.a);
+      splitIr(e.b);
+    } else lowered.push(e);
+  };
+  split(written);
+  splitIr(cond);
+  if (clauses.length < 2 || clauses.length !== lowered.length) return undefined;
+  // The bound is the clause that compares the counter, an ordering before an equality, so
+  // `i !== 3 && i < 8` is told about `i !== 3` as `i < 8 && i !== 3` is.
+  const bounds = lowered.flatMap((c, k) => (comparesToBound(c, counter, scope) ? [k] : []));
+  const ordering = (k: number): boolean => {
+    const c = lowered[k]!;
+    return c.op === 'compare' && c.cop !== '==' && c.cop !== '!=';
+  };
+  const at = bounds.find(ordering) ?? bounds[0];
+  if (at === undefined) return undefined;
+  const text = (w: ts.Expression): string => w.getText(sourceFile);
+  const rest = clauses.filter((_, k) => k !== at);
+  // `split` took the author's parentheses off each clause, and a clause that binds looser than
+  // `&&` needs them back to stay one clause beside another: `(a || b) && c` joined bare read
+  // as `a || (b && c)`, a different test and a `break` that ran other trips.
+  const joined =
+    rest.length === 1
+      ? text(rest[0]!)
+      : rest.map((w) => (loose(w) ? `(${text(w)})` : text(w))).join(' && ');
+  const test =
+    rest.length === 1 ? negated(rest[0]!, lowered[at === 0 ? 1 : 0]!, sourceFile) : undefined;
+  const leave = test ?? `!(${joined})`;
+  return (
+    `for exit joins the bound "${text(clauses[at]!)}" with "${joined}", ` +
+    `and a counted loop's exit is its bound alone. Make "if (${leave}) { break; }" the body's ` +
+    `first statement, or write the loop as a while.`
+  );
+}
+
+/** Whether `w`'s own operator binds looser than `&&`, so that it takes parentheses to stand as
+ *  one operand of it: `||`, `??`, `?:`, an assignment or a comma. */
+function loose(w: ts.Expression): boolean {
+  if (ts.isConditionalExpression(w)) return true;
+  if (!ts.isBinaryExpression(w)) return false;
+  const k = w.operatorToken.kind;
+  return (
+    k === ts.SyntaxKind.BarBarToken ||
+    k === ts.SyntaxKind.QuestionQuestionToken ||
+    k === ts.SyntaxKind.CommaToken ||
+    (k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment)
+  );
+}
+
+/** The comparison's source operators and their negations. */
+const NEGATED: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
+  [ts.SyntaxKind.EqualsEqualsEqualsToken]: '!==',
+  [ts.SyntaxKind.ExclamationEqualsEqualsToken]: '===',
+  [ts.SyntaxKind.EqualsEqualsToken]: '!=',
+  [ts.SyntaxKind.ExclamationEqualsToken]: '==',
+  [ts.SyntaxKind.LessThanToken]: '>=',
+  [ts.SyntaxKind.LessThanEqualsToken]: '>',
+  [ts.SyntaxKind.GreaterThanToken]: '<=',
+  [ts.SyntaxKind.GreaterThanEqualsToken]: '<',
+};
+
+/** `clause` negated, as the author would write it: one comparison flipped where that is exact
+ *  (see {@link extraExitClause}), `!ok` read as `ok`, else `!` over the whole of it. */
+function negated(clause: ts.Expression, lowered: Expr, sourceFile: ts.SourceFile): string {
+  const text = clause.getText(sourceFile);
+  if (ts.isPrefixUnaryExpression(clause) && clause.operator === ts.SyntaxKind.ExclamationToken) {
+    let operand: ts.Expression = clause.operand;
+    while (ts.isParenthesizedExpression(operand)) operand = operand.expression;
+    return operand.getText(sourceFile);
+  }
+  if (ts.isBinaryExpression(clause) && lowered.op === 'compare') {
+    const flip = NEGATED[clause.operatorToken.kind];
+    const exact = lowered.cop === '==' || lowered.cop === '!=' || isIntScalar(lowered.a.type);
+    if (flip !== undefined && exact) {
+      return `${clause.left.getText(sourceFile)} ${flip} ${clause.right.getText(sourceFile)}`;
+    }
+  }
+  const bare =
+    ts.isIdentifier(clause) ||
+    clause.kind === ts.SyntaxKind.TrueKeyword ||
+    clause.kind === ts.SyntaxKind.FalseKeyword ||
+    ts.isCallExpression(clause) ||
+    ts.isPropertyAccessExpression(clause) ||
+    ts.isElementAccessExpression(clause);
+  return bare ? `!${text}` : `!(${text})`;
+}
 
 function lowerForInit(
   list: ts.VariableDeclarationList,
@@ -237,7 +435,7 @@ function lowerForInit(
       diagnostics,
       sourceFile,
       decl,
-      `for induction must be i32 or u32, got ${k}.`,
+      `for induction must be i32 or u32, got ${authorTypeText(type)}.`,
       TS_CODES.LOOP_INDUCTION,
     );
     return undefined;
@@ -265,22 +463,36 @@ export function lowerWhile(
 ): Stmt | undefined {
   const cond = lowerExpression(node.expression, sourceFile, scope, diagnostics);
   if (!cond) return undefined;
-  const err = openLoopError(cond, scope, bodyHasExit(node.statement));
+  const written = node.expression.getText(sourceFile);
+  if (typeKey(cond.type) !== 'bool') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.expression,
+      whileConditionSentence(cond, written, scope),
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
+  const err = openLoopError(cond, scope, bodyHasExit(node.statement), written);
   if (err) {
     pushDiag(diagnostics, sourceFile, node, err.message, err.code);
     return undefined;
   }
   scope.enterLoop();
   try {
-    const body = lowerBody(node.statement, sourceFile, scope, diagnostics);
     // The IR has one loop statement, the `for`, so a `while` is a `for` whose counter nothing
     // reads. The counter is an `i32` whatever the condition compares: it used to take the
     // type of the condition's left operand, which made it an `f32` under `while (a < 4.)` and
-    // a `bool` under `while (true)`.
-    const w = { op: 'varref' as const, type: i32T, name: '_w' };
+    // a `bool` under `while (true)`. It is a name of the compiler's own, so it takes one no
+    // other local has and binds no source name: written as `_w` outright, it collided with an
+    // author's `_w` and with the counter of a second `while` in the function, in the backend.
+    const name = scope.defineTemp('_w', i32T, true);
+    const body = lowerBody(node.statement, sourceFile, scope, diagnostics);
+    const w = { op: 'varref' as const, type: i32T, name };
     return {
       s: 'for',
-      init: { s: 'var', name: '_w', type: i32T, init: { op: 'lit', type: i32T, value: 0 } },
+      init: { s: 'var', name, type: i32T, init: { op: 'lit', type: i32T, value: 0 } },
       cond,
       update: {
         s: 'assign',
@@ -292,6 +504,27 @@ export function lowerWhile(
   } finally {
     scope.exitLoop();
   }
+}
+
+/** The sentence for a `while` whose condition is not a `bool`, as `if` and `for` have one
+ *  (Rules 7.5, 12.6). TypeScript takes any value there by its truthiness, and the loop compiled
+ *  with no word; Tint then refused the module, "for-loop condition must be bool". A number is
+ *  compared with zero and a vector of bools reduced with `any`, the spellings that say what
+ *  the truthiness did; a struct, an array or a numeric vector has no one such spelling, and
+ *  neither has a constant (`E.A`), whose comparison the editor refuses as always the same
+ *  (TS2367). */
+function whileConditionSentence(cond: Expr, written: string, scope: LoweringScope): string {
+  const type = cond.type;
+  const said = `while condition must be bool, got ${authorTypeText(type)}.`;
+  if (foldConstNumber(cond, scope) !== undefined) return said;
+  const operand = /^[\w$.]+$/.test(written) ? written : `(${written})`;
+  if (type.kind === 'scalar' && (type.scalar === 'f32' || isIntScalar(type))) {
+    return `${said} Compare it with zero: while (${operand} !== ${type.scalar === 'f32' ? '0.' : '0'}).`;
+  }
+  if (isVec(type) && type.elem === 'bool') {
+    return `${said} Reduce it: while (any(${written})) or while (all(${written})).`;
+  }
+  return said;
 }
 
 /** Whether a `while` body can leave its loop: a `break` that belongs to it, or a `return`.
@@ -360,7 +593,7 @@ export function lowerForOf(
       diagnostics,
       sourceFile,
       node.expression,
-      `for-of iterates an array; this is a ${typeKey(array.type)}. Index it with a counted ` +
+      `for-of iterates an array; this is a ${authorTypeText(array.type)}. Index it with a counted ` +
         `for, or write the value into an array<T, N>.`,
       TS_CODES.TYPE_MISMATCH,
     );
@@ -387,8 +620,10 @@ export function lowerForOf(
   scope.push();
   scope.enterLoop();
   try {
-    const counter = scope.define({ kind: 'local', name: '_i', type: u32T, mutable: true });
-    const i = { op: 'varref' as const, type: u32T, name: irNameOf(counter) };
+    // The counter is a name of the compiler's own, which an author cannot write (Rule 2.2): it
+    // binds no source name, so an `_i` the body reads is the author's. Bound as `_i`, the body's
+    // `f32(_i)` read the counter and not the author's `let _i`, with no diagnostic.
+    const i = { op: 'varref' as const, type: u32T, name: scope.defineTemp('_i', u32T, true) };
     let element;
     try {
       element = scope.define({ kind: 'local', name: decl.name.text, type: elemType, mutable });
@@ -481,7 +716,7 @@ export function lowerSwitch(
       diagnostics,
       sourceFile,
       node.expression,
-      `switch scrutinee must be i32 or u32, got ${k}.`,
+      `switch scrutinee must be i32 or u32, got ${authorTypeText(scrut.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -680,28 +915,37 @@ function caseBody(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt[] {
-  // A case body is a branch for §25's barrier rule, like an `if` arm.
-  scope.enterBranch();
-  try {
-    const body = lowerStatements(statements, sourceFile, scope, diagnostics);
-    if (body.length > 0 && body[body.length - 1]!.s === 'break') body.pop();
-    return body;
-  } finally {
-    scope.exitBranch();
-  }
+  const body = lowerStatements(statements, sourceFile, scope, diagnostics);
+  if (body.length > 0 && body[body.length - 1]!.s === 'break') body.pop();
+  return body;
 }
 
+/**
+ * `x++` and `x--` as a statement, and a `for` header's update. `counter` is the header's
+ * induction variable as the author spelled it, and is set only for the header: an update that
+ * is none of the forms a counted loop steps by (`i <<= 1`, `i %= 3`, `i = i * 2`, `v.x += 1.`)
+ * then gets the sentence the counter's own check gives `j += 1` (Rule 7.5), not a reasonless
+ * `TS8099`, so one mistake reads one way whatever operator it was written with (Rule 12.4).
+ */
 export function lowerUpdate(
   expr: ts.Expression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  counter?: string,
 ): Stmt | undefined {
+  const refuse = (): undefined => {
+    if (counter === undefined) {
+      pushDiag(diagnostics, sourceFile, expr, 'Unsupported update operator.', TS_CODES.UNSUPPORTED);
+    } else {
+      pushDiag(diagnostics, sourceFile, expr, forUpdateRefusal(counter), TS_CODES.LOOP_INDUCTION);
+    }
+    return undefined;
+  };
   if (ts.isPrefixUnaryExpression(expr) || ts.isPostfixUnaryExpression(expr)) {
     const op = expr.operator;
     if (op !== ts.SyntaxKind.PlusPlusToken && op !== ts.SyntaxKind.MinusMinusToken) {
-      pushDiag(diagnostics, sourceFile, expr, 'Unsupported update operator.', TS_CODES.UNSUPPORTED);
-      return undefined;
+      return refuse();
     }
     const targetExpr = expr.operand;
     // `o.x++` where `x` is an accessor reads through its getter and writes through its setter
@@ -717,6 +961,8 @@ export function lowerUpdate(
       target = accessor.read;
     } else if (viaName && ts.isIdentifier(targetExpr)) {
       const binding = scope.resolve(targetExpr.text);
+      // A declaration refused where it is written said why there (Rule 12.4).
+      if (!binding && scope.declarationRefused(targetExpr.text)) return undefined;
       // Two different failures, kept apart as origin/main split them: an UNKNOWN name reported
       // "it is declared with const", a statement about a declaration that does not exist.
       if (!binding) {
@@ -756,6 +1002,8 @@ export function lowerUpdate(
         refuseParamWrite(expr, targetExpr.text, sourceFile, diagnostics);
         return undefined;
       }
+      // A binding whose declared type was refused says nothing more (see `lowerLValue`).
+      if (dropsRecoveredUse(sourceFile, binding)) return undefined;
       binding.capture?.byRef();
       // withSpan, as origin/main's #32 gives every authored lvalue: the write position is
       // what a stepped run and a diagnostic point at, and this branch builds the target
@@ -783,8 +1031,8 @@ export function lowerUpdate(
         sourceFile,
         expr,
         isVec(target.type) || isVec64(target.type)
-          ? `Cannot apply ${token} to ${typeKey(target.type)}: a vector has no literal to step by. Write the addition out${stepHint(target.type)}.`
-          : `Cannot apply ${token} to ${typeKey(target.type)}: ${token} steps a numeric scalar (f32, i32, u32, f64).`,
+          ? `Cannot apply ${token} to ${authorTypeText(target.type)}: a vector has no literal to step by. Write the addition out${stepHint(target.type)}.`
+          : `Cannot apply ${token} to ${authorTypeText(target.type)}: ${token} steps a numeric scalar (f32, i32, u32, f64).`,
         TS_CODES.ASSIGN_TARGET,
       );
       return undefined;
@@ -814,14 +1062,40 @@ export function lowerUpdate(
     // counted loops — a 64-wide halving reaches its bound in six iterations — and the only
     // reason they were "Unsupported for-update" is that nothing lowered them.
     // analyzeCountedFor reads the step back out and refuses one that cannot advance.
-    const bop = FOR_UPDATE_OP[expr.operatorToken.kind];
-    if (bop !== undefined) {
+    const step = stepOf(expr);
+    if (step !== undefined) {
+      const bop = step.bop;
       const left = expr.left;
-      if (!ts.isIdentifier(left)) return undefined;
+      // A member or an element (`v.x += 1.`, `xs[0] += 1`) is not the counter. Returning here
+      // without a word dropped the whole loop from both targets (Rule 12.6).
+      if (!ts.isIdentifier(left)) return refuse();
       const binding = scope.resolve(left.text);
-      if (!binding) return undefined;
-      let rhs = lowerExpression(expr.right, sourceFile, scope, diagnostics);
-      if (!rhs) return undefined;
+      // The sentence `zz++` gets above; this returned nothing, and the loop was dropped too.
+      if (!binding) {
+        if (!unknownNameAlreadyReported(left, left.text, sourceFile, diagnostics)) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            left,
+            unknownIdentifierSentence(left, `Cannot assign to unknown name "${left.text}".`),
+            TS_CODES.UNKNOWN_NAME,
+          );
+        }
+        return undefined;
+      }
+      let rhs: Expr | undefined;
+      if (step.sum === undefined) {
+        rhs = lowerExpression(step.by, sourceFile, scope, diagnostics);
+        if (!rhs) return undefined;
+      } else {
+        // `i = i + c` is typed as the same assignment in a body is (Rule 7.1): `i + 2.` on an
+        // i32 counter is `TS8003` in both. Lowering `c` alone and retyping it below took any
+        // number as the step, and dropped an `f32(2)` or a `u32(1)` the author wrote.
+        const sum = lowerExpression(step.sum, sourceFile, scope, diagnostics);
+        if (!sum) return undefined;
+        if (sum.op !== 'binop') return refuse();
+        rhs = step.first ? sum.a : sum.b;
+      }
       // Any COMPILE-TIME-CONSTANT step is rebuilt as a literal of the induction variable's own
       // type, not just a bare one. Retyping only a `lit` left `i *= (1 + 1)` and `i += -2` as
       // f32 — `i *= 2.0` and `i += -2.0` into an i32 loop, which Tint and ANGLE both reject.
@@ -848,7 +1122,7 @@ export function lowerUpdate(
             sourceFile,
             expr,
             `for step "${left.text} ${bop}= ${String(folded)}" does not fit "${left.text}", ` +
-              `which is ${typeKey(binding.type)}: ${String(folded)} ` +
+              `which is ${authorTypeText(binding.type)}: ${String(folded)} ` +
               `${Number.isInteger(folded) ? 'is outside its range' : 'is not a whole number'}.`,
             TS_CODES.TYPE_MISMATCH,
           );
@@ -886,10 +1160,53 @@ export function lowerUpdate(
         sourceFile,
         left,
       );
+      // `i = i + 1` is the assign-of-binop `i++` builds, which the counter reads the same way.
+      if (step.sum) {
+        const [a, b] = step.first ? [rhs, target] : [target, rhs];
+        return { s: 'assign', target, expr: { op: 'binop', type: binding.type, bop, a, b } };
+      }
       return { s: 'assignOp', target, bop, expr: rhs };
     }
   }
-  pushDiag(diagnostics, sourceFile, expr, 'Unsupported for-update.', TS_CODES.UNSUPPORTED);
+  return refuse();
+}
+
+/**
+ * The step a `for` update is written with, or undefined when it is none of the forms: a
+ * compound assignment of {@link FOR_UPDATE_OP}, or `i = i + c`, `i = c + i` or `i = i - c`,
+ * which is `i += c` or `i -= c` spelled out (Rule 7.5). `by` is the step as written; `sum`, set
+ * for the spelled-out form only, is its right side, `i + c`; and `first` marks `c + i`, whose
+ * step comes first.
+ */
+function stepOf(
+  expr: ts.BinaryExpression,
+):
+  | { bop: BinOp; by: ts.Expression; sum: ts.BinaryExpression | undefined; first: boolean }
+  | undefined {
+  const compound = FOR_UPDATE_OP[expr.operatorToken.kind];
+  if (compound !== undefined) {
+    return { bop: compound, by: expr.right, sum: undefined, first: false };
+  }
+  if (expr.operatorToken.kind !== ts.SyntaxKind.EqualsToken || !ts.isIdentifier(expr.left)) {
+    return undefined;
+  }
+  const name = expr.left.text;
+  const bare = (e: ts.Expression): ts.Expression =>
+    ts.isParenthesizedExpression(e) ? bare(e.expression) : e;
+  const isName = (e: ts.Expression): boolean => {
+    const b = bare(e);
+    return ts.isIdentifier(b) && b.text === name;
+  };
+  const right = bare(expr.right);
+  if (!ts.isBinaryExpression(right)) return undefined;
+  const kind = right.operatorToken.kind;
+  if (kind === ts.SyntaxKind.PlusToken || kind === ts.SyntaxKind.MinusToken) {
+    const bop = kind === ts.SyntaxKind.PlusToken ? '+' : '-';
+    if (isName(right.left)) return { bop, by: right.right, sum: right, first: false };
+    if (bop === '+' && isName(right.right)) {
+      return { bop, by: right.left, sum: right, first: true };
+    }
+  }
   return undefined;
 }
 

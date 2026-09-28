@@ -128,10 +128,11 @@ export function unknownNameSentence(
 
 // --- Names in scope, by TypeScript's lexical rule ---
 
-/** What a name is asked for as: a value (read or written), a callee, or a type. A callee's
- *  candidates are the values that can be called: a function, a local function, a parameter that
- *  takes one, and an imported name, which may be one. */
-export type NameMeaning = 'value' | 'callee' | 'type';
+/** What a name is asked for as: a value (read or written), a callee, a type, or the target of a
+ *  `new`. A callee's candidates are the values that can be called: a function, a local function,
+ *  a parameter that takes one, and an imported name, which may be one. A `new`'s are what it can
+ *  build: a class that is not `abstract`, and a namespace on the way to one. */
+export type NameMeaning = 'value' | 'callee' | 'type' | 'class';
 
 /** The names a binding pattern binds: the name itself, or each name a destructuring binds. */
 function boundNames(pattern: ts.BindingName): string[] {
@@ -166,10 +167,50 @@ function importedNames(st: ts.ImportDeclaration): string[] {
   return out;
 }
 
+/** Every value name the file declares, in any scope: a variable, a parameter, a function, a
+ *  class, an enum, a namespace, a `catch` binding and an import. A name none of them gives is
+ *  one nothing in the file declares, wherever it is read. */
+export function declaredValueNamesOf(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const cached = DECLARED_VALUES.get(sourceFile);
+  if (cached !== undefined) return cached;
+  const out = new Set<string>();
+  const walk = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) || ts.isParameter(n)) {
+      for (const name of boundNames(n.name)) out.add(name);
+    } else if (ts.isImportDeclaration(n)) {
+      for (const name of importedNames(n)) out.add(name);
+    } else if (
+      (ts.isFunctionDeclaration(n) ||
+        ts.isFunctionExpression(n) ||
+        ts.isClassLike(n) ||
+        ts.isEnumDeclaration(n) ||
+        ts.isModuleDeclaration(n)) &&
+      n.name !== undefined &&
+      ts.isIdentifier(n.name)
+    ) {
+      out.add(n.name.text);
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sourceFile);
+  DECLARED_VALUES.set(sourceFile, out);
+  return out;
+}
+
+const DECLARED_VALUES = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+
 /** The names a statement list declares, for `meaning`. */
 function declaredNames(statements: readonly ts.Statement[], meaning: NameMeaning): string[] {
   const out: string[] = [];
   for (const st of statements) {
+    if (meaning === 'class') {
+      const builds =
+        (ts.isClassDeclaration(st) &&
+          !(st.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false)) ||
+        ts.isModuleDeclaration(st);
+      if (builds && st.name !== undefined && ts.isIdentifier(st.name)) out.push(st.name.text);
+      continue;
+    }
     if (ts.isImportDeclaration(st)) {
       out.push(...importedNames(st));
       continue;
@@ -206,6 +247,7 @@ function declaredNames(statements: readonly ts.Statement[], meaning: NameMeaning
 
 /** The parameters of a function-like node, as candidates for `meaning`. */
 function parameterNames(fn: ts.SignatureDeclaration, meaning: NameMeaning): string[] {
+  if (meaning === 'class') return [];
   if (meaning === 'type') return (fn.typeParameters ?? []).map((tp) => tp.name.text);
   const out: string[] = [];
   for (const p of fn.parameters) {
@@ -246,7 +288,7 @@ export function namesInScope(node: ts.Node, meaning: NameMeaning): string[][] {
     } else if (ts.isCaseBlock(at)) {
       for (const clause of at.clauses) names.push(...declaredNames(clause.statements, meaning));
     } else if (
-      meaning !== 'type' &&
+      (meaning === 'value' || meaning === 'callee') &&
       (ts.isForStatement(at) || ts.isForOfStatement(at) || ts.isForInStatement(at)) &&
       at.initializer !== undefined &&
       ts.isVariableDeclarationList(at.initializer)

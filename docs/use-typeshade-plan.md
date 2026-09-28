@@ -200,9 +200,9 @@ obj.position; v.x; v.xyz; a[i];
 **Status:** done (`structs.ts`, `lower/expression-prop.ts`, `lower/index-select.ts`,
 `vertex-layout.ts`; `structs.test.ts`, `camera-uniform.test.ts`, `vsout.test.ts`).
 Class fields carry `@location` / `@builtin` / `@interpolate` / `@invariant` / `@blend_src`;
-field `@align` is a deliberate error (`TS8010`) rather than a silent no-op, and `@size` /
-`@offset` / `@ignore` are `TS8028` ("Unknown attribute") — see `docs/use-typeshade-surface.md`
-§2 and §53.
+field `@align` is a deliberate error (`TS8010`) rather than a silent no-op, `@size` is `TS8028`
+named as WGSL's attribute that is not applied (§51), and `@offset` / `@ignore` are `TS8028`
+("Unknown attribute") — see `docs/use-typeshade-surface.md` §51 and §53.
 
 ### Phase 9 — Control Flow ✅
 
@@ -241,9 +241,10 @@ adds bindings, entry list and vertex layout. Tests: `compile.test.ts` (WGSL + GL
 
 Address space, stage compatibility, illegal mutation, ban host APIs, vector/matrix rules — compiler, not pure translator.
 
-**Status:** done (`semantic.ts` bans `fetch` / `Date` / `Promise` / `async` / `await` /
-`try` / `throw`, `new` on anything but a class the file declares, and spread outside an object
-literal as `TS8012`–`TS8014`; a string is `TS8099`; `console.*` is lowered, to a host sink on
+**Status:** done (`semantic.ts` bans `async` / `await` / `try` / `throw` and spread outside an
+object literal as `TS8013`–`TS8014`; `fetch`, `Date` and `Promise` are names nothing declares,
+refused where they are used, and `new` on anything but a class the file declares is `TS8035`
+(proposal 0008); a string is `TS8099`; `console.*` is lowered, to a host sink on
 the CPU and to nothing on the GPU;
 `bindings.ts` enforces address space and read-only resources; `stage.test.ts` covers
 stage / builtin compatibility). Tests: `semantic.test.ts`, `bindings.test.ts`,
