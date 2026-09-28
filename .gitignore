@@ -1,9 +1,0 @@
-dist/
-*.tsbuildinfo
-coverage/
-node_modules
-bun.lock
-.claude/*
-!.claude/settings.json
-.codebase-memory/
-.omc/
