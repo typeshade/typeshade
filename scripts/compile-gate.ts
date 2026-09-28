@@ -51,7 +51,7 @@ import { chromium } from 'playwright';
 import { examples } from '../examples/index.js';
 import { shadeExamples } from '../examples/_shade.js';
 import { proveKernels } from '../src/core/passes/parallel-loop.js';
-import { lowerKernel } from '../src/core/passes/kernel-lower.js';
+import { lowerKernel, lowerKernelGl } from '../src/core/passes/kernel-lower.js';
 import { consoleBuffer, hasConsoleCall } from '../src/core/passes/console-buffer.js';
 import {
   emitGlslModule,
@@ -276,6 +276,14 @@ const CONSOLE_EXAMPLES = ALL_EXAMPLES.filter((ex) => hasConsoleCall(ex.module)).
   renderable: false,
 }));
 
+/** The vertex stage the runtime draws a kernel's WebGL2 program with (`core/host-kernel-gl.ts`). */
+const KERNEL_VS = `#version 300 es
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+`;
+
 /** The WGSL each kernel function of the corpus lowers to (change 0013): the `@compute` entries
  *  its call dispatches, which `emitModule` of the example itself leaves out. A function that
  *  runs on the CPU has none. */
@@ -287,11 +295,18 @@ function kernelJobs(): Job[] {
       if ('noGpu' in plan) return [];
       const id = `${ex.id}#${proof.fn}`;
       const wgsl = emitModule(plan.module);
+      // The WebGL2 tier's program for the first loop, when the function has one (Rule 11.8):
+      // the fragment lowering over the runtime's fullscreen triangle.
+      const gl = lowerKernelGl(f, ex.module, proof);
+      const glsl =
+        'noWebgl2' in gl
+          ? null
+          : { vertex: KERNEL_VS, fragment: emitGlslModule(gl.loops[0]!.module, 'fragment') };
       return [
         {
           id,
           wgsl: id === CUT ? corrupt(wgsl) : wgsl,
-          glsl: null,
+          glsl,
           pipeline: null,
           pipelineSkip: "a kernel function's loops, dispatched as compute",
         },

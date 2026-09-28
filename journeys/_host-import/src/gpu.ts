@@ -3,8 +3,8 @@
 // of its own. The page runs `run()` and `draws()`.
 import { blockSum, report, scale } from './kernels.shade.ts';
 import { plasma, tiled } from './draw.shade.ts';
-import { resident } from 'typeshade/runtime';
-import { drift, histogram, odds, render, stats, tally } from './loops.shade.ts';
+import { configure, resident } from 'typeshade/runtime';
+import { drift, histogram, odds, render, scaleNonNegative, stats, tally } from './loops.shade.ts';
 // Copied in by the journey from journeys/particles and journeys/plasma.
 import { step } from './particles.shade.ts';
 import { fs } from './plasma.shade.ts';
@@ -135,7 +135,21 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   const devSummary = await stats(devXs, devScaled, 0.5);
   const bins = new Uint32Array(64);
   await histogram(xs, bins, -1000.123, 64 / 2000.246);
+  // The WebGL2 tier, required (Rule 11.8): a map that writes one f32 array at `i` runs as a
+  // fragment program, one texel per iteration.
+  const glImg = new Float32Array(64 * 64);
+  const glSkip = Float32Array.from({ length: 512 }, () => -1);
+  const glXs = Float32Array.from({ length: 512 }, (_, i) => Math.sin(i) * 10);
+  try {
+    configure({ prefer: ['webgl2'] });
+    await render([1, 0.5, 2, 0.25], 64, glImg);
+    await scaleNonNegative(glXs, glSkip, 0.5);
+  } finally {
+    configure({});
+  }
   return {
+    glRender: [...glImg],
+    glSkip: [...glSkip],
     render: [...img],
     drift: ps.flatMap((p) => [...p.pos, ...p.vel]),
     odds: [...every],

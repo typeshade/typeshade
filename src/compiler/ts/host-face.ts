@@ -40,9 +40,10 @@ import { workgroupShapeOf } from '../../core/ir/nodes.js';
 import type { ComputeEntry, DrawBinding, Layout } from '../../core/host-entry.js';
 import type { FragmentEntry } from '../../core/host-draw.js';
 import type { KernelFace, KernelLoop, KernelParam } from '../../core/host-kernel.js';
-import { proveKernels } from '../../core/passes/parallel-loop.js';
-import { lowerKernel } from '../../core/passes/kernel-lower.js';
-import { emitGlslStages } from '../../core/backends/glsl.js';
+import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
+import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
+import { lowerKernel, lowerKernelGl } from '../../core/passes/kernel-lower.js';
+import { emitGlslModule, emitGlslStages } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import type { ConsoleLog } from '../../core/console.js';
@@ -1060,11 +1061,13 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     }
     loops.push({ ...l, reduce: { entry: l.reduce.entry, vars } });
   }
+  const gl = kernelGl(f, m, proof!, params);
   return {
     kind: 'kernel',
     name,
     face: {
       ...face,
+      ...('noWebgl2' in gl ? { noWebgl2: gl.noWebgl2 } : { gl }),
       gpu: {
         wgsl,
         args: {
@@ -1095,6 +1098,44 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     },
     ranges: plan.ranges,
   };
+}
+
+/** What the WebGL2 tier draws for kernel function `f`: each loop's fragment program, or why it
+ *  does not run there (Rule 11.8). */
+function kernelGl(
+  f: FuncDecl,
+  m: ModuleDecl,
+  proof: KernelProof,
+  params: readonly KernelParam[],
+): { loops: KernelGlLoop[] } | { noWebgl2: string } {
+  const plan = lowerKernelGl(f, m, proof);
+  if ('noWebgl2' in plan) return plan;
+  const loops: KernelGlLoop[] = [];
+  for (const l of plan.loops) {
+    let glsl: string;
+    try {
+      glsl = emitGlslModule(l.module, 'fragment');
+    } catch (e) {
+      return { noWebgl2: `its GLSL did not emit: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    loops.push({
+      glsl,
+      out: l.out,
+      outScalar: l.outScalar,
+      reads: l.reads.map((r) => {
+        const p = params.find((x) => x.name === r) as KernelParam & { k: 'array' };
+        return { name: r, layout: p.layout };
+      }),
+      uniforms: l.uniforms.map((u) => ({
+        name: u.name,
+        scalar: (u.type.kind === 'vec'
+          ? u.type.elem
+          : (u.type as { scalar: string }).scalar) as 'f32',
+        n: u.type.kind === 'vec' ? u.type.n : 1,
+      })),
+    });
+  }
+  return { loops };
 }
 
 /** An object type of these members, `{}` for none. */

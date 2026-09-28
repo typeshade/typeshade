@@ -16,6 +16,12 @@
 
 import type { CpuValue } from './cpu-runtime.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
+import {
+  glContext,
+  onWebgl2,
+  programOf as compileGl,
+  type KernelGlLoop,
+} from './host-kernel-gl.js';
 import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } from './resident.js';
 import { fromShader, toShader, type HostType } from './host-values.js';
 import {
@@ -91,6 +97,11 @@ export interface KernelFace {
      *  for each reduction, in loop order; absent when the function returns nothing. */
     readonly tail?: string;
   };
+  /** What the WebGL2 tier draws, one program per loop, when every loop writes one array of
+   *  4-byte elements at `i` (Rule 11.8). */
+  readonly gl?: { readonly loops: readonly KernelGlLoop[] };
+  /** Why it does not run on WebGL2, when it does not. */
+  readonly noWebgl2?: string;
   /** Why it runs on the CPU tier, when it does. */
   readonly noGpu?: string;
 }
@@ -211,10 +222,36 @@ async function runKernel(
       return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values), ...folded));
     }
     if (tier === 'webgl2') {
-      why.push(
-        'webgl2: no kernel function runs on WebGL2 yet, which a later part of change 0013 adds',
+      if (k.gl === undefined || k.gpu === undefined || ranges === undefined) {
+        why.push(`webgl2: it runs on the CPU, ${k.noWebgl2 ?? k.noGpu ?? 'unknown'}`);
+        continue;
+      }
+      const gl = glContext();
+      if (gl === null) {
+        why.push('webgl2: there is no WebGL2 context');
+        continue;
+      }
+      // Every program first, so that one WebGL2 refuses leaves no array half written.
+      try {
+        for (const loop of k.gl.loops) compileGl(gl, loop);
+      } catch (e) {
+        why.push(`webgl2: ${e instanceof Error ? e.message : String(e)}`);
+        continue;
+      }
+      for (const s of states) await s?.sync();
+      const arrays = new Map<string, unknown>();
+      const uniforms = new Map<string, unknown>();
+      k.params.forEach((p, i) => {
+        if (p.k === 'array') arrays.set(p.name, hosts[i]);
+        else uniforms.set(p.name, values[i]);
+      });
+      k.gl.loops.forEach((loop, j) =>
+        onWebgl2(gl, loop, arrays, uniforms, ranges[j]!.start, k.gpu!.loops[j]!.step, ranges[j]!.n),
       );
-      continue;
+      const tail = k.gpu.tail;
+      if (tail === undefined) return undefined;
+      cpu.F['$initPrivates']?.();
+      return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values)));
     }
     for (const s of states) await s?.sync();
     return onCpu(cpu, k, hosts, values);

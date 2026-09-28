@@ -69,3 +69,13 @@ export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32)
     bins[k] += 1;
   }
 }
+
+// A map that skips an element: on WebGL2 (Rule 11.8) the skipped texel keeps what the array held.
+export function scaleNonNegative(xs: array<f32>, out: array<f32>, a: f32) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] < 0.) {
+      continue;
+    }
+    out[i] = xs[i] * a;
+  }
+}

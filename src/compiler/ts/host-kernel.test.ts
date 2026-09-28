@@ -18,7 +18,8 @@ import { hostFace } from './host-face.js';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
 import { proveKernels } from '../../core/passes/parallel-loop.js';
-import { lowerKernel } from '../../core/passes/kernel-lower.js';
+import { lowerKernel, lowerKernelGl } from '../../core/passes/kernel-lower.js';
+import { emitGlslModule } from '../../core/backends/glsl.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const dirs: string[] = [];
@@ -270,7 +271,7 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
       );
       rt.configure({ prefer: ['webgl2', 'webgpu'] });
       await expect(render([1, 0.5, 2, 0.25], 4, new Float32Array(16))).rejects.toThrow(
-        'render(): no tier it may use can run it (webgl2: no kernel function runs on WebGL2 yet, which a later part of change 0013 adds; webgpu: there is no WebGPU device).',
+        'render(): no tier it may use can run it (webgl2: there is no WebGL2 context; webgpu: there is no WebGPU device).',
       );
       rt.configure({ prefer: ['webgl2', 'cpu'] });
       await expect(render([1, 0.5, 2, 0.25], 4, new Float32Array(16))).resolves.toBeUndefined();
@@ -413,6 +414,75 @@ export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32)
     expect(
       JSON.stringify(plan.module.funcs.find((f) => f.name === 'histogram_loop0')!.body),
     ).toContain('"fn":"atomicAdd"');
+  });
+
+  it('lowers a map that writes one f32 array at i to a WebGL2 fragment program', () => {
+    const r = compile(
+      `"use typeshade";
+export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    if (xs[i] < 0.) {
+      continue;
+    }
+    out[i] = a * xs[i] + ys[i];
+  }
+}`,
+      { fileName: 'm.shade.ts' },
+    );
+    const f = r.module.funcs.find((x) => x.name === 'axpy')!;
+    const plan = lowerKernelGl(
+      f,
+      r.module,
+      proveKernels(r.module).find((p) => p.fn === 'axpy')!,
+    );
+    if ('noWebgl2' in plan) throw new Error(plan.noWebgl2);
+    const [loop] = plan.loops;
+    expect(loop).toMatchObject({ out: 'out', outScalar: 'f32', reads: ['xs', 'ys'] });
+    expect(loop!.uniforms.map((u) => u.name)).toEqual(['a', '_start']);
+    const glsl = emitGlslModule(loop!.module, 'fragment');
+    // One texel per iteration: the write is the fragment's output, a `continue` its discard.
+    expect(glsl).toContain('_ret = floatBitsToUint(');
+    expect(glsl).toContain('discard;');
+    expect(glsl).toContain('uniform sampler2D xs;');
+  });
+
+  it.each([
+    [
+      'a reduction',
+      `export function total(xs: array<f32>): f32 { let s = 0.; for (const x of xs) { s += x; } return s; }`,
+      'total',
+      'loop 1 reduces, which WebGL2 has no workgroup memory for',
+    ],
+    [
+      'a write other than at i',
+      `export function odds(out: array<f32>) { for (let i: u32 = 0; i < 8; i++) { out[i * 2] = 1.; } }`,
+      'odds',
+      'loop 1 writes "out" other than at i',
+    ],
+    [
+      'a struct array',
+      `class P { a: vec4; }\nexport function zero(ps: array<P>) { for (let i: u32 = 0; i < ps.length; i++) { ps[i].a = vec4(0.); } }`,
+      'zero',
+      'loop 1 writes "ps", whose element is not one f32, i32 or u32',
+    ],
+    [
+      'a struct argument',
+      `class S { k: f32; }\nexport function scale(out: array<f32>, s: S) { for (let i: u32 = 0; i < out.length; i++) { out[i] = s.k; } }`,
+      'scale',
+      'parameter "s" is not a number or a vector, which a uniform holds',
+    ],
+  ])('keeps %s off WebGL2, saying why', (_name, body, fn, why) => {
+    const r = compile(`"use typeshade";\n${body}\n`, { fileName: 'm.shade.ts' });
+    const f = r.module.funcs.find((x) => x.name === fn)!;
+    expect(
+      lowerKernelGl(
+        f,
+        r.module,
+        proveKernels(r.module).find((p) => p.fn === fn)!,
+      ),
+    ).toEqual({
+      noWebgl2: why,
+    });
   });
 
   it.each([

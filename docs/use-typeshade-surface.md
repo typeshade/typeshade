@@ -7053,7 +7053,11 @@ queued call that fails leaves its error for `read()` to throw. On the CPU tier t
 array it holds, and costs nothing.
 
 **The tiers.** A call runs on the first of WebGPU, WebGL2 and the CPU tier that can run it.
-`configure({ prefer: ['webgpu'] })` changes the order, and a list of one tier makes it required: a
+WebGL2 has no compute stage, so it takes a function whose every loop writes one array of `f32`,
+`i32` or `u32` at exactly `i` (`out[i] = …`) and whose scalars are numbers or vectors: each loop is
+one fragment program, one pixel per iteration, reading the other arrays as data textures; a
+`continue` leaves its element as it was. A reduction, a scatter, a struct array written, or a write
+anywhere but `i` goes on to the CPU tier. `configure({ prefer: ['webgpu'] })` changes the order, and a list of one tier makes it required: a
 call it cannot run on throws, naming why (`render(): no tier it may use can run it (webgpu: there
 is no WebGPU device).`).
 
@@ -7061,8 +7065,8 @@ is no WebGPU device).`).
 a histogram), `loop-struct-array` (the particle step over `array<Particle>`) and `loop-on-cpu` (one
 refused loop per rule, each with its `TS8070`) are in `examples/`.
 
-**Not yet.** A texture and an `f64` reduction on the GPU, and the WebGL2 tier, are the next parts of
-change 0013. Until then such a function runs on the CPU.
+**Not yet.** A texture and an `f64` reduction on the GPU are the next parts of change 0013. Until
+then such a function runs on the CPU.
 
 ## 67. Calling an entry point from host code
 

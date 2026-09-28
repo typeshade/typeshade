@@ -576,6 +576,16 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A kernel function runs on WebGL2** (change 0013, part 8; Rule 11.8, surface §65). Where there
+  is no WebGPU, or with `configure({ prefer: ['webgl2'] })`, a function whose every loop writes one
+  array of `f32`, `i32` or `u32` at exactly `i` runs each loop as a fragment program: one pixel of
+  an `R32UI` target per iteration, the arrays it reads as data textures, its scalars as uniforms,
+  through the same compute→fragment lowering the compute runner uses. The target starts out
+  holding the array, so a `continue` leaves its element as it was. Any other loop goes on to the
+  CPU tier, with the reason in the tier error. The import journey renders the terrain and runs a
+  map with a `continue` with WebGL2 required, in Chromium, and the compile gate links each
+  kernel's WebGL2 program.
+
 - **A `"use typeshade"` file imports what another one exports** (change 0022; Rules 3.9 and 3.2,
   surface §68). `import { fbm } from "./noise.shade.ts"` compiles on every path: `compile()` reads
   each import through a new `readDocument` option (with `resolveImport` beside it, the rule the
