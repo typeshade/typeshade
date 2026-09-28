@@ -28,7 +28,8 @@ import type { ShaderType } from '../ir/types.js';
 import type { SourceSpan } from '../ir/span.js';
 import { sourceSpanOf } from '../ir/span.js';
 import { eachExpr } from '../ir/visit.js';
-import { isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js';
+import { isBarrierIntrinsic } from '../intrinsics.js';
+import { argAccess, eachOperand, readsAtomic, writesPlace } from './access.js';
 import { fnWrites } from './effects.js';
 
 type ForStmt = Stmt & { s: 'for' };
@@ -421,8 +422,7 @@ function proveLoop(
           if (
             bad === undefined &&
             x.op === 'call' &&
-            isAtomicIntrinsic(x.fn) &&
-            x.fn !== 'atomicStore'
+            x.args.some((_, k) => readsAtomic(argAccess(x.fn, k)))
           )
             bad = { rule: 'R4', why: 'atomic-result', fn: x.fn, at: sourceSpanOf(st) };
         }),
@@ -541,20 +541,22 @@ function writesIn(body: readonly Stmt[], c: Ctx): Write[] {
     exprsOf(st, (e) =>
       eachExpr(e, (x) => {
         if (x.op !== 'call') return;
-        if (isAtomicIntrinsic(x.fn) && x.fn !== 'atomicLoad') {
-          const t = x.args[0];
-          const root = t === undefined ? undefined : rootName(t);
-          if (t !== undefined && root !== undefined)
-            out.push({ target: t, root, atomic: x.fn, at });
-          return;
-        }
-        if (x.fn === 'textureStore') {
-          const t = x.args[0];
-          const root = t === undefined ? undefined : rootName(t);
-          if (t !== undefined && root !== undefined)
-            out.push({ target: t, root, texel: x.args[1], at });
-          return;
-        }
+        // A builtin's written place (`access.ts`): an atomic's, or a texture a texel is stored in
+        // at the coordinate that follows it.
+        let builtin = false;
+        x.args.forEach((t, k) => {
+          const access = argAccess(x.fn, k);
+          if (!writesPlace(access)) return;
+          builtin = true;
+          const root = rootName(t);
+          if (root === undefined) return;
+          out.push(
+            access === 'texel-write'
+              ? { target: t, root, texel: x.args[k + 1], at }
+              : { target: t, root, atomic: x.fn, at },
+          );
+        });
+        if (builtin) return;
         const decl = c.byName.get(x.fn);
         if (decl === undefined) return;
         decl.params.forEach((p, k) => {
@@ -593,7 +595,10 @@ export function combineOf(st: Stmt & { s: 'assign' | 'assignOp' }): Pick<Write, 
 }
 
 /** What a statement reads: each array element, field and name it evaluates, outermost first,
- *  and not the place it assigns (an `assignOp` reads its target too, which its combine covers). */
+ *  and not the place it assigns (an `assignOp` reads its target too, which its combine covers).
+ *  A builtin's operand is read as `access.ts` says: an atomic's place and a stored texture are
+ *  accesses R3 and the atomic check answer for, so only their indices are read here, and the
+ *  array `arrayLength` measures has no element read at all (#345). */
 function readsOf(st: Stmt): Expr[] {
   const out: Expr[] = [];
   const add = (e: Expr): void => {
@@ -613,7 +618,10 @@ function readsOf(st: Stmt): Expr[] {
         out.push(x);
         return;
       }
-      forChildren(x, visit);
+      eachOperand(x, (operand, access) => {
+        if (access === 'value') visit(operand);
+        else if (access !== 'length') indicesOf(operand).forEach(visit);
+      });
     };
     visit(e);
   };
@@ -628,15 +636,7 @@ function readsOf(st: Stmt): Expr[] {
       add(st.expr);
       break;
     default:
-      exprsOf(st, (e) => {
-        // A call's inout argument and an atomic's location are writes, classified by R3.
-        if (e.op === 'call' && (isAtomicIntrinsic(e.fn) || e.fn === 'textureStore')) {
-          e.args.slice(1).forEach(add);
-          indicesOf(e.args[0]!).forEach(add);
-          return;
-        }
-        add(e);
-      });
+      exprsOf(st, add);
   }
   return out;
 }
@@ -930,43 +930,6 @@ function sameExpr(a: Expr, b: Expr, lets?: ReadonlyMap<string, Expr>, depth = 0)
 }
 
 const allSame = (xs: readonly Expr[]): boolean => xs.every((x) => sameExpr(x, xs[0]!));
-
-function forChildren(e: Expr, f: (c: Expr) => void): void {
-  switch (e.op) {
-    case 'binop':
-    case 'compare':
-    case 'logical':
-      f(e.a);
-      f(e.b);
-      break;
-    case 'unop':
-      f(e.a);
-      break;
-    case 'call':
-    case 'construct':
-      e.args.forEach(f);
-      break;
-    case 'member':
-      f(e.base);
-      break;
-    case 'index':
-      f(e.base);
-      f(e.idx);
-      break;
-    case 'select':
-      f(e.cond);
-      f(e.ifTrue);
-      f(e.ifFalse);
-      break;
-    case 'matchExpr':
-      f(e.scrutinee);
-      for (const [, v] of e.cases) f(v);
-      f(e.default);
-      break;
-    default:
-      break;
-  }
-}
 
 // ─── statements ──────────────────────────────────────────────────────────────────────────────
 

@@ -1875,6 +1875,27 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A kernel loop may read the length of the array it writes** (Rule 8.22, #345). This loop ran
+  on the CPU with `TS8070`, "line 5 reads "out", which another iteration writes":
+
+  ```ts
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = f32(out.length); }
+  ```
+
+  `out.length` lowers to `arrayLength(out)`, which reads the length the host fixed when it bound
+  the buffer and no element, and the proof read it as a read of `out`. It is a GPU kernel now, one
+  dispatch, and Tint (Chromium 141) takes the WGSL it lowers to, which reads `arrayLength(&out)`.
+  A read of an element the loop writes at another index is refused as before. The Rule 7.5 bound
+  check had the same bug, fixed on its own ("A loop can write the array whose length bounds
+  it", below).
+  - What a builtin does with each argument is written once now, in `src/core/passes/access.ts`:
+    the array `arrayLength` measures, an atomic's place, and the texture `textureStore` writes a
+    texel of (#348). The bound check, uniformity and the kernel lowering each skipped inside
+    `arrayLength` by hand, and the proof knew the atomics by name; all four ask the table.
+  - `src/core/spec-conformance/argument-access.test.ts` holds the table to every overload of
+    Tint's `core.def` that TypeShade takes, so a builtin that takes a pointer cannot arrive
+    without an answer.
+
 - **A struct member of a uniform sits where `reflect()` says** (§51's rule, extended from arrays
   to structs). In the uniform address space, WGSL aligns a member of struct type to 16 and
   starts the next member at least 16 bytes further on. `reflect()`'s std140 layout already

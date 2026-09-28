@@ -41,6 +41,7 @@ import type {
 import type { ShaderType } from '../ir/types.js';
 import { u32T } from '../ir/types.js';
 import { mapChildren, mapStmtExpr } from '../ir/visit.js';
+import { eachOperand, isAtomicAccess } from './access.js';
 import { fnReads, fnWrites } from './effects.js';
 import {
   combineOf as writeCombine,
@@ -893,23 +894,24 @@ function toAtomics(st: Stmt, scatter: ReadonlyMap<string, string>): Stmt {
   };
 }
 
-/** Whether `sts` read the array `name` other than as an atomic's place or through its length. */
+/** Whether `sts` read the array `name` other than as an atomic's place or through its length,
+ *  the two operands `access.ts` says read no element as a value (#348). */
 function readsOutsideAtomics(sts: readonly Stmt[], name: string): boolean {
   let found = false;
   const visit = (e: Expr): void => {
     if (found) return;
-    if (e.op === 'call' && e.fn === 'arrayLength') return;
-    if (e.op === 'call' && Object.values(ATOMIC_OF).includes(e.fn)) {
-      const [place, ...rest] = e.args;
-      if (place !== undefined && place.op === 'index') visit(place.idx);
-      rest.forEach(visit);
-      return;
-    }
     if ((e.op === 'varref' || e.op === 'param') && e.name === name) {
       found = true;
       return;
     }
-    forEachChild(e, visit);
+    eachOperand(e, (c, access) => {
+      if (access === 'value') visit(c);
+      else if (isAtomicAccess(access)) {
+        // The place's own indices are still read.
+        for (let b = c; b.op === 'index' || b.op === 'member'; b = b.base)
+          if (b.op === 'index') visit(b.idx);
+      }
+    });
   };
   for (const st of sts)
     mapStmt(st, (e) => {
@@ -975,18 +977,20 @@ function rangeOf(
   return { start: loop.init.init, bound, cop, type: loop.init.type };
 }
 
-/** Whether `sts` read the arrays `names` only as `arrayLength(a)`. */
+/** Whether `sts` read the arrays `names` only as `arrayLength(a)`: only through an operand
+ *  `access.ts` says is measured and not read (#348). */
 function readsArraysByLengthOnly(sts: readonly Stmt[], names: readonly string[]): boolean {
   const set = new Set(names);
   let ok = true;
   const visit = (e: Expr): void => {
     if (!ok) return;
-    if (e.op === 'call' && e.fn === 'arrayLength') return;
     if ((e.op === 'param' || e.op === 'varref') && set.has(e.name)) {
       ok = false;
       return;
     }
-    forEachChild(e, visit);
+    eachOperand(e, (c, access) => {
+      if (access !== 'length') visit(c);
+    });
   };
   const walk = (st: Stmt): void => {
     mapStmt(st, (e) => {
