@@ -73,9 +73,11 @@
   //
   // `coredef-witness.ts` beside `coredef-overloads.test.ts` is its support: the both-halves
   // witness (0017). No export reaches it, so it is test code in all but name, and it stays out
-  // of dist/ as the tests do.
+  // of dist/ as the tests do. So does `src/api-subpaths.ts`, the one list of API subpaths that
+  // `api-doc-coverage.test.ts` and `api-surface.test.ts` both read.
   "exclude": [
     "src/**/*.test.ts",
+    "src/api-subpaths.ts",
     "src/core/spec-conformance/coredef-witness.ts",
     "examples/**/*.test.ts",
     "examples/**/*.shade.ts",

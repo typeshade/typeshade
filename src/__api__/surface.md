@@ -486,6 +486,17 @@ workgroupSizeOf
 WRITE_ONLY_STORAGE_FORMATS
 ```
 
+## `./compute` — 6 exports
+
+```
+ComputeBackend
+ComputeRunner
+ComputeRunnerOptions
+createComputeRunner
+GpuDeviceLike
+RejectedBackend
+```
+
 ## `./dev` — 37 exports
 
 ```
@@ -909,7 +920,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 590 definitions
+## Shapes — 596 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -959,6 +970,12 @@ src/core/backends/wgsl.ts#intLit  function  (v: number, scalar: "i32" | "u32") =
 src/core/backends/wgsl.ts#lowerWgsl  const  (m: ModuleDecl, level: OptLevel) => ModuleDecl
 src/core/backends/wgsl.ts#wgslBackend  const  Backend
 src/core/backends/wgsl.ts#wgslType  function  (t: ShaderType) => string
+src/core/compute/runner.ts#ComputeBackend  type  "cpu" | "webgl2" | "webgpu"
+src/core/compute/runner.ts#ComputeRunner  interface  { backend: ComputeBackend; dispose: () => void; rejected: readonly RejectedBackend[]; run: (input: Float32Array, invocations?: number) => Promise<Uint32Array> }
+src/core/compute/runner.ts#ComputeRunnerOptions  interface  { device?: GpuDeviceLike; gl?: WebGL2RenderingContext; prefer?: readonly ComputeBackend[] }
+src/core/compute/runner.ts#GpuDeviceLike  interface  { createBindGroup: (...args: never[]) => unknown; createBuffer: (...args: never[]) => unknown; createCommandEncoder: (...args: never[]) => unknown; createComputePipeline: (...args: never[]) => unknown; createShaderModule: (...args: never[]) => unknown; queue: object }
+src/core/compute/runner.ts#RejectedBackend  interface  { backend: ComputeBackend; reason: string }
+src/core/compute/runner.ts#createComputeRunner  function  (m: ModuleDecl, opts?: ComputeRunnerOptions) => Promise<ComputeRunner>
 src/core/console.ts#CONSOLE_METHODS  const  ReadonlySet<ConsoleMethod>
 src/core/console.ts#ConsoleEvent  interface  { args: readonly (string | CpuValue)[]; invocation?: readonly number[]; method: ConsoleMethod; span?: SourceSpan }
 src/core/console.ts#ConsoleLog  interface  { binding: number; group: number; sites: readonly ConsoleSite[] }
