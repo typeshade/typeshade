@@ -35,6 +35,7 @@
     "./dev": "./src/dev.ts",
     "./debug": "./src/debug.ts",
     "./compute": "./src/compute.ts",
+    "./emit": "./src/emit.ts",
     "./emit-prod": "./src/emit-prod.ts",
     "./vite": "./src/vite.ts",
     "./runtime": "./src/runtime.ts",

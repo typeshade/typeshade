@@ -32,6 +32,7 @@ import {
   type PackOptions,
 } from './manifest-types.js';
 import { consoleBuffer } from './passes/console-buffer.js';
+import { toPortable } from './ir/portable.js';
 import type { DrawBinding, Layout } from './host-entry.js';
 import { vertexLayoutOf, vertexLayoutOfEntry } from './vertex-layout.js';
 import { VERSION } from './version.js';
@@ -441,6 +442,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
     overrides: r.overrides.map((o) => ({ name: o.name, type: o.type, default: o.default })),
     features: [...hostFeaturesFor(wgslBackend, r.requiredFeatures)],
     ...(recorded !== undefined ? { console: recorded } : {}),
+    ...(options.ir === true ? { ir: toPortable(m, VERSION) } : {}),
     ...(Object.keys(draws).length > 0 ? { gl: { draws } } : {}),
   };
 }

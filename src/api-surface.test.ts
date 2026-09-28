@@ -91,6 +91,7 @@ const FLOOR: Readonly<Record<string, number>> = {
   './emit-prod': 10,
   './vite': 2,
   './runtime': 10,
+  './emit': 2,
   './core/ir': 120,
   './language-service': 15,
 };

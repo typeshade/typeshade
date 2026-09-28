@@ -13,6 +13,7 @@ import type { ConsoleEvent } from '../core/console.js';
 import { configure, resident, residentState } from '../core/resident.js';
 import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
 import { createRuntime, runtime } from './runtime.js';
+import { repack } from '../emit.js';
 
 /** A device that records every object it creates and every command it is given. */
 function fakeDevice(features: string[] = []) {
@@ -362,5 +363,26 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     expect(DEVICE_VIEW in t).toBe(true);
     const img = imageOf(t);
     expect(typeof img === 'object' && img.view !== undefined && img.width === 8).toBe(true);
+  });
+});
+
+describe('the load-time emitter as the runtime plug-in (change 0025 step 6, Rule 11.11)', () => {
+  it('records a program the build did not record, when the runtime has the emitter and the manifest its IR', async () => {
+    const r = compile(SCALE);
+    const built = packModule(r.module!, { ir: true });
+    expect(built.console).toBeUndefined();
+    const plain = await createRuntime({ device: fakeDevice().device });
+    expect(() => plain.load(built, { console: true })).toThrow(
+      'load({ console: true }): this manifest carries no recorded variant; build it with packModule(m, { console: true }) or in vite dev, or pass the load-time emitter, createRuntime({ emit: repack }), with a manifest that carries its IR.',
+    );
+    const rt = await createRuntime({ device: fakeDevice().device, emit: repack });
+    const program = rt.load(built, { console: true });
+    expect(program.recording).toBe(true);
+    expect(program.manifest.console?.wgsl).toContain('_console');
+    // Without the option, the program is loaded as the build wrote it.
+    expect(rt.load(built).recording).toBe(false);
+    expect(() => rt.load(packModule(r.module!), { console: true })).toThrow(
+      'load({ console: true }): this manifest carries no recorded variant and no IR to emit one from; build it with packModule(m, { ir: true }) or typeshade({ ir: true }).',
+    );
   });
 });

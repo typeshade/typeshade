@@ -49,12 +49,18 @@ export interface RuntimeOptions<D extends object = object> {
   readonly console?: 'print' | ConsoleSink;
   /** The console buffer's size for each dispatch and draw that records, in bytes. 1 MiB. */
   readonly consoleBytes?: number;
+  /** The load-time emitter, `repack` from `typeshade/emit`, which emits a manifest again from
+   *  the portable IR it carries when a load asks for a variant the build did not write
+   *  (`load(m, { console: true })`). The runtime never imports it itself, so a host that does
+   *  not pass it ships no emitter. */
+  readonly emit?: (manifest: Pack, options: { readonly console?: boolean }) => Pack;
 }
 
 /** How `rt.load()` loads a program. */
 export interface LoadOptions {
   /** Record the entries' `console.*` calls. Default: when the manifest carries the recorded
-   *  variant, which a build that records puts there (`vite dev`). */
+   *  variant, which a build that records puts there (`vite dev`). A manifest without it is
+   *  emitted again with it by the runtime's `emit`, when it carries its IR. */
   readonly console?: boolean;
 }
 
@@ -128,6 +134,7 @@ export class RuntimeImpl implements Runtime {
   readonly #groups = new Map<BindGroupLayout, Map<string, object>>();
   #guard: TextureView | undefined;
   readonly #owned: boolean;
+  readonly #emit: RuntimeOptions['emit'];
 
   constructor(
     readonly gpu: Device,
@@ -138,6 +145,7 @@ export class RuntimeImpl implements Runtime {
     this.#sink = typeof options.console === 'function' ? options.console : undefined;
     this.#consoleBytes = options.consoleBytes ?? CONSOLE_BYTES;
     this.#owned = owned;
+    this.#emit = options.emit;
   }
 
   get device(): object {
@@ -159,10 +167,16 @@ export class RuntimeImpl implements Runtime {
           `The program needs the "${f}" feature, which this device lacks; request it, or pass the program in createRuntime({ programs }).`,
         );
     const record = options.console ?? program.console !== undefined;
-    if (record && program.console === undefined)
-      throw new TypeError(
-        'load({ console: true }): this manifest carries no recorded variant; build it with packModule(m, { console: true }) or in vite dev.',
-      );
+    if (record && program.console === undefined) {
+      if (this.#emit === undefined || program.ir === undefined)
+        throw new TypeError(
+          this.#emit === undefined
+            ? 'load({ console: true }): this manifest carries no recorded variant; build it with packModule(m, { console: true }) or in vite dev, or pass the load-time emitter, createRuntime({ emit: repack }), with a manifest that carries its IR.'
+            : 'load({ console: true }): this manifest carries no recorded variant and no IR to emit one from; build it with packModule(m, { ir: true }) or typeshade({ ir: true }).',
+        );
+      // Emitted again with the variant; `repack` refuses an IR another version wrote.
+      program = this.#emit(program, { console: true });
+    }
     return new ProgramImpl(this, program, record);
   }
 

@@ -2,12 +2,14 @@
 //
 // `typeshade/runtime` is what an application ships to run a compiled program, and the point of
 // it is that the application does not ship the compiler: the TypeScript front end is 1.4 MB
-// gzipped with TypeScript, the runtime about 10 KB. Two checks hold that, over the subpath's
-// source:
+// gzipped with TypeScript, the runtime about 10 KB. `typeshade/emit`, the load-time emitter an
+// application adds to emit a program again where it runs, carries the IR and the backends and no
+// front end, about 78 KB. Two checks hold that, over each subpath's source:
 //
 //   1. THE CLOSURE. Every module the subpath's entry reaches through its imports, type-only ones
 //      included, is walked. A file of `src/compiler/` fails it, and so does any bare specifier
-//      (`typescript`, `node:fs`): the runtime is `src/runtime/` and `src/core/` alone.
+//      (`typescript`, `node:fs`): the runtime is `src/runtime/` and `src/core/` alone, and the
+//      emitter `src/core/` alone.
 //   2. THE SIZE. The entry is bundled for the browser, minified, with every export kept, and
 //      gzipped. Its size must stay between its floor and its budget in
 //      `scripts/bundle-budget.json`. The budget is the size the subpath landed with and about a
@@ -46,6 +48,13 @@ const SUBPATHS: readonly {
     entry: 'src/runtime.ts',
     allowed: ['src/runtime.ts', 'src/runtime/', 'src/core/'],
     minModules: 15,
+  },
+  // The load-time emitter: the IR, the backends and the manifest builder, and no front end.
+  {
+    name: 'typeshade/emit',
+    entry: 'src/emit.ts',
+    allowed: ['src/emit.ts', 'src/core/'],
+    minModules: 40,
   },
 ];
 
