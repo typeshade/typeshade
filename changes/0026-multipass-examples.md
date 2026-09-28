@@ -1,7 +1,7 @@
 ---
 id: '0026'
 title: An example can be several passes drawn in order each frame, each pass reading what an earlier pass drew this frame or what a pass drew the frame before, and the site draws, edits and checks such an example
-status: draft
+status: accepted
 rules: []
 surface: []
 exports: []
