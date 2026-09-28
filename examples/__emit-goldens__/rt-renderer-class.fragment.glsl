@@ -437,12 +437,12 @@ vec2 pixelJitter(vec2 position, float frame, int sample_) {
   return vec2((fract((sin(((dot(position, vec2(12.9898, 78.233)) + (frame * 0.71)) + (_cse0 * 19.17))) * 43758.5453123)) - 0.5), (fract((sin(((dot(position, vec2(39.346, 11.135)) + (frame * 1.17)) + (_cse0 * 7.91))) * 43758.5453123)) - 0.5));
 }
 
-vec3 renderSample(Renderer renderer, Camera camera, vec2 position, vec2 resolution, float frame, int sample_) {
-  vec2 uv = (((position - (resolution * 0.5)) + vec2(0.5, 0.5)) / resolution.y);
-  vec2 jitter = pixelJitter(position, frame, sample_);
-  vec2 sampleUv = vec2((uv.x + (jitter.x / resolution.x)), (uv.y + (jitter.y / resolution.y)));
-  Ray ray = Camera_rayFor(camera, (sampleUv * vec2((resolution.x / resolution.y), 1.0)));
-  float seed = ((dot(position, vec2(17.17, 73.19)) + (frame * 11.3)) + (float(sample_) * 3.7));
+vec3 renderSample(Renderer renderer, Camera camera, vec2 ndc, vec2 resolution, float frame, int sample_) {
+  vec2 pixel = (((ndc * 0.5) + vec2(0.5, 0.5)) * resolution);
+  vec2 jitter = pixelJitter(pixel, frame, sample_);
+  vec2 sampleNdc = (ndc + vec2(((jitter.x * 2.0) / resolution.x), ((jitter.y * 2.0) / resolution.y)));
+  Ray ray = Camera_rayFor(camera, vec2(((sampleNdc.x * resolution.x) / resolution.y), sampleNdc.y));
+  float seed = ((dot(pixel, vec2(17.17, 73.19)) + (frame * 11.3)) + (float(sample_) * 3.7));
   return Renderer_trace(renderer, ray, seed);
 }
 
@@ -450,10 +450,11 @@ vec3 toneMap(vec3 color) {
   vec3 mapped = (color / (color + vec3(1.0, 1.0, 1.0)));
   return pow(mapped, vec3(0.45454545454545453, 0.45454545454545453, 0.45454545454545453));
 }
+in vec2 ndc;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  vec2 _licm0 = gl_FragCoord.xy;
+  vec2 _licm0 = ndc;
   vec2 _licm1 = u.resolution;
   float _licm2 = u.frame;
   Camera camera = createCamera(u.time);

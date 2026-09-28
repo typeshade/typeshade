@@ -7,6 +7,7 @@ const SAMPLES_PER_PIXEL: i32 = 2;
 
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
+  @location(0) ndc: vec2<f32>,
 }
 
 struct Frame {
@@ -442,12 +443,12 @@ fn pixelJitter(position: vec2<f32>, frame: f32, sample: i32) -> vec2<f32> {
   return vec2<f32>((fract((sin(((dot(position, vec2<f32>(12.9898, 78.233)) + (frame * 0.71)) + (_cse0 * 19.17))) * 43758.5453123)) - 0.5), (fract((sin(((dot(position, vec2<f32>(39.346, 11.135)) + (frame * 1.17)) + (_cse0 * 7.91))) * 43758.5453123)) - 0.5));
 }
 
-fn renderSample(renderer: Renderer, camera: Camera, position: vec2<f32>, resolution: vec2<f32>, frame: f32, sample: i32) -> vec3<f32> {
-  let uv = (((position - (resolution * 0.5)) + vec2<f32>(0.5, 0.5)) / resolution.y);
-  let jitter = pixelJitter(position, frame, sample);
-  let sampleUv = vec2<f32>((uv.x + (jitter.x / resolution.x)), (uv.y + (jitter.y / resolution.y)));
-  let ray = Camera_rayFor(camera, (sampleUv * vec2<f32>((resolution.x / resolution.y), 1.0)));
-  let seed = ((dot(position, vec2<f32>(17.17, 73.19)) + (frame * 11.3)) + (f32(sample) * 3.7));
+fn renderSample(renderer: Renderer, camera: Camera, ndc: vec2<f32>, resolution: vec2<f32>, frame: f32, sample: i32) -> vec3<f32> {
+  let pixel = (((ndc * 0.5) + vec2<f32>(0.5, 0.5)) * resolution);
+  let jitter = pixelJitter(pixel, frame, sample);
+  let sampleNdc = (ndc + vec2<f32>(((jitter.x * 2.0) / resolution.x), ((jitter.y * 2.0) / resolution.y)));
+  let ray = Camera_rayFor(camera, vec2<f32>(((sampleNdc.x * resolution.x) / resolution.y), sampleNdc.y));
+  let seed = ((dot(pixel, vec2<f32>(17.17, 73.19)) + (frame * 11.3)) + (f32(sample) * 3.7));
   return Renderer_trace(renderer, ray, seed);
 }
 
@@ -460,12 +461,12 @@ fn toneMap(color: vec3<f32>) -> vec3<f32> {
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
   let y = ((f32((vi >> 1u)) * 4.0) - 1.0);
-  return VsOut(vec4<f32>(x, y, 0.0, 1.0));
+  return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(x, y));
 }
 
 @fragment
 fn fs(v: VsOut) -> @location(0) vec4<f32> {
-  let _licm0 = v.pos.xy;
+  let _licm0 = v.ndc;
   let _licm1 = u.resolution;
   let _licm2 = u.frame;
   let camera = createCamera(u.time);

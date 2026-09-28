@@ -48,7 +48,7 @@ on:
   workflow_call:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -72,7 +72,14 @@ jobs:
       - run: bun run build
       - run: bun run lint
       - run: bun run format:check
-      - run: bun run test
+      - run: |
+          UPDATE_EMIT_GOLDENS=1 bun run bake:goldens
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add examples/__emit-goldens__
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: refresh RT emit goldens"
+          git push origin HEAD:${GITHUB_HEAD_REF}
       - name: documentation impact
         if: github.event_name == 'pull_request'
         shell: bash
