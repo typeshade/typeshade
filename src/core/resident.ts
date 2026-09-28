@@ -2,12 +2,12 @@
 // ═══ (Rule 11.8, surface §65, change 0013)                                               ═══
 //
 // `resident(array)` wraps a typed array or an array of objects once. A kernel function called
-// with it (`core/host-kernel.ts`), or a `@compute` entry given it for a storage array with no
-// size (`core/host-compute.ts`), uploads it on the first call that runs on WebGPU and then
+// with it (`core/host-kernel.ts`), or an entry given it for a storage array with no size
+// (`core/host-compute.ts`, `core/host-draw.ts`), uploads it on the first call that runs on WebGPU and then
 // binds the same buffer at every call after, reading nothing back: a chain of calls costs one
 // upload and, at `await r.read()`, one read. On the CPU tier it is an array the handle holds.
 //
-// Every kernel call and entry call runs in the order it was made, one after another, whether or
+// Every kernel call, entry call and draw that reads a handle runs in the order it was made, one after another, whether or
 // not the caller awaits it; `read()` waits for the calls made before it. A call that fails while
 // nobody awaits it keeps its error on each handle it writes, and `read()` throws it.
 //
@@ -34,8 +34,8 @@ type ResidentArray =
 
 /**
  * An array that stays on the device across kernel calls (Rule 11.8, surface §65), made by
- * {@link resident}. Pass it where a kernel function takes an array, or as a `@compute` entry's
- * storage array with no size (surface §67): the first call on WebGPU
+ * {@link resident}. Pass it where a kernel function takes an array, or as an entry's storage
+ * array with no size (surface §67): the first call on WebGPU
  * uploads it, the calls after bind it as it is, and nothing is read back until
  * {@link Resident.read}. A call whose written arrays are all resident, and that returns
  * nothing, only queues.
