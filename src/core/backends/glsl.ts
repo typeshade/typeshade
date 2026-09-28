@@ -1487,6 +1487,17 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     allNames.has(b.name) ? { ...b, space: 'uniform', type: dataTexT(b.name) } : b,
   );
   const u32lit = (value: number): Expr => ({ op: 'lit', type: u32T, value });
+  // An element's first lane is its index times the element's stride in lanes, a `u32`. The
+  // index is whatever the author indexed with, an `i32` literal or variable as often as a
+  // `u32`, and WGSL-shaped IR has no mixed `i32 * u32` (#388): the index is converted first,
+  // a literal by its value and anything else as `u32(i)`, which a negative index would wrap
+  // as WGSL's out-of-bounds read already leaves undefined.
+  const laneIndex = (idx: Expr): Expr => {
+    const i = rE(idx);
+    if (i.type.kind === 'scalar' && i.type.scalar === 'u32') return i;
+    if (i.op === 'lit' && typeof i.value === 'number') return u32lit(i.value);
+    return { op: 'construct', type: u32T, args: [i] };
+  };
   const fetch = (name: string, lane: Expr): Expr => ({
     op: 'call',
     type: f32T,
@@ -1523,7 +1534,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
             op: 'binop',
             type: u32T,
             bop: '+',
-            a: { op: 'binop', type: u32T, bop: '*', a: rE(b.idx), b: u32lit(ss.stride) },
+            a: { op: 'binop', type: u32T, bop: '*', a: laneIndex(b.idx), b: u32lit(ss.stride) },
             b: u32lit(fl.lane),
           };
           if (fl.kind === 'scalar') {
@@ -1554,7 +1565,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
             op: 'binop',
             type: u32T,
             bop: '*',
-            a: rE(e.idx),
+            a: laneIndex(e.idx),
             b: u32lit(vs.stride),
           };
           const comps: Expr[] = [];
