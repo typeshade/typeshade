@@ -13,16 +13,11 @@ import type { Pack, PackOptions } from './core/manifest-types.js';
 import { fromPortable } from './core/ir/portable.js';
 import { VERSION } from './core/version.js';
 
-/** What {@link repack} emits again. */
-export interface RepackOptions {
-  /** Add the recorded variant, the WGSL that records the `console.*` calls (surface §66). */
-  readonly console?: boolean;
-}
-
 /**
  * Emit `manifest` again from the portable IR it carries, with `options`: the same program, its
  * WGSL, GLSL and layouts byte for byte what the build wrote, and the variants the build did not
- * ask for. The IR stays on the result, so it can be emitted again.
+ * ask for. The IR stays on the result, so it can be emitted again. `options.console` adds the
+ * recorded variant, the WGSL that records the `console.*` calls (surface §66).
  *
  * Exported from `typeshade/emit`.
  *
@@ -38,7 +33,7 @@ export interface RepackOptions {
  * @throws `TypeError` when the manifest carries no IR, and when another package version wrote
  *   it, naming both versions: the IR is not a stable format, and only its own version reads it.
  */
-export function repack(manifest: Pack, options: RepackOptions = {}): Pack {
+export function repack(manifest: Pack, options: { readonly console?: boolean } = {}): Pack {
   const ir = manifest.ir;
   if (ir === undefined)
     throw new TypeError(

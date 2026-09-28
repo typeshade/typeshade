@@ -569,11 +569,10 @@ startDebugSession
 startDebugSessionFromConfig
 ```
 
-## `./emit` — 2 exports
+## `./emit` — 1 exports
 
 ```
 repack
-RepackOptions
 ```
 
 ## `./emit-prod` — 19 exports
@@ -955,7 +954,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 617 definitions
+## Shapes — 616 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -1504,8 +1503,7 @@ src/emit-prod.ts#mangle  function  (opts?: { renames?: Map<string, string>; }) =
 src/emit-prod.ts#minify  function  (opts?: MinifyOptions) => EmitPlugin
 src/emit-prod.ts#obfuscate  function  (opts?: { renames?: Map<string, string>; }) => EmitPlugin[]
 src/emit-prod.ts#prune  function  () => EmitPlugin
-src/emit.ts#RepackOptions  interface  { console?: boolean }
-src/emit.ts#repack  function  (manifest: Pack, options?: RepackOptions) => Pack
+src/emit.ts#repack  function  (manifest: Pack, options?: { readonly console?: boolean; }) => Pack
 src/language-service.ts#TypeshadeCompletionItem  interface  { detail: string; insertText?: string; kind: "attribute" | "function" | "keyword" | "type" | "value"; label: string }
 src/language-service.ts#TypeshadeDiagnostic  interface  { category: "error" | "message" | "warning"; code?: string; fileName: string; message: string; range: TypeshadeRange; span: TypeshadeTextSpan }
 src/language-service.ts#TypeshadeHover  interface  { contents: readonly string[]; range: TypeshadeRange; span: TypeshadeTextSpan }
