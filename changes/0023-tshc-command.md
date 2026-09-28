@@ -74,7 +74,10 @@ packages its search returns for the name installs a command of that name; comman
 knows no package of a Linux distribution or of Homebrew that installs one, and Homebrew has no
 formula of that name; PyPI and crates.io have no project of that name. So wherever `typeshade` is installed, `tshc` is its command. Where it is not,
 `npx tshc` stops with npm's `E404` (measured with `CI=true`, in a project without the package)
-rather than installing another package and running its command. The documents write
+rather than installing another package and running its command. The registry keeps it that
+way: on 2026-09-28 npm refused to publish a placeholder package named `tshc`, with
+`E403 Package name too similar to existing packages tshy,tsm,tsc,tsd,tsx,tsdx,tsup,shx,ssh2`,
+a check on the name whoever publishes it, so `npx tshc` keeps stopping with `E404`. The documents write
 `npx -p typeshade tshc check src/` (in Bun, `bunx -p typeshade tshc check src/`) for a run that
 may not have the package installed. A `package.json` script, such as surface §64's
 `"prepare": "tshc sync"`, runs with `node_modules/.bin` first on its `PATH` and never installs
