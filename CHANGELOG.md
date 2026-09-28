@@ -1986,7 +1986,7 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
     into 0.
 
   Each helper is written once per type the module uses. The bare operator stays for a literal
-  divisor no input makes undefined and for a literal shift amount. The GLSL of 24 examples'
+  divisor no input makes undefined and for a literal shift amount. The GLSL of 25 examples'
   goldens changes. The GPU differential's WebGL2 arm now holds these inputs to the oracle: over
   the 48 seeds CI runs, 47 816 values that reach one agree bit for bit.
 
