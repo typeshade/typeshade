@@ -1032,7 +1032,7 @@ src/core/fp64/flavor-select.ts#isAppleGpu  function  (s: Fp64FlavorSignals) => b
 src/core/fp64/flavor-select.ts#recommendFp64Flavor  function  (s: Fp64FlavorSignals) => Fp64Flavor
 src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; preamble: readonly string[]; requires: readonly string[]; source: string }
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
-src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 2 | 3 | 1; readonly returns: "value" | "void" | "casResult"; }>>
+src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 1 | 2 | 3; readonly returns: "value" | "void" | "casResult"; }>>
 src/core/intrinsics.ts#BARRIER_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#DERIVATIVE_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#INTRINSICS  const  Readonly<Record<string, Spelling>>
