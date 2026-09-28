@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/typeshade/typeshade/actions/workflows/ci.yml"><img src="https://github.com/typeshade/typeshade/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT licence"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache 2.0 licence"></a>
 </p>
 
 <p align="center">
@@ -245,4 +245,4 @@ Development happens in this repository. Run the commands under Develop before op
 
 ## License
 
-MIT. See [`LICENSE`](./LICENSE).
+Apache License 2.0. See [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE). The license grants no right to use the TypeShade name (section 6). Commits before the change to Apache 2.0 were released under the MIT License, and stay available under it.

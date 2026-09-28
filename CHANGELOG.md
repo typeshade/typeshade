@@ -17,6 +17,11 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **The license is Apache 2.0** (was MIT). `LICENSE` holds the Apache License, Version 2.0,
+  `NOTICE` is new and ships in the package, and `package.json` says `"license": "Apache-2.0"`.
+  Apache 2.0 adds an explicit patent grant and says the license grants no right to use the
+  TypeShade name (section 6). What was released before this change stays available under MIT.
+
 - **The command is `tshc`** (proposal 0023; design rules 3.8, 3.9, 12.7 and 13.10; surface §64
   and §68). The package installs its command as `tshc`, the way `typescript` installs `tsc`:
   `typeshade check` and `typeshade sync`, in the entries below, are `tshc check` and `tshc sync`,
