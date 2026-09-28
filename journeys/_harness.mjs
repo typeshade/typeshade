@@ -161,10 +161,12 @@ async function runOnGpu(job) {
     job.kind === 'render'
       ? GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT
       : GPUShaderStage.COMPUTE;
+  // A writable storage buffer (the `_console` buffer of a render) is the fragment stage's
+  // alone: WebGPU refuses one the vertex stage can see.
   const bgl = device.createBindGroupLayout({
     entries: job.layout.map((l) => ({
       binding: l.binding,
-      visibility: stages,
+      visibility: job.kind === 'render' && l.type === 'storage' ? GPUShaderStage.FRAGMENT : stages,
       buffer: { type: l.type },
     })),
   });
@@ -192,6 +194,7 @@ async function runOnGpu(job) {
   });
   const encoder = device.createCommandEncoder();
   let readback;
+  let consoleReadback;
   if (job.kind === 'compute') {
     const pipeline = device.createComputePipeline({
       layout,
@@ -242,8 +245,17 @@ async function runOnGpu(job) {
     });
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, bindGroup);
+    if (job.scissor) pass.setScissorRect(...job.scissor);
     pass.draw(3);
     pass.end();
+    if (job.readConsole) {
+      const c = buffers._console;
+      consoleReadback = device.createBuffer({
+        size: c.size,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      encoder.copyBufferToBuffer(c.buffer, 0, consoleReadback, 0, c.size);
+    }
     const bytesPerRow = Math.ceil((w * 4) / 256) * 256;
     readback = {
       buffer: device.createBuffer({
@@ -259,9 +271,10 @@ async function runOnGpu(job) {
   await readback.buffer.mapAsync(GPUMapMode.READ);
   const raw = readback.buffer.getMappedRange().slice(0);
   let consoleWords = null;
-  if (readback.console) {
-    await readback.console.mapAsync(GPUMapMode.READ);
-    consoleWords = [...new Uint32Array(readback.console.getMappedRange().slice(0))];
+  const consoleBuffer = readback.console ?? consoleReadback;
+  if (consoleBuffer) {
+    await consoleBuffer.mapAsync(GPUMapMode.READ);
+    consoleWords = [...new Uint32Array(consoleBuffer.getMappedRange().slice(0))];
   }
   const error = await device.popErrorScope();
   let values;
@@ -300,6 +313,34 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const page = await browser.newPage();
 await page.goto(`http://127.0.0.1:${server.address().port}/`);
 
+/** Where two lists of console lines first differ, or '' when they agree: the method and the
+ *  invocation exactly, a number in the arguments to `tolerance` of its size (or of 1). */
+function firstDifference(got, want, tolerance) {
+  if (got.length !== want.length) return `${got.length} lines, expected ${want.length}`;
+  const same = (a, b) => {
+    if (typeof a === 'number' && typeof b === 'number')
+      return Math.abs(a - b) <= tolerance * Math.max(1, Math.abs(b));
+    if (Array.isArray(a) && Array.isArray(b))
+      return a.length === b.length && a.every((v, i) => same(v, b[i]));
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+      const keys = Object.keys(b);
+      return keys.length === Object.keys(a).length && keys.every((k) => same(a[k], b[k]));
+    }
+    return a === b;
+  };
+  for (let i = 0; i < want.length; i++) {
+    const g = got[i];
+    const w = want[i];
+    if (
+      g.method !== w.method ||
+      JSON.stringify(g.invocation) !== JSON.stringify(w.invocation) ||
+      !same(g.args, w.args)
+    )
+      return `line ${i}: ${JSON.stringify(g)} for ${JSON.stringify(w)}`;
+  }
+  return '';
+}
+
 const worst = (got, want, tolerance) => {
   if (got.length < want.length)
     return { ok: false, text: `${got.length} values, expected ${want.length}` };
@@ -314,12 +355,23 @@ const worst = (got, want, tolerance) => {
 for (const job of jobs) {
   const { run } = job;
   let expected;
+  // A scissor rectangle keeps the pixels it covers; the others keep the clear value, 0.
+  const inside = (x, y) =>
+    !run.scissor ||
+    (x >= run.scissor[0] &&
+      x < run.scissor[0] + run.scissor[2] &&
+      y >= run.scissor[1] &&
+      y < run.scissor[1] + run.scissor[3]);
   if (run.kind === 'render') {
     const [w, h] = run.size;
     expected = [];
     for (let y = 0; y < h; y++)
       for (let x = 0; x < w; x++)
-        expected.push(...run.expected(x, y).map((c) => Math.min(1, Math.max(0, c))));
+        expected.push(
+          ...(inside(x, y) ? run.expected(x, y) : [0, 0, 0, 0]).map((c) =>
+            Math.min(1, Math.max(0, c)),
+          ),
+        );
   } else expected = run.expected();
 
   // WebGPU.
@@ -337,6 +389,7 @@ for (const job of jobs) {
       vertex: run.vertex,
       fragment: run.fragment,
       size: run.size,
+      scissor: run.scissor,
       readConsole: job.consoleLog !== undefined,
     });
   } catch (e) {
@@ -351,10 +404,14 @@ for (const job of jobs) {
   // The CPU oracle, and the console lines it delivers to the sink.
   let cpuValues;
   const cpuLines = [];
+  // The pixel a render's fragment entry is running for, which is the invocation a line
+  // decoded from WebGPU carries (surface §66).
+  let pixel;
   try {
     const m = compileModule(job.module, {
+      ...(run.gpuStubs ? { gpuStubs: true } : {}),
       consoleSink: (e) =>
-        cpuLines.push({ method: e.method, args: e.args, invocation: e.invocation }),
+        cpuLines.push({ method: e.method, args: e.args, invocation: e.invocation ?? pixel }),
     });
     for (const [name, b] of Object.entries(run.bindings))
       m.setBinding(name, structuredClone(b.cpu));
@@ -363,6 +420,11 @@ for (const job of jobs) {
       cpuValues = [];
       for (let y = 0; y < h; y++)
         for (let x = 0; x < w; x++) {
+          if (!inside(x, y)) {
+            cpuValues.push(0, 0, 0, 0);
+            continue;
+          }
+          pixel = [x, y, 0];
           const color = run.fragmentColor(m.fns[run.fragment](...run.fragmentArgs(x, y)));
           // What an rgba8unorm target stores: clamped, rounded to 1/255.
           cpuValues.push(...color.map((c) => Math.round(Math.min(1, Math.max(0, c)) * 255) / 255));
@@ -382,19 +444,43 @@ for (const job of jobs) {
 
   // The console lines: decoded from WebGPU, delivered on the CPU, and the host's own, all equal.
   if (job.consoleLog) {
-    const want = JSON.stringify(run.console.expected());
+    const want = run.console.expected();
+    const tolerance = run.console.tolerance ?? 0;
     const decoded = decodeConsole(new Uint32Array(gpu.consoleWords ?? []), job.consoleLog);
     const gpuLines = decoded.events.map((e) => ({
       method: e.method,
       args: e.args,
       invocation: [...e.invocation],
     }));
-    if (decoded.dropped > 0) fail(job.id, `WebGPU dropped ${decoded.dropped} console lines`);
-    if (JSON.stringify(gpuLines) !== want)
-      fail(job.id, `WebGPU console lines differ from the host's (${gpuLines.length} lines)`);
-    if (JSON.stringify(cpuLines.map((l) => ({ ...l, invocation: [...l.invocation] }))) !== want)
-      fail(job.id, `CPU oracle console lines differ from the host's (${cpuLines.length} lines)`);
-    console.log(`     ${job.id.padEnd(16)} console: ${gpuLines.length} lines from WebGPU`);
+    const cpuPlain = cpuLines.map((l) => ({ ...l, invocation: [...l.invocation] }));
+    if (run.console.kept === undefined) {
+      if (decoded.dropped > 0) fail(job.id, `WebGPU dropped ${decoded.dropped} console lines`);
+      const off = firstDifference(gpuLines, want, tolerance);
+      if (off) fail(job.id, `WebGPU console lines differ from the host's: ${off}`);
+    } else {
+      // A buffer with room for `kept` lines: that many whole lines, the rest counted as
+      // dropped, and each kept line is its own pixel's. Which ones are kept is the GPU's order.
+      if (
+        gpuLines.length !== run.console.kept ||
+        decoded.dropped !== want.length - run.console.kept
+      )
+        fail(
+          job.id,
+          `WebGPU kept ${gpuLines.length} console lines and dropped ${decoded.dropped}; expected ${run.console.kept} and ${want.length - run.console.kept}`,
+        );
+      const byInvocation = new Map(want.map((l) => [l.invocation.join(','), l]));
+      for (const l of gpuLines) {
+        const own = byInvocation.get(l.invocation.join(','));
+        const off = own ? firstDifference([l], [own], tolerance) : 'no such invocation';
+        if (off) fail(job.id, `a kept WebGPU console line is not its own: ${off}`);
+      }
+    }
+    const offCpu = firstDifference(cpuPlain, want, tolerance);
+    if (offCpu) fail(job.id, `CPU oracle console lines differ from the host's: ${offCpu}`);
+    console.log(
+      `     ${job.id.padEnd(16)} console: ${gpuLines.length} lines from WebGPU` +
+        (decoded.dropped > 0 ? `, ${decoded.dropped} dropped` : ''),
+    );
   }
   console.log(
     `${g.ok && c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${expected.length} values, worst relative error WebGPU ${g.text}, CPU oracle ${c.text}`,
