@@ -7468,4 +7468,4 @@ internal format and the texels per element.
 The program runtime that loads a manifest, and the load-time emitter, are the next parts of change
 0025.
 
-Last updated: 2026-09-28
+Last updated: 2026-09-22
