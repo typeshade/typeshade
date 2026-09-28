@@ -1,9 +1,9 @@
 --- fp64-loran (fn() EDSL)
 +++ fp64-loran-twin ("use typeshade")
  struct Uniforms {
-   center: DF64Vec2,
-   st_a: DF64Vec2,
-   st_b: DF64Vec2,
+   @align(16) center: DF64Vec2,
+   @align(16) st_a: DF64Vec2,
+   @align(16) st_b: DF64Vec2,
    resolution: vec2<f32>,
    zoom_exp: f32,
    fp64: f32,

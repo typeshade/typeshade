@@ -1,5 +1,5 @@
 struct Uniforms {
-  center: DF64Vec2,
+  @align(16) center: DF64Vec2,
   resolution: vec2<f32>,
   tile_z: f32,
   fp64: f32,
