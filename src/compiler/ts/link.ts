@@ -8,7 +8,10 @@
 // lowered, the way a bundler hoists modules into one scope:
 //
 //   1. Follow the entry's imports through `resolveImport` and `readDocument`, parsing each shader
-//      file once. An import that is not followed is TS8072, on the import.
+//      file once: a file of the program's own by a relative path, or a package's, found in
+//      `node_modules` and read through its `package.json` (proposal 0024), one copy of a package
+//      version however many paths reach it. An import that is not followed is TS8072, on the
+//      import.
 //   2. Resolve every name each file writes with TypeScript's own checker over those files, so a
 //      local, a parameter or a member that shadows a top-level name is never taken for it.
 //   3. Keep the entry's declarations and what they reach in the other files, and leave the rest
@@ -31,7 +34,14 @@ import { TS_CODES } from './codes.js';
 import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
 import { findUseTypeshadeDirective, isUseTypeshadeDirective } from './directive.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { isRelativeSpecifier, resolveRelativeSpecifier } from './specifier.js';
+import {
+  isRelativeSpecifier,
+  packageKey,
+  packageOf,
+  resolveRelativeSpecifier,
+  resolveSpecifier,
+  type Resolution,
+} from './specifier.js';
 import { unknownNameSentence } from './unknown-names.js';
 
 /** How a compile reads the files a shader module imports (Rule 3.9): the two hooks
@@ -42,7 +52,8 @@ export interface ImportHooks {
    *  `readDocument` reads nothing, and an import in it is TS8072. */
   readonly readDocument?: (fileName: string) => string | undefined;
   /** The file a specifier written in `fromFile` names, or `undefined` when it names none.
-   *  Defaults to `resolveRelativeSpecifier`, the rule the language service applies too. */
+   *  Defaults to `resolveSpecifier` over `readDocument`, the rule the language service applies
+   *  too: a relative path, or a package found in `node_modules` (`src/compiler/ts/specifier.ts`). */
   readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
 }
 
@@ -127,6 +138,8 @@ interface ProgramFile {
   readonly name: string;
   readonly sf: ts.SourceFile;
   readonly root: boolean;
+  /** The name of the package the file belongs to, for a file under `node_modules`. */
+  readonly pkg: string | undefined;
   /** The files its imports and re-exports name, in source order. */
   readonly imports: ProgramFile[];
 }
@@ -168,13 +181,40 @@ const ENTRY_DECORATORS = new Set(['vertex', 'fragment', 'compute']);
 
 const isRefused = (d: TsCompilerDiagnostic): boolean => d.code === TS_CODES.IMPORT;
 
-/** The file name without its directory and its `.shade.ts` or `.ts` ending, made a name: the
- *  `stem` of a declaration's generated name. */
-function stemOf(fileName: string): string {
-  const base = fileName.slice(fileName.lastIndexOf('/') + 1).replace(/(\.shade)?\.[mc]?tsx?$/, '');
-  const word = base.replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+/, '');
+/** `text` made a name: each character a name cannot hold written `_`, with no `_` to begin. */
+function wordOf(text: string): string {
+  const word = text.replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+/, '');
   if (word === '') return 'module';
   return /^[0-9]/.test(word) ? `m${word}` : word;
+}
+
+/** The `stem` of a declaration's generated name (Rule 3.2): the file name without its directory
+ *  and its `.shade.ts` or `.ts` ending, made a name, and for a package's file the package's name
+ *  before it, `shade_noise_noise`, so the WGSL says where a renamed declaration came from. */
+function stemOf(file: Pick<ProgramFile, 'name' | 'pkg'>): string {
+  const base = file.name
+    .slice(file.name.lastIndexOf('/') + 1)
+    .replace(/(\.shade)?\.[mc]?tsx?$/, '');
+  return file.pkg === undefined ? wordOf(base) : `${wordOf(file.pkg)}_${wordOf(base)}`;
+}
+
+/** Whether `text` begins with the directive (Rule 3.1). */
+function beginsWithDirective(fileName: string, text: string): boolean {
+  const probe = ts.createSourceFile(
+    fileName,
+    text,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.TS,
+  );
+  return findUseTypeshadeDirective(probe) !== undefined;
+}
+
+/** A package's file as a sentence names it: from the first `node_modules/` of its path, which is
+ *  where the project installed it, `node_modules/shade-noise/dist/index.js`. */
+function shownPath(file: string): string {
+  const at = file.indexOf('node_modules/');
+  return at > 0 && file[at - 1] !== '/' ? file : at >= 0 ? file.slice(at) : file;
 }
 
 /** The statement at the top of `sourceFile` that holds `node`, or `undefined`. */
@@ -318,11 +358,10 @@ function identifiersIn(node: ts.Node, out: ts.Identifier[] = []): ts.Identifier[
 }
 
 /**
- * The relative path the package refusal suggests for `specifier`: its last segment, named once
- * as a shader file. A scope's `@` or an import map's `#`, its extension (`.ts`, `.js`, `.mjs`
- * and the like) and a `.shade` are left off before `.shade.ts` goes on, so `"shade-noise"`
- * suggests `"./shade-noise.shade.ts"` and `"shade-noise/noise.shade.ts"` suggests
- * `"./noise.shade.ts"`, not `"./noise.shade.ts.shade.ts"`.
+ * The relative path the refusal of a specifier that names no package suggests for it: its last
+ * segment, named once as a shader file. A scope's `@` or an import map's `#`, its extension
+ * (`.ts`, `.js`, `.mjs` and the like) and a `.shade` are left off before `.shade.ts` goes on, so
+ * `"/lib/noise.shade.ts"` suggests `"./noise.shade.ts"`, not `"./noise.shade.ts.shade.ts"`.
  */
 function suggestedFile(specifier: string): string {
   const last = specifier.split('/').filter(Boolean).pop() ?? specifier;
@@ -351,11 +390,33 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   const refusedImports = new Set<ts.Node>();
   /** A target that was read and refused once is refused again without a second read. */
   const notShader = new Set<string>();
-  const resolveImport = hooks.resolveImport ?? resolveRelativeSpecifier;
 
-  const parse = (fileName: string, text: string, root: boolean): ProgramFile => {
+  /** `readDocument`, each `package.json` read once per link: the rule reads one for each
+   *  package import and again for the package a file belongs to. */
+  const manifests = new Map<string, string | undefined>();
+  const readDocument = hooks.readDocument;
+  const read =
+    readDocument === undefined
+      ? undefined
+      : (fileName: string): string | undefined => {
+          if (fileName !== 'package.json' && !fileName.endsWith('/package.json')) {
+            return readDocument(fileName);
+          }
+          if (!manifests.has(fileName)) manifests.set(fileName, readDocument(fileName));
+          return manifests.get(fileName);
+        };
+  /** A package's file, by the name, version and path `packageKey` gives it: one copy of one
+   *  version, whichever path read it first. */
+  const byPackageKey = new Map<string, ProgramFile>();
+
+  const parse = (
+    fileName: string,
+    text: string,
+    root: boolean,
+    pkg: string | undefined = undefined,
+  ): ProgramFile => {
     const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-    const file: ProgramFile = { name: fileName, sf, root, imports: [] };
+    const file: ProgramFile = { name: fileName, sf, root, pkg, imports: [] };
     files.set(fileName, file);
     order.push(file);
     const syntax = syntaxDiagnostics(sf);
@@ -364,6 +425,65 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       fatal = true;
     }
     return file;
+  };
+
+  /** A file of the package a `no-main` refusal can suggest: what its `main` names, else an
+   *  `index.shade.ts` at its root or in `src/`, when it is a shader module. */
+  const suggestedModule = (r: Extract<Resolution, { kind: 'no-main' }>): string | undefined => {
+    const candidates = [
+      ...(r.main === undefined ? [] : [r.main]),
+      'index.shade.ts',
+      'src/index.shade.ts',
+    ];
+    for (const candidate of candidates) {
+      const file = resolveRelativeSpecifier(
+        `${r.root}package.json`,
+        `./${candidate.replace(/^\.\//, '')}`,
+      );
+      if (file === undefined || !file.startsWith(r.root)) continue;
+      const text = read?.(file);
+      if (text !== undefined && beginsWithDirective(file, text)) {
+        return `${r.name}/${file.slice(r.root.length)}`;
+      }
+    }
+    return undefined;
+  };
+
+  /** Why `specifier` names no file: surface §68's table of refusals. */
+  const refusal = (specifier: string, r: Exclude<Resolution, { kind: 'file' }>): string => {
+    switch (r.kind) {
+      case 'import-map':
+        return (
+          `"${specifier}" names a package's own import map, which a shader module does not ` +
+          `read. Import the file by a relative path.`
+        );
+      case 'not-a-name':
+        return (
+          `"${specifier}" is not a relative path or a package name. A shader module imports a ` +
+          `file of its program by a relative path, such as "${suggestedFile(specifier)}", or a ` +
+          `package by its name.`
+        );
+      case 'no-package':
+        return read === undefined
+          ? `"${specifier}" was not read: this compile has no readDocument. Pass compile() a ` +
+              `readDocument that returns the file's text.`
+          : `Cannot find the package "${r.name}" (looked in node_modules from "${r.from}" up).`;
+      case 'not-exported':
+        return (
+          `"${r.name}" does not export "${r.subpath}": its package.json "exports" names no ` +
+          `module for it.`
+        );
+      case 'no-main': {
+        const example = suggestedModule(r);
+        return (
+          `"${r.name}" has no module to import by its name alone: its package.json has no ` +
+          `"exports". ` +
+          (example === undefined
+            ? `Import one of its files by its path in the package, "${r.name}/<path>".`
+            : `Import one of its files, such as "${example}".`)
+        );
+      }
+    }
   };
 
   /** The file `specifier` names from `from`, read and parsed on first sight, or `undefined`
@@ -379,47 +499,59 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       refusedImports.add(declaration);
       return undefined;
     };
-    if (!isRelativeSpecifier(specifier)) {
-      return fail(
-        `"${specifier}" is a package, and a shader module imports only a file of its own ` +
-          `program, by a relative path such as "${suggestedFile(specifier)}".`,
-      );
+    let target: string | undefined;
+    if (hooks.resolveImport === undefined) {
+      const resolution = resolveSpecifier(from.name, specifier, read);
+      if (resolution.kind !== 'file') return fail(refusal(specifier, resolution));
+      target = resolution.file;
+    } else {
+      target = hooks.resolveImport(from.name, specifier);
+      if (target === undefined) {
+        // The host's own rule found nothing: the reason is the one rule's, when it has one.
+        const resolution = resolveSpecifier(from.name, specifier, read);
+        return fail(
+          resolution.kind === 'file'
+            ? `Cannot find the shader module "${specifier}".`
+            : refusal(specifier, resolution),
+        );
+      }
     }
-    const target = resolveImport(from.name, specifier);
-    if (target === undefined) return fail(`Cannot find the shader module "${specifier}".`);
-    const known = files.get(target);
+    const pkg = packageOf(target, read);
+    const key = pkg === undefined ? undefined : packageKey(pkg);
+    const known = files.get(target) ?? (key === undefined ? undefined : byPackageKey.get(key));
     if (known !== undefined) {
-      resolved.set(`${from.name}\0${specifier}`, target);
+      resolved.set(`${from.name}\0${specifier}`, known.name);
       return known;
     }
+    const viaPackage = !isRelativeSpecifier(specifier);
     const notAShader = (): undefined =>
       fail(
-        `"${specifier}" is not a shader module: it does not begin with "use typeshade". A ` +
-          `shader module imports only another shader module.`,
+        viaPackage
+          ? `"${specifier}" resolves to "${shownPath(target)}", which does not begin with ` +
+              `"use typeshade". A package publishes its shader modules under the "typeshade" ` +
+              `condition of "exports".`
+          : `"${specifier}" is not a shader module: it does not begin with "use typeshade". A ` +
+              `shader module imports only another shader module.`,
       );
     if (notShader.has(target)) return notAShader();
-    if (hooks.readDocument === undefined) {
+    if (read === undefined) {
       return fail(
         `"${specifier}" was not read: this compile has no readDocument. Pass compile() a ` +
           `readDocument that returns the file's text.`,
       );
     }
-    const text = hooks.readDocument(target);
+    const text = read(target);
     if (text === undefined) {
-      return fail(`Cannot find the shader module "${specifier}" (looked for "${target}").`);
+      return fail(
+        `Cannot find the shader module "${specifier}" (looked for "${viaPackage ? shownPath(target) : target}").`,
+      );
     }
-    const probe = ts.createSourceFile(
-      target,
-      text,
-      ts.ScriptTarget.Latest,
-      false,
-      ts.ScriptKind.TS,
-    );
-    if (findUseTypeshadeDirective(probe) === undefined) {
+    if (!beginsWithDirective(target, text)) {
       notShader.add(target);
       return notAShader();
     }
-    const file = parse(target, text, false);
+    const file = parse(target, text, false, pkg?.name);
+    if (key !== undefined) byPackageKey.set(key, file);
     resolved.set(`${from.name}\0${specifier}`, target);
     visit(file);
     return file;
@@ -923,7 +1055,7 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
           taken.add(id.text);
           continue;
         }
-        const name = fresh(stemOf(f.name), id.text);
+        const name = fresh(stemOf(f), id.text);
         emitted.set(k, name);
         taken.add(name);
         owner.set(name, f);

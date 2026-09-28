@@ -21,6 +21,9 @@
 //      the documented setup, whose `prepare` runs `tshc sync`. Its host file type-checks
 //      with plain `tsc` (and a wrong call is caught), `vite build` bundles it, and Node runs the
 //      bundle, which must print what the plain-JavaScript reference computes and ship no compiler.
+//      One of its shader modules imports a package by its name (Rule 3.9, change 0024):
+//      `journeys/_shade-package/`, packed and installed with npm beside the tarball, so every
+//      path reads a package from a real `node_modules`.
 //
 // TYPESHADE_CHROMIUM points at a Chromium binary, as for the compile gate; without it Playwright
 // launches its own. TYPESHADE_JOURNEY_KEEP=1 keeps the temporary project for inspection.
@@ -87,6 +90,17 @@ async function main(): Promise<number> {
       .trim()
       .split('\n')
       .pop()!;
+    // The shader package a module of the import path imports (change 0024), packed from a copy
+    // the way npm publishes it.
+    const shadeStage = join(work, 'shade-package');
+    cpSync(join(REPO, 'journeys', '_shade-package'), shadeStage, { recursive: true });
+    const shadePackage = join(
+      work,
+      sh('npm', ['pack', '--silent', '--pack-destination', work], shadeStage)
+        .trim()
+        .split('\n')
+        .pop()!,
+    );
 
     // 2. A fresh project that installs it, with the README's tsconfig.
     const app = join(work, 'app');
@@ -95,7 +109,13 @@ async function main(): Promise<number> {
       join(app, 'package.json'),
       `${JSON.stringify({ name: 'journeys', version: '1.0.0', private: true, type: 'module' }, null, 2)}\n`,
     );
-    sh('npm', ['install', '--silent', '--no-audit', '--no-fund', join(work, tarball)], app);
+    // The shader package too: plain `tsc` reads the import path's module that imports it, through
+    // the README's `customConditions` (change 0024).
+    sh(
+      'npm',
+      ['install', '--silent', '--no-audit', '--no-fund', join(work, tarball), shadePackage],
+      app,
+    );
     writeFileSync(
       join(app, 'tsconfig.shade.json'),
       readmeTsconfig(readFileSync(join(REPO, 'README.md'), 'utf8')),
@@ -121,7 +141,7 @@ async function main(): Promise<number> {
     if ((run.status ?? 1) !== 0) return run.status ?? 1;
 
     // 4. The import path.
-    return await hostImport(work, join(work, tarball));
+    return await hostImport(work, join(work, tarball), shadePackage);
   } finally {
     if (process.env['TYPESHADE_JOURNEY_KEEP'] === '1') console.log(`kept ${work}`);
     else rmSync(work, { recursive: true, force: true });
@@ -142,7 +162,7 @@ const HOST_DEPS = [
 ];
 
 /** Step 4: a Vite project that imports a `.shade.ts` and calls it, set up as surface §64 says. */
-async function hostImport(work: string, tarball: string): Promise<number> {
+async function hostImport(work: string, tarball: string, shadePackage: string): Promise<number> {
   const app = join(work, 'host-import');
   cpSync(join(REPO, 'journeys', '_host-import'), app, { recursive: true });
   // The particles and plasma journeys' shaders, which `src/gpu.ts` runs through the import.
@@ -165,7 +185,11 @@ async function hostImport(work: string, tarball: string): Promise<number> {
       2,
     )}\n`,
   );
-  sh('npm', ['install', '--silent', '--no-audit', '--no-fund', tarball, ...HOST_DEPS], app);
+  sh(
+    'npm',
+    ['install', '--silent', '--no-audit', '--no-fund', tarball, shadePackage, ...HOST_DEPS],
+    app,
+  );
   // A plain `npm install`, as a clone of the project runs it, runs `prepare`, so the views exist
   // before anything reads them. (An install that names packages does not run it.)
   sh('npm', ['install', '--silent', '--no-audit', '--no-fund'], app);
@@ -175,6 +199,13 @@ async function hostImport(work: string, tarball: string): Promise<number> {
     if (!ok) failures.push(what);
   };
   check(existsSync(join(app, 'src', 'terrain.shade.typeshade.ts')), 'prepare wrote the host view');
+  // `relief.shade.ts` imports `shade-contour` by its name, which `tshc sync` read from the
+  // `node_modules` npm laid out (change 0024).
+  check(
+    existsSync(join(app, 'node_modules', 'shade-contour', 'src', 'contour.shade.ts')) &&
+      existsSync(join(app, 'src', 'relief.shade.typeshade.ts')),
+    'npm installed the shader package, and prepare wrote the view of the module that imports it',
+  );
 
   const tsc = (): string[] => {
     const r = spawnSync('npx', ['tsc', '-p', 'tsconfig.json', '--pretty', 'false'], {

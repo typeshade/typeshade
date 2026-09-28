@@ -31,6 +31,7 @@ export const API_SUBPATHS = [
   './debug',
   './emit-prod',
   './vite',
+  './runtime',
   './core/ir',
   './language-service',
 ] as const;
@@ -44,7 +45,8 @@ export const API_SUBPATHS = [
  *  to document or snapshot; the declarations carry their own prose, and `ambient.ts` carries the
  *  reasoning. Both are kept in their own list rather than as rows of the doc gate's allowlist so
  *  "wholesale" is never available as an escape hatch for real debt.
- *  `./runtime` is what a module the Vite plugin generates imports, and nothing else does
- *  (change 0009): its names are the contract between the generator and its output, from the
- *  same package version, and change with them, so no reader is promised them. */
-export const NOT_API_SUBPATHS = ['./examples', './shade', './runtime'] as const;
+ *  `./runtime/internal` is what a module the Vite plugin generates imports, and nothing else
+ *  does (changes 0009 and 0025): its names are the contract between the generator and its
+ *  output, from the same package version, and change with them, so no reader is promised them.
+ *  `./runtime`, the program runtime, is API since change 0025. */
+export const NOT_API_SUBPATHS = ['./examples', './shade', './runtime/internal'] as const;

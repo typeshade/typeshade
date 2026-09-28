@@ -359,7 +359,7 @@ Four kinds of user come to this stack, and each enters at a different layer. The
 | Who                           | What they want                                                                 | The layer they enter at                                | On `main`                                                           |
 | ----------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------- |
 | Has an engine already         | The shader and its reflection                                                  | The compiler: `compile()`, `reflect()`, `packModule()` | Yes                                                                 |
-| Builds an engine on a runtime | The device, resources, pipelines and bindings handled, and the frame their own | The program runtime                                    | No: `typeshade/runtime` is not API                                  |
+| Builds an engine on a runtime | The device, resources, pipelines and bindings handled, and the frame their own | The program runtime                                    | In progress: `typeshade/runtime` (change 0025)                      |
 | Starts from nothing           | A camera and lights placed, a frame rendered                                   | An engine and renderer                                 | No: an official reference engine in its own repository (section 16) |
 | Only computes                 | A function imported and called                                                 | The call layer (changes 0009, 0013 and 0016)           | In progress                                                         |
 
@@ -665,9 +665,9 @@ A future package layout could be:
 
 These names are illustrative and are not API commitments.
 
-What ships today is one package, not these four. It has two subpaths for the host side, both from change 0009. `typeshade/vite` is the build-time plugin that compiles an imported `.shade.ts`. `typeshade/runtime` is the op library that the generated module imports to run the CPU tier. It is not API: only the generated modules name it.
+What ships today is one package, not these four. It has three subpaths for the host side. `typeshade/vite` is the build-time plugin that compiles an imported `.shade.ts` (change 0009). `typeshade/runtime` is the program runtime of section 3 (change 0025): it loads a compiled program's manifest and runs it on WebGPU, and it imports nothing of the compiler. `typeshade/runtime/internal` is the op library that the generated module imports to run the CPU tier. It is not API: only the generated modules name it.
 
-The program runtime of section 3 is to become a public subpath of this package, and the generated modules are to call it; its name is left to its proposal (#335). The reference engine of section 16 is not a subpath. It lives in its own repository and imports only that public API.
+The generated modules are to call the program runtime too (change 0025, step 3). The reference engine of section 16 is not a subpath. It lives in its own repository and imports only that public API.
 
 The important boundary is that backend-specific objects do not leak into the TypeShade language.
 

@@ -22,6 +22,11 @@ export default {
   heights: points.map(height),
   normals: points.map(normal),
   ridges: points.map((p) => 1 - Math.abs(height(p))),
+  // The contour lines 0.5 apart, and bands 0.37 to a unit of x, a quarter as bright.
+  reliefs: points.map((p) => {
+    const t = height(p) / 0.5 - Math.floor(height(p) / 0.5);
+    return Math.min(t, 1 - t) * 0.5 + (p[0] * 0.37 - Math.floor(p[0] * 0.37)) * 0.25;
+  }),
 };
 
 /** What `src/gpu.ts`'s `run()` should return: the same map and block sums, plain and resident,

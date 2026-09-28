@@ -52,12 +52,18 @@ export interface TypeshadeVitePlugin {
   readonly enforce: 'pre';
   /** Reads whether this is `vite dev` (`command: 'serve'`), where the WGSL records the
    *  `console.*` calls a GPU entry reaches (change 0014) and the runtime prints them. */
+  /** Asks Vite to pre-bundle `typeshade/runtime` and `typeshade/runtime/internal`, the op
+   *  library a generated module imports, together when `vite dev` starts: a generated module is
+   *  not a source Vite's startup scan reads, so the op library would otherwise be found late and
+   *  the page reloaded. */
+  config(): { optimizeDeps: { include: string[] } };
   configResolved(config: { readonly command: string }): void;
   /** The module the bundle reads for `id`: the generated host module for a `*.shade.ts`,
    *  nothing for any other file, and a thrown error for a module that does not compile or a
    *  shader module under another name (Rule 3.8). A module that imports another shader module
-   *  is compiled with it (Rule 3.9), and each file it read is handed to the bundler's
-   *  `addWatchFile`, read off the plugin context the bundler calls this with. */
+   *  is compiled with it (Rule 3.9), a package's found in `node_modules` from the module's
+   *  directory up, and each file it read is handed to the bundler's `addWatchFile`, read off
+   *  the plugin context the bundler calls this with. */
   transform(code: string, id: string): Promise<{ code: string; map: null } | null>;
 }
 
@@ -90,6 +96,13 @@ export function typeshade(): TypeshadeVitePlugin {
   return {
     name: 'typeshade',
     enforce: 'pre',
+    // A generated module imports the op library, which Vite's scan of the project's sources at
+    // startup never sees, and it shares modules with the program runtime a host file imports:
+    // pre-bundled apart, one found after the other re-bundled both and reloaded the page in
+    // `vite dev` (change 0025). Both are pre-bundled together from the start.
+    config() {
+      return { optimizeDeps: { include: ['typeshade/runtime', 'typeshade/runtime/internal'] } };
+    },
     configResolved(config) {
       dev = config.command === 'serve';
     },

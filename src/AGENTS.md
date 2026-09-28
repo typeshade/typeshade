@@ -19,18 +19,20 @@ Every file below but the last is a `package.json` `exports` subpath, and every o
 symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 `api-surface.test.ts` fails when it and the tree disagree.
 
-| File                  | Subpath                                                                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`            | `.`: `compile()` and the source compiler, the EDSL, the emitters, `reflect`, `validate`. The only surface most consumers need.              |
-| `dev.ts`              | `./dev`: lint, `diagnose()` / `formatReport()`, source tracing, optimizer measurement. Dev-time only.                                       |
-| `debug.ts`            | `./debug`: stepping one invocation on the CPU (`startDebugSession`), for IDE adapters and the Playground (`docs/debugging.md`).             |
-| `compute.ts`          | `./compute`: `createComputeRunner`, one dispatch for a `portable: true` kernel across WebGPU, WebGL2 and the CPU.                           |
-| `emit-prod.ts`        | `./emit-prod`: ship-time text plugins (`obfuscate`, minify, type aliasing) and `decodeShaderLog` to map a driver error back.                |
-| `vite.ts`             | `./vite`: `typeshade()`, the Vite plugin a host project imports a `.shade.ts` through (surface §64), and `TypeshadeVitePlugin`.             |
-| `runtime.ts`          | `./runtime`: not API. What a module the plugin generates imports (the CPU tier's runtime and the host-value checks), and nothing else does. |
-| `language-service/`   | `./language-service`: the editor-neutral, document-based service (`createTypeshadeLanguageService`) and `SHADE_DTS`.                        |
-| `core/ir/index.ts`    | `./core/ir`: the IR barrel. The one piece of `core/` that is published; everything else under `core/` is private.                           |
-| `language-service.ts` | Not a subpath: a compatibility adapter keeping the older string-based `TypeshadeLanguageService` API over the real service.                 |
+| File                  | Subpath                                                                                                                                            |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`            | `.`: `compile()` and the source compiler, the EDSL, the emitters, `reflect`, `validate`. The only surface most consumers need.                     |
+| `dev.ts`              | `./dev`: lint, `diagnose()` / `formatReport()`, source tracing, optimizer measurement. Dev-time only.                                              |
+| `debug.ts`            | `./debug`: stepping one invocation on the CPU (`startDebugSession`), for IDE adapters and the Playground (`docs/debugging.md`).                    |
+| `compute.ts`          | `./compute`: `createComputeRunner`, one dispatch for a `portable: true` kernel across WebGPU, WebGL2 and the CPU.                                  |
+| `emit-prod.ts`        | `./emit-prod`: ship-time text plugins (`obfuscate`, minify, type aliasing) and `decodeShaderLog` to map a driver error back.                       |
+| `vite.ts`             | `./vite`: `typeshade()`, the Vite plugin a host project imports a `.shade.ts` through (surface §64), and `TypeshadeVitePlugin`.                    |
+| `runtime.ts`          | `./runtime`: the program runtime (change 0025, Rule 11.11), `createRuntime` and its types, over `runtime/`; no compiler in its closure.            |
+| `runtime-internal.ts` | `./runtime/internal`: not API. What a module the plugin generates imports (the CPU tier's runtime and the host-value checks).                      |
+| `runtime/`            | The program runtime: `runtime.ts` (device, frames, submit, console), `program.ts` (pipelines, layouts, binding by name), `resources.ts`, `gpu.ts`. |
+| `language-service/`   | `./language-service`: the editor-neutral, document-based service (`createTypeshadeLanguageService`) and `SHADE_DTS`.                               |
+| `core/ir/index.ts`    | `./core/ir`: the IR barrel. The one piece of `core/` that is published; everything else under `core/` is private.                                  |
+| `language-service.ts` | Not a subpath: a compatibility adapter keeping the older string-based `TypeshadeLanguageService` API over the real service.                        |
 
 ## Key directories
 
@@ -80,7 +82,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `core/builtins/`                              | Tint's overload table baked from `core.def` (`coredef.ts`), the claim on each row (`overlay.ts`), and the row types both halves read (0017).                                                        |
 | `core/debug/`                                 | The stepping interpreter (`interp.ts`), sessions, launch config, watch expressions, lockstep workgroup dispatch.                                                                                    |
 | `core/compute/runner.ts`                      | The engine behind `./compute`.                                                                                                                                                                      |
-| `core/testing/`                               | Test utilities only: a seeded random-IR generator and span stamping / stripping.                                                                                                                    |
+| `core/testing/`                               | Test utilities only: a seeded random-IR generator of helpers and kernel functions, a lowered kernel's plan run on the oracle (`kernel-plan.ts`), span stamping and stripping.                       |
 
 Most other `core/*.ts` files are the production-emit and host-integration layer:
 `emit-minify.ts`, `emit-alias.ts`, `shader-lex.ts`, `decode-log.ts`, `emit-prune.ts`,
