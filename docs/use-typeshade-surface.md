@@ -6923,7 +6923,7 @@ never imports another view.
 
 **What ships.** The plugin writes the CPU tier's code into the module the bundler reads, as module
 code, with no `new Function`, so a strict content security policy is no obstacle. That module
-imports `typeshade/runtime`, the op library it runs on, and nothing of the compiler.
+imports `typeshade/runtime/internal`, the op library it runs on, and nothing of the compiler.
 
 ## 65. A loop that runs as a kernel
 
@@ -7404,7 +7404,46 @@ needs; `console`, on request, the recorded variant's WGSL, its log table and its
 why it cannot. A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its
 internal format and the texels per element.
 
-The program runtime that loads a manifest, and the load-time emitter, are the next parts of change
-0025.
+**The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU (Rule 11.11).
+It imports nothing of the compiler, so an application that runs compiled programs ships about
+10 KB of it, gzipped:
+
+```ts
+import { createRuntime } from 'typeshade/runtime';
+import particles from './particles.shade.ts'; // the manifest (§64)
+
+const rt = await createRuntime({ programs: [particles] }); // or { device }, the host's own
+const step = await rt.load(particles).compute('step');
+const frame = rt.frame();
+frame.dispatch(step, { params: { dt: 0.016 }, particles: gpuBuffer }, 64);
+await frame.submit(); // console lines print here
+```
+
+- **The device** is the host's (`createRuntime({ device })`, never destroyed), or one the runtime
+  requests with the features `programs` need; `rt.device` is it either way. `runtime()` is the
+  default runtime.
+- **A program** comes from `rt.load(manifest)`, which refuses another schema and a feature the
+  device lacks. `program.compute(entry)` and `program.render(state)` resolve to cached pipelines,
+  each laid out from the manifest: the bindings its entries reach, visible to the stages that
+  reach them. `RenderState` is the host's fixed-function state: its colour targets, depth,
+  topology, culling and multisampling; a target whose format cannot hold the output at its
+  location is refused before WebGPU sees it.
+- **Bindings go by name.** A draw or a dispatch takes `{ name: value }`: a plain host value
+  (Rule 8.21), packed by the binding's layout into buffers the runtime reuses; a `Texture` or a
+  `Sampler` from `rt.texture()` and `rt.sampler()`; or the host's own `GPUBuffer`, `GPUTexture`
+  or `GPUSampler`. An unknown name, a missing binding and a value of the wrong shape are a
+  `TypeError` naming the entry, its line and the binding. A frame that repeats its shapes
+  creates no GPU object.
+- **A frame** is one encoder: `frame.dispatch()` and `frame.pass(targets, record)`, a render pass
+  into textures or a canvas context, then `submit()`. A host that owns its encoders records with
+  `pipeline.dispatch(encoder, …)` and `pipeline.draw(pass, …)` and submits with
+  `rt.submit(encoder)`.
+- **The console.** A program loaded with its recorded variant (`load(m, { console: true })`, the
+  default when the manifest carries one) binds a console buffer for each dispatch and draw, and
+  the submit reads it back: each event reaches `createRuntime({ console: sink })`, or the host's
+  console.
+
+The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67). The
+load-time emitter is a later part of change 0025.
 
 Last updated: 2026-09-22

@@ -586,6 +586,22 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **The program runtime, `typeshade/runtime`** (proposal 0025, step 2; design rules 11.7 and
+  11.11; surface §64 and §69). A host loads a compiled program's manifest and runs it on WebGPU:
+  `createRuntime({ device })` on the host's device, or with no device on one it requests with the
+  features `programs` need; `rt.load(manifest)`, which refuses another schema and a missing
+  feature; `program.compute(entry)` and `program.render(state)`, cached pipelines laid out from
+  the manifest; bindings by the source's names, a plain value packed by its layout into buffers
+  the runtime reuses, a `Texture` or `Sampler` it makes, or the host's own GPU objects; `rt.frame()`
+  with `dispatch()` and `pass()`, or the host's encoders with `rt.submit(encoder)`; and the
+  recorded console, read back at the submit and handed to a sink or the console. A refusal names
+  the entry, its line and the binding. The subpath imports nothing of the compiler, which
+  `scripts/bundle-boundary.ts` holds in CI with a size budget: 26 modules, 9,493 bytes minified and
+  gzipped. The op library generated modules import moves to `typeshade/runtime/internal`, still
+  not API; `typeshade/runtime` keeps exporting `resident` and `configure`. The compile gate
+  dispatches every compute entry of the examples through the runtime from its module's manifest,
+  and each written value equals the call layer's on WebGPU.
+
 - **A compiled program has a manifest, with a version** (proposal 0025, step 1; design rules 6.8
   and 11.10; surface §64 and §69). `packModule(m, options)` returns schema 1: `schema` and
   `compiler`, the version that wrote it; each binding with its `resource` in `reflect()`'s words,

@@ -4,7 +4,9 @@
 // a host file that imports it. Every `@compute` and full-screen `@fragment` entry that module
 // exports is listed, and all of it is bundled, with `typeshade/runtime` and the page half
 // (`scripts/entry-calls-page.ts`), into one browser script. The compile gate serves that script
-// to its Chromium page, which calls each entry on every tier and compares the results.
+// to its Chromium page, which calls each entry on every tier and compares the results. Each case
+// carries the module's default export, its manifest (Rule 11.10), which the page loads into the
+// program runtime (`typeshade/runtime`, change 0025) as one more tier of a compute entry.
 //
 // The bundle is built from `src/`, not `dist/`: the gate checks what this tree calls, as the
 // rest of the compile gate checks what this tree emits.
@@ -73,7 +75,7 @@ export async function entryBundle(): Promise<EntryBundle> {
             `bindings: ${JSON.stringify(e.entry.bindings)}, ` +
             (noCpu !== undefined ? `noCpu: ${JSON.stringify(noCpu)}, ` : '') +
             (noGl !== undefined ? `noGl: ${JSON.stringify(noGl)}, ` : '') +
-            `call: m${i}[${JSON.stringify(e.name)}] }`,
+            `call: m${i}[${JSON.stringify(e.name)}], manifest: m${i}.default }`,
         );
       }
     });

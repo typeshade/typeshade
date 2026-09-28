@@ -6,6 +6,9 @@
 //
 //   - a `@compute` entry is called once on WebGPU and once on the CPU tier, each with its own
 //     copy of the same bindings, and every storage binding it writes is compared;
+//   - the same compute entry is dispatched once more by the program runtime (`typeshade/runtime`,
+//     change 0025, Rule 11.11) from the module's manifest, with the same values, its written bindings the
+//     host's own buffers read back, and compared with the call's;
 //   - a full-screen `@fragment` entry is drawn into a canvas on WebGPU, on WebGL2 and on the
 //     CPU tier, and each frame is compared with WebGPU's pixel by pixel.
 //
@@ -16,7 +19,15 @@
 // tier, small enough that an index an entry computes from them stays in range.
 
 import { configure } from '../src/core/host-runtime.js';
-import type { DrawBinding, Layout, LayoutNumber } from '../src/core/host-entry.js';
+import {
+  byteSize,
+  pack,
+  readInto,
+  type DrawBinding,
+  type Layout,
+  type LayoutNumber,
+} from '../src/core/host-entry.js';
+import { createRuntime, type Pack, type Runtime } from '../src/runtime.js';
 
 /** One callable entry of one example, as `scripts/entry-calls.ts` lists it. */
 export interface EntryCase {
@@ -29,6 +40,8 @@ export interface EntryCase {
   /** Why the WebGL2 tier cannot draw it, when it cannot (a fragment entry). */
   readonly noGl?: string;
   readonly call: (...args: unknown[]) => Promise<void>;
+  /** The module's manifest, its default export, which the program runtime loads. */
+  readonly manifest: Pack;
 }
 
 /** What one tier did against the reference tier: its worst difference, or why it did not run. */
@@ -206,6 +219,82 @@ async function drawOn(c: EntryCase, kind?: 'webgl2' | '2d'): Promise<number[]> {
   return pixels(el);
 }
 
+let programRuntime: Promise<Runtime> | undefined;
+
+/** The storage bindings the entry writes, flattened, after one dispatch by the program runtime
+ *  from the manifest: the written bindings are GPU buffers the page makes, filled with the same
+ *  values and read back, and every other value is the runtime's to pack. */
+async function computeOnProgram(c: EntryCase): Promise<number[]> {
+  const rt = await (programRuntime ??= createRuntime());
+  const device = rt.device as unknown as {
+    createBuffer(d: object): {
+      mapAsync(m: number): Promise<void>;
+      getMappedRange(): ArrayBuffer;
+      unmap(): void;
+      destroy(): void;
+    };
+    createTexture(d: object): object;
+    queue: {
+      writeBuffer(b: object, o: number, d: ArrayBuffer): void;
+      writeTexture(d: object, data: ArrayBufferView, l: object, s: readonly number[]): void;
+    };
+  };
+  const pipeline = await rt.load(c.manifest).compute(c.name);
+  const values = bindingsOf(c);
+  const given: Record<string, unknown> = {};
+  const written: {
+    name: string;
+    layout: Layout;
+    size: number;
+    buffer: object;
+    staging: ReturnType<typeof device.createBuffer>;
+  }[] = [];
+  for (const b of c.bindings) {
+    if ('guard' in b) continue;
+    const v = values[b.name];
+    if (b.space === 'storage' && b.writes) {
+      const bytes = new ArrayBuffer(byteSize(b.layout, v, b.name));
+      pack(new DataView(bytes), 0, b.layout, v, b.name, b.layout.k === 's');
+      const buffer = device.createBuffer({ size: bytes.byteLength, usage: 0x80 | 0x4 | 0x8 });
+      device.queue.writeBuffer(buffer, 0, bytes);
+      const staging = device.createBuffer({ size: bytes.byteLength, usage: 0x1 | 0x8 });
+      written.push({ name: b.name, layout: b.layout, size: bytes.byteLength, buffer, staging });
+      given[b.name] = buffer;
+    } else if (b.space === 'texture') {
+      const img = v as ImageData;
+      const texture = device.createTexture({
+        size: [img.width, img.height, 1],
+        format: 'rgba8unorm',
+        usage: 0x4 | 0x2,
+      });
+      device.queue.writeTexture({ texture }, img.data, { bytesPerRow: img.width * 4 }, [
+        img.width,
+        img.height,
+        1,
+      ]);
+      given[b.name] = texture;
+    } else if (b.space === 'sampler') given[b.name] = rt.sampler(v as object);
+    else given[b.name] = v;
+  }
+  const frame = rt.frame();
+  frame.dispatch(pipeline, given, 1);
+  const encoder = frame.encoder as {
+    copyBufferToBuffer(s: object, so: number, d: object, dO: number, n: number): void;
+  };
+  for (const w of written) encoder.copyBufferToBuffer(w.buffer, 0, w.staging, 0, w.size);
+  await frame.submit();
+  const out: number[] = [];
+  for (const w of written) {
+    await w.staging.mapAsync(1);
+    const dv = new DataView(w.staging.getMappedRange().slice(0));
+    w.staging.unmap();
+    const target = values[w.name];
+    const read = readInto(dv, 0, w.layout, target);
+    out.push(...flat(read === undefined ? target : read));
+  }
+  return out;
+}
+
 async function verdictOf(c: EntryCase): Promise<EntryVerdict> {
   const base = { id: c.id, kind: c.kind, name: c.name };
   if (c.kind === 'compute') {
@@ -218,18 +307,22 @@ async function verdictOf(c: EntryCase): Promise<EntryVerdict> {
     } catch (e) {
       return { ...base, error: `webgpu: ${message(e)}`, tiers: [] };
     }
+    const tiers: TierVerdict[] = [];
+    try {
+      const got = await computeOnProgram(c);
+      tiers.push({ tier: 'program', worst: worstOf(want, got), values: want.length });
+    } catch (e) {
+      tiers.push({ tier: 'program', error: message(e) });
+    }
     if (c.noCpu !== undefined)
-      return { ...base, changed, tiers: [{ tier: 'cpu', skipped: c.noCpu }] };
+      return { ...base, changed, tiers: [...tiers, { tier: 'cpu', skipped: c.noCpu }] };
     try {
       const got = (await computeOn(c, 'cpu')).after;
-      return {
-        ...base,
-        changed,
-        tiers: [{ tier: 'cpu', worst: worstOf(want, got), values: want.length }],
-      };
+      tiers.push({ tier: 'cpu', worst: worstOf(want, got), values: want.length });
     } catch (e) {
-      return { ...base, changed, tiers: [{ tier: 'cpu', error: message(e) }] };
+      tiers.push({ tier: 'cpu', error: message(e) });
     }
+    return { ...base, changed, tiers };
   }
   let want: number[];
   try {

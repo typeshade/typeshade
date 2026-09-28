@@ -589,6 +589,33 @@ typeshade
 TypeshadeVitePlugin
 ```
 
+## `./runtime` — 22 exports
+
+```
+Bindings
+ComputePipeline
+configure
+createRuntime
+Frame
+Geometry
+LoadOptions
+Pack
+PassTargets
+Program
+RenderPass
+RenderPipeline
+RenderState
+resident
+Resident
+runtime
+Runtime
+RuntimeOptions
+Sampler
+SamplerOptions
+Texture
+TextureOptions
+```
+
 ## `./core/ir` — 267 exports
 
 ```
@@ -909,7 +936,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 590 definitions
+## Shapes — 608 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -1315,10 +1342,10 @@ src/core/ir/types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; reado
 src/core/ir/types.ts#vec4iT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "i32"; }
 src/core/ir/types.ts#vec4uT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "u32"; }
 src/core/ir/types.ts#voidT  const  { readonly kind: "void"; }
-src/core/manifest.ts#Pack  interface  { bindings: readonly PackBinding[]; compiler: string; console?: PackConsole; entries: readonly PackEntry[]; features: readonly string[]; gl?: { readonly draws: Readonly<Record<string, PackGlDraw | { readonly none: string; }>>; }; glsl?: { readonly vertex: string; readonly fragment: string; }; overrides: readonly PackOverride[]; schema: 1; structs: readonly { readonly name: string; readonly fields: readonly { name: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
-src/core/manifest.ts#PackBinding  interface  { access?: "read" | "read_write"; binding: number; dataTexture?: PackDataTexture; group: number; injected?: true; layout?: PackLayout; name: string; noLayout?: string; resource: PackResource; rule?: "std140" | "std430"; space: string; stages: readonly ("compute" | "vertex" | "fragment")[]; type: string }
-src/core/manifest.ts#PackEntry  interface  { bindings?: readonly { readonly name: string; readonly writes: boolean; }[]; inputs?: readonly PackIo[]; line?: PackLine; name: string; outputs?: readonly PackIo[]; stage: string; vertex?: GpuVertexLayout; workgroupSize?: readonly [number, number, number] }
-src/core/manifest.ts#PackOptions  interface  { console?: boolean }
+src/core/manifest-types.ts#Pack  interface  { bindings: readonly PackBinding[]; compiler: string; console?: PackConsole; entries: readonly PackEntry[]; features: readonly string[]; gl?: { readonly draws: Readonly<Record<string, PackGlDraw | { readonly none: string; }>>; }; glsl?: { readonly vertex: string; readonly fragment: string; }; overrides: readonly PackOverride[]; schema: 1; structs: readonly { readonly name: string; readonly fields: readonly { name: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
+src/core/manifest-types.ts#PackBinding  interface  { access?: "read" | "read_write"; binding: number; dataTexture?: PackDataTexture; group: number; injected?: true; layout?: PackLayout; name: string; noLayout?: string; resource: PackResource; rule?: "std140" | "std430"; space: string; stages: readonly ("compute" | "vertex" | "fragment")[]; type: string }
+src/core/manifest-types.ts#PackEntry  interface  { bindings?: readonly { readonly name: string; readonly writes: boolean; }[]; inputs?: readonly PackIo[]; line?: PackLine; name: string; outputs?: readonly PackIo[]; stage: string; vertex?: GpuVertexLayout; workgroupSize?: readonly [number, number, number] }
+src/core/manifest-types.ts#PackOptions  interface  { console?: boolean }
 src/core/measure.ts#EmitProfile  interface  { passes: readonly PassTiming[]; stages: readonly StageTiming[]; target: "glsl-es300" | "wgsl"; totalMs: number }
 src/core/measure.ts#EmitSize  interface  { chars: number; lines: number }
 src/core/measure.ts#OpCount  interface  { arith: number; calls: number; total: number }
@@ -1500,6 +1527,24 @@ src/language-service/types.ts#TypeshadeSignatureHelp  interface  { activeParamet
 src/language-service/types.ts#TypeshadeSymbolKind  type  "constant" | "entry" | "field" | "function" | "parameter" | "resource" | "struct" | "variable"
 src/language-service/types.ts#TypeshadeTextEdit  interface  { newText: string; range: TypeshadeRange }
 src/language-service/types.ts#TypeshadeTextSpan  interface  { length: number; start: number }
-src/vite.ts#TypeshadeVitePlugin  interface  { configResolved: (config: { readonly command: string; }) => void; enforce: "pre"; name: "typeshade"; transform: (code: string, id: string) => Promise<{ code: string; map: null; }> }
+src/runtime/program.ts#Bindings  type  { readonly [x: string]: unknown; }
+src/runtime/program.ts#ComputePipeline  interface  { dispatch: (target: object, bindings: Readonly<Record<string, unknown>>, workgroups: number | readonly number[]) => void; entry: string }
+src/runtime/program.ts#Geometry  interface  { count: number; indices?: Uint32Array | Uint16Array | { readonly buffer: object; readonly format: "uint16" | "uint32"; }; instances?: number; vertices?: ArrayBufferView | object }
+src/runtime/program.ts#Program  interface  { compute: (entry?: string) => Promise<ComputePipeline>; manifest: Pack; recording: boolean; render: (state?: RenderState) => Promise<RenderPipeline> }
+src/runtime/program.ts#RenderPipeline  interface  { draw: (pass: object, bindings: Readonly<Record<string, unknown>>, geometry: Geometry) => void; fragment: string; vertex: string }
+src/runtime/program.ts#RenderState  interface  { depth?: { readonly format: string; readonly compare?: string; readonly write?: boolean; }; fragment?: string; multisample?: { readonly count?: number; }; primitive?: { readonly topology?: string; readonly cullMode?: "none" | "front" | "back"; readonly frontFace?: "ccw" | "cw"; }; targets?: readonly TargetState[]; vertex?: string }
+src/runtime/resources.ts#Sampler  interface  { sampler: object }
+src/runtime/resources.ts#SamplerOptions  interface  { address?: "clamp" | "mirror" | "repeat"; compare?: "always" | "equal" | "greater" | "greater-equal" | "less" | "less-equal" | "never" | "not-equal"; filter?: "linear" | "nearest" }
+src/runtime/resources.ts#Texture  interface  { destroy: () => void; format: string; height: number; read: () => Promise<Uint8Array>; resize: (width: number, height: number) => void; texture: object; width: number }
+src/runtime/resources.ts#TextureOptions  interface  { dimension?: "2d" | "3d"; format: string; sampleCount?: number; size: readonly [number, number, number] | readonly [number, number]; storage?: boolean }
+src/runtime/runtime.ts#Frame  interface  { dispatch: (pipeline: ComputePipeline, bindings: Readonly<Record<string, unknown>>, workgroups: number | readonly number[]) => void; encoder: object; pass: (targets: PassTargets, record: (pass: RenderPass) => void) => void; submit: () => Promise<void> }
+src/runtime/runtime.ts#LoadOptions  interface  { console?: boolean }
+src/runtime/runtime.ts#PassTargets  interface  { color?: readonly (object | Texture | { readonly target: object | Texture; readonly clear?: readonly [number, number, number, number]; readonly load?: "clear" | "load"; })[]; depth?: Texture | { readonly target: Texture; readonly clear?: number; readonly load?: "clear" | "load"; } }
+src/runtime/runtime.ts#RenderPass  interface  { draw: (pipeline: RenderPipeline, bindings: Readonly<Record<string, unknown>>, geometry: Geometry) => void; raw: object }
+src/runtime/runtime.ts#Runtime  interface  { destroy: () => void; device: D; frame: () => Frame; load: (program: Pack, options?: LoadOptions) => Program; sampler: (options?: object | SamplerOptions) => Sampler; submit: (...encoders: readonly object[]) => Promise<void>; texture: (options: object | TextureOptions) => Texture }
+src/runtime/runtime.ts#RuntimeOptions  interface  { console?: "print" | ConsoleSink; consoleBytes?: number; device?: D; programs?: readonly Pack[] }
+src/runtime/runtime.ts#createRuntime  function  <D extends object = object>(options?: RuntimeOptions<D>) => Promise<Runtime<D>>
+src/runtime/runtime.ts#runtime  function  () => Promise<Runtime<object>>
+src/vite.ts#TypeshadeVitePlugin  interface  { config: () => { optimizeDeps: { include: string[]; }; }; configResolved: (config: { readonly command: string; }) => void; enforce: "pre"; name: "typeshade"; transform: (code: string, id: string) => Promise<{ code: string; map: null; }> }
 src/vite.ts#typeshade  function  () => TypeshadeVitePlugin
 ```

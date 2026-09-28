@@ -86,6 +86,7 @@ const API_SUBPATHS = [
   './debug',
   './emit-prod',
   './vite',
+  './runtime',
   './core/ir',
   './language-service',
 ] as const;
@@ -98,10 +99,11 @@ const API_SUBPATHS = [
  *  here to document; the declarations carry their own prose, and `ambient.ts` carries the
  *  reasoning. Both are kept in their own list rather than as allowlist entries so "wholesale"
  *  is never available as an escape hatch for real debt.
- *  `./runtime` is what a module the Vite plugin generates imports, and nothing else does
- *  (change 0009): its names are the contract between the generator and its output, from the
- *  same package version, and change with them, so no reader is promised them. */
-const NOT_API_SUBPATHS = ['./examples', './shade', './runtime'] as const;
+ *  `./runtime/internal` is what a module the Vite plugin generates imports, and nothing else
+ *  does (changes 0009 and 0025): its names are the contract between the generator and its
+ *  output, from the same package version, and change with them, so no reader is promised them.
+ *  `./runtime`, the program runtime, is API since change 0025. */
+const NOT_API_SUBPATHS = ['./examples', './shade', './runtime/internal'] as const;
 
 /** Why each undocumented symbol is still undocumented. Reasons live here, once, and every
  *  row below indirects through this table — 175 copies of a sentence would rot.
@@ -307,6 +309,7 @@ const EXPORT_FLOOR: Readonly<Record<string, number>> = {
   './debug': 8,
   './emit-prod': 17,
   './vite': 2,
+  './runtime': 10,
   './core/ir': 193,
   './language-service': 15,
 };
