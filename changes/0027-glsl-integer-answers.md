@@ -8,7 +8,8 @@ rules:
 surface:
 - 11
 - 22
-exports: []
+exports:
+- Backend
 exports-removed: []
 codes: []
 examples: []
@@ -121,6 +122,10 @@ that divides by a constant pays nothing.
 - **Rule 11.12**: new, as quoted above.
 - **Surface §11**: the paragraph "GLSL ES 3.00 does not promise that" says instead that the GLSL
   writer saturates as WGSL does, so the advice to clamp before converting goes.
+- **`Backend`** (an export): the contract gains two optional spellings beside `floatMod` and
+  `vectorCompare`, which the one emit walk calls: `intBinop` for an integer `/`, `%` or shift, and
+  `floatToInt` for a float's conversion to an integer. A backend that omits them keeps the bare
+  operators, as the WGSL writer does, so the change is additive. The API surface is re-baked.
 - **Surface §22**: the shift-amount paragraph says a run-time amount is masked on both targets.
   The divisor paragraph says a run-time zero divisor gives WGSL's answer on both targets.
 
