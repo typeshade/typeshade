@@ -6655,7 +6655,7 @@ import { render, total } from './terrain.shade.ts';
 
 const img = new Float32Array(512 * 512);
 await render([1, 0.5, 2, 0.25], 512, img); // each loop ran on the GPU; img is filled in place
-const sum = await total(img); // a reduction: on the CPU until change 0013's next part
+const sum = await total(img); // a reduction: a tree per workgroup, then its partials
 ```
 
 It is asynchronous from the start, and it returns `Promise<void>` or `Promise<R>` for a result.
@@ -6668,14 +6668,26 @@ Each array it writes is read back into yours in place.
 | `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element |
 | `array<S>`, a struct                | an array of objects                                                               |
 
-**Where it runs.** When every loop of the function is a map the proof accepts, each loop is one
-dispatch on WebGPU, one invocation per iteration, in order; the call reads back what each loop
-wrote before the next. Before anything runs it checks each array against the indices a loop
-writes at `a*i + c`, and refuses one too short (`render(): parameter "out" holds 10 elements, and
-loop 1 writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, the whole
-function runs on the CPU tier (Rule 11.7), and the view's comment says why.
+**Where it runs.** When the proof accepts every loop of the function, each loop is one dispatch
+on WebGPU, one invocation per iteration, in order; the call reads back what each loop wrote
+before the next. Before anything runs it checks each array against the indices a loop writes at
+`a*i + c`, and refuses one too short (`render(): parameter "out" holds 10 elements, and loop 1
+writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, the whole function
+runs on the CPU tier (Rule 11.7), and the view's comment says why.
 
-**Not yet.** A reduction, a scatter and a returned value on the GPU, `resident` and `configure`,
+**A reduction.** A variable a loop combines, `s += x`, `s *= x`, `s = min(s, x)` or `s = max(s, x)`
+(and `& | ^` on integers), is folded in one order on every tier, the GPU's (Rule 7.2): each
+iteration from the operator's identity, 256 at a time by the workgroup tree, then the partials the
+same way until one is left, and the variable is combined with that last. On WebGPU that is the
+loop's dispatch and one more per level of partials; the CPU tier and the oracle run the same tree,
+so a sum is the same bits everywhere. It is not the order TypeScript adds in: an `f32` sum of many
+values differs from the sequential reading in the last places, and the tree is the more accurate
+of the two. An `f32` `min` or `max` starts from the largest finite `f32`, since WGSL lets a driver
+assume no infinity. The function's `return` then runs on the CPU tier with what the GPU folded; a
+`return` that reads an array's elements, and a statement a later loop replays that reads a
+reduced variable, run the whole function on the CPU.
+
+**Not yet.** A scatter, a texture and an `f64` reduction on the GPU, `resident` and `configure`,
 and the WebGL2 tier are the next parts of change 0013. Until then such a function runs on the CPU.
 
 ## 67. Calling an entry point from host code
