@@ -685,13 +685,17 @@ vector is not converted this way.
 
 **GLSL ES 3.00 does not promise that, so the GLSL writer does it** (Rule 11.12, change 0027). GLSL
 leaves an out-of-range or NaN float→int conversion undefined, and the WebGL2 context the compile
-gate uses disagreed with WGSL on exactly those inputs: measured against an RGBA32UI target,
+gate uses disagreed with the oracle on exactly those inputs: measured against an RGBA32UI target,
 `uvec3(vec3(1e30)).x` read back `0` where the oracle gives `4294967040`, `ivec3(vec3(1e30)).x`
 read `-2147483648` where the oracle gives `2147483520`, and `uvec3(vec3(NaN)).x` read `2147483648`
 where the oracle gives `0`. A conversion from a float is now spelled through `_f2i` or `_f2u`,
 which clamp to the largest integers an `f32` holds in the target's range and turn NaN into 0, so
-every source converts the same way on every target, and nothing needs clamping first. An integer
-source is reinterpreted as it was.
+every source but NaN converts the same way on every target, and nothing needs clamping first. An
+integer source is reinterpreted as it was.
+
+A NaN source has no one answer: WGSL leaves its conversion indeterminate. The oracle and the GLSL
+writer give 0, and the WebGPU adapter the compile gate uses gave `i32(NaN)` the least `i32` and
+`u32(NaN)` 0.
 
 ---
 
@@ -2022,11 +2026,11 @@ truncating remainder of a negative operand (Rule 11.12).
 **A float `%=` on GLSL ES 3.00** is written `x = (x - y * trunc(x / y));`, the `floatMod`
 spelling the binary `%` has always taken there, because GLSL's `%` is for integers. The compound
 assignment wrote `x %= y;` and the driver refused it while the WGSL beside it was fine (issue
-#20). WGSL keeps `x %= y;`, and an integer `%=` keeps the native operator there; on GLSL ES 3.00
-it takes the helper its operator takes, `x = _irem(x, y);` (Rule 11.12). The rule
-holds at any width: a `vec2` target takes the same componentwise
-`cell = (cell - 1.0 * trunc(cell / 1.0));`, since GLSL ES 3.00 has no float `%` for a vector
-either. `examples/block-scope.shade.ts` carries a scalar and a vector `%=` and is the gate's
+#20). WGSL keeps `x %= y;`. The spelling holds at any width: a `vec2` target takes the same
+componentwise `cell = (cell - 1.0 * trunc(cell / 1.0));`, since GLSL ES 3.00 has no float `%` for
+a vector either. An integer `%=` keeps the native operator on WGSL, and on GLSL ES 3.00 it takes
+the spelling its binary operator takes, `x = _irem(x, y);` for an `i32` (Rule 11.12).
+`examples/block-scope.shade.ts` carries a scalar and a vector `%=` and is the gate's
 evidence on both targets.
 
 ```ts

@@ -240,8 +240,8 @@ export interface Backend {
   ) => string | undefined;
   /** Optional. Spelling for a float's conversion to the integer type `to`, a scalar or a vector,
    *  on a target whose bare conversion gives an out-of-range or NaN source no result (GLSL ES
-   *  3.00, Rule 11.12); WGSL saturates, and NaN converts to 0. `undefined` keeps the bare
-   *  conversion. */
+   *  3.00, Rule 11.12); WGSL saturates, and leaves a NaN source indeterminate, which the oracle
+   *  takes as 0. `undefined` keeps the bare conversion. */
   readonly floatToInt?: (to: ShaderType, from: ShaderType, argText: string) => string | undefined;
   /** Optional. Spelling for a comparison of two vectors, which yields a vector of bools
    *  (roadmap 0.2 item 7). WGSL has the operator form and omits this; GLSL ES 3.00 has only

@@ -120,7 +120,8 @@ describe('the GLSL writer gives WGSL integer answers (Rule 11.12)', () => {
     expect(glsl).toContain('_f2u(u.x)');
     expect(glsl).toContain('_f2i(u.v)');
     expect(glsl).toContain('_f2u(u.v)');
-    // WGSL saturates, and NaN converts to 0: a clamp to the largest integers an f32 holds.
+    // WGSL saturates, a clamp to the largest integers an f32 holds; a NaN source, which WGSL
+    // leaves indeterminate, gives 0 as in the oracle.
     expect(glsl).toContain(`int _f2i(float x) {
   return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
 }`);

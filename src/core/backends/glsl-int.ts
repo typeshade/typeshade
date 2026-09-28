@@ -8,7 +8,7 @@
 //   - a `%` with a negative operand (§5.9): WGSL truncates, `-7 % 3` is -1;
 //   - a shift amount of 32 or more (§5.9): WGSL takes it modulo 32;
 //   - a float the integer cannot hold, or a negative float to `uint` (§5.4.1): WGSL saturates,
-//     and NaN is 0.
+//     and leaves NaN indeterminate, which the oracle and `_f2i`/`_f2u` take as 0.
 // The CPU oracle computes WGSL's answers (Rule 11.5), and a WebGL2 driver computes others:
 // measured on ANGLE over SwiftShader, `7 / 0` is -7, `-7 % 3` is 2 and `int(3e9)` is the least
 // `int` (#382). So the GLSL writer spells each of these through a helper that settles those

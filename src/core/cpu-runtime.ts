@@ -935,8 +935,10 @@ export const GPU_STUBS: Record<string, Builtin> = {
 
 // ── WGSL's SATURATING float→integer conversions ──
 //
-// f32→u32/i32 conversion CLAMPS to the target range and converts NaN to 0 in WGSL
-// (Tint polyfills it on every driver). GLSL ES 3.00 leaves out-of-range float→int
+// f32→u32/i32 conversion CLAMPS to the target range in WGSL (Tint polyfills it on every
+// driver), and leaves a NaN source indeterminate: the mirror takes it as 0, as the GLSL
+// writer's helpers do, where WebGPU on SwiftShader gave i32(NaN) the least i32 and
+// u32(NaN) 0 (#382). GLSL ES 3.00 leaves out-of-range float→int
 // UNDEFINED, so the GLSL writer spells the same clamp (`_f2i`/`_f2u`, Rule 11.12), and
 // the mirror follows WGSL (the pipeline it exists to mirror). The plain-`Math.trunc`
 // forms the BUILTINS table keeps are the INTEGER-source semantics (two's-complement

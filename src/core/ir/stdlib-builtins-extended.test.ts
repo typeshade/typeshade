@@ -232,7 +232,8 @@ describe('extended stdlib builtins — the Mercator identities (metamorphic)', (
 
 describe('float→int casts — the CPU mirror follows WGSL saturation', () => {
   // WGSL float→integer conversion SATURATES (Tint polyfills it on every driver):
-  // u32(-0.75) is 0, u32(4.5e9) is 4294967295, i32(-3e9) is -2147483648, NaN → 0.
+  // u32(-0.75) is 0, u32(4.5e9) is 4294967040, i32(-3e9) is -2147483648. A NaN source is
+  // indeterminate in WGSL, and the mirror takes it as 0.
   // The mirror used to wrap (u32(-0.75) → 4294967295 via >>>0) — a plausible-wrong
   // divergence for any dispatch value that dips below 0 by rounding. Integer-SOURCE
   // casts keep two's-complement wrapping (u32 of i32(-1) IS 0xFFFFFFFF), which the
