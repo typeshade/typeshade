@@ -600,6 +600,17 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **The engine journey** (proposal 0025, step 5; Rule 11.11; the gate #335 set before a reference
+  engine). `journeys/engine/` is a small engine written as a host application writes one, on
+  `typeshade/runtime`'s public exports alone. It has two materials that share a camera and lights,
+  a shadow pass read by comparison, a render to a half-float texture and a tonemap pass. The
+  camera is a `Resident` both materials bind, rewritten every frame for 60 frames. The harness
+  (`kind: 'engine'`) refuses the engine on any import but `typeshade/runtime` and on any WebGPU
+  call of its own. It runs the frames on a device it instruments and fails on any GPU object
+  made after the first frame. It holds the last frame to a reference computed pixel by pixel in
+  plain JavaScript: on SwiftShader the worst error is 0. Each check was shown to fail when broken:
+  a texture made each frame, the shadow pass left out, and a buffer the engine makes itself.
+
 - **A console line says where it ran, and a production build records when asked** (proposal
   0025, step 4; design rule 8.24; surface §64, §66 and §67).
   - Every `console.*` event the call layer or the program runtime prints starts with its tier,

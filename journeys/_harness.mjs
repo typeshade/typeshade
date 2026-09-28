@@ -18,6 +18,11 @@
 // name with the journey's host value, and reads the result back through a `Resident` or the
 // target texture. The harness writes no WebGPU of its own.
 //
+// A run of an engine (`kind: 'engine'`, change 0025) is a host module that draws frames on the
+// runtime's public exports alone: the harness refuses any other import and any WebGPU call in
+// it, hands it a device, runs its frames, counts the GPU objects each frame after the first
+// creates, which must be none, and holds the last frame to the journey's reference.
+//
 // A run of a kernel function (`kind: 'kernel'`, change 0013) is called with the journey's own
 // host values. It runs here on the CPU oracle, and on WebGPU through the import, which is how a
 // host calls one and which `journeys/_host-import` checks (`scripts/user-journey.ts`).
@@ -113,10 +118,52 @@ function reached(pack, run) {
 
 const jobs = [];
 const kernels = [];
+const engines = [];
+
+/** What an engine may import: the runtime's public subpath, and nothing else. */
+const ENGINE_IMPORTS = new Set(['typeshade/runtime']);
+/** A WebGPU call or global an engine's own code must not reach for: the runtime makes and
+ *  records everything, and `raw` is the pass the runtime hands a host that owns its frame. */
+const WEBGPU_CALL =
+  /\bnavigator\s*\.\s*gpu\b|\bGPU[A-Z]\w*|\.\s*(createBuffer|createTexture|createView|createSampler|createBindGroup|createBindGroupLayout|createPipelineLayout|createShaderModule|createRenderPipeline|createRenderPipelineAsync|createComputePipeline|createComputePipelineAsync|createCommandEncoder|beginRenderPass|beginComputePass|setPipeline|setBindGroup|setVertexBuffer|setIndexBuffer|setScissorRect|setViewport|writeBuffer|writeTexture|queue|raw|mapAsync|getMappedRange)\b/;
+
+/** Why an engine's source is not on the public runtime alone, or '' when it is. */
+function engineOffence(source) {
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  for (const m of code.matchAll(
+    /\bimport\s*(?:[^'"]*?\bfrom\s*)?['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]/g,
+  )) {
+    const spec = m[1] ?? m[2];
+    if (!ENGINE_IMPORTS.has(spec))
+      return `imports "${spec}", which is not the runtime's public subpath`;
+  }
+  const call = WEBGPU_CALL.exec(code);
+  return call ? `calls WebGPU itself: "${call[0].trim()}"` : '';
+}
 for (const id of journeys) {
   const spec = (await import(pathToFileURL(join(process.cwd(), ROOT, id, 'journey.mjs')).href))
     .default;
   for (const [n, run] of spec.runs.entries()) {
+    if (run.kind === 'engine') {
+      const source = readFileSync(join(ROOT, id, run.engine), 'utf8');
+      const offence = engineOffence(source);
+      if (offence) fail(`${id}#${n}`, `${run.engine} ${offence}`);
+      const programs = {};
+      for (const [name, file] of Object.entries(run.programs)) {
+        const r = compiled.get(join(ROOT, id, file));
+        if (r?.module) programs[name] = packModule(r.module);
+      }
+      if (Object.keys(programs).length === Object.keys(run.programs).length)
+        engines.push({
+          id: `${id}#${n}`,
+          spec,
+          run,
+          url: `/journeys/${id}/${run.engine}`,
+          programs,
+          offence,
+        });
+      continue;
+    }
     const path = join(ROOT, id, run.shader);
     const r = compiled.get(path);
     if (!r?.wgsl) continue;
@@ -225,6 +272,62 @@ async function runOnGpu(job) {
   };
 }
 
+/** Runs INSIDE the page: an engine's frames, on a device the harness instruments. Every GPU
+ *  object the device makes while the frames after the first run is counted; an engine whose
+ *  frames repeat their shapes makes none. Command encoders and passes are per submit, and not
+ *  counted. */
+async function runEngine(job) {
+  const COUNTED = [
+    'createBuffer',
+    'createTexture',
+    'createSampler',
+    'createBindGroup',
+    'createBindGroupLayout',
+    'createPipelineLayout',
+    'createShaderModule',
+    'createComputePipeline',
+    'createComputePipelineAsync',
+    'createRenderPipeline',
+    'createRenderPipelineAsync',
+    'createQuerySet',
+  ];
+  const adapter = await navigator.gpu.requestAdapter();
+  const device = await adapter.requestDevice();
+  const made = {};
+  let counting = false;
+  const count = (what) => {
+    if (counting) made[what] = (made[what] ?? 0) + 1;
+  };
+  for (const name of COUNTED) {
+    const make = device[name].bind(device);
+    device[name] = (...args) => {
+      count(name);
+      const object = make(...args);
+      if (name === 'createTexture') {
+        const view = object.createView.bind(object);
+        object.createView = (...v) => (count('createView'), view(...v));
+      }
+      return object;
+    };
+  }
+  device.pushErrorScope('validation');
+  let values;
+  let error = null;
+  try {
+    const engine = await import(job.url);
+    const scene = await engine.setup({ device, programs: job.programs, size: job.size });
+    await scene.frame(0);
+    counting = true;
+    for (let i = 1; i < job.frames; i++) await scene.frame(i / 60);
+    counting = false;
+    values = [...(await scene.read())].map((v) => v / 255);
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+  const invalid = await device.popErrorScope();
+  return { values, made, error: error ?? (invalid ? invalid.message : null) };
+}
+
 const browser = await chromium.launch({
   executablePath: CHROMIUM,
   args: [
@@ -258,8 +361,24 @@ const server = createServer((req, res) => {
     }
     return;
   }
+  // An engine's own module, which imports the runtime by its package name: the page's import
+  // map resolves it, as an application's bundler would.
+  if (url.pathname.startsWith('/journeys/') && url.pathname.endsWith('.mjs')) {
+    const file = normalize(join(process.cwd(), url.pathname.slice(1)));
+    if (!file.startsWith(join(process.cwd(), ROOT) + sep)) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    res.setHeader('content-type', 'text/javascript; charset=utf-8');
+    res.end(readFileSync(file, 'utf8'));
+    return;
+  }
   res.setHeader('content-type', 'text/html; charset=utf-8');
-  res.end('<!doctype html><title>typeshade journeys</title>');
+  res.end(
+    '<!doctype html><title>typeshade journeys</title>' +
+      '<script type="importmap">{"imports":{"typeshade/runtime":"/typeshade/runtime.js"}}</script>',
+  );
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const page = await browser.newPage();
@@ -436,6 +555,37 @@ for (const job of jobs) {
     `${g.ok && c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${expected.length} values, worst relative error WebGPU ${g.text}, CPU oracle ${c.text}`,
   );
 }
+for (const job of engines) {
+  const { run } = job;
+  let got;
+  try {
+    got = await page.evaluate(runEngine, {
+      url: job.url,
+      programs: job.programs,
+      size: run.size,
+      frames: run.frames,
+    });
+  } catch (e) {
+    fail(job.id, `the engine threw: ${e.message.split('\n')[0]}`);
+    continue;
+  }
+  if (got.error) {
+    fail(job.id, `the engine, on typeshade/runtime: ${got.error}`);
+    continue;
+  }
+  const made = Object.entries(got.made);
+  if (made.length > 0)
+    fail(
+      job.id,
+      `frames 2 to ${run.frames} made GPU objects: ${made.map(([k, v]) => `${k} ${v}`).join(', ')}`,
+    );
+  const g = worst(got.values, run.expected(), run.tolerance);
+  if (!g.ok) fail(job.id, `the last frame is off by ${g.text} (tolerance ${run.tolerance})`);
+  const after = made.reduce((n, [, v]) => n + v, 0);
+  console.log(
+    `${g.ok && after === 0 && !job.offence ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${run.frames} frames, ${after} GPU objects made after the first; the last frame's worst error ${g.text}`,
+  );
+}
 await browser.close();
 server.close();
 
@@ -467,5 +617,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  `\n${journeys.length} journeys, ${jobs.length + kernels.length} runs: every check passed.`,
+  `\n${journeys.length} journeys, ${jobs.length + kernels.length + engines.length} runs: every check passed.`,
 );
