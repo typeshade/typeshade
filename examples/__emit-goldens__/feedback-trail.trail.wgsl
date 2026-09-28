@@ -14,8 +14,7 @@ struct Color {
 }
 
 @group(0) @binding(0) var trail: texture_2d<f32>;
-@group(0) @binding(1) var smp: sampler;
-@group(0) @binding(2) var<uniform> u: Uniforms;
+@group(0) @binding(1) var<uniform> u: Uniforms;
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
@@ -26,7 +25,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> Color {
-  let before = textureSampleLevel(trail, smp, v.uv, 0.0).rgb;
+  let before = textureLoad(trail, vec2<i32>(v.pos.xy), 0u).rgb;
   let keep = select(0.96, 0.0, (u.frame == 0u));
   let aspect = (u.resolution.x / max(u.resolution.y, 1.0));
   let at = (vec2<f32>(0.5, 0.5) + (vec2<f32>(cos((u.time * 1.3)), sin((u.time * 2.1))) * 0.3));

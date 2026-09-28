@@ -13,6 +13,11 @@
 // into a texture the size of the canvas; this file is drawn last, into the canvas. A
 // `texture_2d<f32>` named like a pass reads that pass's output, and a pass drawn earlier in the
 // frame is read as this frame's output, so the two passes make one 9 by 9 Gaussian.
+//
+// The taps are placed from the pixel's own position, divided by the resolution. A texture's rows
+// run down from the top on WebGPU and up from the bottom on WebGL2, and a pass writes each pixel
+// where its position says on both, so the position finds the pixel the pass drew. `uv` runs up
+// the screen on both, and through it `blurX` would be read upside down on WebGPU.
 
 declare const blurX: texture_2d<f32>;
 declare const smp: sampler;
@@ -41,12 +46,13 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 
 @fragment
 export function fs(v: VsOut): Color {
-  const step = 1.5 / max(u.resolution.y, 1.);
+  const size = max(u.resolution, vec2(1., 1.));
   let sum = vec3(0., 0., 0.);
   let total = 0.;
   for (let i = -4; i <= 4; i++) {
     const w = exp(-f32(i * i) / 8.);
-    sum = sum + textureSampleLevel(blurX, smp, v.uv + vec2(0., f32(i) * step), 0.).rgb * w;
+    const at = (v.pos.xy + vec2(0., f32(i) * 1.5)) / size;
+    sum = sum + textureSampleLevel(blurX, smp, at, 0.).rgb * w;
     total = total + w;
   }
   return { color: vec4(sum / total, 1.) };

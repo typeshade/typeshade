@@ -1973,6 +1973,18 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **The two examples drawn in several passes draw the same picture on WebGPU as on WebGL2**
+  (change 0026). `feedback-trail` and `separable-blur` read a pass's output through `uv`, a
+  varying computed from the clip-space position, which runs up the screen on both backends. A
+  texture's rows run down from the top on WebGPU and up from the bottom on WebGL2, and a pass
+  writes each pixel where its position says on both, so on WebGPU the texture came back upside
+  down: the trail pass read its frame before mirrored on every frame and drew the dot's path
+  beside its mirror image. Both now read a pass at the pixel's own position, as
+  `textureLoad(trail, vec2i(v.pos.xy), 0)` or as the position over the resolution, and
+  `examples/README.md` says so.
+  The compile gate's passes leg drew each graph on WebGL2 alone; it now draws each on WebGPU too
+  and holds frame 30 to WebGL2's.
+
 - **The oracle's `abs` and negation of the least `i32` are that value itself, as on both
   targets** (Rule 1.3, surface §45). 2^31 has no `i32`, so `abs(-2147483648)` and
   `-(-2147483648)` wrap back to `-2147483648` on WebGPU and WebGL2 (wgsl.txt:21451-21453). The

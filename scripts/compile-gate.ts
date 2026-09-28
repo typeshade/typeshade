@@ -32,7 +32,10 @@
 // pass read as the frame before, frame 30 is drawn a second time with no history, and the two
 // must differ: that is what shows the previous frame was read. Its own instrument is the same
 // comparison made on an example whose passes read nothing of the frame before, which must
-// report no difference.
+// report no difference. Every graph is then drawn the same way on WebGPU, and its frame 30
+// must match WebGL2's: a texture's rows run down on WebGPU and up on WebGL2, so a pass read
+// through a coordinate that is not the pixel's own comes back mirrored on one of them. That
+// comparison's instrument is itself made on the WebGL2 picture mirrored, which it must see.
 //
 // BOTH CORPORA. The sweep is `examples` (the curated `fn()` EDSL registry) followed by
 // `shadeExamples` (the `"use typeshade"` `.shade.ts` files, compiled by `_shade.ts`). They
@@ -550,6 +553,18 @@ interface GraphProgram {
   readonly name: string;
   readonly vertex: string;
   readonly fragment: string;
+  /** The WGSL half, which the WebGPU draw of the graph runs, with its entries and bindings. */
+  readonly wgsl: string;
+  readonly vertexEntry: string;
+  readonly fragmentEntry: string;
+  readonly bindings: readonly {
+    readonly name: string;
+    readonly group: number;
+    readonly binding: number;
+    readonly kind: string;
+  }[];
+  /** The uniform block's size and the WGSL offsets of its fields, or null for none. */
+  readonly uniform: { readonly size: number; readonly offsets: Record<string, number> } | null;
 }
 
 /** An example drawn in several passes, for the passes leg. */
@@ -569,6 +584,16 @@ interface GraphVerdict {
   readonly historyDiffers: number;
   /** The float render target, or `RGBA8` where `EXT_color_buffer_float` is absent. */
   readonly target: string;
+  /** The canvas at frame 30, drawn with history, as WebGL2 reads it back: RGBA, the bottom row
+   *  first. Empty where a program did not link. */
+  readonly frame30: readonly number[];
+}
+
+/** The same graph drawn on WebGPU: the canvas at frame 30, RGBA, the top row first. */
+interface GpuGraphVerdict {
+  readonly id: string;
+  readonly errors: readonly string[];
+  readonly pixels: readonly number[];
 }
 
 /** The pass graphs of the corpus, with what each program reads. */
@@ -588,14 +613,40 @@ function graphs(): Graph[] {
       programs: [
         ...passes.map((p) => ({ name: p.name, module: p.module })),
         { name: '', module: ex.module },
-      ].map(({ name, module }) => ({
-        name,
-        vertex: emitGlslModule(module, 'vertex'),
-        fragment: cut(emitGlslModule(module, 'fragment'), name),
-      })),
+      ].map(({ name, module }) => {
+        const r = reflect(module);
+        const block = r.uniforms[0];
+        const entry = (stage: string): string =>
+          r.entries.find((e) => e.stage === stage)?.name ?? '';
+        return {
+          name,
+          vertex: emitGlslModule(module, 'vertex'),
+          fragment: cut(emitGlslModule(module, 'fragment'), name),
+          wgsl: emitModule(module),
+          vertexEntry: entry('vertex'),
+          fragmentEntry: entry('fragment'),
+          bindings: r.bindGroups.flatMap((g) =>
+            g.entries.map((e) => ({
+              name: e.name,
+              group: g.group,
+              binding: e.binding,
+              kind: e.resourceKind,
+            })),
+          ),
+          uniform: block
+            ? {
+                size: block.size,
+                offsets: Object.fromEntries(block.fields.map((f) => [f.name, f.offset])),
+              }
+            : null,
+        };
+      }),
     };
   });
 }
+
+/** The canvas the passes leg draws each graph at. */
+const GRAPH_SIZE: [number, number] = [96, 72];
 
 /** Runs INSIDE the browser. Draws each pass graph on WebGL2 as a host does (change 0026). */
 function drawGraphsInPage(input: { graphs: Graph[]; size: [number, number] }): GraphVerdict[] {
@@ -644,7 +695,14 @@ function drawGraphsInPage(input: { graphs: Graph[]; size: [number, number] }): G
     };
     const programs = graph.programs.map(link);
     if (programs.some((p) => p === null)) {
-      verdicts.push({ id: graph.id, errors, colours: [0, 0], historyDiffers: 0, target: '' });
+      verdicts.push({
+        id: graph.id,
+        errors,
+        colours: [0, 0],
+        historyDiffers: 0,
+        target: '',
+        frame30: [],
+      });
       continue;
     }
 
@@ -796,15 +854,253 @@ function drawGraphsInPage(input: { graphs: Graph[]; size: [number, number] }): G
       colours: [colours(first), colours(withHistory)],
       historyDiffers: differs,
       target: float ? 'RGBA16F' : 'RGBA8',
+      frame30: Array.from(withHistory),
     });
   }
   return verdicts;
 }
 
+/** Runs INSIDE the browser. Draws each pass graph on WebGPU the way the WebGL2 leg does: the
+ *  passes in order into `rgba16float` textures the size of the canvas, two a pass written in
+ *  turn, then the example into an `rgba8unorm` target, and reads that target back at frame 30. */
+async function drawGraphsOnWebGpu(input: {
+  graphs: Graph[];
+  size: [number, number];
+}): Promise<GpuGraphVerdict[]> {
+  const [W, H] = input.size;
+  const adapter = await navigator.gpu.requestAdapter();
+  if (adapter === null) throw new Error('requestAdapter() returned null — no WebGPU adapter');
+  const device = await adapter.requestDevice();
+  const verdicts: GpuGraphVerdict[] = [];
+  for (const graph of input.graphs) {
+    const errors: string[] = [];
+    const pixels: number[] = [];
+    const passNames = graph.programs.filter((p) => p.name !== '').map((p) => p.name);
+    device.pushErrorScope('validation');
+    try {
+      const output = (): GPUTexture =>
+        device.createTexture({
+          size: [W, H],
+          format: 'rgba16float',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        });
+      const pairs = passNames.map(() => [output(), output()]);
+      const canvas = device.createTexture({
+        size: [W, H],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+      });
+      const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+      // The fp64 guard reads a white texel, as every host gives it.
+      const white = device.createTexture({
+        size: [1, 1],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      device.queue.writeTexture(
+        { texture: white },
+        new Uint8Array([255, 255, 255, 255]),
+        {},
+        [1, 1],
+      );
+      const visibility = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
+      const programs = graph.programs.map((program, i) => {
+        const last = i === graph.programs.length - 1;
+        const groups = new Map<number, GPUBindGroupLayoutEntry[]>();
+        for (const b of program.bindings) {
+          const list = groups.get(b.group) ?? [];
+          groups.set(b.group, list);
+          if (b.kind === 'uniform-buffer')
+            list.push({ binding: b.binding, visibility, buffer: { type: 'uniform' } });
+          else if (b.kind === 'texture')
+            list.push({ binding: b.binding, visibility, texture: { sampleType: 'float' } });
+          else if (b.kind === 'sampler')
+            list.push({ binding: b.binding, visibility, sampler: { type: 'filtering' } });
+          else
+            throw new Error(
+              `${program.name || 'example'}: binds a ${b.kind}, which the passes leg does not fill`,
+            );
+        }
+        const top = Math.max(-1, ...groups.keys());
+        const layouts = Array.from({ length: top + 1 }, (_, g) =>
+          device.createBindGroupLayout({ entries: groups.get(g) ?? [] }),
+        );
+        const module = device.createShaderModule({ code: program.wgsl });
+        const pipeline = device.createRenderPipeline({
+          layout: device.createPipelineLayout({ bindGroupLayouts: layouts }),
+          vertex: { module, entryPoint: program.vertexEntry },
+          fragment: {
+            module,
+            entryPoint: program.fragmentEntry,
+            targets: [{ format: last ? 'rgba8unorm' : 'rgba16float' }],
+          },
+          primitive: { topology: 'triangle-list' },
+        });
+        const uniform = program.uniform
+          ? device.createBuffer({
+              size: Math.max(16, program.uniform.size),
+              usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            })
+          : null;
+        return { program, pipeline, layouts, uniform };
+      });
+      const drawFrame = (frame: number): void => {
+        const encoder = device.createCommandEncoder();
+        programs.forEach(({ program, pipeline, layouts, uniform }, i) => {
+          const block = program.uniform;
+          if (uniform !== null && block !== null) {
+            // The three fields the WebGL2 leg fills, with the same values.
+            const bytes = new DataView(new ArrayBuffer(block.size));
+            const time = block.offsets['time'];
+            const resolution = block.offsets['resolution'];
+            const count = block.offsets['frame'];
+            if (time !== undefined) bytes.setFloat32(time, frame / 60, true);
+            if (resolution !== undefined) {
+              bytes.setFloat32(resolution, W, true);
+              bytes.setFloat32(resolution + 4, H, true);
+            }
+            if (count !== undefined) bytes.setUint32(count, frame, true);
+            device.queue.writeBuffer(uniform, 0, bytes.buffer);
+          }
+          // Rule 3 of change 0026: an earlier pass is read as this frame's output, the pass
+          // itself or a later one as the frame before's.
+          const passView = (name: string): GPUTextureView => {
+            const j = passNames.indexOf(name);
+            const pair = pairs[j];
+            if (pair === undefined)
+              throw new Error(`${program.name || 'example'}: no pass '${name}' to read`);
+            return pair[j < i ? frame % 2 : (frame + 1) % 2]!.createView();
+          };
+          const groups = layouts.map((layout, g) =>
+            device.createBindGroup({
+              layout,
+              entries: program.bindings
+                .filter((b) => b.group === g)
+                .map((b) => ({
+                  binding: b.binding,
+                  resource:
+                    b.kind === 'uniform-buffer'
+                      ? { buffer: uniform! }
+                      : b.kind === 'sampler'
+                        ? sampler
+                        : b.name === '_fp64'
+                          ? white.createView()
+                          : passView(b.name),
+                })),
+            }),
+          );
+          const last = i === programs.length - 1;
+          const pass = encoder.beginRenderPass({
+            colorAttachments: [
+              {
+                view: (last ? canvas : pairs[i]![frame % 2]!).createView(),
+                clearValue: { r: 0, g: 0, b: 0, a: 0 },
+                loadOp: 'clear',
+                storeOp: 'store',
+              },
+            ],
+          });
+          pass.setPipeline(pipeline);
+          groups.forEach((group, g) => pass.setBindGroup(g, group));
+          pass.draw(3);
+          pass.end();
+        });
+        device.queue.submit([encoder.finish()]);
+      };
+      for (let frame = 0; frame <= 30; frame += 1) drawFrame(frame);
+      const stride = Math.ceil((W * 4) / 256) * 256;
+      const readback = device.createBuffer({
+        size: stride * H,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
+      const encoder = device.createCommandEncoder();
+      encoder.copyTextureToBuffer({ texture: canvas }, { buffer: readback, bytesPerRow: stride }, [
+        W,
+        H,
+      ]);
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      const mapped = new Uint8Array(readback.getMappedRange());
+      for (let y = 0; y < H; y += 1)
+        for (let x = 0; x < W * 4; x += 1) pixels.push(mapped[y * stride + x]!);
+      readback.unmap();
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+    const scoped = await device.popErrorScope();
+    if (scoped !== null) errors.push(scoped.message);
+    verdicts.push({ id: graph.id, errors, pixels });
+  }
+  device.destroy();
+  return verdicts;
+}
+
+/** Channels further apart than this, in 8-bit steps, make two pixels of the passes leg differ. */
+const PASS_AGREE = 4;
+
+/** The pixels at which two RGBA images of one size, rows in one order, differ. */
+function differingPixels(a: readonly number[], b: readonly number[]): number {
+  let differs = 0;
+  for (let k = 0; k + 3 < a.length; k += 4)
+    if (
+      Math.abs(a[k]! - (b[k] ?? -255)) > PASS_AGREE ||
+      Math.abs(a[k + 1]! - (b[k + 1] ?? -255)) > PASS_AGREE ||
+      Math.abs(a[k + 2]! - (b[k + 2] ?? -255)) > PASS_AGREE
+    )
+      differs += 1;
+  return differs;
+}
+
+/** An RGBA image of `width` pixels a row with its rows in the other order. */
+function otherRowOrder(pixels: readonly number[], width: number): number[] {
+  const rows: number[][] = [];
+  for (let k = 0; k < pixels.length; k += width * 4) rows.push(pixels.slice(k, k + width * 4));
+  return rows.reverse().flat();
+}
+
 /** Print the passes leg's verdicts; the number of failures. */
-function graphVerdicts(all: readonly Graph[], verdicts: readonly GraphVerdict[]): number {
+function graphVerdicts(
+  all: readonly Graph[],
+  verdicts: readonly GraphVerdict[],
+  gpu: readonly GpuGraphVerdict[],
+  size: readonly [number, number],
+): number {
   let failures = 0;
   const history = new Map(all.map((g) => [g.id, g.history]));
+  // WebGPU against WebGL2 at frame 30. WebGL2 reads its canvas back from the bottom row and
+  // WebGPU from the top, so the WebGL2 rows are put in the other order first. The bound is one
+  // pixel in a hundred.
+  const bound = Math.floor((size[0] * size[1]) / 100);
+  const onGpu = new Map(gpu.map((v) => [v.id, v]));
+  const across = new Map<string, { differs: number; mirrored: number } | null>();
+  for (const v of verdicts) {
+    const g = onGpu.get(v.id);
+    across.set(
+      v.id,
+      g && g.errors.length === 0 && g.pixels.length > 0 && v.frame30.length === g.pixels.length
+        ? {
+            differs: differingPixels(g.pixels, otherRowOrder(v.frame30, size[0])),
+            mirrored: differingPixels(g.pixels, v.frame30),
+          }
+        : null,
+    );
+  }
+  // Its instrument: the same comparison, made with the WebGL2 rows left in their own order,
+  // which mirrors the picture, must see the mirror in some graph, or it could not see a pass
+  // read upside down on one backend.
+  const sees = [...across].filter(([, c]) => c !== null && c.mirrored > bound).map(([id]) => id);
+  if (sees.length === 0) {
+    console.error(
+      'FAIL instrument: the WebGPU comparison sees no graph mirrored top to bottom — its ' +
+        'verdicts could not tell a pass read upside down on one backend',
+    );
+    failures += 1;
+  } else {
+    console.log(
+      `instrument: ${sees.join(', ')} drawn on WebGPU differs from itself on WebGL2 mirrored ` +
+        'top to bottom — the WebGPU verdicts can fail',
+    );
+  }
   // The instrument: a graph with no pass read as the frame before must show no difference
   // between frame 30 with history and without, or the comparison cannot tell them apart.
   const control = verdicts.filter((v) => history.get(v.id) === false);
@@ -824,16 +1120,27 @@ function graphVerdicts(all: readonly Graph[], verdicts: readonly GraphVerdict[])
   for (const v of verdicts) {
     const painted = v.colours[0] > 1 && v.colours[1] > 1;
     const needsHistory = history.get(v.id) === true;
-    const bad = v.errors.length > 0 || !painted || (needsHistory && v.historyDiffers === 0);
+    const compared = across.get(v.id) ?? null;
+    const gpuErrors = onGpu.get(v.id)?.errors ?? ['not drawn on WebGPU'];
+    const bad =
+      v.errors.length > 0 ||
+      !painted ||
+      (needsHistory && v.historyDiffers === 0) ||
+      compared === null ||
+      compared.differs > bound;
     if (bad) failures += 1;
     console.log(
       `${bad ? 'FAIL' : 'ok  '}  ${v.id}  passes on WebGL2 into ${v.target || '—'}: ` +
         `${String(v.colours[0])} colours at frame 0, ${String(v.colours[1])} at frame 30` +
         (needsHistory
           ? `, ${String(v.historyDiffers)} pixels differ from frame 30 drawn with no frame before`
-          : ', reads no frame before'),
+          : ', reads no frame before') +
+        (compared === null
+          ? '; not compared with WebGPU'
+          : `; on WebGPU, ${String(compared.differs)} pixels differ at frame 30 (bound ${String(bound)})`),
     );
     for (const e of v.errors) console.log(`        ${e}`);
+    if (compared === null) for (const e of gpuErrors) console.log(`        webgpu: ${e}`);
   }
   return failures;
 }
@@ -908,6 +1215,7 @@ async function main(): Promise<number> {
   let report: PageReport;
   let entryReport: EntryReport;
   let graphReport: GraphVerdict[];
+  let gpuGraphReport: GpuGraphVerdict[];
   const allGraphs = graphs();
   try {
     const page = await browser.newPage();
@@ -927,10 +1235,15 @@ struct Out { @builtin(position) pos: vec4<f32> }
       },
       wanted: wantedFeatures(),
     });
-    // The passes leg (change 0026): every example drawn in several passes, on WebGL2.
+    // The passes leg (change 0026): every example drawn in several passes, on WebGL2, and
+    // again on WebGPU to compare with it.
     graphReport = await page.evaluate(drawGraphsInPage, {
       graphs: allGraphs,
-      size: [96, 72] as [number, number],
+      size: GRAPH_SIZE,
+    });
+    gpuGraphReport = await page.evaluate(drawGraphsOnWebGpu, {
+      graphs: allGraphs,
+      size: GRAPH_SIZE,
     });
     // The entry-call leg (Rule 8.24): the examples' entries, called through their generated
     // host modules on every tier.
@@ -997,7 +1310,7 @@ struct Out { @builtin(position) pos: vec4<f32> }
       console.log(`        pipeline: not built — ${skipReason.get(v.id) ?? 'unknown'}`);
     }
   }
-  failures += graphVerdicts(allGraphs, graphReport);
+  failures += graphVerdicts(allGraphs, graphReport, gpuGraphReport, GRAPH_SIZE);
   failures += entryVerdicts(entryReport, bundle);
   const withGlsl = report.verdicts.filter((v) => v.glslErrors !== null).length;
   const withPipeline = report.verdicts.filter((v) => v.pipelineErrors !== null).length;

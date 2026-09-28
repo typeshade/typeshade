@@ -24,13 +24,14 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> Color {
-  let _licm0 = v.uv;
-  let step = (1.5 / max(u.resolution.y, 1.0));
+  let _licm0 = v.pos.xy;
+  let size = max(u.resolution, vec2<f32>(1.0, 1.0));
   var sum: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
   var total: f32 = 0.0;
   for (var i: i32 = -4; (i <= 4); i = (i + 1)) {
     let w = exp(((-f32((i * i))) * 0.125));
-    sum = (sum + (textureSampleLevel(blurX, smp, (_licm0 + vec2<f32>(0.0, (f32(i) * step))), 0.0).rgb * w));
+    let at = ((_licm0 + vec2<f32>(0.0, (f32(i) * 1.5))) / size);
+    sum = (sum + (textureSampleLevel(blurX, smp, at, 0.0).rgb * w));
     total = (total + w);
   }
   return Color(vec4<f32>((sum / total), 1.0));

@@ -8,7 +8,6 @@ struct Color {
 }
 
 @group(0) @binding(0) var trail: texture_2d<f32>;
-@group(0) @binding(1) var smp: sampler;
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
@@ -19,7 +18,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> Color {
-  let hdr = textureSampleLevel(trail, smp, v.uv, 0.0).rgb;
+  let hdr = textureLoad(trail, vec2<i32>(v.pos.xy), 0u).rgb;
   let mapped = (hdr / (hdr + vec3<f32>(1.0, 1.0, 1.0)));
   let ground = vec3<f32>(0.03, 0.03, 0.06);
   return Color(vec4<f32>((ground + mapped), 1.0));
