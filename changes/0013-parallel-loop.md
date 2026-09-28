@@ -239,7 +239,13 @@ The owner took #252's recommendations on its open questions:
    out per million 32-byte elements) by paying it once.
 4. The word is `resident`, the placeholder `docs/dx.md` already uses, with `.read()` on the
    handle. The package top level grows by that one word, next to `grad` and `configure`.
-5. The texture-coordinate rule is in, so `storage-texture` survives as a loop.
+5. The texture-coordinate rule is in, so `storage-texture` survives as a loop. (Amended after
+   acceptance, when the rest was implemented: the rule stays in the proof, which accepts such a
+   loop and warns nothing. Running it from host code is not this proposal's. A storage texture
+   has no host value here; the table above has none, and the image a kernel function would
+   write into is #204's rendering design, as 0016 also records. So a kernel function that
+   writes a texture stays `never` in the host view until #204, and the WebGPU dispatch of its
+   texel write goes with that design.)
 6. A refused loop is a warning, and `configure({ prefer: ['webgpu'] })` is how a caller
    requires the GPU.
 7. #252 made no recommendation on the hole it found: a runtime-sized array parameter reaches
