@@ -63,6 +63,40 @@ describe('a host file imports a .shade.ts through the plugin', () => {
     expect(readFileSync(join(dir, 'terrain.shade.typeshade.ts'), 'utf8')).toBe(
       hostFace(TERRAIN, { fileName: file }).view,
     );
+    // The default export is the program's manifest (Rule 11.10).
+    const program = (m as unknown as { default: { schema: number; entries: { name: string }[] } })
+      .default;
+    expect(program.schema).toBe(1);
+    expect(program.entries.map((e) => e.name)).toEqual(['fs']);
+  });
+
+  it('a bundle that imports only the default export carries the manifest and no CPU tier', async () => {
+    const { build } = await import('vite');
+    const dir = tempDir();
+    writeFileSync(join(dir, 'terrain.shade.ts'), TERRAIN);
+    writeFileSync(
+      join(dir, 'main.ts'),
+      "import program from './terrain.shade.ts';\nexport const wgsl = program.wgsl;\n",
+    );
+    const out = await build({
+      root: dir,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [typeshade()],
+      resolve: { alias: { 'typeshade/runtime': join(import.meta.dirname, 'runtime.ts') } },
+      build: {
+        write: false,
+        minify: false,
+        lib: { entry: join(dir, 'main.ts'), formats: ['es'], fileName: 'main' },
+      },
+    });
+    const chunks = (Array.isArray(out) ? out[0]! : out) as unknown as {
+      output: readonly { code?: string }[];
+    };
+    const code = chunks.output.map((o) => o.code ?? '').join('\n');
+    expect(code).toContain('@fragment');
+    expect(code).not.toContain('createCodegenRuntime');
+    expect(code).not.toContain('callDraw');
   });
 });
 
