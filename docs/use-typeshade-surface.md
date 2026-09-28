@@ -6763,6 +6763,30 @@ hands Tint its WGSL both ways, as written and under `console: 'gpu'`. The `conso
 runs it on WebGPU from the packed tarball and holds the lines `decodeConsole` returns equal to
 the CPU run's and to its host's own, line for line.
 
+**How a line is printed.** The call layer (§64, §67) and the program runtime (§69) print each
+event to the host's console with one prefix, whether the GPU recorded it or the CPU tier ran it:
+the tier, the call's file and line, and the invocation when the event has one.
+
+```
+ GPU  particles.shade.ts:14  [3, 0, 0]  x 4.5
+ CPU  particles.shade.ts:14  [3, 0, 0]  x 4.5
+ CPU  terrain.shade.ts:6  height 0.25
+```
+
+- The tier is `GPU` for an event decoded from the console buffer and `CPU` for one the CPU tier
+  ran. A browser draws it as a label with `%c`; Node skips the style, so a test runner prints the
+  same text unstyled.
+- The invocation is the event's own: `global_invocation_id` for a compute entry, the pixel
+  `[x, y, 0]` for a fragment entry. A helper the host calls has none.
+- The method stays, so a `console.warn` is a warning and the browser's filters still work.
+- The prefix is the format string and the event's arguments follow it, so a label holding `%d`
+  prints as written.
+- A `console.table` prints the prefix on a `console.log` line, then the table.
+- The warning for calls that did not fit the buffer carries the `GPU` prefix and names the entry.
+
+The events keep their shape: a host that shows them itself passes a sink,
+`createRuntime({ console: sink })` (§69), and prints nothing.
+
 **The editor** declares each method as the standard console does, taking any argument, except
 `table`, which takes one, and reports what the compiler refuses among them in the compiler's
 words. It completes the six methods after `console.` and no other.
@@ -6836,6 +6860,17 @@ export default defineConfig({ plugins: [typeshade()] });
 # .gitignore
 *.shade.typeshade.ts
 ```
+
+**The plugin's one option** is when the console is recorded (§66, §67): `typeshade({ console })`.
+
+- `'dev'`, the default, records in `vite dev` and not in `vite build`, so `typeshade()` is
+  `typeshade({ console: 'dev' })`.
+- `'always'` records in both, for a problem that shows only in a deployed build. Each dispatch
+  and draw of an entry that logs then binds one storage buffer, adds one atomic per call and reads
+  the buffer back after the work; the plugin says so in one line when the build starts.
+- `'never'` records in neither, so `vite dev`'s WGSL is the production WGSL byte for byte.
+
+A value that is none of the three is a `TypeError` when the config loads.
 
 **The host view.** A host program cannot type-check the shader source: its decorators are
 TS1206, its vocabulary meets the DOM's (`length`, `location`), and a host array is not a branded
@@ -7229,15 +7264,16 @@ requestAnimationFrame(frame);
 
 ### `console.*` from an entry
 
-In `vite dev`, the plugin compiles each module with the console recorded (§66): each
-`console.*` call a compute or fragment entry reaches is written into the `_console` buffer on
-the GPU. The runtime binds a fresh buffer for each dispatch and each draw, reads it back once
+In `vite dev`, the plugin compiles each module with the console recorded (§66), and in a
+production build too with `typeshade({ console: 'always' })` (§64): each `console.*` call a
+compute or fragment entry reaches is written into the `_console` buffer on the GPU. The runtime binds a fresh buffer for each dispatch and each draw, reads it back once
 the GPU has run it, and prints the events to the page's console in the order the CPU tier prints
-them: by invocation, `z`, then `y`, then `x`, and in program order within one. A call's
-promise resolves after its events are printed; a draw's frame is submitted first, and its
-events follow. Calls that do not fit the buffer are counted in one warning. A production build
-records nothing, and the WebGL2 tier records nothing (Rule 10.5). The CPU tier prints each call
-as it runs.
+them: by invocation, `z`, then `y`, then `x`, and in program order within one. Each line starts
+with its tier, its file and line, and its invocation (§66). A call's promise resolves after its
+events are printed; a draw's frame is submitted first, and its events follow. Calls that do not
+fit the buffer are counted in one warning. A production build records nothing unless the plugin
+says `'always'`, `'never'` records nothing in `vite dev` either, and the WebGL2 tier records
+nothing (Rule 10.5). The CPU tier prints each call as it runs, with the same prefix.
 
 **Emulated doubles.** An `f64` binding takes a `number`, a `vecNf64` a tuple, and an array of
 either a `Float64Array`. The WGSL and the GLSL hold each double as two `f32`s, `hi` and `lo`

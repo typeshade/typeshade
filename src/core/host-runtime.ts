@@ -6,6 +6,7 @@
 // parses TypeScript or walks the IR, so an application ships the op library and no compiler.
 
 import type { ConsoleEvent } from './console.js';
+import { printConsole } from './console-print.js';
 
 export { createCodegenRuntime, type CodegenRuntime } from './cpu-codegen-runtime.js';
 export { callCompute } from './host-compute.js';
@@ -33,7 +34,8 @@ export {
   type HostNumber,
 } from './host-values.js';
 
-/** Where a `console.*` call in a host-called function goes: the host's own console. */
+/** Where a `console.*` call in a host-called function goes: the host's own console, as a line
+ *  of the CPU tier (surface §66). */
 export function hostConsole(e: ConsoleEvent): void {
-  console[e.method](...e.args);
+  printConsole(e, 'CPU');
 }

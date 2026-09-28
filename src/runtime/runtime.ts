@@ -3,6 +3,7 @@
 // imports nothing of the compiler: it reads a manifest (Rule 11.10).
 
 import { decodeConsole, type ConsoleLog, type ConsoleSink } from '../core/console.js';
+import { printConsole, printDropped } from '../core/console-print.js';
 import { PACK_SCHEMA, type Pack } from '../core/manifest-types.js';
 import { VERSION } from '../core/version.js';
 import { configuredRuntime, gpuDevice } from '../core/host-entry.js';
@@ -242,10 +243,9 @@ export class RuntimeImpl implements Runtime {
         const { events, dropped } = decodeConsole(words, c.log);
         for (const e of events) {
           if (this.#sink !== undefined) this.#sink(e);
-          else console[e.method](...e.args);
+          else printConsole(e, 'GPU');
         }
-        if (dropped > 0)
-          console.warn(`${c.entry}(): ${dropped} console calls did not fit the console buffer.`);
+        printDropped(c.entry, dropped);
       }
     };
   }

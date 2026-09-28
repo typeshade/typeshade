@@ -68,6 +68,10 @@ export interface CodegenRuntime {
   bit: (fn: string, kind: 'u32' | 'i32', args: CpuValue[]) => CpuValue;
   selVec: (cond: readonly CpuValue[], ifTrue: CpuValue, ifFalse: CpuValue) => CpuValue;
   gpuStub: (name: string, ...args: CpuValue[]) => CpuValue;
+  /** The invocation the call layer's CPU tier is running, which each `console.*` event it
+   *  delivers carries: the `global_invocation_id` of a dispatch, the pixel `[x, y, 0]` of a
+   *  draw. Undefined outside them, as for a helper the host calls (surface §66). */
+  invocation: readonly number[] | undefined;
   console: (
     method: string,
     args: CpuValue[],
@@ -172,11 +176,13 @@ export function createCodegenRuntime(opts?: CodegenRuntimeOptions): CodegenRunti
         );
       return GPU_STUBS[name]!(...args);
     },
-    console: (method, args, span, labels, tableRows) => {
+    invocation: undefined,
+    console(method, args, span, labels, tableRows) {
       opts?.consoleSink?.({
         method: method as ConsoleMethod,
         args: consoleArgs(args, labels, tableRows),
         span: typeof span === 'string' ? JSON.parse(span) : (span as SourceSpan | undefined),
+        ...(this.invocation !== undefined ? { invocation: [...this.invocation] } : {}),
       });
     },
   };

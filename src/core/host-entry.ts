@@ -23,7 +23,8 @@
 // through the small structural interfaces below, as `core/compute/runner.ts` does.
 
 import type { CpuValue } from './cpu-runtime.js';
-import { decodeConsole, type ConsoleEvent, type ConsoleLog } from './console.js';
+import { decodeConsole, type ConsoleLog } from './console.js';
+import { printConsole, printDropped } from './console-print.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
 
@@ -113,7 +114,12 @@ export interface ComputeEntry {
  *  close over. */
 export interface GeneratedCpu {
   readonly F: Record<string, (...a: CpuValue[]) => CpuValue>;
-  readonly $: { bindings: Record<string, CpuValue>; vars: Record<string, CpuValue> };
+  readonly $: {
+    bindings: Record<string, CpuValue>;
+    vars: Record<string, CpuValue>;
+    /** The invocation a `console.*` event of the CPU tier carries (surface §66). */
+    invocation?: readonly number[] | undefined;
+  };
 }
 
 // ─── checking and packing host values ────────────────────────────────────────────────────────
@@ -926,17 +932,11 @@ export function consoleFor(
       staging.unmap();
       staging.destroy();
       const { events, dropped } = decodeConsole(words, log);
-      for (const ev of events) printEvent(ev);
-      if (dropped > 0)
-        console.warn(`${name}(): ${dropped} console calls did not fit the console buffer.`);
+      for (const ev of events) printConsole(ev, 'GPU');
+      printDropped(name, dropped);
     },
   };
 }
-
-/** A console event, printed as the CPU tier's sink prints it. */
-const printEvent = (e: ConsoleEvent): void => {
-  console[e.method](...e.args);
-};
 
 /** The bind groups of `bindings`, with the console buffer in its own group or beside them. */
 export function groupEntries(
@@ -1035,36 +1035,42 @@ export function onCpu(
   const fn = cpu.F[e.fn]!;
   const init = cpu.F['$initPrivates'];
   const [sx, sy, sz] = e.wg;
-  for (let wz = 0; wz < wg[2]; wz++)
-    for (let wy = 0; wy < wg[1]; wy++)
-      for (let wx = 0; wx < wg[0]; wx++) {
-        for (const [name, zero] of Object.entries(e.workgroupZero)) cpu.$.vars[name] = copy(zero);
-        for (let lz = 0; lz < sz; lz++)
-          for (let ly = 0; ly < sy; ly++)
-            for (let lx = 0; lx < sx; lx++) {
-              const lid = [lx, ly, lz];
-              const wid = [wx, wy, wz];
-              const gid = [wx * sx + lx, wy * sy + ly, wz * sz + lz];
-              const args = e.params.map((p): CpuValue => {
-                switch (p) {
-                  case 'global_invocation_id':
-                    return [...gid] as CpuValue;
-                  case 'local_invocation_id':
-                    return [...lid] as CpuValue;
-                  case 'local_invocation_index':
-                    return (lz * sy * sx + ly * sx + lx) as CpuValue;
-                  case 'workgroup_id':
-                    return [...wid] as CpuValue;
-                  case 'num_workgroups':
-                    return [...wg] as CpuValue;
-                  default:
-                    return 0 as CpuValue;
-                }
-              });
-              init?.();
-              fn(...args);
-            }
-      }
+  try {
+    for (let wz = 0; wz < wg[2]; wz++)
+      for (let wy = 0; wy < wg[1]; wy++)
+        for (let wx = 0; wx < wg[0]; wx++) {
+          for (const [name, zero] of Object.entries(e.workgroupZero)) cpu.$.vars[name] = copy(zero);
+          for (let lz = 0; lz < sz; lz++)
+            for (let ly = 0; ly < sy; ly++)
+              for (let lx = 0; lx < sx; lx++) {
+                const lid = [lx, ly, lz];
+                const wid = [wx, wy, wz];
+                const gid = [wx * sx + lx, wy * sy + ly, wz * sz + lz];
+                const args = e.params.map((p): CpuValue => {
+                  switch (p) {
+                    case 'global_invocation_id':
+                      return [...gid] as CpuValue;
+                    case 'local_invocation_id':
+                      return [...lid] as CpuValue;
+                    case 'local_invocation_index':
+                      return (lz * sy * sx + ly * sx + lx) as CpuValue;
+                    case 'workgroup_id':
+                      return [...wid] as CpuValue;
+                    case 'num_workgroups':
+                      return [...wg] as CpuValue;
+                    default:
+                      return 0 as CpuValue;
+                  }
+                });
+                init?.();
+                cpu.$.invocation = gid;
+                fn(...args);
+              }
+        }
+  } finally {
+    // A helper the host calls after the dispatch has no invocation.
+    cpu.$.invocation = undefined;
+  }
   // What the entry wrote goes back into the caller's values; a written binding is always one
   // that can be updated in place (a boxed scalar, an array, a typed array or an object).
   for (const b of e.bindings)

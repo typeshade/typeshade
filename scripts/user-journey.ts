@@ -421,13 +421,16 @@ async function hostImport(work: string, tarball: string, shadePackage: string): 
   );
 
   // `console.*` from the GPU (change 0014 through 0016): a production build records nothing, and
-  // `vite dev` prints `report`'s four calls from WebGPU in invocation order.
+  // `vite dev` prints `report`'s four calls from WebGPU in invocation order, each line saying
+  // where it ran (change 0025).
   check(
     web.logs !== undefined && web.logs.length === 0,
     `a production build records no console call (got ${JSON.stringify(web.logs)})`,
   );
   const dev = await inDevServer(app);
-  const printed4 = ['x 0 1.5', 'x 1 2.5', 'x 2 3.5', 'x 3 4.5'];
+  const printed4 = [1.5, 2.5, 3.5, 4.5].map(
+    (x, i) => `GPU  kernels.shade.ts:41  [${i}, 0, 0]  x ${i} ${x}`,
+  );
   check(
     JSON.stringify(dev.logs) === JSON.stringify(printed4),
     `vite dev prints the entry's console calls from WebGPU in order (got ${JSON.stringify(dev.logs)}${dev.error ? `; ${dev.error}` : ''})`,
@@ -463,9 +466,12 @@ async function inDevServer(app: string): Promise<{ logs: string[]; error?: strin
       }
     }
     const page = await browser.newPage();
-    const logs: string[] = [];
+    const printed: Promise<string>[] = [];
     page.on('console', (m) => {
-      if (m.type() === 'log') logs.push(m.text());
+      if (m.type() === 'log')
+        printed.push(
+          Promise.all(m.args().map((a) => a.jsonValue() as Promise<unknown>)).then(asPrinted),
+        );
     });
     await page.goto(url);
     const error = await page.evaluate(async () => {
@@ -479,11 +485,24 @@ async function inDevServer(app: string): Promise<{ logs: string[]; error?: strin
     });
     // The console events are page messages, delivered after the call resolves.
     await page.waitForTimeout(200);
+    const logs = await Promise.all(printed);
     return { logs, ...(error !== undefined ? { error } : {}) };
   } finally {
     await browser.close();
     server.kill();
   }
+}
+
+/** A console call's arguments as the browser prints them: the format string's `%c` styles
+ *  applied and dropped, the arguments after it joined by spaces. `m.text()` joins the raw
+ *  arguments instead, styles and all. */
+function asPrinted(args: readonly unknown[]): string {
+  const [first, ...rest] = args;
+  if (typeof first !== 'string') return args.map(String).join(' ');
+  const styles = first.split('%c').length - 1;
+  return [first.replace(/%c/g, '').replace(/%%/g, '%'), ...rest.slice(styles).map(String)]
+    .join(' ')
+    .trim();
 }
 
 /** The four flags that make WebGPU exist on SwiftShader, as the compile gate passes them. */

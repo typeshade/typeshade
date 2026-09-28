@@ -593,10 +593,11 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./vite` — 2 exports
+## `./vite` — 3 exports
 
 ```
 typeshade
+TypeshadeViteOptions
 TypeshadeVitePlugin
 ```
 
@@ -947,7 +948,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 614 definitions
+## Shapes — 615 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -1562,6 +1563,7 @@ src/runtime/runtime.ts#Runtime  interface  { destroy: () => void; device: D; fra
 src/runtime/runtime.ts#RuntimeOptions  interface  { console?: "print" | ConsoleSink; consoleBytes?: number; device?: D; programs?: readonly Pack[] }
 src/runtime/runtime.ts#createRuntime  function  <D extends object = object>(options?: RuntimeOptions<D>) => Promise<Runtime<D>>
 src/runtime/runtime.ts#runtime  function  () => Promise<Runtime<object>>
-src/vite.ts#TypeshadeVitePlugin  interface  { config: () => { optimizeDeps: { include: string[]; }; }; configResolved: (config: { readonly command: string; }) => void; enforce: "pre"; name: "typeshade"; transform: (code: string, id: string) => Promise<{ code: string; map: null; }> }
-src/vite.ts#typeshade  function  () => TypeshadeVitePlugin
+src/vite.ts#TypeshadeViteOptions  interface  { console?: "always" | "dev" | "never" }
+src/vite.ts#TypeshadeVitePlugin  interface  { buildStart: () => void; config: () => { optimizeDeps: { include: string[]; }; }; configResolved: (config: { readonly command: string; }) => void; enforce: "pre"; name: "typeshade"; transform: (code: string, id: string) => Promise<{ code: string; map: null; }> }
+src/vite.ts#typeshade  function  (options?: TypeshadeViteOptions) => TypeshadeVitePlugin
 ```

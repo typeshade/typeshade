@@ -1,5 +1,6 @@
 // Verifies: Rule 3.8 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 3.9 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.24 (docs/language-design.md; traced in reqs/).
 //
 // The Vite plugin (`typeshade/vite`, change 0009) and `tshc sync`, the two writers of a
 // shader module's host face. Vitest runs on Vite with the plugin in its pipeline
@@ -215,6 +216,45 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { console.log(
     build.configResolved({ command: 'build' });
     expect((await dev.transform(src, file))?.code).toContain('log: __ts_console');
     expect((await build.transform(src, file))?.code).not.toContain('__ts_console');
+  });
+
+  it("records in a build with console: 'always', never with 'never', and says so once at the build's start", async () => {
+    const src = `"use typeshade";
+declare const ys: storage<array<f32>, "read_write">;
+@compute([1])
+export function note(@builtin("global_invocation_id") gid: vec3u) { console.log("n", gid.x); ys[0] = 1.; }
+`;
+    const file = join(tempDir(), 'note.shade.ts');
+    const plugin = (console: 'dev' | 'always' | 'never', command: string) => {
+      const p = typeshade({ console });
+      p.configResolved({ command });
+      return p;
+    };
+    const records = async (p: ReturnType<typeof typeshade>): Promise<boolean> =>
+      ((await p.transform(src, file))?.code ?? '').includes('log: __ts_console');
+    expect(await records(plugin('always', 'build'))).toBe(true);
+    expect(await records(plugin('always', 'serve'))).toBe(true);
+    expect(await records(plugin('never', 'serve'))).toBe(false);
+    expect(await records(plugin('never', 'build'))).toBe(false);
+    expect(await records(plugin('dev', 'serve'))).toBe(true);
+    expect(await records(plugin('dev', 'build'))).toBe(false);
+    // The one line: a build that records says so, and no other build or server does.
+    const said: unknown[] = [];
+    const info = console.info;
+    console.info = (...a: unknown[]) => void said.push(a.join(' '));
+    try {
+      plugin('always', 'build').buildStart();
+      plugin('always', 'serve').buildStart();
+      plugin('dev', 'build').buildStart();
+    } finally {
+      console.info = info;
+    }
+    expect(said).toEqual([
+      "typeshade: console: 'always' records each GPU entry's console.* calls in this build; a dispatch or draw of an entry that logs binds a console buffer and reads it back.",
+    ]);
+    expect(() => typeshade({ console: 'prod' as never })).toThrow(
+      `typeshade(): console takes 'dev', 'always' or 'never', not "prod".`,
+    );
   });
 
   it('passes a host file through untouched', async () => {
