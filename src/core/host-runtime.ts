@@ -22,6 +22,7 @@ export { callKernel, type KernelFace, type KernelParam, type KernelLoop } from '
 export { resident, configure, type Resident } from './resident.js';
 // The type of a module's default export, its manifest (Rule 11.10), which the host view names.
 export type { Pack } from './manifest-types.js';
+export type { Texture } from '../runtime/resources.js';
 export {
   toShader,
   fromShader,

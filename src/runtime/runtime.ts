@@ -5,6 +5,7 @@
 import { decodeConsole, type ConsoleLog, type ConsoleSink } from '../core/console.js';
 import { PACK_SCHEMA, type Pack } from '../core/manifest-types.js';
 import { VERSION } from '../core/version.js';
+import { configuredRuntime, gpuDevice } from '../core/host-entry.js';
 import {
   BUFFER,
   MAP_READ,
@@ -384,11 +385,26 @@ export async function createRuntime<D extends object = object>(
 }
 
 let fallback: Promise<Runtime> | undefined;
+let fallbackDevice: object | undefined;
 
-/** The default runtime, on a device it requests the first time it is asked for. */
+/** The default runtime: the one `configure({ runtime })` named, or one on the device the call
+ *  layer uses (change 0025), so a resource made on either layer is used on the other. Rejects
+ *  where there is no WebGPU. */
 export function runtime(): Promise<Runtime> {
-  return (fallback ??= createRuntime().catch((err: unknown) => {
-    fallback = undefined;
-    throw err;
-  }));
+  const configured = configuredRuntime();
+  if (configured !== undefined) return Promise.resolve(configured as Runtime);
+  return gpuDevice().then((device) => {
+    if (device === null)
+      throw new Error(
+        'This environment has no WebGPU (navigator.gpu is undefined, or gave no adapter).',
+      );
+    // The call layer asks for a new device once one is lost; so does the default runtime.
+    if (fallback === undefined || fallbackDevice !== device) {
+      fallbackDevice = device;
+      fallback = Promise.resolve(
+        new RuntimeImpl(device as unknown as Device, {}, false) as Runtime,
+      );
+    }
+    return fallback;
+  });
 }

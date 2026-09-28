@@ -579,6 +579,10 @@ function webgl2Painter(gl: Gl, canvas: Canvas): Painter {
         return;
       }
       const img = f.images.get(name)!;
+      if (img.view !== undefined)
+        throw new TypeError(
+          `${e.name}(): binding "${name}" is a Texture on the WebGPU device, which the WebGL2 tier cannot read; pass an image source for a draw that may fall back.`,
+        );
       const smp = e.gl!.samplers[name];
       const s = (smp !== null && smp !== undefined ? f.samplers.get(smp) : undefined) ?? {
         filter: 'nearest',
