@@ -576,6 +576,14 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **The determinism report lists a kernel function's floating-point reduction** (change 0013;
+  Rule 7.2, surface §38 and §65). `compile().determinism` gains the kind `order`: an `f32` or
+  `f64` sum or product that a kernel function's accepted loop reduces. Every tier folds it in the
+  256-wide tree, so it has one answer everywhere, but that answer is not the one the loop's
+  sequential order gives. The row is listed under the function, after its own operations. A
+  reduction by `min` or `max`, on integers, or in a loop that stays on the CPU is not listed.
+  `DeterminismKind` gains `'order'`, and `DeterminismAccuracy` excludes it, as it excludes
+  `'emulated'`.
 - **A kernel function runs on WebGL2** (change 0013, part 8; Rule 11.8, surface §65). Where there
   is no WebGPU, or with `configure({ prefer: ['webgl2'] })`, a function whose every loop writes one
   array of `f32`, `i32` or `u32` at exactly `i` runs each loop as a fragment program: one pixel of

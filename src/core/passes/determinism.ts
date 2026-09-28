@@ -41,9 +41,10 @@
 
 import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
+import { proveKernels } from './parallel-loop.js';
 
 /** Why an operation's result may differ by driver, in WGSL §15.7.4's own categories plus
- *  three of TypeShade's. `ulp` and `absolute` are the spec's numeric bounds (`absolute` also
+ *  four of TypeShade's. `ulp` and `absolute` are the spec's numeric bounds (`absolute` also
  *  covers `acos`, `asin` and `tanh`, which the spec bounds by the worse of an absolute error
  *  and an inherited formula); `inherited` is an operation the spec defines by a formula the
  *  driver may reassociate or fuse, the matrix products included; `unbounded` is a derivative
@@ -51,12 +52,14 @@ import { eachExpr, eachStmtExpr } from '../ir/visit.js';
  *  a texture read whose footprint, filtering and level selection are implementation-defined,
  *  a gather included; `target` is an operation WGSL settles that the GLSL ES 3.00 spelling may
  *  answer differently on some input; `emulated` is an `f64` operation, computed in f32 pairs
- *  whose error terms a driver may fold.
+ *  whose error terms a driver may fold; `order` is a floating-point reduction of a kernel
+ *  function's loop, which every tier folds in Rule 7.2's tree, so it has one answer on every
+ *  tier but not the one the loop's sequential reading gives.
  *
  *  Exported from `typeshade`.
  */
 export type DeterminismKind =
-  'ulp' | 'absolute' | 'inherited' | 'unbounded' | 'filtered' | 'target' | 'emulated';
+  'ulp' | 'absolute' | 'inherited' | 'unbounded' | 'filtered' | 'target' | 'emulated' | 'order';
 
 /** What {@link accuracyOf} says about one operation: `exact` when WGSL gives it one answer
  *  (a correct or correctly rounded result, with the rounding-mode assumption the module header
@@ -68,7 +71,7 @@ export type DeterminismKind =
 export type DeterminismAccuracy =
   | { readonly kind: 'exact' }
   | {
-      readonly kind: Exclude<DeterminismKind, 'emulated'>;
+      readonly kind: Exclude<DeterminismKind, 'emulated' | 'order'>;
       readonly bound: string;
       readonly note?: string;
     };
@@ -89,7 +92,8 @@ export interface DeterminismEntry {
   readonly elem: 'f32' | 'f64';
   /** Why the result may differ. */
   readonly kind: DeterminismKind;
-  /** The bound in words, from WGSL §15.7.4 for `f32`, from the emulation for `f64`. */
+  /** The bound in words, from WGSL §15.7.4 for `f32`, from the emulation for `f64`, and from
+   *  Rule 7.2's tree for an `order` row. */
   readonly accuracy: string;
   /** How many times the operation occurs in the module. */
   readonly count: number;
@@ -435,13 +439,39 @@ function hitOf(e: Expr): Hit | undefined {
     : { op, elem, kind: acc.kind, accuracy: acc.bound, note: acc.note };
 }
 
+/** The bound of an `order` row (surface §38). */
+const ORDER_BOUND =
+  "one answer on every tier: the 256-wide tree of Rule 7.2, which may differ from the loop's sequential order in the last places";
+
+/** The floating-point reductions of a kernel function's accepted loops, one hit per reduced
+ *  variable: `+` and `*`, which round at each step, so their order is their answer. `min`,
+ *  `max` and the integer reductions are exact in any order and are not listed. */
+function orderHits(m: ModuleDecl): ReadonlyMap<string, readonly Hit[]> {
+  const out = new Map<string, Hit[]>();
+  for (const proof of proveKernels(m))
+    for (const loop of proof.loops) {
+      if (!loop.ok) continue;
+      for (const r of loop.reductions) {
+        if (r.op !== '+' && r.op !== '*') continue;
+        const elem = floatElemOf(r.type);
+        if (elem === undefined) continue;
+        const hits = out.get(proof.fn) ?? [];
+        hits.push({ op: r.op, elem, kind: 'order', accuracy: ORDER_BOUND });
+        out.set(proof.fn, hits);
+      }
+    }
+  return out;
+}
+
 /** The operations in `m` whose result may differ by driver, one entry per operation and float
  *  kind, in order of first appearance over the module constants, the module variables and the
  *  functions: a builtin with a ULP or absolute bound (`sin`, `exp`, `atan2`, `/`), one
  *  inherited from a formula the driver may reassociate or fuse (`pow`, `mix`, `normalize`,
  *  `fma`, `fract`, the matrix products), a derivative or `determinant`, a filtered texture read
  *  or gather, an operation the GLSL ES 3.00 spelling may answer differently (the `pack`
- *  builtins, `quantizeToF16`), and every emulated `f64` arithmetic operator and bounded builtin. Empty
+ *  builtins, `quantizeToF16`), every emulated `f64` arithmetic operator and bounded builtin,
+ *  and each floating-point reduction of a kernel function's loop, which runs in the tree order
+ *  (`order`, after the function's own operations). Empty
  *  when every operation in the module has one answer under the assumption the module header
  *  states, which is when a GPU result and the CPU oracle can differ only by the oracle's own
  *  rounding and never by the driver's choice. A `raw` statement is opaque and contributes
@@ -452,10 +482,8 @@ function hitOf(e: Expr): Hit | undefined {
  */
 export function determinismReport(m: ModuleDecl): readonly DeterminismEntry[] {
   const rows = new Map<string, { hit: Hit; count: number; where: Set<string> }>();
-  const visitorFor = (site: string) => (e: Expr) => {
-    const hit = hitOf(e);
-    if (hit === undefined) return;
-    const key = `${hit.elem} ${hit.op}`;
+  const add = (hit: Hit, site: string) => {
+    const key = `${hit.kind === 'order' ? 'order ' : ''}${hit.elem} ${hit.op}`;
     const row = rows.get(key);
     if (row === undefined) rows.set(key, { hit, count: 1, where: new Set([site]) });
     else {
@@ -463,12 +491,18 @@ export function determinismReport(m: ModuleDecl): readonly DeterminismEntry[] {
       row.where.add(site);
     }
   };
+  const visitorFor = (site: string) => (e: Expr) => {
+    const hit = hitOf(e);
+    if (hit !== undefined) add(hit, site);
+  };
+  const orders = orderHits(m);
   for (const c of m.consts)
     if (c.valueExpr !== undefined) eachExpr(c.valueExpr, visitorFor(c.name));
   for (const v of m.vars ?? []) if (v.init !== undefined) eachExpr(v.init, visitorFor(v.name));
   for (const fn of m.funcs) {
     const visit = visitorFor(fn.name);
     for (const s of fn.body) eachStmtExpr(s, (e) => eachExpr(e, visit));
+    for (const hit of orders.get(fn.name) ?? []) add(hit, fn.name);
   }
   return [...rows.values()].map(({ hit, count, where }) => ({ ...hit, count, where: [...where] }));
 }

@@ -4410,9 +4410,11 @@ correctly rounded result as one value and leaves the subnormal corners alone.
 | `filtered`  | a texture read whose footprint, filtering and level of detail selection are implementation-defined                                         | every `textureSample*`, the comparison forms included, and `textureGather`, whose four texels the footprint selects                       |
 | `target`    | one answer on WGSL, but the GLSL ES 3.00 spelling may answer differently on some input                                                     | the four packs — `pack4x8unorm`, `pack4x8snorm`, `pack2x16unorm`, `pack2x16snorm` — at an exact half; the four `quantizeToF16` widths     |
 | `emulated`  | an `f64` operation: f32 pairs whose error terms hold while the driver neither reassociates nor fuses them                                  | every arithmetic operator, `floor`, and every bounded builtin on `f64`, `vecNf64` and `matNf64`                                            |
+| `order`     | a floating-point reduction of a kernel function's loop (§65): one answer on every tier, the tree of Rule 7.2, which is not the loop's sequential order | `s += x` and `s *= x` on `f32` or `f64`, listed under the kernel function after its own operations                                          |
 
 **What is not listed.** Integer arithmetic, comparisons and the bit builtins, which have a correct
-result. `+`, `-` and the component-wise `*` on `f32`, which are correctly rounded; a matrix
+result. A reduction by `min` or `max`, or on integers, which is exact in any order, and one in a
+loop that stays on the CPU, which runs in the loop's order. `+`, `-` and the component-wise `*` on `f32`, which are correctly rounded; a matrix
 product is a sum of products and is listed. `abs`, `floor`, `ceil`, `trunc`, `round`, `sign`,
 `min`, `max`, `clamp`, `saturate` and `step`, the builtins the optimizer folds at compile time
 because they have one answer (issue #73). `fract` is not among them: the spec words it as
@@ -7020,7 +7022,8 @@ same way until one is left, and the variable is combined with that last. On WebG
 loop's dispatch and one more per level of partials; the CPU tier and the oracle run the same tree,
 so a sum is the same bits everywhere. It is not the order TypeScript adds in: an `f32` sum of many
 values differs from the sequential reading in the last places, and the tree is the more accurate
-of the two. An `f32` `min` or `max` starts from the largest finite `f32`, since WGSL lets a driver
+of the two. `compile().determinism` lists each floating-point sum and product a kernel function
+reduces as an `order` row (§38). An `f32` `min` or `max` starts from the largest finite `f32`, since WGSL lets a driver
 assume no infinity. The function's `return` then runs on the CPU tier with what the GPU folded; a
 `return` that reads an array's elements, and a statement a later loop replays that reads a
 reduced variable, run the whole function on the CPU.

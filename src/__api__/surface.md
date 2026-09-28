@@ -1335,7 +1335,7 @@ src/core/passes/compose.ts#ComposeOptions  interface  { allowUnswapped?: boolean
 src/core/passes/compose.ts#composeModule  function  (m: ModuleDecl, swaps: Record<string, readonly Stmt[]>, opts?: ComposeOptions) => ModuleDecl
 src/core/passes/determinism.ts#DeterminismAccuracy  type  { readonly kind: "exact"; } | { readonly kind: "ulp" | "absolute" | "inherited" | "unbounded" | "filtered" | "target"; readonly bound: string; readonly note?: string; }
 src/core/passes/determinism.ts#DeterminismEntry  interface  { accuracy: string; count: number; elem: "f32" | "f64"; kind: DeterminismKind; note?: string; op: string; where: readonly string[] }
-src/core/passes/determinism.ts#DeterminismKind  type  "absolute" | "emulated" | "filtered" | "inherited" | "target" | "ulp" | "unbounded"
+src/core/passes/determinism.ts#DeterminismKind  type  "absolute" | "emulated" | "filtered" | "inherited" | "order" | "target" | "ulp" | "unbounded"
 src/core/passes/determinism.ts#accuracyOf  function  (op: string) => DeterminismAccuracy
 src/core/passes/determinism.ts#determinismReport  function  (m: ModuleDecl) => readonly DeterminismEntry[]
 src/core/passes/force-inline.ts#InlineDecision  interface  { callSites: number; fn: string; growth: number; inlined: boolean; ops: number; reason: "inlined" | "not-inlinable" | "over-budget" }
