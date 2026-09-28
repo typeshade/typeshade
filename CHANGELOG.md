@@ -1973,6 +1973,13 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **Surface §38 no longer says an empty determinism report means one answer on every driver**
+  (#378). WGSL lets a driver regroup a chain of operations (§15.7.5, "An implementation may
+  reassociate operations"), and SwiftShader computed `(x + 1e8) - 1e8` as 2, where the expression
+  as written gives 0 in `f32`. The report still reads one operation at a time. §38 now says that
+  an empty list means each operation has one answer on its own, and names regrouping as the room
+  outside the report, with the measurement.
+
 - **On WebGL2, an integer division, remainder and shift, and a float's conversion to an integer,
   give WGSL's answer on every input** (proposal 0027, Rule 11.12, surface §11 and §22, #382). The
   GLSL writer spelled each with the bare GLSL operator, and GLSL ES 3.00 gives some inputs no

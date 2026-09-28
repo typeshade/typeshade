@@ -9,6 +9,12 @@
 // conforming drivers have to disagree in, with the spec's own bound in words, how often the
 // operation occurs and where.
 //
+// The report reads one operation at a time. §15.7.5 also lets a driver regroup a chain of
+// operations, with no condition ("An implementation may reassociate operations"), and a chain
+// of correctly rounded ones may then answer otherwise: SwiftShader computed `3.5 + (0.001 - x)`
+// as `(3.5 + 0.001) - x` (#378). A chain is not listed, since nearly every float expression is
+// one; surface §38 says so.
+//
 // "One answer" is the report's assumption, not the spec's words. WGSL fixes no rounding mode
 // (a correctly rounded result may be either neighbour, §15.7.4) and lets any operation flush
 // a subnormal to zero (§15.7.3); every shipping driver rounds to nearest even, so the report

@@ -4400,14 +4400,30 @@ const { determinism } = compile(source);
 ```
 
 The multiply, the scale and the offset are correctly rounded and do not appear; `sin` does, with
-the bound the spec gives it. An empty list means every operation in the module has one answer,
-so a GPU result and the oracle can differ only by the oracle's own rounding, never by the
-driver's choice.
+the bound the spec gives it. An empty list means every operation in the module has one answer on
+its own. A GPU result and the oracle can then differ by the oracle's own rounding, and by a chain
+of operations the driver groups otherwise (below), never by one operation's answer.
 
 "One answer" is the report's assumption, stated once. WGSL fixes no rounding mode, so a
 correctly rounded result may be either neighbour of the exact value, and any operation may
 flush a subnormal to zero. Every shipping driver rounds to nearest even, so the report counts a
 correctly rounded result as one value and leaves the subnormal corners alone.
+
+**Regrouping.** The report reads one operation at a time, and WGSL lets a driver change more than
+one: "An implementation may reassociate operations" (§15.7.5), with no condition, and it may fuse
+them where the result is at least as accurate. A chain of correctly rounded operations is a
+formula the driver may regroup, and under cancellation the difference has no bound. Measured on
+Chromium's WebGPU (SwiftShader), with `x = 2.0` read from a storage buffer (issue #378):
+
+| WGSL                | `f32`, as written  | WebGPU                                          |
+| ------------------- | ------------------ | ----------------------------------------------- |
+| `3.5 + (0.001 - x)` | 1.5010000467300415 | 1.500999927520752, which is `(3.5 + 0.001) - x` |
+| `(x + 1e8) - 1e8`   | 0                  | 2                                               |
+
+That driver grouped the two constants together, and computed an expression over run-time values
+as written. The report does not list a chain: nearly every float expression in a shader is one,
+and a list of them would stop naming the operation to look at. A result that must not depend on
+the grouping is computed in integers, or in values no step rounds.
 
 **The kinds.** `kind` says why an entry is there, and `accuracy` says how far it may go:
 
@@ -4466,8 +4482,8 @@ the intrinsic tables and fails on a new builtin that has not been placed in one 
 other.
 
 The list is the input to the divergence report of roadmap item 19: when a GPU result and the
-oracle disagree, the operations here are where the spec allows it, and everything else is a bug
-in one of the two.
+oracle disagree, the operations here, and a chain the driver regrouped, are where the spec allows
+it, and everything else is a bug in one of the two.
 
 ## 39. `f64`: the emulated double
 
