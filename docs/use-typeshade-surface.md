@@ -7108,6 +7108,27 @@ before the next. Before anything runs it checks each array against the indices a
 writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, the whole function
 runs on the CPU tier (Rule 11.7), and the view's comment says why.
 
+**A nested loop runs inside each invocation.** The dispatch is the loop at the top level of the
+body, and a loop nested in it runs whole inside each of its invocations. A grid written as two
+loops, `out[y * w + x]` over `y` and then `x`, is one invocation per row, each running its row:
+correct, and 1,024 invocations of 1,024 iterations each for a 1,024 by 1,024 grid. When each cell
+should be its own invocation, write the grid as one flat loop and take the coordinates from the
+index (issue #350):
+
+```ts
+"use typeshade";
+
+export function shade(w: u32, h: u32, out: array<f32>) {
+  for (let i: u32 = 0; i < w * h; i++) {
+    const x = i % w;
+    const y = i / w;
+    out[i] = f32(x + y) / f32(w + h);
+  }
+}
+```
+
+A 3D grid flattens the same way, `x = i % w`, `y = (i / w) % h` and `z = i / (w * h)`.
+
 **A reduction.** A variable a loop combines, `s += x`, `s *= x`, `s = min(s, x)` or `s = max(s, x)`
 (and `& | ^` on integers), is folded in one order on every tier, the GPU's (Rule 7.2): each
 iteration from the operator's identity, 256 at a time by the workgroup tree, then the partials the

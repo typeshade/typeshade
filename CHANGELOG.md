@@ -600,6 +600,24 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **The kernel proof's corpus, and what a nested loop dispatches** (Rule 8.22, surface §65,
+  #350). `src/compiler/ts/kernel-corpus.test.ts` holds 15 loop patterns, each with the answer the
+  proof must give, read in the compiler and in the editor. The accepted patterns are a stencil, a
+  gather, an integer and a fixed-point scatter, a sum, a structure of arrays, two stages, a 2D grid
+  written as nested loops and a 3D grid written as one flat loop. The refused ones are a read of a
+  neighbour of the written array, a float scatter, an append, an outer iteration loop and a prefix
+  sum. Each also runs on the CPU tier against a plain JavaScript reference. Rewrites that keep a
+  pattern's meaning must keep its answer, the refusal's line and names included:
+  - the bound from a parameter, or from another array of the same length;
+  - a subexpression named with `const`;
+  - two independent statements swapped;
+  - the value computed by a helper.
+
+  A rewrite that changes the meaning is shown to change the answer. The rewrites found #398.
+  Surface §65 and `AUTHORING.md` now say that a loop nested in the dispatched one runs whole
+  inside each invocation. A grid is one flat loop, `x = i % w`, when each cell should be its own
+  invocation.
+
 - **The engine journey** (proposal 0025, step 5; Rule 11.11; the gate #335 set before a reference
   engine). `journeys/engine/` is a small engine written as a host application writes one, on
   `typeshade/runtime`'s public exports alone. It has two materials that share a camera and lights,
