@@ -352,6 +352,21 @@ The compiler and runtime have different jobs:
 
 A runtime must not redefine the language, and `use typeshade` must not become a place for application or renderer orchestration.
 
+### Four entry points, one stack
+
+Four kinds of user come to this stack, and each enters at a different layer. The maintainer decided this on 2026-09-28 ([#335](https://github.com/typeshade/typeshade/issues/335)):
+
+| Who                           | What they want                                                                 | The layer they enter at                                | On `main`                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------- |
+| Has an engine already         | The shader and its reflection                                                  | The compiler: `compile()`, `reflect()`, `packModule()` | Yes                                                                 |
+| Builds an engine on a runtime | The device, resources, pipelines and bindings handled, and the frame their own | The program runtime                                    | No: `typeshade/runtime` is not API                                  |
+| Starts from nothing           | A camera and lights placed, a frame rendered                                   | An engine and renderer                                 | No: an official reference engine in its own repository (section 16) |
+| Only computes                 | A function imported and called                                                 | The call layer (changes 0009, 0013 and 0016)           | In progress                                                         |
+
+Each layer is built only on the public API of the layer below it. Each layer then has one implementation. Moving down a layer rewrites nothing, because the device and the resources are the same objects on both sides. And each layer is the acceptance test of the one below it.
+
+The call layer is built on the program runtime, not beside it. The program runtime automates what the compiler knows (the layouts, the slots, the WebGL2 conventions) and is not a typed wrapper over every WebGPU object. It lives in this package because it has to follow the compiler's lowering rules.
+
 ## 4. What `use typeshade` means
 
 A `"use typeshade"` source file is a TypeShade program.
@@ -652,17 +667,21 @@ These names are illustrative and are not API commitments.
 
 What ships today is one package, not these four. It has two subpaths for the host side, both from change 0009. `typeshade/vite` is the build-time plugin that compiles an imported `.shade.ts`. `typeshade/runtime` is the op library that the generated module imports to run the CPU tier. It is not API: only the generated modules name it.
 
+The program runtime of section 3 is to become a public subpath of this package, and the generated modules are to call it; its name is left to its proposal (#335). The reference engine of section 16 is not a subpath. It lives in its own repository and imports only that public API.
+
 The important boundary is that backend-specific objects do not leak into the TypeShade language.
 
 ## 16. What this design explicitly avoids
 
 ### A renderer framework
 
-TypeShade is not intended to own:
+The language, the compiler and its runtime package are not intended to own:
 
 ```
 App -> Canvas -> Renderer -> Scene
 ```
+
+A scene, a camera or a light never becomes part of the language. An official reference engine is planned in its own repository instead (decided by the maintainer on 2026-09-28, #335). It holds a camera, lights, meshes, materials and a shadow pass, and it is built only on the public program runtime. It is for the developer who starts from nothing and cannot design an engine first. Adapters to existing frameworks, such as three.js, stay a separate roadmap item after 1.0.
 
 ### A hidden GPU language
 
@@ -694,6 +713,7 @@ Runtime automation should begin with clear module/resource execution semantics. 
 8. **Rendering is one workload, not the definition of the system.**
 9. **The CPU oracle is a verification asset, not a promise of universal CPU fallback.**
 10. **Low-level compiler/reflection APIs remain the escape hatch.**
+11. **Each layer is built only on the public API of the layer below it.**
 
 ## 18. Developer experience
 
@@ -775,6 +795,7 @@ The following remain deliberately unresolved:
 - What synchronization guarantees exist after a host call?
 - When does a value become CPU-readable?
 - Can the runtime infer pipeline state from reflection, and which state must remain explicit?
+- How does a host place a binding, so that a binding a shared module declares keeps its slot in every program that imports it? Today every `declare` is in group 0, numbered in the order the linked program reads it (#335).
 - How much WebGPU/WebGL2 behavior can share one runtime abstraction?
 - What is the minimum viable runtime before introducing scheduling or graph execution?
 - What guarantees can the CPU oracle provide, and where must GPU-only behavior remain GPU-only?
@@ -798,6 +819,8 @@ The implementation order should remain incremental:
 5. add backend adapters and caching;
 6. add verification/debugging around the existing CPU oracle;
 7. only then consider larger scheduling/optimization layers.
+
+Issue #335 places the program runtime and the reference engine in that order. First the program runtime becomes public, and the call layer is rebuilt on it. That step is gated by an engine journey that uses public exports only: two materials, a shared camera and lights, a shadow pass, a render to texture and a 60-frame loop. The reference engine's repository comes after that gate.
 
 The runtime should grow from the compiler's existing IR and metadata rather than creating a second execution language.
 
