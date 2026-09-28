@@ -1611,6 +1611,19 @@ the call. The setup is four lines, a plugin in `vite.config.ts`, two in `tsconfi
 `tshc sync` in `prepare`. The surface reference has them, with the full table of host
 values: `docs/use-typeshade-surface.md` §64.
 
+### A loop over an array
+
+An exported function that takes an array with no size, `array<T>`, is a kernel function: host
+code awaits it, and its array is the caller's, written in place. Each `for` at the top of its body
+runs on the GPU, one invocation per iteration, when the compiler proves that no iteration touches
+what another one does, and on the CPU otherwise, with a `TS8070` warning that names the line and
+the remedy (`docs/use-typeshade-surface.md` §65).
+
+The dispatch is that top-level loop's, so a loop nested in it runs whole inside each invocation:
+a grid written as two nested loops is one invocation per row. When each cell should be its own
+invocation, write the grid as one flat loop, `for (let i: u32 = 0; i < w * h; i++)`, and take
+`x = i % w` and `y = i / w` from the index.
+
 ### A shader module that imports another
 
 A `"use typeshade"` file imports what another one exports, as any TypeScript module does:
