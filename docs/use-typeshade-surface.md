@@ -7051,10 +7051,14 @@ reduces: split the function.
 - R1: it is a counted `for` (Rule 7.5), or a `for…of`, that steps by adding a constant;
 - R2: nothing returns from it or breaks out of it;
 - R3: each write lands on a name declared inside it; on an outer array at `a*i + c`, at one index
-  whose coefficient of `i` is loop-invariant, or at `i*W + x` over a nested loop of `x` below `W`;
-  on a texture at `vec2(i % W, i / W)`; on a variable it combines, `s += e` (or `*=`, `&=`, `|=`,
-  `^=`, `s = min(s, e)`, `s = max(s, e)`); or on an integer array combined at any index,
-  `bins[k] += 1`;
+  whose coefficient of `i` is loop-invariant, or at `i*W + x` over a nested loop of `x` below `W`,
+  with one `W` for the whole loop; on a texture at `vec2(i % W, i / W)`; on a variable it
+  combines, `s += e` (or `*=`, `&=`, `|=`, `^=`, `s = min(s, e)`, `s = max(s, e)`); or on an
+  integer array combined at any index, `bins[k] += 1`. An index is read through the constants it
+  names, so `const at = y * w + x; out[at] = …` and `out[row + x]` over `const row = y * w` are
+  `out[y * w + x]`. A width that changes from row to row is refused, since rows of different
+  widths overlap: `out[y * (h - y) + x]` over `x < h - y` writes `out[3]` from rows 0 and 1 when
+  `h` is 4 (issue #398);
 - R4: an array it writes is read only at an index it writes, and a combined variable is not read;
 - R5: a function it calls writes no module variable and no binding;
 - R6: it has no barrier, no workgroup memory and no `console` call.
