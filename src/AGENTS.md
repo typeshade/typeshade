@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-09-23 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-09-28 -->
 
 # src
 
@@ -13,9 +13,11 @@ Concrete shaders live in `examples/` and in consuming projects, never here.
 
 ## Entry points
 
-Every file below but the last is a `package.json` `exports` subpath. `__api__/surface.md` lists every symbol
-they export; it is generated (`bun run bake:api-surface`) and `api-surface.test.ts` fails when it
-and the tree disagree.
+Every file below but the last is a `package.json` `exports` subpath, and every one of those but
+`runtime.ts` is public API: `API_SUBPATHS` in `api-subpaths.ts`, the one list that
+`api-doc-coverage.test.ts` and `api-surface.test.ts` both read. `__api__/surface.md` lists every
+symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
+`api-surface.test.ts` fails when it and the tree disagree.
 
 | File                  | Subpath                                                                                                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -71,6 +73,8 @@ and the tree disagree.
 | `core/resident.ts`                            | `resident`, `Resident` and `configure` (Rule 11.8): an array kept on the device across kernel and entry calls, the order the calls run in, and the order of the tiers.                              |
 | `core/host-kernel-gl.ts`                      | A kernel function's loops on WebGL2 (Rule 11.8): the runtime's own context, one fragment program per loop into an `R32UI` target, the data textures and the readback.                               |
 | `core/reflect.ts`, `core/sot.ts`              | Pipeline reflection (bind groups, std140 / std430 layouts, entry IO); declare-once IO structs and resources.                                                                                        |
+| `core/manifest.ts`                            | The compiled program's manifest (Rule 11.10): `buildManifest`, which `packModule` and the generated module's default export call, from the IR alone.                                                |
+| `core/vertex-layout.ts`                       | The vertex buffer a `@vertex` entry reads (Rule 6.8), tightly packed, which `reflect()` and the manifest share.                                                                                     |
 | `core/diagnostics/`                           | `codes.ts` (frozen `SDnnnn` catalogue), `error.ts` (`TypeShadeError`), `loc.ts` (opt-in source tracing), `report.ts` (`diagnose()`).                                                                |
 | `core/fp64/`                                  | The df64 emulation library (float and integer flavors) that `core/passes/fp64-lower.ts` rewrites `f64` into.                                                                                        |
 | `core/builtins/`                              | Tint's overload table baked from `core.def` (`coredef.ts`), the claim on each row (`overlay.ts`), and the row types both halves read (0017).                                                        |
@@ -95,6 +99,7 @@ Most other `core/*.ts` files are the production-emit and host-integration layer:
 | `core/passes/console-buffer.ts`       | Under `compile(src, { console: 'gpu' })`, rewrites each recorded `console` call into writes to the `_console` storage buffer (Rule 6.11, surface §66).                                                                                                                           |
 | `core/passes/parallel-loop.ts`        | `proveKernels`: the independence proof of a kernel function's loops (Rule 8.22), R1 to R6, as facts in IR names.                                                                                                                                                                 |
 | `core/passes/kernel-lower.ts`         | `lowerKernel`: a kernel function whose loops the proof accepts, lowered to one `@compute` entry per loop, a workgroup tree and a fold entry for a loop that reduces, an atomic for a scatter, a range function the call runs first and a tail that gives the result (Rule 8.22). |
+| `core/passes/access.ts`               | How each builtin uses each argument (a value, the length `arrayLength` measures, an atomic's place, the texture `textureStore` writes), and `eachOperand`, which hands an analysis the operands of one expression with that access (#348).                                       |
 | `core/passes/opt/`                    | `autoVars`, `cse`, and the `optimize` fixpoint (const / copy propagation, folding, dead branches, LICM, DCE). `expr-utils.ts` is the shared traversal.                                                                                                                           |
 | `core/passes/compose.ts`              | `composeModule(base, swaps)`: swaps tagged `placeholder` statements. Strict by default.                                                                                                                                                                                          |
 | `core/passes/mangle.ts`, `inline*.ts` | Identifier mangling for `obfuscate`; function inlining.                                                                                                                                                                                                                          |
@@ -106,9 +111,10 @@ maintains. `fixtures/*.json` are generated from Tint's `core.def` (`bun run bake
 WGSL spec's names (`bun run bake:wgsl-names`); never hand-edit them.
 `coredef-texture-overloads.test.ts` makes every texture overload supported or deferred with a
 reason, `stage-rules.test.ts` checks the stage-restricted builtin sets (read from
-`compiler/ts/lower/function.ts` and `core/passes/lint/rules/fragment-only-builtin.ts`), and
+`compiler/ts/lower/function.ts` and `core/passes/lint/rules/fragment-only-builtin.ts`),
 `surface-names.test.ts` holds every author-facing name to WGSL, ECMAScript or the extension
-table of `docs/language-design.md` §9.
+table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
+`core/passes/access.ts` to every `core.def` overload TypeShade takes.
 
 ## For AI Agents
 
@@ -118,6 +124,12 @@ table of `docs/language-design.md` §9.
   backend supplies spelling and the divergent fragments (`core/backend.ts`). A new target
   implements `Backend`; it never forks the walk. A new divergent intrinsic is one entry in
   `core/intrinsics.ts`.
+- **What an operation reads and writes is one table.** An analysis that walks an expression's
+  operands asks `eachOperand` in `core/passes/access.ts`, and never tests a builtin's name for
+  what it does with an argument (`arrayLength` measures its array and reads no element; an
+  atomic's first argument is a place). Three analyses each learned `arrayLength` on their own,
+  and the fourth, which had not, kept a correct loop off the GPU (#345). A new builtin that takes
+  a pointer gets its row there, or `argument-access.test.ts` fails.
 - **The pre-emit pipeline is shared.** `lowerForBackend` runs `validate`, `assertCaps`,
   `assertBuiltins`, then `autoVars`, `lowerModule`, `fp64Lower`, `selectComposite`, the
   backend's own lowerings and its `optimize`. Put a target-neutral rewrite there, not in a backend.

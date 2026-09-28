@@ -33,7 +33,6 @@ import { GPU_STUBS } from '../../core/cpu-runtime.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
 import type { HostType } from '../../core/host-values.js';
-import { typeLayout } from '../../core/reflect.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
 import { sourceSpanOf } from '../../core/ir/span.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
@@ -43,7 +42,7 @@ import type { KernelFace, KernelLoop, KernelParam } from '../../core/host-kernel
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
 import { lowerKernel, lowerKernelGl } from '../../core/passes/kernel-lower.js';
-import { emitGlslModule, emitGlslStages } from '../../core/backends/glsl.js';
+import { emitGlslModule } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import type { ConsoleLog } from '../../core/console.js';
@@ -55,6 +54,14 @@ import {
 import { emittedStructDecls } from './structs.js';
 import { staticConstName } from './module-const.js';
 import { authorTypeText } from './context.js';
+import {
+  buildManifest,
+  calleesOf,
+  closureOf,
+  glDrawOf,
+  layoutOf,
+  type Pack,
+} from '../../core/manifest.js';
 
 /** How {@link hostFace} is called. */
 export interface HostFaceOptions {
@@ -356,10 +363,9 @@ function exportsOf(sf: ts.SourceFile): ExportRef[] {
         }
       continue;
     }
-    if (ts.isExportAssignment(s)) {
-      add({ name: 'default', missing: 'a default export has no host face; export a name instead' });
-      continue;
-    }
+    // The default export of the host import is the module's manifest (Rule 11.10), so the
+    // author's own has no host face, as it never had.
+    if (ts.isExportAssignment(s)) continue;
     if (!hasModifier(s, ts.SyntaxKind.ExportKeyword)) continue;
     const isDefault = hasModifier(s, ts.SyntaxKind.DefaultKeyword);
     if (ts.isVariableStatement(s)) {
@@ -367,10 +373,7 @@ function exportsOf(sf: ts.SourceFile): ExportRef[] {
         if (ts.isIdentifier(d.name)) add({ name: d.name.text, decl: d });
       continue;
     }
-    if (isDefault) {
-      add({ name: 'default', missing: 'a default export has no host face; export a name instead' });
-      continue;
-    }
+    if (isDefault) continue;
     const name = (s as { name?: ts.Node }).name;
     if (name !== undefined && ts.isIdentifier(name)) {
       const decl = local.get(name.text);
@@ -381,32 +384,6 @@ function exportsOf(sf: ts.SourceFile): ExportRef[] {
 }
 
 // ─── what a function reaches ─────────────────────────────────────────────────────────────────
-
-/** The functions `f` calls, directly. */
-function calleesOf(f: FuncDecl, declared: ReadonlySet<string>): Set<string> {
-  const out = new Set<string>();
-  for (const s of f.body)
-    eachStmtExpr(s, (e) =>
-      eachExpr(e, (x) => {
-        if (x.op === 'call' && declared.has(x.fn)) out.add(x.fn);
-      }),
-    );
-  return out;
-}
-
-/** `root` and every function it reaches through calls. */
-function closureOf(root: string, callees: ReadonlyMap<string, ReadonlySet<string>>): Set<string> {
-  const out = new Set<string>([root]);
-  const todo = [root];
-  while (todo.length > 0) {
-    for (const c of callees.get(todo.pop()!) ?? [])
-      if (!out.has(c)) {
-        out.add(c);
-        todo.push(c);
-      }
-  }
-  return out;
-}
 
 /** The first GPU-only builtin `f`'s own body calls, if any. */
 function gpuOnlyCall(f: FuncDecl, declared: ReadonlySet<string>): string | undefined {
@@ -430,66 +407,6 @@ const COMPUTE_BUILTINS = new Set([
   'workgroup_id',
   'num_workgroups',
 ]);
-
-const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a;
-
-/** The byte layout of a binding's type (std430 for storage, the uniform rules for uniform), from
- *  `reflect()`'s own `typeLayout`, or why it has none a host can pack. */
-function layoutOf(
-  t: ShaderType,
-  kind: 'std140' | 'std430',
-  structs: ReadonlyMap<string, StructDecl>,
-): Layout | { readonly none: string } {
-  switch (t.kind) {
-    case 'scalar':
-      if (t.scalar === 'bool') return { none: 'a bool is not host-shareable' };
-      return { k: 's', t: t.scalar };
-    case 'atomic':
-      return { k: 's', t: t.elem };
-    case 'vec':
-      if (t.elem === 'bool') return { none: `a ${authorTypeText(t)} is not host-shareable` };
-      return { k: 'v', n: t.n, t: t.elem };
-    case 'mat': {
-      if (t.elem === 'f64') return { none: `a ${authorTypeText(t)} has no host value yet` };
-      if (kind === 'std140' && t.rows === 2)
-        return {
-          none: `a ${authorTypeText(t)} in a uniform has no one layout both targets share`,
-        };
-      return { k: 'm', c: t.cols, r: t.rows, cs: t.rows === 2 ? 8 : 16 };
-    }
-    case 'array': {
-      const e = layoutOf(t.elem, kind, structs);
-      if ('none' in e) return e;
-      const el = typeLayout(t.elem, kind, structs);
-      let st = roundUp(el.size, el.align);
-      if (kind === 'std140') st = roundUp(st, 16);
-      return { k: 'a', n: t.size ?? null, st, e };
-    }
-    case 'struct': {
-      const decl = structs.get(t.name);
-      if (decl === undefined) return { none: `struct ${t.name} is not declared` };
-      const f: (readonly [string, number, Layout])[] = [];
-      let cursor = 0;
-      for (const field of decl.fields) {
-        const fl = layoutOf(field.type, kind, structs);
-        if ('none' in fl) return { none: `field ${t.name}.${field.name}: ${fl.none}` };
-        const { size, align } = typeLayout(field.type, kind, structs);
-        cursor = roundUp(cursor, align);
-        f.push([field.name, cursor, fl]);
-        cursor += size;
-      }
-      return { k: 'o', f, sz: typeLayout(t, kind, structs).size };
-    }
-    // An emulated `f64` is a `vec2<f32>` (hi, lo), and `vecN<f64>` a `DF64VecN` struct of a `hi`
-    // and a `lo` plane of `vecN<f32>`, whose `lo` sits at the plane's aligned size.
-    case 'f64':
-      return { k: 's', t: 'f64' };
-    case 'vec64':
-      return { k: 'v', n: t.n, t: 'f64', lo: t.n === 2 ? 8 : 16 };
-    default:
-      return { none: `a ${authorTypeText(t)} has no host value` };
-  }
-}
 
 /** A binding's type as its author spells it, for a refusal: `Sim`, `array<Particle>`. */
 function spell(t: ShaderType): string {
@@ -720,7 +637,15 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     diagnostics: r.diagnostics,
     exports: logged,
     view: viewText(stem, logged, options.runtime ?? 'typeshade/runtime'),
-    code: moduleText(stem, logged, gen, options.runtime ?? 'typeshade/runtime', wgsl, log),
+    code: moduleText(
+      stem,
+      logged,
+      gen,
+      options.runtime ?? 'typeshade/runtime',
+      wgsl,
+      buildManifest(m, { console: options.console === 'gpu' }),
+      log,
+    ),
     files,
   };
 }
@@ -815,7 +740,12 @@ function entryBindings(
       return {
         none: `binding "${b.name}" is a ${spell(b.type)}, which has no host value yet; #204, the rendering design, adds it`,
       };
-    const layout = layoutOf(b.type, space === 'uniform' ? 'std140' : 'std430', c.structs);
+    const layout = layoutOf(
+      b.type,
+      space === 'uniform' ? 'std140' : 'std430',
+      c.structs,
+      authorTypeText,
+    );
     if ('none' in layout) return { none: `binding "${b.name}": ${layout.none}` };
     const writes = f.stage === 'compute' && space === 'storage' && written.has(b.name);
     const rw = space === 'storage' && b.access === 'read_write';
@@ -917,7 +847,9 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   if ('none' in reached) return never(name, reached.none);
   const { bindings, types, closure } = reached;
   if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
-  const gl = glslFor(f, bindings, closure, c);
+  const draw = glDrawOf(x.module, f, bindings, closure, c.byName, x.declared);
+  const gl =
+    'none' in draw ? draw : { frag: draw.fragment, blocks: draw.blocks, samplers: draw.samplers };
   const noCpu = noCpuTier(closure, bindings, c);
   return {
     kind: 'fragment',
@@ -953,84 +885,6 @@ function colourOf(
     : undefined;
 }
 
-/** What the WebGL2 tier draws a fragment entry with: its GLSL ES 3.00 fragment program, the
- *  block name of each uniform binding and the sampler of each texture; or why it cannot. */
-function glslFor(
-  f: FuncDecl,
-  bindings: readonly DrawBinding[],
-  closure: ReadonlySet<string>,
-  c: FaceCtx,
-): NonNullable<FragmentEntry['gl']> | { none: string } {
-  const storage = bindings.find((b) => b.space === 'storage');
-  if (storage !== undefined)
-    return {
-      none: `it reaches the storage binding "${storage.name}", and GLSL ES 3.00 has no storage buffer`,
-    };
-  let frag: string;
-  try {
-    frag = emitGlslStages(c.entry.module, { fragmentEntry: f.name }).fragment;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { none: `the GLSL backend refuses it: ${message.replace(/\.$/, '')}` };
-  }
-  const blocks: Record<string, string> = {};
-  const samplers: Record<string, string | null> = {};
-  const declared = new Set<string>();
-  for (const b of bindings) {
-    if (b.space === 'uniform') {
-      const m = new RegExp(`uniform (\\w+) \\{[^}]*\\} ${b.name};`).exec(frag);
-      if (m === null) return { none: `its GLSL declares no uniform block for "${b.name}"` };
-      blocks[b.name] = m[1]!;
-      declared.add(b.name);
-    } else if (b.space === 'texture') {
-      const has = new RegExp(`uniform (?:\\w+ )*sampler2D ${b.name};`).test(frag);
-      // The guard is bound only where the program reads it.
-      if (!has && 'guard' in b) continue;
-      if (!has) return { none: `its GLSL declares no sampler2D for "${b.name}"` };
-      declared.add(b.name);
-    }
-  }
-  // GLSL ES 3.00 fuses a texture with its sampler: each texture takes the one sampler its
-  // calls pass it, so the WebGL2 tier can set that sampler's filter and address on it.
-  const pairs = texturePairs(closure, c);
-  for (const b of bindings) {
-    if (b.space !== 'texture' || ('guard' in b && !declared.has(b.name))) continue;
-    const with_ = [...(pairs.get(b.name) ?? [])];
-    if (with_.length > 1)
-      return {
-        none: `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and GLSL ES 3.00 fuses a texture with one sampler`,
-      };
-    samplers[b.name] = with_[0] ?? null;
-  }
-  // Every uniform the program declares is one the draw binds.
-  for (const m of frag.matchAll(
-    /^(?:layout\([^)]*\) )?uniform (?:\w+ )*?(\w+)(?: \{[^}]*\} (\w+))?;/gm,
-  )) {
-    const n = m[2] ?? m[1]!;
-    if (!declared.has(n))
-      return { none: `its GLSL declares a uniform "${n}" the draw does not bind` };
-  }
-  return { frag, blocks, samplers };
-}
-
-/** Which sampler bindings each texture binding is sampled with, in the calls `closure` makes. */
-function texturePairs(closure: ReadonlySet<string>, c: FaceCtx): Map<string, Set<string>> {
-  const pairs = new Map<string, Set<string>>();
-  for (const g of closure)
-    for (const st of c.byName.get(g)!.body)
-      eachStmtExpr(st, (e) =>
-        eachExpr(e, (x) => {
-          if (x.op !== 'call' || c.entry.declared.has(x.fn)) return;
-          const [t, s] = x.args;
-          if (t?.op !== 'varref' || s?.op !== 'varref' || s.type.kind !== 'sampler') return;
-          let set = pairs.get(t.name);
-          if (set === undefined) pairs.set(t.name, (set = new Set()));
-          set.add(s.name);
-        }),
-      );
-  return pairs;
-}
-
 /** The face of a kernel function (Rules 8.21 to 8.23): each value parameter's host type, each
  *  array's layout, and what its call dispatches when its loops lower, or why they do not. */
 function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
@@ -1039,7 +893,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const params: KernelParam[] = [];
   for (const p of f.params) {
     if (p.type.kind === 'array' && p.type.size === undefined) {
-      const layout = layoutOf(p.type, 'std430', c.structs);
+      const layout = layoutOf(p.type, 'std430', c.structs, authorTypeText);
       if ('none' in layout) return never(name, `parameter "${p.name}": ${layout.none}`);
       params.push({
         name: p.name,
@@ -1074,7 +928,12 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     };
   }
   const structs = new Map(plan.module.structs.map((x) => [x.name, x]));
-  const argsLayout = layoutOf({ kind: 'struct', name: plan.argsStruct }, 'std140', structs);
+  const argsLayout = layoutOf(
+    { kind: 'struct', name: plan.argsStruct },
+    'std140',
+    structs,
+    authorTypeText,
+  );
   if ('none' in argsLayout)
     return { kind: 'kernel', name, face: { ...face, noGpu: argsLayout.none }, ranges: [] };
   const partNames = new Set(
@@ -1092,15 +951,19 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     const vars: NonNullable<KernelLoop['reduce']>['vars'][number][] = [];
     for (const v of l.reduce.vars) {
       const b = plan.module.bindings.find((x) => x.name === v.binding)!;
-      const layout = layoutOf(b.type, 'std430', structs);
+      const layout = layoutOf(b.type, 'std430', structs, authorTypeText);
       if ('none' in layout)
         return { kind: 'kernel', name, face: { ...face, noGpu: layout.none }, ranges: [] };
       const t = v.type;
       vars.push({
         name: v.name,
         op: v.op,
-        scalar: (t.kind === 'vec' ? t.elem : (t as { scalar: string }).scalar) as 'f32',
-        n: t.kind === 'vec' ? t.n : 1,
+        scalar: (t.kind === 'f64' || t.kind === 'vec64'
+          ? 'f64'
+          : t.kind === 'vec'
+            ? t.elem
+            : (t as { scalar: string }).scalar) as 'f32',
+        n: t.kind === 'vec' || t.kind === 'vec64' ? t.n : 1,
         binding: {
           name: b.name,
           group: b.group,
@@ -1148,6 +1011,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         }),
         loops,
         ...(plan.tail !== undefined ? { tail: plan.tail } : {}),
+        ...guardOf(wgsl),
       },
     },
     ranges: plan.ranges,
@@ -1322,6 +1186,7 @@ function viewText(stem: string, exports: readonly HostExport[], runtime: string)
     )
   )
     out.push(`import type { Resident } from ${JSON.stringify(runtime)};`);
+  out.push(`import type { Pack } from ${JSON.stringify(runtime)};`);
   for (const e of exports) {
     switch (e.kind) {
       case 'function': {
@@ -1394,14 +1259,17 @@ function viewText(stem: string, exports: readonly HostExport[], runtime: string)
         break;
       case 'never': {
         out.push(`/** Not callable from host code (Rule 8.20): ${e.reason}. */`);
-        if (e.name === 'default')
-          out.push('declare const _default: never;', 'export default _default;');
-        else if (e.typeOnly) out.push(`export type ${e.name} = never;`);
+        if (e.typeOnly) out.push(`export type ${e.name} = never;`);
         else out.push(`export declare const ${e.name}: never;`);
         break;
       }
     }
   }
+  out.push(
+    '/** The compiled program, its manifest: the shader text, each binding with its byte layout and each entry with the bindings it reaches, which the program runtime loads (Rule 11.10). */',
+    'declare const program: Pack;',
+    'export default program;',
+  );
   return `${out.join('\n')}\n`;
 }
 
@@ -1432,6 +1300,7 @@ function moduleText(
   gen: ReturnType<typeof generateModuleJs>,
   runtime: string,
   wgsl: string,
+  pack: Pack,
   log?: ConsoleLog,
 ): string {
   const q = (s: string): string => JSON.stringify(s);
@@ -1441,11 +1310,14 @@ function moduleText(
   const out: string[] = [
     header(stem),
     `import * as ${RT} from ${q(runtime)};`,
-    `const ${MOD} = (function ($) {`,
+    // Pure, so a bundle that imports only the default export, the manifest, drops the CPU tier.
+    `const ${MOD} = /*#__PURE__*/ (function ($) {`,
     ...gen.decls,
     `$.F = {\n${gen.fns.join(',\n')}\n};`,
     `return { F: $.F, C: { ${constTable} }, $: $ };`,
-    `})(${RT}.createCodegenRuntime({ consoleSink: ${RT}.hostConsole }));`,
+    `})(/*#__PURE__*/ ${RT}.createCodegenRuntime({ consoleSink: ${RT}.hostConsole }));`,
+    // The program's manifest, which the program runtime loads (Rule 11.10).
+    `export default ${JSON.stringify(pack)};`,
   ];
   // The module's WGSL, once, for every entry the host calls on WebGPU.
   if (exports.some((e) => e.kind === 'compute' || e.kind === 'fragment'))
@@ -1492,7 +1364,7 @@ function moduleText(
       }
       case 'const':
         out.push(
-          `const ${bind(e.name)} = ${RT}.constantOf(${JSON.stringify(e.type)}, ${MOD}.C[${q(e.const)}]);`,
+          `const ${bind(e.name)} = /*#__PURE__*/ ${RT}.constantOf(${JSON.stringify(e.type)}, ${MOD}.C[${q(e.const)}]);`,
         );
         break;
       case 'enum': {
@@ -1540,9 +1412,9 @@ function moduleText(
       }
       case 'never':
         if (e.typeOnly) break;
-        if (e.name === 'default')
-          out.push(`export default ${RT}.notCallable("default", ${q(e.reason)});`);
-        else out.push(`const ${bind(e.name)} = ${RT}.notCallable(${q(e.name)}, ${q(e.reason)});`);
+        out.push(
+          `const ${bind(e.name)} = /*#__PURE__*/ ${RT}.notCallable(${q(e.name)}, ${q(e.reason)});`,
+        );
         break;
     }
   }

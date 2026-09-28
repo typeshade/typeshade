@@ -26,6 +26,7 @@ exports:
 - configure
 - typeshade
 - TypeshadeViteOptions
+- TypeshadeVitePlugin
 - createRuntime
 - runtime
 - Runtime
@@ -450,7 +451,10 @@ Alternatives considered:
 
 - `typeshade`: `packModule` takes `PackOptions`, and `Pack`, `PackBinding` and `PackEntry` gain the
   fields of section 1. `resident`, `Resident` and `configure` are reshaped as above.
-- `typeshade/vite`: `typeshade` takes `TypeshadeViteOptions`.
+- `typeshade/vite`: `typeshade` takes `TypeshadeViteOptions`. `TypeshadeVitePlugin` gains a
+  `config` hook, which asks `vite dev` to pre-bundle `typeshade/runtime/internal` when the server
+  starts: a generated module imports it, and Vite's scan of the project's sources never sees a
+  generated module, so without the hook the first page to import one found it late and reloaded.
 - `typeshade/runtime`, public now:
   - `createRuntime`, `runtime`, `Runtime` and `RuntimeOptions`;
   - `Program` and `LoadOptions`;

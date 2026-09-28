@@ -34,6 +34,7 @@ import {
   type WorkgroupShape,
 } from './ir/index.js';
 import { entryIo, type IoField } from './ir/entry-io.js';
+import { vertexLayoutOfEntry } from './vertex-layout.js';
 import { twoRowStd140Reason } from './std140.js';
 import {
   requiredCaps,
@@ -443,8 +444,8 @@ export interface VertexAttr {
   readonly type: string;
   readonly offset: number;
 }
-/** The vertex-buffer layout for a module's `@vertex` entry: every `@location` parameter and
- *  the interleaved `arrayStride` those parameters pack into. {@link reflect} describes the
+/** The vertex-buffer layout for a module's `@vertex` entry: every `@location` input and the
+ *  interleaved, tightly packed `arrayStride` they fill. {@link reflect} describes the
  *  first `@vertex` entry it finds in `module.funcs`; a module with more than one vertex entry
  *  point gets a `VertexLayout` for the one declared first. `Reflection.vertex` is `undefined`
  *  when the module has no `@location` vertex parameters.
@@ -563,9 +564,9 @@ export interface Reflection {
   readonly uniforms: readonly StructLayout[];
   /** std430 storage-buffer struct layouts. */
   readonly storage: readonly StructLayout[];
-  /** Vertex attributes from the `@vertex` entry's `@location` parameters. Offsets are
-   *  std430-aligned, each field rounded up to its type's alignment, so a host reads `offset`
-   *  and `arrayStride` from here instead of assuming a tightly packed buffer. */
+  /** Vertex attributes from the first `@vertex` entry's `@location` inputs, its loose
+   *  parameters and the located fields of its struct parameters, tightly packed in the order
+   *  written: the layout `packModule()` and the manifest carry (Rule 6.8). */
   readonly vertex?: VertexLayout;
   readonly entries: readonly EntryInfo[];
   /** Pipeline specialization constants: the names, types and defaults the host passes at
@@ -887,21 +888,18 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       io: { inputs: io.inputs.map(ioField), outputs: io.outputs.map(ioField) },
     });
     if (stage === 'vertex' && !vertex) {
-      let cursor = 0;
-      const attributes: VertexAttr[] = [];
-      for (const p of f.params) {
-        if (p.location === undefined) continue;
-        const { size, align } = typeLayout(p.type, 'std430', structs);
-        cursor = roundUp(cursor, align);
-        attributes.push({
-          name: p.name,
-          location: p.location,
-          type: typeKey(p.type),
-          offset: cursor,
-        });
-        cursor += size;
-      }
-      if (attributes.length) vertex = { attributes, arrayStride: cursor };
+      // The one vertex layout `packModule()` and the manifest carry (Rule 6.8).
+      const layout = vertexLayoutOfEntry(f, m.structs);
+      if (layout !== undefined)
+        vertex = {
+          attributes: layout.attributes.map((a): VertexAttr => ({
+            name: a.name,
+            location: a.location,
+            type: a.type,
+            offset: a.offset,
+          })),
+          arrayStride: layout.arrayStride,
+        };
     }
   }
 

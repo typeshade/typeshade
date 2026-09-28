@@ -32,6 +32,7 @@ export {
   type Pack,
   type PackBinding,
   type PackEntry,
+  type PackOptions,
 } from './compiler/ts/pack.js';
 
 // Editor intelligence shared by the Playground, VS Code adapter, and future LSP.

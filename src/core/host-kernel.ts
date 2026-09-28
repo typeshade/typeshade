@@ -36,6 +36,7 @@ import {
   runtimeCount,
   toCpu,
   type ComputeEntry,
+  type DrawBinding,
   type EntryBinding,
   type GeneratedCpu,
   type Layout,
@@ -71,7 +72,7 @@ export interface KernelLoop {
     readonly vars: readonly {
       readonly name: string;
       readonly op: TreeOp;
-      readonly scalar: 'f32' | 'i32' | 'u32';
+      readonly scalar: 'f32' | 'i32' | 'u32' | 'f64';
       readonly n: number;
       readonly binding: EntryBinding;
     }[];
@@ -96,6 +97,8 @@ export interface KernelFace {
     /** The CPU-tier function that gives the result from the parameters and what the GPU folded
      *  for each reduction, in loop order; absent when the function returns nothing. */
     readonly tail?: string;
+    /** Where the `_fp64` guard is, when the module emulates `f64`: the call binds it. */
+    readonly guard?: { readonly group: number; readonly binding: number };
   };
   /** What the WebGL2 tier draws, one program per loop, when every loop writes one array of
    *  4-byte elements at `i` (Rule 11.8). */
@@ -123,13 +126,18 @@ function entriesOf(k: KernelFace): { loop: ComputeEntry; fold?: ComputeEntry }[]
     const g = k.gpu!;
     es = g.loops.map((loop) => {
       const parts = (loop.reduce?.vars ?? []).map((v) => v.binding);
+      // The `_fp64` guard of a module that emulates `f64`, which the runtime binds.
+      const guard: DrawBinding[] =
+        g.guard === undefined
+          ? []
+          : [{ name: '_fp64', ...g.guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
       const entry = (fn: string, bindings: EntryBinding[]): ComputeEntry => ({
         name: k.name,
         fn,
         wgsl: g.wgsl,
         wg: [loop.wg, 1, 1],
         params: loop.reduce !== undefined ? TREE_PARAMS : TREE_PARAMS.slice(0, 2),
-        bindings,
+        bindings: [...bindings, ...guard],
         workgroupZero: {},
       });
       return {
@@ -337,7 +345,12 @@ function grid(groups: number): { wg: [number, number, number]; slots: number } {
   return { wg: [x, y, 1], slots: x * y };
 }
 
-const TYPED = { f32: Float32Array, i32: Int32Array, u32: Uint32Array } as const;
+const TYPED = {
+  f32: Float32Array,
+  i32: Int32Array,
+  u32: Uint32Array,
+  f64: Float64Array,
+} as const;
 
 /** Dispatch each loop in order; for a loop that reduces, fold its partials level by level and
  *  return what each variable folded to, in loop order. */

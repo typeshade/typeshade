@@ -96,6 +96,7 @@ import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { stageOf } from '../ir/nodes.js';
 import { eachStmtExpr, mapChildren } from '../ir/visit.js';
 import { BARRIER_INTRINSICS, DERIVATIVE_INTRINSICS, isKnownIntrinsic } from '../intrinsics.js';
+import { argAccess, eachOperand } from './access.js';
 import type { SourceSpan } from '../ir/span.js';
 import type { ShaderType } from '../ir/types.js';
 
@@ -406,8 +407,6 @@ function returnDepsOf(
         for (const d of localDeps.get(x.name) ?? []) acc.add(d);
         return;
       }
-      // The buffer's size, not its contents: see `classify`.
-      if (x.op === 'call' && x.fn === 'arrayLength') return;
       if (x.op === 'call' && byName.has(x.fn)) {
         const summary = known.get(x.fn);
         if (summary !== undefined) {
@@ -422,11 +421,11 @@ function returnDepsOf(
           return;
         }
       }
-      // An intrinsic, or a callee with no summary yet: every argument contributes. Reusing
-      // `mapChildren` rather than re-listing the Expr shapes — one walker per operation.
-      mapChildren(x, (c) => {
-        visit(c);
-        return c;
+      // An intrinsic, or a callee with no summary yet: every argument contributes, but for the
+      // array `arrayLength` measures, whose size is the buffer's and not its contents (see
+      // `classify`). `eachOperand` knows which operand that is, for every analysis (#348).
+      eachOperand(x, (c, access) => {
+        if (access !== 'length') visit(c);
       });
     };
     visit(e);
@@ -748,9 +747,10 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       // or not. Joining its argument classified it as a READ of a `read_write` buffer, and
       // refused a barrier under `if (out.length > 4)`, below a `break` on `i >= out.length`
       // and a `workgroupUniformLoad` in a loop it bounds; Tint accepts all three, measured,
-      // and refuses the same barrier under `if (out[0] > 4)`.
-      if (e.fn === 'arrayLength') {
-        return { at: 'uniform', why: 'arrayLength(…), the size of the bound buffer' };
+      // and refuses the same barrier under `if (out[0] > 4)`. Which call only measures its
+      // operand is `access.ts`'s to say, for every analysis at once (#348).
+      if (e.args.length > 0 && e.args.every((_, k) => argAccess(e.fn, k) === 'length')) {
+        return { at: 'uniform', why: `${e.fn}(…), the size of the bound buffer` };
       }
       // A derivative's own result varies by invocation by construction.
       if (DERIVATIVE_INTRINSICS.has(e.fn)) {

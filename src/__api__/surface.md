@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 470 exports
+## `.` — 471 exports
 
 ```
 abs
@@ -295,6 +295,7 @@ PACKED_4X8_LANGUAGE_FEATURE
 PackEntry
 packJson
 packModule
+PackOptions
 param
 ParamSpec
 PlainStruct
@@ -483,6 +484,17 @@ WorkgroupShape
 workgroupShapeOf
 workgroupSizeOf
 WRITE_ONLY_STORAGE_FORMATS
+```
+
+## `./compute` — 6 exports
+
+```
+ComputeBackend
+ComputeRunner
+ComputeRunnerOptions
+createComputeRunner
+GpuDeviceLike
+RejectedBackend
 ```
 
 ## `./dev` — 37 exports
@@ -908,7 +920,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 589 definitions
+## Shapes — 596 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -921,11 +933,8 @@ src/compiler/ts/directive.ts#isUseTypeshadeDirective  function  (node: Node) => 
 src/compiler/ts/foreign-names.ts#FOREIGN_NAMES  const  Readonly<Record<string, ForeignName>>
 src/compiler/ts/foreign-names.ts#ForeignName  interface  { from: "GLSL and HLSL" | "GLSL" | "HLSL"; io?: "either" | "input" | "output"; kind: "address space" | "attribute" | "builtin" | "function" | "operator" | "statement" | "type"; name?: string; note?: string }
 src/compiler/ts/foreign-names.ts#foreignNameRemedy  function  (name: string) => string
-src/compiler/ts/pack.ts#Pack  interface  { bindings: readonly PackBinding[]; entries: readonly PackEntry[]; glsl?: { readonly vertex: string; readonly fragment: string; }; structs: readonly { readonly name: string; readonly fields: readonly { name: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
-src/compiler/ts/pack.ts#PackBinding  interface  { access?: "read" | "read_write"; binding: number; group: number; name: string; space: string; type: string }
-src/compiler/ts/pack.ts#PackEntry  interface  { name: string; stage: string }
 src/compiler/ts/pack.ts#packJson  function  (m: ModuleDecl) => string
-src/compiler/ts/pack.ts#packModule  function  (m: ModuleDecl) => Pack
+src/compiler/ts/pack.ts#packModule  function  (m: ModuleDecl, options?: PackOptions) => Pack
 src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { checkReservedNames?: boolean; deprecations?: boolean; emit?: boolean; fileName?: string; readDocument?: (fileName: string) => string; requireDirective?: boolean; resolveImport?: (fromFile: string, specifier: string) => string; sourceFile?: SourceFile }
 src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; directives: readonly DiagnosticDirective[]; enables: readonly DeclarableCapability[]; expressions: readonly LoweredExpression[]; funcs: readonly FuncDecl[]; hasDirective: boolean; overrides: readonly OverrideDecl[]; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; vars: readonly ModuleVarDecl[]; wgsl?: string }
 src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "message" | "warning"; character: number; code?: string; endCharacter: number; endLine: number; fileName: string; length: number; line: number; message: string; start: number }
@@ -961,6 +970,12 @@ src/core/backends/wgsl.ts#intLit  function  (v: number, scalar: "i32" | "u32") =
 src/core/backends/wgsl.ts#lowerWgsl  const  (m: ModuleDecl, level: OptLevel) => ModuleDecl
 src/core/backends/wgsl.ts#wgslBackend  const  Backend
 src/core/backends/wgsl.ts#wgslType  function  (t: ShaderType) => string
+src/core/compute/runner.ts#ComputeBackend  type  "cpu" | "webgl2" | "webgpu"
+src/core/compute/runner.ts#ComputeRunner  interface  { backend: ComputeBackend; dispose: () => void; rejected: readonly RejectedBackend[]; run: (input: Float32Array, invocations?: number) => Promise<Uint32Array> }
+src/core/compute/runner.ts#ComputeRunnerOptions  interface  { device?: GpuDeviceLike; gl?: WebGL2RenderingContext; prefer?: readonly ComputeBackend[] }
+src/core/compute/runner.ts#GpuDeviceLike  interface  { createBindGroup: (...args: never[]) => unknown; createBuffer: (...args: never[]) => unknown; createCommandEncoder: (...args: never[]) => unknown; createComputePipeline: (...args: never[]) => unknown; createShaderModule: (...args: never[]) => unknown; queue: object }
+src/core/compute/runner.ts#RejectedBackend  interface  { backend: ComputeBackend; reason: string }
+src/core/compute/runner.ts#createComputeRunner  function  (m: ModuleDecl, opts?: ComputeRunnerOptions) => Promise<ComputeRunner>
 src/core/console.ts#CONSOLE_METHODS  const  ReadonlySet<ConsoleMethod>
 src/core/console.ts#ConsoleEvent  interface  { args: readonly (string | CpuValue)[]; invocation?: readonly number[]; method: ConsoleMethod; span?: SourceSpan }
 src/core/console.ts#ConsoleLog  interface  { binding: number; group: number; sites: readonly ConsoleSite[] }
@@ -1032,7 +1047,7 @@ src/core/fp64/flavor-select.ts#isAppleGpu  function  (s: Fp64FlavorSignals) => b
 src/core/fp64/flavor-select.ts#recommendFp64Flavor  function  (s: Fp64FlavorSignals) => Fp64Flavor
 src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; preamble: readonly string[]; requires: readonly string[]; source: string }
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
-src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 2 | 3 | 1; readonly returns: "value" | "void" | "casResult"; }>>
+src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 1 | 2 | 3; readonly returns: "value" | "void" | "casResult"; }>>
 src/core/intrinsics.ts#BARRIER_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#DERIVATIVE_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#INTRINSICS  const  Readonly<Record<string, Spelling>>
@@ -1317,6 +1332,10 @@ src/core/ir/types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; reado
 src/core/ir/types.ts#vec4iT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "i32"; }
 src/core/ir/types.ts#vec4uT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "u32"; }
 src/core/ir/types.ts#voidT  const  { readonly kind: "void"; }
+src/core/manifest.ts#Pack  interface  { bindings: readonly PackBinding[]; compiler: string; console?: PackConsole; entries: readonly PackEntry[]; features: readonly string[]; gl?: { readonly draws: Readonly<Record<string, PackGlDraw | { readonly none: string; }>>; }; glsl?: { readonly vertex: string; readonly fragment: string; }; overrides: readonly PackOverride[]; schema: 1; structs: readonly { readonly name: string; readonly fields: readonly { name: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
+src/core/manifest.ts#PackBinding  interface  { access?: "read" | "read_write"; binding: number; dataTexture?: PackDataTexture; group: number; injected?: true; layout?: PackLayout; name: string; noLayout?: string; resource: PackResource; rule?: "std140" | "std430"; space: string; stages: readonly ("compute" | "vertex" | "fragment")[]; type: string }
+src/core/manifest.ts#PackEntry  interface  { bindings?: readonly { readonly name: string; readonly writes: boolean; }[]; inputs?: readonly PackIo[]; line?: PackLine; name: string; outputs?: readonly PackIo[]; stage: string; vertex?: GpuVertexLayout; workgroupSize?: readonly [number, number, number] }
+src/core/manifest.ts#PackOptions  interface  { console?: boolean }
 src/core/measure.ts#EmitProfile  interface  { passes: readonly PassTiming[]; stages: readonly StageTiming[]; target: "glsl-es300" | "wgsl"; totalMs: number }
 src/core/measure.ts#EmitSize  interface  { chars: number; lines: number }
 src/core/measure.ts#OpCount  interface  { arith: number; calls: number; total: number }

@@ -618,6 +618,38 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   - The import journey installs a packed shader package with npm, `journeys/_shade-package/`, and
     calls a function of it through a module that imports it by name.
 
+- **A compiled program has a manifest, with a version** (proposal 0025, step 1; design rules 6.8
+  and 11.10; surface §64 and §69). `packModule(m, options)` returns schema 1: `schema` and
+  `compiler`, the version that wrote it; each binding with its `resource` in `reflect()`'s words,
+  the `stages` that reach it, and a buffer's byte `layout` with every offset, size and stride
+  under its `rule`, the `_fp64` guard among them; each entry with its `workgroupSize`, its
+  `inputs` and `outputs` with their interpolation, the `bindings` it reaches and writes, a vertex
+  entry's `vertex` buffer and its `line`; `overrides` and `features`; with `{ console: true }` the
+  recorded variant; and `gl`, how the WebGL2 tier draws each full-screen fragment entry, and a
+  storage array's `dataTexture`. The fields `packModule()` always gave keep their meaning. The
+  builder is `src/core/manifest.ts`, which imports no TypeScript. A module's host import has a
+  default export, its manifest, typed `Pack` in the host view; a bundle that imports it alone
+  carries no CPU tier. `reflect().vertex` now reports the tightly packed layout the manifest
+  carries, and the located fields of a struct parameter, where it gave std430-aligned offsets for
+  loose parameters only (for `f32`, `vec3`, `vec2`: 0, 4, 16 and a stride of 24, where it said 0,
+  16, 32 and 40).
+
+- **A kernel function over doubles runs on the GPU** (change 0013, the last part; Rule 8.22,
+  surface §65). A kernel function that takes an `f64` or an `array<f64>` now lowers and
+  dispatches on WebGPU. Each double is two `f32`s in the buffers, and the runtime binds the
+  module's `_fp64` guard.
+  - An `f64` or `vecNf64` reduction folds by the same 256-wide tree, with the emulation's add,
+    min and max. Its partials are `f64`s the runtime joins.
+  - `min` and `max` start from the largest finite `f32`, the emulation's range, since Tint takes
+    no infinity as a literal.
+  - The CPU tier computes each double natively, so the tiers agree to about 2^-44, not bit for
+    bit.
+  - In the import journey, `dstats` (a map, a sum and a min over 70 000 doubles, WebGPU
+    required) matches the double reference to 2.2e-14 in each element and 1.8e-15 relative in
+    the sum.
+  - The one refusal left was "an emulated f64, which a later part of change 0013 folds", and it
+    is gone.
+
 - **An emulated `f64` crosses the host boundary** (changes 0013 and 0016, the f64 split; Rules
   8.21 and 8.24, surface §65 and §67). The host passes an `f64` binding as a `number`, a
   `vecNf64` as a tuple, and an array of either as a `Float64Array`. The WGSL and the GLSL hold
@@ -1874,6 +1906,27 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   surface on both targets.
 
 ### Fixed
+
+- **A kernel loop may read the length of the array it writes** (Rule 8.22, #345). This loop ran
+  on the CPU with `TS8070`, "line 5 reads "out", which another iteration writes":
+
+  ```ts
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = f32(out.length); }
+  ```
+
+  `out.length` lowers to `arrayLength(out)`, which reads the length the host fixed when it bound
+  the buffer and no element, and the proof read it as a read of `out`. It is a GPU kernel now, one
+  dispatch, and Tint (Chromium 141) takes the WGSL it lowers to, which reads `arrayLength(&out)`.
+  A read of an element the loop writes at another index is refused as before. The Rule 7.5 bound
+  check had the same bug, fixed on its own ("A loop can write the array whose length bounds
+  it", below).
+  - What a builtin does with each argument is written once now, in `src/core/passes/access.ts`:
+    the array `arrayLength` measures, an atomic's place, and the texture `textureStore` writes a
+    texel of (#348). The bound check, uniformity and the kernel lowering each skipped inside
+    `arrayLength` by hand, and the proof knew the atomics by name; all four ask the table.
+  - `src/core/spec-conformance/argument-access.test.ts` holds the table to every overload of
+    Tint's `core.def` that TypeShade takes, so a builtin that takes a pointer cannot arrive
+    without an answer.
 
 - **A struct member of a uniform sits where `reflect()` says** (§51's rule, extended from arrays
   to structs). In the uniform address space, WGSL aligns a member of struct type to 16 and

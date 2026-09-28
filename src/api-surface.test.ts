@@ -29,7 +29,8 @@
 // are reachable from two or more subpaths, which is the right key for a doc obligation and
 // the WRONG one here: a symbol moving from `.` to `./dev` is a breaking change that
 // definition-keying hides). They are not two authorities over one fact. What they do share is
-// the compiler-API approach and the hardcoded compilerOptions.
+// the list of API subpaths (`api-subpaths.ts`, one copy for both), the compiler-API approach
+// and the hardcoded compilerOptions.
 //
 // ON THE HARDCODED OPTIONS, MEASURED RATHER THAN INHERITED. api-doc-coverage.test.ts records
 // `moduleResolution: 'classic'` as a silent kill switch that dropped `.` from 284 exports to
@@ -54,6 +55,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { API_SUBPATHS } from './api-subpaths.js';
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as {
@@ -65,18 +67,13 @@ const SNAPSHOT = join(PKG, 'src', '__api__', 'surface.md');
 const UPDATE = process.env.UPDATE_API_SURFACE === '1';
 const REBAKE = 'bun run bake:api-surface';
 
-/** The subpaths that ARE the public API. Mirrors api-doc-coverage.test.ts's list, and arm S4
- *  there already pins it against `package.json` — so a new subpath cannot appear unnoticed in
- *  one file and not the other. */
-const API_SUBPATHS = [
-  '.',
-  './dev',
-  './debug',
-  './emit-prod',
-  './vite',
-  './core/ir',
-  './language-service',
-] as const;
+// The subpaths snapshotted here are `API_SUBPATHS` from `api-subpaths.ts`, the one list
+// api-doc-coverage.test.ts reads too, so the two gates cannot cover different subpaths. Arm A5
+// there pins that list, with `NOT_API_SUBPATHS`, against `package.json` `exports` by set
+// equality: every subpath the manifest exports is either snapshotted here and doc-checked there,
+// or listed as not API with the reason. Nothing in THIS file checks the list against the
+// manifest, and `bun run bake:api-surface` runs this file alone, so it is A5, in `bun run test`,
+// that fails on a subpath nobody classified.
 
 /** Floors for the "did the reader read anything" arm. DELIBERATELY well under the real counts,
  *  which this reader measured at 355 / 33 / 17 / 222 when it landed. (Do not read those as
@@ -88,6 +85,7 @@ const API_SUBPATHS = [
  *  that can name what actually moved. */
 const FLOOR: Readonly<Record<string, number>> = {
   '.': 200,
+  './compute': 3,
   './dev': 20,
   './debug': 4,
   './emit-prod': 10,
@@ -169,6 +167,21 @@ function memberText(prop: ts.Symbol): string {
  *  and a long line is the right trade: TypeScript's default cut-off would put a blind spot in
  *  exactly the region this gate claims to watch, and a diagnostic code joining `CODES` is a
  *  real change to what a consumer branches on. */
+/** Every run of number literals joined by ` | `, `3 | 2 | 4`, in ascending order, wherever it
+ *  stands in the printed form: a nested union too, which {@link typeText}'s top-level sort does
+ *  not reach. A run of number literals is a set of numbers, so sorting it loses nothing, and
+ *  TypeScript's order for one follows which file of the program first made each literal type:
+ *  moving an import re-spelled `matT`'s `cols: 2 | 3 | 4` as `3 | 2 | 4` with `types.ts`
+ *  unchanged. */
+function sortNumberRuns(printed: string): string {
+  return printed.replace(/(?<![\w.$])-?\d+(?: \| -?\d+)+(?![\w.$])/g, (run) =>
+    run
+      .split(' | ')
+      .sort((a, b) => Number(a) - Number(b))
+      .join(' | '),
+  );
+}
+
 /** The printed form of a type, with a UNION's members sorted (#61).
  *
  *  TypeScript's constituent order for a union is a function of the whole program, not of the
@@ -191,14 +204,15 @@ function memberText(prop: ts.Symbol): string {
  *  read as arbitrary (`"read_write"` before `"read"`).
  *
  *  WHAT IS NOT COVERED, measured rather than assumed: a union NESTED inside a larger printed
- *  form keeps TypeScript's order, because the separator that would split it is not at the top
+ *  form keeps TypeScript's order, unless it is a run of number literals, which
+ *  {@link sortNumberRuns} sorts wherever it stands, because the separator that would split it is not at the top
  *  level — 27 of them today, every one inside a function signature (`stage?: "vertex" |
  *  "fragment"` within a parameter list). Sorting those needs the signature rebuilt from the
  *  type rather than post-processed as text, which is a different change. The measured effect
  *  of this one is what #61 asked for: adding or removing a subpath now moves only that
  *  subpath's own rows, where before it re-spelled `TypeshadeSymbolKind`. */
 function typeText(type: ts.Type, format: ts.TypeFormatFlags): string {
-  const printed = checker.typeToString(type, undefined, format);
+  const printed = sortNumberRuns(checker.typeToString(type, undefined, format));
   if (!printed.includes(' | ')) return printed;
   const parts = printed.split(' | ');
   const balanced = (s: string): boolean => {
@@ -357,6 +371,17 @@ describe('the reader sees the surface at all', () => {
     ).toBeGreaterThan(20);
     const unsorted = unions.filter((parts) => parts.join('|') !== [...parts].sort().join('|'));
     expect(unsorted.map((p) => p.join(' | '))).toEqual([]);
+  });
+
+  it('prints every run of number literals in ascending order, nested ones too', () => {
+    // TypeScript orders a union's number literals by which file first made each literal type,
+    // so an import moved in one file re-spelled `matT`'s `cols: 2 | 3 | 4` as `3 | 2 | 4`.
+    const runs = [...render().matchAll(/(?<![\w.$])-?\d+(?: \| -?\d+)+(?![\w.$])/g)].map((m) =>
+      m[0].split(' | ').map(Number),
+    );
+    expect(runs.length, 'no run of number literals found: the reader is broken').toBeGreaterThan(5);
+    const unsorted = runs.filter((r) => r.join() !== [...r].sort((a, b) => a - b).join());
+    expect(unsorted).toEqual([]);
   });
 
   it('leaks no compiler-internal symbol id into a shape', () => {
