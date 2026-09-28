@@ -422,6 +422,13 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A kernel function's scatter runs on the GPU by atomics** (change 0013, part 4; Rules 7.2 and
+  8.22, surface §65). A loop the proof accepts that adds into an integer array at an index it
+  computes, `bins[k] += 1` (and `&= |= ^=`, `min`, `max`), lowers to `atomicAdd(&bins[k], 1u)` on
+  an `array<atomic<u32>>` binding, the same bytes as the caller's `Uint32Array`, which comes back
+  with the counts added. The import journey builds a 64-bin histogram of 300 000 values on WebGPU
+  in Chromium and matches the reference exactly.
+
 - **A kernel function's reduction runs on the GPU, in one order on every tier** (change 0013,
   part 3; Rules 7.2 and 8.22, surface §65). `s += x`, `s *= x`, `min`, `max` (and `& | ^` on
   integers) in a loop the proof accepts are folded as the GPU folds them: each iteration from the
@@ -1558,6 +1565,12 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   surface on both targets.
 
 ### Fixed
+
+- **A compound assignment to an `f32` rounds in the CPU backends' `f32` mode.** `s += x` computed
+  its sum inside the statement, where `froundF32` (`core/passes/precision.ts`) did not reach it, so
+  the interpreter and the generated CPU code kept it an f64 sum where `s = s + x` rounded; a host
+  call (Rule 11.7) summing in a loop could part from the GPU in the last places. The pass now spells
+  it `s = s + x` first, component-wise for a vector.
 
 - **An array with no size is refused where it would leave its storage binding, not by Tint**
   (Rule 12.6, surface §20). A parameter or a result typed `array<T>`, or a struct whose last field

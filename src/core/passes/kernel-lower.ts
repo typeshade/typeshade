@@ -40,9 +40,13 @@ import type {
 } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
 import { u32T } from '../ir/types.js';
-import { mapChildren } from '../ir/visit.js';
+import { mapChildren, mapStmtExpr } from '../ir/visit.js';
 import { fnReads, fnWrites } from './effects.js';
-import type { KernelProof, LoopReduction } from './parallel-loop.js';
+import {
+  combineOf as writeCombine,
+  type KernelProof,
+  type LoopReduction,
+} from './parallel-loop.js';
 import { KERNEL_TREE, treeIdentity } from '../kernel-tree.js';
 
 type ForStmt = Stmt & { s: 'for' };
@@ -101,10 +105,6 @@ export function lowerKernel(
   if (loops.length === 0) return { noGpu: 'it has no loop to dispatch' };
   for (const v of proof.loops) {
     if (!v.ok) return { noGpu: 'a loop of it runs on the CPU (TS8070)' };
-    if (v.writes.some((w) => w.kind === 'scatter'))
-      return {
-        noGpu: 'a loop of it scatters into an array, which a later part of change 0013 lowers',
-      };
     if (v.writes.some((w) => w.kind === 'texel'))
       return { noGpu: 'a loop of it writes a texture, which a later part of change 0013 lowers' };
     for (const r of v.reductions) {
@@ -114,6 +114,26 @@ export function lowerKernel(
   }
   const scalars = f.params.filter((p) => !isRuntimeArray(p.type));
   const arrays = f.params.filter((p) => isRuntimeArray(p.type));
+  // An integer array a loop scatters into (`bins[k] += 1`) is `array<atomic<T>>` in the
+  // module, and each such write an atomic, which is exact in any order.
+  const scatter = new Map<string, string>();
+  for (const v of proof.loops)
+    if (v.ok)
+      for (const w of v.writes)
+        if (w.kind === 'scatter') {
+          if (ATOMIC_OF[w.op] === undefined)
+            return { noGpu: `it scatters into "${w.name}" with ${w.op}, which no atomic does` };
+          if (!arrays.some((p) => p.name === w.name))
+            return { noGpu: `it scatters into "${w.name}", which is not a parameter` };
+          scatter.set(w.name, w.op);
+        }
+  for (const v of proof.loops)
+    if (v.ok)
+      for (const w of v.writes)
+        if (w.kind !== 'scatter' && scatter.has(w.name))
+          return {
+            noGpu: `a loop writes "${w.name}" in place, and another scatters into it`,
+          };
   for (const p of scalars) {
     const why = notUniform(p.type, m);
     if (why !== undefined) return { noGpu: `parameter "${p.name}" is ${why}` };
@@ -235,6 +255,7 @@ export function lowerKernel(
       arrays: arrays.map((p) => p.name),
       argsBinding,
       argsStruct,
+      scatter,
     };
     const common = {
       range: range.name,
@@ -329,7 +350,7 @@ export function lowerKernel(
       name: p.name,
       space: 'storage',
       access: writtenArrays.has(p.name) ? 'read_write' : 'read',
-      type: p.type,
+      type: scatter.has(p.name) ? atomicArray(p.type) : p.type,
     })),
     ...partBindings.map((p, k): BindingDecl => ({
       group: 0,
@@ -349,6 +370,14 @@ export function lowerKernel(
     vars: [...(m.vars ?? []).filter((x) => x.space !== 'workgroup'), ...extraVars],
     ...(m.enables !== undefined ? { enables: m.enables } : {}),
   };
+  for (const name of scatter.keys()) {
+    if (entries.some((e) => readsOutsideAtomics(e.body, name)))
+      return {
+        noGpu: `a loop reads "${name}", which a loop scatters into: an atomic is read only by an atomic`,
+      };
+    if (entries.some((e) => stillPlain(e.body, name)))
+      return { noGpu: `it scatters into "${name}" at a place other than an element` };
+  }
   return {
     module,
     argsBinding,
@@ -374,6 +403,8 @@ interface LoopCtx {
   readonly arrays: readonly string[];
   readonly argsBinding: string;
   readonly argsStruct: string;
+  /** The arrays the function scatters into, by name, with the op. */
+  readonly scatter: ReadonlyMap<string, string>;
 }
 
 const vec3u: ShaderType = { kind: 'vec', n: 3, elem: 'u32' };
@@ -445,9 +476,11 @@ function iterationOf(c: LoopCtx, ret: Expr | undefined, reset: readonly Stmt[]):
   };
   return [
     { s: 'let', name: c.counter, expr: i },
-    ...[...c.prelude, ...reset, ...ownContinuesReturn(c.loop.body, ret)].map((st) =>
-      mapStmt(st, rewrite),
-    ),
+    ...[
+      ...c.prelude,
+      ...reset,
+      ...ownContinuesReturn(c.loop.body, ret).map((st) => toAtomics(st, c.scatter)),
+    ].map((st) => mapStmt(st, rewrite)),
     ...(ret !== undefined ? [{ s: 'return', expr: ret } as Stmt] : []),
   ];
 }
@@ -799,6 +832,107 @@ function mapStmt(st: Stmt, f: (e: Expr) => Expr): Stmt {
     default:
       return st;
   }
+}
+
+// ─── a scatter ───────────────────────────────────────────────────────────────────────────────
+
+const ATOMIC_OF: Readonly<Record<string, string>> = {
+  '+': 'atomicAdd',
+  '&': 'atomicAnd',
+  '|': 'atomicOr',
+  '^': 'atomicXor',
+  min: 'atomicMin',
+  max: 'atomicMax',
+};
+
+/** `array<T>` as `array<atomic<T>>`, the same bytes. */
+function atomicArray(t: ShaderType): ShaderType {
+  const elem = (t as { elem: ShaderType }).elem as { scalar: 'u32' | 'i32' };
+  return { kind: 'array', elem: { kind: 'atomic', elem: elem.scalar } };
+}
+
+/** `st` with each write into an array it scatters into, `a[k] op= e`, as the atomic of `op` on
+ *  `a[k]`, in nested statements too. A write at any other place is left for `stillPlain`. */
+function toAtomics(st: Stmt, scatter: ReadonlyMap<string, string>): Stmt {
+  if (scatter.size === 0) return st;
+  const inner = mapStmtExpr(
+    st,
+    (e) => e,
+    (b) => toAtomics(b, scatter),
+  );
+  if (inner.s !== 'assign' && inner.s !== 'assignOp') return inner;
+  const t = inner.target;
+  if (t.op !== 'index' || t.base.op !== 'param' || !scatter.has(t.base.name)) return inner;
+  const combine = writeCombine(inner).combine;
+  if (combine === undefined) return inner;
+  const at = atomicArray(t.base.type);
+  const atomicT = (at as { elem: ShaderType }).elem;
+  const place: Expr = { ...t, type: atomicT, base: { ...t.base, type: at } };
+  return {
+    s: 'call',
+    expr: {
+      op: 'call',
+      type: t.type,
+      fn: ATOMIC_OF[scatter.get(t.base.name)!]!,
+      args: [place, combine.with],
+    },
+    ...(inner.span !== undefined ? { span: inner.span } : {}),
+  };
+}
+
+/** Whether `sts` read the array `name` other than as an atomic's place or through its length. */
+function readsOutsideAtomics(sts: readonly Stmt[], name: string): boolean {
+  let found = false;
+  const visit = (e: Expr): void => {
+    if (found) return;
+    if (e.op === 'call' && e.fn === 'arrayLength') return;
+    if (e.op === 'call' && Object.values(ATOMIC_OF).includes(e.fn)) {
+      const [place, ...rest] = e.args;
+      if (place !== undefined && place.op === 'index') visit(place.idx);
+      rest.forEach(visit);
+      return;
+    }
+    if ((e.op === 'varref' || e.op === 'param') && e.name === name) {
+      found = true;
+      return;
+    }
+    forEachChild(e, visit);
+  };
+  for (const st of sts)
+    mapStmt(st, (e) => {
+      if (st.s === 'assign' || st.s === 'assignOp') {
+        // A write's target is not a read; `stillPlain` answers for it.
+        if (e === st.target) return e;
+      }
+      visit(e);
+      return e;
+    });
+  return found;
+}
+
+/** Whether `sts` still write the array `name` as a plain place, which `toAtomics` did not turn
+ *  into an atomic. */
+function stillPlain(sts: readonly Stmt[], name: string): boolean {
+  let found = false;
+  const walk = (st: Stmt): void => {
+    if ((st.s === 'assign' || st.s === 'assignOp') && rootOf(st.target) === name) found = true;
+    mapStmtExpr(
+      st,
+      (e) => e,
+      (b) => {
+        walk(b);
+        return b;
+      },
+    );
+  };
+  sts.forEach(walk);
+  return found;
+}
+
+function rootOf(e: Expr): string | undefined {
+  let b: Expr = e;
+  while (b.op === 'index' || b.op === 'member') b = b.base;
+  return b.op === 'varref' || b.op === 'param' ? b.name : undefined;
 }
 
 // ─── the loop's range ────────────────────────────────────────────────────────────────────────

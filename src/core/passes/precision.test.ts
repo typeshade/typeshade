@@ -4,6 +4,7 @@ import { f32T, vec2fT, i32T } from '../ir/index.js';
 import { compileModule } from '../oracle.js';
 import { compileModuleJs } from '../cpu-codegen.js';
 import { froundF32 } from './precision.js';
+import { compile } from '../../compiler/ts/compile.js';
 
 // X-GIS #2426 — the f32 oracle mode. The default oracle is f64 BY DESIGN (it is the algebra
 // reference); this pass makes the same IR evaluate as a correctly-rounding f32 machine, so a
@@ -160,6 +161,35 @@ describe('froundF32 — the f32 oracle mode', () => {
       ],
     };
     expect(JSON.stringify(froundF32(intM))).toBe(JSON.stringify(intM));
+  });
+
+  it('rounds a compound assignment, which it spelled out, as it rounds `s = s + x`', () => {
+    // `s += x` computed its sum inside the statement, where no expression rewrite reached it,
+    // so it stayed an f64 sum in f32 mode on both CPU backends (found by change 0013's tests).
+    const run = (body: string) => {
+      const r = compile(
+        `"use typeshade";\nexport function k(a: f32, n: i32): f32 { let s = 0.; let v = vec2(0.); for (let i = 0; i < n; i++) { ${body} } return s + v.y; }`,
+        { fileName: 'm.shade.ts' },
+      );
+      const js = compileModuleJs(r.module, { precision: 'f32' }).fns.k!(0.1 as never, 10 as never);
+      const interp = compileModule(r.module, { precision: 'f32' }).fns.k!(
+        0.1 as never,
+        10 as never,
+      );
+      expect(Object.is(js, interp)).toBe(true);
+      return js;
+    };
+    let want = 0;
+    for (let i = 0; i < 10; i++) want = Math.fround(want + Math.fround(0.1));
+    expect(run('s += a;')).toBe(want);
+    expect(run('s = s + a;')).toBe(want);
+    // A vector target rounds component-wise too.
+    expect(run('v += vec2(0., a);')).toBe(want);
+    const once = froundF32(
+      compile(`"use typeshade";\nexport function k(a: f32): f32 { let s = 1.; s *= a; return s; }`)
+        .module,
+    );
+    expect(JSON.stringify(froundF32(once))).toBe(JSON.stringify(once));
   });
 
   it('rounds component-wise over f32 vectors', () => {

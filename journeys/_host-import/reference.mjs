@@ -110,5 +110,10 @@ export function loopReference() {
   const scaled = xs.slice(0, 256).map((x) => f(x * 0.5));
   let tally = 0;
   for (let i = 0; i < 70000; i++) tally += (i % 7) - 3;
-  return { render, drift, odds, stats, scaled, tally: [tally] };
+  // The histogram, in f32: each iteration's bin, counted.
+  const histogram = new Array(64).fill(0);
+  const lo = f(-1000.123);
+  const scale = f(64 / 2000.246);
+  for (const x of xs) histogram[Math.min(Math.trunc(Math.max(f(f(x - lo) * scale), 0)), 63)]++;
+  return { render, drift, odds, stats, scaled, tally: [tally], histogram };
 }
