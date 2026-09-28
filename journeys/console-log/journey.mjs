@@ -1,7 +1,7 @@
 // The host half of the console journey: 100 values, a kernel that doubles them, and the lines
 // it logs on the way, computed here in plain JavaScript with f32 rounding where the GPU has it.
-// The harness compiles the kernel with `console: 'gpu'`, binds the console buffer, decodes it
-// with `decodeConsole`, and holds the lines equal to these and to the CPU run's.
+// The harness loads the kernel's recorded variant on `typeshade/runtime`, which binds the console
+// buffer and hands its sink the decoded lines, and holds them equal to these and to the CPU run's.
 
 const N = 100;
 const f = Math.fround;
@@ -16,8 +16,8 @@ export default {
       entry: 'main',
       workgroups: [2, 1, 1],
       bindings: {
-        xs: { gpu: new Float32Array(xs), cpu: xs },
-        out: { gpu: new Float32Array(128), cpu: new Array(128).fill(0) },
+        xs: xs,
+        out: new Array(128).fill(0),
       },
       read: 'out',
       expected: () => xs.map((x) => f(x * 2)),

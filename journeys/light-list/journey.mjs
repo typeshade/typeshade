@@ -57,11 +57,8 @@ export default {
       entry: 'shade',
       workgroups: [POINTS / 64, 1, 1],
       bindings: {
-        lights: {
-          gpu: new Float32Array(lights.flatMap((l) => [...l.pos, l.radius, l.power])),
-          cpu: lights,
-        },
-        out: { gpu: new Float32Array(POINTS * 3), cpu: new Array(POINTS * 3).fill(0) },
+        lights: lights,
+        out: new Array(POINTS * 3).fill(0),
       },
       read: 'out',
       expected: lightAll,

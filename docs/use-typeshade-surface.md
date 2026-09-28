@@ -6762,8 +6762,8 @@ writes nothing after its `discard`.
 `examples/gpu-console.shade.ts` is the kernel above with a helper that warns and a `console.table`
 of a matrix; the compile gate
 hands Tint its WGSL both ways, as written and under `console: 'gpu'`. The `console-log` journey
-runs it on WebGPU from the packed tarball and holds the lines `decodeConsole` returns equal to
-the CPU run's and to its host's own, line for line.
+runs its own kernel on WebGPU from the packed tarball, through `typeshade/runtime` (§69), and
+holds the lines the runtime decodes equal to the CPU run's and to its host's own, line for line.
 
 **How a line is printed.** The call layer (§64, §67) and the program runtime (§69) print each
 event to the host's console with one prefix, whether the GPU recorded it or the CPU tier ran it:

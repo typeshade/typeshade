@@ -66,9 +66,9 @@ export default {
       entry: 'trace',
       workgroups: [Math.ceil(RAYS / 64), 1, 1],
       bindings: {
-        verts: { gpu: new Float32Array(verts.flat()), cpu: verts },
-        rays: { gpu: new Float32Array(rays.flatMap((r) => [...r.origin, ...r.dir])), cpu: rays },
-        hits: { gpu: new Float32Array(RAYS), cpu: new Array(RAYS).fill(0) },
+        verts: verts,
+        rays: rays,
+        hits: new Array(RAYS).fill(0),
       },
       read: 'hits',
       expected: nearestHits,

@@ -17,6 +17,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **The user journeys run on the program runtime** (proposal 0025, step 5, first half; Rule
+  11.11). `journeys/_harness.mjs` wrote its own WebGPU, 521 lines of it, to run each journey. It
+  now imports `typeshade/runtime` in the page as the packed tarball installs it, with no
+  bundler; loads each run's manifest from `packModule`; binds each binding by name with the
+  journey's host value; and reads the result back through a `Resident` or the target texture.
+  The console lines come from the runtime's sink, and its dropped count from its warning. A
+  journey's `bindings` are now `{ name: value }`, the host value alone, which the runtime and the
+  CPU oracle both take, in place of the packed bytes each journey wrote beside it.
+
 - **The license is Apache 2.0** (was MIT). `LICENSE` holds the Apache License, Version 2.0,
   `NOTICE` is new and ships in the package, and `package.json` says `"license": "Apache-2.0"`.
   Apache 2.0 adds an explicit patent grant and says the license grants no right to use the
