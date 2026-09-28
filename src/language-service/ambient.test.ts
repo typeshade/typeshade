@@ -1609,3 +1609,51 @@ describe('an index and a swizzle, as each layer answers them (Rule 12.7)', () =>
     });
   }
 });
+
+// THE ARGUMENT TYPESCRIPT BLAMES IS NOT THE ARITHMETIC (#387). When no overload matches,
+// TypeScript reports the first argument the LAST overload refused. For `textureSample(hdr, smp,
+// p.xy / size)` on a `texture_2d<f32>` that is `hdr`, since the last overload takes a
+// `texture_1d`, and the TS2769 rule used to give up on an argument that is not a vector, so the
+// editor refused a call the compiler accepts. The whole-signature test decides now, every
+// argument included. Both halves are read on each program: the compiler and the editor.
+describe('vector arithmetic in a texture read stays clean, whichever argument is blamed (#387)', () => {
+  const program = (body: string): string =>
+    `"use typeshade";\ndeclare const hdr: texture_2d<f32>;\ndeclare const smp: sampler;\n` +
+    `declare const cmp: sampler_comparison;\n@fragment\n` +
+    `export function fs(@builtin("position") p: vec4): vec4 { ${body} return c; }\n`;
+  const halves = (body: string): { compiler: string[]; editor: string[] } => {
+    const src = program(body);
+    const service = ambientService();
+    service.openDocument('a.ts', src);
+    return {
+      compiler: compile(src)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => String(d.code)),
+      editor: service
+        .getDiagnostics('a.ts')
+        .filter((d) => d.severity === 'error')
+        .map((d) => String(d.code)),
+    };
+  };
+
+  it.each([
+    'const size = vec2(textureDimensions(hdr)); const c = textureSample(hdr, smp, p.xy / size);',
+    'const c = textureSample(hdr, smp, p.xy / 64.);',
+    'const c = textureSample(hdr, smp, p.xy * 0.01);',
+    'const c = textureSampleLevel(hdr, smp, p.xy / 64., 0.);',
+  ])('%s: neither half reports', (body) => {
+    expect(halves(body)).toEqual({ compiler: [], editor: [] });
+  });
+
+  it('a coordinate of the wrong size, or the wrong sampler, is still refused in both halves', () => {
+    // A vec3 coordinate fits no overload of a 2d texture; the editor gives the compiler's code.
+    expect(halves('const c = textureSample(hdr, smp, p.xyz / 64.);')).toEqual({
+      compiler: ['TS8041'],
+      editor: ['TS8041'],
+    });
+    expect(halves('const c = textureSample(hdr, cmp, p.xy / 64.);')).toEqual({
+      compiler: ['TS8003'],
+      editor: ['TS8003'],
+    });
+  });
+});
