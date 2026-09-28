@@ -179,11 +179,11 @@ export function m() { out[0] = A.k + A.shift.x }`);
   it('refuses a struct member a uniform and storage would lay out differently', () => {
     // As an array that needs a wrapper is: padding it for the uniform would move the bytes a
     // host packs for the storage binding, which reflect() lays out by std430.
-    const c = compile(`"use typeshade"
+    const c = compile(`"use typeshade";
 interface In { a: f32 }
 interface U { k: f32; inner: In }
-declare const U_: uniform<U>
-declare const S: storage<U, "read_write">
+declare const U_: uniform<U>;
+declare const S: storage<U, "read_write">;
 @compute([1])
 export function m() { S.k = U_.k + U_.inner.a; }`);
     expect(c.wgsl).toBeUndefined();

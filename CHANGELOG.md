@@ -1843,6 +1843,21 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A struct member of a uniform sits where `reflect()` says** (§51's rule, extended from arrays
+  to structs). In the uniform address space, WGSL aligns a member of struct type to 16 and
+  starts the next member at least 16 bytes further on. `reflect()`'s std140 layout already
+  reported those offsets, but the emit did not write them.
+  - A uniform `interface U { k: f32; inner: In }` put `inner` at offset 4 against `reflect()`'s 16.
+  - A `vec2f64` field, which the f64 emulation makes a `DF64Vec2` struct, landed at offset 8.
+    Tint (Chromium 141) refused it with `the offset of a struct member of type 'DF64Vec2' in
+address space 'uniform' must be a multiple of 16 bytes`, and a host that packs by
+    `reflect()` would write bytes the shader read elsewhere.
+  - The uniform layout pass now writes `@align(16)`, and `@size` rounded to 16, on such a
+    member. The fp64 examples' WGSL goldens gain `@align(16)` on their `vec2f64` uniform
+    members.
+  - A struct bound as both a uniform and storage whose member would move is refused, as its
+    padded arrays already are.
+
 - **A fragment entry that takes its position in a struct marks its console lines with the pixel
   on the CPU, as it does on the GPU** (surface §66; design rule 11.9). `compile().eval` and a
   debug session looked for the invocation of a `console.*` event only in a parameter that takes
