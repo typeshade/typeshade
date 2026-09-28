@@ -193,6 +193,48 @@ export function k(a: i32, b: i32, n: u32): i32 {
     expect(r.determinism).toEqual([]);
   });
 
+  it("lists a kernel function's float reduction as order, after the function's own operations, and not an exact one", () => {
+    const r = moduleOf(`"use typeshade";
+export function stats(xs: array<f32>, ns: array<i32>): f32 {
+  let sum = 0.;
+  let prod = 1.;
+  let lo = 0.;
+  let n: i32 = 0;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    sum += xs[i] / 2.;
+    prod *= xs[i];
+    lo = min(lo, xs[i]);
+    n += ns[i];
+  }
+  return sum + prod + lo + f32(n);
+}`);
+    const bound =
+      "one answer on every tier: the 256-wide tree of Rule 7.2, which may differ from the loop's sequential order in the last places";
+    expect(r.determinism).toEqual([
+      expect.objectContaining({ op: '/', elem: 'f32', kind: 'ulp', count: 1 }),
+      { op: '+', elem: 'f32', kind: 'order', accuracy: bound, count: 1, where: ['stats'] },
+      { op: '*', elem: 'f32', kind: 'order', accuracy: bound, count: 1, where: ['stats'] },
+    ]);
+  });
+
+  it('lists no order row for a loop that stays on the CPU, or for a function that is not a kernel', () => {
+    const r = moduleOf(`"use typeshade";
+export function prefix(xs: array<f32>): f32 {
+  let sum = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    sum += xs[i];
+    xs[i] = sum;
+  }
+  return sum;
+}
+export function local(a: f32): f32 {
+  let s = 0.;
+  for (let i: i32 = 0; i < 4; i++) s += a;
+  return s;
+}`);
+    expect(r.determinism.filter((e) => e.kind === 'order')).toEqual([]);
+  });
+
   it('is computed on the partial module when the front end reports an error', () => {
     const r = compile(`"use typeshade";
 export function ok(a: f32): f32 {
