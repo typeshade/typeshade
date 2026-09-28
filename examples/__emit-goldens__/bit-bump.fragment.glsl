@@ -48,6 +48,9 @@ uint _ibits(uint e, uint n, uint o, uint c) {
   uint mask = uint((0xffffffffu >> (32u - c)) << o);
   return (e & ~mask) | ((n << o) & mask);
 }
+uint _f2u(float x) {
+  return uint(mix(clamp(x, 0.0, 4294967040.0), 0.0, isnan(x)));
+}
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
@@ -63,14 +66,14 @@ void main() {
   vec3 bent = refract(fromEye, nf, 0.75);
   float diffuse = (max(dot(nf, toLight), 0.0) * intBitsToFloat(((-1 >> 1) + 127) << 23) * intBitsToFloat(((-1 - (-1 >> 1)) + 127) << 23));
   float gain = determinant(transpose(frame.m));
-  uint col = (uint((uv.x * 255.0)) + 1u);
+  uint col = (_f2u((uv.x * 255.0)) + 1u);
   uint lead = _msb(col);
   uint nibble = _xbits(_brev(col), 28u, 4u);
   uint word = _ibits(col, _popcnt(col), 8u, 4u);
   float _gv0 = float(lead);
   vec3 bands = vec3((_gv0 * 0.125), (float(nibble) * 0.0625), (float(_xbits(word, 8u, 4u)) * 0.125));
   int shift = int(lead);
-  uint rolled = ((col << uint(shift)) & 255u);
+  uint rolled = ((col << (uint(shift) & 31u)) & 255u);
   uint inverted = (~rolled & 255u);
   float stepGain = 0.0;
   switch ((int(nibble) & 3)) {

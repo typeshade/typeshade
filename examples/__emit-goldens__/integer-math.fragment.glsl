@@ -13,11 +13,18 @@ uint _idot(uvec2 a, uvec2 b) {
 int _idot(ivec2 a, ivec2 b) {
   return a.x * b.x + a.y * b.y;
 }
+int _irem(int a, int b) {
+  return (b == 0 || (a == int(0x80000000u) && b == -1)) ? 0 : a - (a / b) * b;
+}
+
+int _f2i(float x) {
+  return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
+}
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  ivec2 at = ivec2(int((uv.x * 64.0)), int((uv.y * 64.0)));
+  ivec2 at = ivec2(_f2i((uv.x * 64.0)), _f2i((uv.y * 64.0)));
   uvec2 cell = uvec2(uint(at.x), uint(at.y));
   uvec2 magnitude = cell;
   uint width = grid.span.x;
@@ -26,7 +33,7 @@ void main() {
   uint spread = _idot(magnitude, magnitude);
   vec2 _cse0 = (uv - vec2(0.5, 0.5));
   float radial = dot(_cse0, _cse0);
-  float rings = (float((squared % 97)) / 97.0);
+  float rings = (float(_irem(squared, 97)) / 97.0);
   float bands = (float((spread % 53u)) / 53.0);
   float edge = (float((width % 7u)) / 7.0);
   _ret = vec4(rings, bands, ((edge * 0.5) + (radial * 0.5)), (1.0 - ((float(squared) * 0.000244140625) * 0.0)));

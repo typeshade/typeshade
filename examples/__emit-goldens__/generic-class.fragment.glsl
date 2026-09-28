@@ -25,6 +25,9 @@ struct Marked {
   float b;
   float tag;
 };
+int _f2i(float x) {
+  return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
+}
 float Slot_f32_either(Slot_f32 self_, bool c) {
   return (c ? self_.a : self_.b);
 }
@@ -88,7 +91,7 @@ void main() {
   Slot_f32 gain = Slot_f32_new(1.15, 0.55);
   Slot_vec3 tint = Slot_vec3_new(vec3(0.95, 0.45, 0.28), vec3(0.18, 0.55, 0.92));
   Bag_f32 band = Bag_f32_new(float[3](0.2, 0.55, 0.9));
-  float step = Bag_f32_nth(band, int(floor((uv.y * 3.0))));
+  float step = Bag_f32_nth(band, _f2i(floor((uv.y * 3.0))));
   Level_f32 level = Level_f32_new(0.35);
   float edge = (smoothstep(0.0, level.edge, uv.y) * Level_unit());
   Marked marked = Marked_new(0.4, 0.8, 0.5);

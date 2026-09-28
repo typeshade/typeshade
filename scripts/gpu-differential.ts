@@ -29,11 +29,11 @@
 // (`src/core/testing/draw-harness.ts`): a `@fragment` entry whose every pixel reads its own
 // arguments from a uniform table and writes the bits of the function's result into an `RGBA32UI`
 // target. Every pixel is compared with the function on the f32 oracle, bit for bit, with the same
-// values left out. One more kind of value carries no claim on GLSL: one that an input GLSL ES 3.00
-// leaves undefined reached. Those inputs are an integer `/` or `%` by zero, a `%` with a negative
-// operand, and a float that does not fit the integer it converts to. There a driver answers
-// otherwise than WGSL and the oracle (#382). The harness's taint finds those runs on the oracle,
-// and they are counted apart.
+// values left out. GLSL ES 3.00's bare operators leave some inputs undefined: an integer `/` or
+// `%` by zero, a `%` with a negative operand, a float that does not fit the integer it converts
+// to. A driver answered otherwise than WGSL and the oracle there (#382), and the GLSL writer now
+// settles each the way WGSL does (Rule 11.12). The harness's taint finds the runs that reach one,
+// which are compared like the rest and counted, so the claim covers what the writer settles.
 //
 // WHY IT CANNOT BE VACUOUSLY GREEN (AGENTS.md#gate-discipline):
 //
@@ -43,7 +43,8 @@
 //   3. The corpus must reach what the claim is about. For WebGPU: plans that lower, a reduction
 //      folded a level, a scatter's atomics, a struct array's layout, and a report with no row but
 //      `order`. For WebGL2: the constructs the drift between the targets lived in (`DRAW_FLOORS`),
-//      a report with no row, and enough values compared.
+//      a report with no row, and enough values compared, enough of them reached by an input the
+//      bare GLSL operator leaves undefined.
 //   4. Each arm also runs one case wrong on purpose, and the comparison must report it: a plan
 //      dispatched with its first iteration skipped, and a table uploaded a row off.
 //
@@ -616,8 +617,9 @@ interface DrawCase {
   readonly want: readonly CpuValue[];
   /** The f64 oracle's answer at each pixel: where it differs from `want`'s, the f32 run rounded. */
   readonly exact: readonly CpuValue[];
-  /** Whether each pixel's run reached an input GLSL ES 3.00 leaves undefined (#382). */
-  readonly undefinedOnGlsl: readonly boolean[];
+  /** Whether each pixel's run reached an input GLSL ES 3.00's bare operator leaves undefined,
+   *  which the writer settles (Rule 11.12). */
+  readonly settled: readonly boolean[];
   /** Why the GLSL writer refused the module, when it did: then there is nothing to draw. */
   readonly refused?: string;
   readonly job: DrawJob;
@@ -654,17 +656,17 @@ function drawCasesOf(c: Corpus, rowOff = false): DrawCase[] {
       args,
       want: run(f32, f.name),
       exact: run(f64, f.name),
-      undefinedOnGlsl: run(taint, taintedName(f.name)).map((x) => x === 1),
+      settled: run(taint, taintedName(f.name)).map((x) => x === 1),
       ...(refused !== undefined ? { refused } : {}),
       job: { id: key, frag, width: DRAW_W, height: DRAW_H, words: tableWords(d, sent) },
     };
   });
 }
 
-/** How many values a draw's comparison held to the oracle, left out because the f32 oracle
- *  rounded them, and left out because an input GLSL leaves undefined reached them (#382). */
+/** How many values a draw's comparison held to the oracle, how many of those a settled input
+ *  reached, and how many it left out because the f32 oracle rounded them. */
 interface DrawTally extends Tally {
-  undefinedOnGlsl: number;
+  settled: number;
 }
 
 /** The first pixel where the draw differs from the oracle, bit for bit, where it makes a claim. */
@@ -678,10 +680,7 @@ function drawDifference(
   if (r.error !== undefined) return r.error;
   const words = r.words!;
   for (let p = 0; p < k.want.length; p++) {
-    if (k.undefinedOnGlsl[p]!) {
-      if (tally !== undefined) tally.undefinedOnGlsl += [k.want[p]].flat().length;
-      continue;
-    }
+    if (tally !== undefined && k.settled[p]!) tally.settled += [k.want[p]].flat().length;
     const got = pixelValue(k.d.fn.ret, words.slice(4 * p, 4 * p + 4));
     const at = `${k.d.fn.name}(${k.args[p]!.map((x) => JSON.stringify(x)).join(', ')})`;
     const diff = firstDifference(k.want[p], got, at, k.exact[p], tally);
@@ -955,7 +954,8 @@ async function webgpuArm(page: Page): Promise<number> {
 
 /** What the GLSL arm's corpus must reach: the constructs the drift between the targets lived in
  *  (`CHANGELOG.md`'s Fixed entries), at about a third of what 48 seeds generate. The values it
- *  compares must reach half of what 48 seeds compare. */
+ *  compares, and those an input the bare GLSL operator leaves undefined reaches, must each reach
+ *  about half of what 48 seeds give. */
 const DRAW_FLOORS = [
   ['switchContinue', 190],
   ['accumulatorLoop', 90],
@@ -966,21 +966,13 @@ const DRAW_FLOORS = [
   ['callFn', 330],
   ['select', 1100],
 ] as const;
-const DRAW_COMPARED_FLOOR = 10000;
+const DRAW_COMPARED_FLOOR = 30000;
+const DRAW_SETTLED_FLOOR = 20000;
 
 /** The GLSL arm: each generated function drawn as a fragment program on WebGL2. */
 async function webgl2Arm(page: Page): Promise<number> {
   const corpus = Array.from({ length: SEEDS }, (_, i) => generateModule(i + 1, { exact: true }));
   let failures = 0;
-  const cases = corpus.flatMap((c) => drawCasesOf(c));
-  // The claim: every drawn module's report lists nothing.
-  const listed = new Map<string, string>();
-  for (const k of cases)
-    for (const r of determinismReport(k.d.module)) listed.set(`${r.op} (${r.kind})`, k.key);
-  for (const [op, key] of listed) {
-    console.error(`FAIL  the exact corpus uses ${op} (${key}), which has more than one answer`);
-    failures += 1;
-  }
   const features = describeCorpus(corpus);
   for (const [what, floor] of DRAW_FLOORS) {
     if ((features[what] ?? 0) < floor) {
@@ -991,23 +983,25 @@ async function webgl2Arm(page: Page): Promise<number> {
     }
   }
   // One function drawn wrong on purpose, each pixel given the next pixel's arguments: the first
-  // function whose oracle answers change under the shift, at a pixel whose answer and whose
-  // neighbour's both carry a claim, so a driver that agrees with the oracle must report it.
-  // At pixel `p` the driver then computes pixel `q`'s answer, which is the oracle's where `q`'s
-  // run reached nothing GLSL leaves undefined and the f32 oracle did not round it.
-  const shifted = cases.find(
-    (k) =>
-      k.refused === undefined &&
-      k.want.some((v, p) => {
-        const q = (p + 1) % k.want.length;
-        return (
-          !k.undefinedOnGlsl[p]! &&
-          !k.undefinedOnGlsl[q]! &&
-          JSON.stringify(k.want[q]) === JSON.stringify(k.exact[q]) &&
-          firstDifference(v, k.want[q], 'k', k.exact[p]) !== undefined
-        );
-      }),
-  );
+  // function whose oracle answers change under the shift, so a driver that agrees with the
+  // oracle must report it. At pixel `p` the driver then computes pixel `q`'s answer, which is
+  // the oracle's where the f32 oracle did not round it.
+  // The oracle's cases are built a seed at a time, here and below, so a long sweep holds one
+  // seed's in memory.
+  const changes = (k: DrawCase): boolean =>
+    k.refused === undefined &&
+    k.want.some((v, p) => {
+      const q = (p + 1) % k.want.length;
+      return (
+        JSON.stringify(k.want[q]) === JSON.stringify(k.exact[q]) &&
+        firstDifference(v, k.want[q], 'k', k.exact[p]) !== undefined
+      );
+    });
+  let shifted: DrawCase | undefined;
+  for (const c of corpus) {
+    shifted = drawCasesOf(c).find(changes);
+    if (shifted !== undefined) break;
+  }
   if (shifted === undefined) {
     console.error('FAIL  instrument: no drawn function changes when its table is a row off');
     return failures + 1;
@@ -1016,7 +1010,7 @@ async function webgl2Arm(page: Page): Promise<number> {
 
   let drawn = 0;
   let noted = 0;
-  const tally: DrawTally = { compared: 0, rounded: 0, undefinedOnGlsl: 0 };
+  const tally: DrawTally = { compared: 0, rounded: 0, settled: 0 };
   const first = await page.evaluate(drawInPage, {
     jobs: [wrong.job],
     broken: '#version 300 es\nvoid main( {',
@@ -1042,9 +1036,13 @@ async function webgl2Arm(page: Page): Promise<number> {
     );
     failures += 1;
   }
-  // One seed at a time, so no one call to the page carries the whole corpus.
+  // One seed at a time, so no one call to the page carries the whole corpus. The claim: every
+  // drawn module's report lists nothing.
+  const listed = new Map<string, string>();
   for (const c of corpus) {
-    const mine = cases.filter((k) => k.c === c);
+    const mine = drawCasesOf(c);
+    for (const k of mine)
+      for (const r of determinismReport(k.d.module)) listed.set(`${r.op} (${r.kind})`, k.key);
     const { results } = await page.evaluate(drawInPage, {
       jobs: mine.filter((k) => k.refused === undefined).map((k) => k.job),
     });
@@ -1056,6 +1054,10 @@ async function webgl2Arm(page: Page): Promise<number> {
       failures += 1;
       if (noted++ < 20) console.log(`FAIL  ${k.key}: ${diff.slice(0, 300)}`);
     });
+  }
+  for (const [op, key] of listed) {
+    console.error(`FAIL  the exact corpus uses ${op} (${key}), which has more than one answer`);
+    failures += 1;
   }
   if (tally.rounded * 10 > tally.compared) {
     console.error(
@@ -1069,10 +1071,18 @@ async function webgl2Arm(page: Page): Promise<number> {
     );
     failures += 1;
   }
+  // The writer settles what the bare operator leaves undefined (Rule 11.12), and the claim is
+  // only as good as the corpus's reach into those inputs.
+  if (tally.settled < DRAW_SETTLED_FLOOR) {
+    console.error(
+      `FAIL  ${String(tally.settled)} values reached an input the bare GLSL operator leaves undefined, under the floor of ${String(DRAW_SETTLED_FLOOR)}`,
+    );
+    failures += 1;
+  }
   console.log(
     `glsl differential: ${String(drawn)} generated functions drawn on WebGL2, ${String(DRAW_W * DRAW_H)} argument lists each, against the f32 oracle · ` +
-      `${String(tally.compared)} values bit for bit (${String(tally.rounded)} the oracle rounded, ` +
-      `${String(tally.undefinedOnGlsl)} an input GLSL leaves undefined reached (#382), left out) · failures: ${String(failures)}`,
+      `${String(tally.compared)} values bit for bit, ${String(tally.settled)} of them reached by an input the bare GLSL operator leaves undefined (Rule 11.12) · ` +
+      `${String(tally.rounded)} the oracle rounded, left out · failures: ${String(failures)}`,
   );
   return failures;
 }

@@ -386,8 +386,9 @@ Handed **one whole vector of the same size**, the constructor converts rather th
 conversion. That is what it emits, and now what it computes on the CPU as well — the oracle
 used to pass the source components through unchanged, so `vec3u(vec3(1.7, 2.9, -3.2))` read
 back `[1.7, 2.9, -3.2]` where WGSL gives `[1, 2, 0]`. A float source saturates into an
-integer target and `i32`/`u32` reinterpret two's-complement; on GLSL ES 3.00 only in-range
-sources are defined.
+integer target and `i32`/`u32` reinterpret two's-complement, on every target: GLSL ES 3.00
+leaves an out-of-range source undefined, so the GLSL writer spells the conversion through
+`_f2i` and `_f2u`, which saturate as WGSL does (Rule 11.12).
 
 ### Plain const bindings
 

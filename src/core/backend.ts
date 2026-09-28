@@ -22,7 +22,7 @@ import type {
 } from './ir/index.js';
 import { ALL_CAPABILITIES } from './ir/nodes.js';
 import { DERIVED_CAPABILITIES } from './ir/derived-capabilities.js';
-import type { ModuleVarDecl, CmpOp } from './ir/nodes.js';
+import type { ModuleVarDecl, CmpOp, BinOp, Expr } from './ir/nodes.js';
 import { TypeShadeError } from './diagnostics/error.js';
 import type { ParenMode } from './emit.js';
 
@@ -225,6 +225,24 @@ export interface Backend {
    *  gives a different answer for negative operands, so it is the wrong choice here. When
    *  absent, the native `%` is emitted. */
   readonly floatMod?: (a: string, b: string) => string;
+  /** Optional. Spelling for an integer `/`, `%` or shift on a target whose bare operator gives
+   *  some input WGSL settles no result (GLSL ES 3.00, Rule 11.12): a zero divisor, the least
+   *  `i32` over -1, a negative operand of `%`, a shift amount of 32 or more. `b` is the right
+   *  operand as written, so a literal divisor or amount can keep the bare operator; `aText` and
+   *  `bText` arrive as primaries, and the result is one too. `undefined` keeps the bare operator,
+   *  and so does a target that omits this. */
+  readonly intBinop?: (
+    bop: BinOp,
+    b: Expr,
+    aText: string,
+    bText: string,
+    type: ShaderType,
+  ) => string | undefined;
+  /** Optional. Spelling for a float's conversion to the integer type `to`, a scalar or a vector,
+   *  on a target whose bare conversion gives an out-of-range or NaN source no result (GLSL ES
+   *  3.00, Rule 11.12); WGSL saturates, and NaN converts to 0. `undefined` keeps the bare
+   *  conversion. */
+  readonly floatToInt?: (to: ShaderType, from: ShaderType, argText: string) => string | undefined;
   /** Optional. Spelling for a comparison of two vectors, which yields a vector of bools
    *  (roadmap 0.2 item 7). WGSL has the operator form and omits this; GLSL ES 3.00 has only
    *  the functions `lessThan`, `equal` and their siblings, so the GLSL backend provides it. */

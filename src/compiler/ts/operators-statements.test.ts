@@ -53,14 +53,16 @@ function cpu(c: ReturnType<typeof compiled>, fn: string, args: readonly number[]
 }
 
 describe('a shift amount is a u32 on both paths', () => {
-  it('wraps an i32 shift count in u32 on WGSL and leaves GLSL alone', () => {
+  it('wraps an i32 shift count in u32 on WGSL and masks it on GLSL', () => {
     const c = compiled(`export function f(x: i32, n: i32): i32 { return x << n }
 @fragment export function fs(): vec4 { return vec4(f32(f(1, 3))) }`);
     expect(c.wgsl).toContain('(x << u32(n))');
     // The cast is in the IR, so GLSL carries it too, as `uint(n)` — which that spec accepts
     // (§5.9 lets the two operands of a shift have different kinds), and which is exactly what
     // the compound path has always emitted on both targets. The gate compiles it on ANGLE.
-    expect(c.glsl!.fragment).toContain('(x << uint(n))');
+    // GLSL leaves an amount of 32 or more undefined, so a run-time one is masked as WGSL
+    // masks it (Rule 11.12).
+    expect(c.glsl!.fragment).toContain('(x << (uint(n) & 31u))');
   });
 
   it('accepts a u32 amount, which the equal-types rule used to refuse', () => {
@@ -100,8 +102,9 @@ export function g(x: vec2i, n: vec2i): vec2i { return x << n }
 }`);
     expect(c.wgsl).toContain('(x << n)');
     expect(c.wgsl).toContain('(x << vec2<u32>(n))');
-    expect(c.glsl!.fragment).toContain('(x << n)');
-    expect(c.glsl!.fragment).toContain('(x << uvec2(n))');
+    // A run-time amount is masked on GLSL, a scalar mask applied to each lane (Rule 11.12).
+    expect(c.glsl!.fragment).toContain('(x << (n & 31u))');
+    expect(c.glsl!.fragment).toContain('(x << (uvec2(n) & 31u))');
   });
 
   it('refuses a scalar amount on a vector target, which only GLSL takes', () => {

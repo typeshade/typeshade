@@ -178,7 +178,8 @@ describe('the bitwise compound assignments', () => {
       }
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(c.glsl?.fragment).toContain('y <<= uint(k);');
+    // A run-time amount is masked on GLSL, as WGSL masks it (Rule 11.12).
+    expect(c.glsl?.fragment).toContain('y = (y << (uint(k) & 31u));');
     // A shift by a value is not a constant fold on either side: the oracle agrees with JS.
     const e = compile(`
       "use typeshade";

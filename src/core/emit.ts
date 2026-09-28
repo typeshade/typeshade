@@ -74,6 +74,12 @@ export function emitExpr(
         ) {
           return be.floatMod(go(x.a, PREC_ATOM), go(x.b, PREC_ATOM));
         }
+        // An integer `/`, `%` or shift whose bare operator leaves an input WGSL settles without
+        // a result on this target (GLSL ES 3.00, Rule 11.12): the backend's helper or mask.
+        if (be.intBinop !== undefined) {
+          const settled = be.intBinop(x.bop, x.b, go(x.a, PREC_ATOM), go(x.b, PREC_ATOM), x.type);
+          if (settled !== undefined) return settled;
+        }
         if (full) return `(${r(x.a)} ${x.bop} ${r(x.b)})`;
         const p = precOf(x.bop);
         if (p === 0) return `(${r(x.a)} ${x.bop} ${r(x.b)})`;
@@ -141,6 +147,16 @@ function assignOpText(
   if (s.bop === '%' && be.floatMod !== undefined && isF32Typed(s.target.type)) {
     return `${r(s.target)} = ${be.floatMod(emitAtom(s.target, be, parens), emitAtom(s.expr, be, parens))}`;
   }
+  // An integer `/=`, `%=`, `<<=` or `>>=` takes the same helper or mask as its operator
+  // (Rule 11.12), as a plain assignment.
+  const settled = be.intBinop?.(
+    s.bop,
+    s.expr,
+    emitAtom(s.target, be, parens),
+    emitAtom(s.expr, be, parens),
+    s.target.type,
+  );
+  if (settled !== undefined) return `${r(s.target)} = ${settled}`;
   return `${r(s.target)} ${s.bop}= ${r(s.expr)}`;
 }
 
@@ -216,12 +232,29 @@ function emitLeaf(
               }
               return be.reference!(base(arg));
             });
-      return declaredFns.has(e.fn) ? `${e.fn}(${args.join(', ')})` : be.intrinsic(e.fn, args);
+      if (declaredFns.has(e.fn)) return `${e.fn}(${args.join(', ')})`;
+      // A float's conversion to an integer saturates in WGSL, and a target whose bare
+      // conversion does not spells it through the backend (GLSL ES 3.00, Rule 11.12).
+      if (
+        (e.fn === 'i32' || e.fn === 'u32') &&
+        e.args.length === 1 &&
+        be.floatToInt !== undefined
+      ) {
+        const settled = be.floatToInt(e.type, e.args[0]!.type, args[0]!);
+        if (settled !== undefined) return settled;
+      }
+      return be.intrinsic(e.fn, args);
     }
     case 'member':
       return `${base(e.base)}.${e.field}`;
-    case 'construct':
+    case 'construct': {
+      // An integer vector of one float vector is a conversion, as `i32(x)` is (Rule 11.12).
+      if (e.args.length === 1 && e.type.kind === 'vec' && be.floatToInt !== undefined) {
+        const settled = be.floatToInt(e.type, e.args[0]!.type, r(e.args[0]!));
+        if (settled !== undefined) return settled;
+      }
       return `${be.typeName(e.type)}(${e.args.map(r).join(', ')})`;
+    }
     // select(false, true, cond) — the writer owns the spelling (WGSL select() vs
     // GLSL ternary). Args passed in WGSL's (false, true, cond) order.
     case 'select':

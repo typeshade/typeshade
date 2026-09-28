@@ -1973,6 +1973,23 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **On WebGL2, an integer division, remainder and shift, and a float's conversion to an integer,
+  give WGSL's answer on every input** (proposal 0027, Rule 11.12, surface §11 and §22, #382). The
+  GLSL writer spelled each with the bare GLSL operator, and GLSL ES 3.00 gives some inputs no
+  result. ANGLE answered otherwise than WebGPU and the CPU tier: `7 / 0` was -7 where WGSL gives
+  7, `-7 % 3` was 2 where WGSL gives -1, and `i32(3e9)` was the least `i32` where WGSL saturates
+  to 2147483520. So `i % n` over a negative `i` meant one thing on WebGPU and another on WebGL2.
+  The GLSL writer now spells:
+  - an integer `/` and `%` by a run-time divisor through `_idiv`, `_irem`, `_udiv` and `_urem`;
+  - a shift by a run-time amount with the amount masked, `& 31u`;
+  - a float's conversion to an integer through `_f2i` and `_f2u`, which saturate and turn NaN
+    into 0.
+
+  Each helper is written once per type the module uses. The bare operator stays for a literal
+  divisor no input makes undefined and for a literal shift amount. The GLSL of 24 examples'
+  goldens changes. The GPU differential's WebGL2 arm now holds these inputs to the oracle: over
+  the 48 seeds CI runs, 47 816 values that reach one agree bit for bit.
+
 - **The two examples drawn in several passes draw the same picture on WebGPU as on WebGL2**
   (change 0026). `feedback-trail` and `separable-blur` read a pass's output through `uv`, a
   varying computed from the clip-space position, which runs up the screen on both backends. A

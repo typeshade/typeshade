@@ -3,6 +3,9 @@ precision highp float;
 precision highp int;
 
 const float RINGS = 6.0;
+uint _f2u(float x) {
+  return uint(mix(clamp(x, 0.0, 4294967040.0), 0.0, isnan(x)));
+}
 in vec2 uv;
 layout(location = 0) out vec4 color;
 
@@ -26,7 +29,7 @@ void main() {
     float p_2 = (1.0 - (r * 2.0));
     tint = mix(tint, vec3(1.0, 0.9, 0.6), vec3(p_2, p_2, p_2));
   }
-  uint levels = (uint((band * 255.0)) >> 4u);
+  uint levels = (_f2u((band * 255.0)) >> 4u);
   float stepped = (float((levels << 4u)) / 255.0);
   float grid = min(abs(cell.x), abs(cell.y));
   vec3 shaded = (((tint * acc) + (stepped * 0.1)) + (grid * 0.05));

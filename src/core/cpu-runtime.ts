@@ -936,8 +936,8 @@ export const GPU_STUBS: Record<string, Builtin> = {
 // ── WGSL's SATURATING float→integer conversions ──
 //
 // f32→u32/i32 conversion CLAMPS to the target range and converts NaN to 0 in WGSL
-// (Tint polyfills it on every driver), while GLSL ES 3.00 leaves out-of-range
-// float→int UNDEFINED — so the defined cross-backend ground is in-range only, and
+// (Tint polyfills it on every driver). GLSL ES 3.00 leaves out-of-range float→int
+// UNDEFINED, so the GLSL writer spells the same clamp (`_f2i`/`_f2u`, Rule 11.12), and
 // the mirror follows WGSL (the pipeline it exists to mirror). The plain-`Math.trunc`
 // forms the BUILTINS table keeps are the INTEGER-source semantics (two's-complement
 // wrapping: u32 of i32(-1) IS 0xFFFFFFFF); a value alone cannot distinguish

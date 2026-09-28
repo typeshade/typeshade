@@ -262,7 +262,7 @@ describe('float→int casts — the CPU mirror follows WGSL saturation', () => {
 });
 
 describe('float % — the .mod METHOD is now portable (GLSL % is integer-only)', () => {
-  it('GLSL spells float % as WGSL trunc-mod; int % stays native; WGSL unchanged', () => {
+  it('GLSL spells float % as WGSL trunc-mod and int % through _urem; WGSL unchanged', () => {
     const m = module({
       funcs: [
         fn('fm', { a: f32T, b: f32T }, ({ a, b }) => a.mod(b)),
@@ -273,7 +273,8 @@ describe('float % — the .mod METHOD is now portable (GLSL % is integer-only)',
     // Deliberately NOT GLSL mod() (floor-mod): trunc-mod matches WGSL float-%
     // AND the CPU oracle's JS `%`, so all three backends agree on negatives.
     expect(glsl).toContain('(a - b * trunc(a / b))');
-    expect(glsl).toContain('(p % q)');
+    // An unsigned `%` by a run-time divisor settles `q == 0` as WGSL does (Rule 11.12).
+    expect(glsl).toContain('_urem(p, q)');
     const wgsl = emitModule(m);
     expect(wgsl).toContain('(a % b)'); // WGSL keeps its native float % — bytes unchanged
     expect(wgsl).toContain('(p % q)');

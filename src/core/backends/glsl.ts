@@ -64,6 +64,14 @@ import { ioAttrOf, retIoAttrOf } from '../ir/entry-io.js';
 import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend.js';
 import { spellIntrinsic, INTRINSIC_HELPERS } from '../intrinsics.js';
 import { BIT_HELPER_OF, bitHelperDefs } from './glsl-bits.js';
+import {
+  floatToIntHelper,
+  glslIntBinop,
+  intDivHelper,
+  intHelperDefs,
+  intHelperUses,
+  type IntHelperUse,
+} from './glsl-int.js';
 import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment.js';
 import { bodyHasRaw } from '../passes/opt/dce.js';
 import { collectLocals, collectMutatedRoots } from '../passes/opt/expr-utils.js';
@@ -590,6 +598,13 @@ export const glslEs300Backend: Backend = {
   // `mod()`, which is FLOOR-mod and disagrees on negative operands. Matches the CPU
   // oracle's JS `%` (also trunc-mod), so all three backends now agree.
   floatMod: (a, b) => `(${a} - ${b} * trunc(${a} / ${b}))`,
+  // WGSL's answer for every input of an integer `/`, `%` and shift and of a float's conversion
+  // to an integer, where GLSL ES 3.00 gives some no result (Rule 11.12, glsl-int.ts).
+  intBinop: glslIntBinop,
+  floatToInt: (to, from, arg) => {
+    const helper = floatToIntHelper(to, from);
+    return helper === undefined ? undefined : `${helper}(${arg})`;
+  },
   // C-style GLSL switch falls through — each case must `break` or it leaks into the next.
   // GLSL ES 3.00 has no label LIST: several selectors sharing one body are STACKED labels,
   // which that spec explicitly allows ("Fall through labels are allowed", §6.2). WGSL's
@@ -2238,6 +2253,21 @@ function assembleGlslParts(
   }
   const bitDefs = bitHelperDefs(bitCalls);
   if (bitDefs.length) parts.push(bitDefs.join('\n\n'));
+  // The helpers that give WGSL's integer answers (Rule 11.12), one overload per type the
+  // module divides, takes a remainder or converts a float at: an operator in any expression,
+  // and the operator of a compound assignment.
+  const intUses: IntHelperUse[] = [];
+  const seeIntUse = (e: Expr): void => intHelperUses(e, intUses);
+  const seeIntStmt = (st: Stmt): void => {
+    if (st.s === 'assignOp') {
+      const helper = intDivHelper(st.bop, st.expr, st.target.type);
+      if (helper !== undefined) intUses.push({ helper, type: st.target.type });
+    }
+    eachStmtExpr(st, (e) => eachExpr(e, seeIntUse), seeIntStmt);
+  };
+  for (const f of [...helpers, ...entries]) for (const st of f.body) seeIntStmt(st);
+  const intDefs = intHelperDefs(intUses);
+  if (intDefs.length) parts.push(intDefs.join('\n\n'));
 
   // The fn section, in DEFINE-BEFORE-USE order (X-GIS #1858). GLSL ES 3.00 has no hoisting,
   // so a call that precedes its definition needs a prototype — and a prototype buys
