@@ -5023,12 +5023,12 @@ const bits = countOneBits(5); // was "takes an i32 or u32 … got f32"
 `abs(e1 - e2)`; both targets compile them, and the CPU oracle used to throw `v.reduce is not a
 function` on a program the GPU ran. It answers now.
 
-One row of this is recorded rather than fixed: `abs(-2147483648)` on an `i32` is that value
-itself on both targets, because 2^31 has no `i32`, and the oracle answers `2147483648`. A
-builtin there is handed plain numbers, and the `f32` of the same magnitude is the same number
-with a genuine `+2147483648` answer — so telling them apart needs the oracle and the codegen to
-wrap a call's result by its IR type, which is a change to every integer builtin rather than to
-this one. It is pinned as an `it.fails` so the day that changes is a deliberate edit.
+`abs(-2147483648)` on an `i32` is that value itself on both targets, because 2^31 has no
+`i32`, and so is `-(-2147483648)`. The oracle answers the same. A builtin there is handed plain
+numbers, and the `f32` of the same magnitude is the same number with a genuine `+2147483648`
+answer, so each CPU walk wraps an integer-typed builtin's result, and a negation, by its IR
+type. The oracle used to answer `2147483648` for both, until the GPU differential drew such a
+program on WebGL2 (#349).
 
 ## 46. What a texture is asked, and by which integer
 

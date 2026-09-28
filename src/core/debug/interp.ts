@@ -66,6 +66,7 @@ import {
   f32ToU32Sat,
   f32ToI32Sat,
   numKindOf,
+  wrapValue,
   elemKindOf,
   convertComponent,
   convertComponents,
@@ -257,7 +258,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
     }
     case 'unop': {
       const a = yield* evalExpr(e.a, env, ctx);
-      return isArr(a) ? a.map((v) => -(v as number)) : -(a as number);
+      return wrapValue(isArr(a) ? a.map((v) => -(v as number)) : -(a as number), numKindOf(e.type));
     }
     case 'compare': {
       const a = yield* evalExpr(e.a, env, ctx);
@@ -327,7 +328,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
         return bitBuiltin(e.fn, args, elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32');
       }
       const b = BUILTINS[e.fn];
-      if (b) return b(...args);
+      if (b) return wrapValue(b(...args), numKindOf(e.type));
       const stub = GPU_STUBS[e.fn];
       if (stub) {
         if (!ctx.gpuStubs) {
