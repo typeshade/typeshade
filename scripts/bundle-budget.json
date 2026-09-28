@@ -1,3 +1,6 @@
 {
-  "typeshade/runtime": 9493
+  "typeshade/runtime": {
+    "bytes": 10500,
+    "floor": 4700
+  }
 }

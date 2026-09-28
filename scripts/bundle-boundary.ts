@@ -9,9 +9,16 @@
 //      included, is walked. A file of `src/compiler/` fails it, and so does any bare specifier
 //      (`typescript`, `node:fs`): the runtime is `src/runtime/` and `src/core/` alone.
 //   2. THE SIZE. The entry is bundled for the browser, minified, with every export kept, and
-//      gzipped. Its size must not pass its budget in `scripts/bundle-budget.json`, which is set
-//      at the size the subpath landed with. A rise past it is a reviewed change: the budget moves
-//      in the same pull request, where a reviewer reads the number.
+//      gzipped. Its size must stay between its floor and its budget in
+//      `scripts/bundle-budget.json`. The budget is the size the subpath landed with and about a
+//      tenth more, since CI runs the latest Bun and its minifier moves; a rise past it is a
+//      reviewed change, the budget moving in the same pull request. The floor, and a floor on
+//      the closure's module count, fail a bundle that measured nothing: Bun 1.3 bundles a
+//      barrel of named re-exports to nothing when the barrel itself is the entry, which is why
+//      the entry here imports the subpath as an application does.
+//
+// Before either, the instrument: the same walk from `src/index.ts`, the package root, must find
+// `src/compiler/` and `typescript`.
 //
 //   bun scripts/bundle-boundary.ts            check, and print each size
 //   bun scripts/bundle-boundary.ts --update   also write the measured sizes as the budgets
@@ -31,13 +38,22 @@ const SUBPATHS: readonly {
   readonly name: string;
   readonly entry: string;
   readonly allowed: readonly string[];
+  /** The fewest modules a real closure of the entry holds. */
+  readonly minModules: number;
 }[] = [
   {
     name: 'typeshade/runtime',
     entry: 'src/runtime.ts',
     allowed: ['src/runtime.ts', 'src/runtime/', 'src/core/'],
+    minModules: 15,
   },
 ];
+
+/** A subpath's budget: the most it may weigh, and the least a real bundle of it weighs. */
+interface Budget {
+  readonly bytes: number;
+  readonly floor: number;
+}
 
 /** Every module `entry` reaches, relative to the root, and every bare specifier it names. */
 export function closureOf(entry: string): {
@@ -104,7 +120,19 @@ async function gzippedSize(entry: string): Promise<number> {
 
 async function main(): Promise<number> {
   const update = process.argv.includes('--update');
-  const budgets = JSON.parse(readFileSync(BUDGET, 'utf8')) as Record<string, number>;
+  const budgets = JSON.parse(readFileSync(BUDGET, 'utf8')) as Record<string, Budget>;
+  // The instrument, first: a walk that cannot see the compiler from the root passes anything.
+  const root = closureOf('src/index.ts');
+  if (
+    !root.files.some((f) => f.startsWith('src/compiler/')) ||
+    !root.bare.some((b) => b.spec === 'typescript')
+  ) {
+    console.log(
+      'FAIL  the walk finds no src/compiler/ or typescript from src/index.ts: it is blind',
+    );
+    return 1;
+  }
+  console.log('instrument: the walk finds src/compiler/ and typescript from src/index.ts');
   let failures = 0;
   for (const s of SUBPATHS) {
     const { files, bare } = closureOf(s.entry);
@@ -119,20 +147,36 @@ async function main(): Promise<number> {
       console.log(`FAIL  ${s.name} imports "${b.spec}" (${b.from}): the runtime names no package`);
       failures++;
     }
-    const size = await gzippedSize(s.entry);
-    const budget = budgets[s.name];
-    if (update) budgets[s.name] = size;
-    else if (budget === undefined) {
-      console.log(`FAIL  ${s.name} has no budget in scripts/bundle-budget.json; run with --update`);
-      failures++;
-    } else if (size > budget) {
+    if (files.length < s.minModules) {
       console.log(
-        `FAIL  ${s.name} is ${size} bytes gzipped, over its budget of ${budget}: move the budget in this pull request, where a reviewer reads it`,
+        `FAIL  ${s.name} reaches ${files.length} modules, under its floor of ${s.minModules}: the walk is not reading it`,
       );
       failures++;
     }
+    const size = await gzippedSize(s.entry);
+    const budget = budgets[s.name];
+    if (update)
+      budgets[s.name] = {
+        bytes: Math.ceil((size * 1.1) / 100) * 100,
+        floor: Math.floor(size / 2 / 100) * 100,
+      };
+    else if (budget === undefined) {
+      console.log(`FAIL  ${s.name} has no budget in scripts/bundle-budget.json; run with --update`);
+      failures++;
+    } else if (size > budget.bytes) {
+      console.log(
+        `FAIL  ${s.name} is ${size} bytes gzipped, over its budget of ${budget.bytes}: move the budget in this pull request, where a reviewer reads it`,
+      );
+      failures++;
+    } else if (size < budget.floor) {
+      console.log(
+        `FAIL  ${s.name} is ${size} bytes gzipped, under its floor of ${budget.floor}: the bundle measured nothing`,
+      );
+      failures++;
+    }
+    const b = budgets[s.name];
     console.log(
-      `${s.name}: ${files.length} modules, none of the compiler; ${size} bytes minified and gzipped (budget ${budgets[s.name] ?? 'none'})`,
+      `${s.name}: ${files.length} modules, none of the compiler; ${size} bytes minified and gzipped (floor ${b?.floor ?? '?'}, budget ${b?.bytes ?? '?'})`,
     );
   }
   if (update) writeFileSync(BUDGET, `${JSON.stringify(budgets, null, 2)}\n`);
