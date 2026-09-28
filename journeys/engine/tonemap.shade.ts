@@ -17,9 +17,6 @@ export function vs(@builtin("vertex_index") vi: u32): vec4 {
 @fragment
 export function fs(@builtin("position") p: vec4): vec4 {
   const size = vec2(textureDimensions(hdr));
-  // The coordinate is a local, not the argument itself: the editor refuses a vector operator
-  // written as textureSample's argument, which the compiler accepts (#387).
-  const uv = p.xy / size;
-  const c = textureSample(hdr, smp, uv).xyz;
+  const c = textureSample(hdr, smp, p.xy / size).xyz;
   return vec4(c / (vec3(1., 1., 1.) + c), 1.);
 }

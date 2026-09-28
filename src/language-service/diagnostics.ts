@@ -947,12 +947,13 @@ function calleeCallAt(
  * rejects.
  *
  * TWO SPANS, because TypeScript reports this code on two of them. An overload failure caused by
- * the FIRST argument lands on that argument, which is the `argumentAt` path and keeps the
- * per-argument guard the TS2345 rule uses: the argument reported on has to be about vectors at
- * all. One caused by a LATER argument lands on the callee, where there is no argument to guard
- * with, so the two whole-call tests carry the rule on their own. They are enough because
- * `overloadFitsRestoredShapes` asks about the whole signature: `max(a, b * 2.)` with two `vec3`
- * fits the generic overload and goes, while the same call with a `vec2` `b` fits none and stays.
+ * the FIRST argument lands on that argument, which is the `argumentAt` path; one caused by a
+ * LATER argument lands on the callee. Either way the two whole-call tests carry the rule: the
+ * argument reported on is the first one the LAST overload refused, which need not be the
+ * arithmetic, as `textureSample(hdr, smp, p.xy / size)` is reported on the texture (#387), so it
+ * guards nothing. The tests are enough because `overloadFitsRestoredShapes` asks about the whole
+ * signature, every argument included: `max(a, b * 2.)` with two `vec3` fits the generic overload
+ * and goes, while the same call with a `vec2` `b` fits none and stays.
  * Without this second path 30 valid vector calls reported in the editor, every one of them a
  * `min`/`max`/`pow`/`step`/`mod`/`atan2`/`clamp`/`smoothstep` whose arithmetic sits anywhere but
  * the first argument.
@@ -963,10 +964,11 @@ function isGpuArithmeticOverloadCall(
 ): boolean {
   const checker = context.checker;
   if (checker === undefined) return false;
+  // The argument TypeScript reports on is the first one the LAST overload refused, which need
+  // not be the arithmetic: `textureSample(hdr, smp, p.xy / size)` is reported on `hdr`, since
+  // the last overload takes a `texture_1d` (#387). So the argument is not a guard here; the
+  // whole-signature test below reads every argument, a texture or a sampler included.
   const position = argumentAt(context, diagnostic);
-  if (position !== undefined && gpuValueShape(context, position.argument) === undefined) {
-    return false;
-  }
   const call = position?.call ?? calleeCallAt(context, diagnostic);
   if (call === undefined) return false;
   if (!call.arguments.some((argument) => hasGpuArithmetic(context, argument))) return false;

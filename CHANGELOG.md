@@ -1991,6 +1991,14 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **The editor takes vector arithmetic written as a texture read's argument** (Rule 12.7, #387).
+  `textureSample(hdr, smp, p.xy / size)` compiled, but the editor reported TS2769, "No
+  overload matches this call". TypeScript reports the first argument the last overload refused,
+  here the texture, and the rule that drops TS2769 on vector arithmetic gave up on an argument
+  that is not a vector. The whole-signature test now decides, every argument included, so a
+  coordinate of the wrong size or the wrong sampler is still refused in both halves. The engine
+  journey's tonemap pass writes the call inline again.
+
 - **A storage array of vectors or structs indexed with an `i32` has GLSL** (#388). WebGL2
   reads a storage array from a data texture, and an element's first lane is its index times the
   element's stride, a `u32`. An index written as a literal (`vs[0]`, `ls[1].b`) or held in an
