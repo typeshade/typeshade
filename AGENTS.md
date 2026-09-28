@@ -64,6 +64,9 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
   noEmit pass over tests, examples and scripts.
 - `bun run lint` (ESLint) and `bun run format:check` (Prettier, then the shader-source `;`).
 - `bun run test`: vitest over `src/**` and `examples/**`.
+- `bun run gate:boundary`: `typeshade/runtime` reaches no file of `src/compiler/` and no package,
+  and its minified, gzipped bundle stays between the floor and the budget in
+  `scripts/bundle-budget.json` (Rule 11.11); CI's `typecheck + unit` job runs it.
 - `bun run gate:compile`: every registered example emitted and compiled. Needs Chromium once:
   `./node_modules/.bin/playwright install --only-shell chromium`.
 - `bun run gate:render`: the class-based 3D SDF example is rendered on headless WebGPU and its 48x48 RGBA8 pixels are compared exactly with the committed image golden. Use `UPDATE_RT_GOLDEN=1 bun run gate:render` only for an intentional golden refresh.
