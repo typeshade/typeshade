@@ -9,7 +9,12 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, dropsRecoveredUse, irNameOf, type LoweringScope } from '../context.js';
 import { LANG_CONST, resolveLangConst } from '../math-alias.js';
 import { refusedBySemantics } from '../semantic.js';
-import { constShiftAmountOutOfRange, foldConstComponents, foldConstNumber } from '../loop-bound.js';
+import {
+  constF32OutOfRange,
+  constShiftAmountOutOfRange,
+  foldConstComponents,
+  foldConstNumber,
+} from '../loop-bound.js';
 import {
   broadcastResultType,
   f64WidenResultType,
@@ -593,6 +598,30 @@ export function divisorIsZero(e: Expr, scope: LoweringScope): boolean {
   return parts !== undefined && parts.some((v) => v === 0);
 }
 
+/** `e`, or undefined with the literal's `TS8003` sentence when it is a constant `f32` expression
+ *  whose value no `f32` holds (#374, Rule 12.6). A literal past the range is refused as it is
+ *  written; this is the value arithmetic over literals and constants folds to, which Tint
+ *  refused with "cannot be represented as 'f32'". */
+function refuseF32OutOfRange(
+  e: Expr,
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const v = constF32OutOfRange(e, scope);
+  if (v === undefined) return e;
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `"${node.getText(sourceFile)}" is about ${String(Number(v.toPrecision(3)))}, outside the ` +
+      `range of f32 (about ±3.4e38), and there is no wider type here for it to take.`,
+    TS_CODES.TYPE_MISMATCH,
+  );
+  return undefined;
+}
+
 function lowerBinary(
   node: ts.BinaryExpression,
   sourceFile: ts.SourceFile,
@@ -639,7 +668,13 @@ function lowerBinary(
       if (broadcast) {
         // A vector of bools broadcasts its element as any vector does, and has no arithmetic.
         if (refuseOperatorKind(arith, broadcast, node, sourceFile, diagnostics)) return undefined;
-        return { op: 'binop', type: broadcast, bop: arith, a: left, b: right };
+        return refuseF32OutOfRange(
+          { op: 'binop', type: broadcast, bop: arith, a: left, b: right },
+          node,
+          sourceFile,
+          scope,
+          diagnostics,
+        );
       }
       // An f32 beside a scalar f64 widens exactly, as it does in the fn() EDSL and as the
       // fp64 pass's contract states (#151 F64-02).
@@ -719,7 +754,14 @@ function lowerBinary(
       );
       return undefined;
     }
-    return { op: 'binop', type: left.type, bop: arith, a: left, b: right };
+    // A constant `f32` result past the range (#374): `1e30 * 1e30`, or `K * K`.
+    return refuseF32OutOfRange(
+      { op: 'binop', type: left.type, bop: arith, a: left, b: right },
+      node,
+      sourceFile,
+      scope,
+      diagnostics,
+    );
   }
   // `a ** b` is WGSL's and GLSL's pow(a, b); TypeScript's exponent operator is the only
   // arithmetic token with no binop of its own. pow is component-wise over equal types on both
