@@ -600,6 +600,33 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **The load-time emitter, `typeshade/emit`** (proposal 0025, step 6, the last; design rules
+  11.10 and 11.11; surface §64 and §69). `repack(manifest, options)` builds a program's manifest
+  again from the portable IR the manifest carries, with no TypeScript front end:
+  `repack(packModule(m, { ir: true }), options)` is `packModule(m, options)`, byte for byte, over
+  every example. The program runtime takes it as a plug-in, `createRuntime({ emit: repack })`, so
+  `rt.load(program, { console: true })` records a program whose build did not.
+  - **The IR is carried on request**, `packModule(m, { ir: true })` or `typeshade({ ir: true })`:
+    over the examples it is 2.2 times the WGSL gzipped at the median, and the largest,
+    `rt-renderer-class`, is 89,754 bytes. It is written with what the emitters read and plain
+    JSON loses, each shown to change the output when lost. A subtree the IR shares is written
+    once: written twice, `autoVars` turns `min(_av0, …)` in `voronoi` into `min(8.0, …)`, and 9
+    of 127 examples emit other WGSL. `-0` is kept, which CSE tells from `0`. A call's `declRef`
+    is a reference to the function the module holds: without it, a declared `pack4xU8` is the
+    builtin, which GLSL ES 3.00 has no form of. It keeps an entry's source line and a
+    `console.*` call's, and no other.
+  - **Only the same version reads it**, and `repack` refuses IR another version wrote, naming
+    both versions. A manifest from another version still loads from its emitted text.
+  - **A runtime with no emitter, or a manifest with no IR**, refuses `load({ console: true })` of
+    a manifest without the recorded variant, with a `TypeError` that says how to build it.
+  - **The emitter's closure** holds `src/core/` alone: `scripts/bundle-boundary.ts` checks it as
+    it checks the runtime's, and its budget is 82,800 bytes gzipped against 75,196 measured. The
+    backends alone measured 70,462 before this change and 67,244 after it: constant folding no
+    longer carries the CPU tier's builtin table, since the builtins it folds and the arithmetic
+    it folds with moved to `src/core/scalar-arith.ts`, which the CPU tier applies too. The IR
+    builder stays, since the `f64` library is built with it when it loads; written as IR, the
+    library would be 15,862 bytes gzipped.
+
 - **The kernel proof's corpus, and what a nested loop dispatches** (Rule 8.22, surface §65,
   #350). `src/compiler/ts/kernel-corpus.test.ts` holds 15 loop patterns, each with the answer the
   proof must give, read in the compiler and in the editor. The accepted patterns are a stencil, a

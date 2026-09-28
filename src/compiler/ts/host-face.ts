@@ -74,6 +74,10 @@ export interface HostFaceOptions {
    *  (change 0014), which the runtime decodes into the host's console after the dispatch or
    *  draw. The Vite plugin sets it in `vite dev`; a production build records nothing. */
   readonly console?: 'gpu';
+  /** Adds the module's portable IR to the manifest, the default export, which the load-time
+   *  emitter emits the program again from (change 0025, section 5). The Vite plugin sets it
+   *  with `typeshade({ ir: true })`. */
+  readonly ir?: boolean;
   /** Reads a shader file the module imports (Rule 3.9), and a package's `package.json`: the
    *  module and what it imports are one program, and its face is the module's own exports and
    *  re-exports. The Vite plugin reads from disk. */
@@ -643,7 +647,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       gen,
       options.runtime ?? 'typeshade/runtime/internal',
       wgsl,
-      buildManifest(m, { console: options.console === 'gpu' }),
+      buildManifest(m, { console: options.console === 'gpu', ir: options.ir === true }),
       log,
     ),
     files,

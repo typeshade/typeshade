@@ -12,6 +12,9 @@ import { packModule } from '../compiler/ts/pack.js';
 import type { ConsoleEvent } from '../core/console.js';
 import { configure, resident, residentState } from '../core/resident.js';
 import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
+import type { PackOptions } from '../core/manifest-types.js';
+import { VERSION } from '../core/version.js';
+import { repack } from '../emit.js';
 import { createRuntime, runtime } from './runtime.js';
 
 /** A device that records every object it creates and every command it is given. */
@@ -130,10 +133,10 @@ export function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; }
 export function fs(v: VsOut): Color { return { c: tint }; }
 `;
 
-const manifest = (src: string, console = false) => {
+const manifest = (src: string, console = false, ir = false) => {
   const r = compile(src);
   expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-  return packModule(r.module, { console });
+  return packModule(r.module, { console, ir });
 };
 
 describe('the program runtime (Rule 11.11)', () => {
@@ -280,6 +283,59 @@ describe('the program runtime (Rule 11.11)', () => {
       'draw 3',
       'end',
     ]);
+  });
+});
+
+describe('the load-time emitter (change 0025 section 5, Rule 11.11)', () => {
+  it('records a program its build did not, emitted again from its IR', async () => {
+    const fake = fakeDevice();
+    const events: ConsoleEvent[] = [];
+    const asked: PackOptions[] = [];
+    const rt = await createRuntime({
+      device: fake.device,
+      console: (e) => events.push(e),
+      emit: (p, o) => (asked.push(o), repack(p, o)),
+    });
+    const built = manifest(SCALE, false, true);
+    expect(built.console).toBeUndefined();
+    // Loaded as it is, it records nothing and is not emitted again.
+    expect(rt.load(built).recording).toBe(false);
+    expect(asked).toEqual([]);
+    const program = rt.load(built, { console: true });
+    expect(program.recording).toBe(true);
+    expect(asked).toEqual([{ console: true }]);
+    // It runs as the build that recorded runs: the same buffer gives the same event.
+    const pipeline = await program.compute();
+    const words = new Uint32Array(64);
+    words[0] = 5;
+    words.set([0, 3, 0, 0, 3], 2);
+    fake.setConsole(words);
+    const out = fake.device.createBuffer({ size: 16, usage: 0x80 });
+    const f = rt.frame();
+    f.dispatch(pipeline, { params: { scale: 1 }, xs: new Float32Array(4), out }, 1);
+    await f.submit();
+    expect(events).toEqual([
+      expect.objectContaining({ method: 'log', args: ['i', 3], invocation: [3, 0, 0] }),
+    ]);
+  });
+
+  it('refuses with no emitter, with no IR, and with IR another version wrote', async () => {
+    const fake = fakeDevice();
+    const built = manifest(SCALE, false, true);
+    const plain = await createRuntime({ device: fake.device });
+    expect(() => plain.load(built, { console: true })).toThrow(
+      'load({ console: true }): this manifest carries no recorded variant. Build it with packModule(m, { console: true }) or in vite dev, or build it with its IR (ir: true) and create the runtime with createRuntime({ emit: repack }), repack from typeshade/emit.',
+    );
+    const rt = await createRuntime({ device: fake.device, emit: repack });
+    expect(() => rt.load(manifest(SCALE), { console: true })).toThrow(
+      'load({ console: true }): this manifest carries no recorded variant and no IR to emit one from. Build it with packModule(m, { console: true }) or in vite dev, or with its IR: packModule(m, { ir: true }) or typeshade({ ir: true }).',
+    );
+    const other = { ...built, ir: { ...built.ir!, compiler: '0.0.0-other' } };
+    expect(() => rt.load(other, { console: true })).toThrow(
+      `This program's IR was written by typeshade 0.0.0-other, and this is typeshade ${VERSION}: only the version that wrote it reads it. Build the program again with typeshade ${VERSION}; its emitted text still loads as it is.`,
+    );
+    // A load that needs no new emit reads the emitted text, whoever wrote the IR.
+    expect(rt.load(other).recording).toBe(false);
   });
 });
 

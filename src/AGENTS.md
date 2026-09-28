@@ -14,7 +14,7 @@ Concrete shaders live in `examples/` and in consuming projects, never here.
 ## Entry points
 
 Every file below but the last is a `package.json` `exports` subpath, and every one of those but
-`runtime.ts` is public API: `API_SUBPATHS` in `api-subpaths.ts`, the one list that
+`runtime-internal.ts` is public API: `API_SUBPATHS` in `api-subpaths.ts`, the one list that
 `api-doc-coverage.test.ts` and `api-surface.test.ts` both read. `__api__/surface.md` lists every
 symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 `api-surface.test.ts` fails when it and the tree disagree.
@@ -28,6 +28,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `emit-prod.ts`        | `./emit-prod`: ship-time text plugins (`obfuscate`, minify, type aliasing) and `decodeShaderLog` to map a driver error back.                                                        |
 | `vite.ts`             | `./vite`: `typeshade()`, the Vite plugin a host project imports a `.shade.ts` through (surface §64), with its `console` option (`TypeshadeViteOptions`), and `TypeshadeVitePlugin`. |
 | `runtime.ts`          | `./runtime`: the program runtime (change 0025, Rule 11.11), `createRuntime` and its types, over `runtime/`; no compiler in its closure.                                             |
+| `emit.ts`             | `./emit`: `repack`, the load-time emitter (change 0025 section 5, Rule 11.11), which builds a manifest again from its portable IR; no front end in its closure.                     |
 | `runtime-internal.ts` | `./runtime/internal`: not API. What a module the plugin generates imports (the CPU tier's runtime and the host-value checks).                                                       |
 | `runtime/`            | The program runtime: `runtime.ts` (device, frames, submit, console), `program.ts` (pipelines, layouts, binding by name), `resources.ts`, `gpu.ts`.                                  |
 | `language-service/`   | `./language-service`: the editor-neutral, document-based service (`createTypeshadeLanguageService`) and `SHADE_DTS`.                                                                |
@@ -59,6 +60,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `core/ir/types.ts`, `core/ir/nodes.ts`        | `ShaderType` and the typed constants; the `Expr` / `Stmt` unions and the module declarations (`ConstDecl`, `StructDecl`, `FuncDecl`, …).                                                                          |
 | `core/ir/node.ts`, `core/ir/builder.ts`       | `Node<K>` (chaining operators, `.assign()`) and `ReadonlyNode<K>`; the `Builder`, `fn` / `externFn` / `module`, `constExpr`, `Let` / `Var`.                                                                       |
 | `core/ir/visit.ts`                            | One walker per operation over the closed `Expr` / `Stmt` unions, so a new node kind reaches every pass.                                                                                                           |
+| `core/ir/portable.ts`                         | The portable IR (change 0025 section 5): a module as JSON, keeping its shared subtrees, `-0` and each call's `declRef`, which a manifest carries on request and `repack` reads back.                              |
 | `core/emit.ts`                                | The one neutral tree walk, and `lowerForBackend`, the shared pre-emit pipeline (below).                                                                                                                           |
 | `core/backend.ts`                             | The `Backend` contract: type / literal / intrinsic spelling, the divergent fragments, capabilities, `UnsupportedFeatureError`.                                                                                    |
 | `core/intrinsics.ts`                          | Neutral intrinsic ids mapped to each target's spelling. Only divergent intrinsics need an entry.                                                                                                                  |
@@ -66,6 +68,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `core/backends/glsl.ts`                       | The GLSL ES 3.00 backend (`emitGlslModule`, `emitGlslStages`): std140 UBOs, entry IO as varyings, storage as data textures, WGSL's integer answers (`glsl-int.ts`, Rule 11.12).                                   |
 | `core/oracle.ts`, `core/cpu-codegen.ts`       | The CPU f64 tree-walk interpreter and its `new Function` twin, both over the one op library in `core/cpu-runtime.ts`.                                                                                             |
 | `core/cpu-codegen-runtime.ts`                 | The runtime object the generated CPU code closes over (the factory's `$`), apart from the generator, so a module the host imports ships it alone.                                                                 |
+| `core/scalar-arith.ts`                        | WGSL's scalar arithmetic and the builtins with one correct answer, which constant folding and the CPU tier share, apart from the CPU tier's tables so the emitters do not carry them.                             |
 | `core/host-values.ts`, `core/host-runtime.ts` | The host-value boundary of a host call (Rule 8.21), and what a generated host module imports (Rule 11.7).                                                                                                         |
 | `core/host-entry.ts`                          | A `@compute` entry called from host code (Rule 8.24): packing by the layouts the plugin writes, the WebGPU dispatch and readback, the CPU-tier dispatch, and the `_console` readback where the plugin records it. |
 | `core/host-compute.ts`                        | A `@compute` entry's call (Rules 8.24 and 11.8): it runs in the call queue, on the tiers `configure` orders, with a `Resident` bound as its device buffer.                                                        |
@@ -76,7 +79,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `core/resident.ts`                            | `resident`, `Resident` and `configure` (Rule 11.8): a host value kept on the device across kernel and entry calls and the program runtime's bindings, the order the calls run in, and the order of the tiers.     |
 | `core/host-kernel-gl.ts`                      | A kernel function's loops on WebGL2 (Rule 11.8): the runtime's own context, one fragment program per loop into an `R32UI` target, the data textures and the readback.                                             |
 | `core/reflect.ts`, `core/sot.ts`              | Pipeline reflection (bind groups, std140 / std430 layouts, entry IO); declare-once IO structs and resources.                                                                                                      |
-| `core/manifest.ts`                            | The compiled program's manifest (Rule 11.10): `buildManifest`, which `packModule` and the generated module's default export call, from the IR alone.                                                              |
+| `core/manifest.ts`                            | The compiled program's manifest (Rule 11.10): `buildManifest`, which `packModule`, the generated module's default export and `repack` call, from the IR alone.                                                    |
 | `core/vertex-layout.ts`                       | The vertex buffer a `@vertex` entry reads (Rule 6.8), tightly packed, which `reflect()` and the manifest share.                                                                                                   |
 | `core/diagnostics/`                           | `codes.ts` (frozen `SDnnnn` catalogue), `error.ts` (`TypeShadeError`), `loc.ts` (opt-in source tracing), `report.ts` (`diagnose()`).                                                                              |
 | `core/fp64/`                                  | The df64 emulation library (float and integer flavors) that `core/passes/fp64-lower.ts` rewrites `f64` into.                                                                                                      |

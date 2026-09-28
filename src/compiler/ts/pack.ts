@@ -22,7 +22,9 @@ export { PACK_SCHEMA } from '../../core/manifest.js';
  *  `src/core/manifest.ts`, which builds it from the IR alone, for what each field promises.
  *
  *  `options.console` adds the recorded variant, the WGSL that writes each `console.*` call an
- *  entry reaches into the console buffer, with the table the buffer decodes with. */
+ *  entry reaches into the console buffer, with the table the buffer decodes with. `options.ir`
+ *  adds the module as portable IR, from which `repack` (`typeshade/emit`) builds the manifest
+ *  again where the program loads (change 0025, section 5). */
 export function packModule(m: ModuleDecl, options: PackOptions = {}): Pack {
   return buildManifest(m, options);
 }

@@ -35,6 +35,7 @@ import { consoleBuffer } from './passes/console-buffer.js';
 import type { DrawBinding, Layout } from './host-entry.js';
 import { vertexLayoutOf, vertexLayoutOfEntry } from './vertex-layout.js';
 import { VERSION } from './version.js';
+import { toPortableIr } from './ir/portable.js';
 
 export {
   PACK_SCHEMA,
@@ -340,6 +341,9 @@ function typeOfInjected(e: BindEntry): string {
  * present when the module has one entry of each stage and the GLSL ES 3.00 writer can spell
  * them, and `gl.draws` says for each full-screen fragment entry how the WebGL2 tier draws it or
  * why it cannot.
+ *
+ * `options.ir` adds `m` itself as portable IR (`ir/portable.ts`), from which `repack` builds
+ * this same manifest again, with other options, where the program loads.
  */
 export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
   const wgsl = emitModule(m);
@@ -442,6 +446,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
     features: [...hostFeaturesFor(wgslBackend, r.requiredFeatures)],
     ...(recorded !== undefined ? { console: recorded } : {}),
     ...(Object.keys(draws).length > 0 ? { gl: { draws } } : {}),
+    ...(options.ir === true ? { ir: toPortableIr(m) } : {}),
   };
 }
 

@@ -20,41 +20,7 @@ import type { Expr, ModuleDecl } from '../../ir/index.js';
 import { boolT } from '../../ir/index.js';
 import { mapModuleExprs } from './ir-transform.js';
 import { foldIntLit, intElemOf, wrapInt } from './expr-utils.js';
-import { BUILTINS } from '../../cpu-runtime.js';
-
-/** The builtins with one correct answer, folded over scalar literals (issue #73). Each of
- *  these is exact on every target, so the value JS computes is the value the GPU computes,
- *  and the oracle computes it through the same `BUILTINS` entry, so P2 equality holds by
- *  construction. The transcendental ones (`sin`, `pow`, `sqrt`, ...) are NOT here: WGSL gives
- *  them an accuracy bound, not a correctly rounded result, so a folded literal could differ
- *  from the driver's own value by ulps. They stay calls, and the driver folds them itself.
- *
- *  `fract` is the one entry whose "exact" needed checking rather than asserting (#141). It is
- *  INHERITED from `x - floor(x)`, and WGSL's note says `fract` of a tiny negative may be 1.0:
- *  for `x = -1e-30` the exact fraction 1 - 2^-30 lies between two f32 neighbours and WGSL fixes
- *  no rounding mode, so both 1.0 and the neighbour below are allowed. Folding in f64 and
- *  rounding to f32 picks 1.0 — one of the two.
- *
- *  Measured before leaving it in the set: `fract(-1e-30)` is exactly 1.0 on WGSL (Tint) AND on
- *  a WebGL2 driver, and `fract(-1e-7)` is 0.9999998807907104 on both. The two targets and the
- *  fold agree on this hardware, so the fold is not inventing a third answer. The spec freedom
- *  is real and another driver could take the other branch; that is a `target`-kind divergence
- *  for the determinism report to carry, not a reason for the optimizer to leave the call
- *  standing when both measured targets agree with it. */
-const EXACT_BUILTINS: ReadonlySet<string> = new Set([
-  'abs',
-  'floor',
-  'ceil',
-  'trunc',
-  'round',
-  'sign',
-  'min',
-  'max',
-  'clamp',
-  'saturate',
-  'fract',
-  'step',
-]);
+import { EXACT_BUILTINS } from '../../scalar-arith.js';
 
 /** An INTEGER conversion of an integer literal, folded to the literal the target holds (#154).
  *
@@ -95,14 +61,16 @@ function foldNode(e: Expr): Expr {
   if (
     e.op === 'call' &&
     e.declRef === undefined &&
-    EXACT_BUILTINS.has(e.fn) &&
+    Object.hasOwn(EXACT_BUILTINS, e.fn) &&
     e.type.kind === 'scalar' &&
     e.type.scalar !== 'bool' &&
     e.args.length > 0 &&
     e.args.every((a) => a.op === 'lit' && typeof a.value === 'number')
   ) {
-    const f = BUILTINS[e.fn];
-    const v = f ? f(...e.args.map((a) => (a as { value: number }).value)) : undefined;
+    // A builtin with one correct answer (`EXACT_BUILTINS` says which, and why the
+    // transcendental ones are not among them), computed by the function the oracle applies.
+    const f = EXACT_BUILTINS[e.fn as keyof typeof EXACT_BUILTINS] as (...args: number[]) => number;
+    const v = f(...e.args.map((a) => (a as { value: number }).value));
     if (typeof v === 'number' && Number.isFinite(v)) {
       const int = intElemOf(e.type);
       return { op: 'lit', type: e.type, value: int === undefined ? v : wrapInt(v, int) };

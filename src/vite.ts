@@ -14,6 +14,8 @@
 //   - records the `console.*` calls a GPU entry reaches into the WGSL's console buffer (change
 //     0014), which the runtime reads back and prints after the dispatch or draw: in `vite dev`
 //     by default, in every build with `console: 'always'` and never with `'never'` (change 0025);
+//   - with `ir: true`, adds the module's portable IR to its default export, from which the
+//     load-time emitter emits the program again where it loads (change 0025, section 5);
 //   - writes the host view beside it, `name.shade.typeshade.ts`, which the project's `tsconfig`
 //     (`moduleSuffixes: [".typeshade", ""]`) makes `tsc` read for the import.
 //
@@ -53,6 +55,14 @@ export interface TypeshadeViteOptions {
    * production WGSL.
    */
   readonly console?: 'dev' | 'always' | 'never';
+  /**
+   * Add each module's portable IR to its default export, the manifest, so that `repack` from
+   * `typeshade/emit` can emit the program again where it loads (change 0025, section 5): on a
+   * runtime created with `createRuntime({ emit: repack })`, `rt.load(program, { console: true })`
+   * records a program this build did not. Off by default: the IR is about twice the WGSL,
+   * gzipped.
+   */
+  readonly ir?: boolean;
 }
 
 /** The plugin {@link typeshade} returns: a Vite and Rollup plugin object, typed structurally so
@@ -111,6 +121,8 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
     throw new TypeError(
       `typeshade(): console takes 'dev', 'always' or 'never', not ${JSON.stringify(when)}.`,
     );
+  if (options.ir !== undefined && typeof options.ir !== 'boolean')
+    throw new TypeError(`typeshade(): ir takes true or false, not ${JSON.stringify(options.ir)}.`);
   let dev = false;
   /** Whether this build's WGSL records the console. */
   const records = (): boolean => when === 'always' || (when === 'dev' && dev);
@@ -158,6 +170,7 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
         fileName: path,
         readDocument,
         ...(records() ? { console: 'gpu' as const } : {}),
+        ...(options.ir === true ? { ir: true } : {}),
       });
       // The files the module imports, so an edit to one rebuilds this module (Rule 3.9). Rollup
       // and Vite call a plugin hook with their context as `this`; a direct call has none.

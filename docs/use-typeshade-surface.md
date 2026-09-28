@@ -6903,7 +6903,8 @@ export default defineConfig({ plugins: [typeshade()] });
 *.shade.typeshade.ts
 ```
 
-**The plugin's one option** is when the console is recorded (§66, §67): `typeshade({ console })`.
+**The plugin's options** are when the console is recorded (§66, §67), `typeshade({ console })`,
+and whether a module's default export carries its IR, `typeshade({ ir: true })`.
 
 - `'dev'`, the default, records in `vite dev` and not in `vite build`, so `typeshade()` is
   `typeshade({ console: 'dev' })`.
@@ -6913,6 +6914,12 @@ export default defineConfig({ plugins: [typeshade()] });
 - `'never'` records in neither, so `vite dev`'s WGSL is the production WGSL byte for byte.
 
 A value that is none of the three is a `TypeError` when the config loads.
+
+`ir: true` adds the module's portable IR to its default export, the manifest, from which the
+load-time emitter emits the program again where it loads (§69). A deployed build can then record
+its console for one session with no rebuild. The IR is about twice the WGSL, gzipped, which is why
+it is off by default, and only the package version that wrote it reads it. A value other than
+`true` or `false` is a `TypeError`.
 
 **The host view.** A host program cannot type-check the shader source: its decorators are
 TS1206, its vocabulary meets the DOM's (`length`, `location`), and a host array is not a branded
@@ -7570,9 +7577,10 @@ parameter, tightly packed with their formats, the layout `reflect().vertex` repo
 
 **The rest.** `overrides` with their types and defaults; `features`, the `GPUFeatureName`s a device
 needs; `console`, on request, the recorded variant's WGSL, its log table and its bindings, where
-`_console` is added; and `gl`, what the WebGL2 tier draws each full-screen fragment entry with, or
-why it cannot. A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its
-internal format and the texels per element.
+`_console` is added; `gl`, what the WebGL2 tier draws each full-screen fragment entry with, or
+why it cannot; and `ir`, on request, the program's portable IR, which the load-time emitter reads
+(below). A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its internal
+format and the texels per element.
 
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU (Rule 11.11).
 It imports nothing of the compiler, so an application that runs compiled programs ships about
@@ -7612,14 +7620,45 @@ await frame.submit(); // console lines print here
 - **The console.** A program loaded with its recorded variant (`load(m, { console: true })`, the
   default when the manifest carries one) binds a console buffer for each dispatch and draw, and
   the submit reads it back: each event reaches `createRuntime({ console: sink })`, or the host's
-  console.
+  console. A manifest built without the variant is emitted again with it by the runtime's
+  load-time emitter, below.
 
 **One device for both layers.** `configure({ runtime: rt })` puts the calls of §64, §65 and §67
 on `rt`'s device, and `runtime()`, the default runtime, is on the device the calls use, so a
 `Resident` or a `Texture` made on either layer is used on the other; a call that takes an image
 takes a runtime's `Texture` as it is, and a draw that falls to WebGL2 refuses one.
 
-The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67). The
-load-time emitter is a later part of change 0025.
+The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67).
 
-Last updated: 2026-09-22
+**The load-time emitter.** Some choices can only be made where a program runs: a host turns the
+console on for one session of a deployed build. `typeshade/emit` exports `repack(manifest,
+options)`, which builds the manifest again from the IR it carries, with no TypeScript front end:
+`repack(packModule(m, { ir: true }), options)` is `packModule(m, options)`, byte for byte. The
+runtime takes it as a plug-in and never imports it itself, so an application that emits nothing
+where it loads ships none of it:
+
+```ts
+import { createRuntime } from 'typeshade/runtime';
+import { repack } from 'typeshade/emit';
+import brick from './brick.shade.ts'; // built with typeshade({ ir: true })
+
+const rt = await createRuntime({ emit: repack });
+const program = rt.load(brick, { console: true }); // records, although the build did not
+```
+
+- **The IR** is in a manifest only on request, `packModule(m, { ir: true })` or
+  `typeshade({ ir: true })` (§64), since it is about twice the WGSL, gzipped. It keeps what the
+  emitters read and plain JSON would lose: the subtrees the IR shares, `-0`, and the declaration
+  each call resolved to. Of the source lines, it keeps an entry's and a `console.*` call's.
+- **Only the same version reads it.** The IR is not a stable format. It records the package
+  version that wrote it, and `repack` refuses another version's, naming both. A manifest from
+  another version still loads from its emitted text: only a load that needs a new emit is refused.
+- **What needs a new emit** is `load(m, { console: true })` of a manifest built without the
+  recorded variant, the one load option that does today. A runtime created with no `emit`
+  refuses it, and so does one given a manifest with no IR, each with a `TypeError` that says how
+  to build the manifest.
+- **What it carries**: the IR, the WGSL and GLSL ES 3.00 writers, the console lowering and the
+  manifest builder, about 75 KB gzipped, and no file of the front end and no `typescript`.
+  `scripts/bundle-boundary.ts` holds both in CI, as it holds the runtime's.
+
+Last updated: 2026-09-28

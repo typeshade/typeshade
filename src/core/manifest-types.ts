@@ -6,6 +6,7 @@
 
 import type { ConsoleLog } from './console.js';
 import type { Layout } from './host-entry.js';
+import type { PortableIr } from './ir/portable.js';
 import type { GpuVertexLayout } from './vertex-layout.js';
 
 /** The manifest's schema. A reader refuses one it does not know (Rule 11.10). */
@@ -153,6 +154,9 @@ export interface PackGlDraw {
 export interface PackOptions {
   /** Add the recorded variant, `console`: the WGSL that records the `console.*` calls. */
   readonly console?: boolean;
+  /** Add the program's portable IR, `ir`, which `repack` from `typeshade/emit` emits the program
+   *  again from where it loads (change 0025, section 5). About twice the WGSL, gzipped. */
+  readonly ir?: boolean;
 }
 
 /** The serialisable result of {@link buildManifest}: see there. */
@@ -179,6 +183,9 @@ export interface Pack {
   readonly gl?: {
     readonly draws: Readonly<Record<string, PackGlDraw | { readonly none: string }>>;
   };
+  /** The program's portable IR, when the build asked for it: what `repack` emits the program
+   *  again from. Only the package version that wrote it reads it. */
+  readonly ir?: PortableIr;
 }
 
 // ─── the call layer's layouts ────────────────────────────────────────────────────────────────

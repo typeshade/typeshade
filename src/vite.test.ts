@@ -11,8 +11,11 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { typeshade } from './vite.js';
+import { typeshade, type TypeshadeViteOptions } from './vite.js';
 import { hostFace } from './compiler/ts/host-face.js';
+import type { Pack } from './core/manifest-types.js';
+import { VERSION } from './core/version.js';
+import { repack } from './emit.js';
 import { compile } from './compiler/ts/compile.js';
 import { compileModule } from './core/oracle.js';
 import { runCli, type CliHost } from './cli/run.js';
@@ -254,6 +257,33 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { console.log(
     ]);
     expect(() => typeshade({ console: 'prod' as never })).toThrow(
       `typeshade(): console takes 'dev', 'always' or 'never', not "prod".`,
+    );
+  });
+
+  it('adds the IR to the default export with ir: true, and none by default', async () => {
+    const src = `"use typeshade";
+declare const ys: storage<array<f32>, "read_write">;
+@compute([1])
+export function note(@builtin("global_invocation_id") gid: vec3u) { console.log("n", gid.x); ys[0] = 1.; }
+`;
+    const file = join(tempDir(), 'note.shade.ts');
+    const program = async (options?: TypeshadeViteOptions): Promise<Pack> => {
+      const p = typeshade(options);
+      p.configResolved({ command: 'build' });
+      const code = (await p.transform(src, file))?.code ?? '';
+      return JSON.parse(/^export default (.*);$/m.exec(code)![1]!) as Pack;
+    };
+    expect((await program()).ir).toBeUndefined();
+    const built = await program({ ir: true });
+    expect(built.ir?.compiler).toBe(VERSION);
+    expect(built.console).toBeUndefined();
+    // The load-time emitter reads it: the build's own manifest, and the recorded variant the
+    // build did not record.
+    const { ir: _ir, ...plain } = built;
+    expect(repack(built)).toEqual(plain);
+    expect(repack(built, { console: true }).console?.log.sites).toHaveLength(1);
+    expect(() => typeshade({ ir: 'yes' as never })).toThrow(
+      'typeshade(): ir takes true or false, not "yes".',
     );
   });
 

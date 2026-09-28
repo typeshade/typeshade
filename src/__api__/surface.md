@@ -628,6 +628,14 @@ Texture
 TextureOptions
 ```
 
+## `./emit` — 3 exports
+
+```
+Pack
+PackOptions
+repack
+```
+
 ## `./core/ir` — 267 exports
 
 ```
@@ -948,7 +956,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 615 definitions
+## Shapes — 616 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -1360,10 +1368,10 @@ src/core/ir/types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; reado
 src/core/ir/types.ts#vec4iT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "i32"; }
 src/core/ir/types.ts#vec4uT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "u32"; }
 src/core/ir/types.ts#voidT  const  { readonly kind: "void"; }
-src/core/manifest-types.ts#Pack  interface  { bindings: readonly PackBinding[]; compiler: string; console?: PackConsole; entries: readonly PackEntry[]; features: readonly string[]; gl?: { readonly draws: Readonly<Record<string, PackGlDraw | { readonly none: string; }>>; }; glsl?: { readonly vertex: string; readonly fragment: string; }; overrides: readonly PackOverride[]; schema: 1; structs: readonly { readonly name: string; readonly fields: readonly { name: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
+src/core/manifest-types.ts#Pack  interface  { bindings: readonly PackBinding[]; compiler: string; console?: PackConsole; entries: readonly PackEntry[]; features: readonly string[]; gl?: { readonly draws: Readonly<Record<string, PackGlDraw | { readonly none: string; }>>; }; glsl?: { readonly vertex: string; readonly fragment: string; }; ir?: PortableIr; overrides: readonly PackOverride[]; schema: 1; structs: readonly { readonly name: string; readonly fields: readonly { name: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
 src/core/manifest-types.ts#PackBinding  interface  { access?: "read" | "read_write"; binding: number; dataTexture?: PackDataTexture; group: number; injected?: true; layout?: PackLayout; name: string; noLayout?: string; resource: PackResource; rule?: "std140" | "std430"; space: string; stages: readonly ("compute" | "vertex" | "fragment")[]; type: string }
 src/core/manifest-types.ts#PackEntry  interface  { bindings?: readonly { readonly name: string; readonly writes: boolean; }[]; inputs?: readonly PackIo[]; line?: PackLine; name: string; outputs?: readonly PackIo[]; stage: string; vertex?: GpuVertexLayout; workgroupSize?: readonly [number, number, number] }
-src/core/manifest-types.ts#PackOptions  interface  { console?: boolean }
+src/core/manifest-types.ts#PackOptions  interface  { console?: boolean; ir?: boolean }
 src/core/measure.ts#EmitProfile  interface  { passes: readonly PassTiming[]; stages: readonly StageTiming[]; target: "glsl-es300" | "wgsl"; totalMs: number }
 src/core/measure.ts#EmitSize  interface  { chars: number; lines: number }
 src/core/measure.ts#OpCount  interface  { arith: number; calls: number; total: number }
@@ -1497,6 +1505,7 @@ src/emit-prod.ts#mangle  function  (opts?: { renames?: Map<string, string>; }) =
 src/emit-prod.ts#minify  function  (opts?: MinifyOptions) => EmitPlugin
 src/emit-prod.ts#obfuscate  function  (opts?: { renames?: Map<string, string>; }) => EmitPlugin[]
 src/emit-prod.ts#prune  function  () => EmitPlugin
+src/emit.ts#repack  function  (manifest: Pack, options?: PackOptions) => Pack
 src/language-service.ts#TypeshadeCompletionItem  interface  { detail: string; insertText?: string; kind: "attribute" | "function" | "keyword" | "type" | "value"; label: string }
 src/language-service.ts#TypeshadeDiagnostic  interface  { category: "error" | "message" | "warning"; code?: string; fileName: string; message: string; range: TypeshadeRange; span: TypeshadeTextSpan }
 src/language-service.ts#TypeshadeHover  interface  { contents: readonly string[]; range: TypeshadeRange; span: TypeshadeTextSpan }
@@ -1560,10 +1569,10 @@ src/runtime/runtime.ts#LoadOptions  interface  { console?: boolean }
 src/runtime/runtime.ts#PassTargets  interface  { color?: readonly (object | Texture | { readonly target: object | Texture; readonly clear?: readonly [number, number, number, number]; readonly load?: "clear" | "load"; })[]; depth?: Texture | { readonly target: Texture; readonly clear?: number; readonly load?: "clear" | "load"; } }
 src/runtime/runtime.ts#RenderPass  interface  { draw: (pipeline: RenderPipeline, bindings: Readonly<Record<string, unknown>>, geometry: Geometry) => void; raw: object }
 src/runtime/runtime.ts#Runtime  interface  { destroy: () => void; device: D; frame: () => Frame; load: (program: Pack, options?: LoadOptions) => Program; sampler: (options?: object | SamplerOptions) => Sampler; submit: (...encoders: readonly object[]) => Promise<void>; texture: (options: object | TextureOptions) => Texture }
-src/runtime/runtime.ts#RuntimeOptions  interface  { console?: "print" | ConsoleSink; consoleBytes?: number; device?: D; programs?: readonly Pack[] }
+src/runtime/runtime.ts#RuntimeOptions  interface  { console?: "print" | ConsoleSink; consoleBytes?: number; device?: D; emit?: (program: Pack, options: PackOptions) => Pack; programs?: readonly Pack[] }
 src/runtime/runtime.ts#createRuntime  function  <D extends object = object>(options?: RuntimeOptions<D>) => Promise<Runtime<D>>
 src/runtime/runtime.ts#runtime  function  () => Promise<Runtime<object>>
-src/vite.ts#TypeshadeViteOptions  interface  { console?: "always" | "dev" | "never" }
+src/vite.ts#TypeshadeViteOptions  interface  { console?: "always" | "dev" | "never"; ir?: boolean }
 src/vite.ts#TypeshadeVitePlugin  interface  { buildStart: () => void; config: () => { optimizeDeps: { include: string[]; }; }; configResolved: (config: { readonly command: string; }) => void; enforce: "pre"; name: "typeshade"; transform: (code: string, id: string) => Promise<{ code: string; map: null; }> }
 src/vite.ts#typeshade  function  (options?: TypeshadeViteOptions) => TypeshadeVitePlugin
 ```

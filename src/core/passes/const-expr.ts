@@ -68,7 +68,7 @@ import type { BinOp, Expr, ModuleDecl, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
 import { typeKey } from '../ir/types.js';
 import { mapStmtExpr } from '../ir/visit.js';
-import { scalarBin } from '../cpu-runtime.js';
+import { scalarBin } from '../scalar-arith.js';
 import { exprHasEffect, fnWrites, type FnWrites } from './effects.js';
 import { mapExpr } from './opt/ir-transform.js';
 import { intElemOf, wrapInt } from './opt/expr-utils.js';

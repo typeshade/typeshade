@@ -1,7 +1,7 @@
 ---
 id: '0025'
 title: A host loads a compiled program into a public runtime that handles the device, the resources, the pipelines, the bindings and the console, with no compiler in its bundle, and can emit the program again at load time without the TypeScript front end
-status: accepted
+status: implemented
 rules:
 - '6.8'
 - '8.24'

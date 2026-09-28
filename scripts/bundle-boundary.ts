@@ -2,12 +2,15 @@
 //
 // `typeshade/runtime` is what an application ships to run a compiled program, and the point of
 // it is that the application does not ship the compiler: the TypeScript front end is 1.4 MB
-// gzipped with TypeScript, the runtime about 10 KB. Two checks hold that, over the subpath's
-// source:
+// gzipped with TypeScript, the runtime about 10 KB. `typeshade/emit`, the load-time emitter a
+// host adds to the runtime when a program must be emitted again where it loads (section 5),
+// carries the IR, the backends and the manifest builder, and no front end either. Two checks
+// hold that, over each subpath's source:
 //
 //   1. THE CLOSURE. Every module the subpath's entry reaches through its imports, type-only ones
 //      included, is walked. A file of `src/compiler/` fails it, and so does any bare specifier
-//      (`typescript`, `node:fs`): the runtime is `src/runtime/` and `src/core/` alone.
+//      (`typescript`, `node:fs`): the runtime is `src/runtime/` and `src/core/` alone, and the
+//      emitter `src/core/` alone.
 //   2. THE SIZE. The entry is bundled for the browser, minified, with every export kept, and
 //      gzipped. Its size must stay between its floor and its budget in
 //      `scripts/bundle-budget.json`. The budget is the size the subpath landed with and about a
@@ -46,6 +49,12 @@ const SUBPATHS: readonly {
     entry: 'src/runtime.ts',
     allowed: ['src/runtime.ts', 'src/runtime/', 'src/core/'],
     minModules: 15,
+  },
+  {
+    name: 'typeshade/emit',
+    entry: 'src/emit.ts',
+    allowed: ['src/emit.ts', 'src/core/'],
+    minModules: 60,
   },
 ];
 
@@ -144,7 +153,7 @@ async function main(): Promise<number> {
       failures++;
     }
     for (const b of bare) {
-      console.log(`FAIL  ${s.name} imports "${b.spec}" (${b.from}): the runtime names no package`);
+      console.log(`FAIL  ${s.name} imports "${b.spec}" (${b.from}): it names no package`);
       failures++;
     }
     if (files.length < s.minModules) {

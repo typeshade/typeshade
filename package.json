@@ -39,6 +39,7 @@
     "./vite": "./src/vite.ts",
     "./runtime": "./src/runtime.ts",
     "./runtime/internal": "./src/runtime-internal.ts",
+    "./emit": "./src/emit.ts",
     "./core/ir": "./src/core/ir/index.ts",
     "./examples": "./examples/index.ts",
     "./language-service": "./src/language-service/index.ts",
