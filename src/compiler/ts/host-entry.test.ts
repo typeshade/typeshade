@@ -540,7 +540,7 @@ export function quiet(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] =
     expect(build.code).not.toContain('_Console');
   });
 
-  it('prints the calls on the CPU tier, in invocation order, as a production build does', async () => {
+  it('prints the calls on the CPU tier, in invocation order, each line saying where it ran (change 0025)', async () => {
     const m = await load(LOGS);
     const lines: unknown[][] = [];
     const log = console.log;
@@ -553,11 +553,17 @@ export function quiet(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] =
     } finally {
       console.log = log;
     }
-    expect(lines).toEqual([
-      ['x', 0, 1.5],
-      ['x', 1, 2.5],
-      ['x', 2, 3.5],
-      ['x', 3, 4.5],
-    ]);
+    // The tier, the call's file and line, and the invocation, then the arguments (surface §66).
+    const cpu = 'background:#0f766e;color:#fff;border-radius:3px;padding:0 4px';
+    expect(lines).toEqual(
+      [1.5, 2.5, 3.5, 4.5].map((x, i) => [
+        `%c CPU %c m.shade.ts:6  [${i}, 0, 0] `,
+        cpu,
+        'color:#888',
+        'x',
+        i,
+        x,
+      ]),
+    );
   });
 });

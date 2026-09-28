@@ -633,24 +633,29 @@ function cpuPainter(c2d: Ctx2d, canvas: Canvas): Painter {
     const init = cpu.F['$initPrivates'];
     const img = c2d.createImageData(w, h);
     const px = img.data;
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        const args = e.params.map(
-          (p): CpuValue =>
-            (p === 'position' ? [x + 0.5, y + 0.5, 0, 1] : true) as unknown as CpuValue,
-        );
-        init?.();
-        const r = fn(...args) as unknown;
-        const at = 4 * (y * w + x);
-        // A discarded pixel keeps the clear colour, opaque black.
-        const c =
-          r === undefined
-            ? undefined
-            : ((e.out === null ? r : (r as Record<string, unknown>)[e.out]) as number[]);
-        for (let i = 0; i < 3; i++)
-          px[at + i] = c === undefined ? 0 : Math.round(clamp01(c[i]!) * 255);
-        px[at + 3] = 255;
-      }
+    try {
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const args = e.params.map(
+            (p): CpuValue =>
+              (p === 'position' ? [x + 0.5, y + 0.5, 0, 1] : true) as unknown as CpuValue,
+          );
+          init?.();
+          cpu.$.invocation = [x, y, 0];
+          const r = fn(...args) as unknown;
+          const at = 4 * (y * w + x);
+          // A discarded pixel keeps the clear colour, opaque black.
+          const c =
+            r === undefined
+              ? undefined
+              : ((e.out === null ? r : (r as Record<string, unknown>)[e.out]) as number[]);
+          for (let i = 0; i < 3; i++)
+            px[at + i] = c === undefined ? 0 : Math.round(clamp01(c[i]!) * 255);
+          px[at + 3] = 255;
+        }
+    } finally {
+      cpu.$.invocation = undefined;
+    }
     c2d.putImageData(img, 0, 0);
   };
   return { prepare, paint };

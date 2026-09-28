@@ -586,6 +586,20 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A console line says where it ran, and a production build records when asked** (proposal
+  0025, step 4; design rule 8.24; surface §64, §66 and §67).
+  - Every `console.*` event the call layer or the program runtime prints starts with its tier,
+    `GPU` or `CPU`, drawn as a label in a browser, then the call's file and line and the
+    invocation: `GPU  particles.shade.ts:14  [3, 0, 0]  x 4.5`. The prefix is the format string
+    and the event's arguments follow it, so the method stays and a label holding `%d` prints as
+    written. A `console.table` prints the prefix on its own line, and the warning for calls that
+    did not fit names the entry after the same prefix.
+  - The call layer's CPU tier gives each event its invocation, the `global_invocation_id` of a
+    dispatch or the pixel of a draw.
+  - `typeshade({ console })` in `typeshade/vite` takes `'dev'`, the default and today's
+    behaviour, `'always'`, which records in a production build too and says so when the build
+    starts, or `'never'`, which records in neither. `TypeshadeViteOptions` is exported.
+
 - **The call layer runs on the program runtime** (proposal 0025, step 3; design rules 8.24 and
   11.8; surface §65 and §69). `configure({ runtime })` hands the call layer a runtime, and every
   generated host function then dispatches and draws on its device; `runtime()` with no runtime

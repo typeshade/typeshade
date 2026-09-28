@@ -20,9 +20,10 @@ export interface ConsoleEvent {
   readonly args: readonly (CpuValue | string)[];
   readonly span?: SourceSpan;
   /** Which invocation made the call, as three numbers: `global_invocation_id` for a compute entry, the pixel for
-   *  a fragment entry (`[x, y, 0]`). Present on an event decoded from the GPU, and on one the
+   *  a fragment entry (`[x, y, 0]`). Present on an event decoded from the GPU, on one the
    *  CPU delivers while running an entry that takes that builtin, as a parameter or as a field
-   *  of a struct parameter. */
+   *  of a struct parameter, and on every one the call layer's CPU tier delivers while it
+   *  dispatches an entry or draws one. */
   readonly invocation?: readonly number[];
 }
 
