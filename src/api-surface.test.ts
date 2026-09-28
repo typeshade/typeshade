@@ -169,6 +169,21 @@ function memberText(prop: ts.Symbol): string {
  *  and a long line is the right trade: TypeScript's default cut-off would put a blind spot in
  *  exactly the region this gate claims to watch, and a diagnostic code joining `CODES` is a
  *  real change to what a consumer branches on. */
+/** Every run of number literals joined by ` | `, `3 | 2 | 4`, in ascending order, wherever it
+ *  stands in the printed form: a nested union too, which {@link typeText}'s top-level sort does
+ *  not reach. A run of number literals is a set of numbers, so sorting it loses nothing, and
+ *  TypeScript's order for one follows which file of the program first made each literal type:
+ *  moving an import re-spelled `matT`'s `cols: 2 | 3 | 4` as `3 | 2 | 4` with `types.ts`
+ *  unchanged. */
+function sortNumberRuns(printed: string): string {
+  return printed.replace(/(?<![\w.$])-?\d+(?: \| -?\d+)+(?![\w.$])/g, (run) =>
+    run
+      .split(' | ')
+      .sort((a, b) => Number(a) - Number(b))
+      .join(' | '),
+  );
+}
+
 /** The printed form of a type, with a UNION's members sorted (#61).
  *
  *  TypeScript's constituent order for a union is a function of the whole program, not of the
@@ -191,14 +206,15 @@ function memberText(prop: ts.Symbol): string {
  *  read as arbitrary (`"read_write"` before `"read"`).
  *
  *  WHAT IS NOT COVERED, measured rather than assumed: a union NESTED inside a larger printed
- *  form keeps TypeScript's order, because the separator that would split it is not at the top
+ *  form keeps TypeScript's order, unless it is a run of number literals, which
+ *  {@link sortNumberRuns} sorts wherever it stands, because the separator that would split it is not at the top
  *  level — 27 of them today, every one inside a function signature (`stage?: "vertex" |
  *  "fragment"` within a parameter list). Sorting those needs the signature rebuilt from the
  *  type rather than post-processed as text, which is a different change. The measured effect
  *  of this one is what #61 asked for: adding or removing a subpath now moves only that
  *  subpath's own rows, where before it re-spelled `TypeshadeSymbolKind`. */
 function typeText(type: ts.Type, format: ts.TypeFormatFlags): string {
-  const printed = checker.typeToString(type, undefined, format);
+  const printed = sortNumberRuns(checker.typeToString(type, undefined, format));
   if (!printed.includes(' | ')) return printed;
   const parts = printed.split(' | ');
   const balanced = (s: string): boolean => {
@@ -357,6 +373,17 @@ describe('the reader sees the surface at all', () => {
     ).toBeGreaterThan(20);
     const unsorted = unions.filter((parts) => parts.join('|') !== [...parts].sort().join('|'));
     expect(unsorted.map((p) => p.join(' | '))).toEqual([]);
+  });
+
+  it('prints every run of number literals in ascending order, nested ones too', () => {
+    // TypeScript orders a union's number literals by which file first made each literal type,
+    // so an import moved in one file re-spelled `matT`'s `cols: 2 | 3 | 4` as `3 | 2 | 4`.
+    const runs = [...render().matchAll(/(?<![\w.$])-?\d+(?: \| -?\d+)+(?![\w.$])/g)].map((m) =>
+      m[0].split(' | ').map(Number),
+    );
+    expect(runs.length, 'no run of number literals found: the reader is broken').toBeGreaterThan(5);
+    const unsorted = runs.filter((r) => r.join() !== [...r].sort((a, b) => a - b).join());
+    expect(unsorted).toEqual([]);
   });
 
   it('leaks no compiler-internal symbol id into a shape', () => {
