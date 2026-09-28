@@ -3,8 +3,9 @@
 TypeShade’s public language is TypeScript. A file that starts with `"use typeshade"` is a
 shader compilation unit. It lowers to the same IR the `fn()` EDSL builds. A host either takes the
 emitted WGSL/GLSL and a slot table and runs them itself, or imports a `*.shade.ts` through the Vite
-plugin and calls its exported functions, which run on the CPU tier through `typeshade/runtime`
-(surface §64).
+plugin and calls its exported functions, which run on the CPU tier through the op library the
+generated module imports (surface §64), or loads a compiled program into `typeshade/runtime`
+(surface §69).
 
 ## Unit
 

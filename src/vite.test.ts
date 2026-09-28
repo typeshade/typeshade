@@ -83,7 +83,9 @@ describe('a host file imports a .shade.ts through the plugin', () => {
       configFile: false,
       logLevel: 'silent',
       plugins: [typeshade()],
-      resolve: { alias: { 'typeshade/runtime': join(import.meta.dirname, 'runtime.ts') } },
+      resolve: {
+        alias: { 'typeshade/runtime/internal': join(import.meta.dirname, 'runtime-internal.ts') },
+      },
       build: {
         write: false,
         minify: false,
@@ -222,7 +224,7 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { console.log(
   it('returns the generated module for a .shade.ts, importing the runtime subpath', async () => {
     const dir = tempDir();
     const out = await typeshade().transform(TERRAIN, join(dir, 'terrain.shade.ts'));
-    expect(out?.code).toMatch(/^import \* as __ts_rt from "typeshade\/runtime";$/m);
+    expect(out?.code).toMatch(/^import \* as __ts_rt from "typeshade\/runtime\/internal";$/m);
     expect(out?.code).toMatch(/^export \{.* as height\b.*\};$/m);
   });
 

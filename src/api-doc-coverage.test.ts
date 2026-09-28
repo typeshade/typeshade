@@ -287,6 +287,7 @@ const EXPORT_FLOOR: Readonly<Record<string, number>> = {
   './debug': 8,
   './emit-prod': 17,
   './vite': 2,
+  './runtime': 10,
   './core/ir': 193,
   './language-service': 15,
 };
