@@ -1,7 +1,7 @@
 ---
 id: '0024'
 title: A `"use typeshade"` file imports a shader module from an installed package by the package's name, and every path resolves it by one rule
-status: draft
+status: accepted
 rules:
 - '3.2'
 - '3.9'
@@ -204,12 +204,15 @@ Alternatives considered:
 
 ## Decisions for the reviewer
 
-1. **Identity by name and version,** or a `realPath` hook each host passes. The first works in a
-   browser and needs no host change; the second follows a patched or linked package exactly.
-   Recommended: name and version.
-2. **The conditions,** `typeshade` then `import` then `default`, or `typeshade` alone. The first
-   lets a package of shader modules alone publish with a plain `exports`; the second makes every
-   package opt in. Recommended: all three, in that order.
-3. **The stem of a package's file,** the package's name then the file's stem, or the file's stem
-   alone as for a relative file. The first says where a renamed declaration came from in the
-   WGSL. Recommended: the package's name then the file's stem.
+Accepting this proposal accepts each of these, and each is the recommendation the draft made. The
+maintainer accepted them on 2026-09-28:
+
+1. **A package file is keyed by the package's name and version**, not by a `realPath` hook each
+   host passes: it works in a browser and needs no host change, and `resolveImport` stays for a
+   host that wants its own rule.
+2. **The conditions are `typeshade`, then `import`, then `default`**, so a package of shader
+   modules alone publishes with a plain `exports`, and one that also ships JavaScript names its
+   shader modules under `typeshade`.
+3. **A package file's stem is the package's name, then the file's stem**, so the WGSL says where a
+   renamed declaration came from; two versions that rename one declaration are told apart by the
+   number the linker appends.
