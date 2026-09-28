@@ -7068,10 +7068,16 @@ is no WebGPU device).`).
 a histogram), `loop-struct-array` (the particle step over `array<Particle>`) and `loop-on-cpu` (one
 refused loop per rule, each with its `TS8070`) are in `examples/`.
 
-**Not yet.** A kernel function that takes an `f64` runs on the CPU tier until the next part of
-change 0013, which dispatches its loops and folds its reduction on the GPU. One that writes a
-texture is `never` in the view: a storage texture's host value is the image of #204, the
-rendering design.
+**Emulated doubles.** A kernel function that takes an `f64` or an `array<f64>` runs on the GPU
+like any other: each double is two `f32`s in the buffers (§39), the runtime splits and joins them
+and binds the module's `_fp64` guard, and an `f64` reduction folds by the same 256-wide tree with
+the emulation's own add, min and max. Its `min` and `max` start from the largest finite `f32`,
+the emulation's range. The CPU tier computes each double as JavaScript does, so the two tiers
+agree to the emulation's precision, about 2^-44, not bit for bit. The WebGL2 tier takes no
+8-byte element.
+
+**Not yet.** A kernel function that writes a texture is `never` in the view: a storage texture's
+host value is the image of #204, the rendering design.
 
 ## 67. Calling an entry point from host code
 

@@ -3,7 +3,7 @@
 // through the import, with no WebGPU or WebGL code of its own. The page runs `run()` and
 // `draws()`.
 import { blockSum, report, scale } from './kernels.shade.ts';
-import { axpy } from './doubles.shade.ts';
+import { axpy, dstats } from './doubles.shade.ts';
 import { deep } from './deep.shade.ts';
 import { fillRamp, plasma, ramped, tiled } from './draw.shade.ts';
 import { configure, resident } from 'typeshade/runtime';
@@ -166,6 +166,11 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   const xs = Float32Array.from({ length: 300000 }, (_, i) => Math.sin(i) * 1000.123);
   const scaled = new Float32Array(xs.length);
   const summary = await stats(xs, scaled, 0.5);
+  // A kernel function over doubles (the f64 split): the map and a sum and a min over 70 000.
+  const dxs = Float64Array.from({ length: 70000 }, (_, i) => 1 + i * 1e-9);
+  // WebGPU required, so a fall back to the CPU tier's doubles cannot pass for the emulation.
+  configure({ prefer: ['webgpu'] });
+  const dsummary = await dstats(dxs, 3).finally(() => configure({}));
   const ints = Int32Array.from({ length: 70000 }, (_, i) => (i % 7) - 3);
   const total = await tally(ints);
   // Resident arrays (Rule 11.8): uploaded once, kept on the device across the calls, which only
@@ -202,6 +207,8 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     residentRender: [...(await dev.read())],
     residentStats: [...devSummary],
     residentScaled: [...(await devScaled.read()).subarray(0, 256)],
+    doubleScaled: [...dxs.subarray(0, 256)],
+    doubleStats: [...dsummary],
     short,
   };
 }

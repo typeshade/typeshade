@@ -368,12 +368,15 @@ async function hostImport(work: string, tarball: string): Promise<number> {
     // f32 on both sides. WGSL gives sin and cos an absolute error of 2^-11 in [-pi, pi], and
     // render sums k.x * sin + k.z * cos with |k.x| + |k.z| = 3; the other kernels are exact.
     // WebGL2's sin and cos carry no bound in GLSL ES 3.00; the driver's are within 2^-10 here.
+    // An emulated double is held to a double's reference: 1e-12 of the largest value.
     const bound =
       key === 'render' || key === 'residentRender'
         ? 3 * 2 ** -11
         : key === 'glRender'
           ? 3 * 2 ** -10
-          : 0;
+          : key.startsWith('double')
+            ? 1e-12 * Math.max(...want.map(Math.abs))
+            : 0;
     check(
       typeof got === 'object' && got.length === want.length && worst <= bound,
       `the kernel function ${key}, called through the import, writes the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,
