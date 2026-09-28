@@ -297,6 +297,67 @@ export function half(@builtin("position") p: vec4): vec4 {
   });
 });
 
+describe('a draw that reads a Resident (Rule 11.8)', () => {
+  // A kernel function writes the array; the fragment entry shows one element per pixel.
+  const SHOWN = `"use typeshade";
+declare const data: storage<array<f32>>;
+declare const k: uniform<f32>;
+export function fill(xs: array<f32>, v: f32) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = v * f32(i);
+  }
+}
+@fragment
+export function show(@builtin("position") p: vec4): vec4 {
+  return vec4(data[u32(p.x)] * k, 0., 0., 1.);
+}
+`;
+  const runtime = async () =>
+    (await import(pathToFileURL(RUNTIME).href)) as typeof import('../../core/host-runtime.js');
+  const reds = (c: FakeCanvas): number[] => [...c.pixels!].filter((_, i) => i % 4 === 0);
+
+  it('types a storage array with no size as the typed array or a Resident of it, and still waits', () => {
+    const view = face(SHOWN).view;
+    expect(view).toContain(
+      'export declare function show(target: HTMLCanvasElement | OffscreenCanvas, bindings: { readonly data: Float32Array | Resident<Float32Array>; readonly k: number }): Promise<void>;',
+    );
+    // A draw writes no binding, so it has no queued signature.
+    expect(view).not.toMatch(/function show\([^)]*\): void/);
+  });
+
+  it('draws what the calls made before it wrote, and not what a call made after it writes', async () => {
+    const m = await load(SHOWN);
+    const rt = await runtime();
+    const fill = m.fill as (xs: unknown, v: number) => Promise<void>;
+    const show = m.show as (c: unknown, b: unknown) => Promise<void>;
+    const data = rt.resident(new Float32Array(4));
+    const c = new FakeCanvas(4, 1);
+    // None awaited: the draw runs after the first fill and before the second.
+    void fill(data, 0.25);
+    const drawn = show(c, { data, k: 1 });
+    void fill(data, 0);
+    await drawn;
+    expect(reds(c)).toEqual([0, 64, 128, 191]);
+    expect([...(await data.read())]).toEqual([0, 0, 0, 0]);
+  });
+
+  it('refuses a Resident for a binding that is not a storage array with no size', async () => {
+    const m = await load(SHOWN);
+    const rt = await runtime();
+    const show = m.show as (c: unknown, b: unknown) => Promise<void>;
+    await expect(
+      show(new FakeCanvas(4, 1), {
+        data: new Float32Array(4),
+        k: rt.resident(new Float32Array(1)),
+      }),
+    ).rejects.toThrow(
+      new TypeError(
+        'show(): binding "k" (f32) takes no Resident: only a storage array with no size does.',
+      ),
+    );
+  });
+});
+
 describe('a draw refuses what does not fit, naming the entry and the binding', () => {
   it('refuses the arguments', async () => {
     const m = await load(PLASMA);

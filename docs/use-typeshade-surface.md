@@ -7183,6 +7183,12 @@ requestAnimationFrame(frame);
 - **The result** is a promise that resolves when the frame is submitted, not when the GPU has
   drawn it. A frame loop may drop it. Draws made before the device exists run in order once it
   does, each with the values it was called with.
+- **A `Resident`** (Rule 11.8) may stand for a storage array with no size, as it does for a
+  compute entry. A draw that reads one runs among the kernel and entry calls, in the order they
+  were made: it draws what the calls before it wrote, and a call made after it writes after the
+  draw. On WebGPU the handle is bound as the buffer it already has, and nothing is read back; the
+  CPU tier reads the handle's copy, brought up to date first. So a kernel function can compute
+  an array that a draw shows every frame without leaving the GPU.
 - **Where it draws.** On WebGPU, then WebGL2 (the entry's GLSL ES 3.00 program, drawn into a
   framebuffer and copied upside down so row 0 is the top, as WGSL counts it), then the CPU tier,
   pixel by pixel into an `ImageData`. A canvas keeps the first kind of context it hands out, so
@@ -7208,9 +7214,8 @@ as it runs.
 
 **Not yet.** A storage texture, a depth texture, a texture of another dimension and an emulated
 `f64` keep the entry `never` in the view, with the reason, as do a vertex entry and a fragment
-entry that reads what a vertex entry writes (#204, the rendering design, adds a mesh). A draw
-takes no `Resident` yet, and its tiers are fixed: `configure` orders a compute entry's and a
-kernel function's.
+entry that reads what a vertex entry writes (#204, the rendering design, adds a mesh). A draw's
+tiers are fixed: `configure` orders a compute entry's and a kernel function's.
 
 ## 68. Importing another shader module
 

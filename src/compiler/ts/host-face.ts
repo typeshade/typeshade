@@ -805,8 +805,8 @@ function entryBindings(
     const rw = space === 'storage' && b.access === 'read_write';
     bindings.push({ ...at, space, writes, ...(rw ? { rw: true as const } : {}), layout });
     const t = bindingTsType(layout, writes);
-    // A compute entry's storage array with no size may be a `Resident` of it (Rule 11.8).
-    if (f.stage === 'compute' && space === 'storage' && layout.k === 'a' && layout.n === null) {
+    // An entry's storage array with no size may be a `Resident` of it (Rule 11.8).
+    if (space === 'storage' && layout.k === 'a' && layout.n === null) {
       types.push(`readonly ${b.name}: ${t} | Resident<${t}>`);
       queued.push(`readonly ${b.name}: ${writes ? `Resident<${t}>` : `${t} | Resident<${t}>`}`);
     } else {
@@ -1291,11 +1291,13 @@ function viewText(stem: string, exports: readonly HostExport[], runtime: string)
   const named = new Map<string, string>();
   for (const e of exports) if (e.kind === 'struct') named.set(e.type.s, e.name);
   const out: string[] = [header(stem)];
-  // A kernel function takes a `Resident` wherever it takes an array, and a compute entry
-  // wherever it takes a storage array with no size (Rule 11.8).
+  // A kernel function takes a `Resident` wherever it takes an array, and an entry wherever it
+  // takes a storage array with no size (Rule 11.8).
   if (
     exports.some(
-      (e) => e.kind === 'kernel' || (e.kind === 'compute' && e.bindingsType.includes('Resident<')),
+      (e) =>
+        e.kind === 'kernel' ||
+        ((e.kind === 'compute' || e.kind === 'fragment') && e.bindingsType.includes('Resident<')),
     )
   )
     out.push(`import type { Resident } from ${JSON.stringify(runtime)};`);

@@ -48,6 +48,7 @@ export function drawReference(size = 32) {
   const scale = 0.09;
   const plasma = [];
   const tiled = [];
+  const ramped = [];
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const u = (x + 0.5) * scale;
@@ -63,8 +64,9 @@ export function drawReference(size = 32) {
       const i = x % 8;
       const j = y % 8;
       tiled.push(i * 32, j * 32, (i + j) * 16, 255);
+      ramped.push((x / size) * 255, (y / size) * 255, 0, 255);
     }
-  return { plasma, tiled };
+  return { plasma, tiled, ramped };
 }
 
 /** What `loops()` in `src/gpu.ts` should read back, in f32 as the GPU computes it. */

@@ -283,7 +283,7 @@ async function hostImport(work: string, tarball: string): Promise<number> {
       ],
       { cwd: app, encoding: 'utf8' },
     ).stdout,
-  ) as { plasma: number[]; tiled: number[] };
+  ) as { plasma: number[]; tiled: number[]; ramped: number[] };
   const drawn = web.draws ?? {};
   const compare = (key: string, want: number[], steps: number): void => {
     const got = drawn[key];
@@ -301,6 +301,9 @@ async function hostImport(work: string, tarball: string): Promise<number> {
   for (const tier of ['webgpu', 'webgl2', '2d']) compare(`plasma ${tier}`, drawRef.plasma, 2);
   // Nearest filtering at texel centres: the image's bytes, exactly.
   for (const tier of ['webgpu', 'webgl2']) compare(`tiled ${tier}`, drawRef.tiled, 0);
+  // A Resident a kernel function filled, bound as it is on WebGPU and read on the CPU tier
+  // (Rule 11.8): each element k/32 exactly, rounded to 8 bits.
+  for (const tier of ['webgpu', '2d']) compare(`ramped ${tier}`, drawRef.ramped, 1);
   const noCpu = drawn['tiled 2d'];
   check(
     typeof noCpu === 'string' &&

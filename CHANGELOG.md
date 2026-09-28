@@ -576,6 +576,16 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A draw reads a `Resident`** (change 0016; Rules 8.21 and 11.8, surface §67).
+  - A full-screen `@fragment` entry's storage array with no size may be a `Resident`, as a
+    compute entry's may.
+  - A draw that reads one runs among the kernel and entry calls, in the order they were made. It
+    draws what the calls before it wrote, and a call made after it writes after the draw.
+  - WebGPU binds the handle's device buffer, so a kernel function can compute an array that a
+    draw shows without leaving the GPU. The CPU tier reads the handle's copy, brought up to date
+    first.
+  - A `Resident` for any other binding is a `TypeError`.
+
 - **A `@compute` entry takes a `Resident`, queues, and follows `configure`** (change 0016; Rules
   8.24 and 11.8, surface §67).
   - A storage array binding with no size may be a `Resident`, 0013's handle. On WebGPU it is

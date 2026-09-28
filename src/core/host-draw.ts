@@ -21,6 +21,10 @@
 // The frame is opaque on every tier: the colour's alpha is written but not composited, so the
 // three tiers show the same pixels. A draw reads nothing back (`docs/dx.md` principle 4): the
 // promise resolves when the frame is submitted, and a frame loop may drop it.
+//
+// A storage array with no size may be a `Resident` (Rule 11.8). A draw that reads one runs in the
+// call queue of `core/resident.ts`, so it sees what the kernel and entry calls made before it
+// wrote; WebGPU binds the handle's device buffer, and the CPU tier reads its copy.
 
 import type { CpuValue } from './cpu-runtime.js';
 import type { ConsoleLog } from './console.js';
@@ -41,6 +45,7 @@ import {
   type GeneratedCpu,
   type GpuDevice,
 } from './host-entry.js';
+import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
 
@@ -80,18 +85,49 @@ interface Frame extends Checked {
   readonly bytes: Map<string, ArrayBuffer>;
   /** Each buffer binding's CPU-tier value, when the entry has a CPU tier. */
   readonly cpu: Map<string, CpuValue>;
+  /** Each binding passed as a `Resident` (Rule 11.8): read when the draw runs, after the calls
+   *  made before it, not copied at the call. */
+  readonly residents: Map<string, ResidentArrayState>;
 }
 
 function frameOf(e: FragmentEntry, v: unknown): Frame {
-  const checked = checkBindings(e, v);
-  const frame: Frame = { ...checked, bytes: new Map(), cpu: new Map() };
+  // A `Resident` stands for the array it holds.
+  const residents = new Map<string, ResidentArrayState>();
+  let view = v;
+  if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+    const o: Record<string, unknown> = { ...(v as Record<string, unknown>) };
+    for (const b of e.bindings) {
+      const s = residentState(o[b.name]);
+      if (s === undefined) continue;
+      if (!isBuffer(b) || b.space !== 'storage' || b.layout.k !== 'a' || b.layout.n !== null)
+        throw new TypeError(
+          `${e.name}(): binding "${b.name}" (${b.s}) takes no Resident: only a storage array with no size does.`,
+        );
+      residents.set(b.name, s);
+      o[b.name] = s.host;
+    }
+    view = o;
+  }
+  const checked = checkBindings(e, view);
+  const frame: Frame = { ...checked, bytes: new Map(), cpu: new Map(), residents };
   for (const b of e.bindings) {
-    if (!isBuffer(b)) continue;
+    if (!isBuffer(b) || residents.has(b.name)) continue;
     frame.bytes.set(b.name, packed(b, checked.values[b.name]));
     if (e.noCpu === undefined)
       frame.cpu.set(b.name, toCpu(b.layout, checked.values[b.name], false));
   }
   return frame;
+}
+
+/** Bring each resident binding up to date for a tier that reads the host's copy. */
+async function hostResidents(e: FragmentEntry, f: Frame): Promise<void> {
+  for (const b of e.bindings) {
+    const s = f.residents.get(b.name);
+    if (s === undefined || !isBuffer(b)) continue;
+    await s.sync();
+    f.bytes.set(b.name, packed(b, s.host));
+    if (e.noCpu === undefined) f.cpu.set(b.name, toCpu(b.layout, s.host, false));
+  }
 }
 
 // ─── the canvas ──────────────────────────────────────────────────────────────────────────────
@@ -114,6 +150,8 @@ function isCanvas(v: unknown): v is Canvas {
  *  the tier (a pipeline, a program) once; `paint` draws and submits one frame synchronously, so
  *  the frame is submitted in the task that settles the draw's promise. */
 interface Painter {
+  /** Whether the tier binds a `Resident` as its device buffer, rather than the host's copy. */
+  readonly onDevice?: true;
   prepare(e: FragmentEntry): Promise<void>;
   paint(e: FragmentEntry, cpu: GeneratedCpu, f: Frame): void;
 }
@@ -154,12 +192,18 @@ export function callDraw(
     let state = canvases.get(target);
     if (state === undefined) canvases.set(target, (state = { chain: Promise.resolve() }));
     const s = state;
-    const run = s.chain.then(async () => {
-      s.painter ??= painterFor(target, e);
-      const painter = await s.painter;
-      await painter.prepare(e);
-      painter.paint(e, cpu, frame);
-    });
+    const before = s.chain;
+    const draw = (): Promise<void> =>
+      before.then(async () => {
+        s.painter ??= painterFor(target, e);
+        const painter = await s.painter;
+        await painter.prepare(e);
+        if (painter.onDevice !== true) await hostResidents(e, frame);
+        painter.paint(e, cpu, frame);
+      });
+    // A draw that reads a `Resident` takes its place among the kernel and entry calls, so it sees
+    // what the calls made before it wrote, and no call made after it writes first.
+    const run = frame.residents.size > 0 ? kernelQueue.run(draw) : draw();
     // A failed draw does not stop the draws after it.
     s.chain = run.catch(() => undefined);
     return run;
@@ -289,7 +333,11 @@ function webgpuPainter(d: RenderDevice, ctx: GpuCanvasContext): Painter {
     const resources = new Map<string, unknown>();
     const owned: { destroy(): void }[] = [];
     for (const b of e.bindings) {
-      if (isBuffer(b)) {
+      const resident = f.residents.get(b.name);
+      if (resident !== undefined && isBuffer(b)) {
+        const buffer = resident.bufferFor(d, b.layout, () => packed(b, resident.host), false);
+        resources.set(b.name, { buffer });
+      } else if (isBuffer(b)) {
         const bytes = f.bytes.get(b.name)!;
         const buffer = d.createBuffer({
           size: bytes.byteLength,
@@ -326,7 +374,7 @@ function webgpuPainter(d: RenderDevice, ctx: GpuCanvasContext): Painter {
     // promise resolved, since a draw reads nothing back.
     void log?.print();
   };
-  return { prepare, paint };
+  return { onDevice: true, prepare, paint };
 }
 
 // ─── WebGL2, structurally ────────────────────────────────────────────────────────────────────

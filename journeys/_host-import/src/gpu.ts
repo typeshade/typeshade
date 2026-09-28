@@ -3,7 +3,7 @@
 // through the import, with no WebGPU or WebGL code of its own. The page runs `run()` and
 // `draws()`.
 import { blockSum, report, scale } from './kernels.shade.ts';
-import { plasma, tiled } from './draw.shade.ts';
+import { fillRamp, plasma, ramped, tiled } from './draw.shade.ts';
 import { configure, resident } from 'typeshade/runtime';
 import { drift, histogram, odds, render, scaleNonNegative, stats, tally } from './loops.shade.ts';
 // Copied in by the journey from journeys/particles and journeys/plasma.
@@ -55,7 +55,7 @@ function pixels(c: HTMLCanvasElement): number[] {
   return [...ctx.getImageData(0, 0, SIZE, SIZE).data];
 }
 
-/** Draw both fragment entries on each tier and read each frame back, in the task that
+/** Draw the fragment entries on each tier and read each frame back, in the task that
  *  submitted it. */
 export async function draws(): Promise<Record<string, number[] | string>> {
   const out: Record<string, number[] | string> = {};
@@ -72,6 +72,17 @@ export async function draws(): Promise<Record<string, number[] | string>> {
   for (const kind of [undefined, 'webgl2', '2d'] as const) {
     const c = canvas(kind);
     out[`tiled ${kind ?? 'webgpu'}`] = await tiled(c, { image: img, smp }).then(
+      () => pixels(c),
+      (e: unknown) => String(e),
+    );
+  }
+  // A storage array a kernel function wrote on the device and the draw binds as it is (Rule
+  // 11.8): the fill only queues, and the draw runs after it. The CPU tier reads the handle's copy.
+  const ramp = resident(new Float32Array(SIZE));
+  fillRamp(ramp);
+  for (const kind of [undefined, '2d'] as const) {
+    const c = canvas(kind);
+    out[`ramped ${kind ?? 'webgpu'}`] = await ramped(c, { ramp }).then(
       () => pixels(c),
       (e: unknown) => String(e),
     );
