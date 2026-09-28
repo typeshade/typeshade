@@ -1099,8 +1099,12 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       vars.push({
         name: v.name,
         op: v.op,
-        scalar: (t.kind === 'vec' ? t.elem : (t as { scalar: string }).scalar) as 'f32',
-        n: t.kind === 'vec' ? t.n : 1,
+        scalar: (t.kind === 'f64' || t.kind === 'vec64'
+          ? 'f64'
+          : t.kind === 'vec'
+            ? t.elem
+            : (t as { scalar: string }).scalar) as 'f32',
+        n: t.kind === 'vec' || t.kind === 'vec64' ? t.n : 1,
         binding: {
           name: b.name,
           group: b.group,
@@ -1148,6 +1152,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         }),
         loops,
         ...(plan.tail !== undefined ? { tail: plan.tail } : {}),
+        ...guardOf(wgsl),
       },
     },
     ranges: plan.ranges,

@@ -586,6 +586,22 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A kernel function over doubles runs on the GPU** (change 0013, the last part; Rule 8.22,
+  surface §65). A kernel function that takes an `f64` or an `array<f64>` now lowers and
+  dispatches on WebGPU. Each double is two `f32`s in the buffers, and the runtime binds the
+  module's `_fp64` guard.
+  - An `f64` or `vecNf64` reduction folds by the same 256-wide tree, with the emulation's add,
+    min and max. Its partials are `f64`s the runtime joins.
+  - `min` and `max` start from the largest finite `f32`, the emulation's range, since Tint takes
+    no infinity as a literal.
+  - The CPU tier computes each double natively, so the tiers agree to about 2^-44, not bit for
+    bit.
+  - In the import journey, `dstats` (a map, a sum and a min over 70 000 doubles, WebGPU
+    required) matches the double reference to 2.2e-14 in each element and 1.8e-15 relative in
+    the sum.
+  - The one refusal left was "an emulated f64, which a later part of change 0013 folds", and it
+    is gone.
+
 - **An emulated `f64` crosses the host boundary** (changes 0013 and 0016, the f64 split; Rules
   8.21 and 8.24, surface §65 and §67). The host passes an `f64` binding as a `number`, a
   `vecNf64` as a tuple, and an array of either as a `Float64Array`. The WGSL and the GLSL hold

@@ -76,6 +76,13 @@ export function drawReference(size = 32) {
   return { plasma, tiled, ramped, deep };
 }
 
+/** The kernel function over doubles, in f64 as JavaScript computes it: the emulation and the
+ *  tree order are within 1e-12 of it. */
+function doubleLoops() {
+  const xs = Array.from({ length: 70000 }, (_, i) => (1 + i * 1e-9) * 3);
+  return { doubleScaled: xs.slice(0, 256), doubleStats: [xs.reduce((a, b) => a + b, 0), 3] };
+}
+
 /** What `loops()` in `src/gpu.ts` should read back, in f32 as the GPU computes it. */
 export function loopReference() {
   const f = Math.fround;
@@ -139,6 +146,7 @@ export function loopReference() {
     residentRender: render,
     residentStats: stats,
     residentScaled: scaled,
+    ...doubleLoops(),
     glRender: render,
     glSkip: Array.from({ length: 512 }, (_, i) => {
       const x = f(Math.sin(i) * 10);

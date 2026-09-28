@@ -25,3 +25,16 @@ export function axpy(@builtin("global_invocation_id") gid: vec3u) {
   // A vector of doubles is two planes, `hi` and `lo`, which the runtime writes and reads apart.
   ps[gid.x] = vec3f64(xs[gid.x], affine.k, ys[gid.x]);
 }
+
+/** A kernel function over doubles (Rule 8.22): the map and both reductions run on WebGPU, each
+ *  double as two f32s, and the reductions fold in the 256-wide tree order (Rule 7.2). */
+export function dstats(vs: array<f64>, k: f64): vec2f64 {
+  let sum: f64 = 0;
+  let lo: f64 = 1e30;
+  for (let i: u32 = 0; i < vs.length; i++) {
+    vs[i] = vs[i] * k;
+    sum += vs[i];
+    lo = min(lo, vs[i]);
+  }
+  return vec2f64(sum, lo);
+}

@@ -228,7 +228,7 @@ export function scale(xs: array<f64>, k: f64) {
 }
 `;
 
-  it('takes a Float64Array and a number, and runs on the CPU tier as a double until the GPU part', async () => {
+  it('takes a Float64Array and a number, and computes each as a double on the CPU tier', async () => {
     const f = face(SCALE64);
     expect(f.view).toContain(
       'export declare function scale(xs: Float64Array | Resident<Float64Array>, k: number): Promise<void>;',
@@ -237,6 +237,41 @@ export function scale(xs: array<f64>, k: f64) {
     const xs = Float64Array.of(1 + 1e-12, 2, 3);
     await (m.scale as (xs: unknown, k: number) => Promise<void>)(xs, 3);
     expect([...xs]).toEqual([(1 + 1e-12) * 3, 6, 9]);
+  });
+
+  it('dispatches on the GPU, the guard bound and each reduction folded as an f64 by the tree', () => {
+    const f = face(`"use typeshade";
+export function stats(xs: array<f64>, k: f64): vec2f64 {
+  let sum: f64 = 0;
+  let lo: f64 = 1e30;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = xs[i] * k;
+    sum += xs[i];
+    lo = min(lo, xs[i]);
+  }
+  return vec2f64(sum, lo);
+}
+`);
+    const e = f.exports.find((x) => x.name === 'stats');
+    if (e?.kind !== 'kernel') throw new Error(`stats is ${e?.kind}`);
+    const g = e.face.gpu!;
+    expect(e.face.noGpu).toBeUndefined();
+    // The module emulates f64, so its WGSL reads the `_fp64` guard, which the call binds.
+    expect(g.guard).toEqual({ group: 0, binding: 4 });
+    expect(g.wgsl).toContain('var _fp64: texture_2d<f32>;');
+    expect(g.loops[0]!.reduce!.vars.map((v) => [v.name, v.op, v.scalar, v.n])).toEqual([
+      ['sum', '+', 'f64', 1],
+      ['lo', 'min', 'f64', 1],
+    ]);
+    // Each partial is an f64 the runtime joins from its hi and lo.
+    expect(g.loops[0]!.reduce!.vars[0]!.binding.layout).toEqual({
+      k: 'a',
+      n: null,
+      st: 8,
+      e: { k: 's', t: 'f64' },
+    });
+    // An 8-byte element is not the WebGL2 tier's.
+    expect(e.face.noWebgl2).toBeDefined();
   });
 });
 
@@ -524,12 +559,6 @@ export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
       `export function peek(bins: array<u32>, ks: array<u32>, out: array<u32>) { for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] += 1; } for (let i: u32 = 0; i < out.length; i++) { out[i] = bins[i]; } }`,
       'peek',
       'a loop reads "bins", which a loop scatters into: an atomic is read only by an atomic',
-    ],
-    [
-      'an f64 reduction',
-      `export function total(xs: array<f64>): f64 { let s = f64(0.); for (const x of xs) { s += x; } return s; }`,
-      'total',
-      'it reduces "s", an emulated f64, which a later part of change 0013 folds on the GPU',
     ],
     [
       'a statement after a reduction that a later loop replays',

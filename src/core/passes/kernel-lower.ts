@@ -106,7 +106,7 @@ export function lowerKernel(
   for (const v of proof.loops) {
     if (!v.ok) return { noGpu: 'a loop of it runs on the CPU (TS8070)' };
     if (v.writes.some((w) => w.kind === 'texel'))
-      return { noGpu: 'a loop of it writes a texture, which a later part of change 0013 lowers' };
+      return { noGpu: "a loop of it writes a texture, whose host value is #204's image" };
     for (const r of v.reductions) {
       const why = notReducible(r.type);
       if (why !== undefined) return { noGpu: `it reduces "${r.name}", ${why}` };
@@ -720,6 +720,16 @@ function combineInto(r: LoopReduction, t: Expr): Stmt {
  *  `f32` through their bits. */
 function identityOf(r: LoopReduction): Expr {
   const t = r.type;
+  if (t.kind === 'f64' || t.kind === 'vec64') {
+    // An emulated double's range is its `hi` f32's, and an infinity is no literal Tint takes, so
+    // `min` and `max` start from the largest finite f32, as an `f32` one does.
+    const one = treeIdentity(r.op, 'f64') as number;
+    const value = Number.isFinite(one) ? one : one > 0 ? F32_MAX_VALUE : -F32_MAX_VALUE;
+    const e: Expr = { op: 'lit', type: { kind: 'f64' }, value };
+    return t.kind === 'vec64'
+      ? { op: 'construct', type: t, args: new Array<Expr>(t.n).fill(e) }
+      : e;
+  }
   const scalar = (t.kind === 'vec' ? t.elem : (t as { scalar: string }).scalar) as 'f32';
   const one = treeIdentity(r.op, scalar) as number;
   const st: ShaderType = { kind: 'scalar', scalar };
@@ -731,15 +741,18 @@ function identityOf(r: LoopReduction): Expr {
   return t.kind === 'vec' ? { op: 'construct', type: t, args: new Array<Expr>(t.n).fill(e) } : e;
 }
 
+/** The largest finite f32, the emulated double's `min` identity on the GPU. */
+const F32_MAX_VALUE = 3.4028234663852886e38;
+
 /** Why a reduction variable of type `t` cannot be folded on the GPU, or undefined. */
 function notReducible(t: ShaderType): string | undefined {
-  if (t.kind === 'f64' || t.kind === 'vec64')
-    return 'an emulated f64, which a later part of change 0013 folds on the GPU';
+  // An emulated double folds by the same tree, its combine the emulation's own.
+  if (t.kind === 'f64' || t.kind === 'vec64') return undefined;
   const scalar = t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined;
   if (scalar === undefined) return `a ${t.kind}, which the GPU does not fold`;
   if (scalar === 'f32' || scalar === 'i32' || scalar === 'u32') return undefined;
   if (scalar === 'bool') return 'a bool, which no buffer holds';
-  return `an ${scalar}, which a later part of change 0013 folds on the GPU`;
+  return `an ${scalar}, which the call does not fold on the GPU`;
 }
 
 /** The first of `names` that `sts` read. */
@@ -1017,6 +1030,11 @@ function notShareable(t: ShaderType, m: ModuleDecl, seen: Set<string>): string |
     case 'vec':
       return t.elem === 'bool' ? 'a bool vector, which no buffer holds' : undefined;
     case 'mat':
+      return t.elem === 'f64' ? 'a matrix of f64, which has no host value yet' : undefined;
+    // An emulated double: two f32s in the buffer, which the call splits and joins (0013's
+    // f64 split), and the module's `_fp64` guard, which the call binds.
+    case 'f64':
+    case 'vec64':
       return undefined;
     case 'array':
       return t.size === undefined ? 'an array with no size' : notShareable(t.elem, m, seen);
