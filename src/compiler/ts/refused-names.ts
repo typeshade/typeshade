@@ -56,6 +56,9 @@ function declaringStatement(
     if (ts.isFunctionDeclaration(s) && s.name?.text === name) return s;
     if (before !== undefined && s.getEnd() > before) continue;
     if (ts.isClassDeclaration(s) && s.name?.text === name) return s;
+    // An enum inside a namespace is refused where it is declared (TS8014), and a read of it
+    // through the namespace, or of a local it initialized, adds nothing (Rule 12.4).
+    if (ts.isEnumDeclaration(s) && s.name.text === name) return s;
     if (!ts.isVariableStatement(s)) continue;
     if (s.declarationList.declarations.some((d) => binds(d.name, name))) return s;
   }

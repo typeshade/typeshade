@@ -43,7 +43,12 @@ import {
 } from '../context.js';
 import { qualifiedParts } from '../namespaces.js';
 import { pushTypeArguments } from '../generics.js';
-import { ambiguousNew, newInstanceName, writtenInstanceArgs } from '../generic-structs.js';
+import {
+  ambiguousNew,
+  isGenericClass,
+  newInstanceName,
+  writtenInstanceArgs,
+} from '../generic-structs.js';
 import { newRefusal, newTargetOf, thisObjectNewMessage } from './new-target.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import {
@@ -954,7 +959,24 @@ function methodSignature(
     forbidSelf: !isStatic,
   });
   if (!params) return undefined;
-  if (caller !== undefined) return { params, ret: selfT, callerClass: true };
+  if (caller !== undefined) {
+    // A generic class carries its statics once, under its own name, which is no struct: there
+    // the `C` it returns is what `new this()` builds, the instance its constraint names,
+    // `Base<f32>` for `C extends Base<f32>`.
+    const constraint = (method as ts.MethodDeclaration).typeParameters?.find(
+      (p) => p.name.text === caller.typeParam,
+    )?.constraint;
+    if (
+      selfT.kind === 'struct' &&
+      isGenericClass(selfT.name, sourceFile) &&
+      constraint !== undefined
+    ) {
+      const bound = parseReturnType(constraint, sourceFile, diagnostics, structs, undefined);
+      if (!bound) return undefined;
+      return { params, ret: bound, callerClass: true };
+    }
+    return { params, ret: selfT, callerClass: true };
+  }
   if (method.type?.kind === ts.SyntaxKind.ThisType) return { params, ret: selfT };
   const ret = parseReturnType(method.type, sourceFile, diagnostics, structs, undefined);
   if (!ret) return undefined;

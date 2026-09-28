@@ -238,16 +238,22 @@ function enumSentence(decl: ts.EnumDeclaration, shown: string, sourceFile: ts.So
  * names the value it does offer: an enum's member, a namespace's exported constant, an instance
  * of a class or, for a class of statics, a static member. Undefined for a name the file does not
  * declare, or declares as anything else. It was `Unknown identifier "E"`, of a name the file
- * declares.
+ * declares. Null where the declaration's own refusal is the one diagnostic (Rule 12.4): an enum
+ * inside a namespace, refused where it is declared (TS8014).
+ *
+ * A class inside a namespace whose static member is read (`N.P.K`, `N.P.g()`, `P.g()` inside
+ * the namespace) is not read as a value: the author read a member, which a shader does not read
+ * on such a class, and the sentence says that, with the top-level class that does read it.
  */
 export function notAValueSentence(
   id: ts.Identifier,
   sourceFile: ts.SourceFile,
-): string | undefined {
+): string | null | undefined {
   let decl = scopedDeclaration(id);
   let name = id.text;
+  let at: ts.Node = id;
   // `N.P` read through the namespaces it names is what its last name is.
-  for (let at: ts.Node = id; decl !== undefined && ts.isModuleDeclaration(decl); at = at.parent) {
+  for (; decl !== undefined && ts.isModuleDeclaration(decl); at = at.parent) {
     const access = at.parent;
     if (!ts.isPropertyAccessExpression(access) || access.expression !== at) break;
     const member = namespaceMember(decl, access.name.text);
@@ -259,6 +265,25 @@ export function notAValueSentence(
     const type = typeNamed(id, name);
     if (type === 'type parameter') return `"${name}" is a type parameter, not a value.`;
     return type === undefined ? undefined : `"${name}" is a type, not a value.`;
+  }
+  const inNamespace = ts.isModuleBlock(decl.parent);
+  if (ts.isEnumDeclaration(decl) && inNamespace) return null;
+  if (ts.isClassDeclaration(decl) && inNamespace && decl.name !== undefined) {
+    // A member read (`N.P.K`, `N.P.g()`) names that member; the class read whole, when it is a
+    // class of statics, names its first static, the value it offers at the top level.
+    const read = at.parent;
+    const memberRead = ts.isPropertyAccessExpression(read) && read.expression === at;
+    const member = memberRead
+      ? read.name.text
+      : isStaticsOnly(decl)
+        ? firstStatic(decl)?.name?.getText(sourceFile)
+        : undefined;
+    if (member !== undefined) {
+      const declared = namedStatics(decl).some((m) => m.name!.getText(sourceFile) === member);
+      return declared || !memberRead || decl.heritageClauses !== undefined
+        ? namespaceStaticSentence(name, decl.name.text, member)
+        : `"${name}" has no static member "${member}".`;
+    }
   }
   if (ts.isEnumDeclaration(decl)) return enumSentence(decl, name, sourceFile);
   if (ts.isInterfaceDeclaration(decl) || ts.isTypeAliasDeclaration(decl)) {
@@ -282,12 +307,8 @@ export function notAValueSentence(
   if (isAbstract(decl)) {
     return `"${name}" is an abstract class, not a value. Build a class that extends it.`;
   }
-  const instanceField = decl.members.some((m) => ts.isPropertyDeclaration(m) && !isStaticMember(m));
-  const statics = decl.members.filter(
-    (m) => isStaticMember(m) && m.name !== undefined && ts.isIdentifier(m.name),
-  );
-  if (!instanceField && statics.length > 0) {
-    const first = statics.find(ts.isPropertyDeclaration) ?? statics[0]!;
+  const first = isStaticsOnly(decl) ? firstStatic(decl) : undefined;
+  if (first !== undefined) {
     const member = `${name}.${first.name!.getText(sourceFile)}`;
     return (
       `"${name}" is a class of static members, not a value: its values are its members, ` +
@@ -298,6 +319,35 @@ export function notAValueSentence(
   return ts.findAncestor(id, ts.isFunctionLike) === undefined
     ? `"${name}" is a class, not a value.`
     : `"${name}" is a class, not a value. Build one with "new ${name}(...)".`;
+}
+
+/** A class's static members a `.` names: fields and methods written with a name. */
+function namedStatics(decl: ts.ClassDeclaration): ts.ClassElement[] {
+  return decl.members.filter(
+    (m) => isStaticMember(m) && m.name !== undefined && ts.isIdentifier(m.name),
+  );
+}
+
+/** Whether a class has statics and no field of each value: a class of static members. */
+function isStaticsOnly(decl: ts.ClassDeclaration): boolean {
+  const instanceField = decl.members.some((m) => ts.isPropertyDeclaration(m) && !isStaticMember(m));
+  return !instanceField && namedStatics(decl).length > 0;
+}
+
+/** The static a sentence names for a class of statics: its first field, else its first method. */
+function firstStatic(decl: ts.ClassDeclaration): ts.ClassElement | undefined {
+  const statics = namedStatics(decl);
+  return statics.find(ts.isPropertyDeclaration) ?? statics[0];
+}
+
+/** A static member of a class inside a namespace, which a shader does not read: the same class
+ *  declared at the top level of the file does. */
+function namespaceStaticSentence(shown: string, className: string, member: string): string {
+  return (
+    `"${shown}" is a class inside a namespace, and a shader does not read the static members ` +
+    `of one ("${shown}.${member}"). Declare "${className}" at the top level of the file and ` +
+    `use "${className}.${member}".`
+  );
 }
 
 /** What a declaration the target resolved to is, as a `new` sees it. */

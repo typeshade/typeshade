@@ -343,6 +343,76 @@ describe('a declaration of the file wins over a §9.3 constant of its name', () 
     expect(editorOf(src)).toEqual([]);
   });
 
+  it('a static member of a class inside a namespace is a member read, not a value read', () => {
+    // `N.P.g()` calls a static and `N.P.K` reads one: neither reads `N.P` as a value, and a
+    // shader reads the statics of a top-level class only. An enum inside a namespace is refused
+    // where it is declared (TS8014), and a read of it through the namespace adds nothing.
+    const ns = [
+      'namespace N {',
+      '  export class P {',
+      '    static K = 2.;',
+      '    static g(): f32 {',
+      '      return 1.;',
+      '    }',
+      '  }',
+      '  export class Q {',
+      '    x: f32 = 1.;',
+      '    static make(): Q {',
+      '      return new Q();',
+      '    }',
+      '  }',
+      '  export function run(): f32 {',
+      '    return P.g();',
+      '  }',
+      '}',
+    ].join('\n');
+    const sentence = (shown: string, cls: string, member: string) =>
+      `${TS_CODES.UNKNOWN_NAME} "${shown}" is a class inside a namespace, and a shader does not ` +
+      `read the static members of one ("${shown}.${member}"). Declare "${cls}" at the top level ` +
+      `of the file and use "${cls}.${member}".`;
+    for (const [body, expected] of [
+      ['  return N.P.g();', [sentence('N.P', 'P', 'g'), sentence('P', 'P', 'g')]],
+      ['  return N.P.K + N.run();', [sentence('N.P', 'P', 'K'), sentence('P', 'P', 'g')]],
+      ['  return N.Q.make().x;', [sentence('N.Q', 'Q', 'make'), sentence('P', 'P', 'g')]],
+    ] as const) {
+      const src = `"use typeshade";\n${ns}\nfunction f(): f32 {\n${body}\n}\n${FS}`;
+      expect([...diagnosticsOf(src)].sort(), body).toEqual([...expected].sort());
+      expect([...editorOf(src)].sort(), body).toEqual(expected.map((e) => `typeshade ${e}`).sort());
+    }
+    // The remedy compiles: the classes at the top level, their statics read there.
+    const fixed = `"use typeshade";
+class P {
+  static K = 2.;
+  static g(): f32 {
+    return 1.;
+  }
+}
+class Q {
+  x: f32 = 1.;
+  static make(): Q {
+    return new Q();
+  }
+}
+function f(): f32 {
+  return P.g() + P.K + Q.make().x;
+}
+${FS}`;
+    expect(diagnosticsOf(fixed)).toEqual([]);
+    expect(editorOf(fixed)).toEqual([]);
+    const enumRead = `"use typeshade";
+namespace N {
+  export enum E { A, B }
+}
+function f(): f32 {
+  const e = N.E.B;
+  return f32(e);
+}
+${FS}`;
+    const refused = `${TS_CODES.TOP_LEVEL} A namespace holds functions, constants, classes and namespaces; an enum inside "N" has no flattened form. Declare it at the top level of the file.`;
+    expect(diagnosticsOf(enumRead)).toEqual([refused]);
+    expect(editorOf(enumRead)).toEqual([`typeshade ${refused}`]);
+  });
+
   it('a function read as a value is a function, generic or not', () => {
     for (const head of [
       'function PI(): f32 {\n  return 1.;\n}\n',

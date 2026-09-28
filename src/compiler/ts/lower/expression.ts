@@ -336,15 +336,16 @@ export const valueScopes = (node: ts.Node): NameScopes => [
 /** The sentence for a value read that names no binding: what a name the library declares is
  *  where the file declares nothing of it (`Number`, `Math`), what a name the file declares is
  *  when it is an enum, a namespace, a class or a type ({@link notAValueSentence}), else {@link
- *  unknownIdentifierSentence}'s (Rule 2.1, Rule 12.1). */
-export function unknownValueSentence(node: ts.Identifier): string {
+ *  unknownIdentifierSentence}'s (Rule 2.1, Rule 12.1). Undefined where the declaration's own
+ *  refusal already said it: an enum inside a namespace (Rule 12.4). */
+export function unknownValueSentence(node: ts.Identifier): string | undefined {
   const library =
     declarationOf(node) === undefined ? libraryNameSentence(node.text, 'value') : undefined;
-  return (
-    library ??
-    notAValueSentence(node, node.getSourceFile()) ??
-    unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`)
-  );
+  if (library !== undefined) return library;
+  const what = notAValueSentence(node, node.getSourceFile());
+  // Null: the declaration's own refusal is the one diagnostic (Rule 12.4).
+  if (what === null) return undefined;
+  return what ?? unknownIdentifierSentence(node, `Unknown identifier "${node.text}".`);
 }
 
 /**
@@ -406,7 +407,10 @@ function lowerIdentifier(
     // A name whose declaration was refused, or one an error already covers, says nothing
     // more: the refusal is the one diagnostic for the one mistake (Rule 12.4, #171).
     if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined;
-    pushDiag(diagnostics, sourceFile, node, unknownValueSentence(node), TS_CODES.UNKNOWN_NAME);
+    const sentence = unknownValueSentence(node);
+    if (sentence !== undefined) {
+      pushDiag(diagnostics, sourceFile, node, sentence, TS_CODES.UNKNOWN_NAME);
+    }
     return undefined;
   }
   switch (binding.kind) {

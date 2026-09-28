@@ -748,6 +748,8 @@ export function reportUndeclaredValues(
         : use === 'assigned'
           ? unknownIdentifierSentence(id, `Cannot assign to unknown name "${name}".`)
           : unknownValueSentence(id);
+    // No sentence: the declaration's own refusal is the one diagnostic (Rule 12.4).
+    if (message === undefined) return;
     push(
       diagnostics,
       sourceFile,

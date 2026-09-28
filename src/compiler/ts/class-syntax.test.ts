@@ -790,14 +790,33 @@ class Base<T = f32> {
 }
 class Derived extends Base<f32> {}
 export function run(): f32 { return Derived.make().x }${TAIL}`;
-    expect(compile(src).diagnostics.map((d) => [d.code, d.message])).toEqual([
-      [
-        'TS8035',
-        '"Base.make" builds its value with "new this()", so "Derived.make()" returns a Derived, ' +
-          'but it is declared to return a Base<f32>, which is the type the editor gives the call. ' +
-          'Declare the class the call names: static make<C extends Base<f32>>(this: { new (): C; SCALE: f32 }): C',
-      ],
-    ]);
+    const message =
+      '"Base.make" builds its value with "new this()", so "Derived.make()" returns a Derived, ' +
+      'but it is declared to return a Base<f32>, which is the type the editor gives the call. ' +
+      'Declare the class the call names: static make<C extends Base<f32>>(this: { new (): C; SCALE: f32 }): C';
+    expect(compile(src).diagnostics.map((d) => [d.code, d.message])).toEqual([['TS8035', message]]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/m.shade.ts', src);
+    expect(
+      service
+        .getDiagnostics('/m.shade.ts')
+        .filter((d) => d.severity === 'error')
+        .map((d) => [d.code, d.message]),
+    ).toEqual([['TS8035', message]]);
+    // The form it names compiles: the generic class's own copy returns the instance its
+    // constraint names, `Base<f32>`, which is what its `new this()` builds.
+    const fixed = src.replace(
+      'static make(): Base {',
+      'static make<C extends Base<f32>>(this: { new (): C; SCALE: f32 }): C {',
+    );
+    expect(compile(fixed).diagnostics).toEqual([]);
+    service.openDocument('/f.shade.ts', fixed);
+    expect(service.getDiagnostics('/f.shade.ts')).toEqual([]);
+    expect(runAll(fixed)).toBe(2);
+    // Called on the generic class itself, the copy returns `Base<f32>` too.
+    const own = fixed.replace('Derived.make().x', 'Base.make().x');
+    expect(compile(own).diagnostics).toEqual([]);
+    expect(compile(own).wgsl).toContain('fn Base_make() -> Base_f32 {');
   });
 
   it("a static a class inherits writes that class's own static through this", () => {

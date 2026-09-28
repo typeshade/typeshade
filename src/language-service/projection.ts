@@ -420,12 +420,17 @@ export class Projection {
   }
 
   /** An offset into the document as written, as an offset into the projected text. An offset
-   *  AT an insertion stays before it, so a cursor at the end of `uv` is at the end of `uv`. */
+   *  AT an insertion stays before it, so a cursor at the end of `uv` is at the end of `uv`,
+   *  except an insertion that opens a parenthesis there (`(` before an arrow's parameter, `((`
+   *  before a `bool` `&` or `|`): the cursor on the first character of the operand stays on the
+   *  operand, past the parenthesis. */
   toProjected(offset: number): number {
     let shift = 0;
     for (const insertion of this.insertions) {
-      if (insertion.at < offset) shift += insertion.text.length;
-      else break;
+      if (insertion.at > offset) break;
+      if (insertion.at < offset || insertion.text.startsWith('(')) {
+        shift += insertion.text.length;
+      }
     }
     return offset + shift;
   }

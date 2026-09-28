@@ -79,7 +79,11 @@ identifier "E"` of a name the file declares and the editor added TypeScript's TS
 value: its values are its members, N.a.`, `"P" is a class, not a value. Build one with "new
 P(...)".` (`"N.P"` through a namespace, and no `new` offered in a module constant), `"S" is a
 class of static members, not a value: its values are its members, S.k.` and `"I" is a type, not
-a value.` A member is
+a value.` A static read or called on a class inside a namespace, `N.P.K` or `N.P.g()`, is not
+  the class read as a value, and says what it is: `"N.P" is a class inside a namespace, and a
+shader does not read the static members of one ("N.P.g"). Declare "P" at the top level of the
+file and use "P.g".`; an enum inside a namespace is refused where it is declared (TS8014), and a
+  read of it through the namespace adds nothing. A member is
   looked up on its receiver: a class field `reverse`, an interface field `map` and a getter
   `join` compile, where each was refused as a JS array method by its spelling, and a class
   method named `swizzle` compiles, where every `.swizzle()` call was routed to the IR builder's
@@ -1902,7 +1906,11 @@ struct`), and a struct left with no other field. A method, a static function or 
   operators, and on two scalar `bool`s the editor now reads them as the compiler does: it kept
   TypeScript's TS2447 on the operator and, where the `number` TypeScript types the result as
   reached a `bool`, TS2322, TS2345, TS2363, TS2367 or TS2769, on a program that compiles. The
-  projection reads the operation as the `bool` it is, `((a & b) as unknown as bool)`, and the
+  projection reads the operation as the `bool` it is, `((a & b) as unknown as bool)`, and a
+  cursor on the first character of the left operand reads that operand, not the inserted
+  parenthesis, so hover, definition, references and rename on `p` in `p & q` work as they do on
+  `u32` operands (the same holds for the parenthesis written before an arrow's one parameter,
+  `xs.map(x => …)`); and the
   TS2447 filter's reason no longer calls `^` WGSL's xor on a vector of bools; `+m` on a matrix and `+x` on a number or a vector stay the identity. A float under
   `&`, `|` or `^` keeps the refusal #236 gave it, which leaves two whole numbers the front end
   folds alone: `const AB = A | B`, `const F: u32 = 1 | 2` and `case 1 | 2:` compile as before.
@@ -2110,7 +2118,9 @@ vec3f64 waits for change 0013's f64 split` for `an vec3<f64>`, and a binding in 
   added since: an array with no size in a parameter, a result or a local (Rule 12.6) reads
   `array<vec4>` for `array<vec4<f32>>` and `N.T` for the struct `N_T`, and 0020's refusal of a
   static builder names an instance of a generic base `Base` and `Base<f32>`, where it said
-  `Base_f32`. The backend's TS8015, from
+  `Base_f32`; the form it names, `static make<C extends Base<f32>>(this: { new (): C; … }): C`,
+  compiles, where the generic class's own copy of the static returned the class `Base`, which is
+  no struct, and was refused as `declared Base, got Base<f32>`. The backend's TS8015, from
   `src/core`'s uniform layout, keeps WGSL's spelling (`array<vec2<f32>,4>`). Measured: the
   audit's and three reviews' probe programs (a class, a namespaced and a generic class, a
   vector, a matrix, an array, a sampler and a texture in each message family) print the author's

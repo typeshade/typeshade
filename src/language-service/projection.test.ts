@@ -325,6 +325,41 @@ export function f(p: bool, q: bool, r: bool, u: u32): bool {
     expect(projection.projected).toContain('const n = u | u;');
   });
 
+  it('hovers, defines, finds and renames the left operand of a bool & or | from its first character', () => {
+    // The `((` goes in where the operation starts, which is where its left operand starts: the
+    // cursor on that operand's first character reads the operand, not the inserted parenthesis.
+    const src = `"use typeshade";
+function both(pa: bool, qa: bool): bool {
+  return pa & qa;
+}
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  const p = gid.x > u32(2);
+  const q = gid.x < u32(9);
+  const r = (p | q) & both(p, q);
+}
+`;
+    const lines = src.split('\n');
+    const service = open(src);
+    const pa = { line: 2, character: lines[2]!.indexOf('pa & qa') };
+    expect(service.getHover('a.shade.ts', pa)?.contents).toContain('pa: bool');
+    expect(service.getDefinition('a.shade.ts', pa)).toEqual([
+      expect.objectContaining({
+        range: { start: { line: 1, character: 14 }, end: { line: 1, character: 16 } },
+      }),
+    ]);
+    const p = { line: 8, character: lines[8]!.indexOf('p | q') };
+    expect(service.getHover('a.shade.ts', p)?.contents).toContain('const p: bool');
+    expect(service.getReferences('a.shade.ts', p, { includeDeclaration: true })).toHaveLength(3);
+    expect(service.prepareRename('a.shade.ts', p)).toMatchObject({ placeholder: 'p' });
+    // The unmapped half is unchanged: an offset AT a closing insertion stays before it.
+    const projection = new Projection(src, planInsertions(src, 'a.shade.ts'));
+    const start = src.indexOf('pa & qa');
+    expect(projection.projected.slice(projection.toProjected(start)).startsWith('pa & qa')).toBe(
+      true,
+    );
+  });
+
   it('writes nothing into a file without the directive', () => {
     expect(planInsertions('export const x = 1;\n', 'a.ts')).toEqual([]);
   });
