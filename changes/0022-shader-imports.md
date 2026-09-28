@@ -10,12 +10,15 @@ rules:
 - '8.20'
 - '9.5'
 surface:
+- 10
+- 26
+- 30
+- 32
 - 64
 - 68
 exports:
 - CompileOptions
 - CompileTsSourceOptions
-- TypeshadeVitePlugin
 exports-removed: []
 codes:
 - TS8072
@@ -251,7 +254,10 @@ path, and its text does not change.
   `compile()` with a `readDocument` over their record of files.
 - **The Vite plugin** reads each import from disk through the same hook and calls
   `this.addWatchFile` for each file the program reads, so `vite dev` transforms the importer
-  again when a file it imports changes. `TypeshadeVitePlugin.transform` gains that `this`. The
+  again when a file it imports changes. `TypeshadeVitePlugin` keeps its type: `transform` reads
+  `addWatchFile` off the context Vite calls it with, and a call with none, as a test makes, watches
+  nothing. (Amended after acceptance, while the plugin was implemented: typing that `this` on the
+  exported interface made every direct `plugin.transform(code, id)` a type error.) The
   host face is the entry file's exports and re-exports (Rule 8.20); a struct from another file in
   one of their signatures is written into the host view as its host type, so a view never imports
   another view. The generated module carries the whole program, so one shader module's generated
@@ -321,9 +327,18 @@ Alternatives considered:
   forms, the specifier, one program and one module, the names the module emits, the refusals.
 - **Surface §64:** "one file is one module" goes; the plugin follows imports, watches the files it
   read, and writes a view with no import of another view.
+- **Surface §10, §26, §30 and §32:** what this change makes a program's rather than a file's. A
+  function the file imports wins over a builtin as one it declares does (§10, Rule 9.5); a generic
+  is compiled once per set of type arguments the program uses (§30 and §32, Rule 8.9); a static
+  field another file writes is a module variable (§26, Rule 8.13); and §26's `new` table and its
+  paragraph on a `new` with no constructor lose the multi-file path this change replaces, which
+  lowered no class function and named an unresolved import `TS8099`. (Amended after acceptance,
+  while the change was implemented: 0008 (#320) wrote §26's two sentences about that path after
+  this proposal was accepted, and the other three say "the file" where the rules now say "the
+  program".)
 - **`CompileOptions`** and **`CompileTsSourceOptions`** gain `readDocument` and `resolveImport`.
-- **`TypeshadeVitePlugin`:** `transform` takes Rollup's plugin context as `this`, for
-  `addWatchFile`.
+- **`TypeshadeVitePlugin`** keeps its type (above). (Amended after acceptance: it was to gain
+  `this` on `transform`.)
 - **`TS8072` (new):** every import the compiler does not follow, with the texts above.
 - **Example `imported-noise` (new):** `examples/imported-noise.shade.ts`, a fragment entry that
   draws the `fbm` of `examples/lib/noise.shade.ts`. The library sits in a subdirectory, so it is
