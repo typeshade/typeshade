@@ -13,6 +13,7 @@ rules:
 - '8.23'
 - '11.8'
 surface:
+- 38
 - 64
 - 65
 exports:
@@ -21,6 +22,8 @@ exports:
 - configure
 - Stmt
 - FuncDecl
+- DeterminismKind
+- DeterminismAccuracy
 exports-removed: []
 codes:
 - TS8070
@@ -282,6 +285,15 @@ Alternatives considered, each measured in #252:
   per argument in a helper, and its host values.
 - **Rule 11.8 (new).** The tiers, what each takes, the reduction's tree order on every tier,
   and `configure({ prefer })`.
+- **Surface §38.** The determinism report gains the kind `order`: a floating-point reduction
+  of a kernel function's loop, one row per operator and float, where the function names it.
+  Every tier folds it in Rule 7.2's tree, so it has one answer on every tier and driver, but not
+  the answer the loop's sequential reading gives; the report says so, as the design above
+  promises ("`compile().determinism` lists the reduction"). Integer reductions, `min` and `max`
+  are exact in any order and are not listed. (Amended after acceptance, when the report was
+  implemented: the kind is a new member of `DeterminismKind`, which `typeshade` exports, and
+  `DeterminismAccuracy` excludes it, as it excludes `emulated`, since no single operation is
+  `order` by itself.)
 - **Surface §64 (0009).** "What a host can call" and its table gain the kernel function, which
   §65 then describes. (Amended with Rule 8.20.)
 - **Surface §65 (new): "A loop that runs as a kernel".** It follows 0009's §64; 0014 (#269)
@@ -301,6 +313,9 @@ Alternatives considered, each measured in #252:
   runs on the host's side of the call, and only its generated entries reach a shader). (Amended
   after acceptance, when the first part was implemented: both fields change a type the API
   surface lists.)
+
+  `DeterminismKind` gains `order` and `DeterminismAccuracy` excludes it (surface §38, amended
+  after acceptance).
 
 - **Examples.**
   - `loop-kernel`: the roadmap's terrain;
