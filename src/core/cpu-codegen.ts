@@ -48,6 +48,8 @@ import type {
 import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
 import { froundF32 } from './passes/precision.js';
+import { treeCombine, treeLoops, type LoopReduction } from './passes/parallel-loop.js';
+import { treeIdentity } from './kernel-tree.js';
 import type { CpuPrecision } from './oracle.js';
 import { consoleTableRows, type ConsoleSink } from './console.js';
 import {
@@ -143,6 +145,10 @@ interface ModCtx {
   /** Each declared function's parameters, for a call to store back what its `inout`
    *  parameters hold as it returns (`inoutReturn`, cpu-runtime.ts). */
   params: Map<string, FuncDecl['params']>;
+  /** The loops a kernel function's reduction is combined in the tree order by (Rule 7.2),
+   *  and whether an `f32` combine rounds. */
+  trees: ReadonlyMap<Stmt, readonly LoopReduction[]>;
+  f32: boolean;
 }
 
 /** Per-fn codegen state: the flat env → JS locals mapping + the hoist list. */
@@ -569,6 +575,8 @@ function emitStmt(s: Stmt, S: FnCtx): string {
       const init = emitForInit(s.init, S);
       const cond = emitExpr(s.cond, S);
       const update = emitForUpdate(s.update, S);
+      const reductions = S.mod.trees.get(s);
+      if (reductions !== undefined) return emitTreeFor(s, reductions, init, cond, update, S);
       return `for (${init}; ${cond}; ${update}) {\n${emitBody(s.body, S)}\n}`;
     }
     case 'switch': {
@@ -594,6 +602,59 @@ function emitStmt(s: Stmt, S: FnCtx): string {
       // Raw passthrough is GPU-only — no CPU evaluation. Fall back.
       throw new CodegenUnsupported('raw Stmt');
   }
+}
+
+/** A kernel function's reduction loop, as the interpreter runs it (Rule 7.2): each iteration
+ *  combines into the variable from the identity, what it holds after the iteration is
+ *  collected, and after the loop the variable is combined with the collection folded in the
+ *  tree order (`core/kernel-tree.ts`). A `continue` reaches the `finally`. */
+function emitTreeFor(
+  s: Stmt & { s: 'for' },
+  reductions: readonly LoopReduction[],
+  init: string,
+  cond: string,
+  update: string,
+  S: FnCtx,
+): string {
+  const ids = reductions.map((r) => readVar(r.name, S));
+  const saved = reductions.map(() => tempVar(S));
+  const bags = reductions.map(() => tempVar(S));
+  const identities = reductions.map((r) => identityJs(r));
+  S.varId.set('$ta', '$ta');
+  S.varId.set('$tb', '$tb');
+  const combines = reductions.map(
+    (r) => `(($ta, $tb) => ${emitExpr(treeCombine(r, S.mod.f32), S)})`,
+  );
+  S.varId.delete('$ta');
+  S.varId.delete('$tb');
+  const before = ids.map((id, k) => `${saved[k]} = ${id}; ${bags[k]} = [];`).join('\n');
+  const start = ids.map((id, k) => `${id} = ${identities[k]};`).join(' ');
+  const collect = ids.map((id, k) => `${bags[k]}.push(${id});`).join(' ');
+  const after = ids
+    .map(
+      (id, k) =>
+        `${id} = ${saved[k]};\n{ const $tr = $.tree(${bags[k]}, ${combines[k]}, () => ${identities[k]}); if ($tr !== undefined) ${id} = ${combines[k]}(${id}, $tr); }`,
+    )
+    .join('\n');
+  return `${before}\nfor (${init}; ${cond}; ${update}) {\n${start}\ntry {\n${emitBody(s.body, S)}\n} finally { ${collect} }\n}\n${after}`;
+}
+
+/** A fresh identity of `r`'s operator in its type, as JavaScript. */
+function identityJs(r: LoopReduction): string {
+  const t = r.type;
+  const scalar =
+    t.kind === 'scalar'
+      ? t.scalar
+      : t.kind === 'vec'
+        ? t.elem
+        : t.kind === 'f64' || t.kind === 'vec64'
+          ? 'f64'
+          : undefined;
+  if (scalar === undefined) throw new CodegenUnsupported(`a ${t.kind} reduction`);
+  const one = jsNum(treeIdentity(r.op, scalar));
+  return t.kind === 'vec' || t.kind === 'vec64'
+    ? `[${new Array<string>(t.n).fill(one).join(', ')}]`
+    : one;
 }
 
 function emitForInit(s: Stmt, S: FnCtx): string {
@@ -664,6 +725,8 @@ export function generateModuleJs(
     varNames: new Set((mv.vars ?? []).map((v) => v.name)),
     bindingNames: new Set(mv.bindings.map((b) => b.name)),
     params: new Map(mv.funcs.map((f) => [f.name, f.params])),
+    trees: treeLoops(av, mv),
+    f32: opts?.precision === 'f32',
   };
 
   // ── Module-scope decls (consts + overrides) as factory-local `const`s ──

@@ -17,16 +17,33 @@
 // own locals (the body's shape, Rule 8.22), and a `continue` of the loop's own becomes its
 // `return`.
 //
-// A function this pass cannot lower runs on the CPU tier, and `noGpu` says why. This part lowers
-// maps; a loop that reduces or scatters, and one that reaches a module binding or variable, a
-// `bool` or an emulated `f64`, run on the CPU until the parts of change 0013 that add them.
+// A loop that reduces (`s += xs[i]`) runs at a workgroup of 256 in the tree order (Rule 7.2,
+// `core/kernel-tree.ts`): each invocation runs its iteration in a helper that starts the
+// variable from the identity and returns what it holds; the workgroup folds the 256 values by
+// the tree into one partial per workgroup, and a second entry folds the partials the same way,
+// one dispatch per level, until one is left. The call then runs the tail on the CPU tier: the
+// function's body with each loop replaced by combining its variables with what the GPU folded,
+// which gives the function's result.
+//
+// A function this pass cannot lower runs on the CPU tier, and `noGpu` says why. A loop that
+// scatters or writes a texture, one that reaches a module binding or variable, a `bool`, and an
+// emulated `f64`, run on the CPU until the parts of change 0013 that add them.
 
-import type { BindingDecl, Expr, FuncDecl, ModuleDecl, Stmt, StructDecl } from '../ir/nodes.js';
+import type {
+  BindingDecl,
+  Expr,
+  FuncDecl,
+  ModuleDecl,
+  ModuleVarDecl,
+  Stmt,
+  StructDecl,
+} from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
 import { u32T } from '../ir/types.js';
 import { mapChildren } from '../ir/visit.js';
 import { fnReads, fnWrites } from './effects.js';
-import type { KernelProof } from './parallel-loop.js';
+import type { KernelProof, LoopReduction } from './parallel-loop.js';
+import { KERNEL_TREE, treeIdentity } from '../kernel-tree.js';
 
 type ForStmt = Stmt & { s: 'for' };
 
@@ -43,6 +60,15 @@ export interface KernelLoopPlan {
   readonly writes: readonly string[];
   /** `a*i + c` writes, which the call checks against each array's length first. */
   readonly checks: readonly { readonly param: string; readonly a: number; readonly c: number }[];
+  /** The workgroup size the loop's entry runs at: {@link KERNEL_TREE} for a loop that
+   *  reduces, {@link KERNEL_WORKGROUP} otherwise. */
+  readonly wg: number;
+  /** What the loop reduces, when it does: the entry that folds a level of partials, and per
+   *  variable the storage binding its partials are in. */
+  readonly reduce?: {
+    readonly entry: string;
+    readonly vars: readonly (LoopReduction & { readonly binding: string })[];
+  };
 }
 
 /** What the call of a kernel function dispatches, when the function lowers. */
@@ -53,8 +79,11 @@ export interface KernelPlan {
   readonly argsBinding: string;
   readonly argsStruct: string;
   readonly loops: readonly KernelLoopPlan[];
-  /** The range functions, for the CPU tier's code. */
+  /** The range functions, and the tail when there is one, for the CPU tier's code. */
   readonly ranges: readonly FuncDecl[];
+  /** The CPU-tier function that gives the result: the function's parameters, then what the
+   *  GPU folded for each reduction in loop order, when the function returns a value. */
+  readonly tail?: string;
 }
 
 /** The workgroup size every lowered loop runs at. */
@@ -72,11 +101,17 @@ export function lowerKernel(
   if (loops.length === 0) return { noGpu: 'it has no loop to dispatch' };
   for (const v of proof.loops) {
     if (!v.ok) return { noGpu: 'a loop of it runs on the CPU (TS8070)' };
-    if (v.reductions.length > 0 || v.writes.some((w) => w.kind === 'scatter' || w.kind === 'texel'))
-      return { noGpu: 'a loop of it reduces, which a later part of change 0013 lowers' };
+    if (v.writes.some((w) => w.kind === 'scatter'))
+      return {
+        noGpu: 'a loop of it scatters into an array, which a later part of change 0013 lowers',
+      };
+    if (v.writes.some((w) => w.kind === 'texel'))
+      return { noGpu: 'a loop of it writes a texture, which a later part of change 0013 lowers' };
+    for (const r of v.reductions) {
+      const why = notReducible(r.type);
+      if (why !== undefined) return { noGpu: `it reduces "${r.name}", ${why}` };
+    }
   }
-  if (f.ret.kind !== 'void')
-    return { noGpu: 'it returns a value, which a later part of change 0013 lowers' };
   const scalars = f.params.filter((p) => !isRuntimeArray(p.type));
   const arrays = f.params.filter((p) => isRuntimeArray(p.type));
   for (const p of scalars) {
@@ -113,16 +148,28 @@ export function lowerKernel(
   const plans: KernelLoopPlan[] = [];
   const entries: FuncDecl[] = [];
   const ranges: FuncDecl[] = [];
+  const extraStructs: StructDecl[] = [];
+  const extraVars: ModuleVarDecl[] = [];
+  const partBindings: { name: string; type: ShaderType }[] = [];
   const prelude: Stmt[] = [];
   let loopIndex = 0;
   let counterType: ShaderType | undefined;
+  // A statement after a loop that reduces, reading what it reduces: the loops after it would
+  // replay it before the GPU has folded the variable.
+  const reduced = new Set<string>();
+  let readsReduced: string | undefined;
   for (const st of f.body) {
     if (st.s !== 'for') {
       if (st.s === 'return') continue;
+      if (readsReduced === undefined) readsReduced = firstName([st], reduced);
       prelude.push(st);
       continue;
     }
     const j = loopIndex++;
+    if (readsReduced !== undefined)
+      return {
+        noGpu: `a statement before loop ${j + 1} reads "${readsReduced}", which an earlier loop reduces`,
+      };
     const counted = st.counted!;
     const header = rangeOf(st);
     if (header === undefined)
@@ -174,28 +221,82 @@ export function lowerKernel(
       for (const w of v.writes)
         if (w.kind === 'affine' && arrays.some((p) => p.name === w.name))
           for (const c of w.c) checks.push({ param: w.name, a: w.a, c });
-    const entry = entryFor(
+    const reductions = v.ok ? v.reductions : [];
+    for (const r of reductions) reduced.add(r.name);
+    const loopCtx: LoopCtx = {
       f,
-      st,
+      loop: st,
       j,
-      counted.name,
-      header.type,
-      counted.step,
+      counter: counted.name,
+      counterType: header.type,
+      step: counted.step,
       prelude,
-      scalars.map((p) => p.name),
-      arrays.map((p) => p.name),
+      scalars: scalars.map((p) => p.name),
+      arrays: arrays.map((p) => p.name),
       argsBinding,
       argsStruct,
-    );
-    entries.push(entry);
-    plans.push({
-      entry: entry.name,
+    };
+    const common = {
       range: range.name,
       cop: header.cop,
       step: counted.step,
       writes: [...written].filter((n) => arrays.some((p) => p.name === n)),
       checks,
+    };
+    if (reductions.length === 0) {
+      const entry = entryFor(loopCtx);
+      entries.push(entry);
+      plans.push({ ...common, entry: entry.name, wg: KERNEL_WORKGROUP });
+      continue;
+    }
+    const lowered = reductionEntries(loopCtx, reductions);
+    entries.push(...lowered.funcs);
+    extraStructs.push(lowered.struct);
+    extraVars.push(...lowered.workgroup);
+    partBindings.push(...lowered.vars.map((r) => ({ name: r.binding, type: r.type })));
+    plans.push({
+      ...common,
+      entry: lowered.entry,
+      wg: KERNEL_TREE,
+      reduce: { entry: lowered.reduceEntry, vars: lowered.vars },
     });
+  }
+
+  // The tail: the body with each loop replaced by combining what it reduced, and its return.
+  let tail: FuncDecl | undefined;
+  if (f.ret.kind !== 'void') {
+    const folded: { name: string; type: ShaderType }[] = [];
+    let k = 0;
+    const body: Stmt[] = [];
+    for (const st of f.body) {
+      if (st.s !== 'for') {
+        body.push(st);
+        continue;
+      }
+      const v = proof.loops[k++]!;
+      for (const r of v.ok ? v.reductions : []) {
+        const t = { name: `_t${k - 1}_${r.name}`, type: r.type };
+        folded.push(t);
+        body.push(combineInto(r, { op: 'param', type: r.type, name: t.name }));
+      }
+    }
+    if (
+      !readsArraysByLengthOnly(
+        body,
+        arrays.map((p) => p.name),
+      )
+    )
+      return {
+        noGpu: "its result reads an array's elements, which the call computes on the CPU tier",
+      };
+    tail = {
+      name: `${f.name}__tail`,
+      params: [...f.params, ...folded],
+      ret: f.ret,
+      body,
+      kernel: true,
+    };
+    ranges.push(tail);
   }
 
   const argsDecl: StructDecl = {
@@ -204,6 +305,13 @@ export function lowerKernel(
       ...scalars.map((p) => ({ name: p.name, type: p.type })),
       { name: '_start', type: counterType! },
       { name: '_n', type: u32T },
+      // Where a level of partials starts, and where the next is written.
+      ...(partBindings.length > 0
+        ? [
+            { name: '_in', type: u32T },
+            { name: '_out', type: u32T },
+          ]
+        : []),
     ],
   };
   const writtenArrays = writes.get(f.name) ?? new Set<string>();
@@ -223,78 +331,111 @@ export function lowerKernel(
       access: writtenArrays.has(p.name) ? 'read_write' : 'read',
       type: p.type,
     })),
+    ...partBindings.map((p, k): BindingDecl => ({
+      group: 0,
+      binding: arrays.length + 1 + k,
+      name: p.name,
+      space: 'storage',
+      access: 'read_write',
+      type: { kind: 'array', elem: p.type },
+    })),
   ];
   const module: ModuleDecl = {
     consts: m.consts,
-    structs: [...m.structs, argsDecl],
+    structs: [...m.structs, argsDecl, ...extraStructs],
     bindings,
     funcs: [...m.funcs.filter((x) => x.kernel !== true && x.stage === undefined), ...entries],
     overrides: m.overrides ?? [],
-    vars: (m.vars ?? []).filter((x) => x.space !== 'workgroup'),
+    vars: [...(m.vars ?? []).filter((x) => x.space !== 'workgroup'), ...extraVars],
     ...(m.enables !== undefined ? { enables: m.enables } : {}),
   };
-  return { module, argsBinding, argsStruct, loops: plans, ranges };
+  return {
+    module,
+    argsBinding,
+    argsStruct,
+    loops: plans,
+    ranges,
+    ...(tail !== undefined ? { tail: tail.name } : {}),
+  };
 }
 
 // ─── one loop's entry ────────────────────────────────────────────────────────────────────────
 
-function entryFor(
-  f: FuncDecl,
-  loop: ForStmt,
-  j: number,
-  counter: string,
-  counterType: ShaderType,
-  step: number,
-  prelude: readonly Stmt[],
-  scalars: readonly string[],
-  arrays: readonly string[],
-  argsBinding: string,
-  argsStruct: string,
-): FuncDecl {
-  const vec3u: ShaderType = { kind: 'vec', n: 3, elem: 'u32' };
-  const gid: Expr = { op: 'param', type: vec3u, name: '_gid' };
-  const nwg: Expr = { op: 'param', type: vec3u, name: '_nwg' };
+/** What building one loop's entries reads. */
+interface LoopCtx {
+  readonly f: FuncDecl;
+  readonly loop: ForStmt;
+  readonly j: number;
+  readonly counter: string;
+  readonly counterType: ShaderType;
+  readonly step: number;
+  readonly prelude: readonly Stmt[];
+  readonly scalars: readonly string[];
+  readonly arrays: readonly string[];
+  readonly argsBinding: string;
+  readonly argsStruct: string;
+}
+
+const vec3u: ShaderType = { kind: 'vec', n: 3, elem: 'u32' };
+const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
+const u = (n: number): Expr => ({ op: 'lit', type: u32T, value: n });
+const x = (v: Expr): Expr => ({ op: 'member', type: u32T, base: v, field: 'x' });
+const y = (v: Expr): Expr => ({ op: 'member', type: u32T, base: v, field: 'y' });
+const bin = (bop: '+' | '*', a: Expr, b: Expr): Expr => ({ op: 'binop', type: u32T, bop, a, b });
+const gid: Expr = { op: 'param', type: vec3u, name: '_gid' };
+const nwg: Expr = { op: 'param', type: vec3u, name: '_nwg' };
+const kRef: Expr = { op: 'varref', type: u32T, name: '_k' };
+
+/** The uniform of the call, and one of its fields. */
+function argsOf(c: LoopCtx): (name: string, type: ShaderType) => Expr {
   const args: Expr = {
     op: 'varref',
-    type: { kind: 'struct', name: argsStruct },
-    name: argsBinding,
+    type: { kind: 'struct', name: c.argsStruct },
+    name: c.argsBinding,
   };
-  const field = (name: string, type: ShaderType): Expr => ({
-    op: 'member',
-    type,
-    base: args,
-    field: name,
-  });
-  const x = (v: Expr): Expr => ({ op: 'member', type: u32T, base: v, field: 'x' });
-  const y = (v: Expr): Expr => ({ op: 'member', type: u32T, base: v, field: 'y' });
-  const u = (n: number): Expr => ({ op: 'lit', type: u32T, value: n });
-  const k: Expr = { op: 'varref', type: u32T, name: '_k' };
-  // `_k = gid.x + gid.y * (nwg.x * 64)`: a dispatch past 65535 workgroups spills into y.
-  const index: Expr = {
-    op: 'binop',
-    type: u32T,
-    bop: '+',
-    a: x(gid),
-    b: {
-      op: 'binop',
-      type: u32T,
-      bop: '*',
-      a: y(gid),
-      b: { op: 'binop', type: u32T, bop: '*', a: x(nwg), b: u(KERNEL_WORKGROUP) },
-    },
+  return (name, type) => ({ op: 'member', type, base: args, field: name });
+}
+
+/** `_k = gid.x + gid.y * (nwg.x * wg)`: a dispatch past 65535 workgroups spills into y. */
+function indexOf(wg: number): Stmt {
+  return {
+    s: 'let',
+    name: '_k',
+    expr: bin('+', x(gid), bin('*', y(gid), bin('*', x(nwg), u(wg)))),
   };
-  const start = field('_start', counterType);
-  const kAs: Expr = { op: 'call', type: counterType, fn: typeKey(counterType), args: [k] };
-  const stepLit: Expr = { op: 'lit', type: counterType, value: Math.abs(step) };
+}
+
+/** The `@compute` entry's parameters: the two ids every entry reads, and what a tree reads. */
+function entryParams(tree: boolean): FuncDecl['params'] {
+  return [
+    { name: '_gid', type: vec3u, builtin: 'global_invocation_id' },
+    { name: '_nwg', type: vec3u, builtin: 'num_workgroups' },
+    ...(tree
+      ? [
+          { name: '_lid', type: u32T, builtin: 'local_invocation_index' },
+          { name: '_wid', type: vec3u, builtin: 'workgroup_id' },
+        ]
+      : []),
+  ];
+}
+
+/** The iteration `_k` runs: its counter, the prelude replayed, and the loop's body, with each
+ *  parameter a field of the uniform or the binding of its name, and each `continue` of the
+ *  loop's own a return of `ret`. */
+function iterationOf(c: LoopCtx, ret: Expr | undefined, reset: readonly Stmt[]): Stmt[] {
+  const field = argsOf(c);
+  const start = field('_start', c.counterType);
+  const kAs: Expr = { op: 'call', type: c.counterType, fn: typeKey(c.counterType), args: [kRef] };
+  const stepLit: Expr = { op: 'lit', type: c.counterType, value: Math.abs(c.step) };
   const i: Expr = {
     op: 'binop',
-    type: counterType,
-    bop: step < 0 ? '-' : '+',
+    type: c.counterType,
+    bop: c.step < 0 ? '-' : '+',
     a: start,
-    b: { op: 'binop', type: counterType, bop: '*', a: kAs, b: stepLit },
+    b: { op: 'binop', type: c.counterType, bop: '*', a: kAs, b: stepLit },
   };
-  const scalarSet = new Set(scalars);
-  const arraySet = new Set(arrays);
+  const scalarSet = new Set(c.scalars);
+  const arraySet = new Set(c.arrays);
   // A parameter is a field of the uniform, or the storage binding of its name.
   const rewrite = (e: Expr): Expr => {
     if (e.op === 'param' && scalarSet.has(e.name)) return field(e.name, e.type);
@@ -302,47 +443,303 @@ function entryFor(
       return { op: 'varref', type: e.type, name: e.name };
     return mapChildren(e, rewrite);
   };
+  return [
+    { s: 'let', name: c.counter, expr: i },
+    ...[...c.prelude, ...reset, ...ownContinuesReturn(c.loop.body, ret)].map((st) =>
+      mapStmt(st, rewrite),
+    ),
+    ...(ret !== undefined ? [{ s: 'return', expr: ret } as Stmt] : []),
+  ];
+}
+
+function entryFor(c: LoopCtx): FuncDecl {
+  const field = argsOf(c);
+  const k = kRef;
+  const index = indexOf(KERNEL_WORKGROUP);
   const body: Stmt[] = [
-    { s: 'let', name: '_k', expr: index },
+    index,
     {
       s: 'if',
       arms: [
         {
-          cond: {
-            op: 'compare',
-            type: { kind: 'scalar', scalar: 'bool' },
-            cop: '>=',
-            a: k,
-            b: field('_n', u32T),
-          },
+          cond: { op: 'compare', type: boolT, cop: '>=', a: k, b: field('_n', u32T) },
           body: [{ s: 'return' }],
         },
       ],
     },
-    { s: 'let', name: counter, expr: i },
-    ...[...prelude, ...ownContinuesReturn(loop.body)].map((s) => mapStmt(s, rewrite)),
+    ...iterationOf(c, undefined, []),
   ];
+  return computeEntry(`${c.f.name}_loop${c.j}`, body, false);
+}
+
+function computeEntry(name: string, body: Stmt[], tree: boolean): FuncDecl {
+  const wg = tree ? KERNEL_TREE : KERNEL_WORKGROUP;
   return {
-    name: `${f.name}_loop${j}`,
-    params: [
-      { name: '_gid', type: vec3u, builtin: 'global_invocation_id' },
-      { name: '_nwg', type: vec3u, builtin: 'num_workgroups' },
-    ],
+    name,
+    params: entryParams(tree),
     ret: { kind: 'void' },
     body,
     stage: 'compute',
-    workgroupSize: KERNEL_WORKGROUP,
-    attrs: [`@compute @workgroup_size(${KERNEL_WORKGROUP})`],
+    workgroupSize: wg,
+    attrs: [`@compute @workgroup_size(${wg})`],
   };
+}
+
+// ─── a loop that reduces ─────────────────────────────────────────────────────────────────────
+
+/** The functions, the struct and the workgroup memory a reduction loop lowers to: a helper that
+ *  runs iteration `_k` from the identity and returns the variables, the loop's entry that folds
+ *  what its workgroup's helpers returned into one partial each, and the entry that folds a level
+ *  of partials (`_n` of them from `_in`, written from `_out`). */
+function reductionEntries(
+  c: LoopCtx,
+  reductions: readonly LoopReduction[],
+): {
+  funcs: FuncDecl[];
+  struct: StructDecl;
+  workgroup: ModuleVarDecl[];
+  vars: (LoopReduction & { binding: string })[];
+  entry: string;
+  reduceEntry: string;
+} {
+  const base = `${c.f.name}_loop${c.j}`;
+  const field = argsOf(c);
+  const struct: StructDecl = {
+    name: `${base}_Sums`,
+    fields: reductions.map((r) => ({ name: r.name, type: r.type })),
+  };
+  const structT: ShaderType = { kind: 'struct', name: struct.name };
+  const vars = reductions.map((r) => ({ ...r, binding: `${base}_${r.name}` }));
+  const shared = (r: LoopReduction): string => `${base}_tree_${r.name}`;
+  const workgroup: ModuleVarDecl[] = reductions.map((r) => ({
+    name: shared(r),
+    space: 'workgroup',
+    type: { kind: 'array', elem: r.type, size: KERNEL_TREE },
+  }));
+  const sums: Expr = {
+    op: 'construct',
+    type: structT,
+    args: reductions.map((r) => ({ op: 'varref', type: r.type, name: r.name })),
+  };
+  const iterate = iterationOf(
+    c,
+    sums,
+    reductions.map((r): Stmt => ({
+      s: 'assign',
+      target: { op: 'varref', type: r.type, name: r.name },
+      expr: identityOf(r),
+    })),
+  );
+  // The helper reads `_k` as its parameter.
+  const asParam = (e: Expr): Expr =>
+    e.op === 'varref' && e.name === '_k'
+      ? { op: 'param', type: u32T, name: '_k' }
+      : mapChildren(e, asParam);
+  const helper: FuncDecl = {
+    name: `${base}_iteration`,
+    params: [{ name: '_k', type: u32T }],
+    ret: structT,
+    body: iterate.map((st) => mapStmt(st, asParam)),
+  };
+  const lid: Expr = { op: 'param', type: u32T, name: '_lid' };
+  const wid: Expr = { op: 'param', type: vec3u, name: '_wid' };
+  const slot = (r: LoopReduction, at: Expr): Expr => ({
+    op: 'index',
+    type: r.type,
+    base: {
+      op: 'varref',
+      type: { kind: 'array', elem: r.type, size: KERNEL_TREE },
+      name: shared(r),
+    },
+    idx: at,
+  });
+  const part = (r: LoopReduction & { binding: string }, at: Expr): Expr => ({
+    op: 'index',
+    type: r.type,
+    base: { op: 'varref', type: { kind: 'array', elem: r.type }, name: r.binding },
+    idx: at,
+  });
+  const barrier: Stmt = {
+    s: 'call',
+    expr: { op: 'call', type: { kind: 'void' }, fn: 'workgroupBarrier', args: [] },
+  };
+  const inRange: Expr = { op: 'compare', type: boolT, cop: '<', a: kRef, b: field('_n', u32T) };
+  // The tree: at stride 128, then 64, down to 1, slot `t` becomes `slot[t] op slot[t + s]`.
+  const tree: Stmt[] = [barrier];
+  for (let stride = KERNEL_TREE >> 1; stride > 0; stride >>= 1) {
+    tree.push({
+      s: 'if',
+      arms: [
+        {
+          cond: { op: 'compare', type: boolT, cop: '<', a: lid, b: u(stride) },
+          body: reductions.map((r): Stmt => ({
+            s: 'assign',
+            target: slot(r, lid),
+            expr: combineOf(r, slot(r, lid), slot(r, bin('+', lid, u(stride)))),
+          })),
+        },
+      ],
+    });
+    tree.push(barrier);
+  }
+  const group = bin('+', x(wid), bin('*', y(wid), x(nwg)));
+  const store = (at: Expr): Stmt => ({
+    s: 'if',
+    arms: [
+      {
+        cond: { op: 'compare', type: boolT, cop: '==', a: lid, b: u(0) },
+        body: vars.map((r): Stmt => ({ s: 'assign', target: part(r, at), expr: slot(r, u(0)) })),
+      },
+    ],
+  });
+  const sumsRef: Expr = { op: 'varref', type: structT, name: '_sums' };
+  const loopEntry = computeEntry(
+    base,
+    [
+      indexOf(KERNEL_TREE),
+      {
+        s: 'var',
+        name: '_sums',
+        type: structT,
+        init: { op: 'construct', type: structT, args: reductions.map(identityOf) },
+      },
+      {
+        s: 'if',
+        arms: [
+          {
+            cond: inRange,
+            body: [
+              {
+                s: 'assign',
+                target: sumsRef,
+                expr: { op: 'call', type: structT, fn: helper.name, args: [kRef], declRef: helper },
+              },
+            ],
+          },
+        ],
+      },
+      ...reductions.map((r): Stmt => ({
+        s: 'assign',
+        target: slot(r, lid),
+        expr: { op: 'member', type: r.type, base: sumsRef, field: r.name },
+      })),
+      ...tree,
+      store(group),
+    ],
+    true,
+  );
+  const reduceEntry = computeEntry(
+    `${base}_fold`,
+    [
+      indexOf(KERNEL_TREE),
+      ...vars.flatMap((r): Stmt[] => [
+        { s: 'var', name: `_v_${r.name}`, type: r.type, init: identityOf(r) },
+        {
+          s: 'if',
+          arms: [
+            {
+              cond: inRange,
+              body: [
+                {
+                  s: 'assign',
+                  target: { op: 'varref', type: r.type, name: `_v_${r.name}` },
+                  expr: part(r, bin('+', field('_in', u32T), kRef)),
+                },
+              ],
+            },
+          ],
+        },
+        {
+          s: 'assign',
+          target: slot(r, lid),
+          expr: { op: 'varref', type: r.type, name: `_v_${r.name}` },
+        },
+      ]),
+      ...tree,
+      store(bin('+', field('_out', u32T), group)),
+    ],
+    true,
+  );
+  return {
+    funcs: [helper, loopEntry, reduceEntry],
+    struct,
+    workgroup,
+    vars,
+    entry: loopEntry.name,
+    reduceEntry: reduceEntry.name,
+  };
+}
+
+/** `a op b` in `r`'s type. */
+function combineOf(r: LoopReduction, a: Expr, b: Expr): Expr {
+  return r.op === 'min' || r.op === 'max'
+    ? { op: 'call', type: r.type, fn: r.op, args: [a, b] }
+    : { op: 'binop', type: r.type, bop: r.op, a, b };
+}
+
+/** `s = s op t`, in the tail. */
+function combineInto(r: LoopReduction, t: Expr): Stmt {
+  const target: Expr = { op: 'varref', type: r.type, name: r.name };
+  return { s: 'assign', target, expr: combineOf(r, target, t) };
+}
+
+/** The identity of `r`'s operator in its type, spelled exactly: `-0` and the largest finite
+ *  `f32` through their bits. */
+function identityOf(r: LoopReduction): Expr {
+  const t = r.type;
+  const scalar = (t.kind === 'vec' ? t.elem : (t as { scalar: string }).scalar) as 'f32';
+  const one = treeIdentity(r.op, scalar) as number;
+  const st: ShaderType = { kind: 'scalar', scalar };
+  let e: Expr;
+  if (scalar === 'f32' && (Object.is(one, -0) || Math.abs(one) > 1e38)) {
+    const bits = Object.is(one, -0) ? 0x80000000 : one > 0 ? 0x7f7fffff : 0xff7fffff;
+    e = { op: 'call', type: st, fn: 'bitcastF32', args: [u(bits)] };
+  } else e = { op: 'lit', type: st, value: one };
+  return t.kind === 'vec' ? { op: 'construct', type: t, args: new Array<Expr>(t.n).fill(e) } : e;
+}
+
+/** Why a reduction variable of type `t` cannot be folded on the GPU, or undefined. */
+function notReducible(t: ShaderType): string | undefined {
+  if (t.kind === 'f64' || t.kind === 'vec64')
+    return 'an emulated f64, which a later part of change 0013 folds on the GPU';
+  const scalar = t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined;
+  if (scalar === undefined) return `a ${t.kind}, which the GPU does not fold`;
+  if (scalar === 'f32' || scalar === 'i32' || scalar === 'u32') return undefined;
+  if (scalar === 'bool') return 'a bool, which no buffer holds';
+  return `an ${scalar}, which a later part of change 0013 folds on the GPU`;
+}
+
+/** The first of `names` that `sts` read. */
+function firstName(sts: readonly Stmt[], names: ReadonlySet<string>): string | undefined {
+  if (names.size === 0) return undefined;
+  let found: string | undefined;
+  const visit = (e: Expr): void => {
+    if (found !== undefined) return;
+    if ((e.op === 'varref' || e.op === 'param') && names.has(e.name)) {
+      found = e.name;
+      return;
+    }
+    forEachChild(e, visit);
+  };
+  for (const st of sts)
+    mapStmt(st, (e) => {
+      visit(e);
+      return e;
+    });
+  return found;
 }
 
 /** The loop's body with each `continue` of its own, which ends this iteration, as a `return`,
  *  which ends this invocation. One inside a nested loop is that loop's and stays. */
-function ownContinuesReturn(body: readonly Stmt[]): Stmt[] {
+function ownContinuesReturn(body: readonly Stmt[], ret?: Expr): Stmt[] {
   const visit = (st: Stmt): Stmt => {
     switch (st.s) {
       case 'continue':
-        return { s: 'return', ...(st.span !== undefined ? { span: st.span } : {}) };
+        return {
+          s: 'return',
+          ...(ret !== undefined ? { expr: ret } : {}),
+          ...(st.span !== undefined ? { span: st.span } : {}),
+        };
       case 'if':
         return {
           ...st,

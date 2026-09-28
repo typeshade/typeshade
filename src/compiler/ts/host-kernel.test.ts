@@ -69,6 +69,11 @@ export function drift(ps: array<Particle>, dt: f32) {
     ps[i].pos = ps[i].pos + ps[i].vel * dt;
   }
 }
+export function prefix(out: array<f32>) {
+  for (let i: u32 = 1; i < out.length; i++) {
+    out[i] = out[i] + out[i - 1];
+  }
+}
 `;
 
 describe('the host view of a kernel function (Rule 8.21)', () => {
@@ -91,7 +96,10 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
       /Each of its loops runs on the GPU, one invocation per iteration.*\n.*function render/,
     );
     expect(f.view).toMatch(
-      /It runs on the CPU: a loop of it reduces, which a later part of change 0013 lowers\..*\n.*function total/,
+      /Each of its loops runs on the GPU, one invocation per iteration.*\n.*function total/,
+    );
+    expect(f.view).toMatch(
+      /It runs on the CPU: a loop of it runs on the CPU \(TS8070\)\..*\n.*function prefix/,
     );
   });
 
@@ -175,7 +183,7 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
   });
 });
 
-describe('what the call dispatches (change 0013 part 2: maps)', () => {
+describe('what the call dispatches (change 0013 parts 2 and 3: maps and reductions)', () => {
   const lowered = (source: string, fn: string) => {
     const r = compile(source, { fileName: 'm.shade.ts' });
     const f = r.module.funcs.find((x) => x.name === fn)!;
@@ -208,6 +216,7 @@ export function odds(out: array<f32>, n: i32) {
         step: -1,
         writes: ['out'],
         checks: [{ param: 'out', a: 3, c: 0 }],
+        wg: 64,
       },
     ]);
     const entry = plan.module.funcs.find((f) => f.name === 'odds_loop0')!;
@@ -219,12 +228,69 @@ export function odds(out: array<f32>, n: i32) {
     ]);
   });
 
+  it('lowers a reduction to a tree per workgroup, a fold of the partials, and a tail on the CPU', () => {
+    const plan = lowered(
+      `"use typeshade";
+export function stats(xs: array<f32>, out: array<f32>): f32 {
+  let s = 0.;
+  let m = -1e30;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out[i] = xs[i] * 2.;
+    s += xs[i];
+    m = max(m, xs[i]);
+  }
+  return s / f32(xs.length) + m;
+}`,
+      'stats',
+    );
+    if ('noGpu' in plan) throw new Error(plan.noGpu);
+    const [loop] = plan.loops;
+    expect(loop).toMatchObject({
+      entry: 'stats_loop0',
+      wg: 256,
+      writes: ['out'],
+      reduce: {
+        entry: 'stats_loop0_fold',
+        vars: [
+          { name: 's', op: '+', binding: 'stats_loop0_s' },
+          { name: 'm', op: 'max', binding: 'stats_loop0_m' },
+        ],
+      },
+    });
+    expect(plan.tail).toBe('stats__tail');
+    expect(plan.module.bindings.map((b) => `${b.name} ${b.space} ${b.access ?? ''}`)).toEqual([
+      'stats_args uniform ',
+      'xs storage read',
+      'out storage read_write',
+      'stats_loop0_s storage read_write',
+      'stats_loop0_m storage read_write',
+    ]);
+    const fold = plan.module.funcs.find((f) => f.name === 'stats_loop0_fold')!;
+    expect(fold.workgroupSize).toBe(256);
+    // The tail combines what the GPU folded, then returns: no loop is left in it.
+    const tail = plan.ranges.find((f) => f.name === 'stats__tail')!;
+    expect(tail.params.map((p) => p.name)).toEqual(['xs', 'out', '_t0_s', '_t0_m']);
+    expect(tail.body.some((st) => st.s === 'for')).toBe(false);
+  });
+
   it.each([
     [
-      'a reduction',
-      `export function total(xs: array<f32>): f32 { let s = 0.; for (const x of xs) { s += x; } return s; }`,
+      'an f64 reduction',
+      `export function total(xs: array<f64>): f64 { let s = f64(0.); for (const x of xs) { s += x; } return s; }`,
       'total',
-      'a loop of it reduces, which a later part of change 0013 lowers',
+      'it reduces "s", an emulated f64, which a later part of change 0013 folds on the GPU',
+    ],
+    [
+      'a statement after a reduction that a later loop replays',
+      `export function norm(xs: array<f32>) { let s = 0.; for (const x of xs) { s += x; } const inv = 1. / s; for (let i: u32 = 0; i < xs.length; i++) { xs[i] = xs[i] * inv; } }`,
+      'norm',
+      'a statement before loop 2 reads "s", which an earlier loop reduces',
+    ],
+    [
+      'a result that reads an element',
+      `export function head(xs: array<f32>): f32 { let s = 0.; for (const x of xs) { s += x; } return s + xs[0]; }`,
+      'head',
+      "its result reads an array's elements, which the call computes on the CPU tier",
     ],
     [
       'a refused loop',
