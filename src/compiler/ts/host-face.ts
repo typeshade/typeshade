@@ -68,15 +68,15 @@ export interface HostFaceOptions {
   /** The shader module's path, carried into the diagnostics and named in the generated files. */
   readonly fileName: string;
   /** The specifier the generated module imports its runtime from. Defaults to
-   *  `typeshade/runtime`; a test points it at the source file. */
+   *  `typeshade/runtime/internal`; a test points it at the source file. */
   readonly runtime?: string;
   /** `'gpu'` records each `console.*` call a GPU entry reaches into the `_console` buffer
    *  (change 0014), which the runtime decodes into the host's console after the dispatch or
    *  draw. The Vite plugin sets it in `vite dev`; a production build records nothing. */
   readonly console?: 'gpu';
-  /** Reads a shader file the module imports (Rule 3.9): the module and what it imports are one
-   *  program, and its face is the module's own exports and re-exports. The Vite plugin reads
-   *  from disk. */
+  /** Reads a shader file the module imports (Rule 3.9), and a package's `package.json`: the
+   *  module and what it imports are one program, and its face is the module's own exports and
+   *  re-exports. The Vite plugin reads from disk. */
   readonly readDocument?: (fileName: string) => string | undefined;
   /** The file a specifier written in `fromFile` names; defaults to the rule `compile()` uses. */
   readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
@@ -636,12 +636,12 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   return {
     diagnostics: r.diagnostics,
     exports: logged,
-    view: viewText(stem, logged, options.runtime ?? 'typeshade/runtime'),
+    view: viewText(stem, logged, options.runtime ?? 'typeshade/runtime/internal'),
     code: moduleText(
       stem,
       logged,
       gen,
-      options.runtime ?? 'typeshade/runtime',
+      options.runtime ?? 'typeshade/runtime/internal',
       wgsl,
       buildManifest(m, { console: options.console === 'gpu' }),
       log,

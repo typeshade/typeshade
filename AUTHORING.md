@@ -1634,12 +1634,34 @@ const { wgsl, diagnostics } = compile(read('src/clouds.shade.ts')!, {
 })
 ```
 
+A shader library installs from npm like any other package, and a shader file imports it by the
+package's name: `import { fbm } from 'shade-noise'`. The package is found in `node_modules` from
+the importing file's directory up, as Node finds one, and the file read is the one its
+`package.json` publishes under the `typeshade` condition of `exports`, beside the JavaScript it
+publishes for host code:
+
+```json
+{
+  "name": "shade-noise",
+  "exports": {
+    ".": { "typeshade": "./src/index.shade.ts", "default": "./dist/index.js" },
+    "./*": { "typeshade": "./src/*.shade.ts" }
+  }
+}
+```
+
+`'shade-noise'` reads the package's `src/index.shade.ts`, and `'shade-noise/hash'` the
+`hash.shade.ts` beside it. A package with no `exports` is imported by the path of its file,
+`'shade-noise/noise.shade.ts'`. `readDocument` is asked for each `package.json` too, so the `read`
+above follows a package with no change. A program holds one copy of a package version however
+many dependencies reach it, and a helper of a package that the module renames is named for the
+package and its file, `shade_noise_noise_hash`.
+
 A mistake in an imported file is reported at that file, line and column. An import the compiler
 cannot follow is a `TS8072` on the import: a path that names no file, a file that does not begin
-with the directive, a name the file does not export, a default import. A package, imported by a
-bare specifier through `node_modules`, is not supported yet. The surface reference has every form
-an import takes, the names the module emits and each refusal: `docs/use-typeshade-surface.md`
-§68.
+with the directive, a package no `node_modules` holds, a subpath its `exports` does not name, a
+name the file does not export, a default import. The surface reference has every form an import
+takes, the names the module emits and each refusal: `docs/use-typeshade-surface.md` §68.
 
 ## Diagnostics
 

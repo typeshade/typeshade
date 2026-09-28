@@ -586,6 +586,54 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A shader module imports a package's by the package's name** (change 0024; Rules 3.9 and 3.2,
+  surface §68 and §64, roadmap X6). `import { fbm } from "shade-noise"` in a `"use typeshade"`
+  file finds `shade-noise` in `node_modules` from the file's directory up and reads the shader
+  module its `package.json` publishes under the `typeshade` condition of `exports`, beside the
+  JavaScript it publishes for hosts. `compile()`, the Vite plugin, `tshc check`, `tshc sync` and
+  the language service resolve it by one rule, `resolveSpecifier` in
+  `src/compiler/ts/specifier.ts`.
+  - `exports` is read as Node reads it: a string target, subpaths with `*` patterns, an array's
+    first valid target and `null` blocking a path, with the conditions `typeshade`, `import` and
+    `default` tried in that order. Without `exports`, a subpath names a file of the package by
+    the relative rule, and the name alone is refused with the file to write.
+  - `readDocument` is asked for each `package.json` too, so a host that reads from disk follows a
+    package with no change. A host that serves only files that begin with the directive serves
+    `package.json` as well.
+  - A program holds one copy of a package version, keyed by its name, its version and the file's
+    path in it, however many paths reach it; the language service gives TypeScript the same
+    `packageId`. Two versions are two copies, and a helper the module renames is named for its
+    package and file, `shade_noise_noise_hash`, then `shade_noise_noise_hash_2`.
+  - `TS8072`'s sentence for a package ("… is a package, and a shader module imports only a file
+    of its own program …") is gone. A package no `node_modules` holds, a subpath `exports` does
+    not name or blocks, the name alone of a package with no `exports`, a package's file that does
+    not begin with the directive, a `#` specifier and a specifier that is neither relative nor a
+    package name each have their own sentence (surface §68's table).
+  - `tshc sync` compiles each module under its full path, so a package installed above the
+    working directory is found; an error is still printed relative to it.
+  - The README's `tsconfig.shade.json` sets `customConditions: ["typeshade"]`, so plain `tsc`
+    reads the package's shader module too. Without it, measured on a package that publishes
+    `dist/index.js` under `default`, the import is `TS7016` and a subpath only `typeshade` names
+    is `TS2307`.
+  - The import journey installs a packed shader package with npm, `journeys/_shade-package/`, and
+    calls a function of it through a module that imports it by name.
+
+- **The program runtime, `typeshade/runtime`** (proposal 0025, step 2; design rules 11.7 and
+  11.11; surface §64 and §69). A host loads a compiled program's manifest and runs it on WebGPU:
+  `createRuntime({ device })` on the host's device, or with no device on one it requests with the
+  features `programs` need; `rt.load(manifest)`, which refuses another schema and a missing
+  feature; `program.compute(entry)` and `program.render(state)`, cached pipelines laid out from
+  the manifest; bindings by the source's names, a plain value packed by its layout into buffers
+  the runtime reuses, a `Texture` or `Sampler` it makes, or the host's own GPU objects; `rt.frame()`
+  with `dispatch()` and `pass()`, or the host's encoders with `rt.submit(encoder)`; and the
+  recorded console, read back at the submit and handed to a sink or the console. A refusal names
+  the entry, its line and the binding. The subpath imports nothing of the compiler, which
+  `scripts/bundle-boundary.ts` holds in CI with a size budget: 26 modules, 9,493 bytes minified and
+  gzipped. The op library generated modules import moves to `typeshade/runtime/internal`, still
+  not API; `typeshade/runtime` keeps exporting `resident` and `configure`. The compile gate
+  dispatches every compute entry of the examples through the runtime from its module's manifest,
+  and each written value equals the call layer's on WebGPU.
+
 - **A compiled program has a manifest, with a version** (proposal 0025, step 1; design rules 6.8
   and 11.10; surface §64 and §69). `packModule(m, options)` returns schema 1: `schema` and
   `compiler`, the version that wrote it; each binding with its `resource` in `reflect()`'s words,

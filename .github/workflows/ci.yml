@@ -72,6 +72,9 @@ jobs:
       - run: bun run build
       - run: bun run lint
       - run: bun run format:check
+      # The runtime carries no compiler, and stays in its size budget (Rule 11.11, change 0025).
+      - name: runtime bundle boundary
+        run: bun scripts/bundle-boundary.ts
       - run: |
           UPDATE_EMIT_GOLDENS=1 bun run bake:goldens
           git config user.name "github-actions[bot]"

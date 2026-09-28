@@ -250,13 +250,18 @@ export interface TypeshadeCompiledOutput {
 export interface TypeshadeLanguageServiceHost {
   /** Ambient declarations for the TypeShade globals (`f32`, `vec4`, `uniform<T>`, `@vertex`, ...). Defaults to the bundled `SHADE_DTS` string (§9: not yet a shipped `shade.d.ts` file). */
   readonly ambientLib?: string
-  /** Resolves a relative import from a document to another document uri, for multi-file units.
-   * Default: resolves the specifier's `./` and `../` segments against the containing uri's own
+  /** Resolves an import from a document to another document uri, for multi-file units.
+   * Default: `resolveSpecifier` (`src/compiler/ts/specifier.ts`), the rule `compile()` follows.
+   * A relative specifier's `./` and `../` segments resolve against the containing uri's own
    * path, keeping that uri's scheme and authority (`file://`) or leading `/` intact; a `.js` or
    * `.mjs` specifier is rewritten to `.ts`, and a specifier with no extension at all gets `.ts`
-   * appended (`host.ts`'s `joinPath`/`defaultResolveImport`). */
+   * appended. Any other specifier names a package, found as the first
+   * `node_modules/<name>/package.json` from the document's directory up and read through its
+   * `exports` under the `typeshade` condition (surface §68, change 0024). */
   readonly resolveImport?: (fromUri: string, specifier: string) => string | undefined
-  /** Reads a document the adapter has not opened (an imported file). Return undefined when unknown. */
+  /** Reads a document the adapter has not opened (an imported file), and a package's
+   * `package.json`, which the default `resolveImport` reads to find a package. Return undefined
+   * when unknown. */
   readonly readDocument?: (uri: string) => string | undefined
 }
 
@@ -908,9 +913,12 @@ Document versions, for either adapter:
   or closing an imported document refreshes the importing document's diagnostics on its next
   request without that document being touched: an edited import carries a new revision (§7);
   a closed one is re-read through `readDocument` when the host has one, under a new revision
-  again, and otherwise drops to `getScriptVersion`'s `'0'`; each changes the key. A bare or
+  again, and otherwise drops to `getScriptVersion`'s `'0'`; each changes the key. An
   unresolvable specifier contributes nothing to the key; TypeScript reports it from the
-  importing file, whose version the key already carries.
+  importing file, whose version the key already carries. A package's `package.json` is read once
+  until the store next changes, so a package installed while a document is open is found at the
+  next edit, open or close; two paths to one version of a package's file resolve with one
+  `packageId`, so TypeScript's program holds it once, as the linker does.
 - The front-end analysis is separable from emit: `compileTsSource` takes an `emit: false`
   option that still parses, analyzes, and lowers to IR but skips `packModule`/WGSL emission, and
   the cached analysis passes it, so diagnostics never produce shader text. `getCompiledOutput`

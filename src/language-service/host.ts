@@ -9,7 +9,7 @@
 import ts from 'typescript';
 import { SHADE_DTS } from './ambient.js';
 import { Projection, planInsertions } from './projection.js';
-import { isRelativeSpecifier, resolveRelativeSpecifier } from '../compiler/ts/specifier.js';
+import { packageKey, packageOf, resolveSpecifierFile } from '../compiler/ts/specifier.js';
 import type { ImportHooks } from '../compiler/ts/link.js';
 
 /**
@@ -19,15 +19,22 @@ export interface TypeshadeLanguageServiceHost {
   /** Ambient declarations for the TypeShade globals (`f32`, `vec4`, `uniform<T>`, `@vertex`, and
    * the rest of the authoring vocabulary). Defaults to the bundled `SHADE_DTS`. */
   readonly ambientLib?: string;
-  /** Resolves a relative import from a document to another document's uri, for multi-file
-   * units. Default: `resolveRelativeSpecifier` (`src/compiler/ts/specifier.ts`), the rule the
-   * compiler follows an import by too: the importing document's directory, `.js` and `.mjs`
-   * read as `.ts`, and `.ts` appended to any other path. */
+  /** Resolves an import from a document to another document's uri, for multi-file units.
+   * Default: `resolveSpecifier` (`src/compiler/ts/specifier.ts`), the rule the compiler follows
+   * an import by too: a relative path against the importing document's directory, `.js` and
+   * `.mjs` read as `.ts`, and `.ts` appended to any other path; any other specifier a package,
+   * found in `node_modules` from the document's directory up and read through its
+   * `package.json` (proposal 0024). */
   readonly resolveImport?: (fromUri: string, specifier: string) => string | undefined;
-  /** Reads a document the adapter has not opened itself (an imported file). Return `undefined`
-   * when the uri is unknown; the import is then reported as unresolved. */
+  /** Reads a document the adapter has not opened itself (an imported file), and a package's
+   * `package.json`, which the default `resolveImport` reads to find a package. Return
+   * `undefined` when the uri is unknown; the import is then reported as unresolved. */
   readonly readDocument?: (uri: string) => string | undefined;
 }
+
+/** Whether `uri` names a `package.json`, which the resolution rule reads to find a package. */
+const isPackageJson = (uri: string): boolean =>
+  uri === 'package.json' || uri.endsWith('/package.json');
 
 /** The uri the ambient TypeShade declarations are served under. Never a real document: it
  * never appears in `openDocument`/`updateDocument`/`closeDocument`, and no diagnostic is ever
@@ -98,6 +105,9 @@ interface ImportedDocument {
 export class TypeshadeHost implements ts.LanguageServiceHost {
   private readonly docs = new Map<string, StoredDocument>();
   private readonly imported = new Map<string, ImportedDocument>();
+  /** Each `package.json` the rule has read, until the next change to the store: an edit, or a
+   *  document opened or closed, reads them again, so an install is seen at the next keystroke. */
+  private readonly manifests = new Map<string, string | undefined>();
   private nextVersion = 1;
   /** Counts every text change the store has seen, across all documents, so that a script
    * version derived from it never repeats for a uri whose text differs (design doc §7). */
@@ -110,7 +120,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
     this.ambientLib = hostOptions.ambientLib ?? SHADE_DTS;
     this.resolveImport =
       hostOptions.resolveImport ??
-      ((fromUri, specifier) => resolveRelativeSpecifier(fromUri, specifier));
+      ((fromUri, specifier) => resolveSpecifierFile(fromUri, specifier, this.readPackageJson));
     this.readDocument = hostOptions.readDocument ?? (() => undefined);
   }
 
@@ -138,6 +148,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
       current !== undefined && current.text === text ? current.revision : ++this.revision;
     this.docs.set(uri, { text, version: version ?? this.nextVersion++, revision });
     this.imported.delete(uri);
+    this.manifests.clear();
   }
 
   /** Removes a document from the store. It stops appearing in `getScriptFileNames`, so
@@ -148,6 +159,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
   closeDocument(uri: string): void {
     this.docs.delete(uri);
     this.imported.delete(uri);
+    this.manifests.clear();
   }
 
   /** Whether `uri` is currently an open document (not an imported, adapter-unopened file). */
@@ -166,13 +178,31 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
   }
 
   /** The uri a `specifier` written in `fromUri` resolves to through `resolveImport`, or
-   * `undefined` for a bare (non-relative) specifier or one the host cannot resolve. The same
-   * rule `resolveModuleNameLiterals` applies to TypeScript's own module resolution, exposed so
-   * `service.ts` can key its per-document caches on the versions of the documents a file
-   * imports (design doc §8), without a second resolution rule that could drift from this one. */
+   * `undefined` for one the host cannot resolve. The same rule `resolveModuleNameLiterals`
+   * applies to TypeScript's own module resolution, exposed so `service.ts` can key its
+   * per-document caches on the versions of the documents a file imports (design doc §8), and
+   * the front end can follow the same file, without a second resolution rule that could drift
+   * from this one. */
   resolveImportUri(fromUri: string, specifier: string): string | undefined {
-    if (!isRelativeSpecifier(specifier)) return undefined;
     return this.resolveImport(fromUri, specifier);
+  }
+
+  /** A `package.json` as the rule reads it: an open document's text, else the adapter's
+   * `readDocument`, read once until the store next changes. `undefined` for any other uri. */
+  readonly readPackageJson = (uri: string): string | undefined => {
+    if (!isPackageJson(uri)) return undefined;
+    if (!this.manifests.has(uri)) {
+      this.manifests.set(uri, this.docs.get(uri)?.text ?? this.readDocument(uri));
+    }
+    return this.manifests.get(uri);
+  };
+
+  /** A file the front end reads that the TypeScript program does not hold: a `package.json`,
+   * as the rule read it, or a file an import resolves to that TypeScript does not read (a
+   * package's JavaScript, which the front end reads to say it is no shader module, or a file a
+   * refusal suggests), through the adapter's `readDocument`. */
+  readOutsideProgram(uri: string): string | undefined {
+    return isPackageJson(uri) ? this.readPackageJson(uri) : this.readDocument(uri);
   }
 
   // ── ts.LanguageServiceHost ───────────────────────────────────────────────────────────────
@@ -306,17 +336,29 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
   ): readonly ts.ResolvedModuleWithFailedLookupLocations[] {
     return moduleLiterals.map((literal) => {
       const resolvedUri = this.resolveImportUri(containingFile, literal.text);
-      if (resolvedUri === undefined) return { resolvedModule: undefined };
+      // A package's JavaScript is no module TypeScript reads here: the import is unresolved,
+      // and the front end's TS8072 says what it resolved to (surface §68).
+      if (resolvedUri === undefined || !/\.[mc]?tsx?$/.test(resolvedUri)) {
+        return { resolvedModule: undefined };
+      }
       if (!this.docs.has(resolvedUri) && !this.imported.has(resolvedUri)) {
         const text = this.readDocument(resolvedUri);
         if (text === undefined) return { resolvedModule: undefined };
         this.imported.set(resolvedUri, { text, revision: ++this.revision });
       }
+      // One copy of a package version, as the linker holds one (surface §68): TypeScript reads
+      // a second path to the same name, version and file as the first.
+      const pkg = packageOf(resolvedUri, this.readPackageJson);
+      const packageId =
+        pkg === undefined || packageKey(pkg) === undefined
+          ? undefined
+          : { name: pkg.name, subModuleName: pkg.path, version: pkg.version! };
       return {
         resolvedModule: {
           resolvedFileName: resolvedUri,
           extension: ts.Extension.Ts,
           isExternalLibraryImport: false,
+          ...(packageId === undefined ? {} : { packageId }),
         },
       };
     });
