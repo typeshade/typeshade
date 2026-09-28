@@ -1231,6 +1231,21 @@ export class LoweringScope {
     return stored;
   }
 
+  /** What each IR name this scope declared was written as in the source: `i_1` for the second
+   *  `i`, `_i` for a `for…of`'s counter. A refusal that the IR proves names the author's. */
+  sourceNames(): Map<string, string> {
+    return new Map([...this.byIr].map(([ir, b]) => [ir, b.name]));
+  }
+
+  /** Bind `name` in the current frame to an existing binding, so the name resolves to it and
+   *  emits its IR name: `const a = src` for a storage array with no size, which no local can
+   *  hold (Rule 12.6). Throws on a name the frame already binds, as {@link define} does. */
+  defineAlias(name: string, target: Binding): void {
+    const top = this.frames[this.frames.length - 1]!;
+    if (top.has(name)) throw new Error(`Duplicate binding "${name}" in current scope frame`);
+    top.set(name, target);
+  }
+
   /** An internal local the lowering needs and the source never named: the value a
    *  destructuring declaration reads from, lowered once (roadmap 0.3 item T7, #92). It takes an
    *  IR name no other local can take and binds no source name, so two of them in one block do

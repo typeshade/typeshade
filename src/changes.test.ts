@@ -111,6 +111,38 @@ describe('the judge', () => {
     });
   });
 
+  it('reads the lists of a front matter written indented, as Prettier writes YAML', () => {
+    // Accepted 0019 carried `rules:\n  - '11.9'`, and a reader that took only unindented entries
+    // read it as declaring nothing, which failed its implementing pull request.
+    const indented = parseProposal(
+      '(an indented proposal)',
+      [
+        '---',
+        "id: '0019'",
+        'title: A change',
+        'status: accepted',
+        'rules:',
+        "  - '11.9'",
+        'surface:',
+        '  - 66',
+        'exports:',
+        '  - ConsoleMethod',
+        'exports-removed: []',
+        'codes: []',
+        'examples: []',
+        'downstream:',
+        '  - repo: vscode-typeshade',
+        '    what: the skill',
+        '---',
+        '',
+      ].join('\n'),
+    );
+    expect(indented.rules).toEqual(['11.9']);
+    expect(indented.surface).toEqual([66]);
+    expect(indented.exports).toEqual(['ConsoleMethod']);
+    expect(indented.downstream).toEqual([{ repo: 'vscode-typeshade', what: 'the skill' }]);
+  });
+
   it('asks nothing of a change the criteria do not catch', () => {
     expect(judge(none, '', []).problems).toEqual([]);
   });

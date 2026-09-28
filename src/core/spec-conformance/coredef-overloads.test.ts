@@ -22,6 +22,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SHADE_DTS } from '../../language-service/ambient.js';
+import { ATOMIC_INTRINSICS, BARRIER_INTRINSICS } from '../intrinsics.js';
+import { rowTypes } from '../builtins/row-types.js';
 import { NOT_WGSL, claimOf as claimOfRow, familyOf, type Claim } from '../builtins/overlay.js';
 import { COREDEF } from '../builtins/coredef.js';
 import type { CoreDefRow } from '../builtins/coredef-types.js';
@@ -79,9 +81,10 @@ describe('every core.def row is claimed (0017)', () => {
       return all;
     });
     // A floor, so a claim table that stopped supporting anything cannot pass on nothing: the
-    // math family and the derivatives, bits and packing are 148 rows and 379 instances.
-    expect(rows.length).toBeGreaterThanOrEqual(140);
-    expect(instances.length).toBeGreaterThanOrEqual(370);
+    // math family, the derivatives, bits and packing, and the atomics, barriers and
+    // `arrayLength` are 163 rows and 407 instances.
+    expect(rows.length).toBeGreaterThanOrEqual(160);
+    expect(instances.length).toBeGreaterThanOrEqual(400);
     const compiler = compilerReadings(instances);
     const editor = editorReadings(instances, SHADE_DTS);
     const parted = instances
@@ -119,5 +122,66 @@ describe('the both-halves check sees a disagreement when one is there', () => {
     expect(parted).toContain('abs(u32): core.def says u32, the editor number');
     expect(parted).toContain('abs(i32): core.def says i32, the editor number');
     expect(parted.every((d) => !d.startsWith('abs(vec'))).toBe(true);
+  }, 60_000);
+});
+
+describe('the IR tables of the atomics and barriers are the rows of core.def (0017)', () => {
+  // `ATOMIC_INTRINSICS` and `BARRIER_INTRINSICS` stay in `core/intrinsics.ts`, which the CPU
+  // runtime imports, so they are not built from the table there; they are held to it here. The
+  // compiler types each call from the rows (`builtinResultType`), and these give the backends
+  // the arity and the spelling.
+  const family = fixture.rows.filter(
+    (r) =>
+      r.kind === 'fn' &&
+      familyOf(r.kind, r.name) === 'atomics, barriers and arrayLength' &&
+      claimOf(r)?.status === 'SUPPORTED',
+  );
+
+  it('lists every atomic row, with its arity and the kind of its result', () => {
+    const fromRows = Object.fromEntries(
+      family
+        .filter((r) => r.name.startsWith('atomic'))
+        .map((r) => {
+          const ret = rowTypes(r)!.ret.k;
+          const returns = ret === 'void' ? 'void' : ret === 'casResult' ? 'casResult' : 'value';
+          return [r.name, { arity: r.params.length, returns }];
+        }),
+    );
+    expect({ ...ATOMIC_INTRINSICS }).toEqual(fromRows);
+  });
+
+  it('lists every row that takes nothing and returns nothing as a barrier', () => {
+    const fromRows = family
+      .filter((r) => r.params.length === 0 && r.ret === '')
+      .map((r) => r.name)
+      .sort();
+    expect([...BARRIER_INTRINSICS].sort()).toEqual(fromRows);
+  });
+});
+
+describe('the both-halves check sees a disagreement on a location form', () => {
+  // `atomicAdd` on an `atomic<u32>` is a `u32` to core.def and to the compiler. An ambient
+  // library whose declaration says `number` must be named, on the witness that binds a storage
+  // location; the `i32` instance beside it stays in agreement only if the check reads the brand.
+  const doctored = SHADE_DTS.split('\n')
+    .filter((line) => !/^declare function atomicAdd\b/.test(line))
+    .join('\n')
+    .concat(
+      '\ndeclare function atomicAdd<T extends u32 | i32>(location: atomic<T>, value: T): number\n',
+    );
+  const rows = fixture.rows.filter((r) => r.kind === 'fn' && r.name === 'atomicAdd');
+
+  it('names both atomicAdd instances the doctored declaration types `number`', () => {
+    const instances = rows.flatMap((r) => instancesOf(r, fixture.matchers) ?? []);
+    expect(instances).toHaveLength(2);
+    const compiler = compilerReadings(instances);
+    const editor = editorReadings(instances, doctored);
+    const parted = instances
+      .map((inst, i) => disagreement(inst, compiler[i]!, editor[i]!))
+      .filter((d) => d !== undefined);
+    expect(parted.sort()).toEqual([
+      'atomicAdd(atomic<i32>, i32): core.def says i32, the editor number',
+      'atomicAdd(atomic<u32>, u32): core.def says u32, the editor number',
+    ]);
   }, 60_000);
 });

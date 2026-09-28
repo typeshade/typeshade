@@ -1,6 +1,6 @@
 import type { ModuleDecl } from '../../core/ir/nodes.js';
 import { compileModule } from '../../core/oracle.js';
-import type { ConsoleSink } from '../../core/console.js';
+import { consoleInvocation, type ConsoleSink } from '../../core/console.js';
 
 export function evalEntry(
   m: ModuleDecl,
@@ -17,9 +17,8 @@ export function evalEntry(
   return fn(...(args as never[]));
 }
 
-/** The sink, with each event marked by the invocation the entry was called as, when the entry
- *  takes `global_invocation_id` (compute) or `position` (fragment, the pixel `[x, y, 0]`): the
- *  id a decoded GPU event carries (surface §66). */
+/** The sink, with each event marked by the invocation the entry was called as
+ *  ({@link consoleInvocation}). */
 function withInvocation(
   m: ModuleDecl,
   name: string,
@@ -28,16 +27,7 @@ function withInvocation(
 ): ConsoleSink | undefined {
   if (!sink) return sink;
   const decl = m.funcs.find((f) => f.name === name);
-  const at = decl?.params.findIndex(
-    (p) => p.builtin === 'global_invocation_id' || p.builtin === 'position',
-  );
-  if (decl === undefined || at === undefined || at < 0) return sink;
-  const v = args[at];
-  if (!Array.isArray(v)) return sink;
-  const n = v.map((x) => Math.max(0, Math.floor(Number(x))));
-  const invocation =
-    decl.params[at]!.builtin === 'position'
-      ? ([n[0] ?? 0, n[1] ?? 0, 0] as const)
-      : ([n[0] ?? 0, n[1] ?? 0, n[2] ?? 0] as const);
+  const invocation = decl && consoleInvocation(decl, args);
+  if (!invocation) return sink;
   return (e) => sink(e.invocation ? e : { ...e, invocation });
 }

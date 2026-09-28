@@ -7,6 +7,7 @@ import { authorTypeText, dropsRecoveredUse, type LoweringScope } from '../contex
 import { irNameOf, readOnlyPhrase, writableRemedy, writeRules } from '../context.js';
 import {
   analyzeCountedFor,
+  type CountedLoop,
   boundWrittenIn,
   comparesToBound,
   foldConstNumber,
@@ -176,7 +177,7 @@ function lowerCountedFor(
       );
       return undefined;
     }
-    return { s: 'for', init: initStmt, cond, update, body };
+    return { s: 'for', init: initStmt, cond, update, body, counted: countedFact(counted.loop) };
   } finally {
     scope.exitLoop();
     scope.pop();
@@ -655,11 +656,33 @@ export function lowerForOf(
       cond: { op: 'compare', type: boolT, cop: '<', a: i, b: length },
       update: { s: 'assign', target: i, expr: { op: 'binop', type: u32T, bop: '+', a: i, b: one } },
       body: [bind, ...body],
+      // A counted loop over the array's indices (Rule 7.5), from 0 by 1.
+      counted: {
+        name: i.name,
+        op: 'add',
+        step: 1,
+        start: 0,
+        ...(array.type.size !== undefined
+          ? { bound: array.type.size, trips: array.type.size }
+          : {}),
+      },
     };
   } finally {
     scope.exitLoop();
     scope.pop();
   }
+}
+
+/** The counted fact the IR `for` carries (Rule 7.5), with no absent field written out. */
+function countedFact(loop: CountedLoop): NonNullable<(Stmt & { s: 'for' })['counted']> {
+  return {
+    name: loop.name,
+    op: loop.op,
+    step: loop.step,
+    ...(loop.start !== undefined ? { start: loop.start } : {}),
+    ...(loop.bound !== undefined ? { bound: loop.bound } : {}),
+    ...(loop.trips !== undefined ? { trips: loop.trips } : {}),
+  };
 }
 
 /** A name, or a member or index path to one: what a for-of may read on every trip. */

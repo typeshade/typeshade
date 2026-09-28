@@ -25,10 +25,14 @@ import { COREDEF } from '../core/builtins/coredef.js';
 import type { CoreDefRow } from '../core/builtins/coredef-types.js';
 import { claimOf } from '../core/builtins/overlay.js';
 import {
+  isValueType,
+  namesOf,
   rowTypes,
   scalarDomain,
+  valueRowTypes,
   type RowType,
   type TypeshadeScalar,
+  type ValueType,
 } from '../core/builtins/row-types.js';
 
 const SUFFIX: Readonly<Record<TypeshadeScalar, string>> = {
@@ -71,19 +75,83 @@ const sameLength = (s: TypeshadeScalar): string =>
   `(V extends { readonly [vecTag]: readonly [unknown, 2] } ? ${vecName(s, '2')} : ` +
   `V extends { readonly [vecTag]: readonly [unknown, 3] } ? ${vecName(s, '3')} : ${vecName(s, '4')})`;
 
-/** A parameter's name: `core.def`'s own where it gives one, `a0`, `a1`, … where it does not. */
+/** The names the ambient library gave the parameters of a builtin `core.def` leaves unnamed,
+ *  where its documentation reads them (`FUNCTION_DOCS`: "Adds `value` to the atomic
+ *  location"). Names only: every type is the row's. */
+const NAMED: Readonly<Record<string, readonly string[]>> = {
+  atomicCompareExchangeWeak: ['location', 'compare', 'value'],
+  arrayLength: ['xs'],
+  ...Object.fromEntries(
+    ['Load', 'Store', 'Add', 'Sub', 'Min', 'Max', 'And', 'Or', 'Xor', 'Exchange'].map((op) => [
+      `atomic${op}`,
+      ['location', 'value'],
+    ]),
+  ),
+};
+
+/** A parameter's name: `core.def`'s own where it gives one, the ambient library's where it
+ *  named one (`NAMED`), and `a0`, `a1`, … otherwise. */
 const paramName = (row: CoreDefRow, i: number): string => {
   const name = row.params[i]?.name ?? '';
-  return /^p\d+$/.test(name) || name === '' ? `a${String(i)}` : name;
+  if (!/^p\d+$/.test(name) && name !== '') return name;
+  return NAMED[row.name]?.[i] ?? `a${String(i)}`;
 };
+
+/**
+ * The overload of a row that takes or returns a location rather than a value: an atomic, a
+ * runtime-sized array, the compare-exchange's result, or nothing. Each type parameter the row
+ * names is one of the overload's, bounded by what its constraint admits, so `atomicAdd` on an
+ * `atomic<u32>` reads its `T` off the location as the compiler does.
+ */
+function locationOverloadOf(
+  row: CoreDefRow,
+  types: { readonly params: readonly RowType[]; readonly ret: RowType },
+  matchers: Readonly<Record<string, readonly string[]>>,
+): string | undefined {
+  const used = [...new Set([...types.params, types.ret].flatMap(namesOf))].filter(
+    (n) => n in row.implicit,
+  );
+  const typeParams = used.map((n) => {
+    if (row.implicit[n] === '') return n;
+    const domain = scalarDomain(row.implicit[n]!, matchers);
+    return `${n} extends ${[...domain].reverse().join(' | ')}`;
+  });
+  const spell = (t: RowType): string | undefined => {
+    switch (t.k) {
+      case 'void':
+        return 'void';
+      case 'scalar':
+        return t.s;
+      case 'atomic':
+        return `atomic<${t.s}>`;
+      case 'runtimeArray':
+        return `array<${t.s}>`;
+      case 'casResult':
+        return `{ old_value: ${t.s}; exchanged: bool }`;
+      case 'vec':
+        return undefined;
+    }
+  };
+  const params = types.params.map((t, i) => {
+    const spelled = spell(t);
+    return spelled === undefined ? undefined : `${paramName(row, i)}: ${spelled}`;
+  });
+  const ret = spell(types.ret);
+  if (ret === undefined || params.some((p) => p === undefined)) return undefined;
+  const template = typeParams.length === 0 ? '' : `<${typeParams.join(', ')}>`;
+  return `declare function ${row.name}${template}(${params.join(', ')}): ${ret}`;
+}
 
 /** The one overload `row` becomes, or undefined when it has no TypeShade instance. */
 export function overloadOf(
   row: CoreDefRow,
   matchers: Readonly<Record<string, readonly string[]>> = COREDEF.matchers,
 ): string | undefined {
-  const types = rowTypes(row);
-  if (types === undefined) return undefined;
+  const parsed = rowTypes(row);
+  if (parsed === undefined) return undefined;
+  if (![...parsed.params, parsed.ret].every(isValueType))
+    return locationOverloadOf(row, parsed, matchers);
+  const types = valueRowTypes(row)!;
   const domain = (s: string): TypeshadeScalar[] =>
     s in row.implicit ? scalarDomain(row.implicit[s]!, matchers) : [s as TypeshadeScalar];
   const all = [...types.params, types.ret];
@@ -98,7 +166,7 @@ export function overloadOf(
     // union of what its constraint admits.
     const union = (xs: readonly string[]): string =>
       xs.length === 1 ? xs[0]! : `(${xs.join(' | ')})`;
-    const spell = (t: RowType): string => {
+    const spell = (t: ValueType): string => {
       if (t.k === 'vec') {
         if (t.n === anchor.n && t.s === anchor.s) return 'V';
         if (t.s === anchor.s) return union(elems.map((s) => vecName(s, t.n)));

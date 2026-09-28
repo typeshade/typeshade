@@ -6,7 +6,7 @@ links:
 - RULE-0202: X0g_aM9dhyo0h4x4klnU_hRQiKqok1jFPsVAbMRIgag=
 - RULE-0701: UFX5x6t2_pm0hKz-JXQbn3GhNx0yKdrlpgmNPEZowog=
 - RULE-0702: hX6m8MSc7QxtNJJyASYQ47rLSNBDPU01I8n0b2zIPm0=
-- RULE-0705: BCtbPUZ87g9dlhxwaZp96rx_L0tAWsGjqxdOaoTQ6RM=
+- RULE-0705: 4308LIgSysAnlue51NfkW0VyNcY9-VTAPwyWJ1UyQN4=
 normative: true
 ref: ''
 reviewed: qAdCvGPq0jLECaaYlAQYOqRukuZJuQPCUMPqPYMQ6S4=

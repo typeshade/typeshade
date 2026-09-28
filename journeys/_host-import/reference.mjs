@@ -62,3 +62,22 @@ export function drawReference(size = 32) {
     }
   return { plasma, tiled };
 }
+
+/** What `loops()` in `src/gpu.ts` should read back, in f32 as the GPU computes it. */
+export function loopReference() {
+  const f = Math.fround;
+  const k = [1, 0.5, 2, 0.25];
+  const render = [];
+  for (let i = 0; i < 64 * 64; i++) {
+    const p = [f(f(i % 64) / 64), f(f(Math.floor(i / 64)) / 64)];
+    render.push(f(k[0] * Math.sin(p[0] * k[1]) + k[2] * Math.cos(p[1] * k[3])));
+  }
+  const drift = [];
+  for (let i = 0; i < 100; i++) {
+    const vel = [1, f(-9.8 * 0.25), -1, 0];
+    drift.push(f(i + vel[0] * 0.25), f(10 + vel[1] * 0.25), f(vel[2] * 0.25), 1, ...vel);
+  }
+  const odds = new Array(30).fill(0);
+  for (let i = 9; i >= 0; i--) if (i % 2 === 1) odds.splice(i * 3, 3, 1, 2, i);
+  return { render, drift, odds };
+}

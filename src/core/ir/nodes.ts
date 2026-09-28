@@ -252,6 +252,22 @@ export type Stmt =
       readonly cond: Expr;
       readonly update: Stmt;
       readonly body: readonly Stmt[];
+      /** What the front end proved counts this loop (Rule 7.5): present on a `for` and a
+       *  `for…of` it lowered, absent on a `while`, which is a `for` over a synthetic counter,
+       *  and on a pass-synthesised loop. The independence proof of a kernel function's loop
+       *  (Rule 8.22) reads it rather than guessing from the counter's name. */
+      readonly counted?: {
+        /** The counter's IR name. */
+        readonly name: string;
+        readonly op: 'add' | 'mul' | 'div';
+        /** The addend of an additive step (`i++` is `1`, `i -= 2` is `-2`), and the factor or
+         *  divisor of a multiplicative one. */
+        readonly step: number;
+        /** Present when the header folds to constants, absent for a runtime start or bound. */
+        readonly start?: number;
+        readonly bound?: number;
+        readonly trips?: number;
+      };
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
       readonly span?: SourceSpan;
@@ -616,6 +632,13 @@ export interface FuncDecl {
    *  Structured only, with no `attrs` spelling: `portable` is not a WGSL attribute, so
    *  declaring it changes nothing in the emitted source. */
   readonly portable?: boolean;
+  /** Marks a kernel function (Rule 8.22): an exported function, not an entry, that takes an
+   *  array with no size. It runs on the host's side of the call, which dispatches its loops, so
+   *  the WGSL and GLSL backends leave it out of what they emit, and no function calls it
+   *  (Rule 8.6). Its array parameters are the caller's storage, passed by reference (Rule 8.23).
+   *
+   *  Structured only, with no `attrs` spelling: it is not a WGSL attribute. */
+  readonly kernel?: boolean;
   /** Return-value attribute for a bare (non-struct) stage output, e.g. a
    *  fragment `-> @location(0) vec4<f32>`. */
   readonly retAttr?: string;

@@ -46,7 +46,7 @@
 // `for`. The condition of an `if`, a `for` or a `switch` is evaluated as part of pausing on
 // that statement, never on its own: a shader statement is the unit the author wrote.
 
-import { consoleArgs, type ConsoleMethod, type ConsoleSink } from '../console.js';
+import { consoleArgs, consoleTableRows, type ConsoleMethod, type ConsoleSink } from '../console.js';
 import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt, StructDecl } from '../ir/index.js';
 import type { SourceSpan } from '../ir/span.js';
 import {
@@ -298,7 +298,14 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       if (e.declRef === undefined && e.fn.startsWith('console.')) {
         ctx.consoleSink?.({
           method: e.fn.slice('console.'.length) as ConsoleMethod,
-          args: consoleArgs(args, e.labels),
+          args: consoleArgs(
+            args,
+            e.labels,
+            consoleTableRows(
+              e.fn.slice('console.'.length),
+              e.args.map((a) => a.type),
+            ),
+          ),
           ...(e.span ? { span: e.span } : {}),
           ...(ctx.invocation ? { invocation: ctx.invocation } : {}),
         });

@@ -18,6 +18,7 @@ export {
   type Layout,
 } from './host-entry.js';
 export { callDraw, type FragmentEntry } from './host-draw.js';
+export { callKernel, type KernelFace, type KernelParam, type KernelLoop } from './host-kernel.js';
 export {
   toShader,
   fromShader,

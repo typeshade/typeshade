@@ -6,6 +6,7 @@
 // in `backend.ts`). Backends provide those fragments; they do NOT re-implement
 // the control-flow walk (no duplicated if/for/switch/return logic that can drift).
 
+import { withoutKernels } from './ir/kernels.js';
 import { UnsupportedFeatureError, type Backend } from './backend.js';
 import type { Expr, Stmt, ModuleDecl, ShaderType, FuncDecl } from './ir/index.js';
 import { stageOf } from './ir/index.js';
@@ -360,6 +361,8 @@ export function lowerForBackend(
   fp64Flavor?: Fp64Flavor,
   onStage?: StageSink,
 ): ModuleDecl {
+  // A kernel function runs on the host's side of the call (Rule 8.22): no target emits it.
+  m = withoutKernels(m);
   // Profiling (X-GIS #2449) times the stages HERE rather than in a parallel copy of this list,
   // because a profiler that re-derives the pipeline measures whatever it drifted into. The
   // production path passes no sink and takes the untimed branch below.

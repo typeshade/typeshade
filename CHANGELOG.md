@@ -160,6 +160,30 @@ this file` or `"P" has no constructor here`, then `TS8022` at every read. A read
   says it: `f = clmap(f, 0., 1.)` after `const f` is the write's `TS8005` and `Unknown function
 "clmap". Did you mean "clamp"?`, where the typo was TypeScript's alone.
 
+- **A static builder says the class the call names with a `this` parameter** (surface §26, Rule
+  8.13, proposal 0020). `static unit<C extends Disc>(this: { new (): C; SIZE: f32 }): C` is the
+  TypeScript spelling of a static that builds its value with `new this()`, and `Capped.unit()` is a
+  `Capped` in the editor as it always was in the compiler. The spelling that wrote the declaring
+  class, `static unit(): Disc`, is refused with `TS8035` where a class inherits it, since the editor
+  read it as a `Disc`; a static no class inherits keeps it.
+
+- **The atomics, the barriers and `arrayLength` are declared from Tint's overload table** (surface
+  §49, Rule 12.7, proposal 0017). Their editor declarations are generated from `core.def`'s rows,
+  as the math builtins' are, and the compiler types each call from the same rows. What an author
+  sees does not change: the declarations read as they did, and a call's type is the one it had.
+
+- **`array(...)` and an array's `reduce` from a value have the compiler's type in the editor**
+  (surface §49, Rule 12.7, proposal 0015). `array(uv.x, uv.y, 1.)` hovers as `array<f32, 3>`
+  where it said `array<number>`, and `xs.reduce((a, x) => a + x, 0.)` as `f32` where it said
+  `number`: the ambient `array` reads its element and count off its values, and the language
+  service writes the running value's type in as `reduce`'s type argument.
+
+- **An unannotated scalar field or return has the compiler's type in the editor** (surface §49,
+  Rule 12.7, proposal 0015). `#width = 0.05`, `static readonly MIN_WIDTH = 0.01` and a getter
+  that returns `this.r * 2.` hover as `f32` where they said `number` (or the literal `0.01`):
+  the language service writes the front end's type in, as it does for a vector. Plain `tsc`
+  reads the file as written and still says `number`.
+
 - **A builtin's result has the compiler's type in the editor** (surface §49, Rule 12.7,
   proposal 0017). The math builtins' declarations are generated from Tint's overload table,
   `core.def`, one overload per row, so `dot(a, b)` on two `vec3u` hovers as `u32`, `max(n, m)` on
@@ -541,6 +565,44 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **`console.table` in a shader** (§66, design rule 11.9, `changes/0019-console-table.md`). It
+  takes one value (an array, a struct, a vector, a matrix or a scalar) and the host prints it with
+  its own `console.table`: an array of structs as a row per element. A matrix is delivered as its
+  columns, so `console.table(m)` of a `mat4x4f` is four rows of four; `console.log` keeps the flat
+  form. It is recorded on WebGPU under `console: 'gpu'` like the other methods, and a stepped
+  debug session delivers it too. The editor completes it after `console.`, and the host's second
+  argument, the columns to show, is `TS8099` with the remedy.
+
+- **A host file calls a kernel function through the import, and its loops run on the GPU**
+  (change 0013, part 2; Rules 8.20 to 8.23, surface §64 and §65). `await render(k, 512, img)`
+  dispatches each loop of `render` on WebGPU, one invocation per iteration, and fills `img` in
+  place: the plugin lowers a kernel function whose every loop the proof accepts as a map to one
+  `@compute` entry per loop, with its scalar parameters in a uniform and its arrays as storage, and
+  a range function the call runs first for each loop's start and trip count. Before anything runs,
+  the call checks each array against the indices a loop writes and refuses one too short, naming
+  both numbers. A function that does not lower (a reduction, a refused loop, a `bool`, a module
+  binding) and every call where there is no WebGPU run on the CPU tier, and the view's comment says
+  why. The import journey calls three kernel functions on WebGPU in Chromium.
+- **A kernel function, whose loops the compiler proves independent** (change 0013, part 1;
+  Rules 7.5, 8.6, 8.8, 8.22 and 8.23, surface §65). An exported function that takes an array with
+  no size, `render(k: vec4, size: u32, out: array<f32>)`, is a kernel function: its array is the
+  caller's storage, written in place (`out[i] = …`) and sized at run time (`xs.length`), which
+  `TS8018` and `TS8032` refused before. Each `for` at the top level of its body is proved
+  independent (R1 to R6 of #252): a map at `a*i + c`, row-major or a texel, a reduction
+  `s += x`, `s = max(s, x)`, or an integer scatter `bins[k] += 1` is accepted, and any other loop
+  runs on the CPU with a warning, `TS8070`, that names the line and the author's names and gives
+  the remedy, in the compiler and in the editor. The IR `for` carries the counted fact the front
+  end proved (`counted`), and `FuncDecl` the `kernel` mark every backend reads to leave the
+  function out of what it emits. A kernel function runs on the CPU oracle; its call through the
+  import, which dispatches the accepted loops on the GPU, is the next part.
+
+- **A debug session delivers the `console` calls it steps over** (§66,
+  `changes/0018-debugger-console-sink.md`). `startDebugSession(m, entry, args, { consoleSink })`
+  hands each call to the sink when the step that runs it runs, and nothing at a step that skips
+  it; `startDebugSessionFromConfig(m, config, { consoleSink })` takes the sink beside the JSON
+  launch configuration. An event is the one `compile().eval` delivers for the same entry and
+  arguments, labels, span and `invocation` included. Without a sink a session behaves as it did.
+
 - **`console.*` in an entry a host calls prints from the GPU in `vite dev`** (change 0016, part
   3; Rule 8.24, surface §67). The plugin compiles with the console recorded (0014) in `vite dev`,
   and the runtime reads the `_console` buffer back after each dispatch or draw and prints the
@@ -548,6 +610,7 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   is now written out from its bindings, so a binding the optimizer stops using (a read only a
   dropped `console.*` call made) still binds. The import journey also runs the particles and
   plasma journeys' programs through the import, against their own references.
+
 - **A host file draws a full-screen `@fragment` entry into a canvas through the import** (change
   0016, part 2; Rules 8.20, 8.21, 8.24 and 11.7, surface §67). `fs(canvas, { frame })` draws one
   frame with a full-screen triangle the runtime supplies, on WebGPU, then WebGL2, then the CPU
@@ -2151,6 +2214,15 @@ holds functions, constants, classes and namespaces. Move it into a function.`, t
   A `new` of a class of statics alone names one of its statics, `Call "U.half(...)" directly.`,
   or for one of static fields alone `"K" declares only static members, so there is no value of
 it to build. Read "K.a" directly.`, where it named a literal `U.f(...)` the class need not have.
+
+- **An array with no size is refused where it would leave its storage binding, not by Tint**
+  (Rule 12.6, surface §20). A parameter or a result typed `array<T>`, or a struct whose last field
+  is one, and a `let` that would copy one, compiled with no diagnostic and reached Tint, which
+  refused the module (`runtime-sized arrays can only be used in the <storage> address space`).
+  The front end now refuses each in the author's words (`TS8020` for a parameter or a result,
+  `TS8099` for a local), with the remedy. A `const` that names the binding (`const a = src`) is
+  now the binding, as in TypeScript: it used to emit `let a = src`, which Tint refused as soon as
+  `a` was indexed, and now `a[i]`, `a.length` and writes through `a` read and write `src`.
 
 - **`dispatch` and the debugger no longer throw on a `console` call.** The lockstep interpreter
   (`src/core/debug/interp.ts`) had no arm for one: `cpu.dispatch` of a kernel that logged threw

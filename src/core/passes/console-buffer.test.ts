@@ -94,6 +94,40 @@ describe('the console buffer (surface §66)', () => {
     });
   });
 
+  it('decodes a console.table as the CPU delivers it: an array of structs, a matrix by column', () => {
+    // changes/0019: a table site records the same words as a log of one value; only the matrix
+    // is reshaped, on both sides, into its columns.
+    const src = `"use typeshade";
+declare const xs: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
+class P {
+  pos: vec2;
+  speed: f32;
+}
+@compute([8])
+export function scale(@builtin("global_invocation_id") gid: vec3u): void {
+  if (gid.x >= 2) {
+    return;
+  }
+  const x = xs[gid.x];
+  const ps: array<P, 2> = [{ pos: vec2(x, 1.), speed: 2. }, { pos: vec2(3., x), speed: x }];
+  console.table(ps);
+  console.table(mat2x3(1., 2., 3., 4., 5., x));
+  out[gid.x] = x;
+}`;
+    const want = sinkEvents(src);
+    expect(want.map((e) => e.method)).toEqual(['table', 'table', 'table', 'table']);
+    expect(want[1]!.args).toEqual([
+      [
+        [1, 2, 3],
+        [4, 5, 0],
+      ],
+    ]);
+    const got = bufferEvents(src, 256);
+    expect(got.dropped).toBe(0);
+    expect(got.events).toEqual(want);
+  });
+
   it('drops what does not fit, counts it, and never decodes a partial entry', () => {
     const want = sinkEvents(KERNEL).map((e) => JSON.stringify(e));
     const got = bufferEvents(KERNEL, 60);

@@ -21,6 +21,7 @@ import { mapTsTypeToShaderType } from '../type-map.js';
 import { parseSwizzle } from '../swizzle.js';
 import { emittedMemberName, staticThisClass } from '../class-names.js';
 import { refuseAtomicDeclaration } from './atomics.js';
+import { refuseRuntimeArrayLocal, runtimeArrayWithin } from './runtime-array.js';
 import { lowerBarrierStatement } from './barriers.js';
 import { refuseOperatorKind } from './operator-kinds.js';
 import { classFunctionOf, lowerMutatingCall } from './class-methods.js';
@@ -46,6 +47,7 @@ import { lowerUserCall } from './expression-misc.js';
 import { localFunctionOf } from './local-functions.js';
 import { declaringNode } from './closures.js';
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js';
+import { recordLoweredExpression } from '../symbols.js';
 import {
   broadcastResultType,
   f64WidenResultType,
@@ -475,6 +477,13 @@ function lowerDeclarationKind(
     if (!annotated) return undefined;
     if (refuseAtomicDeclaration(annotated, decl.type, sourceFile, diagnostics, 'a local'))
       return undefined;
+    if (
+      decl.initializer === undefined &&
+      refuseRuntimeArrayLocal(annotated, name, undefined, decl.type, sourceFile, diagnostics, (n) =>
+        scope.structByName(n),
+      )
+    )
+      return undefined;
     annotated = builtThisType(annotated, decl, scope);
   }
   if (!decl.initializer) {
@@ -549,6 +558,48 @@ function lowerDeclarationKind(
     init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated);
   }
   if (!init) return undefined;
+  // An array with no size is the binding's alone (Rule 12.6). A `const` that names the binding
+  // (`const a = src`) is the binding, as it is in TypeScript: the name resolves to it and no
+  // declaration is emitted, so `a[i]` and `a.length` read `src` (#46). A `let` would be a copy,
+  // and so would anything but the bare name.
+  const holdsRuntimeArray =
+    runtimeArrayWithin(annotated ?? init.type, (n) => scope.structByName(n)) !== undefined;
+  if (holdsRuntimeArray) {
+    const target = isConst && init.op === 'varref' ? scope.resolveIr(init.name) : undefined;
+    if (target !== undefined) {
+      try {
+        scope.defineAlias(name, target);
+      } catch (e) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          decl.name,
+          e instanceof Error ? e.message : String(e),
+          TS_CODES.DUPLICATE_SYMBOL,
+        );
+        return undefined;
+      }
+      scope.recordDeclaration(sourceFile, decl.name, {
+        name,
+        kind: 'local',
+        type: target.type,
+        mutable: false,
+      });
+      return undefined;
+    }
+    // A list built in place (`array<f32>(1., 2., 3.)`) is a value with a count, and wants one.
+    refuseRuntimeArrayLocal(
+      annotated ?? init.type,
+      name,
+      init.op === 'construct' ? undefined : truncate(decl.initializer.getText(sourceFile)),
+      decl.initializer,
+      sourceFile,
+      diagnostics,
+      (n) => scope.structByName(n),
+      init.op === 'construct' ? init.args.length : undefined,
+    );
+    return undefined;
+  }
   // A call that returns nothing has nothing to bind: `const x = store(1)` emitted
   // `let x = store(1u);`, which Tint refuses, with no diagnostic.
   if (init.type.kind === 'void') {
@@ -1090,7 +1141,9 @@ function lowerExpressionAsStatement(
         scope,
         diagnostics,
       );
-      return barrier ? { s: 'call', expr: barrier } : undefined;
+      if (barrier === undefined) return undefined;
+      recordLoweredExpression(sourceFile, expr, barrier.type);
+      return { s: 'call', expr: barrier };
     }
     // A method that changes its object, `r.advance(2.)`, is a call that writes through its
     // receiver, and a value it returns is dropped here (§26); anything else takes the ordinary
@@ -1099,6 +1152,9 @@ function lowerExpressionAsStatement(
     if (mutating !== 'not-a-mutating-call') return mutating;
     const call = lowerCall(expr, sourceFile, scope, diagnostics);
     if (!call) return undefined;
+    // A call in expression position is recorded by `lowerExpression`; one that stands alone is
+    // recorded here, so the table the editor is compared against holds it too.
+    recordLoweredExpression(sourceFile, expr, call.type);
     if (call.op !== 'call') {
       pushDiag(
         diagnostics,
@@ -1817,7 +1873,8 @@ function checkRootNamed(
   }
   // A captured variable's parameter keeps the variable's rules (Rule 8.17).
   const rules = writeRules(binding);
-  if (rules.kind === 'param') {
+  // A kernel function's array is the caller's storage, written in place (Rule 8.23).
+  if (rules.kind === 'param' && rules.space !== 'storage') {
     pushDiag(
       diagnostics,
       sourceFile,

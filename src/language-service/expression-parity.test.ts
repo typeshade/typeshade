@@ -30,6 +30,7 @@ import { compileTsSource } from '../compiler/ts/source-file.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { SHADE_DTS } from './ambient.js';
 import { TypeshadeHost } from './host.js';
+import { createTypeshadeLanguageService } from './service.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -140,14 +141,29 @@ function spellTs(
   }
   if (t.flags & ts.TypeFlags.NumberLike) return 'number';
   const name = t.aliasSymbol?.name ?? t.getSymbol()?.name;
-  if (name !== undefined && name !== '__type' && name !== '__object') return name;
+  // Keep named TypeScript classes/aliases first. This prevents a generic class such as Level<T>
+  // from being mistaken for an unrelated struct that happens to have the same field shape.
+  if (name !== undefined && name !== '__type' && name !== '__object') {
+    // A namespaced shader class is represented to TypeScript by its authored short name
+    // ('SdfSphere') while the compiler emits its flattened struct name ('SDF_SdfSphere').
+    const namespacedStruct = [...structs.values()].find((structName) =>
+      structName.endsWith(`_${name}`),
+    );
+    return namespacedStruct ?? name;
+  }
+
+  // Read-only storage views can erase the named class symbol and leave an anonymous mapped object
+  // whose fields are still exactly one emitted struct. Only use structural matching in that
+  // anonymous case, so `rays[gid.x]` can recover `Ray` without regressing generic classes.
   const fields = checker
     .getPropertiesOfType(t)
     .map((p) => p.name)
     .filter((n) => !n.startsWith('__@'))
     .sort()
     .join(',');
-  return structs.get(fields) ?? checker.typeToString(t);
+  const structName = structs.get(fields);
+  if (structName !== undefined) return structName;
+  return checker.typeToString(t);
 }
 
 /** One first divergence: where it is, what it reads, and the two types. */
@@ -195,7 +211,7 @@ function isAbstractCall(
   editor: string,
   compilerOf: ReadonlyMap<ts.Expression, string>,
 ): boolean {
-  if (!ts.isCallExpression(node) || editor !== 'number') return false;
+  if (!ts.isCallExpression(node) || !/^(number|array<number, \d+>)$/.test(editor)) return false;
   const numeric = node.arguments.filter(
     (a) => !/^(bool|vec[234]<bool>)$/.test(compilerOf.get(a) ?? ''),
   );
@@ -300,34 +316,19 @@ const groupOf = (d: Divergence): string => `${d.reads} | ${d.compiler} | ${d.edi
  * files each under.
  *
  *   A  a builtin's result, which the ambient library retypes instead of deriving
- *   B  an unannotated scalar the document declares, which TypeScript infers as `number`
- *   C  a constructor or a method that loses a type argument
+ *   B  an unannotated scalar the document declares, which TypeScript infers as `number`: none
+ *      left since the projection writes a scalar field's and a scalar return's type in
+ *   C  a constructor or a method that loses a type argument: none left since `array(...)`
+ *      reads its values, the projection writes `reduce`'s running type, and a static builder
+ *      says the class the call names with a `this` parameter (0020)
  *
  * SHRINK-ONLY: a fix takes its rows out in the same change; a row that no longer occurs fails.
  */
-const KNOWN: Readonly<Record<string, 'A' | 'B' | 'C'>> = {
+const KNOWN: Readonly<Record<string, 'A'>> = {
   // A. A builtin's result, where the ambient library retyped it. The math family and the
   // derivatives, bits and packing are generated from `core.def` since 0017; `determinant`
   // takes a matrix, which the generator has no form for yet.
   'determinant() | f32 | number': 'A',
-  // B. A scalar the document declares with no annotation (a field, a method or function
-  // return), which TypeScript infers from a literal as `number` and the front end as `f32`.
-  // `falloff()` was behind a `distance()` that said `number`.
-  '.#width | f32 | number': 'B',
-  '.MIN_WIDTH | f32 | number': 'B',
-  '.SIZE | f32 | number': 'B',
-  '.dist | f32 | number': 'B',
-  '.drawn | f32 | number': 'B',
-  '.next() | f32 | number': 'B',
-  '.period | f32 | number': 'B',
-  'draw() | f32 | number': 'B',
-  'falloff() | f32 | number': 'B',
-  // C. A constructor or a method that loses a type argument: `array(...)` its element and
-  // count, an array method its element, a static builder its `this` class.
-  '.map() | array<f32, 4> | array<number, 4>': 'C',
-  '.reduce() | f32 | number': 'C',
-  '.unit() | Capped | Disc': 'C',
-  'array() | array<f32, 3> | array<number>': 'C',
 };
 
 describe('the editor gives every expression the type the compiler gives it (Rule 12.7, 0015)', () => {
@@ -347,6 +348,35 @@ describe('the editor gives every expression the type the compiler gives it (Rule
     expect(firstDivergences(example).divergences.map(groupOf)).not.toContain(
       '.length | u32 | number',
     );
+  });
+
+  it('types an array(...) of typed values as the compiler does: element and count (class C)', () => {
+    // The shipped programs build their arrays from literals alone, an abstract array the gate
+    // classifies by Rule 12.7; this one builds them from typed values, the call the tuple
+    // overload of `array` exists for. Before it, each lost its count, and a mix of a typed value and
+    // a literal its element as well.
+    const text = `"use typeshade";
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const a = array(uv.x, uv.y, 1.);
+  const b = array(vec2(uv.x), uv);
+  const c = array<vec4, 2>(vec4(uv, 0., 1.), vec4(1.));
+  const i = array(i32(uv.x), i32(uv.y));
+  return c[1] * (a[2] + b[0].x + f32(i[0]));
+}
+`;
+    const probe = [{ uri: '/probe/array.shade.ts', text }];
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/probe/array.shade.ts', text);
+    expect(service.getDiagnostics('/probe/array.shade.ts')).toEqual([]);
+    expect(firstDivergences(probe).divergences.map(groupOf)).toEqual([]);
+    const before = SHADE_DTS.replace(/^declare function array<V extends readonly.*\n/m, '');
+    expect(before).not.toBe(SHADE_DTS);
+    expect(firstDivergences(probe, before).divergences.map(groupOf)).toEqual([
+      'array() | array<f32, 3> | array<number>',
+      'array() | array<vec2<f32>, 2> | array<vec2<f32>>',
+      'array() | array<i32, 2> | array<i32>',
+    ]);
   });
 
   it('reads every shipped program, and compares enough of each to mean something', () => {

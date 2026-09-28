@@ -1916,13 +1916,14 @@ array in the storage space, which is the binding itself or a trailing array fiel
 struct (`arrayLength(b.xs)` for `declare const b: storage<Buf>`). Measured on Tint,
 `arrayLength(&src[0])` is refused and `arrayLength(&b.xs)` accepted, and the front end draws
 the same line: an element, a sized array or a value that is not an array is refused (TS8003)
-with what it is. A local that copies the binding (`const a = src`) denotes what the binding
-denotes, so `a.length` reads the same length.
+with what it is. A `const` that names the binding (`const a = src`) is the binding, as it is in
+TypeScript: nothing is copied, and `a[i]` and `a.length` read `src`.
 
-**An unsized array that is not in storage has no runtime length.** A `uniform<array<f32>>`, a
-local `array<f32>` or a parameter typed `array<f32>` was already invalid GPU code (Tint:
-"runtime-sized arrays can only be used in the <storage> address space"), and `.length` or
-`arrayLength` on one is refused (TS8032) with the one fix that works: give the type a size,
+**An unsized array lives in a storage binding alone** (Tint: "runtime-sized arrays can only be
+used in the <storage> address space"). A parameter or a result that holds one, directly or as a
+struct's last field, is refused (TS8020), and so is a local that would hold a copy, a `let`
+(TS8099): read the binding by its name instead. A `uniform<array<f32>>` is refused (TS8051), and
+`.length` or `arrayLength` on it (TS8032) with the one fix that works: give the type a size,
 `array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
 
 **The editor gives it the same type.** The ambient `array<T, N>` declares `length` as its size
@@ -2974,17 +2975,19 @@ A class inherits its base's statics, as TypeScript's constructors do (Rule 8.13)
 `unit` that `Shape` declares. In TypeScript `this` in a static member is the class the call
 names, so `Big.unit()` runs `Shape`'s body with `this` as `Big`: `new this()` builds a `Big`, and
 `this.SCALE` reads `Big.SCALE`. Here that body is lowered once more for `Big`, as `Big_unit`, with
-`this` bound to `Big`, and a static declared to return the class that declares it that builds
-its value with `new this()` returns the class the call names, the object TypeScript returns at
-run time. `super.describe()` in a static member runs the static the class above declares, with
-`this` still the class the call names.
+`this` bound to `Big`. A static that returns the class the call names, the object TypeScript
+returns at run time, says so as TypeScript does, with a `this` parameter whose construct signature
+returns a type parameter of the method: `static unit<C extends Shape>(this: { new (): C; SCALE:
+f32 }): C`. The parameter is a type, not a value anything passes, and it is what makes `Big.unit()`
+a `Big` in the editor as well as here. `super.describe()` in a static member runs the static the
+class above declares, with `this` still the class the call names.
 
 ```ts
 "use typeshade";
 class Shape {
   size: f32 = 1.;
   static SCALE = 1.;
-  static unit(): Shape {
+  static unit<C extends Shape>(this: { new (): C; SCALE: f32 }): C {
     let s = new this();
     s.size = this.SCALE;
     return s;
@@ -3024,7 +3027,19 @@ fn Big_super_Shape_describe() -> f32 {
 ```
 
 `this` in a static member was the class that wrote the member until this, so `Big.unit()` built a
-`Shape` and read `Shape.SCALE`, which is not what TypeScript computes. A class of statics alone
+`Shape` and read `Shape.SCALE`, which is not what TypeScript computes. Written `static unit():
+Shape`, the same body returns a `Big` here and a `Shape` to the editor, which reads the return type
+as written (Rule 12.7). Where a class inherits it, that spelling is refused with the one to write
+(proposal 0020):
+
+```
+"Shape.unit" builds its value with "new this()", so "Big.unit()" returns a Big, but it is declared
+to return a Shape, which is the type the editor gives the call. Declare the class the call names:
+static unit<C extends Shape>(this: { new (): C; SCALE: f32 }): C
+```
+
+A static no class inherits keeps its written return type, since its caller is always its own
+class. A class of statics alone
 keeps its base too: over a class with fields it has those fields, so it is a struct and `new`
 builds one, and over another class of statics alone it is a namespace that inherits them.
 
@@ -5498,11 +5513,23 @@ is shrink-only: a divergence it does not list fails, and so does a row that no l
 A builtin's declarations are generated from Tint's own overload table, `core.def`, one overload
 per row (proposal 0017, `src/language-service/builtin-signatures.ts`), for every family that
 table's claims mark SUPPORTED: the math builtins, the derivatives, and the bit and packing
-builtins, all but `bitcast`, whose result is chosen by a type argument. `dot(a, b)` on two
+builtins, all but `bitcast`, whose result is chosen by a type argument; and the atomics, the
+barriers and `arrayLength`, whose rows take a location WGSL passes by pointer and an author
+writes bare (`atomicAdd(bins[i], 1)`, `arrayLength(xs)`). `dot(a, b)` on two
 `vec3u` is a `u32` in the editor as it is in the compiler, and `max(n, u32(3))` a `u32`, where
 both said `number`. The compiler reads the same rows for the call's result and its argument
-check. `src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both
+check; `ATOMIC_INTRINSICS` and `BARRIER_INTRINSICS`, which the CPU runtime carries, are held to
+them by the same suite. `src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both
 halves on a witness per instance.
+
+A class field or a function's return the document leaves unannotated is written in by the
+projection when the front end types it a scalar: `#width = 0.05` hovers as `f32`, and `get
+period() { return this.r * 2. }` returns one, where TypeScript said `number`. So is the type
+argument of an array's `reduce` from a value: `xs.reduce((a, x) => a + x, 0.)` is an `f32` in
+the editor as in the compiler, where TypeScript took `number` from the `0.`.
+
+`array(...)` reads its element and its count off its values in the editor as it does in the
+compiler: `array(uv.x, uv.y, 1.)` is an `array<f32, 3>`, where the editor said `array<number>`.
 
 One call has no type TypeScript can give it: a call whose numeric arguments are all literals,
 such as `select(0., 0.15, c)` or `max(1., 2.)`. WGSL types it as an abstract numeric until its
@@ -6636,11 +6663,13 @@ as `lib.es5.d.ts` spells them with a `this` of `array<T, N>` and `index: i32`, a
 
 ## 66. `console`: what reaches the host
 
-`changes/0014-gpu-console.md`. A shader function calls the JavaScript console as TypeScript
-spells it, `console.log`, `console.info`, `console.debug`, `console.warn` and `console.error`,
+`changes/0014-gpu-console.md`, `changes/0019-console-table.md`. A shader function calls the
+JavaScript console as TypeScript spells it, `console.log`, `console.info`, `console.debug`,
+`console.warn`, `console.error` and `console.table`,
 and the call reaches the host as an event, `{ method, args, span }`, handed to the sink the host
-passes: `compile(src, { consoleSink })` for `eval`, or `compileModule(m, { consoleSink })` and
-`compileModuleJs(m, { consoleSink })`. The other methods of `console` are refused by name.
+passes: `compile(src, { consoleSink })` for `eval`, `compileModule(m, { consoleSink })` and
+`compileModuleJs(m, { consoleSink })`, or `startDebugSession(m, entry, args, { consoleSink })`
+for a stepped run. The other methods of `console` are refused by name.
 
 ```ts
 "use typeshade";
@@ -6668,15 +6697,25 @@ delivers `["large value at", 136, 272]`. A template with a value in it builds te
 and is refused with the arguments to write instead (`console.log(\`x = ${x}\`)` is
 `console.log("x =", x)`); so is any other string that is not a literal.
 
+**`console.table` takes one value**, the data to show: an array, a struct, a vector, a matrix or
+a scalar, anything `console.log` takes but text. The event carries it as `console.log`'s would,
+except a matrix, which it carries as its columns (an array of column vectors, `m[j]` being column
+`j`), so a table of a `mat4x4f` has four rows of four. The host prints it with its own
+`console.table`. The host's second argument, the columns to show, is refused (`TS8099`) with the
+remedy: select the fields in the shader, into a smaller struct, or filter the table on the host.
+
 **A console call computes nothing a shader reads.** It is a statement, and its value cannot be
 used. Its arguments are evaluated once, in order, as any call's are, so an argument that writes
 (a method that changes its object, a helper that bumps a module variable) writes on every
 target.
 
-**Where it is delivered.** On the CPU (the oracle, the generated CPU code, `dispatch`), each call
-delivers its event to the sink when it runs, and to nothing when no sink is passed. An event from
-an entry that takes `global_invocation_id`, or from a `dispatch`, carries its `invocation`; a
-fragment entry's is the pixel, `[x, y, 0]`. The debugger steps through a call. By default WGSL
+**Where it is delivered.** On the CPU (the oracle, the generated CPU code, `dispatch`, a debug
+session), each call delivers its event to the sink when it runs, and to nothing when no sink is
+passed. An event from an entry that takes `global_invocation_id`, or from a `dispatch`, carries its
+`invocation`; a fragment entry's is the pixel, `[x, y, 0]`. The debugger steps through a call
+and delivers its event at the step that runs it, the event `compile().eval` delivers for the same
+entry and arguments; `startDebugSessionFromConfig` takes the sink as its third argument,
+`{ consoleSink }`, beside the JSON configuration (changes/0018). By default WGSL
 and GLSL ES 3.00 record nothing: the call is removed, and the writes of its arguments stay, so no
 emitted byte depends on a console call.
 
@@ -6714,13 +6753,15 @@ WGSL cannot record, and the call still reaches the sink on the CPU:
 GLSL ES 3.00 has no storage buffer and records nothing, with no diagnostic. A discarded fragment
 writes nothing after its `discard`.
 
-`examples/gpu-console.shade.ts` is the kernel above with a helper that warns; the compile gate
+`examples/gpu-console.shade.ts` is the kernel above with a helper that warns and a `console.table`
+of a matrix; the compile gate
 hands Tint its WGSL both ways, as written and under `console: 'gpu'`. The `console-log` journey
 runs it on WebGPU from the packed tarball and holds the lines `decodeConsole` returns equal to
 the CPU run's and to its host's own, line for line.
 
-**The editor** declares each method as the standard console does, taking any argument, and
-reports what the compiler refuses among them in the compiler's words.
+**The editor** declares each method as the standard console does, taking any argument, except
+`table`, which takes one, and reports what the compiler refuses among them in the compiler's
+words. It completes the six methods after `console.` and no other.
 
 ---
 
@@ -6818,7 +6859,7 @@ stale. The views are generated files, and git-ignored.
 generic, takes no function, has a host value for each parameter and for its result, and reaches
 no binding, no workgroup variable and no builtin only a GPU computes. An exported constant and an
 `enum` are values too, and an exported struct is a type. A `@compute` entry is called, and a
-full-screen `@fragment` entry drawn, as §67 says. Every other export is in the view as `never`, with the reason in a comment, so calling one
+full-screen `@fragment` entry drawn, as §67 says, and a kernel function called as §65 says. Every other export is in the view as `never`, with the reason in a comment, so calling one
 is a type error at the host's own line.
 
 | Export                                       | In the host view                                             |
@@ -6829,6 +6870,7 @@ is a type error at the host's own line.
 | a struct (`class`, `interface`, `type`)      | `export interface S { … }`                                   |
 | a `@compute` entry                           | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
 | a full-screen `@fragment` entry              | `export declare function e(target, bindings): Promise<void>` (§67) |
+| a kernel function (§65)                      | `export declare function k(…): Promise<R>`                   |
 | a vertex entry, a generic function, a binding, anything else | `never`, with the reason and the work that adds it |
 
 **Host values** (Rule 8.21) are the representation the CPU tier already runs on:
@@ -6863,6 +6905,108 @@ one module.
 **What ships.** The plugin writes the CPU tier's code into the module the bundler reads, as module
 code, with no `new Function`, so a strict content security policy is no obstacle. That module
 imports `typeshade/runtime`, the op library it runs on, and nothing of the compiler.
+
+## 65. A loop that runs as a kernel
+
+A function that takes an array with no size, `array<T>`, and is exported is a **kernel function**
+(Rule 8.22). Its array is the caller's storage, read and written in place, and each `for` at the
+top level of its body is a loop that can run on the GPU, one invocation per iteration, when the
+compiler proves that no iteration touches what another one does. No `@compute`, no binding and no
+`global_invocation_id` is written:
+
+```ts
+"use typeshade";
+
+export function height(p: vec2, k: vec4): f32 {
+  return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
+}
+
+export function render(k: vec4, size: u32, out: array<f32>) {
+  for (let i: u32 = 0; i < size * size; i++) {
+    const p = vec2(f32(i % size), f32(i / size)) / f32(size);
+    out[i] = height(p, k);
+  }
+}
+
+export function total(xs: array<f32>): f32 {
+  let s = 0.;
+  for (const x of xs) {
+    s += x;
+  }
+  return s;
+}
+```
+
+**The array parameter** (Rule 8.23) is passed by reference, the one exception to Rule 8.8: the body
+writes `out[i]` and reads `xs.length`, and cannot assign `out` whole. Any other function that
+takes an array with no size is refused (TS8020, §20). A kernel function is emitted by no target and
+is not called from another function (Rule 8.6); `height` above is an ordinary function both the
+loop and the host can call.
+
+**The body** is scalar statements, then the loops, then an optional `return` of scalars. A
+statement outside the loops that writes an array, or that is neither a loop nor a scalar
+statement, runs the whole function on the CPU, and so does a loop that reads what an earlier loop
+reduces: split the function.
+
+**The proof** (Rule 8.22) accepts a loop when:
+
+- R1: it is a counted `for` (Rule 7.5), or a `for…of`, that steps by adding a constant;
+- R2: nothing returns from it or breaks out of it;
+- R3: each write lands on a name declared inside it; on an outer array at `a*i + c`, at one index
+  whose coefficient of `i` is loop-invariant, or at `i*W + x` over a nested loop of `x` below `W`;
+  on a texture at `vec2(i % W, i / W)`; on a variable it combines, `s += e` (or `*=`, `&=`, `|=`,
+  `^=`, `s = min(s, e)`, `s = max(s, e)`); or on an integer array combined at any index,
+  `bins[k] += 1`;
+- R4: an array it writes is read only at an index it writes, and a combined variable is not read;
+- R5: a function it calls writes no module variable and no binding;
+- R6: it has no barrier, no workgroup memory and no `console` call.
+
+**A loop the proof refuses runs on the CPU**, with a warning, TS8070, on the loop. The program is
+correct either way. The first sentence names the line and your names, and the second the remedy:
+
+| Rule | Warning                                                                                                                                                                      |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1   | `This loop runs on the CPU because it is a while loop, whose trip count is known only when it ends. A for loop over a count runs on the GPU.`                                |
+| R1   | `This loop runs on the CPU because "stride /= 2" does not step through a range of indices. Step by adding a constant.`                                                       |
+| R2   | `This loop runs on the CPU because line 9 returns from inside it, so whether an iteration runs depends on the ones before it. Record the result in an array and read it after the loop.` |
+| R3   | `This loop runs on the CPU because line 49 writes "nearest", which the next iteration reads. Declare it inside the loop, or combine it with one of += *= min max & \| ^.`   |
+| R3   | `This loop runs on the CPU because line 4 writes "b[idx[i]]", an element two iterations can share. Write at an index made from "i".`                                        |
+| R4   | `This loop runs on the CPU because line 9 reads "out[i - 1]", which another iteration writes. Read from an array the loop does not write.`                                  |
+| R5   | `This loop runs on the CPU because line 7 calls "tally", which writes "calls". Return the value from "tally" and combine it in the loop instead.`                           |
+| R6   | `This loop runs on the CPU because line 5 calls console.log, whose lines would print in another order on the GPU. Log after the loop.`                                      |
+
+The editor shows the same warning. Only a kernel function's loops are candidates: a loop in an
+entry, a helper or a fragment shader stays per-invocation code, as it always was.
+
+**The call.** A host file imports a kernel function like any export (§64) and awaits it:
+
+```ts
+import { render, total } from './terrain.shade.ts';
+
+const img = new Float32Array(512 * 512);
+await render([1, 0.5, 2, 0.25], 512, img); // each loop ran on the GPU; img is filled in place
+const sum = await total(img); // a reduction: on the CPU until change 0013's next part
+```
+
+It is asynchronous from the start, and it returns `Promise<void>` or `Promise<R>` for a result.
+Each array it writes is read back into yours in place.
+
+| Parameter                           | Host value                                                                        |
+| ----------------------------------- | --------------------------------------------------------------------------------- |
+| a value (`f32`, `vec4`, a struct…) | the host value §64 gives it                                                       |
+| `array<f32>`, `array<i32>`, `array<u32>` | `Float32Array`, `Int32Array`, `Uint32Array`                                  |
+| `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element |
+| `array<S>`, a struct                | an array of objects                                                               |
+
+**Where it runs.** When every loop of the function is a map the proof accepts, each loop is one
+dispatch on WebGPU, one invocation per iteration, in order; the call reads back what each loop
+wrote before the next. Before anything runs it checks each array against the indices a loop
+writes at `a*i + c`, and refuses one too short (`render(): parameter "out" holds 10 elements, and
+loop 1 writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, the whole
+function runs on the CPU tier (Rule 11.7), and the view's comment says why.
+
+**Not yet.** A reduction, a scatter and a returned value on the GPU, `resident` and `configure`,
+and the WebGL2 tier are the next parts of change 0013. Until then such a function runs on the CPU.
 
 ## 67. Calling an entry point from host code
 

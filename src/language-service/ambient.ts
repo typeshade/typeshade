@@ -753,6 +753,8 @@ interface Console {
   debug(...data: any[]): void
   warn(...data: any[]): void
   error(...data: any[]): void
+  /** Shows one value as a table: an array by element, a struct by field, a matrix by column. */
+  table(tabularData: unknown): void
 }
 /** The standard console. Its logging methods are the ones declared on Console above; a
  * call to one is delivered to the host's console sink when the program runs on the CPU. */
@@ -836,6 +838,17 @@ type array<T, N extends number = number> = Pick<Array<T>, ArrayOps> & { readonly
   [index: number]: T
   [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
 }
+// Called without type arguments, \`array(...)\` reads its element and its count off the values,
+// as WGSL's does: the values are a tuple \`V\`, the element is what they share and the count
+// is the tuple's length, so \`array(a, b, c)\` of \`f32\` values is an \`array<f32, 3>\`. The
+// second overload is the one \`array<vec4, 2>(...)\` names. A literal among typed scalars takes
+// their type, as WGSL concretizes it: the element keeps the members of \`V[number]\` that carry
+// a scalar brand, read by brand key since \`number\` is assignable to every optional brand, and
+// is \`V[number]\` itself when none does. Values that are all literals are \`number\`, WGSL's
+// abstract numeric, as a builtin over literals is (Rule 12.7). Written inline, so no helper
+// becomes a global name (Rule 9.8).
+${renderJSDoc(FUNCTION_DOCS.array)}
+declare function array<V extends readonly unknown[]>(...values: V): array<[(V[number] extends infer E ? (E extends number ? (typeof f32Tag extends keyof E ? E : typeof i32Tag extends keyof E ? E : typeof u32Tag extends keyof E ? E : typeof f64Tag extends keyof E ? E : never) : never) : never)] extends [never] ? V[number] : (V[number] extends infer E ? (E extends number ? (typeof f32Tag extends keyof E ? E : typeof i32Tag extends keyof E ? E : typeof u32Tag extends keyof E ? E : typeof f64Tag extends keyof E ? E : never) : never) : never), V['length']>
 ${renderJSDoc(FUNCTION_DOCS.array)}
 declare function array<T, N extends number>(...values: readonly T[]): array<T, N>
 ${renderJSDoc(FUNCTION_DOCS.fill)}
@@ -1445,8 +1458,6 @@ ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers<F extends StorageFormat, A extends StorageAccess>(
   tex: texture_storage_2d_array<F, A>,
 ): u32
-${renderJSDoc(FUNCTION_DOCS.arrayLength)}
-declare function arrayLength<T>(xs: array<T>): u32
 ${renderJSDoc(FUNCTION_DOCS.quantizeToF16)}
 declare function quantizeToF16(e: f32): f32
 ${renderJSDoc(FUNCTION_DOCS.quantizeToF16)}
@@ -1471,14 +1482,6 @@ ${renderJSDoc(FUNCTION_DOCS.unpack2x16unorm)}
 declare function unpack2x16unorm(e: u32): vec2
 ${renderJSDoc(FUNCTION_DOCS.unpack2x16snorm)}
 declare function unpack2x16snorm(e: u32): vec2
-${renderJSDoc(FUNCTION_DOCS.atomicCompareExchangeWeak)}
-declare function atomicCompareExchangeWeak<T extends u32 | i32>(
-  location: atomic<T>,
-  compare: T,
-  value: T,
-): { old_value: T; exchanged: bool }
-${renderJSDoc(FUNCTION_DOCS.textureBarrier)}
-declare function textureBarrier(): void
 ${renderJSDoc(FUNCTION_DOCS.workgroupUniformLoad)}
 declare function workgroupUniformLoad<T>(w: T): T
 ${renderJSDoc(FUNCTION_DOCS.dot4U8Packed)}
@@ -1499,30 +1502,6 @@ ${renderJSDoc(FUNCTION_DOCS.unpack4xI8)}
 declare function unpack4xI8(e: u32): vec4i
 ${renderJSDoc(FUNCTION_DOCS.bitcast)}
 declare function bitcast<T extends u32 | f32>(e: BitcastArg<T>): T
-${renderJSDoc(FUNCTION_DOCS.atomicLoad)}
-declare function atomicLoad<T extends u32 | i32>(location: atomic<T>): T
-${renderJSDoc(FUNCTION_DOCS.atomicStore)}
-declare function atomicStore<T extends u32 | i32>(location: atomic<T>, value: T): void
-${renderJSDoc(FUNCTION_DOCS.atomicAdd)}
-declare function atomicAdd<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicSub)}
-declare function atomicSub<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicMin)}
-declare function atomicMin<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicMax)}
-declare function atomicMax<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicAnd)}
-declare function atomicAnd<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicOr)}
-declare function atomicOr<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicXor)}
-declare function atomicXor<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.atomicExchange)}
-declare function atomicExchange<T extends u32 | i32>(location: atomic<T>, value: T): T
-${renderJSDoc(FUNCTION_DOCS.workgroupBarrier)}
-declare function workgroupBarrier(): void
-${renderJSDoc(FUNCTION_DOCS.storageBarrier)}
-declare function storageBarrier(): void
 
 ${vecCtors}
 ${matCtorOverloads}
@@ -1622,12 +1601,17 @@ interface Array<T> {
   // \`this\` is the \`array<T, N>\` the call is on, so \`map\` builds an array of the same size, and
   // \`index\` is an \`i32\`, the type an unannotated counter has (design rule 7.5). No \`thisArg\`:
   // an arrow function reads the \`this\` around it already.
+  //
+  // \`reduce\` from a value takes the running value's type \`U\` from that value, and \`0.\` is a
+  // \`number\` to TypeScript where the compiler makes it an \`f32\`. The projection writes the
+  // compiler's type in as the type arguments, \`xs.reduce<f32, 3>(f, 0.)\`, and a runtime-sized
+  // array, which has no size to write, leaves \`N\` to its default.
   map<U, N extends number>(this: array<T, N>, callbackfn: (value: T, index: i32, array: array<T, N>) => U): array<U, N>
   forEach<N extends number>(this: array<T, N>, callbackfn: (value: T, index: i32, array: array<T, N>) => void): void
   some<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): bool
   every<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): bool
   reduce<N extends number>(this: array<T, N>, callbackfn: (previousValue: T, currentValue: T, currentIndex: i32, array: array<T, N>) => T): T
-  reduce<U, N extends number>(this: array<T, N>, callbackfn: (previousValue: U, currentValue: T, currentIndex: i32, array: array<T, N>) => U, initialValue: U): U
+  reduce<U, N extends number = number>(this: array<T, N>, callbackfn: (previousValue: U, currentValue: T, currentIndex: i32, array: array<T, N>) => U, initialValue: U): U
 }
 // What \`[Symbol.iterator]\` above resolves through. \`Symbol\` itself is no name of the shader:
 // the compiler refuses it as a value (TS8022), so declaring it gives an author nothing to write.
