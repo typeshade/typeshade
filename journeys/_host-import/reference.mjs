@@ -37,7 +37,11 @@ export function gpuReference() {
       return s;
     });
   // The resident chain sums the map's output, which never left the device.
-  return { ys, sums: sumsOf(xs), residentYs: ys, residentSums: sumsOf(ys) };
+  // The doubles: in f64, as JavaScript computes them; the emulation is within 2^-44 of it.
+  const dxs = Array.from({ length: 256 }, (_, i) => 1 + i * 1e-9);
+  const doubleYs = dxs.map((x) => x * 3 + (0.25 + 1e-10));
+  const doublePs = dxs.flatMap((x, i) => [x, 3, doubleYs[i]]);
+  return { ys, sums: sumsOf(xs), residentYs: ys, residentSums: sumsOf(ys), doubleYs, doublePs };
 }
 
 /** What `draws()` in `src/gpu.ts` should read back, RGBA, top row first: the plasma at each
@@ -49,6 +53,7 @@ export function drawReference(size = 32) {
   const plasma = [];
   const tiled = [];
   const ramped = [];
+  const deep = [];
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const u = (x + 0.5) * scale;
@@ -65,8 +70,10 @@ export function drawReference(size = 32) {
       const j = y % 8;
       tiled.push(i * 32, j * 32, (i + j) * 16, 255);
       ramped.push((x / size) * 255, (y / size) * 255, 0, 255);
+      const band = (12345.678 + (x + 0.5) * 1e-6) * 1000;
+      deep.push((band - Math.floor(band)) * 255, ((y + 0.5) / 32) * 255, 0, 255);
     }
-  return { plasma, tiled, ramped };
+  return { plasma, tiled, ramped, deep };
 }
 
 /** What `loops()` in `src/gpu.ts` should read back, in f32 as the GPU computes it. */

@@ -7068,8 +7068,10 @@ is no WebGPU device).`).
 a histogram), `loop-struct-array` (the particle step over `array<Particle>`) and `loop-on-cpu` (one
 refused loop per rule, each with its `TS8070`) are in `examples/`.
 
-**Not yet.** A texture and an `f64` reduction on the GPU are the next parts of change 0013. Until
-then such a function runs on the CPU.
+**Not yet.** A kernel function that takes an `f64` runs on the CPU tier until the next part of
+change 0013, which dispatches its loops and folds its reduction on the GPU. One that writes a
+texture is `never` in the view: a storage texture's host value is the image of #204, the
+rendering design.
 
 ## 67. Calling an entry point from host code
 
@@ -7112,6 +7114,7 @@ the binding's host value (Rule 8.21):
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `uniform<T>`, a sized `storage<T>`              | `T`'s host value (§64)                                                                        |
 | `storage<array<T>>` of a scalar or a vector     | `Float32Array`, `Int32Array` or `Uint32Array`, the components one after another             |
+| the same of an `f64` or a `vecNf64`             | `Float64Array`, which the runtime splits into the two `f32`s the GPU holds                   |
 | `storage<array<S>>` of a struct                 | an array of objects                                                                          |
 | an atomic, `storage<array<atomic<u32>>>`        | its integer's value, or `Uint32Array` / `Int32Array` for an array                            |
 | a written `storage<T>` whose `T` is one scalar  | a typed array of length one, which the call writes back                                     |
@@ -7212,7 +7215,14 @@ events follow. Calls that do not fit the buffer are counted in one warning. A pr
 records nothing, and the WebGL2 tier records nothing (Rule 10.5). The CPU tier prints each call
 as it runs.
 
-**Not yet.** A storage texture, a depth texture, a texture of another dimension and an emulated
+**Emulated doubles.** An `f64` binding takes a `number`, a `vecNf64` a tuple, and an array of
+either a `Float64Array`. The WGSL and the GLSL hold each double as two `f32`s, `hi` and `lo`
+(§39), and the runtime splits the caller's doubles into them and joins them back, so a result
+keeps the emulation's precision, about 2^-44 relative, where an `f32` would round at the seventh
+digit. A module that emulates `f64` reads the `_fp64` guard; the runtime binds it, and the host
+never passes it. The CPU tier computes each `f64` as a JavaScript double.
+
+**Not yet.** A storage texture, a depth texture, a texture of another dimension and a matrix of
 `f64` keep the entry `never` in the view, with the reason, as do a vertex entry and a fragment
 entry that reads what a vertex entry writes (#204, the rendering design, adds a mesh). A draw's
 tiers are fixed: `configure` orders a compute entry's and a kernel function's.

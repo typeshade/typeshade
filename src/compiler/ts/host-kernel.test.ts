@@ -219,6 +219,27 @@ export function Object(xs: array<f32>) {
   });
 });
 
+describe('a kernel function that takes an f64 (change 0013, the f64 split)', () => {
+  const SCALE64 = `"use typeshade";
+export function scale(xs: array<f64>, k: f64) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = xs[i] * k;
+  }
+}
+`;
+
+  it('takes a Float64Array and a number, and runs on the CPU tier as a double until the GPU part', async () => {
+    const f = face(SCALE64);
+    expect(f.view).toContain(
+      'export declare function scale(xs: Float64Array | Resident<Float64Array>, k: number): Promise<void>;',
+    );
+    const m = await load(SCALE64);
+    const xs = Float64Array.of(1 + 1e-12, 2, 3);
+    await (m.scale as (xs: unknown, k: number) => Promise<void>)(xs, 3);
+    expect([...xs]).toEqual([(1 + 1e-12) * 3, 6, 9]);
+  });
+});
+
 describe('a resident array and the tiers (Rule 11.8)', () => {
   it('holds its own array across calls on the CPU tier, and read() waits for the calls before it', async () => {
     const m = await load(TERRAIN);

@@ -152,18 +152,16 @@ export function deep(@builtin("global_invocation_id") gid: vec3u) {
   });
 
   it('names the type of a binding with no host layout as the author writes it', () => {
-    // It printed the IR's key, `an vec3<f64>`, a spelling the editor refuses (proposal 0008 §5).
+    // It printed the IR's key, a spelling the editor refuses (proposal 0008 §5).
     const f = face(`"use typeshade";
-declare const u: storage<array<vec3f64>, "read_write">;
+declare const u: storage<array<mat3x3<f64>>, "read_write">;
 @compute([1])
 export function k() {
   u[0] = u[0];
 }
 `);
     const k = f.exports.find((x) => x.name === 'k')!;
-    expect(k.kind === 'never' && k.reason).toBe(
-      `binding "u": a vec3f64 waits for change 0013's f64 split`,
-    );
+    expect(k.kind === 'never' && k.reason).toBe(`binding "u": a mat3x3<f64> has no host value yet`);
   });
 });
 
@@ -355,6 +353,84 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     await expect(call(bindings, 1)).rejects.toThrow(
       /^cs\(\) needs WebGPU: it reaches workgroupBarrier\(\) at m\.shade\.ts:\d+, and a barrier has no CPU tier\.$/,
     );
+  });
+});
+
+describe('an emulated f64 (change 0013, the f64 split)', () => {
+  const DOUBLES = `"use typeshade";
+class Affine {
+  k: f64;
+  shift: f64;
+}
+declare const affine: uniform<Affine>;
+declare const xs: storage<array<f64>>;
+declare const ys: storage<array<f64>, "read_write">;
+declare const ps: storage<array<vec3f64>, "read_write">;
+@compute([64])
+export function axpy(@builtin("global_invocation_id") gid: vec3u) {
+  if (gid.x >= xs.length) {
+    return;
+  }
+  ys[gid.x] = xs[gid.x] * affine.k + affine.shift;
+  ps[gid.x] = vec3f64(xs[gid.x], affine.k, ys[gid.x]);
+}
+`;
+
+  it('lays each double out as the WGSL holds it, and binds the guard the runtime supplies', () => {
+    const e = entryOf(face(DOUBLES).exports, 'axpy');
+    const byName = new Map(e.entry.bindings.map((b) => [b.name, b]));
+    expect((byName.get('xs') as EntryBinding).layout).toEqual({
+      k: 'a',
+      n: null,
+      st: 8,
+      e: { k: 's', t: 'f64' },
+    });
+    // `DF64Vec3`: the hi plane at 0, the lo plane at 16, 32 bytes an element.
+    expect((byName.get('ps') as EntryBinding).layout).toEqual({
+      k: 'a',
+      n: null,
+      st: 32,
+      e: { k: 'v', n: 3, t: 'f64', lo: 16 },
+    });
+    expect(byName.get('_fp64')).toMatchObject({ space: 'texture', guard: true });
+    // The host passes doubles, never the guard.
+    expect(e.bindingsType).toBe(
+      '{ readonly affine: { readonly k: number; readonly shift: number }; readonly xs: Float64Array | Resident<Float64Array>; readonly ys: Float64Array | Resident<Float64Array>; readonly ps: Float64Array | Resident<Float64Array> }',
+    );
+  });
+
+  it('computes a double on the CPU tier, as JavaScript does', async () => {
+    const m = await load(DOUBLES);
+    const xs = Float64Array.from({ length: 64 }, (_, i) => 1 + i * 1e-9);
+    const ys = new Float64Array(64);
+    const ps = new Float64Array(64 * 3);
+    await (m.axpy as (b: unknown, w: unknown) => Promise<void>)(
+      { affine: { k: 3, shift: 0.25 + 1e-10 }, xs, ys, ps },
+      1,
+    );
+    // An f32 would round these at the seventh digit.
+    expect([...ys]).toEqual([...xs].map((x) => x * 3 + (0.25 + 1e-10)));
+    expect([...ps]).toEqual([...xs].flatMap((x, i) => [x, 3, ys[i]!]));
+  });
+
+  it('packs a double as the hi and lo halves the emulation reads', async () => {
+    const { pack, readInto } = await import('../../core/host-entry.js');
+    const x = 1 + 1e-12;
+    const dv = new DataView(new ArrayBuffer(8));
+    pack(dv, 0, { k: 's', t: 'f64' }, x, '');
+    const hi = dv.getFloat32(0, true);
+    expect(hi).toBe(Math.fround(x));
+    expect(dv.getFloat32(4, true)).toBe(Math.fround(x - hi));
+    expect(readInto(dv, 0, { k: 's', t: 'f64' }, undefined)).toBeCloseTo(x, 15);
+    // A vector's planes are apart: hi at 0, lo at `lo`.
+    const dv3 = new DataView(new ArrayBuffer(32));
+    pack(dv3, 0, { k: 'v', n: 3, t: 'f64', lo: 16 }, [x, 2, -x], '');
+    expect(dv3.getFloat32(16, true)).toBe(Math.fround(x - Math.fround(x)));
+    expect(readInto(dv3, 0, { k: 'v', n: 3, t: 'f64', lo: 16 }, [0, 0, 0])).toEqual([
+      readInto(dv, 0, { k: 's', t: 'f64' }, undefined),
+      2,
+      -(readInto(dv, 0, { k: 's', t: 'f64' }, undefined) as number),
+    ]);
   });
 });
 

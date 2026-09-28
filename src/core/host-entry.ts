@@ -27,14 +27,17 @@ import { decodeConsole, type ConsoleEvent, type ConsoleLog } from './console.js'
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
 
-/** A 4-byte number a binding holds. */
-export type LayoutNumber = 'f32' | 'i32' | 'u32';
+/** A number a binding holds: a 4-byte one, or an emulated `f64` (change 0013's split), which
+ *  the WGSL holds as two `f32`s, `hi` and `lo`, with `hi + lo` the double. */
+export type LayoutNumber = 'f32' | 'i32' | 'u32' | 'f64';
 
 /** The byte layout of a binding's type, computed at build time from `reflect()`'s rules (std430
  *  for storage, the uniform rules for uniform), so the runtime computes no layout itself. */
 export type Layout =
   | { readonly k: 's'; readonly t: LayoutNumber }
-  | { readonly k: 'v'; readonly n: number; readonly t: LayoutNumber }
+  /** An `f64` vector is two planes of `f32` lanes, `hi` at 0 and `lo` at `lo` bytes, as the
+   *  WGSL's `DF64VecN` struct lays it out. */
+  | { readonly k: 'v'; readonly n: number; readonly t: LayoutNumber; readonly lo?: number }
   /** `cs` is the column stride in bytes; a matrix is f32. */
   | { readonly k: 'm'; readonly c: number; readonly r: number; readonly cs: number }
   /** `n` is null for a runtime-sized array; `st` is the element stride in bytes. */
@@ -67,6 +70,9 @@ export interface HandleBinding {
   readonly binding: number;
   readonly space: 'texture' | 'sampler';
   readonly s: string;
+  /** The `_fp64` guard of a module that emulates `f64`: a 1x1 texture whose texel reads 1.0,
+   *  which the runtime supplies and the host never passes. */
+  readonly guard?: true;
 }
 
 /** A binding an entry reaches: a buffer (read only: a draw reads nothing back) or a
@@ -75,6 +81,9 @@ export type DrawBinding = EntryBinding | HandleBinding;
 
 export const isBuffer = (b: DrawBinding): b is EntryBinding =>
   b.space === 'uniform' || b.space === 'storage';
+
+/** Whether `b` is the `_fp64` guard, which the runtime supplies. */
+export const isGuard = (b: DrawBinding): boolean => 'guard' in b && b.guard === true;
 
 /** A `@compute` entry a host can call, as the generated module writes it. */
 export interface ComputeEntry {
@@ -133,7 +142,7 @@ export function describe(v: unknown): string {
 
 function checkNumber(t: LayoutNumber, v: unknown, path: string): number {
   if (typeof v !== 'number') throw new Misfit(path, `got ${describe(v)}`);
-  if (t !== 'f32') {
+  if (t === 'i32' || t === 'u32') {
     const [lo, hi] = RANGE[t];
     if (!Number.isInteger(v) || v < lo || v > hi)
       throw new Misfit(path, `got ${v}, which is not a whole number in the ${t} range`);
@@ -158,6 +167,7 @@ const TYPED = {
   f32: Float32Array,
   i32: Int32Array,
   u32: Uint32Array,
+  f64: Float64Array,
 } as const;
 
 /** How many numbers one element of a runtime-sized array is, for an array whose host value is a
@@ -198,9 +208,9 @@ export function byteSize(l: Layout, v: unknown, path: string): number {
 function fixedSize(l: Layout): number {
   switch (l.k) {
     case 's':
-      return 4;
+      return l.t === 'f64' ? 8 : 4;
     case 'v':
-      return l.n * 4;
+      return l.t === 'f64' ? (l.lo ?? 0) + l.n * 4 : l.n * 4;
     case 'm':
       return l.c * l.cs;
     case 'a':
@@ -211,17 +221,39 @@ function fixedSize(l: Layout): number {
 }
 
 function writeNumber(dv: DataView, at: number, t: LayoutNumber, x: number): void {
-  if (t === 'f32') dv.setFloat32(at, x, true);
+  if (t === 'f64') {
+    // The split the WGSL's `vec2<f32>(hi, lo)` holds: `hi` the nearest f32, `lo` the rest.
+    const hi = Math.fround(x);
+    dv.setFloat32(at, hi, true);
+    dv.setFloat32(at + 4, Math.fround(x - hi), true);
+  } else if (t === 'f32') dv.setFloat32(at, x, true);
   else if (t === 'i32') dv.setInt32(at, x, true);
   else dv.setUint32(at, x, true);
 }
 
 function readNumber(dv: DataView, at: number, t: LayoutNumber): number {
+  if (t === 'f64') return dv.getFloat32(at, true) + dv.getFloat32(at + 4, true);
   return t === 'f32'
     ? dv.getFloat32(at, true)
     : t === 'i32'
       ? dv.getInt32(at, true)
       : dv.getUint32(at, true);
+}
+
+/** Write lane `j` of a scalar or vector `l` at `at`: an `f64` vector's `hi` and `lo` planes are
+ *  apart, a scalar's are side by side. */
+function writeLane(dv: DataView, at: number, l: Layout, j: number, x: number): void {
+  if (l.k === 'v' && l.t === 'f64') {
+    const hi = Math.fround(x);
+    dv.setFloat32(at + 4 * j, hi, true);
+    dv.setFloat32(at + (l.lo ?? 0) + 4 * j, Math.fround(x - hi), true);
+  } else writeNumber(dv, at + 4 * j, (l as { t: LayoutNumber }).t, x);
+}
+
+function readLane(dv: DataView, at: number, l: Layout, j: number): number {
+  if (l.k === 'v' && l.t === 'f64')
+    return dv.getFloat32(at + 4 * j, true) + dv.getFloat32(at + (l.lo ?? 0) + 4 * j, true);
+  return readNumber(dv, at + 4 * j, (l as { t: LayoutNumber }).t);
 }
 
 /** Write host value `v` into `dv` at `at` by layout `l`, checking it. A written scalar binding's
@@ -243,7 +275,7 @@ export function pack(
     case 'v': {
       const xs = listOf(v, l.n, path);
       for (let i = 0; i < l.n; i++)
-        writeNumber(dv, at + 4 * i, l.t, checkNumber(l.t, xs[i], `${path}[${i}]`));
+        writeLane(dv, at, l, i, checkNumber(l.t, xs[i], `${path}[${i}]`));
       return;
     }
     case 'm': {
@@ -262,7 +294,7 @@ export function pack(
         const count = xs.length / flat.n;
         for (let i = 0; i < count; i++)
           for (let j = 0; j < flat.n; j++)
-            writeNumber(dv, at + i * l.st + 4 * j, flat.t, xs[i * flat.n + j]!);
+            writeLane(dv, at + i * l.st, l.e, j, xs[i * flat.n + j]!);
         return;
       }
       const xs = l.n === null ? (v as unknown[]) : listOf(v, l.n, path);
@@ -302,7 +334,7 @@ export function readInto(dv: DataView, at: number, l: Layout, target: unknown): 
     case 'm': {
       const n = l.k === 'v' ? l.n : l.c * l.r;
       const out = writableList(target, n) ?? new Array<number>(n);
-      if (l.k === 'v') for (let i = 0; i < n; i++) out[i] = readNumber(dv, at + 4 * i, l.t);
+      if (l.k === 'v') for (let i = 0; i < n; i++) out[i] = readLane(dv, at, l, i);
       else
         for (let c = 0; c < l.c; c++)
           for (let r = 0; r < l.r; r++)
@@ -315,8 +347,7 @@ export function readInto(dv: DataView, at: number, l: Layout, target: unknown): 
         const xs = target as { length: number; [i: number]: number };
         const count = xs.length / flat.n;
         for (let i = 0; i < count; i++)
-          for (let j = 0; j < flat.n; j++)
-            xs[i * flat.n + j] = readNumber(dv, at + i * l.st + 4 * j, flat.t);
+          for (let j = 0; j < flat.n; j++) xs[i * flat.n + j] = readLane(dv, at + i * l.st, l.e, j);
         return xs;
       }
       const xs = target as unknown[];
@@ -706,7 +737,8 @@ export function checkBindings(
       `${e.name}(): "bindings" is an object of the entry's bindings; got ${describe(v)}.`,
     );
   const o = v as Record<string, unknown>;
-  const names = new Set(e.bindings.map((b) => b.name));
+  // The `_fp64` guard is the runtime's to supply, not the host's.
+  const names = new Set(e.bindings.filter((b) => !isGuard(b)).map((b) => b.name));
   for (const k of Object.keys(o))
     if (!names.has(k))
       throw new TypeError(
@@ -714,6 +746,7 @@ export function checkBindings(
       );
   const checked: Checked = { values: o, images: new Map(), samplers: new Map() };
   for (const b of e.bindings) {
+    if (isGuard(b)) continue;
     if (!(b.name in o) && b.space !== 'sampler')
       throw new TypeError(`${e.name}(): binding "${b.name}" (${b.s}) is missing.`);
     if (!isBuffer(b)) {
@@ -769,6 +802,22 @@ export function gpuHandle(
   c: Checked,
   owned: { destroy(): void }[],
 ): unknown {
+  if (isGuard(b)) {
+    // One texel of 1.0: the value the emulation's guard multiplies by (`fp64Lower`).
+    const texture = d.createTexture({
+      size: [1, 1],
+      format: 'rgba8unorm',
+      usage: TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST,
+    });
+    d.queue.writeTexture(
+      { texture },
+      new Uint8Array([255, 255, 255, 255]),
+      { bytesPerRow: 4 },
+      [1, 1],
+    );
+    owned.push(texture);
+    return texture.createView();
+  }
   if (b.space === 'texture') {
     const img = c.images.get(b.name)!;
     const texture = d.createTexture({

@@ -5,7 +5,7 @@ level: 64
 links:
 - RULE-0308: _TfNe6TlCZMeZ7gPKt8lmIA0qtsrfbJqTK1dBYTiVIQ=
 - RULE-0820: KYHRHJhj2ThZQXsxPt77Imfx_MOg3lAMAYX7h-mTKyc=
-- RULE-0821: WzntpNYlMzXKdciImHkek4DWmB11m8iLFPi4uO_9BFQ=
+- RULE-0821: 0m3bv45R1cZY8intx1M9mHZk47bN5wwG83NTtGdiBJw=
 - RULE-1107: cZmTxRqYvxVGaEwAiyxN7aFMJiQp7Jk0s5Z1E3O5Je4=
 normative: true
 ref: ''

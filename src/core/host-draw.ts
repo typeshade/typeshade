@@ -36,6 +36,7 @@ import {
   gpuDevice,
   gpuHandle,
   isBuffer,
+  isGuard,
   packed,
   pipelineLayout,
   STAGE,
@@ -411,6 +412,17 @@ interface Gl {
     type: number,
     source: object,
   ): void;
+  texImage2D(
+    t: number,
+    level: number,
+    internal: number,
+    width: number,
+    height: number,
+    border: number,
+    format: number,
+    type: number,
+    pixels: ArrayBufferView,
+  ): void;
   texParameteri(t: number, p: number, v: number): void;
   pixelStorei(p: number, v: number | boolean): void;
   createFramebuffer(): object | null;
@@ -512,6 +524,9 @@ function compileGl(gl: Gl, e: FragmentEntry): GlProgram {
   return { program, blocks, textures };
 }
 
+/** One opaque white texel: the `_fp64` guard's 1.0. */
+const WHITE = new Uint8Array([255, 255, 255, 255]);
+
 const GL_WRAP = { clamp: GL.CLAMP_TO_EDGE, repeat: GL.REPEAT, mirror: GL.MIRRORED_REPEAT } as const;
 
 function webgl2Painter(gl: Gl, canvas: Canvas): Painter {
@@ -551,6 +566,18 @@ function webgl2Painter(gl: Gl, canvas: Canvas): Painter {
     });
     const textures: object[] = [];
     p.textures.forEach(({ name, location }, unit) => {
+      if (e.bindings.some((b) => b.name === name && isGuard(b))) {
+        // The `_fp64` guard: one texel of 1.0, which the emulation multiplies by.
+        const tex = gl.createTexture()!;
+        gl.activeTexture(GL.TEXTURE0 + unit);
+        gl.bindTexture(GL.TEXTURE_2D, tex);
+        gl.texImage2D(GL.TEXTURE_2D, 0, GL.RGBA, 1, 1, 0, GL.RGBA, GL.UNSIGNED_BYTE, WHITE);
+        gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.NEAREST);
+        gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.NEAREST);
+        gl.uniform1i(location, unit);
+        textures.push(tex);
+        return;
+      }
       const img = f.images.get(name)!;
       const smp = e.gl!.samplers[name];
       const s = (smp !== null && smp !== undefined ? f.samplers.get(smp) : undefined) ?? {

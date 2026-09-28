@@ -16,7 +16,7 @@
 // tier, small enough that an index an entry computes from them stays in range.
 
 import { configure } from '../src/core/host-runtime.js';
-import type { DrawBinding, Layout } from '../src/core/host-entry.js';
+import type { DrawBinding, Layout, LayoutNumber } from '../src/core/host-entry.js';
 
 /** One callable entry of one example, as `scripts/entry-calls.ts` lists it. */
 export interface EntryCase {
@@ -65,13 +65,18 @@ const SIZE = 32;
 // ─── the bindings ────────────────────────────────────────────────────────────────────────────
 
 /** The `k`-th deterministic value of a number type: small, and exact in f32. */
-function numberAt(t: 'f32' | 'i32' | 'u32', k: number): number {
-  if (t === 'f32') return ((k * 37) % 17) / 8 - 1;
+function numberAt(t: LayoutNumber, k: number): number {
+  if (t === 'f32' || t === 'f64') return ((k * 37) % 17) / 8 - 1;
   if (t === 'i32') return ((k * 7) % 11) - 5;
   return (k * 7) % 11;
 }
 
-const TYPED = { f32: Float32Array, i32: Int32Array, u32: Uint32Array } as const;
+const TYPED = {
+  f32: Float32Array,
+  i32: Int32Array,
+  u32: Uint32Array,
+  f64: Float64Array,
+} as const;
 
 /** A host value for `l`, as the host view types it, numbered from `k.n`. */
 function valueOf(l: Layout, boxed: boolean, k: { n: number }): unknown {
@@ -107,6 +112,8 @@ function bindingsOf(c: EntryCase): Record<string, unknown> {
   for (const b of c.bindings) {
     if (b.space === 'uniform' || b.space === 'storage')
       out[b.name] = valueOf(b.layout, b.writes && b.layout.k === 's', k);
+    else if ('guard' in b)
+      continue; // the `_fp64` guard is the runtime's to bind
     else if (b.space === 'texture') out[b.name] = imageOf();
     else out[b.name] = { filter: 'nearest', address: 'repeat' };
   }

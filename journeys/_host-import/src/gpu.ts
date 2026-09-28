@@ -3,6 +3,8 @@
 // through the import, with no WebGPU or WebGL code of its own. The page runs `run()` and
 // `draws()`.
 import { blockSum, report, scale } from './kernels.shade.ts';
+import { axpy } from './doubles.shade.ts';
+import { deep } from './deep.shade.ts';
 import { fillRamp, plasma, ramped, tiled } from './draw.shade.ts';
 import { configure, resident } from 'typeshade/runtime';
 import { drift, histogram, odds, render, scaleNonNegative, stats, tally } from './loops.shade.ts';
@@ -22,9 +24,17 @@ export async function run(): Promise<Record<string, number[]>> {
   const devSums = resident(new Float32Array(4));
   scale({ k: 2.5, xs, ys: devYs }, 4);
   blockSum({ xs: devYs, sums: devSums, scratch: resident(new Float32Array(256)) }, 4);
+  // Emulated doubles (change 0013's f64 split): `Float64Array`s in and out, and a result an
+  // `f32` would round at the seventh digit.
+  const dxs = Float64Array.from({ length: 256 }, (_, i) => 1 + i * 1e-9);
+  const dys = new Float64Array(256);
+  const dps = new Float64Array(256 * 3);
+  await axpy({ affine: { k: 3, shift: 0.25 + 1e-10 }, xs: dxs, ys: dys, ps: dps }, 4);
   return {
     ys: [...ys],
     sums: [...sums],
+    doubleYs: [...dys],
+    doublePs: [...dps],
     residentYs: [...(await devYs.read())],
     residentSums: [...(await devSums.read())],
   };
@@ -72,6 +82,15 @@ export async function draws(): Promise<Record<string, number[] | string>> {
   for (const kind of [undefined, 'webgl2', '2d'] as const) {
     const c = canvas(kind);
     out[`tiled ${kind ?? 'webgpu'}`] = await tiled(c, { image: img, smp }).then(
+      () => pixels(c),
+      (e: unknown) => String(e),
+    );
+  }
+  // A fragment entry that computes in `f64`, on each tier: its band moves by a thousandth of a
+  // period per pixel at 12 345.678, which an `f32` cannot tell apart.
+  for (const kind of [undefined, 'webgl2', '2d'] as const) {
+    const c = canvas(kind);
+    out[`deep ${kind ?? 'webgpu'}`] = await deep(c, { zoom: { cx: 12345.678, scale: 1e-6 } }).then(
       () => pixels(c),
       (e: unknown) => String(e),
     );

@@ -586,6 +586,23 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **An emulated `f64` crosses the host boundary** (changes 0013 and 0016, the f64 split; Rules
+  8.21 and 8.24, surface §65 and §67). The host passes an `f64` binding as a `number`, a
+  `vecNf64` as a tuple, and an array of either as a `Float64Array`. The WGSL and the GLSL hold
+  each double as two `f32`s, `hi` and `lo`, and a `vecNf64` as a plane of each. The runtime
+  splits the caller's doubles into them and joins them back.
+  - The runtime binds the `_fp64` guard of a module that emulates `f64`: a texel of 1.0, on
+    WebGPU, and on WebGL2 where the program reads it. The host never passes it.
+  - A `@compute` entry, a full-screen draw and a kernel function in such a module are no longer
+    `never`. Each was refused with "waits for change 0013's f64 split".
+  - The CPU tier computes each `f64` as a JavaScript double. A kernel function that takes one
+    runs there until the next part of 0013 dispatches it on the GPU.
+  - In the import journey, WebGPU results are within 7.4e-15 of the double reference. A band
+    that an `f32` would smear draws the same on WebGPU, WebGL2 and the CPU tier.
+  - A `matNxN<f64>` binding has no host value yet.
+- A kernel function that writes a texture waits for #204's image (0013's decision 5, amended).
+  Surface §65's "Not yet" says so.
+
 - **The compile gate calls every entry of the examples on every tier** (change 0016, Rule 8.24).
   - The new leg, `scripts/entry-calls.ts` with its page half `scripts/entry-calls-page.ts`,
     bundles each `.shade.ts` example's generated host module with `typeshade/runtime`.
