@@ -540,6 +540,8 @@ describe('getDiagnostics: cache invalidation across imports (design doc §8)', (
       .getDiagnostics('/a.ts')
       .filter((d) => d.source === 'typescript')
       .map((d) => d.code);
+  const errors = (service: ReturnType<typeof createTypeshadeLanguageService>) =>
+    service.getDiagnostics('/a.ts').map((d) => `${d.source} ${d.code}`);
 
   // Regression: the cache was keyed by A's own (uri, version) alone, so once A's diagnostics
   // had been computed, changing or closing B never refreshed them until A itself was edited.
@@ -547,12 +549,14 @@ describe('getDiagnostics: cache invalidation across imports (design doc §8)', (
     const service = createTypeshadeLanguageService();
     service.openDocument('/b.ts', B_OK, 1);
     service.openDocument('/a.ts', A, 1);
-    expect(tsErrors(service)).toEqual([]);
+    expect(errors(service)).toEqual([]);
     service.updateDocument('/b.ts', B_BROKEN, 2);
-    // k() is now bool, returned where f32 is annotated: TS2322 in A.
-    expect(tsErrors(service)).toContain(2322);
+    // k() is now bool, returned where f32 is annotated. Both halves read B (Rule 3.9), so the
+    // mistake is TypeScript's TS2322 and the compiler's TS8003 on one `return`, and the merged
+    // list keeps the compiler's sentence (Rule 12.4).
+    expect(errors(service)).toEqual(['typeshade TS8003']);
     service.updateDocument('/b.ts', B_OK, 3);
-    expect(tsErrors(service)).toEqual([]);
+    expect(errors(service)).toEqual([]);
   });
 
   it('reflects a closed import as a missing module, then its reopening as resolved again', () => {
@@ -561,10 +565,11 @@ describe('getDiagnostics: cache invalidation across imports (design doc §8)', (
     service.openDocument('/a.ts', A, 1);
     expect(tsErrors(service)).toEqual([]);
     service.closeDocument('/b.ts');
-    // TS2307: Cannot find module './b.js'.
-    expect(tsErrors(service)).toContain(2307);
+    // TypeScript's TS2307 ("Cannot find module './b.js'") and the compiler's TS8072 on the one
+    // specifier, merged to the compiler's (Rule 12.4); the call of `k` reports nothing more.
+    expect(errors(service)).toEqual(['typeshade TS8072']);
     service.openDocument('/b.ts', B_OK, 1);
-    expect(tsErrors(service)).toEqual([]);
+    expect(errors(service)).toEqual([]);
   });
 
   // Regression: the key was built from the top-level import and export declarations alone,

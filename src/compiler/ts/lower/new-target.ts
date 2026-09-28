@@ -36,10 +36,8 @@ import { isConsoleMethod } from '../../../core/console.js';
 import { isMixinApplication } from '../mixins.js';
 import { isStaticMember, staticThisClass } from '../class-names.js';
 import { namespaceMember, qualifiedParts } from '../namespaces.js';
-import { declarationOf, importsName } from './closures.js';
+import { declarationOf } from './closures.js';
 import { namesInScope, unknownNameSentence } from '../unknown-names.js';
-import { makeDiagnostic } from '../diagnostic.js';
-import type { TsCompilerDiagnostic } from '../source-file.js';
 
 /** What a `new` names. */
 export type NewTarget =
@@ -51,10 +49,6 @@ export type NewTarget =
       readonly dotted: string;
       readonly decl: ts.ClassDeclaration;
     }
-  /** A name the file imports, which another file of a multi-file program declares. What it is
-   *  is known only once the imports are resolved (`compileTsSources`, which imports functions
-   *  alone and says so of anything else), so it is said with them ({@link reportImportedNews}). */
-  | { readonly kind: 'imported'; readonly name: string }
   /** A value that holds a class, `const A = B` or `const Q = class {…}`: a class is no value
    *  here, which its declaration is refused for, and the `new` adds nothing (Rule 12.4). */
   | { readonly kind: 'held' }
@@ -481,11 +475,6 @@ export function newTargetOf(node: ts.NewExpression, sourceFile: ts.SourceFile): 
   const [root, ...rest] = path as [ts.Identifier, ...ts.Identifier[]];
   let decl = scopedDeclaration(root);
   if (decl === undefined) {
-    // A name the file imports is another file's, which a multi-file program merges into one
-    // module (#74).
-    if (rest.length === 0 && importsName(sourceFile, root.text)) {
-      return { kind: 'imported', name: root.text };
-    }
     if (rest.length === 0) return undeclared(root, node, sourceFile);
     if (root.text === 'Math' || root.text === 'console') {
       return hostMember(root.text, rest, shown, node, sourceFile);
@@ -542,38 +531,4 @@ export function newRefusal(
   }
   const t = newTargetOf(node, sourceFile);
   return t.kind === 'refused' ? t : undefined;
-}
-
-/**
- * Says, once for the file, what each `new` on a name it imports is, in a body a call lowers or
- * not. `compileTsSources` resolves the imports first and passes `isFunction`: it imports functions
- * alone (#74), so a name `isFunction` answers for is a function, called without `new`, and one
- * whose import it refused said why at the import. A file compiled on its own, as the editor
- * compiles each document, sees no other file (`isFunction` undefined), and names the import
- * unknown, as it names a call of one (`TS8004`). A module constant of a file that is not the
- * entry is never lowered, which is why this is not the lowering's to say.
- */
-export function reportImportedNews(
-  sourceFile: ts.SourceFile,
-  isFunction: ((name: string) => boolean) | undefined,
-  diagnostics: TsCompilerDiagnostic[],
-): void {
-  const visit = (n: ts.Node): void => {
-    if (ts.isNewExpression(n)) {
-      const t = newTargetOf(n, sourceFile);
-      const said =
-        t.kind !== 'imported'
-          ? undefined
-          : isFunction === undefined
-            ? refused(`Unknown identifier "${t.name}".`, TS_CODES.UNKNOWN_NAME)
-            : isFunction(t.name)
-              ? functionTarget(t.name, n, sourceFile)
-              : undefined;
-      if (said?.kind === 'refused') {
-        diagnostics.push(makeDiagnostic(sourceFile, n, said.message, said.code));
-      }
-    }
-    ts.forEachChild(n, visit);
-  };
-  visit(sourceFile);
 }

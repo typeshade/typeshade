@@ -46,7 +46,11 @@ import { emitGlslStages } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import type { ConsoleLog } from '../../core/console.js';
-import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js';
+import {
+  compileTsProgram,
+  type compileTsSource,
+  type TsCompilerDiagnostic,
+} from './source-file.js';
 import { emittedStructDecls } from './structs.js';
 import { staticConstName } from './module-const.js';
 import { authorTypeText } from './context.js';
@@ -62,6 +66,12 @@ export interface HostFaceOptions {
    *  (change 0014), which the runtime decodes into the host's console after the dispatch or
    *  draw. The Vite plugin sets it in `vite dev`; a production build records nothing. */
   readonly console?: 'gpu';
+  /** Reads a shader file the module imports (Rule 3.9): the module and what it imports are one
+   *  program, and its face is the module's own exports and re-exports. The Vite plugin reads
+   *  from disk. */
+  readonly readDocument?: (fileName: string) => string | undefined;
+  /** The file a specifier written in `fromFile` names; defaults to the rule `compile()` uses. */
+  readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
 }
 
 /** One export of a shader module, as the host sees it. */
@@ -129,6 +139,9 @@ export interface HostFace {
   readonly view?: string;
   /** The generated module's JavaScript. */
   readonly code?: string;
+  /** Every file the compile read, the module first: what a bundler watches, so an edit to a
+   *  file the module imports rebuilds it. */
+  readonly files: readonly string[];
 }
 
 // ─── reasons (Rule 8.20) ─────────────────────────────────────────────────────────────────────
@@ -546,8 +559,20 @@ function barrierIn(
  * A module with an error diagnostic has no face: the result carries the diagnostics alone.
  */
 export function hostFace(source: string, options: HostFaceOptions): HostFace {
-  const r = compileTsSource(source, { fileName: options.fileName, requireDirective: true });
-  if (r.diagnostics.some((d) => d.category === 'error')) return { diagnostics: r.diagnostics };
+  const { result: r, linked } = compileTsProgram(source, {
+    fileName: options.fileName,
+    requireDirective: true,
+    ...(options.readDocument ? { readDocument: options.readDocument } : {}),
+    ...(options.resolveImport ? { resolveImport: options.resolveImport } : {}),
+  });
+  const files = linked?.linked.files.map((f) => f.name) ?? [r.sourceFile.fileName];
+  if (r.diagnostics.some((d) => d.category === 'error')) {
+    return { diagnostics: r.diagnostics, files };
+  }
+  // A module that imports is read where it was lowered: the linked source holds the entry's
+  // exports, its re-exports among them, under the names the module emits (Rule 3.9).
+  const faceSource = linked?.sourceFile ?? r.sourceFile;
+  const faceSymbols = linked?.symbols ?? r.symbols;
 
   const structDecls = emittedStructDecls(r.structs);
   const m: ModuleDecl = {
@@ -589,11 +614,11 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   };
 
   const exports: HostExport[] = [];
-  for (const ref of exportsOf(r.sourceFile)) {
+  for (const ref of exportsOf(faceSource)) {
     exports.push(
       faceOf(ref, {
-        sf: r.sourceFile,
-        symbols: r.symbols,
+        sf: faceSource,
+        symbols: faceSymbols,
         byName,
         structs,
         collected: r.structs,
@@ -688,6 +713,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     exports: logged,
     view: viewText(stem, logged, options.runtime ?? 'typeshade/runtime'),
     code: moduleText(stem, logged, gen, options.runtime ?? 'typeshade/runtime', wgsl, log),
+    files,
   };
 }
 

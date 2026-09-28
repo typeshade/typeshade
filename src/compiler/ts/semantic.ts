@@ -1,7 +1,8 @@
 // Ban host/JS surface inside "use typeshade" files: host control flow and the runtime forms no
 // shader has. A NAME is not judged here by its spelling, except `eval` and `arguments`, which
-// strict mode lets no declaration bind. It is resolved where it is used, and one nothing
-// declares is an unknown name of the code that owns its position (Rule 2.1). Three of those are
+// strict mode lets no declaration bind, and `require("./x")`, an import as `import("./x")` is
+// (Rule 3.9). It is resolved where it is used, and one nothing declares is an unknown name of
+// the code that owns its position (Rule 2.1). Three of those are
 // said here, on the syntax, because the lowering reaches a body once per instance or not at
 // all: a `new` that builds no class and a type name nothing declares, before the lowering, and a
 // value or a callee nothing declares, after it ({@link reportUndeclaredValues}).
@@ -39,6 +40,10 @@ function push(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
+  markRefused(sourceFile, node);
+}
+
+function markRefused(sourceFile: ts.SourceFile, node: ts.Node): void {
   const refused = REFUSED.get(sourceFile) ?? new Set<ts.Node>();
   refused.add(node);
   REFUSED.set(sourceFile, refused);
@@ -71,6 +76,34 @@ function consoleRemedy(node: ts.TemplateExpression, sourceFile: ts.SourceFile): 
   return parts.join(', ');
 }
 
+/** A dynamic import, `import("./x")`, or a `require("./x")`: the call, and the node its refusal
+ *  goes on: the specifier for `import(...)`, where TypeScript reports an unresolved one, and
+ *  `require`, where TypeScript reports a name it cannot find. */
+function dynamicImportOf(
+  node: ts.Node,
+): { call: ts.CallExpression; at: ts.Node; specifier: string } | undefined {
+  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    const arg = node.arguments[0];
+    return arg !== undefined && ts.isStringLiteralLike(arg)
+      ? { call: node, at: arg, specifier: arg.text }
+      : { call: node, at: node, specifier: './file.shade.ts' };
+  }
+  const call = node.parent;
+  if (
+    ts.isIdentifier(node) &&
+    node.text === 'require' &&
+    call !== undefined &&
+    ts.isCallExpression(call) &&
+    call.expression === node
+  ) {
+    const arg = call.arguments[0];
+    if (arg !== undefined && ts.isStringLiteralLike(arg)) {
+      return { call, at: node, specifier: arg.text };
+    }
+  }
+  return undefined;
+}
+
 function visit(
   node: ts.Node,
   sourceFile: ts.SourceFile,
@@ -91,6 +124,21 @@ function visit(
     diagnostics.push(
       makeDiagnostic(sourceFile, strict.name, strict.message, TS_CODES.RESERVED_NAME),
     );
+  }
+  // `import("./x")` and `require("./x")`: a shader module is imported statically (Rule 3.9).
+  // On the specifier and on `require`, where TypeScript reports the same mistake (Rule 12.4),
+  // and the call is refused whole, so its string and an unknown `require` say nothing more.
+  const imported = dynamicImportOf(node);
+  if (imported !== undefined) {
+    push(
+      diagnostics,
+      sourceFile,
+      imported.at,
+      `A shader module is imported by an import declaration at the top of the file: ` +
+        `import { name } from "${imported.specifier}".`,
+      TS_CODES.IMPORT,
+    );
+    markRefused(sourceFile, imported.call);
   }
   // What a `new` builds, and a type name nothing declares, are resolved here, once for the file:
   // in a body no call lowers, and once for a body lowered for every instance (Rule 2.1, Rule 12.4).
@@ -469,6 +517,28 @@ export function refusedWhole(sourceFile: ts.SourceFile): ts.Node[] {
  *  outside its block) belongs to that one mistake. */
 export function refusedVars(sourceFile: ts.SourceFile): ts.VariableStatement[] {
   return [...(REFUSED.get(sourceFile) ?? [])].filter(ts.isVariableStatement);
+}
+
+/** Carries what `analyzeSemantics` refused in a linked source (Rule 3.9, `link.ts`) to a file it
+ *  was linked from: each refused node that `map` places in `to` marks the node of the same kind
+ *  at that span there. The editor reads the refusals of the file it shows off that file. */
+export function carryRefusals(
+  from: ts.SourceFile,
+  to: ts.SourceFile,
+  map: (start: number, end: number) => { readonly start: number; readonly end: number } | undefined,
+): void {
+  for (const node of REFUSED.get(from) ?? []) {
+    const at = map(node.getStart(from), node.getEnd());
+    if (at === undefined) continue;
+    let found: ts.Node | undefined;
+    const find = (n: ts.Node): void => {
+      if (found !== undefined || n.getStart(to) > at.start || n.getEnd() < at.end) return;
+      if (n.kind === node.kind && n.getStart(to) === at.start && n.getEnd() === at.end) found = n;
+      else ts.forEachChild(n, find);
+    };
+    ts.forEachChild(to, find);
+    if (found !== undefined) markRefused(to, found);
+  }
 }
 
 /** A spread in a list `visit` refused, with the sentence that fits any operand, and where that

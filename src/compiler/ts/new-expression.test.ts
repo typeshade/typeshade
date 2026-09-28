@@ -689,12 +689,11 @@ describe('a short name inside a namespace is the namespace’s, for a new and a 
   });
 });
 
-describe('a new with no constructor to call is never dropped without a word', () => {
-  // A multi-file program lowers no class function, so a class with a written constructor has no
-  // `P_new`. Before this the `new` lowered to nothing and said nothing: `c.x = new P(2.).a` was
-  // gone from the WGSL, and a function returning one failed in the backend.
+describe('a new of a class with a constructor, through the list form of a program', () => {
+  // A multi-file program lowered no class function before change 0022, so a class with a written
+  // constructor had no `P_new`, and a `new` of it was refused ("has no constructor here"). The
+  // list form links its files as `compile()` does (Rule 3.9), and builds the class the same way.
   const LIB = `"use typeshade";\nclass P {\n  a: f32;\n  constructor(a: f32) {\n    this.a = a;\n  }\n}\n`;
-  const sentence = `${TS_CODES.CLASS_MEMBER} "P" has no constructor here; build it as an object literal, { field: value }.`;
 
   it('in a statement and in a return', () => {
     for (const body of [
@@ -702,8 +701,8 @@ describe('a new with no constructor to call is never dropped without a word', ()
       `export function mk(): P {\n  return new P(1.);\n}\n`,
     ]) {
       const r = compileTsSources([{ fileName: 'lib.ts', source: LIB + body }]);
-      expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([sentence]);
-      expect(r.wgsl).toBeUndefined();
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('fn P_new(');
     }
   });
 });
@@ -909,9 +908,10 @@ describe('a new finds what TypeScript finds, and names it as the file writes it'
   });
 
   it('a name another file declares is what that file makes it', () => {
-    // `compileTsSources` imports functions alone. `new g()` on one was told to build a class,
-    // in a body and in a module constant, and said nothing in a file that is not the entry,
-    // whose constants are never lowered; a class the import refused added a second sentence.
+    // `new g()` on an imported function was told to build a class, in a body and in a module
+    // constant, and said nothing in a file that is not the entry, whose constants were never
+    // lowered. A program is linked into one source now (Rule 3.9), so every file's constants
+    // are lowered, and an imported class is built as the file that declares it builds it.
     const LIB = {
       fileName: 'lib.ts',
       source: `"use typeshade";\nexport function g(): f32 {\n  return 1.;\n}\nexport class P {\n  a: f32 = 1.;\n}\n`,
@@ -928,10 +928,7 @@ describe('a new finds what TypeScript finds, and names it as the file writes it'
     });
     expect(
       multi([main(`export function f(): f32 {\n  const d = new g();\n  return 1.;\n}\n`)]),
-    ).toEqual([
-      `main.ts:2 ${TS_CODES.UNSUPPORTED} "lib.ts" has no function "P".`,
-      `main.ts:4 ${fn}`,
-    ]);
+    ).toEqual([`main.ts:4 ${fn}`]);
     expect(
       multi([
         {
@@ -951,40 +948,40 @@ describe('a new finds what TypeScript finds, and names it as the file writes it'
     ).toEqual([`util.ts:3 ${fn}`]);
     expect(
       multi([main(`export function f(): f32 {\n  const p = new P();\n  return p.a;\n}\n`)]),
-    ).toEqual([`main.ts:2 ${TS_CODES.UNSUPPORTED} "lib.ts" has no function "P".`]);
-    // A file compiled on its own sees no other file: the name is unknown, as a call of it is,
-    // in a body a call lowers or not.
+    ).toEqual([]);
+    // A compile that reads no other file refuses the import, and the `new` of what it would
+    // have bound says nothing more (Rule 12.4), in a body a call lowers or not.
     for (const fn of ['export function f(): f32', 'function mk<T>(x: T): f32']) {
       expect(
         said(
           `"use typeshade"\nimport { g } from "./lib"\n${fn} {\n  const d = new g()\n  return 1.\n}\n`,
         ),
         fn,
-      ).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "g".`]);
+      ).toEqual([
+        `${TS_CODES.IMPORT} "./lib" was not read: this compile has no readDocument. Pass compile() a readDocument that returns the file's text.`,
+      ]);
     }
   });
 
   it('an import that resolves to no file is the one refusal, and the local a new builds adds nothing', () => {
     // A `new` on it was dropped in silence, and each read of `o` said 'Unknown identifier "o"',
-    // although `o` is declared: `./lib.js` is the usual ESM spelling, which names no file here.
+    // although `o` is declared. `./lib.js`, the usual ESM spelling, named no file here then.
     const LIB = {
       fileName: 'lib.ts',
       source: `"use typeshade";\nexport class P {\n  a: f32 = 1.;\n}\n`,
     };
-    for (const [spec, looked] of [
-      ['./nothere', 'nothere.ts'],
-      ['./lib.js', 'lib.js.ts'],
-    ]) {
-      const main = {
-        fileName: 'main.ts',
-        source: `"use typeshade";\nimport { P } from "${spec!}";\nexport function f(): f32 {\n  const o = new P();\n  return o.a;\n}\n@fragment\nexport function fs(): vec4 {\n  return vec4(f());\n}\n`,
-      };
-      expect(
-        compileTsSources([main, LIB], 'main.ts').diagnostics.map((d) => `${d.code} ${d.message}`),
-        spec,
-      ).toEqual([
-        `${TS_CODES.UNSUPPORTED} Cannot resolve import "${spec!}" from "main.ts" (looked for "${looked!}").`,
-      ]);
-    }
+    const main = (spec: string) => ({
+      fileName: 'main.ts',
+      source: `"use typeshade";\nimport { P } from "${spec}";\nexport function f(): f32 {\n  const o = new P();\n  return o.a;\n}\n@fragment\nexport function fs(): vec4 {\n  return vec4(f());\n}\n`,
+    });
+    const said = (spec: string) =>
+      compileTsSources([main(spec), LIB], 'main.ts').diagnostics.map(
+        (d) => `${d.code} ${d.message}`,
+      );
+    expect(said('./nothere')).toEqual([
+      `${TS_CODES.IMPORT} Cannot find the shader module "./nothere" (looked for "nothere.ts").`,
+    ]);
+    // `./lib.js` is read as `./lib.ts`, the spelling `tsc` accepts for it (Rule 3.9).
+    expect(said('./lib.js')).toEqual([]);
   });
 });

@@ -2,6 +2,9 @@
 
 // A height field and its surface normal, called from host code (change 0009): `app.ts` imports
 // this file and calls `height` and `normal` on the CPU tier, with no device and no buffer.
+// `ridged` calls into another shader file (change 0022), which the plugin links into this one.
+
+import { ridge } from "./shape.shade.ts";
 
 export const EPS: f32 = 0.001;
 
@@ -13,6 +16,10 @@ export function normal(p: vec2, k: vec4): vec3 {
   const dx = height(p + vec2(EPS, 0.), k) - height(p - vec2(EPS, 0.), k);
   const dy = height(p + vec2(0., EPS), k) - height(p - vec2(0., EPS), k);
   return normalize(vec3(-dx, 2. * EPS, -dy));
+}
+
+export function ridged(p: vec2, k: vec4): f32 {
+  return ridge(height(p, k));
 }
 
 @fragment

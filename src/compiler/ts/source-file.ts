@@ -18,14 +18,14 @@ import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
 import { lowerSourceFunctions } from './lower/function.js';
 import { sequenceEffects } from './sequence.js';
-import { analyzeSemantics, reportUndeclaredValues } from './semantic.js';
-import { reportImportedNews } from './lower/new-target.js';
+import { analyzeSemantics, carryRefusals, reportUndeclaredValues } from './semantic.js';
 import { collectModuleConsts } from './module-const.js';
 import { collectBindings } from './bindings.js';
 import { collectOverrides } from './overrides.js';
 import { collectModuleVars } from './module-vars.js';
 import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js';
 import type { DeclaredSymbol, LoweredExpression } from './symbols.js';
+import type { SourceSpan } from '../../core/ir/span.js';
 import { closeExpressionTable, openExpressionTable } from './symbols.js';
 import { reportReservedNames } from './reserved-names.js';
 import { TS_CODES } from './codes.js';
@@ -37,6 +37,13 @@ import {
   syntaxDiagnostics,
 } from './diagnostic.js';
 import { collectEnables } from './enables.js';
+import {
+  hasModuleReference,
+  linkProgram,
+  type ImportHooks,
+  type LinkedProgram,
+  type LinkRoot,
+} from './link.js';
 import { reportIntegerLiteralDeprecations } from './integer-literal-deprecation.js';
 import {
   collectDiagnosticDirectives,
@@ -44,7 +51,12 @@ import {
 } from './diagnostic-directive.js';
 import { uniformityViolations, type UniformityViolation } from '../../core/passes/uniformity.js';
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js';
-import { authorTypeText, withWrittenStructs } from './context.js';
+import {
+  authorTypeText,
+  withLinkedOrigin,
+  withWrittenStructs,
+  type LinkedOrigin,
+} from './context.js';
 
 /** Options controlling compilation of a TypeShade TypeScript source string. */
 export interface CompileTsSourceOptions {
@@ -81,6 +93,15 @@ export interface CompileTsSourceOptions {
    *  the author could write starts with two underscores, and runs the result on the CPU
    *  oracle, where WGSL's identifier rules do not apply. */
   readonly checkReservedNames?: boolean;
+  /** Reads a file this source imports (Rule 3.9, surface §68): its text, or `undefined` when
+   *  there is none. The source and every shader file it imports, directly or through another,
+   *  are compiled as one program into one module. Without it nothing is read, a source with no
+   *  import compiles as it always has, and an import is `TS8072`. */
+  readonly readDocument?: (fileName: string) => string | undefined;
+  /** The file a specifier written in `fromFile` names, or `undefined` when it names none. The
+   *  default is the rule the language service resolves an import by: relative to the importing
+   *  file, `.js` and `.mjs` read as `.ts`, and `.ts` appended to any other path. */
+  readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
 }
 
 /**
@@ -167,12 +188,33 @@ export function compileTsSource(
   source: string,
   options: CompileTsSourceOptions = {},
 ): CompileTsSourceResult {
+  return compileTsProgram(source, options).result;
+}
+
+/** A compile that followed imports: the linked program, and the one source it was lowered as. */
+export interface LinkedCompile {
+  readonly linked: LinkedProgram;
+  /** The linked source, parsed: what the front end lowered, whose names are the module's. */
+  readonly sourceFile: ts.SourceFile;
+  /** What the front end declared in the linked source, in its offsets: the table the host face
+   *  reads the module's exports against, which `result.symbols` keeps only the entry's of. */
+  readonly symbols: readonly DeclaredSymbol[];
+}
+
+/** `compileTsSource`, and for a source that imports another, what the linker made of it (the
+ *  Vite plugin's host face reads the module's exports there). `roots` are more files to keep
+ *  whole beside the source, which `compileTsSources` passes; with any, the source is linked
+ *  whether it imports or not. */
+export function compileTsProgram(source: string, options: ProgramOptions = {}): ProgramCompile {
   // A message names a struct as the author wrote it, `N.P` and `Slot<f32>`, for this compile's
   // structs and no other's (see `useWrittenStructs`).
   return withWrittenStructs(() => compileOneSource(source, options));
 }
 
-function compileOneSource(source: string, options: CompileTsSourceOptions): CompileTsSourceResult {
+type ProgramOptions = CompileTsSourceOptions & { readonly roots?: readonly LinkRoot[] };
+type ProgramCompile = { readonly result: CompileTsSourceResult; readonly linked?: LinkedCompile };
+
+function compileOneSource(source: string, options: ProgramOptions): ProgramCompile {
   const sourceFile =
     options.sourceFile ??
     ts.createSourceFile(
@@ -203,6 +245,7 @@ function compileOneSource(source: string, options: CompileTsSourceOptions): Comp
   };
 
   if (!hasDirective) {
+    const result = { ...empty } as CompileTsSourceResult;
     if (options.requireDirective ?? true) {
       diagnostics.push(
         makeDiagnostic(
@@ -213,7 +256,7 @@ function compileOneSource(source: string, options: CompileTsSourceOptions): Comp
         ),
       );
     }
-    return empty;
+    return { result };
   }
 
   // A file TypeScript could not parse is not lowered. The tree it hands back is the parser's
@@ -223,14 +266,18 @@ function compileOneSource(source: string, options: CompileTsSourceOptions): Comp
   const syntax = syntaxDiagnostics(sourceFile);
   if (syntax.length > 0) {
     diagnostics.push(...syntax);
-    return { ...empty, hasDirective: true };
+    return { result: { ...empty, hasDirective: true } };
+  }
+
+  // A source that imports another shader module is one program with the files it imports
+  // (Rule 3.9): linked into one source, lowered as one file, and mapped back.
+  if (hasModuleReference(sourceFile) || (options.roots?.length ?? 0) > 0) {
+    return compileLinked(sourceFile, options, diagnostics);
   }
 
   reportMisplacedDirective(sourceFile, directive, diagnostics);
   openExpressionTable(sourceFile);
   analyzeSemantics(sourceFile, diagnostics);
-  // A file compiled on its own sees no file it imports from, and says so of a `new` on an import.
-  reportImportedNews(sourceFile, undefined, diagnostics);
   // Opt-in, and additive: warnings only, no emitted byte moves (§13, #148).
   if (options.deprecations === true) reportIntegerLiteralDeprecations(sourceFile, diagnostics);
   // The file's `"enable <extension>";` directives (§50), before anything that could emit.
@@ -407,22 +454,238 @@ function compileOneSource(source: string, options: CompileTsSourceOptions): Comp
   }
 
   return {
-    hasDirective: true,
-    funcs,
-    diagnostics,
-    directives,
-    sourceFile,
-    consts,
-    bindings,
-    structs,
-    overrides,
-    vars,
-    enables,
-    symbols,
-    expressions: closeExpressionTable(sourceFile),
-    wgsl,
+    result: {
+      hasDirective: true,
+      funcs,
+      diagnostics,
+      directives,
+      sourceFile,
+      consts,
+      bindings,
+      structs,
+      overrides,
+      vars,
+      enables,
+      symbols,
+      expressions: closeExpressionTable(sourceFile),
+      wgsl,
+    },
   };
 }
+
+/** The codes an unknown name is reported under, which a refused import already accounts for. */
+const UNKNOWN_NAME_CODES: ReadonlySet<string> = new Set([
+  TS_CODES.UNKNOWN_FN,
+  TS_CODES.UNKNOWN_TYPE,
+  TS_CODES.UNKNOWN_NAME,
+]);
+
+/**
+ * The linked compile (Rule 3.9, `link.ts`): link `entry` with the shader files it imports, lower
+ * the linked source through the single-file path, and map every position the result carries
+ * back to the file and the offsets the author wrote. The result reads as the entry's own: its
+ * `sourceFile` is `entry`, its `symbols` and `expressions` are the entry's, and a diagnostic
+ * located in an imported file carries that file's name and offsets.
+ */
+function compileLinked(
+  entry: ts.SourceFile,
+  options: ProgramOptions,
+  diagnostics: TsCompilerDiagnostic[],
+): ProgramCompile {
+  const hooks: ImportHooks = {
+    ...(options.readDocument ? { readDocument: options.readDocument } : {}),
+    ...(options.resolveImport ? { resolveImport: options.resolveImport } : {}),
+  };
+  const linked = linkProgram(
+    [{ fileName: entry.fileName, text: entry.text }, ...(options.roots ?? [])],
+    hooks,
+  );
+  diagnostics.push(...linked.diagnostics);
+  const empty: CompileTsSourceResult = {
+    hasDirective: true,
+    funcs: [],
+    diagnostics,
+    sourceFile: entry,
+    consts: [],
+    bindings: [],
+    structs: [],
+    overrides: [],
+    vars: [],
+    enables: [],
+    directives: [],
+    symbols: [],
+    expressions: [],
+  };
+  if (linked.fatal) return { result: empty };
+  // Rule 3.1 in each file the module keeps: the linked source opens with the directive, so a
+  // late one in any file is reported here, where the file is still the author's.
+  for (const f of linked.files) {
+    if (!f.kept) continue;
+    const late = findUseTypeshadeDirective(f.sourceFile);
+    if (late !== undefined) {
+      reportMisplacedDirective(f.sourceFile, late, diagnostics);
+    }
+  }
+
+  const sourceFile = ts.createSourceFile(
+    linked.fileName,
+    linked.source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  // A sentence names a declaration as its own file writes it, and says whether a name the
+  // linker joined was declared in the file the sentence is about or imported into it.
+  const origin: LinkedOrigin = {
+    sourceFile,
+    written: (start, end) => {
+      const m = linked.map(start, end);
+      return m && { file: m.file.name, text: m.file.sourceFile.text.slice(m.start, m.end) };
+    },
+  };
+  const inner = withLinkedOrigin(
+    origin,
+    () =>
+      compileTsProgram(linked.source, {
+        ...options,
+        sourceFile,
+        readDocument: undefined,
+        resolveImport: undefined,
+        roots: undefined,
+      }).result,
+  );
+
+  const entryFile = linked.files[0]!;
+  // What the semantic pass refused whole, on the entry's own nodes, where the editor's merged
+  // list reads it (Rule 12.4).
+  carryRefusals(sourceFile, entry, (start, end) => {
+    const m = linked.map(start, end);
+    return m !== undefined && m.file.name === entryFile.name ? m : undefined;
+  });
+  const mapDiagnostic = (d: TsCompilerDiagnostic): TsCompilerDiagnostic | undefined => {
+    if (d.fileName !== linked.fileName) return d;
+    const m = linked.map(d.start, d.start + d.length);
+    const file = m?.file.sourceFile ?? entryFile.sourceFile;
+    const start = m?.start ?? entry.statements[0]?.getStart(entry) ?? 0;
+    const end = m?.end ?? entry.statements[0]?.getEnd() ?? start;
+    if (
+      m !== undefined &&
+      d.code !== undefined &&
+      UNKNOWN_NAME_CODES.has(d.code) &&
+      linked.silenced.some(
+        (u) =>
+          u.file === m.file.name &&
+          (u.start === start ||
+            (u.start >= start && u.end <= end && d.message.includes(`"${u.name}"`))),
+      )
+    ) {
+      return undefined;
+    }
+    const s = file.getLineAndCharacterOfPosition(start);
+    const e = file.getLineAndCharacterOfPosition(end);
+    return {
+      ...d,
+      fileName: m?.file.name ?? entry.fileName,
+      start,
+      length: end - start,
+      line: s.line + 1,
+      character: s.character + 1,
+      endLine: e.line + 1,
+      endCharacter: e.character + 1,
+    };
+  };
+  for (const d of inner.diagnostics) {
+    const mapped = mapDiagnostic(d);
+    if (mapped !== undefined) diagnostics.push(mapped);
+  }
+  remapSpans(linked, [
+    ...inner.funcs,
+    ...inner.consts,
+    ...inner.bindings,
+    ...inner.structs.map((s) => s.decl),
+    ...inner.overrides,
+    ...inner.vars,
+  ]);
+  /** A span of the linked source that lands in the entry, in the entry's offsets. */
+  const inEntry = (
+    start: number,
+    length: number,
+  ): { start: number; length: number } | undefined => {
+    const m = linked.map(start, start + length);
+    if (m === undefined || m.file.name !== entryFile.name) return undefined;
+    return { start: m.start, length: m.end - m.start };
+  };
+  const symbols: DeclaredSymbol[] = [];
+  for (const sym of inner.symbols) {
+    const at = inEntry(sym.start, sym.length);
+    if (at === undefined) continue;
+    const written = entry.text.slice(at.start, at.start + at.length);
+    symbols.push({ ...sym, ...at, name: /^[A-Za-z_]\w*$/.test(written) ? written : sym.name });
+  }
+  const expressions: LoweredExpression[] = [];
+  for (const x of inner.expressions) {
+    const at = inEntry(x.start, x.length);
+    if (at !== undefined) expressions.push({ ...x, ...at });
+  }
+  return {
+    result: {
+      ...inner,
+      diagnostics,
+      sourceFile: entry,
+      symbols,
+      expressions,
+    },
+    linked: { linked, sourceFile, symbols: inner.symbols },
+  };
+}
+
+/** Maps every `SourceSpan` the IR under `roots` carries from the linked source back to the file
+ *  the author wrote it in. The IR holds no `ts.Node`, and a span object is replaced, not edited,
+ *  so one shared between two nodes is mapped once for each. */
+function remapSpans(linked: LinkedProgram, roots: readonly object[]): void {
+  const seen = new WeakSet<object>();
+  const mapSpan = (span: SourceSpan): SourceSpan => {
+    if (span.file !== linked.fileName) return span;
+    const m = linked.map(span.start, span.start + span.length);
+    if (m === undefined) return span;
+    const s = m.file.sourceFile.getLineAndCharacterOfPosition(m.start);
+    const e = m.file.sourceFile.getLineAndCharacterOfPosition(m.end);
+    return {
+      file: m.file.name,
+      start: m.start,
+      length: m.end - m.start,
+      line: s.line,
+      character: s.character,
+      endLine: e.line,
+      endCharacter: e.character,
+    };
+  };
+  const visit = (value: unknown): void => {
+    if (value === null || typeof value !== 'object' || seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const v of value) visit(v);
+      return;
+    }
+    const o = value as Record<string, unknown>;
+    for (const k of Object.keys(o)) {
+      const v = o[k];
+      if ((k === 'span' || k === 'nameSpan') && isSourceSpan(v)) {
+        o[k] = mapSpan(v);
+        continue;
+      }
+      visit(v);
+    }
+  };
+  for (const r of roots) visit(r);
+}
+
+const isSourceSpan = (v: unknown): v is SourceSpan =>
+  typeof v === 'object' &&
+  v !== null &&
+  typeof (v as SourceSpan).file === 'string' &&
+  typeof (v as SourceSpan).start === 'number' &&
+  typeof (v as SourceSpan).length === 'number';
 
 /** Rule 3.1: `"use typeshade"` is the file's first statement (#200, proposal 0012). A comment
  *  before it is not a statement, so a licence header is fine; anything else, another string

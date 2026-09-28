@@ -12,6 +12,9 @@ import {
   authorTypeText,
   refuseModuleName,
   refusedDeclarationsOf,
+  sameFile,
+  writtenName,
+  writtenText,
 } from './context.js';
 import type { DeclaredSymbolSink } from './symbols.js';
 import { mapTsTypeToShaderType } from './type-map.js';
@@ -106,13 +109,14 @@ export function writtenModuleName(
   decl: ts.VariableDeclaration | ts.PropertyDeclaration,
   sourceFile: ts.SourceFile,
 ): string {
-  const own = decl.name.getText(sourceFile);
+  // `writtenName`: not the `b_K` a linked program emits for a `K` two of its files declare.
+  const own = ts.isIdentifier(decl.name) ? writtenName(decl.name) : decl.name.getText(sourceFile);
   if (ts.isPropertyDeclaration(decl) && ts.isClassDeclaration(decl.parent)) {
     return [...qualifiedParts(decl.parent), own].join('.');
   }
   const parts = [own];
   for (let at: ts.Node | undefined = decl.parent; at !== undefined; at = at.parent) {
-    if (ts.isModuleDeclaration(at) && ts.isIdentifier(at.name)) parts.unshift(at.name.text);
+    if (ts.isModuleDeclaration(at) && ts.isIdentifier(at.name)) parts.unshift(writtenName(at.name));
   }
   return parts.join('.');
 }
@@ -133,16 +137,17 @@ function declaredCallMessage(
   call: ts.CallExpression | ts.NewExpression,
   sourceFile: ts.SourceFile,
 ): string {
-  const root = ts.isCallExpression(call) ? call.expression : undefined;
+  // A program's files are linked into one source (Rule 3.9), where what another file declares
+  // is declared too; which file declared it is what the sentence says.
+  const root = call.expression;
+  const declared = ts.isIdentifier(root) ? declarationOf(root) : undefined;
   const imported =
-    root !== undefined &&
     ts.isIdentifier(root) &&
-    declarationOf(root) === undefined &&
-    importsName(sourceFile, root.text);
+    (declared === undefined ? importsName(sourceFile, root.text) : !sameFile(declared, decl));
   const what = `${ts.isNewExpression(call) ? 'builds a class' : 'calls a function'} this file ${
     imported ? 'imports' : 'declares'
   }`;
-  const text = call.getText(sourceFile);
+  const text = writtenText(call);
   const kind = ts.isPropertyDeclaration(decl)
     ? 'A static field no code writes is a module constant, folded'
     : 'A module constant is folded';

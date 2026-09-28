@@ -164,9 +164,11 @@ describe('a statement at the top level is named by its keyword', () => {
     ['outer: for (;;) { break outer; }', stays('A labelled statement, "outer:",')],
     ['debugger;', stays('A "debugger" statement', ' Remove it.')],
     ['function g(): f32 { return 1.; };', stays('An empty statement, ";",', ' Remove it.')],
+    // An import the compiler does not follow (Rule 3.9), refused by the linker before the
+    // statement reaches the checks above.
     [
       'import x = require("./lib");',
-      `${TS_CODES.TOP_LEVEL} "import x = require("./lib")" is a CommonJS import; a shader file imports each function by name, import { f } from "./lib".`,
+      `${TS_CODES.IMPORT} A shader module is imported by an import declaration at the top of the file: import { name } from "./lib".`,
     ],
     [
       'namespace N { export const k = 1.; }\nimport k = N.k;',

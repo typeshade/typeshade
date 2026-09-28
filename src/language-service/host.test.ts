@@ -120,9 +120,11 @@ describe('script versions follow the text (design doc §7)', () => {
   });
 
   it('lets an imported file opened in the editor at version 1 replace the copy read from disk', () => {
-    const service = createTypeshadeLanguageService({
-      readDocument: (uri) => (uri === '/b.ts' ? B_OK : undefined),
-    });
+    const service = createTypeshadeLanguageServiceWith(
+      { readDocument: (uri) => (uri === '/b.ts' ? B_OK : undefined) },
+      analyzeSourceFile,
+      { merge: false },
+    );
     service.openDocument('/a.ts', A, 1);
     expect(tsErrors(service, '/a.ts')).toEqual([]);
     service.openDocument('/b.ts', B_BOOL, 1);
@@ -131,9 +133,11 @@ describe('script versions follow the text (design doc §7)', () => {
 
   it('re-reads a closed import through readDocument instead of keeping the first read', () => {
     let disk = B_OK;
-    const service = createTypeshadeLanguageService({
-      readDocument: (uri) => (uri === '/b.ts' ? disk : undefined),
-    });
+    const service = createTypeshadeLanguageServiceWith(
+      { readDocument: (uri) => (uri === '/b.ts' ? disk : undefined) },
+      analyzeSourceFile,
+      { merge: false },
+    );
     service.openDocument('/a.ts', A, 1);
     expect(tsErrors(service, '/a.ts')).toEqual([]);
     service.openDocument('/b.ts', B_OK, 1);

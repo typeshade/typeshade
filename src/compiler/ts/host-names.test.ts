@@ -766,24 +766,28 @@ describe('the editor says the one sentence the compiler says', () => {
     }
   });
 
-  it('a new of a name another document declares, which a file compiled on its own cannot see', () => {
-    // TypeScript's TS7009 on `new g()` merges into the compiler's unknown name: the editor
-    // compiles each document on its own, as it does a call of an imported function (TS8004).
+  it('a new of a function another document declares, which the editor reads with it', () => {
+    // TypeScript's TS7009 on `new g()` merges into the compiler's sentence. The editor analyses
+    // a document with the documents it imports (Rule 3.9), so it knows `g` is a function, as
+    // `compile()` with a readDocument does; before change 0022 it named `g` unknown.
+    const files: Readonly<Record<string, string>> = {
+      '/lib.ts': `"use typeshade";\nexport function g(): f32 {\n  return 1.;\n}\n`,
+      '/main.ts': `"use typeshade";\nimport { g } from "./lib";\nfunction f(): f32 {\n  const d = new g();\n  return 1.;\n}\n${FS}`,
+    };
+    const sentence = `${TS_CODES.CLASS_MEMBER} "g" is a function, which is called without "new": g().`;
     const service = createTypeshadeLanguageService();
-    service.openDocument(
-      '/lib.ts',
-      `"use typeshade";\nexport function g(): f32 {\n  return 1.;\n}\n`,
-    );
-    service.openDocument(
-      '/main.ts',
-      `"use typeshade";\nimport { g } from "./lib";\nfunction f(): f32 {\n  const d = new g();\n  return 1.;\n}\n${FS}`,
-    );
+    for (const [uri, text] of Object.entries(files)) service.openDocument(uri, text);
     expect(
       service
         .getDiagnostics('/main.ts')
         .filter((d) => d.severity === 'error')
         .map((d) => `${d.source} ${d.code} ${d.message}`),
-    ).toEqual([`typeshade ${TS_CODES.UNKNOWN_NAME} Unknown identifier "g".`]);
+    ).toEqual([`typeshade ${sentence}`]);
+    const compiled = compile(files['/main.ts']!, {
+      fileName: '/main.ts',
+      readDocument: (name) => files[name],
+    });
+    expect(compiled.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([sentence]);
   });
 
   it('a name the file declares, whatever it spells', () => {

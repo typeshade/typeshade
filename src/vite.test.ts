@@ -1,4 +1,5 @@
 // Verifies: Rule 3.8 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 3.9 (docs/language-design.md; traced in reqs/).
 //
 // The Vite plugin (`typeshade/vite`, change 0009) and `typeshade sync`, the two writers of a
 // shader module's host face. Vitest runs on Vite with the plugin in its pipeline
@@ -61,6 +62,63 @@ describe('a host file imports a .shade.ts through the plugin', () => {
     await expect(m.fs()).rejects.toThrow(TypeError);
     expect(readFileSync(join(dir, 'terrain.shade.typeshade.ts'), 'utf8')).toBe(
       hostFace(TERRAIN, { fileName: file }).view,
+    );
+  });
+});
+
+/** A module that imports a helper and a struct from another shader file (Rule 3.9). */
+const LIB = `"use typeshade";
+
+export class Tint {
+  gain: f32;
+}
+
+export function tinted(x: f32, t: Tint): f32 {
+  return x * t.gain;
+}
+`;
+const APP = `"use typeshade";
+import { tinted, Tint } from "./lib.shade.ts";
+
+export function brighten(x: f32): f32 {
+  const t: Tint = { gain: 3. };
+  return tinted(x, t) + 1.;
+}
+`;
+
+describe('a .shade.ts that imports another, through the plugin (Rule 3.9)', () => {
+  it('calls the export, which runs the imported function, and writes the view', async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, 'lib.shade.ts'), LIB);
+    const file = join(dir, 'app.shade.ts');
+    writeFileSync(file, APP);
+    const m = (await import(/* @vite-ignore */ file)) as { brighten: (x: number) => number };
+    expect(m.brighten(2)).toBe(7);
+    expect(readFileSync(join(dir, 'app.shade.typeshade.ts'), 'utf8')).toBe(
+      hostFace(APP, { fileName: file, readDocument: (f) => readFileSync(f, 'utf8') }).view,
+    );
+  });
+
+  it('hands each file the module read to the bundler to watch', async () => {
+    const dir = tempDir();
+    const lib = join(dir, 'lib.shade.ts');
+    writeFileSync(lib, LIB);
+    const watched: string[] = [];
+    const out = await typeshade().transform.call(
+      { addWatchFile: (id: string) => void watched.push(id) } as never,
+      APP,
+      join(dir, 'app.shade.ts'),
+    );
+    expect(out?.code).toContain(' as brighten };');
+    expect(watched).toEqual([lib]);
+  });
+
+  it('fails the build on an error in the imported file, at that file', async () => {
+    const dir = tempDir();
+    const lib = join(dir, 'lib.shade.ts');
+    writeFileSync(lib, LIB.replace('x * t.gain', 'x * t.gian'));
+    await expect(typeshade().transform(APP, join(dir, 'app.shade.ts'))).rejects.toThrow(
+      `${join(dir, 'app.shade.ts')} does not compile:\n${lib}:8:16 TS8022 `,
     );
   });
 });
@@ -180,6 +238,18 @@ describe('typeshade sync', () => {
     expect(runCli(['sync'], a.host, info)).toBe(1);
     expect(a.stderr()).toMatch(/^bad\.shade\.ts:2:\d+ TS80\d\d /);
     expect(files['/p/bad.shade.typeshade.ts']).toBeUndefined();
+  });
+
+  it('writes the view of a module that imports another, reading it beside the module', () => {
+    const files: Record<string, string> = {
+      '/p/src/lib.shade.ts': LIB,
+      '/p/src/app.shade.ts': APP,
+    };
+    const a = memoryHost(files);
+    expect(runCli(['sync', 'src/app.shade.ts'], a.host, info)).toBe(0);
+    expect(files['/p/src/app.shade.typeshade.ts']).toContain(
+      'export declare function brighten(x: number): number;',
+    );
   });
 
   it('refuses a file not named *.shade.ts (Rule 3.8)', () => {

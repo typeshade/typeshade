@@ -1772,8 +1772,8 @@ export function lowerNew(
     classDecl = staticThisClass(unparen(node.expression));
   } else {
     const target = newTargetOf(node, sourceFile);
-    // Anything but a class was said once for the file, where the `new` is written: a name
-    // another file declares with the imports (`reportImportedNews`), the rest by semantic.ts.
+    // Anything but a class was said once for the file, where the `new` is written, by
+    // semantic.ts.
     if (target.kind !== 'class') return undefined;
     flat = target.flat;
     shown = unparen(node.expression).getText(sourceFile);

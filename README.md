@@ -158,6 +158,7 @@ The editor experience TypeShade supports is the language service (`typeshade/lan
     "types": ["typeshade/shade"],
     "module": "esnext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "experimentalDecorators": true,
     "strictPropertyInitialization": false,
     "strict": true,
@@ -168,6 +169,8 @@ The editor experience TypeShade supports is the language service (`typeshade/lan
 ```
 
 `moduleResolution` has to be one that reads a package's `exports` map (`bundler`, `node16` or `nodenext`), because `typeshade/shade` is a subpath export. Without it TypeScript 5.x falls back to `node10`, which does not read `exports`: the entry is `TS2688 Cannot find type definition file for 'typeshade/shade'`, the stand-ins below never load, and every file fails with `TS2318 Cannot find global type 'Array'` and nine like it, so nothing in the shaders is checked.
+
+`allowImportingTsExtensions` is what lets a shader module import another by its own file name, `import { fbm } from "./noise.shade.ts"` (surface §68). Without it that import is `TS5097 An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled`; `noEmit` is what TypeScript asks of a project that sets it.
 
 `lib: []` is required, not a preference. `typeshade/shade` declares its own `Array`, `Function`, `Object`, `Math` and `Pick` stand-ins because a `"use typeshade"` file is not a JavaScript program and must not see the JavaScript standard library. Loading both puts the two sets of declarations in the same program: measured on `hello.shade.ts` with the default lib, that is 19 errors, most of them reported _inside_ `lib.es5.d.ts` and `lib.dom.d.ts` (`Duplicate identifier 'Pick'`, `Cannot redeclare block-scoped variable 'Math'`, `Duplicate index signature for type 'number'`). Keep the shader sources in their own project and they do not meet.
 

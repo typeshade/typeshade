@@ -212,6 +212,9 @@ function lowerExpressionNode(
     return lowerExpression(node.expression, sourceFile, scope, diagnostics, contextual);
   }
   if (ts.isCallExpression(node)) {
+    // `import("./x")` and `require("./x")` are semantic.ts's TS8072, the call's one sentence
+    // (Rule 12.4): what it is called with is there only because the call is.
+    if (refusedBySemantics(node)) return undefined;
     const call = lowerCall(node, sourceFile, scope, diagnostics);
     // The one expression kind that carries a span in this increment: stepping into a helper
     // has to tell two calls in one statement apart. A call that lowered to something else —

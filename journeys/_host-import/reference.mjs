@@ -21,6 +21,7 @@ export default {
   eps: EPS,
   heights: points.map(height),
   normals: points.map(normal),
+  ridges: points.map((p) => 1 - Math.abs(height(p))),
 };
 
 /** What `src/gpu.ts` should return: the same map and block sums, in f32 as the GPU computes. */

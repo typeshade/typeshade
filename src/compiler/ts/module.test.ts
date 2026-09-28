@@ -64,7 +64,9 @@ describe('compileTsSources import', () => {
         `,
       },
     ]);
-    expect(r.diagnostics.some((d) => /Cannot resolve import/.test(d.message))).toBe(true);
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      `${TS_CODES.IMPORT} Cannot find the shader module "./nope" (looked for "nope.ts").`,
+    ]);
   });
 });
 
@@ -181,7 +183,7 @@ describe('compileTsSources — what the merge carried over', () => {
     ).toContain('lib.ts');
   });
 
-  it('a top-level let is a module variable in the entry file, and is refused with the reason elsewhere', () => {
+  it('a top-level let is a module variable in whichever file declares it (Rule 3.9)', () => {
     const lib = {
       fileName: 'lib.ts',
       source: `"use typeshade";\nlet loose = 1;\nexport function g(x: f32): f32 { return x + loose; }`,
@@ -190,16 +192,13 @@ describe('compileTsSources — what the merge carried over', () => {
       fileName: 'app.ts',
       source: `"use typeshade";\nimport { g } from "./lib";\nexport function f(x: f32): f32 { return g(x); }`,
     };
-    const asEntry = compileTsSources([lib, app], 'lib.ts');
-    expect(asEntry.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(asEntry.wgsl).toContain('var<private> loose: f32 = 1.0;');
-    // With app.ts the entry, lib.ts's variable is not collected (roadmap item 14); it says so
-    // instead of vanishing, and the read of it is not left as a bare "Unknown identifier".
-    const elsewhere = compileTsSources([lib, app], 'app.ts');
-    const errors = elsewhere.diagnostics.filter((d) => d.category === 'error');
-    expect(errors.map((d) => `${d.fileName} ${d.code} ${d.message}`)).toContain(
-      'lib.ts TS8014 A module variable is declared in the entry file, and "lib.ts" is not the entry. Move this let there, or pass the value as a parameter.',
-    );
+    // A file's module scope is its own whether or not it is the entry: the variable was
+    // collected from the entry alone before 0022, and refused in any other file.
+    for (const entry of ['lib.ts', 'app.ts']) {
+      const r = compileTsSources([lib, app], entry);
+      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+      expect(r.wgsl).toContain('var<private> loose: f32 = 1.0;');
+    }
   });
 
   it('reports an entry that is not in the source set', () => {
@@ -343,7 +342,7 @@ export function fs(@location(0) uv: vec2): vec4 { return tap(uv) + textureSample
     expect(r.wgsl).toContain('@group(0) @binding(2) var lut: texture_2d<f32>;');
   });
 
-  it('reports a struct two files both declare, once, naming both', () => {
+  it('two files that each declare a struct P have two structs, the later one renamed (Rule 3.2)', () => {
     const cls = `class P {\n  x: f32\n}\n`;
     const r = compileTsSources([
       {
@@ -355,10 +354,13 @@ export function fs(@location(0) uv: vec2): vec4 { return tap(uv) + textureSample
         source: `"use typeshade"\n${cls}export function fb(p: P): f32 { return p.x }\n`,
       },
     ]);
-    const dup = r.diagnostics.filter((d) => d.code === TS_CODES.DUPLICATE_SYMBOL);
-    expect(dup.map((d) => d.message)).toEqual([
-      'Struct "P" is declared in both "a.ts" and "b.ts". A multi-file program is one module, so a name is declared once; rename one or move it.',
-    ]);
+    // Each file's `P` is its own, as TypeScript scopes it. The entry's keeps its name, and the
+    // other file's is emitted under its file's stem.
+    expect(errors(r)).toEqual([]);
+    expect(r.wgsl).toContain('struct P {');
+    expect(r.wgsl).toContain('struct b_P {');
+    expect(r.wgsl).toContain('fn fa(p: P) -> f32');
+    expect(r.wgsl).toContain('fn fb(p: b_P) -> f32');
   });
 
   it('reports two files whose explicit slots collide, in either spelling', () => {
@@ -372,9 +374,10 @@ export function fs(@location(0) uv: vec2): vec4 { return tap(uv) + textureSample
         source: `"use typeshade"\nconst bias = uniform<f32>({ group: 0, binding: 3 })\nexport function gb(): f32 { return bias }\n`,
       },
     ]);
-    const dup = r.diagnostics.filter((d) => d.code === TS_CODES.DUPLICATE_SYMBOL);
-    expect(dup.length).toBe(1);
-    expect(dup[0]!.message).toContain('both occupy @group(0) @binding(3)');
+    // The one-file check, which the program's single linked source goes through.
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      `${TS_CODES.UNSUPPORTED} @binding(3) in group 0 is used by "gain" and "bias".`,
+    ]);
   });
 });
 

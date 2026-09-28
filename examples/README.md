@@ -101,7 +101,9 @@ its extension, in id order, reads that block and compiles the file into the same
 time and three of its gates fail on a fourth category — the reasoning is written out in
 `_shade.ts`'s header. Adding a file here is: write `<id>.shade.ts` with its `@example` block, bake the goldens. A
 file whose block is missing, is not JSON or leaves out a field fails `shade-examples.test.ts`
-rather than going unregistered.
+rather than going unregistered. The scan reads this directory's top level only, so a shader
+library in `lib/` is not an example of its own: `imported-noise.shade.ts` imports
+`lib/noise.shade.ts` (surface §68), and `_shade.ts` compiles it with what it imports.
 
 The table lists the first seven, the hello programs and the first twin; every other file's
 title and blurb are in its own `@example` block.

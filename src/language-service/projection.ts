@@ -49,6 +49,7 @@
 import ts from 'typescript';
 import type { ShaderType } from '../core/ir/types.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
+import type { ImportHooks } from '../compiler/ts/link.js';
 import { inferredReturnAt } from '../compiler/ts/symbols.js';
 import { clampPosition } from './positions.js';
 import type { TypeshadePosition } from './types.js';
@@ -188,7 +189,7 @@ function memberSpelling(type: ShaderType): string | undefined {
  * of what it declared and what each function returns, so the type written in is the type the
  * compiler uses. A document the front end cannot read, or one without the directive, gets none.
  */
-export function planInsertions(text: string, fileName: string): Insertion[] {
+export function planInsertions(text: string, fileName: string, imports?: ImportHooks): Insertion[] {
   // The front end is the expensive half; a document with no candidate declaration skips it.
   const syntax = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
   if (
@@ -202,7 +203,12 @@ export function planInsertions(text: string, fileName: string): Insertion[] {
   }
   let analysis: ReturnType<typeof compileTsSource>;
   try {
-    analysis = compileTsSource(text, { fileName, requireDirective: true, emit: false });
+    analysis = compileTsSource(text, {
+      fileName,
+      requireDirective: true,
+      emit: false,
+      ...imports,
+    });
   } catch {
     return [];
   }

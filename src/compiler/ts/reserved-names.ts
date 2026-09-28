@@ -37,11 +37,9 @@
 // emitted. `sanitizeReservedIdents` fails the GLSL emit closed on the same names, so the
 // warning is never the only thing standing between a reserved word and a driver.
 //
-// NOT COVERED, and deliberately: the multi-file path (`compileTsSources`, roadmap 0.5 item 14)
-// records a declared-symbol table for its ENTRY file only, and without the module constants
-// even there, because a span alone cannot say which file it indexes. Running this check over
-// that half-table would refuse some kinds and miss others with no rule the reader could state,
-// so `compileTsSources` is left alone until every file has a table of its own.
+// A program of several files (Rule 3.9) is covered as one file is: the linker hands the front end
+// the program as one source, this check runs over that source's whole table, and each report is
+// mapped back to the file and line its name is written at.
 //
 // Implements: Rule 3.2, Rule 3.3 (docs/language-design.md; traced in reqs/).
 

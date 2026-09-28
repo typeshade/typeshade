@@ -134,6 +134,55 @@ export function mk(a: f32): P { const p = new P(); p.x = a; return p; }
     expect(kinds(f.exports)).toEqual({ K: 'const', Mode: 'enum', P: 'struct', mk: 'function' });
   });
 
+  it('carries a re-export of a shader file, and a struct another file declares (Rule 3.9)', async () => {
+    const files: Readonly<Record<string, string>> = {
+      '/app/m.shade.ts': `"use typeshade";
+export { scale } from "./lib.shade.ts";
+import { P, make } from "./lib.shade.ts";
+export function mk(a: f32): P {
+  return make(a);
+}
+`,
+      '/app/lib.shade.ts': `"use typeshade";
+export class P {
+  x: f32;
+  v: vec2;
+}
+export function make(a: f32): P {
+  return { x: a, v: vec2(a, a) };
+}
+export function scale(x: f32): f32 {
+  return x * 3.;
+}
+`,
+    };
+    const f = hostFace(files['/app/m.shade.ts']!, {
+      fileName: '/app/m.shade.ts',
+      runtime: RUNTIME,
+      readDocument: (name) => files[name],
+    });
+    expect(f.diagnostics).toEqual([]);
+    expect(kinds(f.exports ?? [])).toEqual({ scale: 'function', mk: 'function' });
+    expect(f.view).toContain('export declare function scale(x: number): number;');
+    // `P` is not an export of this module, so the view spells its layout where the signature
+    // names it.
+    expect(f.view).toContain(
+      'export declare function mk(a: number): { x: number; v: [number, number] };',
+    );
+    // The files the face was read from, which the plugin watches.
+    expect(f.files).toEqual(['/app/m.shade.ts', '/app/lib.shade.ts']);
+    const dir = mkdtempSync(join(tmpdir(), 'typeshade-host-'));
+    dirs.push(dir);
+    const file = join(dir, 'm.shade.mjs');
+    writeFileSync(file, f.code ?? '');
+    const m = (await import(/* @vite-ignore */ pathToFileURL(file).href)) as {
+      scale(x: number): number;
+      mk(a: number): unknown;
+    };
+    expect(m.scale(2)).toBe(6);
+    expect(m.mk(2)).toEqual({ x: 2, v: [2, 2] });
+  });
+
   it('a module with an error has no face, only its diagnostics', () => {
     const f = hostFace(`"use typeshade";\nexport function f(x: f32): f32 { return y; }\n`, {
       fileName: '/app/bad.shade.ts',
