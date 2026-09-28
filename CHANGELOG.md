@@ -1559,6 +1559,12 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A compound assignment to an `f32` rounds in the CPU backends' `f32` mode.** `s += x` computed
+  its sum inside the statement, where `froundF32` (`core/passes/precision.ts`) did not reach it, so
+  the interpreter and the generated CPU code kept it an f64 sum where `s = s + x` rounded; a host
+  call (Rule 11.7) summing in a loop could part from the GPU in the last places. The pass now spells
+  it `s = s + x` first, component-wise for a vector.
+
 - **An array with no size is refused where it would leave its storage binding, not by Tint**
   (Rule 12.6, surface §20). A parameter or a result typed `array<T>`, or a struct whose last field
   is one, and a `let` that would copy one, compiled with no diagnostic and reached Tint, which
