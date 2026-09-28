@@ -6,7 +6,7 @@
 
 import type { SourceSpan } from './ir/span.js';
 import type { CpuStruct, CpuValue } from './cpu-runtime.js';
-import type { FuncDecl } from './ir/nodes.js';
+import type { FuncDecl, StructDecl } from './ir/nodes.js';
 import type { ShaderType } from './ir/types.js';
 
 /** Console methods currently lowered by the TypeShade source compiler. */
@@ -21,7 +21,8 @@ export interface ConsoleEvent {
   readonly span?: SourceSpan;
   /** Which invocation made the call, as three numbers: `global_invocation_id` for a compute entry, the pixel for
    *  a fragment entry (`[x, y, 0]`). Present on an event decoded from the GPU, and on one the
-   *  CPU delivers while running an entry that takes that builtin. */
+   *  CPU delivers while running an entry that takes that builtin, as a parameter or as a field
+   *  of a struct parameter. */
   readonly invocation?: readonly number[];
 }
 
@@ -64,22 +65,38 @@ export type ConsoleSink = (event: ConsoleEvent) => void;
 
 /** The invocation an entry called with `args` runs as, for {@link ConsoleEvent.invocation}:
  *  its `global_invocation_id` (compute), or the pixel `[x, y, 0]` its `position` names
- *  (fragment), the id a decoded GPU event carries (surface §66). Undefined for an entry that
- *  takes neither, or a value that is not a vector. */
+ *  (fragment), the id a decoded GPU event carries (surface §66). The builtin is read where the
+ *  recorded WGSL reads it: a parameter that takes it, else the field that carries it in a
+ *  struct parameter, found in `structs`. Undefined for an entry that takes neither, or a value
+ *  that is not a vector. */
 export function consoleInvocation(
   decl: FuncDecl,
   args: readonly unknown[],
+  structs: readonly StructDecl[] = [],
 ): readonly number[] | undefined {
-  const at = decl.params.findIndex(
-    (p) => p.builtin === 'global_invocation_id' || p.builtin === 'position',
-  );
-  if (at < 0) return undefined;
-  const v = args[at];
-  if (!Array.isArray(v)) return undefined;
+  const isId = (builtin: string | undefined): boolean =>
+    builtin === 'global_invocation_id' || builtin === 'position';
+  let builtin: string | undefined;
+  let v: unknown;
+  const at = decl.params.findIndex((p) => isId(p.builtin));
+  if (at >= 0) {
+    builtin = decl.params[at]!.builtin;
+    v = args[at];
+  } else {
+    for (const [i, p] of decl.params.entries()) {
+      if (p.type.kind !== 'struct') continue;
+      const name = p.type.name;
+      const field = structs.find((s) => s.name === name)?.fields.find((f) => isId(f.builtin));
+      const value = args[i];
+      if (!field || value === null || typeof value !== 'object') continue;
+      builtin = field.builtin;
+      v = (value as Record<string, unknown>)[field.name];
+      break;
+    }
+  }
+  if (builtin === undefined || !Array.isArray(v)) return undefined;
   const n = v.map((x) => Math.max(0, Math.floor(Number(x))));
-  return decl.params[at]!.builtin === 'position'
-    ? [n[0] ?? 0, n[1] ?? 0, 0]
-    : [n[0] ?? 0, n[1] ?? 0, n[2] ?? 0];
+  return builtin === 'position' ? [n[0] ?? 0, n[1] ?? 0, 0] : [n[0] ?? 0, n[1] ?? 0, n[2] ?? 0];
 }
 
 /** The JavaScript Console API methods TypeShade recognizes in shader source today. */
