@@ -1953,6 +1953,18 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A name that contains `$` is refused on its declaration** (Rule 3.2, surface §62, #376).
+  TypeScript takes `$` in an identifier and WGSL does not, so `function scale$()` compiled with
+  no diagnostic and Tint refused the module with `invalid character found`. Rule 3.2 required
+  the refusal, and Appendix B listed it as not enforced. It is now `TS8068` on the declaration,
+  in the compiler and in the editor alike, for a struct, a field, a binding, a module constant,
+  a function, a parameter and a local:
+
+  ```text
+  "k$" contains "$", which a WGSL identifier cannot hold, so a local of that name cannot be
+  emitted for the WebGPU target. Rename it.
+  ```
+
 - **`compile()` emits no constant expression Tint refuses** (Rule 1.1, #368). WGSL evaluates a
   constant expression when it creates the shader, and refuses some that have an answer at run
   time. Each of these compiled with no diagnostic, and Tint refused the WGSL:
