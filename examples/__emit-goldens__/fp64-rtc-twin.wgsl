@@ -1,6 +1,6 @@
 struct Uniforms {
-  center: DF64Vec2,
-  mark: DF64Vec2,
+  @align(16) center: DF64Vec2,
+  @align(16) mark: DF64Vec2,
   resolution: vec2<f32>,
   zoom_exp: f32,
   fp64: f32,

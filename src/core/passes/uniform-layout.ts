@@ -234,6 +234,36 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
     if (!inUniform.has(s.name)) return s;
     let changed = false;
     const fields = s.fields.map((f) => {
+      // A member whose type is a struct: in this address space its alignment is
+      // `roundUp(16, AlignOf(S))` and the next member starts at least `roundUp(16, SizeOf(S))`
+      // after it, which `reflect()`'s std140 arm reports and WGSL's own layout does not give.
+      // Tint refuses the member where it lands otherwise, `the offset of a struct member of
+      // type 'DF64Vec2' in address space 'uniform' must be a multiple of 16 bytes, but
+      // 'shift' is currently at offset 8` — a `vec2f64`, which `fp64Lower` makes a struct, or
+      // any struct under 16 bytes.
+      if (f.type.kind === 'struct') {
+        const el = elemLayoutOf(f.type);
+        if (el === undefined) return f;
+        const align = el.align < UNIFORM_ARRAY_ALIGN ? UNIFORM_ARRAY_ALIGN : undefined;
+        const size =
+          el.size % UNIFORM_ARRAY_ALIGN !== 0 ? roundUp(el.size, UNIFORM_ARRAY_ALIGN) : undefined;
+        if ((align === undefined || f.align === align) && (size === undefined || f.size === size))
+          return f;
+        if (inStorage.has(s.name)) {
+          throw new UnsupportedFeatureError(
+            `wgsl: struct '${s.name}' is bound as a uniform AND as storage, and its field ` +
+              `'${f.name}' is a struct ${f.type.name}, which the two address spaces lay out ` +
+              `differently (a uniform aligns a struct member to 16 bytes, storage does not). ` +
+              `Declare one struct per address space.`,
+          );
+        }
+        changed = true;
+        return {
+          ...f,
+          ...(align !== undefined ? { align } : {}),
+          ...(size !== undefined ? { size } : {}),
+        };
+      }
       if (f.type.kind !== 'array' || f.type.size === undefined) return f;
       const arrayElem = f.type.elem;
       // A list of lists, checked BEFORE the layout walk. The inner list's elements are in the

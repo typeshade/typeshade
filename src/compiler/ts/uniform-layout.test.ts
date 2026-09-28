@@ -140,6 +140,61 @@ export function fs(): vec4 { return vec4(U_.k * U_.ps[1].a) }`);
     expect(u.size).toBe(48);
   });
 
+  it('aligns and sizes a struct member to 16, as reflect() reports it, where WGSL alone does not', () => {
+    // WGSL's uniform space aligns a member of struct type to `roundUp(16, AlignOf(S))` and
+    // starts the next member `roundUp(16, SizeOf(S))` after it. `In` is one f32, so WGSL's
+    // own layout put it at offset 4 and `w` at 8, while reflect() reports 16 and 32: Tint
+    // (Chromium 141) refuses the unaligned member, and a runtime that packs by reflect()
+    // wrote bytes the shader read elsewhere.
+    const c = compiled(`interface In { a: f32 }
+interface U { k: f32; inner: In; w: f32 }
+declare const U_: uniform<U>
+@fragment
+export function fs(): vec4 { return vec4(U_.k + U_.inner.a + U_.w) }`);
+    expect(c.wgsl).toContain('@align(16) @size(16) inner: In,');
+    const u = reflect(c.module).uniforms[0]!;
+    expect(u.fields.map((f) => [f.name, f.offset])).toEqual([
+      ['k', 0],
+      ['inner', 16],
+      ['w', 32],
+    ]);
+  });
+
+  it('aligns a vec2f64 member, which the f64 emulation makes a struct (DF64Vec2)', () => {
+    // Measured on Chromium 141: `the offset of a struct member of type 'DF64Vec2' in address
+    // space 'uniform' must be a multiple of 16 bytes, but 'shift' is currently at offset 8`.
+    const c = compiled(`interface Affine { k: f64; shift: vec2f64 }
+declare const A: uniform<Affine>
+declare const out: storage<array<f64>, "read_write">
+@compute([1])
+export function m() { out[0] = A.k + A.shift.x }`);
+    expect(c.wgsl).toContain('@align(16) shift: DF64Vec2,');
+    const u = reflect(c.module).uniforms[0]!;
+    expect(u.fields.map((f) => [f.name, f.offset])).toEqual([
+      ['k', 0],
+      ['shift', 16],
+    ]);
+  });
+
+  it('refuses a struct member a uniform and storage would lay out differently', () => {
+    // As an array that needs a wrapper is: padding it for the uniform would move the bytes a
+    // host packs for the storage binding, which reflect() lays out by std430.
+    const c = compile(`"use typeshade";
+interface In { a: f32 }
+interface U { k: f32; inner: In }
+declare const U_: uniform<U>;
+declare const S: storage<U, "read_write">;
+@compute([1])
+export function m() { S.k = U_.k + U_.inner.a; }`);
+    expect(c.wgsl).toBeUndefined();
+    expect(c.diagnostics.map((d) => [d.code, d.message])).toEqual([
+      [
+        'TS8015',
+        "Backend emit failed: wgsl: struct 'U' is bound as a uniform AND as storage, and its field 'inner' is a struct In, which the two address spaces lay out differently (a uniform aligns a struct member to 16 bytes, storage does not). Declare one struct per address space.",
+      ],
+    ]);
+  });
+
   it('declares a wrapper AFTER the struct it wraps, not before it', () => {
     // A `vec2` field makes `Q` 8 bytes with an 8-byte alignment, so `array<Q, 2>` has a
     // natural stride of 8 and needs a wrapper. That wrapper holds `Q`, and it used to be

@@ -29,7 +29,7 @@ export async function run(): Promise<Record<string, number[]>> {
   const dxs = Float64Array.from({ length: 256 }, (_, i) => 1 + i * 1e-9);
   const dys = new Float64Array(256);
   const dps = new Float64Array(256 * 3);
-  await axpy({ affine: { k: 3, shift: 0.25 + 1e-10 }, xs: dxs, ys: dys, ps: dps }, 4);
+  await axpy({ affine: { k: 3, shift: [0.25, 1e-10] }, xs: dxs, ys: dys, ps: dps }, 4);
   return {
     ys: [...ys],
     sums: [...sums],

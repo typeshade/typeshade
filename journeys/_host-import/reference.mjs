@@ -39,7 +39,7 @@ export function gpuReference() {
   // The resident chain sums the map's output, which never left the device.
   // The doubles: in f64, as JavaScript computes them; the emulation is within 2^-44 of it.
   const dxs = Array.from({ length: 256 }, (_, i) => 1 + i * 1e-9);
-  const doubleYs = dxs.map((x) => x * 3 + (0.25 + 1e-10));
+  const doubleYs = dxs.map((x) => x * 3 + 0.25 + 1e-10);
   const doublePs = dxs.flatMap((x, i) => [x, 3, doubleYs[i]]);
   return { ys, sums: sumsOf(xs), residentYs: ys, residentSums: sumsOf(ys), doubleYs, doublePs };
 }
