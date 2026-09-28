@@ -29,7 +29,8 @@
 // are reachable from two or more subpaths, which is the right key for a doc obligation and
 // the WRONG one here: a symbol moving from `.` to `./dev` is a breaking change that
 // definition-keying hides). They are not two authorities over one fact. What they do share is
-// the compiler-API approach and the hardcoded compilerOptions.
+// the list of API subpaths (`api-subpaths.ts`, one copy for both), the compiler-API approach
+// and the hardcoded compilerOptions.
 //
 // ON THE HARDCODED OPTIONS, MEASURED RATHER THAN INHERITED. api-doc-coverage.test.ts records
 // `moduleResolution: 'classic'` as a silent kill switch that dropped `.` from 284 exports to
@@ -54,6 +55,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { API_SUBPATHS } from './api-subpaths.js';
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as {
@@ -65,19 +67,13 @@ const SNAPSHOT = join(PKG, 'src', '__api__', 'surface.md');
 const UPDATE = process.env.UPDATE_API_SURFACE === '1';
 const REBAKE = 'bun run bake:api-surface';
 
-/** The subpaths that ARE the public API. Mirrors api-doc-coverage.test.ts's list, and arm S4
- *  there already pins it against `package.json` — so a new subpath cannot appear unnoticed in
- *  one file and not the other. */
-const API_SUBPATHS = [
-  '.',
-  './dev',
-  './debug',
-  './emit-prod',
-  './vite',
-  './runtime',
-  './core/ir',
-  './language-service',
-] as const;
+// The subpaths snapshotted here are `API_SUBPATHS` from `api-subpaths.ts`, the one list
+// api-doc-coverage.test.ts reads too, so the two gates cannot cover different subpaths. Arm A5
+// there pins that list, with `NOT_API_SUBPATHS`, against `package.json` `exports` by set
+// equality: every subpath the manifest exports is either snapshotted here and doc-checked there,
+// or listed as not API with the reason. Nothing in THIS file checks the list against the
+// manifest, and `bun run bake:api-surface` runs this file alone, so it is A5, in `bun run test`,
+// that fails on a subpath nobody classified.
 
 /** Floors for the "did the reader read anything" arm. DELIBERATELY well under the real counts,
  *  which this reader measured at 355 / 33 / 17 / 222 when it landed. (Do not read those as
@@ -89,6 +85,7 @@ const API_SUBPATHS = [
  *  that can name what actually moved. */
 const FLOOR: Readonly<Record<string, number>> = {
   '.': 200,
+  './compute': 3,
   './dev': 20,
   './debug': 4,
   './emit-prod': 10,

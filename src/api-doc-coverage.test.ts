@@ -67,6 +67,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { API_SUBPATHS, NOT_API_SUBPATHS } from './api-subpaths.js';
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as {
@@ -78,32 +79,9 @@ const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as 
  *  counting as coverage. */
 const STUB_SENTINEL = 'TODO(X-GIS #1695):';
 
-/** The subpaths that ARE the public API and therefore owe documentation. */
-const API_SUBPATHS = [
-  '.',
-  './compute',
-  './dev',
-  './debug',
-  './emit-prod',
-  './vite',
-  './runtime',
-  './core/ir',
-  './language-service',
-] as const;
-/** Subpaths deliberately outside the doc contract, with the reason.
- *  `./examples` is a curated gallery whose 36 objects already carry required `title` and
- *  `blurb` fields — a TSDoc on each would be a second authority for the same prose.
- *  `./shade` is not a TypeScript module at all: it resolves to `dist/shade.d.ts`, the ambient
- *  authoring lib written out of `SHADE_DTS` by `scripts/emit-shade-dts.ts` for a consumer to
- *  put in their `types` array. It exports no symbol a reader could import, so there is nothing
- *  here to document; the declarations carry their own prose, and `ambient.ts` carries the
- *  reasoning. Both are kept in their own list rather than as allowlist entries so "wholesale"
- *  is never available as an escape hatch for real debt.
- *  `./runtime/internal` is what a module the Vite plugin generates imports, and nothing else
- *  does (changes 0009 and 0025): its names are the contract between the generator and its
- *  output, from the same package version, and change with them, so no reader is promised them.
- *  `./runtime`, the program runtime, is API since change 0025. */
-const NOT_API_SUBPATHS = ['./examples', './shade', './runtime/internal'] as const;
+// The subpaths that ARE the public API, and the ones deliberately outside it with the reason,
+// are `API_SUBPATHS` and `NOT_API_SUBPATHS` in `api-subpaths.ts`: one list, which
+// `api-surface.test.ts` snapshots too. Arm A5 below pins the two against `package.json`.
 
 /** Why each undocumented symbol is still undocumented. Reasons live here, once, and every
  *  row below indirects through this table — 175 copies of a sentence would rot.
@@ -386,11 +364,13 @@ describe('X-GIS #1695 — the public surface is fully accounted for', () => {
   it('A5: every exports subpath is classified as API or explicitly not-API', () => {
     // SET EQUALITY, not a for-each: a loop over API_SUBPATHS can only ever confirm the four
     // already listed, and the failure worth catching is a FIFTH subpath being added and
-    // silently escaping the doc contract.
+    // silently escaping the doc contract. It is the surface snapshot's pin too:
+    // `api-surface.test.ts` reads the same `API_SUBPATHS` and checks it against nothing else.
     expect(
       [...API_SUBPATHS, ...NOT_API_SUBPATHS].sort(),
       'the package manifest exports a subpath this gate does not classify. Add it to ' +
-        'API_SUBPATHS (it owes documentation) or to NOT_API_SUBPATHS with the reason.',
+        'API_SUBPATHS in api-subpaths.ts (it owes documentation and a section of ' +
+        '__api__/surface.md) or to NOT_API_SUBPATHS there, with the reason.',
     ).toEqual(Object.keys(manifest.exports).sort());
   });
 

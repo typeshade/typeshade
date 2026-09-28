@@ -13,9 +13,11 @@ Concrete shaders live in `examples/` and in consuming projects, never here.
 
 ## Entry points
 
-Every file below but the last is a `package.json` `exports` subpath. `__api__/surface.md` lists every symbol
-they export; it is generated (`bun run bake:api-surface`) and `api-surface.test.ts` fails when it
-and the tree disagree.
+Every file below but the last is a `package.json` `exports` subpath, and every one of those but
+`runtime.ts` is public API: `API_SUBPATHS` in `api-subpaths.ts`, the one list that
+`api-doc-coverage.test.ts` and `api-surface.test.ts` both read. `__api__/surface.md` lists every
+symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
+`api-surface.test.ts` fails when it and the tree disagree.
 
 | File                  | Subpath                                                                                                                                            |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
