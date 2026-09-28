@@ -1,4 +1,4 @@
-// Verifies: Rule 7.2 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 7.2, Rule 8.22 (docs/language-design.md; traced in reqs/).
 //
 // A kernel function's reduction loop means the tree order (change 0013, part 3): each iteration
 // from the identity, 256 at a time by the workgroup tree, then the partials the same way. The

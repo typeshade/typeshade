@@ -83,7 +83,12 @@ export const surfUid = (n: number): string => `SURF-${String(n).padStart(3, '0')
 
 const read = (f: string): string => readFileSync(join(ROOT, f), 'utf8');
 
-/** Each `**Rule N.M.**` paragraph with its bullets, as [number, lines]. */
+/** Each `**Rule N.M.**` paragraph with its labelled parts, as [number, lines].
+ *
+ *  A rule ends after its `- Rationale:`, `- Derives from:` and `- Enforced by:` bullets, at the
+ *  first line that is none of those, not indented under one, and not blank. A bullet list inside
+ *  the rule's own text (Rule 8.22's R1 to R6) is part of the rule: ending the block at the first
+ *  plain line after any bullet cut 8.22 there and left its item without the three parts. */
 export function ruleBlocks(md: string): [string, string[]][] {
   const lines = md.split('\n');
   const out: [string, string[]][] = [];
@@ -91,12 +96,12 @@ export function ruleBlocks(md: string): [string, string[]][] {
     const m = /^\*\*Rule (\d+\.\d+)\.\*\*/.exec(lines[i]!);
     if (!m) continue;
     let j = i + 1;
-    let bullets = false;
+    let parts = false;
     for (; j < lines.length; j++) {
       const l = lines[j]!;
       if (/^\*\*Rule /.test(l) || /^#{1,6} /.test(l)) break;
-      if (/^\s*- /.test(l) || /^\s{2,}\S/.test(l)) bullets = true;
-      else if (l.trim() !== '' && bullets) break;
+      if (/^- (?:Rationale|Derives from|Enforced by):/.test(l)) parts = true;
+      else if (parts && l.trim() !== '' && !/^\s*- /.test(l) && !/^\s{2,}\S/.test(l)) break;
     }
     while (lines[j - 1]?.trim() === '') j--;
     out.push([m[1]!, lines.slice(i, j)]);

@@ -1,4 +1,4 @@
-// ═══ The tree order a kernel function's reduction is combined in (Rule 7.2, change 0013) ═══
+// ═══ The tree order a kernel function's reduction is combined in (Rule 7.2, Rule 8.22, change 0013) ═══
 //
 // A reduction loop of a kernel function, `for (…) { s += xs[i]; }`, means one order of
 // combining: the one the GPU runs. Each iteration starts from the operator's identity and
