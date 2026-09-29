@@ -23,9 +23,25 @@ const bin = (bop: '+' | '-' | '*' | '/', a: Expr, b: Expr): Expr => ({
 
 export type ExpandId = 'log10' | 'log1p' | 'expm1' | 'cbrt' | 'hypot';
 
+/** How many arguments each expansion takes, as the fewest and the most: what `expandMath` checks
+ *  at the call, and what the editor's declaration of the same `Math` member is written from
+ *  (`ambient.ts`), so that the two cannot name different counts (Rule 12.7, #186). */
+export const EXPAND_ARITY: Readonly<Record<ExpandId, readonly [fewest: number, most: number]>> = {
+  log10: [1, 1],
+  log1p: [1, 1],
+  expm1: [1, 1],
+  cbrt: [1, 1],
+  hypot: [2, 3],
+};
+
 export function expandMath(id: ExpandId, args: readonly Expr[]): Expr | string {
+  const [fewest, most] = EXPAND_ARITY[id];
+  if (args.length < fewest || args.length > most) {
+    return fewest === most
+      ? `${id} expects ${fewest} argument${fewest === 1 ? '' : 's'}.`
+      : `${id} expects ${fewest} or ${most} arguments.`;
+  }
   if (id === 'hypot') {
-    if (args.length < 2 || args.length > 3) return 'hypot expects 2 or 3 arguments.';
     for (const a of args) {
       if (typeKey(a.type) !== 'f32')
         return `hypot arguments must be f32, got ${authorTypeText(a.type)}.`;
@@ -34,7 +50,6 @@ export function expandMath(id: ExpandId, args: readonly Expr[]): Expr | string {
     const vec: Expr = { op: 'construct', type: ctorType, args: [...args] };
     return call('length', f32T, [vec]);
   }
-  if (args.length !== 1) return `${id} expects 1 argument.`;
   const x = args[0]!;
   if (typeKey(x.type) !== 'f32') return `${id} expects f32, got ${authorTypeText(x.type)}.`;
   switch (id) {
