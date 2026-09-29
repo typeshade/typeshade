@@ -120,6 +120,18 @@ softening them.
   that a CPU run does not have. Today `GPU_STUBS` (`src/core/cpu-runtime.ts`) returns `0` and
   opaque black for these, and only when `gpuStubs: true` is passed; otherwise the call throws.
   §2.4 and §4.4 say what a debugger should do with that.
+- **A kernel function's reduction loop is one order, and a pause inside it is one invocation.**
+  `s += x` in a loop of a kernel function the proof accepts (Rule 8.22) is a fold in the tree
+  order on every tier (Rule 7.2, `src/core/kernel-tree.ts`), so a stepped run folds it that way
+  and returns what `compileModule` returns (§2.5): the `f32` sum of `1e8, 1, -1e8, 1` is 2,
+  where iteration order gives 1. Each iteration is one invocation on the GPU, and starts from
+  the operator's identity (`-0` for a float sum, `0` for an integer sum, `1` for a product), so a
+  pause inside the loop shows the variable as that invocation holds it: the identity at the top
+  of an iteration, then what the iteration has combined into it, never a running total. What an
+  iteration left shows at the pause on the loop's own update, `i++`, and a `for…of` loop has none,
+  since its update is a statement nobody wrote (§3.4). The total appears when the loop is over:
+  the variable becomes what it held before the loop, combined with the fold. A loop the proof
+  refuses runs in iteration order, and a pause in it shows the running total.
 
 Two consequences worth stating up front, because they shape §2:
 

@@ -16,6 +16,7 @@ import { sourceSpanOf } from '../ir/span.js';
 import type { CpuPrecision } from '../oracle.js';
 import { validate } from '../passes/validate.js';
 import { autoVars } from '../passes/opt/index.js';
+import { treeLoops } from '../passes/parallel-loop.js';
 import { froundF32 } from '../passes/precision.js';
 import { sameFileName } from './file-name.js';
 import { compileWatch, watchCacheKey, type CompiledWatch, type DebugWatchValue } from './watch.js';
@@ -284,6 +285,12 @@ export interface DebugSession {
  *  span: a module authored through the `fn()` EDSL has none, and a run stops only where there
  *  is a line to show ({@link DebugPause.span}).
  *
+ *  A kernel function (Rule 8.22) is stepped like any other, with one difference: a reduction
+ *  loop its proof accepts is folded in the tree order every tier folds it in (Rule 7.2), so the
+ *  result is the one `compileModule` returns, and a pause inside the loop shows the variable as
+ *  one GPU invocation holds it, from the operator's identity, and not a running total
+ *  (`docs/debugging.md` §1.3).
+ *
  *  A parameter `args` does not supply reads as the zero of its type for the shapes `zeroOf`
  *  covers, which is the same default the Playground's "Run on the CPU" uses, so an invocation
  *  can name only the inputs it cares about. A struct or array parameter is the gap: its zero
@@ -329,9 +336,9 @@ export function startDebugSession(
   // The oracle's own preparation, in the oracle's own order: reject what the GPU writers
   // reject, materialise auto-vars so the assignable lvalues match, then round if asked.
   validate(m);
-  let prepared = autoVars(m);
+  const unrounded = autoVars(m);
   const precision: CpuPrecision = opts?.precision ?? 'f32';
-  if (precision === 'f32') prepared = froundF32(prepared);
+  const prepared = precision === 'f32' ? froundF32(unrounded) : unrounded;
 
   const decl = prepared.funcs.find((f) => f.name === entry);
   if (!decl) throw new Error(`typeshade/debug: no function "${entry}" in module`);
@@ -341,6 +348,11 @@ export function startDebugSession(
   const invocation = sink && consoleInvocation(decl, filled, prepared.structs);
   const ctx: ReturnType<typeof makeCtx> = {
     ...makeCtx(prepared, opts?.gpuStubs ?? false),
+    // A kernel function's reduction loop is folded in the tree order (Rule 7.2), as `compileModule`
+    // folds it: the proof reads the module before it is rounded, and the loops it accepts are
+    // named in the module the run walks.
+    trees: treeLoops(unrounded, prepared),
+    f32: precision === 'f32',
     ...(sink ? { consoleSink: sink } : {}),
     ...(invocation ? { invocation } : {}),
   };

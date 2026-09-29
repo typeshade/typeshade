@@ -277,6 +277,26 @@ repository was published to npm before **`0.1.0`, the first release**.
   `inferred-returns`, whose functions the two runs of the front end lower in another order and
   whose texts hold the same lines.
 
+- **A stepped run folds a kernel function's reduction in the tree order** (Rule 7.2, #362). A debug
+  session ran a reduction loop the proof accepts in iteration order, where `compileModule`,
+  `compileModuleJs` and the GPU fold it in the tree (`src/core/kernel-tree.ts`): stepping
+  `total(xs)`, `let s = 0.; for (const x of xs) { s += x; }`, over `[1e8, 1, -1e8, 1]` in `f32`
+  returned 1 where every tier returns 2, so a developer who stepped through it to see why it
+  returns 2 was shown 1. The session now takes the loops `treeLoops` names, as the oracle does:
+  each iteration starts from the operator's identity, what it leaves is collected, and when the
+  loop is over the variable becomes what it held before the loop combined with the fold. The
+  oracle and the session share one `reductionIdentity`. A pause inside such a loop shows the
+  variable as one GPU invocation holds it, the identity at the top of an iteration (`-0` for a
+  float sum) and then what the iteration has combined into it, no longer a running total, and
+  `docs/debugging.md` §1.3 says so. `src/core/kernel-tree.test.ts` holds the interpreter, the
+  generated CPU code and the session to the same bits on the issue's sum, in `f32` and in `f64`,
+  and on a start value, a product, a vector, two variables, a `continue`, a nested loop and an
+  emulated double, and to iteration order in a loop the proof refuses and in a function that is
+  no kernel; `src/core/debug/step.test.ts` holds what each pause shows. The stepping arm of the
+  generated-kernel differential (#349) no longer leaves a float reduction's result out of its
+  comparison; it compares in `f32` as well as `f64`, and pins seeds 35 and 51, which caught the
+  walk.
+
 ## [0.1.0] - 2026-09-29
 
 ### Changed

@@ -254,6 +254,138 @@ export function f(): f32 {
   });
 });
 
+describe("a kernel function's reduction loop shows one invocation of it (#362)", () => {
+  // Rule 7.2: an accepted reduction loop folds its iterations in the tree order, each from the
+  // operator's identity, as the GPU's invocations do. A pause inside it shows `s` as the
+  // iteration's own invocation holds it, and the total only when the loop is over.
+  const COUNTED = `"use typeshade";
+export function total(xs: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  return s;
+}
+`;
+  const FOR_OF = `"use typeshade";
+export function total(xs: array<f32>): f32 {
+  let s = 10.;
+  for (const x of xs) {
+    s += x;
+  }
+  return s;
+}
+`;
+  const xs = [1e8, 1, -1e8, 1];
+
+  /** `name`'s value at every pause of a run, beside the text of the statement it is stopped on:
+   *  `-0` and the like as text, and `-` where the name is not declared yet. */
+  function values(source: string, entry: string, args: unknown[], name: string): string[][] {
+    const s = startDebugSession(compiled(source), entry, args as never[]);
+    const out: string[][] = [];
+    while (s.pause) {
+      const frame = s.pause.frames[0]!;
+      const v = frame.locals.get(name);
+      out.push([
+        textAt(source, s.pause.span).split('\n')[0]!,
+        v === undefined ? '-' : formatCpuValue(v, frame.localTypes.get(name)),
+      ]);
+      s.stepIn();
+    }
+    return out;
+  }
+
+  it('shows the identity at the top of each iteration, what the iteration left at its update, and the total after', () => {
+    expect(values(COUNTED, 'total', [xs], 's')).toEqual([
+      ['let s = 0.;', '-'],
+      ['for (let i: u32 = 0; i < xs.length; i++) {', '0'],
+      ['let i: u32 = 0', '0'],
+      ['s += xs[i];', '-0'],
+      ['i++', '100000000'],
+      ['s += xs[i];', '-0'],
+      ['i++', '1'],
+      ['s += xs[i];', '-0'],
+      ['i++', '-100000000'],
+      ['s += xs[i];', '-0'],
+      ['i++', '1'],
+      // The tree order: (1e8 + -1e8) + (1 + 1), combined with what `s` held before the loop.
+      ['return s;', '2'],
+    ]);
+  });
+
+  it('shows the identity at every stop of a `for...of` loop, whose update has no line to stop on', () => {
+    // The loop statement still shows what `s` held before it. Each trip stops at the element's
+    // binding and at the body, and nowhere between: the total is that value combined with the
+    // tree's fold, 10 + 2.
+    expect(values(FOR_OF, 'total', [xs], 's')).toEqual([
+      ['let s = 10.;', '-'],
+      ['for (const x of xs) {', '10'],
+      ['const x', '-0'],
+      ['s += x;', '-0'],
+      ['const x', '-0'],
+      ['s += x;', '-0'],
+      ['const x', '-0'],
+      ['s += x;', '-0'],
+      ['const x', '-0'],
+      ['s += x;', '-0'],
+      ['return s;', '12'],
+    ]);
+  });
+
+  it('holds a vector at the identity of every component, and folds the components in the tree order', () => {
+    const src = `"use typeshade";
+export function total(xs: array<vec2>): vec2 {
+  let s = vec2(0.);
+  for (const v of xs) {
+    s += v;
+  }
+  return s;
+}
+`;
+    const rows = values(
+      src,
+      'total',
+      [
+        [
+          [1e8, 1],
+          [1, 1],
+          [-1e8, 1],
+          [1, 1],
+        ],
+      ],
+      's',
+    );
+    expect(rows.filter(([text]) => text === 's += v;').map(([, v]) => v)).toEqual([
+      'vec2(-0, -0)',
+      'vec2(-0, -0)',
+      'vec2(-0, -0)',
+      'vec2(-0, -0)',
+    ]);
+    expect(rows[rows.length - 1]).toEqual(['return s;', 'vec2(2, 4)']);
+  });
+
+  it('leaves a loop the proof refuses in iteration order, showing the running total', () => {
+    const src = `"use typeshade";
+export function scan(xs: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s = s + xs[i];
+    xs[i] = s;
+  }
+  return s;
+}
+`;
+    const rows = values(src, 'scan', [xs], 's');
+    expect(rows.filter(([text]) => text === 'xs[i] = s;').map(([, v]) => v)).toEqual([
+      '100000000',
+      '100000000',
+      '0',
+      '1',
+    ]);
+    expect(rows[rows.length - 1]).toEqual(['return s;', '1']);
+  });
+});
+
 describe('breakpoints', () => {
   it('continue stops at the first statement whose span starts on the line', () => {
     const m = compiled(STRAIGHT);

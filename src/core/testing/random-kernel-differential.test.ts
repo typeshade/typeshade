@@ -45,6 +45,11 @@ const PINNED_SEEDS = [
   // #361: two loops scatter into one array with different operators, and the lowering gave each
   // write the last loop's atomic. L caught it on seeds 17, 25, 92, 125, 164, 168 and 200 of 200.
   17, 25, 92,
+  // #362: the stepping walk folded a loop's float reduction in iteration order, and every tier folds
+  // it in Rule 7.2's tree. In f64 no other seed of the sweep shows the difference, which needs
+  // arrays of 7: S caught it on 35 and 51, and in f32 on 11 as well.
+  35,
+  51,
 ] as const;
 
 /** Array lengths `[n, h]`: every array but a scatter target holds `n`, a scatter target `h`.
@@ -62,8 +67,6 @@ interface Case {
   /** The loops the proof accepted and refused. */
   readonly accepted: number;
   readonly refused: number;
-  /** An accepted loop folds a float: its order is the tree's on every tier (Rule 7.2). */
-  readonly floatFold: boolean;
 }
 
 const CASES: Case[] = [
@@ -82,9 +85,6 @@ const CASES: Case[] = [
     ...(plan !== undefined && !('noGpu' in plan) ? { plan } : {}),
     accepted: proof.loops.filter((l) => l.ok).length,
     refused: proof.loops.filter((l) => !l.ok).length,
-    floatFold: proof.loops.some(
-      (l) => l.ok && l.reductions.some((r) => r.type.kind === 'vec' || isFloat(r.type)),
-    ),
   };
 });
 
@@ -317,28 +317,27 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
     expect(o2.divergences).toEqual([]);
   });
 
-  it('S: the stepping walk agrees with the interpreter', () => {
+  it('S: the stepping walk agrees with the interpreter, in f64 and in f32', () => {
     const divergences: string[] = [];
     let checks = 0;
-    for (const { k, args, key } of sweep()) {
-      // A step of a debug session is a statement, so a long loop is left to the other arms.
-      if (args.some((a) => Array.isArray(a) && (a as unknown[]).length > 7)) continue;
-      const want = call(compileModule(k.c.module, { gpuStubs: true }), k.c, args);
-      const values = args.map(copy);
-      const s = startDebugSession(k.c.module, k.c.kernel, values, {
-        precision: 'f64',
-        gpuStubs: true,
-      });
-      s.continue();
-      expect(s.done).toBe(true);
-      const got: KernelRun = { result: s.result, arrays: values.slice(0, k.c.arrays.length) };
-      checks++;
-      // The session folds a loop's float reduction in the loop's order, and every tier in
-      // Rule 7.2's tree (#362), so its result is held to the interpreter only without one.
-      const same = k.floatFold ? bitEqual(want.arrays, got.arrays) : bitEqual(want, got);
-      if (!same && divergences.length < 8) divergences.push(`${key}: ${show(want)} ≠ ${show(got)}`);
+    for (const precision of ['f64', 'f32'] as const) {
+      for (const { k, args, key } of sweep()) {
+        // A step of a debug session is a statement, so a long loop is left to the other arms.
+        if (args.some((a) => Array.isArray(a) && (a as unknown[]).length > 7)) continue;
+        const want = call(compileModule(k.c.module, { gpuStubs: true, precision }), k.c, args);
+        const values = args.map(copy);
+        const s = startDebugSession(k.c.module, k.c.kernel, values, { precision, gpuStubs: true });
+        s.continue();
+        expect(s.done).toBe(true);
+        const got: KernelRun = { result: s.result, arrays: values.slice(0, k.c.arrays.length) };
+        checks++;
+        // The result too, whatever the loops reduce: the session folds a reduction in Rule 7.2's
+        // tree, as the interpreter does (#362).
+        if (!bitEqual(want, got) && divergences.length < 8)
+          divergences.push(`${precision} ${key}: ${show(want)} ≠ ${show(got)}`);
+      }
     }
-    expect(checks).toBeGreaterThan(50);
+    expect(checks).toBeGreaterThan(100);
     expect(divergences).toEqual([]);
   });
 
