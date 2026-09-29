@@ -15,6 +15,8 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-29
+
 ### Changed
 
 - **The user journeys run on the program runtime** (proposal 0025, step 5, first half; Rule
