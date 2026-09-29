@@ -2,9 +2,9 @@
 //
 // `typeshade/runtime` is what an application ships to run a compiled program, and the point of
 // it is that the application does not ship the compiler: the TypeScript front end is 1.4 MB
-// gzipped with TypeScript, the runtime about 10 KB. `typeshade/emit`, the load-time emitter an
+// gzipped with TypeScript, the runtime about 11 KB. `typeshade/emit`, the load-time emitter an
 // application adds to emit a program again where it runs, carries the IR and the backends and no
-// front end, about 78 KB. Two checks hold that, over each subpath's source:
+// front end, about 76 KB. Two checks hold that, over each subpath's source:
 //
 //   1. THE CLOSURE. Every module the subpath's entry reaches through its imports, type-only ones
 //      included, is walked. A file of `src/compiler/` fails it, and so does any bare specifier

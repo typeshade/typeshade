@@ -1376,9 +1376,13 @@ reach.fns // the call-graph closure from those entries, the entries included
 and the host allocates it from this reflection, and `'host'` when the host that owns the
 pipeline declares it and its layout is the authority. The list stays complete under both,
 because a host still has to know about a binding it owns. `resourceKind` says what to create, and a texture entry
-also carries `textureDim` and `textureElem`, the two axes a view and a sample type need,
-which [Layouts and resources](/guide/authoring/layouts-and-resources/) covers from the
-authoring side. `stages` says which stages reach the binding, which is the visibility mask a
+also carries `textureDim` and `textureElem`, the two axes a view needs, which
+[Layouts and resources](/guide/authoring/layouts-and-resources/) covers from the
+authoring side, and `sampleType`, the word its bind group layout takes. A depth texture is
+`'depth'` and an integer one `'uint'` or `'sint'`. An `f32` texture is `'float'` where a call
+gives it a sampler, and `'unfilterable-float'` where the program only loads, measures or counts
+it, which is what a 32-bit float texture such as `r32float` needs. `stages` says which stages
+reach the binding, which is the visibility mask a
 WebGPU bind group layout entry requires and the per-stage assignment a WebGL2 host makes for
 uniform block points and texture units.
 

@@ -44,14 +44,19 @@ export interface RuntimeOptions<D extends object = object> {
   readonly device?: D;
   /** The programs the requested device must be able to run. */
   readonly programs?: readonly Pack[];
-  /** Where the events of an entry's `console.*` calls go: printed to the host's console (the
-   *  default), or handed to a sink. */
+  /** Where the events of an entry's `console.*` calls go: printed to the host's console, with a
+   *  warning for the calls that did not fit the buffer (`'print'`, the default), or handed to a
+   *  sink, which takes the lines and the count and prints nothing. The count of each buffer's
+   *  lines and dropped calls is what `submit()` resolves to, either way. */
   readonly console?: 'print' | ConsoleSink;
-  /** The console buffer's size for each dispatch and draw that records, in bytes. 1 MiB. */
+  /** The console buffer's size for each dispatch and draw that records, in bytes. 1 MiB. A call
+   *  the buffer has no room for is dropped whole, and counted in the `dropped` of `submit()`'s
+   *  row for that dispatch or draw. */
   readonly consoleBytes?: number;
   /** The load-time emitter, `repack` from `typeshade/emit`, which emits a manifest again from
    *  the portable IR it carries when a load asks for a variant the build did not write
-   *  (`load(m, { console: true })`). The runtime never imports it itself, so a host that does
+   *  (`load(m, { console: true })`), under the options the manifest was packed under
+   *  (`packModule(m, { emit })`). The runtime never imports it itself, so a host that does
    *  not pass it ships no emitter. */
   readonly emit?: (manifest: Pack, options: { readonly console?: boolean }) => Pack;
 }
@@ -100,10 +105,28 @@ export interface Frame {
     workgroups: number | readonly number[],
   ): void;
   pass(targets: PassTargets, record: (pass: RenderPass) => void): void;
-  /** Submit the frame. It resolves once the queue has run it and the console lines of its
-   *  entries are printed; it rejects with the validation error the frame raised, if any. */
-  submit(): Promise<void>;
+  /** Submit the frame. The queue is given its commands before `submit()` returns its promise, so
+   *  a texture read started right after it, while the promise is pending, reads the frame
+   *  (`Texture.read`). It resolves once the queue has run the frame and the console lines of its
+   *  entries are delivered, printed or handed to the runtime's sink, to what their buffers held:
+   *  `{ console: [{ entry, lines, dropped }, …] }`, a row for each dispatch and draw of the frame
+   *  that recorded, in the order they were recorded, and none when nothing did. `entry` names what
+   *  the buffer recorded for (the compute entry, or the fragment entry of a draw), `lines` the
+   *  `console.*` calls it kept, each printed or handed to the sink, and `dropped` the calls that
+   *  had no room in `consoleBytes`. A runtime that prints warns of the dropped calls; one given a
+   *  sink prints nothing, so its host reads the count here. It rejects with the validation error
+   *  the frame raised, if any. */
+  submit(): Promise<{
+    readonly console: readonly {
+      readonly entry: string;
+      readonly lines: number;
+      readonly dropped: number;
+    }[];
+  }>;
 }
+
+/** What `Frame.submit()` resolves to, which `Runtime.submit()` does too. */
+type SubmitResult = Awaited<ReturnType<Frame['submit']>>;
 
 /** The program runtime: a device, and everything a program needs on it. */
 export interface Runtime<D extends object = object> {
@@ -114,8 +137,10 @@ export interface Runtime<D extends object = object> {
   sampler(options?: SamplerOptions | object): Sampler;
   frame(): Frame;
   /** Submit the host's own encoders, after copying back the console buffers of the dispatches
-   *  and draws recorded since the last submit; resolves once the lines are printed. */
-  submit(...encoders: readonly object[]): Promise<void>;
+   *  and draws recorded since the last submit; resolves once the lines are delivered, to what
+   *  those buffers held, as `Frame.submit()` does: the queue is given the encoders before the
+   *  promise is returned. */
+  submit(...encoders: readonly object[]): ReturnType<Frame['submit']>;
   /** Release what the runtime made. The host's device is left as it is. */
   destroy(): void;
 }
@@ -242,8 +267,9 @@ export class RuntimeImpl implements Runtime {
   }
 
   /** Record the copies of the console buffers pending into `encoder`, and return what reads
-   *  them back once it is submitted. */
-  takeConsole(encoder: CommandEncoder): (() => Promise<void>) | undefined {
+   *  them back once it is submitted: it delivers each buffer's lines, and resolves to the count of
+   *  each. */
+  takeConsole(encoder: CommandEncoder): (() => Promise<SubmitResult['console']>) | undefined {
     const pending = this.#pending;
     this.#pending = [];
     if (pending.length === 0) return undefined;
@@ -253,30 +279,37 @@ export class RuntimeImpl implements Runtime {
       return { ...p, staging };
     });
     return async () => {
+      const rows: { entry: string; lines: number; dropped: number }[] = [];
       for (const c of copies) {
         await c.staging.mapAsync(MAP_READ);
         const words = new Uint32Array(c.staging.getMappedRange().slice(0));
         c.staging.unmap();
         const { events, dropped } = decodeConsole(words, c.log);
-        for (const e of events) {
-          if (this.#sink !== undefined) this.#sink(e);
-          else printConsole(e, 'GPU');
+        // A sink takes the lines and the count, so the runtime prints neither.
+        if (this.#sink !== undefined) for (const e of events) this.#sink(e);
+        else {
+          for (const e of events) printConsole(e, 'GPU');
+          printDropped(c.entry, dropped);
         }
-        printDropped(c.entry, dropped);
+        rows.push({ entry: c.entry, lines: events.length, dropped });
       }
+      return rows;
     };
   }
 
-  async submit(...encoders: readonly object[]): Promise<void> {
+  async submit(...encoders: readonly object[]): Promise<SubmitResult> {
     if (encoders.length === 0)
       throw new TypeError('submit() takes the GPUCommandEncoders to submit.');
     const last = encoders[encoders.length - 1] as CommandEncoder;
     const read = this.takeConsole(last);
+    // The queue is given the commands before anything is awaited: a texture read started after
+    // this call reads what it submitted (surface section 69).
     this.gpu.queue.submit(encoders.map((e) => (e as CommandEncoder).finish()));
     const done = this.gpu.queue.onSubmittedWorkDone();
     this.pool.release(done);
-    if (read !== undefined) await read();
+    const rows = read === undefined ? [] : await read();
     await done;
+    return { console: rows };
   }
 
   destroy(): void {
@@ -349,19 +382,22 @@ class FrameImpl implements Frame {
     }
   }
 
-  async submit(): Promise<void> {
+  async submit(): Promise<SubmitResult> {
     if (this.#submitted)
       throw new TypeError('This frame was submitted already; make a new one with rt.frame().');
     this.#submitted = true;
     const read = this.rt.takeConsole(this.#enc);
+    // The queue is given the commands before anything is awaited: a texture read started after
+    // this call reads the frame (surface section 69).
     this.rt.gpu.queue.submit([this.#enc.finish()]);
     const error = this.rt.gpu.popErrorScope();
     const done = this.rt.gpu.queue.onSubmittedWorkDone();
     this.rt.pool.release(done);
     const e = await error;
     if (e !== null) throw new Error(`The frame did not validate: ${e.message}`);
-    if (read !== undefined) await read();
+    const rows = read === undefined ? [] : await read();
     await done;
+    return { console: rows };
   }
 }
 

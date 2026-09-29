@@ -183,6 +183,31 @@ export function surface(text: string): { names: Set<string>; shapes: Map<string,
   return { names, shapes };
 }
 
+/**
+ * The exports whose shape differs between two bakes of the surface, each with the definition key
+ * of its head side. A definition is keyed by its file and its name, so one that moved to another
+ * file has a new key and no shape of that key to compare: it is the same export all the same, so
+ * a move that changed the shape is a reshaped export and a move alone is none (`PackOptions` moved
+ * from `manifest-types.ts` to `manifest.ts` as it gained `emit`, and no check saw either).
+ */
+export function reshapedExports(
+  before: ReturnType<typeof surface>,
+  after: ReturnType<typeof surface>,
+): { readonly name: string; readonly key: string }[] {
+  const nameOf = (shape: string): string => shape.split('\u0000')[0]!;
+  // What each definition the change left out was, by name: a definition of the same name in
+  // another file is what it became.
+  const left = new Map<string, string>();
+  for (const [key, shape] of before.shapes)
+    if (!after.shapes.has(key)) left.set(nameOf(shape), shape);
+  const out: { name: string; key: string }[] = [];
+  for (const [key, shape] of after.shapes) {
+    const old = before.shapes.get(key) ?? left.get(nameOf(shape));
+    if (old !== undefined && old !== shape) out.push({ name: nameOf(shape), key });
+  }
+  return out;
+}
+
 /** Rule numbers whose paragraph in `docs/language-design.md` contains a touched line. */
 export function changedRules(text: string, touched: ReadonlySet<number>): Set<string> {
   const out = new Set<string>();
@@ -331,10 +356,7 @@ export function impactOf(diff: Diff): Impact[] {
   }
 
   // 3. Shapes that changed.
-  for (const [key, shape] of after.shapes) {
-    const old = before.shapes.get(key);
-    if (old === undefined || old === shape) continue;
-    const name = shape.split('\u0000')[0]!;
+  for (const { name, key } of reshapedExports(before, after)) {
     const mentions = nameMentions(name);
     if (mentions.length)
       impacts.push({
