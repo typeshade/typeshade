@@ -3,7 +3,12 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
-import { refusedVars, refusedWhole, STRICT_MODE_NAMES } from '../compiler/ts/semantic.js';
+import {
+  foreignNameReport,
+  refusedVars,
+  refusedWhole,
+  STRICT_MODE_NAMES,
+} from '../compiler/ts/semantic.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
 import { ERASING_OPERATORS, ERASING_UNARY_OPERATORS } from './projection.js';
@@ -2414,6 +2419,10 @@ function isInRefusedDecorator(
  * - TypeScript's `Cannot find global type 'Promise'` (TS2318) for an `import(...)` the compiler
  *   refused as an import (`TS8072`, Rule 3.9), goes.
  *
+ * One rule changes a report and does not drop it: TypeScript's "Cannot find name" (TS2304,
+ * TS2552) for a GLSL or HLSL name that a compiler refusal covers without having read it becomes
+ * the compiler's sentence for the name (`foreignNameInRefusal`, #218).
+ *
  * Without `analysis` nothing is dropped: the service passes none when a test asks for the two
  * halves unmerged (`TypeshadeLanguageServiceTestOptions`).
  */
@@ -2461,7 +2470,54 @@ export function mergeDiagnostics(
         pair.typeshade.has(String(error.code)) && sameMistakeSpans(context, diagnostic, error),
     );
   });
-  return [...keptTypescript, ...typeshade];
+  return [
+    ...keptTypescript.map(
+      (diagnostic) =>
+        foreignNameInRefusal(analysis.sourceFile, diagnostic, compilerErrors) ?? diagnostic,
+    ),
+    ...typeshade,
+  ];
+}
+
+/**
+ * The compiler's sentence for a GLSL or HLSL name (`FOREIGN_NAMES`, #218) in place of
+ * TypeScript's "Cannot find name" (TS2304, TS2552) for it, when a refusal of the compiler's covers
+ * the name without having read it: `fmod` in a `try`, in a `for…of` over a list, in an object
+ * spread, or in a list with no type annotation (`const w = [fmod(a, 2.), fmod(b, 2.)]`). The
+ * compiler reads a name where it lowers the construct that holds it, and it does not lower these,
+ * so nothing paired TypeScript's report and it stood: with no remedy for `lerp`, and for `fmod`
+ * with "Did you mean 'mod'?", which floors where `fmod` truncates. Now the editor shows the
+ * one remedy the compiler gives for the name (Rule 12.7), the sentence and the code `compile()`
+ * gives it once the construct is fixed, on the name.
+ *
+ * Only where a refusal covers the name: with none, `compile()` accepts the program, and a
+ * `typeshade` error would say what it does not, so TypeScript's own report stands. Any other name
+ * keeps TypeScript's too, whose sentence is the compiler's less its remedy.
+ */
+function foreignNameInRefusal(
+  compilerFile: ts.SourceFile,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): TypeshadeDiagnostic | undefined {
+  if (
+    diagnostic.severity !== 'error' ||
+    (diagnostic.code !== 2304 && diagnostic.code !== 2552) ||
+    !compilerErrors.some((error) => within(diagnostic.span, error.span))
+  ) {
+    return undefined;
+  }
+  const id = nodeAtPosition(compilerFile, diagnostic.span.start);
+  if (
+    !ts.isIdentifier(id) ||
+    id.getStart(compilerFile) !== diagnostic.span.start ||
+    id.getEnd() !== spanEnd(diagnostic.span)
+  ) {
+    return undefined;
+  }
+  const said = foreignNameReport(id);
+  return said === undefined
+    ? undefined
+    : { ...diagnostic, message: said.message, code: said.code, source: 'typeshade' };
 }
 
 /** Whether `span` lies inside an `import(...)` call. */

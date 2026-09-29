@@ -277,6 +277,36 @@ repository was published to npm before **`0.1.0`, the first release**.
   `src/compiler/ts/unknown-names.test.ts` holds the typo, the two remedies a name nothing is
   spelled like takes, and the generics that keep their sentence.
 
+- **The editor shows the compiler's remedy for a GLSL or HLSL name in a construct the compiler
+  refused** (Rule 12.7, #218). The compiler reads a name where it lowers the construct that holds
+  it, and it does not lower a `try` and its blocks, a list with no type annotation, a `for…of`
+  over a list, an object spread, a `typeof`, a `delete`, a `new Map(...)` or a labelled loop, so
+  no one but TypeScript read an `fmod` or a `lerp` written in one. Its report stood beside the
+  compiler's refusal of the construct, raw: `Cannot find name 'fmod'. Did you mean 'mod'?`, the one
+  spelling that compiles and answers otherwise for a negative operand, since `mod` floors and
+  `fmod` truncates, and `Cannot find name 'lerp'.` with no remedy. A list with two calls,
+  `const w = [fmod(a, 2.), fmod(b, 2.)]`, showed the compiler's `TS8002` for the missing
+  annotation and two of those, in the editor, in `tshc check` and in the MCP server's check. The
+  merge now puts the compiler's sentence for the name in TypeScript's place, the one `compile()`
+  gives it once the construct is fixed, under the same code and on the name:
+
+  ```text
+  TS8002 "const w" needs an array type annotation to take a list, e.g. const w: array<f32, 2> = [...].
+  TS8004 Unknown function "fmod". HLSL's fmod is the % operator, which truncates like fmod; mod() floors.
+  TS8004 Unknown function "fmod". HLSL's fmod is the % operator, which truncates like fmod; mod() floors.
+  ```
+
+  It does so for a name of the table (`FOREIGN_NAMES`) and only where a refusal of the compiler's
+  covers the name: with none, `compile()` accepts the program and a `typeshade` error would say
+  what it does not, and TypeScript's sentence for any other name is the compiler's less its
+  remedy. The sentence is built by the functions the lowering builds it with, a value, a callee,
+  an assignment target (`gl_Position = …`) and the base of a generic (`groupshared<f32>`) each
+  under its own code, so the two cannot drift; an argument of a generic that says what it takes of
+  one (`vec3<float>`) stays that generic's sentence alone. `src/language-service/diagnostics.test.ts`
+  holds each of these names in every construct it can be written in, eleven for an expression and
+  four for a statement, against `compile()`'s sentence for it, and
+  `src/language-service/check.test.ts` the command's list for the list above.
+
 - **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
   (found by proposal 0028's journey of programs packed under emit options). WGSL's grammar takes
   unary operands for `&`, `|`, `^`, `<<` and `>>`, so `a & b - c` is "mixing '&' and '-' requires

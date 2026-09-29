@@ -335,7 +335,8 @@ The merged list reads one diagnostic per mistake (Rule 12.4). A mistake both hal
 be reported by both: `y = 2.` on a `const` as TypeScript's TS2588 and the compiler's `TS8005`,
 `g(x)` one argument short as TS2554 and `TS8019`, `colr` as TS2304 and `TS8022`. A person reads
 past the second sentence, and a coding agent fixes both. `mergeDiagnostics` drops a report by
-seven rules, and only ever an error that another error already covers:
+seven rules, and only ever an error that another error already covers, and changes one report
+by an eighth (the last item):
 
 - **The same mistake.** A TypeScript error and a compiler error that its table pairs by code
   (TS2304, TS2583, TS2584, TS2591, TS2580, TS2552, TS2448 and TS2454 with the unknown-name
@@ -437,6 +438,23 @@ seven rules, and only ever an error that another error already covers:
   TypeScript types the read as the declaration itself (`typeof E`, `() => f32`) and reports
   where that value goes: the TS2322 of `const k: f32 = E`, the TS2362 of `TAU * 2.`, the TS2367
   of `m === Mode`, an argument's TS2345. Each goes when the value it judges holds the read.
+- **A GLSL or HLSL name the compiler did not read.** The compiler reads a name where it lowers
+  the construct that holds it, and it does not lower every construct it refuses: an `fmod` in a
+  `try`, a `for…of` over a list, an object spread, a `typeof`, a `new Map(...)`, a labelled loop,
+  or a list with no type annotation (`const w = [fmod(a, 2.), fmod(b, 2.)]`, in a body or at
+  the top of the file) is read by no one but TypeScript. Its TS2304 or TS2552 for a name of
+  `FOREIGN_NAMES` (#218) becomes the compiler's sentence for the name, under the code the
+  compiler gives it and on the name: `TS8004` and `Unknown function "fmod".` with the remedy
+  `HLSL's fmod is the % operator, which truncates like fmod; mod() floors.` Where TypeScript said
+  "Did you mean 'mod'?", the one spelling that compiles and answers otherwise for a negative
+  operand, and for `lerp` said nothing of the fix. It is the sentence `compile()` gives the name
+  once the construct is fixed, from the same builders (`foreignNameReport`), so an agent that
+  reads `tshc check` fixes the construct and the name in one round. It changes a report only
+  where a refusal of the compiler's covers the name, since with none `compile()` accepts the
+  program and a `typeshade` error would say what it does not, and only for a name of the table,
+  whose TypeScript sentence is otherwise the compiler's less its remedy. The base of a generic
+  is such a name too, `groupshared<f32>` in a `try`; an argument of a generic that says what it
+  takes of one (`vec3<float>`) is that generic's sentence alone.
 
 `tshc check` reads the same merged list, and adds from `compile()` only what the service
 cannot compute: the backends' `TS8015` and the opt-in `TS8053`. That check is exported from this

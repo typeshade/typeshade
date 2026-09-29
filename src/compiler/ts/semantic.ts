@@ -22,8 +22,15 @@ import {
   statementRefusal,
 } from './namespaces.js';
 import { mixinAppliedBy } from './mixins.js';
-import { LIBRARY_TYPE_NAMES, undeclaredTypeName, unknownTypeSentence } from './type-map.js';
+import { foreignNameRemedy } from './foreign-names.js';
+import {
+  LIBRARY_TYPE_NAMES,
+  undeclaredGenericBase,
+  undeclaredTypeName,
+  unknownTypeSentence,
+} from './type-map.js';
 import { declaredValueNamesOf, namesInScope } from './unknown-names.js';
+import { declarationOf } from './lower/closures.js';
 import { newRefusal } from './lower/new-target.js';
 import {
   builtinValueNames,
@@ -783,6 +790,61 @@ function useOf(id: ts.Identifier): 'value' | 'callee' | 'assigned' | undefined {
   return undefined;
 }
 
+/** The sentence and the code for `id`, a name nothing declares, read as `use`: what a value, a
+ *  callee and an assignment target each say, with the remedy in the one order (Rule 12.1).
+ *  Undefined where the declaration the name resolves to said it (Rule 12.4). */
+function undeclaredValueReport(
+  id: ts.Identifier,
+  use: 'value' | 'callee' | 'assigned',
+): { readonly message: string; readonly code: TsCode } | undefined {
+  const message =
+    use === 'callee'
+      ? unknownFunctionSentence(id)
+      : use === 'assigned'
+        ? unknownIdentifierSentence(id, `Cannot assign to unknown name "${id.text}".`)
+        : unknownValueSentence(id);
+  // No sentence: the declaration's own refusal is the one diagnostic (Rule 12.4).
+  if (message === undefined) return undefined;
+  return { message, code: use === 'callee' ? TS_CODES.UNKNOWN_FN : TS_CODES.UNKNOWN_NAME };
+}
+
+/**
+ * What the compiler says of `id`, a GLSL or HLSL name nothing declares (`FOREIGN_NAMES`, #218),
+ * wherever it stands: the sentence of its place and TypeShade's spelling (Rule 12.1), under the
+ * code of its place (`TS8004` for a callee, `TS8022` for a value or a target, `TS8002` for a
+ * type). Undefined for any other name, for one a declaration gives, and for a place the
+ * sentence does not fit: a decorator, whose own refusal says what the attribute is, and a
+ * position that is no read of a name.
+ *
+ * The lowering reads a name where it lowers the construct that holds it, and a construct the
+ * compiler refuses is not always lowered: an `fmod` in a `try`, or in a list with no type
+ * annotation, is said by no one but TypeScript, whose guess for it is `mod`, which floors where
+ * `fmod` truncates. The editor puts this sentence in place of TypeScript's there, so it shows
+ * the one remedy the compiler gives (`mergeDiagnostics`, Rule 12.7).
+ */
+export function foreignNameReport(
+  id: ts.Identifier,
+): { readonly message: string; readonly code: TsCode } | undefined {
+  if (foreignNameRemedy(id.text) === undefined || ts.findAncestor(id, ts.isDecorator)) {
+    return undefined;
+  }
+  const reference = id.parent;
+  if (ts.isTypeReferenceNode(reference) && reference.typeName === id) {
+    // Said where the compiler says a type nothing declares, bare or the base of a generic, and
+    // nowhere else: an argument the generic around it takes the sentence of (`vec3<float>`) is
+    // that one diagnostic (Rule 12.4).
+    const file = id.getSourceFile();
+    return (undeclaredTypeName(reference, file) ?? undeclaredGenericBase(reference, file)) === id
+      ? {
+          message: unknownTypeSentence(id.text, namesInScope(id, 'type')),
+          code: TS_CODES.UNKNOWN_TYPE,
+        }
+      : undefined;
+  }
+  const use = declarationOf(id) === undefined ? useOf(id) : undefined;
+  return use === undefined ? undefined : undeclaredValueReport(id, use);
+}
+
 /**
  * Says each name read as a value, called, or assigned to in a body, where nothing declares it:
  * not the file, in any scope (`declaredValueNamesOf`), not the ambient library, and not a type
@@ -812,21 +874,8 @@ export function reportUndeclaredValues(
     if (isLibraryValueName(name) && !LIBRARY_TYPE_NAMES.has(name)) return;
     const use = useOf(id);
     if (use === undefined || covered(id)) return;
-    const message =
-      use === 'callee'
-        ? unknownFunctionSentence(id)
-        : use === 'assigned'
-          ? unknownIdentifierSentence(id, `Cannot assign to unknown name "${name}".`)
-          : unknownValueSentence(id);
-    // No sentence: the declaration's own refusal is the one diagnostic (Rule 12.4).
-    if (message === undefined) return;
-    push(
-      diagnostics,
-      sourceFile,
-      id,
-      message,
-      use === 'callee' ? TS_CODES.UNKNOWN_FN : TS_CODES.UNKNOWN_NAME,
-    );
+    const report = undeclaredValueReport(id, use);
+    if (report !== undefined) push(diagnostics, sourceFile, id, report.message, report.code);
   };
   const walk = (node: ts.Node, inBody: boolean): void => {
     if (ts.isDecorator(node) || ts.isTypeNode(node) || ts.isHeritageClause(node)) return;
