@@ -492,9 +492,10 @@ export const BUILTINS: Record<string, Builtin> = {
   all: (v) => (v as boolean[]).every((x) => x === true),
   // The f32 oracle's rounding step (X-GIS #2426). NOT authorable and never emitted: `froundF32`
   // (passes/precision.ts) injects it, and only the CPU engines ever see a module carrying it.
-  // It lives HERE rather than in each engine because both resolve builtins through this one
-  // table — the interpreter by `BUILTINS[e.fn]`, the codegen by `$.B[fn]` — so the two cannot
-  // disagree about what rounding means.
+  // It lives HERE rather than in each engine because the interpreter resolves builtins through
+  // this one table (`BUILTINS[e.fn]`), and what it applies per component is `Math.fround`, the
+  // one function the codegen calls in its place (`$fr`, per component of a vector, #410), so the
+  // two cannot disagree about what rounding means.
   __fround: map1(Math.fround),
   sin: map1(CW.sin.lane),
   cos: map1(CW.cos.lane),
