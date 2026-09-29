@@ -42,7 +42,7 @@ import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
 import { froundF32 } from './passes/precision.js';
 import { treeCombine, treeLoops, type LoopReduction } from './passes/parallel-loop.js';
-import { kernelTree, treeIdentity } from './kernel-tree.js';
+import { kernelTree, reductionIdentity } from './kernel-tree.js';
 import {
   type CpuValue,
   FIELD_IDX,
@@ -556,14 +556,7 @@ function execTreeFor(
 ): Signal | undefined {
   const saved = reductions.map((r) => env.get(r.name) as CpuValue);
   const bags = reductions.map((): CpuValue[] => []);
-  const identity = (r: LoopReduction) => (): CpuValue => {
-    const t = r.type;
-    const scalar = t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : 'f64';
-    const one = treeIdentity(r.op, scalar) as CpuValue;
-    return t.kind === 'vec' || t.kind === 'vec64'
-      ? (new Array<CpuValue>(t.n).fill(one) as unknown as CpuValue)
-      : one;
-  };
+  const identity = (r: LoopReduction) => (): CpuValue => reductionIdentity(r.op, r.type);
   const combine = (r: LoopReduction) => {
     const e = treeCombine(r, ctx.f32 ?? false);
     return (a: CpuValue, b: CpuValue): CpuValue =>
