@@ -3,9 +3,13 @@ id: '0029'
 title: A function the file declares wins over every builtin function of its name, on WebGPU, on WebGL2 and on the CPU
 status: accepted
 rules:
+- '3.2'
 - '9.5'
 surface:
 - 10
+- 15
+- 62
+- 69
 exports: []
 exports-removed: []
 codes: []
@@ -102,15 +106,28 @@ Alternatives considered:
 - **Surface §10**: the precedence paragraph, the caveat on declaring a GLSL builtin's name
   (`exp2`, `fwidth`, ANGLE's refusal), which the rename answers, and the fold paragraph
   (`zip(xs, ys, atan2)`).
+- **Rule 3.2**: the compiler emits a declared name as written, and the rule lists the names it
+  emits otherwise. The list gains the module function Rule 9.5 renames because its target
+  predeclares the name. An entry point, a binding and an override are still never renamed.
+- **Surface §15**: a `textureSample`, `textureLoad` or other texture function the file declares
+  is still the author's function, emitted under a name the target does not predeclare. The
+  section says it is emitted under the name written.
+- **Surface §62**: the check of the names a target refuses says WGSL renames nothing. The WGSL
+  writer now renames a module function whose name WGSL predeclares, as the GLSL writer renames
+  for itself. The check still covers the module surface neither writer renames.
+- **Surface §69**: the load-time emitter's size, which the rename pass and its name lists add
+  to.
 - **Code**:
   - `src/compiler/ts/lower/expression-call.ts`: the callee check comes before every builtin
     function, the value constructors excepted.
   - `src/compiler/ts/math-alias.ts`: `USER_FIRST_BUILTINS` narrows to the casts it keeps (`bool`,
     `f64`), with its readers in `lower/expression-array.ts` (the fold's `intrinsicFirst`) and
     `lower/new-target.ts`.
-  - The WGSL writer: a rename of a module function whose name WGSL predeclares.
-  - `src/core/backends/glsl-sanitize.ts`: the function rename widened to GLSL ES 3.00's
-    built-in functions, listed in `src/core/reserved-words.ts` beside `GLSL_ES300_RESERVED`.
+  - Both writers: a pass run first in each lowering renames a module function whose name the
+    target predeclares, and the calls that reach it: for WGSL its built-in functions, types, type
+    generators, aliases and the enumerants its text spells (`read`, `storage`, a texel format),
+    for GLSL ES 3.00 its built-in functions, and for both the builtin ids the IR itself knows
+    (`atan2`, `saturate`, `f64`). An entry keeps its name.
 - **Tests**, on both halves (CLAUDE.md, "A test reads both halves"):
   - `src/compiler/ts/builtins.test.ts`: the `pow` case and the `inverseSqrt` and `atan` cases now
     call the declaration, 99 on the CPU and the renamed declaration in both writers. A declared

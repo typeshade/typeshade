@@ -273,6 +273,47 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] = 
     expect(await code({})).not.toContain('"ir":');
   });
 
+  it("keeps the module's diagnostic directive in the manifest and in the recorded variant (§54)", async () => {
+    // A sample under a non-uniform branch, which the entry's directive allows. The manifest the
+    // program runtime creates the pipeline from, and the WGSL a host call of the entry draws
+    // with, have to carry the directive compile()'s WGSL carries, or WebGPU refuses the module:
+    // the plugin's host face dropped it.
+    const src = `"use typeshade";
+declare const albedo: texture_2d<f32>;
+declare const smp: sampler;
+@diagnostic("off", "derivative_uniformity")
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  let c: vec4 = vec4(0., 0., 0., 1.);
+  if (p.x > 8.) {
+    c = textureSample(albedo, smp, p.xy / 16.);
+  }
+  console.log("x", p.x);
+  return c;
+}
+`;
+    const directive = 'diagnostic(off, derivative_uniformity);';
+    expect(compile(src, { fileName: 'branch.shade.ts' }).wgsl).toContain(directive);
+    const file = join(tempDir(), 'branch.shade.ts');
+    const manifestOf = (code: string): { wgsl: string; console?: { wgsl: string } } =>
+      JSON.parse(/^export default (\{.*\});$/m.exec(code)![1]!);
+    const entryWgsl = (code: string): string =>
+      JSON.parse(/^const __ts_wgsl = (".*");$/m.exec(code)![1]!) as string;
+    const build = typeshade();
+    build.configResolved({ command: 'build' });
+    const built = (await build.transform(src, file))?.code ?? '';
+    expect(manifestOf(built).wgsl).toContain(directive);
+    expect(entryWgsl(built)).toContain(directive);
+    // `vite dev` records the console: the entry's WGSL and the manifest's variant are recorded.
+    const dev = typeshade();
+    dev.configResolved({ command: 'serve' });
+    const served = (await dev.transform(src, file))?.code ?? '';
+    expect(served).toContain('log: __ts_console');
+    expect(manifestOf(served).wgsl).toContain(directive);
+    expect(manifestOf(served).console?.wgsl).toContain(directive);
+    expect(entryWgsl(served)).toContain(directive);
+  });
+
   it('passes a host file through untouched', async () => {
     expect(await typeshade().transform('export const x = 1;', '/app/main.ts')).toBeNull();
   });

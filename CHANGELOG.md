@@ -11,9 +11,230 @@ A released version is headed `## [X.Y.Z] - YYYY-MM-DD`.
 This file starts where TypeShade was separated from the X-GIS monorepo. Everything before that
 — the IR, the three backends, the pass pipeline, and the breaking changes that shaped them — is
 in [`docs/HISTORY.md`](docs/HISTORY.md), kept as its generator produced it. Nothing in this
-repository has been published to npm; **`0.1.0` will be the first release**.
+repository was published to npm before **`0.1.0`, the first release**.
 
 ## [Unreleased]
+
+### Added
+
+- **A texture read back as bytes or as numbers, in the order it was submitted** (proposal 0028,
+  item 5; design rule 11.11; surface §69; #407). `texture.read()` copies every uncompressed
+  colour format of WebGPU and `depth32float` as bytes, rows tightly packed, where it copied
+  sixteen formats, and `texture.readFloats()` resolves to a `Float32Array` of the same texels'
+  channels as numbers, in the format's channel order: a float format decoded (a half float
+  exactly), a `unorm` format 0 to 1, an `snorm` format -1 to 1, and `depth32float`. An integer
+  format rejects with a `TypeError` that names `read()`. A host that read an `rgba16float`
+  target decoded the half floats itself (stepinside wrote a `halfToFloat`), and the site's
+  storage textures of `rgba8snorm` and of the integer formats were refused.
+  - A read reads what was submitted before the call. Its copy is recorded and submitted before it
+    awaits anything, so the queue runs it after every submit made before the call and before
+    every one made after it: a frame submitted while the read is pending draws after the copy.
+    `frame.submit()` and `rt.submit(…)` hand the queue their commands before their own first
+    `await`, so a frame counts as submitted from the call and not from the moment its promise
+    resolves; a frame recorded and not yet submitted is not read. The JSDoc of `read()` and
+    `readFloats()` and surface §69 say so. The read also keeps the size the texture had at the
+    call: it read `width` and `height` again after its `await`, so a `resize()` while it was
+    pending unpacked the copy at a size it was not made at.
+  - The formats are read from their names, the channels, the bits and how each is stored, with
+    the four packed ones beside them, so a texel's bytes follow from the format: the 43
+    uncompressed colour formats `@webgpu/types` lists, `r16unorm` and the other 16-bit `unorm`
+    and `snorm` ones among them, and `depth32float`. A compressed format and `stencil8`,
+    `depth16unorm`, `depth24plus` and the two combined depth and stencil formats reject with a
+    `TypeError` that names what `read()` copies, before anything reaches the queue. The four
+    packed formats decode too: `rgb10a2unorm` as a `unorm` format, `rg11b10ufloat` and
+    `rgb9e5ufloat` as floats, and `rgb10a2uint` is an integer format.
+  - Two choices the proposal left open. A `bgra8unorm` texel is blue, green, red, alpha, in the
+    order its bytes hold it and its name says, so `readFloats()` and `read()` agree channel for
+    channel. An sRGB format gives the numbers it stores, its bytes over 255, and not the linear
+    values a shader reads.
+  - `Texture` gains `readFloats()`, the one export that changes; `src/__api__/surface.md` records
+    it.
+  - `src/runtime/runtime.test.ts` holds, against the recording device, the bytes and the copy
+    each format WebGPU has is given (the list read from `@webgpu/types`, so a format the types
+    add is a failure until it is stated), the refusal of each format it cannot copy, the numbers
+    each float, `unorm`, `snorm` and packed format decodes to (all 65536 half floats among them,
+    held to the standard's formula), the refusal of each integer format, and, against a queue
+    that runs each command buffer when it is given it, that a read started before a frame's
+    `submit()` reads the texture as it was and one started after it reads the frame, from a frame
+    and from the host's own encoders. Each test was shown to fail when `resources.ts` is broken
+    in the matching way, among them a copy that waits for a tick before it is recorded.
+  - `journeys/hdr-target/` draws values above 1 and below 0 into an `rgba16float` target on
+    WebGPU through `typeshade/runtime` and reads the target back with `readFloats()`, each value
+    a small dyadic number that is exactly the half float the target stores, so a readback that
+    decodes one bit wrong fails. The harness starts the read while the frame is pending and
+    draws a later frame that clears the target to -1 before the read resolves; the read holds the
+    first frame, and the target afterwards the clear. A run names its float `target`
+    (`journeys/README.md`).
+  - `typeshade/runtime` is now 11,722 bytes minified and gzipped, 580 more than the 11,142 it
+    was, and its budget in `scripts/bundle-budget.json` moves from 11,600 to 12,900 in this
+    change, where a reviewer reads it: the size and about a tenth more, as the script's header
+    says. The table of formats and their bytes is 138 of them, and `readFloats()` with its
+    decoders is 442, about 90 of those the three packed formats'. `typeshade/emit` is as it was.
+
+- **A program packed under emit options** (proposal 0028, item 4; design rules 11.10 and 11.11;
+  surface §69). `packModule(m, { emit: { level, parens, fp64Flavor, plugins } })` emits the
+  manifest's `wgsl`, its recorded variant's `wgsl`, its `glsl` and the fragment program of each
+  of its WebGL2 draws, and its `bindings`, under those options: the WGSL writer's own and an
+  optimization level, `'O0'`, `'O1'` or `'O2'`. `fp64Flavor` changes the bindings too, since the
+  `'float'` flavor of the `f64` emulation binds the `_fp64` guard and the `'integer'` one binds
+  none, so the manifest lists the guard its WGSL declares. The GLSL writer has no level, so
+  `level` is the WGSL's alone. `packModule(m)` emitted the program at the defaults, so a host that
+  shows or ships it under other options, an application's WGSL tab, could not hand the runtime
+  the program it showed.
+  - The manifest records what the build gave of `level`, `parens` and `fp64Flavor` in `emit`, so
+    `repack` from `typeshade/emit` emits the program again under them and Rule 11.10's promise,
+    that the IR emitted again gives every other field byte for byte, holds for a manifest packed
+    under options, the recorded variant a load adds included. A manifest built with none has no
+    `emit`, and absent stands for the default, so a manifest written before this one reads as it
+    did.
+  - A plugin is a function, which a manifest cannot record, so `{ ir: true }` with `plugins` is a
+    `TypeError` that says the load-time emitter could not emit the program again. A word an
+    option does not take is a `TypeError` too, naming what the option takes: the writers read an
+    unknown level as the full optimizer, an unknown `parens` as `'minimal'` and an unknown flavor
+    as `'float'`, and the manifest would have recorded the word it was given. A WebGL2 draw reads
+    the block and sampler names it binds by from the program the plugins leave alone, since a
+    text plugin such as `minify` writes a declaration this reads by its spacing, and ships the
+    program the plugins write; the names a plugin keeps are the ones a host binds by.
+  - `PackOptions` gains `emit` and `Pack` gains `emit`, the two exports that change, and
+    `src/__api__/surface.md` records both; no name is new. `PackOptions` is declared beside the
+    builder now, in `src/core/manifest.ts`, since it names the writers' types, and `Pack['emit']`
+    spells the words out, so that the program runtime's module closure is the 29 modules it was
+    and reaches no emitter; the build stops when a word is in one and not in the other. The
+    plugin's options are as they were (`typeshade({ console, ir })`, surface §64).
+  - `src/core/manifest.test.ts` packs every example under each of three levels with each of the
+    two flavors, under `parens: 'minimal'` and under all three, and holds the manifest's WGSL to
+    what the writers emit under those options and `repack` to giving the manifest back byte for
+    byte; and, for six subjects, two of them programs that emulate `f64`, that each level, flavor
+    and `parens` gives the GLSL, the bindings, the recorded variant and the WebGL2 draws those
+    options emit, the guard among the bindings only under the `'float'` flavor. It holds each
+    refusal's sentence, and
+    fails when an option is left out of the WGSL, the GLSL, the recorded variant, the bindings
+    or a draw, when the manifest does not record its options, and when `repack` does not read
+    them. `src/runtime/runtime.test.ts` holds, against the recording device, that the runtime
+    makes its shader module from the manifest's text and lays it out by its bindings, and that
+    the variant a load-time emitter adds is the one the recorded options emit.
+  - `journeys/emit-options/` runs a compute entry and a full-screen draw that compute in emulated
+    doubles on WebGPU through `typeshade/runtime`, each packed at the defaults and under four
+    sets of options, and holds every result to plain JavaScript's doubles and to the CPU oracle's.
+    It fails when the WGSL leaves out the flavor its bindings follow ("Binding doesn't exist"),
+    and it found the bug listed under Fixed: Tint refused the WGSL that `parens: 'minimal'` wrote
+    for an arithmetic operand of a bitwise or shift operator.
+  - `typeshade/runtime` is still 11,142 bytes minified and gzipped, and `typeshade/emit`, which
+    carries the manifest builder, is now 76,132, 6,368 under its budget. Rule 11.11's rationale,
+    surface §69 and the header of `scripts/bundle-boundary.ts` said about 10 KB for the runtime,
+    which it was before the overrides, the sample types and the console's counts, and about 75 or
+    78 KB for the emitter; they say about 11 and 76.
+
+- **The console's counts, to the host** (proposal 0028, item 3; design rule 11.11; surface §69).
+  `frame.submit()` and `rt.submit(…)` resolve to what the console buffers of that submit held,
+  `{ console: [{ entry, lines, dropped }, …] }`: a row for each dispatch and draw that recorded,
+  in the order they were recorded, with its entry (a draw's is its fragment entry), the lines the
+  buffer kept and the calls that did not fit it. A runtime given a sink,
+  `createRuntime({ console: sink })`, prints nothing now: it printed the warning for the calls
+  that did not fit on the host's console beside the sink, so a host that shows the lines itself
+  could not show how many were dropped. The default, `'print'`, prints the lines and the warning
+  as it did.
+  - `Frame`'s and `Runtime`'s `submit` are the two exports that change; they resolved to nothing.
+    The row type is written where `Frame.submit` declares it, and `Runtime.submit` returns the
+    same type, so no name is new. `src/__api__/surface.md` records both.
+  - `lines` counts each `console.*` call the buffer kept once, as the sink receives it, so a
+    `console.table`, which is printed as two calls of the host's console, is one line. A
+    dispatch whose entry made no call is a row all the same, with no lines.
+  - `src/runtime/runtime.test.ts` holds, against the recording device, a row for each dispatch
+    and each draw with its entry, in the order recorded, from a frame and from the host's own
+    encoders; a submit that recorded nothing; that each submit gets the rows of its own; that a
+    runtime given a sink prints nothing, the warning included; and that the default prints the
+    lines and the warning as it did. `journeys/_harness.mjs` read the dropped count by patching
+    the page's `console.warn`, which a runtime given a sink no longer prints to; it reads the
+    counts from `submit()` now, holds the rows to the entry that records, the lines to what the
+    sink was handed and the dropped count to what the buffer had no room for, and fails when the
+    runtime prints the warning.
+  - `typeshade/runtime` is now 11,142 bytes minified and gzipped, 458 under its budget.
+
+- **A texture's sample type, from the calls that read it** (proposal 0028, item 2; design rules
+  11.10 and 11.11; surface §69; #404). `reflect()` reports each sampled texture's `sampleType`,
+  WebGPU's word for what a `GPUTextureBindingLayout` takes: `depth` for a depth texture, `uint` or
+  `sint` for an integer one, `float` for an `f32` texture that a call pairs with a `sampler`, and
+  `unfilterable-float` for every other `f32` texture, which no sampler reads: one the program only
+  loads, measures or counts, one no entry reaches, and a multisampled one (#414). The manifest
+  carries it in the binding's `resource`, and the program runtime lays each texture out by it. The
+  runtime laid out every `f32` texture `float`, which takes filterable formats only, so a host
+  could not bind an `r32float` or an `rgba32float` texture that a program only loads, and WebGPU
+  named the layout in its error and not the binding.
+  - The pairs are read where the handles flow, not only where a call names two bindings: a
+    `textureSample` of any form or a `textureGather`, which puts its component first, through a
+    helper function's parameters, and through a `const` of the texture and of the sampler.
+    Measured on Dawn (Chromium 153, SwiftShader), a texture laid out `unfilterable-float` beside a
+    `filtering` sampler is refused for each of them and accepted when the texture is only loaded.
+    `texturePairs`, which gave the WebGL2 tier the sampler each texture is fused with, read a
+    call's first two arguments through plain names, so it missed `textureGather(0, t, s, uv)`, a
+    helper's parameters and a `const`, and would have left the `albedo` of `cube-array-gather` an
+    `unfilterable-float` texture a sampler gathers. It is now one analysis,
+    `src/core/passes/texture-pairs.ts`, for both consumers: the WebGL2 tier's `samplers` name the
+    sampler of a texture read through a `const`, which they left `null`.
+  - The sample type follows the texture and not one entry: a texture one entry samples and another
+    loads is `float` for both. A module with a `raw` statement in what its entries reach is opaque,
+    so its `f32` textures are `float`, as they all were; a module with no entry is read whole,
+    since a host writes the entries over it. A manifest written before the sample type existed
+    carries none, and the runtime lays its texture out from its element, as it did.
+  - `BindEntry` gains `sampleType`, the one export that changes, and `src/__api__/surface.md`
+    records it; the manifest's `PackResource` carries the same word.
+  - `src/core/passes/texture-pairs.test.ts` holds each way a call pairs a texture with a sampler
+    and each it does not, `src/core/manifest.test.ts` holds every example's texture to the calls
+    in its WGSL, and `src/runtime/runtime.test.ts` holds, against the recording device, the layout
+    of a texture only loaded and of one a sampler reads. `journeys/textures/` binds an `r32float`
+    level a program only loads, beside two textures a sampler reads, on WebGPU through
+    `typeshade/runtime`; it fails when the runtime lays the level out `float`, and when a texture a
+    sampler reads is laid out `unfilterable-float`.
+  - `typeshade/runtime` is now 11,105 bytes minified and gzipped, 495 under its budget, and
+    `typeshade/emit`, which carries `reflect()`, 75,526.
+
+- **A host sets a program's overrides by name** (proposal 0028, item 1; design rule 11.11; surface
+  §69). `RenderState.constants` and `program.compute(entry, { constants })` take a record of
+  override name to value, and every stage of the pipeline is created with it as WebGPU's
+  `constants`, keyed by the name the source declares, which is the name the WGSL declares. An
+  override the record leaves out keeps the default its declaration states. The runtime made every
+  pipeline with no values, so a host had no way to set one.
+  - A name the manifest's `overrides` does not list is a `TypeError` that names the program's
+    overrides; a value its type cannot hold is a `TypeError` that says what the type takes: an
+    `f32` takes a finite number no larger than 3.4028234663852886e38, an `i32` or a `u32` a whole
+    number in its range, and a `bool` a boolean or a number, where 0 is false. Measured on
+    Chromium 141, WebGPU alone refuses an undeclared name without saying which overrides the
+    module has, and converts silently a fraction for an `i32` or a `u32`, and a string or a
+    boolean for any type.
+  - The pipeline cache keys on the values, so two states that differ in an override are two
+    pipelines and the same values give the same pipeline back, whatever order the record is
+    written in and whether a `bool` is spelled `true` or `1`. An `f32` tells `-0` from `0`, which a
+    shader can tell apart; an integer has no `-0`.
+  - `Program`'s `compute` takes the options as its second argument, and `RenderState` gains
+    `constants`; each option's default is in its JSDoc, and `src/__api__/surface.md` records both.
+  - `src/runtime/runtime.test.ts` holds, against the recording device, the values each stage is
+    created with, each type's refusal with its sentence, the values each type holds and the
+    cache's key. `journeys/overrides/` runs a compute entry and a render pair on WebGPU through
+    `typeshade/runtime` at their defaults, at other values and at one value with the rest at
+    their defaults, each result held to a plain JavaScript reference and to the CPU oracle's run
+    of the module with the values as the overrides' defaults. The journey fails when the compute
+    stage, the vertex stage or the fragment stage is created with no values.
+  - `typeshade/runtime` is now 11,099 bytes minified and gzipped, 501 under its budget.
+
+### Fixed
+
+- **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
+  (found by proposal 0028's journey of programs packed under emit options). WGSL's grammar takes
+  unary operands for `&`, `|`, `^`, `<<` and `>>`, so `a & b - c` is "mixing '&' and '-' requires
+  parenthesis" to Tint, and the writer had left the operand bare: `a & (b - c)` was written
+  `a & b - c`, and `h << (24u - n)` `h << 24u - n`. Tint refused the WGSL of 27 examples under
+  `{ parens: 'minimal', fp64Flavor: 'integer' }`, whose emulated-double helpers are made of such
+  masks and shifts, and of `module-const` and `rng-method` under either flavor. GLSL ES 3.00 reads
+  the bare form as intended, so it was right there and gets the parens too. Measured on Tint
+  (Chromium 153, SwiftShader): every example's WGSL compiles under each of the twelve
+  combinations of level, `parens` and `fp64Flavor`, but `clip-planes`, which needs the
+  `clip-distances` feature of the device. `src/core/emit-parens.test.ts` holds each shape, and
+  scans every example's WGSL under `'minimal'`, in both flavors, for a bitwise or shift operator
+  beside another operator at one level; it fails without the fix and reaches 243 and 2,704
+  such operators.
+
+## [0.1.0] - 2026-09-29
 
 ### Changed
 
@@ -599,206 +820,6 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   spelling of its own (Rule 6.5).
 
 ### Added
-
-- **A texture read back as bytes or as numbers, in the order it was submitted** (proposal 0028,
-  item 5; design rule 11.11; surface §69; #407). `texture.read()` copies every uncompressed
-  colour format of WebGPU and `depth32float` as bytes, rows tightly packed, where it copied
-  sixteen formats, and `texture.readFloats()` resolves to a `Float32Array` of the same texels'
-  channels as numbers, in the format's channel order: a float format decoded (a half float
-  exactly), a `unorm` format 0 to 1, an `snorm` format -1 to 1, and `depth32float`. An integer
-  format rejects with a `TypeError` that names `read()`. A host that read an `rgba16float`
-  target decoded the half floats itself (stepinside wrote a `halfToFloat`), and the site's
-  storage textures of `rgba8snorm` and of the integer formats were refused.
-  - A read reads what was submitted before the call. Its copy is recorded and submitted before it
-    awaits anything, so the queue runs it after every submit made before the call and before
-    every one made after it: a frame submitted while the read is pending draws after the copy.
-    `frame.submit()` and `rt.submit(…)` hand the queue their commands before their own first
-    `await`, so a frame counts as submitted from the call and not from the moment its promise
-    resolves; a frame recorded and not yet submitted is not read. The JSDoc of `read()` and
-    `readFloats()` and surface §69 say so. The read also keeps the size the texture had at the
-    call: it read `width` and `height` again after its `await`, so a `resize()` while it was
-    pending unpacked the copy at a size it was not made at.
-  - The formats are read from their names, the channels, the bits and how each is stored, with
-    the four packed ones beside them, so a texel's bytes follow from the format: the 43
-    uncompressed colour formats `@webgpu/types` lists, `r16unorm` and the other 16-bit `unorm`
-    and `snorm` ones among them, and `depth32float`. A compressed format and `stencil8`,
-    `depth16unorm`, `depth24plus` and the two combined depth and stencil formats reject with a
-    `TypeError` that names what `read()` copies, before anything reaches the queue. The four
-    packed formats decode too: `rgb10a2unorm` as a `unorm` format, `rg11b10ufloat` and
-    `rgb9e5ufloat` as floats, and `rgb10a2uint` is an integer format.
-  - Two choices the proposal left open. A `bgra8unorm` texel is blue, green, red, alpha, in the
-    order its bytes hold it and its name says, so `readFloats()` and `read()` agree channel for
-    channel. An sRGB format gives the numbers it stores, its bytes over 255, and not the linear
-    values a shader reads.
-  - `Texture` gains `readFloats()`, the one export that changes; `src/__api__/surface.md` records
-    it.
-  - `src/runtime/runtime.test.ts` holds, against the recording device, the bytes and the copy
-    each format WebGPU has is given (the list read from `@webgpu/types`, so a format the types
-    add is a failure until it is stated), the refusal of each format it cannot copy, the numbers
-    each float, `unorm`, `snorm` and packed format decodes to (all 65536 half floats among them,
-    held to the standard's formula), the refusal of each integer format, and, against a queue
-    that runs each command buffer when it is given it, that a read started before a frame's
-    `submit()` reads the texture as it was and one started after it reads the frame, from a frame
-    and from the host's own encoders. Each test was shown to fail when `resources.ts` is broken
-    in the matching way, among them a copy that waits for a tick before it is recorded.
-  - `journeys/hdr-target/` draws values above 1 and below 0 into an `rgba16float` target on
-    WebGPU through `typeshade/runtime` and reads the target back with `readFloats()`, each value
-    a small dyadic number that is exactly the half float the target stores, so a readback that
-    decodes one bit wrong fails. The harness starts the read while the frame is pending and
-    draws a later frame that clears the target to -1 before the read resolves; the read holds the
-    first frame, and the target afterwards the clear. A run names its float `target`
-    (`journeys/README.md`).
-  - `typeshade/runtime` is now 11,722 bytes minified and gzipped, 580 more than the 11,142 it
-    was, and its budget in `scripts/bundle-budget.json` moves from 11,600 to 12,900 in this
-    change, where a reviewer reads it: the size and about a tenth more, as the script's header
-    says. The table of formats and their bytes is 138 of them, and `readFloats()` with its
-    decoders is 442, about 90 of those the three packed formats'. `typeshade/emit` is as it was.
-
-- **A program packed under emit options** (proposal 0028, item 4; design rules 11.10 and 11.11;
-  surface §69). `packModule(m, { emit: { level, parens, fp64Flavor, plugins } })` emits the
-  manifest's `wgsl`, its recorded variant's `wgsl`, its `glsl` and the fragment program of each
-  of its WebGL2 draws, and its `bindings`, under those options: the WGSL writer's own and an
-  optimization level, `'O0'`, `'O1'` or `'O2'`. `fp64Flavor` changes the bindings too, since the
-  `'float'` flavor of the `f64` emulation binds the `_fp64` guard and the `'integer'` one binds
-  none, so the manifest lists the guard its WGSL declares. The GLSL writer has no level, so
-  `level` is the WGSL's alone. `packModule(m)` emitted the program at the defaults, so a host that
-  shows or ships it under other options, an application's WGSL tab, could not hand the runtime
-  the program it showed.
-  - The manifest records what the build gave of `level`, `parens` and `fp64Flavor` in `emit`, so
-    `repack` from `typeshade/emit` emits the program again under them and Rule 11.10's promise,
-    that the IR emitted again gives every other field byte for byte, holds for a manifest packed
-    under options, the recorded variant a load adds included. A manifest built with none has no
-    `emit`, and absent stands for the default, so a manifest written before this one reads as it
-    did.
-  - A plugin is a function, which a manifest cannot record, so `{ ir: true }` with `plugins` is a
-    `TypeError` that says the load-time emitter could not emit the program again. A word an
-    option does not take is a `TypeError` too, naming what the option takes: the writers read an
-    unknown level as the full optimizer, an unknown `parens` as `'minimal'` and an unknown flavor
-    as `'float'`, and the manifest would have recorded the word it was given. A WebGL2 draw reads
-    the block and sampler names it binds by from the program the plugins leave alone, since a
-    text plugin such as `minify` writes a declaration this reads by its spacing, and ships the
-    program the plugins write; the names a plugin keeps are the ones a host binds by.
-  - `PackOptions` gains `emit` and `Pack` gains `emit`, the two exports that change, and
-    `src/__api__/surface.md` records both; no name is new. `PackOptions` is declared beside the
-    builder now, in `src/core/manifest.ts`, since it names the writers' types, and `Pack['emit']`
-    spells the words out, so that the program runtime's module closure is the 29 modules it was
-    and reaches no emitter; the build stops when a word is in one and not in the other. The
-    plugin's options are as they were (`typeshade({ console, ir })`, surface §64).
-  - `src/core/manifest.test.ts` packs every example under each of three levels with each of the
-    two flavors, under `parens: 'minimal'` and under all three, and holds the manifest's WGSL to
-    what the writers emit under those options and `repack` to giving the manifest back byte for
-    byte; and, for six subjects, two of them programs that emulate `f64`, that each level, flavor
-    and `parens` gives the GLSL, the bindings, the recorded variant and the WebGL2 draws those
-    options emit, the guard among the bindings only under the `'float'` flavor. It holds each
-    refusal's sentence, and
-    fails when an option is left out of the WGSL, the GLSL, the recorded variant, the bindings
-    or a draw, when the manifest does not record its options, and when `repack` does not read
-    them. `src/runtime/runtime.test.ts` holds, against the recording device, that the runtime
-    makes its shader module from the manifest's text and lays it out by its bindings, and that
-    the variant a load-time emitter adds is the one the recorded options emit.
-  - `journeys/emit-options/` runs a compute entry and a full-screen draw that compute in emulated
-    doubles on WebGPU through `typeshade/runtime`, each packed at the defaults and under four
-    sets of options, and holds every result to plain JavaScript's doubles and to the CPU oracle's.
-    It fails when the WGSL leaves out the flavor its bindings follow ("Binding doesn't exist"),
-    and it found the bug listed under Fixed: Tint refused the WGSL that `parens: 'minimal'` wrote
-    for an arithmetic operand of a bitwise or shift operator.
-  - `typeshade/runtime` is still 11,142 bytes minified and gzipped, and `typeshade/emit`, which
-    carries the manifest builder, is now 76,132, 6,368 under its budget. Rule 11.11's rationale,
-    surface §69 and the header of `scripts/bundle-boundary.ts` said about 10 KB for the runtime,
-    which it was before the overrides, the sample types and the console's counts, and about 75 or
-    78 KB for the emitter; they say about 11 and 76.
-
-- **The console's counts, to the host** (proposal 0028, item 3; design rule 11.11; surface §69).
-  `frame.submit()` and `rt.submit(…)` resolve to what the console buffers of that submit held,
-  `{ console: [{ entry, lines, dropped }, …] }`: a row for each dispatch and draw that recorded,
-  in the order they were recorded, with its entry (a draw's is its fragment entry), the lines the
-  buffer kept and the calls that did not fit it. A runtime given a sink,
-  `createRuntime({ console: sink })`, prints nothing now: it printed the warning for the calls
-  that did not fit on the host's console beside the sink, so a host that shows the lines itself
-  could not show how many were dropped. The default, `'print'`, prints the lines and the warning
-  as it did.
-  - `Frame`'s and `Runtime`'s `submit` are the two exports that change; they resolved to nothing.
-    The row type is written where `Frame.submit` declares it, and `Runtime.submit` returns the
-    same type, so no name is new. `src/__api__/surface.md` records both.
-  - `lines` counts each `console.*` call the buffer kept once, as the sink receives it, so a
-    `console.table`, which is printed as two calls of the host's console, is one line. A
-    dispatch whose entry made no call is a row all the same, with no lines.
-  - `src/runtime/runtime.test.ts` holds, against the recording device, a row for each dispatch
-    and each draw with its entry, in the order recorded, from a frame and from the host's own
-    encoders; a submit that recorded nothing; that each submit gets the rows of its own; that a
-    runtime given a sink prints nothing, the warning included; and that the default prints the
-    lines and the warning as it did. `journeys/_harness.mjs` read the dropped count by patching
-    the page's `console.warn`, which a runtime given a sink no longer prints to; it reads the
-    counts from `submit()` now, holds the rows to the entry that records, the lines to what the
-    sink was handed and the dropped count to what the buffer had no room for, and fails when the
-    runtime prints the warning.
-  - `typeshade/runtime` is now 11,142 bytes minified and gzipped, 458 under its budget.
-
-- **A texture's sample type, from the calls that read it** (proposal 0028, item 2; design rules
-  11.10 and 11.11; surface §69; #404). `reflect()` reports each sampled texture's `sampleType`,
-  WebGPU's word for what a `GPUTextureBindingLayout` takes: `depth` for a depth texture, `uint` or
-  `sint` for an integer one, `float` for an `f32` texture that a call pairs with a `sampler`, and
-  `unfilterable-float` for every other `f32` texture, which no sampler reads: one the program only
-  loads, measures or counts, one no entry reaches, and a multisampled one (#414). The manifest
-  carries it in the binding's `resource`, and the program runtime lays each texture out by it. The
-  runtime laid out every `f32` texture `float`, which takes filterable formats only, so a host
-  could not bind an `r32float` or an `rgba32float` texture that a program only loads, and WebGPU
-  named the layout in its error and not the binding.
-  - The pairs are read where the handles flow, not only where a call names two bindings: a
-    `textureSample` of any form or a `textureGather`, which puts its component first, through a
-    helper function's parameters, and through a `const` of the texture and of the sampler.
-    Measured on Dawn (Chromium 153, SwiftShader), a texture laid out `unfilterable-float` beside a
-    `filtering` sampler is refused for each of them and accepted when the texture is only loaded.
-    `texturePairs`, which gave the WebGL2 tier the sampler each texture is fused with, read a
-    call's first two arguments through plain names, so it missed `textureGather(0, t, s, uv)`, a
-    helper's parameters and a `const`, and would have left the `albedo` of `cube-array-gather` an
-    `unfilterable-float` texture a sampler gathers. It is now one analysis,
-    `src/core/passes/texture-pairs.ts`, for both consumers: the WebGL2 tier's `samplers` name the
-    sampler of a texture read through a `const`, which they left `null`.
-  - The sample type follows the texture and not one entry: a texture one entry samples and another
-    loads is `float` for both. A module with a `raw` statement in what its entries reach is opaque,
-    so its `f32` textures are `float`, as they all were; a module with no entry is read whole,
-    since a host writes the entries over it. A manifest written before the sample type existed
-    carries none, and the runtime lays its texture out from its element, as it did.
-  - `BindEntry` gains `sampleType`, the one export that changes, and `src/__api__/surface.md`
-    records it; the manifest's `PackResource` carries the same word.
-  - `src/core/passes/texture-pairs.test.ts` holds each way a call pairs a texture with a sampler
-    and each it does not, `src/core/manifest.test.ts` holds every example's texture to the calls
-    in its WGSL, and `src/runtime/runtime.test.ts` holds, against the recording device, the layout
-    of a texture only loaded and of one a sampler reads. `journeys/textures/` binds an `r32float`
-    level a program only loads, beside two textures a sampler reads, on WebGPU through
-    `typeshade/runtime`; it fails when the runtime lays the level out `float`, and when a texture a
-    sampler reads is laid out `unfilterable-float`.
-  - `typeshade/runtime` is now 11,105 bytes minified and gzipped, 495 under its budget, and
-    `typeshade/emit`, which carries `reflect()`, 75,526.
-
-- **A host sets a program's overrides by name** (proposal 0028, item 1; design rule 11.11; surface
-  §69). `RenderState.constants` and `program.compute(entry, { constants })` take a record of
-  override name to value, and every stage of the pipeline is created with it as WebGPU's
-  `constants`, keyed by the name the source declares, which is the name the WGSL declares. An
-  override the record leaves out keeps the default its declaration states. The runtime made every
-  pipeline with no values, so a host had no way to set one.
-  - A name the manifest's `overrides` does not list is a `TypeError` that names the program's
-    overrides; a value its type cannot hold is a `TypeError` that says what the type takes: an
-    `f32` takes a finite number no larger than 3.4028234663852886e38, an `i32` or a `u32` a whole
-    number in its range, and a `bool` a boolean or a number, where 0 is false. Measured on
-    Chromium 141, WebGPU alone refuses an undeclared name without saying which overrides the
-    module has, and converts silently a fraction for an `i32` or a `u32`, and a string or a
-    boolean for any type.
-  - The pipeline cache keys on the values, so two states that differ in an override are two
-    pipelines and the same values give the same pipeline back, whatever order the record is
-    written in and whether a `bool` is spelled `true` or `1`. An `f32` tells `-0` from `0`, which a
-    shader can tell apart; an integer has no `-0`.
-  - `Program`'s `compute` takes the options as its second argument, and `RenderState` gains
-    `constants`; each option's default is in its JSDoc, and `src/__api__/surface.md` records both.
-  - `src/runtime/runtime.test.ts` holds, against the recording device, the values each stage is
-    created with, each type's refusal with its sentence, the values each type holds and the
-    cache's key. `journeys/overrides/` runs a compute entry and a render pair on WebGPU through
-    `typeshade/runtime` at their defaults, at other values and at one value with the rest at
-    their defaults, each result held to a plain JavaScript reference and to the CPU oracle's run
-    of the module with the values as the overrides' defaults. The journey fails when the compute
-    stage, the vertex stage or the fragment stage is created with no values.
-  - `typeshade/runtime` is now 11,099 bytes minified and gzipped, 501 under its budget.
 
 - **The load-time emitter, `typeshade/emit`** (proposal 0025, step 6; design rules 11.10 and
   11.11; surface §64 and §69). `repack(manifest, { console })` emits a manifest again from the
@@ -2216,20 +2237,15 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
-- **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
-  (found by proposal 0028's journey of programs packed under emit options). WGSL's grammar takes
-  unary operands for `&`, `|`, `^`, `<<` and `>>`, so `a & b - c` is "mixing '&' and '-' requires
-  parenthesis" to Tint, and the writer had left the operand bare: `a & (b - c)` was written
-  `a & b - c`, and `h << (24u - n)` `h << 24u - n`. Tint refused the WGSL of 27 examples under
-  `{ parens: 'minimal', fp64Flavor: 'integer' }`, whose emulated-double helpers are made of such
-  masks and shifts, and of `module-const` and `rng-method` under either flavor. GLSL ES 3.00 reads
-  the bare form as intended, so it was right there and gets the parens too. Measured on Tint
-  (Chromium 153, SwiftShader): every example's WGSL compiles under each of the twelve
-  combinations of level, `parens` and `fp64Flavor`, but `clip-planes`, which needs the
-  `clip-distances` feature of the device. `src/core/emit-parens.test.ts` holds each shape, and
-  scans every example's WGSL under `'minimal'`, in both flavors, for a bitwise or shift operator
-  beside another operator at one level; it fails without the fix and reaches 243 and 2,704
-  such operators.
+- **The Vite plugin keeps a module's `diagnostic(...)` directive** (surface §54). An entry with
+  `@diagnostic("off", "derivative_uniformity")` samples a texture under a branch its invocations
+  do not share, and `compile()`'s WGSL carries `diagnostic(off, derivative_uniformity);` for it.
+  The module the plugin writes for a `.shade.ts` lost it: in a build, the manifest the program
+  runtime creates the pipeline from; under `vite dev`, that manifest, its console-recording
+  variant and the recorded WGSL a host call of the entry draws with. WebGPU refuses that WGSL,
+  on a program `compile()` and the language service accept. The plugin's host face now carries
+  the directives as `compile()` does, and `src/vite.test.ts` holds each of them to `compile()`'s
+  directive, in a build and under `vite dev`.
 
 - **`tshc` runs on Windows** (#384). `tshc check` and `tshc sync` said "no file or directory"
   for every path, since the command joined the working directory, `D:/work`, into `/D:/work`,
