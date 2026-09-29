@@ -511,6 +511,11 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     overrides: [...r.overrides],
     vars: [...r.vars],
     enables: [...r.enables],
+    // The module's `diagnostic(...)` directives (§54), as `compile()` carries them: without
+    // them the manifest's WGSL, and the recorded variant `vite dev` emits, lose the
+    // `diagnostic(off, derivative_uniformity);` an entry asked for, and a sample under a
+    // non-uniform branch the author allowed is a shader-creation error on WebGPU.
+    ...(r.directives.length > 0 ? { diagnostics: [...r.directives] } : {}),
   };
   const structs = new Map(structDecls.map((s) => [s.name, s]));
   const declared = new Set(m.funcs.map((f) => f.name));

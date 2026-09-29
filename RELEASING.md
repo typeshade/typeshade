@@ -104,6 +104,9 @@ never published. Authentication needs nothing from you beyond checking that the 
    `--no-git-tag-version` matters: the tag is created in step 3, on a commit that is already on
    `main`, not by npm on your working copy.
 
+   Set `VERSION` in `src/core/version.ts` to the same number. A manifest records it as the
+   compiler that wrote it (change 0025), and `src/core/manifest.test.ts` holds the two equal.
+
 2. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new heading for the version,
    `## [X.Y.Z] - YYYY-MM-DD` with the release date, and leave `## [Unreleased]` in place, empty,
    for what comes next. `src/changelog.test.ts` checks the heading and, for a release with a
