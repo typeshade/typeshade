@@ -11,9 +11,11 @@ A released version is headed `## [X.Y.Z] - YYYY-MM-DD`.
 This file starts where TypeShade was separated from the X-GIS monorepo. Everything before that
 — the IR, the three backends, the pass pipeline, and the breaking changes that shaped them — is
 in [`docs/HISTORY.md`](docs/HISTORY.md), kept as its generator produced it. Nothing in this
-repository has been published to npm; **`0.1.0` will be the first release**.
+repository was published to npm before **`0.1.0`, the first release**.
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-09-29
 
 ### Changed
 
@@ -2046,6 +2048,16 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   surface on both targets.
 
 ### Fixed
+
+- **The Vite plugin keeps a module's `diagnostic(...)` directive** (surface §54). An entry with
+  `@diagnostic("off", "derivative_uniformity")` samples a texture under a branch its invocations
+  do not share, and `compile()`'s WGSL carries `diagnostic(off, derivative_uniformity);` for it.
+  The module the plugin writes for a `.shade.ts` lost it: in a build, the manifest the program
+  runtime creates the pipeline from; under `vite dev`, that manifest, its console-recording
+  variant and the recorded WGSL a host call of the entry draws with. WebGPU refuses that WGSL,
+  on a program `compile()` and the language service accept. The plugin's host face now carries
+  the directives as `compile()` does, and `src/vite.test.ts` holds each of them to `compile()`'s
+  directive, in a build and under `vite dev`.
 
 - **`tshc` runs on Windows** (#384). `tshc check` and `tshc sync` said "no file or directory"
   for every path, since the command joined the working directory, `D:/work`, into `/D:/work`,
