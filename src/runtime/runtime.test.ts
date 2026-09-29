@@ -2,7 +2,9 @@
 // it creates and when, its bind-group layouts, its refusals and their sentences, and the
 // console's events. Its results on a real device are the compile gate's program tier
 // (`scripts/entry-calls-page.ts`), which dispatches every compute entry of the examples. Step 3's
-// tests hold the call layer and the runtime to one device and one `Resident` (Rule 11.8).
+// tests hold the call layer and the runtime to one device and one `Resident` (Rule 11.8). Change
+// 0028's override values are held here to what each stage is created with, each refusal and the
+// pipeline cache's key, and on a real device by `journeys/overrides`.
 //
 // Verifies: Rule 11.8, Rule 11.11.
 
@@ -15,6 +17,13 @@ import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
 import { createRuntime, runtime } from './runtime.js';
 import { repack } from '../emit.js';
 
+/** What a pipeline is created with: the stages carry the `constants` the runtime hands WebGPU. */
+interface PipelineDescriptor {
+  readonly vertex?: { readonly constants?: Record<string, number> };
+  readonly fragment?: { readonly constants?: Record<string, number> };
+  readonly compute?: { readonly constants?: Record<string, number> };
+}
+
 /** A device that records every object it creates and every command it is given. */
 function fakeDevice(features: string[] = []) {
   const made: Record<string, number> = {};
@@ -24,6 +33,7 @@ function fakeDevice(features: string[] = []) {
   const layouts: object[] = [];
   const groups: { entries: { binding: number; resource: { size?: number } }[] }[] = [];
   const commands: string[] = [];
+  const pipelines: { kind: 'compute' | 'render'; descriptor: PipelineDescriptor }[] = [];
   let consoleWords: Uint32Array | undefined;
   const buffer = (d: { size: number; usage: number }) => {
     count('buffer');
@@ -82,8 +92,16 @@ function fakeDevice(features: string[] = []) {
     },
     createPipelineLayout: () => (count('pipelineLayout'), {}),
     createBindGroup: (d: (typeof groups)[number]) => (count('bindGroup'), groups.push(d), {}),
-    createComputePipelineAsync: async () => (count('pipeline'), {}),
-    createRenderPipelineAsync: async (d: object) => (count('pipeline'), { d }),
+    createComputePipelineAsync: async (d: PipelineDescriptor) => (
+      count('pipeline'),
+      pipelines.push({ kind: 'compute', descriptor: d }),
+      {}
+    ),
+    createRenderPipelineAsync: async (d: PipelineDescriptor) => (
+      count('pipeline'),
+      pipelines.push({ kind: 'render', descriptor: d }),
+      { d }
+    ),
     createCommandEncoder: () => ({
       beginComputePass: () => pass,
       beginRenderPass: () => pass,
@@ -100,6 +118,7 @@ function fakeDevice(features: string[] = []) {
     layouts,
     groups,
     commands,
+    pipelines,
     setConsole: (w: Uint32Array) => {
       consoleWords = w;
     },
@@ -147,6 +166,35 @@ export function vs(@builtin("vertex_index") vi: u32): vec4 {
 export function fs(@builtin("position") p: vec4): Color {
   const c: vec2i = vec2i(p.xy);
   return { c: textureLoad(msaa, c, 0) * textureLoad(depthMs, c, 0) + textureSample(photo, smp, p.xy) };
+}
+`;
+
+/** One override of each type, read by a compute entry and by the stages of a render pair: the
+ *  vertex entry reads `gain` alone, the fragment entry the other three. A stage is still created
+ *  with every value the host gives, which WebGPU takes for any name the module declares
+ *  (measured on Chromium 141, and held by `journeys/overrides`). */
+const TUNED = `"use typeshade";
+const gain: override<f32> = 0.5;
+const rounds: override<i32> = 4;
+const bins: override<u32> = 16;
+const dim: override<bool> = false;
+declare const xs: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
+class VsOut { @builtin("position") p: vec4; }
+class Color { @location(0) c: vec4; }
+@compute([64])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  const i = gid.x;
+  if (i >= arrayLength(xs)) { return; }
+  out[i] = xs[i] * gain;
+}
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): VsOut {
+  return { p: vec4(f32(vi) * gain, 0., 0., 1.) };
+}
+@fragment
+export function fs(v: VsOut): Color {
+  return { c: vec4(f32(rounds), f32(bins), dim ? 1. : 0., 1.) };
 }
 `;
 
@@ -324,6 +372,241 @@ describe('the program runtime (Rule 11.11)', () => {
       'draw 3',
       'end',
     ]);
+  });
+});
+
+describe('override values by name (change 0028 item 1, Rule 11.11)', () => {
+  const setup = async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const m = manifest(TUNED);
+    return { fake, rt, m, program: rt.load(m) };
+  };
+  /** The refusal a call gives: a `TypeError`, with exactly this sentence. */
+  const refused = async (call: Promise<unknown>, sentence: string): Promise<void> => {
+    const err = await call.then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(TypeError);
+    expect((err as Error).message).toBe(sentence);
+  };
+  const F32 = '3.4028234663852886e+38';
+
+  it('creates the vertex, fragment and compute stages with the values, by the names the WGSL declares', async () => {
+    const { fake, m, program } = await setup();
+    // The manifest's names are the WGSL's (surface §15): one authority.
+    expect(m.overrides.map((o) => [o.name, o.type])).toEqual([
+      ['gain', 'f32'],
+      ['rounds', 'i32'],
+      ['bins', 'u32'],
+      ['dim', 'bool'],
+    ]);
+    for (const o of m.overrides) expect(m.wgsl).toContain(`override ${o.name}: ${o.type} =`);
+    const constants = { gain: 3, rounds: -2, bins: 8, dim: true };
+    await program.render({ targets: ['bgra8unorm'], constants });
+    await program.compute('main', { constants });
+    const [render, compute] = fake.pipelines;
+    // WebGPU's constants are numbers: a bool is 0 or 1.
+    const values = { gain: 3, rounds: -2, bins: 8, dim: 1 };
+    expect(render!.kind).toBe('render');
+    expect(render!.descriptor.vertex!.constants).toEqual(values);
+    expect(render!.descriptor.fragment!.constants).toEqual(values);
+    expect(compute!.kind).toBe('compute');
+    expect(compute!.descriptor.compute!.constants).toEqual(values);
+    // A depth-only pipeline has no fragment stage to create with them.
+    await program.render({ fragment: null, constants: { gain: 2 } });
+    const depthOnly = fake.pipelines[2]!.descriptor;
+    expect(depthOnly.vertex!.constants).toEqual({ gain: 2 });
+    expect(depthOnly.fragment).toBeUndefined();
+  });
+
+  it('hands WebGPU only the values it is given, and none when it is given none', async () => {
+    const { fake, program } = await setup();
+    await program.render();
+    await program.compute();
+    // An empty record gives none either: the same pipelines, made once.
+    await program.render({ constants: {} });
+    await program.compute('main', { constants: {} });
+    expect(fake.made.pipeline).toBe(2);
+    for (const { descriptor } of fake.pipelines)
+      for (const stage of [descriptor.vertex, descriptor.fragment, descriptor.compute])
+        if (stage !== undefined) expect(stage).not.toHaveProperty('constants');
+    // An override the record leaves out takes the default its declaration states, so WebGPU is
+    // told the ones given and no more.
+    await program.render({ constants: { bins: 8 } });
+    await program.compute('main', { constants: { gain: 2 } });
+    expect(fake.pipelines[2]!.descriptor.vertex!.constants).toEqual({ bins: 8 });
+    expect(fake.pipelines[2]!.descriptor.fragment!.constants).toEqual({ bins: 8 });
+    expect(fake.pipelines[3]!.descriptor.compute!.constants).toEqual({ gain: 2 });
+  });
+
+  it("refuses a name the manifest's overrides do not list, and names the overrides it has", async () => {
+    const { fake, rt, program } = await setup();
+    const has = '"gain" (f32), "rounds" (i32), "bins" (u32), "dim" (bool)';
+    await refused(
+      program.render({ constants: { gian: 3 } }),
+      `The program has no override "gian"; its overrides are ${has}.`,
+    );
+    await refused(
+      program.compute('main', { constants: { gian: 3 } }),
+      `The program has no override "gian"; its overrides are ${has}.`,
+    );
+    // The name that is wrong is the one named, beside names that are right.
+    await refused(
+      program.render({ constants: { gain: 3, roundz: 1, bins: 8 } }),
+      `The program has no override "roundz"; its overrides are ${has}.`,
+    );
+    await refused(
+      rt.load(manifest(SCALE)).compute('main', { constants: { scale: 2 } }),
+      'The program has no override "scale"; its overrides are none.',
+    );
+    await refused(
+      program.compute('main', { constants: 3 as never }),
+      'The constants are number 3, not an object of override names and values.',
+    );
+    await refused(
+      program.render({ constants: [1] as never }),
+      'The constants are an array of length 1, not an object of override names and values.',
+    );
+    // Refused where the host called, before any GPU object is made.
+    expect(fake.made.pipeline).toBeUndefined();
+  });
+
+  const takes = {
+    gain: `a finite number no larger than ${F32} in magnitude`,
+    rounds: 'a whole number from -2147483648 to 2147483647',
+    bins: 'a whole number from 0 to 4294967295',
+    dim: 'a boolean or a finite number, where 0 is false',
+  } as const;
+  const wrong: readonly [name: keyof typeof takes, value: unknown, got: string][] = [
+    ['gain', NaN, 'number NaN'],
+    ['gain', Infinity, 'number Infinity'],
+    ['gain', -Infinity, 'number -Infinity'],
+    ['gain', 3.5e38, 'number 3.5e+38'],
+    ['gain', '1', 'the string "1"'],
+    ['gain', true, 'boolean true'],
+    ['gain', null, 'null'],
+    ['gain', undefined, 'undefined'],
+    ['rounds', 1.5, 'number 1.5'],
+    ['rounds', 2 ** 31, 'number 2147483648'],
+    ['rounds', -(2 ** 31) - 1, 'number -2147483649'],
+    ['rounds', 4294967295, 'number 4294967295'],
+    ['rounds', NaN, 'number NaN'],
+    ['rounds', '4', 'the string "4"'],
+    ['rounds', false, 'boolean false'],
+    ['bins', -1, 'number -1'],
+    ['bins', 2 ** 32, 'number 4294967296'],
+    ['bins', 0.5, 'number 0.5'],
+    ['bins', Infinity, 'number Infinity'],
+    ['bins', {}, 'an object'],
+    ['dim', 'yes', 'the string "yes"'],
+    ['dim', NaN, 'number NaN'],
+    ['dim', Infinity, 'number Infinity'],
+    ['dim', null, 'null'],
+    ['dim', undefined, 'undefined'],
+    ['dim', [true], 'an array of length 1'],
+  ];
+
+  for (const [name, value, got] of wrong)
+    it(`refuses ${name} given ${got}, and says what its type takes`, async () => {
+      const { fake, program } = await setup();
+      const type = { gain: 'f32', rounds: 'i32', bins: 'u32', dim: 'bool' }[name];
+      const sentence = `The override "${name}" (${type}) takes ${takes[name]}; got ${got}.`;
+      await refused(program.render({ constants: { [name]: value } as never }), sentence);
+      await refused(program.compute('main', { constants: { [name]: value } as never }), sentence);
+      expect(fake.made.pipeline).toBeUndefined();
+    });
+
+  it('takes what each type holds: an f32 up to its largest, an i32 and a u32 to the ends of their range, a bool as a boolean or a number', async () => {
+    const { fake, rt, m } = await setup();
+    // A program of its own for each call, so the cache never answers in place of the device.
+    const held = async (constants: Record<string, number | boolean>) => {
+      const before = fake.pipelines.length;
+      await rt.load(m).compute('main', { constants });
+      expect(fake.pipelines.length).toBe(before + 1);
+      return fake.pipelines.at(-1)!.descriptor.compute!.constants!;
+    };
+    expect(
+      await held({ gain: 3.4028234663852886e38, rounds: -(2 ** 31), bins: 2 ** 32 - 1 }),
+    ).toEqual({
+      gain: 3.4028234663852886e38,
+      rounds: -2147483648,
+      bins: 4294967295,
+    });
+    expect(await held({ gain: -3.4028234663852886e38, rounds: 2 ** 31 - 1, bins: 0 })).toEqual({
+      gain: -3.4028234663852886e38,
+      rounds: 2147483647,
+      bins: 0,
+    });
+    expect(await held({ gain: 1e-50 })).toEqual({ gain: 1e-50 });
+    // A bool given as a boolean is 1 or 0; given as a number it is false at 0 and true at any
+    // other, as WebGPU's constants take it.
+    for (const [given, given01] of [
+      [true, 1],
+      [false, 0],
+      [0, 0],
+      [-0, 0],
+      [1, 1],
+      [2, 1],
+      [-1, 1],
+      [0.5, 1],
+    ] as const)
+      expect(Object.is((await held({ dim: given })).dim, given01)).toBe(true);
+    // An f32 keeps -0, and an integer has none.
+    expect(Object.is((await held({ gain: -0 })).gain, -0)).toBe(true);
+    expect(Object.is((await held({ rounds: -0 })).rounds, 0)).toBe(true);
+  });
+
+  it('keys the pipeline cache on the values: a change in one override makes another pipeline, the same values give one back', async () => {
+    const { fake, program } = await setup();
+    const a = await program.render({ constants: { gain: 3, rounds: 1 } });
+    expect(fake.made.pipeline).toBe(1);
+    // The same values, in another order: the same pipeline.
+    expect(await program.render({ constants: { rounds: 1, gain: 3 } })).toBe(a);
+    expect(fake.made.pipeline).toBe(1);
+    // One override differs: a second pipeline, and each state keeps its own.
+    const b = await program.render({ constants: { gain: 3, rounds: 2 } });
+    expect(b).not.toBe(a);
+    expect(fake.made.pipeline).toBe(2);
+    expect(await program.render({ constants: { gain: 3, rounds: 2 } })).toBe(b);
+    expect(await program.render({ constants: { gain: 3, rounds: 1 } })).toBe(a);
+    // The states of one program that give none, or an empty record, are one pipeline.
+    const bare = await program.render();
+    expect(await program.render({ constants: {} })).toBe(bare);
+    expect(bare).not.toBe(a);
+    expect(fake.made.pipeline).toBe(3);
+    // A bool is its value, whatever it is spelled as; an f32 tells -0 from 0; an integer cannot.
+    const on = await program.render({ constants: { dim: true } });
+    expect(await program.render({ constants: { dim: 1 } })).toBe(on);
+    expect(await program.render({ constants: { dim: 7 } })).toBe(on);
+    expect(await program.render({ constants: { dim: false } })).not.toBe(on);
+    const zero = await program.render({ constants: { gain: 0 } });
+    expect(await program.render({ constants: { gain: -0 } })).not.toBe(zero);
+    const none = await program.render({ constants: { rounds: 0 } });
+    expect(await program.render({ constants: { rounds: -0 } })).toBe(none);
+    // The rest of the state counts as before.
+    expect(
+      await program.render({ constants: { gain: 3, rounds: 1 }, primitive: { cullMode: 'back' } }),
+    ).not.toBe(a);
+    const made = fake.made.pipeline;
+    // A compute pipeline is keyed the same way, by its entry and its values.
+    const c = await program.compute('main', { constants: { gain: 3 } });
+    expect(await program.compute('main', { constants: { gain: 3 } })).toBe(c);
+    expect(await program.compute('main', { constants: { gain: 4 } })).not.toBe(c);
+    expect(await program.compute('main')).not.toBe(c);
+    expect(await program.compute()).toBe(await program.compute('main'));
+    expect(fake.made.pipeline).toBe(made! + 3);
+  });
+
+  it('is typed as a record of names to numbers and booleans', async () => {
+    const { program } = await setup();
+    await program.render({ constants: { gain: 1, dim: true } });
+    await program.compute('main', { constants: { rounds: 2, dim: false } });
+    // @ts-expect-error a string is no override's value
+    await expect(program.render({ constants: { gain: '1' } })).rejects.toThrow(TypeError);
+    // @ts-expect-error `constants` is a record, not a list
+    await expect(program.compute('main', { constants: [1, 2] })).rejects.toThrow(TypeError);
   });
 });
 

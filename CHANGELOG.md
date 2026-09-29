@@ -600,6 +600,34 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A host sets a program's overrides by name** (proposal 0028, item 1; design rule 11.11; surface
+  §69). `RenderState.constants` and `program.compute(entry, { constants })` take a record of
+  override name to value, and every stage of the pipeline is created with it as WebGPU's
+  `constants`, keyed by the name the source declares, which is the name the WGSL declares. An
+  override the record leaves out keeps the default its declaration states. The runtime made every
+  pipeline with no values, so a host had no way to set one.
+  - A name the manifest's `overrides` does not list is a `TypeError` that names the program's
+    overrides; a value its type cannot hold is a `TypeError` that says what the type takes: an
+    `f32` takes a finite number no larger than 3.4028234663852886e38, an `i32` or a `u32` a whole
+    number in its range, and a `bool` a boolean or a number, where 0 is false. Measured on
+    Chromium 141, WebGPU alone refuses an undeclared name without saying which overrides the
+    module has, and converts silently a fraction for an `i32` or a `u32`, and a string or a
+    boolean for any type.
+  - The pipeline cache keys on the values, so two states that differ in an override are two
+    pipelines and the same values give the same pipeline back, whatever order the record is
+    written in and whether a `bool` is spelled `true` or `1`. An `f32` tells `-0` from `0`, which a
+    shader can tell apart; an integer has no `-0`.
+  - `Program`'s `compute` takes the options as its second argument, and `RenderState` gains
+    `constants`; each option's default is in its JSDoc, and `src/__api__/surface.md` records both.
+  - `src/runtime/runtime.test.ts` holds, against the recording device, the values each stage is
+    created with, each type's refusal with its sentence, the values each type holds and the
+    cache's key. `journeys/overrides/` runs a compute entry and a render pair on WebGPU through
+    `typeshade/runtime` at their defaults, at other values and at one value with the rest at
+    their defaults, each result held to a plain JavaScript reference and to the CPU oracle's run
+    of the module with the values as the overrides' defaults. The journey fails when the compute
+    stage, the vertex stage or the fragment stage is created with no values.
+  - `typeshade/runtime` is now 11,099 bytes minified and gzipped, 501 under its budget.
+
 - **The load-time emitter, `typeshade/emit`** (proposal 0025, step 6; design rules 11.10 and
   11.11; surface §64 and §69). `repack(manifest, { console })` emits a manifest again from the
   portable IR it carries. The program runtime takes it as a plug-in,

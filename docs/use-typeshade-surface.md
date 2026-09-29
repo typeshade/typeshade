@@ -7596,11 +7596,30 @@ await frame.submit(); // console lines print here
   requests with the features `programs` need; `rt.device` is it either way. `runtime()` is the
   default runtime.
 - **A program** comes from `rt.load(manifest)`, which refuses another schema and a feature the
-  device lacks. `program.compute(entry)` and `program.render(state)` resolve to cached pipelines,
-  each laid out from the manifest: the bindings its entries reach, visible to the stages that
-  reach them. `RenderState` is the host's fixed-function state: its colour targets, depth,
-  topology, culling and multisampling; a target whose format cannot hold the output at its
-  location is refused before WebGPU sees it.
+  device lacks. `program.compute(entry, options)` and `program.render(state)` resolve to cached
+  pipelines, each laid out from the manifest: the bindings its entries reach, visible to the
+  stages that reach them. `RenderState` is the host's fixed-function state: its colour targets,
+  depth, topology, culling and multisampling, and the values of the program's overrides (below);
+  a target whose format cannot hold the output at its location is refused before WebGPU sees it.
+- **Overrides are set by name.** An override is a specialization constant: the pipeline sets it
+  (§15), so a pipeline made with no values takes the default each declaration states.
+  `render({ constants })` and `compute(entry, { constants })` take a record of override name to
+  value, which every stage of the pipeline is created with as WebGPU's `constants`, keyed by the
+  name the source declares, which is the name the WGSL declares. An override the record leaves
+  out keeps its default. A name the manifest's `overrides` does not list is a `TypeError` that
+  names the program's overrides; a value its type cannot hold is a `TypeError` that says what the
+  type takes: an `f32` takes a finite number no larger than 3.4028234663852886e38 in magnitude,
+  an `i32` or a `u32` a whole number in its range, and a `bool` a boolean or a number, where 0
+  is false. WebGPU alone would report a validation error with no name of the source in it, or
+  convert the value silently. The pipeline cache keys on the values: two states that differ in
+  an override are two pipelines, and the same values give the same pipeline back.
+
+  ```ts
+  const program = rt.load(scene);
+  const fine = await program.render({ targets: ['bgra8unorm'], constants: { quality: 3 } });
+  const coarse = await program.render({ targets: ['bgra8unorm'], constants: { quality: 1 } });
+  const step = await program.compute('step', { constants: { iterations: 64 } });
+  ```
 - **Bindings go by name.** A draw or a dispatch takes `{ name: value }`: a plain host value
   (Rule 8.21), packed by the binding's layout into buffers the runtime reuses; a `Resident`
   (§65), uploaded on its first use and bound as it is after; a `Texture` or a `Sampler` from
@@ -7679,4 +7698,4 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
 
 The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67).
 
-Last updated: 2026-09-22
+Last updated: 2026-09-29

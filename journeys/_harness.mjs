@@ -235,7 +235,7 @@ async function runOnGpu(job) {
       // `read()` brings it back.
       const out = resident(bindings[job.read]);
       bindings[job.read] = out;
-      const pipeline = await program.compute(job.entry);
+      const pipeline = await program.compute(job.entry, { constants: job.constants });
       const f = rt.frame();
       for (let i = 0; i < job.repeat; i++) f.dispatch(pipeline, bindings, job.workgroups);
       await f.submit();
@@ -243,7 +243,11 @@ async function runOnGpu(job) {
       values = ArrayBuffer.isView(got) ? [...got] : got;
     } else {
       const [w, h] = job.size;
-      const pipeline = await program.render({ vertex: job.vertex, fragment: job.fragment });
+      const pipeline = await program.render({
+        vertex: job.vertex,
+        fragment: job.fragment,
+        constants: job.constants,
+      });
       const target = rt.texture({ size: [w, h], format: 'rgba8unorm' });
       const f = rt.frame();
       f.pass({ color: [{ target, clear: [0, 0, 0, 0] }] }, (p) => {
@@ -461,6 +465,7 @@ for (const job of jobs) {
       fragment: run.fragment,
       size: run.size,
       scissor: run.scissor,
+      constants: run.constants,
     });
   } catch (e) {
     fail(job.id, `WebGPU threw: ${e.message.split('\n')[0]}`);
@@ -480,7 +485,17 @@ for (const job of jobs) {
   // decoded from WebGPU carries (surface §66).
   let pixel;
   try {
-    const m = compileModule(job.module, {
+    // A run with `constants` sets the program's overrides by name on its pipeline. The oracle has
+    // no pipeline, so it runs the module with each value as the override's default (surface §15).
+    const module = run.constants
+      ? {
+          ...job.module,
+          overrides: job.module.overrides.map((o) =>
+            o.name in run.constants ? { ...o, default: run.constants[o.name] } : o,
+          ),
+        }
+      : job.module;
+    const m = compileModule(module, {
       ...(run.gpuStubs ? { gpuStubs: true } : {}),
       consoleSink: (e) =>
         cpuLines.push({ method: e.method, args: e.args, invocation: e.invocation ?? pixel }),
