@@ -623,11 +623,11 @@ function rootName(target: Expr): string | undefined {
 
 /** Follow every value of `m` that may be missing to where it is kept, to a fixed point. A
  *  function's result may be missing when it may reach a `discard` or a `return` with no value, or
- *  end with no `return`, and when a `return` gives one; a name may hold one when a `let`, a `var` or an assignment (to it
- *  or into it) gives it one, when a call passes one to the parameter of that name, and, for an
- *  `inout` parameter, when the callee may leave one in it. Only a value of an aggregate type
- *  (a vector, a matrix, an array, a struct) is followed: a scalar that is not there is
- *  `undefined` to a component read and to a helper alike. */
+ *  end with no `return`, and when a `return` gives one; a name may hold one when a `let`, a `var`
+ *  or an assignment (to it or into it) gives it one, when a call passes one to the parameter of
+ *  that name, and, for an `inout` parameter, when the callee may leave one in it. Only a value of
+ *  an aggregate type (a vector, a matrix, an array, a struct) is followed: a scalar that is not
+ *  there is `undefined` to a component read and to a helper alike. */
 function analyseAbsence(m: ModuleDecl, scope: AbsenceScope): Absence {
   const held = new Map<string, Set<string>>(m.funcs.map((f) => [f.name, new Set()]));
   const shared = new Set<string>();
