@@ -10,7 +10,9 @@
 //
 // ─── BIT-IDENTITY CONTRACT (the whole point) ───
 // compileModuleJs(m).fns.f(args) === compileModule(m).fns.f(args), Object.is per
-// element, for ALL inputs. This holds BY CONSTRUCTION, not by tuning:
+// element, for ALL inputs: every argument of its parameter's type (a vector of its width, a
+// struct with its fields) and every value the module makes of them. This holds BY
+// CONSTRUCTION, not by tuning:
 //   • the emitted code runs the IDENTICAL op tree in doubles, with a `Math.fround`
 //     exactly where the IR has an `__fround` (the f32 precision pass) and nowhere
 //     else;
@@ -25,7 +27,18 @@
 //     `distance`, `normalize` and `cross` are written out term by term in the
 //     order their BUILTINS entries sum. Everything else (matrices, the other
 //     builtins) calls the SAME cpu-runtime helper the interpreter calls, bound
-//     once at the top of the factory rather than looked up per call;
+//     once at the top of the factory rather than looked up per call. So does an
+//     operation on an operand that may be MISSING, a value the IR types as a vector
+//     that the module makes into something else (a call of a function that reaches
+//     a `discard` returns nothing, an element read past an array's end is
+//     `undefined`): the helper takes it as a scalar, as the interpreter does, where a
+//     component read would throw. `analyseAbsence` decides which operands those are,
+//     once per module, from the IR alone. The helpers are what they were before #410,
+//     so the few that read such a value as an array (a vector constructor's spread, a
+//     negation, a vector comparison or select, a swizzle) still answer otherwise than
+//     the interpreter does, or throw. And per-component code computes no component
+//     nothing reads, so an error the interpreter raises in one (a field read of an
+//     element past an array's end) is not raised;
 //   • it keeps the interpreter's evaluation order: an operand with an effect, or
 //     one evaluated before one, is evaluated once, in order, into a temporary,
 //     and its components read afterwards, as the helper reads them (`isPure`);
@@ -155,15 +168,15 @@ interface ModCtx {
   overrideId: Map<string, string>;
   /** The names the module actually declares as functions, so a call the front end resolved
    *  to one (`declRef`) can be routed to it rather than to a builtin of the same name. */
-  fnNames: Set<string>;
+  fnNames: ReadonlySet<string>;
   /** The module variables (roadmap 0.2 item 5), read and written through `$.vars`. */
-  varNames: Set<string>;
+  varNames: ReadonlySet<string>;
   /** The resource bindings, so a write to one that no local shadows lands in `$.bindings`
    *  where the host reads it, the way the interpreter's `setLValue` writes it. */
-  bindingNames: Set<string>;
+  bindingNames: ReadonlySet<string>;
   /** Each declared function's parameters, for a call to store back what its `inout`
    *  parameters hold as it returns (`inoutReturn`, cpu-runtime.ts). */
-  params: Map<string, FuncDecl['params']>;
+  params: ReadonlyMap<string, FuncDecl['params']>;
   /** The loops a kernel function's reduction is combined in the tree order by (Rule 7.2),
    *  and whether an `f32` combine rounds. */
   trees: ReadonlyMap<Stmt, readonly LoopReduction[]>;
@@ -173,11 +186,16 @@ interface ModCtx {
   bound: Map<string, string>;
   /** {@link isPure}'s answers, by expression. */
   pure: WeakMap<Expr, boolean>;
+  /** Which values may be missing where the IR types a vector ({@link analyseAbsence}). */
+  absence: Absence;
 }
 
 /** Per-fn codegen state: the flat env → JS locals mapping + the hoist list. */
 interface FnCtx {
   mod: ModCtx;
+  /** The function's name, which {@link Absence} keeps its names by; empty for the module's own
+   *  initializers. */
+  name: string;
   /** IR name (param OR let/var) → JS identifier. Params pre-seeded to `$a<i>`;
    *  a `let`/`var` of a NEW name allocates `$v<n>` (hoisted). A repeat name maps
    *  to the SAME id — the interpreter's single flat Map has no shadowing, so
@@ -410,7 +428,7 @@ type CallKind =
   | 'builtin'
   | 'stub';
 
-function callKind(e: Call, S: FnCtx): CallKind {
+function callKind(e: Call, fnNames: ReadonlySet<string>): CallKind {
   const intrinsic = e.declRef === undefined;
   if (intrinsic && isBarrierIntrinsic(e.fn)) return 'barrier';
   if (intrinsic && isAtomicIntrinsic(e.fn)) return 'atomic';
@@ -430,7 +448,7 @@ function callKind(e: Call, S: FnCtx): CallKind {
   if (intrinsic && TYPED_BIT_BUILTINS.has(e.fn)) return 'bits';
   // A call the front end resolved to a declared function (`declRef`) goes to that function,
   // which is what the emitted shader calls; the interpreter makes the same choice.
-  if (!intrinsic && S.mod.fnNames.has(e.fn)) return 'module';
+  if (!intrinsic && fnNames.has(e.fn)) return 'module';
   if (BUILTINS[e.fn]) return 'builtin';
   if (GPU_STUBS[e.fn]) return 'stub';
   // A module function, dispatched through $.F so a compiled fn can call one that fell back to
@@ -483,7 +501,7 @@ function isPure(e: Expr, S: FnCtx): boolean {
       pure = p(e.scrutinee) && e.cases.every(([, v]) => p(v)) && p(e.default);
       break;
     case 'call': {
-      const k = callKind(e, S);
+      const k = callKind(e, S.mod.fnNames);
       pure =
         (k === 'saturate' ||
           k === 'transpose' ||
@@ -517,9 +535,261 @@ function roundedParam(a: Expr, t: ShaderType, S: FnCtx): readonly string[] | und
 function isStable(e: Expr, S: FnCtx): boolean {
   if (e.op === 'lit' || e.op === 'constref' || e.op === 'overrideref') return true;
   if (e.op !== 'call' || e.fn !== '__fround' || e.args.length !== 1) return false;
-  if (callKind(e, S) !== 'builtin') return false;
+  if (callKind(e, S.mod.fnNames) !== 'builtin') return false;
   const a = e.args[0]!;
   return a.op === 'lit' || roundedParam(a, e.type, S) !== undefined;
+}
+
+// ─── Operands that may be missing ────────────────────────────────────────────────────────────
+//
+// A value the IR types as a vector is not always one at run time, and the interpreter and the
+// runtime helpers take it as they find it: a value that is not an array is a scalar to them, so
+// `applyBin` of `undefined` and 2 is NaN, `-undefined` is NaN, and `dot` of it throws. The
+// per-component code above reads `t[i]` of every operand the IR types as a vector, which throws
+// for `undefined` and reads a component that is not there from a list that is too short. A
+// module makes such a value from valid source, in three ways:
+//   • a function that reaches a `discard` returns nothing (the interpreter's discard signal
+//     leaves it as `undefined`, and the caller carries on with that), and so does one with a
+//     `return` that has no value, or a path that ends with no `return`;
+//   • an element read past the end of an array is `undefined`, which a compute entry with no
+//     bounds check reads when the dispatch has more invocations than the array has elements
+//     (a GPU's robust access gives some value there; the CPU tier gives none);
+//   • a column read past a matrix's last is an empty list.
+// A vector operation on such an operand is left to the runtime helper, which does what the
+// interpreter does. Which operands may be missing is decided once for the module, from the IR
+// alone, by following each such value to where it is kept: a local, a parameter, a module
+// variable, a field, a function's result. It is conservative, a name being the same name
+// wherever the function uses it (the interpreter's environment is flat), and never looks at a
+// value, so a `vec3` built from components, a parameter no call passes such a value to, and the
+// field of a struct read from an array keep the code that is written per component.
+
+/** What {@link analyseAbsence} reads of the module, which is what a {@link ModCtx} holds of it
+ *  before it is built. */
+type AbsenceScope = Pick<ModCtx, 'fnNames' | 'varNames' | 'bindingNames' | 'params' | 'trees'>;
+
+/** Which values of a module may be missing (see above): the answer to {@link analyseAbsence}. */
+interface Absence {
+  /** Whether `e`, evaluated in the function `fn`, may be missing, or, for a struct or an
+   *  array, may hold a vector that is. */
+  may(fn: string, e: Expr): boolean;
+  /** Whether the parameter or local `name` of `fn`, or a module variable or binding of that
+   *  name, may hold one. */
+  holds(fn: string, name: string): boolean;
+}
+
+/** Whether a `discard`, or a `return` with no value, is anywhere in `body`: the function returns
+ *  nothing there. */
+function returnsNothing(body: readonly Stmt[]): boolean {
+  let found = false;
+  const walk = (s: Stmt): void => {
+    if (s.s === 'discard' || (s.s === 'return' && s.expr === undefined)) found = true;
+    eachStmtExpr(s, () => undefined, walk);
+  };
+  body.forEach(walk);
+  return found;
+}
+
+/** Whether every path through `body` ends in a `return` or a `discard`. The core rule
+ *  `all-paths-return` reads the last statement of a body alone, so a `return` after a `break`
+ *  passes it, and is not counted here. */
+function alwaysReturns(body: readonly Stmt[]): boolean {
+  for (const s of body) {
+    if (s.s === 'return' || s.s === 'discard') return true;
+    if (s.s === 'break' || s.s === 'continue') return false;
+    if (
+      s.s === 'if' &&
+      s.elseBody !== undefined &&
+      s.arms.every((arm) => alwaysReturns(arm.body)) &&
+      alwaysReturns(s.elseBody)
+    )
+      return true;
+    if (
+      s.s === 'switch' &&
+      s.defaultBody !== undefined &&
+      s.cases.every((c) => alwaysReturns(c.body)) &&
+      alwaysReturns(s.defaultBody)
+    )
+      return true;
+  }
+  return false;
+}
+
+/** The variable an assignment to `target` writes into: `v` for `v`, `v.x`, `v[i].pos`. */
+function rootName(target: Expr): string | undefined {
+  let x = target;
+  while (x.op === 'member' || x.op === 'index') x = x.base;
+  return x.op === 'varref' || x.op === 'param' ? x.name : undefined;
+}
+
+/** Follow every value of `m` that may be missing to where it is kept, to a fixed point. A
+ *  function's result may be missing when it may reach a `discard` or a `return` with no value, or
+ *  end with no `return`, and when a `return` gives one; a name may hold one when a `let`, a `var` or an assignment (to it
+ *  or into it) gives it one, when a call passes one to the parameter of that name, and, for an
+ *  `inout` parameter, when the callee may leave one in it. Only a value of an aggregate type
+ *  (a vector, a matrix, an array, a struct) is followed: a scalar that is not there is
+ *  `undefined` to a component read and to a helper alike. */
+function analyseAbsence(m: ModuleDecl, scope: AbsenceScope): Absence {
+  const held = new Map<string, Set<string>>(m.funcs.map((f) => [f.name, new Set()]));
+  const shared = new Set<string>();
+  const results = new Set<string>();
+  let grew = false;
+  for (const f of m.funcs)
+    if (isAggregateType(f.ret) && (returnsNothing(f.body) || !alwaysReturns(f.body)))
+      results.add(f.name);
+
+  const holds = (fn: string, name: string): boolean =>
+    held.get(fn)?.has(name) === true || shared.has(name);
+  const note = (fn: string, name: string): void => {
+    const names = held.get(fn);
+    if (names !== undefined && !names.has(name)) {
+      names.add(name);
+      grew = true;
+    }
+    if ((scope.varNames.has(name) || scope.bindingNames.has(name)) && !shared.has(name)) {
+      shared.add(name);
+      grew = true;
+    }
+  };
+  // What each expression was found to be, by function, for the round in progress: a node the IR
+  // shares (the builder makes a graph, not a tree) is answered once, however often it is reached.
+  // Every round starts afresh, since what a round adds can change what an earlier answer said.
+  const memo = new Map<string, WeakMap<Expr, boolean>>();
+  const may = (fn: string, e: Expr): boolean => {
+    let seen = memo.get(fn);
+    if (seen === undefined) memo.set(fn, (seen = new WeakMap()));
+    let answer = seen.get(e);
+    if (answer === undefined) seen.set(e, (answer = compute(fn, e)));
+    return answer;
+  };
+  const compute = (fn: string, e: Expr): boolean => {
+    const sub = (x: Expr): boolean => may(fn, x);
+    switch (e.op) {
+      case 'lit':
+      case 'constref':
+      case 'overrideref':
+      case 'externref':
+        return false;
+      case 'param':
+      case 'varref':
+        return holds(fn, e.name);
+      case 'binop':
+      case 'compare':
+      case 'logical':
+        return sub(e.a) || sub(e.b);
+      case 'unop':
+        return sub(e.a);
+      case 'member':
+        return sub(e.base);
+      // A vector or a matrix column read from a list, past its end.
+      case 'index':
+        return widthOf(e.type) !== undefined || sub(e.base);
+      case 'construct':
+        return e.args.some(sub);
+      // (Its condition picks an arm, which is a vector where the arms are.)
+      case 'select':
+        return sub(e.ifTrue) || sub(e.ifFalse);
+      case 'matchExpr':
+        return e.cases.some(([, v]) => sub(v)) || sub(e.default);
+      // What a call gives is what its function returns, which is nothing along a path through a
+      // `discard`. A builtin gives a vector where its operands are one, and the helper's answer
+      // to an operand that is not (`abs` of nothing is the scalar NaN) is no vector either.
+      case 'call':
+        return callKind(e, scope.fnNames) === 'module' ? results.has(e.fn) : e.args.some(sub);
+    }
+  };
+  const flows = (fn: string, e: Expr): boolean => isAggregateType(e.type) && may(fn, e);
+
+  const visit = (f: FuncDecl): void => {
+    const fn = f.name;
+    const call = (e: Call): void => {
+      const params = callKind(e, scope.fnNames) === 'module' ? scope.params.get(e.fn) : undefined;
+      params?.forEach((p, i) => {
+        const arg = e.args[i];
+        if (arg === undefined) return;
+        if (flows(fn, arg)) note(e.fn, p.name);
+        if (p.mode === 'inout' && held.get(e.fn)?.has(p.name) === true) {
+          const into = rootName(arg);
+          if (into !== undefined) note(fn, into);
+        }
+      });
+    };
+    const stmt = (s: Stmt): void => {
+      switch (s.s) {
+        case 'let':
+          if (flows(fn, s.expr)) note(fn, s.name);
+          break;
+        case 'var':
+          if (s.init !== undefined && flows(fn, s.init)) note(fn, s.name);
+          break;
+        // (A compound assignment adds nothing: `applyBin` of a vector and anything is a vector.)
+        case 'assign': {
+          const into = rootName(s.target);
+          if (into !== undefined && flows(fn, s.expr)) note(fn, into);
+          break;
+        }
+        case 'return':
+          if (s.expr !== undefined && flows(fn, s.expr) && !results.has(fn)) {
+            results.add(fn);
+            grew = true;
+          }
+          break;
+        // A reduction loop combines what the variable held through `$ta` and `$tb`
+        // (`emitTreeFor`).
+        case 'for':
+          for (const r of scope.trees.get(s) ?? [])
+            if (holds(fn, r.name)) {
+              note(fn, '$ta');
+              note(fn, '$tb');
+            }
+          break;
+        default:
+          break;
+      }
+      eachStmtExpr(
+        s,
+        (e) =>
+          eachExpr(e, (x) => {
+            if (x.op === 'call') call(x);
+          }),
+        stmt,
+      );
+    };
+    f.body.forEach(stmt);
+  };
+  // The last round added nothing, so its answers are the final ones, and stay.
+  do {
+    grew = false;
+    memo.clear();
+    m.funcs.forEach(visit);
+  } while (grew);
+  return { holds, may };
+}
+
+/** Whether `o`, an operand an operation would read per component, is a vector that may be
+ *  missing: then the operation is left to the runtime helper, which takes it as the interpreter
+ *  does. A scalar operand is never one; its absence reads as `undefined` either way. */
+const missing = (o: Expr, S: FnCtx): boolean =>
+  widthOf(o.type) !== undefined && S.mod.absence.may(S.name, o);
+const anyMissing = (os: readonly Expr[], S: FnCtx): boolean => os.some((o) => missing(o, S));
+
+/** The operands `ownLanes` reads per component to build `e`. */
+function laneOperands(e: Expr): readonly Expr[] {
+  switch (e.op) {
+    case 'binop':
+    case 'compare':
+      return [e.a, e.b];
+    case 'unop':
+      return [e.a];
+    case 'select':
+      return [e.cond, e.ifTrue, e.ifFalse];
+    case 'member':
+      return [e.base];
+    case 'construct':
+    case 'call':
+      return e.args;
+    default:
+      return [];
+  }
 }
 
 /** The operands of an operation that reads them per component, each as its components (one for
@@ -589,9 +859,11 @@ function lanesOf(e: Expr, n: number, S: FnCtx): Lanes {
 }
 
 /** `e`, a vector of `n` components, built one component at a time, or undefined for an
- *  expression the generator leaves to the runtime. Decided from the types before anything is
- *  emitted, so an undefined answer leaves `S` as it was. */
+ *  expression the generator leaves to the runtime: one with an operand that may be missing
+ *  (see above), and the shapes below that are not per component. Decided from the types and the
+ *  IR before anything is emitted, so an undefined answer leaves `S` as it was. */
 function ownLanes(e: Expr, n: number, S: FnCtx): Lanes | undefined {
+  if (anyMissing(laneOperands(e), S)) return undefined;
   switch (e.op) {
     case 'binop': {
       // Component-wise, with a scalar broadcast, as `applyBin` computes it; the matrix
@@ -688,7 +960,7 @@ function swizzleLanes(e: Extract<Expr, { op: 'member' }>, n: number, S: FnCtx): 
 /** A builtin with a vector result, per component: the rounding, a per-component builtin
  *  (`COMPONENTWISE`), `normalize` and `cross`. */
 function callLanes(e: Call, n: number, S: FnCtx): Lanes | undefined {
-  if (callKind(e, S) !== 'builtin') return undefined;
+  if (callKind(e, S.mod.fnNames) !== 'builtin') return undefined;
   const kind = numKindOf(e.type);
   const out = (l: Lanes): Lanes =>
     kind === 'f32' ? l : { pre: l.pre, comps: l.comps.map((c) => ({ js: wrapNum(c.js, kind) })) };
@@ -900,7 +1172,7 @@ function emit(e: Expr, S: FnCtx): Js {
 }
 
 function emitCall(e: Call, S: FnCtx): Js {
-  const kind = callKind(e, S);
+  const kind = callKind(e, S.mod.fnNames);
   // A barrier has no meaning for one compiled invocation; the runtime throws and names
   // `dispatch`, which runs the workgroup in lockstep on the interpreter (#82).
   if (kind === 'barrier') return { js: `$.barrier(${q(e.fn)})` };
@@ -974,7 +1246,7 @@ function builtinJs(e: Call, S: FnCtx): Js | undefined {
   }
   if ((e.fn === 'dot' || e.fn === 'distance') && e.args.length === 2) {
     const w = widthOf(a0!.type);
-    if (w === undefined || widthOf(a1!.type) !== w) return undefined;
+    if (w === undefined || widthOf(a1!.type) !== w || anyMissing(e.args, S)) return undefined;
     const { pre, parts } = operands(e.args, S);
     const [a, b] = parts as [Js[], Js[]];
     // dot: `a.reduce((s, c, i) => s + c * b[i], 0)`.
@@ -987,7 +1259,7 @@ function builtinJs(e: Call, S: FnCtx): Js | undefined {
   if (e.fn === 'length' && e.args.length === 1) {
     // `Math.sqrt(v.reduce((s, c) => s + c * c, 0))`.
     const w = widthOf(a0!.type);
-    if (w === undefined) return undefined;
+    if (w === undefined || anyMissing(e.args, S)) return undefined;
     const { pre, parts } = operands(e.args, S);
     const c = parts[0]!.map((x) => atomize(x, S, pre));
     return out({ js: seq(pre, `Math.sqrt(${sumOf(c.map((x) => `${x.js} * ${x.js}`))})`) });
@@ -1037,7 +1309,7 @@ function emitBinop(e: Extract<Expr, { op: 'binop' }>, S: FnCtx): Js {
  *  component-wise whatever the operands are, in both engines. */
 function applyBinJs(bop: BinOp, a: Expr, b: Expr, kind: NumKind, S: FnCtx): string {
   const n = widthOf(a.type);
-  if (n !== undefined && fits(b.type, n)) {
+  if (n !== undefined && fits(b.type, n) && !anyMissing([a, b], S)) {
     return arrayOf(
       lanewise([a, b], n, S, ([x, y]) => ({ js: emitScalarBin(bop, x!.js, y!.js, kind, S) })),
     ).js;
@@ -1451,18 +1723,22 @@ export function generateModuleJs(
   const av = autoVars(m);
   const mv = opts?.precision === 'f32' ? froundF32(av) : av;
 
-  const mod: ModCtx = {
-    structs: new Map(mv.structs.map((s) => [s.name, s])),
-    constId: new Map(),
-    overrideId: new Map(),
+  const scope: AbsenceScope = {
     fnNames: new Set(mv.funcs.map((f) => f.name)),
     varNames: new Set((mv.vars ?? []).map((v) => v.name)),
     bindingNames: new Set(mv.bindings.map((b) => b.name)),
     params: new Map(mv.funcs.map((f) => [f.name, f.params])),
     trees: treeLoops(av, mv),
+  };
+  const mod: ModCtx = {
+    structs: new Map(mv.structs.map((s) => [s.name, s])),
+    constId: new Map(),
+    overrideId: new Map(),
+    ...scope,
     f32: opts?.precision === 'f32',
     bound: new Map(),
     pure: new WeakMap(),
+    absence: analyseAbsence(mv, scope),
   };
 
   // ── Module-scope decls (consts + overrides) as factory-local `const`s ──
@@ -1474,7 +1750,14 @@ export function generateModuleJs(
   // throwaway FnCtx with empty varId is the right compile env; a later const may
   // reference an earlier one via constId. A temporary it needs is declared at the factory's
   // top, with the bindings.
-  const constEnv: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0, rounded: new Map() };
+  const constEnv: FnCtx = {
+    mod,
+    name: '',
+    varId: new Map(),
+    hoisted: [],
+    n: 0,
+    rounded: new Map(),
+  };
   mv.consts.forEach((c, i) => {
     const id = `$C_${i}`;
     mod.constId.set(c.name, id);
@@ -1496,7 +1779,14 @@ export function generateModuleJs(
   // returns beside the module's own. The initializer is emitted the way a const's is.
   const privates = (mv.vars ?? []).filter((v) => v.space === 'private');
   if (privates.length > 0) {
-    const varEnv: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0, rounded: new Map() };
+    const varEnv: FnCtx = {
+      mod,
+      name: '',
+      varId: new Map(),
+      hoisted: [],
+      n: 0,
+      rounded: new Map(),
+    };
     const lines = privates.map(
       (v) =>
         `$.vars[${q(v.name)}] = ${v.init ? bindJs(emit(v.init, varEnv), v.type, varEnv) : zeroLit(v.type, mod.structs)};`,
@@ -1507,7 +1797,14 @@ export function generateModuleJs(
   const writes = fnWrites(mv);
   for (const f of mv.funcs) {
     try {
-      const S: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0, rounded: new Map() };
+      const S: FnCtx = {
+        mod,
+        name: f.name,
+        varId: new Map(),
+        hoisted: [],
+        n: 0,
+        rounded: new Map(),
+      };
       const params = f.params.map((p, i) => {
         const id = `$a${i}`;
         S.varId.set(p.name, id);
@@ -1528,7 +1825,14 @@ export function generateModuleJs(
       f.params.forEach((p, i) => {
         const id = params[i]!;
         const u = uses.get(p.name)!;
-        const round = p.mode !== 'inout' && isF32ish(p.type) && u.wrapped > 0 && !u.written;
+        // A vector that may be missing is not read component by component here: the runtime
+        // helper rounds what it is handed, whatever that is.
+        const round =
+          p.mode !== 'inout' &&
+          isF32ish(p.type) &&
+          u.wrapped > 0 &&
+          !u.written &&
+          !(widthOf(p.type) !== undefined && mod.absence.holds(f.name, p.name));
         if (copies[i] && !(round && u.reads === u.wrapped))
           entry.push(`${id} = ${helper(S, 'clone')}(${id});`);
         if (!round) return;
@@ -1578,11 +1882,12 @@ export function generateModuleJs(
  *  Prefer it on any hot path.
  *
  *  Bit identity holds by construction: every operation calls the exact runtime helper the
- *  interpreter calls, or, for a vector the IR types say it can, the scalar operation that
- *  helper applies to each component, so the two cannot drift apart. What differs is when the
- *  work happens. Instead of walking the IR node by node on every invocation, this walks each
- *  function body once, emits a JavaScript source string and builds it with `new Function`, so
- *  each call runs straight-line code with real local variables.
+ *  interpreter calls, or, for a vector operand the IR types say it can and that nothing the
+ *  module does can leave missing (a helper's `discard`, an element read past an array's end),
+ *  the scalar operation that helper applies to each component, so the two cannot drift apart.
+ *  What differs is when the work happens. Instead of walking the IR node by node on every
+ *  invocation, this walks each function body once, emits a JavaScript source string and builds
+ *  it with `new Function`, so each call runs straight-line code with real local variables.
  *
  *  The interpreter is the reference and the fallback. A function body holding a shape this
  *  generator cannot emit bit-identically (a raw statement, a placeholder statement, an

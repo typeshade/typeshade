@@ -30,6 +30,8 @@ import {
   vec3f64T,
   structT,
   arrayT,
+  matT,
+  voidT,
 } from './ir/index.js';
 import { compileModule, type CpuPrecision } from './oracle.js';
 import { compileModuleJs, generateModuleJs } from './cpu-codegen.js';
@@ -1364,5 +1366,486 @@ describe('compileModuleJs — the type-directed paths (#410)', () => {
     expect(compileModuleJs(photo, { precision: 'f32' }).fns.photoCell!(...clone(args))).toEqual(
       compileModule(photo, { precision: 'f32' }).fns.photoCell!(...clone(args)),
     );
+  });
+});
+
+// ═══ An operand that may be missing (#410) ═══
+//
+// A vector-typed expression is not always a vector at run time. A function that reaches a
+// `discard` returns nothing (the interpreter's discard signal leaves the function as
+// `undefined`), an element read past the end of an array is `undefined`, and a column read past
+// a matrix's last is an empty list. The runtime helpers take such an operand as it comes, as a
+// scalar (`applyBin` of `undefined` and 2 is NaN, and of two scalars is a scalar), and so does
+// the interpreter. The per-component code reads `t[i]` of every operand the IR types as a
+// vector, which throws for `undefined` and reads NaN from an empty list, so it is written only
+// for an operand no such value can reach; a call of a function that may return nothing, an
+// element read, and every name, field and parameter one is stored into or passed to keep the
+// helper. Each function below is held to the interpreter in both precisions, on inputs that
+// reach a missing operand and on ones that do not. The first cut of #410 threw a `TypeError` on
+// two of them: a helper that discards feeding a vector operation, and `arr[i] + v` with `i`
+// out of range.
+
+const SHADED = structT('Shaded');
+const BODY = structT('Body');
+const ARR3 = arrayT(v3, 3);
+const SHADED2 = arrayT(SHADED, 2);
+const M33 = matT(3, 3);
+const callS = (expr: Expr): Stmt => ({ s: 'call', expr });
+const discardS: Stmt = { s: 'discard' };
+const vecOf = (t: ShaderType, ...xs: number[]): Expr =>
+  construct(
+    t,
+    xs.map((x) => lit(x)),
+  );
+
+function buildMissingModule(): ModuleDecl {
+  const p = param('p', v2);
+  const k = param('k', f32T);
+  const s = param('s', i32T);
+  const arr = param('arr', ARR3);
+  const i = param('i', i32T);
+  const v = param('v', v3);
+  const shade = (a: Expr = p): Expr => call('shadeOrNothing', [a], v4);
+  const plain = (a: Expr = p): Expr => call('plainColor', [a], v4);
+  const twice = (e: Expr): Expr => bin('*', e, lit(2), v4);
+  const P: P = { name: 'p', type: v2 };
+  const K: P = { name: 'k', type: f32T };
+  const S: P = { name: 's', type: i32T };
+  const ARR: P = { name: 'arr', type: ARR3 };
+  const I: P = { name: 'i', type: i32T };
+  const V: P = { name: 'v', type: v3 };
+  return {
+    consts: [],
+    structs: [
+      { name: 'Shaded', fields: [{ name: 'color', type: v4 }] },
+      {
+        name: 'Body',
+        fields: [
+          { name: 'pos', type: v3 },
+          { name: 'vel', type: v3 },
+        ],
+      },
+    ],
+    bindings: [
+      { group: 0, binding: 0, name: 'pos', space: 'storage', access: 'read', type: arrayT(v3) },
+      {
+        group: 0,
+        binding: 1,
+        name: 'bodies',
+        space: 'storage',
+        access: 'read',
+        type: arrayT(BODY),
+      },
+    ],
+    vars: [{ name: 'held', space: 'private', type: v4 }],
+    funcs: [
+      // A function that reaches a `discard` returns nothing; one that does not returns a vector.
+      func('shadeOrNothing', [P], v4, [
+        ifS([{ cond: cmp('<', member(p, 'x'), lit(2)), body: [discardS] }]),
+        ret(vecOf(v4, 1, 1, 1, 0.5)),
+      ]),
+      func('plainColor', [P], v4, [
+        ret(construct(v4, [member(p, 'x'), member(p, 'y'), lit(0), lit(1)])),
+      ]),
+      // Two functions that double a vector, one handed a value that may be missing, one not.
+      func('twiceOf', [{ name: 'c', type: v4 }], v4, [ret(twice(param('c', v4)))]),
+      func('doubled', [{ name: 'c', type: v4 }], v4, [ret(twice(param('c', v4)))]),
+      func('takesShaded', [{ name: 'q', type: SHADED }], v4, [
+        ret(twice(member(param('q', SHADED), 'color', v4))),
+      ]),
+
+      // The missing value, used as it comes: returned, built into a struct, stored in a local
+      // and in a variable assigned twice, passed on, stored into a field, written through an
+      // `inout` parameter and into a module variable, returned through another function, and
+      // picked by a select and by a match.
+      func('viaReturn', [P], v4, [ret(shade())]),
+      func('viaStruct', [P], SHADED, [ret(construct(SHADED, [shade()]))]),
+      func('viaLocal', [P], v4, [letS('c', shade()), ret(twice(vref('c', v4)))]),
+      func('viaReassigned', [P], v4, [
+        varS('c', v4, plain()),
+        assign(vref('c', v4), shade()),
+        ret(bin('+', vref('c', v4), vref('c', v4), v4)),
+      ]),
+      func('viaArgument', [P], v4, [ret(call('twiceOf', [shade()], v4))]),
+      func('viaStructArgument', [P], v4, [
+        ret(call('takesShaded', [construct(SHADED, [shade()])], v4)),
+      ]),
+      // A struct whose field is missing, kept in an array and read back from it as a whole.
+      func('viaStructArray', [P], v4, [
+        letS(
+          'list',
+          construct(SHADED2, [construct(SHADED, [shade()]), construct(SHADED, [plain()])]),
+        ),
+        letS('q', index(vref('list', SHADED2), lit(0, i32T), SHADED)),
+        ret(twice(member(vref('q', SHADED), 'color', v4))),
+      ]),
+      func('viaField', [P], v4, [
+        varS('q', SHADED, construct(SHADED, [plain()])),
+        assign(member(vref('q', SHADED), 'color', v4), shade()),
+        ret(twice(member(vref('q', SHADED), 'color', v4))),
+      ]),
+      func('blank', [{ name: 'c', type: v4, mode: 'inout' }, P], voidT, [
+        assign(param('c', v4), shade()),
+      ]),
+      func('viaInout', [P], v4, [
+        varS('c', v4, plain()),
+        callS(call('blank', [vref('c', v4), p], voidT)),
+        ret(twice(vref('c', v4))),
+      ]),
+      func('hold', [P], voidT, [assign(vref('held', v4), shade())]),
+      func('viaModuleVar', [P], v4, [
+        callS(call('hold', [p], voidT)),
+        ret(twice(vref('held', v4))),
+      ]),
+      func('passOn', [P], v4, [ret(shade())]),
+      func('viaResult', [P], v4, [ret(twice(call('passOn', [p], v4)))]),
+      func('viaSelect', [P, K], v4, [ret(twice(sel(cmp('>', k, lit(0)), shade(), plain(), v4)))]),
+      func('viaMatch', [P, S], v4, [
+        ret(
+          twice(
+            matchE(
+              s,
+              [
+                [0, shade()],
+                [1, plain()],
+              ],
+              plain(),
+              v4,
+            ),
+          ),
+        ),
+      ]),
+      func('viaSelectElse', [P, K], v4, [
+        ret(twice(sel(cmp('>', k, lit(0)), plain(), shade(), v4))),
+      ]),
+
+      // What an operation makes of a missing operand is no vector either: `2. * nothing` is the
+      // scalar NaN, which `normalize` throws at (`dot` and `cross` too), where a component read
+      // of it answers NaN. An operation on the result of one is left to the helper too.
+      func('viaScale', [P, K], v4, [ret(call('normalize', [bin('*', k, shade(), v4)], v4))]),
+
+      // A function that ends without a value on some path: a `return` past a `break`, which
+      // `all-paths-return` (it reads the last statement of a body) accepts, and a `discard`
+      // inside a switch.
+      func('afterBreak', [P, S], v4, [
+        switchS(s, [{ values: [0], body: [{ s: 'break' }, ret(plain())] }], [ret(plain())]),
+      ]),
+      func('viaBreak', [P, S], v4, [ret(twice(call('afterBreak', [p, s], v4)))]),
+      func('discardsInSwitch', [P, S], v4, [
+        switchS(s, [{ values: [0], body: [discardS] }], []),
+        ret(plain()),
+      ]),
+      func('viaSwitch', [P, S], v4, [ret(twice(call('discardsInSwitch', [p, s], v4)))]),
+
+      // A `return` with no value, in a function that has one, returns nothing as well.
+      func('bareReturn', [P, K], v4, [
+        ifS([{ cond: cmp('<', k, lit(0)), body: [ret()] }]),
+        ret(plain()),
+      ]),
+      func('viaBareReturn', [P, K], v4, [ret(twice(call('bareReturn', [p, k], v4)))]),
+
+      // A function that returns a vector on every path is a vector where it is called.
+      func('pickColor', [P, K], v4, [
+        ifS([{ cond: cmp('>', k, lit(0)), body: [ret(plain())] }], [ret(twice(plain()))]),
+      ]),
+      func('switchColor', [P, S], v4, [
+        switchS(s, [{ values: [0], body: [ret(plain())] }], [ret(twice(plain()))]),
+      ]),
+      func('usePicked', [P, K], v4, [
+        letS('c', call('pickColor', [p, k], v4)),
+        ret(bin('+', twice(vref('c', v4)), vref('c', v4), v4)),
+      ]),
+      func('useSwitched', [P, S], v4, [ret(twice(call('switchColor', [p, s], v4)))]),
+      func('usePlain', [P], v4, [
+        letS('c', plain()),
+        ret(bin('+', twice(vref('c', v4)), vref('c', v4), v4)),
+      ]),
+      func('usePlainArgument', [P], v4, [ret(call('doubled', [plain()], v4))]),
+
+      // An element read past the end of an array, a column past a matrix's last, a binding's.
+      func('readOob', [ARR, I, V], v3, [ret(bin('+', index(arr, i, v3), v, v3))]),
+      func('scaleOob', [ARR, I], v3, [ret(bin('*', index(arr, i, v3), lit(2), v3))]),
+      func('lengthOob', [ARR, I], f32T, [ret(call('length', [index(arr, i, v3)]))]),
+      func('accumulateOob', [ARR, I, V], v3, [
+        varS('a', v3, index(arr, i, v3)),
+        assignOp(vref('a', v3), '+', v),
+        ret(vref('a', v3)),
+      ]),
+      // A missing element passed to a function, which reads it as a parameter: the parameter is
+      // not read component by component as the function is entered.
+      func('twiceOf3', [{ name: 'c', type: v3 }], v3, [ret(bin('*', param('c', v3), lit(2), v3))]),
+      func('viaElement', [ARR, I], v3, [ret(call('twiceOf3', [index(arr, i, v3)], v3))]),
+      // `dot` of what `arr[i] * 2.` makes of a missing element is a `TypeError` on the
+      // interpreter, where per-component reads of it would answer NaN.
+      func('dotOob', [ARR, I, V], f32T, [
+        ret(call('dot', [bin('*', index(arr, i, v3), lit(2), v3), v])),
+      ]),
+      func('columnOob', [{ name: 'm', type: M33 }, { name: 'j', type: i32T }, V], v3, [
+        ret(bin('*', index(param('m', M33), param('j', i32T), v3), v, v3)),
+      ]),
+      func('binding', [{ name: 'n', type: u32T }], v3, [
+        ret(bin('*', index(vref('pos', arrayT(v3)), param('n', u32T), v3), lit(2), v3)),
+      ]),
+      // A struct read from an array holds vectors, and is not missing where its element is.
+      func('stepOne', [{ name: 'n', type: u32T }, K], v3, [
+        letS('b', index(vref('bodies', arrayT(BODY)), param('n', u32T), BODY)),
+        ret(
+          bin(
+            '+',
+            member(vref('b', BODY), 'pos', v3),
+            bin('*', member(vref('b', BODY), 'vel', v3), k, v3),
+            v3,
+          ),
+        ),
+      ]),
+    ],
+  };
+}
+
+interface Case {
+  readonly args: CpuValue[];
+  /** Whether the call reaches an operand that is missing. */
+  readonly missing: boolean;
+}
+const at = (missing: boolean, ...args: CpuValue[]): Case => ({ args, missing });
+
+const P_OUT = [1, 0.5]; // `shadeOrNothing` discards
+const P_IN = [3, 0.5];
+const COLOR = [0.25, 0.5, 0.75, 1];
+// An array of vectors is a list of lists on the CPU tier; `CpuValue` has no name for one.
+const POSITIONS = [
+  [1, 2, 3],
+  [4, 5, 6],
+  [7, 8, 9],
+] as unknown as CpuValue;
+const ROWS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+const THIRD = [0.5, -1, 2];
+const BODIES = [
+  { pos: [1, 2, 3], vel: [0.5, 0, -1] },
+  { pos: [4, 5, 6], vel: [0, 1, 0] },
+];
+const shaded = (): Case[] => [at(true, P_OUT), at(false, P_IN)];
+const READS: Case[] = [
+  at(false, POSITIONS, 0, THIRD),
+  at(false, POSITIONS, 2, THIRD),
+  at(true, POSITIONS, 3, THIRD),
+  at(true, POSITIONS, 5, THIRD),
+  at(true, POSITIONS, -1, THIRD),
+  at(true, POSITIONS, 1e9, THIRD),
+];
+
+const MISSING_CASES: Record<string, Case[]> = {
+  shadeOrNothing: shaded(),
+  plainColor: [at(false, P_IN)],
+  twiceOf: [at(false, COLOR)],
+  doubled: [at(false, COLOR)],
+  takesShaded: [at(false, { color: COLOR })],
+  viaReturn: shaded(),
+  viaStruct: shaded(),
+  viaLocal: shaded(),
+  viaReassigned: shaded(),
+  viaArgument: shaded(),
+  viaStructArgument: shaded(),
+  viaStructArray: shaded(),
+  viaField: shaded(),
+  blank: [at(false, COLOR, P_IN), at(false, COLOR, P_OUT)],
+  viaInout: shaded(),
+  hold: shaded(),
+  viaModuleVar: shaded(),
+  passOn: shaded(),
+  viaResult: shaded(),
+  viaSelect: [at(true, P_OUT, 1), at(false, P_OUT, -1), at(false, P_IN, 1)],
+  viaMatch: [at(true, P_OUT, 0), at(false, P_OUT, 1), at(false, P_OUT, 5), at(false, P_IN, 0)],
+  viaSelectElse: [at(true, P_OUT, -1), at(false, P_OUT, 1), at(false, P_IN, -1)],
+  viaScale: [at(true, P_OUT, 2), at(false, P_IN, 2)],
+  afterBreak: [at(true, P_IN, 0), at(false, P_IN, 1)],
+  viaBreak: [at(true, P_IN, 0), at(false, P_IN, 1)],
+  discardsInSwitch: [at(true, P_IN, 0), at(false, P_IN, 1)],
+  viaSwitch: [at(true, P_IN, 0), at(false, P_IN, 1)],
+  bareReturn: [at(true, P_IN, -1), at(false, P_IN, 1)],
+  viaBareReturn: [at(true, P_IN, -1), at(false, P_IN, 1)],
+  pickColor: [at(false, P_IN, 1), at(false, P_IN, -1)],
+  switchColor: [at(false, P_IN, 0), at(false, P_IN, 1)],
+  usePicked: [at(false, P_IN, 1), at(false, P_IN, -1)],
+  useSwitched: [at(false, P_IN, 0), at(false, P_IN, 1)],
+  usePlain: [at(false, P_IN)],
+  usePlainArgument: [at(false, P_IN)],
+  readOob: READS,
+  twiceOf3: [at(false, THIRD)],
+  viaElement: READS.map((c) => at(c.missing, c.args[0]!, c.args[1]!)),
+  dotOob: READS,
+  scaleOob: READS,
+  lengthOob: READS,
+  accumulateOob: READS,
+  columnOob: [
+    at(false, ROWS, 0, THIRD),
+    at(false, ROWS, 2, THIRD),
+    at(true, ROWS, 3, THIRD),
+    at(true, ROWS, -1, THIRD),
+  ],
+  binding: [at(false, 0), at(false, 2), at(true, 3), at(true, 7)],
+  stepOne: [at(false, 0, 0.5), at(false, 1, 2)],
+};
+
+/** Whether `v` shows a value was missing on the way: `undefined`, NaN, or an empty list. */
+function hasGap(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (typeof v === 'number') return Number.isNaN(v);
+  if (Array.isArray(v)) return v.length === 0 || v.some(hasGap);
+  if (v !== null && typeof v === 'object') return Object.values(v).some(hasGap);
+  return false;
+}
+
+type Outcome = { readonly value: CpuValue } | { readonly threw: string };
+function outcomeOf(fn: (...a: CpuValue[]) => CpuValue, args: CpuValue[]): Outcome {
+  try {
+    return { value: fn(...clone(args)) };
+  } catch (e) {
+    return { threw: e instanceof Error ? e.constructor.name : String(e) };
+  }
+}
+const sameOutcome = (a: Outcome, b: Outcome): boolean =>
+  'threw' in a || 'threw' in b
+    ? 'threw' in a && 'threw' in b && a.threw === b.threw
+    : bitEqual(a.value, b.value);
+const showOutcome = (o: Outcome): string =>
+  'threw' in o ? `throws ${o.threw}` : JSON.stringify(o.value);
+
+describe('compileModuleJs — an operand that may be missing keeps the helper (#410)', () => {
+  const m = buildMissingModule();
+  const build = (precision: CpuPrecision) => {
+    const js = compileModuleJs(m, { precision });
+    const interp = compileModule(m, { precision });
+    for (const e of [js, interp]) {
+      e.setBinding('pos', clone(POSITIONS) as unknown as CpuValue);
+      e.setBinding('bodies', clone(BODIES) as unknown as CpuValue);
+    }
+    return { js, interp };
+  };
+
+  it('has a case for every function, and each case that says it reaches a missing operand does', () => {
+    // The instrument (AGENTS.md#gate-discipline): a differential over inputs that never reach
+    // the operand passes on any generator, so each case is shown, on the interpreter, to reach
+    // it or not, and every function has cases.
+    expect(Object.keys(MISSING_CASES).sort()).toEqual(m.funcs.map((f) => f.name).sort());
+    for (const precision of ['f64', 'f32'] as const) {
+      const { interp } = build(precision);
+      let missing = 0;
+      for (const [name, cases] of Object.entries(MISSING_CASES))
+        for (const c of cases) {
+          // A function with no result has none to show a gap in.
+          if (m.funcs.find((f) => f.name === name)!.ret.kind === 'void') continue;
+          const got = outcomeOf(interp.fns[name]!, c.args);
+          const reached = 'threw' in got || hasGap(got.value);
+          expect(
+            reached,
+            `${name}(${JSON.stringify(c.args)}) [${precision}]: ${showOutcome(got)}`,
+          ).toBe(c.missing);
+          if (c.missing) missing++;
+        }
+      expect(missing).toBeGreaterThan(30);
+    }
+  });
+
+  it.each(['f64', 'f32'] as const)(
+    'every function equals the interpreter, where an operand is missing and where it is not, %s',
+    (precision) => {
+      const { js, interp } = build(precision);
+      const divergences: string[] = [];
+      let checks = 0;
+      for (const [name, cases] of Object.entries(MISSING_CASES))
+        for (const c of cases) {
+          const a = outcomeOf(js.fns[name]!, c.args);
+          const b = outcomeOf(interp.fns[name]!, c.args);
+          checks++;
+          if (!sameOutcome(a, b))
+            divergences.push(
+              `${name}(${JSON.stringify(c.args)}): js ${showOutcome(a)}, interpreter ${showOutcome(b)}`,
+            );
+        }
+      expect(divergences).toEqual([]);
+      expect(checks).toBeGreaterThan(80);
+    },
+  );
+
+  it('an element read past the end of an array is missing to `+` and `*`, as the interpreter has it', () => {
+    for (const precision of ['f64', 'f32'] as const) {
+      const { js } = build(precision);
+      const read = (name: string, i: number): unknown =>
+        js.fns[name]!(clone(POSITIONS) as unknown as CpuValue, i, [1, 1, 1]);
+      // The missing operand is a scalar NaN, so `arr[i] + v` is NaN in each component and
+      // `arr[i] * 2.` is one NaN, not a vector of them.
+      expect(read('readOob', 5)).toEqual([NaN, NaN, NaN]);
+      expect(read('scaleOob', 5)).toBeNaN();
+      expect(read('lengthOob', 5)).toBeNaN();
+      expect(read('readOob', 1)).toEqual([5, 6, 7]);
+    }
+  });
+
+  it('a helper that discards is a missing value to the operation it feeds', () => {
+    // In f64 nothing reads a component of what `viaReturn` returns, so it stays `undefined`;
+    // in f32 the precision pass rounds it, which makes a scalar NaN of it.
+    expect(build('f64').js.fns.viaReturn!(P_OUT)).toBeUndefined();
+    expect(build('f32').js.fns.viaReturn!(P_OUT)).toBeNaN();
+    for (const precision of ['f64', 'f32'] as const) {
+      const { js } = build(precision);
+      expect(js.fns.viaLocal!(P_OUT)).toBeNaN();
+      expect(js.fns.viaLocal!(P_IN)).toEqual([2, 2, 2, 1]);
+    }
+  });
+
+  it('the source keeps the helper where an operand may be missing, and not where it cannot be', () => {
+    const gen = generateModuleJs(m, { precision: 'f32' });
+    const idOf = (rhs: string): string => {
+      for (const d of gen.decls) {
+        const hit = d.match(/^const (\$h\d+) = (.*);$/);
+        if (hit !== null && hit[2] === rhs) return hit[1]!;
+      }
+      throw new Error(`no binding of ${rhs}`);
+    };
+    const applyBin = idOf('$.applyBin');
+    const body = (name: string): string => gen.fns.find((f) => f.startsWith(`"${name}"`))!;
+    const callsHelper = (name: string): boolean => body(name).includes(`${applyBin}(`);
+    // The instrument: the helper is bound, so a function that calls it is seen to.
+    expect(callsHelper('viaLocal')).toBe(true);
+    for (const name of [
+      'viaLocal',
+      'viaReassigned',
+      'viaStructArray',
+      'twiceOf',
+      'takesShaded',
+      'viaField',
+      'viaInout',
+      'viaModuleVar',
+      'viaResult',
+      'viaSelect',
+      'viaSelectElse',
+      'viaMatch',
+      'viaScale',
+      'twiceOf3',
+      'viaBreak',
+      'viaSwitch',
+      'viaBareReturn',
+      'readOob',
+      'scaleOob',
+      'accumulateOob',
+      'columnOob',
+      'binding',
+    ])
+      expect(callsHelper(name), `${name} calls applyBin`).toBe(true);
+    // The per-component code, `$fr` being the rounding it writes, stays where nothing can be
+    // missing: a function's own vector, a result that every path returns, a struct read from an
+    // array, a parameter only a whole vector is passed.
+    for (const name of [
+      'usePlain',
+      'usePicked',
+      'useSwitched',
+      'doubled',
+      'usePlainArgument',
+      'stepOne',
+    ]) {
+      expect(callsHelper(name), `${name} calls applyBin`).toBe(false);
+      expect(body(name), `${name} rounds per component`).toContain('$fr(');
+    }
   });
 });
