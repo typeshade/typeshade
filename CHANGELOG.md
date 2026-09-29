@@ -17,6 +17,29 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **The CPU tier's code is written by type, and a host call of a small function is several
+  times faster** (#410; Rules 11.7 and 8.21). The generated CPU code wrapped every
+  subexpression in the generic `$.B["__fround"](…)`, which made a new array for a vector at each
+  use, built a swizzle's index list on every call, sent vector arithmetic through `applyBin` and
+  its operator string, and rounded a parameter again at every read. It now reads the IR's
+  types: a vector operation of a known width is written out one component at a time, each
+  component the scalar operation the runtime helper applies to it; a per-component builtin
+  calls the one scalar function its `BUILTINS` entry is built from (`COMPONENTWISE`); `dot`,
+  `length`, `distance`, `normalize` and `cross` are summed term by term in their entries' order;
+  `Math.fround` and every helper are bound once at the top of the module; an `f32` parameter is
+  rounded once as the function is entered; and a value the code has just built is stored
+  without a copy. An operand with an effect, and every operand before one, is still evaluated
+  once and in order. At the boundary, `toShader` converts a number or a plain array of them
+  without descending the parameter's type, `fromShader` copies an array without `Array.from`,
+  and the call takes its arguments without an array spread. Results are unchanged bit for bit:
+  `src/core/cpu-codegen.test.ts` holds each new path to the interpreter in both precisions at
+  NaN, ±0, the infinities, subnormals and the integer wrap, with shared argument arrays and
+  calls that write an operand between the operands; `src/core/host-values.test.ts` holds each
+  quick conversion to the descent it skips; and the compile gate's entry calls and the GPU
+  differential's WebGL2 leg hold the generated code to a GPU. The issue's two functions, called
+  in Bun: a host call pair from about 3.4 µs to 0.5 µs, the two bodies alone from 1.25 µs to
+  0.1 µs (medians of ten timings on a loaded machine; the same code by hand is 0.05 µs).
+
 - **The user journeys run on the program runtime** (proposal 0025, step 5, first half; Rule
   11.11). `journeys/_harness.mjs` wrote its own WebGPU, 521 lines of it, to run each journey. It
   now imports `typeshade/runtime` in the page as the packed tarball installs it, with no
