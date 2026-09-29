@@ -1371,12 +1371,18 @@ function moduleText(
         const args = e.params.map(
           (p, i) => `${RT}.toShader(${q(e.name)}, ${q(p.name)}, ${types[i]}, ${ps[i]})`,
         );
+        // The arguments go to the call as they are converted, in order, with no array spread
+        // between (#410). A module with private variables converts every argument first, so
+        // one that does not fit is refused before the variables start over, as before.
+        const held = hasPrivates ? args.map((_, i) => `__ts_a${i}`) : args;
         out.push(
           ...callable(e.name, ps, [
-            `${RT}.arity(${q(e.name)}, ${ps.length}, arguments.length);`,
-            ...(args.length > 0 ? [`const __ts_a = [${args.join(', ')}];`] : []),
+            `if (arguments.length !== ${ps.length}) ${RT}.arity(${q(e.name)}, ${ps.length}, arguments.length);`,
+            ...(hasPrivates && args.length > 0
+              ? [`const ${args.map((a, i) => `${held[i]} = ${a}`).join(', ')};`]
+              : []),
             ...(hasPrivates ? [`${MOD}.F.$initPrivates();`] : []),
-            `return ${RT}.fromShader(${ret}, ${MOD}.F[${q(e.fn)}](${args.length > 0 ? '...__ts_a' : ''}));`,
+            `return ${RT}.fromShader(${ret}, ${MOD}.F[${q(e.fn)}](${held.join(', ')}));`,
           ]),
         );
         break;

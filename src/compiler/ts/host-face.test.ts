@@ -386,9 +386,10 @@ export const globalThis: f32 = 3.;
 export const Error: f32 = 4.;
 export const Number: f32 = 5.;
 `;
-    // The code reads each global the exports would have shadowed.
+    // The code reads each global the exports would have shadowed: `Math.fround` once, where
+    // the CPU tier's code binds it (#410).
     const code = face(source).code;
-    for (const read of ['Object.freeze(', 'Math.imul(', 'Math.fround('])
+    for (const read of ['Object.freeze(', 'Math.imul(', 'const $fr = Math.fround;'])
       expect(code).toContain(read);
     const m = await load(source);
     const call = (name: string, ...args: number[]): unknown =>
@@ -423,8 +424,34 @@ export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
 export function lerp3(a: vec3, b: vec3, t: f32): vec3 { return mix(a, b, t); }
+export function photoCell(q: vec3, k: vec4, grid: vec4): vec3 {
+  const cell = floor((q.xy - grid.xy) / grid.zw);
+  const d = max(q.z * k.w, 1e-4);
+  return vec3(cell.x + k.x * d, cell.y + k.y * d, d * k.z);
+}
+export function seenEmpty(depth: f32, a: f32, b: f32, c: f32, d: f32, scale: f32): bool {
+  const m = min(min(a, b), min(c, d));
+  return depth * scale < m - 0.01;
+}
 `;
   const CASES: Record<string, unknown[][]> = {
+    // The two functions #410 measured, written out per component by the CPU tier.
+    photoCell: [
+      [
+        [0.3, 0.7, 2.5],
+        [0.1, 0.2, 0.3, 0.9],
+        [0, 0, 0.01, 0.01],
+      ],
+      [
+        [-1.25, 3.1, 0.7],
+        [0.5, -0.25, 1e-3, 0.7],
+        [0.1, -0.2, 0.05, 0.3],
+      ],
+    ],
+    seenEmpty: [
+      [0.5, 0.6, 0.7, 0.8, 0.9, 1],
+      [0.1, 0.2, 0.11, 0.3, 0.4, 0.3],
+    ],
     sum: [
       [1, 1e-8],
       [0.1, 0.2],

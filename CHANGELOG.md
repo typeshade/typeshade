@@ -217,6 +217,39 @@ repository was published to npm before **`0.1.0`, the first release**.
     stage, the vertex stage or the fragment stage is created with no values.
   - `typeshade/runtime` is now 11,099 bytes minified and gzipped, 501 under its budget.
 
+### Changed
+
+- **The CPU tier's code is written by type, and a host call of a small function is several
+  times faster** (#410; Rules 11.7 and 8.21). The generated CPU code wrapped every
+  subexpression in the generic `$.B["__fround"](…)`, which made a new array for a vector at each
+  use, built a swizzle's index list on every call, sent vector arithmetic through `applyBin` and
+  its operator string, and rounded a parameter again at every read. It now reads the IR's
+  types: a vector operation of a known width is written out one component at a time, each
+  component the scalar operation the runtime helper applies to it; a per-component builtin
+  calls the one scalar function its `BUILTINS` entry is built from (`COMPONENTWISE`); `dot`,
+  `length`, `distance`, `normalize` and `cross` are summed term by term in their entries' order;
+  `Math.fround` and every helper are bound once at the top of the module; an `f32` parameter is
+  rounded once as the function is entered; and a value the code has just built is stored
+  without a copy. An operand with an effect, and every operand before one, is still evaluated
+  once and in order. A vector operand that may be missing when the code runs (the result of a
+  function that reaches a `discard`, an element read past the end of an array, a matrix column
+  past its last) keeps the runtime helper, which takes it as a scalar, as the interpreter does,
+  where a component read would throw; the module is followed once for where such a value goes.
+  At the boundary, `toShader` converts a number that fits without descending the parameter's
+  type and a vector or matrix with one loop for its element kind, `fromShader` copies an array
+  without `Array.from`, and the call takes its arguments without an array spread. Results and
+  refusals are unchanged bit for bit, but for one thing: a component that nothing reads is no
+  longer computed, so an error that only it would raise (a field read of an array element past
+  the array's end) is not raised. `src/core/cpu-codegen.test.ts` holds each new path to the
+  interpreter in both precisions at NaN, ±0, the infinities, subnormals and the integer wrap,
+  with shared argument arrays, calls that write an operand between the operands, and values the
+  module leaves missing; `src/core/host-values.test.ts` holds each conversion to the one it
+  replaces, its refusals' text and what it reads of a host array (an accessor, a `Proxy`)
+  included; and the compile gate's entry calls and the GPU differential's WebGL2 leg hold the
+  generated code to a GPU. The issue's two functions, called
+  in Bun: a host call pair from about 3.4 µs to 0.5 µs, the two bodies alone from 1.25 µs to
+  0.1 µs (medians of ten timings on a loaded machine; the same code by hand is 0.05 µs).
+
 ### Fixed
 
 - **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
