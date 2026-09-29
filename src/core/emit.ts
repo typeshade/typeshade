@@ -82,7 +82,11 @@ export function emitExpr(
         }
         if (full) return `(${r(x.a)} ${x.bop} ${r(x.b)})`;
         const p = precOf(x.bop);
-        if (p === 0) return `(${r(x.a)} ${x.bop} ${r(x.b)})`;
+        // The bitwise and shift operators are wrapped whole, and their operands are unary
+        // expressions in WGSL's grammar, so an arithmetic operand keeps its parens: `a & (b - c)`
+        // is `a & b - c` to GLSL ES 3.00, and "mixing '&' and '-' requires parenthesis" to WGSL.
+        // A comparison's operands are not so tight, and `a * b < a + c` stays as it is.
+        if (p === 0) return `(${go(x.a, PREC_UNARY)} ${x.bop} ${go(x.b, PREC_UNARY)})`;
         return wrap(`${go(x.a, p)} ${x.bop} ${go(x.b, p + 1)}`, p);
       }
       case 'unop': {
@@ -686,7 +690,8 @@ export interface EmitOptions {
    *  `*`, `/` and `%` over `+` and `-` over unary `-`. The relational, logical, bitwise and
    *  shift operators stay wrapped on purpose, because WGSL gives them no chaining precedence
    *  at all, so mixing them unparenthesised is a compile error there and ranking them would
-   *  invent a rule one target lacks.
+   *  invent a rule one target lacks. The operands of a bitwise or shift operator are unary in
+   *  WGSL's grammar, so an arithmetic one keeps its parens too: `a & (b - c)`.
    *
    *  It never reassociates. `a + (b + c)` keeps its parens, because in floating point that is
    *  a different number from `a + b + c`. */
@@ -727,9 +732,19 @@ function directiveHeader(be: Backend, m: ModuleDecl): string {
  *  declaration assembly (consts → structs → bindings → funcs, only non-empty sections),
  *  joined `\n\n` with a trailing newline. Each backend's public module entry
  *  (`emitModule` for WGSL) routes through here, so the assembly lives once.
- *  `opts.plugins` run staged around the assembly (all transformIR, then all transformText). */
-export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): string {
-  const lowered = applyIRPlugins(lowerForBackend(m, be, undefined, opts?.fp64Flavor), opts);
+ *  `opts.plugins` run staged around the assembly (all transformIR, then all transformText).
+ *
+ *  `level` runs the optimizer at that named tier, as {@link emitModuleAt} does, with `opts` as well:
+ *  the one call the manifest's emit options (`packModule(m, { emit })`, Rule 11.10) need, since the
+ *  public `EmitOptions` carries no level and `emitModuleAt` carries no options. Omitted, it is the
+ *  backend's own optimizer, which is `'O2'`. */
+export function emitModule(
+  m: ModuleDecl,
+  be: Backend,
+  opts?: EmitOptions,
+  level?: OptLevel,
+): string {
+  const lowered = applyIRPlugins(lowerForBackend(m, be, level, opts?.fp64Flavor), opts);
   // The `enable`-directive header (X-GIS #628) is derived from the AUTHORED module's opt-in
   // caps (m.enables) — the lowering passes rebuild the module object and do not carry
   // it — and prepended to the assembled declarations. '' for enables-free modules, so

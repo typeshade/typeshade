@@ -2,6 +2,8 @@
 // it logs on the way, computed here in plain JavaScript with f32 rounding where the GPU has it.
 // The harness loads the kernel's recorded variant on `typeshade/runtime`, which binds the console
 // buffer and hands its sink the decoded lines, and holds them equal to these and to the CPU run's.
+// The kernel is dispatched twice in one frame, each dispatch into a console buffer of its own, so
+// `submit()` resolves to two rows (change 0028), and each dispatch makes the lines below.
 
 const N = 100;
 const f = Math.fround;
@@ -15,6 +17,7 @@ export default {
       shader: 'scale.shade.ts',
       entry: 'main',
       workgroups: [2, 1, 1],
+      repeat: 2,
       bindings: {
         xs: xs,
         out: new Array(128).fill(0),

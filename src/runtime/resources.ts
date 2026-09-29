@@ -40,8 +40,34 @@ export interface Texture {
   readonly height: number;
   /** Replace the texture with one of this size. What it held is gone. */
   resize(width: number, height: number): void;
-  /** Read every texel back, rows tightly packed, as bytes. */
+  /**
+   * Read every texel back as bytes: rows tightly packed, as many bytes to a texel as the format
+   * has, its channels in the format's order (a `bgra8unorm` texel is blue, green, red, alpha).
+   * Any uncompressed colour format is read, and `depth32float`; a compressed format and the other
+   * depth and stencil formats reject with a `TypeError`. An array or a 3D texture gives its first
+   * layer or slice.
+   *
+   * A read reads what was submitted before the call. Its copy is recorded and submitted before
+   * `read()` awaits anything, so the queue runs it after every submit made before the call and
+   * before every one made after: a frame submitted while the read is pending draws after the
+   * copy, and the bytes are the texture as it was. `frame.submit()` and `rt.submit()` hand the
+   * queue their commands before their own first `await`, so a frame counts as submitted from that
+   * call and not from the moment its promise resolves; a frame recorded and not yet submitted is
+   * not read.
+   */
   read(): Promise<Uint8Array>;
+  /**
+   * Read every texel back as numbers: a `Float32Array` of the texels' channels in the order and
+   * with the packing `read()` gives, one number to each channel of each texel. A float format is
+   * decoded (a half float exactly), a `unorm` one gives 0 to 1, an `snorm` one -1 to 1, and
+   * `depth32float` its depth. An sRGB format gives the numbers it stores, as `read()`'s bytes
+   * hold them, not the linear values a shader reads. An integer format rejects with a `TypeError`
+   * that names `read()`, which gives its bytes.
+   *
+   * It reads what `read()` reads, and when: the copy is recorded and submitted before
+   * `readFloats()` awaits anything.
+   */
+  readFloats(): Promise<Float32Array>;
   destroy(): void;
 }
 
@@ -70,28 +96,104 @@ export interface Sampler {
 
 const ADDRESS = { clamp: 'clamp-to-edge', repeat: 'repeat', mirror: 'mirror-repeat' } as const;
 
-const isDepth = (format: string): boolean =>
-  format.startsWith('depth') || format.startsWith('stencil');
+/** A format `read()` copies: its bytes to a texel, and what `readFloats()` makes of them, which is
+ *  nothing for a format of integers. `raw` holds the texels' bytes on a buffer of its own. */
+interface Layout {
+  readonly bytes: number;
+  readonly floats?: (raw: Uint8Array) => Float32Array;
+}
 
-/** Bytes per texel of the formats `read()` copies back. */
-const TEXEL_BYTES: Readonly<Record<string, number>> = {
-  r8unorm: 1,
-  rg8unorm: 2,
-  r16float: 2,
-  rgba8unorm: 4,
-  'rgba8unorm-srgb': 4,
-  bgra8unorm: 4,
-  'bgra8unorm-srgb': 4,
-  r32float: 4,
-  r32uint: 4,
-  r32sint: 4,
-  rg16float: 4,
-  rgba16float: 8,
-  rg32float: 8,
-  rgba32float: 16,
-  rgba32uint: 16,
-  depth32float: 4,
+/** `f` of each element, as `f32`s. */
+function map(from: ArrayLike<number>, f: (v: number) => number): Float32Array {
+  const out = new Float32Array(from.length);
+  for (let i = 0; i < from.length; i++) out[i] = f(from[i]!);
+  return out;
+}
+
+/** An unsigned float of a 5-bit exponent and `m` mantissa bits, biased by 15: a half float without
+ *  its sign, and the red and green (`m` 6) and blue (`m` 5) of `rg11b10ufloat`. */
+function small(v: number, m: number): number {
+  const e = v >> m;
+  const f = v & ((1 << m) - 1);
+  if (e === 0) return f * 2 ** (-14 - m);
+  if (e === 31) return f === 0 ? Infinity : NaN;
+  return (1 + f / 2 ** m) * 2 ** (e - 15);
+}
+
+/** A format packed into one 32-bit word, whose `channels` are what `unpack` makes of a word. */
+const packed = (channels: number, unpack: (word: number) => number[]): Layout => ({
+  bytes: 4,
+  floats: (raw) => {
+    const words = new Uint32Array(raw.buffer);
+    const out = new Float32Array(words.length * channels);
+    for (let i = 0; i < words.length; i++) out.set(unpack(words[i]!), i * channels);
+    return out;
+  },
+});
+
+/** The packed formats. */
+const PACKED: Readonly<Record<string, Layout>> = {
+  __proto__: null as never,
+  rgb10a2uint: { bytes: 4 },
+  rgb10a2unorm: packed(4, (w) => [
+    (w & 1023) / 1023,
+    ((w >>> 10) & 1023) / 1023,
+    ((w >>> 20) & 1023) / 1023,
+    (w >>> 30) / 3,
+  ]),
+  rg11b10ufloat: packed(3, (w) => [
+    small(w & 2047, 6),
+    small((w >>> 11) & 2047, 6),
+    small(w >>> 22, 5),
+  ]),
+  // Three 9-bit mantissas under a shared 5-bit exponent, biased by 15.
+  rgb9e5ufloat: packed(3, (w) => {
+    const scale = 2 ** ((w >>> 27) - 24);
+    return [(w & 511) * scale, ((w >>> 9) & 511) * scale, ((w >>> 18) & 511) * scale];
+  }),
 };
+
+/** The formats named by their channels, their bits and how they are stored: `rgba16float`,
+ *  `r8snorm`, `bgra8unorm-srgb`. */
+const NAMED = /^(r|rg|rgba|bgra)(8|16|32)(unorm|snorm|uint|sint|float)(-srgb)?$/;
+
+/** How `read()` and `readFloats()` take a format, or `undefined` for one they cannot copy: a
+ *  compressed format, and every depth and stencil format but `depth32float`. */
+function layoutOf(format: string): Layout | undefined {
+  const known = PACKED[format];
+  if (known !== undefined) return known;
+  // A depth32float texel is one 32-bit float, as an r32float one is.
+  const named = NAMED.exec(format === 'depth32float' ? 'r32float' : format);
+  if (named === null) return undefined;
+  const bits = Number(named[2]);
+  const kind = named[3];
+  const bytes = (named[1]!.length * bits) / 8;
+  if (kind === 'uint' || kind === 'sint') return { bytes };
+  const snorm = kind === 'snorm';
+  // The largest value a channel holds: 255 or 65535, or 127 or 32767 with a sign.
+  const top = 2 ** (bits - (snorm ? 1 : 0)) - 1;
+  const decode =
+    kind === 'float'
+      ? (h: number) => (h & 0x8000 ? -1 : 1) * small(h & 0x7fff, 10)
+      : snorm
+        ? (v: number) => Math.max(v / top, -1)
+        : (v: number) => v / top;
+  const View: new (buffer: ArrayBufferLike) => ArrayLike<number> =
+    bits === 32
+      ? Float32Array
+      : bits === 16
+        ? snorm
+          ? Int16Array
+          : Uint16Array
+        : snorm
+          ? Int8Array
+          : Uint8Array;
+  return {
+    bytes,
+    floats: (raw) =>
+      bits === 32 ? new Float32Array(raw.buffer) : map(new View(raw.buffer), decode),
+  };
+}
 
 export class TextureImpl implements Texture {
   /** The view the call layer binds when a call takes this texture as an image (change 0025). */
@@ -164,28 +266,51 @@ export class TextureImpl implements Texture {
   }
 
   async read(): Promise<Uint8Array> {
-    const texel = TEXEL_BYTES[this.format];
-    if (texel === undefined)
+    return this.#copy(this.#layout('read'));
+  }
+
+  async readFloats(): Promise<Float32Array> {
+    const layout = this.#layout('readFloats');
+    if (layout.floats === undefined)
       throw new TypeError(
-        `read() cannot copy a ${this.format} texture back; it reads ${Object.keys(TEXEL_BYTES).join(', ')}.`,
+        `readFloats() takes a float, unorm or snorm format and depth32float; a ${this.format} texture holds integers, which read() gives as bytes.`,
       );
-    const row = this.width * texel;
+    // The copy is recorded and submitted by the call, before this awaits anything.
+    return layout.floats(await this.#copy(layout));
+  }
+
+  /** How the texture's format reads back; `who` is the method that asks. */
+  #layout(who: string): Layout {
+    const layout = layoutOf(this.format);
+    if (layout === undefined)
+      throw new TypeError(
+        `${who}() cannot copy a ${this.format} texture back; it copies every uncompressed colour format and depth32float.`,
+      );
+    return layout;
+  }
+
+  /** The texels as bytes, rows tightly packed. The copy is recorded and submitted here, before
+   *  anything is awaited, so it runs after every submit made before the call and before every one
+   *  made after it; the size is the texture's at the call, whatever `resize()` does after. */
+  async #copy(layout: Layout): Promise<Uint8Array> {
+    const { width, height } = this;
+    const row = width * layout.bytes;
     const stride = Math.ceil(row / 256) * 256;
     const staging = this.device.createBuffer({
-      size: stride * this.height,
+      size: stride * height,
       usage: BUFFER.MAP_READ | BUFFER.COPY_DST,
     });
     const encoder = this.device.createCommandEncoder();
     encoder.copyTextureToBuffer(
-      { texture: this.#gpu, ...(isDepth(this.format) ? { aspect: 'depth-only' } : {}) },
+      { texture: this.#gpu, ...(this.format === 'depth32float' ? { aspect: 'depth-only' } : {}) },
       { buffer: staging, bytesPerRow: stride },
-      [this.width, this.height, 1],
+      [width, height, 1],
     );
     this.device.queue.submit([encoder.finish()]);
     await staging.mapAsync(MAP_READ);
     const mapped = new Uint8Array(staging.getMappedRange());
-    const out = new Uint8Array(row * this.height);
-    for (let y = 0; y < this.height; y++)
+    const out = new Uint8Array(row * height);
+    for (let y = 0; y < height; y++)
       out.set(mapped.subarray(y * stride, y * stride + row), y * row);
     staging.unmap();
     staging.destroy();

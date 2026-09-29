@@ -18,6 +18,7 @@ import {
   type Pack,
   type PackBinding,
   type PackEntry,
+  type PackOverride,
 } from '../core/manifest-types.js';
 import {
   BUFFER,
@@ -53,6 +54,11 @@ export type TargetState =
       readonly writeMask?: number;
     };
 
+/** The values of a program's overrides, by the names the source declares (surface §15): a
+ *  `number`, or a `boolean` for a `bool`. `RenderState.constants` and the `constants` of
+ *  `Program.compute` take it. */
+type Constants = Readonly<Record<string, number | boolean>>;
+
 /** The fixed-function state of a render pipeline, which the host writes (change 0025): the
  *  compiler knows its entries' inputs and outputs, and the runtime fills and checks those. */
 export interface RenderState {
@@ -81,6 +87,16 @@ export interface RenderState {
   /** The sample count of the targets it draws into: 1 when omitted, 4 for a multisampled
    *  target. */
   readonly multisample?: { readonly count?: number };
+  /** The values of the program's overrides (surface §15), by the names the source declares:
+   *  `{ quality: 3 }`. The vertex and the fragment stage are each created with them, as WebGPU's
+   *  `constants`. An override the record leaves out takes the default its declaration states,
+   *  so omitted, every override does. An `f32` takes a finite number no larger than
+   *  3.4028234663852886e38 in magnitude, an `i32` or a `u32` a whole number in its range, and a
+   *  `bool` a boolean or a number, where 0 is false. A name the program does not declare is a
+   *  `TypeError` that names the program's overrides, and a value its type cannot hold one that
+   *  says what the type takes. Two states that differ in an override are two pipelines, and the
+   *  same values give the same pipeline back. */
+  readonly constants?: Constants;
 }
 
 /** What a draw draws: `count` vertices (or indices), `instances` times, from the vertex buffer
@@ -106,7 +122,14 @@ export interface Program {
   readonly manifest: Pack;
   /** Whether its entries record their `console.*` calls. */
   readonly recording: boolean;
-  compute(entry?: string): Promise<ComputePipeline>;
+  /** The pipeline of a `@compute` entry, cached: the program's only one when `entry` is
+   *  omitted. `options.constants` sets the program's overrides for this pipeline, as
+   *  `RenderState.constants` does for a render pipeline (an override it leaves out takes its
+   *  declared default), and two sets of values are two pipelines. */
+  compute(entry?: string, options?: { readonly constants?: Constants }): Promise<ComputePipeline>;
+  /** The pipeline of a vertex entry and a fragment entry under `state`, cached. `state`
+   *  defaults to `{}`: the program's only vertex and fragment entry, and every other field at
+   *  its default. */
   render(state?: RenderState): Promise<RenderPipeline>;
 }
 
@@ -131,6 +154,34 @@ const RESOURCE_KINDS = new Set(['uniform-buffer', 'storage-buffer']);
 /** The line an entry or a binding is declared on, for a refusal: ` (brick.shade.ts:12)`. */
 const at = (e: PackEntry | undefined): string =>
   e?.line === undefined ? '' : ` (${e.line.file.split(/[\\/]/).pop()}:${e.line.line})`;
+
+/** The largest magnitude an `f32` holds; WebGPU refuses an override value past it. */
+const F32_MAX = 3.4028234663852886e38;
+
+/** What WebGPU's `constants` takes for `v`, the value given for the override `o`: a number, 0 or 1
+ *  for a `bool`. A value the override's type cannot hold is a `TypeError` that says what the type
+ *  takes. WebGPU would report a validation error that names nothing of the source, or convert the
+ *  value silently: a fraction to an `i32`, a string, `true`. */
+function constantOf(o: PackOverride, v: unknown): number {
+  const int = o.type === 'i32' || o.type === 'u32';
+  const lo = o.type === 'u32' ? 0 : int ? -0x80000000 : -F32_MAX;
+  const hi = o.type === 'u32' ? 0xffffffff : int ? 0x7fffffff : F32_MAX;
+  if (o.type === 'bool') {
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    if (typeof v === 'number' && Number.isFinite(v)) return v === 0 ? 0 : 1;
+  } else if (typeof v === 'number' && v >= lo && v <= hi && (!int || Number.isInteger(v)))
+    // An integer has no -0. An f32 keeps it, which the cache's key tells from 0.
+    return int ? v || 0 : v;
+  const takes =
+    o.type === 'bool'
+      ? 'a boolean or a finite number, where 0 is false'
+      : int
+        ? `a whole number from ${lo} to ${hi}`
+        : `a finite number no larger than ${F32_MAX} in magnitude`;
+  throw new TypeError(
+    `The override "${o.name}" (${o.type}) takes ${takes}; got ${v === undefined ? 'undefined' : describe(v)}.`,
+  );
+}
 
 /** `GPUBindGroupLayoutEntry` for a manifest binding, visible to `visibility`. */
 function layoutEntry(b: PackBinding, visibility: number): object {
@@ -159,10 +210,14 @@ function layoutEntry(b: PackBinding, visibility: number): object {
         },
       };
     case 'texture': {
-      // WebGPU refuses a multisampled texture laid out 'float', since no sampler filters one: an
-      // f32 one is 'unfilterable-float', which every float format binds to.
+      // The sample type the manifest gives, from the calls that read the texture (Rule 11.10): an
+      // `f32` texture no call pairs with a sampler is 'unfilterable-float', which takes every
+      // format 'float' takes and the 32-bit float ones it refuses. A manifest written before it
+      // gave one lays a texture out from its element, and a multisampled one 'unfilterable-float',
+      // which WebGPU requires since no sampler filters one (#414).
       const sampleType =
-        r.textureDepth === true
+        r.sampleType ??
+        (r.textureDepth === true
           ? 'depth'
           : r.textureElem === 'u32'
             ? 'uint'
@@ -170,7 +225,7 @@ function layoutEntry(b: PackBinding, visibility: number): object {
               ? 'sint'
               : r.textureDim === '2d-ms'
                 ? 'unfilterable-float'
-                : 'float';
+                : 'float');
       return {
         ...base,
         texture: {
@@ -348,24 +403,58 @@ export class ProgramImpl implements Program {
     };
   }
 
-  compute(entry?: string): Promise<ComputePipeline> {
+  /** The override values a pipeline is created with, checked against the manifest's `overrides`:
+   *  what WebGPU's `constants` takes, in the order the program declares its overrides, and the
+   *  cache's key, so the same values give one pipeline whatever order or spelling the host used.
+   *  `undefined` when the host gives none. A name the program does not declare, and a value its
+   *  type cannot hold, are a `TypeError` (WebGPU's own error names nothing of the source). */
+  #constants(
+    given: Constants | undefined,
+  ): { readonly values: Record<string, number>; readonly key: string } | undefined {
+    if (given === undefined) return undefined;
+    if (typeof given !== 'object' || given === null || Array.isArray(given))
+      throw new TypeError(
+        `The constants are ${describe(given)}, not an object of override names and values.`,
+      );
+    const declared = this.manifest.overrides;
+    const undeclared = Object.keys(given).find((n) => !declared.some((o) => o.name === n));
+    if (undeclared !== undefined)
+      throw new TypeError(
+        `The program has no override "${undeclared}"; its overrides are ${declared.map((o) => `"${o.name}" (${o.type})`).join(', ') || 'none'}.`,
+      );
+    const values: Record<string, number> = {};
+    let key = '';
+    for (const o of declared) {
+      if (!Object.hasOwn(given, o.name)) continue;
+      const v = (values[o.name] = constantOf(o, given[o.name]));
+      key += `${o.name}=${Object.is(v, -0) ? '-0' : v};`;
+    }
+    return key === '' ? undefined : { values, key };
+  }
+
+  compute(entry?: string, options?: { readonly constants?: Constants }): Promise<ComputePipeline> {
     try {
-      return this.#compute(entry);
+      return this.#compute(entry, options?.constants);
     } catch (err) {
       return Promise.reject(err as Error);
     }
   }
 
-  #compute(entry: string | undefined): Promise<ComputePipeline> {
+  #compute(entry: string | undefined, given: Constants | undefined): Promise<ComputePipeline> {
     const e = this.#entry(entry, 'compute');
-    const key = `compute:${e.name}`;
+    const constants = this.#constants(given);
+    const key = `compute:${e.name}:${constants?.key ?? ''}`;
     let p = this.#pipelines.get(key);
     if (p === undefined) {
       const shape = this.#shape([e]);
       p = this.device
         .createComputePipelineAsync({
           layout: shape.pipelineLayout,
-          compute: { module: this.#shaderModule(), entryPoint: e.name },
+          compute: {
+            module: this.#shaderModule(),
+            entryPoint: e.name,
+            ...(constants !== undefined ? { constants: constants.values } : {}),
+          },
         })
         .then(
           (gpu) => new ComputePipelineImpl(this, e, shape, gpu),
@@ -392,12 +481,16 @@ export class ProgramImpl implements Program {
     const vs = this.#entry(state.vertex, 'vertex');
     const fs =
       state.fragment === null ? undefined : this.#entry(state.fragment ?? undefined, 'fragment');
-    const key = `render:${JSON.stringify({ ...state, vertex: vs.name, fragment: fs?.name ?? null })}`;
+    const constants = this.#constants(state.constants);
+    const key = `render:${JSON.stringify({ ...state, vertex: vs.name, fragment: fs?.name ?? null, constants: constants?.key })}`;
     let p = this.#pipelines.get(key);
     if (p === undefined) {
       const shape = this.#shape(fs === undefined ? [vs] : [vs, fs]);
       const targets = fs === undefined ? [] : this.#targets(fs, state.targets);
       const vertex = vs.vertex;
+      // Every stage is created with the same values: WebGPU takes a name any stage's module
+      // declares, whether or not that stage's entry reads it.
+      const stage = constants === undefined ? {} : { constants: constants.values };
       p = this.device
         .createRenderPipelineAsync({
           layout: shape.pipelineLayout,
@@ -417,9 +510,10 @@ export class ProgramImpl implements Program {
                       })),
                     },
                   ],
+            ...stage,
           },
           ...(fs !== undefined
-            ? { fragment: { module: this.#shaderModule(), entryPoint: fs.name, targets } }
+            ? { fragment: { module: this.#shaderModule(), entryPoint: fs.name, targets, ...stage } }
             : {}),
           primitive: {
             topology: state.primitive?.topology ?? 'triangle-list',

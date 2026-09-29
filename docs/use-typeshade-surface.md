@@ -7557,12 +7557,12 @@ program.console; // with { console: true }: the WGSL that records console.*, and
 ```
 
 **A binding** carries its `group` and `binding`, its `resource` in `reflect()`'s words (a
-uniform or storage buffer, a texture with its dimension and sample type, a storage texture with
-its format, a sampler and whether it compares), the `stages` whose entries reach it, and a
-buffer's byte `layout` under its `rule`, `std140` for a uniform and `std430` for storage, with
-every offset, size and stride the emitted WGSL assumes (Rule 6.8). A buffer with no host layout
-says why in `noLayout`. The `_fp64` guard of a module that emulates `f64` is a binding like any
-other, marked `injected`: a 1 × 1 texture holding 1.0.
+uniform or storage buffer, a texture with its dimension, its element and its `sampleType`, a
+storage texture with its format, a sampler and whether it compares), the `stages` whose entries
+reach it, and a buffer's byte `layout` under its `rule`, `std140` for a uniform and `std430` for
+storage, with every offset, size and stride the emitted WGSL assumes (Rule 6.8). A buffer with
+no host layout says why in `noLayout`. The `_fp64` guard of a module that emulates `f64` is a
+binding like any other, marked `injected`: a 1 × 1 texture holding 1.0.
 
 **An entry** carries its `stage`, its `workgroupSize`, its `inputs` and `outputs` with their
 locations, builtins and interpolation, the `bindings` it reaches through its calls with whether it
@@ -7577,9 +7577,33 @@ reads (below); and `gl`, what the WebGL2 tier draws each full-screen fragment en
 why it cannot. A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its
 internal format and the texels per element.
 
+**Emit options.** `packModule(m, { emit })` emits the program under other options than the
+defaults, the WGSL writer's own and a level: `level` (the optimizer's tier: `'O0'` writes the
+lowered module as authored, `'O1'` runs only the passes that cannot change a computed value, and
+`'O2'`, unless named, runs them all), `parens`, `fp64Flavor` and `plugins`. The manifest's `wgsl`,
+its recorded variant's `wgsl`, its `glsl`, the fragment program of each of its WebGL2 draws and its
+`bindings` are the ones those options emit, so a host that shows or ships the program under them
+runs that program. `fp64Flavor` changes the bindings of a program that emulates `f64` too: the
+`'float'` flavor binds the `_fp64` guard and the `'integer'` one binds none. The GLSL writer has
+no level, so `level` is the WGSL's alone. The manifest records the level and the two named options
+as `emit`, which the load-time emitter emits the program again under (below). A plugin is a
+function, which a manifest cannot record, so `ir` with a plugin is a `TypeError` that says the
+load-time emitter could not emit the program again. A word an option does not take is a
+`TypeError` too, naming what the option takes, since a writer reads an unknown level as the full
+optimizer, an unknown `parens` as `'minimal'` and an unknown flavor as `'float'`, and the manifest
+would record it.
+
+```ts
+const shown = packModule(module, {
+  emit: { level: 'O1', parens: 'minimal', fp64Flavor: 'integer' },
+});
+shown.emit; // { level: 'O1', parens: 'minimal', fp64Flavor: 'integer' }
+const program = rt.load(shown); // runs the WGSL its reader was shown, with the bindings it lists
+```
+
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU (Rule 11.11).
 It imports nothing of the compiler, so an application that runs compiled programs ships about
-10 KB of it, gzipped:
+11 KB of it, gzipped:
 
 ```ts
 import { createRuntime } from 'typeshade/runtime';
@@ -7596,11 +7620,52 @@ await frame.submit(); // console lines print here
   requests with the features `programs` need; `rt.device` is it either way. `runtime()` is the
   default runtime.
 - **A program** comes from `rt.load(manifest)`, which refuses another schema and a feature the
-  device lacks. `program.compute(entry)` and `program.render(state)` resolve to cached pipelines,
-  each laid out from the manifest: the bindings its entries reach, visible to the stages that
-  reach them. `RenderState` is the host's fixed-function state: its colour targets, depth,
-  topology, culling and multisampling; a target whose format cannot hold the output at its
-  location is refused before WebGPU sees it.
+  device lacks. `program.compute(entry, options)` and `program.render(state)` resolve to cached
+  pipelines, each laid out from the manifest: the bindings its entries reach, visible to the
+  stages that reach them. `RenderState` is the host's fixed-function state: its colour targets,
+  depth, topology, culling and multisampling, and the values of the program's overrides (below);
+  a target whose format cannot hold the output at its location is refused before WebGPU sees it.
+- **Overrides are set by name.** An override is a specialization constant: the pipeline sets it
+  (§15), so a pipeline made with no values takes the default each declaration states.
+  `render({ constants })` and `compute(entry, { constants })` take a record of override name to
+  value, which every stage of the pipeline is created with as WebGPU's `constants`, keyed by the
+  name the source declares, which is the name the WGSL declares. An override the record leaves
+  out keeps its default. A name the manifest's `overrides` does not list is a `TypeError` that
+  names the program's overrides; a value its type cannot hold is a `TypeError` that says what the
+  type takes: an `f32` takes a finite number no larger than 3.4028234663852886e38 in magnitude,
+  an `i32` or a `u32` a whole number in its range, and a `bool` a boolean or a number, where 0
+  is false. WebGPU alone would report a validation error with no name of the source in it, or
+  convert the value silently. The pipeline cache keys on the values: two states that differ in
+  an override are two pipelines, and the same values give the same pipeline back.
+
+  ```ts
+  const program = rt.load(scene);
+  const fine = await program.render({ targets: ['bgra8unorm'], constants: { quality: 3 } });
+  const coarse = await program.render({ targets: ['bgra8unorm'], constants: { quality: 1 } });
+  const step = await program.compute('step', { constants: { iterations: 64 } });
+  ```
+- **A texture is laid out by the calls that read it.** A texture's bind group layout names a
+  `sampleType`, and the manifest gives it with the rest of the binding's resource, computed from
+  the calls that read the texture (`reflect()` reports the same word): `depth` for a depth
+  texture, `uint` or `sint` for an integer one, `float` for an `f32` texture that a call pairs
+  with a `sampler` (a `textureSample` of any form or a `textureGather`, in an entry or in a
+  function an entry calls, through a helper's parameters or a `const` of the texture as well),
+  and `unfilterable-float` for every other `f32` texture: one the program only loads, measures
+  or counts, one no entry reaches, and a multisampled one, which no sampler reads. The runtime
+  lays the texture out by it. An `unfilterable-float` layout takes every format a `float` one
+  takes, and the 32-bit float formats (`r32float`, `rgba32float`) that a `float` layout refuses,
+  where WebGPU names the layout in its error and not the binding. A sampler binding is a
+  filtering one, so a texture a sampler reads takes a filterable format; a host that samples an
+  unfilterable format through a non-filtering sampler, which a program cannot say, is not
+  covered. A manifest written before the sample type existed carries none, and the runtime lays
+  its texture out from its element.
+
+  ```ts
+  // The program declares `level: texture_2d<f32>` and reads it with textureLoad alone.
+  const level = rt.texture({ size: [width, height], format: 'r32float' });
+  const effect = await rt.load(program).render({ targets: [format] });
+  frame.pass({ color: [context] }, (pass) => pass.draw(effect, { level }, { count: 3 }));
+  ```
 - **Bindings go by name.** A draw or a dispatch takes `{ name: value }`: a plain host value
   (Rule 8.21), packed by the binding's layout into buffers the runtime reuses; a `Resident`
   (§65), uploaded on its first use and bound as it is after; a `Texture` or a `Sampler` from
@@ -7614,6 +7679,33 @@ await frame.submit(); // console lines print here
   into textures or a canvas context, then `submit()`. A host that owns its encoders records with
   `pipeline.dispatch(encoder, …)` and `pipeline.draw(pass, …)` and submits with
   `rt.submit(encoder)`.
+- **A texture reads back as bytes or as numbers, and reads what was submitted before the call.**
+  `texture.read()` copies every texel back as bytes: rows tightly packed, as many bytes to a texel
+  as the format has, its channels in the format's order (a `bgra8unorm` texel is blue, green, red,
+  alpha). It takes any uncompressed colour format and `depth32float`; a compressed format and the
+  other depth and stencil formats reject with a `TypeError` that names what `read()` copies.
+  `texture.readFloats()` resolves to a `Float32Array` of the same texels' channels as numbers, one
+  to each channel, in the same order: a float format decoded (a half float exactly, and the packed
+  `rg11b10ufloat` and `rgb9e5ufloat`), a `unorm` format 0 to 1, an `snorm` format -1 to 1, and
+  `depth32float` its depth. An sRGB format gives the numbers it stores, as its bytes hold them,
+  and not the linear values a shader reads. An integer format rejects with a `TypeError` that
+  names `read()`, which gives its bytes. An array or a 3D texture gives its first layer or slice.
+
+  A read reads what was submitted before the call. Its copy is recorded and submitted before the
+  read awaits anything, so the queue runs it after every submit made before the call and before
+  every one made after it: a frame submitted while the read is pending draws after the copy, and
+  the bytes or the numbers are the texture as it was. `frame.submit()` and `rt.submit(…)` hand the
+  queue their commands before their own first `await`, so a frame counts as submitted from the
+  call and not from the moment its promise resolves, and a frame that is recorded and not yet
+  submitted is not read. The read keeps the size the texture had at the call, whatever `resize()`
+  does after.
+
+  ```ts
+  const hdr = rt.texture({ size: [width, height], format: 'rgba16float' });
+  // …a frame draws into it, and is submitted…
+  const radiance = await hdr.readFloats(); // r, g, b, a of each texel, row by row
+  const halves = await hdr.read(); // the same texels' bytes, 8 to a texel
+  ```
 - **What a host writes, and what it may leave out.** The JSDoc of `RenderState`, `PassTargets`,
   `Geometry`, `TextureOptions` and `SamplerOptions` gives each field's default, which the API
   reference shows. `render()` picks the program's only vertex and fragment entry, or the ones
@@ -7644,8 +7736,23 @@ await frame.submit(); // console lines print here
   ```
 - **The console.** A program loaded with its recorded variant (`load(m, { console: true })`, the
   default when the manifest carries one) binds a console buffer for each dispatch and draw, and
-  the submit reads it back: each event reaches `createRuntime({ console: sink })`, or the host's
-  console.
+  the submit reads it back: each event reaches `createRuntime({ console: sink })`, or is printed
+  on the host's console, with a warning for the calls the buffer had no room for (`'print'`, the
+  default). `frame.submit()` and `rt.submit(…)` resolve to what those buffers held,
+  `{ console: [{ entry, lines, dropped }, …] }`: a row for each dispatch and draw that recorded,
+  in the order they were recorded, with its entry (a draw's is its fragment entry), the lines the
+  buffer kept, one for each `console.*` call whether it was printed or handed to the sink, and
+  the calls that did not fit its `consoleBytes`. A submit that recorded nothing resolves to no
+  rows. A runtime given a sink prints nothing, the warning included: the host that takes the
+  lines takes the count.
+
+  ```ts
+  const rt = await createRuntime({ console: (event) => captured.push(event) });
+  // …
+  const { console: buffers } = await frame.submit();
+  for (const { entry, lines, dropped } of buffers)
+    status.textContent = `${entry}: ${lines} lines kept, ${dropped} dropped`;
+  ```
 
 **One device for both layers.** `configure({ runtime: rt })` puts the calls of §64, §65 and §67
 on `rt`'s device, and `runtime()`, the default runtime, is on the device the calls use, so a
@@ -7667,16 +7774,19 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
 
 - The manifest carries its IR only when asked, `packModule(m, { ir: true })` or
   `typeshade({ ir: true })` (§64). Emitted again, the IR gives the manifest the build would have
-  written, byte for byte, for every example.
+  written, byte for byte, for every example, under the options it was packed under: the `emit` it
+  records, so a program packed at another level, with other `parens` or the `'integer'` flavor is
+  emitted again as it was, and the recorded variant a load adds agrees with its bindings. A plugin
+  is a function, which a manifest cannot record, so a manifest with plugins has no IR.
 - Only the package version that wrote the IR reads it: the IR is not a stable format. `repack`
   refuses another version's IR and a manifest with none, naming what to do; a manifest from
   another version still loads from the text it carries.
 - `load(m, { console: true })` of a manifest with no recorded variant records through the
   emitter, and without one is refused with the remedy.
 - The emitter carries the IR, the WGSL and GLSL writers, the console lowering and the manifest
-  builder, and no file of the front end and no `typescript` (Rule 11.11): about 75 KB gzipped,
+  builder, and no file of the front end and no `typescript` (Rule 11.11): about 76 KB gzipped,
   held to its budget in CI.
 
 The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67).
 
-Last updated: 2026-09-22
+Last updated: 2026-09-29

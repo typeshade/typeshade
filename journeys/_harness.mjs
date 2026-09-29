@@ -16,7 +16,14 @@
 // The WebGPU half is `typeshade/runtime` (change 0025, Rule 11.11): the page imports the
 // runtime the tarball ships, loads the run's manifest (`packModule`), binds each binding by its
 // name with the journey's host value, and reads the result back through a `Resident` or the
-// target texture. The harness writes no WebGPU of its own.
+// target texture. The console's lines reach the runtime's sink, and the count of them and of the
+// calls that did not fit is what `submit()` resolves to (change 0028). A run may pack its program
+// under emit options (`emit`, change 0028): the level, `parens` and `fp64Flavor` of surface §69,
+// which must run on WebGPU as the manifest says. A render run may name a float `target` (change
+// 0028): the harness makes the texture in that format and reads it back with `readFloats()`, the
+// numbers of its texels, starting the read while the frame is pending and before a later frame
+// clears the target, so that the read is held to the frame submitted before it. The harness writes
+// no WebGPU of its own.
 //
 // A run of an engine (`kind: 'engine'`, change 0025) is a host module that draws frames on the
 // runtime's public exports alone: the harness refuses any other import and any WebGPU call in
@@ -40,6 +47,10 @@ const PLAYWRIGHT = process.env.TYPESHADE_PLAYWRIGHT;
 const CHROMIUM = process.env.TYPESHADE_CHROMIUM || undefined;
 if (!PLAYWRIGHT) throw new Error('TYPESHADE_PLAYWRIGHT must point at playwright/index.mjs');
 const { chromium } = await import(pathToFileURL(PLAYWRIGHT).href);
+
+/** The targets a render run may name: floats, which the harness reads back as numbers with
+ *  `readFloats()` and does not clamp. Without one the run draws into an `rgba8unorm` target. */
+const FLOAT_TARGETS = new Set(['rgba16float', 'rgba32float']);
 
 /** The `tsc` codes the README documents as what plain `tsc` cannot see through. */
 const TSC_DOCUMENTED = new Set([
@@ -173,9 +184,42 @@ for (const id of journeys) {
       kernels.push({ id: `${id}#${n}`, run, module: r.module, spec });
       continue;
     }
+    if (run.target !== undefined && (run.kind !== 'render' || !FLOAT_TARGETS.has(run.target))) {
+      fail(
+        `${id}#${n}`,
+        `target ${JSON.stringify(run.target)}: a render run's target is one of ${[...FLOAT_TARGETS].join(', ')}, or none for an rgba8unorm one`,
+      );
+      continue;
+    }
     // The runtime binds each binding the entries reach by its name, with the host value
     // (Rule 8.21) of the journey's value, which the CPU oracle is handed too.
-    const pack = packModule(r.module, { console: run.console !== undefined });
+    const pack = packModule(r.module, {
+      console: run.console !== undefined,
+      ...(run.emit !== undefined ? { emit: run.emit } : {}),
+    });
+    // A run with `emit` packs the program under those options, which the manifest records. The
+    // journey shows nothing of them if they emit the program the defaults do, so that is a failure.
+    if (run.emit !== undefined) {
+      // What a manifest can record of them, in one order: a plugin, which it cannot, is left out.
+      const recorded = (e) =>
+        JSON.stringify(
+          Object.fromEntries(
+            ['level', 'parens', 'fp64Flavor']
+              .filter((k) => e?.[k] !== undefined)
+              .map((k) => [k, e[k]]),
+          ),
+        );
+      if (recorded(pack.emit) !== recorded(run.emit))
+        fail(
+          `${id}#${n}`,
+          `packed with ${JSON.stringify(run.emit)}, the manifest records ${JSON.stringify(pack.emit)}`,
+        );
+      if (pack.wgsl === packModule(r.module).wgsl)
+        fail(
+          `${id}#${n}`,
+          `packed with ${JSON.stringify(run.emit)}, the WGSL is the one the defaults emit: the run shows nothing of the options`,
+        );
+    }
     const layouts = new Map(pack.bindings.map((b) => [b.name, b.layout]));
     const reach = reached(pack, run);
     const bindings = Object.fromEntries(
@@ -218,16 +262,18 @@ async function runOnGpu(job) {
   for (const [name, b] of Object.entries(job.bindings))
     bindings[name] = b.typed ? new TYPED[b.typed](b.data) : b.value;
   const program = rt.load(job.pack);
-  // The calls that did not fit the console buffer are one warning the runtime prints, and not
-  // an event: it is read here, where the page prints it.
-  let dropped = 0;
+  // A runtime given a sink prints nothing, the warning for the calls that did not fit the console
+  // buffer included: their count is what `submit()` resolves to. The page's console is watched all
+  // the same, so that a runtime that printed the warning would be seen.
+  const printed = [];
   const warn = console.warn;
   console.warn = (...a) => {
-    const m = /(\d+) console calls did not fit the console buffer/.exec(a.join(' '));
-    if (m) dropped += Number(m[1]);
+    if (/console calls did not fit the console buffer/.test(a.join(' '))) printed.push(a.join(' '));
     else warn(...a);
   };
   let values;
+  let after;
+  let rows = [];
   let error = null;
   try {
     if (job.kind === 'compute') {
@@ -235,24 +281,46 @@ async function runOnGpu(job) {
       // `read()` brings it back.
       const out = resident(bindings[job.read]);
       bindings[job.read] = out;
-      const pipeline = await program.compute(job.entry);
+      const pipeline = await program.compute(job.entry, { constants: job.constants });
       const f = rt.frame();
       for (let i = 0; i < job.repeat; i++) f.dispatch(pipeline, bindings, job.workgroups);
-      await f.submit();
+      rows = (await f.submit()).console;
       const got = await out.read();
       values = ArrayBuffer.isView(got) ? [...got] : got;
     } else {
       const [w, h] = job.size;
-      const pipeline = await program.render({ vertex: job.vertex, fragment: job.fragment });
-      const target = rt.texture({ size: [w, h], format: 'rgba8unorm' });
+      const format = job.target ?? 'rgba8unorm';
+      const pipeline = await program.render({
+        vertex: job.vertex,
+        fragment: job.fragment,
+        targets: [format],
+        constants: job.constants,
+      });
+      const target = rt.texture({ size: [w, h], format });
       const f = rt.frame();
       f.pass({ color: [{ target, clear: [0, 0, 0, 0] }] }, (p) => {
         // The scissor is the one call on the pass the runtime leaves to the host.
         if (job.scissor) p.raw.setScissorRect(...job.scissor);
         p.draw(pipeline, bindings, { count: 3 });
       });
-      await f.submit();
-      values = [...(await target.read())].map((v) => v / 255);
+      if (job.target === undefined) {
+        rows = (await f.submit()).console;
+        values = [...(await target.read())].map((v) => v / 255);
+      } else {
+        // A float target is read back as numbers. The frame's commands are with the queue once
+        // `submit()` is called, and the read is started right after, while the frame's promise is
+        // pending: it reads the frame. A later frame then clears the target, and the read, whose
+        // copy was submitted before that frame, must still hold the first one (surface §69).
+        const submitted = f.submit();
+        const pending = target.readFloats();
+        const later = rt.frame();
+        later.pass({ color: [{ target, clear: [-1, -1, -1, -1] }] }, () => {});
+        await later.submit();
+        rows = (await submitted).console;
+        values = [...(await pending)];
+        // The later frame ran: what the target holds now is its clear.
+        after = [...(await target.readFloats())];
+      }
     }
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
@@ -262,7 +330,10 @@ async function runOnGpu(job) {
   rt.destroy();
   return {
     values,
-    dropped,
+    after,
+    // What `submit()` said each console buffer held, a plain copy for the page to hand back.
+    rows: rows.map((r) => ({ entry: r.entry, lines: r.lines, dropped: r.dropped })),
+    printed,
     events: events.map((e) => ({
       method: e.method,
       args: e.args,
@@ -440,7 +511,7 @@ for (const job of jobs) {
       for (let x = 0; x < w; x++)
         expected.push(
           ...(inside(x, y) ? run.expected(x, y) : [0, 0, 0, 0]).map((c) =>
-            Math.min(1, Math.max(0, c)),
+            run.target === undefined ? Math.min(1, Math.max(0, c)) : c,
           ),
         );
   } else expected = run.expected();
@@ -461,6 +532,8 @@ for (const job of jobs) {
       fragment: run.fragment,
       size: run.size,
       scissor: run.scissor,
+      constants: run.constants,
+      target: run.target,
     });
   } catch (e) {
     fail(job.id, `WebGPU threw: ${e.message.split('\n')[0]}`);
@@ -472,6 +545,16 @@ for (const job of jobs) {
   }
   const g = worst(gpu.values, expected, run.tolerance);
   if (!g.ok) fail(job.id, `WebGPU result off by ${g.text} (tolerance ${run.tolerance})`);
+  // A float target was read while a later frame was submitted after the read: the frame ran, and
+  // cleared every channel of the target to -1, which the read must not have seen.
+  if (run.target !== undefined) {
+    const cleared = gpu.after?.length === expected.length && gpu.after.every((v) => v === -1);
+    if (!cleared)
+      fail(
+        job.id,
+        'the frame submitted after the read did not clear the target: the read cannot be shown to precede it',
+      );
+  }
 
   // The CPU oracle, and the console lines it delivers to the sink.
   let cpuValues;
@@ -480,7 +563,17 @@ for (const job of jobs) {
   // decoded from WebGPU carries (surface §66).
   let pixel;
   try {
-    const m = compileModule(job.module, {
+    // A run with `constants` sets the program's overrides by name on its pipeline. The oracle has
+    // no pipeline, so it runs the module with each value as the override's default (surface §15).
+    const module = run.constants
+      ? {
+          ...job.module,
+          overrides: job.module.overrides.map((o) =>
+            o.name in run.constants ? { ...o, default: run.constants[o.name] } : o,
+          ),
+        }
+      : job.module;
+    const m = compileModule(module, {
       ...(run.gpuStubs ? { gpuStubs: true } : {}),
       consoleSink: (e) =>
         cpuLines.push({ method: e.method, args: e.args, invocation: e.invocation ?? pixel }),
@@ -497,8 +590,13 @@ for (const job of jobs) {
           }
           pixel = [x, y, 0];
           const color = run.fragmentColor(m.fns[run.fragment](...run.fragmentArgs(x, y)));
-          // What an rgba8unorm target stores: clamped, rounded to 1/255.
-          cpuValues.push(...color.map((c) => Math.round(Math.min(1, Math.max(0, c)) * 255) / 255));
+          // What an rgba8unorm target stores: clamped, rounded to 1/255. A float target stores the
+          // value, which the run's tolerance holds to what its format keeps.
+          cpuValues.push(
+            ...(run.target === undefined
+              ? color.map((c) => Math.round(Math.min(1, Math.max(0, c)) * 255) / 255)
+              : color),
+          );
         }
     } else {
       const bound = structuredClone(run.bindings[run.read]);
@@ -515,12 +613,33 @@ for (const job of jobs) {
 
   // The console lines: decoded from WebGPU, delivered on the CPU, and the host's own, all equal.
   if (run.console) {
-    const want = run.console.expected();
+    // A compute run dispatches `repeat` times, each into a console buffer of its own, and each
+    // dispatch makes the same calls.
+    const dispatches = run.kind === 'render' ? 1 : (run.repeat ?? 1);
+    const want = Array.from({ length: dispatches }, () => run.console.expected()).flat();
     const tolerance = run.console.tolerance ?? 0;
-    // The runtime hands the sink every event it decoded, and counts the calls that did not fit
-    // in one warning it prints.
+    // The runtime hands the sink every event it decoded, and `submit()` resolves to what each
+    // console buffer held: a row for each dispatch or draw, its entry, the lines it kept and the
+    // calls that did not fit.
     const gpuLines = gpu.events;
-    const decoded = { dropped: gpu.dropped };
+    const decoded = { dropped: gpu.rows.reduce((n, r) => n + r.dropped, 0) };
+    const counted = gpu.rows.reduce((n, r) => n + r.lines, 0);
+    const recorder = run.kind === 'render' ? run.fragment : run.entry;
+    if (gpu.rows.length !== dispatches || gpu.rows.some((r) => r.entry !== recorder))
+      fail(
+        job.id,
+        `submit() resolved to ${gpu.rows.length} console rows (${gpu.rows.map((r) => r.entry).join(', ')}); expected ${dispatches} of "${recorder}"`,
+      );
+    if (counted !== gpuLines.length)
+      fail(
+        job.id,
+        `submit() counted ${counted} console lines and the sink was handed ${gpuLines.length}`,
+      );
+    if (gpu.printed.length > 0)
+      fail(
+        job.id,
+        `the runtime printed the dropped calls' warning though it was given a sink: ${gpu.printed[0]}`,
+      );
     const cpuPlain = cpuLines.map((l) => ({ ...l, invocation: [...l.invocation] }));
     if (run.console.kept === undefined) {
       if (decoded.dropped > 0) fail(job.id, `WebGPU dropped ${decoded.dropped} console lines`);
@@ -550,9 +669,13 @@ for (const job of jobs) {
       `     ${job.id.padEnd(16)} console: ${gpuLines.length} lines from WebGPU` +
         (decoded.dropped > 0 ? `, ${decoded.dropped} dropped` : ''),
     );
-  }
+  } else if (gpu.rows.length > 0)
+    fail(
+      job.id,
+      `submit() resolved to ${gpu.rows.length} console rows for a run that does not record`,
+    );
   console.log(
-    `${g.ok && c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${expected.length} values, worst relative error WebGPU ${g.text}, CPU oracle ${c.text}`,
+    `${g.ok && c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}${run.emit ? ` (packed with ${JSON.stringify(run.emit)})` : ''}: ${expected.length} values, worst relative error WebGPU ${g.text}, CPU oracle ${c.text}`,
   );
 }
 for (const job of engines) {
