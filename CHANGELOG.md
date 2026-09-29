@@ -48,6 +48,18 @@ repository was published to npm before **`0.1.0`, the first release**.
   in Bun: a host call pair from about 3.4 µs to 0.5 µs, the two bodies alone from 1.25 µs to
   0.1 µs (medians of ten timings on a loaded machine; the same code by hand is 0.05 µs).
 
+### Fixed
+
+- **An editor's output pane prints the WGSL and GLSL `compile()` emits** (Rule 12.7). The
+  language service's `getCompiledOutput`, which the VS Code preview's WGSL and GLSL tabs show,
+  built its module without the overrides, the enables and the `diagnostic(...)` directives. A
+  program with an override printed WGSL that reads it and never declares it, and a program whose
+  entry turns off `derivative_uniformity` printed WGSL without the directive; WebGPU refuses
+  both. It now builds the module `compile()` does. `src/language-service/compiled-output-parity.test.ts`
+  holds the pane's text to `compile()`'s for every example: byte for byte, but for
+  `inferred-returns`, whose functions the two runs of the front end lower in another order and
+  whose texts hold the same lines.
+
 ## [0.1.0] - 2026-09-29
 
 ### Changed
