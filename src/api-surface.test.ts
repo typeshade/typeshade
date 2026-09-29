@@ -43,6 +43,18 @@
 // gate misbehaves — S1's message names what to check instead, and the cut that proves S1
 // works is a broken ENTRY PATH, not a resolution mode.
 //
+// ONE SNAPSHOT, SEVERAL TYPESCRIPTS (#259). The snapshot is baked with the TypeScript that
+// package.json pins, and CI reads it with the newest 5.x and with 6.0 too, the versions the
+// editors that load the compiler ship (`typecheck + unit (TypeScript X)` in
+// `.github/workflows/ci.yml`). What the checker prints for a type moved twice across them: 5.7
+// made the typed arrays generic and prints `Uint8Array<ArrayBufferLike>` where 5.6 printed
+// `Uint8Array`, and 6.0 turned `strict` on by default, so an optional member printed
+// `| undefined` (166 lines of this snapshot). Both are settled in the reader, in `strict: false`
+// and in `typeText`, so the file stays byte for byte what it was and nobody re-bakes it to make
+// a version pass. The arms of 'the reader prints the same on every TypeScript CI runs' hold each
+// of the two. A third change in a later release is the same kind of finding: its leg goes red
+// and the fix is here, unless the surface itself moved.
+//
 // RE-BAKE (an intentional surface change): update the snapshot alongside the code change —
 //   bun run bake:api-surface
 // — and commit the diff. That diff IS the record; a reviewer reads it instead of trusting a
@@ -52,7 +64,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { API_SUBPATHS } from './api-subpaths.js';
@@ -98,14 +110,41 @@ const FLOOR: Readonly<Record<string, number>> = {
 
 // ── the reader ──────────────────────────────────────────────────────────────────────────
 const entryFile = (sub: string): string => join(PKG, manifest.exports[sub].replace(/^\.\//, ''));
-const program = ts.createProgram(API_SUBPATHS.map(entryFile), {
+const READER_OPTIONS: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
   module: ts.ModuleKind.ESNext,
   moduleResolution: ts.ModuleResolutionKind.Bundler,
   noEmit: true,
   skipLibCheck: true,
+  // TypeScript 6.0 made `strict` default to true, and the compiler API follows: a member
+  // `x?: T` printed as `x?: T | undefined`, and 166 lines of the snapshot moved with the tree
+  // unchanged (#259). It was baked with `strict` off, which was every version's default until
+  // then, so the reader says so.
+  strict: false,
   types: [],
-});
+};
+
+/** A source of the reader's own, served from memory and named like a file no export reaches, so
+ *  it can appear in no snapshot. The arms of 'the reader prints the same on every TypeScript CI
+ *  runs' read it through the reader's own functions to say what it prints for the two things
+ *  that moved with the TypeScript version. Slashes are forward because TypeScript hands its host
+ *  a normalised path, and a `join` on Windows would not match it. */
+const PROBE_FILE = `${PKG.split(sep).join('/')}/src/__api__/reader-probe.ts`;
+const PROBE_SOURCE = [
+  'export declare function typedArrays(input: Float32Array, view: ArrayBufferView): Promise<Uint32Array>;',
+  'export interface OptionalMembers { count?: number; note?: string }',
+].join('\n');
+const readerHost = ts.createCompilerHost(READER_OPTIONS);
+const readSourceFile = readerHost.getSourceFile.bind(readerHost);
+readerHost.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNew) =>
+  fileName === PROBE_FILE
+    ? ts.createSourceFile(fileName, PROBE_SOURCE, languageVersionOrOptions)
+    : readSourceFile(fileName, languageVersionOrOptions, onError, shouldCreateNew);
+const program = ts.createProgram(
+  [...API_SUBPATHS.map(entryFile), PROBE_FILE],
+  READER_OPTIONS,
+  readerHost,
+);
 const checker = program.getTypeChecker();
 const FORMAT = ts.TypeFormatFlags.NoTruncation;
 /** For a DECLARED type. `InTypeAlias` tells the printer it is printing the alias's own
@@ -214,7 +253,13 @@ function sortNumberRuns(printed: string): string {
  *  of this one is what #61 asked for: adding or removing a subpath now moves only that
  *  subpath's own rows, where before it re-spelled `TypeshadeSymbolKind`. */
 function typeText(type: ts.Type, format: ts.TypeFormatFlags): string {
-  const printed = sortNumberRuns(checker.typeToString(type, undefined, format));
+  // TypeScript 5.7 made the typed arrays generic and prints their default type argument,
+  // `Uint8Array<ArrayBufferLike>`, where 5.6 printed `Uint8Array`. The default says nothing the
+  // name does not, so it is dropped, and one snapshot reads the same on every TypeScript CI
+  // runs (#259).
+  const printed = sortNumberRuns(
+    checker.typeToString(type, undefined, format).replace(/<ArrayBufferLike>/g, ''),
+  );
   if (!printed.includes(' | ')) return printed;
   const parts = printed.split(' | ');
   const balanced = (s: string): boolean => {
@@ -246,8 +291,9 @@ function shapeOf(sym: ts.Symbol): string {
   return typeText(checker.getTypeOfSymbolAtLocation(sym, decl), FORMAT);
 }
 
-function exportsOf(sub: string): readonly Export[] {
-  const sf = program.getSourceFile(entryFile(sub));
+/** What one file of the program exports, as an API subpath's entry is read. */
+function exportsOfFile(file: string): readonly Export[] {
+  const sf = program.getSourceFile(file);
   if (sf === undefined) return [];
   const mod = checker.getSymbolAtLocation(sf);
   if (mod === undefined) return [];
@@ -269,6 +315,8 @@ function exportsOf(sub: string): readonly Export[] {
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+const exportsOf = (sub: string): readonly Export[] => exportsOfFile(entryFile(sub));
 
 const perSubpath = new Map<string, readonly Export[]>(API_SUBPATHS.map((s) => [s, exportsOf(s)]));
 
@@ -401,6 +449,45 @@ describe('the reader sees the surface at all', () => {
   });
 });
 
+// The snapshot is baked with the TypeScript package.json pins, and CI reads it with the newest 5.x
+// and with 6.0 too (`.github/workflows/ci.yml`, #259). The checker's printed form moved twice
+// across those versions, and each arm holds the reader to one of the two on the probe source
+// above. A leg that goes red here says the READER moved, and does not send anyone to re-bake the
+// snapshot on a version it was not baked with.
+describe('the reader prints the same on every TypeScript CI runs (#259)', () => {
+  const probe = new Map(exportsOfFile(PROBE_FILE).map((d) => [d.name, d.shape]));
+
+  it('reads the probe source it holds itself to', () => {
+    // The two arms below compare text, and a probe that was never read leaves them comparing
+    // `undefined` under a message about typed arrays. So first: the source is in the program.
+    expect(
+      [...probe.keys()].sort(),
+      'the probe source is not in the program: PROBE_FILE is not the path TypeScript hands ' +
+        'the reader host',
+    ).toEqual(['OptionalMembers', 'typedArrays']);
+  });
+
+  it('prints a typed array as the source spells it, without its default type argument', () => {
+    expect(
+      probe.get('typedArrays'),
+      'a typed array was printed with a type argument. TypeScript 5.7 made the typed arrays ' +
+        'generic and prints the default, `Uint8Array<ArrayBufferLike>`, where 5.6 printed ' +
+        '`Uint8Array`; `typeText` drops it so one snapshot reads the same on every version. ' +
+        `This is TypeScript ${ts.version}: fix the reader, do not re-bake the snapshot here.`,
+    ).toBe('(input: Float32Array, view: ArrayBufferView) => Promise<Uint32Array>');
+  });
+
+  it('prints an optional member without `| undefined`, whatever strict defaults to', () => {
+    expect(
+      probe.get('OptionalMembers'),
+      'an optional member was printed with `| undefined`. TypeScript 6.0 turned `strict` on by ' +
+        'default and `x?: T` then prints as `x?: T | undefined`; the snapshot was baked with it ' +
+        `off, so the reader says so. This is TypeScript ${ts.version}: fix the reader, do not ` +
+        're-bake the snapshot here.',
+    ).toBe('{ count?: number; note?: string }');
+  });
+});
+
 describe('the committed snapshot matches the tree', () => {
   it('has not drifted', () => {
     const rendered = render();
@@ -421,7 +508,10 @@ describe('the committed snapshot matches the tree', () => {
       rendered.replace(/\r\n/g, '\n'),
       'the public API surface changed. If that was intended, re-bake with `' +
         REBAKE +
-        '` and commit the diff — it is the record of what a consumer has to deal with.',
+        '` and commit the diff — it is the record of what a consumer has to deal with. ' +
+        `(Read by TypeScript ${ts.version}. CI reads the one snapshot under several versions, ` +
+        'so a diff that is only how a type is printed is the reader to fix, above, and not a ' +
+        'surface to re-bake: #259.)',
     ).toBe(committed.replace(/\r\n/g, '\n'));
   });
 });
