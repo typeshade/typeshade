@@ -252,6 +252,31 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Fixed
 
+- **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
+  (found by proposal 0028's journey of programs packed under emit options). WGSL's grammar takes
+  unary operands for `&`, `|`, `^`, `<<` and `>>`, so `a & b - c` is "mixing '&' and '-' requires
+  parenthesis" to Tint, and the writer had left the operand bare: `a & (b - c)` was written
+  `a & b - c`, and `h << (24u - n)` `h << 24u - n`. Tint refused the WGSL of 27 examples under
+  `{ parens: 'minimal', fp64Flavor: 'integer' }`, whose emulated-double helpers are made of such
+  masks and shifts, and of `module-const` and `rng-method` under either flavor. GLSL ES 3.00 reads
+  the bare form as intended, so it was right there and gets the parens too. Measured on Tint
+  (Chromium 153, SwiftShader): every example's WGSL compiles under each of the twelve
+  combinations of level, `parens` and `fp64Flavor`, but `clip-planes`, which needs the
+  `clip-distances` feature of the device. `src/core/emit-parens.test.ts` holds each shape, and
+  scans every example's WGSL under `'minimal'`, in both flavors, for a bitwise or shift operator
+  beside another operator at one level; it fails without the fix and reaches 243 and 2,704
+  such operators.
+
+- **An editor's output pane prints the WGSL and GLSL `compile()` emits** (Rule 12.7). The
+  language service's `getCompiledOutput`, which the VS Code preview's WGSL and GLSL tabs show,
+  built its module without the overrides, the enables and the `diagnostic(...)` directives. A
+  program with an override printed WGSL that reads it and never declares it, and a program whose
+  entry turns off `derivative_uniformity` printed WGSL without the directive; WebGPU refuses
+  both. It now builds the module `compile()` does. `src/language-service/compiled-output-parity.test.ts`
+  holds the pane's text to `compile()`'s for every example: byte for byte, but for
+  `inferred-returns`, whose functions the two runs of the front end lower in another order and
+  whose texts hold the same lines.
+
 - **The determinism report lists a `textureGather` on an integer texture** (Rule 11.2, #175).
   A gather on a `texture_2d<u32>`, a `texture_cube<i32>` or any other integer shape (2d,
   2d-array, cube, cube-array; `u32` and `i32`) was dropped: the walk reads a call's float kind
@@ -271,21 +296,6 @@ repository was published to npm before **`0.1.0`, the first release**.
   texture beside each as the control, and every depth and comparison form, in `compile()` and
   in the language service on the same source (the `it.fails` that pinned the gap is a plain
   `it`); `src/language-service/ambient-parity.test.ts` has a row for each integer shape.
-
-- **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
-  (found by proposal 0028's journey of programs packed under emit options). WGSL's grammar takes
-  unary operands for `&`, `|`, `^`, `<<` and `>>`, so `a & b - c` is "mixing '&' and '-' requires
-  parenthesis" to Tint, and the writer had left the operand bare: `a & (b - c)` was written
-  `a & b - c`, and `h << (24u - n)` `h << 24u - n`. Tint refused the WGSL of 27 examples under
-  `{ parens: 'minimal', fp64Flavor: 'integer' }`, whose emulated-double helpers are made of such
-  masks and shifts, and of `module-const` and `rng-method` under either flavor. GLSL ES 3.00 reads
-  the bare form as intended, so it was right there and gets the parens too. Measured on Tint
-  (Chromium 153, SwiftShader): every example's WGSL compiles under each of the twelve
-  combinations of level, `parens` and `fp64Flavor`, but `clip-planes`, which needs the
-  `clip-distances` feature of the device. `src/core/emit-parens.test.ts` holds each shape, and
-  scans every example's WGSL under `'minimal'`, in both flavors, for a bitwise or shift operator
-  beside another operator at one level; it fails without the fix and reaches 243 and 2,704
-  such operators.
 
 ## [0.1.0] - 2026-09-29
 
