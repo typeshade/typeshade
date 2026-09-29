@@ -252,6 +252,31 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Fixed
 
+- **A generic whose name nothing declares is an unknown type, with the remedy Rule 12.1 gives**
+  (Rule 12.1, #218). `let tile: groupshared<array<f32, 64>>`, the only way an HLSL or GLSL address
+  space is written here, was `TS8002 Type arguments are not supported yet (got "groupshared<...>").`
+  on the whole `groupshared<array<f32, 64>>`, which names no fix: the base of a generic was outside
+  the one order every other name is refused in, so the table's rows for `groupshared` and `shared`,
+  and the "Did you mean" for a typo such as `arrray<f32, 4>`, never spoke. It is the sentence of a
+  bare name now, on the name, wherever a type is mapped: a module `let`, an entry's body, a
+  parameter, a return, a field, an argument of `array` or `uniform`.
+
+  ```text
+  TS8002 Unknown type "groupshared". HLSL's groupshared is the workgroup address space here: let x: workgroup<T>.
+  TS8002 Unknown type "arrray". Did you mean "array"?
+  TS8002 Unknown type "Foo". Declare it in this file, or import it from another shader module.
+  ```
+
+  A generic whose name is known keeps its sentence, since what is wrong with it is its arguments:
+  `ptr<function, f32>`, `f32<u32>` and a generic alias of the file are still "Type arguments are
+  not supported yet". `Map<K, V>`, `Promise<T>` and `Partial<T>`, which a shader has none of, are
+  unknown types now, as their bare names were. No program that compiled is refused, and none that
+  was refused is accepted. `src/compiler/ts/foreign-names.test.ts` holds both address spaces in
+  a module `let`, an entry's body and a parameter, in `compile()` and in the editor, with the
+  span on the name and the `workgroup<T>` the sentence names compiling clean;
+  `src/compiler/ts/unknown-names.test.ts` holds the typo, the two remedies a name nothing is
+  spelled like takes, and the generics that keep their sentence.
+
 - **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
   (found by proposal 0028's journey of programs packed under emit options). WGSL's grammar takes
   unary operands for `&`, `|`, `^`, `<<` and `>>`, so `a & b - c` is "mixing '&' and '-' requires

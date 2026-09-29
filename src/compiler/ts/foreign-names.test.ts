@@ -27,6 +27,28 @@ function errors(source: string): string[] {
     .map((d) => `${d.code ?? ''} ${d.message}`);
 }
 
+/** Every error `compile()` reports, as `<code> <message> @<the text its span covers>`. */
+function errorsAt(source: string): string[] {
+  const text = `"use typeshade";\n${source}`;
+  return compile(text)
+    .diagnostics.filter((d) => d.category === 'error')
+    .map((d) => `${d.code ?? ''} ${d.message} @${text.slice(d.start, d.start + d.length)}`);
+}
+
+/** Every diagnostic the editor shows for the same text, as `<source> <code> <message> @<the text
+ *  its span covers>`: the two halves merged, TypeScript's entries included. */
+function editorAt(source: string): string[] {
+  const text = `"use typeshade";\n${source}`;
+  const service = createTypeshadeLanguageService();
+  service.openDocument('a.ts', text);
+  return service
+    .getDiagnostics('a.ts')
+    .map(
+      (d) =>
+        `${d.source} ${String(d.code)} ${d.message} @${text.slice(d.span.start, d.span.start + d.span.length)}`,
+    );
+}
+
 describe('a GLSL or HLSL name is refused with TypeShade spelling as the remedy (#218)', () => {
   const rows: Readonly<Record<string, readonly [string, string]>> = {
     lerp: [
@@ -88,6 +110,63 @@ describe('a GLSL or HLSL name is refused with TypeShade spelling as the remedy (
           'export function f(a: f32): f32 {\n  return lerp(a, 1., 0.5);\n}',
       ),
     ).toEqual([]);
+  });
+});
+
+// An address space is the wrapper of a type here, `let x: workgroup<T>`, so the only place a GLSL
+// or HLSL one is written is `groupshared<T>` or `shared<T>`. It was "Type arguments are not
+// supported yet", which names no fix, on the whole `groupshared<array<f32, 64>>`: a generic's
+// name was outside the one order a name is refused in, so its row of the table never spoke
+// (Rule 12.1, #218). It is an unknown type like any other, on the name, in every place a type is
+// written, and the editor shows the same sentence, alone.
+describe('an address space is refused where it is written, and names the wrapper (#218)', () => {
+  const SPACES = [
+    ['groupshared', 'HLSL'],
+    ['shared', 'GLSL'],
+  ] as const;
+  const KERNEL =
+    '@compute([64])\nexport function k(@builtin("local_invocation_index") li: u32): void {\n';
+  const positions: Readonly<Record<string, (type: string) => string>> = {
+    'a module let': (type) =>
+      `let tile: ${type};\n${KERNEL}  tile[li] = 1.;\n  workgroupBarrier();\n}`,
+    "an entry's body": (type) => `${KERNEL}  let tile: ${type};\n  workgroupBarrier();\n}`,
+    'a parameter': (type) => `export function f(a: ${type}): f32 {\n  return 1.;\n}`,
+  };
+  for (const [space, from] of SPACES) {
+    for (const [where, program] of Object.entries(positions)) {
+      it(`${space} as ${where}: one sentence in both halves, on the name`, () => {
+        const source = program(`${space}<array<f32, 64>>`);
+        const sentence =
+          `${TS_CODES.UNKNOWN_TYPE} Unknown type "${space}". ${from}'s ${space} is the ` +
+          'workgroup address space here: let x: workgroup<T>.';
+        // The name itself, not the `groupshared<array<f32, 64>>` around it (Rule 12.1).
+        expect(errorsAt(source)).toEqual([`${sentence} @${space}`]);
+        expect(editorAt(source)).toEqual([`typeshade ${sentence} @${space}`]);
+      });
+    }
+  }
+
+  it('names a wrapper that compiles, in both halves', () => {
+    // The remedy is `let x: workgroup<T>`: the program the sentence sends the author to is clean.
+    const source = positions['a module let']!('workgroup<array<f32, 64>>');
+    expect(errors(source)).toEqual([]);
+    expect(editorAt(source)).toEqual([]);
+    expect(compile(`"use typeshade";\n${source}`).wgsl).toContain('var<workgroup> tile');
+  });
+
+  it('is the same sentence for the type argument written any way', () => {
+    // The generic's own arguments are not read: the base is what is unknown.
+    for (const type of ['groupshared<f32>', 'groupshared<f32[]>', 'groupshared<Foo>']) {
+      expect(
+        errorsAt(positions['a parameter']!(type)).filter((line) =>
+          line.includes('Unknown type "groupshared"'),
+        ),
+        type,
+      ).toEqual([
+        `${TS_CODES.UNKNOWN_TYPE} Unknown type "groupshared". HLSL's groupshared is the ` +
+          'workgroup address space here: let x: workgroup<T>. @groupshared',
+      ]);
+    }
   });
 });
 

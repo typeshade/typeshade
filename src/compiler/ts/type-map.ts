@@ -476,6 +476,34 @@ function mappedWhereWritten(generic: ts.TypeReferenceNode, sourceFile: ts.Source
   }
 }
 
+/** Whether the type name `name`, written at `node`, names nothing: not WGSL and not the ambient
+ *  library ({@link isLibraryTypeName}), not a type parameter of the instantiation being lowered,
+ *  and not a type the file declares or imports ({@link fileDeclaresType}). The one test a bare
+ *  name and the base of a generic, `groupshared` in `groupshared<T>`, are both asked. */
+function namesNoType(node: ts.Node, name: string, sourceFile: ts.SourceFile): boolean {
+  return (
+    !isLibraryTypeName(name) &&
+    boundTypeArgument(name) === undefined &&
+    !fileDeclaresType(node, name, sourceFile)
+  );
+}
+
+/** Whether `node`, a type written as an argument, is one the generic around it says what it
+ *  takes of: `Foo` in `vec3<Foo>`, a generic of the library that reads its own argument
+ *  ({@link MAPS_ITS_ARGUMENT}) and is mapped where written ({@link mappedWhereWritten}). That
+ *  generic's sentence is the one diagnostic for the argument (Rule 12.4). */
+function saidByOuterGeneric(node: ts.Node, sourceFile: ts.SourceFile): boolean {
+  const outer = node.parent;
+  return (
+    ts.isTypeReferenceNode(outer) &&
+    ts.isIdentifier(outer.typeName) &&
+    isLibraryTypeName(outer.typeName.text) &&
+    !MAPS_ITS_ARGUMENT.has(outer.typeName.text) &&
+    !fileDeclaresType(outer, outer.typeName.text, sourceFile) &&
+    mappedWhereWritten(outer, sourceFile)
+  );
+}
+
 /** The name a type position writes, bare and with no type argument, when nothing declares it:
  *  not WGSL, not the ambient library, and nothing of the file ({@link fileDeclaresType}). A
  *  type reference, or a name a heritage clause writes: an `implements` and an interface's
@@ -499,28 +527,30 @@ export function undeclaredTypeName(
     return undefined;
   }
   if (!ts.isIdentifier(id) || (node.typeArguments?.length ?? 0) > 0) return undefined;
-  const outer = node.parent;
-  if (
-    ts.isTypeReferenceNode(outer) &&
-    ts.isIdentifier(outer.typeName) &&
-    isLibraryTypeName(outer.typeName.text) &&
-    !MAPS_ITS_ARGUMENT.has(outer.typeName.text) &&
-    !fileDeclaresType(outer, outer.typeName.text, sourceFile) &&
-    mappedWhereWritten(outer, sourceFile)
-  ) {
-    return undefined;
-  }
+  if (saidByOuterGeneric(node, sourceFile)) return undefined;
   const name = id.text;
   if (
     name === 'const' ||
     name === RETIRED_VAR_WRAPPER ||
-    isLibraryTypeName(name) ||
-    boundTypeArgument(name) !== undefined ||
     (isClassBase && declaredValueNamesOf(sourceFile).has(name))
   ) {
     return undefined;
   }
-  return fileDeclaresType(node, name, sourceFile) ? undefined : id;
+  return namesNoType(node, name, sourceFile) ? id : undefined;
+}
+
+/** The base of a generic, `groupshared` in `groupshared<T>`, when nothing declares it: the name
+ *  {@link undeclaredTypeName} finds in a reference with no type argument, and the one `mapGeneric`
+ *  says where it maps the reference (#218). Not an argument the generic around it says what it
+ *  takes of ({@link saidByOuterGeneric}). */
+export function undeclaredGenericBase(
+  node: ts.TypeReferenceNode,
+  sourceFile: ts.SourceFile,
+): ts.Identifier | undefined {
+  const id = node.typeName;
+  if (!ts.isIdentifier(id) || (node.typeArguments?.length ?? 0) === 0) return undefined;
+  if (saidByOuterGeneric(node, sourceFile)) return undefined;
+  return namesNoType(node, id.text, sourceFile) ? id : undefined;
 }
 
 /** Whether a type nothing declares is written anywhere in `node` ({@link undeclaredTypeName}),
@@ -1098,8 +1128,8 @@ function mapGeneric(
   // The retired wrapper anywhere a type can stand. module-vars.ts catches it on a top-level
   // `let`, where every author who has written it will be, and puts their own name in the fix;
   // this arm is the rest of the file, where the name is simply gone. Without it the annotation
-  // falls to `mapGeneric`'s tail and gets TS8002 "Type arguments are not supported yet", which
-  // names neither the removal nor what to write.
+  // falls to `mapGeneric`'s tail and is an unknown type, which names neither the removal nor
+  // what to write.
   if (name === RETIRED_VAR_WRAPPER) {
     pushDiag(
       diagnostics,
@@ -1185,6 +1215,24 @@ function mapGeneric(
     }
     if (elemName === 'f32' || elemName === undefined) return matT(cols, rows);
     pushDiag(diagnostics, sourceFile, typeNode, `${name}<T> T must be f32 or f64.`);
+    return undefined;
+  }
+  // A generic whose name nothing declares: not WGSL, not the library, not the file. It is an
+  // unknown type as a bare one is, said on the name, and its remedy comes in the one order
+  // (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name, `groupshared<T>` for
+  // `workgroup<T>`, else the name it is spelled like, `arrray<f32, 4>` for `array<f32, 4>`,
+  // else the place's own. Every such name was "Type arguments are not supported yet", which names
+  // no fix, and the span was the whole `groupshared<array<f32, 64>>`, not the name (#218). A
+  // name that is known keeps the sentence: `ptr` is the library's and no type here, `f32<T>`
+  // takes none, and a generic alias of the file is not read yet.
+  const base = undeclaredGenericBase(typeNode, sourceFile);
+  if (base !== undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      base,
+      unknownTypeSentence(base.text, namesInScope(typeNode, 'type')),
+    );
     return undefined;
   }
   pushDiag(
