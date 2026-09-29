@@ -1,6 +1,6 @@
 ---
 id: '0028'
-title: A host of the program runtime sets a program's overrides by name, binds a float texture the program only loads, reads the console's counts, and runs a program packed under emit options
+title: A host of the program runtime sets a program's overrides by name, binds a float texture the program only loads and reads one back as numbers, receives the console's counts, and runs a program packed under emit options
 status: draft
 rules:
 - '11.10'
@@ -14,6 +14,7 @@ exports:
 - Runtime
 - PackOptions
 - BindEntry
+- Texture
 exports-removed: []
 codes: []
 examples: []
@@ -21,7 +22,7 @@ downstream:
 - repo: typeshade.github.io
   what: The Playground's runner moves onto the program runtime (0025's downstream work, which this unblocks) with its override controls through RenderState.constants and compute's constants, its frame and pixel console captures reading their dropped count from submit(), and its canvas running the manifest packModule gives under the reader's emit options; nothing on the site changes before that move
 - repo: vscode-typeshade
-  what: The skill's references/host.md, whose program runtime section says what render() and compute() take, names the override values, and that submit() returns the console's counts
+  what: The skill's references/host.md, whose program runtime section says what render() and compute() take, names the override values, that submit() returns the console's counts, and readFloats()
 ---
 
 <!-- doc-refs: skip-file — a proposal names the files it will add, and files of the repositories downstream, which this tree does not have -->
@@ -31,7 +32,7 @@ downstream:
 The program runtime (0025, Rule 11.11) has two hosts outside this repository. The site's
 Playground has to move its WebGPU runner onto it (0025's downstream work), and typeshade/stepinside
 draws its product on it. Each asks for something the runtime cannot do through its public API.
-This proposal adds the four that block them. Each is independent of the others, and each can be
+This proposal adds the five they ask for. Each is independent of the others, and each can be
 implemented on its own.
 
 ### 1. Override values, by name
@@ -114,6 +115,23 @@ changes the bindings too: the float flavor injects the `_fp64` guard, and the in
 - A plugin is a function, which a manifest cannot record. So `{ ir: true }` with `plugins` is a
   `TypeError` that says the load-time emitter could not emit the program again.
 
+### 5. A texture read back as numbers, in the order it was drawn (#407)
+
+`texture.read()` returns the texels' bytes, and only for the sixteen formats it lists. A host that
+reads a float texture decodes IEEE half floats itself: stepinside reads the inverse depth an
+`rgba16float` target holds, and wrote a `halfToFloat` for it. The site reads storage textures of
+formats `read()` refuses (`rgba8snorm`, the integer ones). And nothing says which frame a read
+sees: it is right because `read()` records and submits its copy before its first `await`.
+
+- `read()` copies every uncompressed colour format and `depth32float`, as bytes, rows tightly
+  packed, as it does now.
+- `readFloats()` resolves to a `Float32Array` of the same texels' channels as numbers, in the
+  format's channel order. It takes a float format (a half float decoded), a `unorm` one
+  (0 to 1), an `snorm` one (-1 to 1) and `depth32float`. An integer format is a `TypeError` that
+  names `read()`.
+- A read reads what was submitted before the call: its copy is recorded and submitted before the
+  read awaits anything. The JSDoc and surface §69 say so, and a test holds it.
+
 The runtime stays WebGPU only; a WebGL2 tier with pinned overrides is the proposal 0025 names for
 later.
 
@@ -124,6 +142,7 @@ These are the gaps between the runtime and its first two hosts. The site's gap a
 0025's downstream work: without them, moving the Playground's runner onto the runtime would take
 away its override controls, its dropped count, and the options the reader chose. Item 2 is
 stepinside's #404: it wanted an `r32float` inverse-depth level and settled for `rgba16float`.
+Item 5 is stepinside's #407, and the formats the site's storage textures read back.
 
 The rest of that analysis has workarounds through the public API, and none belongs here:
 
@@ -152,20 +171,23 @@ Alternatives considered:
 
 - **Rule 11.10**: the manifest records the options it was packed under. A texture's resource
   carries its sample type, which follows from the calls that read it.
-- **Rule 11.11**: the runtime does four things:
+- **Rule 11.11**: the runtime does five things:
   - builds a pipeline with the override values the host gives it by name, and refuses, with a
     `TypeError`, a name the manifest does not declare and a value its type cannot hold;
   - lays out a texture by its sample type;
   - hands the console's counts to the host that takes its lines;
-  - runs a program packed under emit options.
+  - runs a program packed under emit options;
+  - reads a texture back, as bytes or as numbers, in the order it was submitted.
 - **Surface §69**: `program.render(state)` and `program.compute(entry, options)` take
-  `constants`; `submit()` returns the console's counts; `packModule(m, { emit })`.
+  `constants`; `submit()` returns the console's counts; `packModule(m, { emit })`; a texture's
+  `readFloats()`, and what a read reads.
 - **Exports**:
   - `RenderState` gains `constants`.
   - `Program`'s `compute` takes an options argument.
   - `Frame`'s and `Runtime`'s `submit` resolve to the console's counts.
   - `PackOptions` gains `emit`.
   - `BindEntry` gains `sampleType`.
+  - `Texture` gains `readFloats()`, and its `read()` takes every uncompressed format.
   - The manifest's `PackResource` carries it too.
 - **Code**:
   - `src/runtime/program.ts`: the pipeline descriptors, the cache keys and the layout entry;
@@ -173,7 +195,8 @@ Alternatives considered:
   - `src/core/reflect.ts`: the sample type, from the texture-sampler pairs `manifest.ts` already
     reads for the WebGL2 tier;
   - `src/core/manifest.ts` and `src/compiler/ts/pack.ts`: the emit options;
-  - `src/emit.ts`: `repack` under them.
+  - `src/emit.ts`: `repack` under them;
+  - `src/runtime/resources.ts`: the formats a read copies, and `readFloats()`.
 - **Tests**:
   - `src/runtime/runtime.test.ts`, against the recording device:
     - the override values reach the vertex, fragment and compute stages' `constants`;
@@ -181,14 +204,17 @@ Alternatives considered:
     - two states that differ in one override make two pipelines, and the same values one;
     - a texture only loaded is laid out `unfilterable-float`, and one a sampler reads `float`;
     - `submit()` returns each recorded entry's lines and dropped count, and a runtime with a sink
-      prints nothing.
+      prints nothing;
+    - `readFloats()` decodes each float, `unorm` and `snorm` format's bytes, and a read started
+      before a later frame's submit copies before it.
   - `src/core/manifest.test.ts`, over every example: each texture's sample type agrees with the
     calls that read it. A manifest packed under each level and flavor holds that WGSL, and
     `repack` gives it back byte for byte.
   - The user journeys, on WebGPU through `typeshade/runtime` as the packed tarball ships it:
     - a compute entry that reads an override, at its default and at another value, each result
       held to the CPU oracle's run of the module with that value as the override's default;
-    - an `r32float` texture bound to a program that loads it.
+    - an `r32float` texture bound to a program that loads it;
+    - an `rgba16float` target read back with `readFloats()`.
 
 ## What it owes downstream
 
@@ -206,5 +232,5 @@ Alternatives considered:
 **vscode-typeshade**
 
 - The skill's `references/host.md` says, in its program runtime section, what `render()` and
-  `compute()` take and what `submit()` returns. It names the override values and the console's
-  counts there.
+  `compute()` take and what `submit()` returns. It names the override values, the console's
+  counts and `readFloats()` there.
