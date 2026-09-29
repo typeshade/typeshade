@@ -33,11 +33,18 @@ import { SamplerImpl, TextureImpl } from './resources.js';
 import type { RuntimeImpl } from './runtime.js';
 
 /** The values a draw or a dispatch binds, by the names the source declares: a `Texture`, a
- *  `Sampler`, a plain host value (Rule 8.21) the runtime packs by the binding's layout, or the
- *  host's own `GPUBuffer`, `GPUTexture`, `GPUTextureView` or `GPUSampler`. */
+ *  `Sampler`, a plain host value (Rule 8.21) the runtime packs by the binding's layout, a
+ *  `Resident`, or the host's own `GPUBuffer`, `GPUTexture`, `GPUTextureView` or `GPUSampler`.
+ *
+ *  A plain value is packed into a buffer of its own at each draw and each dispatch, so the draws
+ *  of one pass that bind different values of one binding each read their own. The buffers come
+ *  back to the runtime once the frame has run. A `Resident` is one buffer every draw shares. The
+ *  bindings a draw names are the ones its entries reach: a name they do not reach is refused. */
 export type Bindings = Readonly<Record<string, unknown>>;
 
-/** A colour target of a render pipeline: its format, and its blending when it blends. */
+/** A colour target of a render pipeline: its format, and its blending when it blends. `blend`
+ *  and `writeMask` are WebGPU's `GPUBlendState` and `GPUColorWrite` flags; omitted, the target
+ *  does not blend and every channel is written. */
 export type TargetState =
   | string
   | {
@@ -55,25 +62,41 @@ export interface RenderState {
   readonly fragment?: string | null;
   /** One per colour output, by location. Omitted: `rgba8unorm` for each. */
   readonly targets?: readonly TargetState[];
+  /** The depth attachment's format, and how the pipeline tests and writes it: `compare`
+   *  defaults to `'less'` and `write` to `true`. A reversed projection compares `'greater'`,
+   *  and a pass drawn behind everything else (a sky) compares `'always'` and does not write.
+   *  Omitted: no depth test, for a pass with no depth attachment. */
   readonly depth?: {
     readonly format: string;
     readonly compare?: string;
     readonly write?: boolean;
   };
+  /** What the vertices make: `topology` defaults to `'triangle-list'`, `cullMode` to `'none'`
+   *  and `frontFace` to `'ccw'`. */
   readonly primitive?: {
     readonly topology?: string;
     readonly cullMode?: 'none' | 'front' | 'back';
     readonly frontFace?: 'ccw' | 'cw';
   };
+  /** The sample count of the targets it draws into: 1 when omitted, 4 for a multisampled
+   *  target. */
   readonly multisample?: { readonly count?: number };
 }
 
 /** What a draw draws: `count` vertices (or indices), `instances` times, from the vertex buffer
  *  the manifest lays out. A typed array is uploaded at the draw; a `GPUBuffer` is bound as is. */
 export interface Geometry {
+  /** How many vertices, or indices when `indices` is given. */
   readonly count: number;
+  /** How many instances: 1 when omitted. */
   readonly instances?: number;
+  /** The vertex buffer, laid out as the manifest's vertex entry reads it (its `@location`
+   *  inputs, tightly packed): a typed array, uploaded at each draw, or the host's `GPUBuffer`.
+   *  Omitted for a vertex entry with no `@location` input, such as a full-screen triangle drawn
+   *  from `vertex_index`. */
   readonly vertices?: ArrayBufferView | object;
+  /** The index buffer: a `Uint16Array` or `Uint32Array`, uploaded at each draw, or
+   *  `{ buffer, format }`, the host's `GPUBuffer` bound as it is. */
   readonly indices?:
     Uint16Array | Uint32Array | { readonly buffer: object; readonly format: 'uint16' | 'uint32' };
 }

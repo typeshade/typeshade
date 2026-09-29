@@ -7606,12 +7606,42 @@ await frame.submit(); // console lines print here
   (§65), uploaded on its first use and bound as it is after; a `Texture` or a `Sampler` from
   `rt.texture()` and `rt.sampler()`; or the host's own `GPUBuffer`, `GPUTexture` or
   `GPUSampler`. An unknown name, a missing binding and a value of the wrong shape are a
-  `TypeError` naming the entry, its line and the binding. A frame that repeats its shapes
-  creates no GPU object.
+  `TypeError` naming the entry, its line and the binding. A plain value is packed into a buffer
+  of its own at each draw and each dispatch, so draws of one pass that bind different values of
+  one binding each read their own (a camera per layer, say); a `Resident` is one buffer every
+  draw shares. A frame that repeats its shapes creates no GPU object.
 - **A frame** is one encoder: `frame.dispatch()` and `frame.pass(targets, record)`, a render pass
   into textures or a canvas context, then `submit()`. A host that owns its encoders records with
   `pipeline.dispatch(encoder, …)` and `pipeline.draw(pass, …)` and submits with
   `rt.submit(encoder)`.
+- **What a host writes, and what it may leave out.** The JSDoc of `RenderState`, `PassTargets`,
+  `Geometry`, `TextureOptions` and `SamplerOptions` gives each field's default, which the API
+  reference shows. `render()` picks the program's only vertex and fragment entry, or the ones
+  `vertex` and `fragment` name, and `fragment: null` is a depth-only pipeline. A target is
+  `rgba8unorm` unless named; depth compares `'less'` and writes; a primitive is a triangle list,
+  counter-clockwise, not culled. A pass clears colour to transparent black and depth to 1, which
+  a reversed projection sets to 0. A draw's `indices` are a typed array, uploaded at the draw, or
+  the host's buffer with its format:
+
+  ```ts
+  const depth = rt.texture({ size: [width, height], format: 'depth24plus' });
+  const sky = await rt.load(skyProgram).render({
+    targets: [format],
+    depth: { format: 'depth24plus', compare: 'always', write: false }, // drawn behind everything
+  });
+  const mesh = await rt.load(meshProgram).render({
+    targets: [format],
+    depth: { format: 'depth24plus' }, // compares 'less' and writes
+    primitive: { cullMode: 'back' },
+  });
+
+  const frame = rt.frame();
+  frame.pass({ color: [context], depth }, (pass) => {
+    pass.draw(sky, { view }, { count: 3 }); // a full-screen triangle: no vertex buffer
+    pass.draw(mesh, { view, model }, { count: indices.length, vertices, indices });
+  });
+  await frame.submit();
+  ```
 - **The console.** A program loaded with its recorded variant (`load(m, { console: true })`, the
   default when the manifest carries one) binds a console buffer for each dispatch and draw, and
   the submit reads it back: each event reaches `createRuntime({ console: sink })`, or the host's

@@ -19,7 +19,8 @@ export interface TextureOptions {
   /** `[width, height]`, or `[width, height, layers]` for an array or a 3D texture. */
   readonly size: readonly [number, number] | readonly [number, number, number];
   readonly format: string;
-  /** `'2d'` (the default) or `'3d'`. */
+  /** `'2d'` (the default) or `'3d'`. A texture is a render target and a sampled texture at once,
+   *  and one with a single sample can be copied to and from. */
   readonly dimension?: '2d' | '3d';
   /** 4 for a multisampled render target; 1, the default, otherwise. */
   readonly sampleCount?: number;
@@ -46,7 +47,9 @@ export interface Texture {
 
 /** What `rt.sampler()` makes. */
 export interface SamplerOptions {
+  /** How it magnifies, minifies and picks between mip levels: `'linear'` when omitted. */
   readonly filter?: 'nearest' | 'linear';
+  /** What it reads past an edge, on every axis: `'clamp'` (clamp to the edge) when omitted. */
   readonly address?: 'clamp' | 'repeat' | 'mirror';
   /** A comparison sampler, for a depth texture a shadow pass wrote: the comparison it makes. */
   readonly compare?:
