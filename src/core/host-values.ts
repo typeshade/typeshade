@@ -140,6 +140,58 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
   }
 }
 
+/** Whether `x` is a scalar of kind `e` as {@link convertIn} takes one: a boolean for `bool`, a
+ *  number for a float, a whole number in range for an integer. */
+function scalarFits(e: HostNumber | 'bool', x: unknown): boolean {
+  if (e === 'bool') return typeof x === 'boolean';
+  if (typeof x !== 'number') return false;
+  if (e === 'f32' || e === 'f64') return true;
+  const [lo, hi] = RANGE[e];
+  return Number.isInteger(x) && x >= lo && x <= hi;
+}
+
+/** {@link convertIn}'s value for the shapes a host passes most, a scalar that fits and a plain
+ *  array of them of the right length, computed without its descent; undefined for any other
+ *  value, which the descent then checks, converts or refuses (#410). */
+function convertQuick(t: HostType, v: unknown): CpuValue | undefined {
+  switch (t.k) {
+    case 'num':
+      if (t.t === 'f32') return typeof v === 'number' ? Math.fround(v) : undefined;
+      return scalarFits(t.t, v) ? (v as number) : undefined;
+    case 'bool':
+      return typeof v === 'boolean' ? v : undefined;
+    case 'vec':
+    case 'mat': {
+      if (!Array.isArray(v) || v.length !== (t.k === 'vec' ? t.n : t.c * t.r)) return undefined;
+      return t.e === 'f32' ? roundedCopy(v) : checkedCopy(v, t.e);
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** A new array of `xs`'s elements rounded to f32, or undefined when one is not a number. */
+function roundedCopy(xs: readonly unknown[]): number[] | undefined {
+  const out = new Array<number>(xs.length);
+  for (let i = 0; i < xs.length; i++) {
+    const x = xs[i];
+    if (typeof x !== 'number') return undefined;
+    out[i] = Math.fround(x);
+  }
+  return out;
+}
+
+/** A new array of `xs`'s elements, or undefined when one is not a scalar of kind `e`. */
+function checkedCopy(xs: readonly unknown[], e: HostNumber | 'bool'): CpuValue | undefined {
+  const out = new Array<number | boolean>(xs.length);
+  for (let i = 0; i < xs.length; i++) {
+    const x = xs[i];
+    if (!scalarFits(e, x)) return undefined;
+    out[i] = x as number | boolean;
+  }
+  return out as CpuValue;
+}
+
 /**
  * Check one argument of a host call against its parameter's type and copy it into the value
  * the CPU tier runs on (Rule 8.21). An `ArrayLike` of the right length (a `Float32Array`, an
@@ -149,6 +201,8 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
  *   value does not fit.
  */
 export function toShader(fn: string, param: string, t: HostType, v: unknown): CpuValue {
+  const quick = convertQuick(t, v);
+  if (quick !== undefined) return quick;
   try {
     return convertIn(t, v, '');
   } catch (e) {
@@ -168,8 +222,13 @@ export function fromShader(t: HostType, v: CpuValue): unknown {
     case 'void':
       return undefined;
     case 'vec':
-    case 'mat':
-      return Array.from(v as unknown as ArrayLike<number | boolean>);
+    case 'mat': {
+      if (!Array.isArray(v)) return Array.from(v as unknown as ArrayLike<number | boolean>);
+      // What `Array.from` makes of an array, element by element, without its iterator.
+      const out = new Array<unknown>(v.length);
+      for (let i = 0; i < v.length; i++) out[i] = v[i];
+      return out;
+    }
     case 'arr':
       return Array.from(v as unknown as ArrayLike<CpuValue>, (x) => fromShader(t.e, x));
     case 'struct': {
