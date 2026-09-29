@@ -386,9 +386,10 @@ export const globalThis: f32 = 3.;
 export const Error: f32 = 4.;
 export const Number: f32 = 5.;
 `;
-    // The code reads each global the exports would have shadowed.
+    // The code reads each global the exports would have shadowed: `Math.fround` once, where
+    // the CPU tier's code binds it (#410).
     const code = face(source).code;
-    for (const read of ['Object.freeze(', 'Math.imul(', 'Math.fround('])
+    for (const read of ['Object.freeze(', 'Math.imul(', 'const $fr = Math.fround;'])
       expect(code).toContain(read);
     const m = await load(source);
     const call = (name: string, ...args: number[]): unknown =>
