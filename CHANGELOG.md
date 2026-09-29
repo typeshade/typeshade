@@ -2016,6 +2016,15 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **`tshc` runs on Windows** (#384). `tshc check` and `tshc sync` said "no file or directory"
+  for every path, since the command joined the working directory, `D:/work`, into `/D:/work`,
+  which names nothing on a drive. A path on a drive now keeps its drive; `D:/`, `D:\` and a path
+  that starts with `/` on the working directory's drive are absolute; `\` separates the segments
+  of a path on a drive; and paths still print relative to the working directory. Off a drive a
+  backslash stays a character of a name, as POSIX has it. `tshc --version` read the package's
+  manifest from `/D:/...` too, and printed `unknown`. `src/cli/run.test.ts` drives the command
+  from `D:/work` with relative, `D:/` and `D:\` paths, an import, and `sync`.
+
 - **A module written with `fn()` has its GLSL and its vertex layout in its manifest** (Rule
   11.10). `buildManifest` read each entry's stage from the `stage` field, and a `fn()` handle,
   which is what `module()` puts in `funcs`, has none: its stage is in `attrs`. `stageOf`, which

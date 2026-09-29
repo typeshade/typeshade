@@ -30,16 +30,23 @@ interface NodeProcess {
   readonly stderr: { write(text: string): unknown };
 }
 
+interface NodeUrl {
+  fileURLToPath(url: URL): string;
+}
+
 const fsModule: string = 'node:fs';
 const fs = (await import(fsModule)) as NodeFs;
+const urlModule: string = 'node:url';
+const { fileURLToPath } = (await import(urlModule)) as NodeUrl;
 const proc = (globalThis as unknown as { process: NodeProcess }).process;
 
-/** The package's own version, read from the manifest beside the source or build tree. */
+/** The package's own version, read from the manifest beside the source or build tree. The URL
+ *  becomes a path through `fileURLToPath`: its `pathname` is `/D:/...` on Windows (#384). */
 function packageVersion(): string {
   for (const up of ['../../package.json', '../../../package.json']) {
     try {
       const manifest = JSON.parse(
-        fs.readFileSync(new URL(up, import.meta.url).pathname, 'utf8'),
+        fs.readFileSync(fileURLToPath(new URL(up, import.meta.url)), 'utf8'),
       ) as {
         name?: string;
         version?: string;

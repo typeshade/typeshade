@@ -118,6 +118,59 @@ describe('tshc (command line)', () => {
     );
   });
 
+  it('resolves paths on a Windows drive: relative, D:/ and D:\\ arguments, imports and sync (#384)', () => {
+    // bin.ts hands runCli the working directory with slashes, D:/work; a path there keeps its
+    // drive, where it once became /D:/work, which names nothing on Windows.
+    const files = {
+      'D:/work/src/a.shade.ts': `"use typeshade";\nimport { f } from "./lib/f.shade.ts";\nexport function g(x: f32): f32 {\n  return f(x);\n}\n`,
+      'D:/work/src/lib/f.shade.ts': GOOD,
+    };
+    const clean = { status: 0, stdout: 'No problems found in 2 files.\n' };
+    for (const given of [
+      'src',
+      'src/',
+      'src\\',
+      'D:/work/src',
+      'D:\\work\\src',
+      'd:/work/src',
+      '/work/src',
+    ])
+      expect(run(['check', given], files, 'D:/work'), given).toMatchObject(clean);
+    expect(run(['check'], files, 'D:/work')).toMatchObject(clean);
+    // A drive's letter is one drive whatever its case, and paths print relative to it.
+    const bad = run(
+      ['check', '--format', 'short', 'src\\lib'],
+      { ...files, 'D:/work/src/lib/b.shade.ts': BAD },
+      'd:/work',
+    );
+    expect(bad.status).toBe(1);
+    expect(bad.stdout).toBe(
+      [
+        'src/lib/b.shade.ts:3:10 - error TS8022: Unknown identifier "colr".',
+        'Found 1 error in 1 file (2 files checked).',
+        '',
+      ].join('\n'),
+    );
+    expect(run(['check', 'D:\\elsewhere'], files, 'D:/work')).toMatchObject({
+      status: 2,
+      stderr: 'tshc: no file or directory at D:\\elsewhere.\n',
+    });
+
+    const m = memoryHost({ 'D:/work/src/lib/f.shade.ts': GOOD }, 'D:/work');
+    expect(runCli(['sync', 'src'], m.host, { version: '9.9.9' })).toBe(0);
+    expect(m.stdout()).toBe(
+      'wrote src/lib/f.shade.typeshade.ts\n1 host view written, 0 up to date.\n',
+    );
+    expect(runCli(['sync', '--check', 'D:\\work\\src'], m.host, { version: '9.9.9' })).toBe(0);
+  });
+
+  it('keeps a backslash in a name off a drive, as POSIX does', () => {
+    expect(run(['check', 'we\\ird.shade.ts'], { '/p/we\\ird.shade.ts': GOOD })).toMatchObject({
+      status: 0,
+      stdout: 'No problems found in 1 file.\n',
+    });
+  });
+
   it('exits 2 when it cannot run, and says why', () => {
     expect(run(['check', 'nope'], { '/p/a.shade.ts': GOOD })).toMatchObject({
       status: 2,

@@ -67,21 +67,35 @@ Exit status: 0 when no error was found, 1 when at least one was, 2 when the
 command itself could not run (a bad option, a missing path, no files to check).
 `;
 
-/** `a/b` joined onto `base`, with `.` and `..` segments resolved. */
+/** A path's Windows drive, `D:`, when the path is written on one (`D:/work`, `D:\\work`). */
+const DRIVE = /^[A-Za-z]:(?=[\\/]|$)/;
+
+/**
+ * `path` joined onto `base`, with `.` and `..` segments resolved and `/` between segments. A path
+ * that starts with `/` or names a drive is absolute. On Windows the working directory is on a
+ * drive (`D:/work`): a path there keeps its drive, upper-cased, and `\` separates its segments as
+ * `/` does, since a path that lost its drive for a leading `/` names nothing (#384). A path that
+ * starts with `/` or `\` on a base with a drive is on that drive. Off a drive, `\` is a character
+ * of a name, as POSIX has it.
+ */
 function resolvePath(base: string, path: string): string {
-  const joined = path.startsWith('/') ? path : `${base.replace(/\/+$/, '')}/${path}`;
+  const baseDrive = DRIVE.exec(base)?.[0];
+  const rooted = path.startsWith('/') || (baseDrive !== undefined && path.startsWith('\\'));
+  const joined = DRIVE.test(path) ? path : rooted ? `${baseDrive ?? ''}${path}` : `${base}/${path}`;
+  const drive = DRIVE.exec(joined)?.[0] ?? '';
   const parts: string[] = [];
-  for (const part of joined.split('/')) {
+  for (const part of joined.slice(drive.length).split(drive === '' ? '/' : /[\\/]/)) {
     if (part === '' || part === '.') continue;
     if (part === '..') parts.pop();
     else parts.push(part);
   }
-  return `/${parts.join('/')}`;
+  return `${drive.toUpperCase()}/${parts.join('/')}`;
 }
 
 /** `path` relative to `from`, for display; `path` itself when it is not under `from`. */
 function relativeTo(from: string, path: string): string {
-  const prefix = from.endsWith('/') ? from : `${from}/`;
+  const root = resolvePath(from, '.');
+  const prefix = root.endsWith('/') ? root : `${root}/`;
   return path.startsWith(prefix) ? path.slice(prefix.length) : path;
 }
 
