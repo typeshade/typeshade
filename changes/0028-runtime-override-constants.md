@@ -1,13 +1,14 @@
 ---
 id: '0028'
 title: A host of the program runtime sets a program's overrides by name, binds a float texture the program only loads and reads one back as numbers, receives the console's counts, and runs a program packed under emit options
-status: draft
+status: accepted
 rules:
 - '11.10'
 - '11.11'
 surface:
 - 69
 exports:
+- Pack
 - RenderState
 - Program
 - Frame
