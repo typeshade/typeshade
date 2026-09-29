@@ -7679,6 +7679,33 @@ await frame.submit(); // console lines print here
   into textures or a canvas context, then `submit()`. A host that owns its encoders records with
   `pipeline.dispatch(encoder, …)` and `pipeline.draw(pass, …)` and submits with
   `rt.submit(encoder)`.
+- **A texture reads back as bytes or as numbers, and reads what was submitted before the call.**
+  `texture.read()` copies every texel back as bytes: rows tightly packed, as many bytes to a texel
+  as the format has, its channels in the format's order (a `bgra8unorm` texel is blue, green, red,
+  alpha). It takes any uncompressed colour format and `depth32float`; a compressed format and the
+  other depth and stencil formats reject with a `TypeError` that names what `read()` copies.
+  `texture.readFloats()` resolves to a `Float32Array` of the same texels' channels as numbers, one
+  to each channel, in the same order: a float format decoded (a half float exactly, and the packed
+  `rg11b10ufloat` and `rgb9e5ufloat`), a `unorm` format 0 to 1, an `snorm` format -1 to 1, and
+  `depth32float` its depth. An sRGB format gives the numbers it stores, as its bytes hold them,
+  and not the linear values a shader reads. An integer format rejects with a `TypeError` that
+  names `read()`, which gives its bytes. An array or a 3D texture gives its first layer or slice.
+
+  A read reads what was submitted before the call. Its copy is recorded and submitted before the
+  read awaits anything, so the queue runs it after every submit made before the call and before
+  every one made after it: a frame submitted while the read is pending draws after the copy, and
+  the bytes or the numbers are the texture as it was. `frame.submit()` and `rt.submit(…)` hand the
+  queue their commands before their own first `await`, so a frame counts as submitted from the
+  call and not from the moment its promise resolves, and a frame that is recorded and not yet
+  submitted is not read. The read keeps the size the texture had at the call, whatever `resize()`
+  does after.
+
+  ```ts
+  const hdr = rt.texture({ size: [width, height], format: 'rgba16float' });
+  // …a frame draws into it, and is submitted…
+  const radiance = await hdr.readFloats(); // r, g, b, a of each texel, row by row
+  const halves = await hdr.read(); // the same texels' bytes, 8 to a texel
+  ```
 - **What a host writes, and what it may leave out.** The JSDoc of `RenderState`, `PassTargets`,
   `Geometry`, `TextureOptions` and `SamplerOptions` gives each field's default, which the API
   reference shows. `render()` picks the program's only vertex and fragment entry, or the ones

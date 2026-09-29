@@ -600,6 +600,60 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A texture read back as bytes or as numbers, in the order it was submitted** (proposal 0028,
+  item 5; design rule 11.11; surface §69; #407). `texture.read()` copies every uncompressed
+  colour format of WebGPU and `depth32float` as bytes, rows tightly packed, where it copied
+  sixteen formats, and `texture.readFloats()` resolves to a `Float32Array` of the same texels'
+  channels as numbers, in the format's channel order: a float format decoded (a half float
+  exactly), a `unorm` format 0 to 1, an `snorm` format -1 to 1, and `depth32float`. An integer
+  format rejects with a `TypeError` that names `read()`. A host that read an `rgba16float`
+  target decoded the half floats itself (stepinside wrote a `halfToFloat`), and the site's
+  storage textures of `rgba8snorm` and of the integer formats were refused.
+  - A read reads what was submitted before the call. Its copy is recorded and submitted before it
+    awaits anything, so the queue runs it after every submit made before the call and before
+    every one made after it: a frame submitted while the read is pending draws after the copy.
+    `frame.submit()` and `rt.submit(…)` hand the queue their commands before their own first
+    `await`, so a frame counts as submitted from the call and not from the moment its promise
+    resolves; a frame recorded and not yet submitted is not read. The JSDoc of `read()` and
+    `readFloats()` and surface §69 say so. The read also keeps the size the texture had at the
+    call: it read `width` and `height` again after its `await`, so a `resize()` while it was
+    pending unpacked the copy at a size it was not made at.
+  - The formats are read from their names, the channels, the bits and how each is stored, with
+    the four packed ones beside them, so a texel's bytes follow from the format: the 43
+    uncompressed colour formats `@webgpu/types` lists, `r16unorm` and the other 16-bit `unorm`
+    and `snorm` ones among them, and `depth32float`. A compressed format and `stencil8`,
+    `depth16unorm`, `depth24plus` and the two combined depth and stencil formats reject with a
+    `TypeError` that names what `read()` copies, before anything reaches the queue. The four
+    packed formats decode too: `rgb10a2unorm` as a `unorm` format, `rg11b10ufloat` and
+    `rgb9e5ufloat` as floats, and `rgb10a2uint` is an integer format.
+  - Two choices the proposal left open. A `bgra8unorm` texel is blue, green, red, alpha, in the
+    order its bytes hold it and its name says, so `readFloats()` and `read()` agree channel for
+    channel. An sRGB format gives the numbers it stores, its bytes over 255, and not the linear
+    values a shader reads.
+  - `Texture` gains `readFloats()`, the one export that changes; `src/__api__/surface.md` records
+    it.
+  - `src/runtime/runtime.test.ts` holds, against the recording device, the bytes and the copy
+    each format WebGPU has is given (the list read from `@webgpu/types`, so a format the types
+    add is a failure until it is stated), the refusal of each format it cannot copy, the numbers
+    each float, `unorm`, `snorm` and packed format decodes to (all 65536 half floats among them,
+    held to the standard's formula), the refusal of each integer format, and, against a queue
+    that runs each command buffer when it is given it, that a read started before a frame's
+    `submit()` reads the texture as it was and one started after it reads the frame, from a frame
+    and from the host's own encoders. Each test was shown to fail when `resources.ts` is broken
+    in the matching way, among them a copy that waits for a tick before it is recorded.
+  - `journeys/hdr-target/` draws values above 1 and below 0 into an `rgba16float` target on
+    WebGPU through `typeshade/runtime` and reads the target back with `readFloats()`, each value
+    a small dyadic number that is exactly the half float the target stores, so a readback that
+    decodes one bit wrong fails. The harness starts the read while the frame is pending and
+    draws a later frame that clears the target to -1 before the read resolves; the read holds the
+    first frame, and the target afterwards the clear. A run names its float `target`
+    (`journeys/README.md`).
+  - `typeshade/runtime` is now 11,722 bytes minified and gzipped, 580 more than the 11,142 it
+    was, and its budget in `scripts/bundle-budget.json` moves from 11,600 to 12,900 in this
+    change, where a reviewer reads it: the size and about a tenth more, as the script's header
+    says. The table of formats and their bytes is 138 of them, and `readFloats()` with its
+    decoders is 442, about 90 of those the three packed formats'. `typeshade/emit` is as it was.
+
 - **A program packed under emit options** (proposal 0028, item 4; design rules 11.10 and 11.11;
   surface §69). `packModule(m, { emit: { level, parens, fp64Flavor, plugins } })` emits the
   manifest's `wgsl`, its recorded variant's `wgsl`, its `glsl` and the fragment program of each

@@ -105,7 +105,9 @@ export interface Frame {
     workgroups: number | readonly number[],
   ): void;
   pass(targets: PassTargets, record: (pass: RenderPass) => void): void;
-  /** Submit the frame. It resolves once the queue has run it and the console lines of its
+  /** Submit the frame. The queue is given its commands before `submit()` returns its promise, so
+   *  a texture read started right after it, while the promise is pending, reads the frame
+   *  (`Texture.read`). It resolves once the queue has run the frame and the console lines of its
    *  entries are delivered, printed or handed to the runtime's sink, to what their buffers held:
    *  `{ console: [{ entry, lines, dropped }, …] }`, a row for each dispatch and draw of the frame
    *  that recorded, in the order they were recorded, and none when nothing did. `entry` names what
@@ -136,7 +138,8 @@ export interface Runtime<D extends object = object> {
   frame(): Frame;
   /** Submit the host's own encoders, after copying back the console buffers of the dispatches
    *  and draws recorded since the last submit; resolves once the lines are delivered, to what
-   *  those buffers held, as `Frame.submit()` does. */
+   *  those buffers held, as `Frame.submit()` does: the queue is given the encoders before the
+   *  promise is returned. */
   submit(...encoders: readonly object[]): ReturnType<Frame['submit']>;
   /** Release what the runtime made. The host's device is left as it is. */
   destroy(): void;
@@ -299,6 +302,8 @@ export class RuntimeImpl implements Runtime {
       throw new TypeError('submit() takes the GPUCommandEncoders to submit.');
     const last = encoders[encoders.length - 1] as CommandEncoder;
     const read = this.takeConsole(last);
+    // The queue is given the commands before anything is awaited: a texture read started after
+    // this call reads what it submitted (surface section 69).
     this.gpu.queue.submit(encoders.map((e) => (e as CommandEncoder).finish()));
     const done = this.gpu.queue.onSubmittedWorkDone();
     this.pool.release(done);
@@ -382,6 +387,8 @@ class FrameImpl implements Frame {
       throw new TypeError('This frame was submitted already; make a new one with rt.frame().');
     this.#submitted = true;
     const read = this.rt.takeConsole(this.#enc);
+    // The queue is given the commands before anything is awaited: a texture read started after
+    // this call reads the frame (surface section 69).
     this.rt.gpu.queue.submit([this.#enc.finish()]);
     const error = this.rt.gpu.popErrorScope();
     const done = this.rt.gpu.queue.onSubmittedWorkDone();

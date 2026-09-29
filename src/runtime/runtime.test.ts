@@ -9,10 +9,14 @@
 // counts to what `submit()` resolves to and to what a runtime given a sink prints, and on a real
 // device by the journeys' harness, which reads them from `submit()`; its program packed under emit
 // options to the text a shader module is made from and the layout it is given, and on a real
-// device by `journeys/emit-options`.
+// device by `journeys/emit-options`; its texture reads to the bytes a copy is asked for and the
+// numbers each format decodes to, and to the order the queue runs a read and a frame in, and on a
+// real device by `journeys/hdr-target`.
 //
 // Verifies: Rule 11.8, Rule 11.11.
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { compile } from '../compiler/ts/compile.js';
 import { packModule } from '../compiler/ts/pack.js';
@@ -20,6 +24,7 @@ import type { ConsoleEvent } from '../core/console.js';
 import { configure, resident, residentState } from '../core/resident.js';
 import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
 import { createRuntime, runtime, type Frame, type Runtime } from './runtime.js';
+import type { Texture } from './resources.js';
 import { repack } from '../emit.js';
 
 /** What a pipeline is created with: the stages carry the `constants` the runtime hands WebGPU. */
@@ -27,6 +32,12 @@ interface PipelineDescriptor {
   readonly vertex?: { readonly constants?: Record<string, number> };
   readonly fragment?: { readonly constants?: Record<string, number> };
   readonly compute?: { readonly constants?: Record<string, number> };
+}
+
+/** A command encoder of the recording device: what the queue does once it is given the encoder's
+ *  command buffer, in the order the queue is given them. */
+interface FakeEncoder {
+  readonly effects: (() => void)[];
 }
 
 /** A device that records every object it creates and every command it is given. */
@@ -40,6 +51,14 @@ function fakeDevice(features: string[] = []) {
   const groups: { entries: { binding: number; resource: { size?: number } }[] }[] = [];
   const commands: string[] = [];
   const pipelines: { kind: 'compute' | 'render'; descriptor: PipelineDescriptor }[] = [];
+  // The command buffers the queue was given, by the encoder that made each, in order. The queue
+  // runs an encoder's effects when it is given the buffer, as the GPU runs the commands in the
+  // order they were submitted, and not when they were recorded.
+  const submitted: FakeEncoder[] = [];
+  // What the texture holds: the texels' bytes, tightly packed, which a copy back takes at the
+  // moment the queue runs it. A copy is what `read()` and `readFloats()` submit.
+  let texels: Uint8Array = new Uint8Array(0);
+  const copies: { aspect?: string; bytesPerRow: number; size: readonly number[] }[] = [];
   // What the GPU wrote into the console buffers: the n-th one copied back since `setConsole` reads
   // the n-th of the words, and the last of them when there are fewer.
   let consoleWords: readonly Uint32Array[] = [];
@@ -76,7 +95,14 @@ function fakeDevice(features: string[] = []) {
   const device = {
     features: new Set(features),
     queue: {
-      submit: () => commands.push('submit'),
+      submit: (buffers: readonly { encoder?: FakeEncoder }[] = []) => {
+        commands.push('submit');
+        for (const { encoder } of buffers) {
+          if (encoder === undefined) continue;
+          submitted.push(encoder);
+          for (const run of encoder.effects) run();
+        }
+      },
       writeBuffer: () => {
         count('writeBuffer');
       },
@@ -113,16 +139,40 @@ function fakeDevice(features: string[] = []) {
       pipelines.push({ kind: 'render', descriptor: d }),
       { d }
     ),
-    createCommandEncoder: () => ({
-      beginComputePass: () => pass,
-      beginRenderPass: () => pass,
-      copyBufferToBuffer: (_from: object, _at: number, to: { words?: Uint32Array }) => {
-        commands.push('copy');
-        to.words = consoleWords[Math.min(copied++, consoleWords.length - 1)];
-      },
-      copyTextureToBuffer: () => {},
-      finish: () => ({}),
-    }),
+    createCommandEncoder: () => {
+      const encoder = {
+        effects: [] as (() => void)[],
+        beginComputePass: () => pass,
+        beginRenderPass: () => pass,
+        copyBufferToBuffer: (_from: object, _at: number, to: { words?: Uint32Array }) => {
+          commands.push('copy');
+          to.words = consoleWords[Math.min(copied++, consoleWords.length - 1)];
+        },
+        copyTextureToBuffer: (
+          source: { aspect?: string },
+          to: { buffer: { bytes: ArrayBuffer }; bytesPerRow: number },
+          size: readonly number[],
+        ) => {
+          copies.push({
+            ...(source.aspect !== undefined ? { aspect: source.aspect } : {}),
+            bytesPerRow: to.bytesPerRow,
+            size,
+          });
+          // Each row of the texture lands at a multiple of `bytesPerRow` in the buffer.
+          encoder.effects.push(() => {
+            const rows = size[1]!;
+            const row = texels.length / rows;
+            for (let y = 0; y < rows; y++)
+              new Uint8Array(to.buffer.bytes).set(
+                texels.subarray(y * row, (y + 1) * row),
+                y * to.bytesPerRow,
+              );
+          });
+        },
+        finish: () => ({ encoder }),
+      };
+      return encoder;
+    },
     pushErrorScope: () => {},
     popErrorScope: async () => null,
   };
@@ -134,6 +184,12 @@ function fakeDevice(features: string[] = []) {
     groups,
     commands,
     pipelines,
+    submitted,
+    copies,
+    /** The bytes the texture holds from now on, until the next call. */
+    setTexels: (bytes: ArrayLike<number>) => {
+      texels = Uint8Array.from(bytes);
+    },
     setConsole: (...w: Uint32Array[]) => {
       consoleWords = w;
       copied = 0;
@@ -1259,5 +1315,487 @@ describe('a program packed under emit options (change 0028 item 4, Rule 11.11)',
       direct.console!.bindings.map((b) => b.binding),
     );
     expect(layout(fake).filter((e) => e.texture !== undefined)).toEqual([]);
+  });
+});
+
+/** The bytes of one texel of each format `read()` copies, from the format table of the WebGPU
+ *  specification: every uncompressed colour format, and `depth32float`. */
+const TEXEL_BYTES: Readonly<Record<string, number>> = {
+  r8unorm: 1,
+  r8snorm: 1,
+  r8uint: 1,
+  r8sint: 1,
+  r16unorm: 2,
+  r16snorm: 2,
+  r16uint: 2,
+  r16sint: 2,
+  r16float: 2,
+  rg8unorm: 2,
+  rg8snorm: 2,
+  rg8uint: 2,
+  rg8sint: 2,
+  r32uint: 4,
+  r32sint: 4,
+  r32float: 4,
+  rg16unorm: 4,
+  rg16snorm: 4,
+  rg16uint: 4,
+  rg16sint: 4,
+  rg16float: 4,
+  rgba8unorm: 4,
+  'rgba8unorm-srgb': 4,
+  rgba8snorm: 4,
+  rgba8uint: 4,
+  rgba8sint: 4,
+  bgra8unorm: 4,
+  'bgra8unorm-srgb': 4,
+  rgb9e5ufloat: 4,
+  rgb10a2uint: 4,
+  rgb10a2unorm: 4,
+  rg11b10ufloat: 4,
+  rg32uint: 8,
+  rg32sint: 8,
+  rg32float: 8,
+  rgba16unorm: 8,
+  rgba16snorm: 8,
+  rgba16uint: 8,
+  rgba16sint: 8,
+  rgba16float: 8,
+  rgba32uint: 16,
+  rgba32sint: 16,
+  rgba32float: 16,
+  depth32float: 4,
+};
+
+/** Every format of `GPUTextureFormat`, read from the declaration `@webgpu/types` carries: the one
+ *  authority for which formats exist (AGENTS.md#gate-discipline). */
+const WEBGPU_FORMATS: readonly string[] = (() => {
+  const types = readFileSync(
+    fileURLToPath(new URL('../../node_modules/@webgpu/types/dist/index.d.ts', import.meta.url)),
+    'utf8',
+  );
+  const union = /type GPUTextureFormat =([^;]*);/.exec(types)?.[1] ?? '';
+  return [...union.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
+})();
+
+/** IEEE 754 binary16 as the standard states it, a sign, a 5-bit exponent and a 10-bit significand:
+ *  the runtime's decode is written another way, and the two agree on every one of the 65536. */
+function halfOf(h: number): number {
+  const sign = h >> 15 === 1 ? -1 : 1;
+  const exponent = (h >> 10) & 31;
+  const fraction = h & 1023;
+  if (exponent === 0) return sign * fraction * 2 ** -24;
+  if (exponent === 31) return fraction === 0 ? sign * Infinity : NaN;
+  return sign * (1024 + fraction) * 2 ** (exponent - 25);
+}
+
+/** The bytes of a list of numbers stored as `Array`, little-endian as WebGPU lays them out. */
+const bytesOf = (
+  Array:
+    | typeof Uint8Array
+    | typeof Int8Array
+    | typeof Uint16Array
+    | typeof Int16Array
+    | typeof Uint32Array
+    | typeof Float32Array,
+  values: readonly number[],
+): Uint8Array => new Uint8Array(Array.from(values).buffer);
+
+describe("a texture's bytes and numbers (change 0028 item 5, Rule 11.11)", () => {
+  /** A runtime on the recording device and a texture of `format`, `size` texels. */
+  const setup = async (format: string, size: [number, number] = [3, 2]) => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    return { fake, rt, texture: rt.texture({ size, format }) };
+  };
+  const refused = async (call: Promise<unknown>): Promise<string> => {
+    const err = await call.then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(TypeError);
+    return (err as Error).message;
+  };
+  /** The formats of `GPUTextureFormat` that `read()` copies: the uncompressed colour formats and
+   *  `depth32float`; every other one is compressed, or a depth or stencil format it cannot copy. */
+  const copyable = WEBGPU_FORMATS.filter(
+    (f) =>
+      (!/^(bc\d|etc2|eac|astc)/.test(f) && !/^(depth|stencil)/.test(f)) || f === 'depth32float',
+  );
+
+  it('knows the formats WebGPU has: the floor of a list read from the types, and the table this file states', () => {
+    // The instrument: a parse that found nothing would make every loop below pass on nothing.
+    expect(WEBGPU_FORMATS.length).toBeGreaterThan(100);
+    expect(WEBGPU_FORMATS).toContain('rgba16float');
+    expect(WEBGPU_FORMATS).toContain('astc-12x12-unorm-srgb');
+    expect(copyable.length).toBe(44);
+    // The bytes of a texel are stated here for exactly the formats `read()` copies.
+    expect([...copyable].sort()).toEqual(Object.keys(TEXEL_BYTES).sort());
+  });
+
+  describe('read()', () => {
+    for (const [format, texel] of Object.entries(TEXEL_BYTES))
+      it(`copies a ${format} texture, ${texel} byte${texel > 1 ? 's' : ''} to a texel, rows tightly packed`, async () => {
+        // A copy needs each row padded to a multiple of 256 bytes: a row of 3 texels is 48 bytes
+        // at most and takes one stride, and a row of 17 texels of `rgba32float` is 272 and two.
+        for (const width of [3, 17]) {
+          const { fake, texture } = await setup(format, [width, 2]);
+          const bytes = Uint8Array.from({ length: width * 2 * texel }, (_, i) => (i * 7 + 3) % 251);
+          fake.setTexels(bytes);
+          const got = await texture.read();
+          expect(got).toBeInstanceOf(Uint8Array);
+          expect([...got]).toEqual([...bytes]);
+          const stride = Math.ceil((width * texel) / 256) * 256;
+          expect(fake.copies).toEqual([
+            {
+              ...(format === 'depth32float' ? { aspect: 'depth-only' } : {}),
+              bytesPerRow: stride,
+              size: [width, 2, 1],
+            },
+          ]);
+        }
+      });
+
+    it('refuses a compressed format and each depth and stencil format it cannot copy, naming what it copies', async () => {
+      const refusedFormats = WEBGPU_FORMATS.filter((f) => !copyable.includes(f));
+      // The BC, ETC2, EAC and ASTC formats, and stencil8, depth16unorm, depth24plus and the two
+      // combined depth and stencil formats.
+      expect(refusedFormats.length).toBe(WEBGPU_FORMATS.length - 44);
+      expect(refusedFormats).toContain('bc1-rgba-unorm');
+      expect(refusedFormats).toContain('depth24plus');
+      for (const format of refusedFormats) {
+        const { fake, texture } = await setup(format);
+        expect(await refused(texture.read()), format).toBe(
+          `read() cannot copy a ${format} texture back; it copies every uncompressed colour format and depth32float.`,
+        );
+        // Refused before anything reaches the queue.
+        expect(fake.submitted, format).toEqual([]);
+        expect(fake.copies, format).toEqual([]);
+      }
+    });
+
+    it('reads the texture it was called on, as it was, whatever resize() does while the read is pending', async () => {
+      const { fake, texture } = await setup('r8unorm', [3, 2]);
+      fake.setTexels([1, 2, 3, 4, 5, 6]);
+      const pending = texture.read();
+      texture.resize(5, 4);
+      expect([...(await pending)]).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(fake.copies).toEqual([{ bytesPerRow: 256, size: [3, 2, 1] }]);
+      expect([texture.width, texture.height]).toEqual([5, 4]);
+    });
+
+    it('reads a texture the host made, in the layout of its format: a bgra8unorm texel is blue, green, red, alpha', async () => {
+      const fake = fakeDevice();
+      const rt = await createRuntime({ device: fake.device });
+      const host = fake.device.createTexture({ size: [2, 1], format: 'bgra8unorm' });
+      const texture = rt.texture(host);
+      fake.setTexels([10, 20, 30, 255, 40, 50, 60, 128]);
+      expect([...(await texture.read())]).toEqual([10, 20, 30, 255, 40, 50, 60, 128]);
+      // The numbers are the bytes' in the same order, each over 255.
+      const numbers = await texture.readFloats();
+      expect([...numbers]).toEqual(
+        [10, 20, 30, 255, 40, 50, 60, 128].map((v) => Math.fround(v / 255)),
+      );
+    });
+  });
+
+  describe('readFloats()', () => {
+    /** Each format `readFloats()` decodes, named by the store its channels have: `u8` and `u16` are
+     *  `unorm` (0 to 1), `s8` and `s16` are `snorm` (-1 to 1), `half` and `f32` are floats. */
+    const STORES: readonly [format: string, channels: number, store: keyof typeof RAW][] = [
+      ['r8unorm', 1, 'u8'],
+      ['rg8unorm', 2, 'u8'],
+      ['rgba8unorm', 4, 'u8'],
+      ['rgba8unorm-srgb', 4, 'u8'],
+      ['bgra8unorm', 4, 'u8'],
+      ['bgra8unorm-srgb', 4, 'u8'],
+      ['r8snorm', 1, 's8'],
+      ['rg8snorm', 2, 's8'],
+      ['rgba8snorm', 4, 's8'],
+      ['r16unorm', 1, 'u16'],
+      ['rg16unorm', 2, 'u16'],
+      ['rgba16unorm', 4, 'u16'],
+      ['r16snorm', 1, 's16'],
+      ['rg16snorm', 2, 's16'],
+      ['rgba16snorm', 4, 's16'],
+      ['r16float', 1, 'half'],
+      ['rg16float', 2, 'half'],
+      ['rgba16float', 4, 'half'],
+      ['r32float', 1, 'f32'],
+      ['rg32float', 2, 'f32'],
+      ['rgba32float', 4, 'f32'],
+      ['depth32float', 1, 'f32'],
+    ];
+    /** The stored values of each store, its ends and the ones around them, and what a number of
+     *  the store is: `unorm` over the largest value, `snorm` the same and never below -1. */
+    const RAW = {
+      u8: {
+        values: [0, 1, 51, 127, 128, 254, 255],
+        make: bytesOf.bind(null, Uint8Array),
+        number: (v: number) => v / 255,
+      },
+      s8: {
+        values: [-128, -127, -64, -1, 0, 1, 64, 127],
+        make: bytesOf.bind(null, Int8Array),
+        number: (v: number) => Math.max(v / 127, -1),
+      },
+      u16: {
+        values: [0, 1, 257, 32767, 32768, 65534, 65535],
+        make: bytesOf.bind(null, Uint16Array),
+        number: (v: number) => v / 65535,
+      },
+      s16: {
+        values: [-32768, -32767, -1, 0, 1, 16384, 32767],
+        make: bytesOf.bind(null, Int16Array),
+        number: (v: number) => Math.max(v / 32767, -1),
+      },
+      half: {
+        values: [
+          0x0000, 0x3c00, 0xc000, 0x3800, 0x7bff, 0x0001, 0x03ff, 0x0400, 0x8000, 0x7c00, 0xfc00,
+          0x3555, 0x7e00,
+        ],
+        make: bytesOf.bind(null, Uint16Array),
+        number: halfOf,
+      },
+      f32: {
+        values: [0, 1, -1, 0.5, 3.5, 1e30, -0, Infinity, -Infinity, NaN, 1.17549435e-38, 2 ** -149],
+        make: bytesOf.bind(null, Float32Array),
+        number: (v: number) => v,
+      },
+    } as const;
+
+    for (const [format, channels, store] of STORES)
+      it(`decodes a ${format} texture: ${channels} number${channels > 1 ? 's' : ''} to a texel`, async () => {
+        const [width, height] = [5, 2];
+        const { fake, texture } = await setup(format, [width, height]);
+        const { values, make, number } = RAW[store];
+        const stored = Array.from(
+          { length: width * height * channels },
+          (_, i) => values[i % values.length]!,
+        );
+        fake.setTexels(make(stored));
+        const got = await texture.readFloats();
+        expect(got).toBeInstanceOf(Float32Array);
+        expect(got.length).toBe(width * height * channels);
+        const want = stored.map((v) => Math.fround(number(v)));
+        // Object.is: -0 is not 0, and NaN is NaN.
+        for (const [i, v] of got.entries())
+          expect(Object.is(v, want[i]), `${format} number ${i}: ${v} for ${want[i]}`).toBe(true);
+        // The copy is the one read() makes.
+        expect(fake.copies).toEqual([
+          {
+            ...(format === 'depth32float' ? { aspect: 'depth-only' } : {}),
+            bytesPerRow: 256,
+            size: [width, height, 1],
+          },
+        ]);
+      });
+
+    it('decodes every half float: all 65536 bit patterns, each as the standard says', async () => {
+      const { fake, texture } = await setup('r16float', [256, 256]);
+      const patterns = Array.from({ length: 65536 }, (_, i) => i);
+      fake.setTexels(bytesOf(Uint16Array, patterns));
+      const got = await texture.readFloats();
+      expect(got.length).toBe(65536);
+      let wrong = 0;
+      for (const h of patterns) if (!Object.is(got[h], Math.fround(halfOf(h)))) wrong++;
+      expect(wrong).toBe(0);
+      // A few of them by their value, not by the formula above.
+      expect([
+        got[0x3c00],
+        got[0xc000],
+        got[0x7bff],
+        got[0x0400],
+        got[0x0001],
+        got[0x7c00],
+      ]).toEqual([1, -2, 65504, 2 ** -14, 2 ** -24, Infinity]);
+      expect(Object.is(got[0x8000], -0)).toBe(true);
+      expect(Number.isNaN(got[0x7e00])).toBe(true);
+    });
+
+    it('gives a unorm channel 0 to 1 and an snorm one -1 to 1, the least snorm value clamped to -1', async () => {
+      const { fake, texture } = await setup('rgba8snorm', [1, 1]);
+      fake.setTexels(bytesOf(Int8Array, [-128, -127, 127, 0]));
+      expect([...(await texture.readFloats())]).toEqual([-1, -1, 1, 0]);
+      const u = await setup('rgba8unorm', [1, 1]);
+      u.fake.setTexels([0, 255, 51, 102]);
+      expect([...(await u.texture.readFloats())]).toEqual([
+        0,
+        1,
+        Math.fround(0.2),
+        Math.fround(0.4),
+      ]);
+    });
+
+    it('gives an sRGB format the numbers it stores, not the linear values a shader reads', async () => {
+      const { fake, texture } = await setup('rgba8unorm-srgb', [1, 1]);
+      fake.setTexels([128, 128, 128, 128]);
+      expect([...(await texture.readFloats())]).toEqual(Array(4).fill(Math.fround(128 / 255)));
+    });
+
+    it('decodes the packed formats: rgb10a2unorm, rg11b10ufloat and rgb9e5ufloat', async () => {
+      const words = (...w: number[]) => bytesOf(Uint32Array, w);
+      // rgb10a2unorm: red in bits 0 to 9, green 10 to 19, blue 20 to 29, alpha in the top two.
+      const unorm = await setup('rgb10a2unorm', [2, 1]);
+      unorm.fake.setTexels(
+        words(1023 | (0 << 10) | (512 << 20) | (3 << 30), 1 | (1023 << 10) | (0 << 20) | (1 << 30)),
+      );
+      expect([...(await unorm.texture.readFloats())]).toEqual(
+        [1, 0, 512 / 1023, 1, 1 / 1023, 1, 0, 1 / 3].map(Math.fround),
+      );
+      // rg11b10ufloat: red and green of 5 exponent bits and 6 of mantissa, blue of 5 and 5.
+      const small = await setup('rg11b10ufloat', [3, 1]);
+      const r11g11b10 = (r: number, g: number, b: number) => (r | (g << 11) | (b << 22)) >>> 0;
+      small.fake.setTexels(
+        words(
+          r11g11b10(15 << 6, 14 << 6, 16 << 5), // 1, 0.5, 2
+          r11g11b10((30 << 6) | 63, 31 << 6, (30 << 5) | 31), // the largest finite of red, infinity, the largest of blue
+          r11g11b10(1, (31 << 6) | 1, 15 << 5), // the least subnormal, not a number, 1
+        ),
+      );
+      const got = await small.texture.readFloats();
+      expect([...got.slice(0, 9)].map((v, i) => (i === 7 ? Number.isNaN(v) : v))).toEqual([
+        1,
+        0.5,
+        2,
+        65024,
+        Infinity,
+        64512,
+        2 ** -20,
+        true,
+        1,
+      ]);
+      expect(got.length).toBe(9);
+      // rgb9e5ufloat: three 9-bit mantissas under a shared 5-bit exponent, over 2^24.
+      const shared = await setup('rgb9e5ufloat', [3, 1]);
+      const e5b9g9r9 = (r: number, g: number, b: number, e: number) =>
+        (r | (g << 9) | (b << 18) | (e << 27)) >>> 0;
+      shared.fake.setTexels(
+        words(
+          e5b9g9r9(256, 128, 511, 16), // 1, 0.5, 511/256
+          e5b9g9r9(511, 511, 511, 31), // the format's largest, 65408
+          e5b9g9r9(1, 0, 0, 0), // 2^-24
+        ),
+      );
+      expect([...(await shared.texture.readFloats())]).toEqual([
+        1,
+        0.5,
+        511 / 256,
+        65408,
+        65408,
+        65408,
+        2 ** -24,
+        0,
+        0,
+      ]);
+    });
+
+    it('refuses an integer format with a TypeError that names read(), which copies its bytes, and copies nothing', async () => {
+      const integers = copyable.filter((f) => /(uint|sint)$/.test(f));
+      expect(integers.length).toBe(19);
+      for (const format of integers) {
+        const { fake, texture } = await setup(format);
+        expect(await refused(texture.readFloats()), format).toBe(
+          `readFloats() takes a float, unorm or snorm format and depth32float; a ${format} texture holds integers, which read() gives as bytes.`,
+        );
+        expect(fake.submitted, format).toEqual([]);
+        // The bytes are what read() gives.
+        fake.setTexels(Array(TEXEL_BYTES[format]! * 6).fill(1));
+        expect((await texture.read()).length, format).toBe(TEXEL_BYTES[format]! * 6);
+      }
+    });
+
+    it('refuses a format it cannot copy as read() does, in its own name', async () => {
+      const { fake, texture } = await setup('depth24plus');
+      expect(await refused(texture.readFloats())).toBe(
+        'readFloats() cannot copy a depth24plus texture back; it copies every uncompressed colour format and depth32float.',
+      );
+      expect(fake.submitted).toEqual([]);
+    });
+
+    it('decodes every format it takes, and only those: the float, unorm and snorm ones, and depth32float', async () => {
+      const decoded = new Set(STORES.map(([format]) => format));
+      for (const format of ['rgb10a2unorm', 'rg11b10ufloat', 'rgb9e5ufloat']) decoded.add(format);
+      const named = copyable.filter((f) => !/(uint|sint)$/.test(f));
+      expect([...decoded].sort()).toEqual([...named].sort());
+      expect(decoded.size).toBe(25);
+    });
+  });
+
+  describe('what a read reads', () => {
+    /** A texture that holds `before`, a frame recorded to draw `after` into it, and the runtime. */
+    const scene = async () => {
+      const { fake, rt, texture } = await setup('rgba8unorm', [2, 1]);
+      const before = [1, 2, 3, 4, 5, 6, 7, 8];
+      const after = [9, 10, 11, 12, 13, 14, 15, 16];
+      fake.setTexels(before);
+      const pipeline = await rt.load(manifest(DRAW)).render();
+      const frame = rt.frame();
+      frame.pass({ color: [texture] }, (p) =>
+        p.draw(pipeline, { tint: [1, 0, 0, 1] }, { vertices: new Float32Array(6), count: 3 }),
+      );
+      // What the queue does when it runs the frame: the texture holds what the pass drew.
+      (frame.encoder as FakeEncoder).effects.push(() => fake.setTexels(after));
+      return { fake, rt, texture, frame, before, after };
+    };
+
+    it('runs a read started before a later frame is submitted before that frame, and one started after after it', async () => {
+      const { fake, texture, frame, before, after } = await scene();
+      // The frame is recorded, and not read: a recorded frame has not been submitted.
+      const early = texture.read();
+      const submitting = frame.submit();
+      // `frame.submit()` has handed the queue the frame before it awaited, though its promise is
+      // pending: a read started now is a read of the frame.
+      const late = texture.read();
+      // The frame runs after the early read's copy and before the late one's, whichever resolves first.
+      expect([...(await late)]).toEqual(after);
+      expect([...(await early)]).toEqual(before);
+      await submitting;
+      expect(fake.submitted).toHaveLength(3);
+      expect(fake.submitted[1]).toBe(frame.encoder);
+      expect(fake.submitted[0]).not.toBe(frame.encoder);
+      expect(fake.submitted[2]).not.toBe(frame.encoder);
+      // Each read's copy was the whole of its submit.
+      expect(fake.copies).toHaveLength(2);
+    });
+
+    it('does the same for readFloats(), which copies at the call as read() does', async () => {
+      const { fake, texture, frame, before, after } = await scene();
+      const early = texture.readFloats();
+      const submitting = frame.submit();
+      const late = texture.readFloats();
+      expect([...(await early)]).toEqual(before.map((v) => Math.fround(v / 255)));
+      expect([...(await late)]).toEqual(after.map((v) => Math.fround(v / 255)));
+      await submitting;
+      expect(fake.submitted[1]).toBe(frame.encoder);
+      expect(fake.submitted).toHaveLength(3);
+    });
+
+    it("does the same for the host's own encoders, which rt.submit() hands the queue before it awaits", async () => {
+      const { fake, rt, texture, before, after } = await scene();
+      const encoder = fake.device.createCommandEncoder();
+      encoder.effects.push(() => fake.setTexels(after));
+      const early = texture.read();
+      const submitting = rt.submit(encoder);
+      const late = texture.read();
+      expect([...(await early)]).toEqual(before);
+      expect([...(await late)]).toEqual(after);
+      await submitting;
+      expect(fake.submitted).toHaveLength(3);
+      expect(fake.submitted[1]).toBe(encoder);
+    });
+
+    it('does not read what is recorded and not yet submitted, and a read made after sees it once the frame is submitted', async () => {
+      const { fake, texture, frame, before, after } = await scene();
+      expect([...(await texture.read())]).toEqual(before);
+      expect(fake.submitted).toHaveLength(1);
+      await frame.submit();
+      expect([...(await texture.read())]).toEqual(after);
+    });
+  });
+
+  it('is typed as bytes for read() and numbers for readFloats()', () => {
+    expectTypeOf<Texture['read']>().toEqualTypeOf<() => Promise<Uint8Array>>();
+    expectTypeOf<Texture['readFloats']>().toEqualTypeOf<() => Promise<Float32Array>>();
   });
 });
