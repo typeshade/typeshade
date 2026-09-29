@@ -2016,6 +2016,15 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **`tshc` runs on Windows** (#384). `tshc check` and `tshc sync` said "no file or directory"
+  for every path, since the command joined the working directory, `D:/work`, into `/D:/work`,
+  which names nothing on a drive. A path on a drive now keeps its drive; `D:/`, `D:\` and a path
+  that starts with `/` on the working directory's drive are absolute; `\` separates the segments
+  of a path on a drive; and paths still print relative to the working directory. Off a drive a
+  backslash stays a character of a name, as POSIX has it. `tshc --version` read the package's
+  manifest from `/D:/...` too, and printed `unknown`. `src/cli/run.test.ts` drives the command
+  from `D:/work` with relative, `D:/` and `D:\` paths, an import, and `sync`.
+
 - **The program runtime lays out a multisampled `f32` texture as `unfilterable-float`** (Rule
   11.11). It gave every `texture_2d<f32>`-like binding `sampleType: 'float'`, and WebGPU refuses
   that on a multisampled texture, which no sampler filters: a render pipeline that loads a
