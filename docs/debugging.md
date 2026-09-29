@@ -257,11 +257,13 @@ and a real script URL to a backend that ships today".
   is no longer "reuse what exists", it is a new backend that must be gated against the other
   two.
 - _f32 rounding_ is expressible and cheap: `froundF32` inserts the rounding into the IR before
-  emit, so the generated JavaScript reads `$.B["__fround"](a * b)`, a lookup into the shared
-  builtin table rather than a call an author would recognise. That strengthens the point: the
-  rounding is exact and identical to the interpreter's, and the generated text it produces is
-  one more thing a human reading the mapped output has to decode. It makes the generated source noisier, which matters only if a human ever
-  reads it.
+  emit, so the generated JavaScript reads `$fr(a * b)`, with `$fr` bound to `Math.fround` at
+  the top of the generated module, and an f32 parameter is rounded once into `$p0`, `$p1`, …
+  as the function is entered. A vector operation is written out one component at a time
+  (`[$fr($v0[0] - $v1[0]), $fr($v0[1] - $v1[1])]`), the same many-to-one expansion as above.
+  That strengthens the point: the rounding is exact and identical to the interpreter's, and
+  the generated text it produces is one more thing a human reading the mapped output has to
+  decode. It makes the generated source noisier, which matters only if a human ever reads it.
 - _Variable display_ is where B loses regardless of the map. The CPU value model is
   `number[]` for vectors and matrices and a plain object for structs, deliberately, so that
   member mutation aliases the way the interpreter's does. A JS debugger renders `vec3(0.5,

@@ -331,6 +331,40 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     expect([...pts]).toEqual([...xs].flatMap((x, i) => [i, x]));
   });
 
+  it('reads past the end of an array as the interpreter does, where the shader checks nothing (#410)', async () => {
+    // One workgroup of 8 invocations over 3 elements: the last 5 read an element that is not
+    // there, which is `undefined`, and its product with 2 is NaN, written past the array's end
+    // and not read back. The CPU tier's code must not read a component of it.
+    const SRC = `"use typeshade";
+declare const pos: storage<array<vec3>>;
+declare const out: storage<array<vec3>, "read_write">;
+@compute([8])
+export function scale(@builtin("global_invocation_id") gid: vec3u) {
+  out[gid.x] = pos[gid.x] * 2.;
+}
+`;
+    const scale = (await load(SRC)).scale as (b: unknown, w: unknown) => Promise<void>;
+    const pos = Float32Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const out = new Float32Array(9);
+    await scale({ pos, out }, 1);
+    expect([...out]).toEqual([2, 4, 6, 8, 10, 12, 14, 16, 18]);
+    // What the interpreter's own dispatch of the same workgroup leaves in the first 3 elements.
+    const cpu = compileModule(compile(SRC).module, { precision: 'f32' });
+    const ref = [
+      [0, 0, 0],
+      [0, 0, 0],
+      [0, 0, 0],
+    ];
+    cpu.setBinding('pos', [
+      [1, 2, 3],
+      [4, 5, 6],
+      [7, 8, 9],
+    ] as never);
+    cpu.setBinding('out', ref as never);
+    cpu.dispatch!('scale', [1, 1, 1]);
+    expect(ref.slice(0, 3).flat()).toEqual([...out]);
+  });
+
   it('refuses a value that does not fit, naming the entry, the binding and its type', async () => {
     const s = (await load(SCALE)).scale as (...a: unknown[]) => Promise<void>;
     const xs = new Float32Array(4);

@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from '../compiler/ts/compile.js';
 import { compileModule } from './oracle.js';
-import { compileModuleJs } from './cpu-codegen.js';
+import { compileModuleJs, generateModuleJs } from './cpu-codegen.js';
 import { KERNEL_TREE, kernelTree, treeIdentity } from './kernel-tree.js';
 
 const f = Math.fround;
@@ -103,6 +103,31 @@ describe('a reduction loop of a kernel function (Rule 7.2)', () => {
         'vsum',
       )(vs),
     ).toEqual([sum(0), sum(1), sum(2)]);
+  });
+
+  it('combines a variable that may hold nothing through the helper, as the interpreter does', () => {
+    // `shade` returns nothing for a negative `p.x` (a `discard`), so `s` starts as nothing, and
+    // the loop's result is combined with it after the tree: per component, that would read a
+    // component of nothing, where the helper takes it as a scalar (cpu-codegen.ts, "Operands
+    // that may be missing").
+    const source = `function shade(p: vec2): vec3 { if (p.x < 0.) { discard; } return vec3(1.); }
+export function total(xs: array<vec3>, p: vec2): vec3 {
+  let s = shade(p);
+  for (const v of xs) { s += v; }
+  return s;
+}`;
+    // The instrument: the loop is a reduction, so the generated code combines through the tree.
+    const r = compile(`"use typeshade";\n${source}`, { fileName: 'm.shade.ts' });
+    expect(generateModuleJs(r.module).fns.join('\n')).toContain('$.tree(');
+    const xs = [
+      [1, 2, 3],
+      [4, 5, 6],
+    ];
+    for (const precision of ['f32', 'f64'] as const) {
+      const total = both(source, 'total', precision);
+      expect(total(xs, [1, 0])).toEqual([6, 8, 10]);
+      expect(total(xs, [-1, 0])).toEqual([NaN, NaN, NaN]);
+    }
   });
 
   it('counts an iteration that continues as the identity, and a loop that runs none leaves the variable', () => {

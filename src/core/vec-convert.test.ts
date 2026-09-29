@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { compileModule } from './oracle.js';
-import { compileModuleJs } from './cpu-codegen.js';
+import { compileModuleJs, generateModuleJs } from './cpu-codegen.js';
 import { convertComponent, convertComponents, elemKindOf } from './cpu-runtime.js';
 import { emitModule } from './emit.js';
 import { wgslBackend } from './backends/wgsl.js';
@@ -146,8 +146,14 @@ describe('a converting constructor on both CPU backends', () => {
     // no `$.cvt` / `$.cvtVec` call is emitted where every component kind already matches. That
     // is the claim "a module that converts nothing generates what it generated before" makes,
     // and reading the source is the only way to see it — an equal result would also come from
-    // a conversion that happens to be the identity.
-    const source = compileModuleJs(plain).fns.plain!.toString();
-    expect(source).not.toContain('$.cvt');
+    // a conversion that happens to be the identity. The generator binds a runtime helper once,
+    // at the top of the factory, when a function calls it (#410), so the bindings say whether
+    // anything converts; the module above, which converts, is the instrument that they can.
+    const source = (mod: ModuleDecl): string => {
+      const gen = generateModuleJs(mod);
+      return [...gen.decls, ...gen.fns].join('\n');
+    };
+    expect(source(m)).toContain('$.cvt');
+    expect(source(plain)).not.toContain('$.cvt');
   });
 });
