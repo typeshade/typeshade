@@ -6,7 +6,9 @@
 // (`scripts/entry-calls-page.ts`), into one browser script. The compile gate serves that script
 // to its Chromium page, which calls each entry on every tier and compares the results. Each case
 // carries the module's default export, its manifest (Rule 11.10), which the page loads into the
-// program runtime (`typeshade/runtime`, change 0025) as one more tier of a compute entry.
+// program runtime (`typeshade/runtime`, change 0025) as one more tier of a compute entry. The
+// bundle carries the manifests of the render case's three programs too (`scripts/render-case.ts`,
+// issue #392), which the page draws through the same runtime.
 //
 // The bundle is built from `src/`, not `dist/`: the gate checks what this tree calls, as the
 // rest of the compile gate checks what this tree emits.
@@ -16,10 +18,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hostFace, type HostExport } from '../src/compiler/ts/host-face.js';
+import { compile, packModule } from '../src/index.js';
+import { createTypeshadeLanguageService } from '../src/language-service/index.js';
+import type { Pack } from '../src/runtime.js';
+import { SOURCES, type Programs } from './render-case.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RUNTIME = join(ROOT, 'src/core/host-runtime.ts');
 const PAGE = join(ROOT, 'scripts/entry-calls-page.ts');
+const RENDER_CASE = join(ROOT, 'scripts/render-case.ts');
 
 /** The part of Bun's bundler this uses. The gate runs under Bun (`bun scripts/compile-gate.ts`),
  *  and the repository's type check has no Bun types, so it is named structurally. */
@@ -36,6 +43,27 @@ export interface EntryBundle {
   readonly js: string;
   readonly compute: number;
   readonly fragment: number;
+}
+
+/** The render case's programs (`scripts/render-case.ts`) as manifests. Each is a program an
+ *  author writes, so both halves must read it clean: `compile()` with no diagnostic, and the
+ *  language service with none either. */
+function renderPrograms(): Programs {
+  const service = createTypeshadeLanguageService();
+  const out: Record<string, Pack> = {};
+  for (const [name, source] of Object.entries(SOURCES)) {
+    const fileName = `render-case/${name}.shade.ts`;
+    const compiled = compile(source, { fileName });
+    service.openDocument(fileName, source);
+    const editor = service.getDiagnostics(fileName);
+    if (compiled.diagnostics.length > 0 || editor.length > 0 || compiled.module === undefined)
+      throw new Error(
+        `the render case's ${name} program does not compile clean: ` +
+          `${[...compiled.diagnostics, ...editor].map((d) => d.message).join('; ')}`,
+      );
+    out[name] = packModule(compiled.module);
+  }
+  return out as Programs;
 }
 
 /** Bundle every callable entry of the `.shade.ts` examples with the page half. */
@@ -84,9 +112,11 @@ export async function entryBundle(): Promise<EntryBundle> {
       main,
       [
         `import { runEntries } from ${JSON.stringify(PAGE)};`,
+        `import type { Programs } from ${JSON.stringify(RENDER_CASE)};`,
         ...imports,
         `const cases = [\n  ${cases.join(',\n  ')},\n];`,
-        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases);`,
+        `const programs = ${JSON.stringify(renderPrograms())} as Programs;`,
+        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases, programs);`,
         '',
       ].join('\n'),
     );
