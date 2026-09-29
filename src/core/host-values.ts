@@ -87,6 +87,42 @@ class Misfit {
   ) {}
 }
 
+/** The `n` elements of `xs`, the components of a vector or a matrix, as a new array of scalars
+ *  of kind `e`: each is read once, in order, and the first that does not fit is refused, with the
+ *  reason the descent gives for a scalar. The kind is decided once, before the loop (#410), and
+ *  the loops differ in nothing else, so what is read of `xs` is the same for every kind, and an
+ *  accessor that changes `xs` as it is read, or a `Proxy` that reports its reads, is served as
+ *  it was. */
+function copyList(
+  xs: ArrayLike<unknown>,
+  n: number,
+  e: HostNumber | 'bool',
+  path: string,
+): CpuValue {
+  const out = new Array<number | boolean>(n);
+  if (e === 'f32') {
+    for (let i = 0; i < n; i++) {
+      const x = xs[i];
+      if (typeof x !== 'number') throw new Misfit(`${path}[${i}]`, `got ${describe(x)}`);
+      out[i] = Math.fround(x);
+    }
+  } else if (e === 'bool') {
+    for (let i = 0; i < n; i++) {
+      const x = xs[i];
+      if (typeof x !== 'boolean') throw new Misfit(`${path}[${i}]`, `got ${describe(x)}`);
+      out[i] = x;
+    }
+  } else {
+    for (let i = 0; i < n; i++) {
+      const x = xs[i];
+      const p = numberProblem(e, x);
+      if (p !== undefined) throw new Misfit(`${path}[${i}]`, p);
+      out[i] = x as number;
+    }
+  }
+  return out as CpuValue;
+}
+
 function convertIn(t: HostType, v: unknown, path: string): CpuValue {
   switch (t.k) {
     case 'num': {
@@ -105,19 +141,7 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
       const n = t.k === 'vec' ? t.n : t.c * t.r;
       const xs = listOf(v, n);
       if (typeof xs === 'string') throw new Misfit(path, xs);
-      const out: (number | boolean)[] = [];
-      for (let i = 0; i < n; i++) {
-        const x = xs[i];
-        if (t.e === 'bool') {
-          if (typeof x !== 'boolean') throw new Misfit(`${path}[${i}]`, `got ${describe(x)}`);
-          out.push(x);
-          continue;
-        }
-        const p = numberProblem(t.e, x);
-        if (p !== undefined) throw new Misfit(`${path}[${i}]`, p);
-        out.push(t.e === 'f32' ? Math.fround(x as number) : (x as number));
-      }
-      return out as CpuValue;
+      return copyList(xs, n, t.e, path);
     }
     case 'arr': {
       const xs = listOf(v, t.n);
@@ -150,9 +174,11 @@ function scalarFits(e: HostNumber | 'bool', x: unknown): boolean {
   return Number.isInteger(x) && x >= lo && x <= hi;
 }
 
-/** {@link convertIn}'s value for the shapes a host passes most, a scalar that fits and a plain
- *  array of them of the right length, computed without its descent; undefined for any other
- *  value, which the descent then checks, converts or refuses (#410). */
+/** {@link convertIn}'s value for a scalar that fits, computed without its descent; undefined for
+ *  any other value, which the descent then checks, converts or refuses (#410). A scalar has no
+ *  property to read, so what the descent does is all that is done. An array does not come here:
+ *  a host may hand over one that changes as it is read, or answers a `Proxy`'s traps, and a
+ *  second reading of it, by the descent, after this one declined, would be seen. */
 function convertQuick(t: HostType, v: unknown): CpuValue | undefined {
   switch (t.k) {
     case 'num':
@@ -160,36 +186,9 @@ function convertQuick(t: HostType, v: unknown): CpuValue | undefined {
       return scalarFits(t.t, v) ? (v as number) : undefined;
     case 'bool':
       return typeof v === 'boolean' ? v : undefined;
-    case 'vec':
-    case 'mat': {
-      if (!Array.isArray(v) || v.length !== (t.k === 'vec' ? t.n : t.c * t.r)) return undefined;
-      return t.e === 'f32' ? roundedCopy(v) : checkedCopy(v, t.e);
-    }
     default:
       return undefined;
   }
-}
-
-/** A new array of `xs`'s elements rounded to f32, or undefined when one is not a number. */
-function roundedCopy(xs: readonly unknown[]): number[] | undefined {
-  const out = new Array<number>(xs.length);
-  for (let i = 0; i < xs.length; i++) {
-    const x = xs[i];
-    if (typeof x !== 'number') return undefined;
-    out[i] = Math.fround(x);
-  }
-  return out;
-}
-
-/** A new array of `xs`'s elements, or undefined when one is not a scalar of kind `e`. */
-function checkedCopy(xs: readonly unknown[], e: HostNumber | 'bool'): CpuValue | undefined {
-  const out = new Array<number | boolean>(xs.length);
-  for (let i = 0; i < xs.length; i++) {
-    const x = xs[i];
-    if (!scalarFits(e, x)) return undefined;
-    out[i] = x as number | boolean;
-  }
-  return out as CpuValue;
 }
 
 /**
