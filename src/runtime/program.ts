@@ -136,6 +136,8 @@ function layoutEntry(b: PackBinding, visibility: number): object {
         },
       };
     case 'texture': {
+      // WebGPU refuses a multisampled texture laid out 'float', since no sampler filters one: an
+      // f32 one is 'unfilterable-float', which every float format binds to.
       const sampleType =
         r.textureDepth === true
           ? 'depth'
@@ -143,8 +145,8 @@ function layoutEntry(b: PackBinding, visibility: number): object {
             ? 'uint'
             : r.textureElem === 'i32'
               ? 'sint'
-              : b.injected === true
-                ? 'float'
+              : r.textureDim === '2d-ms'
+                ? 'unfilterable-float'
                 : 'float';
       return {
         ...base,

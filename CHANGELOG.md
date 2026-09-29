@@ -2016,6 +2016,13 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **The program runtime lays out a multisampled `f32` texture as `unfilterable-float`** (Rule
+  11.11). It gave every `texture_2d<f32>`-like binding `sampleType: 'float'`, and WebGPU refuses
+  that on a multisampled texture, which no sampler filters: a render pipeline that loads a
+  `texture_multisampled_2d<f32>`, as `msaa-resolve` does, could not be made. `unfilterable-float`
+  takes every float format. `src/runtime/runtime.test.ts` holds the layout of a multisampled
+  colour texture, a multisampled depth texture and a sampled one.
+
 - **A module written with `fn()` has its GLSL and its vertex layout in its manifest** (Rule
   11.10). `buildManifest` read each entry's stage from the `stage` field, and a `fn()` handle,
   which is what `module()` puts in `funcs`, has none: its stage is in `attrs`. `stageOf`, which
