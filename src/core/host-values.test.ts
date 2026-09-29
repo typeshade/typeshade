@@ -152,11 +152,12 @@ describe('toShader and fromShader: the quick paths give what the descent gives (
   });
 
   it('a vector or matrix result is a new array of the same elements', () => {
-    for (const v of [
+    const results: readonly (readonly (number | boolean)[])[] = [
       [1, -0, NaN],
       [true, false],
       [0.5, 2, 3, 4],
-    ]) {
+    ];
+    for (const v of results) {
       const out = fromShader(vec(v.length, 'f32'), v as CpuValue);
       expect(out).not.toBe(v);
       expect(same(out, Array.from(v))).toBe(true);
