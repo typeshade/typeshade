@@ -1,7 +1,7 @@
 ---
 id: '0030'
 title: A host's draws and dispatches are type-checked against the bindings each entry reaches, from the module's host view
-status: draft
+status: accepted
 rules:
 - '8.21'
 - '11.11'
@@ -9,6 +9,7 @@ surface:
 - 64
 - 69
 exports:
+- BindingsOf
 - Pack
 - Program
 - RenderPipeline
