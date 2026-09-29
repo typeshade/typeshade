@@ -131,6 +131,25 @@ export function vs(v: VsIn): VsOut { return { p: vec4(v.pos, 0., 1.) }; }
 export function fs(v: VsOut): Color { return { c: tint }; }
 `;
 
+/** A multisampled colour texture and its depth, loaded texel by texel, beside a texture a
+ *  filtering sampler samples. */
+const MSAA = `"use typeshade";
+declare const msaa: texture_multisampled_2d<f32>;
+declare const depthMs: texture_depth_multisampled_2d;
+declare const photo: texture_2d<f32>;
+declare const smp: sampler;
+class Color { @location(0) c: vec4; }
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): vec4 {
+  return vec4(f32(vi), 0., 0., 1.);
+}
+@fragment
+export function fs(@builtin("position") p: vec4): Color {
+  const c: vec2i = vec2i(p.xy);
+  return { c: textureLoad(msaa, c, 0) * textureLoad(depthMs, c, 0) + textureSample(photo, smp, p.xy) };
+}
+`;
+
 const manifest = (src: string, console = false) => {
   const r = compile(src);
   expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -193,6 +212,30 @@ describe('the program runtime (Rule 11.11)', () => {
         { binding: 2, visibility: 0x4, buffer: { type: 'storage' } },
       ],
     });
+  });
+
+  it('lays out a multisampled f32 texture unfilterable-float, which WebGPU requires', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    await rt.load(manifest(MSAA)).render();
+    const { entries } = fake.layouts.at(-1) as { entries: { texture?: object }[] };
+    expect(entries.filter((e) => e.texture !== undefined)).toEqual([
+      {
+        binding: 0,
+        visibility: 0x2,
+        texture: { sampleType: 'unfilterable-float', viewDimension: '2d', multisampled: true },
+      },
+      {
+        binding: 1,
+        visibility: 0x2,
+        texture: { sampleType: 'depth', viewDimension: '2d', multisampled: true },
+      },
+      {
+        binding: 2,
+        visibility: 0x2,
+        texture: { sampleType: 'float', viewDimension: '2d', multisampled: false },
+      },
+    ]);
   });
 
   it('refuses by name, with the entry and its line', async () => {
