@@ -34,7 +34,7 @@ import {
 } from '../context.js';
 import { parseParams, parseReturnType } from './function.js';
 import type { Receiver } from './class-methods.js';
-import { closureUse, functionAround, type ClosureUse } from './closures.js';
+import { closureUse, declarationOf, functionAround, type ClosureUse } from './closures.js';
 import { functionParams, functionTypeOf } from './function-types.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
 
@@ -45,6 +45,16 @@ export function declaresFunction(decl: ts.Node): boolean {
     return localFunctionOf(decl) !== undefined;
   }
   return ts.isParameter(decl) && functionTypeOf(decl.type) !== undefined;
+}
+
+/** Whether the identifier `id` names a function its own body declares, a local function or a
+ *  parameter of function type, and not one of the file: TypeScript's lookup finds the first
+ *  before any global and before a function of the module (Rule 9.5). */
+export function namesLocalFunction(id: ts.Identifier): boolean {
+  const declared = declarationOf(id);
+  return (
+    declared !== undefined && functionAround(declared) !== undefined && declaresFunction(declared)
+  );
 }
 
 /** The spellings of a local function: a function written as a value, and a `function`

@@ -17,6 +17,31 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **A function the file declares wins over every builtin function of its name** (proposal 0029;
+  design rule 9.5; surface §10; #403). The rule kept the builtins that predate it (`fract`,
+  `pow`, `clamp`, `min` …) in front of a function of the module, and that held in the constant
+  folder and on the CPU alone: WGSL calls the declaration, and ANGLE refuses a program that
+  redeclares a GLSL ES 3.00 built-in function, so `function fract(x: f32): f32 { … }` had three
+  answers, 0.75 on WebGPU, 0.25 on the CPU and none on WebGL2. It has one, the declaration's, in
+  the folder, on the three CPU walks, on WebGPU and on WebGL2, and it is what the editor's hover
+  shows. Every builtin function is user-first, a WGSL built-in function, the free spelling of a
+  `Math` member and a TypeShade extension that is a function (`random`, `sum`, `fill`), and
+  `USER_FIRST_BUILTINS` is the two names it keeps, `bool` and `f64`. A value constructor keeps its
+  precedence, as a type name does over an alias (Rule 4.2): `f32(x)` beside a declared `f32` is
+  still the cast. Each writer emits a declared function whose name its target predeclares under
+  another, `fract_` and then `fract_1`, and every call through it, so a builtin call keeps the
+  builtin: the `fract` that `random(p)` expands to, and a `Math.pow(a, b)` beside a declared
+  `pow`. WGSL predeclares its built-in functions, its types and aliases (a declared `f32` hid the
+  type in the whole module) and the enumerants its text spells (`read`, `storage`,
+  `rgba8unorm`); GLSL ES 3.00 predeclares the built-in functions of its section 8. A
+  function handed by its name follows the call, to a fold, an array method or a function that
+  takes one: `zip(xs, ys, atan2)` beside a declared `atan2` calls it, and `xs.map(u32)` beside a
+  declared `u32` is refused, since a call of `u32` is the cast. The
+  compile gate has a leg for it, a function declared under each name a writer renames, on Tint
+  and on ANGLE, with the same modules handed over un-renamed as its instrument, and #403's
+  program run on WebGPU against the CPU oracle. No example's emit moves; a module that declares
+  such a function reads `fract_` in its WGSL and GLSL, and the CPU still calls it `fract`.
+
 - **The user journeys run on the program runtime** (proposal 0025, step 5, first half; Rule
   11.11). `journeys/_harness.mjs` wrote its own WebGPU, 521 lines of it, to run each journey. It
   now imports `typeshade/runtime` in the page as the packed tarball installs it, with no

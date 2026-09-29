@@ -79,6 +79,94 @@ export const GLSL_ES300_RESERVED: ReadonlySet<string> = new Set([
       samplerCubeArray samplerCubeArrayShadow isamplerCubeArray usamplerCubeArray`.split(/\s+/),
 ]);
 
+// ═══ The two per-target sets: what a DECLARED FUNCTION may not be named (change 0029) ═══
+//
+// A function the file declares wins over a builtin of its name (Rule 9.5), so a module can hold
+// the author's `fract` and the compiler's own call of the builtin `fract`. Neither target lets it:
+// WGSL hides a predeclared name for the whole module beside a declaration of it, and GLSL ES 3.00
+// refuses a declaration of a built-in function's name outright. A writer therefore emits such a
+// function under another name (`core/passes/rename-predeclared.ts`), and these two sets are the
+// names it does that for. They are not reserved words, which nothing may be named
+// (`GLSL_ES300_RESERVED` above): a declaration of one is legal, and is emitted differently.
+
+/** Every name WGSL predeclares that a module-scope declaration would hide, read from the
+ *  specification's "Predeclared Types and Type-Generators Summary" and "Predeclared enumerants"
+ *  and its section on built-in functions: the built-in functions (`src/core/spec-conformance`
+ *  holds the list to the baked names of the spec), the types and type-generators, the aliases
+ *  of the vector and matrix types, and the enumerants the emitted text spells beside them, an
+ *  access mode, an address space and a texel format. Measured on Tint, a declared `fract`
+ *  hides the builtin, a declared `f32`, `array`, `atomic` or `vec3f` hides the type
+ *  ("cyclic dependency", "does not take template arguments", "cannot use function as type"), and
+ *  a declared `read`, `storage`, `workgroup` or `rgba8unorm` is refused where `var<storage,
+ *  read>`, `var<workgroup>` and `texture_storage_2d<rgba8unorm, write>` name it ("cannot use
+ *  function 'read' as access"). Not here: the built-in values (`position`) and the interpolation
+ *  names (`flat`), which Tint reads as the attribute's own argument and a declaration of the
+ *  same name leaves alone, measured. */
+export const WGSL_PREDECLARED: ReadonlySet<string> = new Set([
+  // Built-in functions, and the value constructors among them.
+  ...`abs acos acosh all any array arrayLength asin asinh atan atan2 atanh atomicAdd
+      atomicAnd atomicCompareExchangeWeak atomicExchange atomicLoad atomicMax atomicMin
+      atomicOr atomicStore atomicStoreMax atomicStoreMin atomicSub atomicXor bitcast bool
+      bufferArrayView bufferLength bufferView ceil clamp cos cosh countLeadingZeros
+      countOneBits countTrailingZeros cross degrees determinant distance dot dot4I8Packed
+      dot4U8Packed dpdx dpdxCoarse dpdxFine dpdy dpdyCoarse dpdyFine exp exp2 extractBits
+      f16 f32 faceForward firstLeadingBit firstTrailingBit floor fma fract frexp fwidth
+      fwidthCoarse fwidthFine i32 insertBits inverseSqrt ldexp length log log2 mat2x2 mat2x3
+      mat2x4 mat3x2 mat3x3 mat3x4 mat4x2 mat4x3 mat4x4 max min mix modf normalize
+      pack2x16float pack2x16snorm pack2x16unorm pack4x8snorm pack4x8unorm pack4xI8
+      pack4xI8Clamp pack4xU8 pack4xU8Clamp pow quadBroadcast quadSwapDiagonal quadSwapX
+      quadSwapY quantizeToF16 radians reflect refract reverseBits round saturate select sign
+      sin sinh smoothstep sqrt step storageBarrier subgroupAdd subgroupAll subgroupAnd
+      subgroupAny subgroupBallot subgroupBroadcast subgroupBroadcastFirst subgroupElect
+      subgroupExclusiveAdd subgroupExclusiveMul subgroupInclusiveAdd subgroupInclusiveMul
+      subgroupMax subgroupMin subgroupMul subgroupOr subgroupShuffle subgroupShuffleDown
+      subgroupShuffleUp subgroupShuffleXor subgroupXor tan tanh textureBarrier
+      textureDimensions textureGather textureGatherCompare textureLoad textureNumLayers
+      textureNumLevels textureNumSamples textureSample textureSampleBaseClampToEdge
+      textureSampleBias textureSampleCompare textureSampleCompareLevel textureSampleGrad
+      textureSampleLevel textureStore transpose trunc u32 unpack2x16float unpack2x16snorm
+      unpack2x16unorm unpack4x8snorm unpack4x8unorm unpack4xI8 unpack4xU8 vec2 vec3 vec4
+      workgroupBarrier workgroupUniformLoad`.split(/\s+/),
+  // The types and type-generators that are not also a built-in function.
+  ...`atomic ptr sampler sampler_comparison texture_1d texture_2d texture_2d_array texture_3d
+      texture_cube texture_cube_array texture_depth_2d texture_depth_2d_array
+      texture_depth_cube texture_depth_cube_array texture_depth_multisampled_2d
+      texture_external texture_multisampled_2d texture_storage_1d texture_storage_2d
+      texture_storage_2d_array texture_storage_3d`.split(/\s+/),
+  // The predeclared aliases: `vec3f`, `vec2u`, `vec4h`, `mat2x2f`, `mat4x3h`.
+  ...[2, 3, 4].flatMap((n) => ['i', 'u', 'f', 'h'].map((t) => `vec${String(n)}${t}`)),
+  ...[2, 3, 4].flatMap((c) =>
+    [2, 3, 4].flatMap((r) => ['f', 'h'].map((t) => `mat${String(c)}x${String(r)}${t}`)),
+  ),
+  // The enumerants: the access modes, the address spaces and the texel formats.
+  ...`read write read_write function private workgroup uniform storage`.split(/\s+/),
+  ...`rgba8unorm rgba8snorm rgba8uint rgba8sint rgba16unorm rgba16snorm rgba16uint
+      rgba16sint rgba16float rg8unorm rg8snorm rg8uint rg8sint rg16unorm rg16snorm rg16uint
+      rg16sint rg16float r32uint r32sint r32float rg32uint rg32sint rg32float rgba32uint
+      rgba32sint rgba32float bgra8unorm r8unorm r8snorm r8uint r8sint r16unorm r16snorm
+      r16uint r16sint r16float rgb10a2unorm rgb10a2uint rg11b10ufloat`.split(/\s+/),
+]);
+
+/** Every built-in function of GLSL ES 3.00, the names of its section 8 (8.1 to 8.9). A program
+ *  that declares a function under one is refused, measured on ANGLE: `'exp2' : Name of a built-in
+ *  function cannot be redeclared as function`, for 83 of the 89 names whatever the parameters.
+ *  ANGLE accepts a declaration of `mix`, `texture`, `textureLod`, `textureGrad`, `texelFetch` and
+ *  `textureSize`, which nothing says another driver would, so the set is section 8 and not what
+ *  the one translator refuses. */
+export const GLSL_ES300_BUILTIN_FUNCTIONS: ReadonlySet<string> = new Set(
+  `radians degrees sin cos tan asin acos atan sinh cosh tanh asinh acosh atanh
+   pow exp log exp2 log2 sqrt inversesqrt
+   abs sign floor trunc round roundEven ceil fract mod modf min max clamp mix step smoothstep
+   isnan isinf floatBitsToInt floatBitsToUint intBitsToFloat uintBitsToFloat
+   packSnorm2x16 unpackSnorm2x16 packUnorm2x16 unpackUnorm2x16 packHalf2x16 unpackHalf2x16
+   length distance dot cross normalize faceforward reflect refract
+   matrixCompMult outerProduct transpose determinant inverse
+   lessThan lessThanEqual greaterThan greaterThanEqual equal notEqual any all not
+   texture textureProj textureLod textureOffset texelFetch texelFetchOffset textureProjOffset
+   textureLodOffset textureProjLod textureProjLodOffset textureGrad textureGradOffset
+   textureProjGrad textureProjGradOffset textureSize dFdx dFdy fwidth`.split(/\s+/),
+);
+
 // ═══ Shader DSL — reserved-word vocabulary for GENERATED identifiers ═══
 //
 // Every emit-prod pass that INVENTS a short identifier — `mangle`'s local/helper

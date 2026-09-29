@@ -34,7 +34,8 @@ import { retargetDeclaredIntLit } from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { spanOf } from '../span.js';
 import { lowerExpression } from './expression.js';
-import { captureArguments } from './local-functions.js';
+import { captureArguments, namesLocalFunction } from './local-functions.js';
+import { constructorCallbackMessage, isValueConstructor } from './constructors.js';
 import { declarationOf } from './closures.js';
 import { misfit, type FunctionShape } from './function-types.js';
 
@@ -479,6 +480,18 @@ function namedFunction(
   diagnostics: TsCompilerDiagnostic[],
 ): FuncDecl | undefined {
   const decl = scope.resolveCallee(x.text);
+  // A call of a value constructor's name builds the value whatever the file declares (Rule 9.5),
+  // and a callback follows the call: no method takes a constructor, and the declaration is not
+  // what its name means there. A local function or a parameter of the name is the body's own.
+  if (decl !== undefined && isValueConstructor(x.text) && !namesLocalFunction(x)) {
+    return push(
+      diagnostics,
+      sourceFile,
+      x,
+      constructorCallbackMessage(x.text, `"${shown}"`),
+      TS_CODES.TYPE_MISMATCH,
+    );
+  }
   if (decl === undefined) {
     // A declaration that was refused already said why.
     if (scope.declarationRefused(x.text)) return undefined;

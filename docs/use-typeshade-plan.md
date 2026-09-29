@@ -183,7 +183,7 @@ Constructors: `vec3f(...)`, `mat4x4(...)` (the `matCxRf` aliases are not spelled
 TS call → neutral intrinsic → existing WGSL/GLSL spelling registry.  
 _(Former “Phase 6a construct/member” overlaps here + Phase 8.)_
 
-**Status:** done (`math-alias.ts`, `math-expand.ts`, `lower/expression-call.ts` `VEC_CTOR`,
+**Status:** done (`math-alias.ts`, `math-expand.ts`, `lower/constructors.ts` `VEC_CTOR`,
 `numeric.ts` scalar casts; `math-alias.test.ts`, `math-expand.test.ts`,
 `vec-mat-generic.test.ts`). `Math.*` aliases land on the same intrinsic ids; unknown
 callees and JS `Array` methods are diagnosed, not silently passed through.

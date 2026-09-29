@@ -732,6 +732,9 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       return classify(cx, env, base);
     }
     case 'call': {
+      // A call THROUGH a declaration (`declRef`) is a call of the module's own function, whatever
+      // builtin shares its name (Rule 9.5): none of the builtin arms below is about it.
+      const builtin = e.declRef === undefined;
       // `workgroupUniformLoad(x)` is UNIFORM by construction — one value read out of workgroup
       // memory with a barrier on each side, so every invocation of the workgroup sees the same
       // one. That is the whole purpose of the builtin, and Tint accepts a barrier under it
@@ -739,7 +742,7 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       // argument is workgroup memory and stays non-uniform everywhere else. With workgroup
       // reads non-uniform on sight, this is the only way left to branch on workgroup memory,
       // so without the carve-out an author has no way to write the program at all.
-      if (e.fn === 'workgroupUniformLoad') {
+      if (builtin && e.fn === 'workgroupUniformLoad') {
         return { at: 'uniform', why: 'workgroupUniformLoad(…), one value for the workgroup' };
       }
       // `arrayLength(&xs)`, which `.length` on a runtime-sized storage array lowers to, reads
@@ -749,17 +752,17 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       // and a `workgroupUniformLoad` in a loop it bounds; Tint accepts all three, measured,
       // and refuses the same barrier under `if (out[0] > 4)`. Which call only measures its
       // operand is `access.ts`'s to say, for every analysis at once (#348).
-      if (e.args.length > 0 && e.args.every((_, k) => argAccess(e.fn, k) === 'length')) {
+      if (builtin && e.args.length > 0 && e.args.every((_, k) => argAccess(e.fn, k) === 'length')) {
         return { at: 'uniform', why: `${e.fn}(…), the size of the bound buffer` };
       }
       // A derivative's own result varies by invocation by construction.
-      if (DERIVATIVE_INTRINSICS.has(e.fn)) {
+      if (builtin && DERIVATIVE_INTRINSICS.has(e.fn)) {
         return { at: 'non-uniform', why: `${e.fn}(…), which differences neighbouring invocations` };
       }
       // An INTRINSIC is a pure function of its arguments, so it is exactly as uniform as they
       // are — and a nullary one (there are none that return a value, but the arm has to be
       // right) has nothing to read, so it claims nothing.
-      if (isKnownIntrinsic(e.fn)) {
+      if (builtin && isKnownIntrinsic(e.fn)) {
         return e.args.length === 0
           ? { at: 'unknown', why: `${e.fn}(…)` }
           : joinAll(cx, env, e.args, `${e.fn}(…)`);
@@ -1136,6 +1139,8 @@ function walkFunction(
       { at, why, via },
       x.args.map((a) => classify(cx, flow.env, a)),
     );
+    // A call through a declaration is the module's own function, not the builtin of its name.
+    if (x.declRef !== undefined) return;
     if (DERIVATIVE_INTRINSICS.has(x.fn)) {
       if (at === 'non-uniform') {
         found.push({

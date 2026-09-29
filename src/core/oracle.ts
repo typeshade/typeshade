@@ -286,10 +286,11 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         return bitBuiltin(e.fn, args, elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32');
       }
       // A call the front end RESOLVED to a declared function carries `declRef`, and that
-      // function is what the emitted shader calls — a module may declare `fn saturate(…)`,
-      // which shadows the builtin of that name in WGSL and GLSL alike. Honouring it here
-      // keeps the oracle evaluating what the GPU runs. An intrinsic call has no declRef and
-      // still takes the builtin, so nothing that resolved to one moves.
+      // function is what the emitted shader calls, under the name its writer gave it — a
+      // module may declare `fn saturate(…)`, and every call of it the author wrote reaches it
+      // (Rule 9.5). Honouring it here keeps the oracle evaluating what the GPU runs. A call of
+      // the builtin has no declRef and still takes the builtin: the compiler's own, and a
+      // `Math.pow` beside a declared `pow`.
       if (e.declRef !== undefined) {
         const declared = ctx.fns[e.fn];
         if (declared) return storeBack(e, declared(...args), env, ctx);

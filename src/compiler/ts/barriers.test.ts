@@ -377,7 +377,9 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 }
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(r.wgsl).toContain('fn workgroupBarrier() {');
+    expect(r.wgsl).toContain('fn workgroupBarrier_() {');
+    expect(r.wgsl).toContain('workgroupBarrier_();');
+    expect(r.wgsl).not.toContain('\n  workgroupBarrier();');
   });
 });
 

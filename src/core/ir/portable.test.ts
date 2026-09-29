@@ -85,8 +85,8 @@ describe('the portable IR emits the same program (Rule 11.10)', () => {
   });
 
   it("keeps a call's callee where a declared function shadows a builtin", () => {
-    // A call resolves to the module's own `pack4xU8` because it carries `declRef`, and no example
-    // declares a builtin's name: without it the call is the builtin, which GLSL ES 3.00 lacks.
+    // A call resolves to the module's own `pack4xU8` because it carries `declRef`, which the writers
+    // emit as `pack4xU8_` (change 0029): without it the call is the builtin, which GLSL ES 3.00 lacks.
     const r = compile(`"use typeshade";
 export function pack4xU8(v: vec4u): u32 {
   return v.x;
@@ -102,7 +102,8 @@ export function fs(@location(0) uv: vec2): vec4 {
     const back = roundTrip(m);
     expect(emitModule(back)).toBe(emitModule(m));
     expect(glslOf(back)).toEqual(glslOf(m));
-    expect(glslOf(back)[1]).toContain('uint pack4xU8(');
+    expect(glslOf(back)[1]).toContain('uint pack4xU8_(');
+    expect(emitModule(back)).toContain('fn pack4xU8_(');
     expect(reflect(back)).toEqual(reflect(m));
     // Read back without its callee, the call is the builtin.
     const text = JSON.stringify(toPortable(m, VERSION));
@@ -111,7 +112,11 @@ export function fs(@location(0) uv: vec2): vec4 {
         typeof toPortable
       >,
     );
-    expect(glslOf(lost)[1]).toBe('refused: glsl-es300: pack4xU8 has no GLSL ES 3.00 form');
+    // The builtin needs a capability GLSL ES 3.00 does not have, which the module never asked for
+    // while its call reached its own function.
+    expect(glslOf(lost)[1]).toBe(
+      "refused: backend 'glsl-es300' cannot emit this module — missing capabilities: packed4x8Dot",
+    );
   });
 
   it('keeps one node one node where it is used twice', () => {

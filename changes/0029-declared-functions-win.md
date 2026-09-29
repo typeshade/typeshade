@@ -1,7 +1,7 @@
 ---
 id: '0029'
 title: A function the file declares wins over every builtin function of its name, on WebGPU, on WebGL2 and on the CPU
-status: accepted
+status: implemented
 rules:
 - '3.2'
 - '9.5'

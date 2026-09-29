@@ -121,15 +121,16 @@ export function fs(): vec4 { return vec4(f32(arrayLength(src, 1)), 0., 0., 1.); 
 
   it('a function the file declares with that name keeps winning the call', () => {
     // The additivity rule the §10 names follow: a new builtin name never changes what a program
-    // that declared the name already meant.
+    // that declared the name already meant. It is emitted as `arrayLength_` (Rule 9.5), a name
+    // WGSL does not predeclare, and the call through it with that name.
     const r = compileTsSource(`"use typeshade";
 function arrayLength(x: f32): f32 { return x * 2.; }
 @fragment
 export function fs(): vec4 { return vec4(arrayLength(1.5), 0., 0., 1.); }
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(r.wgsl).toContain('fn arrayLength(x: f32) -> f32 {');
-    expect(r.wgsl).toContain('arrayLength(1.5)');
+    expect(r.wgsl).toContain('fn arrayLength_(x: f32) -> f32 {');
+    expect(r.wgsl).toContain('arrayLength_(1.5)');
     expect(r.wgsl).not.toContain('&');
   });
 
