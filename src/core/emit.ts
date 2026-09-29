@@ -82,7 +82,11 @@ export function emitExpr(
         }
         if (full) return `(${r(x.a)} ${x.bop} ${r(x.b)})`;
         const p = precOf(x.bop);
-        if (p === 0) return `(${r(x.a)} ${x.bop} ${r(x.b)})`;
+        // The bitwise and shift operators are wrapped whole, and their operands are unary
+        // expressions in WGSL's grammar, so an arithmetic operand keeps its parens: `a & (b - c)`
+        // is `a & b - c` to GLSL ES 3.00, and "mixing '&' and '-' requires parenthesis" to WGSL.
+        // A comparison's operands are not so tight, and `a * b < a + c` stays as it is.
+        if (p === 0) return `(${go(x.a, PREC_UNARY)} ${x.bop} ${go(x.b, PREC_UNARY)})`;
         return wrap(`${go(x.a, p)} ${x.bop} ${go(x.b, p + 1)}`, p);
       }
       case 'unop': {
@@ -686,7 +690,8 @@ export interface EmitOptions {
    *  `*`, `/` and `%` over `+` and `-` over unary `-`. The relational, logical, bitwise and
    *  shift operators stay wrapped on purpose, because WGSL gives them no chaining precedence
    *  at all, so mixing them unparenthesised is a compile error there and ranking them would
-   *  invent a rule one target lacks.
+   *  invent a rule one target lacks. The operands of a bitwise or shift operator are unary in
+   *  WGSL's grammar, so an arithmetic one keeps its parens too: `a & (b - c)`.
    *
    *  It never reassociates. `a + (b + c)` keeps its parens, because in floating point that is
    *  a different number from `a + b + c`. */

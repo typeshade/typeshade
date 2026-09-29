@@ -2108,6 +2108,21 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
+  (found by proposal 0028's journey of programs packed under emit options). WGSL's grammar takes
+  unary operands for `&`, `|`, `^`, `<<` and `>>`, so `a & b - c` is "mixing '&' and '-' requires
+  parenthesis" to Tint, and the writer had left the operand bare: `a & (b - c)` was written
+  `a & b - c`, and `h << (24u - n)` `h << 24u - n`. Tint refused the WGSL of 27 examples under
+  `{ parens: 'minimal', fp64Flavor: 'integer' }`, whose emulated-double helpers are made of such
+  masks and shifts, and of `module-const` and `rng-method` under either flavor. GLSL ES 3.00 reads
+  the bare form as intended, so it was right there and gets the parens too. Measured on Tint
+  (Chromium 153, SwiftShader): every example's WGSL compiles under each of the twelve
+  combinations of level, `parens` and `fp64Flavor`, but `clip-planes`, which needs the
+  `clip-distances` feature of the device. `src/core/emit-parens.test.ts` holds each shape, and
+  scans every example's WGSL under `'minimal'`, in both flavors, for a bitwise or shift operator
+  beside another operator at one level; it fails without the fix and reaches 243 and 2,704
+  such operators.
+
 - **`tshc` runs on Windows** (#384). `tshc check` and `tshc sync` said "no file or directory"
   for every path, since the command joined the working directory, `D:/work`, into `/D:/work`,
   which names nothing on a drive. A path on a drive now keeps its drive; `D:/`, `D:\` and a path
