@@ -2,7 +2,7 @@ name: ci
 
 # Verifies: Rule 13.4 (docs/language-design.md; traced in reqs/).
 
-# TypeShade's gate. Four jobs, on every push to main and every pull request:
+# TypeShade's gate. The jobs below, on every push to main and every pull request:
 #
 #   check         `tsc --build` (the emitting project) + `tsc -p tsconfig.tests.json` (the
 #                 noEmit pass over tests, examples and scripts), ESLint, the format check
@@ -15,6 +15,17 @@ name: ci
 #                 (AGENTS.md#docs-follow-the-code); then a diff that touches a rule, an export
 #                 or a downstream-visible surface must name an accepted proposal it stays
 #                 inside, with a `Change: NNNN` line (scripts/changes.ts, changes/README.md).
+#   typescript-versions
+#                 `bun run build` and the unit suite again, with `typescript` replaced by the
+#                 newest 5.x and by 6.0, the versions the editors that load the compiler ship
+#                 (#259). `check` installs the 5.6.3 that package.json pins, and a newer
+#                 TypeScript has moved what this repository reads twice without it showing:
+#                 TS2454 on workgroup memory from 5.7 (#247), and the printed form the API
+#                 surface snapshot is compared by, on 5.7 and again on 6.0
+#                 (src/api-surface.test.ts). No lint, format or GPU gate here: the first two
+#                 judge the source, and the emit goldens in the unit suite hold the WGSL and GLSL
+#                 to the same text on every version, so the GPU gates would compile what they
+#                 compile on 5.6.3. One check per version, named for it.
 #   traceability  Doorstop over reqs/ (reqs/README.md): fails on a rule changed without review,
 #                 a surface section left suspect by a rule it explains, or a verifying file that
 #                 no longer names its rule; uploads the traceability matrix as an artifact.
@@ -90,6 +101,50 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: bun scripts/changes.ts --base "origin/${{ github.base_ref }}"
+
+  # The type check and the unit suite on the TypeScript versions editors ship (#259). The
+  # editor that loads the language service runs its own TypeScript, so what this repository
+  # reads from TypeScript has to hold on more than the 5.6.3 `check` installs: 5.7 and later
+  # report TS2454 on workgroup memory (#247), and 5.7 and 6.0 each print a type the API surface
+  # snapshot reads differently.
+  #
+  # A leg installs its version over the pin with `--no-save`, so package.json and the peer range
+  # stay as they are, and then proves it runs that version: an install that did nothing would
+  # pass as a second run of 5.6.3. `publish.yml` calls this file, so a release waits on the legs
+  # too. Each leg is its own check, `typecheck + unit (TypeScript X)`, and none is required
+  # until the ruleset names it; a matrix entry that changes renames its check.
+  #
+  # This is a job of its own, and `check` is not made a matrix: a required check is a job's
+  # `name`, and a matrix would rename `typecheck + unit` and leave every pull request waiting on
+  # a check that never reports (CLAUDE.md#merging).
+  typescript-versions:
+    name: typecheck + unit (TypeScript ${{ matrix.typescript }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # The two versions fail for different reasons: one red leg must not hide the other's result.
+      fail-fast: false
+      matrix:
+        # The newest 5.x and 6.0. 5.6.3 stays `check`'s, from package.json.
+        typescript: ['5.9.3', '6.0.3']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun add --no-save typescript@${{ matrix.typescript }}
+      - name: the leg runs the TypeScript it names
+        env:
+          WANT: ${{ matrix.typescript }}
+        run: |
+          node_ts="$(node -p "require('typescript').version")"
+          tsc_ts="$(./node_modules/.bin/tsc --version)"
+          echo "the leg names TypeScript $WANT; node resolves $node_ts; tsc says '$tsc_ts'"
+          test "$node_ts" = "$WANT"
+          test "$tsc_ts" = "Version $WANT"
+      - run: bun run build
+      - run: bun run test
 
   traceability:
     name: traceability (Doorstop)
