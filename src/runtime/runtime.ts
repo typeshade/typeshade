@@ -65,7 +65,10 @@ export interface LoadOptions {
 }
 
 /** A render pass's attachments: textures, or a canvas context the host configured, each with
- *  what it is cleared to. */
+ *  what it is cleared to. A colour target is a `Texture`, a context, or `{ target, clear, load }`:
+ *  `load` defaults to `'clear'` and `clear` to transparent black, `[0, 0, 0, 0]`. The depth
+ *  target is a `Texture` or `{ target, clear, load }`: `clear` defaults to 1, which a reversed
+ *  projection sets to 0, and `load` to `'clear'`. Every attachment is stored. */
 export interface PassTargets {
   readonly color?: readonly (
     | Texture
