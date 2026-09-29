@@ -252,6 +252,28 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Fixed
 
+- **The editor declares the `Math` members the compiler already compiles** (Rule 12.7, #186).
+  `Math.log10`, `Math.log1p`, `Math.expm1`, `Math.cbrt` and `Math.hypot` compiled, and the editor
+  said "Property 'cbrt' does not exist on type 'MathObject'" (TS2339, and TS2551 on the three it
+  could name a neighbour for). `Math.atan(y, x)`, which lowers to WGSL's `atan2` (Rule 9.2), was
+  TS2554, "Expected 1 arguments, but got 2". `MathObject` was a list of names written out beside
+  the compiler's tables, the 27 aliases and none of the five expansions. Its members are now read
+  from those tables, `MATH_FN_ALIAS`, `MATH_EXPAND_ALIAS` and `MATH_CONST_ALIAS`, each function
+  with the count of arguments the compiler checks (`EXPAND_ARITY` in `math-expand.ts` for an
+  expansion, so `hypot` takes two and a third), and a member joins the editor's `Math` by joining
+  the compiler's table. Hover, completion and signature help show them, `Math.atan` with both its
+  forms. A wrong count is one diagnostic: TypeScript's TS2554 on `Math.hypot(x)` folds into the
+  compiler's TS8003, the code it words the count of an expanded member under (Rule 12.4). No
+  value and no emitted text changes: `Math.cbrt(-8)` is still NaN and `Math.log1p(1e-8)` still
+  cancels, which #186 records as answering otherwise than ECMAScript does. Measured over every
+  member either side names, at every count of arguments from none to four, TypeScript's half
+  read unmerged, 9 of 165 cells disagreed, over 7 members, before the fix and 2 do after it, both
+  `Math.random`'s (#181: its declaration takes no argument and the compiler takes one seed), which
+  is the one exclusion. `ambient-parity.test.ts` holds the sweep, reads its rows from the two
+  tables, and reports a name that one of them lacks. Still open, and outside what it reads, since
+  it passes `f32` arguments: the compiler takes a vector where a member lowers to a WGSL builtin
+  (`Math.sin(v)` on a `vec3`), and the editor says TS2345.
+
 - **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
   (found by proposal 0028's journey of programs packed under emit options). WGSL's grammar takes
   unary operands for `&`, `|`, `^`, `<<` and `>>`, so `a & b - c` is "mixing '&' and '-' requires

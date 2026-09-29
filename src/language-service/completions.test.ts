@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createTypeshadeLanguageService } from './service.js';
 import { BUILTIN_DOCS } from './docs.js';
 import { WGSL_BUILTIN_NAMES } from './ambient.js';
+import { MATH_CONST_ALIAS, MATH_MEMBER_NAMES } from '../compiler/ts/math-alias.js';
 
 describe('getCompletions: TypeShade context items', () => {
   it('offers the attribute list right after @', () => {
@@ -322,5 +323,32 @@ describe('getCompletions: a comment anywhere in the trivia before the cursor', (
     service.openDocument('cm2.ts', source);
     const items = completionsAt(service, 'cm2.ts', source, '/* c */ ');
     expect(items.find((i) => i.label === 'vec4')?.kind).toBe('snippet');
+  });
+});
+
+describe('getCompletions: the members of Math (#186)', () => {
+  const service = createTypeshadeLanguageService();
+  const source = '"use typeshade";\nexport function f(): f32 {\n  return Math.\n}\n';
+  service.openDocument('math.ts', source);
+  const items = service.getCompletions(
+    'math.ts',
+    service.positionAt('math.ts', source.indexOf('Math.') + 'Math.'.length),
+  );
+  const labels = items.map((i) => i.label);
+
+  it('offers every member the compiler resolves on Math, and none it does not', () => {
+    // Read from the compiler's own table, so a member joins this list by joining that one. The
+    // editor offered 36 of the 41, and none of `log10`, `log1p`, `expm1`, `cbrt` and `hypot`,
+    // which compile.
+    expect(MATH_MEMBER_NAMES.filter((name) => !labels.includes(name))).toEqual([]);
+    expect(labels.filter((label) => !MATH_MEMBER_NAMES.includes(label))).toEqual([]);
+    for (const name of ['log10', 'log1p', 'expm1', 'cbrt', 'hypot']) expect(labels).toContain(name);
+  });
+
+  it('offers each once, a call as a function and a constant as a field', () => {
+    expect(new Set(labels).size).toBe(labels.length);
+    for (const item of items) {
+      expect(item.kind, item.label).toBe(item.label in MATH_CONST_ALIAS ? 'field' : 'function');
+    }
   });
 });
