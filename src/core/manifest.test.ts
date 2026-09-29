@@ -101,6 +101,137 @@ describe('the manifest (Rule 11.10)', () => {
     });
   }
 
+  describe("a texture's sample type agrees with the calls that read it (change 0028)", () => {
+    /** The texture bindings the WGSL passes to a sampling call together with a plain sampler:
+     *  read from the text the manifest carries, not from the IR the analysis reads, so the two
+     *  are independent. A call's arguments are split at the commas outside a bracket, and a
+     *  texture is any argument that names a texture binding: a `textureGather` puts its
+     *  component first, and a sampler is any that names a plain `sampler` binding, so
+     *  `textureSampleCompare`, whose sampler is a comparison one, pairs nothing. */
+    const sampledInText = (
+      wgsl: string,
+      textures: ReadonlySet<string>,
+      samplers: ReadonlySet<string>,
+    ): Set<string> => {
+      const sampled = new Set<string>();
+      for (const call of wgsl.matchAll(/\btexture(?:Sample|Gather)\w*\(/g)) {
+        const args: string[] = [];
+        let depth = 1;
+        let from = call.index + call[0].length;
+        for (let i = from; depth > 0; i++) {
+          const c = wgsl[i];
+          if (c === '(') depth++;
+          else if (c === ')' && --depth === 0) args.push(wgsl.slice(from, i));
+          else if (c === ',' && depth === 1) {
+            args.push(wgsl.slice(from, i));
+            from = i + 1;
+          }
+        }
+        const names = args.map((a) => a.trim());
+        if (names.some((n) => samplers.has(n)))
+          for (const n of names) if (textures.has(n)) sampled.add(n);
+      }
+      return sampled;
+    };
+
+    const handles = (b: { type: { kind: string } }): boolean =>
+      b.type.kind === 'texture' || b.type.kind === 'depth-texture';
+    const textured = corpus
+      .filter((ex) => ex.module.bindings.some(handles))
+      .map((ex) => ({ ex, p: buildManifest(ex.module, { console: true }) }));
+    const got: Record<string, number> = {};
+
+    for (const { ex, p } of textured)
+      it(ex.id, () => {
+        const named = (kind: string) =>
+          new Set(p.bindings.filter((b) => b.resource.resourceKind === kind).map((b) => b.name));
+        const samplers = new Set(
+          p.bindings
+            .filter((b) => b.resource.resourceKind === 'sampler' && !b.resource.samplerComparison)
+            .map((b) => b.name),
+        );
+        const sampled = sampledInText(p.wgsl, named('texture'), samplers);
+        const reflected = new Map(
+          reflect(ex.module)
+            .bindGroups.flatMap((g) => g.entries)
+            .map((e) => [e.name, e.sampleType]),
+        );
+        for (const b of p.bindings.filter((x) => x.resource.resourceKind === 'texture')) {
+          const r = b.resource;
+          // WebGPU's word for the element, and for `f32` the calls: a sampler reads it, or none does.
+          const want = r.textureDepth
+            ? 'depth'
+            : r.textureElem === 'u32'
+              ? 'uint'
+              : r.textureElem === 'i32'
+                ? 'sint'
+                : r.textureDim !== '2d-ms' && sampled.has(b.name)
+                  ? 'float'
+                  : 'unfilterable-float';
+          expect(r.sampleType, `${ex.id}: ${b.name}`).toBe(want);
+          // The manifest carries what reflect() reports.
+          expect(r.sampleType, `${b.name} against reflect()`).toBe(reflected.get(b.name));
+          got[want] = (got[want] ?? 0) + 1;
+        }
+        // Nothing but a texture has one.
+        for (const b of p.bindings.filter((x) => x.resource.resourceKind !== 'texture'))
+          expect(b.resource, b.name).not.toHaveProperty('sampleType');
+      });
+
+    it("the recorded variant lays a texture out as the program's does", () => {
+      const src = `"use typeshade";
+declare const photo: texture_2d<f32>;
+declare const trail: texture_2d<f32>;
+declare const smp: sampler;
+class Color { @location(0) c: vec4; }
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): vec4 {
+  return vec4(f32(vi), 0., 0., 1.);
+}
+@fragment
+export function fs(@builtin("position") p: vec4): Color {
+  console.log("at", p.x);
+  return { c: textureSample(photo, smp, p.xy) + textureLoad(trail, vec2i(p.xy), 0) };
+}
+`;
+      const r = compile(src);
+      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+      const p = buildManifest(r.module, { console: true });
+      const of = (bs: readonly { name: string; resource: { sampleType?: string } }[]) =>
+        Object.fromEntries(
+          bs.filter((b) => b.name !== '_console').map((b) => [b.name, b.resource.sampleType]),
+        );
+      expect(p.console).toBeDefined();
+      expect(of(p.bindings)).toEqual({
+        photo: 'float',
+        trail: 'unfilterable-float',
+        smp: undefined,
+      });
+      expect(of(p.console!.bindings)).toEqual(of(p.bindings));
+    });
+
+    it('reads a text call by its arguments, so it can see a failure', () => {
+      const t = new Set(['a', 'b', 'c', 'd']);
+      const s = new Set(['smp']);
+      const wgsl = [
+        'let x = textureSample(a, smp, vec2<f32>(0.0, 1.0));',
+        'let y = textureLoad(b, vec2<i32>(0, 0), 0);',
+        'let z = textureGather(2, c, smp, uv);',
+        'let w = textureSampleCompare(d, cmp, uv, 0.5);',
+      ].join('\n');
+      expect([...sampledInText(wgsl, t, s)].sort()).toEqual(['a', 'c']);
+      expect(sampledInText('let x = textureSample(a, cmp, uv);', t, s).size).toBe(0);
+    });
+
+    it('covers each way a texture is laid out, over the corpus', () => {
+      expect(textured.length).toBeGreaterThanOrEqual(9);
+      // Read by a sampler, only loaded or sized, a multisampled one and the depth textures.
+      expect(got['float']).toBeGreaterThanOrEqual(8);
+      expect(got['unfilterable-float']).toBeGreaterThanOrEqual(2);
+      expect(got['depth']).toBeGreaterThanOrEqual(4);
+    });
+  });
+
   it("a data texture's format is the sampler the GLSL declares for it", () => {
     const src = `"use typeshade";
 declare const heights: storage<array<f32>>;

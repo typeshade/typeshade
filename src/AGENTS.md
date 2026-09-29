@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-09-28 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-09-29 -->
 
 # src
 
@@ -78,7 +78,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `core/kernel-tree.ts`                         | The tree order a kernel function's reduction is combined in on every tier (Rule 7.2): `kernelTree`, which the CPU backends call, and each operator's identity.                                                    |
 | `core/resident.ts`                            | `resident`, `Resident` and `configure` (Rule 11.8): a host value kept on the device across kernel and entry calls and the program runtime's bindings, the order the calls run in, and the order of the tiers.     |
 | `core/host-kernel-gl.ts`                      | A kernel function's loops on WebGL2 (Rule 11.8): the runtime's own context, one fragment program per loop into an `R32UI` target, the data textures and the readback.                                             |
-| `core/reflect.ts`, `core/sot.ts`              | Pipeline reflection (bind groups, std140 / std430 layouts, entry IO); declare-once IO structs and resources.                                                                                                      |
+| `core/reflect.ts`, `core/sot.ts`              | Pipeline reflection (bind groups, std140 / std430 layouts, a texture's sample type, entry IO); declare-once IO structs and resources.                                                                             |
 | `core/manifest.ts`                            | The compiled program's manifest (Rule 11.10): `buildManifest`, which `packModule` and the generated module's default export call, from the IR alone.                                                              |
 | `core/vertex-layout.ts`                       | The vertex buffer a `@vertex` entry reads (Rule 6.8), tightly packed, which `reflect()` and the manifest share.                                                                                                   |
 | `core/diagnostics/`                           | `codes.ts` (frozen `SDnnnn` catalogue), `error.ts` (`TypeShadeError`), `loc.ts` (opt-in source tracing), `report.ts` (`diagnose()`).                                                                              |
@@ -106,6 +106,7 @@ Most other `core/*.ts` files are the production-emit and host-integration layer:
 | `core/passes/parallel-loop.ts`        | `proveKernels`: the independence proof of a kernel function's loops (Rule 8.22), R1 to R6, as facts in IR names.                                                                                                                                                                 |
 | `core/passes/kernel-lower.ts`         | `lowerKernel`: a kernel function whose loops the proof accepts, lowered to one `@compute` entry per loop, a workgroup tree and a fold entry for a loop that reduces, an atomic for a scatter, a range function the call runs first and a tail that gives the result (Rule 8.22). |
 | `core/passes/access.ts`               | How each builtin uses each argument (a value, the length `arrayLength` measures, an atomic's place, the texture `textureStore` writes), and `eachOperand`, which hands an analysis the operands of one expression with that access (#348).                                       |
+| `core/passes/texture-pairs.ts`        | Which sampler each texture is read with, through a helper's parameters, a `const` and `textureGather` as well: the `sampleType` `reflect()` reports and the sampler the WebGL2 tier fuses (Rule 11.10).                                                                          |
 | `core/passes/const-expr.ts`           | `settleConstExprs`: a constant expression WGSL would refuse to evaluate (a zero divisor, a shift past 31, an overflow, crossed `clamp` bounds) given its value at run time, after every optimizer tier (#368).                                                                   |
 | `core/passes/opt/`                    | `autoVars`, `cse`, and the `optimize` fixpoint (const / copy propagation, folding, dead branches, LICM, DCE). `expr-utils.ts` is the shared traversal.                                                                                                                           |
 | `core/passes/compose.ts`              | `composeModule(base, swaps)`: swaps tagged `placeholder` statements. Strict by default.                                                                                                                                                                                          |

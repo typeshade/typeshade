@@ -210,10 +210,14 @@ function layoutEntry(b: PackBinding, visibility: number): object {
         },
       };
     case 'texture': {
-      // WebGPU refuses a multisampled texture laid out 'float', since no sampler filters one: an
-      // f32 one is 'unfilterable-float', which every float format binds to.
+      // The sample type the manifest gives, from the calls that read the texture (Rule 11.10): an
+      // `f32` texture no call pairs with a sampler is 'unfilterable-float', which takes every
+      // format 'float' takes and the 32-bit float ones it refuses. A manifest written before it
+      // gave one lays a texture out from its element, and a multisampled one 'unfilterable-float',
+      // which WebGPU requires since no sampler filters one (#414).
       const sampleType =
-        r.textureDepth === true
+        r.sampleType ??
+        (r.textureDepth === true
           ? 'depth'
           : r.textureElem === 'u32'
             ? 'uint'
@@ -221,7 +225,7 @@ function layoutEntry(b: PackBinding, visibility: number): object {
               ? 'sint'
               : r.textureDim === '2d-ms'
                 ? 'unfilterable-float'
-                : 'float';
+                : 'float');
       return {
         ...base,
         texture: {

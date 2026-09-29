@@ -1,8 +1,9 @@
 // ═══ The compiled program's manifest (Rules 6.8 and 11.10, change 0025) ═══
 //
 // One plain JSON object that holds everything a host needs to run a compiled program: the
-// shader text, each binding with its resource and byte layout, each entry with the bindings it
-// reaches, the overrides, the features, the recorded console variant and the WebGL2 conventions.
+// shader text, each binding with its resource (a texture's sample type among it, which follows
+// from the calls that read it) and byte layout, each entry with the bindings it reaches, the
+// overrides, the features, the recorded console variant and the WebGL2 conventions.
 // `packModule()` returns it, the plugin's generated module exports it as its default export, and
 // the program runtime loads it.
 //
@@ -21,6 +22,7 @@ import { typeKey, type ShaderType } from './ir/types.js';
 import { eachExpr, eachStmtExpr } from './ir/visit.js';
 import { sourceSpanOf } from './ir/span.js';
 import { fnReads, fnWrites } from './passes/effects.js';
+import { texturePairs } from './passes/texture-pairs.js';
 import { emitModule, wgslBackend } from './backends/wgsl.js';
 import { emitGlslStages } from './backends/glsl.js';
 import { hostFeaturesFor } from './backend.js';
@@ -154,28 +156,6 @@ export function closureOf(
   return out;
 }
 
-/** Which sampler bindings each texture binding is sampled with, in the calls `closure` makes. */
-export function texturePairs(
-  closure: ReadonlySet<string>,
-  byName: ReadonlyMap<string, FuncDecl>,
-  declared: ReadonlySet<string>,
-): Map<string, Set<string>> {
-  const pairs = new Map<string, Set<string>>();
-  for (const g of closure)
-    for (const st of byName.get(g)!.body)
-      eachStmtExpr(st, (e) =>
-        eachExpr(e, (x) => {
-          if (x.op !== 'call' || declared.has(x.fn)) return;
-          const [t, s] = x.args;
-          if (t?.op !== 'varref' || s?.op !== 'varref' || s.type.kind !== 'sampler') return;
-          let set = pairs.get(t.name);
-          if (set === undefined) pairs.set(t.name, (set = new Set()));
-          set.add(s.name);
-        }),
-      );
-  return pairs;
-}
-
 /** What the WebGL2 tier draws a full-screen fragment entry with: its GLSL ES 3.00 fragment
  *  program, the block name of each uniform binding and the sampler of each texture; or why it
  *  cannot. `bindings` are the ones the entry reaches, the `_fp64` guard among them. */
@@ -218,7 +198,7 @@ export function glDrawOf(
   }
   // GLSL ES 3.00 fuses a texture with its sampler: each texture takes the one sampler its
   // calls pass it, so the WebGL2 tier can set that sampler's filter and address on it.
-  const pairs = texturePairs(closure, byName, declaredFns);
+  const pairs = texturePairs(closure, byName, declaredFns, new Set(m.bindings.map((b) => b.name)));
   for (const b of bindings) {
     if (b.space !== 'texture' || ('guard' in b && !declared.has(b.name))) continue;
     const with_ = [...(pairs.get(b.name) ?? [])];

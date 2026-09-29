@@ -58,6 +58,10 @@ export interface PackResource {
   readonly storageFormat?: string;
   readonly storageAccess?: string;
   readonly textureDepth?: true;
+  /** A sampled texture's `sampleType`, the word its bind group layout takes (change 0028): from
+   *  its element and the calls that read it, as `reflect()` reports it. A manifest written
+   *  before it carries none, and a reader lays such a texture out from its element. */
+  readonly sampleType?: 'float' | 'unfilterable-float' | 'depth' | 'sint' | 'uint';
   readonly samplerComparison?: true;
 }
 

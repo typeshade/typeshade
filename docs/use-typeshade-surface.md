@@ -7557,12 +7557,12 @@ program.console; // with { console: true }: the WGSL that records console.*, and
 ```
 
 **A binding** carries its `group` and `binding`, its `resource` in `reflect()`'s words (a
-uniform or storage buffer, a texture with its dimension and sample type, a storage texture with
-its format, a sampler and whether it compares), the `stages` whose entries reach it, and a
-buffer's byte `layout` under its `rule`, `std140` for a uniform and `std430` for storage, with
-every offset, size and stride the emitted WGSL assumes (Rule 6.8). A buffer with no host layout
-says why in `noLayout`. The `_fp64` guard of a module that emulates `f64` is a binding like any
-other, marked `injected`: a 1 × 1 texture holding 1.0.
+uniform or storage buffer, a texture with its dimension, its element and its `sampleType`, a
+storage texture with its format, a sampler and whether it compares), the `stages` whose entries
+reach it, and a buffer's byte `layout` under its `rule`, `std140` for a uniform and `std430` for
+storage, with every offset, size and stride the emitted WGSL assumes (Rule 6.8). A buffer with
+no host layout says why in `noLayout`. The `_fp64` guard of a module that emulates `f64` is a
+binding like any other, marked `injected`: a 1 × 1 texture holding 1.0.
 
 **An entry** carries its `stage`, its `workgroupSize`, its `inputs` and `outputs` with their
 locations, builtins and interpolation, the `bindings` it reaches through its calls with whether it
@@ -7619,6 +7619,28 @@ await frame.submit(); // console lines print here
   const fine = await program.render({ targets: ['bgra8unorm'], constants: { quality: 3 } });
   const coarse = await program.render({ targets: ['bgra8unorm'], constants: { quality: 1 } });
   const step = await program.compute('step', { constants: { iterations: 64 } });
+  ```
+- **A texture is laid out by the calls that read it.** A texture's bind group layout names a
+  `sampleType`, and the manifest gives it with the rest of the binding's resource, computed from
+  the calls that read the texture (`reflect()` reports the same word): `depth` for a depth
+  texture, `uint` or `sint` for an integer one, `float` for an `f32` texture that a call pairs
+  with a `sampler` (a `textureSample` of any form or a `textureGather`, in an entry or in a
+  function an entry calls, through a helper's parameters or a `const` of the texture as well),
+  and `unfilterable-float` for every other `f32` texture: one the program only loads, measures
+  or counts, one no entry reaches, and a multisampled one, which no sampler reads. The runtime
+  lays the texture out by it. An `unfilterable-float` layout takes every format a `float` one
+  takes, and the 32-bit float formats (`r32float`, `rgba32float`) that a `float` layout refuses,
+  where WebGPU names the layout in its error and not the binding. A sampler binding is a
+  filtering one, so a texture a sampler reads takes a filterable format; a host that samples an
+  unfilterable format through a non-filtering sampler, which a program cannot say, is not
+  covered. A manifest written before the sample type existed carries none, and the runtime lays
+  its texture out from its element.
+
+  ```ts
+  // The program declares `level: texture_2d<f32>` and reads it with textureLoad alone.
+  const level = rt.texture({ size: [width, height], format: 'r32float' });
+  const effect = await rt.load(program).render({ targets: [format] });
+  frame.pass({ color: [context] }, (pass) => pass.draw(effect, { level }, { count: 3 }));
   ```
 - **Bindings go by name.** A draw or a dispatch takes `{ name: value }`: a plain host value
   (Rule 8.21), packed by the binding's layout into buffers the runtime reuses; a `Resident`

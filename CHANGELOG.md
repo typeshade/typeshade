@@ -600,6 +600,44 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A texture's sample type, from the calls that read it** (proposal 0028, item 2; design rules
+  11.10 and 11.11; surface §69; #404). `reflect()` reports each sampled texture's `sampleType`,
+  WebGPU's word for what a `GPUTextureBindingLayout` takes: `depth` for a depth texture, `uint` or
+  `sint` for an integer one, `float` for an `f32` texture that a call pairs with a `sampler`, and
+  `unfilterable-float` for every other `f32` texture, which no sampler reads: one the program only
+  loads, measures or counts, one no entry reaches, and a multisampled one (#414). The manifest
+  carries it in the binding's `resource`, and the program runtime lays each texture out by it. The
+  runtime laid out every `f32` texture `float`, which takes filterable formats only, so a host
+  could not bind an `r32float` or an `rgba32float` texture that a program only loads, and WebGPU
+  named the layout in its error and not the binding.
+  - The pairs are read where the handles flow, not only where a call names two bindings: a
+    `textureSample` of any form or a `textureGather`, which puts its component first, through a
+    helper function's parameters, and through a `const` of the texture and of the sampler.
+    Measured on Dawn (Chromium 153, SwiftShader), a texture laid out `unfilterable-float` beside a
+    `filtering` sampler is refused for each of them and accepted when the texture is only loaded.
+    `texturePairs`, which gave the WebGL2 tier the sampler each texture is fused with, read a
+    call's first two arguments through plain names, so it missed `textureGather(0, t, s, uv)`, a
+    helper's parameters and a `const`, and would have left the `albedo` of `cube-array-gather` an
+    `unfilterable-float` texture a sampler gathers. It is now one analysis,
+    `src/core/passes/texture-pairs.ts`, for both consumers: the WebGL2 tier's `samplers` name the
+    sampler of a texture read through a `const`, which they left `null`.
+  - The sample type follows the texture and not one entry: a texture one entry samples and another
+    loads is `float` for both. A module with a `raw` statement in what its entries reach is opaque,
+    so its `f32` textures are `float`, as they all were; a module with no entry is read whole,
+    since a host writes the entries over it. A manifest written before the sample type existed
+    carries none, and the runtime lays its texture out from its element, as it did.
+  - `BindEntry` gains `sampleType`, the one export that changes, and `src/__api__/surface.md`
+    records it; the manifest's `PackResource` carries the same word.
+  - `src/core/passes/texture-pairs.test.ts` holds each way a call pairs a texture with a sampler
+    and each it does not, `src/core/manifest.test.ts` holds every example's texture to the calls
+    in its WGSL, and `src/runtime/runtime.test.ts` holds, against the recording device, the layout
+    of a texture only loaded and of one a sampler reads. `journeys/textures/` binds an `r32float`
+    level a program only loads, beside two textures a sampler reads, on WebGPU through
+    `typeshade/runtime`; it fails when the runtime lays the level out `float`, and when a texture a
+    sampler reads is laid out `unfilterable-float`.
+  - `typeshade/runtime` is now 11,105 bytes minified and gzipped, 495 under its budget, and
+    `typeshade/emit`, which carries `reflect()`, 75,526.
+
 - **A host sets a program's overrides by name** (proposal 0028, item 1; design rule 11.11; surface
   §69). `RenderState.constants` and `program.compute(entry, { constants })` take a record of
   override name to value, and every stage of the pipeline is created with it as WebGPU's

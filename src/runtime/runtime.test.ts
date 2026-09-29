@@ -4,7 +4,8 @@
 // (`scripts/entry-calls-page.ts`), which dispatches every compute entry of the examples. Step 3's
 // tests hold the call layer and the runtime to one device and one `Resident` (Rule 11.8). Change
 // 0028's override values are held here to what each stage is created with, each refusal and the
-// pipeline cache's key, and on a real device by `journeys/overrides`.
+// pipeline cache's key, and on a real device by `journeys/overrides`; its texture sample types to
+// the layout each texture is given, and on a real device by `journeys/textures`.
 //
 // Verifies: Rule 11.8, Rule 11.11.
 
@@ -607,6 +608,145 @@ describe('override values by name (change 0028 item 1, Rule 11.11)', () => {
     await expect(program.render({ constants: { gain: '1' } })).rejects.toThrow(TypeError);
     // @ts-expect-error `constants` is a record, not a list
     await expect(program.compute('main', { constants: [1, 2] })).rejects.toThrow(TypeError);
+  });
+});
+
+/** A texture of each kind of layout: `level` only loaded, `photo` read through `smp`, an integer
+ *  texture of each sign, a multisampled one, a depth one read by comparison, and a compute entry
+ *  that loads `level` as well. The fake device cannot tell whether WebGPU accepts a layout; the
+ *  journey does. */
+const TEXTURES = `"use typeshade";
+declare const level: texture_2d<f32>;
+declare const photo: texture_2d<f32>;
+declare const ids: texture_2d<u32>;
+declare const deltas: texture_2d<i32>;
+declare const msaa: texture_multisampled_2d<f32>;
+declare const shadow: texture_depth_2d;
+declare const smp: sampler;
+declare const cmp: sampler_comparison;
+class Color { @location(0) c: vec4; }
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): vec4 {
+  return vec4(f32(vi), 0., 0., 1.);
+}
+@fragment
+export function fs(@builtin("position") p: vec4): Color {
+  const at = vec2i(p.xy);
+  const held = f32(textureLoad(ids, at, 0).x) + f32(textureLoad(deltas, at, 0).x);
+  const lit = textureSampleCompare(shadow, cmp, p.xy, 0.5);
+  return { c: textureLoad(level, at, 0) + textureLoad(msaa, at, 0) + textureSample(photo, smp, p.xy) + vec4(held + lit) };
+}
+declare const sink: storage<array<f32>, "read_write">;
+@compute([64])
+export function probe(@builtin("global_invocation_id") gid: vec3u) {
+  sink[gid.x] = textureLoad(level, vec2i(gid.xy), 0).x;
+}
+`;
+
+describe("a texture's sample type (change 0028 item 2, Rule 11.11)", () => {
+  /** The `sampleType` of each texture the last layout holds, by the name the source gives it. */
+  const layoutOf = (fake: ReturnType<typeof fakeDevice>, m: ReturnType<typeof manifest>) => {
+    const { entries } = fake.layouts.at(-1) as {
+      entries: { binding: number; texture?: { sampleType: string } }[];
+    };
+    const name = (binding: number) => m.bindings.find((b) => b.binding === binding)!.name;
+    return Object.fromEntries(
+      entries
+        .filter((e) => e.texture !== undefined)
+        .map((e) => [name(e.binding), e.texture!.sampleType]),
+    );
+  };
+
+  it('lays out a texture the program only loads unfilterable-float, and one a sampler reads float (#404)', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const m = manifest(TEXTURES);
+    await rt.load(m).render();
+    // `level` is what stepinside's `r32float` inverse-depth texture is: read with textureLoad,
+    // and WebGPU refuses an `r32float` view in a layout that says 'float'.
+    expect(layoutOf(fake, m)).toEqual({
+      level: 'unfilterable-float',
+      photo: 'float',
+      ids: 'uint',
+      deltas: 'sint',
+      msaa: 'unfilterable-float',
+      shadow: 'depth',
+    });
+    // The sampler beside them is the filtering one `photo` needs, and the comparison one.
+    const { entries } = fake.layouts.at(-1) as { entries: { sampler?: { type: string } }[] };
+    expect(entries.flatMap((e) => (e.sampler === undefined ? [] : [e.sampler.type]))).toEqual([
+      'filtering',
+      'comparison',
+    ]);
+  });
+
+  it('lays a compute entry out from the same sample type, whichever stage reads the texture', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const m = manifest(TEXTURES);
+    await rt.load(m).compute('probe');
+    // The compute entry only loads `level`; `photo` is the fragment entry's, and is not here.
+    expect(layoutOf(fake, m)).toEqual({ level: 'unfilterable-float' });
+  });
+
+  it("takes the sample type from the manifest and not from the texture's element", async () => {
+    // Bindings a host builds by hand or edits are the manifest's: the runtime asks it.
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const m = manifest(TEXTURES);
+    const edited = {
+      ...m,
+      bindings: m.bindings.map((b) =>
+        b.name === 'photo' || b.name === 'level'
+          ? {
+              ...b,
+              resource: {
+                ...b.resource,
+                sampleType:
+                  b.name === 'photo' ? ('unfilterable-float' as const) : ('float' as const),
+              },
+            }
+          : b,
+      ),
+    };
+    await rt.load(edited).render();
+    expect(layoutOf(fake, m)).toMatchObject({ photo: 'unfilterable-float', level: 'float' });
+  });
+
+  it('lays a texture of a manifest written before it out from its element, as it was', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const m = manifest(TEXTURES);
+    const old = {
+      ...m,
+      bindings: m.bindings.map((b) => {
+        const { sampleType: _dropped, ...resource } = b.resource;
+        return { ...b, resource };
+      }),
+    };
+    expect(m.bindings.some((b) => b.resource.sampleType !== undefined)).toBe(true);
+    await rt.load(old).render();
+    expect(layoutOf(fake, m)).toEqual({
+      level: 'float',
+      photo: 'float',
+      ids: 'uint',
+      deltas: 'sint',
+      msaa: 'unfilterable-float',
+      shadow: 'depth',
+    });
+  });
+
+  it('carries the sample type in the manifest as JSON, beside the rest of the resource', () => {
+    const m = manifest(TEXTURES);
+    const texture = (name: string) => m.bindings.find((b) => b.name === name)!.resource;
+    expect(texture('level')).toMatchObject({
+      resourceKind: 'texture',
+      textureDim: '2d',
+      textureElem: 'f32',
+      sampleType: 'unfilterable-float',
+    });
+    expect(texture('shadow')).toMatchObject({ textureDepth: true, sampleType: 'depth' });
+    expect(JSON.parse(JSON.stringify(m)).bindings).toEqual(m.bindings);
   });
 });
 
