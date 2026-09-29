@@ -7685,8 +7685,23 @@ await frame.submit(); // console lines print here
   ```
 - **The console.** A program loaded with its recorded variant (`load(m, { console: true })`, the
   default when the manifest carries one) binds a console buffer for each dispatch and draw, and
-  the submit reads it back: each event reaches `createRuntime({ console: sink })`, or the host's
-  console.
+  the submit reads it back: each event reaches `createRuntime({ console: sink })`, or is printed
+  on the host's console, with a warning for the calls the buffer had no room for (`'print'`, the
+  default). `frame.submit()` and `rt.submit(…)` resolve to what those buffers held,
+  `{ console: [{ entry, lines, dropped }, …] }`: a row for each dispatch and draw that recorded,
+  in the order they were recorded, with its entry (a draw's is its fragment entry), the lines the
+  buffer kept, one for each `console.*` call whether it was printed or handed to the sink, and
+  the calls that did not fit its `consoleBytes`. A submit that recorded nothing resolves to no
+  rows. A runtime given a sink prints nothing, the warning included: the host that takes the
+  lines takes the count.
+
+  ```ts
+  const rt = await createRuntime({ console: (event) => captured.push(event) });
+  // …
+  const { console: buffers } = await frame.submit();
+  for (const { entry, lines, dropped } of buffers)
+    status.textContent = `${entry}: ${lines} lines kept, ${dropped} dropped`;
+  ```
 
 **One device for both layers.** `configure({ runtime: rt })` puts the calls of §64, §65 and §67
 on `rt`'s device, and `runtime()`, the default runtime, is on the device the calls use, so a

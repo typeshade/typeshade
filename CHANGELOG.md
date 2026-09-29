@@ -600,6 +600,32 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **The console's counts, to the host** (proposal 0028, item 3; design rule 11.11; surface §69).
+  `frame.submit()` and `rt.submit(…)` resolve to what the console buffers of that submit held,
+  `{ console: [{ entry, lines, dropped }, …] }`: a row for each dispatch and draw that recorded,
+  in the order they were recorded, with its entry (a draw's is its fragment entry), the lines the
+  buffer kept and the calls that did not fit it. A runtime given a sink,
+  `createRuntime({ console: sink })`, prints nothing now: it printed the warning for the calls
+  that did not fit on the host's console beside the sink, so a host that shows the lines itself
+  could not show how many were dropped. The default, `'print'`, prints the lines and the warning
+  as it did.
+  - `Frame`'s and `Runtime`'s `submit` are the two exports that change; they resolved to nothing.
+    The row type is written where `Frame.submit` declares it, and `Runtime.submit` returns the
+    same type, so no name is new. `src/__api__/surface.md` records both.
+  - `lines` counts each `console.*` call the buffer kept once, as the sink receives it, so a
+    `console.table`, which is printed as two calls of the host's console, is one line. A
+    dispatch whose entry made no call is a row all the same, with no lines.
+  - `src/runtime/runtime.test.ts` holds, against the recording device, a row for each dispatch
+    and each draw with its entry, in the order recorded, from a frame and from the host's own
+    encoders; a submit that recorded nothing; that each submit gets the rows of its own; that a
+    runtime given a sink prints nothing, the warning included; and that the default prints the
+    lines and the warning as it did. `journeys/_harness.mjs` read the dropped count by patching
+    the page's `console.warn`, which a runtime given a sink no longer prints to; it reads the
+    counts from `submit()` now, holds the rows to the entry that records, the lines to what the
+    sink was handed and the dropped count to what the buffer had no room for, and fails when the
+    runtime prints the warning.
+  - `typeshade/runtime` is now 11,142 bytes minified and gzipped, 458 under its budget.
+
 - **A texture's sample type, from the calls that read it** (proposal 0028, item 2; design rules
   11.10 and 11.11; surface §69; #404). `reflect()` reports each sampled texture's `sampleType`,
   WebGPU's word for what a `GPUTextureBindingLayout` takes: `depth` for a depth texture, `uint` or

@@ -5,17 +5,19 @@
 // tests hold the call layer and the runtime to one device and one `Resident` (Rule 11.8). Change
 // 0028's override values are held here to what each stage is created with, each refusal and the
 // pipeline cache's key, and on a real device by `journeys/overrides`; its texture sample types to
-// the layout each texture is given, and on a real device by `journeys/textures`.
+// the layout each texture is given, and on a real device by `journeys/textures`; its console
+// counts to what `submit()` resolves to and to what a runtime given a sink prints, and on a real
+// device by the journeys' harness, which reads them from `submit()`.
 //
 // Verifies: Rule 11.8, Rule 11.11.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { compile } from '../compiler/ts/compile.js';
 import { packModule } from '../compiler/ts/pack.js';
 import type { ConsoleEvent } from '../core/console.js';
 import { configure, resident, residentState } from '../core/resident.js';
 import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
-import { createRuntime, runtime } from './runtime.js';
+import { createRuntime, runtime, type Frame, type Runtime } from './runtime.js';
 import { repack } from '../emit.js';
 
 /** What a pipeline is created with: the stages carry the `constants` the runtime hands WebGPU. */
@@ -35,22 +37,27 @@ function fakeDevice(features: string[] = []) {
   const groups: { entries: { binding: number; resource: { size?: number } }[] }[] = [];
   const commands: string[] = [];
   const pipelines: { kind: 'compute' | 'render'; descriptor: PipelineDescriptor }[] = [];
-  let consoleWords: Uint32Array | undefined;
+  // What the GPU wrote into the console buffers: the n-th one copied back since `setConsole` reads
+  // the n-th of the words, and the last of them when there are fewer.
+  let consoleWords: readonly Uint32Array[] = [];
+  let copied = 0;
   const buffer = (d: { size: number; usage: number }) => {
     count('buffer');
     const bytes = new ArrayBuffer(d.size);
-    return {
+    const b = {
       size: d.size,
       usage: d.usage,
       bytes,
+      words: undefined as Uint32Array | undefined,
       async mapAsync() {
-        if (consoleWords !== undefined && d.usage & 0x1)
-          new Uint32Array(bytes).set(consoleWords.subarray(0, d.size / 4));
+        if (b.words !== undefined && d.usage & 0x1)
+          new Uint32Array(bytes).set(b.words.subarray(0, d.size / 4));
       },
       getMappedRange: () => bytes,
       unmap() {},
       destroy() {},
     };
+    return b;
   };
   const pass = {
     setPipeline: () => commands.push('setPipeline'),
@@ -106,7 +113,10 @@ function fakeDevice(features: string[] = []) {
     createCommandEncoder: () => ({
       beginComputePass: () => pass,
       beginRenderPass: () => pass,
-      copyBufferToBuffer: () => commands.push('copy'),
+      copyBufferToBuffer: (_from: object, _at: number, to: { words?: Uint32Array }) => {
+        commands.push('copy');
+        to.words = consoleWords[Math.min(copied++, consoleWords.length - 1)];
+      },
       copyTextureToBuffer: () => {},
       finish: () => ({}),
     }),
@@ -120,8 +130,9 @@ function fakeDevice(features: string[] = []) {
     groups,
     commands,
     pipelines,
-    setConsole: (w: Uint32Array) => {
+    setConsole: (...w: Uint32Array[]) => {
       consoleWords = w;
+      copied = 0;
     },
   };
 }
@@ -167,6 +178,34 @@ export function vs(@builtin("vertex_index") vi: u32): vec4 {
 export function fs(@builtin("position") p: vec4): Color {
   const c: vec2i = vec2i(p.xy);
   return { c: textureLoad(msaa, c, 0) * textureLoad(depthMs, c, 0) + textureSample(photo, smp, p.xy) };
+}
+`;
+
+/** A vertex entry and a fragment entry that logs the pixel's x: the console buffer is the fragment
+ *  stage's alone. */
+const PIXELS = `"use typeshade";
+class VsOut { @builtin("position") p: vec4; }
+class Color { @location(0) c: vec4; }
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): VsOut {
+  return { p: vec4(f32(vi), 0., 0., 1.) };
+}
+@fragment
+export function fs(v: VsOut): Color {
+  console.log("at", v.p.x);
+  return { c: vec4(1.) };
+}
+`;
+
+/** A compute entry that makes two calls: a `console.log` and a `console.table`, which prints as
+ *  two calls of the host's console and is one line. */
+const TABLES = `"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+@compute([64])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  console.log("i", gid.x);
+  console.table(vec2(1., 2.));
+  out[gid.x] = 1.;
 }
 `;
 
@@ -747,6 +786,290 @@ describe("a texture's sample type (change 0028 item 2, Rule 11.11)", () => {
     });
     expect(texture('shadow')).toMatchObject({ textureDepth: true, sampleType: 'depth' });
     expect(JSON.parse(JSON.stringify(m)).bindings).toEqual(m.bindings);
+  });
+});
+
+/** Every call any method of the host's console received while `run` ran, which the test's own
+ *  reporter never sees. */
+async function printedBy(
+  run: () => Promise<unknown>,
+): Promise<{ method: string; args: unknown[] }[]> {
+  const calls: { method: string; args: unknown[] }[] = [];
+  const spies = (['log', 'info', 'debug', 'warn', 'error', 'table'] as const).map((method) =>
+    vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+      calls.push({ method, args });
+    }),
+  );
+  try {
+    await run();
+  } finally {
+    for (const spy of spies) spy.mockRestore();
+  }
+  return calls;
+}
+
+/** The words a console buffer holds once the GPU has written `calls` into it: the cursor, the
+ *  count of calls it had no room for, then each call's words (its site, its invocation, its
+ *  values). */
+const written = (calls: readonly (readonly number[])[], dropped = 0): Uint32Array => {
+  const words = calls.flat();
+  return Uint32Array.of(words.length, dropped, ...words);
+};
+const bits = (x: number): number => new Uint32Array(Float32Array.of(x).buffer)[0]!;
+/** What `SCALE`'s `console.log("i", i)` writes for the invocation `i`. */
+const scaleCall = (i: number): number[] => [0, i, 0, 0, i];
+
+describe("the console's counts (change 0028 item 3, Rule 11.11)", () => {
+  type Sink = (e: ConsoleEvent) => void;
+  /** A runtime on the fake device whose `console` option is `option`, which is left out when
+   *  undefined, and a program of it that records. */
+  const setup = async (option?: 'print' | Sink) => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({
+      device: fake.device,
+      // Room for a few lines: the fake device writes what a test says the GPU wrote.
+      consoleBytes: 256,
+      ...(option !== undefined ? { console: option } : {}),
+    });
+    const scale = await rt.load(manifest(SCALE, true)).compute();
+    /** The bindings of a dispatch of `SCALE`: each dispatch packs its own. */
+    const bound = () => ({
+      params: { scale: 1 },
+      xs: new Float32Array(4),
+      out: new Float32Array(4),
+    });
+    return { fake, rt, scale, bound };
+  };
+  const sinking = () => {
+    const events: ConsoleEvent[] = [];
+    return { events, sink: ((e) => void events.push(e)) as Sink };
+  };
+
+  it('resolves to a row for each dispatch that recorded: its entry, the lines it kept and the calls it dropped', async () => {
+    const { events, sink } = sinking();
+    const { fake, rt, scale, bound } = await setup(sink);
+    // The first buffer kept two lines and the second one, which had no room for seven more.
+    fake.setConsole(written([scaleCall(0), scaleCall(1)]), written([scaleCall(2)], 7));
+    const f = rt.frame();
+    f.dispatch(scale, bound(), 1);
+    f.dispatch(scale, bound(), 1);
+    const result = await f.submit();
+    expect(result).toEqual({
+      console: [
+        { entry: 'main', lines: 2, dropped: 0 },
+        { entry: 'main', lines: 1, dropped: 7 },
+      ],
+    });
+    // `lines` is what the sink was handed, one for each call the entries made.
+    expect(events.map((e) => e.args)).toEqual([
+      ['i', 0],
+      ['i', 1],
+      ['i', 2],
+    ]);
+  });
+
+  it("names a draw's fragment entry, and lists the rows in the order the dispatches and draws were recorded", async () => {
+    const { events, sink } = sinking();
+    const { fake, rt, scale, bound } = await setup(sink);
+    const pixels = rt.load(manifest(PIXELS, true));
+    expect(pixels.recording).toBe(true);
+    const draw = await pixels.render();
+    const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
+    fake.setConsole(
+      written([scaleCall(0)]),
+      written([[0, 2, 1, 0, bits(2.5)]], 1),
+      written([scaleCall(1), scaleCall(2)]),
+    );
+    const f = rt.frame();
+    f.dispatch(scale, bound(), 1);
+    f.pass({ color: [target] }, (p) => p.draw(draw, {}, { count: 3 }));
+    f.dispatch(scale, bound(), 1);
+    expect((await f.submit()).console).toEqual([
+      { entry: 'main', lines: 1, dropped: 0 },
+      { entry: 'fs', lines: 1, dropped: 1 },
+      { entry: 'main', lines: 2, dropped: 0 },
+    ]);
+    // A fragment's line is its pixel's.
+    expect(events.map((e) => [e.args, e.invocation])).toEqual([
+      [
+        ['i', 0],
+        [0, 0, 0],
+      ],
+      [
+        ['at', 2.5],
+        [2, 1, 0],
+      ],
+      [
+        ['i', 1],
+        [1, 0, 0],
+      ],
+      [
+        ['i', 2],
+        [2, 0, 0],
+      ],
+    ]);
+  });
+
+  it('resolves to the same counts when the host submits its own encoders', async () => {
+    const { events, sink } = sinking();
+    const { fake, rt, scale, bound } = await setup(sink);
+    const encoder = fake.device.createCommandEncoder();
+    scale.dispatch(encoder, bound(), 1);
+    scale.dispatch(encoder, bound(), 1);
+    // A dispatch whose entry made no call is a row all the same, with no lines.
+    fake.setConsole(written([scaleCall(3)]), written([]));
+    expect(await rt.submit(encoder)).toEqual({
+      console: [
+        { entry: 'main', lines: 1, dropped: 0 },
+        { entry: 'main', lines: 0, dropped: 0 },
+      ],
+    });
+    expect(events.map((e) => e.args)).toEqual([['i', 3]]);
+  });
+
+  it('gives each submit the rows of its own dispatches and draws', async () => {
+    const { fake, rt, scale, bound } = await setup(sinking().sink);
+    fake.setConsole(written([scaleCall(0)]));
+    const first = rt.frame();
+    first.dispatch(scale, bound(), 1);
+    expect((await first.submit()).console).toEqual([{ entry: 'main', lines: 1, dropped: 0 }]);
+    // The second submit does not carry the first's row.
+    fake.setConsole(written([scaleCall(0), scaleCall(1), scaleCall(2)], 4));
+    const second = rt.frame();
+    second.dispatch(scale, bound(), 1);
+    expect((await second.submit()).console).toEqual([{ entry: 'main', lines: 3, dropped: 4 }]);
+    // Nothing recorded since: no rows.
+    expect(await rt.frame().submit()).toEqual({ console: [] });
+    expect(await rt.submit(fake.device.createCommandEncoder())).toEqual({ console: [] });
+  });
+
+  it('resolves to no rows for a program that does not record', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const program = rt.load(manifest(SCALE));
+    expect(program.recording).toBe(false);
+    const scale = await program.compute();
+    const f = rt.frame();
+    f.dispatch(
+      scale,
+      { params: { scale: 1 }, xs: new Float32Array(4), out: new Float32Array(4) },
+      1,
+    );
+    expect(await f.submit()).toEqual({ console: [] });
+    expect(fake.commands).not.toContain('copy');
+  });
+
+  it('counts a console.table as one line, though it is printed as two calls', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device, consoleBytes: 256 });
+    const m = manifest(TABLES, true);
+    const tables = await rt.load(m).compute();
+    expect(m.console!.log.sites.map((site) => site.method)).toEqual(['log', 'table']);
+    fake.setConsole(
+      written([
+        [0, 2, 0, 0, 2],
+        [1, 2, 0, 0, bits(1), bits(2)],
+      ]),
+    );
+    const f = rt.frame();
+    f.dispatch(tables, { out: new Float32Array(4) }, 1);
+    let result: Awaited<ReturnType<typeof f.submit>> | undefined;
+    const printed = await printedBy(async () => {
+      result = await f.submit();
+    });
+    expect(result).toEqual({ console: [{ entry: 'main', lines: 2, dropped: 0 }] });
+    // The log line, then the table's prefix on a `log` and the table: three calls, two lines.
+    expect(printed.map((c) => c.method)).toEqual(['log', 'log', 'table']);
+    expect(printed[2]!.args).toEqual([[1, 2]]);
+  });
+
+  describe('a runtime given a sink', () => {
+    it('prints nothing, the warning for the calls that did not fit included, and its host reads the count', async () => {
+      const { events, sink } = sinking();
+      const { fake, rt, scale, bound } = await setup(sink);
+      fake.setConsole(written([scaleCall(0), scaleCall(1)], 5));
+      const f = rt.frame();
+      f.dispatch(scale, bound(), 1);
+      let result: Awaited<ReturnType<typeof f.submit>> | undefined;
+      const printed = await printedBy(async () => {
+        result = await f.submit();
+      });
+      expect(printed).toEqual([]);
+      expect(events).toHaveLength(2);
+      expect(result).toEqual({ console: [{ entry: 'main', lines: 2, dropped: 5 }] });
+      // The host's own encoders, the same.
+      const encoder = fake.device.createCommandEncoder();
+      scale.dispatch(encoder, bound(), 1);
+      fake.setConsole(written([scaleCall(2)], 9));
+      const again = await printedBy(async () => {
+        result = await rt.submit(encoder);
+      });
+      expect(again).toEqual([]);
+      expect(result).toEqual({ console: [{ entry: 'main', lines: 1, dropped: 9 }] });
+    });
+  });
+
+  describe("a runtime that prints, which is 'print' and the default", () => {
+    for (const [what, option] of [
+      ['by default', undefined],
+      ["given 'print'", 'print' as const],
+    ] as const)
+      it(`prints the lines and the warning as it did, and resolves to the counts, ${what}`, async () => {
+        const { fake, rt, scale, bound } = await setup(option);
+        fake.setConsole(written([scaleCall(0), scaleCall(1)], 5), written([], 2));
+        const f = rt.frame();
+        f.dispatch(scale, bound(), 1);
+        f.dispatch(scale, bound(), 1);
+        let result: Awaited<ReturnType<typeof f.submit>> | undefined;
+        const printed = await printedBy(async () => {
+          result = await f.submit();
+        });
+        expect(result).toEqual({
+          console: [
+            { entry: 'main', lines: 2, dropped: 5 },
+            { entry: 'main', lines: 0, dropped: 2 },
+          ],
+        });
+        // A line with its prefix and its arguments, and one warning for each buffer that dropped.
+        expect(printed.map((c) => c.method)).toEqual(['log', 'log', 'warn', 'warn']);
+        expect(printed.slice(0, 2).map((c) => c.args.slice(3))).toEqual([
+          ['i', 0],
+          ['i', 1],
+        ]);
+        expect(printed[2]!.args[0]).toContain(
+          'main(): 5 console calls did not fit the console buffer.',
+        );
+        expect(printed[3]!.args[0]).toContain(
+          'main(): 2 console calls did not fit the console buffer.',
+        );
+      });
+
+    it('prints no warning for a buffer that dropped nothing', async () => {
+      const { fake, rt, scale, bound } = await setup();
+      fake.setConsole(written([scaleCall(0)]));
+      const f = rt.frame();
+      f.dispatch(scale, bound(), 1);
+      const printed = await printedBy(() => f.submit());
+      expect(printed.map((c) => c.method)).toEqual(['log']);
+    });
+  });
+
+  it('is typed as a list of rows, each an entry and two counts', () => {
+    type Rows = {
+      readonly console: readonly {
+        readonly entry: string;
+        readonly lines: number;
+        readonly dropped: number;
+      }[];
+    };
+    expectTypeOf<Awaited<ReturnType<Frame['submit']>>>().toEqualTypeOf<Rows>();
+    expectTypeOf<Awaited<ReturnType<Runtime['submit']>>>().toEqualTypeOf<Rows>();
+    // The counts are read, not written.
+    const write = (rows: Rows): void => {
+      // @ts-expect-error a row's counts are readonly
+      rows.console[0]!.lines = 0;
+    };
+    expect(write).toBeTypeOf('function');
   });
 });
 

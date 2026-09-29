@@ -16,7 +16,9 @@
 // The WebGPU half is `typeshade/runtime` (change 0025, Rule 11.11): the page imports the
 // runtime the tarball ships, loads the run's manifest (`packModule`), binds each binding by its
 // name with the journey's host value, and reads the result back through a `Resident` or the
-// target texture. The harness writes no WebGPU of its own.
+// target texture. The console's lines reach the runtime's sink, and the count of them and of the
+// calls that did not fit is what `submit()` resolves to (change 0028). The harness writes no
+// WebGPU of its own.
 //
 // A run of an engine (`kind: 'engine'`, change 0025) is a host module that draws frames on the
 // runtime's public exports alone: the harness refuses any other import and any WebGPU call in
@@ -218,16 +220,17 @@ async function runOnGpu(job) {
   for (const [name, b] of Object.entries(job.bindings))
     bindings[name] = b.typed ? new TYPED[b.typed](b.data) : b.value;
   const program = rt.load(job.pack);
-  // The calls that did not fit the console buffer are one warning the runtime prints, and not
-  // an event: it is read here, where the page prints it.
-  let dropped = 0;
+  // A runtime given a sink prints nothing, the warning for the calls that did not fit the console
+  // buffer included: their count is what `submit()` resolves to. The page's console is watched all
+  // the same, so that a runtime that printed the warning would be seen.
+  const printed = [];
   const warn = console.warn;
   console.warn = (...a) => {
-    const m = /(\d+) console calls did not fit the console buffer/.exec(a.join(' '));
-    if (m) dropped += Number(m[1]);
+    if (/console calls did not fit the console buffer/.test(a.join(' '))) printed.push(a.join(' '));
     else warn(...a);
   };
   let values;
+  let rows = [];
   let error = null;
   try {
     if (job.kind === 'compute') {
@@ -238,7 +241,7 @@ async function runOnGpu(job) {
       const pipeline = await program.compute(job.entry, { constants: job.constants });
       const f = rt.frame();
       for (let i = 0; i < job.repeat; i++) f.dispatch(pipeline, bindings, job.workgroups);
-      await f.submit();
+      rows = (await f.submit()).console;
       const got = await out.read();
       values = ArrayBuffer.isView(got) ? [...got] : got;
     } else {
@@ -255,7 +258,7 @@ async function runOnGpu(job) {
         if (job.scissor) p.raw.setScissorRect(...job.scissor);
         p.draw(pipeline, bindings, { count: 3 });
       });
-      await f.submit();
+      rows = (await f.submit()).console;
       values = [...(await target.read())].map((v) => v / 255);
     }
   } catch (e) {
@@ -266,7 +269,9 @@ async function runOnGpu(job) {
   rt.destroy();
   return {
     values,
-    dropped,
+    // What `submit()` said each console buffer held, a plain copy for the page to hand back.
+    rows: rows.map((r) => ({ entry: r.entry, lines: r.lines, dropped: r.dropped })),
+    printed,
     events: events.map((e) => ({
       method: e.method,
       args: e.args,
@@ -530,12 +535,33 @@ for (const job of jobs) {
 
   // The console lines: decoded from WebGPU, delivered on the CPU, and the host's own, all equal.
   if (run.console) {
-    const want = run.console.expected();
+    // A compute run dispatches `repeat` times, each into a console buffer of its own, and each
+    // dispatch makes the same calls.
+    const dispatches = run.kind === 'render' ? 1 : (run.repeat ?? 1);
+    const want = Array.from({ length: dispatches }, () => run.console.expected()).flat();
     const tolerance = run.console.tolerance ?? 0;
-    // The runtime hands the sink every event it decoded, and counts the calls that did not fit
-    // in one warning it prints.
+    // The runtime hands the sink every event it decoded, and `submit()` resolves to what each
+    // console buffer held: a row for each dispatch or draw, its entry, the lines it kept and the
+    // calls that did not fit.
     const gpuLines = gpu.events;
-    const decoded = { dropped: gpu.dropped };
+    const decoded = { dropped: gpu.rows.reduce((n, r) => n + r.dropped, 0) };
+    const counted = gpu.rows.reduce((n, r) => n + r.lines, 0);
+    const recorder = run.kind === 'render' ? run.fragment : run.entry;
+    if (gpu.rows.length !== dispatches || gpu.rows.some((r) => r.entry !== recorder))
+      fail(
+        job.id,
+        `submit() resolved to ${gpu.rows.length} console rows (${gpu.rows.map((r) => r.entry).join(', ')}); expected ${dispatches} of "${recorder}"`,
+      );
+    if (counted !== gpuLines.length)
+      fail(
+        job.id,
+        `submit() counted ${counted} console lines and the sink was handed ${gpuLines.length}`,
+      );
+    if (gpu.printed.length > 0)
+      fail(
+        job.id,
+        `the runtime printed the dropped calls' warning though it was given a sink: ${gpu.printed[0]}`,
+      );
     const cpuPlain = cpuLines.map((l) => ({ ...l, invocation: [...l.invocation] }));
     if (run.console.kept === undefined) {
       if (decoded.dropped > 0) fail(job.id, `WebGPU dropped ${decoded.dropped} console lines`);
@@ -565,7 +591,11 @@ for (const job of jobs) {
       `     ${job.id.padEnd(16)} console: ${gpuLines.length} lines from WebGPU` +
         (decoded.dropped > 0 ? `, ${decoded.dropped} dropped` : ''),
     );
-  }
+  } else if (gpu.rows.length > 0)
+    fail(
+      job.id,
+      `submit() resolved to ${gpu.rows.length} console rows for a run that does not record`,
+    );
   console.log(
     `${g.ok && c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${expected.length} values, worst relative error WebGPU ${g.text}, CPU oracle ${c.text}`,
   );
