@@ -15,8 +15,6 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-09-29
-
 ### Changed
 
 - **The CPU tier's code is written by type, and a host call of a small function is several
@@ -49,6 +47,10 @@ repository was published to npm before **`0.1.0`, the first release**.
   generated code to a GPU. The issue's two functions, called
   in Bun: a host call pair from about 3.4 µs to 0.5 µs, the two bodies alone from 1.25 µs to
   0.1 µs (medians of ten timings on a loaded machine; the same code by hand is 0.05 µs).
+
+## [0.1.0] - 2026-09-29
+
+### Changed
 
 - **The user journeys run on the program runtime** (proposal 0025, step 5, first half; Rule
   11.11). `journeys/_harness.mjs` wrote its own WebGPU, 521 lines of it, to run each journey. It
