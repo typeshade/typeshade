@@ -29,14 +29,22 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   `Math.fround` and every helper are bound once at the top of the module; an `f32` parameter is
   rounded once as the function is entered; and a value the code has just built is stored
   without a copy. An operand with an effect, and every operand before one, is still evaluated
-  once and in order. At the boundary, `toShader` converts a number or a plain array of them
-  without descending the parameter's type, `fromShader` copies an array without `Array.from`,
-  and the call takes its arguments without an array spread. Results are unchanged bit for bit:
-  `src/core/cpu-codegen.test.ts` holds each new path to the interpreter in both precisions at
-  NaN, ±0, the infinities, subnormals and the integer wrap, with shared argument arrays and
-  calls that write an operand between the operands; `src/core/host-values.test.ts` holds each
-  quick conversion to the descent it skips; and the compile gate's entry calls and the GPU
-  differential's WebGL2 leg hold the generated code to a GPU. The issue's two functions, called
+  once and in order. A vector operand that may be missing when the code runs (the result of a
+  function that reaches a `discard`, an element read past the end of an array, a matrix column
+  past its last) keeps the runtime helper, which takes it as a scalar, as the interpreter does,
+  where a component read would throw; the module is followed once for where such a value goes.
+  At the boundary, `toShader` converts a number that fits without descending the parameter's
+  type and a vector or matrix with one loop for its element kind, `fromShader` copies an array
+  without `Array.from`, and the call takes its arguments without an array spread. Results and
+  refusals are unchanged bit for bit, but for one thing: a component that nothing reads is no
+  longer computed, so an error that only it would raise (a field read of an array element past
+  the array's end) is not raised. `src/core/cpu-codegen.test.ts` holds each new path to the
+  interpreter in both precisions at NaN, ±0, the infinities, subnormals and the integer wrap,
+  with shared argument arrays, calls that write an operand between the operands, and values the
+  module leaves missing; `src/core/host-values.test.ts` holds each conversion to the one it
+  replaces, its refusals' text and what it reads of a host array (an accessor, a `Proxy`)
+  included; and the compile gate's entry calls and the GPU differential's WebGL2 leg hold the
+  generated code to a GPU. The issue's two functions, called
   in Bun: a host call pair from about 3.4 µs to 0.5 µs, the two bodies alone from 1.25 µs to
   0.1 µs (medians of ten timings on a loaded machine; the same code by hand is 0.05 µs).
 
