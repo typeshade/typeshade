@@ -21,7 +21,7 @@ import {
   scannedFiles,
   slug,
 } from '../scripts/doc-refs.js';
-import { changedRules, declaredNames, surface } from '../scripts/doc-impact.js';
+import { changedRules, declaredNames, reshapedExports, surface } from '../scripts/doc-impact.js';
 
 const FLOORS = { path: 400, rule: 250, code: 200, section: 40, script: 25, anchor: 15 } as const;
 
@@ -147,6 +147,31 @@ describe('the impact reader', () => {
     expect(shapes.get('src/core/ir/builder.ts#constExpr')).toBe(
       'constExpr\u0000function  (name: string) => ConstHandle',
     );
+  });
+
+  it('reads a reshaped export by its name, where its declaration moved to another file', () => {
+    const bake = (...lines: string[]) => surface(['```', ...lines, '```'].join('\n'));
+    const before = bake(
+      'src/a.ts#Kept  interface  { x: number }',
+      'src/a.ts#Moved  interface  { x: number }',
+      'src/a.ts#MovedAndGrown  interface  { x: number }',
+      'src/a.ts#Grown  interface  { x: number }',
+      'src/a.ts#Gone  interface  { x: number }',
+    );
+    const after = bake(
+      'src/a.ts#Kept  interface  { x: number }',
+      'src/b.ts#Moved  interface  { x: number }',
+      'src/b.ts#MovedAndGrown  interface  { x: number; y?: number }',
+      'src/a.ts#Grown  interface  { x: number; y?: number }',
+      'src/a.ts#Added  interface  { x: number }',
+    );
+    // A move alone reshapes nothing, and an export added or removed is not reshaped: only the two
+    // whose text changed are, the one that moved (`PackOptions` of proposal 0028) among them.
+    expect(reshapedExports(before, after)).toEqual([
+      { name: 'MovedAndGrown', key: 'src/b.ts#MovedAndGrown' },
+      { name: 'Grown', key: 'src/a.ts#Grown' },
+    ]);
+    expect(reshapedExports(before, before)).toEqual([]);
   });
 
   it('maps a touched line to the rule paragraph it sits in', () => {
