@@ -7577,9 +7577,33 @@ reads (below); and `gl`, what the WebGL2 tier draws each full-screen fragment en
 why it cannot. A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its
 internal format and the texels per element.
 
+**Emit options.** `packModule(m, { emit })` emits the program under other options than the
+defaults, the WGSL writer's own and a level: `level` (the optimizer's tier: `'O0'` writes the
+lowered module as authored, `'O1'` runs only the passes that cannot change a computed value, and
+`'O2'`, unless named, runs them all), `parens`, `fp64Flavor` and `plugins`. The manifest's `wgsl`,
+its recorded variant's `wgsl`, its `glsl`, the fragment program of each of its WebGL2 draws and its
+`bindings` are the ones those options emit, so a host that shows or ships the program under them
+runs that program. `fp64Flavor` changes the bindings of a program that emulates `f64` too: the
+`'float'` flavor binds the `_fp64` guard and the `'integer'` one binds none. The GLSL writer has
+no level, so `level` is the WGSL's alone. The manifest records the level and the two named options
+as `emit`, which the load-time emitter emits the program again under (below). A plugin is a
+function, which a manifest cannot record, so `ir` with a plugin is a `TypeError` that says the
+load-time emitter could not emit the program again. A word an option does not take is a
+`TypeError` too, naming what the option takes, since a writer reads an unknown level as the full
+optimizer, an unknown `parens` as `'minimal'` and an unknown flavor as `'float'`, and the manifest
+would record it.
+
+```ts
+const shown = packModule(module, {
+  emit: { level: 'O1', parens: 'minimal', fp64Flavor: 'integer' },
+});
+shown.emit; // { level: 'O1', parens: 'minimal', fp64Flavor: 'integer' }
+const program = rt.load(shown); // runs the WGSL its reader was shown, with the bindings it lists
+```
+
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU (Rule 11.11).
 It imports nothing of the compiler, so an application that runs compiled programs ships about
-10 KB of it, gzipped:
+11 KB of it, gzipped:
 
 ```ts
 import { createRuntime } from 'typeshade/runtime';
@@ -7723,14 +7747,17 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
 
 - The manifest carries its IR only when asked, `packModule(m, { ir: true })` or
   `typeshade({ ir: true })` (§64). Emitted again, the IR gives the manifest the build would have
-  written, byte for byte, for every example.
+  written, byte for byte, for every example, under the options it was packed under: the `emit` it
+  records, so a program packed at another level, with other `parens` or the `'integer'` flavor is
+  emitted again as it was, and the recorded variant a load adds agrees with its bindings. A plugin
+  is a function, which a manifest cannot record, so a manifest with plugins has no IR.
 - Only the package version that wrote the IR reads it: the IR is not a stable format. `repack`
   refuses another version's IR and a manifest with none, naming what to do; a manifest from
   another version still loads from the text it carries.
 - `load(m, { console: true })` of a manifest with no recorded variant records through the
   emitter, and without one is refused with the remedy.
 - The emitter carries the IR, the WGSL and GLSL writers, the console lowering and the manifest
-  builder, and no file of the front end and no `typescript` (Rule 11.11): about 75 KB gzipped,
+  builder, and no file of the front end and no `typescript` (Rule 11.11): about 76 KB gzipped,
   held to its budget in CI.
 
 The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67).

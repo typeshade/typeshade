@@ -2,7 +2,10 @@
 //
 // The types of a compiled program's manifest and the two layout converters, apart from the
 // builder in `manifest.ts`: the program runtime reads a manifest and imports this file alone, so
-// its module closure reaches no emitter (Rule 11.11, `scripts/bundle-boundary.ts`).
+// its module closure reaches no emitter (Rule 11.11, `scripts/bundle-boundary.ts`). The emit
+// options a manifest records are written here as the words themselves and not as the writers'
+// types, which would put the optimizer and the writers in that closure; `manifest.ts`, which
+// builds the record from those types, holds the two to each other.
 
 import type { ConsoleLog } from './console.js';
 import type { Layout } from './host-entry.js';
@@ -154,21 +157,22 @@ export interface PackGlDraw {
   readonly samplers: Readonly<Record<string, string | null>>;
 }
 
-/** Everything `packModule()` adds on request. */
-export interface PackOptions {
-  /** Add the recorded variant, `console`: the WGSL that records the `console.*` calls. */
-  readonly console?: boolean;
-  /** Add the program as portable IR, `ir`, which the load-time emitter (`typeshade/emit`) emits
-   *  again without the front end. About three times the WGSL gzipped, so on request only. */
-  readonly ir?: boolean;
-}
-
 /** The serialisable result of {@link buildManifest}: see there. */
 export interface Pack {
   /** The manifest's schema, which a reader checks first (Rule 11.10). */
   readonly schema: typeof PACK_SCHEMA;
   /** The package version that wrote it. */
   readonly compiler: string;
+  /** The options the program was emitted under, when the build gave any of the three a manifest
+   *  can record (`packModule(m, { emit })`, its `plugins` apart, which it cannot): the optimization
+   *  `level`, the `parens` and the `fp64Flavor`. One the build did not give is absent and stands
+   *  for its default (`'O2'`, `'full'` and `'float'`), and a manifest built with none has no `emit`.
+   *  The load-time emitter emits the program again under them (Rule 11.10). */
+  readonly emit?: {
+    readonly level?: 'O0' | 'O1' | 'O2';
+    readonly parens?: 'full' | 'minimal';
+    readonly fp64Flavor?: 'float' | 'integer';
+  };
   readonly wgsl: string;
   readonly glsl?: { readonly vertex: string; readonly fragment: string };
   readonly bindings: readonly PackBinding[];

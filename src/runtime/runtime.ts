@@ -55,7 +55,8 @@ export interface RuntimeOptions<D extends object = object> {
   readonly consoleBytes?: number;
   /** The load-time emitter, `repack` from `typeshade/emit`, which emits a manifest again from
    *  the portable IR it carries when a load asks for a variant the build did not write
-   *  (`load(m, { console: true })`). The runtime never imports it itself, so a host that does
+   *  (`load(m, { console: true })`), under the options the manifest was packed under
+   *  (`packModule(m, { emit })`). The runtime never imports it itself, so a host that does
    *  not pass it ships no emitter. */
   readonly emit?: (manifest: Pack, options: { readonly console?: boolean }) => Pack;
 }

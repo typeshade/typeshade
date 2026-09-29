@@ -600,6 +600,60 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A program packed under emit options** (proposal 0028, item 4; design rules 11.10 and 11.11;
+  surface §69). `packModule(m, { emit: { level, parens, fp64Flavor, plugins } })` emits the
+  manifest's `wgsl`, its recorded variant's `wgsl`, its `glsl` and the fragment program of each
+  of its WebGL2 draws, and its `bindings`, under those options: the WGSL writer's own and an
+  optimization level, `'O0'`, `'O1'` or `'O2'`. `fp64Flavor` changes the bindings too, since the
+  `'float'` flavor of the `f64` emulation binds the `_fp64` guard and the `'integer'` one binds
+  none, so the manifest lists the guard its WGSL declares. The GLSL writer has no level, so
+  `level` is the WGSL's alone. `packModule(m)` emitted the program at the defaults, so a host that
+  shows or ships it under other options, an application's WGSL tab, could not hand the runtime
+  the program it showed.
+  - The manifest records what the build gave of `level`, `parens` and `fp64Flavor` in `emit`, so
+    `repack` from `typeshade/emit` emits the program again under them and Rule 11.10's promise,
+    that the IR emitted again gives every other field byte for byte, holds for a manifest packed
+    under options, the recorded variant a load adds included. A manifest built with none has no
+    `emit`, and absent stands for the default, so a manifest written before this one reads as it
+    did.
+  - A plugin is a function, which a manifest cannot record, so `{ ir: true }` with `plugins` is a
+    `TypeError` that says the load-time emitter could not emit the program again. A word an
+    option does not take is a `TypeError` too, naming what the option takes: the writers read an
+    unknown level as the full optimizer, an unknown `parens` as `'minimal'` and an unknown flavor
+    as `'float'`, and the manifest would have recorded the word it was given. A WebGL2 draw reads
+    the block and sampler names it binds by from the program the plugins leave alone, since a
+    text plugin such as `minify` writes a declaration this reads by its spacing, and ships the
+    program the plugins write; the names a plugin keeps are the ones a host binds by.
+  - `PackOptions` gains `emit` and `Pack` gains `emit`, the two exports that change, and
+    `src/__api__/surface.md` records both; no name is new. `PackOptions` is declared beside the
+    builder now, in `src/core/manifest.ts`, since it names the writers' types, and `Pack['emit']`
+    spells the words out, so that the program runtime's module closure is the 29 modules it was
+    and reaches no emitter; the build stops when a word is in one and not in the other. The
+    plugin's options are as they were (`typeshade({ console, ir })`, surface §64).
+  - `src/core/manifest.test.ts` packs every example under each of three levels with each of the
+    two flavors, under `parens: 'minimal'` and under all three, and holds the manifest's WGSL to
+    what the writers emit under those options and `repack` to giving the manifest back byte for
+    byte; and, for six subjects, two of them programs that emulate `f64`, that each level, flavor
+    and `parens` gives the GLSL, the bindings, the recorded variant and the WebGL2 draws those
+    options emit, the guard among the bindings only under the `'float'` flavor. It holds each
+    refusal's sentence, and
+    fails when an option is left out of the WGSL, the GLSL, the recorded variant, the bindings
+    or a draw, when the manifest does not record its options, and when `repack` does not read
+    them. `src/runtime/runtime.test.ts` holds, against the recording device, that the runtime
+    makes its shader module from the manifest's text and lays it out by its bindings, and that
+    the variant a load-time emitter adds is the one the recorded options emit.
+  - `journeys/emit-options/` runs a compute entry and a full-screen draw that compute in emulated
+    doubles on WebGPU through `typeshade/runtime`, each packed at the defaults and under four
+    sets of options, and holds every result to plain JavaScript's doubles and to the CPU oracle's.
+    It fails when the WGSL leaves out the flavor its bindings follow ("Binding doesn't exist"),
+    and it found the bug listed under Fixed: Tint refused the WGSL that `parens: 'minimal'` wrote
+    for an arithmetic operand of a bitwise or shift operator.
+  - `typeshade/runtime` is still 11,142 bytes minified and gzipped, and `typeshade/emit`, which
+    carries the manifest builder, is now 76,132, 6,368 under its budget. Rule 11.11's rationale,
+    surface §69 and the header of `scripts/bundle-boundary.ts` said about 10 KB for the runtime,
+    which it was before the overrides, the sample types and the console's counts, and about 75 or
+    78 KB for the emitter; they say about 11 and 76.
+
 - **The console's counts, to the host** (proposal 0028, item 3; design rule 11.11; surface §69).
   `frame.submit()` and `rt.submit(…)` resolve to what the console buffers of that submit held,
   `{ console: [{ entry, lines, dropped }, …] }`: a row for each dispatch and draw that recorded,

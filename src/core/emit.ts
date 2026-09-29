@@ -732,9 +732,19 @@ function directiveHeader(be: Backend, m: ModuleDecl): string {
  *  declaration assembly (consts → structs → bindings → funcs, only non-empty sections),
  *  joined `\n\n` with a trailing newline. Each backend's public module entry
  *  (`emitModule` for WGSL) routes through here, so the assembly lives once.
- *  `opts.plugins` run staged around the assembly (all transformIR, then all transformText). */
-export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): string {
-  const lowered = applyIRPlugins(lowerForBackend(m, be, undefined, opts?.fp64Flavor), opts);
+ *  `opts.plugins` run staged around the assembly (all transformIR, then all transformText).
+ *
+ *  `level` runs the optimizer at that named tier, as {@link emitModuleAt} does, with `opts` as well:
+ *  the one call the manifest's emit options (`packModule(m, { emit })`, Rule 11.10) need, since the
+ *  public `EmitOptions` carries no level and `emitModuleAt` carries no options. Omitted, it is the
+ *  backend's own optimizer, which is `'O2'`. */
+export function emitModule(
+  m: ModuleDecl,
+  be: Backend,
+  opts?: EmitOptions,
+  level?: OptLevel,
+): string {
+  const lowered = applyIRPlugins(lowerForBackend(m, be, level, opts?.fp64Flavor), opts);
   // The `enable`-directive header (X-GIS #628) is derived from the AUTHORED module's opt-in
   // caps (m.enables) — the lowering passes rebuild the module object and do not carry
   // it — and prepended to the assembled declarations. '' for enables-free modules, so

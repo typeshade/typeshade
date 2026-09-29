@@ -7,7 +7,9 @@
 // pipeline cache's key, and on a real device by `journeys/overrides`; its texture sample types to
 // the layout each texture is given, and on a real device by `journeys/textures`; its console
 // counts to what `submit()` resolves to and to what a runtime given a sink prints, and on a real
-// device by the journeys' harness, which reads them from `submit()`.
+// device by the journeys' harness, which reads them from `submit()`; its program packed under emit
+// options to the text a shader module is made from and the layout it is given, and on a real
+// device by `journeys/emit-options`.
 //
 // Verifies: Rule 11.8, Rule 11.11.
 
@@ -34,6 +36,7 @@ function fakeDevice(features: string[] = []) {
     made[k] = (made[k] ?? 0) + 1;
   };
   const layouts: object[] = [];
+  const modules: string[] = [];
   const groups: { entries: { binding: number; resource: { size?: number } }[] }[] = [];
   const commands: string[] = [];
   const pipelines: { kind: 'compute' | 'render'; descriptor: PipelineDescriptor }[] = [];
@@ -92,7 +95,7 @@ function fakeDevice(features: string[] = []) {
       };
     },
     createSampler: () => (count('sampler'), {}),
-    createShaderModule: () => (count('shaderModule'), {}),
+    createShaderModule: (d: { code: string }) => (count('shaderModule'), modules.push(d.code), {}),
     createBindGroupLayout: (d: { entries: object[] }) => {
       count('bindGroupLayout');
       layouts.push(d);
@@ -127,6 +130,7 @@ function fakeDevice(features: string[] = []) {
     device,
     made,
     layouts,
+    modules,
     groups,
     commands,
     pipelines,
@@ -1173,5 +1177,87 @@ describe('the load-time emitter as the runtime plug-in (change 0025 step 6, Rule
     expect(() => rt.load(packModule(r.module!), { console: true })).toThrow(
       'load({ console: true }): this manifest carries no recorded variant and no IR to emit one from; build it with packModule(m, { ir: true }) or typeshade({ ir: true }).',
     );
+  });
+});
+
+/** A compute entry that computes in `f64`, which the WGSL holds as two `f32`s: the `'float'` flavor
+ *  of that emulation reads the `_fp64` guard, a binding the manifest lists, and the `'integer'`
+ *  flavor reads none. It logs, so the recorded variant has a `_console` buffer beside the guard. */
+const DOUBLES = `"use typeshade";
+class Zoom { cx: f64; scale: f64; }
+declare const zoom: uniform<Zoom>;
+declare const out: storage<array<f32>, "read_write">;
+@compute([4])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  const x: f64 = zoom.cx + f64(f32(gid.x)) * zoom.scale;
+  console.log("x", f32(x));
+  out[gid.x] = f32(fract(x * 1000));
+}
+`;
+
+describe('a program packed under emit options (change 0028 item 4, Rule 11.11)', () => {
+  const module = () => {
+    const r = compile(DOUBLES);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    return r.module!;
+  };
+  /** The slots of the layout the last pipeline was made with, which a texture is the guard in. */
+  const layout = (fake: ReturnType<typeof fakeDevice>) =>
+    (fake.layouts.at(-1) as { entries: { binding: number; texture?: object }[] }).entries;
+
+  it("makes its shader module from the manifest's text and lays it out by the manifest's bindings", async () => {
+    const texts = new Set<string>();
+    for (const fp64Flavor of ['float', 'integer'] as const) {
+      const fake = fakeDevice();
+      const rt = await createRuntime({ device: fake.device });
+      const pack = packModule(module(), { emit: { level: 'O1', fp64Flavor } });
+      const pipeline = await rt.load(pack).compute();
+      texts.add(pack.wgsl);
+      expect(fake.modules, fp64Flavor).toEqual([pack.wgsl]);
+      // The flavor is the manifest's: its bindings say whether the guard is one, and the layout
+      // follows them, a texture for the guard where there is one.
+      expect(pack.bindings.map((b) => b.name)).toEqual(
+        fp64Flavor === 'float' ? ['zoom', 'out', '_fp64'] : ['zoom', 'out'],
+      );
+      expect(
+        layout(fake).map((e) => e.binding),
+        fp64Flavor,
+      ).toEqual(pack.bindings.map((b) => b.binding));
+      expect(layout(fake).filter((e) => e.texture !== undefined)).toHaveLength(
+        fp64Flavor === 'float' ? 1 : 0,
+      );
+      // The runtime binds the guard itself where the manifest lists one: the host gives the two
+      // bindings the program declares.
+      const f = rt.frame();
+      f.dispatch(pipeline, { zoom: { cx: 1, scale: 2 }, out: new Float32Array(4) }, 1);
+      await f.submit();
+      expect(fake.groups.at(-1)!.entries.map((e) => e.binding)).toEqual(
+        pack.bindings.map((b) => b.binding),
+      );
+    }
+    // Two programs, which the runtime runs as the manifests give them.
+    expect(texts.size).toBe(2);
+  });
+
+  it('emits the recorded variant a load-time emitter adds under the options the manifest records', async () => {
+    const emit = { level: 'O0', fp64Flavor: 'integer' } as const;
+    const built = packModule(module(), { ir: true, emit });
+    expect(built.console).toBeUndefined();
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device, emit: repack });
+    const program = rt.load(built, { console: true });
+    await program.compute();
+    // The variant the build would have written under those options, and not the defaults'.
+    const direct = packModule(module(), { console: true, emit });
+    expect(program.manifest.emit).toEqual(emit);
+    expect(program.manifest.console?.wgsl).toBe(direct.console!.wgsl);
+    expect(fake.modules).toEqual([direct.console!.wgsl]);
+    expect(direct.console!.wgsl).not.toBe(packModule(module(), { console: true }).console!.wgsl);
+    // Its layout is the variant's: the two bindings and the console buffer, no guard.
+    expect(direct.console!.bindings.map((b) => b.name)).toEqual(['zoom', 'out', '_console']);
+    expect(layout(fake).map((e) => e.binding)).toEqual(
+      direct.console!.bindings.map((b) => b.binding),
+    );
+    expect(layout(fake).filter((e) => e.texture !== undefined)).toEqual([]);
   });
 });

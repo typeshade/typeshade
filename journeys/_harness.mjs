@@ -17,8 +17,9 @@
 // runtime the tarball ships, loads the run's manifest (`packModule`), binds each binding by its
 // name with the journey's host value, and reads the result back through a `Resident` or the
 // target texture. The console's lines reach the runtime's sink, and the count of them and of the
-// calls that did not fit is what `submit()` resolves to (change 0028). The harness writes no
-// WebGPU of its own.
+// calls that did not fit is what `submit()` resolves to (change 0028). A run may pack its program
+// under emit options (`emit`, change 0028): the level, `parens` and `fp64Flavor` of surface §69,
+// which must run on WebGPU as the manifest says. The harness writes no WebGPU of its own.
 //
 // A run of an engine (`kind: 'engine'`, change 0025) is a host module that draws frames on the
 // runtime's public exports alone: the harness refuses any other import and any WebGPU call in
@@ -177,7 +178,33 @@ for (const id of journeys) {
     }
     // The runtime binds each binding the entries reach by its name, with the host value
     // (Rule 8.21) of the journey's value, which the CPU oracle is handed too.
-    const pack = packModule(r.module, { console: run.console !== undefined });
+    const pack = packModule(r.module, {
+      console: run.console !== undefined,
+      ...(run.emit !== undefined ? { emit: run.emit } : {}),
+    });
+    // A run with `emit` packs the program under those options, which the manifest records. The
+    // journey shows nothing of them if they emit the program the defaults do, so that is a failure.
+    if (run.emit !== undefined) {
+      // What a manifest can record of them, in one order: a plugin, which it cannot, is left out.
+      const recorded = (e) =>
+        JSON.stringify(
+          Object.fromEntries(
+            ['level', 'parens', 'fp64Flavor']
+              .filter((k) => e?.[k] !== undefined)
+              .map((k) => [k, e[k]]),
+          ),
+        );
+      if (recorded(pack.emit) !== recorded(run.emit))
+        fail(
+          `${id}#${n}`,
+          `packed with ${JSON.stringify(run.emit)}, the manifest records ${JSON.stringify(pack.emit)}`,
+        );
+      if (pack.wgsl === packModule(r.module).wgsl)
+        fail(
+          `${id}#${n}`,
+          `packed with ${JSON.stringify(run.emit)}, the WGSL is the one the defaults emit: the run shows nothing of the options`,
+        );
+    }
     const layouts = new Map(pack.bindings.map((b) => [b.name, b.layout]));
     const reach = reached(pack, run);
     const bindings = Object.fromEntries(
@@ -597,7 +624,7 @@ for (const job of jobs) {
       `submit() resolved to ${gpu.rows.length} console rows for a run that does not record`,
     );
   console.log(
-    `${g.ok && c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${expected.length} values, worst relative error WebGPU ${g.text}, CPU oracle ${c.text}`,
+    `${g.ok && c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}${run.emit ? ` (packed with ${JSON.stringify(run.emit)})` : ''}: ${expected.length} values, worst relative error WebGPU ${g.text}, CPU oracle ${c.text}`,
   );
 }
 for (const job of engines) {

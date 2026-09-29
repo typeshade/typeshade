@@ -5,7 +5,9 @@
 // from the calls that read it) and byte layout, each entry with the bindings it reaches, the
 // overrides, the features, the recorded console variant and the WebGL2 conventions.
 // `packModule()` returns it, the plugin's generated module exports it as its default export, and
-// the program runtime loads it.
+// the program runtime loads it. `packModule(m, { emit })` emits the text, the GLSL and the
+// bindings under the options it is given, and the manifest records the ones it can (`emit`), so
+// the load-time emitter emits the program again under them (change 0028).
 //
 // It is built from the IR alone and imports no TypeScript, so every producer computes the same
 // manifest, the load-time emitter included (change 0025, section 5). The byte layouts are the
@@ -23,8 +25,9 @@ import { eachExpr, eachStmtExpr } from './ir/visit.js';
 import { sourceSpanOf } from './ir/span.js';
 import { fnReads, fnWrites } from './passes/effects.js';
 import { texturePairs } from './passes/texture-pairs.js';
-import { emitModule, wgslBackend } from './backends/wgsl.js';
+import { wgslBackend } from './backends/wgsl.js';
 import { emitGlslStages } from './backends/glsl.js';
+import { emitModule as emitWith, type EmitOptions, type ParenMode } from './emit.js';
 import { hostFeaturesFor } from './backend.js';
 import { reflect, typeLayout, type BindEntry, type EntryIoField } from './reflect.js';
 import {
@@ -37,9 +40,10 @@ import {
   type PackEntry,
   type PackGlDraw,
   type PackIo,
-  type PackOptions,
 } from './manifest-types.js';
 import { consoleBuffer } from './passes/console-buffer.js';
+import type { Fp64Flavor } from './passes/fp64-lower.js';
+import type { OptLevel } from './passes/opt/index.js';
 import { toPortable } from './ir/portable.js';
 import type { DrawBinding, Layout } from './host-entry.js';
 import { vertexLayoutOf, vertexLayoutOfEntry } from './vertex-layout.js';
@@ -58,10 +62,31 @@ export {
   type PackIo,
   type PackLayout,
   type PackLine,
-  type PackOptions,
   type PackOverride,
   type PackResource,
 } from './manifest-types.js';
+
+/** Everything `packModule()` adds on request. */
+export interface PackOptions {
+  /** Add the recorded variant, `console`: the WGSL that records the `console.*` calls. */
+  readonly console?: boolean;
+  /** Add the program as portable IR, `ir`, which the load-time emitter (`typeshade/emit`) emits
+   *  again without the front end. About three times the WGSL gzipped, so on request only. */
+  readonly ir?: boolean;
+  /** Emit the program under other options than the defaults: the WGSL writer's own
+   *  ({@link EmitOptions}: `parens`, `fp64Flavor` and `plugins`) and an optimization `level`,
+   *  `'O0'`, `'O1'` or `'O2'` (the default; {@link OptLevel} says what each runs). The
+   *  manifest's `wgsl`, its recorded variant's `wgsl`, its `glsl` (the WebGL2 tier's programs
+   *  included) and its `bindings` are the ones those options emit: `fp64Flavor` changes the
+   *  bindings too, since the `'float'` flavor binds the `_fp64` guard and the `'integer'` one
+   *  binds none. `parens`, `fp64Flavor` and `plugins` reach the GLSL as they reach the WGSL;
+   *  `level` is the WGSL's alone, since the GLSL writer has no level and writes its own
+   *  optimized program. The manifest records `level`, `parens` and `fp64Flavor` in its `emit`,
+   *  which the load-time emitter emits the program again under. A plugin is a function, which a
+   *  manifest cannot record, so `ir: true` with a plugin is a `TypeError`: the load-time emitter
+   *  could not emit the program again. A word an option does not take is a `TypeError` too. */
+  readonly emit?: EmitOptions & { readonly level?: OptLevel };
+}
 
 // ─── byte layouts ────────────────────────────────────────────────────────────────────────────
 
@@ -158,7 +183,11 @@ export function closureOf(
 
 /** What the WebGL2 tier draws a full-screen fragment entry with: its GLSL ES 3.00 fragment
  *  program, the block name of each uniform binding and the sampler of each texture; or why it
- *  cannot. `bindings` are the ones the entry reaches, the `_fp64` guard among them. */
+ *  cannot. `bindings` are the ones the entry reaches, the `_fp64` guard among them. `emit` is the
+ *  options the program is emitted under (change 0028), the plugins among them: the program is
+ *  what they write, and the block and sampler names are read from the same program without them,
+ *  since a text plugin (`minify`) writes a declaration this reads by its spacing, and the names a
+ *  plugin keeps are the ones a host binds by. */
 export function glDrawOf(
   m: ModuleDecl,
   f: FuncDecl,
@@ -166,15 +195,21 @@ export function glDrawOf(
   closure: ReadonlySet<string>,
   byName: ReadonlyMap<string, FuncDecl>,
   declaredFns: ReadonlySet<string>,
+  emit?: EmitOptions,
 ): PackGlDraw | { none: string } {
   const storage = bindings.find((b) => b.space === 'storage');
   if (storage !== undefined)
     return {
       none: `it reaches the storage binding "${storage.name}", and GLSL ES 3.00 has no storage buffer`,
     };
+  let shipped: string;
   let frag: string;
   try {
-    frag = emitGlslStages(m, { fragmentEntry: f.name }).fragment;
+    shipped = emitGlslStages(m, { ...emit, fragmentEntry: f.name }).fragment;
+    frag =
+      emit?.plugins !== undefined && emit.plugins.length > 0
+        ? emitGlslStages(m, { ...emit, plugins: undefined, fragmentEntry: f.name }).fragment
+        : shipped;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { none: `the GLSL backend refuses it: ${message.replace(/\.$/, '')}` };
@@ -216,7 +251,7 @@ export function glDrawOf(
     if (!declared.has(n))
       return { none: `its GLSL declares a uniform "${n}" the draw does not bind` };
   }
-  return { fragment: frag, blocks, samplers };
+  return { fragment: shipped, blocks, samplers };
 }
 
 // ─── WebGL2's data textures ──────────────────────────────────────────────────────────────────
@@ -259,11 +294,14 @@ const STAGES = ['vertex', 'fragment', 'compute'] as const;
 /** The builtins a full-screen draw fills in for a `@fragment` entry. */
 const FRAGMENT_BUILTINS = new Set(['position', 'front_facing']);
 
-function packBindings(m: ModuleDecl): PackBinding[] {
+/** The bindings of `m`, as `reflect()` reports them under the `f64` flavor the program is emitted
+ *  with: the `'float'` flavor (the default) binds the `_fp64` guard, and the `'integer'` one does
+ *  not (change 0028). */
+function packBindings(m: ModuleDecl, fp64Flavor?: Fp64Flavor): PackBinding[] {
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   const decls = new Map(m.bindings.map((b) => [b.name, b]));
   const out: PackBinding[] = [];
-  for (const group of reflect(m).bindGroups)
+  for (const group of reflect(m, { fp64Flavor }).bindGroups)
     for (const e of group.entries) {
       const {
         group: g,
@@ -316,6 +354,95 @@ function typeOfInjected(e: BindEntry): string {
   return e.resourceKind;
 }
 
+// ─── the emit options (change 0028) ──────────────────────────────────────────────────────────
+
+/** Each word an emit option takes, from the type the writers take it as: the record is
+ *  exhaustive over `T`, so a word added to the type and not here stops the build. */
+const wordsOf = <T extends string>(record: Record<T, true>): readonly T[] =>
+  Object.keys(record) as T[];
+const LEVELS = wordsOf<OptLevel>({ O0: true, O1: true, O2: true });
+const PARENS = wordsOf<ParenMode>({ full: true, minimal: true });
+const FLAVORS = wordsOf<Fp64Flavor>({ float: true, integer: true });
+
+/** What a build emits under: the options both writers take, the level the WGSL's optimizer runs
+ *  at, and what the manifest records of them. */
+interface EmitPlan {
+  /** `parens`, `fp64Flavor` and `plugins`, as `emitModule()` and `emitGlslStages()` take them. */
+  readonly options: EmitOptions | undefined;
+  /** The WGSL's optimizer tier. The GLSL writer has none. */
+  readonly level: OptLevel | undefined;
+  /** `Pack.emit`: the options a manifest can record, which a plugin is not. `manifest-types.ts`
+   *  spells its words out, so that the program runtime's closure reaches no emitter, and this
+   *  record, made of the writers' own types, and `repack`, which hands it back to them, hold the
+   *  two to each other: a word one takes and the other lacks stops the build. */
+  readonly record: Pack['emit'];
+}
+
+/** The word `given` for `emit.<name>`, or undefined when there is none. The writers read a word
+ *  they do not know as another (an unknown level runs the full optimizer, an unknown `parens` is
+ *  `'minimal'`, an unknown flavor is `'float'`), and a manifest would record it, so it is refused. */
+function wordOf<T extends string>(
+  name: string,
+  given: unknown,
+  words: readonly T[],
+): T | undefined {
+  if (given === undefined) return undefined;
+  if ((words as readonly unknown[]).includes(given)) return given as T;
+  const list = `${words
+    .slice(0, -1)
+    .map((w) => `"${w}"`)
+    .join(', ')} or "${words[words.length - 1]!}"`;
+  const got =
+    typeof given === 'string'
+      ? JSON.stringify(given)
+      : given === null
+        ? 'null'
+        : `a ${typeof given}`;
+  throw new TypeError(`packModule(): emit.${name} takes ${list}; got ${got}.`);
+}
+
+/** The options of `packModule(m, { emit })`, checked, and what the manifest records of them. */
+function emitPlanOf(options: PackOptions): EmitPlan {
+  const emit = options.emit;
+  if (emit === undefined) return { options: undefined, level: undefined, record: undefined };
+  if (typeof emit !== 'object' || emit === null)
+    throw new TypeError(
+      'packModule(): emit takes an object of options, { level, parens, fp64Flavor, plugins }.',
+    );
+  const level = wordOf('level', emit.level, LEVELS);
+  const parens = wordOf('parens', emit.parens, PARENS);
+  const fp64Flavor = wordOf('fp64Flavor', emit.fp64Flavor, FLAVORS);
+  const plugins = emit.plugins;
+  if (plugins !== undefined && !Array.isArray(plugins))
+    throw new TypeError(
+      'packModule(): emit.plugins takes a list of plugins, such as the one obfuscate() returns.',
+    );
+  // A plugin is a function, which a manifest cannot record, so the program packed under one cannot
+  // be emitted again from the IR it carries.
+  if (options.ir === true && plugins !== undefined && plugins.length > 0)
+    throw new TypeError(
+      'packModule(): { ir: true } cannot go with emit.plugins: a plugin is a function, which a manifest cannot record, so the load-time emitter could not emit the program again under it. Pack the program without ir, or without the plugins.',
+    );
+  const record = {
+    ...(level !== undefined ? { level } : {}),
+    ...(parens !== undefined ? { parens } : {}),
+    ...(fp64Flavor !== undefined ? { fp64Flavor } : {}),
+  };
+  return {
+    options: {
+      ...(parens !== undefined ? { parens } : {}),
+      ...(fp64Flavor !== undefined ? { fp64Flavor } : {}),
+      ...(plugins !== undefined ? { plugins } : {}),
+    },
+    level,
+    record: Object.keys(record).length > 0 ? record : undefined,
+  };
+}
+
+/** `m` as WGSL under the plan's options and level. With none it is `emitModule(m)`. */
+const emitWgsl = (m: ModuleDecl, plan: EmitPlan): string =>
+  emitWith(m, wgslBackend, plan.options, plan.level);
+
 /**
  * Everything a host needs to run a compiled module, in one plain object (Rule 11.10): the
  * manifest, schema {@link PACK_SCHEMA}.
@@ -327,9 +454,18 @@ function typeOfInjected(e: BindEntry): string {
  * present when the module has one entry of each stage and the GLSL ES 3.00 writer can spell
  * them, and `gl.draws` says for each full-screen fragment entry how the WebGL2 tier draws it or
  * why it cannot.
+ *
+ * `options.emit` emits the WGSL (the recorded variant's too), the GLSL (the WebGL2 tier's draws
+ * too) and the bindings under other options than the defaults (change 0028): the WGSL writer's
+ * `parens`, `fp64Flavor` and `plugins`, and an optimization `level` for the WGSL. The manifest
+ * records `level`, `parens` and `fp64Flavor` in `emit`, and the load-time emitter emits the
+ * program again under them. A plugin is a function, which a manifest cannot record, so `ir` with
+ * `plugins` is a `TypeError`.
  */
 export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
-  const wgsl = emitModule(m);
+  const plan = emitPlanOf(options);
+  const fp64Flavor = plan.options?.fp64Flavor;
+  const wgsl = emitWgsl(m, plan);
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   // Through `stageOf`, as every stage decision is: a `fn()` handle carries `attrs`, not `stage`.
   const hasVs = m.funcs.some((f) => stageOf(f) === 'vertex');
@@ -337,13 +473,13 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
   let glsl: Pack['glsl'];
   if (hasVs && hasFs) {
     try {
-      glsl = emitGlslStages(m);
+      glsl = emitGlslStages(m, plan.options);
     } catch {
       glsl = undefined;
     }
   }
-  const r = reflect(m);
-  const bindings = packBindings(m);
+  const r = reflect(m, { fp64Flavor });
+  const bindings = packBindings(m, fp64Flavor);
   const byBinding = new Map(bindings.map((b) => [b.name, b]));
 
   const declared = new Set(m.funcs.map((f) => f.name));
@@ -402,7 +538,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
         const b = byBinding.get(x.name)!;
         return toDrawBinding(b);
       });
-      draws[info.name] = glDrawOf(m, f, drawBindings, closure, byName, declared);
+      draws[info.name] = glDrawOf(m, f, drawBindings, closure, byName, declared, plan.options);
     }
   }
 
@@ -411,15 +547,16 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
     const r2 = consoleBuffer(m);
     if (r2.log !== undefined)
       recorded = {
-        wgsl: emitModule(r2.module),
+        wgsl: emitWgsl(r2.module, plan),
         log: r2.log,
-        bindings: packBindings(r2.module),
+        bindings: packBindings(r2.module, fp64Flavor),
       };
   }
 
   return {
     schema: PACK_SCHEMA,
     compiler: VERSION,
+    ...(plan.record !== undefined ? { emit: plan.record } : {}),
     wgsl,
     ...(glsl !== undefined ? { glsl } : {}),
     bindings,
