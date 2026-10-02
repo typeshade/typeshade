@@ -593,13 +593,25 @@ argument. An emulated double (`f64`, `vec3f64`) is left to the fp64 pass, whose 
 its own. The result type follows the operand deciding the shape: `dot` of integer vectors is that
 integer, and a written number in the first position takes an integer peer's kind (§13).
 
-A function the file declares or imports (§68) wins over any name in the table above, and over
-`bool` and `f64`: those names meant the author's function before they were builtins, and an
-addition does not change what a program means. The builtins that came earlier (`min`, `max`, `mix`,
-`clamp`, `pow`, `f32` …) keep their precedence, for the same reason pointing the other way:
-a program that resolves to one today must keep resolving to it. That precedence is a function
-of the module's: a name a body declares, a local function (§14) or a parameter that takes a
-function, wins over every builtin, as TypeScript's lookup finds it first. `step(i)` on a parameter
+A function the file declares or imports (§68) wins over every builtin function of its name: a name
+in the table above, a WGSL built-in function, the free spelling of a `Math` member, and a
+TypeShade extension that is a function (`random`, `sum`, `fill` …). A call of the name reaches the
+declaration in the constant folder, on the CPU, on WebGPU and on WebGL2, as TypeScript's lookup
+finds the file's own name before a global and as WGSL's own scoping has it, where a module-scope
+declaration hides a predeclared function. `fract(x)` and `fract(1.25)` beside a declared
+`fract` both call it, and the editor's hover shows it. A call of a builtin the file never wrote
+keeps meaning the builtin: the `fract` that `random(p)` expands to, and a `Math.pow(a, b)` beside
+a declared `pow`.
+
+A value constructor is the one thing that does not give way. A declaration named like a scalar
+cast, a vector, a matrix or `array` (`f32`, `vec3`, `mat2x2f` …) does not take a call of that
+name, as a type name wins over an alias of the same name (§2): `f32(x)` beside a declared `f32`
+is the cast, and the declaration is a function nothing calls by that name. `bool` and `f64` stay
+the declaration's: files declared functions of those names before they were builtins, and an
+addition does not change what a program means.
+
+A name a body declares, a local function (§14) or a parameter that takes a function, wins over
+every builtin in the same way, as TypeScript's lookup finds it first. `step(i)` on a parameter
 `step` calls the function the call handed over, and a local `const mix = …` is the one `mix(…)`
 calls, where both reached WGSL's builtin before.
 
@@ -633,28 +645,33 @@ as `pow(i32, i32)`, which neither compiler accepts.
 `transpose` applies to every matrix shape and `determinant` to the square ones; §40 has the
 table.
 
-**One caveat on declaring a function with a builtin's name**, and it is about GLSL ES 3.00
-rather than about this table: a declared function is emitted with the name the author wrote,
-and GLSL ES 3.00 does not let a program redeclare one of ITS builtins. Measured on the compile
-gate's own WebGL2 context, a module that declares and calls `exp2` or `fwidth` compiles on
-Tint and is rejected by ANGLE with
+**A declaration named like a builtin is emitted under another name**, on both targets. WGSL
+predeclares its built-in functions, its types and aliases, and the names its own text spells
+(`read`, `storage`, `rgba8unorm`), and a module-scope declaration of one hides it for the whole
+module: `fn fract` would make every `fract(…)` of the module call the declaration, the ones the
+compiler writes included, and a declared `f32` would hide the type in every `x: f32`. GLSL ES 3.00
+does not let a program redeclare one of its built-in functions at all; measured on the compile
+gate's own WebGL2 context, a module that declares `exp2` or `fwidth` is rejected by ANGLE with
 
 ```
 ERROR: 0:5: 'exp2' : Name of a built-in function cannot be redeclared as function
 ```
 
-while `saturate` and `fma` are accepted, because GLSL ES 3.00 has neither name. `bool` fails
-the same way for a different reason: it is a GLSL ES 3.00 keyword, so ANGLE reports
-`'bool' : syntax error` on a module that declares a function of that name, although the
-declaration still wins on WGSL and on the CPU. None of this is new: those names are the GLSL
-builtins and keywords they always were, and a module declaring one emitted the same GLSL
-before this item existed. It is, though, the one way the precedence rule above can hand you a
-WGSL-only module. The fix is to rename the function; the compiler does not warn about it yet.
+So each writer emits such a function as `fract_` (`fract_1` when that is taken), and every call
+through the declaration with it, while a builtin call keeps the builtin's name: the author's
+`Math.pow(a, b)` beside a declared `pow`, and the `fract` of `random(p)`, reach the builtin. A
+module that declares and calls `fract`, `pow`, `exp2` and `f32` compiles on Tint and on ANGLE, and
+`bool` and `f64` are emitted as `bool_` and `f64_`. An entry point keeps its name, since the host
+creates the pipeline by it. The rename shows in the emitted text only: the CPU calls the function
+by the name the file gave it.
 
-The same precedence holds for a function handed to a fold. `zip(xs, ys, atan2)` beside a
-declared `atan2` is refused with the rule named, because `atan2` is a name the intrinsic wins
-and a fold has no intrinsic-valued callback; `zip(xs, ys, fma)` beside a declared `fma` calls
-the declaration, as a plain `fma(a, b, c)` would.
+The same precedence holds for a function handed by its name to a fold, to an array method or to a
+function that takes one. `zip(xs, ys, atan2)` beside a declared `atan2` calls the declaration, as a
+plain `atan2(a, b)` does and as `zip(xs, ys, fma)` beside a declared `fma` always did. The one name
+that cannot be handed over is a value constructor's: `zip(xs, ys, f32)`, `xs.map(u32)` and
+`apply(vec3, x)` beside a declaration of the name are refused with the rule named, since a call of
+the name is the constructor and no callback is one. A local function or a parameter of the name is
+the body's own, and is handed over.
 
 ---
 

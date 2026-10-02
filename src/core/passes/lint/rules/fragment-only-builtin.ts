@@ -135,7 +135,9 @@ export const fragmentOnlyBuiltin: LintRule = {
     }
     return {
       Expr(e, fn) {
-        if (e.op !== 'call' || !reachable.has(fn.name)) return;
+        // A call through a declaration is the module's own function, whatever fragment-only
+        // builtin shares its name (Rule 9.5).
+        if (e.op !== 'call' || e.declRef !== undefined || !reachable.has(fn.name)) return;
         const fix = FRAGMENT_ONLY_IDS.get(e.fn);
         if (fix === undefined) return;
         ctx.report(`${e.fn} is fragment-only in WGSL — ${fix}`, {

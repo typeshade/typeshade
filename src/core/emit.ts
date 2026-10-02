@@ -21,6 +21,7 @@ import { settleConstExprs } from './passes/const-expr.js';
 import { fp64Lower, hoistGuardFetch, type Fp64Flavor } from './passes/fp64-lower.js';
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js';
 import { mapExpr, mapStmt } from './passes/opt/ir-transform.js';
+import { renamePredeclaredFunctions, renameTargetOf } from './passes/rename-predeclared.js';
 import { reflect, type Reflection } from './reflect.js';
 
 const pad = (depth: number): string => '  '.repeat(depth);
@@ -401,6 +402,11 @@ export function lowerForBackend(
 ): ModuleDecl {
   // A kernel function runs on the host's side of the call (Rule 8.22): no target emits it.
   m = withoutKernels(m);
+  // A function the module declares under a name its target predeclares is emitted under another,
+  // and each call through it with it (Rule 9.5, change 0029). First of every pass, so that from
+  // here a call's name says whether it reaches the declaration or the builtin.
+  const renameFor = renameTargetOf(be.id);
+  if (renameFor !== undefined) m = renamePredeclaredFunctions(m, renameFor);
   // Profiling (X-GIS #2449) times the stages HERE rather than in a parallel copy of this list,
   // because a profiler that re-derives the pipeline measures whatever it drifted into. The
   // production path passes no sink and takes the untimed branch below.
@@ -516,13 +522,14 @@ let declaredFns: ReadonlySet<string> = new Set();
 /** The module's own function names that a call in it actually RESOLVES to — a declared name
  *  reached by at least one `call` carrying a `declRef` to a declaration of that name.
  *
- *  Not every declared name: an intrinsic id the front end keeps as an intrinsic must stay one.
- *  `inverseSqrt` and `atan2` are spellings a declaration does NOT win (the language's
- *  precedence rule keeps the names that were builtins first), so a module declaring
- *  `inverseSqrt` resolves `inverseSqrt(p.x)` to the intrinsic and the call carries no
- *  `declRef`. Keyed on the name alone, emit called the user's function instead: the GLSL went
- *  from `inversesqrt(p.x)` to `inverseSqrt(p.x)` while the CPU oracle still computed the
- *  intrinsic — one module, three answers.
+ *  Not every declared name: an intrinsic id a call of the module still means as the builtin
+ *  must stay one. A module can hold a function `inverseSqrt` and a call of the builtin
+ *  `inverseSqrt`: the declaration wins every call the author wrote, and a call the compiler wrote
+ *  is the builtin (Rule 9.5). Keyed on the name alone, emit called the user's function for both:
+ *  the GLSL went from `inversesqrt(p.x)` to `inverseSqrt(p.x)` while the CPU oracle still
+ *  computed the intrinsic — one module, three answers. The WGSL and GLSL writers rename such a
+ *  declaration before anything reads a name (`renamePredeclaredFunctions`), so on them the two
+ *  are never one name; this guard is what a backend with no rename list falls back to.
  *
  *  Not `declRef` per call either. That field is documented as never read by the emit path and
  *  is freely dropped by pass rewrites, so a rewrite that dropped it on one call would flip that

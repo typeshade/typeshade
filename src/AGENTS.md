@@ -64,6 +64,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `core/emit.ts`                                | The one neutral tree walk, and `lowerForBackend`, the shared pre-emit pipeline (below).                                                                                                                           |
 | `core/backend.ts`                             | The `Backend` contract: type / literal / intrinsic spelling, the divergent fragments, capabilities, `UnsupportedFeatureError`.                                                                                    |
 | `core/intrinsics.ts`                          | Neutral intrinsic ids mapped to each target's spelling. Only divergent intrinsics need an entry.                                                                                                                  |
+| `core/builtin-ids.ts`                         | `isBuiltinId`: the ids a builtin call carries. A call by one that has no `declRef` is the builtin, whatever function the module declares under the name (Rule 9.5); not exported from the package.                |
 | `core/backends/wgsl.ts`                       | The WGSL backend and `emitModule`. `wgsl-ptr.ts` spells `inout` parameters as pointers.                                                                                                                           |
 | `core/backends/glsl.ts`                       | The GLSL ES 3.00 backend (`emitGlslModule`, `emitGlslStages`): std140 UBOs, entry IO as varyings, storage as data textures, WGSL's integer answers (`glsl-int.ts`, Rule 11.12).                                   |
 | `core/oracle.ts`, `core/cpu-codegen.ts`       | The CPU f64 tree-walk interpreter and its `new Function` twin, both over the one op library in `core/cpu-runtime.ts`.                                                                                             |
@@ -108,6 +109,7 @@ Most other `core/*.ts` files are the production-emit and host-integration layer:
 | `core/passes/access.ts`               | How each builtin uses each argument (a value, the length `arrayLength` measures, an atomic's place, the texture `textureStore` writes), and `eachOperand`, which hands an analysis the operands of one expression with that access (#348).                                       |
 | `core/passes/texture-pairs.ts`        | Which sampler each texture is read with, through a helper's parameters, a `const` and `textureGather` as well: the `sampleType` `reflect()` reports and the sampler the WebGL2 tier fuses (Rule 11.10).                                                                          |
 | `core/passes/const-expr.ts`           | `settleConstExprs`: a constant expression WGSL would refuse to evaluate (a zero divisor, a shift past 31, an overflow, crossed `clamp` bounds) given its value at run time, after every optimizer tier (#368).                                                                   |
+| `core/passes/rename-predeclared.ts`   | `renamePredeclaredFunctions`: a module function whose name the target predeclares is emitted as `fract_`, and every call through it (`declRef`) with it, so a builtin call keeps the builtin; first in `lowerForBackend` and in each writer's own entry (Rule 9.5, change 0029). |
 | `core/passes/opt/`                    | `autoVars`, `cse`, and the `optimize` fixpoint (const / copy propagation, folding, dead branches, LICM, DCE). `expr-utils.ts` is the shared traversal.                                                                                                                           |
 | `core/passes/compose.ts`              | `composeModule(base, swaps)`: swaps tagged `placeholder` statements. Strict by default.                                                                                                                                                                                          |
 | `core/passes/mangle.ts`, `inline*.ts` | Identifier mangling for `obfuscate`; function inlining.                                                                                                                                                                                                                          |
@@ -138,8 +140,10 @@ table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
   atomic's first argument is a place). Three analyses each learned `arrayLength` on their own,
   and the fourth, which had not, kept a correct loop off the GPU (#345). A new builtin that takes
   a pointer gets its row there, or `argument-access.test.ts` fails.
-- **The pre-emit pipeline is shared.** `lowerForBackend` runs `validate`, `assertCaps`,
-  `assertBuiltins`, then `autoVars`, `lowerModule`, `fp64Lower`, `selectComposite`, the
+- **The pre-emit pipeline is shared.** `lowerForBackend` runs `renamePredeclaredFunctions` (a
+  function the module declares under a name its target predeclares becomes another, so from there
+  a call's name says whether it reaches the declaration or the builtin, Rule 9.5), `validate`,
+  `assertCaps`, `assertBuiltins`, then `autoVars`, `lowerModule`, `fp64Lower`, `selectComposite`, the
   backend's own lowerings, its `optimize` at any tier, and `settleConstExprs`, which gives a
   constant expression the target would refuse to evaluate its value at run time (#368). Put a
   target-neutral rewrite there, not in a backend.

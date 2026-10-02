@@ -276,15 +276,21 @@ export function b(x: mat3, y: mat3): mat3 { return x - y; }
     }
   });
 
-  it('does not let a matrix constructor shadow a function the file declares', () => {
-    // "An addition may not change what a program means" — the rule the vector constructors
-    // already follow (#8 A6).
+  it('lets a matrix constructor keep its precedence over a function the file declares', () => {
+    // A value constructor keeps its precedence over a declared function of its name, as a type
+    // name does over an alias (Rule 4.2, Rule 9.5), and so do the vector constructors. Until
+    // change 0029 the matrix constructors were the exception, a declaration of `mat3` winning the
+    // call because the shorthand was an addition; a call builds the matrix now, and the
+    // declaration is a function nothing can call by its name.
     const r = compile(`"use typeshade";
 function mat3(x: f32): f32 { return x * 2.; }
-export function f(x: f32): f32 { return mat3(x); }
+export function f(a: vec3, b: vec3, c: vec3): mat3 { return mat3(a, b, c); }
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(compileModule(r.module).fns.f!(3)).toBe(6);
+    expect(compileModule(r.module).fns.f!([1, 2, 3], [4, 5, 6], [7, 8, 9])).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9,
+    ]);
+    expect(r.wgsl).toContain('mat3x3<f32>(a, b, c)');
   });
 });
 

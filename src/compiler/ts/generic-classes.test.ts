@@ -231,18 +231,18 @@ describe('a type parameter default, read the way TypeScript reads it', () => {
 class Grid<T = f32> {
   v: T;
 }
-function read(g: Grid): f32 {
+function value(g: Grid): f32 {
   return g.v;
 }
 @fragment
 export function fs(): vec4 {
   const g: Grid<f32> = { v: 0.5 };
-  return vec4(read(g), 0., 0., 1.);
+  return vec4(value(g), 0., 0., 1.);
 }
 `);
     // `Grid` and `Grid<f32>` are ONE struct, so the file writes one instance and not two.
     expect(wgsl.match(/struct Grid_f32 \{/g)).toHaveLength(1);
-    expect(wgsl).toContain('fn read(g: Grid_f32) -> f32 {');
+    expect(wgsl).toContain('fn value(g: Grid_f32) -> f32 {');
   });
 
   it('fills only the parameters left out', () => {

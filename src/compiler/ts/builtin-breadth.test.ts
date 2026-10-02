@@ -257,7 +257,7 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn reflect(a: vec3<f32>, b: vec3<f32>) -> vec3<f32> {');
+    expect(r.wgsl).toContain('fn reflect_(a: vec3<f32>, b: vec3<f32>) -> vec3<f32> {');
     expect(r.eval('fs', [])).toEqual([3, 3, 3, 1]);
   });
 });

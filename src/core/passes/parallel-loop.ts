@@ -591,7 +591,15 @@ export function combineOf(st: Stmt & { s: 'assign' | 'assignOp' }): Pick<Write, 
     if (sameExpr(e.b, st.target))
       return { combine: { op: e.bop as LoopReduction['op'], with: e.a } };
   }
-  if (e.op === 'call' && (e.fn === 'min' || e.fn === 'max') && e.args.length === 2) {
+  // The builtin `min` and `max`, and not a function the file declares under either name (Rule
+  // 9.5): a call through a declaration carries `declRef`, and folding it as `min` would reduce
+  // with an operator the function is not.
+  if (
+    e.op === 'call' &&
+    e.declRef === undefined &&
+    (e.fn === 'min' || e.fn === 'max') &&
+    e.args.length === 2
+  ) {
     const [a, b] = e.args as [Expr, Expr];
     if (sameExpr(a, st.target)) return { combine: { op: e.fn, with: b } };
     if (sameExpr(b, st.target)) return { combine: { op: e.fn, with: a } };

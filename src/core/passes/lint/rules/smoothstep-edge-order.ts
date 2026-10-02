@@ -16,7 +16,14 @@ export const smoothstepEdgeOrder: LintRule = {
   category: 'correctness',
   create: (ctx) => ({
     Expr(e, fn) {
-      if (e.op !== 'call' || e.fn !== 'smoothstep' || e.args.length !== 3) return;
+      // A `smoothstep` the module declares is its own function, and says nothing of GLSL's (Rule 9.5).
+      if (
+        e.op !== 'call' ||
+        e.declRef !== undefined ||
+        e.fn !== 'smoothstep' ||
+        e.args.length !== 3
+      )
+        return;
       const e0 = litOf(e.args[0]!);
       const e1 = litOf(e.args[1]!);
       if (e0 !== undefined && e1 !== undefined && e0 >= e1) {

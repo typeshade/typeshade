@@ -712,6 +712,16 @@ export class LoweringScope {
     return this.genericName(name) !== undefined;
   }
 
+  /** Whether the FILE declares a generic function `name`, at module scope or in the namespace
+   *  being lowered: {@link resolveFileCallee}'s question for a generic function. */
+  isFileGenericFunction(name: string): boolean {
+    if (this.fns.generics.has(name)) return true;
+    for (const qualified of this.qualifiedNames(name)) {
+      if (this.fns.generics.has(qualified)) return true;
+    }
+    return false;
+  }
+
   /** Make, or find, the instance of the generic function `name` this call needs. The hook is
    *  set by `lowerSourceFunctions`, which owns the declarations; it is called from the call
    *  lowering, which is where an instantiation is discovered. That indirection is what lets the
@@ -1207,6 +1217,20 @@ export class LoweringScope {
 
   localFunctions(): ReadonlyMap<string, string> | undefined {
     return this.localFns;
+  }
+
+  /** The function the FILE declares or imports under `name`: at module scope, or as a member of
+   *  the namespace being lowered. Never a local function of the body, which `resolveCallee` finds
+   *  first: `localFns` holds every local function of the body whatever block declares it, and a
+   *  call outside that block is not the local function's (Rule 9.5, change 0029). */
+  resolveFileCallee(name: string): FuncDecl | undefined {
+    const direct = this.callees.get(name);
+    if (direct !== undefined) return direct;
+    for (const qualified of this.qualifiedNames(name)) {
+      const hit = this.callees.get(qualified);
+      if (hit !== undefined) return hit;
+    }
+    return undefined;
   }
 
   resolveCallee(name: string): FuncDecl | undefined {

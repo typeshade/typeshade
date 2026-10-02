@@ -24,7 +24,8 @@ import {
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { closureUse } from './closures.js';
-import { captureArguments, declaresFunction } from './local-functions.js';
+import { captureArguments, declaresFunction, namesLocalFunction } from './local-functions.js';
+import { constructorCallbackMessage, isValueConstructor } from './constructors.js';
 import { misfit, type FunctionShape } from './function-types.js';
 import { isAsyncOrGenerator } from '../semantic.js';
 
@@ -110,6 +111,19 @@ export function functionArgument(
   if (ts.isIdentifier(x)) {
     const decl = scope.resolveCallee(x.text);
     if (decl !== undefined) {
+      // A call of a value constructor's name builds the value whatever the file declares (Rule
+      // 9.5), and a callback follows the call. A local function or a parameter of the name is
+      // the body's own, and is handed over.
+      if (isValueConstructor(x.text) && !namesLocalFunction(x)) {
+        push(
+          diagnostics,
+          sourceFile,
+          x,
+          constructorCallbackMessage(x.text, `"${owner}"`),
+          TS_CODES.TYPE_MISMATCH,
+        );
+        return undefined;
+      }
       if (decl.stage !== undefined) {
         push(
           diagnostics,

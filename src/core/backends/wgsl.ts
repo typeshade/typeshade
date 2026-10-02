@@ -41,6 +41,7 @@ import {
   requiredLanguageFeatures,
 } from '../passes/required-caps.js';
 import { padUniformArrays } from '../passes/uniform-layout.js';
+import { renamePredeclaredFunctions } from '../passes/rename-predeclared.js';
 import { flatIntegerVaryings } from '../passes/varying-interpolate.js';
 import { dslError } from '../diagnostics/error.js';
 
@@ -531,16 +532,14 @@ export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f);
 export function emitFuncs(funcs: readonly FuncDecl[]): string {
   // A kernel function runs on the host's side of the call (Rule 8.22): it is not emitted.
   funcs = funcs.filter((f) => f.kernel !== true);
+  // Named as the module they belong to names them (Rule 9.5, change 0029), so the text is the one
+  // the function section of `emitModule` gives the same declarations.
+  const renamed = renamePredeclaredFunctions(
+    { consts: [], structs: [], bindings: [], funcs: [...funcs] },
+    'wgsl',
+  );
   const lowered = pointerSpaces(
-    selectComposite(
-      settleConstExprs(
-        fixpoint(
-          fp64Lower(
-            lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })),
-          ),
-        ),
-      ),
-    ),
+    selectComposite(settleConstExprs(fixpoint(fp64Lower(lowerModule(autoVars(renamed)))))),
   );
   return lowered.funcs.map((f) => wgslBackend.emitFunc(f)).join('\n\n');
 }

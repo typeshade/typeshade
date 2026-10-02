@@ -637,10 +637,13 @@ describe('the derivative stubs keep the shape their argument has', () => {
   });
 });
 
-describe('a name this item adds does not shadow a function the file declares', () => {
+describe('a function the file declares wins over a builtin of its name (Rule 9.5)', () => {
   // Every one of these was an ordinary unknown name before #8 A6, so `export function
-  // saturate(…)` followed by `saturate(x)` called the author's function. An addition may not
-  // change what a program means, so it still does — on the GPU and in the CPU oracle alike.
+  // saturate(…)` followed by `saturate(x)` called the author's function, and an addition may not
+  // change what a program means. It still does, on the CPU and on both targets. What is new in
+  // change 0029 is what each target sees: a declaration under a name it predeclares would hide
+  // the builtin in WGSL and be refused by GLSL ES 3.00, so each writer emits it as `name_` and
+  // every call through it with that name.
   const ARITY: Readonly<Record<string, number>> = {
     exp2: 1,
     saturate: 1,
@@ -667,10 +670,11 @@ describe('a name this item adds does not shadow a function the file declares', (
       }
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    // The emitted shader declares the function and calls it; WGSL lets a declared name
-    // shadow a builtin of the same name, and Tint accepts it.
-    expect(c.wgsl).toContain(`fn ${name}(`);
-    expect(c.wgsl).toContain(`return ${name}(`);
+    // The emitted shader declares the function under a name WGSL does not predeclare and calls
+    // that, so the builtin of the name is left alone...
+    expect(c.wgsl).toContain(`fn ${name}_(`);
+    expect(c.wgsl).toContain(`return ${name}_(`);
+    expect(c.wgsl).not.toContain(`fn ${name}(`);
     // …and the oracle evaluates the same function, through the call's declRef.
     expect(c.eval('g', [])).toBe(99);
   });
@@ -682,7 +686,8 @@ describe('a name this item adds does not shadow a function the file declares', (
       // no `saturate`, so this backend renders the INTRINSIC of that name as
       // `clamp(x, 0.0, 1.0)` — and that rewrite keyed on the name, so a module declaring its
       // own `saturate` emitted the function into the GLSL and then never called it. WGSL said
-      // 99, GLSL said something else, from one module, with no diagnostic.
+      // 99, GLSL said something else, from one module, with no diagnostic. Now the declaration
+      // is `saturate_` on both, a name no rewrite reads.
       const arity = name === 'fma' ? 3 : 1;
       const params = Array.from({ length: arity }, (_, i) => `a${i}: f32`).join(', ');
       const args = Array.from({ length: arity }, () => '2.').join(', ');
@@ -701,17 +706,17 @@ describe('a name this item adds does not shadow a function the file declares', (
         }
       `);
       expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-      expect(c.glsl?.fragment).toContain(`float ${name}(`);
-      expect(c.glsl?.fragment).toContain(`${name}(2.0`);
+      expect(c.glsl?.fragment).toContain(`float ${name}_(`);
+      expect(c.glsl?.fragment).toContain(`${name}_(2.0`);
       expect(c.glsl?.fragment).not.toContain('clamp(2.0, 0.0, 1.0)');
       expect(c.eval('fs', [])).toEqual({ color: [99, 99, 99, 1] });
     },
   );
 
-  it('leaves a name that was already a builtin exactly as it was', () => {
-    // `pow` predates this item: the intrinsic wins, on both targets and on the CPU. Changing
-    // THAT would move the meaning of a program that compiles today — the same additivity
-    // argument pointing the other way.
+  it('wins over a name that was already a builtin: the declaration on the CPU and in both writers', () => {
+    // `pow` predates #8 A6, and kept its precedence over the author's function until change
+    // 0029, on the CPU and in the folder alone: WGSL called the declaration all along, and GLSL
+    // redeclared a builtin, which ANGLE refuses. Now one program has one meaning.
     const c = compile(`
       "use typeshade";
       export function pow(a: f32, b: f32): f32 {
@@ -722,30 +727,31 @@ describe('a name this item adds does not shadow a function the file declares', (
       }
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(c.wgsl).toContain('return pow(2.0, 2.0);');
-    expect(c.eval('g', [])).toBe(4);
+    expect(c.wgsl).toContain('fn pow_(');
+    expect(c.wgsl).toContain('return pow_(2.0, 2.0);');
+    expect(c.eval('g', [])).toBe(99);
   });
 
-  it('leaves a name that was already a builtin as it was WHERE THE WRITERS RESPELL IT', () => {
-    // The `pow` case above could not catch this: neither writer respells `pow`, so an emit
-    // keyed on the wrong thing still reads `pow(...)`. `inverseSqrt` and `atan` are the two
-    // that do move — GLSL ES 3.00 spells them `inversesqrt` and `atan(y, x)` — and both are
-    // names a declaration does NOT win, so the call carries no declRef and must stay the
-    // intrinsic. Keyed on the declared NAME alone, emit called the user's function instead:
-    // the GLSL went from `inversesqrt(p.x)` to `inverseSqrt(p.x)` while the CPU oracle went on
-    // computing the intrinsic — one module, three answers.
+  it('wins over a name the writers RESPELL, and each writer calls the declaration by its new name', () => {
+    // The `pow` case above could not catch a name-keyed spelling: neither writer respells
+    // `pow`. `inverseSqrt` and `atan` are the two that do move — GLSL ES 3.00 spells them
+    // `inversesqrt` and `atan(y, x)` — and a call the front end resolved to the declaration must
+    // not be spelled as the builtin: keyed on the declared NAME alone, the GLSL went from the
+    // author's `inverseSqrt(p.x)` to `inversesqrt(p.x)` while the oracle computed the
+    // declaration — one module, three answers. It is the declaration on both writers now, under
+    // a name neither one respells.
     for (const [decl, call, wgsl, glsl] of [
       [
         'inverseSqrt(x: f32): f32 { return 99.; }',
         'inverseSqrt(p.x)',
-        'inverseSqrt(p.x)',
-        'inversesqrt(p.x)',
+        'inverseSqrt_(p.x)',
+        'inverseSqrt_(p.x)',
       ],
       [
         'atan(y: f32, x: f32): f32 { return 99.; }',
         'atan(p.x, p.y)',
-        'atan2(p.x, p.y)',
-        'atan(p.x, p.y)',
+        'atan_(p.x, p.y)',
+        'atan_(p.x, p.y)',
       ],
     ] as const) {
       const c = compile(`
@@ -763,6 +769,7 @@ describe('a name this item adds does not shadow a function the file declares', (
       expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
       expect(c.wgsl).toContain(wgsl);
       expect(c.glsl?.fragment).toContain(glsl);
+      expect(c.eval('fs', [[0, 0, 0, 1]])).toEqual({ color: [99, 99, 99, 1] });
     }
   });
 });
