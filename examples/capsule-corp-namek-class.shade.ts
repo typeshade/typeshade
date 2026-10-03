@@ -29,7 +29,7 @@ declare const u: uniform<Uniforms>;
 // Configuration
 // ---------------------------------------------------------------------
 
-const AA = 1;
+const AA: i32 = 1;
 
 const PI = 3.14159265;
 const TAU = 6.28318531;
@@ -257,6 +257,17 @@ class Noise {
 // SDF primitives
 // ---------------------------------------------------------------------
 
+function inverseMat2(a: f32, b: f32, c: f32, d: f32): mat2 {
+  const determinant = a * d - b * c;
+
+  return mat2(
+    d / determinant,
+    -b / determinant,
+    -c / determinant,
+    a / determinant
+  );
+}
+
 class SDF {
   static union(a: vec2, b: vec2): vec2 {
     return a.x < b.x ? a : b;
@@ -422,6 +433,12 @@ class SDF {
 // ---------------------------------------------------------------------
 
 class Ship {
+  legCount: f32;
+
+  constructor() {
+    this.legCount = 4.0;
+  }
+
   flapOutline(s: vec3): f32 {
     const radius = 0.06;
     const angle =
@@ -647,7 +664,7 @@ class Ship {
       longitude,
       horizontalRadius,
       p.y,
-      4.0,
+      this.legCount,
       LEG_LON
     );
 
@@ -1333,6 +1350,12 @@ class ShipDetails {
 // ---------------------------------------------------------------------
 
 class Lettering {
+  strokeWidth: f32;
+
+  constructor() {
+    this.strokeWidth = SW;
+  }
+
   rect(
     p: vec2,
     x0: f32,
@@ -1347,7 +1370,7 @@ class Lettering {
   }
 
   stroke(p: vec2, a: vec2, b: vec2): f32 {
-    return SDF.segment(p, a, b) - SW;
+    return SDF.segment(p, a, b) - this.strokeWidth;
   }
 
   arc(
@@ -1360,13 +1383,13 @@ class Lettering {
     const q = p - center;
 
     if (mod(atan(q.y, q.x) - start, TAU) < end - start) {
-      return abs(length(q) - radius) - SW;
+      return abs(length(q) - radius) - this.strokeWidth;
     }
 
     return min(
       length(q - radius * vec2(cos(start), sin(start))),
       length(q - radius * vec2(cos(end), sin(end)))
-    ) - SW;
+    ) - this.strokeWidth;
   }
 
   glyph(p: vec2, glyphId: i32): f32 {
@@ -1583,7 +1606,7 @@ class Lettering {
             )
           ) -
           0.215
-        ) - SW;
+        ) - this.strokeWidth;
     } else {
       d =
         length(
@@ -3281,8 +3304,8 @@ class Terrain {
 
     const dirtGradient =
       vec2(
-        dFdx(dirt),
-        dFdy(dirt)
+        dpdx(dirt),
+        dpdy(dirt)
       );
 
     const recede =
@@ -3315,18 +3338,22 @@ class Terrain {
       max(
         length(
           vec2(
-            dFdx(dirt),
-            dFdy(dirt)
+            dpdx(dirt),
+            dpdy(dirt)
           )
         ),
         1e-5
       );
 
-    const jacobian =
-      mat2(
-        dFdx(x),
-        dFdy(x)
-      );
+    const dx = dpdx(x);
+    const dy = dpdy(x);
+    const jacobian = mat2(dx, dy);
+    const inverseJacobian = inverseMat2(
+      dx.x,
+      dx.y,
+      dy.x,
+      dy.y
+    );
 
     const lw =
       0.5 *
@@ -3446,7 +3473,7 @@ class Terrain {
             x,
             ro.xz,
             t,
-            inverse(jacobian),
+            inverseJacobian,
             lw
           )
         );
@@ -3715,6 +3742,12 @@ class Terrain {
 // ---------------------------------------------------------------------
 
 class Sky {
+  cloudScale: f32;
+
+  constructor() {
+    this.cloudScale = 26.0;
+  }
+
   color(rd: vec3): vec3 {
     const y = max(rd.y, 0.0);
 
@@ -4093,7 +4126,7 @@ class NamekScene {
 
     const focalLength = 3.4;
 
-    const target =
+    const sceneTarget =
       vec3(
         0.0,
         -0.25,
@@ -4101,7 +4134,7 @@ class NamekScene {
       );
 
     const rayOrigin =
-      target +
+      sceneTarget +
       5.6 *
       vec3(
         sin(azimuth) *
@@ -4113,7 +4146,7 @@ class NamekScene {
 
     const cameraForward =
       normalize(
-        target -
+        sceneTarget -
         rayOrigin
       );
 
