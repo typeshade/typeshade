@@ -9,13 +9,13 @@
 */
 
 
-// =====================================================================
+// =======================================================================================================
 // Capsule Corp. Spaceship from Dragon Ball Z, landed on Namek
 //
 // Class-based TypeShade conversion of the original ShaderToy shader.
 // The rendering logic is kept intact while the major shader systems are
 // represented as ordinary TypeScript classes.
-// =====================================================================
+// =======================================================================================================
 
 class Uniforms {
   time: f32;
@@ -1395,7 +1395,7 @@ class Lettering {
   glyph(p: vec2, glyphId: i32): f32 {
     let d = 0.0;
 
-    if (glyphId == 0) {
+    if (glyphId === 0) {
       d = min(
         this.arc(
           p,
@@ -1423,7 +1423,7 @@ class Lettering {
           0.2
         )
       );
-    } else if (glyphId == 1) {
+    } else if (glyphId === 1) {
       d = min(
         this.stroke(
           p,
@@ -1447,7 +1447,7 @@ class Lettering {
           -0.06
         )
       );
-    } else if (glyphId == 2 || glyphId == 8) {
+    } else if (glyphId === 2 || glyphId === 8) {
       d = min(
         this.rect(
           p,
@@ -1487,7 +1487,7 @@ class Lettering {
         )
       );
 
-      if (glyphId == 8) {
+      if (glyphId === 8) {
         d = min(
           d,
           this.stroke(
@@ -1497,7 +1497,7 @@ class Lettering {
           )
         );
       }
-    } else if (glyphId == 3) {
+    } else if (glyphId === 3) {
       d = min(
         this.arc(
           p,
@@ -1514,7 +1514,7 @@ class Lettering {
           2.5 * PI
         )
       );
-    } else if (glyphId == 4) {
+    } else if (glyphId === 4) {
       d = min(
         this.rect(
           p,
@@ -1542,7 +1542,7 @@ class Lettering {
           TAU
         )
       );
-    } else if (glyphId == 5) {
+    } else if (glyphId === 5) {
       d = min(
         this.rect(
           p,
@@ -1559,7 +1559,7 @@ class Lettering {
           -0.33
         )
       );
-    } else if (glyphId == 6) {
+    } else if (glyphId === 6) {
       d = min(
         this.rect(
           p,
@@ -1596,7 +1596,7 @@ class Lettering {
           )
         )
       );
-    } else if (glyphId == 7) {
+    } else if (glyphId === 7) {
       d =
         abs(
           length(
@@ -1673,7 +1673,7 @@ class Lettering {
       index >= 0.0 &&
       index < 5.0
     ) {
-      const glyphId =
+      const glyphId: i32 =
         index < 0.5
           ? 0
           : index < 1.5
@@ -4276,8 +4276,8 @@ class NamekScene {
     return vec4(
       clamp(
         col,
-        0.0,
-        1.0
+        vec3(0.0),
+        vec3(1.0)
       ),
       1.0
     );
@@ -4302,6 +4302,7 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 // Fragment entry
 // ---------------------------------------------------------------------
 
+@diagnostic("off", "derivative_uniformity")
 @fragment
 export function main(
   @location(0) uv: vec2
