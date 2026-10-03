@@ -6,6 +6,7 @@ rules:
 - '7.1'
 surface:
 - 28
+- 52
 exports: []
 exports-removed: []
 codes: []
