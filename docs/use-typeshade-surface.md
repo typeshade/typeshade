@@ -3641,9 +3641,7 @@ way. `tsc` is what enforces the distinction, which is where it belongs.
 | `'x' in b` | a struct has exactly the fields its type declares, so the answer is in the type. Write the field access. |
 | `number`, `boolean` | a number on the GPU has a width: `f32`, `i32`, `u32`. The boolean is spelled `bool`. |
 
-**And two operators with nothing to be either.** `a == b` is refused for `a === b`:
-JavaScript's loose equality is a coercion table, and both targets have exactly one comparison,
-between two values of one type. `a >>> b` is refused for a cast and `>>`: a GPU shift is one
+**And one operator with nothing to be either.** `a >>> b` is refused for a cast and `>>`: a GPU shift is one
 operator whose meaning the **operand's** kind fixes — `>>` on a `u32` is already the logical
 shift, and on an `i32` the arithmetic one — so there is no third operator for `>>>` to be. §52
 has the rest of the operator surface.
@@ -6020,8 +6018,8 @@ arrays are not copyable value parameters.
   refused with the `while` form to use rather than the catch-all "Unsupported statement".
 - **A labelled `break` or `continue`.** Neither target has a label, so `outer:` has nothing to
   name it for. Refused with the two restructurings that work.
-- **`==` and `>>>`** keep the refusals they had (§28). `===` is the equality both targets have,
-  and WGSL has no unsigned right shift.
+- **`>>>`** keeps its refusal for a cast and `>>`: WGSL has no unsigned right shift. `==` and `!=`
+  are accepted as aliases of `===` and `!==`, with typed operands and no JavaScript coercion.
 
 ## 53. Entry IO: the interpolation an integer varying has no choice about
 
