@@ -1793,7 +1793,9 @@ class ShipMaterial {
       lightAmount *=
         ShipMaterial.celShadow(
           p + n * 0.004,
-          LIG
+          LIG,
+          ship,
+          trees
         );
     }
 
@@ -2203,7 +2205,7 @@ class ShipMaterial {
 class Terrain {
   static coast(x: vec2): f32 {
     return (
-      static length(x) -
+      length(x) -
       COAST_R -
       7.0 *
       (
@@ -2219,7 +2221,7 @@ class Terrain {
     let field =
       Noise.fbm(
         x * 0.05 +
-        static vec2(4.3, -2.1)
+        vec2(4.3, -2.1)
       ) +
       0.04 *
       Noise.value(
@@ -2230,10 +2232,10 @@ class Terrain {
       0.4 *
       (
         1.0 -
-        static smoothstep(
+        smoothstep(
           MESA_R,
           30.0,
-          static length(x)
+          length(x)
         )
       );
 
@@ -2241,12 +2243,12 @@ class Terrain {
       0.25 *
       (
         1.0 -
-        static smoothstep(
+        smoothstep(
           3.0,
           9.0,
-          static length(
+          length(
             x -
-            static vec2(-21.0, -22.0)
+            vec2(-21.0, -22.0)
           )
         )
       );
@@ -2260,13 +2262,13 @@ class Terrain {
     return (
       GROUND +
       1.3 *
-      static smoothstep(
+      smoothstep(
         0.63,
         0.64,
         field
       ) +
       0.55 *
-      static smoothstep(
+      smoothstep(
         0.71,
         0.72,
         field
@@ -2292,7 +2294,7 @@ class Terrain {
     }
 
     return normalize(
-      static vec3(
+      vec3(
         gradient.x,
         2.0 * stepSize,
         gradient.y
@@ -2313,23 +2315,23 @@ class Terrain {
         : 1e10;
 
     const a =
-      static max(
-        static dot(rd.xz, rd.xz),
+      max(
+        dot(rd.xz, rd.xz),
         1e-6
       );
 
     const b =
-      static dot(ro.xz, rd.xz);
+      dot(ro.xz, rd.xz);
 
     const c =
-      static dot(ro.xz, ro.xz) -
+      dot(ro.xz, ro.xz) -
       MESA_R * MESA_R;
 
     let t =
       (
         -b +
-        static sqrt(
-          static max(
+        sqrt(
+          max(
             b * b - a * c,
             0.0
           )
@@ -2337,7 +2339,7 @@ class Terrain {
       ) / a;
 
     const end =
-      static min(
+      min(
         planeT,
         tmax
       );
@@ -2393,7 +2395,7 @@ class Terrain {
       previousT = t;
 
       t +=
-        static max(
+        max(
           0.3 * clearance,
           0.02 +
           0.015 * t
@@ -2415,7 +2417,7 @@ class Terrain {
       x +
       1.2 *
       (
-        static vec2(
+        vec2(
           Noise.fbm(
             x * 1.6 +
             3.0 * q +
@@ -2436,7 +2438,7 @@ class Terrain {
     return (
       Noise.fbm(
         xw * 0.7 +
-        static vec2(-13.7, 31.9)
+        vec2(-13.7, 31.9)
       ) -
       0.62
     );
@@ -2466,7 +2468,7 @@ class Terrain {
       distanceToPoint;
 
     const side =
-      static vec2(
+      vec2(
         -forward.y,
         forward.x
       );
@@ -2478,7 +2480,7 @@ class Terrain {
       eye;
 
     const centerCell =
-      static floor(
+      floor(
         (x -
           0.5 *
           reach *
@@ -2492,9 +2494,9 @@ class Terrain {
       for (let i = -1; i <= 1; i++) {
         const cell =
           centerCell +
-          static vec2(
-            static f32(i),
-            static f32(j)
+          vec2(
+            f32(i),
+            f32(j)
           );
 
         if (
@@ -2510,7 +2512,7 @@ class Terrain {
             cell +
             0.2 +
             0.6 *
-            static vec2(
+            vec2(
               Noise.hash12(cell + 7.3),
               Noise.hash12(cell + 19.1)
             )
@@ -2518,7 +2520,7 @@ class Terrain {
           cellSize;
 
         const alongRay =
-          static dot(
+          dot(
             center - ro.xz,
             forward
           );
@@ -2532,8 +2534,8 @@ class Terrain {
         }
 
         const local =
-          static vec2(
-            static dot(
+          vec2(
+            dot(
               ro.xz - center,
               side
             ),
@@ -2560,7 +2562,7 @@ class Terrain {
 
         const count =
           3 +
-          static i32(
+          i32(
             5.0 *
             Noise.hash12(
               cell + 31.7
@@ -2607,10 +2609,10 @@ class Terrain {
           );
 
         ink =
-          static max(
+          max(
             ink,
             1.0 -
-            static smoothstep(
+            smoothstep(
               -aa,
               aa,
               distance
@@ -2623,7 +2625,7 @@ class Terrain {
       ink *
       (
         1.0 -
-        static smoothstep(
+        smoothstep(
           8.0,
           12.0,
           t
@@ -2645,7 +2647,7 @@ class Terrain {
   ): f32 {
     const mid =
       0.5 *
-      static f32(n - 1);
+      f32(n - 1);
 
     const radius =
       2.0 *
@@ -2672,22 +2674,22 @@ class Terrain {
       const h = vec4(
         Noise.hash12(
           seed +
-          static f32(k) * 3.1 +
+          f32(k) * 3.1 +
           51.0
         ),
         Noise.hash12(
           seed +
-          static f32(k) * 5.7 +
+          f32(k) * 5.7 +
           63.0
         ),
         Noise.hash12(
           seed +
-          static f32(k) * 2.3 +
+          f32(k) * 2.3 +
           77.0
         ),
         Noise.hash12(
           seed +
-          static f32(k) * 4.9 +
+          f32(k) * 4.9 +
           89.0
         )
       );
@@ -2698,26 +2700,26 @@ class Terrain {
         bend *
         fk *
         fk +
-        static max(-bend, 0.0)
+        max(-bend, 0.0)
       );
 
       base =
-        static mix(
+        mix(
           base,
           radius *
-          static vec2(
-            static sin(0.5 * PI * fk),
+          vec2(
+            sin(0.5 * PI * fk),
             signBend *
             (
               1.0 -
-              static cos(0.5 * PI * fk)
+              cos(0.5 * PI * fk)
             )
           ),
           curl
         );
 
       base +=
-        static vec2(
+        vec2(
           0.4 *
           gap *
           (h.x - 0.5),
@@ -2733,7 +2735,7 @@ class Terrain {
           spread *
           Noise.hash12(
             seed +
-            static f32(k) * 6.1 +
+            f32(k) * 6.1 +
             97.0
           )
         );
@@ -2743,16 +2745,16 @@ class Terrain {
         (h.z - 0.5);
 
       distance =
-        static min(
+        min(
           distance,
           SDF.segment(
             q,
             base,
             base +
             bladeLength *
-            static vec2(
-              static sin(angle),
-              static cos(angle)
+            vec2(
+              sin(angle),
+              cos(angle)
             )
           ) -
           (0.5 + h.w) *
@@ -2774,10 +2776,10 @@ class Terrain {
     const bm = b - m;
 
     const h1 =
-      static clamp(
+      clamp(
         -dot(a, ma) /
-        static max(
-          static dot(ma, ma),
+        max(
+          dot(ma, ma),
           1e-6
         ),
         0.0,
@@ -2785,10 +2787,10 @@ class Terrain {
       );
 
     const h2 =
-      static clamp(
+      clamp(
         -dot(m, bm) /
-        static max(
-          static dot(bm, bm),
+        max(
+          dot(bm, bm),
           1e-6
         ),
         0.0,
@@ -2796,13 +2798,13 @@ class Terrain {
       );
 
     const d1 =
-      static length(
+      length(
         a +
         ma * h1
       );
 
     const d2 =
-      static length(
+      length(
         m +
         bm * h2
       );
@@ -2813,14 +2815,14 @@ class Terrain {
         : 0.5 + 0.5 * h2;
 
     return (
-      static min(d1, d2) -
+      min(d1, d2) -
       width *
-      static mix(
+      mix(
         1.0,
         0.3 +
         0.7 *
-        static sqrt(
-          static sin(PI * along)
+        sqrt(
+          sin(PI * along)
         ),
         taper
       )
@@ -2842,9 +2844,9 @@ class Terrain {
       for (let i = -1; i <= 1; i++) {
         const cell =
           centerCell +
-          static vec2(
-            static f32(i),
-            static f32(j)
+          vec2(
+            f32(i),
+            f32(j)
           );
 
         if (
@@ -2879,14 +2881,14 @@ class Terrain {
           cellSize;
 
         const view =
-          static normalize(
+          normalize(
             center -
             eye
           );
 
         const direction =
           SDF.rotate(
-            static vec2(
+            vec2(
               -view.y,
               view.x
             ),
@@ -2904,12 +2906,12 @@ class Terrain {
           direction;
 
         const directionLength =
-          static length(
+          length(
             directionPixels
           );
 
         const perpendicular =
-          static vec2(
+          vec2(
             -directionPixels.y,
             directionPixels.x
           ) /
@@ -2920,12 +2922,12 @@ class Terrain {
           0.025 * h.z;
 
         const screenSpacing =
-          static max(
+          max(
             spacing *
-            static abs(
-              static dot(
+            abs(
+              dot(
                 jacobian *
-                static vec2(
+                vec2(
                   -direction.y,
                   direction.x
                 ),
@@ -2936,7 +2938,7 @@ class Terrain {
           );
 
         if (
-          static length(centerPixels) >
+          length(centerPixels) >
           0.35 *
           directionLength +
           2.0 *
@@ -2958,7 +2960,7 @@ class Terrain {
 
         const count =
           2 +
-          static i32(
+          i32(
             2.2 *
             h.y *
             h.y
@@ -2978,9 +2980,9 @@ class Terrain {
           }
 
           const offset =
-            static f32(k) -
+            f32(k) -
             0.5 *
-            static f32(count - 1);
+            f32(count - 1);
 
           const halfLength =
             0.18 *
@@ -2989,7 +2991,7 @@ class Terrain {
               0.7 *
               Noise.hash12(
                 cell +
-                static f32(k) * 7.3 +
+                f32(k) * 7.3 +
                 91.0
               )
             );
@@ -3006,7 +3008,7 @@ class Terrain {
               (
                 Noise.hash12(
                   cell +
-                  static f32(k) * 5.1 +
+                  f32(k) * 5.1 +
                   97.0
                 ) -
                 0.5
@@ -3014,7 +3016,7 @@ class Terrain {
             );
 
           distance =
-            static min(
+            min(
               distance,
               this.brush(
                 position -
@@ -3047,14 +3049,14 @@ class Terrain {
   ): f32 {
     const cellSize = 0.16;
     const centerCell =
-      static floor(x / cellSize);
+      floor(x / cellSize);
 
     const crowd =
-      static min(
+      min(
         1.0,
         cellSize *
         cellSize *
-        static abs(determinant(jacobian)) /
+        abs(determinant(jacobian)) /
         (
           60.0 *
           lw *
@@ -3068,9 +3070,9 @@ class Terrain {
       for (let i = -1; i <= 1; i++) {
         const cell =
           centerCell +
-          static vec2(
-            static f32(i),
-            static f32(j)
+          vec2(
+            f32(i),
+            f32(j)
           );
 
         const g = vec4(
@@ -3092,7 +3094,7 @@ class Terrain {
         const probability =
           0.03 +
           0.7 *
-          static smoothstep(
+          smoothstep(
             0.5,
             0.72,
             Noise.value(
@@ -3116,7 +3118,7 @@ class Terrain {
           (center - x);
 
         if (
-          static dot(
+          dot(
             centerPixels,
             centerPixels
           ) >
@@ -3137,16 +3139,16 @@ class Terrain {
         }
 
         const view =
-          static normalize(
+          normalize(
             center -
             eye
           );
 
         const direction =
-          static normalize(
+          normalize(
             jacobian *
             SDF.rotate(
-              static vec2(
+              vec2(
                 -view.y,
                 view.x
               ),
@@ -3170,7 +3172,7 @@ class Terrain {
           direction;
 
         distance =
-          static min(
+          min(
             distance,
             this.brush(
               centerPixels - edge,
@@ -3205,7 +3207,7 @@ class Terrain {
     }
 
     const distance =
-      static min(
+      min(
         this.dirtStrokes(
           x,
           eye,
@@ -3223,7 +3225,7 @@ class Terrain {
     return (
       (
         1.0 -
-        static smoothstep(
+        smoothstep(
           -0.5,
           0.5,
           distance
@@ -3231,7 +3233,7 @@ class Terrain {
       ) *
       (
         1.0 -
-        static smoothstep(
+        smoothstep(
           10.0,
           14.0,
           t
@@ -3250,7 +3252,7 @@ class Terrain {
     trees: NamekTrees
   ): vec3 {
     const normal =
-      static length(p.xz) > MESA_R
+      length(p.xz) > MESA_R
         ? this.normal(p.xz, t)
         : vec3(0.0, 1.0, 0.0);
 
@@ -3262,11 +3264,11 @@ class Terrain {
       this.groundWarp(x);
 
     let col =
-      static mix(
+      mix(
         GRASS,
         GRASS_DK,
         0.6 *
-        static smoothstep(
+        smoothstep(
           0.55,
           0.56,
           Noise.fbm(
@@ -3278,18 +3280,18 @@ class Terrain {
     let dirt = this.dirtField(warped);
 
     const dirtGradient =
-      static vec2(
-        static dpdx(dirt),
-        static dpdy(dirt)
+      vec2(
+        dpdx(dirt),
+        dpdy(dirt)
       );
 
     const recede =
-      static smoothstep(
+      smoothstep(
         0.25,
         0.6,
-        static abs(dirtGradient.x) /
-        static max(
-          static length(dirtGradient),
+        abs(dirtGradient.x) /
+        max(
+          length(dirtGradient),
           1e-6
         )
       );
@@ -3297,12 +3299,12 @@ class Terrain {
     dirt +=
       0.03 *
       (
-        static abs(
+        abs(
           Noise.value(x * 5.0) -
           0.5
         ) +
         0.5 *
-        static abs(
+        abs(
           Noise.value(x * 11.0 + 7.0) -
           0.5
         ) -
@@ -3310,11 +3312,11 @@ class Terrain {
       );
 
     const fieldWidth =
-      static max(
-        static length(
-          static vec2(
-            static dpdx(dirt),
-            static dpdy(dirt)
+      max(
+        length(
+          vec2(
+            dpdx(dirt),
+            dpdy(dirt)
           )
         ),
         1e-5
@@ -3336,11 +3338,11 @@ class Terrain {
       pixA;
 
     let grain =
-      static vec2(
-        static dot(x, DIRT_GRAIN),
-        static dot(
+      vec2(
+        dot(x, DIRT_GRAIN),
+        dot(
           x,
-          static vec2(
+          vec2(
             -DIRT_GRAIN.y,
             DIRT_GRAIN.x
           )
@@ -3361,7 +3363,7 @@ class Terrain {
       0.5 +
       (
         Noise.fbm(
-          static vec2(
+          vec2(
             0.45 * grain.x,
             3.0 * grain.y
           ) +
@@ -3378,7 +3380,7 @@ class Terrain {
       0.7 *
       (
         Noise.value(
-          static vec2(
+          vec2(
             1.2 * grain.x,
             11.0 * grain.y
           ) +
@@ -3386,11 +3388,11 @@ class Terrain {
         ) -
         0.5
       ) *
-      static smoothstep(
+      smoothstep(
         0.35,
         0.75,
         Noise.value(
-          static vec2(
+          vec2(
             0.7 * grain.x,
             1.5 * grain.y
           ) +
@@ -3399,13 +3401,13 @@ class Terrain {
       );
 
     const dirtColor =
-      static mix(
+      mix(
         SAND,
         DIRT_DK,
-        static mix(
+        mix(
           0.36,
           0.6,
-          static smoothstep(
+          smoothstep(
             0.25,
             0.75,
             pattern
@@ -3414,10 +3416,10 @@ class Terrain {
       );
 
     col =
-      static mix(
+      mix(
         col,
         dirtColor,
-        static smoothstep(
+        smoothstep(
           -fieldWidth,
           fieldWidth,
           dirt
@@ -3429,15 +3431,15 @@ class Terrain {
       3.0 *
       fieldWidth *
       lw &&
-      static abs(
-        static determinant(jacobian)
+      abs(
+        determinant(jacobian)
       ) > 1e-12
     ) {
       col =
-        static mix(
+        mix(
           col,
           INK,
-          static smoothstep(
+          smoothstep(
             3.0,
             5.0,
             dirt /
@@ -3456,15 +3458,15 @@ class Terrain {
 
     const outline =
       1.0 -
-      static smoothstep(
+      smoothstep(
         lw - 0.5,
         lw + 0.5,
-        static abs(dirt) /
+        abs(dirt) /
         fieldWidth
       );
 
     const dash =
-      static smoothstep(
+      smoothstep(
         0.45,
         0.5,
         Noise.value(
@@ -3473,11 +3475,11 @@ class Terrain {
       );
 
     col =
-      static mix(
+      mix(
         col,
         INK,
         outline *
-        static mix(
+        mix(
           1.0,
           dash,
           recede
@@ -3488,10 +3490,10 @@ class Terrain {
       this.coast(x);
 
     col =
-      static mix(
+      mix(
         col,
         SAND_RIM,
-        static smoothstep(
+        smoothstep(
           -0.75,
           -0.7,
           shoreDistance
@@ -3499,10 +3501,10 @@ class Terrain {
       );
 
     col =
-      static mix(
+      mix(
         col,
         SAND,
-        static smoothstep(
+        smoothstep(
           -0.6,
           -0.55,
           shoreDistance
@@ -3511,7 +3513,7 @@ class Terrain {
 
     const fade =
       1.0 -
-      static smoothstep(
+      smoothstep(
         20.0,
         45.0,
         t
@@ -3520,7 +3522,7 @@ class Terrain {
     const lap =
       0.5 +
       0.5 *
-      static sin(
+      sin(
         1.3 *
         u.time -
         6.0 *
@@ -3530,10 +3532,10 @@ class Terrain {
       );
 
     let sea =
-      static mix(
+      mix(
         SEA_SHOAL,
         SEA,
-        static smoothstep(
+        smoothstep(
           0.9,
           1.0,
           shoreDistance
@@ -3546,7 +3548,7 @@ class Terrain {
 
     let foam =
       1.0 -
-      static smoothstep(
+      smoothstep(
         shore + 0.15,
         shore + 0.2,
         shoreDistance
@@ -3556,9 +3558,9 @@ class Terrain {
       this.mesaField(x);
 
     foam =
-      static max(
+      max(
         foam,
-        static smoothstep(
+        smoothstep(
           0.61 - 0.02 * lap,
           0.615 - 0.02 * lap,
           mesa
@@ -3567,7 +3569,7 @@ class Terrain {
 
     const wave =
       Noise.value(
-        static vec2(
+        vec2(
           3.0 * radius +
           3.0 * Noise.value(
             x * 0.25
@@ -3581,10 +3583,10 @@ class Terrain {
       );
 
     foam =
-      static max(
+      max(
         foam,
         fade *
-        static smoothstep(
+        smoothstep(
           0.5,
           0.53,
           wave
@@ -3592,24 +3594,24 @@ class Terrain {
       );
 
     sea =
-      static mix(
+      mix(
         sea,
         SEA_HI,
         foam
       );
 
     col =
-      static mix(
+      mix(
         col,
         sea,
-        static smoothstep(
+        smoothstep(
           shore - 0.05,
           shore,
           shoreDistance
         ) *
         (
           1.0 -
-          static step(
+          step(
             0.02,
             height
           )
@@ -3617,7 +3619,7 @@ class Terrain {
       );
 
     col =
-      static mix(
+      mix(
         col,
         INK,
         this.grassInk(
@@ -3630,10 +3632,10 @@ class Terrain {
       );
 
     col =
-      static mix(
+      mix(
         col,
         MESA_TOP,
-        static smoothstep(
+        smoothstep(
           0.5,
           1.2,
           height
@@ -3641,7 +3643,7 @@ class Terrain {
       );
 
     const strataValue =
-      static fract(
+      fract(
         height * 1.3 +
         0.35 *
         Noise.value(
@@ -3660,10 +3662,10 @@ class Terrain {
       0.8 +
       0.2 *
       Noise.value(
-        static vec2(
-          static dot(
+        vec2(
+          dot(
             x,
-            static vec2(2.0, 1.3)
+            vec2(2.0, 1.3)
           ) *
           3.0,
           height * 0.5
@@ -3671,10 +3673,10 @@ class Terrain {
       );
 
     col =
-      static mix(
+      mix(
         col,
         strata,
-        static smoothstep(
+        smoothstep(
           0.35,
           0.55,
           1.0 - normal.y
@@ -3682,10 +3684,10 @@ class Terrain {
       );
 
     let lightAmount =
-      static smoothstep(
+      smoothstep(
         -0.05,
         0.2,
-        static dot(normal, LIG)
+        dot(normal, LIG)
       );
 
     if (radius < 12.0) {
@@ -3697,9 +3699,9 @@ class Terrain {
     }
 
     col *=
-      static mix(
+      mix(
         SHADE * 0.95,
-        static vec3(1.0),
+        vec3(1.0),
         lightAmount
       );
 
@@ -3707,7 +3709,7 @@ class Terrain {
       col,
       HAZE,
       1.0 -
-      static exp(-0.012 * t)
+      exp(-0.012 * t)
     );
   }
 }
@@ -3717,20 +3719,14 @@ class Terrain {
 // ---------------------------------------------------------------------
 
 class Sky {
-  cloudScale: f32;
-
-  static constructor() {
-    26.0 = 26.0;
-  }
-
   static color(rd: vec3): vec3 {
     const y = max(rd.y, 0.0);
 
     let col =
-      static mix(
+      mix(
         SKY_HZ,
         SKY_MID,
-        static smoothstep(
+        smoothstep(
           0.0,
           0.12,
           y
@@ -3738,10 +3734,10 @@ class Sky {
       );
 
     col =
-      static mix(
+      mix(
         col,
         SKY_TOP,
-        static smoothstep(
+        smoothstep(
           0.08,
           0.35,
           y
@@ -3751,8 +3747,8 @@ class Sky {
     const cellCount = 19.0;
 
     const uv =
-      static vec2(
-        static atan(rd.x, rd.z) *
+      vec2(
+        atan(rd.x, rd.z) *
           (cellCount / TAU) +
           0.004 * u.time,
         y * 26.0
@@ -3761,25 +3757,25 @@ class Sky {
     const clouds =
       Noise.fbmWrapX(
         uv *
-        static vec2(1.0, 0.8) +
-        static vec2(0.0, 3.0),
+        vec2(1.0, 0.8) +
+        vec2(0.0, 3.0),
         cellCount
       );
 
     const cloudMask =
-      static smoothstep(
+      smoothstep(
         0.56,
         0.60,
         clouds
       ) *
-      static smoothstep(
+      smoothstep(
         0.015,
         0.05,
         y
       ) *
       (
         1.0 -
-        static smoothstep(
+        smoothstep(
           0.18,
           0.35,
           y
@@ -3787,7 +3783,7 @@ class Sky {
       );
 
     col =
-      static mix(
+      mix(
         col,
         CLOUD,
         0.75 *
@@ -4011,16 +4007,14 @@ class NamekScene {
         march.hit.x;
     } else if (terrainT > 0.0) {
       col =
-        Terrain.shade(
+        this.terrain.shade(
           ro +
           rd *
           terrainT,
           ro,
           terrainT,
           pixA,
-          lineA,
-          this.ship,
-          this.trees
+          lineA
         );
 
       frontT =
