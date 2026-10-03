@@ -102,8 +102,8 @@ describe('swizzle', () => {
       [
         'v: vec3',
         'v.max(0.)',
-        'vec3 has no method "max": call the builtin, max(v, vec3(0.)).',
-        'max(v, vec3(0.))',
+        'vec3 has no method "max": call the builtin, max(v, 0.).',
+        'max(v, 0.)',
       ],
       ['b: vec3b', 'b.any()', 'vec3b has no method "any": call the builtin, any(b).', 'any(b)'],
       [

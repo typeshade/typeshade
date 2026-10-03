@@ -580,9 +580,10 @@ lowered by arity alone: `dot(a, b)` with a `vec3` and a `vec2`, or `clamp(v, 0.,
 vector `v`, drew no diagnostic and emitted a call Tint refuses with "no matching call". The
 rules are WGSL's, one per signature shape. The componentwise builtins (`min`, `max`, `clamp`,
 `pow`, `step`, `smoothstep`, `atan(y, x)`, `fma`, `distance`, `dot`, `reflect`, `faceForward`
-and the rest) take arguments of one type: a scalar beside a vector is refused with the splat to
-write (`vec3(x)`), two kinds of one shape with the cast (`f32(x)` or `i32(x)`), two vector sizes
-as such. `mix(a, b, t)` alone takes `t` as the vectors' type or a scalar of their element kind,
+and the rest) take arguments of one type. `min` and `max` also accept a scalar beside a vector
+and lower it to a vector splat (`vec3(x)`); the other builtins refuse that shape with the same
+fix. Two kinds of one shape still need the cast (`f32(x)` or `i32(x)`), and two vector sizes are
+refused as such. `mix(a, b, t)` alone takes `t` as the vectors' type or a scalar of their element kind,
 and `mod(x, y)` a scalar `y` against a vector `x`. `refract` takes a scalar eta, `ldexp` an `i32`
 exponent (a `vec3i` for a `vec3` `x`), `extractBits` and `insertBits` a `u32` offset and count,
 `cross` two `vec3`; `normalize`, `dot` and the geometry four take vectors only, `transpose` and
