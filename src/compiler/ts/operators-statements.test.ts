@@ -355,12 +355,9 @@ export function f(k: i32): f32 {
 });
 
 describe('the statements that now say what is wrong', () => {
-  it('shadows nothing and refuses a written parameter, naming the line to add', () => {
-    const d = diagnose(`export function f(a: f32): f32 { a = 1.; return a }`);
-    expect(d.code).toBe(TS_CODES.ASSIGN_TARGET);
-    expect(d.message).toBe(
-      'Cannot assign to "a" — a parameter is a value, not a variable. Copy it into a local ' +
-        'first: "let a_ = a;", then write that.',
+  it('copies a written parameter into a mutable local (Rule 8.8)', () => {
+    expect(compiled(`export function f(a: f32): f32 { a = 1.; return a }`).wgsl).toContain(
+      'var a_1: f32 = a;',
     );
     // …and the fix the message names does compile.
     expect(
@@ -392,12 +389,11 @@ export function g(x: f32): f32 { dst[0] = x; return x }
 @compute([64, 1, 1]) export function cs() { _ = g(1.); }`);
     expect(live.wgsl).toContain('  g(1.0);');
     expect(live.wgsl).not.toContain('_ = g(1.0);');
-    // A program cannot declare its own `_` any more: #103's reserved-name rule refuses it,
-    // because `_` is WGSL's phony target and not an identifier, so there is no second meaning
-    // for `_ =` to have.
-    expect(diagnose(`export function f(): f32 { let _ = 0.; _ = 1.; return _ }`).message).toContain(
-      '"_" is WGSL\'s phony assignment target',
-    );
+    // A declared `_` is an ordinary variable escaped by the backend, while an undeclared
+    // `_ = f()` above remains the phony form.
+    expect(
+      compiled(`export function f(): f32 { let _ = 0.; _ = 1.; return _ }`).eval('f', []),
+    ).toBe(1);
     expect(diagnose(`export function f(): f32 { _ = 1.; return 0. }`).message).toContain(
       'is not one, so there is nothing to drop',
     );
@@ -411,19 +407,21 @@ export function g(x: f32): f32 { dst[0] = x; return x }
     expect(compiled(`export function f(): f32 { return 3.4e38 }`).wgsl).toContain('3.4e+38');
   });
 
-  it('refuses ++ on a parameter, the same way a whole write is refused', () => {
+  it('lowers parameter updates through the same value copy (Rule 8.8)', () => {
     // `lowerUpdate` builds its own target rather than going through `lowerLValue`, so this
     // emitted `a = (a + 1);` — `cannot assign to parameter 'a'` on Tint — with no diagnostic.
     for (const src of [
       'export function f(a: i32): i32 { a++; return a }',
       'export function f(a: i32): i32 { ++a; return a }',
       'export function f(a: i32): i32 { a--; return a }',
-      'export function f(a: i32): i32 { for (let i = 0; i < 3; a += 1) {} return a }',
     ]) {
-      const d = diagnose(src);
-      expect(d.code, src).toBe(TS_CODES.ASSIGN_TARGET);
-      expect(d.message, src).toContain('a parameter is a value, not a variable');
+      expect(compiled(src).wgsl, src).toContain('var a_1: i32 = a;');
     }
+    // The loop's update must still advance its own declared counter.
+    expect(
+      diagnose('export function f(a: i32): i32 { for (let i = 0; i < 3; a += 1) {} return a }')
+        .code,
+    ).toBe(TS_CODES.LOOP_INDUCTION);
     // A local counter is untouched.
     expect(compiled('export function f(): i32 { let i: i32 = 0; i++; return i }').wgsl).toContain(
       'i = (i + 1);',

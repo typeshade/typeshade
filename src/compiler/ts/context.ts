@@ -1275,14 +1275,17 @@ export class LoweringScope {
    *  an {@link Binding.irName} when the name was already taken anywhere in this function.
    *  Throws on a repeat within the current frame, TypeScript's own rule; the callers that can
    *  reach that turn it into a TS8023 on the declaration. */
-  define(binding: Binding): Binding {
+  define(binding: Binding, reserveModuleNames = false): Binding {
     const top = this.frames[this.frames.length - 1]!;
     if (top.has(binding.name)) {
       throw new Error(`Duplicate binding "${binding.name}" in current scope frame`);
     }
     // A binding may ask for an IR name other than its own: `this` reads as `self_` in the
     // emitted function, since `this` and `self` are reserved words in WGSL (#86).
-    const ir = this.allocIrName(binding.irName ?? binding.name);
+    const ir = this.allocIrName(
+      binding.irName ?? binding.name,
+      reserveModuleNames ? (n) => this.namesModuleDecl(n) : undefined,
+    );
     const stored: Binding = ir === binding.name ? binding : { ...binding, irName: ir };
     top.set(binding.name, stored);
     this.byIr.set(ir, stored);

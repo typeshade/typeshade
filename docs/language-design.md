@@ -197,40 +197,29 @@ An import the compiler does not follow must be refused with `TS8072`, on the imp
 
 ### 3.3. Identifiers
 
-**Rule 3.2.** An identifier is a TypeScript identifier that is also a WGSL identifier: a name that contains `$`, a name that is exactly `_`, and a name that starts with `__` must be refused on the declaration; the compiler must emit a declared name as written, and a member of a class or namespace as the flattened name `Owner_member`.
-A private member `#m` is emitted without its `#` (Rule 8.12), and the two halves of an accessor `m` as `Owner_get_m` and `Owner_set_m` (Rule 8.11).
-Across the files of one program (Rule 3.9), a declaration whose name a declaration emitted before it already holds, or whose name would hide a builtin another file of the program calls, is emitted as `stem_name`, `stem` being its file's name without `.shade.ts`, and for a file of a package the package's name made a name and then its file's (`shade_noise_noise_hash`), with a number after a name a rename has already taken, the entry file's declarations being emitted first; an entry point, a binding and an override are never renamed, and two of one name in one module are refused.
+**Rule 3.2.** A local variable, parameter, module constant or module variable may use any identifier TypeScript permits. The backend must give a name its target cannot spell a fresh identifier, rewriting its declarations and references consistently. The authored IR, CPU oracle, diagnostics and debugger retain the source name. Other declarations retain their existing emitted-name contract: a name containing `$`, exactly `_`, or starting with `__` is refused for WGSL; a class or namespace member is flattened to `Owner_member`.
 
-- Rationale: an author reads a diagnostic and an emitted module against the name they typed, so a rename the author cannot predict breaks that, and a name WGSL's identifier profile excludes is one Tint refuses in text the author never sees.
-- Derives from: [Identifiers](https://gpuweb.github.io/gpuweb/wgsl/#identifiers) (`<Start> := XID_Start + U+005F`, which admits no `$`; "an identifier must not be `_`"; "an identifier must not start with `__`", each a shader-creation error); surface §26 and §29 for the flattening.
+- Rationale: the shading language's identifier restrictions govern emitted text; changing a local spelling does not change the source program. Binding, override, entry, struct and field names also participate in host or interface contracts and keep their existing checks.
+- Derives from: WGSL's identifier and reserved-word restrictions, the GLSL ES 3.00 identifier rules, and the source-name contract for the IR and debugger.
 - Enforced by:
-  - the emit goldens (`examples/emit-goldens.test.ts`) for the spelling;
-  - `TS8068 RESERVED_NAME` (`reportReservedNames` in `src/compiler/ts/reserved-names.ts`, PR #165 and #376) for a name that contains `$`, the name that is exactly `_` and a `__` prefix, in the compiler and in the editor alike, pinned by `src/compiler/ts/reserved-names.test.ts`, which holds both halves to the same sentences on a struct, a field, a binding, a module constant, a function, a parameter and a local, and records the six `$` names Tint refuses with `invalid character found` beside the four neighbours it accepts (`scale_`, `_a`, `café`, `a1`), which compile with no diagnostic;
-  - its three sentences, `"k$" contains "$", which a WGSL identifier cannot hold, so a local of that name cannot be emitted for the WebGPU target. Rename it.`, `"_" is WGSL's phony assignment target, not an identifier, so a local of that name cannot be emitted for the WebGPU target. Rename it.` and `"__a" begins with two underscores, which WGSL reserves, …`;
-  - `linkProgram` in `src/compiler/ts/link.ts` for the names one program's files share (Rule 3.9), pinned by `src/compiler/ts/link.test.ts`: two private helpers of one name are two functions, a builtin another file calls keeps its name, two bindings of one name are `TS8023`, naming both files, and two versions of a package that both rename a helper give it the package's stem and then a number;
+  - `sanitizeVariableNames` in `src/core/passes/variable-names.ts`, used on an emitted copy by both backends, with collision avoidance against authored and generated names;
+  - `reportReservedNames` in `src/compiler/ts/reserved-names.ts` for declarations whose emitted spelling remains part of the contract;
+  - `src/compiler/ts/reserved-names.test.ts`, including `target`, dollar and Unicode variables, nested scopes, constants, module variables, CPU values and the editor;
+  - `linkProgram` in `src/compiler/ts/link.ts` for names shared by a program's files (Rule 3.9), pinned by `src/compiler/ts/link.test.ts`.
 
 ### 3.4. Reserved words
 
-**Rule 3.3.** A declared name that is a WGSL [keyword](https://gpuweb.github.io/gpuweb/wgsl/#keywords) or [reserved word](https://gpuweb.github.io/gpuweb/wgsl/#reserved-words) must be refused as an error on the declaration.
+**Rule 3.3.** A local variable, parameter, module constant or module variable named by a WGSL keyword or reserved word must receive a fresh backend spelling, with every reference rewritten. A WGSL keyword or reserved word on another declaration remains an error on that declaration.
 
-- Rationale: WGSL is the program; Tint refuses the module, and a refusal at the front end names the line the author wrote instead of generated text.
-- Derives from: "A WGSL module must not contain a reserved word" (the section above); the 146 words in `wgsl/wgsl.reserved.plain`, carried in the fixture and transcribed with the 26 keywords as `WGSL_RESERVED` in `src/core/reserved-words.ts`; PR #165's decision 1 (severity follows the target's role).
-- Enforced by:
-  - `TS8068 RESERVED_NAME` as an error (`"as" is reserved in WGSL, so a local of that name cannot be emitted for the WebGPU target. Rename it.`), from `reportReservedNames` in `src/compiler/ts/reserved-names.ts` over the declared-symbol table, on the name the emit carries (`Cls_member` for a flattened member);
-  - the list `WGSL_RESERVED` in `src/core/reserved-words.ts`;
-  - `src/compiler/ts/reserved-names.test.ts`, which pins it (surface §62);
-  - nothing on the multi-file path `compileTsSources`, which is not checked, as the file's header records.
+- Rationale: WGSL must contain no reserved identifier, while a legal TypeScript variable name can be represented without changing its value or authored identity.
+- Derives from: WGSL's keywords and reserved words, carried as `WGSL_RESERVED` in `src/core/reserved-words.ts`.
+- Enforced by: `sanitizeVariableNames` through `wgslBackend`, `reportReservedNames` for remaining declarations, and `src/compiler/ts/reserved-names.test.ts` (surface §62).
 
-**Rule 3.4.** A module-surface name (a struct or its fields, a constant, an override, a module variable, a binding) that is a GLSL ES 3.00 reserved word must be reported as a warning, and the GLSL emit must fail closed on it; a local, a parameter, or a function name that collides must be renamed consistently by the GLSL writer.
+**Rule 3.4.** A local variable, parameter, module constant or module variable that collides with a GLSL ES 3.00 identifier restriction must be renamed consistently by the GLSL writer; helper function renaming retains its existing behavior. A struct, field, override or binding whose emitted name is reserved remains a warning, and the GLSL emit must fail closed on it.
 
-- Rationale: GLSL is the second target of a module whose WGSL exists, so its shortfall is a warning (§12), and a warning must never be the only thing between a reserved word and a driver.
-- Derives from: PR #165's decisions 1 and 4, measured on ANGLE at shader version 300 (`half`, `filter`, `input`, `sample`, `gl_` prefixes, and `__` are refused; `buffer` and `packed` are accepted).
-- Enforced by:
-  - `sanitizeReservedIdents` in `src/core/backends/glsl-sanitize.ts` for locals, parameters, and function names (the rename);
-  - `TS8068 RESERVED_NAME` as a warning, from `reportReservedNames`, for a struct, a field, a constant, an override, a module variable, or a binding, on a module with no compute entry, since a compute kernel has no GLSL form;
-  - its sentence, `"half" is reserved in GLSL ES 3.00, so a field of that name cannot be emitted for the WebGL2 target. Rename it.`;
-  - the fail-closed step in `glsl-sanitize.ts` (`field 'V.half' is a GLSL ES 3.00 reserved word and cannot be renamed here; pick another name`), reported as the `TS8015` warning of Rule 12.3 with `wgsl` kept;
-  - `src/compiler/ts/reserved-names.test.ts`, which pins all three.
+- Rationale: GLSL's variable spellings can change without changing source values. The remaining names belong to interface or host contracts; GLSL is the second target, so its refusal keeps WGSL available.
+- Derives from: ANGLE at shader version 300, including the `gl_` prefix and `__` shape restrictions, and the shared `GLSL_ES300_RESERVED` authority.
+- Enforced by: `sanitizeVariableNames` and `sanitizeReservedIdents` in `src/core/backends/glsl-sanitize.ts`, the `TS8068` warning from `reportReservedNames` for unchanged interface names, and `src/compiler/ts/reserved-names.test.ts`.
 
 **Rule 3.5.** A name the compiler generates (the mangler, the type aliaser) must not be a keyword or reserved word of either target.
 
@@ -519,6 +508,7 @@ An _open loop_ is a `while` loop: it ends when its condition fails, or at a `bre
 
 | TypeScript form                                            | WGSL form                                                                                                                                                                                                          | Divergence recorded in                                                                                              |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| whole-value parameter reassignment                         | a fresh mutable local initialized from the immutable parameter; body reads and writes use that local                                                                                                               | Rule 8.8; surface §14 and §52                                                                                       |
 | `c ? a : b` on a scalar or vector                          | `select(b, a, c)`, WGSL's own argument order                                                                                                                                                                       | surface §10; `CHANGELOG.md` (ternary as `select`); [`select`](https://gpuweb.github.io/gpuweb/wgsl/#select-builtin) |
 | `c ? a : b` on a struct or an array                        | an `if` with a temporary, since WGSL has no `select` over a composite                                                                                                                                              | surface §31 (#113)                                                                                                  |
 | `a ** b`                                                   | `pow(a, b)`, float-only                                                                                                                                                                                            | surface §10                                                                                                         |
@@ -681,6 +671,12 @@ The atomic builtins may be used in the compute and fragment stages, and must not
   - surface §3's bullets on the payload of `@compute`, under the entry example, which state the default of 64, the emitted spelling of a two- or three-dimensional shape, the limits warning, and the refused object form.
 
 **Rule 8.8.** A parameter an author writes must be passed by value; there must be no pointers and no reference parameters.
+Whole-value assignment, compound assignment and integer updates of a value parameter must
+rebind a mutable local initialized from the input, leaving the caller's value unchanged.
+Only a parameter whose declaration a whole write resolves to gets this local; a shadowing
+declaration does not count. Within that body's scope the local may be written through its
+fields or elements. A parameter with no whole write retains its existing read-only place
+semantics. Resource handles and the reference-backed arrays of Rule 8.23 are not local-copy values.
 The object of a method that changes its object, and a variable of the function around it that a local function writes, are not parameters an author writes: Rules 8.10 and 8.17 govern them, and each is passed by reference.
 The one exception an author writes is a kernel function's parameter of an array with no size, which is the caller's storage and passed by reference (Rule 8.23).
 
@@ -688,6 +684,10 @@ The one exception an author writes is a kernel function's parameter of an array 
   The two references are how the emitted function keeps TypeScript's own meaning (a method writes the object it was called on, a closure writes the variable it closes over), and no author writes either one.
 - Derives from: `docs/roadmap.md` After 1.0 ("pointers and reference parameters"); [Function Calls](https://gpuweb.github.io/gpuweb/wgsl/#function-calls).
 - Enforced by: `TS8020 FUNCTION_SHAPE` for a parameter shape the surface does not take.
+  Value rebinding, caller isolation, captures, class bodies, generic/higher-order copies and
+  entry inputs are pinned by `src/compiler/ts/mutable-parameters.test.ts`; the immutable GPU
+  input and distinct local by `src/compiler/ts/tint-invalid.test.ts`; the packed-package
+  path by `journeys/mutable-parameters/`.
 
 **Rule 8.9.** Method dispatch must be static, and a generic function or class must be compiled once per set of type arguments the program uses (Rule 3.9).
 A body a class inherits is compiled again for that class; what fails only there (a call that takes the base, a static the class does not have) must be refused when a function that is not a class's own reaches it through calls, and must not be when nothing does, the body being dropped with every function that calls it.
@@ -762,8 +762,10 @@ A member a class that extends declares again must keep the kind the class above 
 
 **Rule 8.17.** A local function (a `const` that holds an arrow function or a function expression, or a `function` declaration, written inside a function's body) is a function of the module named after the body that declares it (surface §14), and it may read and write the variables of the functions around it, as a TypeScript closure does.
 A name its body reads is looked up as TypeScript looks it up, from the innermost block outward; one that lands on a `let`, a `const` or a parameter of a function around it is a capture, which the emitted function takes as a parameter ahead of its own and which every call of it passes: by value while neither it nor a local function it calls writes the variable, and by reference once one does; a `const` keeps its constant, so a loop it bounds is still counted (Rule 7.5).
+A whole write to a captured value parameter shares the local copy of Rule 8.8 with the
+enclosing body and every other closure; its reference never reaches the enclosing caller.
 `this` in an arrow function is the object of the method around it, captured the same way, and the class the call names in a static member (Rule 8.13).
-A write through a capture follows the variable's own declaration: a `let` may be written, a `const` only through what it holds and only when its initializer built the value (Rule 6.10), and a parameter never (Rule 8.8).
+A write through a capture follows the variable's own declaration: a `let` may be written, a `const` only through what it holds and only when its initializer built the value (Rule 6.10), and a whole-rebound value parameter through its mutable local copy (Rule 8.8).
 A `function` declaration may be called anywhere in its block, as TypeScript hoists it, and a local function may be declared in a generic function, once for each of its instances.
 A call of a local function at a point where a variable it captures is not declared yet must be refused, since TypeScript throws there; so must a function named where a value is read (held in a variable, returned, compared or chosen at run time), there being no function value, other than as an argument of a parameter that takes a function (Rule 8.18).
 A function named as the callback of a fold (`any(xs, isBig)`, `zip(xs, ys, f)`) passes what it captures to every call the fold makes.

@@ -58,6 +58,7 @@
 import { consoleArgs, consoleTableRows, type ConsoleMethod, type ConsoleSink } from '../console.js';
 import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt, StructDecl } from '../ir/index.js';
 import type { SourceSpan } from '../ir/span.js';
+import { parameterLocalsOf } from '../ir/parameter-locals.js';
 import {
   type CpuValue,
   FIELD_IDX,
@@ -106,6 +107,8 @@ export interface StepFrame {
    *  `var` its body declares. Without it a pause has values and no way to render them: a
    *  `vec3` and a three-element array are the same `number[]` at runtime. */
   readonly types: ReadonlyMap<string, ShaderType>;
+  /** Authored input names mapped to their mutable value locals. */
+  readonly parameterLocals?: ReadonlyMap<string, string>;
   /** The names in THIS frame whose current value came, directly or through arithmetic, from a
    *  GPU stub rather than from the shader's own data — `docs/debugging.md` §2.4's "mark it in
    *  the variables view as a stand-in rather than a computed value". Maintained at every
@@ -497,6 +500,7 @@ export function* runFunction(
     callSpan,
     env,
     types: declaredTypes(decl),
+    parameterLocals: parameterLocalsOf(decl),
     stubbed: new Set(decl.params.filter((_, i) => stubbedArgs?.[i]).map((p) => p.name)),
     current: undefined,
   };
