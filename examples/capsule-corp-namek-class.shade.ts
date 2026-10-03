@@ -2090,7 +2090,9 @@ class ShipMaterial {
           smoothstep(0.0, 0.04, k) *
           ShipMaterial.celShadow(
             p + n * 0.01,
-            LIG
+            LIG,
+            ship,
+            trees
           )
         );
 
@@ -2193,7 +2195,7 @@ class ShipMaterial {
 
   static mapCel(p: vec3, ship: Ship, trees: NamekTrees): vec2 {
     let result = ship.map(p);
-    result = SDF.union(result, this.trees.map(p));
+    result = SDF.union(result, trees.map(p));
     return result;
   }
 }
@@ -3694,7 +3696,9 @@ class Terrain {
       lightAmount *=
         ShipMaterial.celShadow(
           p + normal * 0.02,
-          LIG
+          LIG,
+          ship,
+          trees
         );
     }
 
@@ -4007,14 +4011,16 @@ class NamekScene {
         march.hit.x;
     } else if (terrainT > 0.0) {
       col =
-        this.terrain.shade(
+        Terrain.shade(
           ro +
           rd *
           terrainT,
           ro,
           terrainT,
           pixA,
-          lineA
+          lineA,
+          this.ship,
+          this.trees
         );
 
       frontT =
