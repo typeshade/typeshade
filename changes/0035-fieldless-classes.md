@@ -1,7 +1,7 @@
 ---
 id: '0035'
 title: Classes without instance fields remain constructible shader values
-status: accepted
+status: implemented
 rules:
 - '8.9'
 - '8.21'

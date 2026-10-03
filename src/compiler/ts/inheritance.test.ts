@@ -660,13 +660,7 @@ ${FS}`),
     ).toEqual([generic]);
   });
 
-  it('says nothing of why a class has no field, which is said too', () => {
-    // A base with no field is no struct, and a class that extends it has nothing of it. The
-    // sentence about the member says nothing of that, and it stood in for the sentence that
-    // does, so the class that extends was told only that its base is no struct.
-    const noFields = (cls: string): string =>
-      `${TS_CODES.STRUCT_FIELD} Struct "${cls}" has no fields. WGSL requires a struct to declare at least one member, so an empty one cannot be emitted.`;
-    const notStruct = `${TS_CODES.STRUCT_FIELD} "Circle" extends "Shape", which this file does not declare as a struct. A base has to be a class or an interface whose fields are shader types.`;
+  it('reports invalid abstract members without rejecting a fieldless base', () => {
     // A call of what the base would have given adds nothing to that.
     expect(
       bothHalves(`"use typeshade"
@@ -676,8 +670,6 @@ export function g(c: Circle): f32 { return c.sdf(vec2(0.1, 0.2)) }
 ${FS}`),
     ).toEqual([
       `${M} "Shape.sdf" is abstract and has a body; remove "abstract", or remove the body and let each class that extends "Shape" write it.`,
-      `${noFields('Shape')} A class holding only functions is not a struct; write them as functions.`,
-      notStruct,
     ]);
     expect(
       bothHalves(`"use typeshade"
@@ -687,8 +679,6 @@ export function g(c: Circle): f32 { return c.sdf(vec2(0.1)) }
 ${FS}`),
     ).toEqual([
       `${M} "Shape.sdf" is abstract, and "Shape" is not; mark "Shape" abstract, or remove "abstract" and give "sdf" a body.`,
-      noFields('Shape'),
-      notStruct,
     ]);
   });
 

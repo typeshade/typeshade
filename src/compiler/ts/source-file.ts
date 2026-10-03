@@ -80,8 +80,8 @@ export interface CompileTsSourceOptions {
    * ignored in favor of `sourceFile.fileName`. */
   readonly sourceFile?: ts.SourceFile;
   /** When `true`, report the DEPRECATION warnings for spellings whose meaning is scheduled to
-   * change. One today: an integer-written literal in a declaration that declares no type still
-   * types as `f32` and will type as `i32` (§13, #148). Off by default, and off is
+   * change. One today: an integer-written literal in a declaration with no annotation or
+   * declared integer use still types as `f32` and will type as `i32` (§13, #148). Off by default, and off is
    * the whole of the compiler's behaviour: the flag adds warnings and moves no emitted byte,
    * so a build that turns it on and a build that does not produce the same shader. */
   readonly deprecations?: boolean;

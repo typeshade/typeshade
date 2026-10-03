@@ -67,6 +67,7 @@ import { lowerFor, lowerForOf, lowerSwitch, lowerUpdate, lowerWhile } from './co
 import { refusedBySemantics } from '../semantic.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
+import { localNumericInference } from '../local-numeric-inference.js';
 import { foldNumericLit } from '../lit-coerce.js';
 import { constShiftAmountOutOfRange, foldConstComponents, foldConstValue } from '../loop-bound.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -472,6 +473,13 @@ function lowerDeclarationKind(
     return undefined;
   }
   let annotated: ShaderType | undefined;
+  if (decl.type === undefined) {
+    const inferred = localNumericInference(decl, sourceFile);
+    annotated = inferred?.type;
+    if (inferred?.conflict !== undefined) {
+      pushDiag(diagnostics, sourceFile, decl.name, inferred.conflict, TS_CODES.TYPE_MISMATCH);
+    }
+  }
   if (decl.type) {
     annotated = mapTsTypeToShaderType(decl.type, sourceFile, diagnostics);
     if (!annotated) return undefined;

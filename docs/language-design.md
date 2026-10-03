@@ -337,11 +337,11 @@ An _integer-written_ literal has no decimal point and no exponent.
 
 ### 5.2. Rules
 
-**Rule 5.1.** An integer-written literal must take the integer type the position around it declares; in a position that declares no integer type it must be an `f32`.
+**Rule 5.1.** An integer-written literal must take the integer type the position around it declares. An unannotated function-local `let` or `const` initialized by such a literal takes `i32` or `u32` when direct calls to declared, nongeneric functions require that one type for the local. The calls resolve the local and callee by their declarations, including through nested scopes. Conflicting concrete parameter types must be refused with an annotation or cast remedy. Where no integer type is established, the literal must be an `f32`.
 
 - Rationale: this is WGSL's abstract-integer rule narrowed to the positions where a type is stated, and the `f32` default is the surface's history rather than WGSL's rule.
 - Derives from: [Abstract Numeric Types](https://gpuweb.github.io/gpuweb/wgsl/#abstract-types) and [Conversion Rank](https://gpuweb.github.io/gpuweb/wgsl/#conversion-rank); surface §13.
-- Enforced by: `src/compiler/ts/lit-coerce.ts`, `src/compiler/ts/int-lit-context.test.ts`, and `int-lit-coerce.test.ts`.
+- Enforced by: `src/compiler/ts/lit-coerce.ts`, `src/compiler/ts/local-numeric-inference.ts`, `src/compiler/ts/local-numeric-inference.test.ts`, `src/compiler/ts/int-lit-context.test.ts`, and `int-lit-coerce.test.ts`.
 
 The default is _open_: WGSL concretizes an undecided integer literal to `i32`, TypeShade to `f32`, and #148 proposes the flip with a deprecation window (§14).
 
@@ -690,6 +690,9 @@ The one exception an author writes is a kernel function's parameter of an array 
   path by `journeys/mutable-parameters/`.
 
 **Rule 8.9.** Method dispatch must be static, and a generic function or class must be compiled once per set of type arguments the program uses (Rule 3.9).
+A class with no instance fields remains a constructible value, including method-only, static-only,
+inherited, mixin and generic classes. Its authored field list remains empty; GPU lowering provides
+an internal carrier without adding source members or inherited fields.
 A body a class inherits is compiled again for that class; what fails only there (a call that takes the base, a static the class does not have) must be refused when a function that is not a class's own reaches it through calls, and must not be when nothing does, the body being dropped with every function that calls it.
 
 - Rationale: a WGSL struct is one layout and a WGSL function has one overload, so the only meaning a generic or a method can have is the monomorphised one.
@@ -824,6 +827,9 @@ An exported constant and an `enum` are values of the host face, and an exported 
 - Enforced by: `hostFace` in `src/compiler/ts/host-face.ts`, which computes the callable set and the reason for each other export; pinned by `src/compiler/ts/host-face.test.ts`, one case per exclusion, and by its host programs type-checked against the view, in which a call of an export declared `never` is TS2349.
 
 **Rule 8.21.** A host call passes and returns host values by value: an `f32`, `f64`, `i32` or `u32` is a `number`, a `bool` a `boolean`, a vector a `readonly` tuple of its components as an argument and a tuple as a result, a matrix a flat column-major array of its components, an `array<T, N>` an array of `N` host values of `T`, a struct an object of its fields, and an `enum` member its number.
+A fieldless class is `{}` on the host and CPU. Its reflected memory footprint accounts for the
+GPU's internal carrier: four bytes under natural layout, sixteen under std140, with no visible
+fields. Nested fields and array strides follow that footprint.
 Each argument is checked and converted: an `ArrayLike` of the right length becomes a fresh array, an `f32` is rounded as a buffer write rounds it, and a value that does not fit is refused with a `TypeError` naming the function, the parameter and its TypeShade type; the result aliases no argument and nothing the module keeps (Rule 8.8), and an exported constant is a frozen copy.
 A call of a function this rule and Rule 8.20 admit is synchronous, and no later tier changes that; as a helper's parameter, a runtime-sized array, an atomic, a texture, a sampler and a binding have no host value.
 A binding of an entry a host calls (Rule 8.24) takes a host value too: a `uniform<T>` or a sized `storage<T>` takes `T`'s, a runtime-sized `storage<array<T>>` of scalars or vectors takes the scalar's typed array (`Float32Array`, `Int32Array`, `Uint32Array`, or `Float64Array` for an `f64` and a `vecNf64`) with the vector's components one after another, which the call pads to the element's stride, one of structs takes an array of objects, and either may be a `Resident` of it (Rule 11.8), an atomic takes its integer's, a `texture_2d<f32>` takes an image source (`ImageBitmap`, `ImageData`, `HTMLImageElement`, `HTMLCanvasElement`, `HTMLVideoElement` or `OffscreenCanvas`), uploaded at the call, and a `sampler` takes `{ filter?, address? }` (`'nearest'` or `'linear'`; `'clamp'`, `'repeat'` or `'mirror'`), or nothing for linear and clamp. An emulated `f64` (change 0013's split) is held by the GPU as two `f32`s, `hi` and `lo`, and a `vecNf64` as a plane of each: the runtime splits a double into them and joins them back, and binds the `_fp64` guard of a module that emulates one, which the host never passes; a `matNxN<f64>` has no host value yet.

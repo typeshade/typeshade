@@ -22,6 +22,10 @@ The unit suite and the compile gate test the compiler from inside the repository
 
 ## A journey
 
+`fieldless-classes/` constructs method-only classes, dispatches an inherited method, and packs
+empty class values nested as uniform fields and array elements, checking the GPU result against
+the CPU oracle and a JavaScript reference (change 0035).
+
 A journey is a directory holding one or more `*.shade.ts` sources and a `journey.mjs` host.
 
 - **The sources** are shader code as their author would write it. Where they spell something a way the author would not, only to get past a gap, the line says so and names the issue. The plasma journey's `const uv: vec2 = …` did, pointing to #162, until the language service learned the type and the annotation came out. A workaround with no issue is not allowed, because the point of the gate is that each one is visible and counted.
@@ -62,5 +66,9 @@ A fourth kind, `kind: 'engine'` (change 0025), is a host application rather than
 3. Node runs the bundle;
 4. every value the bundle prints matches `reference.mjs`, the same computation in plain JavaScript;
 5. a browser bundle of `src/gpu.ts` calls two `@compute` entries through the import in a page with WebGPU (change 0016), one of them through a barrier, which has no CPU tier, and both match the reference, called with plain typed arrays and again chained through `resident` arrays, the map's output the block sum's input, which only queue, and a third, `axpy` of `src/doubles.shade.ts`, over `Float64Array`s its module emulates as two `f32`s each, held to a double's reference within 1e-12; `deep` of `src/deep.shade.ts`, a fragment entry that computes in `f64`, is drawn on WebGPU, WebGL2 and the CPU tier with the `_fp64` guard the runtime binds; it then draws two full-screen fragment entries of `src/draw.shade.ts` on WebGPU, WebGL2 and the CPU tier, each frame against the reference, and a sampled texture's draw on the CPU is refused with the reason, and a third, which reads a `resident` array a kernel function filled, on WebGPU and the CPU tier. It calls the particles journey's kernel function `step` for 20 frames on a `resident` array, whose steps only queue and whose one read follows the last, and draws the plasma journey's `fs` through the import, each against that journey's own reference, and checks that a production build records no `console.*` call while `vite dev` prints an entry's calls from WebGPU in order, each line with its tier, file and line and invocation. It also calls `dstats` of `src/doubles.shade.ts`, a kernel function over 70 000 `f64`s whose map and sum and min run on WebGPU, required, held to a double's reference within 1e-12, and eight kernel functions of `src/loops.shade.ts` (change 0013), whose loops run on WebGPU one invocation per iteration, each against the f32 reference, two of them reductions whose sums match the tree order bit for bit (300 000 `f32`s, folded over two levels of partials), one a histogram whose bins are atomics, two that read an array's length inside an iteration, over arrays of 5, 12 and 7 elements, the last a `resident` one, whose byte sizes are no multiple of 16 (#367), and renders into and reduces over `resident` arrays that stay on the device across the calls, and one with an array too short for its loop, which is refused before anything is uploaded.
+
+`journeys/local-use-inference/` (change 0036, #429) lets direct declared calls establish the
+integer type of an unannotated local literal. Its independent JavaScript reference checks
+signed division, unsigned wrapping, a shadowed local and a closure on the CPU and WebGPU.
 
 A journey belongs with the change that makes it work. A pull request that improves what a user can write adds the journey that shows it, and the gate keeps it working from then on.
