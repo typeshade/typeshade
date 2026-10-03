@@ -214,12 +214,16 @@ class Noise {
     return sum / 0.9375;
   }
 
+  static mod(x: f32, y: f32): f32 {
+    return x - y * floor(x / y);
+  }
+
   static wrapX(p: vec2, n: f32): f32 {
     const i = floor(p);
     const f = fract(p);
     const q = f * f * (3.0 - 2.0 * f);
-    const i0 = mod(i.x, n);
-    const i1 = mod(i.x + 1.0, n);
+    const i0 = Noise.mod(i.x, n);
+    const i1 = Noise.mod(i.x + 1.0, n);
 
     return mix(
       mix(
