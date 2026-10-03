@@ -3113,7 +3113,8 @@ export function fillFunctionBody(
           sourceFile,
           r.span,
           node.name ?? node,
-          `Function "${stub.name}" returns ${authorTypeText(stub.ret)} but has a bare "return".`,
+          `Function "${stub.name}" returns ${authorTypeText(stub.ret)} but has a bare "return".` +
+            newlineReturnRemedy(sourceFile, r.span),
           TS_CODES.RETURN_SHAPE,
         ),
       );
@@ -3344,6 +3345,37 @@ function numberDecorator(node: ts.Node, _sf: ts.SourceFile, name: string): numbe
     if (a && ts.isNumericLiteral(a)) return Number(a.text);
   }
   return undefined;
+}
+
+/** ASI keeps a newline after `return` from handing back the following expression. Explain
+ *  that spelling without joining the statements or changing a deliberate `return;`. */
+function newlineReturnRemedy(sourceFile: ts.SourceFile, span: SourceSpan | undefined): string {
+  if (span === undefined) return '';
+  let remedy = '';
+  const visit = (node: ts.Node): void => {
+    if (ts.isReturnStatement(node) && node.getStart(sourceFile) === span.start) {
+      if (node.expression !== undefined || node.getText(sourceFile).endsWith(';')) return;
+      const parent = node.parent;
+      const siblings =
+        ts.isBlock(parent) || ts.isCaseClause(parent) || ts.isDefaultClause(parent)
+          ? parent.statements
+          : undefined;
+      if (siblings === undefined) return;
+      const next = siblings[siblings.indexOf(node) + 1];
+      if (
+        next !== undefined &&
+        ts.isExpressionStatement(next) &&
+        /[\r\n\u2028\u2029]/.test(sourceFile.text.slice(node.end, next.getStart(sourceFile)))
+      ) {
+        remedy =
+          ' The newline after "return" ends the return statement in TypeScript. Put the expression on the same line, or write "return (" before the newline and close it with ");".';
+      }
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return remedy;
 }
 
 function collectReturns(stmts: readonly Stmt[]): { expr?: Expr; span?: SourceSpan }[] {
