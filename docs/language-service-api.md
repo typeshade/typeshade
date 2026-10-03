@@ -708,7 +708,7 @@ emulated-double forms, and the generic same-shape overload each name had before,
 
 The vector-beside-scalar shapes deliberately NOT declared are the ones a GPU compiler refuses, and
 they stay undeclared so that TypeScript is the thing reporting them: `clamp(vecN, s, s)` (Tint: `no
-matching call to 'clamp(vec3<f32>, f32, f32)'`), `min(vecN, s)`, `max(vecN, s)`, `pow(vecN, s)`,
+matching call to 'clamp(vec3<f32>, f32, f32)'`), `pow(vecN, s)`,
 `step(vecN, s)`, and `mix` on an `i32` or `u32` vector. The mirrored forms draw TypeScript's
 TS2769 too, but do not depend on it: `mathResultType` types a call by the `core.def` row that
 takes its arguments and, where none does, by its FIRST argument, so `min(s, vecN)`, `max(s,
