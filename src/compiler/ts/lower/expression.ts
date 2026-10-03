@@ -67,6 +67,8 @@ const COMPARE: Readonly<Record<number, CmpOp>> = {
   [ts.SyntaxKind.GreaterThanEqualsToken]: '>=',
   [ts.SyntaxKind.EqualsEqualsEqualsToken]: '==',
   [ts.SyntaxKind.ExclamationEqualsEqualsToken]: '!=',
+  [ts.SyntaxKind.EqualsEqualsToken]: '==',
+  [ts.SyntaxKind.ExclamationEqualsToken]: '!=',
 };
 
 /**
@@ -995,13 +997,6 @@ function lowerBinary(
       return undefined;
     }
     return { op: 'compare', type: boolT, cop: cmp, a: left, b: right };
-  }
-  if (
-    node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken ||
-    node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken
-  ) {
-    pushDiag(diagnostics, sourceFile, node, 'Use strict equality === / !==.', TS_CODES.UNSUPPORTED);
-    return undefined;
   }
   if (node.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken) {
     pushDiag(

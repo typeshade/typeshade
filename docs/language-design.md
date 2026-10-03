@@ -498,7 +498,7 @@ An _open loop_ is a `while` loop: it ends when its condition fails, or at a `bre
 
 ### 7.2. Rules
 
-**Rule 7.1.** An operator, a swizzle, an index, and a call must mean what WGSL's typing table gives them.
+**Rule 7.1.** An operator, a swizzle, an index, and a call must mean what WGSL's typing table gives them. TypeScript's `==` and `!=` are accepted as aliases of the typed shader comparisons `===` and `!==`; no JavaScript coercion is emitted.
 
 - Rationale: Rule 1.1 applied to expressions.
 - Derives from: [Expressions](https://gpuweb.github.io/gpuweb/wgsl/#expressions), [Arithmetic Expressions](https://gpuweb.github.io/gpuweb/wgsl/#arithmetic-expr), [Bit Expressions](https://gpuweb.github.io/gpuweb/wgsl/#bit-expr).

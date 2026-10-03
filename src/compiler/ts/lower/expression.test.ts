@@ -110,14 +110,23 @@ describe('Phase 3 - expression lowering', () => {
   });
 
   it('lowers comparisons to compare expr', () => {
-    for (const src of ['a < b', 'a > b', 'a <= b', 'a >= b', 'a === b', 'a !== b']) {
+    for (const src of [
+      'a < b',
+      'a > b',
+      'a <= b',
+      'a >= b',
+      'a === b',
+      'a !== b',
+      'a == b',
+      'a != b',
+    ]) {
       expect(lower(src, withParams).expr!.op).toBe('compare');
     }
   });
 
-  it('rejects non-strict == and !=', () => {
-    expect(lower('a == b', withParams).diagnostics[0]!.message).toMatch(/strict equality/);
-    expect(lower('a != b', withParams).diagnostics[0]!.message).toMatch(/strict equality/);
+  it('treats loose equality as the typed shader equality', () => {
+    expect(lower('a == b', withParams).diagnostics).toEqual([]);
+    expect(lower('a != b', withParams).diagnostics).toEqual([]);
   });
 
   it('lowers parenthesized expressions', () => {
