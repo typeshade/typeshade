@@ -67,6 +67,92 @@ ${decls}
 export function fs(): vec4 { ${body} }
 `;
 
+describe('backend spellings preserve TypeScript variable names', () => {
+  it('escapes Unicode variables for GLSL without colliding with authored ASCII names', () => {
+    const source = `"use typeshade";
+const cafue9_: f32 = 5.;
+function scale(α: f32): f32 { return α * 2.; }
+@fragment export function fs(@location(0) uv: vec2): vec4 {
+  let café = uv.x;
+  café += cafue9_;
+  return vec4(scale(café), 0., 0., 1.);
+}
+`;
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.glsl?.fragment).not.toMatch(/café|α/u);
+    expect(result.glsl?.fragment).toContain('cafue9_1');
+    expect(result.wgsl).toContain('α');
+    expect(result.module.funcs.find((f) => f.name === 'scale')!.params[0]!.name).toBe('α');
+    expect(result.eval('fs', [[3, 0]])).toEqual([16, 0, 0, 1]);
+  });
+
+  it('renames reserved parameters and locals without touching authored IR or sibling scopes', () => {
+    const source = `"use typeshade";
+export function parameter(target: f32, target_: f32, target_1: f32): f32 {
+  target += target_ + target_1;
+  return target;
+}
+export function local(x: f32): f32 {
+  let target = x;
+  const target_ = 7.;
+  const target_1 = 11.;
+  if (x > 0.) {
+    let target = 2.;
+    target += x;
+  }
+  return target + target_ + target_1;
+}
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const target = uv.x;
+  return vec4(parameter(target, 1., 2.), local(target), target, 1.);
+}
+`;
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.glsl).toBeDefined();
+    expect(result.wgsl).not.toMatch(/\b(?:let|var) target\b|\btarget:/);
+    expect(result.module.funcs.find((f) => f.name === 'parameter')!.params[0]!.name).toMatch(
+      /^target/,
+    );
+    expect(result.eval('fs', [[3, 0]])).toEqual([6, 21, 3, 1]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/names.shade.ts', source);
+    expect(service.getDiagnostics('/names.shade.ts')).toEqual([]);
+    expect(service.getCompiledOutput('/names.shade.ts', 'wgsl')!.text).toBe(result.wgsl);
+  });
+
+  it('rewrites module constants, constant expressions, module vars and their references', () => {
+    const source = `"use typeshade";
+const target: vec2 = vec2(2.);
+const gl_Scale: vec2 = target * 3.;
+const filter: f32 = 1.;
+let discard: f32 = filter;
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  discard = uv.x;
+  return vec4(target + gl_Scale, discard, 1.);
+}
+`;
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.wgsl).toContain('target_');
+    expect(result.glsl?.fragment).not.toMatch(/\bgl_Scale\b/);
+    expect(result.module.consts.map((c) => c.name)).toContain('target');
+    expect(result.module.vars?.[0]?.name).toBe('discard');
+    expect(result.eval('fs', [[4, 0]])).toEqual([8, 8, 4, 1]);
+  });
+
+  it('still refuses names ECMAScript cannot declare', () => {
+    const result = compile(
+      '"use typeshade"; export function f(): f32 { const class = 1.; return class; }',
+    );
+    expect(result.diagnostics.some((d) => d.category === 'error')).toBe(true);
+    expect(result.wgsl).toBeUndefined();
+  });
+});
+
 describe('GLSL ES 3.00 reserves the name, and the module has a GLSL form (#103)', () => {
   it('reports a struct field named half, on the field', () => {
     const src = `"use typeshade";
@@ -105,19 +191,13 @@ export function fs(): vec4 { return vec4(cam.half + cam.rest, 0., 0., 1.) }
   });
 
   it('reads the two shape rules §3.6 has beside its word list', () => {
-    expect(warningsOf(render('const gl_Scale: f32 = 2.'))).toContain(
-      `${TS_CODES.RESERVED_NAME} "gl_Scale" begins with "gl_", which GLSL ES 3.00 keeps for built-ins, so a module constant of that name cannot be emitted for the WebGL2 target. Rename it.`,
-    );
-    expect(warningsOf(render('const a__b: f32 = 2.'))).toContain(
-      `${TS_CODES.RESERVED_NAME} "a__b" has two consecutive underscores, which GLSL ES 3.00 reserves for future keywords, so a module constant of that name cannot be emitted for the WebGL2 target. Rename it.`,
-    );
+    expect(warningsOf(render('const gl_Scale: f32 = 2.'))).toEqual([]);
+    expect(warningsOf(render('const a__b: f32 = 2.'))).toEqual([]);
   });
 
   it.each([
-    ['const half: f32 = 0.5', '"half"', 'a module constant'],
     ['declare const half: uniform<f32>', '"half"', 'a binding'],
     ['declare const half: override<f32>', '"half"', 'an override'],
-    ['let input: f32 = 0.', '"input"', 'a module variable'],
   ])('reports %s', (decl, quoted, noun) => {
     expect(warningsOf(render(decl))).toContain(GLSL(quoted, noun));
     expect(errorsOf(render(decl))).toEqual([]);
@@ -142,27 +222,23 @@ describe('WGSL reserves the name (#103)', () => {
   it.each([
     ['let as: f32 = 1.; return vec4(as, 0., 0., 1.)', '"as"', 'a local'],
     ['let discard: f32 = 1.; return vec4(discard, 0., 0., 1.)', '"discard"', 'a local'],
-  ])('refuses %s', (body, quoted, noun) => {
-    expect(errorsOf(render('', body))).toEqual([WGSL(quoted, noun)]);
+  ])('renames %s for emit', (body) => {
+    expect(errorsOf(render('', body))).toEqual([]);
   });
 
-  it('refuses a parameter', () => {
+  it('renames a parameter for emit', () => {
     expect(
       errorsOf(`"use typeshade";
 export function g(as: f32): f32 { return as; }
 @fragment
 export function fs(): vec4 { return vec4(g(1.), 0., 0., 1.); }
 `),
-    ).toEqual([WGSL('"as"', 'a parameter')]);
+    ).toEqual([]);
   });
 
-  it('refuses the two shapes the spec rules out beside the word lists', () => {
-    expect(errorsOf(render('', 'let __t: f32 = 1.; return vec4(__t, 0., 0., 1.)'))).toEqual([
-      `${TS_CODES.RESERVED_NAME} "__t" begins with two underscores, which WGSL reserves, so a local of that name cannot be emitted for the WebGPU target. Rename it.`,
-    ]);
-    expect(errorsOf(render('', 'let _: f32 = 1.; return vec4(_, 0., 0., 1.)'))).toEqual([
-      `${TS_CODES.RESERVED_NAME} "_" is WGSL's phony assignment target, not an identifier, so a local of that name cannot be emitted for the WebGPU target. Rename it.`,
-    ]);
+  it('renames the two shapes the spec rules out beside the word lists', () => {
+    expect(errorsOf(render('', 'let __t: f32 = 1.; return vec4(__t, 0., 0., 1.)'))).toEqual([]);
+    expect(errorsOf(render('', 'let _: f32 = 1.; return vec4(_, 0., 0., 1.)'))).toEqual([]);
   });
 });
 
@@ -195,10 +271,7 @@ export function main() { const p: P$ = { v$: 1. }; out$[0] = scale$(p.v$); }
     dollar('"P$"', 'a struct'),
     dollar('"v$"', 'a field'),
     dollar('"out$"', 'a binding'),
-    dollar('"K$"', 'a module constant'),
     dollar('"scale$"', 'a function'),
-    dollar('"x$"', 'a parameter'),
-    dollar('"k$"', 'a local'),
   ];
 
   it('refuses each declaration, in the compiler, and emits no WGSL', () => {
@@ -220,8 +293,11 @@ export function main() { const p: P$ = { v$: 1. }; out$[0] = scale$(p.v$); }
     expect([...errors].sort()).toEqual([...EXPECTED].sort());
   });
 
-  it('underlines the name as written', () => {
-    expect(underlines(render('', 'let a$b: f32 = 1.; return vec4(a$b, 0., 0., 1.)'))).toBe('a$b');
+  it('renames a dollar variable without changing its CPU value', () => {
+    const result = compile(render('', 'let a$b: f32 = 1.; return vec4(a$b, 0., 0., 1.)'));
+    expect(result.diagnostics).toEqual([]);
+    expect(result.wgsl).not.toContain('a$b');
+    expect(result.eval('fs')).toEqual([1, 0, 0, 1]);
   });
 
   it('leaves the neighbours Tint accepts alone: a trailing _, a leading _, a non-ASCII letter, a digit', () => {
@@ -243,11 +319,8 @@ class atomic { static uint: u32 = 1; }
 @fragment
 export function fs(): vec4 { return vec4(f32(atomic.uint), 0., 0., 1.); }
 `;
-    expect(warningsOf(src)).toContain(
-      `${TS_CODES.RESERVED_NAME} "uint" is emitted as "atomic_uint", which is reserved in GLSL ES 3.00, so this module constant cannot be emitted for the WebGL2 target. Rename it.`,
-    );
-    // On the member the author wrote, not on the spelling only the emit has.
-    expect(underlines(src)).toBe('uint');
+    expect(warningsOf(src)).toEqual([]);
+    expect(compile(src).glsl).toBeDefined();
   });
 
   it('does the same for a namespace member, and for a WGSL word', () => {
@@ -257,9 +330,7 @@ namespace thread { export const local: f32 = 1.; }
 @fragment
 export function fs(): vec4 { return vec4(thread.local, 0., 0., 1.); }
 `),
-    ).toEqual([
-      `${TS_CODES.RESERVED_NAME} "local" is emitted as "thread_local", which is reserved in WGSL, so this module constant cannot be emitted for the WebGPU target. Rename it.`,
-    ]);
+    ).toEqual([]);
   });
 
   it('leaves a flattened name that is NOT reserved alone', () => {

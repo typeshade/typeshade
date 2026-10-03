@@ -556,9 +556,9 @@ describe('what a local function may not do (Rule 8.17)', () => {
     expect(errors.join('\n')).not.toContain('not declared yet');
   });
 
-  it('write a parameter or a const of the function around it, as the body itself may not', () => {
+  it('a closure writes the local copy of a parameter but cannot write a const (Rule 8.8)', () => {
     expect(
-      only(
+      run(
         RUN(`export function run(k: f32): f32 {
   const f = (): void => {
     k = 1.;
@@ -567,9 +567,7 @@ describe('what a local function may not do (Rule 8.17)', () => {
   return k;
 }`),
       ),
-    ).toBe(
-      `${TS_CODES.ASSIGN_TARGET} Cannot assign to "k" — a parameter is a value, not a variable. Copy it into a local first: "let k_ = k;", then write that.`,
-    );
+    ).toBe(1);
     expect(
       only(
         RUN(`export function run(k: f32): f32 {

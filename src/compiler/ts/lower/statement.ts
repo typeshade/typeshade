@@ -2099,7 +2099,8 @@ function truncate(s: string, n = 60): string {
   return t.length <= n ? t : t.slice(0, n) + '…';
 }
 
-/** A WHOLE-parameter write, refused for every spelling that reaches one: `a = v`, `a += v`,
+/** A WHOLE-parameter write that has no copyable value local (Rule 8.8), refused for every
+ *  spelling that reaches one: `a = v`, `a += v`,
  *  `a++`. WGSL formal parameters are values, not references, and Tint says so outright:
  *  `cannot assign to parameter 'a'` / `parameters are immutable`. The compiler emitted
  *  `a = 1.0;` with zero diagnostics (§52), and the docs called it a bug it did not catch.

@@ -911,6 +911,14 @@ compile(source, { deprecations: true });
 
 ## 14. TypeScript shapes the parser already had
 
+A value parameter may be reassigned whole (`a = value`, `a += value`, an integer `a++`).
+The compiler initializes a mutable local from the immutable GPU input and resolves body
+reads and writes to it, so the caller's argument stays unchanged (Rule 8.8). A closure
+writing the parameter shares that local. A whole-rebound vector, struct or fixed array
+also permits writes to the local's components, fields or elements. A parameter without a
+whole write keeps its existing read-only place restriction; resource handles and a kernel
+function's reference-backed arrays do not become local copies.
+
 Four ordinary TypeScript shapes that the grammar admits and the language now lowers (one of
 them, the object-literal shorthand, is an expression rather than a statement).
 None of them is a new operation: `Stmt.var.init` has always been optional, `assignOp` has
@@ -1177,8 +1185,8 @@ export function fs(): vec4 {
 
 A variable is read when the call runs, not when the function is declared, so a write between
 the two is seen. A write through a capture follows the variable's own declaration: a `let` may be
-written, a `const` only through the object it built (Rule 6.10), and a parameter not at all, as in
-the body around it. A function named as a fold's callback (`any(xs, near)`, `zip(xs, ys, f)`)
+written, a `const` only through the object it built (Rule 6.10), and a whole-rebound value
+parameter through its shared mutable local copy (Rule 8.8). A function named as a fold's callback (`any(xs, near)`, `zip(xs, ys, f)`)
 passes what it captures to every call the fold makes. A local function inside a generic function
 is made once per instance, `pick_f32_swap`.
 
@@ -2290,6 +2298,10 @@ TS8003 now with "call it on its own line".
 ---
 
 ## 26. Classes with methods, a constructor and static functions
+
+Parameters of methods, constructors and accessors have the same value-local reassignment
+as plain functions (Rule 8.8). A constructor's parameter property receives its input before
+the body runs; rebinding that parameter in the body does not rebind that field.
 
 A class stays a struct (§2): its fields are the struct's fields, with their decorators and
 layout, and the object literal still builds one. What a class may now also declare are
@@ -5960,24 +5972,20 @@ through into that clause; both targets run nothing. `default: case 2: return 0;`
 returns 0. An empty `default:` as the *last* clause does nothing in either language, so it
 stays legal.
 
-**A parameter is a value.** `a = 1.` emitted `a = 1.0;`, which Tint refuses with `cannot assign
-to parameter 'a'` / `parameters are immutable`; the docs called it a bug the compiler did not
-catch. It is caught now, and the message names the line to add:
+**A parameter remains a value when rebound.** WGSL inputs are immutable, so a whole-value
+parameter write operates on a fresh mutable local initialized from the input (Rule 8.8,
+change 0031). For `a = 1.`, a function taking `a: f32` starts with `var a_1: f32 = a;` and
+writes `a_1`. Its signature retains `a`, and the caller's argument is unchanged. A same-name
+`var a = a;` would be a redeclaration in WGSL, so the scope allocator chooses a distinct
+local name, avoiding collisions with another input or a shadowing local.
 
-```
-Cannot assign to "a" — a parameter is a value, not a variable. Copy it into a local first:
-"let a_ = a;", then write that.
-```
-
-It is *not* shadowed by `var a = a;`, which is what the obvious fix would be. Measured on the
-same Tint, that is `redeclaration of 'a'`: a WGSL function's parameters and its top-level
-locals share one scope. A shadow would therefore have to rename the local, changing the
-identifier the author wrote and a debugger shows, to save one line — so the line is asked for
-instead. A write *through* a parameter (`p.x = 1.`) keeps the message it already had.
-
-Every spelling that writes one reaches the rule, not just `a = v`: `a++`, `++a`, `a--` and a
-`for` whose update is `a += k` all built their own write target and so emitted `a = (a + 1);`
-past it. One function raises it, so the three sites cannot drift apart again.
+Plain and compound assignments and integer prefix/postfix updates use the same copy.
+The permitted loop-update forms remain those section 17 describes. A local function that
+writes the parameter shares the enclosing body's copy by reference; it never receives a
+reference to the caller's input. Throughout that body the copy is an ordinary mutable value,
+including component, field or element writes. Parameters with no whole write retain their
+read-only place restriction. Resource handles and a kernel function's reference-backed
+arrays are not copyable value parameters.
 
 **Three more that now say what is wrong.**
 
@@ -6511,8 +6519,11 @@ glsl: fragment: ERROR: 0:16: 'half' : Illegal use of reserved word
 ```
 
 That was a struct field named `half` ([#103](https://github.com/typeshade/typeshade/issues/103)).
-A declared name is now checked against the reserved words of the targets the module is
-**actually emitted for**, and refused where it is written, with `TS8068`:
+Local variables, parameters, module constants and module variables may use TypeScript-valid
+names such as `target`. Each backend escapes a spelling its shader language reserves and
+rewrites references consistently. The authored IR, CPU values and debugger keep the source
+name. Interface names that retain their spelling are checked against the targets the module
+is **actually emitted for**, and refused where written with `TS8068`:
 
 <!-- doc-snippets: skip — the block IS the refusal: a field named `half` is what TS8068 reports -->
 
@@ -6527,17 +6538,16 @@ class Vertex {
 
 **The name that is checked is the one the emit carries.** A class's static field is `Cls_K`, a
 namespace's member is `Ns_K`, an inherited field is `Cls_super_Base_member`: the flattening is
-what a backend sees, so that is what the check reads. A class `S` with a static `half` is
-`S_half` and compiles; a class `atomic` with a static `uint` is `atomic_uint`, which GLSL ES
-3.00 reserves, and the message names both spellings — `"uint" is emitted as "atomic_uint",
-which is reserved in GLSL ES 3.00, …` — while underlining the member the author wrote.
+what a backend sees, so that is what the check reads. Module constants and variables can
+receive a further safe backend spelling; this includes static constants and namespace
+constants whose flattened name is reserved.
 
 **A target the module never reaches does not get a vote.** A compute kernel has no GLSL ES 3.00
 form — that is the one stage the language does not have — so it may name a field `half`; WGSL is
 every module's target and is always checked. `examples/array-length.shade.ts` carries exactly
 that field, so Tint accepts the name on every gate run.
 
-**The severity follows the target's role.** A WGSL word is an **error**: WGSL is the program,
+**The severity follows the target's role.** An unchanged interface name reserved by WGSL is an **error**: WGSL is the program,
 and the module does not compile. A GLSL ES 3.00 word is a **warning**, which is what this
 package already answers for "the second target cannot take this module" — `wgsl` is still
 there, `glsl` comes back `undefined`, exactly as for a compute entry beside the render pair or
@@ -6546,16 +6556,13 @@ names, so the warning is never the only thing between a reserved word and a driv
 render module that would not have produced GLSL anyway is never refused outright for a word it
 would never have emitted.
 
-**What the GLSL writer renames for itself is not refused.** A local, a parameter and a function
-name that collides with a GLSL word is rewritten with every reference to it (`let out` becomes
-`out_`), and that has always worked. The module surface it cannot rename is what this check
-covers: a struct and its fields (the std140 offsets and the cross-stage varying contract), a
-module constant, an override's `#define`, a module variable and a binding, whose name is the
-host's reflection key. WGSL renames nothing, so every kind is checked for it, including the three
-rules that are shapes rather than words: a name beginning with `__`, the bare `_`, and a name
-that contains `$`, which TypeScript takes and WGSL's identifier profile leaves out. GLSL ES
-3.00 §3.6 has two shape rules of its own, and both are read here too: a name beginning with
-`gl_`, which it keeps for built-ins, and one containing `__` anywhere, not only at the front.
+**Backend variable spellings are escaped automatically.** Locals, parameters, module constants
+and module variables are rewritten with every reference when a target rejects their spelling.
+The allocator avoids authored names and generated names; `target` cannot escape onto an
+existing `target_` or `target_1`. It also escapes variable names containing `$`, beginning
+with `__`, or named `_` for WGSL, and the `gl_` prefix, `__` and non-ASCII identifier
+restrictions for GLSL. GLSL helper function renaming continues to work as before. Struct and
+field names, bindings, overrides and entry functions keep their existing host contracts and checks.
 
 All three spellings of a struct are read — a `class`, an `interface` and a `type` alias are one
 struct to the emitters, so they are one struct here.

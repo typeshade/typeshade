@@ -2,8 +2,8 @@
 //
 // WGSL and GLSL have DIFFERENT reserved-word sets, so a perfectly legal DSL
 // identifier (an entry param named `input`, `in`, an `out` local) is a GLSL
-// compile error ("Illegal use of reserved word"). The WGSL backend emits these
-// names verbatim (legal there); the GLSL backend must RENAME any param/local-var
+// compile error ("Illegal use of reserved word"). WGSL uses its own identifier
+// restrictions; the GLSL backend must RENAME any variable
 // whose name collides with a GLSL ES reserved word — consistently across the
 // declaration AND every reference. This pass is GLSL-LOCAL (only emitGlslModule
 // calls it), so WGSL emit stays byte-identical. Struct FIELD names are left alone
@@ -15,10 +15,11 @@
 //
 // Implements: Rule 3.4 (docs/language-design.md; traced in reqs/).
 
-import type { ModuleDecl, FuncDecl, Expr, Stmt } from '../ir/index.js';
+import type { ModuleDecl, Expr, Stmt } from '../ir/index.js';
 import { mapChildren, mapStmtExpr } from '../ir/visit.js';
 import { UnsupportedFeatureError } from '../backend.js';
 import { GLSL_ES300_RESERVED } from '../reserved-words.js';
+import { sanitizeVariableNames } from '../passes/variable-names.js';
 
 // What ANGLE refuses as an identifier at shader version 300, kept in one place beside WGSL's
 // own set (`GLSL_ES300_RESERVED`, issue #103) rather than as a second list here — this file's
@@ -65,30 +66,14 @@ function freeName(base: string, taken: (candidate: string) => boolean): string {
  *  (and every reference to it), per-function, returning a new module. Identity for
  *  a module with no collisions. Struct fields + binding names are untouched. */
 export function sanitizeReservedIdents(m: ModuleDecl): ModuleDecl {
-  const collectDeclNames = (body: readonly Stmt[], acc: Set<string>): void => {
-    for (const s of body) {
-      if (s.s === 'let' || s.s === 'var') acc.add(s.name);
-      if (s.s === 'for') {
-        collectDeclNames([s.init], acc);
-        collectDeclNames(s.body, acc);
-      }
-      if (s.s === 'if') {
-        s.arms.forEach((a) => collectDeclNames(a.body, acc));
-        if (s.elseBody) collectDeclNames(s.elseBody, acc);
-      }
-      if (s.s === 'switch') {
-        s.cases.forEach((c) => collectDeclNames(c.body, acc));
-        if (s.defaultBody) collectDeclNames(s.defaultBody, acc);
-      }
-    }
-  };
-  // Every name that is already in scope at MODULE level, so a rename can never land on one.
-  // The `safe` loop below only knew about the function's own names and the reserved list, so
-  // a local named `float` beside a module const named `float_` became two `float_`s in one
-  // scope: the GLSL compiled and answered with the wrong value, while WGSL and the CPU oracle
-  // answered with the right one. Silent divergence is the worst failure this package has, and
-  // it is what the enlarged word list would otherwise have made reachable for `float`, `int`
-  // and the other type names (issue #103).
+  m = sanitizeVariableNames(
+    m,
+    (name) =>
+      GLSL_RESERVED.has(name) ||
+      /[^A-Za-z0-9_]/u.test(name) ||
+      name.startsWith('gl_') ||
+      name.includes('__'),
+  );
   const moduleScope = new Set<string>([
     ...m.consts.map((c) => c.name),
     ...m.bindings.map((b) => b.name),
@@ -97,51 +82,12 @@ export function sanitizeReservedIdents(m: ModuleDecl): ModuleDecl {
     ...m.structs.map((st) => st.name),
     ...m.funcs.map((f) => f.name),
   ]);
-  const rewriteFunc = (f: FuncDecl): FuncDecl => {
-    const names = new Set<string>([...moduleScope, ...f.params.map((p) => p.name)]);
-    collectDeclNames(f.body, names);
-    const map = new Map<string, string>();
-    for (const n of names) {
-      if (!GLSL_RESERVED.has(n)) continue;
-      map.set(
-        n,
-        freeName(n, (c) => names.has(c) || [...map.values()].includes(c)),
-      );
-    }
-    if (map.size === 0) return f;
-    const rn = (n: string) => map.get(n) ?? n;
-    const rE = (e: Expr): Expr =>
-      (e.op === 'param' || e.op === 'varref') && map.has(e.name)
-        ? { ...e, name: rn(e.name) }
-        : mapChildren(e, rE);
-    // `let` / `var` also DECLARE a name, which the shared rewrite (Exprs only)
-    // cannot reach — handle those two here and delegate the rest of the shape.
-    const rS = (s: Stmt): Stmt => {
-      switch (s.s) {
-        case 'let':
-          return { ...s, name: rn(s.name), expr: rE(s.expr) };
-        case 'var':
-          return {
-            ...s,
-            name: rn(s.name),
-            ...(s.init !== undefined ? { init: rE(s.init) } : {}),
-          };
-        default:
-          return mapStmtExpr(s, rE, rS);
-      }
-    };
-    return {
-      ...f,
-      params: f.params.map((p) => (map.has(p.name) ? { ...p, name: rn(p.name) } : p)),
-      body: f.body.map(rS),
-    };
-  };
-  const locallyClean = { ...m, funcs: m.funcs.map(rewriteFunc) };
+  const locallyClean = m;
 
   // X-GIS #763 P6 — module-level surfaces the per-fn pass could not cover. None of them can
   // be renamed the way a local can: a binding name is the host's reflection key, a struct and
-  // its fields are the std140 offsets and the cross-stage varying contract, and a constant or
-  // an override is named in text the host may set. So they fail the module loud rather than
+  // its fields are the std140 offsets and the cross-stage varying contract, and an override
+  // is named in text the host may set. So they fail the module loud rather than
   // reaching a driver as "Illegal use of reserved word" in generated text (issue #103). The
   // front end reports each of these on the declaration first, as a warning naming this target;
   // this arm is what keeps a module built another way — the `fn()` EDSL — from emitting them.
