@@ -3332,8 +3332,8 @@ takes no function (§14).
 An interface that declares a method says what a class supplies. `implements Shape` and a type
 parameter's constraint, `<T extends Shape>`, are how TypeScript uses one, and both compile: a call
 on a `T` reaches the method of the class the call binds, one function for each class, which is
-the static dispatch of Rule 8.9. A value of type `Shape` itself would have to retain a concrete
-receiver for runtime selection, which this interface representation does not carry, so a parameter, a field or a local of that type is refused once,
+the static dispatch of Rule 8.9. A value of type `Shape` itself would have to pick its body at run
+time, which no WGSL function can, so a parameter, a field or a local of that type is refused once,
 where the interface declares the method, with the type parameter to write instead (Rule 6.9). An
 interface of fields alone is a struct, as it was.
 

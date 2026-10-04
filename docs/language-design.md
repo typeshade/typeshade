@@ -205,6 +205,7 @@ An import the compiler does not follow must be refused with `TS8072`, on the imp
   - `sanitizeVariableNames` in `src/core/passes/variable-names.ts`, used on an emitted copy by both backends, with collision avoidance against authored and generated names;
   - `reportReservedNames` in `src/compiler/ts/reserved-names.ts` for declarations whose emitted spelling remains part of the contract;
   - `src/compiler/ts/reserved-names.test.ts`, including `target`, dollar and Unicode variables, nested scopes, constants, module variables, CPU values and the editor;
+  - `src/compiler/ts/function-shadowing.test.ts` for function parameters and locals shadowing module values, nearest closure bindings and unchanged same-scope duplicate refusals;
   - `linkProgram` in `src/compiler/ts/link.ts` for names shared by a program's files (Rule 3.9), pinned by `src/compiler/ts/link.test.ts`.
 
 ### 3.4. Reserved words
@@ -705,7 +706,7 @@ inherited, mixin and generic classes. Its authored field list remains empty; GPU
 an internal carrier without adding source members or inherited fields.
 A body a class inherits is compiled again for that class; what fails only there (a call that takes the base, a static the class does not have) must be refused when a function that is not a class's own reaches it through calls, and must not be when nothing does, the body being dropped with every function that calls it.
 
-- Rationale: a WGSL struct is one layout and a WGSL function has one overload, so the only meaning a generic or a method can have is the monomorphised one.
+- Rationale: this representation settles generic arguments and concrete receiver classes during compilation. A read-only base projection is accepted only when it preserves that receiver's behavior; a value requiring runtime selection needs a retained concrete representation and generated dispatch.
 - Derives from: [Functions](https://gpuweb.github.io/gpuweb/wgsl/#functions) ("each user-defined function only has one overload"); surface §26, §30, §32 (design #92).
 - Enforced by: `TS8035 CLASS_MEMBER` and `examples/generic-class.shade.ts`; `src/compiler/ts/class-syntax.test.ts` for a body a class inherits that fails for it alone, said when a call reaches it and dropped when none does.
   Read-only base views and unsafe overrides, accessors, receiver writes and alias mutation are
