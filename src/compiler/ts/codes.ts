@@ -30,6 +30,8 @@ export const TS_CODES = {
   LOOP_INFINITE: 'TS8007',
   LOOP_INDUCTION: 'TS8008',
   BREAK_OUTSIDE: 'TS8009',
+  /** An invalid struct field or declaration shape. Fieldless classes are accepted; this code
+   *  still covers invalid field declarations and unsupported empty non-class structs. */
   STRUCT_FIELD: 'TS8010',
   // TS8012 was `HOST_API`, a list of JavaScript globals refused by their spelling. A name nothing
   // declares is `UNKNOWN_NAME`, `UNKNOWN_FN` or `UNKNOWN_TYPE` by its position, and one the file
@@ -43,7 +45,10 @@ export const TS_CODES = {
   INDEX_OOB: 'TS8016',
   /** Invalid `switch` case: a label that is not an integer constant, does not fit the selector, or repeats another; an empty clause with no body below it to share (a trailing one, or one above `default:`); a body whose end is reachable above a clause with a body, which TypeScript would run on into and WGSL does not (Rule 7.3, #202); or `continue` in a switch no loop encloses. */
   SWITCH_CASE: 'TS8017',
-  /** An assignment or `++`/`--` target that is not a writable name (not an identifier, unknown, or a non-writable parameter). Assigning to a known immutable binding is `CONST_ASSIGN` instead. */
+  /** An assignment or `++`/`--` target that is not a writable place, such as a temporary or
+   *  an input that has no writable value local. Whole writes to ordinary value parameters
+   *  use automatic local copies. Unknown names use `UNKNOWN_NAME`; writes to known immutable
+   *  bindings use `CONST_ASSIGN`. */
   ASSIGN_TARGET: 'TS8018',
   /** Wrong number of arguments, elements, or fields at a call or constructor site. */
   ARITY_MISMATCH: 'TS8019',
@@ -193,18 +198,21 @@ export const TS_CODES = {
    *  loop's condition, the left side of `&&` or `||`, the condition of a `?:` WGSL writes as an
    *  `if`), or after a `return`, `break` or `continue` taken under one (§54). */
   UNIFORMITY: 'TS8052',
-  /** A DEPRECATION warning, not an error: an integer-written literal in a declaration that
-   *  declares no type still becomes `f32` and will become `i32` (§13, #148).
+  /** A DEPRECATION warning, not an error: an undecided integer-written declaration still
+   *  defaults to `f32` and will default to `i32` (§13, #148). A declared use that already
+   *  establishes an integer type carries no warning.
    *  Reported only when the caller asks for it with `deprecations: true`; the compiler's
-   *  behaviour has not changed. */
+   *  warning does not change the chosen type. */
   INT_LITERAL_DEPRECATION: 'TS8053',
   /** A declared name that a target reserves, checked on the name the emit actually carries
    *  (#103): `half` as a struct field, which ANGLE answers with "Illegal use of reserved
-   *  word" in generated text the author never wrote, or `as` as a local, which Tint refuses.
+   *  word" in generated text the author never wrote.
    *  The message names the target that reserves the word, and the emitted name when the
    *  flattening (`Cls_member`, `Ns_member`) made it differ from the written one. A module
    *  with no GLSL form is not held to GLSL ES 3.00's list. A name that contains `$`, which
-   *  WGSL's identifier profile leaves out, is refused the same way (Rule 3.2, #376). The same
+   *  WGSL's identifier profile leaves out, remains refused on interface declarations whose
+   *  emitted names are part of their contract. Legal local, parameter, module-constant and
+   *  module-variable names are escaped by the backend instead (Rule 3.2). The same
    *  code refuses `eval` and `arguments` where a variable, a parameter or a function binds one,
    *  which ECMAScript's strict mode, and TypeScript with it, lets no declaration do (Rule 2.1). */
   RESERVED_NAME: 'TS8068',

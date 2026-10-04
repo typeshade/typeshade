@@ -3603,7 +3603,7 @@ polymorphism is not implemented by this conversion; a GPU backend can implement 
 retained concrete tag and generated branches. An unsafe or unproved view says:
 
 ```
-"Derived" extends "Base", and a name typed as the base cannot hold a derived value here:
+"Derived" extends "Base", and a name typed as the base cannot hold a derived value here
 without a proven read-only, dispatch-equivalent base view. Keep "Derived" as the type to
 preserve its methods and receiver writes.
 ```

@@ -2107,22 +2107,12 @@ function truncate(s: string, n = 60): string {
   return t.length <= n ? t : t.slice(0, n) + '…';
 }
 
-/** A WHOLE-parameter write that has no copyable value local (Rule 8.8), refused for every
- *  spelling that reaches one: `a = v`, `a += v`,
- *  `a++`. WGSL formal parameters are values, not references, and Tint says so outright:
- *  `cannot assign to parameter 'a'` / `parameters are immutable`. The compiler emitted
- *  `a = 1.0;` with zero diagnostics (§52), and the docs called it a bug it did not catch.
- *
- *  NOT shadowed by `var a = a;`, which is what the issue proposed: that is `redeclaration of
- *  'a'` on the same Tint, because a WGSL function's parameters and its top-level locals share
- *  one scope. A shadow would therefore have to RENAME the local, changing the identifier the
- *  author wrote and a debugger shows, to save one line. So the line is asked for instead. A
- *  write THROUGH a parameter (`p.x = 1.`) keeps its own message, which `checkRootWritable`
- *  raises before this.
- *
- *  ONE function because the three spellings lower in two different files: `lowerAssign` here
- *  and `lowerUpdate` in control.ts, which built its own `{ op: 'param' }` target and so
- *  emitted `a = (a + 1);` past this rule until it called this. */
+/** Fallback for a whole input write with no writable value local (Rule 8.8).
+ *  Function lowering copies ordinary value parameters before any assignment, compound
+ *  assignment or update, so those writes never reach this guard. Inputs such as opaque
+ *  texture and sampler parameters may still have no writable local representation.
+ *  Assignment and control-step lowering share this diagnostic; writes through a readonly
+ *  input keep the separate root-writability diagnostic. */
 export function refuseParamWrite(
   node: ts.Node,
   name: string,
