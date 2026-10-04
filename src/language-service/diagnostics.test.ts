@@ -926,7 +926,8 @@ describe('a field that holds a function draws no TypeScript diagnostic (Rule 8.1
 // diagnostic TypeScript 5.7 adds is put into a real program here, at the span it reports, and
 // then filtered the way the service filters, so the rule is pinned under either version. The
 // tests that let it through read the editor half on TypeScript 5.6 alone (`ambient.test.ts`'s
-// examples corpus); each case below reads the compiler half of the same source too.
+// examples corpus), which CI now reads on 5.9 and 6.0 too (#259); each case below reads the
+// compiler half of the same source too.
 describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)', () => {
   /** The compiler half: `compile()`'s diagnostics, code and text (Rule 12.5). */
   const compiled = (source: string): string[] =>
