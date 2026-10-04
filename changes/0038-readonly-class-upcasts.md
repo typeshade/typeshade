@@ -7,6 +7,7 @@ rules:
 surface:
 - 16
 - 26
+- 27
 - 28
 - 30
 - 32
@@ -81,8 +82,9 @@ this proposal must not be described as support for all ordinary TypeScript polym
 ## What it touches
 
 Rule 8.9 distinguishes the accepted proof from the remaining runtime-dispatch restriction.
-Surface section 26 replaces the unconditional base-value refusal with the accepted case and
-its limitations. Sections 16 and 28 keep value construction and refusal guidance accurate;
+Surface sections 26 and 27 replace the unconditional base-value refusal with the accepted case and
+its limitations; the guide's inheritance continuation currently falls under section 27.
+Sections 16 and 28 keep value construction and refusal guidance accurate;
 sections 30 and 32 are reviewed for statements that assume base types never hold derived
 values. No export, diagnostic code or registered example is added or removed.
 
