@@ -71,4 +71,9 @@ A fourth kind, `kind: 'engine'` (change 0025), is a host application rather than
 integer type of an unannotated local literal. Its independent JavaScript reference checks
 signed division, unsigned wrapping, a shadowed local and a closure on the CPU and WebGPU.
 
+`journeys/local-numeric-contexts/` (change 0037, #429) adds constructor and inherited
+constructor arguments, instance and static method arguments, and explicitly typed
+initialization and field assignment. Its JavaScript reference checks signed division,
+unsigned wrapping and selected object indices against the CPU and WebGPU.
+
 A journey belongs with the change that makes it work. A pull request that improves what a user can write adds the journey that shows it, and the gate keeps it working from then on.

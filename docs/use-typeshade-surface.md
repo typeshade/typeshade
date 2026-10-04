@@ -892,9 +892,11 @@ written — the backend spelled every scalar constant with a float literal, so t
 `const N: u32 = 16.0;`, which is the half issues #13 and #17 were about — and it has been true
 since they landed.
 
-**A local integer literal can take its type from a declared call (change 0036, #429).**
+**A local integer literal can take its type from declared uses (changes 0036 and 0037, #429).**
 An unannotated function-local `let` or `const` initialized by an integer-written literal
-can take `i32` or `u32` from the parameters of direct calls to declared, nongeneric functions:
+can take `i32` or `u32` from direct calls to declared, nongeneric functions, constructor
+arguments, instance or static method arguments, and explicitly typed initialization or
+simple assignment:
 
 ```ts
 function objectId(index: i32): i32 {
@@ -912,8 +914,17 @@ the outer local's type. Uses that demand conflicting concrete types, such as `i3
 `f32`, are refused with `TS8003`: write an annotation and cast the arguments that need
 another type. The initializer still has to fit the chosen integer type. Explicit annotations,
 casts, float-written initializers, module constants and loop induction variables keep their
-existing rules. Calls through unresolved names, function values or generic declarations
-do not establish an integer type.
+existing rules. For `new Hit(objectIndex)` or `hit.accept(objectIndex)`, the declared
+parameter supplies the same demand. An inherited constructor or method supplies its
+signature; an override supplies its own. `let selected: i32 = objectIndex` and
+`selected = objectIndex` take the explicitly typed destination's demand. Conversely,
+`objectIndex = hit.objectIndex` takes `i32` when the resolved field explicitly declares
+`i32` independently of the local. Compound assignments and circular inference supply no
+demand. A shadowing class or receiver binding cannot name the outer declaration.
+
+Calls through unresolved names or function values and direct calls to generic functions
+do not establish an integer type. A concrete member parameter such as `index: i32` can
+establish a demand inside a generic class; an unresolved parameter such as `index: T` cannot.
 
 **A window is open on the default (#148; the policy it follows is roadmap item 25, the
 deprecation-policy row, and `RELEASING.md` §7).** Everything above is
@@ -923,7 +934,7 @@ abstract integer to `i32` when nothing else decides (wgsl.txt:3929-3933, 4100-41
 is an `int`, and a TypeScript reader expects `let i = 0` to index an array — so that default
 will change. It has NOT changed yet: this release carries the window, not the flip. A build
 that wants to see which of its lines the flip will move asks for the warning, which is off by
-default and moves no emitted byte. A local that already takes an integer type from its calls
+default and moves no emitted byte. A local that already takes an integer type from its declared uses
 does not carry that warning:
 
 ```ts
