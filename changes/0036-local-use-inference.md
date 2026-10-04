@@ -1,7 +1,7 @@
 ---
 id: '0036'
 title: Infer an unannotated local integer from its declared uses
-status: accepted
+status: implemented
 rules:
 - '5.1'
 surface:

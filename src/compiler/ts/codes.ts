@@ -119,8 +119,7 @@ export const TS_CODES = {
    *  assigned, or a setter with no getter read; a compound assignment through a getter and
    *  setter whose object would run twice; a method that changes its object called on
    *  something it cannot write (a parameter, a `const` whose value something else may hold, a
-   *  dropped value) or used as a value when it returns nothing. In a `new`: a class that
-   *  declares only statics, where a body that builds it is lowered; and, once for the file where
+   *  dropped value) or used as a value when it returns nothing. In a `new`, once for the file where
    *  the `new` is written, an `abstract` class, `new this()` outside a static member, and a
    *  target that resolves to something other than a class — a WGSL constructor or cast
    *  (`new vec3f()`), a type alias of one (`type S = vec3`), a WGSL type with no constructor

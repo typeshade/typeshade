@@ -21,11 +21,13 @@ import {
   isStaticMember,
   keywordAccessOf,
   memberDeclarationInChain,
+  staticThisClass,
   writtenMemberName,
   type KeywordAccess,
 } from './class-names.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { TS_CODES } from './codes.js';
+import { newTargetOf } from './lower/new-target.js';
 import { makeDiagnostic } from './diagnostic.js';
 import {
   builtinDecoratorArg,
@@ -73,10 +75,8 @@ export type CollectedStruct = {
   /** A `class`'s methods, constructor and field initializers (#86); absent on the other two
    *  spellings and on a class that declares none. */
   readonly members?: ClassMembers;
-  /** A class whose members are all static (roadmap 0.3 item T3, #92): a namespace of
-   *  functions and constants rather than a value type. It is collected so `Util.half(x)`
-   *  resolves and its statics become functions, and it is NOT emitted, because it has no
-   *  fields and WGSL has no empty struct. */
+  /** A static-only class unused as an instance value: its functions and constants need no
+   *  struct declaration. A construction or instance type position promotes it to a value. */
   readonly namespace?: true;
   /** The names this declaration extends, in the order written (roadmap 0.3 item T5, #92).
    *  Their fields stand ahead of this one's, base first, which is what makes a derived struct
@@ -286,9 +286,9 @@ export function collectStructs(
       });
       return;
     }
-    // A declaration with a base gets its fields from `applyInheritance`, which reports an
-    // empty one once what it extends is known (T5, #92).
-    if (fields.length === 0 && bases.length === 0) {
+    // A declaration with a base gets its fields from `applyInheritance`. An empty interface
+    // or object type remains refused; a fieldless class has an internal GPU representation.
+    if (fields.length === 0 && bases.length === 0 && (spelling !== 'class' || withheld.size > 0)) {
       // A field it withholds was refused where it is written, which says why this one is
       // empty. One withheld with nothing said here names a type refused at its declaration (a
       // generic interface); with no field left, the struct is refused with it, and a type that
@@ -1042,7 +1042,53 @@ export function collectStructs(
     );
   }
   checkOverrideKinds(sourceFile, diagnostics);
-  return withUnimplementedAbstracts(inherited, sourceFile, diagnostics);
+  return withUnimplementedAbstracts(
+    promoteClassValues(inherited, sourceFile),
+    sourceFile,
+    diagnostics,
+  );
+}
+
+/** Static-only classes need no value declaration until a construction or type position uses
+ *  one. Keep their existing function-only emit when unused as values (change 0035). */
+function promoteClassValues(
+  structs: readonly CollectedStruct[],
+  sourceFile: ts.SourceFile,
+): CollectedStruct[] {
+  const used = new Set<string>();
+  const walk = (node: ts.Node): void => {
+    if (ts.isTypeReferenceNode(node)) {
+      const type = mapTsTypeToShaderType(node, sourceFile, undefined);
+      if (type?.kind === 'struct') used.add(type.name);
+    }
+    if (ts.isNewExpression(node)) {
+      const target = newTargetOf(node, sourceFile);
+      if (target.kind === 'class') {
+        used.add(newInstanceName(node, target.flat, sourceFile) ?? target.flat);
+      } else if (node.expression.kind === ts.SyntaxKind.ThisKeyword) {
+        const cls = staticThisClass(node.expression);
+        for (const s of structs) if (s.classNode === cls && !s.staticHolder) used.add(s.decl.name);
+      }
+    }
+    ts.forEachChild(node, walk);
+  };
+  walk(sourceFile);
+  // An inherited static factory's `new this()` builds the derived class too.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const s of structs) {
+      if (!used.has(s.decl.name) && s.bases?.some((base) => used.has(base))) {
+        used.add(s.decl.name);
+        changed = true;
+      }
+    }
+  }
+  return structs.map((s) => {
+    if (!s.namespace || !used.has(s.decl.name)) return s;
+    const { namespace: _namespace, ...value } = s;
+    return value;
+  });
 }
 
 function classDiag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
@@ -1954,7 +2000,13 @@ function applyInheritance(
   // The empty-struct rule is checked here for a declaration with a base, since what it
   // inherits is only known now.
   for (const s of out) {
-    if (s.namespace || s.decl.fields.length > 0 || (s.bases ?? []).length === 0) continue;
+    if (
+      s.spelling === 'class' ||
+      s.namespace ||
+      s.decl.fields.length > 0 ||
+      (s.bases ?? []).length === 0
+    )
+      continue;
     if (refusedBase.has(s.decl.name)) continue;
     diagnostics.push(
       diag(

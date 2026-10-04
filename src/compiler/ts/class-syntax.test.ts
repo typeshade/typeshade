@@ -1753,6 +1753,9 @@ describe('TS8035 refuses what its catalogue entry says, and nothing that compile
   // against the compiler: each shape it says compiles, compiles, and each it says is refused
   // is TS8035.
   const COMPILES: Record<string, string> = {
+    'new on a class of statics only': `class A { static k(): f32 { return 1. } }
+export function f(): f32 { const a = new A(); return 1. }`,
+
     'a getter and a setter': `class A { x: f32; get y(): f32 { return this.x } set y(v: f32) { this.x = v } }
 export function f(a: A): f32 { return a.y }`,
     'a static field': `class A { x: f32; static K: f32 = 2. }
@@ -1818,8 +1821,6 @@ export function f(): f32 { let a: A = { x: 1. }; a.y = 2.; return a.x }`,
 export function f(a: A): f32 { a.bump(); return a.x }`,
     'a mutating method on a const that copies': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
 export function f(a: A): f32 { const b = a; b.bump(); return b.x }`,
-    'new on a class of statics only': `class A { static k(): f32 { return 1. } }
-export function f(): f32 { const a = new A(); return 1. }`,
   };
 
   it.each(Object.entries(COMPILES))('compiles %s', (_what, body) => {

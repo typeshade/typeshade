@@ -227,7 +227,7 @@ Forbidden on these classes:
 
 - `new Camera()` as a resource (a `new` on a class with a constructor builds a value, §26)
 - `@compute` / `@vertex` / `@fragment` methods (an entry is a top-level function)
-- no fields at all — a struct with an empty field list has no WGSL form
+- no fields at all on an interface or object type alias; a fieldless class remains a value (§26)
 - a field name that is not a plain identifier (`"my-field": f32`, `[key]: f32`)
 
 Methods, a constructor and static functions are §26: each is a function of the module, and a
@@ -892,15 +892,39 @@ written — the backend spelled every scalar constant with a float literal, so t
 `const N: u32 = 16.0;`, which is the half issues #13 and #17 were about — and it has been true
 since they landed.
 
+**A local integer literal can take its type from a declared call (change 0036, #429).**
+An unannotated function-local `let` or `const` initialized by an integer-written literal
+can take `i32` or `u32` from the parameters of direct calls to declared, nongeneric functions:
+
+```ts
+function objectId(index: i32): i32 {
+  return index;
+}
+function selectedObject(): i32 {
+  let objectIndex = -1;
+  return objectId(objectIndex);
+}
+```
+
+`objectIndex` is `i32`. Parentheses and a leading minus are part of an integer-written
+literal. A shadowed local is a separate declaration, and a call from a closure can establish
+the outer local's type. Uses that demand conflicting concrete types, such as `i32` and
+`f32`, are refused with `TS8003`: write an annotation and cast the arguments that need
+another type. The initializer still has to fit the chosen integer type. Explicit annotations,
+casts, float-written initializers, module constants and loop induction variables keep their
+existing rules. Calls through unresolved names, function values or generic declarations
+do not establish an integer type.
+
 **A window is open on the default (#148; the policy it follows is roadmap item 25, the
 deprecation-policy row, and `RELEASING.md` §7).** Everything above is
-about a position that DECLARES a type. Where nothing declares one — `let i = 0`, `const K = 5`
+about a position or use that DECLARES a type. Where nothing establishes one — `let i = 0`, `const K = 5`
 — the literal still takes `f32`, so `xs[i]` is `Index must be i32 or u32`. WGSL concretizes an
 abstract integer to `i32` when nothing else decides (wgsl.txt:3929-3933, 4100-4104), GLSL's `5`
 is an `int`, and a TypeScript reader expects `let i = 0` to index an array — so that default
 will change. It has NOT changed yet: this release carries the window, not the flip. A build
 that wants to see which of its lines the flip will move asks for the warning, which is off by
-default and moves no emitted byte:
+default and moves no emitted byte. A local that already takes an integer type from its calls
+does not carry that warning:
 
 ```ts
 compile(source, { deprecations: true });
@@ -1535,8 +1559,9 @@ already how a repeated field was taken. A spread may fill part of a bigger struc
 written, and the target struct is decided by an annotation or, with none, by the field names the
 literal ends up with.
 
-Three shapes have no form here. A value with no fields: a vector's components are read by name,
-so `{ ...v }` is refused. A value that is not a plain read: the spread reads its operand once
+Three shapes have no form here. A vector's components are read by name,
+so `{ ...v }` is refused. A fieldless class spreads no fields and can initialize its annotated
+class value with `{}`. A value that is not a plain read: the spread reads its operand once
 per field, so a call would run once per field with it; bind it to a const first. And a field the
 target struct has not got, which names the field rather than saying the literal does not match.
 
@@ -2543,6 +2568,14 @@ without one, with field initializers, inside a method, as an argument, and on a 
 There is no shader rule against it. A class is a struct and a constructor is a function, so
 `new P(1., 2.)` is `P_new(1.0, 2.0)` and nothing is allocated.
 
+A class may have no instance fields. `class Empty {}` can be built with `new Empty()`, and a
+method-only class can call its methods through `this` and through an instance as usual. The
+authored value has no data fields: the CPU and host calls see `{}`. GPU lowering supplies an
+internal `u32` carrier, hidden from source member lookup, inheritance and the host interface.
+Reflection reports an empty field list with a four-byte natural footprint or sixteen bytes
+under std140, so nested fields and arrays retain the correct offsets and stride. A derived
+class with real fields receives no carrier inherited from an empty base (Rules 8.9 and 8.21).
+
 A `new` finds its target as TypeScript does, from where it is written (Rule 2.1): the innermost
 declaration of the name, what another block of a namespace around it exports, and a dotted name
 through what the namespaces it names export. `new (C)()` is `new C()`. What the target is, once
@@ -2570,12 +2603,10 @@ TS2511, TS2708 and TS7017), and its report of any name in the target (TS2304, TS
 | `new I()` on an interface or a type alias | `TS8035`: it is a type, not a value, and carries no constructor; write the object literal or declare it as a class |
 | `new S()` on `type S = vec3` | `TS8035`: its target is built without `new`, `vec3()` |
 | `new S()` on an `abstract` class | `TS8035`: there is no instance of it to build; construct a class that extends it |
-| `new U()` on a class of statics alone | `TS8035`: it is a group of functions with no fields, so there is no value to build |
 | `new P(1., 2.)` where `P` declares no constructor | `TS8019`: TypeScript's implicit constructor takes no arguments; declare one, or write the fields |
 | `const K = new P(1.)` or `const K = g()` at module scope, or in a static field (`this.f()` included) | `TS8003` from the constant's own check: a module constant is folded before any function exists, so build the value inside the function that reads it. A module `let` says it as `TS8033`, and a read or a write of `K` adds nothing |
 
-The class of statics alone follows from a class with no fields not being a struct, and the
-module-scope row from WGSL, whose module scope calls no function the module declares (Tint:
+The module-scope row follows from WGSL, whose module scope calls no function the module declares (Tint:
 "user-declared functions cannot be called at module-scope"). The rest are TypeScript's own
 refusals. A constructor refused where it is written, at its signature or for the name it would
 be emitted under, is not refused again at the `new`; any other `new` with no constructor to call
@@ -2967,9 +2998,9 @@ class Util {
 }
 ```
 
-emits `fn Util_half` and `fn Util_quarter` and no `struct Util` at all. An INSTANCE member on a
-fieldless class keeps the empty-struct refusal, because a method needs a receiver and the
-receiver is the struct that is not there.
+emits `fn Util_half` and `fn Util_quarter` and no `struct Util` when no value of the class is
+used. `new Util()` or an instance type position also makes its empty value available. An
+instance member on a fieldless class uses the same receiver convention as any other class.
 
 **A static field is the module constant `Cls_Field`.** `class K { static N: i32 = 4 }` emits
 `const K_N: i32 = 4;`, and `K.N` reads it. It folds by the rules §12 already states, so it may
@@ -3591,6 +3622,9 @@ pattern, and §29 runs it.
 
 ## 28. What TypeScript writes that the GPU has no word for
 
+A fieldless class has a value even though the GPU requires a nonempty struct. The compiler
+supplies that internal representation; source code and host values keep the empty shape (§26).
+
 Roadmap 0.3 item T10. Five shapes were "TS8099 Unsupported expression" or "TS8002 Unsupported
 type syntax", each followed by two or three more diagnostics about the same one mistake. The
 rule applied to them is the one the rest of this document is written to: the constraint has to
@@ -3732,6 +3766,9 @@ report of what the compiler refused whole (`Cannot find name 'Error'` in the `th
 its merged list, and neither is its TS2454 at a read of a refused `var`.
 
 ## 29. The mixin pattern
+
+A mixin may add only methods to a fieldless base. The resulting class remains constructible,
+with the same hidden GPU carrier as any other fieldless class (§26).
 
 Roadmap 0.3 item T8. `class TintedDisc extends Tinted(Disc)` is a class whose base is decided by
 running a function. TypeScript runs it at run time and gets a constructor; there is no run time
@@ -3912,6 +3949,9 @@ constant folder hides the easy case as well: `true ? a : b` folds, and two ident
 one binding, so it takes a runtime condition AND two distinguishable arms to reach at all.
 
 ## 32. A generic class
+
+A generic class may have no instance data fields: its type arguments still specialize its
+methods, and each used instance remains constructible as a fieldless value (§26).
 
 Roadmap 0.3 item T9, the class half of §30. A WGSL or GLSL struct is **one layout**, its fields'
 types fixed, so a generic class is collected **once per set of type arguments the program writes
