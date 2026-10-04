@@ -2584,6 +2584,7 @@ export function functionScope(
   }
   scope.setNamespacePrefix(nsPrefix);
   scope.setStructs(structs.map((s) => s.decl));
+  scope.setClassStructs(structs);
   scope.setPrivateFields(privateFieldTableOf(structs));
   scope.setWithheldFields(withheldTableOf(structs));
   scope.setReadonlyFields(readonlyFieldTableOf(structs));

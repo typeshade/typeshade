@@ -1479,6 +1479,10 @@ The multisampled texture is §37 and the storage texture §33.
 
 ## 16. Object literals take the declared struct
 
+A class value derived from a declared base may also occupy that base position when the compiler
+proves its base view read-only and dispatch-equivalent (§26). The same conversion applies to
+contextual fields and array elements, with the source value evaluated once.
+
 Which struct `{ … }` builds comes from the type the position **declares**: a function's
 return type, a `let`/`const` annotation, or a parameter type.
 
@@ -3136,7 +3140,7 @@ changes `Big.origin`, changes the one object `Shape` and `Big` both read, in Typ
 The statics of a generic base are its class's, one for every instance, so `FPair.K` over
 `class FPair extends Pair<f32>` reads `Pair.K`. And what holds for a static holds for every body a
 class inherits (Rule 8.9): an instance method whose body calls `weigh(this)` with `weigh` taking
-the base fails for the derived class alone, since a derived value is not a base one here, and it
+the base fails for the derived class alone when the receiver escapes the read-only base-view proof, and it
 is refused when something calls it on a derived object, and not at all while nothing does.
 
 ### A method that changes an object its object holds, and a `const` object
@@ -3328,8 +3332,8 @@ takes no function (§14).
 An interface that declares a method says what a class supplies. `implements Shape` and a type
 parameter's constraint, `<T extends Shape>`, are how TypeScript uses one, and both compile: a call
 on a `T` reaches the method of the class the call binds, one function for each class, which is
-the static dispatch of Rule 8.9. A value of type `Shape` itself would have to pick its body at run
-time, which no WGSL function can, so a parameter, a field or a local of that type is refused once,
+the static dispatch of Rule 8.9. A value of type `Shape` itself would have to retain a concrete
+receiver for runtime selection, which this interface representation does not carry, so a parameter, a field or a local of that type is refused once,
 where the interface declares the method, with the type parameter to write instead (Rule 6.9). An
 interface of fields alone is a struct, as it was.
 
@@ -3583,17 +3587,29 @@ also why an inherited body calls an override, exactly as it does in TypeScript. 
 function and a field initializer come down the same way, and a derived class with no constructor
 of its own uses the nearest one above it.
 
-**What makes the two dispatches agree.** A name typed as the base cannot hold a derived value.
-Assigning one, or passing one where a base is expected, is refused with the reason:
+**Read-only base views.** A derived class value may be assigned, returned or passed where its
+base is declared when the compiler proves the view read-only and dispatch-equivalent. A material
+class that adds fields and methods without overriding its base's read methods is one such case.
+The conversion projects inherited fields through a helper that evaluates its input once.
+Annotated locals, assignments, arguments, returns, field initializers and contextual object and
+array elements all use this conversion.
+
+The proof rejects direct or indirect overrides, differing accessors, receiver writes and a
+receiver returned or escaped by a method. It also checks projected-field writes across the
+compiled source, resolving receiver declarations rather than their spelling: a later source or
+alias mutation cannot silently leave the base view holding an earlier copy. This is a conservative
+proof, so unknown receivers or writes it cannot prove harmless remain refused. General runtime
+polymorphism is not implemented by this conversion; a GPU backend can implement it with a
+retained concrete tag and generated branches. An unsafe or unproved view says:
 
 ```
 "Derived" extends "Base", and a name typed as the base cannot hold a derived value here:
-method dispatch is static, so a call through it would run "Base"'s body. Write "Derived" as
-the type.
+without a proven read-only, dispatch-equivalent base view. Keep "Derived" as the type to
+preserve its methods and receiver writes.
 ```
 
-With that rule the static type of every receiver is its exact class, so lowering each body per
-class means the same thing TypeScript's dynamic dispatch would.
+Concrete receivers retain their class-specific bodies. A proved base view has the same base
+behavior as that concrete receiver, so its emitted call preserves the TypeScript result.
 
 **`abstract`.** An abstract class is a base and never a value: its struct is emitted so a
 derived one can be described in terms of it, its methods reach each concrete class through
@@ -3634,6 +3650,9 @@ declaration per argument set and belongs with generics. A base that is a CALL is
 pattern, and §29 runs it.
 
 ## 28. What TypeScript writes that the GPU has no word for
+
+The class conversion in §26 accepts proved read-only base views. It does not add runtime type
+tags, downcasts or general dispatch through base-typed values.
 
 A fieldless class has a value even though the GPU requires a nonempty struct. The compiler
 supplies that internal representation; source code and host values keep the empty shape (§26).
@@ -3859,6 +3878,9 @@ mixin that extends its parameter and is given nothing.
 
 ## 30. Generics by monomorphisation
 
+A concrete class argument retains its own methods. A declared base-class position may use the
+read-only base-view proof in §26 after its type arguments have been resolved.
+
 Roadmap 0.3 item T9. WGSL and GLSL ES 3.00 have no generics: a function has one signature and a
 struct one layout. TypeScript has them, and a shader author reaches for them, so a generic
 declaration is compiled **once per set of argument types the program uses it with**, the files
@@ -3962,6 +3984,9 @@ constant folder hides the easy case as well: `true ? a : b` folds, and two ident
 one binding, so it takes a runtime condition AND two distinguishable arms to reach at all.
 
 ## 32. A generic class
+
+Derived values of a generic base instance follow the same read-only base-view proof as ordinary
+classes (§26); the proof compares the resolved field types and inherited method bodies.
 
 A generic class may have no instance data fields: its type arguments still specialize its
 methods, and each used instance remains constructible as a fieldless value (§26).

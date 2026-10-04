@@ -690,6 +690,16 @@ The one exception an author writes is a kernel function's parameter of an array 
   path by `journeys/mutable-parameters/`.
 
 **Rule 8.9.** Method dispatch must be static, and a generic function or class must be compiled once per set of type arguments the program uses (Rule 3.9).
+A derived class value may occupy a base-typed position when its base view is proved read-only
+and dispatch-equivalent: every base-visible method or accessor has the same body on the concrete
+class, no receiver writes or receiver escape are lost, and the projected fields cannot observably
+change through an alias after construction. The proof is conservative across the compiled source;
+unknown receivers and unproved alias writes do not establish safety. Arguments, initializers,
+assignments, returns and contextual composite elements use the same conversion. A generated
+function takes the concrete value once and constructs its base representation, preserving effects
+and source evaluation order. A view that needs runtime override selection or receiver retention
+remains refused with the concrete type to keep; no general dynamic-dispatch restriction is imposed
+by WGSL itself.
 A class with no instance fields remains a constructible value, including method-only, static-only,
 inherited, mixin and generic classes. Its authored field list remains empty; GPU lowering provides
 an internal carrier without adding source members or inherited fields.
@@ -698,6 +708,9 @@ A body a class inherits is compiled again for that class; what fails only there 
 - Rationale: a WGSL struct is one layout and a WGSL function has one overload, so the only meaning a generic or a method can have is the monomorphised one.
 - Derives from: [Functions](https://gpuweb.github.io/gpuweb/wgsl/#functions) ("each user-defined function only has one overload"); surface §26, §30, §32 (design #92).
 - Enforced by: `TS8035 CLASS_MEMBER` and `examples/generic-class.shade.ts`; `src/compiler/ts/class-syntax.test.ts` for a body a class inherits that fails for it alone, said when a call reaches it and dropped when none does.
+  Read-only base views and unsafe overrides, accessors, receiver writes and alias mutation are
+  pinned by `src/compiler/ts/class-upcasts.test.ts`; `journeys/class-upcasts/` holds the packed
+  package's material constructor and factory evaluation order to independent JavaScript.
 
 **Rule 8.10.** A method that writes its object (assigns to `this` or to a field, a component or an element of it, applies `++` or `--` to one, or calls such a method or reads such a getter on `this`, on a field, a component or an element of it whatever class that field is, or through `super`) must take the object by reference, and may return a value like any other method; a base's body that a class calls through `super` and that writes its object takes it by reference too, and so does the copy of a method that takes a function (Rule 8.18) when a function handed over writes the variable the call is on.
 Its receiver must be a place a function may write: a `let` local, a `const` local whose initializer built its value (Rule 6.10), a module variable, a storage element, or `this` inside a constructor or another such method, or a field or an element of one of those.

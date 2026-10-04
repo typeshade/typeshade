@@ -1162,7 +1162,7 @@ class Presets extends Material { static SHINY = 0.1; }
     expect(
       only(PRESETS + `export function run(): f32 { return new Presets().score() }${RUN_TAIL}`),
     ).toBe(
-      `${TS_CODES.TYPE_MISMATCH} Argument 1 of "weigh" type mismatch. "Presets" extends "Material", and a name typed as the base cannot hold a derived value here: method dispatch is static, so a call through it would run "Material"'s body. Write "Presets" as the type.`,
+      `${TS_CODES.TYPE_MISMATCH} Argument 1 of "weigh" type mismatch. "Presets" extends "Material", and a name typed as the base cannot hold a derived value here without a proven read-only, dispatch-equivalent base view. Keep "Presets" as the type to preserve its methods and receiver writes.`,
     );
   });
 

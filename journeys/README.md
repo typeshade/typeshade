@@ -82,3 +82,7 @@ reference holds local and parameter shadows, a mutable parameter captured by a c
 and reads of the original module values to the CPU oracle and WebGPU.
 
 A journey belongs with the change that makes it work. A pull request that improves what a user can write adds the journey that shows it, and the gate keeps it working from then on.
+
+`journeys/class-upcasts/` (change 0038, #429) passes a read-only derived material into a
+base-typed constructor. Its independent JavaScript classes verify the material response,
+one evaluation of a side-effecting factory and argument order on the CPU and WebGPU.

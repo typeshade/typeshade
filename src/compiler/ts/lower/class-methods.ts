@@ -500,7 +500,7 @@ function mutatingBodiesOfAll(
  *
  *  A class inherits a method by lowering the BASE's node again with `this` typed as itself:
  *  dispatch is static, a derived struct carries the base's fields under the same names, and a
- *  base-typed variable cannot hold a derived value, so the body means on the derived class
+ *  a base view is allowed only when proved read-only and dispatch-equivalent, so the body means on the derived class
  *  exactly what it means on the base — including a call to a method the derived class
  *  overrides, which resolves to the override, as it does in TypeScript.
  *

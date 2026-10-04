@@ -1,7 +1,7 @@
 ---
 id: '0038'
 title: Accept derived class values where a read-only base view preserves their behavior
-status: accepted
+status: implemented
 rules:
 - '8.9'
 surface:
