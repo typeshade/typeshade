@@ -12,6 +12,7 @@ import { lowerRandomHash } from '../random-hash.js';
 import { lowerScalarCast } from '../numeric.js';
 import { foldConstNumber } from '../loop-bound.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
+import { readonlyClassUpcast } from '../class-upcasts.js';
 import { lowerExpression } from './expression.js';
 import { captureArguments } from './local-functions.js';
 import { makeDiagnostic } from '../diagnostic.js';
@@ -246,6 +247,7 @@ export function lowerUserCall(
     const argNode = written[i - leading.length]!;
     const want = decl.params[i]!.type;
     args[i] = retargetIntLitCtx(args[i]!, argNode, want);
+    args[i] = readonlyClassUpcast(args[i]!, want, scope, sourceFile);
     args[i] = reportIntLitRange(args[i]!, argNode, want, sourceFile, diagnostics) ?? args[i]!;
     if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {
       const got = args[i]!.type;

@@ -18,7 +18,7 @@
 //
 // SCOPE: a DECLARATION with no type annotation whose initialiser is written as an integer —
 // `let i = 0`, `const K = 5`, `const n = 2 + 3`, excluding a local that already takes an
-// integer type from its declared calls (change 0036). That is the shape the flip moves and the shape
+// integer type from its declared uses (changes 0036 and 0037). That is the shape the flip moves and the shape
 // an author can act on: writing `0.` keeps `f32`, writing `let i: f32 = 0` does too. A literal
 // in any other position is already decided by something — an annotated declaration, an
 // argument, an index, a peer in an arithmetic expression — and `lit-coerce.ts` and

@@ -994,10 +994,8 @@ export function lowerUpdate(
         );
         return undefined;
       }
-      // A parameter is a value on both targets, so `a++` is refused for the same reason
-      // `a = v` is — one rule, one wording, stated once in statement.ts. This branch builds
-      // its own target instead of going through lowerLValue, so without this call the emit
-      // was `a = (a + 1);`, which Tint refuses with `cannot assign to parameter 'a'`.
+      // Whole writes to ordinary value parameters already use their automatic locals.
+      // Share the fallback with assignment lowering if this input still has no writable local.
       if (rules.kind === 'param') {
         refuseParamWrite(expr, targetExpr.text, sourceFile, diagnostics);
         return undefined;
@@ -1130,9 +1128,8 @@ export function lowerUpdate(
         }
         if (folded !== undefined) rhs = { op: 'lit', type: binding.type, value: folded };
       }
-      // The same parameter rule as `i++` above: `for (…; p += 2)` on a formal parameter
-      // emitted `p += 2`, which is `cannot assign to parameter 'p'` on Tint. A captured
-      // variable's parameter keeps the variable's rules (Rule 8.17).
+      // Use the same remaining-input fallback as `i++`; ordinary value parameters already
+      // have writable locals. Captured variables keep their own rules (Rule 8.17).
       const rules = writeRules(binding);
       if (rules.kind === 'param') {
         refuseParamWrite(expr, left.text, sourceFile, diagnostics);

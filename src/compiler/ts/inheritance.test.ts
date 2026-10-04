@@ -7,7 +7,7 @@
 // The shape of the answer: a struct is flat, with the base's fields first, and dispatch is
 // static. A class inherits a method by lowering the base's node again with `this` typed as
 // itself, so an inherited body calls the override, as it does in TypeScript; a base-typed name
-// cannot hold a derived value, which is what makes the two dispatches agree.
+// may hold a derived value only when the read-only base view preserves its dispatch.
 //
 // Verifies: Rule 6.9 (docs/language-design.md; traced in reqs/).
 
@@ -395,12 +395,12 @@ describe('what inheritance refuses, and why', () => {
     );
   });
 
-  it('a base-typed name holding a derived value, with the reason', () => {
-    const HEAD = `class Base {\n  x: f32\n}\nclass Derived extends Base {\n  y: f32\n}\n`;
+  it('a base-typed name holding a derived override, with the reason', () => {
+    const HEAD = `class Base {\n  x: f32\n  value(): f32 { return this.x }\n}\nclass Derived extends Base {\n  y: f32\n  value(): f32 { return this.y }\n}\n`;
     const note =
       ' "Derived" extends "Base", and a name typed as the base cannot hold a derived value ' +
-      'here: method dispatch is static, so a call through it would run "Base"\'s body. Write ' +
-      '"Derived" as the type.';
+      'here without a proven read-only, dispatch-equivalent base view. ' +
+      'Keep "Derived" as the type to preserve its methods and receiver writes.';
     expect(
       errorsOf(
         file(

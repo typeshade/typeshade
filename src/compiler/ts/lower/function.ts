@@ -1626,7 +1626,7 @@ export function lowerSourceFunctions(
       );
       (cf.stub as { body: readonly Stmt[] }).body = [
         ...ctorPrologue(cf.receiver, scope, sourceFile, diagnostics),
-        { s: 'return', expr: selfRef(cf.receiver.type) },
+        { s: 'return', expr: selfRef(cf.receiver.type, scope) },
       ];
     }
     funcs.push(cf.stub);
@@ -2584,6 +2584,7 @@ export function functionScope(
   }
   scope.setNamespacePrefix(nsPrefix);
   scope.setStructs(structs.map((s) => s.decl));
+  scope.setClassStructs(structs);
   scope.setPrivateFields(privateFieldTableOf(structs));
   scope.setWithheldFields(withheldTableOf(structs));
   scope.setReadonlyFields(readonlyFieldTableOf(structs));
@@ -2649,6 +2650,8 @@ export function functionScope(
   for (const v of vars) {
     defineOnce({ kind: 'modvar', name: v.name, type: v.type, mutable: true, space: v.space });
   }
+  // Module values live outside the parameters and body locals, as in TypeScript (#429).
+  scope.push();
   return scope;
 }
 
@@ -2916,10 +2919,7 @@ export function fillFunctionBody(
   const copied: { declared: ts.ParameterDeclaration; param: FuncDecl['params'][number] }[] = [];
   const offset = stub.params.length - declaredParams.length;
   const parameterNames = new Set<string>();
-  // A parameter that repeats a module const, a binding or an override is refused the way a
-  // `let` at the top of the body is (TS8023), on the parameter, instead of the scope's throw
-  // escaping `compileTsSource` (#68). The parameter is not defined, so the body's uses of the
-  // name resolve to the module-level declaration; the module is refused anyway.
+  // Parameters and top-level body locals share a frame, inside the module's frame.
   stub.params.forEach((p, i) => {
     if (i < offset) return;
     const declared = declaredParams[i - offset];
@@ -2939,7 +2939,7 @@ export function fillFunctionBody(
         diagnostics,
         sourceFile,
         declared.name,
-        `Parameter "${p.name}" repeats the name of a module-level declaration; rename one of them.`,
+        `Duplicate parameter "${p.name}" in this scope.`,
         TS_CODES.DUPLICATE_SYMBOL,
       );
       return;
@@ -3031,7 +3031,7 @@ export function fillFunctionBody(
     // A constructor returns the struct it built: a bare `return` inside it returns `self_`,
     // and one more closes the body. A method that CHANGES its object returns nothing — it
     // writes through its receiver — so its bare returns stay bare.
-    const self = selfRef(receiver.type);
+    const self = selfRef(receiver.type, scope);
     const early = collectReturns(body);
     if (afterBody.length > 0 && early.length > 0) {
       pushDiag(

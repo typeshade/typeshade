@@ -212,7 +212,11 @@ export function registerClassCopy(copy: FuncDecl, cf: ClassFunction, writes: boo
 }
 
 /** The `self_` a constructor builds and a method reads. */
-export const selfRef = (type: ShaderType): Expr => ({ op: 'varref', type, name: 'self_' });
+export const selfRef = (type: ShaderType, scope?: LoweringScope): Expr => ({
+  op: 'varref',
+  type,
+  name: scope?.resolve('this') ? irNameOf(scope.resolve('this')!) : 'self_',
+});
 
 /** `"P" has no static function "mkae".`, with the static of `P` or of a class above it that the
  *  name is spelled like (Rule 12.1). */
@@ -496,7 +500,7 @@ function mutatingBodiesOfAll(
  *
  *  A class inherits a method by lowering the BASE's node again with `this` typed as itself:
  *  dispatch is static, a derived struct carries the base's fields under the same names, and a
- *  base-typed variable cannot hold a derived value, so the body means on the derived class
+ *  a base view is allowed only when proved read-only and dispatch-equivalent, so the body means on the derived class
  *  exactly what it means on the base — including a call to a method the derived class
  *  overrides, which resolves to the override, as it does in TypeScript.
  *
@@ -1592,7 +1596,7 @@ export function ctorParts(
       after === undefined
         ? []
         : [
-            ...paramPropAssigns(after.paramProps, receiver.type),
+            ...paramPropAssigns(after.paramProps, receiver.type, scope),
             ...initAssigns(after.fieldInits, receiver.type, scope, sourceFile, diagnostics),
           ],
     afterBody: initAssigns(receiver.afterBody ?? [], receiver.type, scope, sourceFile, diagnostics),
@@ -1603,10 +1607,11 @@ export function ctorParts(
 function paramPropAssigns(
   props: readonly { readonly name: string; readonly type: ShaderType }[],
   type: ShaderType,
+  scope: LoweringScope,
 ): Stmt[] {
   return props.map((p) => ({
     s: 'assign',
-    target: { op: 'member', type: p.type, base: selfRef(type), field: p.name },
+    target: { op: 'member', type: p.type, base: selfRef(type, scope), field: p.name },
     expr: { op: 'param', type: p.type, name: p.name },
   }));
 }
@@ -1636,7 +1641,7 @@ function initAssigns(
     }
     out.push({
       s: 'assign',
-      target: { op: 'member', type: f.type, base: selfRef(type), field: f.name },
+      target: { op: 'member', type: f.type, base: selfRef(type, scope), field: f.name },
       expr: init,
     });
   }
@@ -1650,13 +1655,11 @@ function ctorStart(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt[] {
-  const self = scope.define({
-    kind: 'local',
-    name: 'this',
-    type: receiver.type,
-    mutable: true,
-    irName: 'self_',
-  });
+  const self = scope.define(
+    { kind: 'local', name: 'this', type: receiver.type, mutable: true, irName: 'self_' },
+    false,
+    receiver.mode === 'inout',
+  );
   // A method that changes its object writes THROUGH the parameter, so there is nothing to
   // start: `self_` is the parameter's own name, and `this.pos = …` assigns to it. What used to
   // be here was `var self_ = self_in`, the copy the body worked on and returned.
@@ -1674,7 +1677,7 @@ function ctorStart(
   // defines the parameters after this prologue.
   out.push(
     ...initAssigns(receiver.fieldInits, receiver.type, scope, sourceFile, diagnostics),
-    ...paramPropAssigns(receiver.paramProps ?? [], receiver.type),
+    ...paramPropAssigns(receiver.paramProps ?? [], receiver.type, scope),
     ...initAssigns(receiver.ownInits ?? [], receiver.type, scope, sourceFile, diagnostics),
   );
   return out;

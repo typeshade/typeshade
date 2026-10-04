@@ -1,7 +1,7 @@
 ---
 id: '0039'
 title: Let function parameters and locals shadow module values
-status: accepted
+status: implemented
 rules:
 - '3.2'
 surface:

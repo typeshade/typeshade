@@ -1,7 +1,7 @@
 ---
 id: '0037'
 title: Infer local integers from declared member and assignment contexts
-status: accepted
+status: implemented
 rules:
 - '5.1'
 surface:

@@ -892,9 +892,11 @@ written — the backend spelled every scalar constant with a float literal, so t
 `const N: u32 = 16.0;`, which is the half issues #13 and #17 were about — and it has been true
 since they landed.
 
-**A local integer literal can take its type from a declared call (change 0036, #429).**
+**A local integer literal can take its type from declared uses (changes 0036 and 0037, #429).**
 An unannotated function-local `let` or `const` initialized by an integer-written literal
-can take `i32` or `u32` from the parameters of direct calls to declared, nongeneric functions:
+can take `i32` or `u32` from direct calls to declared, nongeneric functions, constructor
+arguments, instance or static method arguments, and explicitly typed initialization or
+simple assignment:
 
 ```ts
 function objectId(index: i32): i32 {
@@ -912,8 +914,17 @@ the outer local's type. Uses that demand conflicting concrete types, such as `i3
 `f32`, are refused with `TS8003`: write an annotation and cast the arguments that need
 another type. The initializer still has to fit the chosen integer type. Explicit annotations,
 casts, float-written initializers, module constants and loop induction variables keep their
-existing rules. Calls through unresolved names, function values or generic declarations
-do not establish an integer type.
+existing rules. For `new Hit(objectIndex)` or `hit.accept(objectIndex)`, the declared
+parameter supplies the same demand. An inherited constructor or method supplies its
+signature; an override supplies its own. `let selected: i32 = objectIndex` and
+`selected = objectIndex` take the explicitly typed destination's demand. Conversely,
+`objectIndex = hit.objectIndex` takes `i32` when the resolved field explicitly declares
+`i32` independently of the local. Compound assignments and circular inference supply no
+demand. A shadowing class or receiver binding cannot name the outer declaration.
+
+Calls through unresolved names or function values and direct calls to generic functions
+do not establish an integer type. A concrete member parameter such as `index: i32` can
+establish a demand inside a generic class; an unresolved parameter such as `index: T` cannot.
 
 **A window is open on the default (#148; the policy it follows is roadmap item 25, the
 deprecation-policy row, and `RELEASING.md` §7).** Everything above is
@@ -923,7 +934,7 @@ abstract integer to `i32` when nothing else decides (wgsl.txt:3929-3933, 4100-41
 is an `int`, and a TypeScript reader expects `let i = 0` to index an array — so that default
 will change. It has NOT changed yet: this release carries the window, not the flip. A build
 that wants to see which of its lines the flip will move asks for the warning, which is off by
-default and moves no emitted byte. A local that already takes an integer type from its calls
+default and moves no emitted byte. A local that already takes an integer type from its declared uses
 does not carry that warning:
 
 ```ts
@@ -1467,6 +1478,10 @@ written.
 The multisampled texture is §37 and the storage texture §33.
 
 ## 16. Object literals take the declared struct
+
+A class value derived from a declared base may also occupy that base position when the compiler
+proves its base view read-only and dispatch-equivalent (§26). The same conversion applies to
+contextual fields and array elements, with the source value evaluated once.
 
 Which struct `{ … }` builds comes from the type the position **declares**: a function's
 return type, a `let`/`const` annotation, or a parameter type.
@@ -2017,16 +2032,18 @@ export function fs(): vec4 {
 }
 ```
 
-emits the first loop over `i` and the second over `i_1`. A local in a nested block that shadows
-a resource binding or a module const is renamed the same way (`dst_1`), so the binding's own
-name stays the binding's and a write through it is still a binding write to every pass.
+emits the first loop over `i` and the second over `i_1`. A local that shadows a resource
+binding or a module value is renamed the same way (`dst_1`), at the top of a function body
+or in a nested block. The module declaration's own name stays its own, so a write through
+it is still a binding write to every pass. Function parameters may shadow module values
+too; the signature retains the authored parameter name, and closures read the nearest
+declaration, as they do in TypeScript (Rule 3.2).
 
 **What the rename does not change.** Diagnostics and the symbol table (hover, rename,
 references) use the name as the author spelled it; a loop diagnostic about the second `i` says
-`i`. What stays refused is what TypeScript refuses or what this surface refused before: a name
-declared twice in one block (TS8023), and a name at the top of a function body, or a parameter,
-that repeats a module-level declaration (TS8023; the parameter case threw out of the compiler
-before, issue #68). The debug stepper reports a local by its IR name for now, so a shadowed `p`
+`i`. A name declared twice in one scope stays refused (TS8023), including a body local
+that repeats a parameter. A module value and a function parameter or body local occupy
+different scopes, so their shared spelling is valid (issue #429). The debug stepper reports a local by its IR name for now, so a shadowed `p`
 steps as `p_1`.
 
 ---
@@ -3123,7 +3140,7 @@ changes `Big.origin`, changes the one object `Shape` and `Big` both read, in Typ
 The statics of a generic base are its class's, one for every instance, so `FPair.K` over
 `class FPair extends Pair<f32>` reads `Pair.K`. And what holds for a static holds for every body a
 class inherits (Rule 8.9): an instance method whose body calls `weigh(this)` with `weigh` taking
-the base fails for the derived class alone, since a derived value is not a base one here, and it
+the base fails for the derived class alone when the receiver escapes the read-only base-view proof, and it
 is refused when something calls it on a derived object, and not at all while nothing does.
 
 ### A method that changes an object its object holds, and a `const` object
@@ -3570,17 +3587,29 @@ also why an inherited body calls an override, exactly as it does in TypeScript. 
 function and a field initializer come down the same way, and a derived class with no constructor
 of its own uses the nearest one above it.
 
-**What makes the two dispatches agree.** A name typed as the base cannot hold a derived value.
-Assigning one, or passing one where a base is expected, is refused with the reason:
+**Read-only base views.** A derived class value may be assigned, returned or passed where its
+base is declared when the compiler proves the view read-only and dispatch-equivalent. A material
+class that adds fields and methods without overriding its base's read methods is one such case.
+The conversion projects inherited fields through a helper that evaluates its input once.
+Annotated locals, assignments, arguments, returns, field initializers and contextual object and
+array elements all use this conversion.
+
+The proof rejects direct or indirect overrides, differing accessors, receiver writes and a
+receiver returned or escaped by a method. It also checks projected-field writes across the
+compiled source, resolving receiver declarations rather than their spelling: a later source or
+alias mutation cannot silently leave the base view holding an earlier copy. This is a conservative
+proof, so unknown receivers or writes it cannot prove harmless remain refused. General runtime
+polymorphism is not implemented by this conversion; a GPU backend can implement it with a
+retained concrete tag and generated branches. An unsafe or unproved view says:
 
 ```
-"Derived" extends "Base", and a name typed as the base cannot hold a derived value here:
-method dispatch is static, so a call through it would run "Base"'s body. Write "Derived" as
-the type.
+"Derived" extends "Base", and a name typed as the base cannot hold a derived value here
+without a proven read-only, dispatch-equivalent base view. Keep "Derived" as the type to
+preserve its methods and receiver writes.
 ```
 
-With that rule the static type of every receiver is its exact class, so lowering each body per
-class means the same thing TypeScript's dynamic dispatch would.
+Concrete receivers retain their class-specific bodies. A proved base view has the same base
+behavior as that concrete receiver, so its emitted call preserves the TypeScript result.
 
 **`abstract`.** An abstract class is a base and never a value: its struct is emitted so a
 derived one can be described in terms of it, its methods reach each concrete class through
@@ -3621,6 +3650,9 @@ declaration per argument set and belongs with generics. A base that is a CALL is
 pattern, and §29 runs it.
 
 ## 28. What TypeScript writes that the GPU has no word for
+
+The class conversion in §26 accepts proved read-only base views. It does not add runtime type
+tags, downcasts or general dispatch through base-typed values.
 
 A fieldless class has a value even though the GPU requires a nonempty struct. The compiler
 supplies that internal representation; source code and host values keep the empty shape (§26).
@@ -3846,6 +3878,9 @@ mixin that extends its parameter and is given nothing.
 
 ## 30. Generics by monomorphisation
 
+A concrete class argument retains its own methods. A declared base-class position may use the
+read-only base-view proof in §26 after its type arguments have been resolved.
+
 Roadmap 0.3 item T9. WGSL and GLSL ES 3.00 have no generics: a function has one signature and a
 struct one layout. TypeScript has them, and a shader author reaches for them, so a generic
 declaration is compiled **once per set of argument types the program uses it with**, the files
@@ -3949,6 +3984,9 @@ constant folder hides the easy case as well: `true ? a : b` folds, and two ident
 one binding, so it takes a runtime condition AND two distinguishable arms to reach at all.
 
 ## 32. A generic class
+
+Derived values of a generic base instance follow the same read-only base-view proof as ordinary
+classes (§26); the proof compares the resolved field types and inherited method bodies.
 
 A generic class may have no instance data fields: its type arguments still specialize its
 methods, and each used instance remains constructible as a fieldless value (§26).

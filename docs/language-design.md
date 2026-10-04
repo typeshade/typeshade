@@ -197,7 +197,7 @@ An import the compiler does not follow must be refused with `TS8072`, on the imp
 
 ### 3.3. Identifiers
 
-**Rule 3.2.** A local variable, parameter, module constant or module variable may use any identifier TypeScript permits. The backend must give a name its target cannot spell a fresh identifier, rewriting its declarations and references consistently. The authored IR, CPU oracle, diagnostics and debugger retain the source name. Other declarations retain their existing emitted-name contract: a name containing `$`, exactly `_`, or starting with `__` is refused for WGSL; a class or namespace member is flattened to `Owner_member`.
+**Rule 3.2.** A local variable, parameter, module constant or module variable may use any identifier TypeScript permits. Function parameters and body locals occupy a lexical scope inside the module's: they may shadow a module value, and a closure resolves the nearest declaration. Duplicate declarations in the same scope remain errors. The backend must give a name its target cannot spell a fresh identifier, rewriting its declarations and references consistently. The authored IR, CPU oracle, diagnostics and debugger retain the source name. Other declarations retain their existing emitted-name contract: a name containing `$`, exactly `_`, or starting with `__` is refused for WGSL; a class or namespace member is flattened to `Owner_member`.
 
 - Rationale: the shading language's identifier restrictions govern emitted text; changing a local spelling does not change the source program. Binding, override, entry, struct and field names also participate in host or interface contracts and keep their existing checks.
 - Derives from: WGSL's identifier and reserved-word restrictions, the GLSL ES 3.00 identifier rules, and the source-name contract for the IR and debugger.
@@ -205,6 +205,7 @@ An import the compiler does not follow must be refused with `TS8072`, on the imp
   - `sanitizeVariableNames` in `src/core/passes/variable-names.ts`, used on an emitted copy by both backends, with collision avoidance against authored and generated names;
   - `reportReservedNames` in `src/compiler/ts/reserved-names.ts` for declarations whose emitted spelling remains part of the contract;
   - `src/compiler/ts/reserved-names.test.ts`, including `target`, dollar and Unicode variables, nested scopes, constants, module variables, CPU values and the editor;
+  - `src/compiler/ts/function-shadowing.test.ts` for function parameters and locals shadowing module values, nearest closure bindings and unchanged same-scope duplicate refusals;
   - `linkProgram` in `src/compiler/ts/link.ts` for names shared by a program's files (Rule 3.9), pinned by `src/compiler/ts/link.test.ts`.
 
 ### 3.4. Reserved words
@@ -337,7 +338,7 @@ An _integer-written_ literal has no decimal point and no exponent.
 
 ### 5.2. Rules
 
-**Rule 5.1.** An integer-written literal must take the integer type the position around it declares. An unannotated function-local `let` or `const` initialized by such a literal takes `i32` or `u32` when direct calls to declared, nongeneric functions require that one type for the local. The calls resolve the local and callee by their declarations, including through nested scopes. Conflicting concrete parameter types must be refused with an annotation or cast remedy. Where no integer type is established, the literal must be an `f32`.
+**Rule 5.1.** An integer-written literal must take the integer type the position around it declares. An unannotated function-local `let` or `const` initialized by such a literal takes `i32` or `u32` when declared uses require that one type for the local: direct calls to declared, nongeneric functions, constructor and instance or static method arguments, and explicitly typed initialization or simple assignment. A simple assignment can take the type of its destination or of a right-hand side that declares its type independently of the local. Resolve the local, callee and receiver by their declarations, including through nested scopes and inherited members; an override supplies its own signature. A concrete member parameter independent of generic arguments can establish a demand; an unresolved generic parameter or circular inference cannot. Conflicting concrete scalar types must be refused with an annotation or cast remedy. Where no integer type is established, the literal must be an `f32`.
 
 - Rationale: this is WGSL's abstract-integer rule narrowed to the positions where a type is stated, and the `f32` default is the surface's history rather than WGSL's rule.
 - Derives from: [Abstract Numeric Types](https://gpuweb.github.io/gpuweb/wgsl/#abstract-types) and [Conversion Rank](https://gpuweb.github.io/gpuweb/wgsl/#conversion-rank); surface §13.
@@ -690,14 +691,27 @@ The one exception an author writes is a kernel function's parameter of an array 
   path by `journeys/mutable-parameters/`.
 
 **Rule 8.9.** Method dispatch must be static, and a generic function or class must be compiled once per set of type arguments the program uses (Rule 3.9).
+A derived class value may occupy a base-typed position when its base view is proved read-only
+and dispatch-equivalent: every base-visible method or accessor has the same body on the concrete
+class, no receiver writes or receiver escape are lost, and the projected fields cannot observably
+change through an alias after construction. The proof is conservative across the compiled source;
+unknown receivers and unproved alias writes do not establish safety. Arguments, initializers,
+assignments, returns and contextual composite elements use the same conversion. A generated
+function takes the concrete value once and constructs its base representation, preserving effects
+and source evaluation order. A view that needs runtime override selection or receiver retention
+remains refused with the concrete type to keep; no general dynamic-dispatch restriction is imposed
+by WGSL itself.
 A class with no instance fields remains a constructible value, including method-only, static-only,
 inherited, mixin and generic classes. Its authored field list remains empty; GPU lowering provides
 an internal carrier without adding source members or inherited fields.
 A body a class inherits is compiled again for that class; what fails only there (a call that takes the base, a static the class does not have) must be refused when a function that is not a class's own reaches it through calls, and must not be when nothing does, the body being dropped with every function that calls it.
 
-- Rationale: a WGSL struct is one layout and a WGSL function has one overload, so the only meaning a generic or a method can have is the monomorphised one.
+- Rationale: this representation settles generic arguments and concrete receiver classes during compilation. A read-only base projection is accepted only when it preserves that receiver's behavior; a value requiring runtime selection needs a retained concrete representation and generated dispatch.
 - Derives from: [Functions](https://gpuweb.github.io/gpuweb/wgsl/#functions) ("each user-defined function only has one overload"); surface §26, §30, §32 (design #92).
 - Enforced by: `TS8035 CLASS_MEMBER` and `examples/generic-class.shade.ts`; `src/compiler/ts/class-syntax.test.ts` for a body a class inherits that fails for it alone, said when a call reaches it and dropped when none does.
+  Read-only base views and unsafe overrides, accessors, receiver writes and alias mutation are
+  pinned by `src/compiler/ts/class-upcasts.test.ts`; `journeys/class-upcasts/` holds the packed
+  package's material constructor and factory evaluation order to independent JavaScript.
 
 **Rule 8.10.** A method that writes its object (assigns to `this` or to a field, a component or an element of it, applies `++` or `--` to one, or calls such a method or reads such a getter on `this`, on a field, a component or an element of it whatever class that field is, or through `super`) must take the object by reference, and may return a value like any other method; a base's body that a class calls through `super` and that writes its object takes it by reference too, and so does the copy of a method that takes a function (Rule 8.18) when a function handed over writes the variable the call is on.
 Its receiver must be a place a function may write: a `let` local, a `const` local whose initializer built its value (Rule 6.10), a module variable, a storage element, or `this` inside a constructor or another such method, or a field or an element of one of those.

@@ -71,4 +71,18 @@ A fourth kind, `kind: 'engine'` (change 0025), is a host application rather than
 integer type of an unannotated local literal. Its independent JavaScript reference checks
 signed division, unsigned wrapping, a shadowed local and a closure on the CPU and WebGPU.
 
+`journeys/local-numeric-contexts/` (change 0037, #429) adds constructor and inherited
+constructor arguments, instance and static method arguments, and explicitly typed
+initialization and field assignment. Its JavaScript reference checks signed division,
+unsigned wrapping and selected object indices against the CPU and WebGPU.
+
+`journeys/function-shadowing/` (change 0039, #429) gives function locals and parameters the
+lexical scope inside the module that TypeScript gives them. Its independent JavaScript
+reference holds local and parameter shadows, a mutable parameter captured by a closure,
+and reads of the original module values to the CPU oracle and WebGPU.
+
 A journey belongs with the change that makes it work. A pull request that improves what a user can write adds the journey that shows it, and the gate keeps it working from then on.
+
+`journeys/class-upcasts/` (change 0038, #429) passes a read-only derived material into a
+base-typed constructor. Its independent JavaScript classes verify the material response,
+one evaluation of a side-effecting factory and argument order on the CPU and WebGPU.
