@@ -1,7 +1,7 @@
 ---
 id: '0040'
 title: Author explicit references and pointers in shader source
-status: draft
+status: accepted
 rules:
 - '4.1'
 - '6.10'
@@ -38,7 +38,7 @@ downstream:
   what: Add parser-aware diagnostics and hover for pointer types, const reference bindings, borrow origins and lifetimes; record this proposal in compiler-changes.md.
 ---
 
-<!-- doc-refs: skip-file — a draft records a proposed authoring-surface change and its outstanding design questions -->
+<!-- doc-refs: skip-file — this accepted but unimplemented proposal names future rules and surface sections; their implementation and pending impact amendments are not delivered by this proposal -->
 
 **Document control**
 
@@ -46,7 +46,7 @@ downstream:
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Document                    | Change proposal `0040`; this file is the proposal source.                                                                                                                                                   |
 | Revision context date       | 2026-10-04, Asia/Seoul. This is a document context date, not an approval or implementation date.                                                                                                            |
-| Current lifecycle state     | `draft`, as recorded in the front matter.                                                                                                                                                                   |
+| Current lifecycle state     | `accepted`, as recorded in the front matter; the actual PR #444 merge event establishes repository acceptance.                                                                                              |
 | Scope                       | Proposed TypeShade pointer syntax, local const references, borrow checks, target lowering, diagnostics and hover.                                                                                           |
 | Applicability / Effectivity | Proposed for `.ts` and `.shade.ts` source compiled in TypeShade mode, the CPU/WGSL/GLSL ES 3.00 backends, the compiler language service and downstream editor integration. Release version is not assigned. |
 | Review baseline             | Recorded `origin/main` at `c214e4d6caa3b2fe1a0fd32fa30636d8a4f7f484`. This commit pins the review baseline even if the branch later moves.                                                                  |
@@ -67,8 +67,11 @@ The document separates three kinds of information:
 - Accepted approval and plan records identify the agreed scope and its owners.
 - Implemented configuration and validation records identify the delivered change and its evidence.
 
-Approval, implementation and downstream completion records do not yet apply to this draft.
-No approver, signature, delivery date, work duration, cost or feature-test result is asserted.
+The user approved merging PR #444 without implementation on 2026-10-04, Asia/Seoul. The accepted
+design preserves the scope reviewed at `4e7e1785a0f4d6a9e4513729d8236c9ae709f485`. The actual
+GitHub merge event is the final repository acceptance authority. This document does not predict
+its commit hash or manufacture a signature. Implementation and downstream completion records do
+not yet apply. No delivery date, work duration, cost or feature-test result is asserted.
 The configuration-management structure takes inspiration from ECP, service-bulletin and completion
 records. It adapts those structures to software review and delivery. It is not an aviation record,
 and STE does not define this repository's state transitions.
@@ -435,8 +438,9 @@ declaration as related information. Suggestions must not imply that the compiler
 borrow at its last use; suggest an inner block where appropriate. Unsupported depth, invalid
 address operands, pointer escape, read-only writes, host-boundary signatures, unknown
 disjointness and target capability failures need distinct explanatory messages. Numeric codes
-are not allocated by this draft: allocate them before acceptance and update `codes`, the
-diagnostic catalog and downstream guidance together.
+remain unallocated in this accepted design. Allocate them in a reviewed proposal amendment
+before implementation, with corresponding updates to `codes`, the diagnostic catalog and
+downstream guidance.
 
 ### Acceptance and rejection examples
 
@@ -509,67 +513,80 @@ migration. Adding pointer types and address/dereference operations is expected t
 existing recorded IR definitions `ShaderType`, `Expr`, `Stmt` and `KeyOf`; those shapes are
 declared above even though no new public authoring helper is proposed. Implementation rebakes
 the API surface and stays within the declared shape impacts; any further expected definition
-changes identified during design must be declared before acceptance. The public
+changes identified during detailed implementation planning must be declared in a reviewed
+proposal amendment before implementation. The public
 barrel does not gain direct imports of private core modules. No registered example is added by
-this draft; planned examples and any new exports must be declared before acceptance.
+this proposal; planned examples and any new exports must be declared in that amendment before
+implementation.
 
-### Draft impact estimate
+### Retained design impact estimate
 
 The following entries estimate the change's scope. They are not an approved work plan or evidence
 of completed work. Complexity comes from the existing shared IR and the new borrow contract.
 No duration or cost estimate has been established.
 
-| Area                                     | Expected impact                                                                                                                   | Risk or decision to assess before acceptance                                                                                                                                                |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source parser and projection             | New pointer type and prefix-expression parsing; original source spans.                                                            | Removal of `**` and `**=` is a source compatibility change. Ordinary TypeScript must keep its grammar.                                                                                      |
-| Types, IR and visitors                   | Pointer tags, place provenance and updates to the declared API shapes.                                                            | Serialized IR compatibility and cache identity must account for new tags. The runtime/emitter dependency boundary must remain intact.                                                       |
-| Borrow and effect analysis               | Lexical ownership, call reborrows, root overlap, captures and receivers.                                                          | Unknown effects must not bypass exclusivity checks. Existing aggregate-place writability must remain correct.                                                                               |
-| WGSL, GLSL and CPU                       | Pointer emission, stable l-value projection and originating-place access.                                                         | Subobject capability support and root alias restrictions can limit portable calls. Frozen index identity must survive optimization.                                                         |
-| Editor and debugger                      | Source pointer types, token hover and related diagnostic spans.                                                                   | Projection-generated errors must not appear as source TypeShade errors.                                                                                                                     |
-| Rules, guide and downstream repositories | Normative changes, migration guidance and compiler-pin records.                                                                   | Diagnostic allocation and any additional exports or examples must be declared before acceptance.                                                                                            |
-| Dependencies and tools                   | Parser work affects the existing TypeScript front end; validation uses repository build, target-compiler and documentation tools. | No new dependency is approved by this draft. Any dependency request needs an explicit impact assessment. Target compiler availability and downstream tool integration affect delivery work. |
-| Release and work plan                    | A breaking pre-1.0 minor release is expected under Rule 13.9.                                                                     | Owners, milestones, duration and cost are not assigned by this draft. Unestimated cost is unknown, not zero.                                                                                |
+| Area                                     | Expected impact                                                                                                                   | Risk or decision to resolve before implementation                                                                                                                                                       |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source parser and projection             | New pointer type and prefix-expression parsing; original source spans.                                                            | Removal of `**` and `**=` is a source compatibility change. Ordinary TypeScript must keep its grammar.                                                                                                  |
+| Types, IR and visitors                   | Pointer tags, place provenance and updates to the declared API shapes.                                                            | Serialized IR compatibility and cache identity must account for new tags. The runtime/emitter dependency boundary must remain intact.                                                                   |
+| Borrow and effect analysis               | Lexical ownership, call reborrows, root overlap, captures and receivers.                                                          | Unknown effects must not bypass exclusivity checks. Existing aggregate-place writability must remain correct.                                                                                           |
+| WGSL, GLSL and CPU                       | Pointer emission, stable l-value projection and originating-place access.                                                         | Subobject capability support and root alias restrictions can limit portable calls. Frozen index identity must survive optimization.                                                                     |
+| Editor and debugger                      | Source pointer types, token hover and related diagnostic spans.                                                                   | Projection-generated errors must not appear as source TypeShade errors.                                                                                                                                 |
+| Rules, guide and downstream repositories | Normative changes, migration guidance and compiler-pin records.                                                                   | Diagnostic allocation and any additional exports or examples remain pending for a reviewed proposal amendment before implementation.                                                                    |
+| Dependencies and tools                   | Parser work affects the existing TypeScript front end; validation uses repository build, target-compiler and documentation tools. | No new dependency is approved by this design acceptance. Any dependency request needs an explicit impact assessment. Target compiler availability and downstream tool integration affect delivery work. |
+| Release and work plan                    | A breaking pre-1.0 minor release is expected under Rule 13.9.                                                                     | Owners, milestones, duration and cost remain unassigned by this documentation-only acceptance. Unestimated cost is unknown, not zero.                                                                   |
 
 ### Accepted approval and plan record
 
-This record applies after the proposal is accepted. It does not yet apply to the current draft.
-The accepted record must reference the exact reviewed proposal revision. It must identify the
-real approval decision in the PR. A GitHub review or merge event records the software decision;
-this proposal does not manufacture a separate signature.
+This record documents the user's approval of the reviewed design and the documentation-only
+merge. Acceptance does not mean that implementation planning is complete. The user explicitly
+requested the PR #444 merge without implementation; this instruction limits the authorized work
+to the proposal and its acceptance bookkeeping.
 
-| Record                 | Information required at acceptance                                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Approved configuration | Accepted proposal commit and review baseline.                                                                                  |
-| Approval decision      | Actual reviewer or decision owner, decision date and PR review/merge reference.                                                |
-| Approved scope         | Agreed syntax, exclusions, borrow lifetime and target capability policy.                                                       |
-| Declared impacts       | Final rules, surfaces, API shapes, diagnostic codes, examples and downstream obligations.                                      |
-| Implementation plan    | Actual responsibility assignments and the approved delivery phases.                                                            |
-| Schedule and resources | Agreed milestones and any established duration or cost estimate, with its basis. Unestimated fields remain identified as such. |
-| Acceptance evidence    | Required functional checks and document checks, with a decision owner for unresolved items.                                    |
+| Record                          | Actual approval and planning state                                                                                                                                                                                                                 |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Approved design revision        | `4e7e1785a0f4d6a9e4513729d8236c9ae709f485`; the reviewed technical contract and examples remain unchanged.                                                                                                                                         |
+| Review baseline                 | Recorded `origin/main` at `c214e4d6caa3b2fe1a0fd32fa30636d8a4f7f484`; later document/process integration does not replace that design-review baseline.                                                                                             |
+| Acceptance base                 | `b253da779cadc127fb1db06fc8edb70fe6442ab5`, including the merged documentation guidance from PR #445. This is distinct from the historical design-review baseline.                                                                                 |
+| Approval decision               | The user in this conversation requested "444 도요" and directed merging without implementation on 2026-10-04, Asia/Seoul. [PR #444](https://github.com/typeshade/typeshade/pull/444)'s actual merge event is the final repository decision record. |
+| Approved scope                  | Previously reviewed token syntax, local const-reference access, exclusive lexical borrowing, exclusions, target lowering/capabilities and source hover/diagnostic semantics.                                                                       |
+| Declared impacts                | The existing rule, surface, IR-shape and downstream declarations remain. `codes: []` and `examples: []` remain unallocated; final implementation impact declarations are pending.                                                                  |
+| Implementation authorization    | Not granted by this instruction. No compiler, language-service, backend or runtime implementation is part of this merge.                                                                                                                           |
+| Responsibilities and milestones | Implementation owners and delivery milestones remain unassigned. The descriptive phases below are proposed deliverables, not an assigned execution plan.                                                                                           |
+| Schedule and resources          | No delivery dates, work duration or cost estimates are established. These values remain unknown, not zero.                                                                                                                                         |
+| Validation state                | The requirements below describe future functional and document evidence. This design acceptance records no feature-test result or implementation completion.                                                                                       |
 
-Use the following procedure to prepare that record:
+The user's explicit documentation-only approval accepts the design while deferring diagnostic
+allocation and final implementation impact declarations. This is the reason the earlier draft's
+before-acceptance planning requirements are now pending before implementation. A reviewed
+proposal amendment must resolve those declarations before implementation begins. It must not
+silently treat empty allocation lists as permission to add undeclared diagnostic codes or examples.
+
+For any later implementation preparation, use this procedure:
 
 1. Identify the exact proposal revision under review.
 2. Record the approved scope.
-3. Allocate the diagnostic codes.
-4. Finalize the front-matter impact declarations.
+3. Allocate the diagnostic codes in the proposal amendment.
+4. Finalize the front-matter impact declarations in that amendment.
 5. Record each implementation responsibility.
-6. Record the agreed delivery milestones.
+6. Record any agreed delivery milestones.
 7. Record the basis of each established resource estimate.
 8. Identify the required functional validation evidence.
 9. Identify the required document validation evidence.
-10. Record the actual approval decision.
+10. Record the actual amendment approval decision.
 
 Repository acceptance still requires the merged `accepted` proposal described in
 `changes/README.md`. Completing this table alone does not accept the proposal.
 
 ### Implementation phases: descriptive plan
 
-These phases describe proposed deliverables. They do not instruct a maintainer to implement an
-unaccepted proposal.
+These phases describe proposed deliverables. They do not authorize implementation through this
+documentation-only acceptance. Pending allocation and impact declarations require a reviewed
+amendment before any later implementation work.
 
-1. The agreement phase covers syntax, exclusions, lexical lifetimes, target capabilities,
-   diagnostic allocation and declared impacts.
+1. The design agreement covers the previously reviewed syntax, exclusions, lexical lifetimes
+   and target capability contract. A later reviewed amendment resolves diagnostic allocation
+   and the final implementation impact declarations.
 2. The parser phase provides the TypeShade lexer, type/expression parsing, original spans and
    semantic language-service projection. Ordinary TypeScript remains outside that syntax mode.
 3. The analysis phase extends pointer types and place provenance through the IR, portable
@@ -611,8 +628,8 @@ checks have already passed.
 
 ### Implemented configuration and validation record
 
-This record applies when the implementation is delivered. It does not yet apply to the current
-draft. An implementation record must name the accepted proposal and the actual delivered
+This record applies when the implementation is delivered. It does not yet apply to this accepted
+but unimplemented design. An implementation record must name the accepted proposal and the actual delivered
 configuration. A result without its tested configuration cannot demonstrate feature correctness.
 
 | Record                  | Information required from the delivered implementation                                                                                                                                       |
@@ -660,7 +677,7 @@ pointee access, originating places and borrow scope at identifiers and operators
 present generated TypeScript errors as source language errors. Both downstream repositories
 update diagnostic guidance after code allocation and record `0040` when vendoring the implementation.
 
-The draft front matter declares expected downstream work. The accepted plan assigns actual
-responsibilities. The implemented record links actual downstream changes and their evidence.
-These stages must remain distinguishable when the compiler and downstream repositories ship
-at different times.
+The front matter declares expected downstream work. Actual downstream responsibilities and
+delivery remain pending after this documentation-only design acceptance. A later implementation
+record must link actual downstream changes and their evidence. These stages remain distinct
+when the compiler and downstream repositories ship at different times.
