@@ -40,6 +40,59 @@ downstream:
 
 <!-- doc-refs: skip-file — a draft records a proposed authoring-surface change and its outstanding design questions -->
 
+**Document control**
+
+| Field                       | Record                                                                                                                                                                                                      |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document                    | Change proposal `0040`; this file is the proposal source.                                                                                                                                                   |
+| Revision context date       | 2026-10-04, Asia/Seoul. This is a document context date, not an approval or implementation date.                                                                                                            |
+| Current lifecycle state     | `draft`, as recorded in the front matter.                                                                                                                                                                   |
+| Scope                       | Proposed TypeShade pointer syntax, local const references, borrow checks, target lowering, diagnostics and hover.                                                                                           |
+| Applicability / Effectivity | Proposed for `.ts` and `.shade.ts` source compiled in TypeShade mode, the CPU/WGSL/GLSL ES 3.00 backends, the compiler language service and downstream editor integration. Release version is not assigned. |
+| Review baseline             | Recorded `origin/main` at `c214e4d6caa3b2fe1a0fd32fa30636d8a4f7f484`. This commit pins the review baseline even if the branch later moves.                                                                  |
+| Proposal review             | [PR #444](https://github.com/typeshade/typeshade/pull/444).                                                                                                                                                 |
+| Revision authority          | Git records the exact file revisions. PR reviews and merge records record the design decision.                                                                                                              |
+| Known earlier revisions     | Initial proposal: `955f3821d46dbc4e6f0969ef389dfb00bf24a011`; const-reference expansion: `22174762807286f363b37c814a2146a9311e781a`.                                                                        |
+
+Git remains the authority for the complete revision history. The earlier revisions above provide
+review context. Git identifies the checked-out revision and any working-tree edits. Earlier
+document commits do not constitute approval.
+The active stages discussed here are `draft`, `accepted` and `implemented`. The repository also
+defines `archived` and `withdrawn`. `changes/README.md` remains the lifecycle authority. Merging
+the proposal with `status: accepted` records agreement under that lifecycle.
+
+The document separates three kinds of information:
+
+- Draft impact estimates describe expected work and uncertainty.
+- Accepted approval and plan records identify the agreed scope and its owners.
+- Implemented configuration and validation records identify the delivered change and its evidence.
+
+Approval, implementation and downstream completion records do not yet apply to this draft.
+No approver, signature, delivery date, work duration, cost or feature-test result is asserted.
+The configuration-management structure takes inspiration from ECP, service-bulletin and completion
+records. It adapts those structures to software review and delivery. It is not an aviation record,
+and STE does not define this repository's state transitions.
+This document-control structure applies to proposal `0040` only. It does not change the repository
+template or lifecycle requirements for other proposals.
+
+### STE-inspired writing principles
+
+ASD-STE100 combines English writing rules with a controlled dictionary. This proposal uses
+STE-inspired writing principles. It does not claim full ASD-STE100 compliance or certification.
+Technical identifiers retain their exact spelling.
+[ASD-STE100 FAQ](https://www.asd-ste100.org/STE_faq.html),
+[ASD-STE100 guidance on generated text](https://www.asd-ste100.org/STE_downloads.html)
+
+Descriptive sections explain behavior, rationale and expected impact. Procedural sections state
+actions in the imperative. This document's local procedure rule is one action per numbered step.
+ASD-STE100 Rule 5.2 permits an exception for simultaneous actions. For readability, this proposal
+adopts a stricter local one-action-per-step convention.
+[ASD-STE100 Issue 9, Rule 5.2](https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf)
+
+Completion records identify the actual actor, result and evidence. Use active voice where the
+actor is known. Do not invent an actor to make a sentence active. Use a stable term for each
+technical concept, and keep proposed behavior separate from observed results.
+
 ## What changes
 
 This is a proposal for future behavior. The syntax and checks below are not implemented by this
@@ -460,21 +513,75 @@ changes identified during design must be declared before acceptance. The public
 barrel does not gain direct imports of private core modules. No registered example is added by
 this draft; planned examples and any new exports must be declared before acceptance.
 
-### Implementation phases
+### Draft impact estimate
 
-1. Agree the syntax, exclusions, lifetime contract and target capability policy; allocate
-   diagnostics and finalize declared impacts before accepting the proposal.
-2. Add TypeShade lexer/type and expression parsing, original source spans and semantic
-   language-service projection. Preserve ordinary TypeScript outside TypeShade mode.
-3. Extend pointer types and place/provenance representation through the IR, portable
-   representation and every visitor. Add contextual access inference, lexical borrow/call-effect
-   checking, reborrowing and automatic storage materialization. Review serialized IR compatibility
-   and cache identities when new type/node tags are introduced; the runtime and emitter retain
-   their existing dependency boundary from the TypeScript front end.
-4. Lower WGSL pointers, GLSL place projections and CPU place accesses over the shared walk.
-   Freeze dynamic indices and check target capabilities without detached-copy fallbacks.
-5. Add symbol/expression/operator hover, related diagnostic spans, debugger type display and
-   host-signature checks. Update normative rules, surface, guide and downstream documentation.
+The following entries estimate the change's scope. They are not an approved work plan or evidence
+of completed work. Complexity comes from the existing shared IR and the new borrow contract.
+No duration or cost estimate has been established.
+
+| Area                                     | Expected impact                                                                                                                   | Risk or decision to assess before acceptance                                                                                                                                                |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source parser and projection             | New pointer type and prefix-expression parsing; original source spans.                                                            | Removal of `**` and `**=` is a source compatibility change. Ordinary TypeScript must keep its grammar.                                                                                      |
+| Types, IR and visitors                   | Pointer tags, place provenance and updates to the declared API shapes.                                                            | Serialized IR compatibility and cache identity must account for new tags. The runtime/emitter dependency boundary must remain intact.                                                       |
+| Borrow and effect analysis               | Lexical ownership, call reborrows, root overlap, captures and receivers.                                                          | Unknown effects must not bypass exclusivity checks. Existing aggregate-place writability must remain correct.                                                                               |
+| WGSL, GLSL and CPU                       | Pointer emission, stable l-value projection and originating-place access.                                                         | Subobject capability support and root alias restrictions can limit portable calls. Frozen index identity must survive optimization.                                                         |
+| Editor and debugger                      | Source pointer types, token hover and related diagnostic spans.                                                                   | Projection-generated errors must not appear as source TypeShade errors.                                                                                                                     |
+| Rules, guide and downstream repositories | Normative changes, migration guidance and compiler-pin records.                                                                   | Diagnostic allocation and any additional exports or examples must be declared before acceptance.                                                                                            |
+| Dependencies and tools                   | Parser work affects the existing TypeScript front end; validation uses repository build, target-compiler and documentation tools. | No new dependency is approved by this draft. Any dependency request needs an explicit impact assessment. Target compiler availability and downstream tool integration affect delivery work. |
+| Release and work plan                    | A breaking pre-1.0 minor release is expected under Rule 13.9.                                                                     | Owners, milestones, duration and cost are not assigned by this draft. Unestimated cost is unknown, not zero.                                                                                |
+
+### Accepted approval and plan record
+
+This record applies after the proposal is accepted. It does not yet apply to the current draft.
+The accepted record must reference the exact reviewed proposal revision. It must identify the
+real approval decision in the PR. A GitHub review or merge event records the software decision;
+this proposal does not manufacture a separate signature.
+
+| Record                 | Information required at acceptance                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Approved configuration | Accepted proposal commit and review baseline.                                                                                  |
+| Approval decision      | Actual reviewer or decision owner, decision date and PR review/merge reference.                                                |
+| Approved scope         | Agreed syntax, exclusions, borrow lifetime and target capability policy.                                                       |
+| Declared impacts       | Final rules, surfaces, API shapes, diagnostic codes, examples and downstream obligations.                                      |
+| Implementation plan    | Actual responsibility assignments and the approved delivery phases.                                                            |
+| Schedule and resources | Agreed milestones and any established duration or cost estimate, with its basis. Unestimated fields remain identified as such. |
+| Acceptance evidence    | Required functional checks and document checks, with a decision owner for unresolved items.                                    |
+
+Use the following procedure to prepare that record:
+
+1. Identify the exact proposal revision under review.
+2. Record the approved scope.
+3. Allocate the diagnostic codes.
+4. Finalize the front-matter impact declarations.
+5. Record each implementation responsibility.
+6. Record the agreed delivery milestones.
+7. Record the basis of each established resource estimate.
+8. Identify the required functional validation evidence.
+9. Identify the required document validation evidence.
+10. Record the actual approval decision.
+
+Repository acceptance still requires the merged `accepted` proposal described in
+`changes/README.md`. Completing this table alone does not accept the proposal.
+
+### Implementation phases: descriptive plan
+
+These phases describe proposed deliverables. They do not instruct a maintainer to implement an
+unaccepted proposal.
+
+1. The agreement phase covers syntax, exclusions, lexical lifetimes, target capabilities,
+   diagnostic allocation and declared impacts.
+2. The parser phase provides the TypeShade lexer, type/expression parsing, original spans and
+   semantic language-service projection. Ordinary TypeScript remains outside that syntax mode.
+3. The analysis phase extends pointer types and place provenance through the IR, portable
+   representation and every visitor. It provides contextual access inference, borrow/call-effect
+   checks, reborrowing and storage materialization. New type/node tags require review of serialized
+   IR compatibility and cache identities. The runtime and emitter retain their front-end dependency
+   boundary.
+4. The backend phase provides WGSL pointers, GLSL place projection and CPU place access through
+   the shared walk. It preserves frozen indices and checks capabilities without detached copies.
+5. The tooling phase provides identifier/expression/operator hover, diagnostic spans, debugger
+   types and host-signature checks. Its deliverables include the normative rules, surface, guide
+   and downstream documentation updates.
 
 An accepted subset must not enable syntax ahead of its checking and backend semantics. Parser
 recognition alone is not an implementation of this feature.
@@ -502,6 +609,45 @@ Documentation impact, references, traceability, formatting and downstream record
 of completion. This proposal records required evidence; it does not claim that implementation
 checks have already passed.
 
+### Implemented configuration and validation record
+
+This record applies when the implementation is delivered. It does not yet apply to the current
+draft. An implementation record must name the accepted proposal and the actual delivered
+configuration. A result without its tested configuration cannot demonstrate feature correctness.
+
+| Record                  | Information required from the delivered implementation                                                                                                                                       |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Implementation identity | Implementation PRs and commits, accepted proposal revision and `Change: 0040` trace.                                                                                                         |
+| Configuration           | Relevant compiler/runtime versions, target capability profiles, test environment and released artifact identity when applicable.                                                             |
+| Performed work          | Actual responsible actor, completed scope, result and supporting change references.                                                                                                          |
+| Functional validation   | Actual executor, date, command or check, tested configuration, result and retained output/artifact reference.                                                                                |
+| Document validation     | Actual reviewer or executor, date, rule/API/surface impact review, reference/traceability/format checks and retained evidence.                                                               |
+| Deviations              | Any approved scope difference, its disposition and its decision reference. Undelivered work remains pending.                                                                                 |
+| Downstream follow-up    | Separate site/editor change and pin identities, recorded `0040`, validation evidence and pending obligations. This follow-up can remain pending after compiler status becomes `implemented`. |
+
+Functional validation proves pointer behavior, borrow rejection, hover behavior and target
+semantics. Document validation checks that descriptions, declared impacts, references and records
+match the delivered configuration. A document-format check is not a pointer-functionality test.
+A functional gate result is not evidence that downstream guidance is current.
+
+Use the following procedure to prepare the completion record:
+
+1. Identify the delivered implementation commits.
+2. Identify the accepted proposal revision.
+3. Record the tested configuration.
+4. Record each actual work result.
+5. Attach the functional validation evidence.
+6. Attach the document validation evidence.
+7. Record the disposition of each scope deviation.
+8. Record each downstream fulfillment result.
+9. Identify any remaining obligation.
+
+The final implementing PR may set `status: implemented` only when the repository's required work
+is complete. That state does not assert that site or editor pins are complete. Track their later
+fulfillment separately under the existing downstream lifecycle. Record pending downstream work
+explicitly. Do not mark a downstream repository
+complete from a planned pin, an unexecuted check or a compiler-only result.
+
 ## What it owes downstream
 
 The site documents the two meanings of `const`, inferred versus explicitly shared borrowing,
@@ -513,3 +659,8 @@ The editor accepts TypeShade tokens through parser-aware integration and shows p
 pointee access, originating places and borrow scope at identifiers and operators. It must not
 present generated TypeScript errors as source language errors. Both downstream repositories
 update diagnostic guidance after code allocation and record `0040` when vendoring the implementation.
+
+The draft front matter declares expected downstream work. The accepted plan assigns actual
+responsibilities. The implemented record links actual downstream changes and their evidence.
+These stages must remain distinguishable when the compiler and downstream repositories ship
+at different times.
