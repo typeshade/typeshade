@@ -1275,17 +1275,24 @@ export class LoweringScope {
    *  an {@link Binding.irName} when the name was already taken anywhere in this function.
    *  Throws on a repeat within the current frame, TypeScript's own rule; the callers that can
    *  reach that turn it into a TS8023 on the declaration. */
-  define(binding: Binding, reserveModuleNames = false): Binding {
+  define(binding: Binding, reserveModuleNames = false, fixedInputName = false): Binding {
     const top = this.frames[this.frames.length - 1]!;
     if (top.has(binding.name)) {
       throw new Error(`Duplicate binding "${binding.name}" in current scope frame`);
     }
     // A binding may ask for an IR name other than its own: `this` reads as `self_` in the
     // emitted function, since `this` and `self` are reserved words in WGSL (#86).
-    const ir = this.allocIrName(
-      binding.irName ?? binding.name,
-      reserveModuleNames ? (n) => this.namesModuleDecl(n) : undefined,
-    );
+    // A parameter's input name is fixed by its function signature. It may shadow a module
+    // value: param nodes distinguish it from that value's varref/constref. Locals still need
+    // fresh names, including mutable parameter copies and locals that shadow resources.
+    const ir =
+      binding.kind === 'param' || fixedInputName
+        ? (binding.irName ?? binding.name)
+        : this.allocIrName(
+            binding.irName ?? binding.name,
+            reserveModuleNames ? (n) => this.namesModuleDecl(n) : undefined,
+          );
+    this.takenIr.add(ir);
     const stored: Binding = ir === binding.name ? binding : { ...binding, irName: ir };
     top.set(binding.name, stored);
     this.byIr.set(ir, stored);

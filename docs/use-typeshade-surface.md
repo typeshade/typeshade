@@ -2028,16 +2028,18 @@ export function fs(): vec4 {
 }
 ```
 
-emits the first loop over `i` and the second over `i_1`. A local in a nested block that shadows
-a resource binding or a module const is renamed the same way (`dst_1`), so the binding's own
-name stays the binding's and a write through it is still a binding write to every pass.
+emits the first loop over `i` and the second over `i_1`. A local that shadows a resource
+binding or a module value is renamed the same way (`dst_1`), at the top of a function body
+or in a nested block. The module declaration's own name stays its own, so a write through
+it is still a binding write to every pass. Function parameters may shadow module values
+too; the signature retains the authored parameter name, and closures read the nearest
+declaration, as they do in TypeScript (Rule 3.2).
 
 **What the rename does not change.** Diagnostics and the symbol table (hover, rename,
 references) use the name as the author spelled it; a loop diagnostic about the second `i` says
-`i`. What stays refused is what TypeScript refuses or what this surface refused before: a name
-declared twice in one block (TS8023), and a name at the top of a function body, or a parameter,
-that repeats a module-level declaration (TS8023; the parameter case threw out of the compiler
-before, issue #68). The debug stepper reports a local by its IR name for now, so a shadowed `p`
+`i`. A name declared twice in one scope stays refused (TS8023), including a body local
+that repeats a parameter. A module value and a function parameter or body local occupy
+different scopes, so their shared spelling is valid (issue #429). The debug stepper reports a local by its IR name for now, so a shadowed `p`
 steps as `p_1`.
 
 ---

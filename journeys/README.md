@@ -76,4 +76,9 @@ constructor arguments, instance and static method arguments, and explicitly type
 initialization and field assignment. Its JavaScript reference checks signed division,
 unsigned wrapping and selected object indices against the CPU and WebGPU.
 
+`journeys/function-shadowing/` (change 0039, #429) gives function locals and parameters the
+lexical scope inside the module that TypeScript gives them. Its independent JavaScript
+reference holds local and parameter shadows, a mutable parameter captured by a closure,
+and reads of the original module values to the CPU oracle and WebGPU.
+
 A journey belongs with the change that makes it work. A pull request that improves what a user can write adds the journey that shows it, and the gate keeps it working from then on.
