@@ -1,7 +1,7 @@
 ---
 id: '0044'
 title: '`bitcast<vecNu>(v)` and `bitcast<vecN>(v)` read the bits of a vector, one component at a time, as WGSL''s vector overload does'
-status: draft
+status: accepted
 rules: []
 surface:
   - 44
@@ -16,13 +16,13 @@ downstream:
     what: The skill's language reference (plugins/typeshade/skills/typeshade/references/language.md, the bitcast line) names the vector forms; compiler-changes.md records 0044 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — a draft proposal names ids and tests that do not exist yet, and files in downstream repositories -->
+<!-- doc-refs: skip-file — an accepted but unimplemented proposal names ids and tests that do not exist yet, and files in downstream repositories -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0044`, `status: draft`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                                                                     |
+| Identity and status           | Change proposal `0044`, `status: accepted`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                                                                  |
 | Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction, from issue [#478](https://github.com/typeshade/typeshade/issues/478), which typeshade/radiance raised from its design record 0001, step 2.                                                                                                                                         |
 | Applicability / Effectivity   | `"use typeshade"` source; the front end (`src/compiler/ts/lower/expression-call.ts`), the registry (`src/core/intrinsics.ts`), the CPU oracle and its generated code (`src/core/cpu-runtime.ts`, `src/core/cpu-codegen.ts`), the ambient library and its hover text (`src/language-service/ambient.ts`, `src/language-service/docs.ts`), surface §44, the example `packing-bitcast`; the site and the editor. Release version unassigned. |
 | Review baseline               | `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`.                                                                                                                                                                                                                                                                                                                                                                              |
@@ -90,13 +90,14 @@ lists only the two scalar forms, so the change moves that section.
   spelling for each target, as `quantizeToF16Vec2` to `quantizeToF16Vec4` have. The site's
   builtins page reads the registry id by id, so each new id is one new row there.
 
-### Unresolved decisions
+### Decisions at acceptance
 
-- The names of the six ids. `bitcastVecNU32` and `bitcastVecNF32` follow `quantizeToF16VecN`;
-  another spelling is open until acceptance.
-- Whether the determinism report lists the vector ids under the existing `bitcast` prefix of
-  `EXACT_PREFIXES` (`src/core/passes/determinism.ts`). The prefix matches the proposed names,
-  so the inference is that no change there is needed. The implementing test confirms it.
+- The six ids are `bitcastVec2U32`, `bitcastVec3U32`, `bitcastVec4U32`, `bitcastVec2F32`,
+  `bitcastVec3F32` and `bitcastVec4F32`, after `quantizeToF16VecN`. The owner approved this
+  spelling on 2026-10-05.
+- The determinism report lists the vector ids under the existing `bitcast` prefix of
+  `EXACT_PREFIXES` (`src/core/passes/determinism.ts`), with no change there. This is an
+  inference from the prefix match; the implementing test confirms it.
 
 ## What it touches
 
@@ -134,10 +135,10 @@ The change is additive: every program that compiles today compiles to the same t
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires: the owner's decision on the two unresolved
-decisions above, recorded in this file; the actual decision and its pull request reference; and
-the approved revision of this file. No responsibility, milestone, duration or cost is assigned
-by this draft.
+The approval is the owner's go-ahead in conversation on 2026-10-05, Asia/Seoul, which accepted
+the two decisions above as proposed. The merge of [PR #482](https://github.com/typeshade/typeshade/pull/482)
+records it; Git holds the merge commit. The approved revision is this file at that merge.
+Responsibilities, milestones, duration and cost were not assigned.
 
 ### Configuration and validation record
 
