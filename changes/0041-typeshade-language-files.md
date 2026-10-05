@@ -65,7 +65,7 @@ downstream:
 | Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction, from the owner's decisions in that conversation (the extension `.tsh`, the directive kept, sigils as the first grammar row).                                 |
 | Applicability / Effectivity   | Shader source files and their names; `src/compiler/ts/specifier.ts`, `src/compiler/ts/link.ts`, `src/vite.ts`, `src/cli/`, `src/compiler/ts/host-face.ts`, `src/language-service/`, `scripts/changes.ts`, `examples/`, `journeys/`, the documents named below; the site and the editor. Release version unassigned. |
 | Review baseline               | `origin/main` at `c9c0f47aaaa69b90dd7a320fb0be551286479bcc`.                                                                                                                                                                                                                                                        |
-| Review and revision authority | No pull request is assigned yet; this file records it when one is opened. Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                           |
+| Review and revision authority | [PR #447](https://github.com/typeshade/typeshade/pull/447). Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                         |
 
 ## What changes
 
