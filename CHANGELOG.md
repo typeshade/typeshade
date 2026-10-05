@@ -300,6 +300,13 @@ repository was published to npm before **`0.1.0`, the first release**.
   in Bun: a host call pair from about 3.4 µs to 0.5 µs, the two bodies alone from 1.25 µs to
   0.1 µs (medians of ten timings on a loaded machine; the same code by hand is 0.05 µs).
 
+- **The `typescript` peer range takes TypeScript 6** (#259). `peerDependencies` reads
+  `>=5.0.0 <7`, where it read `<6`. CI runs the type check and the whole suite on 6.0.3 as well
+  as on the pinned 5.6.3 and on 5.9.3, so a project on TypeScript 6, the version VS Code ships,
+  installs `typeshade` without a peer conflict. TypeScript 7 stays out: its default export has
+  no `SyntaxKind`, and the package throws on import against it. A wider range breaks nothing
+  (Rule 13.9 counts only a narrower one).
+
 ### Fixed
 
 - **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
