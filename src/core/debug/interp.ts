@@ -309,9 +309,17 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       // is holding a stand-in. Without it a `dpdx` result crossing a call boundary would go
       // unmarked for the whole of the callee's frame.
       const argStubbed: boolean[] = [];
-      for (const a of e.args) {
+      // An `inout` argument that is a field or an element is resolved ONCE, read there and
+      // written back there, as the oracle's `storeBack` does (Rule 8.25).
+      const inoutOf = ctx.decls.get(e.fn)?.params;
+      const places: ({ readonly set: (v: CpuValue) => void } | undefined)[] = [];
+      for (const [i, a] of e.args.entries()) {
         const before = ctx.stubHits;
-        args.push(yield* evalExpr(a, env, ctx));
+        if (inoutOf?.[i]?.mode === 'inout' && (a.op === 'member' || a.op === 'index')) {
+          const place = yield* refOf(a, env, ctx);
+          places[i] = place;
+          args.push(place.get());
+        } else args.push(yield* evalExpr(a, env, ctx));
         argStubbed.push(ctx.stubHits > before);
       }
       // A console call computes nothing (Rule 11.9): its arguments are evaluated above, once, in
@@ -365,7 +373,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
         if (!decl.params.some((p) => p.mode === 'inout')) {
           return yield* callFunction(decl, args, e.span, ctx, argStubbed);
         }
-        // What each `inout` parameter holds as the callee returns goes back into the variable
+        // What each `inout` parameter holds as the callee returns goes back into the place
         // passed there, as the interpreter's `storeBack` does.
         const returned: CpuValue[] = [];
         const value = yield* callFunction(decl, args, e.span, ctx, argStubbed, returned);
@@ -374,7 +382,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
           if (p.mode !== 'inout' || arg === undefined) continue;
           if (arg.op === 'varref' || arg.op === 'param') {
             yield* setLValue(arg, returned[i] as CpuValue, env, ctx);
-          }
+          } else places[i]?.set(returned[i] as CpuValue);
         }
         return value;
       }

@@ -352,6 +352,14 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'LN10', reason: 'the natural logarithm of 10; ECMAScript spells it `Math.LN10`' },
   { name: 'LOG2E', reason: 'the base-2 logarithm of e; ECMAScript spells it `Math.LOG2E`' },
   { name: 'LOG10E', reason: 'the base-10 logarithm of e; ECMAScript spells it `Math.LOG10E`' },
+
+  // A reference parameter (Rule 8.25, proposal 0040). WGSL spells it as a pointer and GLSL as
+  // `inout`; the surface spells it by the model a method that changes its object already has.
+  {
+    name: 'Ref',
+    reason: "a parameter that names the caller's place, WGSL `ptr<AS, T>` and GLSL `inout`",
+  },
+  { name: 'ref', reason: "passes a place to a `Ref<T>` parameter, as WGSL's `&` does" },
 ];
 // LINT.ThenChange(docs/language-design.md:extensions)
 
@@ -560,7 +568,7 @@ function internalLeaks(dts: string, rows: ReadonlyMap<string, unknown>): string[
  *  is `| family | \`name\` | reason |`; no other table in the document is read. */
 function documentedExtensions(markdown: string): { name: string; reason: string }[] {
   const start = markdown.indexOf('**Rule 9.6.**');
-  const stop = markdown.indexOf('Nine families', start);
+  const stop = markdown.indexOf('Ten families', start);
   if (start < 0 || stop < 0) throw new Error('docs/language-design.md has no §9.3 extension table');
   const rows: { name: string; reason: string }[] = [];
   for (const line of markdown.slice(start, stop).split('\n')) {
@@ -663,17 +671,22 @@ describe('the TypeShade allowlist shrinks', () => {
     expect(redundant).toEqual([]);
   });
 
-  it('the rows that are WGSL keywords or reserved words are exactly the three §9.3 records', () => {
-    // `override` and `discard` are WGSL keywords given the same meaning here, and `mod` is a WGSL
-    // reserved word, a token the specification reserves and gives no meaning. The document's §9.3
-    // records the three; a new row that collides with either list is recorded there first, which
-    // is what turning this case red asks for.
+  it('the rows that are WGSL keywords or reserved words are exactly the four §9.3 records', () => {
+    // `override` and `discard` are WGSL keywords given the same meaning here, and `mod` and `ref`
+    // are WGSL reserved words, tokens the specification reserves and gives no meaning. The
+    // document's §9.3 records the four; a new row that collides with either list is recorded
+    // there first, which is what turning this case red asks for.
     const keywords = new Set(wgsl.keywords.names);
     const reserved = new Set(wgsl.reservedWords.names);
     const colliding = TYPESHADE_EXTENSIONS.filter(
       (row) => keywords.has(row.name) || reserved.has(row.name),
     ).map((row) => `${row.name} (${keywords.has(row.name) ? 'keyword' : 'reserved word'})`);
-    expect(colliding).toEqual(['override (keyword)', 'mod (reserved word)', 'discard (keyword)']);
+    expect(colliding).toEqual([
+      'override (keyword)',
+      'mod (reserved word)',
+      'discard (keyword)',
+      'ref (reserved word)',
+    ]);
   });
 
   it('every row is named once and carries a reason', () => {

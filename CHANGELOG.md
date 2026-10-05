@@ -17,6 +17,32 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **Reference parameters: a function that changes its caller's variable** (proposal 0040; design
+  rules 8.25, 8.8, 8.10, 8.17, 7.9, 6.10, 2.1, 9.6 and 12.7; surface §70, with §9, §14, §26,
+  §49 and §52). A parameter declared `Ref<T>` names the caller's place, and the call passes it
+  as `ref(x)`: `swap(ref(x), ref(y))` exchanges two locals, `advance(ref(rays[i]), dt)` moves a
+  storage element in place. The body reads and writes the parameter as a local, a field as
+  `r.origin`, the way a method that changes its object reaches `this`; WGSL receives a pointer,
+  `swap(&x, &y)` with `*a = *b`, compiled once per address space its calls use, GLSL ES 3.00 an
+  `inout` parameter, and the CPU paths copy the value in and store it back. A function of the
+  file or of a namespace takes one; `ref(...)` takes a place a method's object could be.
+  - `TS8073 REFERENCE` refuses a value where a reference is taken, `ref(...)` of something that
+    is no writable place (a value parameter, a `const` that may share its value, a read-only
+    binding, a literal, a vector's component, a matrix's column) or written anywhere but as the
+    argument of a `Ref<T>` parameter, `Ref<T>` on anything but such a parameter, and a local
+    function that captures one. `TS8074 REFERENCE_ALIAS` refuses two references to one variable
+    in one call when the callee writes either, and a reference to a module variable the callee
+    also touches by name: WGSL's alias analysis, measured on Tint.
+  - The CPU oracle, its generated code and the debugger store an `inout` argument that is a field
+    or an element back into it, resolved once at the call. They stored back a whole variable
+    only, which held for a method's object, written in place, and lost `addOne(ref(xs[1]))`.
+  - `TS8018` on a write through a value parameter names the second remedy:
+    `take "r: Ref<Ray>" and pass ref(...)`.
+  - An export with a `Ref<T>` parameter is `never` in the host view, with the reason: a host call
+    passes values.
+  - The example `reference-parameters` draws with every shape: two locals, a struct, and array
+    elements picked by a loop index.
+
 - **A texture read back as bytes or as numbers, in the order it was submitted** (proposal 0028,
   item 5; design rule 11.11; surface §69; #407). `texture.read()` copies every uncompressed
   colour format of WebGPU and `depth32float` as bytes, rows tightly packed, where it copied

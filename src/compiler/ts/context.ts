@@ -628,6 +628,9 @@ export interface Binding {
    *  `byRef`, which makes the parameter a reference to the variable, the way a closure writes
    *  the variable itself, the first time something writes it. */
   readonly capture?: { readonly of: Binding; readonly byRef: () => void };
+  /** For a `Ref<T>` parameter (Rule 8.25): the binding names the caller's place, which the body
+   *  reads and writes as a local, and which no local function may capture. */
+  readonly reference?: boolean;
 }
 
 /** The binding whose rules a write to `b` keeps: the variable's own, for a local function's

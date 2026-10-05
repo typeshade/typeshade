@@ -221,9 +221,15 @@ function tempVar(S: FnCtx): string {
 }
 
 /** A call's source, followed by storing what each of the callee's `inout` parameters holds as
- *  it returned into the variable passed there, as the interpreter's `storeBack` does. Only a
- *  variable: a field or an element reaches a struct the callee wrote in place. */
-function storeBackJs(call: Expr & { op: 'call' }, callSrc: string, S: FnCtx): string {
+ *  it returned into the place passed there, as the interpreter's `storeBack` does: a variable,
+ *  or a field or an element through the temporaries `places` names, which the arguments
+ *  resolved once (Rule 8.25). */
+function storeBackJs(
+  call: Expr & { op: 'call' },
+  callSrc: string,
+  S: FnCtx,
+  places: readonly (string | undefined)[] = [],
+): string {
   const params = S.mod.params.get(call.fn);
   if (params === undefined || !params.some((p) => p.mode === 'inout')) return callSrc;
   const stores: string[] = [];
@@ -232,6 +238,8 @@ function storeBackJs(call: Expr & { op: 'call' }, callSrc: string, S: FnCtx): st
     if (p.mode !== 'inout' || arg === undefined) return;
     if (arg.op === 'varref' || arg.op === 'param') {
       stores.push(emitAssignExpr(arg, `$.inout.values[${i}]`, S));
+    } else if (places[i] !== undefined) {
+      stores.push(`${places[i]} = $.inout.values[${i}]`);
     }
   });
   if (stores.length === 0) return callSrc;
@@ -1183,7 +1191,26 @@ function emitCall(e: Call, S: FnCtx): Js {
     const own = builtinJs(e, S);
     if (own !== undefined) return own;
   }
-  const args = e.args.map((a) => emitExpr(a, S));
+  // An `inout` argument that is a field or an element is resolved ONCE into two temporaries,
+  // its base and its key: the callee is handed what is there, and what the callee leaves goes
+  // back to the same place, as the interpreter's `storeBack` does (Rule 8.25).
+  const params = S.mod.params.get(e.fn);
+  const places: (string | undefined)[] = [];
+  const args = e.args.map((a, i) => {
+    if (params?.[i]?.mode !== 'inout' || (a.op !== 'member' && a.op !== 'index')) {
+      return emitExpr(a, S);
+    }
+    const base = tempVar(S);
+    const key = tempVar(S);
+    const keyJs =
+      a.op === 'index'
+        ? emitExpr(a.idx, S)
+        : isArrayValued(a.base.type)
+          ? String(FIELD_IDX[a.field])
+          : q(a.field);
+    places[i] = `${base}[${key}]`;
+    return `(${base} = ${emitExpr(a.base, S)}, ${key} = ${keyJs}, ${base}[${key}])`;
+  });
   switch (kind) {
     case 'console': {
       const method = e.fn.slice('console.'.length);
@@ -1219,7 +1246,7 @@ function emitCall(e: Call, S: FnCtx): Js {
     case 'stub':
       return { js: `$.gpuStub(${[q(e.fn), ...args].join(', ')})` };
     default:
-      return { js: storeBackJs(e, `$.F[${q(e.fn)}](${args.join(', ')})`, S) };
+      return { js: storeBackJs(e, `$.F[${q(e.fn)}](${args.join(', ')})`, S, places) };
   }
 }
 

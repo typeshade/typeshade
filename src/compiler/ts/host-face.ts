@@ -174,6 +174,8 @@ const REASON = {
     'it is generic, and a generic function exists only as the instances the module uses; no proposal adds it yet',
   takesFunction:
     'it takes a function, and such a function exists only as the copies the module uses; no proposal adds it yet',
+  reference: (p: string) =>
+    `parameter "${p}" is a reference, Ref<T>, which names a place of a shader's caller, and a host call passes values (Rule 8.21); call it from a function of the module, since no proposal adds a host reference yet`,
   binding:
     'it reaches a resource binding, which a helper call passes none of; call the entry that uses it (Rule 8.24)',
   workgroup:
@@ -1120,6 +1122,9 @@ function faceOf(ref: ExportRef, c: FaceCtx): HostExport {
     if (f.kernel === true) return kernelFace(name, f, c);
     const params: { name: string; type: HostType }[] = [];
     for (const p of f.params) {
+      // A host call passes values (Rule 8.21), and a reference names a place of the caller's,
+      // which a host value is not (Rule 8.25).
+      if (p.mode === 'inout') return never(name, REASON.reference(p.name));
       const t = hostTypeOf(p.type, c.structs);
       if ('none' in t) return never(name, `parameter "${p.name}": ${t.none}`);
       if (t.k === 'void') return never(name, `parameter "${p.name}" is void`);

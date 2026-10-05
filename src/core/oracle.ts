@@ -246,7 +246,19 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       // the write-back go through one resolved reference (roadmap 0.2 item 4). A module that
       // declares its own `atomicAdd` carries `declRef` and takes the declared-function path.
       if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return evalAtomic(e, env, ctx);
-      const args = e.args.map((a) => evalExpr(a, env, ctx));
+      // An `inout` argument that is a field or an element is resolved ONCE, as an atomic's
+      // location is: the callee reads it there, and what the callee leaves in it goes back to
+      // the same place, whatever the call did to an index on the way (Rule 8.25).
+      const params = ctx.params.get(e.fn);
+      const places: (Place | undefined)[] = [];
+      const args = e.args.map((a, i) => {
+        if (params?.[i]?.mode === 'inout' && (a.op === 'member' || a.op === 'index')) {
+          const place = refOf(a, env, ctx);
+          places[i] = place;
+          return place.get();
+        }
+        return evalExpr(a, env, ctx);
+      });
       if (e.declRef === undefined && e.fn.startsWith('console.')) {
         const method = e.fn.slice('console.'.length);
         if (ctx.consoleSink)
@@ -292,7 +304,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       // still takes the builtin, so nothing that resolved to one moves.
       if (e.declRef !== undefined) {
         const declared = ctx.fns[e.fn];
-        if (declared) return storeBack(e, declared(...args), env, ctx);
+        if (declared) return storeBack(e, declared(...args), env, ctx, places);
       }
       // An integer result wraps into its type, which a builtin handed plain numbers cannot know.
       const b = BUILTINS[e.fn];
@@ -307,7 +319,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         return stub(...args);
       }
       const user = ctx.fns[e.fn];
-      if (user) return storeBack(e, user(...args), env, ctx);
+      if (user) return storeBack(e, user(...args), env, ctx, places);
       throw new Error(`typeshade/cpu: unknown fn ${e.fn}`);
     }
     case 'member': {
@@ -387,11 +399,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
  *  index expression that may itself carry an atomic call twice. A bare binding name writes
  *  the host's binding table, so a counter in `storage<atomic<u32>>` is read back by the host
  *  the way an array element is. */
-function refOf(
-  target: Expr,
-  env: Map<string, CpuValue>,
-  ctx: Ctx,
-): { readonly get: () => CpuValue; readonly set: (v: CpuValue) => void } {
+function refOf(target: Expr, env: Map<string, CpuValue>, ctx: Ctx): Place {
   if (target.op === 'varref' || target.op === 'param') {
     const name = target.name;
     if (env.has(name))
@@ -457,15 +465,19 @@ function evalAtomic(
   return step.result;
 }
 
+/** A read-and-write handle on a place, resolved once ({@link refOf}). */
+type Place = { readonly get: () => CpuValue; readonly set: (v: CpuValue) => void };
+
 /** A call's value, having stored what each of the callee's `inout` parameters holds as it
- *  returned into the variable passed there (`inoutReturn`, cpu-runtime.ts). Only a variable:
- *  an `inout` argument that is a field or an element reaches a struct, which the callee wrote
- *  in place, and evaluating its index again could run what the call already ran. */
+ *  returned into the place passed there (`inoutReturn`, cpu-runtime.ts): a variable, or a field
+ *  or an element through the handle `places` resolved before the call, so no index is
+ *  evaluated again (Rule 8.25). */
 function storeBack(
   call: Expr & { op: 'call' },
   value: CpuValue,
   env: Map<string, CpuValue>,
   ctx: Ctx,
+  places: readonly (Place | undefined)[] = [],
 ): CpuValue {
   const params = ctx.params.get(call.fn);
   if (params === undefined || !params.some((p) => p.mode === 'inout')) return value;
@@ -474,6 +486,7 @@ function storeBack(
     const arg = call.args[i];
     if (p.mode !== 'inout' || arg === undefined) return;
     if (arg.op === 'varref' || arg.op === 'param') setLValue(arg, out[i] as CpuValue, env, ctx);
+    else places[i]?.set(out[i] as CpuValue);
   });
   return value;
 }

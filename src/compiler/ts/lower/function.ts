@@ -35,7 +35,7 @@ import {
 } from '../context.js';
 import type { CollectedStruct } from '../structs.js';
 import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
-import { mapTsTypeToShaderType } from '../type-map.js';
+import { mapTsTypeToShaderType, referencedType } from '../type-map.js';
 import { isMixinDeclaration } from '../mixins.js';
 import {
   currentTypeArguments,
@@ -46,6 +46,7 @@ import {
 } from '../generics.js';
 import { refuseAtomicDeclaration } from './atomics.js';
 import { refuseRuntimeArraySignature } from './runtime-array.js';
+import { checkReferenceAliases } from './references.js';
 import { kernelSourceNames } from '../kernel-loops.js';
 import {
   captureArguments,
@@ -1664,6 +1665,21 @@ export function lowerSourceFunctions(
     diagnostics,
   );
   checkFragmentOnlyOps(funcs, nodeByName, sourceFile, diagnostics);
+  // Two references to one place in one call, read off the lowered calls once every callee says
+  // what it reads and writes (Rule 8.25).
+  const shownAs = new Map([
+    ...writtenAs,
+    ...classFns.map((cf) => [cf.stub.name, cf.shown] as const),
+  ]);
+  checkReferenceAliases(
+    funcs,
+    bindings,
+    vars,
+    (fn) => shownAs.get(fn) ?? fn,
+    (fn) => nodeByName.get(fn),
+    sourceFile,
+    diagnostics,
+  );
   return funcs;
 }
 
@@ -1971,6 +1987,10 @@ export function parseParams(
     /** An exported function that is not an entry, whose array parameter with no size makes it
      *  a kernel function (Rule 8.22) rather than a refusal. */
     readonly mayBeKernel?: boolean;
+    /** A function declared at the top of the file or of a namespace, the one kind that takes a
+     *  `Ref<T>` parameter (Rule 8.25). Every other caller leaves it unset, and a reference
+     *  parameter there is refused. */
+    readonly references?: boolean;
   } = {},
 ): FuncDecl['params'][number][] | undefined {
   const params: FuncDecl['params'][number][] = [];
@@ -2073,14 +2093,40 @@ export function parseParams(
       );
       return undefined;
     }
-    const pType = mapTsTypeToShaderType(p.type, sourceFile, diagnostics);
-    if (refuseAtomicDeclaration(pType, p.type, sourceFile, diagnostics, 'a parameter'))
+    // `p: Ref<T>` names a place of the caller's, which the IR spells as a parameter the callee
+    // writes through, as a method that changes its object takes it (Rule 8.25).
+    const referenced = referencedType(p.type, sourceFile);
+    if (referenced !== undefined) {
+      const refused = refuseReferenceParameter(p, referenced, stage, opts);
+      if (refused !== undefined) {
+        pushDiag(diagnostics, sourceFile, p.type, refused, TS_CODES.REFERENCE);
+        return undefined;
+      }
+    }
+    const written = referenced !== undefined && referenced !== 'arity' ? referenced : p.type;
+    const pType = mapTsTypeToShaderType(written, sourceFile, diagnostics);
+    if (refuseAtomicDeclaration(pType, written, sourceFile, diagnostics, 'a parameter'))
       return undefined;
     if (!pType) return undefined;
+    if (referenced !== undefined && (pType.kind === 'texture' || pType.kind === 'sampler')) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        p.type,
+        `"${p.name.text}" takes a reference to a ${pType.kind}, which is a handle to a resource ` +
+          `and not a place a function writes. Take it by value: "${p.name.text}: ` +
+          `${written.getText(sourceFile)}".`,
+        TS_CODES.REFERENCE,
+      );
+      return undefined;
+    }
     // An array with no size is a kernel function's parameter, the caller's storage (Rule 8.23),
     // and nothing else's (Rule 12.6). A struct that holds one is not.
     const kernelArray =
-      opts.mayBeKernel === true && pType.kind === 'array' && pType.size === undefined;
+      referenced === undefined &&
+      opts.mayBeKernel === true &&
+      pType.kind === 'array' &&
+      pType.size === undefined;
     if (
       !kernelArray &&
       refuseRuntimeArraySignature(
@@ -2198,11 +2244,51 @@ export function parseParams(
       ...(interpolate !== undefined
         ? { interpolate, attr: `@location(${String(location)}) ${interpolateAttr!}` }
         : {}),
-      // The caller's storage, passed by reference (Rule 8.23): no copy is made on the way in.
-      ...(kernelArray ? { mode: 'inout' as const } : {}),
+      // The caller's storage, passed by reference (Rule 8.23): no copy is made on the way in. A
+      // `Ref<T>` parameter is the caller's place the same way (Rule 8.25).
+      ...(kernelArray || referenced !== undefined ? { mode: 'inout' as const } : {}),
     });
   }
   return params;
+}
+
+/** Why `p`, written `Ref<...>`, is no reference parameter here, or `undefined` when it is one
+ *  (Rule 8.25): a function of the file takes one, with exactly one type argument and no default;
+ *  an entry, a method, a constructor, an accessor and a local function take values. */
+function refuseReferenceParameter(
+  p: ts.ParameterDeclaration,
+  referenced: ts.TypeNode | 'arity',
+  stage: FuncDecl['stage'] | undefined,
+  opts: { readonly owner?: string; readonly forbidSelf?: boolean; readonly references?: boolean },
+): string | undefined {
+  const name = (p.name as ts.Identifier).text;
+  if (referenced === 'arity') {
+    return `Ref takes one type argument, the type of the place "${name}" names: "${name}: Ref<f32>".`;
+  }
+  if (opts.references !== true) {
+    // A class's members pass `forbidSelf`; a local function names itself as its owner too.
+    const site =
+      stage !== undefined
+        ? 'an entry, whose parameters the pipeline supplies,'
+        : opts.owner !== undefined && opts.forbidSelf !== undefined
+          ? `"${opts.owner}", a member of a class,`
+          : opts.owner !== undefined
+            ? `"${opts.owner}", a local function,`
+            : 'a generic function, whose instance is made from its arguments,';
+    return (
+      `"${name}" takes a reference, and ${site} takes its parameters by value. A reference ` +
+      `parameter belongs to a function declared at the top of the file or of a namespace ` +
+      `(Rule 8.25): move the code that changes the caller's value into one, or take the value ` +
+      `and return the result.`
+    );
+  }
+  if (p.initializer !== undefined) {
+    return (
+      `"${name}" takes a reference, which names the place a call hands over; a default is a ` +
+      `value and names no place. Remove the default, and pass ref(x) at every call.`
+    );
+  }
+  return undefined;
 }
 
 /** Refuse a default that reads one of the function's own parameters, or `this`, and say why
@@ -2371,7 +2457,14 @@ export function parseSignature(
     diagnostics,
     structs,
     stageInfo.stage,
-    { fnName: name, mayBeKernel: stageInfo.stage === undefined && isExported(node) },
+    {
+      fnName: name,
+      mayBeKernel: stageInfo.stage === undefined && isExported(node),
+      // A function of the file or of a namespace takes a reference (Rule 8.25); an entry's
+      // parameters come from the pipeline, and a generic function's instance is made from
+      // argument values, which a reference is not.
+      references: stageInfo.stage === undefined && node.typeParameters === undefined,
+    },
   );
   if (!params) return undefined;
   // A function that writes no return type says it in its body (Rule 8.19); an entry's is its
@@ -2947,6 +3040,19 @@ export function fillFunctionBody(
     parameterNames.add(p.name);
     // A kernel function's array is the caller's storage, read and written in place (Rule 8.23).
     const storage = stub.kernel === true && p.type.kind === 'array' && p.type.size === undefined;
+    // A `Ref<T>` parameter names the caller's place (Rule 8.25): bound as the object of a
+    // method that changes it is, a local the body writes under the parameter's own IR name,
+    // which the targets spell as the pointer or the `inout` parameter. A whole write lands on
+    // the caller's place, so it takes no local copy (Rule 8.8).
+    if (p.mode === 'inout' && !storage) {
+      const place = scope.define(
+        { kind: 'local', name: p.name, type: p.type, mutable: true, reference: true },
+        false,
+        true,
+      );
+      scope.bindDeclaration(declared, place);
+      return;
+    }
     const copy =
       rebound.has(declared) && !storage && p.type.kind !== 'texture' && p.type.kind !== 'sampler';
     const stored = scope.define({

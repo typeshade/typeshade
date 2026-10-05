@@ -1681,6 +1681,51 @@ with the directive, a package no `node_modules` holds, a subpath its `exports` d
 name the file does not export, a default import. The surface reference has every form an import
 takes, the names the module emits and each refusal: `docs/use-typeshade-surface.md` §68.
 
+### A function that changes its caller's variable
+
+A parameter is a copy of the value the call passes, so a write to it leaves the caller alone. To
+change the caller's variable, declare the parameter `Ref<T>` and pass the variable with
+`ref(x)`. Inside the function the parameter is the caller's variable: read it, assign to it, and
+reach its fields as you would reach `this` in a method.
+
+```ts
+"use typeshade";
+
+class Ray {
+  origin: vec3;
+  dir: vec3;
+}
+
+function swap(a: Ref<f32>, b: Ref<f32>): void {
+  const t = a;
+  a = b;
+  b = t;
+}
+
+function advance(r: Ref<Ray>, t: f32): void {
+  r.origin = r.origin + r.dir * t;
+}
+
+export function demo(): f32 {
+  let x: f32 = 1.;
+  let y: f32 = 2.;
+  swap(ref(x), ref(y)); // x is 2. and y is 1.
+  let r = new Ray();
+  r.dir = vec3(1., 0., 0.);
+  advance(ref(r), 3.); // r.origin.x is 3.
+  return x + r.origin.x;
+}
+```
+
+WGSL receives a pointer, `swap(&x, &y)` with `*a = *b` in the body, and GLSL ES 3.00 an `inout`
+parameter; the CPU oracle copies the value in and stores it back. `ref(...)` takes a `let`, a
+module variable, an element of a `read_write` storage binding, or a field or an element of one;
+a value, a literal and a vector's component are refused with `TS8073`. One call may not take two
+references to one variable that the function writes, `swap(ref(x), ref(x))`, which is `TS8074`.
+A function of the file or of a namespace takes a reference; a method, an entry and a local
+function take values. The surface reference has every rule and refusal:
+`docs/use-typeshade-surface.md` §70.
+
 ## Diagnostics
 
 After this page you can read a coded error, branch your own code on the code it carries,

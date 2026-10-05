@@ -414,7 +414,8 @@ function fileDeclaresType(node: ts.Node, name: string, sourceFile: ts.SourceFile
 }
 
 /** The WGSL types written with type arguments, which the mapper reads in {@link mapGeneric}: a
- *  bare one is a mistake of arity, not a name nothing declares. */
+ *  bare one is a mistake of arity, not a name nothing declares. `Ref` is TypeShade's (Rule 9.6),
+ *  read by {@link referencedType} on a parameter and refused by the mapper anywhere else. */
 const GENERIC_TYPE_NAMES: ReadonlySet<string> = new Set([
   'array',
   'atomic',
@@ -423,7 +424,31 @@ const GENERIC_TYPE_NAMES: ReadonlySet<string> = new Set([
   'storage',
   'workgroup',
   'override',
+  'Ref',
 ]);
+
+/** The library's reference parameter type, `Ref<T>` (Rule 8.25, surface §70). */
+export const REFERENCE_TYPE = 'Ref';
+
+/** What `Ref<T>` written anywhere but on a parameter of a function of the file is told. */
+export const REFERENCE_ELSEWHERE =
+  'Ref<T> is the type of a reference parameter, written on a parameter of a function declared ' +
+  'at the top of the file or of a namespace: a reference names the place a call hands over, ' +
+  'for that call, so nothing returns, stores or keeps one (Rule 8.25). Take or hold the value ' +
+  'itself here.';
+
+/** The type a reference parameter names a place of, when `node` is the library's `Ref<T>`:
+ *  `f32` for `Ref<f32>`, `'arity'` for a `Ref` written with no type argument or with more than
+ *  one, and `undefined` for any other type, the file's own `Ref` among them (Rule 2.1). */
+export function referencedType(
+  node: ts.TypeNode,
+  sourceFile: ts.SourceFile,
+): ts.TypeNode | 'arity' | undefined {
+  if (!ts.isTypeReferenceNode(node) || typeNameOf(node) !== REFERENCE_TYPE) return undefined;
+  if (fileDeclaresType(node, REFERENCE_TYPE, sourceFile)) return undefined;
+  const args = node.typeArguments ?? [];
+  return args.length === 1 ? args[0] : 'arity';
+}
 
 /** Whether the ambient library declares a type of `name`: a WGSL type, bare or generic, or one of
  *  {@link LIBRARY_TYPE_NAMES}. `ambient-parity.test.ts` holds it to the library. */
@@ -675,6 +700,12 @@ function mapType(
     // A generic interface or type alias was refused where it is declared, with the class that
     // says it (structs.ts), so `G<f32>` names no type and says nothing more (Rule 12.4).
     if (name !== undefined && REFUSED_TYPES.get(sourceFile)?.has(name) === true) {
+      return undefined;
+    }
+    // `Ref<T>` is a parameter's, and `parseParams` reads it there before any type is mapped
+    // (Rule 8.25). Reaching the mapper means it was written anywhere else.
+    if (name === REFERENCE_TYPE && !fileDeclaresType(typeNode, name, sourceFile)) {
+      pushDiag(diagnostics, sourceFile, typeNode, REFERENCE_ELSEWHERE, TS_CODES.REFERENCE);
       return undefined;
     }
     if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {

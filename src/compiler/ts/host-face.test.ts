@@ -96,6 +96,8 @@ export function derivative(x: f32): f32 { return dpdx(x); }
 export function sampled(uv: vec2): vec4 { return textureSample(albedo, samp, uv); }
 export function fromTile(i: u32): u32 { return tile[i]; }
 export function usesIdent(x: f32): f32 { return ident(x) + apply(helper, x); }
+export function bump(v: Ref<f32>): void { v += 1.; }
+export function usesBump(x: f32): f32 { let y = x; bump(ref(y)); return y; }
 
 @fragment
 export function fs(@location(0) uv: vec2): vec4 { return vec4(helper(uv.x), 0., 0., 1.); }
@@ -105,6 +107,9 @@ export function fs(@location(0) uv: vec2): vec4 { return vec4(helper(uv.x), 0., 
     expect(k.usesIdent).toBe('function');
     expect(k.ident).toMatch(/^it is generic/);
     expect(k.apply).toMatch(/^it takes a function/);
+    // Verifies: Rule 8.25. A host call passes values, and a reference names a shader's place.
+    expect(k.bump).toMatch(/^parameter "v" is a reference, Ref<T>/);
+    expect(k.usesBump).toBe('function');
     expect(k.readsBinding).toMatch(/^it reaches a resource binding/);
     expect(k.reachesBinding).toMatch(/^it reaches a resource binding/);
     expect(k.derivative).toMatch(/^it reaches dpdx, which only a GPU computes/);
