@@ -4197,7 +4197,7 @@ float litFar = textureGrad(cascades, vec4(uv, float(band), depthHere), vec2(0.0)
 emits both halves and needs no capability. What differs is where the comparison lives. WGSL
 keeps the texture and the sampler as **two bindings** and puts it on the sampler. GLSL ES 3.00
 **fuses** them into one `sampler2DShadow` and folds the reference **into the coordinate** —
-`vec3(uv, ref)`, and `vec4(uv, layer, ref)` on the array, where the layer folds in too — the
+`vec3(uv, depth_ref)`, and `vec4(uv, layer, depth_ref)` on the array, where the layer folds in too — the
 same fold the array layer already takes. A shadow sampler has no default precision in GLSL
 (§4.5.4 gives one to `sampler2D` and `samplerCube` only), so the header declares one; without
 it a real driver refuses the shader.
