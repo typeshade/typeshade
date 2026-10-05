@@ -141,6 +141,16 @@ argument put `TS8075` on exactly the reads where TypeScript 5.9 puts TS2454; the
 editor say one sentence; an `@out` argument assigns; GLSL starts a local, a struct and a vector
 at zero. The full suite and the gates are in the pull request's description.
 
+**Correction after the implementation.** The site's deploy of the pin that carries this change
+timed out twice on a photograph of `capsule-corp-namek-class` (typeshade.github.io #145 and the
+deploy of its merge). The zero initializer also landed on the slots the compiler hoists for a
+select and a sequence (`_sel`, `_seq`), which an `if`/`else` writes on every path at once, and in
+that example one sits in the ray march's inner loop. GLSL ES 3.00 now leaves bare a local that
+the next statement writes on every path before any read (`writtenFirst` in
+`src/core/backends/glsl.ts`): its zero is never read, so every target still starts every read
+local at zero. The goldens of `capsule-corp-namek-class`, `pick-composite` and `rng-method` are
+again what they were before this change.
+
 **Deviation.** Open, with a disposition proposed. The walk reads no types, so a `switch` with no
 `default` whose cases cover every value of a literal type is stricter than TypeScript, which
 knows such a list is whole (`definite.ts` records it). A shader's `switch` is over an `i32` or a

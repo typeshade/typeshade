@@ -52,7 +52,7 @@ describe('a conditional on a struct becomes a slot and an if, on both targets', 
     expect(r.diagnostics).toEqual([]);
     const g = r.glsl!.fragment;
     expect(g).toContain(
-      '  Ray _sel0 = Ray(vec3(0.0), vec3(0.0));\n  if ((p.x > 0.5)) {\n    _sel0 = r1;\n  } else {\n    _sel0 = r2;\n  }',
+      '  Ray _sel0;\n  if ((p.x > 0.5)) {\n    _sel0 = r1;\n  } else {\n    _sel0 = r2;\n  }',
     );
     expect(g).not.toContain('? r1 :');
   });
@@ -83,7 +83,7 @@ export function fs(@builtin("position") p: vec4): vec4 {
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('  var _sel0: array<f32, 2>;');
     expect(r.wgsl).toContain('    _sel0 = xs;');
-    expect(r.glsl!.fragment).toContain('  float[2] _sel0 = float[2](0.0, 0.0);');
+    expect(r.glsl!.fragment).toContain('  float[2] _sel0;');
     expect(r.glsl!.fragment).not.toContain('? xs :');
   });
 });

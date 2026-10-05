@@ -16,7 +16,7 @@ void main() {
   vec2 uv = fract((frag.xy * 0.008));
   Palette warm = Palette(vec3(0.35, 0.1, 0.05), vec3(1.0, 0.75, 0.35));
   Palette cool = Palette(vec3(0.04, 0.1, 0.3), vec3(0.5, 0.85, 1.0));
-  Palette _sel0 = Palette(vec3(0.0), vec3(0.0));
+  Palette _sel0;
   if ((uv.x > 0.5)) {
     _sel0 = warm;
   } else {
@@ -25,7 +25,7 @@ void main() {
   Palette shade = _sel0;
   float[3] rising = float[3](0.15, 0.5, 0.9);
   float[3] falling = float[3](0.9, 0.5, 0.15);
-  float[3] _sel1 = float[3](0.0, 0.0, 0.0);
+  float[3] _sel1;
   if ((uv.y > 0.5)) {
     _sel1 = rising;
   } else {
