@@ -111,7 +111,8 @@ function dataTexture(
 }
 
 /** An array argument's lanes as its data texture holds them: a typed array of one scalar as it
- *  is, anything else packed in its storage layout and read as `f32` lanes. */
+ *  is, anything else packed in its storage layout and read as lanes of its texture's type, `u32`
+ *  or `i32` for an integer vector (#484) and `f32` for the rest. */
 function lanesOf(
   name: string,
   layout: Layout & { k: 'a' },
@@ -128,7 +129,10 @@ function lanesOf(
     layout,
     s: name,
   };
-  return new Float32Array(packed(b, value));
+  const bytes = packed(b, value);
+  if (layout.e.k === 'v' && layout.e.t === 'u32') return new Uint32Array(bytes);
+  if (layout.e.k === 'v' && layout.e.t === 'i32') return new Int32Array(bytes);
+  return new Float32Array(bytes);
 }
 
 /** Run one loop over `n` iterations from `start` on WebGL2, writing its array in place. */

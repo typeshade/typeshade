@@ -1055,8 +1055,9 @@ type MutableView<V> = {
  *  path; declare the kernel `portable: true`.
  *
  *  The host has one obligation the DSL cannot check for it: give that data texture the
- *  internal format matching the element. `array<u32>` becomes a `usampler2D` and wants
- *  R32UI, `array<i32>` an `isampler2D` and wants R32I, and the float case wants R32F. A
+ *  internal format matching the element. `array<u32>` and `array<vecN<u32>>` become a
+ *  `usampler2D` and want R32UI, `array<i32>` and `array<vecN<i32>>` an `isampler2D` and want
+ *  R32I, and the float case wants R32F. A vector element takes its std430 lanes. A
  *  texture whose format disagrees with its sampler type is merely incomplete, which raises
  *  nothing: `texelFetch` on it returns zero. Read the element off `reflect(m)`, whose
  *  per-binding `textureElem` reports it.

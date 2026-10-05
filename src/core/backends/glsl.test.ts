@@ -769,6 +769,75 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     expect(fs).not.toContain('uniform sampler2D sign_data;');
   });
 
+  // #484 — an integer VECTOR array reads its std430 lanes from the same typed texture its scalar
+  // array uses. `array<vec4u>` failed closed here before, and an R32F route would lose a small
+  // integer for the reason above, so these pin the sampler, the stride and the absence of a bitcast.
+  const intVecStorageMod = (name: string, elem: 'u32' | 'i32', n: 2 | 3 | 4): ModuleDecl => {
+    const vecT = { kind: 'vec', n, elem } as ShaderType;
+    const scalarT = elem === 'u32' ? u32T : i32T;
+    const arrT = { kind: 'array', elem: vecT } as ShaderType;
+    const read: Expr = {
+      op: 'member',
+      type: scalarT,
+      field: 'y',
+      base: {
+        op: 'index',
+        type: vecT,
+        base: { op: 'varref', type: arrT, name },
+        idx: { op: 'lit', type: u32T, value: 3 },
+      },
+    };
+    return {
+      consts: [],
+      structs: [FsOut],
+      bindings: [storageOf(name, arrT)],
+      funcs: [
+        {
+          name: 'fs',
+          attrs: ['@fragment'],
+          params: [],
+          ret: structT('FsOut'),
+          body: [
+            {
+              s: 'return',
+              expr: {
+                op: 'construct',
+                type: structT('FsOut'),
+                args: [
+                  v4({ op: 'call', type: f32T, fn: 'f32', args: [read] }, lit(0), lit(0), lit(1)),
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+  };
+
+  it.each([
+    ['u32', 2, 'uvec2', 'usampler2D', '_sfetchU', 2],
+    ['u32', 3, 'uvec3', 'usampler2D', '_sfetchU', 4],
+    ['u32', 4, 'uvec4', 'usampler2D', '_sfetchU', 4],
+    ['i32', 4, 'ivec4', 'isampler2D', '_sfetchI', 4],
+  ] as const)(
+    'a top-level array<vec%s<%s>> reads its std430 lanes from a typed data texture (#484)',
+    (elem, n, ctor, sampler, helper, stride) => {
+      const fs = emitGlslModule(intVecStorageMod('words', elem, n), 'fragment');
+      expect(fs).toContain(`uniform ${sampler} words;`);
+      expect(fs).toContain(`precision highp ${sampler};`);
+      // element 3 is the n consecutive lanes from 3 * stride (std430: vec2 is 2 lanes, vec3 and
+      // vec4 are 4), each through the typed helper; the constant index folds the lane numbers
+      const lanes = Array.from(
+        { length: n },
+        (_, k) => `${helper}(words, int(${3 * stride + k}u))`,
+      );
+      expect(fs).toContain(`${ctor}(${lanes.join(', ')})`);
+      expect(fs).not.toContain('uniform sampler2D words;');
+      expect(fs).not.toContain('floatBitsToUint');
+      expect(fs).not.toContain('intBitsToFloat');
+    },
+  );
+
   it('an UNSUPPORTED element still fails closed, and the message now lists the integer shapes', () => {
     // The residual did not disappear — it shrank. A shape outside the supported set
     // must still throw by NAME, and the listing a caller is pointed at has to mention
@@ -778,6 +847,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     const m = residualMod(storageOf('flag_data', arrBool));
     expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError);
     expect(() => emitGlslModule(m, 'fragment')).toThrow(/'flag_data'[\s\S]*array<u32>, array<i32>/);
+    expect(() => emitGlslModule(m, 'fragment')).toThrow(/array<vecN<u32>>, array<vecN<i32>>/);
   });
 
   it('an i32 struct field still fails closed, naming the field and its struct', () => {
