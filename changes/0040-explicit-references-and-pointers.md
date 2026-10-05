@@ -387,8 +387,9 @@ The third amendment's approval is the merge of
 `c00f6afb6784c48ff437db1690c7542c8f7a2f9c`), which the owner directed in conversation ("머지허가").
 
 The fourth amendment's approval is the merge of
-[PR #474](https://github.com/typeshade/typeshade/pull/474), which waits on the owner's go-ahead in
-conversation. The owner asked for it on 2026-10-05 ("추천대로").
+[PR #474](https://github.com/typeshade/typeshade/pull/474) on 2026-10-05 (merge commit
+`0fff86c36eb60d785d2542854bd9a827c7964277`). The owner asked for it ("추천대로") and directed the
+merge in conversation ("머지").
 
 ### Configuration and validation record
 

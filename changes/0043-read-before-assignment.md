@@ -127,8 +127,9 @@ conversation. Responsibilities, milestones, duration and cost were not assigned.
 
 ### Configuration and validation record
 
-**Implementation.** A pull request with `Change: 0043`, together with change 0040's third
-amendment, on the base `c00f6afb6784c48ff437db1690c7542c8f7a2f9c`, by the repository's coding agent
+**Implementation.** [PR #473](https://github.com/typeshade/typeshade/pull/473), with
+`Change: 0043` together with change 0040's third amendment, merged as
+`46f6b844b8e5ca68a17b4329021ce010f0ff25b5`, on the base `c00f6afb6784c48ff437db1690c7542c8f7a2f9c`, by the repository's coding agent
 at the owner's direction. Delivered: the definite-assignment pass (`src/compiler/ts/definite.ts`),
 run on each file after its functions are lowered; `TS8075 UNASSIGNED_READ`; the editor's TS2454
 dropped in favour of it (`src/language-service/diagnostics.ts`); the zero initializer of a GLSL
