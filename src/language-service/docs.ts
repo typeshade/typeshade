@@ -19,6 +19,7 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   bool: 'Boolean value.',
   workgroup:
     "A module variable one workgroup shares, `let tile: workgroup<array<f32, 64>>`: zero at the start of each workgroup, read and written by every invocation of the workgroup, and a compute entry's alone. WGSL `var<workgroup>`; GLSL ES 3.00 has no form for it.",
+  Ref: "A reference parameter, `p: Ref<f32>`: the parameter names the caller's place instead of holding a copy of its value, so reading `p` reads that place and assigning to `p`, or to a field, component or element of it, writes it. The caller passes the place with `ref(x)`. Written only on a parameter of a function declared at the top of the file or of a namespace. WGSL `ptr<function, T>` (or the place's own address space), GLSL ES 3.00 `inout T`.",
   atomic:
     'An `atomic<u32>` or `atomic<i32>`: an integer location in a read-write storage binding that many invocations update at once through `atomicAdd`, `atomicLoad` and the other atomic builtins. It is never read or assigned directly, and it is declared only inside a storage binding, as `declare const bins: storage<array<atomic<u32>>, "read_write">`.',
   vec2: 'A two-component vector of `f32`.',
@@ -433,6 +434,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   array:
     'Builds an `array<T, N>` from exactly N values of type T. Without type arguments, `array(v1, v2, ..., vN)` reads T and N off the values, as WGSL does; `array<T, N>(v1, ..., vN)` names them. An array has the methods `map`, `forEach`, `some`, `every` and `reduce`, each a counted loop over its elements that calls the function it is handed with the element, its `i32` index and the array.',
   fill: 'Creates an `array<T, N>` where every element is the given value; requires type arguments `fill<T, N>(value)`.',
+  ref: "Passes a place to a parameter declared `Ref<T>`, as WGSL's `&x` does: `swap(ref(x), ref(y))`. The place is a `let`, a `const` whose initializer built its value, a module variable, a `read_write` storage element, or a field or element of one of those. One call takes no two references to one variable when the callee writes either.",
   uniform:
     'Declares a uniform binding of type T; use `declare const name: uniform<T>` or `const name = uniform<T>()`.',
   storage:

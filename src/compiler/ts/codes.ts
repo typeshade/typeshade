@@ -242,6 +242,23 @@ export const TS_CODES = {
    *  `import(...)`, `require`, a module namespace used as a value). Reported on the import, and a
    *  use of the name it would have bound reports nothing more (Rule 12.4). */
   IMPORT: 'TS8072',
+  /** A reference parameter written or passed where this version does not take one (Rule 8.25,
+   *  surface §70, proposal 0040): a `Ref<T>` parameter handed a value rather than `ref(x)`;
+   *  `ref(...)` handed something that is not a place a function may write (a value parameter, a
+   *  `const` that may share its value, a read-only binding, a literal, a temporary, a component
+   *  of a vector); `ref(...)` anywhere but as the argument of a `Ref<T>` parameter, and handed to
+   *  a parameter that takes a value; `Ref<T>` anywhere but as a parameter of a function declared
+   *  at the top of the file or of a namespace (a return, a field, a local, a method's, a local
+   *  function's, an entry's, a generic function's); and a local function that captures a `Ref<T>`
+   *  parameter. Each names the edit. */
+  REFERENCE: 'TS8073',
+  /** Two references to one place in one call (Rule 8.25, surface §70, proposal 0040): two
+   *  arguments a callee takes by reference whose places share a root (`swap(ref(x), ref(x))`,
+   *  `swap(ref(o.a), ref(o.b))`), a method's object or a variable a local function writes beside
+   *  a `ref(...)` of the same root, and a `ref(...)` of a module variable or binding that the
+   *  callee also reads or writes directly. WGSL's alias analysis refuses the same programs; GLSL
+   *  ES 3.00's copy-in and copy-out and the CPU's store-back would disagree on them. */
+  REFERENCE_ALIAS: 'TS8074',
   UNSUPPORTED: 'TS8099',
 } as const;
 

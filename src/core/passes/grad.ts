@@ -10,7 +10,8 @@
 // `f32` vector, an `f32` matrix) gets a TANGENT beside it: `let y = x * x` becomes
 // `let y = x * x; let d_y = d_x * x + x * d_x`. The primal statements stay, since the tangent
 // of a product reads the primal operands, and the optimizer drops the ones nothing reads. The
-// language has no pointers, no recursion and only bounded loops, so one walk over the body is
+// language has no pointer values, no recursion and only bounded loops (a call that writes
+// through an `inout` argument depending on the parameter is refused), so one walk over the body is
 // the whole transform: `if`, `switch` and `for` keep their primal conditions and carry the
 // tangents through their bodies.
 //

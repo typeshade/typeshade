@@ -1887,7 +1887,9 @@ function checkRootNamed(
       diagnostics,
       sourceFile,
       node,
-      `Cannot write through parameter "${rootName}" — parameters are not writable. Use a local or storage.`,
+      `Cannot write through parameter "${rootName}" — parameters are not writable. Use a local or storage.` +
+        // A value parameter is a copy; the caller's value changes through a reference (Rule 8.25).
+        ` To change the caller's value, take "${rootName}: Ref<${authorTypeText(rules.type)}>" and pass ref(...).`,
       TS_CODES.ASSIGN_TARGET,
     );
     return false;

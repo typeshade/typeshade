@@ -913,6 +913,14 @@ declare function array<T, N extends number>(...values: readonly T[]): array<T, N
 ${renderJSDoc(FUNCTION_DOCS.fill)}
 declare function fill<T, N extends number>(value: T): array<T, N>
 
+/** A reference parameter (Rule 8.25, surface section 70). TRANSPARENT, as \`override<T>\` is: a
+ * \`Ref<T>\` binding reads and writes as a \`T\`, because what it names is the caller's place of
+ * that type. Where one may be written, and what \`ref(...)\` may be handed, is the compiler's to
+ * say (TS8073, TS8074), which the service reports with its own. */
+type Ref<T> = T
+${renderJSDoc(FUNCTION_DOCS.ref)}
+declare function ref<T>(place: T): T
+
 /** How a shader may touch a storage BUFFER, in WGSL's own two words: \`var<storage, read>\` and
  * \`var<storage, read_write>\`. It is not {@link StorageAccess}, a storage TEXTURE's
  * \`'write' | 'read' | 'read_write'\`: a storage buffer has no write-only mode, so the editor
