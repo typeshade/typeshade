@@ -81,7 +81,7 @@ export const ruleUid = (n: string): string => {
 };
 export const surfUid = (n: number): string => `SURF-${String(n).padStart(3, '0')}`;
 
-const read = (f: string): string => readFileSync(join(ROOT, f), 'utf8');
+const read = (f: string): string => readFileSync(join(ROOT, f), 'utf8').replace(/\r\n?/g, '\n');
 
 /** Each `**Rule N.M.**` paragraph with its labelled parts, as [number, lines].
  *
@@ -154,10 +154,12 @@ export function verifyTags(files = trackedFiles()): Map<string, Set<string>> {
  * true the link is, so such a file is recorded as `evidence` and checked by `src/reqs.test.ts`.
  */
 export function doorstopSees(path: string): boolean {
+  // Git paths are slash-separated on every host; callers may also supply native paths.
+  path = path.replace(/\\/g, '/');
   if (('/' + path).includes('/.')) return false;
   const gitignore = existsSync(join(ROOT, '.gitignore')) ? read('.gitignore') : '';
   for (const line of gitignore.split('\n')) {
-    const p = line.replace(/^[ @\\/*]+|[ @\\/*]+$/g, '');
+    const p = line.trim().replace(/^[ @\\/*]+|[ @\\/*]+$/g, '');
     if (!p || p.startsWith('#')) continue;
     const re = new RegExp(
       '^' +
@@ -385,7 +387,7 @@ export function render(): Map<string, string> {
         r.references
           .map((f) => `- keyword: ${q(`Rule ${r.number}`)}\n  path: ${f}\n  type: file`)
           .join('\n')
-      : ' []';
+      : '[]';
     files.set(
       path,
       itemFile(

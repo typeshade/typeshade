@@ -70,8 +70,8 @@ describe('a class whose members are all static is a namespace of functions', () 
     expect(r.wgsl).toContain('fn Util_half(x: f32) -> f32 {');
   });
 
-  it('a fieldless class with an instance member keeps the empty-struct refusal', () => {
-    // An instance method needs a receiver, and the receiver is the struct that is not there.
+  it('a fieldless class with an instance member is a value', () => {
+    // Empty authored fields remain valid; the GPU representation supplies its carrier.
     expect(
       errorsOf(
         file(
@@ -79,12 +79,8 @@ describe('a class whose members are all static is a namespace of functions', () 
           `  return vec4(1., 0., 0., 1.)`,
         ),
       ),
-    ).toEqual([
-      `${TS_CODES.STRUCT_FIELD} Struct "Util" has no fields. WGSL requires a struct to declare at least one member, so an empty one cannot be emitted. A class holding only functions is not a struct; write them as functions.`,
-    ]);
-    expect(errorsOf(file(`class Util {}\n`, `  return vec4(1., 0., 0., 1.)`))).toEqual([
-      `${TS_CODES.STRUCT_FIELD} Struct "Util" has no fields. WGSL requires a struct to declare at least one member, so an empty one cannot be emitted.`,
-    ]);
+    ).toEqual([]);
+    expect(errorsOf(file(`class Util {}\n`, `  return vec4(1., 0., 0., 1.)`))).toEqual([]);
   });
 });
 

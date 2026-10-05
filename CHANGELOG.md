@@ -252,6 +252,51 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Fixed
 
+- **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
+  (found by proposal 0028's journey of programs packed under emit options). WGSL's grammar takes
+  unary operands for `&`, `|`, `^`, `<<` and `>>`, so `a & b - c` is "mixing '&' and '-' requires
+  parenthesis" to Tint, and the writer had left the operand bare: `a & (b - c)` was written
+  `a & b - c`, and `h << (24u - n)` `h << 24u - n`. Tint refused the WGSL of 27 examples under
+  `{ parens: 'minimal', fp64Flavor: 'integer' }`, whose emulated-double helpers are made of such
+  masks and shifts, and of `module-const` and `rng-method` under either flavor. GLSL ES 3.00 reads
+  the bare form as intended, so it was right there and gets the parens too. Measured on Tint
+  (Chromium 153, SwiftShader): every example's WGSL compiles under each of the twelve
+  combinations of level, `parens` and `fp64Flavor`, but `clip-planes`, which needs the
+  `clip-distances` feature of the device. `src/core/emit-parens.test.ts` holds each shape, and
+  scans every example's WGSL under `'minimal'`, in both flavors, for a bitwise or shift operator
+  beside another operator at one level; it fails without the fix and reaches 243 and 2,704
+  such operators.
+
+- **An editor's output pane prints the WGSL and GLSL `compile()` emits** (Rule 12.7). The
+  language service's `getCompiledOutput`, which the VS Code preview's WGSL and GLSL tabs show,
+  built its module without the overrides, the enables and the `diagnostic(...)` directives. A
+  program with an override printed WGSL that reads it and never declares it, and a program whose
+  entry turns off `derivative_uniformity` printed WGSL without the directive; WebGPU refuses
+  both. It now builds the module `compile()` does. `src/language-service/compiled-output-parity.test.ts`
+  holds the pane's text to `compile()`'s for every example: byte for byte, but for
+  `inferred-returns`, whose functions the two runs of the front end lower in another order and
+  whose texts hold the same lines.
+
+- **A stepped run folds a kernel function's reduction in the tree order** (Rule 7.2, #362). A debug
+  session ran a reduction loop the proof accepts in iteration order, where `compileModule`,
+  `compileModuleJs` and the GPU fold it in the tree (`src/core/kernel-tree.ts`): stepping
+  `total(xs)`, `let s = 0.; for (const x of xs) { s += x; }`, over `[1e8, 1, -1e8, 1]` in `f32`
+  returned 1 where every tier returns 2, so a developer who stepped through it to see why it
+  returns 2 was shown 1. The session now takes the loops `treeLoops` names, as the oracle does:
+  each iteration starts from the operator's identity, what it leaves is collected, and when the
+  loop is over the variable becomes what it held before the loop combined with the fold. The
+  oracle and the session share one `reductionIdentity`. A pause inside such a loop shows the
+  variable as one GPU invocation holds it, the identity at the top of an iteration (`-0` for a
+  float sum) and then what the iteration has combined into it, no longer a running total, and
+  `docs/debugging.md` §1.3 says so. `src/core/kernel-tree.test.ts` holds the interpreter, the
+  generated CPU code and the session to the same bits on the issue's sum, in `f32` and in `f64`,
+  and on a start value, a product, a vector, two variables, a `continue`, a nested loop and an
+  emulated double, and to iteration order in a loop the proof refuses and in a function that is
+  no kernel; `src/core/debug/step.test.ts` holds what each pause shows. The stepping arm of the
+  generated-kernel differential (#349) no longer leaves a float reduction's result out of its
+  comparison; it compares in `f32` as well as `f64`, and pins seeds 35 and 51, which caught the
+  walk.
+
 - **A generic whose name nothing declares is an unknown type, with the remedy Rule 12.1 gives**
   (Rule 12.1, #218). `let tile: groupshared<array<f32, 64>>`, the only way an HLSL or GLSL address
   space is written here, was `TS8002 Type arguments are not supported yet (got "groupshared<...>").`
@@ -306,31 +351,6 @@ repository was published to npm before **`0.1.0`, the first release**.
   holds each of these names in every construct it can be written in, eleven for an expression and
   four for a statement, against `compile()`'s sentence for it, and
   `src/language-service/check.test.ts` the command's list for the list above.
-
-- **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
-  (found by proposal 0028's journey of programs packed under emit options). WGSL's grammar takes
-  unary operands for `&`, `|`, `^`, `<<` and `>>`, so `a & b - c` is "mixing '&' and '-' requires
-  parenthesis" to Tint, and the writer had left the operand bare: `a & (b - c)` was written
-  `a & b - c`, and `h << (24u - n)` `h << 24u - n`. Tint refused the WGSL of 27 examples under
-  `{ parens: 'minimal', fp64Flavor: 'integer' }`, whose emulated-double helpers are made of such
-  masks and shifts, and of `module-const` and `rng-method` under either flavor. GLSL ES 3.00 reads
-  the bare form as intended, so it was right there and gets the parens too. Measured on Tint
-  (Chromium 153, SwiftShader): every example's WGSL compiles under each of the twelve
-  combinations of level, `parens` and `fp64Flavor`, but `clip-planes`, which needs the
-  `clip-distances` feature of the device. `src/core/emit-parens.test.ts` holds each shape, and
-  scans every example's WGSL under `'minimal'`, in both flavors, for a bitwise or shift operator
-  beside another operator at one level; it fails without the fix and reaches 243 and 2,704
-  such operators.
-
-- **An editor's output pane prints the WGSL and GLSL `compile()` emits** (Rule 12.7). The
-  language service's `getCompiledOutput`, which the VS Code preview's WGSL and GLSL tabs show,
-  built its module without the overrides, the enables and the `diagnostic(...)` directives. A
-  program with an override printed WGSL that reads it and never declares it, and a program whose
-  entry turns off `derivative_uniformity` printed WGSL without the directive; WebGPU refuses
-  both. It now builds the module `compile()` does. `src/language-service/compiled-output-parity.test.ts`
-  holds the pane's text to `compile()`'s for every example: byte for byte, but for
-  `inferred-returns`, whose functions the two runs of the front end lower in another order and
-  whose texts hold the same lines.
 
 ## [0.1.0] - 2026-09-29
 

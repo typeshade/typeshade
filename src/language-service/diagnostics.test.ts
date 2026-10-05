@@ -1212,9 +1212,9 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     ]);
   });
 
-  it('keeps it on a local that shadows the workgroup name, which the compiler refuses', () => {
+  it('keeps it on an unassigned local that shadows the workgroup name', () => {
     // The checker resolves `tile` here to the local, so the rule leaves TypeScript's TS2454
-    // beside the compiler's own refusal of the second binding.
+    // on the local, even though the workgroup value with that name is initialized.
     const source =
       '"use typeshade"\n' +
       'declare const dst: storage<array<f32>, "read_write">\n' +
@@ -1224,7 +1224,7 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
       '  let tile: f32\n' +
       '  dst[lid.x] = tile\n' +
       '}\n';
-    expect(compiled(source)).toContain('TS8023 Duplicate binding "tile" in this scope.');
+    expect(compiled(source)).toEqual([]);
     expect(typeScriptDiagnosticsOf(source)).toEqual([
       "TS2454: Variable 'tile' is used before being assigned.",
     ]);
