@@ -149,11 +149,15 @@ const corners = ({ shape }: Item): [number, number][] =>
       ]
     : shape.tri.map((c) => [c[0]!, c[1]!]);
 
+// The two functions below name no return type: from TypeScript 5.7 a bare `Float32Array` is
+// `Float32Array<ArrayBufferLike>`, which `GPUQueue.writeBuffer` does not take, and the type the
+// constructor gives it does.
+
 /** An item's vertices as `x, y, z` triples: a vertex buffer. */
-export const vertices = (item: Item): Float32Array =>
+export const vertices = (item: Item) =>
   new Float32Array(corners(item).flatMap(([x, y]) => [...ndc(x, y), item.z]));
 /** The same, as `vec4`s with w = 1: a storage buffer. */
-export const positions = (item: Item): Float32Array =>
+export const positions = (item: Item) =>
   new Float32Array(corners(item).flatMap(([x, y]) => [...ndc(x, y), item.z, 1]));
 
 /** Whether the pixel centre (cx, cy), in pixel units, is inside the shape. */
