@@ -9,8 +9,8 @@ struct VsOut {
 out vec2 uv;
 
 VsOut vs_impl(uint i) {
-  float x;
-  float y;
+  float x = 0.0;
+  float y = 0.0;
   x = -1.0;
   y = -1.0;
   if ((i == 1u)) {

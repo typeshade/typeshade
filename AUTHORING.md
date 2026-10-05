@@ -1684,9 +1684,10 @@ takes, the names the module emits and each refusal: `docs/use-typeshade-surface.
 ### A function that changes its caller's variable
 
 A parameter is a copy of the value the call passes, so a write to it leaves the caller alone. To
-change the caller's variable, declare the parameter `Ref<T>` and pass the variable with
-`ref(x)`. Inside the function the parameter is the caller's variable: read it, assign to it, and
-reach its fields as you would reach `this` in a method.
+change the caller's variable, declare the parameter `@inout`, GLSL's qualifier, and pass the
+variable itself. Inside the function the parameter is the caller's variable: read it, assign to
+it, and reach its fields as you would reach `this` in a method. A parameter the function only
+writes is `@out`: it starts with no value, so write it before reading it, and on every path.
 
 ```ts
 "use typeshade";
@@ -1696,35 +1697,43 @@ class Ray {
   dir: vec3;
 }
 
-function swap(a: Ref<f32>, b: Ref<f32>): void {
+function swap(@inout a: f32, @inout b: f32): void {
   const t = a;
   a = b;
   b = t;
 }
 
-function advance(r: Ref<Ray>, t: f32): void {
+function add(a: f32, b: f32, @out c: f32): void {
+  c = a + b;
+}
+
+function advance(@inout r: Ray, t: f32): void {
   r.origin = r.origin + r.dir * t;
 }
 
 export function demo(): f32 {
   let x: f32 = 1.;
   let y: f32 = 2.;
-  swap(ref(x), ref(y)); // x is 2. and y is 1.
+  swap(x, y); // x is 2. and y is 1.
+  let s: f32;
+  add(x, y, s); // s is 3.
   let r = new Ray();
   r.dir = vec3(1., 0., 0.);
-  advance(ref(r), 3.); // r.origin.x is 3.
-  return x + r.origin.x;
+  advance(r, 3.); // r.origin.x is 3.
+  return x + s + r.origin.x;
 }
 ```
 
 WGSL receives a pointer, `swap(&x, &y)` with `*a = *b` in the body, and GLSL ES 3.00 an `inout`
-parameter; the CPU oracle copies the value in and stores it back. `ref(...)` takes a `let`, a
+parameter; the CPU oracle copies the value in and stores it back. The argument is a `let`, a
 module variable, an element of a `read_write` storage binding, or a field or an element of one;
 a value, a literal and a vector's component are refused with `TS8073`. One call may not take two
-references to one variable that the function writes, `swap(ref(x), ref(x))`, which is `TS8074`.
-A function of the file or of a namespace takes a reference; a method, an entry and a local
-function take values. A local function inside such a function may still read and write the
-reference, as it reads and writes any variable around it. The surface reference has every rule and refusal:
+references to one variable that the function writes, `swap(x, x)`, which is `TS8074`. A read
+before a variable is assigned, or an `@out` parameter read before it is written, is `TS8075`. A
+function of the file or of a namespace takes a qualifier; a method, an entry and a local
+function take values, and a local function inside such a function may still read and write the
+parameter, as it reads and writes any variable around it. There is no `@in`: a parameter with no
+qualifier is GLSL's `in`. The surface reference has every rule and refusal:
 `docs/use-typeshade-surface.md` §70.
 
 ## Diagnostics

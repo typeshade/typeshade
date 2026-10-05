@@ -427,7 +427,7 @@ vec2 NamekTrees_map(NamekTrees self_, vec3 p) {
 NamekTree NamekTrees_nearest(NamekTrees self_, vec3 p) {
   float firstDistance = length((p.xz - self_.first.position));
   float secondDistance = length((p.xz - self_.second.position));
-  NamekTree _sel0;
+  NamekTree _sel0 = NamekTree(vec2(0.0), 0.0, 0.0);
   if ((firstDistance < secondDistance)) {
     _sel0 = self_.first;
   } else {

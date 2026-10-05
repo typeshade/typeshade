@@ -48,7 +48,15 @@ export const ATTRIBUTE_NAMES: readonly string[] = [
   // §54: `@diagnostic("off", "derivative_uniformity")` on an entry, which becomes a
   // module-scope `diagnostic(off, derivative_uniformity);`.
   'diagnostic',
+  // Change 0040: GLSL's parameter qualifiers, which make a parameter name the caller's place
+  // (Rule 8.25). GLSL's third, `in`, is a reserved word TypeScript does not parse after `@`,
+  // and is the value a parameter already is.
+  'inout',
+  'out',
 ];
+
+/** The parameter qualifiers of {@link ATTRIBUTE_NAMES} (Rule 8.25), which `parseParams` reads. */
+export const QUALIFIER_NAMES: readonly string[] = ['inout', 'out'];
 
 /** The interpolation TYPES WGSL names, and the SAMPLINGS each admits. `flat` takes `first`
  *  or `either` and nothing else; `perspective` and `linear` take the three positions. A
@@ -160,7 +168,10 @@ export type AttributeSite =
 const SITE_ATTRIBUTES: Readonly<Partial<Record<AttributeSite, readonly string[]>>> = {
   'a function': ['vertex', 'fragment', 'compute', 'diagnostic'],
   "a namespace's function": ['vertex', 'fragment', 'compute'],
-  'a parameter': ['builtin', 'location', 'interpolate', 'invariant'],
+  // A qualifier is read on any parameter, and `parseParams` refuses it, with `TS8073`, where a
+  // function takes its parameters by value (Rule 8.25).
+  'a parameter': ['builtin', 'location', 'interpolate', 'invariant', 'inout', 'out'],
+  'a parameter of a function that is not an entry': ['inout', 'out'],
   'a struct field': ['builtin', 'location', 'interpolate', 'invariant', 'blend_src'],
 };
 
@@ -231,6 +242,8 @@ const ATTRIBUTE_TARGET: Readonly<Record<string, string>> = {
   invariant: "an entry's input or output",
   blend_src: "a field of a fragment entry's output",
   diagnostic: 'a top-level function',
+  inout: 'a parameter of a function',
+  out: 'a parameter of a function',
 };
 
 /** The decorator identifier `@name` or `@name(...)` reads off, or `undefined` for any other

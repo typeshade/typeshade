@@ -353,13 +353,17 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'LOG2E', reason: 'the base-2 logarithm of e; ECMAScript spells it `Math.LOG2E`' },
   { name: 'LOG10E', reason: 'the base-10 logarithm of e; ECMAScript spells it `Math.LOG10E`' },
 
-  // A reference parameter (Rule 8.25, proposal 0040). WGSL spells it as a pointer and GLSL as
-  // `inout`; the surface spells it by the model a method that changes its object already has.
+  // A reference parameter (Rule 8.25, proposal 0040). WGSL spells it as a pointer and GLSL with a
+  // qualifier; the surface writes GLSL's qualifier as a parameter decorator.
   {
-    name: 'Ref',
-    reason: "a parameter that names the caller's place, WGSL `ptr<AS, T>` and GLSL `inout`",
+    name: 'inout',
+    reason: "GLSL's qualifier: a parameter that names the caller's place, WGSL `ptr<AS, T>`",
   },
-  { name: 'ref', reason: "passes a place to a `Ref<T>` parameter, as WGSL's `&` does" },
+  {
+    name: 'out',
+    reason:
+      "GLSL's qualifier: a parameter that names a place the function writes, WGSL `ptr<AS, T>`",
+  },
 ];
 // LINT.ThenChange(docs/language-design.md:extensions)
 
@@ -671,22 +675,17 @@ describe('the TypeShade allowlist shrinks', () => {
     expect(redundant).toEqual([]);
   });
 
-  it('the rows that are WGSL keywords or reserved words are exactly the four §9.3 records', () => {
-    // `override` and `discard` are WGSL keywords given the same meaning here, and `mod` and `ref`
-    // are WGSL reserved words, tokens the specification reserves and gives no meaning. The
-    // document's §9.3 records the four; a new row that collides with either list is recorded
-    // there first, which is what turning this case red asks for.
+  it('the rows that are WGSL keywords or reserved words are exactly the three §9.3 records', () => {
+    // `override` and `discard` are WGSL keywords given the same meaning here, and `mod` is a WGSL
+    // reserved word, a token the specification reserves and gives no meaning. The document's
+    // §9.3 records the three; a new row that collides with either list is recorded there first,
+    // which is what turning this case red asks for.
     const keywords = new Set(wgsl.keywords.names);
     const reserved = new Set(wgsl.reservedWords.names);
     const colliding = TYPESHADE_EXTENSIONS.filter(
       (row) => keywords.has(row.name) || reserved.has(row.name),
     ).map((row) => `${row.name} (${keywords.has(row.name) ? 'keyword' : 'reserved word'})`);
-    expect(colliding).toEqual([
-      'override (keyword)',
-      'mod (reserved word)',
-      'discard (keyword)',
-      'ref (reserved word)',
-    ]);
+    expect(colliding).toEqual(['override (keyword)', 'mod (reserved word)', 'discard (keyword)']);
   });
 
   it('every row is named once and carries a reason', () => {

@@ -1089,7 +1089,7 @@ export const GL_OUT = '_out';
  * program; every other shape goes to the next tier.
  */
 /** Whether a call in `loop` hands an element of `array` to a parameter its callee writes
- *  through, `bump(ref(out[i]))` (Rule 8.25). */
+ *  through, `bump(out[i])` to an `@inout` parameter (Rule 8.25). */
 function writesThroughCall(loop: Stmt, array: string, m: ModuleDecl): boolean {
   const byName = new Map(m.funcs.map((g) => [g.name, g]));
   let found = false;

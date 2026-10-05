@@ -4,15 +4,16 @@ derived: false
 level: 7
 links:
 - RULE-0602: X1TddP_Ob7b4QaR9Qbuoo1UgPCngNA5JdtbbWwd_lOc=
-- RULE-0709: M6M0mof5yB7F4ZRRYceivp93KQ20SrVeTisFuGN_HjY=
+- RULE-0706: kyzs2Ws4Mk2xUgP_v9ZM_z6jm_3zIWP2-BekxmeHpC8=
+- RULE-0709: I2kb4szrYiKtmhAPhRUfI3BqKOo-DmLFxyCamUwLrCA=
 - RULE-0801: H1wCXs_NQPF7wMxgl8OGv3K-wybB6bXXiXjf4QV5xhs=
 - RULE-1201: If3KuQj5iOnPuvwF_9qfOE8e6bmOUoReZeWXDlpvDqo=
 normative: true
 ref: ''
-reviewed: OcxghTqLnWAeMih2tWHY_hAuZtX4gNTXDRXC34dTC5Y=
+reviewed: FzMmn87oOakmQm6jSThcBvh5aB_KP4XYb0uRHX76jd8=
 source: docs/use-typeshade-surface.md §7
 ---
 
 # Diagnostics (required)
 
-docs/use-typeshade-surface.md §7, "Diagnostics (required)": the surface section that explains Rule 6.2, Rule 7.9, Rule 8.1, Rule 12.1.
+docs/use-typeshade-surface.md §7, "Diagnostics (required)": the surface section that explains Rule 6.2, Rule 7.6, Rule 7.9, Rule 8.1, Rule 12.1.

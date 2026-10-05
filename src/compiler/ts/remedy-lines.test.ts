@@ -693,6 +693,12 @@ describe('every refusal that names a line is pinned above', () => {
       note: 'the resource that needs declare; the one sentence names a line, except for a resource with no type argument, where it names a `storage<...>` shape and the case above pins that',
     },
     {
+      file: 'definite.ts',
+      sites: 2,
+      lines: 0,
+      note: 'names the @out parameter to write (`Write "c" first`, `Write "c" on every path`): a variable to assign, not a line',
+    },
+    {
       file: 'generic-structs.ts',
       sites: 2,
       lines: 0,

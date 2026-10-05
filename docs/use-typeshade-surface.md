@@ -428,6 +428,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A name the file does not declare: a value, a callee, a type, a field, a member, an assignment target, an attribute, a `@builtin` id, an `enable` extension, an import | `TS8022`, `TS8004`, `TS8002` and the rest, on the name, with the remedy in one order (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name (`lerp` is `mix`), else the name of the same kind it is spelled like (`Did you mean "clamp"?`), else the declaration it needs. `window`, `Date` and `fetch` are such names, once, where they are used, in a body a call lowers or not; a type nothing declares is `TS8002` wherever it is written, a claim, a type argument (`B<vec3<Foo>>` included), an alias, an `implements` clause and the base a class or an interface extends included. A type the library declares for TypeScript's own use (`Number`, `Object`) read or called is said to be one, and `Math`, `console` and `Symbol` to be what they are. A name the file declares is the file's, whatever it spells, `class Mat` and `interface Pick` included (§28), except `eval` and `arguments`, which strict mode lets no variable, parameter or function bind (`TS8068`) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 | `new` on anything but a class the file declares | `TS8035`, once for the file, naming what the target is and what to write: a WGSL constructor or a function is called without `new`, a WGSL type with no constructor (`sampler`, a texture) and a type the library declares for TypeScript (`Array`) are types, `Symbol` is the library's own, an enum's values are its members, a mixin applied to a class is built through a class that extends it, and an interface, a type alias, a namespace, a type parameter, a value and an `abstract` class are no class to build. A target nothing declares, and a member the object before it does not have, is `TS8022` (§26) |
+| A local read before it is assigned on every path, an `@out` parameter read before the function writes it, or a path that returns without writing one | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` An argument an `@out` parameter takes assigns the variable (§70) |
+| A value nothing holds, or a place no function may write, handed to an `@inout` or `@out` parameter; a qualifier where a function takes its parameters by value | `TS8073`, naming the edit (§70) |
 | A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
 
 ---
@@ -491,15 +493,15 @@ pixels[i] = 1.;            // an element
 | `const` local | no: `TS8005` |
 | `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
 | a function parameter | no: `TS8018` |
-| a `Ref<T>` parameter | yes: the caller's place (§70) |
+| an `@inout` or `@out` parameter | yes: the caller's place (§70) |
 | anything that is not a name (`vec3(0.).x`) | no: `TS8018` |
 
 The parameter row covers writing **through** a parameter (`p.x = 1.`, `p.xs[i] = 1.`) and
 writing it **whole** (`p = 1.`, `p += 1.`, `p++`) alike. The whole write used to be accepted and
 emitted as `p = 1.0;`, which Tint refuses; it is `TS8018` now, naming the local to copy it into
-(§52). A parameter declared `Ref<T>` is the one parameter a write lands on whole and through:
-it names the caller's place, so `p = 1.` and `p.x = 1.` write what the caller passed with
-`ref(x)` (§70).
+(§52). A parameter declared `@inout` or `@out` is the one parameter a write lands on whole and
+through: it names the caller's place, so `p = 1.` and `p.x = 1.` write the variable the caller
+passed (§70).
 
 A swizzle target names exactly **one** component. `v.xy = …` and `c.rg = …` are rejected
 (`TS8018`), which is what WGSL does: assign each component, or build the whole vector and
@@ -958,12 +960,13 @@ also permits writes to the local's components, fields or elements. A parameter w
 whole write keeps its existing read-only place restriction; resource handles and a kernel
 function's reference-backed arrays do not become local copies.
 
-A parameter declared `Ref<T>` takes no copy: it names the caller's place, passed as `ref(x)`
-(§70). It is written on a function declared at the top of the file or of a namespace; a
-method, a constructor, an accessor, an entry, a local function, an arrow function written as
-an argument and a generic function take values, and each refuses `Ref<T>` with `TS8073`. A
-local function captures a `Ref<T>` parameter as it captures any variable, and writes the
-caller's place through it (§70).
+A parameter declared `@inout` or `@out` takes no copy: it names the caller's place, and the
+call passes the variable itself (§70). The qualifier is a decorator on a parameter of a
+function declared at the top of the file or of a namespace; a method, a constructor, an
+accessor, an entry, a local function and a generic function take values, and each refuses a
+qualifier with `TS8073` (TypeScript itself does not parse a decorator on an arrow function's
+parameter). A local function captures a qualified parameter as it captures any variable, and
+writes the caller's place through it (§70).
 
 Four ordinary TypeScript shapes that the grammar admits and the language now lowers (one of
 them, the object-literal shorthand, is an expression rather than a statement).
@@ -1006,13 +1009,16 @@ export function band(seed: i32, t: f32): vec3 {
 ```
 
 **`let x: f32` with no initializer** declares a mutable local and leaves the value for a
-later assignment: WGSL's `var x: f32;`, GLSL's `float x;`, and the EDSL's `Var(f32T)`. The
-annotation is what carries the type, so it is required; a `const` still needs its value.
-Note what the two targets do with a read that happens _before_ the first assignment: WGSL
-zero-initialises, GLSL ES 3.00 leaves it undefined. That divergence is the EDSL's today as
-well; assign before you read. Both CPU backends follow WGSL and bind the zero of the declared
-type at the declaration: `0.`, `false` for a `bool`, an array of zeros, and a struct with
-every field zeroed, recursively through a nested struct and an array of structs.
+later assignment: WGSL's `var x: f32;`, GLSL's `float x = 0.0;`, and the EDSL's `Var(f32T)`.
+The annotation is what carries the type, so it is required; a `const` still needs its value. A
+read before the local is assigned on every path is refused with `TS8075`, by TypeScript's rule
+for its TS2454, which the editor shows in TypeScript's place (Rule 7.6): `x += 1.`, `x.y = 1.`
+and `x[0] = 1.` read `x` and assign nothing, and an assignment inside a local function does not
+count outside it. An argument an `@out` parameter takes assigns the local, so `let s: f32;
+add(a, b, s); return s;` is accepted (§70). Every target starts the local at the zero of its
+type all the same: WGSL and both CPU backends always did (`0.`, `false` for a `bool`, an array of
+zeros, and a struct with every field zeroed, recursively), and GLSL ES 3.00 writes the zero as
+the initializer, where it left the value undefined.
 
 **`&=`, `|=`, `^=`, `<<=`, `>>=`** compound the bitwise operators onto an `i32` or `u32`
 target. For `&=`, `|=` and `^=` the right-hand side takes the target's type (`y &= 3` on a
@@ -2431,13 +2437,13 @@ takes its object as a parameter the callee writes THROUGH, and the call is a pla
 GLSL ES 3.00 spells that with the qualifier it has, `inout Particle self_`; WGSL has no such
 qualifier and spells it as a pointer, `self_: ptr<function, Particle>`, read through as
 `(*self_)`. The IR says which parameters are written and nothing about how a target spells it.
-A function of the file takes a place the same way when its parameter is declared `Ref<T>`
-(§70): `function step(p: Ref<Particle>, dt: f32)` called as `step(ref(ps[gid.x]), 0.5)` is the
-method above with its object named. A method itself takes no `Ref<T>` parameter in this
+A function of the file takes a place the same way when its parameter is declared `@inout`
+(§70): `function step(@inout p: Particle, dt: f32)` called as `step(ps[gid.x], 0.5)` is the
+method above with its object named. A method itself takes no qualified parameter in this
 version (`TS8073`), and a call counts its object as one of its references when it checks that
 no two name one variable (`TS8074`). A method that hands its object, or a field, a component or
-an element of it, to `ref(...)`, `bump(ref(this.n))`, writes its object as an assignment to it
-does, and takes it by reference: `bump(&(*self_).n)` on WGSL.
+an element of it, to an `@inout` or `@out` parameter, `bump(this.n)`, writes its object as an
+assignment to it does, and takes it by reference: `bump(&(*self_).n)` on WGSL.
 
 ```ts
 class Particle {
@@ -5685,15 +5691,18 @@ spelling; the gate classifies such a call by the rule instead of listing it.
 
 ### A reference, to the editor
 
-The ambient library declares `type Ref<T> = T` and `declare function ref<T>(place: T): T`, so
-TypeScript's checker reads a reference parameter as the `T` the body reads and writes, and a
-program the compiler accepts is clean in the editor and under `tsc` (§70). What the checker
-cannot see (a value handed where a reference is taken, `ref(...)` of something that is no place,
-two references to one variable in one call) is the compiler's to say, `TS8073` and `TS8074`, and
-the service shows its diagnostics with its own. A hover on the parameter is the compiler's:
-`(parameter) v: Ref<f32>`, then that it names the caller's place and how WGSL and GLSL ES 3.00
-take it. `src/compiler/ts/reference-parameters.test.ts` reads each program and each refusal in
-both halves.
+The ambient library declares the decorators `inout` and `out`, so TypeScript's checker reads a
+qualified parameter as its plain type, which the body reads and writes, and a program the
+compiler accepts is clean in the editor and under `tsc` (§70). What the checker cannot see (a
+value handed where a place is taken, two references to one variable in one call, an `@out`
+parameter read before it is written) is the compiler's to say, `TS8073`, `TS8074` and `TS8075`,
+and the service shows its diagnostics with its own; TypeScript's TS2454 gives way to the
+compiler's `TS8075`, which knows that an `@out` argument assigns. A hover is the compiler's:
+`(parameter) @inout v: f32` on the parameter, then that it names the caller's place and how
+WGSL and GLSL ES 3.00 take it, and `function bump(@inout v: f32): void` on the function, where
+it is declared and where it is called. The call site carries no mark; an editor may show one as
+an inlay hint, from the qualifier on the declaration. `src/compiler/ts/reference-parameters.test.ts`
+reads each program and each refusal in both halves.
 
 ## 50. `enable`, `requires`, and the built-in values behind an extension
 
@@ -6095,10 +6104,9 @@ arrays are not copyable value parameters.
 
 A write through such a parameter (`r.origin = …` on `r: Ray`) is `TS8018`, and its message
 names a local copy to change; in a function that may take a reference, one declared at the top
-of the file or of a namespace, it names the second remedy too, `r: Ref<Ray>` and `ref(...)` at
-the call to change the caller's value (§70). A parameter declared `Ref<T>` takes no copy: `p = v` writes
-the caller's place, which is the difference its declared type makes, as GLSL's `inout` makes
-it from `in`.
+of the file or of a namespace, it names the second remedy too, `@inout r: Ray`, to change the
+caller's value (§70). A parameter declared `@inout` takes no copy: `p = v` writes the caller's
+place, which is the difference its qualifier makes, as GLSL's `inout` makes it from `in`.
 
 **Three more that now say what is wrong.**
 
@@ -7909,13 +7917,14 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
 
 The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67).
 
-## 70. Reference parameters: `Ref<T>` and `ref(x)`
+## 70. Parameter qualifiers: `@inout` and `@out`
 
-A function changes its caller's variable when the parameter is declared `Ref<T>` and the call
-passes the variable as `ref(x)` (Rule 8.25, change 0040). Inside the function the parameter is
-the caller's variable: reading it reads that place, and assigning to it, or to a field,
-component or element of it, writes it. There is no `*` and no `&`, and a field is reached as
-`r.origin`, the way a method reaches `this.origin` (§26).
+A function changes its caller's variable when the parameter is declared `@inout` or `@out`,
+GLSL's qualifiers written as a decorator, and the call passes the variable itself (Rule 8.25,
+change 0040). Inside the function the parameter is the caller's variable: reading it reads that
+place, and assigning to it, or to a field, component or element of it, writes it. There is no
+`*` and no `&`, and a field is reached as `r.origin`, the way a method reaches `this.origin`
+(§26).
 
 ```ts
 "use typeshade";
@@ -7926,13 +7935,17 @@ class Ray {
 }
 declare const rays: storage<array<Ray>, "read_write">;
 
-function swap(a: Ref<f32>, b: Ref<f32>): void {
+function swap(@inout a: f32, @inout b: f32): void {
   const t = a;
   a = b;
   b = t;
 }
 
-function advance(r: Ref<Ray>, t: f32): void {
+function add(a: f32, b: f32, @out c: f32): void {
+  c = a + b;
+}
+
+function advance(@inout r: Ray, t: f32): void {
   r.origin = r.origin + r.dir * t;
 }
 
@@ -7940,14 +7953,30 @@ function advance(r: Ref<Ray>, t: f32): void {
 export function main(@builtin("global_invocation_id") id: vec3u): void {
   let x: f32 = 1.;
   let y: f32 = 2.;
-  swap(ref(x), ref(y)); // x is 2., y is 1.
-  advance(ref(rays[id.x]), 2.); // the storage element itself
+  swap(x, y); // x is 2., y is 1.
+  let s: f32;
+  add(x, y, s); // s is 3.
+  advance(rays[id.x], 2.); // the storage element itself
 }
 ```
 
-A type alias names the same reference (Rule 4.2): `type R = Ref<f32>` declares the parameter
-as `v: R`. A method that hands a place of its object to `ref(...)`, `bump(ref(this.n))`, writes
-its object, and takes it by reference (§26).
+GLSL's third qualifier, `in`, is the value every parameter already is, and TypeScript does not
+parse it after `@`, since `in` is a reserved word: a parameter with no qualifier is GLSL's `in`.
+A method that hands a place of its object to a qualified parameter, `bump(this.n)`, writes its
+object, and takes it by reference (§26).
+
+**`@out`.** An `@out` parameter starts with no value in the function, as GLSL's does: the body
+writes it, whole, before it reads it or a field, component or element of it, and writes it on
+every path before it returns. Each of those is `TS8075`:
+
+```ts
+function f(@out c: f32): void { c = c + 1.; } // TS8075: read before f writes it
+function g(@out c: f32, k: bool): void { if (k) { c = 1.; } } // TS8075: returns without writing c
+```
+
+Under that rule `@out` and `@inout` give one result on every target, so the IR keeps one mode for
+both. The argument of an `@out` parameter assigns the caller's variable, so a local declared with
+no value may be handed to one and read after the call (Rule 7.6).
 
 **What each target writes.** The IR marks the parameter as one the callee writes through,
 which is what a method that changes its object already is, and each target spells it its own
@@ -7963,35 +7992,27 @@ A function whose calls pass places in more than one address space is compiled on
 WGSL, as a method is. A reference to a storage element or to a field or element of a local
 relies on WGSL's `unrestricted_pointer_parameters`, which Chromium's WebGPU lists.
 
-**What `ref(...)` takes.** A place a function may write, by the rule a method that changes its
-object follows (Rule 8.10): a `let`; a `const` whose initializer built its value (`const p =
+**What the argument may be.** A place a function may write, by the rule a method that changes
+its object follows (Rule 8.10): a `let`; a `const` whose initializer built its value (`const p =
 new P()`, which then becomes a `var`, Rule 6.10); a module variable; an element of a
-`read_write` storage binding; `this` where a method may write it; a `Ref<T>` parameter of the
-function; or a field or an element of one of those, of exactly the parameter's type. A reference
-the function holds is passed on as it is, `addOne(v)`, or as `addOne(ref(v))`.
+`read_write` storage binding; `this` where a method may write it; a qualified parameter of the
+function, passed on as itself; a column of a matrix; or a field or an element of one of those,
+of exactly the parameter's type.
 
 Refused, each with the edit, as `TS8073`:
 
-- a value where a reference is taken, `swap(x, y)`: write `ref(x)`;
-- `ref(...)` of a value parameter, of a `const` that may share its value, of a read-only
-  binding, of a literal or a computed value (`ref(1.)`, `ref(a * b)`) and of a vector's
-  component (`ref(v.x)`, which WGSL takes no address of; a matrix's column, `ref(m[i])`, is a
-  place);
-- `ref(...)` handed to a parameter that takes a value, and `ref(...)` anywhere but as the
-  argument of a `Ref<T>` parameter (`const r = ref(x)`);
-- `Ref<T>` anywhere but on a parameter of a function declared at the top of the file or of a
-  namespace: a return type, a field, a local, and the parameters of a method, a constructor, an
-  accessor, an entry, a local function, an arrow function written as an argument and a generic
-  function, which is told where it is declared whether a call makes an instance of it or not.
+- a value nothing holds, `swap(1., y)` or `swap(a * b, y)`: keep it in a `let` and pass the `let`;
+- a value parameter, a `const` that may share its value, a read-only binding, and a vector's
+  component, `swap(v.x, y)`, which WGSL takes no address of;
+- a qualifier on a parameter of a method, a constructor, an accessor, an entry, a local function
+  or a generic function, which is told where it is declared whether a call makes an instance of
+  it or not; two qualifiers on one parameter; a default on a qualified parameter.
 
-A file may declare its own `ref` (in a namespace, since `ref` is a WGSL reserved word at the top
-of the file, §62), and a call of it is the file's (Rule 2.1).
-
-**The place is fixed when the call is made.** `f(ref(xs[i]), ref(i))` where `f` sets `i` and
-then writes through the first reference writes `xs` at the old `i`: WGSL takes `&xs[i]` once,
-and the CPU paths resolve the place once and store back into it. A call that writes a variable,
-written in an argument after `ref` of that variable, runs first (Rule 7.9), so every target
-reads the write through the reference.
+**The place is fixed when the call is made.** `f(xs[i], i)` where `f` sets `i` and then writes
+through the first reference writes `xs` at the old `i`: WGSL takes `&xs[i]` once, and the CPU
+paths resolve the place once and store back into it. A call that writes a variable, written in
+an argument after that variable is handed to a qualified parameter, runs first (Rule 7.9), so
+every target reads the write through the reference.
 
 **One call, one reference to a variable it writes.** One call must not take two references
 whose places share a root, the local, module variable or binding they are reached through, when
@@ -8000,9 +8021,9 @@ reads or writes by its name, when either side is written. A method's object and 
 local function writes count as references. Each is `TS8074`, which names the variable:
 
 ```ts
-swap(ref(x), ref(x)); // TS8074: one variable twice
-swap(ref(o.a), ref(o.b)); // TS8074: two fields of one variable
-addUp(ref(o.a), ref(o.b)); // fine when addUp only reads both
+swap(x, x); // TS8074: one variable twice
+swap(o.a, o.b); // TS8074: two fields of one variable
+addUp(o.a, o.b); // fine when addUp only reads both
 ```
 
 This is WGSL's alias analysis, measured on Tint (`invalid aliased pointer argument`) with the
@@ -8011,13 +8032,13 @@ return in an order it leaves undefined, so these calls are the one place two tar
 disagree. A reference lives for its call only: between calls the variable is read and written
 as always.
 
-**A local function captures a reference.** A local function reads and writes a `Ref<T>`
+**A local function captures a reference.** A local function reads and writes a qualified
 parameter of the function around it as it does any variable it captures (§14): it takes the
 place by value while it only reads it, and by reference once it writes it. Inside it, the
-parameter is the caller's place, handed on bare or as `ref` of it.
+parameter is the caller's place, handed on as itself.
 
 ```ts
-function scaleBoth(a: Ref<f32>, b: Ref<f32>, k: f32): void {
+function scaleBoth(@inout a: f32, @inout b: f32, k: f32): void {
   const scale = (): void => {
     a = a * k;
     b = b * k;
@@ -8028,14 +8049,13 @@ function scaleBoth(a: Ref<f32>, b: Ref<f32>, k: f32): void {
 
 WGSL hands the pointer on, `scaleBoth_scale(a, k, b)` with `a: ptr<function, f32>`, and GLSL
 ES 3.00 the `inout` parameter, `inout float a`. The call of `scale` counts `a` and `b` as
-references in the check above, so `scaleBoth(ref(x), ref(x), 2.)` is `TS8074`.
+references in the check above, so `scaleBoth(x, x, 2.)` is `TS8074`.
 
-**The host.** A host call passes values (§64), so an export whose parameter is a `Ref<T>` is
+**The host.** A host call passes values (§64), so an export whose parameter is qualified is
 declared `never` in the host view, with the reason; a function of the module calls it.
 
-**Later, on the same model.** Change 0040 lists what may follow: a local reference
-(`let r = ref(xs[i])`), a read-only reference, a slice of an array, `this` restated as a
-`Ref<Self>` parameter, and the sigils `&` and `*` as another spelling. None of a reference
-stored, returned, compared or offset follows, since no GPU target has it.
+**Later, on the same model.** Change 0040 lists what may follow: a local reference, a read-only
+reference, a slice of an array, and `this` restated as an `@inout` parameter. None of a
+reference stored, returned, compared or offset follows, since no GPU target has it.
 
 Last updated: 2026-09-29

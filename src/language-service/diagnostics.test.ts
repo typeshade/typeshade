@@ -1253,9 +1253,9 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     expect(withNeverAssigned(source, ['calls', 'acc'])).toEqual([]);
   });
 
-  it('keeps it on a local read before its first assignment, which TypeScript 5.6 reports too', () => {
-    // Rule 7.6: the read is zero on WGSL and undefined on GLSL ES 3.00, so the compiler accepts
-    // it and the editor keeps TypeScript's word for it.
+  it('leaves a local read before its first assignment to the compiler, which says TS8075', () => {
+    // Rule 7.6 (change 0043): the compiler refuses the read by TypeScript's own rule, and the
+    // editor shows that one sentence in TypeScript's place.
     const source =
       '"use typeshade"\n' +
       'declare const dst: storage<array<f32>, "read_write">\n' +
@@ -1266,15 +1266,17 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
       '  let x: f32\n' +
       '  dst[lid.x] = x + tile[lid.x]\n' +
       '}\n';
-    expect(compiled(source)).toEqual([]);
-    expect(typeScriptDiagnosticsOf(source)).toEqual([
-      "TS2454: Variable 'x' is used before being assigned.",
-    ]);
+    const said =
+      'TS8075 "x" is read here before it is assigned on every path. Assign it before this ' +
+      'read, or declare it with a value (Rule 7.6).';
+    expect(compiled(source)).toEqual([said]);
+    expect(typeScriptDiagnosticsOf(source)).toEqual([]);
+    expect(diagnosticsOf(source).map((d) => `${String(d.code)} ${d.message}`)).toEqual([said]);
   });
 
-  it('keeps it on an unassigned local that shadows the workgroup name', () => {
-    // The checker resolves `tile` here to the local, so the rule leaves TypeScript's TS2454
-    // on the local, even though the workgroup value with that name is initialized.
+  it('reads an unassigned local that shadows the workgroup name as the local', () => {
+    // The compiler resolves `tile` here to the local, so TS8075 falls on the local, even though
+    // the workgroup value with that name is initialized.
     const source =
       '"use typeshade"\n' +
       'declare const dst: storage<array<f32>, "read_write">\n' +
@@ -1284,10 +1286,11 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
       '  let tile: f32\n' +
       '  dst[lid.x] = tile\n' +
       '}\n';
-    expect(compiled(source)).toEqual([]);
-    expect(typeScriptDiagnosticsOf(source)).toEqual([
-      "TS2454: Variable 'tile' is used before being assigned.",
+    expect(compiled(source)).toEqual([
+      'TS8075 "tile" is read here before it is assigned on every path. Assign it before this ' +
+        'read, or declare it with a value (Rule 7.6).',
     ]);
+    expect(typeScriptDiagnosticsOf(source)).toEqual([]);
   });
 });
 

@@ -242,24 +242,26 @@ export const TS_CODES = {
    *  `import(...)`, `require`, a module namespace used as a value). Reported on the import, and a
    *  use of the name it would have bound reports nothing more (Rule 12.4). */
   IMPORT: 'TS8072',
-  /** A reference parameter written or passed where this version does not take one (Rule 8.25,
-   *  surface §70, proposal 0040): a `Ref<T>` parameter handed a value rather than `ref(x)`;
-   *  `ref(...)` handed something that is not a place a function may write (a value parameter, a
-   *  `const` that may share its value, a read-only binding, a literal, a temporary, a component
-   *  of a vector); `ref(...)` anywhere but as the argument of a `Ref<T>` parameter, and handed to
-   *  a parameter that takes a value; `Ref<T>` anywhere but as a parameter of a function declared
-   *  at the top of the file or of a namespace (a return, a field, a local, a method's, a local
-   *  function's, an entry's, a generic function's). A local function that captures a `Ref<T>`
-   *  parameter is no error: it takes the place as any variable it captures (Rule 8.17). Each
-   *  names the edit. */
+  /** A parameter qualifier where this version does not take one, or an argument it cannot take
+   *  (Rule 8.25, surface §70, proposal 0040): `@inout` or `@out` handed a value nothing holds,
+   *  or a place a function may not write (a value parameter, a `const` that may share its value,
+   *  a read-only binding, a component of a vector); a qualifier on a parameter of a method, a
+   *  local function, an entry, a function written as an argument or a generic function; two
+   *  qualifiers on one parameter; a default on a qualified parameter. Each names the edit. */
   REFERENCE: 'TS8073',
   /** Two references to one place in one call (Rule 8.25, surface §70, proposal 0040): two
-   *  arguments a callee takes by reference whose places share a root (`swap(ref(x), ref(x))`,
-   *  `swap(ref(o.a), ref(o.b))`), a method's object or a variable a local function writes beside
-   *  a `ref(...)` of the same root, and a `ref(...)` of a module variable or binding that the
-   *  callee also reads or writes directly. WGSL's alias analysis refuses the same programs; GLSL
-   *  ES 3.00's copy-in and copy-out and the CPU's store-back would disagree on them. */
+   *  arguments a callee takes by reference whose places share a root (`swap(x, x)`,
+   *  `swap(o.a, o.b)`), a method's object or a variable a local function writes beside another
+   *  argument of the same root, and an argument that is a module variable or binding the callee
+   *  also reads or writes directly. WGSL's alias analysis refuses the same programs; GLSL ES
+   *  3.00's copy-in and copy-out and the CPU's store-back would disagree on them. */
   REFERENCE_ALIAS: 'TS8074',
+  /** A read before an assignment (Rule 7.6, proposal 0043): a local read on a path where it is
+   *  not yet assigned, by TypeScript's TS2454 rule, with an argument handed to an `@out`
+   *  parameter counting as an assignment; an `@out` parameter read before the function writes
+   *  it, or a path that returns without writing it (Rule 8.25). The editor shows this code where
+   *  TypeScript reported TS2454. */
+  UNASSIGNED_READ: 'TS8075',
   UNSUPPORTED: 'TS8099',
 } as const;
 

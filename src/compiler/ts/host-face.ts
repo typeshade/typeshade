@@ -175,7 +175,7 @@ const REASON = {
   takesFunction:
     'it takes a function, and such a function exists only as the copies the module uses; no proposal adds it yet',
   reference: (p: string) =>
-    `parameter "${p}" is a reference, Ref<T>, which names a place of a shader's caller, and a host call passes values (Rule 8.21); call it from a function of the module, since no proposal adds a host reference yet`,
+    `parameter "${p}" is @inout or @out, which names a place of a shader's caller, and a host call passes values (Rule 8.21); call it from a function of the module, since no proposal adds a host reference yet`,
   binding:
     'it reaches a resource binding, which a helper call passes none of; call the entry that uses it (Rule 8.24)',
   workgroup:
