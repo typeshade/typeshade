@@ -1188,8 +1188,10 @@ scalar or a vector, so `storage<array<vec4>>` holds one `vec4` for each element.
 GLSL ES 3.00 has no storage buffer object, so a read binding lowers to a data-texture fetch
 at emit and the shader source stays as written. On the GLSL target the host allocates that
 data texture, and its internal format has to match the sampler the lowering declares: R32F
-for a float array, R32UI for `array<u32>`, R32I for `array<i32>`. Nothing checks the pairing
-at runtime, so read the element off `reflect()` instead of tracking it separately.
+for a float array, R32UI for `array<u32>` and `array<vecN<u32>>`, R32I for `array<i32>` and
+`array<vecN<i32>>`. A vector element takes its std430 lanes, so a `vec4u` is four texels.
+Nothing checks the pairing at runtime, so read the element off `reflect()` instead of tracking
+it separately.
 
 That lowering only gathers, so a `'read_write'` binding on the GLSL target is a build-time
 error. Prefer `'read'` unless the module is WGSL-only. A `'read_write'` binding in a module

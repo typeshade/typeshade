@@ -1363,7 +1363,8 @@ function emitGlslEntry(
 // array<u32> / array<i32> (X-GIS #1703) close what used to be the residual here: they lower to a
 // TYPED data texture (R32UI / R32I via usampler2D / isampler2D) rather than reusing the R32F
 // one, because GLSL ES 3.00 §2.1.1 permits flushing denormals to zero and small integers are
-// denormal f32 bit patterns — a bitcast lane may legally lose them.
+// denormal f32 bit patterns — a bitcast lane may legally lose them. array<vecN<u32>> /
+// array<vecN<i32>> (#484) read their std430 lanes from the same typed textures.
 // Struct-array storage layout: the std430 f32-lane offset of each field + the element stride
 // (f32 lanes). A scalar field is one lane (u32 lanes are bitcast back); a vecN<f32> field is N
 // consecutive lanes recombined with a vec ctor. mat / vec<u32> fields are excluded (throw on
@@ -1378,7 +1379,7 @@ interface StructStorage {
 // Every residual throw below is now on the DEFAULT emit path, so each message names the
 // offending binding/field AND the shapes that do lower.
 const SUPPORTED_STORAGE_SHAPES =
-  'supported: array<f32>, array<u32>, array<i32>, array<vecN<f32>>, array<Struct of f32 / u32 (bitcast) / vecN<f32> fields>';
+  'supported: array<f32>, array<u32>, array<i32>, array<vecN<f32>>, array<vecN<u32>>, array<vecN<i32>>, array<Struct of f32 / u32 (bitcast) / vecN<f32> fields>';
 
 /** Flatten every `glsl: 'loose'` HOST-owned uniform block into one default-block uniform per
  *  member, rewriting `block.field` reads to bare `field` (X-GIS #1710).
@@ -1470,7 +1471,9 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   const f32Names = new Set<string>(); // array<f32> storage
   // array<vecN<f32>> storage — element i = `stride` consecutive f32 lanes (std430:
   // vec2 stride 2, vec3/vec4 stride 4), the first `n` recombined with a vec ctor.
-  const vecStorage = new Map<string, { n: number; stride: number }>();
+  // array<vecN<u32>> / array<vecN<i32>> (#484) take the same lanes from the typed texture
+  // their scalar array uses, so `elem` picks the fetch and the sampler.
+  const vecStorage = new Map<string, { n: number; stride: number; elem: 'f32' | 'u32' | 'i32' }>();
   const structStorage = new Map<string, StructStorage>(); // array<Struct> storage
   const intStorage = new Map<string, 'u32' | 'i32'>(); // array<u32> / array<i32> storage (X-GIS #1703)
   for (const b of m.bindings) {
@@ -1504,15 +1507,20 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     // bit patterns — `1u` is 1.4e-45. That route survives on every driver measured so
     // far and is legal to break anywhere else, which is not a foundation for an
     // exact-integer array. (The struct-FIELD u32 lane further down still bitcasts
-    // through R32F — pre-existing and deliberately untouched here.)
+    // through R32F — pre-existing and deliberately untouched here; #484 part 2.)
     if (elem.kind === 'scalar' && (elem.scalar === 'u32' || elem.scalar === 'i32')) {
       intStorage.set(b.name, elem.scalar);
       continue;
     }
-    if (elem.kind === 'vec' && elem.elem === 'f32') {
+    if (
+      elem.kind === 'vec' &&
+      (elem.elem === 'f32' || elem.elem === 'u32' || elem.elem === 'i32')
+    ) {
       // std430 array stride: vec2 = 8 B (2 lanes); vec3/vec4 = 16 B (4 lanes — vec3
-      // rounds up to its 16 B alignment). The CPU packs against the same std430.
-      vecStorage.set(b.name, { n: elem.n, stride: elem.n === 2 ? 2 : 4 });
+      // rounds up to its 16 B alignment). The CPU packs against the same std430. An integer
+      // vector reads its lanes from an R32UI / R32I texture, bit-exact, as array<u32> does.
+      vecStorage.set(b.name, { n: elem.n, stride: elem.n === 2 ? 2 : 4, elem: elem.elem });
+      if (elem.elem !== 'f32') intStorage.set(b.name, elem.elem);
       continue;
     }
     if (elem.kind === 'struct') {
@@ -1644,7 +1652,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
         if (e.base.op === 'varref' && f32Names.has(e.base.name))
           return fetch(e.base.name, rE(e.idx));
         // ids[i] → storageFetchU32(ids, i) — one texel, one element, no lane math (X-GIS #1703).
-        if (e.base.op === 'varref' && intStorage.has(e.base.name))
+        if (e.base.op === 'varref' && intStorage.has(e.base.name) && !vecStorage.has(e.base.name))
           return fetchInt(e.base.name, rE(e.idx));
         if (e.base.op === 'varref' && vecStorage.has(e.base.name)) {
           // tint[i] → vecN(fetch(i*stride), …, fetch(i*stride+n-1)).
@@ -1660,7 +1668,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
           for (let k = 0; k < vs.n; k++) {
             const lane: Expr =
               k === 0 ? baseLane : { op: 'binop', type: u32T, bop: '+', a: baseLane, b: u32lit(k) };
-            comps.push(fetch(e.base.name, lane));
+            comps.push(vs.elem === 'f32' ? fetch(e.base.name, lane) : fetchInt(e.base.name, lane));
           }
           return { op: 'construct', type: e.type, args: comps };
         }
