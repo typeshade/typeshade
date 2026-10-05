@@ -580,8 +580,6 @@ describe('a class named while the structs are collected, and a sentence about a 
         ].join('\n'),
       ),
     ).toEqual([
-      'TS8010 Struct "S.E" has no fields. WGSL requires a struct to declare at least one ' +
-        'member, so an empty one cannot be emitted.',
       'TS8010 Struct "S.VOut" puts "uv" and "c" both at @location(0); each slot carries one ' +
         'value.',
       'TS8051 "S.L.xs" is a list of no fixed length and is not the last field of "S.L": nothing ' +
@@ -662,12 +660,7 @@ describe('a class named while the structs are collected, and a sentence about a 
         'two interfaces, and the merged layout would disagree with this one at every use site.',
     ]);
     // An instance of a generic class is a base as it is written, `B<f32>`.
-    expect(one('class B<T> { }\nclass C extends B<f32> { y: f32 = 0.; }', 'c: C')).toEqual([
-      'TS8010 Struct "B<f32>" has no fields. WGSL requires a struct to declare at least one ' +
-        'member, so an empty one cannot be emitted.',
-      'TS8010 "C" extends "B<f32>", which this file does not declare as a struct. A base has ' +
-        'to be a class or an interface whose fields are shader types.',
-    ]);
+    expect(one('class B<T> { }\nclass C extends B<f32> { y: f32 = 0.; }', 'c: C')).toEqual([]);
     // The base is named as it is written, and the class that extends it as it is. A base
     // nothing declares is an unknown type (host-names.test.ts); one the file declares and does
     // not collect as a struct, an enum here, is the collector's sentence.

@@ -829,8 +829,34 @@ export function lowerCall(
       return undefined;
     }
   }
-  const type = mathResultType(intrinsicId, args);
-  return { op: 'call', type, fn: divergentIntegerId(intrinsicId, args[0]?.type, type), args };
+  const loweredArgs = broadcastComponentwiseScalar(intrinsicId, args);
+  const type = mathResultType(intrinsicId, loweredArgs);
+  return {
+    op: 'call',
+    type,
+    fn: divergentIntegerId(intrinsicId, loweredArgs[0]?.type, type),
+    args: loweredArgs,
+  };
+}
+
+/** WGSL's `min`/`max` overloads require equal operand shapes, while TypeShade's authoring
+ * language also admits the componentwise scalar broadcast its EDSL and CPU oracle already use.
+ * Materialize the scalar as a one-argument vector constructor at the boundary so both GPU
+ * backends receive portable WGSL/GLSL and the source language does not expose a backend quirk. */
+function broadcastComponentwiseScalar(fn: string, args: readonly Expr[]): Expr[] {
+  if ((fn !== 'min' && fn !== 'max') || args.length !== 2) return [...args];
+  const first = args[0]!;
+  const second = args[1]!;
+  if (first.type.kind !== 'vec' || second.type.kind !== 'scalar') return [...args];
+  if (first.type.elem !== second.type.scalar) return [...args];
+  return [
+    first,
+    {
+      op: 'construct',
+      type: first.type,
+      args: [second],
+    },
+  ];
 }
 
 /** The scalar type a vector constructor's components must have, or undefined for the

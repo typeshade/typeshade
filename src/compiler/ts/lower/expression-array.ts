@@ -211,7 +211,7 @@ export function lowerArrayLiteral(
       );
       return undefined;
     }
-    const lowered = lowerExpression(element, sourceFile, scope, diagnostics);
+    const lowered = lowerExpression(element, sourceFile, scope, diagnostics, target.elem);
     if (!lowered) return undefined;
     const typed = typeArrayElement(
       element,
