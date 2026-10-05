@@ -1,7 +1,7 @@
 ---
 id: '0040'
 title: Reference parameters, written `@inout` and `@out` with `@in` beside them, by the model that already carries `this`
-status: accepted
+status: implemented
 rules:
 - '2.1'
 - '6.7'
@@ -41,7 +41,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0040`, `status: accepted`. The front matter is the lifecycle authority. The third amendment returned the proposal from `implemented` to `accepted`; the pull request that implements it sets `implemented` again.                                                                                                                                                                                                                                                                                                                                                       |
+| Identity and status           | Change proposal `0040`, `status: implemented`. The front matter is the lifecycle authority. The third amendment returned the proposal to `accepted`, and the pull request that implements it set `implemented` again.                                                                                                                                                                                                                                                                                                                                                                    |
 | Revision context date         | 2026-10-05, Asia/Seoul: the date of the three amendments' authoring, not of an approval or an implementation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Amendment                     | This revision replaces the design accepted in [PR #444](https://github.com/typeshade/typeshade/pull/444) (merged 2026-10-04, review baseline `c214e4d6caa3b2fe1a0fd32fa30636d8a4f7f484`, reviewed revision `4e7e1785a0f4d6a9e4513729d8236c9ae709f485`). That design added pointer syntax (`*T`, `&place`, `*pointer`), lexical exclusive borrows and the removal of `**`. The owner directed this amendment in conversation on 2026-10-05 after a review of that design; the merge of this amendment's pull request is the acceptance of the revised design. Git holds the earlier text. |
 | Second amendment              | This revision lets a local function capture a `Ref<T>` parameter, which the text implemented in [PR #451](https://github.com/typeshade/typeshade/pull/451) refused. It also states in the text what three deviations of that implementation do (Configuration and validation record). The owner directed it in conversation on 2026-10-05, after the capture was measured. The merge of its pull request is its acceptance. Git holds the earlier text.                                                                                                                                  |
@@ -382,9 +382,9 @@ The second amendment's approval is the merge of
 `a73e5756786cc8403cb62d39e7b64111567a3ff5`), which the owner directed in conversation.
 Responsibilities, milestones, duration and cost were not assigned.
 
-The third amendment is approved by the merge of its pull request, at the owner's direction.
-That merge has not happened at this revision. The pull request that implements it records the
-merge commit.
+The third amendment's approval is the merge of
+[PR #469](https://github.com/typeshade/typeshade/pull/469) on 2026-10-05 (merge commit
+`c00f6afb6784c48ff437db1690c7542c8f7a2f9c`), which the owner directed in conversation ("머지허가").
 
 ### Configuration and validation record
 
@@ -505,11 +505,45 @@ Document validation the same day: `docs:impact` (each review item read; the comm
 and RULE-0825 reviewed, SURF-004, SURF-014, SURF-027 and SURF-070 cleared after reading),
 `format:check`, `lint` and `build`.
 
+**Third amendment implementation.** A pull request with `Change: 0040` and `Change: 0043` on the
+base `c00f6afb6784c48ff437db1690c7542c8f7a2f9c`, by the repository's coding agent at the owner's
+direction. Delivered: `@inout` and `@out` in the attribute tables (`src/compiler/ts/builtin-check.ts`)
+and read by `parseParams` (`src/compiler/ts/lower/function.ts`), with the placement refusals;
+the unmarked argument (`lowerReferenceArgument` in `src/compiler/ts/lower/references.ts`), which
+also hands a qualified parameter on as itself; a method that hands `this.n` to a qualified
+parameter writes its object (`src/compiler/ts/lower/class-methods.ts`); `@out`'s definite writes
+in change 0043's pass (`src/compiler/ts/definite.ts`); `Ref<T>`, `ref()` and their refusals
+removed from the type mapper, the call lowering and the ambient library; the ambient decorators
+`inout` and `out` with their documentation; the hover of a qualified parameter and of its
+function (`src/language-service/hover.ts`); the rules, the surface sections, `AUTHORING.md`, the
+changelog, the roadmap row and the example, with `project` writing through `@out`.
+
+Functional validation on 2026-10-05, the same container and versions:
+
+- `src/compiler/ts/reference-parameters.test.ts`, 51 cases: each program on every CPU path, the
+  WGSL and GLSL text, each refusal's code and text in the compiler and in the editor, the hover of
+  a parameter and of a function, and an `@out` result written into a local with no value.
+- `src/compiler/ts/definite-assignment.test.ts`, 24 cases (change 0043).
+- The full unit suite, `bun run gate:compile` and `bun run gate:differential`: the results are in
+  this pull request's description.
+
+**Deviations of the third amendment's implementation.**
+
+6. Open. The amendment named a third qualifier, `@in`. TypeScript does not parse `@in`, since
+   `in` is a reserved word ("Expression expected.", measured on 2026-10-05), so no file can
+   write it. It is not implemented: a parameter with no qualifier is GLSL's `in`. The text
+   above still names `@in`, and an amendment that removes it is owed.
+7. Open. The amendment named an inlay hint `&` from the compiler's analysis in
+   `src/language-service/`. A new method of the language service reshapes a public export,
+   which this proposal does not declare. The qualifier is on the declaration in the source, so
+   the tsserver plugin computes the hint itself (What it owes downstream); the compiler delivers
+   none.
+8. Closed. The amendment allowed GLSL to spell `@out` as `out`. Every target keeps `inout`, as
+   the text allows: under the definite writes the two are one.
+
 **Pending.**
 
-- The third amendment (the qualifiers, the unmarked argument, `@out`'s definite writes, the
-  inlay hint): not started at this record. Its implementation pull request records the
-  amendment's merge and sets `status: implemented` again. Change 0043 is implemented with it.
+- An amendment that removes `@in` from the text (deviation 6).
 - The site's and the editor's work below, each with its pin and `0040` recorded in its
   `compiler-changes.md`: not started at this record.
 

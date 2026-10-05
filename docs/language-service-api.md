@@ -600,9 +600,9 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   a `let` that no statement assigns as used before being assigned (TS2454) in every function
   that reads it; 5.6, the version this repository installs, reports nothing. The Playground
   bundles TypeScript 5.9, and four compute examples would not compile there. The service drops
-  TS2454 when the checker resolves the name to a top-level `let`, the declaration the front end
-  makes a module variable of. A local read before its first assignment keeps it (Rule 7.6),
-  since GLSL ES 3.00 leaves a local undefined.
+  every TS2454. A local read before its first assignment is the compiler's `TS8075` (Rule 7.6,
+  proposal 0043), which reads TypeScript's rule and also counts an argument an `@out` parameter
+  takes as an assignment; the editor shows that sentence in TypeScript's place.
 - WGSL's phony assignment `_ = f(x)` (surface §19, §52) names `_`, which no source of the
   surface declares (`surface-names.test.ts`), so TypeScript reports TS2304 on it. The service
   drops that TS2304 on the `_` of a statement the compiler lowers as the phony assignment (the

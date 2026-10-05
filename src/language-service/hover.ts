@@ -1,11 +1,11 @@
 // === Hover: TypeScript quick info for user symbols, TypeShade docs for the vocabulary (§5) ===
 
 import ts from 'typescript';
+import { qualifiersOf } from '../compiler/ts/lower/references.js';
 import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import type { DeclaredSymbol } from '../compiler/ts/symbols.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { wgslType } from '../core/backends/wgsl.js';
-import { sourceSpanOf } from '../core/ir/span.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js';
 import { rangeForSpan, touchingNodeAtPosition, wordSpan } from './positions.js';
@@ -135,44 +135,53 @@ function declaredSymbolAt(
   return undefined;
 }
 
-/** Whether `param`, a parameter the front end recorded, is a `Ref<T>` parameter: the function
- *  whose span holds it takes it by reference, `mode: 'inout'`, and is no kernel function, whose
- *  arrays are passed that way too (Rule 8.23). */
-function isReferenceParam(analysis: CompileTsSourceResult, param: DeclaredSymbol): boolean {
-  return analysis.funcs.some((f) => {
-    const span = sourceSpanOf(f);
-    if (f.kernel === true || span === undefined) return false;
-    if (param.start < span.start || param.start >= span.start + span.length) return false;
-    return f.params.some((p) => p.name === param.name && p.mode === 'inout');
-  });
+/** The qualifier written on the parameter the front end recorded as `param`, `@inout` or `@out`
+ *  (Rule 8.25), read off the declaration in the source. */
+function qualifierOfParam(sourceFile: ts.SourceFile, param: DeclaredSymbol): string | undefined {
+  let node: ts.Node | undefined = nodeAt(sourceFile, param.start);
+  while (node !== undefined && !ts.isParameter(node)) node = node.parent;
+  return node === undefined ? undefined : qualifiersOf(node)[0]?.name;
 }
 
-/** The parameters of the function `fn`, a function the front end recorded, that it takes by
- *  reference, `Ref<T>` (Rule 8.25): those the lowered function whose span holds the name takes
- *  as `mode: 'inout'`, a kernel function's arrays aside (Rule 8.23). */
-function referenceParamsOf(analysis: CompileTsSourceResult, fn: DeclaredSymbol): Set<string> {
-  const lowered = analysis.funcs.find((f) => {
-    const span = sourceSpanOf(f);
-    if (f.kernel === true || span === undefined) return false;
-    return fn.start >= span.start && fn.start < span.start + span.length;
-  });
-  const declared = new Set((fn.params ?? []).map((p) => p.name));
-  return new Set(
-    (lowered?.params ?? [])
-      .filter((p) => p.mode === 'inout' && declared.has(p.name))
-      .map((p) => p.name),
-  );
+/** The qualifier of each parameter of the function the front end recorded as `fn`, by name. */
+function qualifiersOfFunction(
+  sourceFile: ts.SourceFile,
+  fn: DeclaredSymbol,
+): ReadonlyMap<string, string> {
+  let node: ts.Node | undefined = nodeAt(sourceFile, fn.start);
+  while (node !== undefined && !ts.isFunctionDeclaration(node)) node = node.parent;
+  const out = new Map<string, string>();
+  for (const p of node?.parameters ?? []) {
+    const q = qualifiersOf(p)[0];
+    if (q !== undefined && ts.isIdentifier(p.name)) out.set(p.name.text, q.name);
+  }
+  return out;
 }
 
-/** What a `Ref<T>` parameter is, in one paragraph: the caller's place, and how each target
- *  spells it (Rule 8.25, surface section 70). */
-function referenceLine(param: DeclaredSymbol): string {
-  return (
-    `Names the caller's place: reading \`${param.name}\` reads it, and assigning to it, or to a ` +
-    `field, component or element of it, writes it. The caller passes the place with ` +
-    `\`ref(x)\`. WGSL takes it as a pointer, \`ptr<function, ${wgslType(param.type)}>\` for a ` +
-    `local; GLSL ES 3.00 as an \`inout\` parameter.`
-  );
+/** The innermost node of `sourceFile` that starts at or covers `pos`. */
+function nodeAt(sourceFile: ts.SourceFile, pos: number): ts.Node | undefined {
+  let found: ts.Node | undefined;
+  const visit = (n: ts.Node): void => {
+    if (pos < n.getStart(sourceFile) || pos >= n.getEnd()) return;
+    found = n;
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
+/** What an `@inout` or `@out` parameter is, in one paragraph: the caller's place, and how each
+ *  target spells it (Rule 8.25, surface section 70). */
+function referenceLine(param: DeclaredSymbol, qualifier: string): string {
+  return qualifier === 'out'
+    ? `Names a place of the caller's that the function writes: write \`${param.name}\` before ` +
+        `reading it, and on every path before returning. The caller passes a variable, which ` +
+        `may have no value yet. WGSL takes it as a pointer, \`ptr<function, ` +
+        `${wgslType(param.type)}>\` for a local; GLSL ES 3.00 as an \`out\` parameter.`
+    : `Names the caller's place: reading \`${param.name}\` reads it, and assigning to it, or to ` +
+        `a field, component or element of it, writes it. The caller passes a variable. WGSL ` +
+        `takes it as a pointer, \`ptr<function, ${wgslType(param.type)}>\` for a local; GLSL ES ` +
+        `3.00 as an \`inout\` parameter.`;
 }
 
 /**
@@ -184,7 +193,7 @@ function referenceLine(param: DeclaredSymbol): string {
 function declarationLine(
   symbol: DeclaredSymbol,
   moduleVar: boolean,
-  references: ReadonlySet<string> = new Set(),
+  qualifiers: ReadonlyMap<string, string> = new Map(),
 ): string | undefined {
   const type = spellShaderType(symbol.type);
   switch (symbol.kind) {
@@ -206,11 +215,10 @@ function declarationLine(
       return `${moduleVar ? 'let' : 'const'} ${symbol.name}: ${type}`;
     case 'function': {
       const params = (symbol.params ?? [])
-        .map((p) =>
-          references.has(p.name)
-            ? `${p.name}: Ref<${spellShaderType(p.type)}>`
-            : `${p.name}: ${spellShaderType(p.type)}`,
-        )
+        .map((p) => {
+          const q = qualifiers.get(p.name);
+          return `${q !== undefined ? `@${q} ` : ''}${p.name}: ${spellShaderType(p.type)}`;
+        })
         .join(', ');
       return `function ${symbol.name}(${params}): ${type}`;
     }
@@ -294,25 +302,25 @@ export function getHover(
   const declared = declaredSymbolAt(analysis, uri, defs);
   // A module variable is recorded as a binding, and the module's variables tell the two apart.
   const moduleVar = declared !== undefined && analysis.vars.some((v) => v.name === declared.name);
-  // A `Ref<T>` parameter is a `param` to the symbol table, and the function the front end
-  // lowered says it takes the parameter by reference (Rule 8.25).
-  const reference = declared?.kind === 'param' ? isReferenceParam(analysis, declared) : false;
+  // An `@inout` or `@out` parameter is a `param` to the symbol table, and its declaration
+  // carries the qualifier (Rule 8.25).
+  const qualifier = declared?.kind === 'param' ? qualifierOfParam(sourceFile, declared) : undefined;
   const display =
-    (reference
-      ? `(parameter) ${declared!.name}: Ref<${spellShaderType(declared!.type)}>`
+    (qualifier !== undefined
+      ? `(parameter) @${qualifier} ${declared!.name}: ${spellShaderType(declared!.type)}`
       : undefined) ??
     (declared !== undefined
       ? declarationLine(
           declared,
           moduleVar,
-          declared.kind === 'function' ? referenceParamsOf(analysis, declared) : undefined,
+          declared.kind === 'function' ? qualifiersOfFunction(sourceFile, declared) : undefined,
         )
       : undefined) ??
     ts.displayPartsToString(quickInfo.displayParts);
   const documentation = ts.displayPartsToString(quickInfo.documentation);
   const resource = resourceBindingLine(analysis, sourceFile, uri, defs, node);
   const sections = [`\`\`\`ts\n${display}\n\`\`\``];
-  if (reference) sections.push(referenceLine(declared!));
+  if (qualifier !== undefined) sections.push(referenceLine(declared!, qualifier));
   if (resource !== undefined) sections.push(resource);
   if (documentation) sections.push(documentation);
   return { contents: sections.join('\n\n'), range: rangeForSpan(sourceFile, quickInfo.textSpan) };

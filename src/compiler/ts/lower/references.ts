@@ -1,15 +1,16 @@
-// ═══ Reference parameters: `p: Ref<T>` and `ref(place)` (Rule 8.25, surface §70, proposal 0040) ═══
+// ═══ Parameter qualifiers: `@inout` and `@out` (Rule 8.25, surface §70, proposal 0040) ═══
 //
-// A function of the file may take the caller's place instead of a copy of its value: `p: Ref<T>`
-// on the parameter, `ref(x)` at the call. The model is the one a method that changes its object
-// already has (Rule 8.10): the IR marks the parameter `mode: 'inout'`, the callee's body reads
-// and writes it as a local, and each target spells it its own way, a pointer on WGSL
-// (`swap(&x, &y)`, `*a = *b`), an `inout` qualifier on GLSL ES 3.00, a copy in and a store back
-// on the CPU. Nothing new reaches the IR.
+// A function of the file may take the caller's place instead of a copy of its value: `@inout p:
+// T` or `@out p: T` on the parameter, and the variable itself, unmarked, at the call. The model is
+// the one a method that changes its object already has (Rule 8.10): the IR marks the parameter
+// `mode: 'inout'`, the callee's body reads and writes it as a local, and each target spells it its
+// own way, a pointer on WGSL (`swap(&x, &y)`, `*a = *b`), an `inout` qualifier on GLSL ES 3.00, a
+// copy in and a store back on the CPU. Nothing new reaches the IR: `@out`'s definite writes
+// (`definite.ts`) make it equal to `@inout` on every target.
 //
-// This file is the front end's half that is new: what `ref(...)` may be handed (the place rule a
-// method's object already follows), where `ref(...)` and a reference may stand, and the one
-// check a call with references gets, two references to one place (`checkReferenceAliases`).
+// This file is the front end's half that is new: what such a parameter may be handed (the place
+// rule a method's object already follows), which parameters are `@out`, and the one check a call
+// with references gets, two references to one place (`checkReferenceAliases`).
 
 import ts from 'typescript';
 import type {
@@ -36,9 +37,76 @@ import {
 import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
 import { lowerLValue } from './statement.js';
+import { QUALIFIER_NAMES } from '../builtin-check.js';
 
-/** The library's function that passes a place, `ref(x)` (Rule 9.6). */
-export const REFERENCE_FUNCTION = 'ref';
+/** The parameters declared `@out`, which `definite.ts` holds to their definite writes and
+ *  whose argument assigns the caller's local (proposal 0043). The IR keeps one mode for `@inout`
+ *  and `@out`, so the front end keeps this mark beside it. */
+const OUT_PARAMS = new WeakSet<object>();
+
+/** Mark `param` as one written `@out`. */
+export function markOutParam(param: FuncDecl['params'][number]): void {
+  OUT_PARAMS.add(param);
+}
+
+/** Whether `param` was written `@out`. */
+export function isOutParam(param: FuncDecl['params'][number] | undefined): boolean {
+  return param !== undefined && OUT_PARAMS.has(param);
+}
+
+/** The qualifier decorators written on `p` (`@inout`, `@out`), in source order. */
+export function qualifiersOf(p: ts.ParameterDeclaration): { name: string; node: ts.Decorator }[] {
+  const out: { name: string; node: ts.Decorator }[] = [];
+  for (const d of ts.canHaveDecorators(p) ? (ts.getDecorators(p) ?? []) : []) {
+    if (ts.isIdentifier(d.expression) && QUALIFIER_NAMES.includes(d.expression.text)) {
+      out.push({ name: d.expression.text, node: d });
+    }
+  }
+  return out;
+}
+
+/** The function of the file a call written `callee(...)` or `N.callee(...)` names, read off the
+ *  source before any body is lowered, or `undefined` for anything else. */
+export function fileFunctionCalled(
+  call: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+): ts.FunctionDeclaration | undefined {
+  const path: string[] = [];
+  let at: ts.Expression = call.expression;
+  while (ts.isPropertyAccessExpression(at)) {
+    path.unshift(at.name.text);
+    at = at.expression;
+  }
+  if (!ts.isIdentifier(at)) return undefined;
+  path.unshift(at.text);
+  let statements: readonly ts.Statement[] = sourceFile.statements;
+  for (const [i, name] of path.entries()) {
+    const last = i === path.length - 1;
+    let next: readonly ts.Statement[] | undefined;
+    for (const st of statements) {
+      if (last && ts.isFunctionDeclaration(st) && st.name?.text === name && st.body) return st;
+      if (!last && ts.isModuleDeclaration(st) && st.name.text === name) {
+        let b = st.body;
+        while (b !== undefined && ts.isModuleDeclaration(b)) b = b.body;
+        if (b !== undefined && ts.isModuleBlock(b)) next = b.statements;
+      }
+    }
+    if (next === undefined) return undefined;
+    statements = next;
+  }
+  return undefined;
+}
+
+/** Whether `call` hands its argument at `index` to an `@inout` or `@out` parameter of a function
+ *  of the file. */
+export function writesThroughArgument(
+  call: ts.CallExpression,
+  index: number,
+  sourceFile: ts.SourceFile,
+): boolean {
+  const p = fileFunctionCalled(call, sourceFile)?.parameters[index];
+  return p !== undefined && qualifiersOf(p).length > 0;
+}
 
 /** `e` without the parentheses around it. */
 function bare(e: ts.Expression): ts.Expression {
@@ -47,61 +115,12 @@ function bare(e: ts.Expression): ts.Expression {
   return x;
 }
 
-/** Whether `node` is a call of the library's `ref`, and not of a function the file declares
- *  under that name, which is the file's (Rule 2.1). */
-export function isReferenceCall(node: ts.Expression, scope: LoweringScope): boolean {
-  const call = bare(node);
-  return (
-    ts.isCallExpression(call) &&
-    ts.isIdentifier(call.expression) &&
-    call.expression.text === REFERENCE_FUNCTION &&
-    scope.resolveCallee(REFERENCE_FUNCTION) === undefined &&
-    scope.resolve(REFERENCE_FUNCTION) === undefined
-  );
-}
-
-/** What `ref(...)` written anywhere but as the argument of a reference parameter is told: the
- *  argument of a generic function, whose instance is made from argument values (Rule 8.25), or
- *  anywhere else, as a value. */
-export function refuseMisplacedReference(
-  node: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): undefined {
-  const written = `ref(${node.arguments[0]?.getText(sourceFile) ?? 'x'})`;
-  let at: ts.Node = node;
-  while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
-  const call = at.parent;
-  const generic =
-    ts.isCallExpression(call) &&
-    call.arguments.includes(at as ts.Expression) &&
-    ts.isIdentifier(call.expression) &&
-    scope.isGenericFunction(call.expression.text)
-      ? call.expression.text
-      : undefined;
-  diagnostics.push(
-    makeDiagnostic(
-      sourceFile,
-      node,
-      generic !== undefined
-        ? `"${generic}" is a generic function, which takes its parameters by value: its ` +
-            `instance is made from the types of the values it is handed, and ${written} hands a ` +
-            `place (Rule 8.25). Declare a function for the one type, with a Ref<T> parameter.`
-        : `${written} passes a place to a parameter declared Ref<T>, and is written only as ` +
-            `that argument: it is no value to keep, return or compute with (Rule 8.25). Write ` +
-            `the value itself here.`,
-      TS_CODES.REFERENCE,
-    ),
-  );
-  return undefined;
-}
-
-/** The argument a `Ref<T>` parameter takes, lowered as the place it names: `ref(x)`, `ref(o.a)`,
- *  `ref(xs[i])`, `ref(buf[i])` on a `read_write` storage binding, or a reference the caller
- *  holds itself, passed on as it is. Anything else is refused, with the edit, having said why.
+/** The argument an `@inout` or `@out` parameter takes, lowered as the place it names: `x`,
+ *  `o.a`, `xs[i]`, `buf[i]` on a `read_write` storage binding, or a qualified parameter the
+ *  caller holds itself, passed on as it is. Anything else is refused, with the edit, having said
+ *  why.
  *
- *  `ref(...)` takes what a method that changes its object takes as that object (Rule 8.10): a
+ *  The argument takes what a method that changes its object takes as that object (Rule 8.10): a
  *  `let`, a `const` whose initializer built its value (Rule 6.10), a module variable, a storage
  *  element, `this` where it is written, or a field or an element of one; and in addition a
  *  vector's component is refused, whose address WGSL does not take. */
@@ -117,34 +136,26 @@ export function lowerReferenceArgument(
     diagnostics.push(makeDiagnostic(sourceFile, node, message, TS_CODES.REFERENCE));
     return undefined;
   };
-  const takes = `"${shown}" takes "${param.name}" by reference, Ref<${authorTypeText(param.type)}>`;
-  const written = bare(arg);
-  if (!isReferenceCall(written, scope) || !ts.isCallExpression(written)) {
-    // A reference the caller holds is passed on as the same place (Rule 8.25), and so is one a
-    // local function captures, which the local function then takes by reference (Rule 8.17).
-    if (ts.isIdentifier(written)) {
-      const held = scope.resolve(written.text);
-      if (held !== undefined && writeRules(held).reference === true) {
-        held.capture?.byRef();
-        return {
-          op: held.kind === 'param' ? 'param' : 'varref',
-          type: held.type,
-          name: irNameOf(held),
-        };
-      }
+  const qualifier = isOutParam(param) ? '@out' : '@inout';
+  const takes =
+    `"${shown}" writes "${param.name}" back to the caller (${qualifier} ` +
+    `${param.name}: ${authorTypeText(param.type)})`;
+  const place = bare(arg);
+  // A qualified parameter the caller holds is passed on as the same place (Rule 8.25), and so is
+  // one a local function captures, which the local function then takes by reference (Rule 8.17).
+  if (ts.isIdentifier(place)) {
+    const held = scope.resolve(place.text);
+    if (held !== undefined && writeRules(held).reference === true) {
+      held.capture?.byRef();
+      return {
+        op: held.kind === 'param' ? 'param' : 'varref',
+        type: held.type,
+        name: irNameOf(held),
+      };
     }
-    return push(
-      arg,
-      `${takes}: pass the place with ref(${written.getText(sourceFile)}), which marks at the ` +
-        `call that "${shown}" may change it.`,
-    );
   }
-  if (written.arguments.length !== 1) {
-    return push(written, `ref(...) takes one argument, the place to pass: ref(x).`);
-  }
-  const place = bare(written.arguments[0]!);
-  // The root of the chain decides, as it does for a method's object: `ref(o.a)` and `ref(xs[i])`
-  // are places when `o` and `xs` are.
+  // The root of the chain decides, as it does for a method's object: `o.a` and `xs[i]` are
+  // places when `o` and `xs` are.
   const root = rootIdentifier(place);
   if (root !== undefined) {
     const found = scope.resolve(root.text);
@@ -153,11 +164,11 @@ export function lowerReferenceArgument(
       return push(
         place,
         `${takes}, and "${root.text}" is a parameter that holds a copy of its caller's value, ` +
-          `which this function cannot hand on as a place. Declare it "${root.text}: ` +
-          `Ref<${authorTypeText(b.type)}>" to pass its caller's place on, or copy it into a let.`,
+          `which this function cannot hand on as a place. Declare it "@inout ${root.text}: ` +
+          `${authorTypeText(b.type)}" to pass its caller's place on, or copy it into a let.`,
       );
     }
-    // `const v = new V(); f(ref(v))`: a `const` that holds a value nothing else does is written
+    // `const v = new V(); f(v)`: a `const` that holds a value nothing else does is written
     // through as TypeScript's is, and becomes a `var` (Rule 6.10).
     if (b !== undefined && !b.mutable && b.toVar !== undefined) b.toVar();
     if (b !== undefined && !b.mutable) {
@@ -166,7 +177,7 @@ export function lowerReferenceArgument(
         place,
         shared
           ? `${takes}, and "${root.text}" is a const whose value may be one something else ` +
-              `holds, which a reference would change with it. Declare it with let.`
+              `holds, which the call would change with it. Declare it with let.`
           : b.kind === 'binding'
             ? `${takes}, and "${root.text}" is ${readOnlyPhrase(b.kind)}.` +
               writableRemedy(b, sourceFile)
@@ -189,7 +200,7 @@ export function lowerReferenceArgument(
     return push(
       place,
       `${takes}, and "${place.getText(sourceFile)}" is a value nothing holds, so there is no ` +
-        `place to pass. Keep it in a let and pass ref of that.`,
+        `place to write. Keep it in a let and pass the let.`,
     );
   }
   const lowered = lowerLValue(place, sourceFile, scope, diagnostics, true);
@@ -200,14 +211,14 @@ export function lowerReferenceArgument(
       place,
       `${takes}, and "${place.getText(sourceFile)}" is a component of the vector ` +
         `${authorTypeText(part)}, which no target takes the address of. Pass the whole ` +
-        `vector, or copy the component into a let and pass ref of that.`,
+        `vector, or copy the component into a let and pass the let.`,
     );
   }
   if (typeKey(lowered.type) !== typeKey(param.type)) {
     return push(
       place,
-      `${takes}, and "${place.getText(sourceFile)}" is ${authorTypeText(lowered.type)}. A ` +
-        `reference names a place of exactly its type.`,
+      `${takes}, and "${place.getText(sourceFile)}" is ${authorTypeText(lowered.type)}. The ` +
+        `place must be of exactly the parameter's type.`,
     );
   }
   return lowered;
@@ -249,7 +260,7 @@ function rootOf(e: Expr): string | undefined {
 
 /** Two references to one place in one call, refused where the call is written (Rule 8.25).
  *
- *  Every argument a callee takes by reference counts: a `Ref<T>` parameter's, the object of a
+ *  Every argument a callee takes by reference counts: an `@inout` or `@out` parameter's, the object of a
  *  method that changes it, and a variable a local function writes (Rules 8.10 and 8.17), which
  *  the IR carries alike as `mode: 'inout'`. Two of them whose places share a root, when the
  *  callee writes either, are one place reached two ways: WGSL's alias analysis refuses the
@@ -321,7 +332,7 @@ export function checkReferenceAliases(
             `This call hands "${refs[i]!.root}" to "${shown}" by reference twice, as two places ` +
               `it may change: one variable reached two ways, which WGSL refuses and which ` +
               `GLSL's copy-in and copy-out would settle in no fixed order (Rule 8.25). Pass ` +
-              `distinct variables, or copy one into a let and pass ref of that.`,
+              `distinct variables, or copy one into a let and pass the let.`,
           );
         }
       }

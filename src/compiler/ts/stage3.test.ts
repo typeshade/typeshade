@@ -635,7 +635,7 @@ declare const s: sampler
 @fragment export function fs(): vec4 { return vec4(K) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic, @inout, @out.',
       ],
     ],
     [
@@ -712,7 +712,7 @@ declare const u: uniform<S>
       `@fragment export function fs(): vec4 { @bogus const k = 1.; return vec4(k) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic, @inout, @out.',
       ],
     ],
     [
@@ -721,7 +721,7 @@ declare const u: uniform<S>
 @fragment export function fs(): vec4 { return vec4(f32(Mode.B)) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic, @inout, @out.',
       ],
     ],
     [
@@ -744,7 +744,7 @@ declare const u: uniform<T>
 @fragment export function fs(): vec4 { return vec4(N.K) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic, @inout, @out.',
       ],
     ],
     [
@@ -753,7 +753,7 @@ declare const u: uniform<T>
 @fragment export function fs(): vec4 { return vec4(N.f()) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic, @inout, @out.',
       ],
     ],
     [
@@ -761,7 +761,7 @@ declare const u: uniform<T>
       `@fragment export function fs(): vec4 { @bogus function g(): f32 { return 1. } return vec4(g()) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic, @inout, @out.',
       ],
     ],
     [
@@ -775,7 +775,7 @@ declare const u: uniform<T>
 @fragment export function fs(): vec4 { return vec4(A.K) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic, @inout, @out.',
       ],
     ],
     [
@@ -808,6 +808,8 @@ declare const u: uniform<T>
       invariant: "an entry's input or output",
       blend_src: "a field of a fragment entry's output",
       diagnostic: 'a top-level function',
+      inout: 'a parameter of a function',
+      out: 'a parameter of a function',
     };
     expect(Object.keys(marks)).toEqual(ATTRIBUTE_NAMES);
     for (const name of ATTRIBUTE_NAMES) {
@@ -862,7 +864,7 @@ const K: f32 = 1.;
 describe('a decorator where nothing reads it (Rule 6.7)', () => {
   const UNKNOWN_BOGUS =
     'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-    '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.';
+    '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic, @inout, @out.';
   const NOT_A_NAME = (text: string): string =>
     `"${text}" is not applied: an attribute is written "@name" or "@name(...)". Remove it.`;
   const NOT_AN_ENTRY = (name: string): string =>

@@ -35,7 +35,7 @@ import {
 } from '../context.js';
 import type { CollectedStruct } from '../structs.js';
 import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
-import { mapTsTypeToShaderType, referencedType } from '../type-map.js';
+import { mapTsTypeToShaderType } from '../type-map.js';
 import { isMixinDeclaration } from '../mixins.js';
 import {
   currentTypeArguments,
@@ -46,7 +46,8 @@ import {
 } from '../generics.js';
 import { refuseAtomicDeclaration } from './atomics.js';
 import { refuseRuntimeArraySignature } from './runtime-array.js';
-import { checkReferenceAliases } from './references.js';
+import { checkReferenceAliases, markOutParam, qualifiersOf } from './references.js';
+import { checkDefiniteAssignment } from '../definite.js';
 import { kernelSourceNames } from '../kernel-loops.js';
 import {
   captureArguments,
@@ -217,25 +218,14 @@ export function lowerSourceFunctions(
         refused.add(base);
         continue;
       }
-      // A generic function takes no reference (Rule 8.25), said where it is declared, since its
-      // body is lowered only where a call makes an instance and one nothing calls says nothing.
+      // A generic function takes no qualified parameter (Rule 8.25), said where it is
+      // declared, since its body is lowered only where a call makes an instance and one nothing
+      // calls says nothing.
       if ((stmt.typeParameters?.length ?? 0) > 0) {
-        const takes = stmt.parameters.find(
-          (p) => p.type !== undefined && referencedType(p.type, sourceFile) !== undefined,
-        );
+        const takes = stmt.parameters.find((p) => qualifiersOf(p).length > 0);
         if (takes !== undefined) {
-          pushDiag(
-            diagnostics,
-            sourceFile,
-            takes.type!,
-            refuseReferenceParameter(
-              takes,
-              referencedType(takes.type!, sourceFile)!,
-              undefined,
-              {},
-            )!,
-            TS_CODES.REFERENCE,
-          );
+          const refusal = refuseQualifiedParameter(takes, qualifiersOf(takes), undefined, {})!;
+          pushDiag(diagnostics, sourceFile, refusal.at, refusal.message, TS_CODES.REFERENCE);
           refused.add(base);
           continue;
         }
@@ -1688,6 +1678,9 @@ export function lowerSourceFunctions(
     diagnostics,
   );
   checkFragmentOnlyOps(funcs, nodeByName, sourceFile, diagnostics);
+  // A read before an assignment, and an `@out` parameter's definite writes, on the source
+  // (Rules 7.6 and 8.25).
+  checkDefiniteAssignment(sourceFile, diagnostics);
   // Two references to one place in one call, read off the lowered calls once every callee says
   // what it reads and writes (Rule 8.25).
   const shownAs = new Map([
@@ -2011,7 +2004,7 @@ export function parseParams(
      *  a kernel function (Rule 8.22) rather than a refusal. */
     readonly mayBeKernel?: boolean;
     /** A function declared at the top of the file or of a namespace, the one kind that takes a
-     *  `Ref<T>` parameter (Rule 8.25). Every other caller leaves it unset, and a reference
+     *  qualified parameter, `@inout` or `@out` (Rule 8.25). Every other caller leaves it unset, and a qualified
      *  parameter there is refused. */
     readonly references?: boolean;
   } = {},
@@ -2116,17 +2109,20 @@ export function parseParams(
       );
       return undefined;
     }
-    // `p: Ref<T>` names a place of the caller's, which the IR spells as a parameter the callee
-    // writes through, as a method that changes its object takes it (Rule 8.25).
-    const referenced = referencedType(p.type, sourceFile);
-    if (referenced !== undefined) {
-      const refused = refuseReferenceParameter(p, referenced, stage, opts);
+    // `@inout p: T` and `@out p: T` name a place of the caller's, which the IR spells as a
+    // parameter the callee writes through, as a method that changes its object takes it
+    // (Rule 8.25).
+    const qualifiers = qualifiersOf(p);
+    if (qualifiers.length > 0) {
+      const refused = refuseQualifiedParameter(p, qualifiers, stage, opts);
       if (refused !== undefined) {
-        pushDiag(diagnostics, sourceFile, p.type, refused, TS_CODES.REFERENCE);
+        pushDiag(diagnostics, sourceFile, refused.at, refused.message, TS_CODES.REFERENCE);
         return undefined;
       }
     }
-    const written = referenced !== undefined && referenced !== 'arity' ? referenced : p.type;
+    const qualifier = qualifiers[0]?.name;
+    const referenced = qualifier as 'inout' | 'out' | undefined;
+    const written = p.type;
     const pType = mapTsTypeToShaderType(written, sourceFile, diagnostics);
     if (refuseAtomicDeclaration(pType, written, sourceFile, diagnostics, 'a parameter'))
       return undefined;
@@ -2136,9 +2132,8 @@ export function parseParams(
         diagnostics,
         sourceFile,
         p.type,
-        `"${p.name.text}" takes a reference to a ${pType.kind}, which is a handle to a resource ` +
-          `and not a place a function writes. Take it by value: "${p.name.text}: ` +
-          `${written.getText(sourceFile)}".`,
+        `"${p.name.text}" is @${referenced}, and a ${pType.kind} is a handle to a resource, ` +
+          `not a place a function writes. Remove "@${referenced}" to take it by value.`,
         TS_CODES.REFERENCE,
       );
       return undefined;
@@ -2259,7 +2254,7 @@ export function parseParams(
         );
       } else paramLocations.set(location, p.name.text);
     }
-    params.push({
+    const param: FuncDecl['params'][number] = {
       name: p.name.text,
       type: pType,
       ...(builtin ? { builtin } : {}),
@@ -2267,28 +2262,37 @@ export function parseParams(
       ...(interpolate !== undefined
         ? { interpolate, attr: `@location(${String(location)}) ${interpolateAttr!}` }
         : {}),
-      // The caller's storage, passed by reference (Rule 8.23): no copy is made on the way in. A
-      // `Ref<T>` parameter is the caller's place the same way (Rule 8.25).
+      // The caller's storage, passed by reference (Rule 8.23): no copy is made on the way in. An
+      // `@inout` or `@out` parameter is the caller's place the same way (Rule 8.25); the IR
+      // keeps one mode for both, since `@out`'s definite writes make them equal.
       ...(kernelArray || referenced !== undefined ? { mode: 'inout' as const } : {}),
-    });
+    };
+    if (referenced === 'out') markOutParam(param);
+    params.push(param);
   }
   return params;
 }
 
-/** Why `p`, written `Ref<...>`, is no reference parameter here, or `undefined` when it is one
- *  (Rule 8.25): a function of the file takes one, with exactly one type argument and no default;
- *  an entry, a method, a constructor, an accessor and a local function take values. */
-function refuseReferenceParameter(
+/** Why `p`, which carries `qualifiers`, cannot take them here, or `undefined` where it can: a
+ *  qualifier belongs to a parameter of a function declared at the top of the file or of a
+ *  namespace (Rule 8.25), one to a parameter, and a place takes no default. */
+function refuseQualifiedParameter(
   p: ts.ParameterDeclaration,
-  referenced: ts.TypeNode | 'arity',
+  qualifiers: readonly { name: string; node: ts.Decorator }[],
   stage: FuncDecl['stage'] | undefined,
   opts: { readonly owner?: string; readonly forbidSelf?: boolean; readonly references?: boolean },
-): string | undefined {
+): { at: ts.Node; message: string } | undefined {
   const name = (p.name as ts.Identifier).text;
-  if (referenced === 'arity') {
-    return `Ref takes one type argument, the type of the place "${name}" names: "${name}: Ref<f32>".`;
+  const first = qualifiers[0]!;
+  if (qualifiers.length > 1) {
+    return {
+      at: qualifiers[1]!.node,
+      message:
+        `"${name}" carries ${qualifiers.map((q) => `@${q.name}`).join(' and ')}, and a ` +
+        `parameter takes one qualifier. Keep the one that says what the function does with it.`,
+    };
   }
-  if (opts.references !== true) {
+  if (opts.references !== true || stage !== undefined) {
     // A class's members pass `forbidSelf`; a local function names itself as its owner too.
     const site =
       stage !== undefined
@@ -2298,18 +2302,22 @@ function refuseReferenceParameter(
           : opts.owner !== undefined
             ? `"${opts.owner}", a local function,`
             : 'a generic function, whose instance is made from its arguments,';
-    return (
-      `"${name}" takes a reference, and ${site} takes its parameters by value. A reference ` +
-      `parameter belongs to a function declared at the top of the file or of a namespace ` +
-      `(Rule 8.25): move the code that changes the caller's value into one, or take the value ` +
-      `and return the result.`
-    );
+    return {
+      at: first.node,
+      message:
+        `"${name}" is @${first.name}, and ${site} takes its parameters by value. A ` +
+        `parameter that names the caller's place belongs to a function declared at the top ` +
+        `of the file or of a namespace (Rule 8.25): move the code that changes the caller's ` +
+        `value into one, or take the value and return the result.`,
+    };
   }
   if (p.initializer !== undefined) {
-    return (
-      `"${name}" takes a reference, which names the place a call hands over; a default is a ` +
-      `value and names no place. Remove the default, and pass ref(x) at every call.`
-    );
+    return {
+      at: p.initializer,
+      message:
+        `"${name}" is @${first.name}, which names the place a call hands over; a default is a ` +
+        `value and names no place. Remove the default, and pass a variable at every call.`,
+    };
   }
   return undefined;
 }
@@ -3063,7 +3071,7 @@ export function fillFunctionBody(
     parameterNames.add(p.name);
     // A kernel function's array is the caller's storage, read and written in place (Rule 8.23).
     const storage = stub.kernel === true && p.type.kind === 'array' && p.type.size === undefined;
-    // A `Ref<T>` parameter names the caller's place (Rule 8.25): bound as the object of a
+    // An `@inout` or `@out` parameter names the caller's place (Rule 8.25): bound as the object of a
     // method that changes it is, a local the body writes under the parameter's own IR name,
     // which the targets spell as the pointer or the `inout` parameter. A whole write lands on
     // the caller's place, so it takes no local copy (Rule 8.8).

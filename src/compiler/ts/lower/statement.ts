@@ -1891,7 +1891,7 @@ function checkRootNamed(
         // A value parameter is a copy; the caller's value changes through a reference, which a
         // function of the file may take (Rule 8.25).
         (mayTakeReference(node, rootName)
-          ? ` To change the caller's value, take "${rootName}: Ref<${authorTypeText(rules.type)}>" and pass ref(...).`
+          ? ` To change the caller's value, declare "@inout ${rootName}: ${authorTypeText(rules.type)}".`
           : ''),
       TS_CODES.ASSIGN_TARGET,
     );
@@ -1901,7 +1901,7 @@ function checkRootNamed(
 }
 
 /** Whether the function that declares the parameter `name`, the nearest one around `node`,
- *  may declare it `Ref<T>` instead (Rule 8.25): a function declared at the top of the file or of
+ *  may declare it `@inout` instead (Rule 8.25): a function declared at the top of the file or of
  *  a namespace, neither generic nor an entry. A method, an accessor, a constructor and a local
  *  function take values, so the remedy would name a refusal there. */
 function mayTakeReference(node: ts.Node, name: string): boolean {

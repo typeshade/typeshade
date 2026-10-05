@@ -154,7 +154,7 @@ describe('glsl-es300 — a single-exit entry IS main() (X-GIS #1858)', () => {
     const vs = emitGlslModule(dslModule({ uses: [IoOut], funcs: [vsVar] }), 'vertex');
     // `o` reaches emit as `_v0` — autoVars names every local — which is also why an
     // `_out` collision is remote enough that freshLocal() is belt-and-braces.
-    expect(vs).toMatch(/^ {2}IoOut _v0;$/m);
+    expect(vs).toMatch(/^ {2}IoOut _v0 = IoOut\(vec4\(0\.0\), vec2\(0\.0\)\);$/m);
     expect(vs).toContain('gl_Position = _v0.position;');
     expect(vs).toContain('uv = _v0.uv;');
     expect(vs).not.toContain('_out');

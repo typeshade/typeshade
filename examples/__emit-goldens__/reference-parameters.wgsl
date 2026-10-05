@@ -44,6 +44,10 @@ fn liftAll(ws: ptr<function, array<f32, 3>>, k: f32) {
   }
 }
 
+fn project(m: mat2x2<f32>, p: vec2<f32>, q: ptr<function, vec2<f32>>) {
+  (*q) = (m * p);
+}
+
 fn shrink(column: ptr<function, vec2<f32>>, k: f32) {
   (*column) = ((*column) * k);
 }
@@ -70,7 +74,8 @@ fn fs(v: VsOut) -> Color {
   liftAll(&w, 0.25);
   var basis: mat2x2<f32> = mat2x2<f32>(vec2<f32>(1.0, 0.0), vec2<f32>(0.0, 1.0));
   shrink(&basis[1], 0.5);
-  let q = (basis * (v.uv - vec2<f32>(0.5, 0.5)));
+  var q: vec2<f32>;
+  project(basis, (v.uv - vec2<f32>(0.5, 0.5)), &q);
   return Color(vec4<f32>(fract((r.origin.x * 3.0)), (w[0] * w[1]), (w[2] * (1.0 - length(q))), 1.0));
 }
 

@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { compile, type CompileResult } from './compile.js';
+import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { typeKey } from '../../core/ir/types.js';
 import type { Stmt } from '../../core/ir/nodes.js';
@@ -40,6 +41,15 @@ function bodyOf(source: string): readonly Stmt[] {
  *  calls differ in nothing but the backend. */
 function evalJs(c: CompileResult, name: string, args: readonly unknown[] = []): unknown {
   return compileModuleJs(c.module, { gpuStubs: true }).fns[name]!(...(args as never[]));
+}
+
+/** Compile a program whose only errors are TS8075, reads before an assignment (Rule 7.6). */
+function readsBeforeAssignment(source: string): CompileResult {
+  const c = compile(source);
+  const errors = c.diagnostics.filter((d) => d.category === 'error');
+  expect(errors.length).toBeGreaterThan(0);
+  expect(errors.every((d) => d.code === 'TS8075')).toBe(true);
+  return c;
 }
 
 function compiled(source: string): CompileResult {
@@ -751,12 +761,17 @@ describe('an init-less local on the CPU oracle', () => {
   // and a struct bound `{}`, so every field read `undefined`. All three are reachable only
   // because this item added the init-less declaration.
   //
+  // Each program reads a local before it is assigned, which the front end now refuses with
+  // TS8075 (Rule 7.6, proposal 0043). The module is still lowered past that refusal, and the CPU
+  // tables still give WGSL's zero, which a hand-built module reaches and the GLSL writer now
+  // spells too; so each case asserts the refusal and then the zero.
+  //
   // Each case asserts on BOTH CPU backends: `compile().eval` is the interpreter (`zeroOf`),
   // `evalJs` the generated JS (`zeroLit`). They are two separate zero tables, so an assertion
   // through one leaves the other free to disagree — the bit-identity contract cpu-codegen.ts
   // opens with is exactly what a single-backend assertion here would stop enforcing.
   it('gives an array its elements, so an indexed write works', () => {
-    const c = compiled(`
+    const c = readsBeforeAssignment(`
       "use typeshade";
       export function f(): f32 {
         let arr: array<f32, 3>;
@@ -765,26 +780,26 @@ describe('an init-less local on the CPU oracle', () => {
         return arr[0] + arr[1];
       }
     `);
-    expect(c.eval('f', [])).toBe(3);
+    expect(compileModule(c.module).fns.f!()).toBe(3);
     expect(evalJs(c, 'f')).toBe(3);
   });
 
   it('gives a bool `false`, which is what WGSL zero-initialises it to', () => {
-    const c = compiled(`
+    const c = readsBeforeAssignment(`
       "use typeshade";
       export function f(): bool {
         let b: bool;
         return b;
       }
     `);
-    expect(c.eval('f', [])).toBe(false);
+    expect(compileModule(c.module).fns.f!()).toBe(false);
     expect(evalJs(c, 'f')).toBe(false);
   });
 
   // WGSL's `var s: S;` zero-initialises every field; `{}` left them absent, so `s.a` read
   // `undefined` and any arithmetic on it went to NaN, silently, on a program Tint accepts.
   it('gives a struct every field zeroed, not an empty object', () => {
-    const c = compiled(`
+    const c = readsBeforeAssignment(`
       "use typeshade";
       type P = { a: f32, b: i32, flag: bool, v: vec2f };
       export function f(): f32 {
@@ -796,14 +811,14 @@ describe('an init-less local on the CPU oracle', () => {
         return s.flag;
       }
     `);
-    expect(c.eval('f', [])).toBe(0);
+    expect(compileModule(c.module).fns.f!()).toBe(0);
     expect(evalJs(c, 'f')).toBe(0);
-    expect(c.eval('g', [])).toBe(false);
+    expect(compileModule(c.module).fns.g!()).toBe(false);
     expect(evalJs(c, 'g')).toBe(false);
   });
 
   it('zeroes a nested struct and an array of structs, all the way down', () => {
-    const c = compiled(`
+    const c = readsBeforeAssignment(`
       "use typeshade";
       type Inner = { k: f32, v: vec2f };
       type Outer = { a: f32, inner: Inner };
@@ -823,12 +838,12 @@ describe('an init-less local on the CPU oracle', () => {
         return s.xs[0] + s.xs[2] + f32(s.n);
       }
     `);
-    expect(c.eval('nested', [])).toBe(0);
+    expect(compileModule(c.module).fns.nested!()).toBe(0);
     expect(evalJs(c, 'nested')).toBe(0);
-    expect(c.eval('cells', [])).toBe(0);
+    expect(compileModule(c.module).fns.cells!()).toBe(0);
     expect(evalJs(c, 'cells')).toBe(0);
     // The array field must be a real array, or the write throws the way the scalar 0 did.
-    expect(c.eval('arrayField', [])).toBe(7);
+    expect(compileModule(c.module).fns.arrayField!()).toBe(7);
     expect(evalJs(c, 'arrayField')).toBe(7);
   });
 });

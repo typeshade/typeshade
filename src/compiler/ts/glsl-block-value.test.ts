@@ -96,7 +96,7 @@ function f(x: U): f32 {
   [
     'a local the uniform is assigned to',
     program(U, '  let copy: U;\n  copy = u;\n  return vec4(copy.a, copy.b.y, v.uv.x, 1.);'),
-    ['  U_value copy;', '  copy = U_value(u.a, u.b);'],
+    ['  U_value copy = U_value(0.0, vec2(0.0));', '  copy = U_value(u.a, u.b);'],
   ],
   [
     'a method called on the uniform',

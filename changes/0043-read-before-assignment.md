@@ -1,7 +1,7 @@
 ---
 id: '0043'
 title: A read of a local before it is assigned is refused, as TypeScript refuses it, and every target starts a local at zero
-status: accepted
+status: implemented
 rules:
   - '7.6'
   - '12.7'
@@ -27,7 +27,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0043`, `status: accepted`. The front matter is the lifecycle authority. The merge of its pull request is the acceptance.                                                                                                                                                           |
+| Identity and status           | Change proposal `0043`, `status: implemented`. The front matter is the lifecycle authority.                                                                                                                                                                                                         |
 | Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction, after the owner asked whether `let s: f32; add(1., 2., s);` works and the measurement below found that the compiler and the editor disagree. |
 | Applicability / Effectivity   | `"use typeshade"` source; the front end (`src/compiler/ts/lower/`), the GLSL ES 3.00 backend (`src/core/backends/glsl.ts`), the language service's diagnostics (`src/language-service/diagnostics.ts`), the documents named below; the site and the editor. Release version unassigned.             |
 | Review baseline               | `origin/main` at `a5ff08f5dd9ff32b8ab7d6c49c0284a8178132aa`.                                                                                                                                                                                                                                        |
@@ -121,17 +121,29 @@ compiler's `TS8075` positions must equal TypeScript's TS2454 positions; a corpus
 
 ### Approval and plan record
 
-The approval is the merge of this proposal's pull request, at the owner's direction ("네", in
-conversation on 2026-10-05, to fixing the defect). That merge has not happened at this revision.
-The implementing pull request records it. Responsibilities, milestones, duration and cost are not
-assigned.
+The approval is the merge of [PR #469](https://github.com/typeshade/typeshade/pull/469) on
+2026-10-05 (merge commit `c00f6afb6784c48ff437db1690c7542c8f7a2f9c`), which the owner directed in
+conversation. Responsibilities, milestones, duration and cost were not assigned.
 
 ### Configuration and validation record
 
-Does not yet apply. Delivery requires: the table above in the compiler and the editor on the
-same source; the corpus test of `TS8075` against TypeScript's TS2454 over the examples and the
-test programs with no `@out` argument; the GLSL text; `bun run gate:compile` and
-`bun run gate:differential`; `docs:impact`, `docs:refs`, `reqs:sync` and `doorstop -C`.
+**Implementation.** A pull request with `Change: 0043`, together with change 0040's third
+amendment, on the base `c00f6afb6784c48ff437db1690c7542c8f7a2f9c`, by the repository's coding agent
+at the owner's direction. Delivered: the definite-assignment pass (`src/compiler/ts/definite.ts`),
+run on each file after its functions are lowered; `TS8075 UNASSIGNED_READ`; the editor's TS2454
+dropped in favour of it (`src/language-service/diagnostics.ts`); the zero initializer of a GLSL
+ES 3.00 local with none (`src/core/backends/glsl.ts`), which changed the GLSL emit goldens of five other examples (`array-methods`, `bitfield-bands`, `capsule-corp-namek-class`, `pick-composite`, `rng-method`) by that initializer alone; Rule 7.6 and its Appendix B row; surface §7, §14 and §49.
+
+**Functional validation**, 2026-10-05, the session's Linux container, Bun 1.3.14:
+`src/compiler/ts/definite-assignment.test.ts`, 24 cases. Twenty-one programs with no `@out`
+argument put `TS8075` on exactly the reads where TypeScript 5.9 puts TS2454; the compiler and the
+editor say one sentence; an `@out` argument assigns; GLSL starts a local, a struct and a vector
+at zero. The full suite and the gates are in the pull request's description.
+
+**Deviation.** Open, with a disposition proposed. The walk reads no types, so a `switch` with no
+`default` whose cases cover every value of a literal type is stricter than TypeScript, which
+knows such a list is whole (`definite.ts` records it). A shader's `switch` is over an `i32` or a
+`u32`, which no list of cases covers; the corpus test uses those.
 
 ## What it owes downstream
 

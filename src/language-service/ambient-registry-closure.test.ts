@@ -137,8 +137,8 @@ const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
 };
 
 /** The forms that are written in a DECLARATION rather than in an expression. One program
- *  exercises all twelve, which is also the shape every example opens with. The four before
- *  `ref` are the entry-IO and uniformity attributes #158 and #161 added (§53, §54); they are listed here
+ *  exercises all thirteen, which is also the shape every example opens with. The four before
+ *  `inout` are the entry-IO and uniformity attributes #158 and #161 added (§53, §54); they are listed here
  *  rather than excused on `DECLARED_NOT_LOWERABLE` because the witness below really does
  *  compile them and each one really does reach the emitted WGSL. */
 const DECLARATION_FORMS: readonly string[] = [
@@ -153,9 +153,10 @@ const DECLARATION_FORMS: readonly string[] = [
   'invariant',
   'blend_src',
   'diagnostic',
-  // `ref(x)` is written only as the argument of a `Ref<T>` parameter (Rule 8.25), which the
-  // witness's compute entry passes.
-  'ref',
+  // GLSL's qualifiers on a parameter of a function of the file (Rule 8.25), which the witness's
+  // `bump` and `put` take.
+  'inout',
+  'out',
 ];
 
 const DECLARATION_WITNESS = `"use typeshade";
@@ -183,13 +184,16 @@ export function fs(v: V): Dual {
   const c = vec4(un.k, 0., 0., 1.);
   return { a: c, b: c };
 }
-function bump(v: Ref<f32>): void {
+function bump(@inout v: f32): void {
   v += un.k;
+}
+function put(@out v: f32): void {
+  v = un.k;
 }
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
-  out[gid.x] = un.k;
-  bump(ref(out[gid.x]));
+  put(out[gid.x]);
+  bump(out[gid.x]);
 }
 `;
 

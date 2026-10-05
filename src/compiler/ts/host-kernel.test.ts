@@ -555,7 +555,7 @@ export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
     ],
     [
       'a write through a reference',
-      `function bump(v: Ref<f32>): void { v += 1.; }\nexport function inc(out: array<f32>) { for (let i: u32 = 0; i < out.length; i++) { bump(ref(out[i])); } }`,
+      `function bump(@inout v: f32): void { v += 1.; }\nexport function inc(out: array<f32>) { for (let i: u32 = 0; i < out.length; i++) { bump(out[i]); } }`,
       'inc',
       'loop 1 writes "out" through a reference a call takes, and WebGL2 writes its texel by an assignment',
     ],

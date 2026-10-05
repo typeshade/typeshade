@@ -15,7 +15,7 @@ import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { readonlyClassUpcast } from '../class-upcasts.js';
 import { lowerExpression } from './expression.js';
 import { captureArguments } from './local-functions.js';
-import { isReferenceCall, lowerReferenceArgument } from './references.js';
+import { lowerReferenceArgument } from './references.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import {
@@ -188,27 +188,15 @@ export function lowerUserCall(
   if (opts.lowered !== undefined) args.push(...opts.lowered);
   else {
     for (const [i, arg] of written.entries()) {
-      // A `Ref<T>` parameter takes the place `ref(x)` names, and a value parameter never takes
-      // `ref(...)` (Rule 8.25). Only a function of the file has a written `inout` parameter: a
-      // kernel function's arrays are too, and no function calls one (above).
+      // An `@inout` or `@out` parameter takes the place its argument names, unmarked
+      // (Rule 8.25). Only a function of the file has a written `inout` parameter: a kernel
+      // function's arrays are too, and no function calls one (above).
       const param = decl.params[leading.length + i];
       if (param?.mode === 'inout') {
         const place = lowerReferenceArgument(arg, param, shown, sourceFile, scope, diagnostics);
         if (!place) return undefined;
         args.push(place);
         continue;
-      }
-      if (param !== undefined && isReferenceCall(arg, scope)) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          arg,
-          `"${shown}" takes "${param.name}" as a value, and ref(...) passes a place, which only ` +
-            `a parameter declared Ref<T> takes. Pass the value itself, or declare the parameter ` +
-            `"${param.name}: Ref<${authorTypeText(param.type)}>" to change the caller's (Rule 8.25).`,
-          TS_CODES.REFERENCE,
-        );
-        return undefined;
       }
       // The parameter's type is the context for `g({ a: 1., b: 2. })` (#8 A11). Read by index
       // before the arity check below, so a call with too many arguments still lowers each one
