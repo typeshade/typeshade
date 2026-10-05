@@ -1001,7 +1001,7 @@ describe("a GLSL or HLSL name in a construct the compiler refused is the compile
     return errors[0]!;
   };
 
-  const around: [string, string, string, (fill: string) => string][] = [];
+  const around: [string, string, string, () => string][] = [];
   for (const [kind, name] of Object.entries(names)) {
     if (name.expression !== undefined) {
       for (const [construct, make] of Object.entries(expressionIn)) {
@@ -1014,7 +1014,7 @@ describe("a GLSL or HLSL name in a construct the compiler refused is the compile
   }
   for (const [kind, construct, written, program] of around) {
     it(`${kind}, in ${construct}: the compiler's refusal of it, and its sentence for the name`, () => {
-      const source = header + program('');
+      const source = header + program();
       const name = names[kind]!;
       const sentence = said(name);
       const refusal = compiled(source);
