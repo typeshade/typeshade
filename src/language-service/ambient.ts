@@ -4,8 +4,9 @@
 // `"use typeshade"` file sees `f32`, `vec4`, `uniform<T>`, `@vertex`, and the rest of the
 // authoring vocabulary with zero false positives on a valid program (§6). The vocabulary is
 // derived from the compiler's own tables — `SUPPORTED_TYPE_NAMES` and `SCALAR_CAST` from
-// `compiler/ts/type-map.ts`/`numeric.ts`, and the Math aliases from `compiler/ts/math-alias.ts`
-// — rather than retyped by hand, so the two cannot drift silently. `WGSL_BUILTIN_NAMES` below is
+// `compiler/ts/type-map.ts`/`numeric.ts`, and the Math aliases from `compiler/ts/math-alias.ts`,
+// with the count of arguments of the ones it expands from `compiler/ts/math-expand.ts` — rather
+// than retyped by hand, so the two cannot drift silently. `WGSL_BUILTIN_NAMES` below is
 // re-exported straight from `core/sot.ts`'s own runtime array, next to the `WgslBuiltinName`
 // type it mirrors; `ambient.test.ts` additionally cross-checks that array against the type
 // itself by parsing `core/sot.ts` with the TypeScript compiler API.
@@ -23,7 +24,14 @@
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
 import { F64_VEC_TWIN_KIND } from '../core/fp64/twins.js';
 import { SCALAR_CAST } from '../compiler/ts/numeric.js';
-import { MATH_FN_ARITY, MATH_EXPAND_ALIAS, LANG_CONST } from '../compiler/ts/math-alias.js';
+import {
+  MATH_FN_ALIAS,
+  MATH_FN_ARITY,
+  MATH_EXPAND_ALIAS,
+  MATH_CONST_ALIAS,
+  LANG_CONST,
+} from '../compiler/ts/math-alias.js';
+import { EXPAND_ARITY } from '../compiler/ts/math-expand.js';
 import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
 import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
 import { STORAGE_BUFFER_ACCESS as COMPILER_STORAGE_BUFFER_ACCESS } from '../compiler/ts/bindings.js';
@@ -611,52 +619,76 @@ const langConsts = LANG_CONST_NAMES.map((name) => {
   return `${renderJSDoc(doc)}\n${line}`;
 }).join('\n');
 
-// Build MathObject interface members with JSDoc
-const mathMethodNames = [
-  'abs',
-  'acos',
-  'acosh',
-  'asin',
-  'asinh',
-  'atan',
-  'atanh',
-  'ceil',
-  'cos',
-  'cosh',
-  'exp',
-  'floor',
-  'fround',
-  'log',
-  'log2',
-  'round',
-  'sign',
-  'sin',
-  'sinh',
-  'sqrt',
-  'tan',
-  'tanh',
-  'trunc',
-];
-const mathMethods = mathMethodNames
-  .map((name) => {
-    const line = `  ${name}(x: number): number`;
-    const doc = MATH_MEMBER_DOCS[name];
-    if (!doc) return line;
-    return `  ${renderJSDoc(doc).split('\n').join('\n  ')}\n${line}`;
-  })
-  .join('\n');
+// ── `interface MathObject`: the members, read from the compiler's tables (Rule 12.7, #186) ──
+//
+// The functions are every name in `MATH_FN_ALIAS` (a WGSL builtin under its ECMAScript name) and
+// `MATH_EXPAND_ALIAS` (a member WGSL has no builtin for, expanded at the call), and the values are
+// `MATH_CONST_ALIAS`, so a member joins the editor's `Math` by joining the compiler's table. This
+// was a list of names written out here: the 27 aliases and none of the five expansions, so
+// `Math.cbrt(x)` compiled while the editor reported TS2339 on it, as it did on `log10`, `log1p`,
+// `expm1` and `hypot`. `ambient-parity.test.ts` holds the declaration to the compiler member by
+// member, at every count of arguments, and reads a name either side lacks.
+//
+// A member takes the count of arguments the compiler checks: `MATH_FN_ARITY` for an alias, under
+// the id it resolves to (`fround` under `f32`), and `EXPAND_ARITY` for an expansion, which is one
+// `x` for four of them and two arguments with an optional third for `hypot`. Every parameter and
+// every result is a `number`, which is what an `f32` is to TypeScript (see `scalarBrands`). Where
+// a member lowers to a WGSL builtin the compiler takes a vector too (`Math.sin(v)` on a `vec3`),
+// and TypeScript reports TS2345 there: a disagreement of its own, not read by the sweep, which
+// passes `f32` arguments.
 
-const mathSpecialMethods = [
-  `  ${renderJSDoc(MATH_MEMBER_DOCS.atan2).split('\n').join('\n  ')}\n  atan2(y: number, x: number): number`,
-  `  ${renderJSDoc(MATH_MEMBER_DOCS.max).split('\n').join('\n  ')}\n  max(a: number, b: number): number`,
-  `  ${renderJSDoc(MATH_MEMBER_DOCS.min).split('\n').join('\n  ')}\n  min(a: number, b: number): number`,
+/** The parameters of a member that are not named `x`, or `a` and `b` for two, which are the
+ *  names ECMAScript and this surface's documentation give them: `atan2(y, x)` and
+ *  `pow(base, exponent)`. */
+const MATH_PARAMETER_NAMES: Readonly<Record<string, readonly string[]>> = {
+  atan2: ['y', 'x'],
+  pow: ['base', 'exponent'],
+};
+
+/** A member the compiler takes a second form of, named after the member that has it: `Math.atan`
+ *  takes two arguments as WGSL's `atan2` (Rule 9.2's recorded exception), which lowering turns
+ *  the call into. The second form is declared with that member's parameters and documentation. */
+const MATH_ALSO_TAKES: Readonly<Record<string, string>> = { atan: 'atan2' };
+
+/** `(x: number)`, `(a: number, b: number)` or `(a: number, b: number, c?: number)`: the parameters
+ *  of a member that takes from `fewest` to `most` arguments, the optional ones marked. */
+function mathParameters(form: string, fewest: number, most: number): string {
+  const names =
+    MATH_PARAMETER_NAMES[form] ?? (most === 1 ? ['x'] : ['a', 'b', 'c', 'd'].slice(0, most));
+  return names.map((n, i) => `${n}${i < fewest ? '' : '?'}: number`).join(', ');
+}
+
+/** One signature of `interface MathObject`, under the JSDoc block of `form`'s documentation. */
+function mathMethod(name: string, form: string, parameters: string): string {
+  const line = `  ${name}(${parameters}): number`;
+  const doc = MATH_MEMBER_DOCS[form];
+  if (!doc) return line;
+  return `  ${renderJSDoc(doc).split('\n').join('\n  ')}\n${line}`;
+}
+
+const mathMethods = [
+  ...Object.keys(MATH_FN_ALIAS).flatMap((name) =>
+    [name, MATH_ALSO_TAKES[name]].flatMap((form) => {
+      if (form === undefined) return [];
+      const arity = MATH_FN_ARITY[MATH_FN_ALIAS[form]!]!;
+      return [mathMethod(name, form, mathParameters(form, arity, arity))];
+    }),
+  ),
+  ...Object.keys(MATH_EXPAND_ALIAS).map((name) => {
+    const [fewest, most] = EXPAND_ARITY[MATH_EXPAND_ALIAS[name]!];
+    return mathMethod(name, name, mathParameters(name, fewest, most));
+  }),
+  // A vector with a scalar, which the compiler splats (proposal 0033): `Math.max(v, 0)` on a
+  // `vec3` is a `vec3`. The scalar and the vector-with-vector forms are the alias's.
   componentwiseBroadcastMethod('max'),
   componentwiseBroadcastMethod('min'),
-  `  ${renderJSDoc(MATH_MEMBER_DOCS.pow).split('\n').join('\n  ')}\n  pow(base: number, exponent: number): number`,
-  `  ${renderJSDoc(MATH_MEMBER_DOCS.random).split('\n').join('\n  ')}\n  random(): number`,
+  // The one member that is not the compiler's, and the one exclusion of the parity assertion
+  // (#181): ECMAScript's `Math.random()` takes no argument, and the compiler takes one seed and
+  // refuses none, so no spelling of it compiles and is clean in the editor.
+  mathMethod('random', 'random', ''),
 ].join('\n');
 
-const mathConstants = ['E', 'LN10', 'LN2', 'LOG10E', 'LOG2E', 'PI', 'SQRT1_2', 'SQRT2']
+const mathConstants = Object.keys(MATH_CONST_ALIAS)
   .map((name) => {
     const line = `  readonly ${name}: number`;
     const doc = MATH_MEMBER_DOCS[name];
@@ -1586,7 +1618,6 @@ declare const discard: void
 
 interface MathObject {
 ${mathMethods}
-${mathSpecialMethods}
 ${mathConstants}
 }
 declare const Math: MathObject

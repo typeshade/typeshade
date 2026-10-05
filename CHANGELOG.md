@@ -217,6 +217,26 @@ repository was published to npm before **`0.1.0`, the first release**.
     stage, the vertex stage or the fragment stage is created with no values.
   - `typeshade/runtime` is now 11,099 bytes minified and gzipped, 501 under its budget.
 
+- **CI runs the type check and the unit suite on TypeScript 5.9 and 6.0, beside the pinned 5.6.3**
+  (#259; Rule 13.4). `typecheck + unit` installs the 5.6.3 that `package.json` pins, and the
+  editors that load the language service ship newer ones. A newer TypeScript had already changed
+  what the compiler reads once, with the pinned one silent: TS2454 on workgroup memory, reported
+  from 5.7 (#247). The `typescript-versions` job installs 5.9.3 and 6.0.3 over the pin with
+  `bun add --no-save`, fails a leg that does not run the version it names, and runs
+  `bun run build` and `bun run test`. Each leg is a check of its own, named for its version:
+  `typecheck + unit (TypeScript 5.9.3)` and `typecheck + unit (TypeScript 6.0.3)`. The release
+  workflow waits on both. With #247's rule disabled, `src/language-service/ambient.test.ts`
+  passes 228 of 228 on 5.6.3 and fails four Playground examples on each new version: the editor
+  half, which the pinned version could not read.
+  - `src/api-surface.test.ts` was red on both new versions with the surface unchanged. TypeScript
+    5.7 prints a typed array with its default type argument, `Uint8Array<ArrayBufferLike>`, in 4
+    shapes, and 6.0 turns `strict` on by default, which put `| undefined` on the optional members
+    and moved 166 lines. The reader now sets `strict: false` and drops that type argument, so
+    `src/__api__/surface.md` is byte for byte the same baked on 5.6.3, 5.9.3 and 6.0.3, and two arms
+    hold the reader to each.
+  - The peer range stays `>=5.0.0 <6`. 6.0.3 passing is what admitting it would rest on, and
+    that decision is not part of this change.
+
 ### Changed
 
 - **The CPU tier's code is written by type, and a host call of a small function is several
@@ -249,6 +269,13 @@ repository was published to npm before **`0.1.0`, the first release**.
   generated code to a GPU. The issue's two functions, called
   in Bun: a host call pair from about 3.4 µs to 0.5 µs, the two bodies alone from 1.25 µs to
   0.1 µs (medians of ten timings on a loaded machine; the same code by hand is 0.05 µs).
+
+- **The `typescript` peer range takes TypeScript 6** (#259). `peerDependencies` reads
+  `>=5.0.0 <7`, where it read `<6`. CI runs the type check and the whole suite on 6.0.3 as well
+  as on the pinned 5.6.3 and on 5.9.3, so a project on TypeScript 6, the version VS Code ships,
+  installs `typeshade` without a peer conflict. TypeScript 7 stays out: its default export has
+  no `SyntaxKind`, and the package throws on import against it. A wider range breaks nothing
+  (Rule 13.9 counts only a narrower one).
 
 ### Fixed
 
@@ -296,6 +323,48 @@ repository was published to npm before **`0.1.0`, the first release**.
   generated-kernel differential (#349) no longer leaves a float reduction's result out of its
   comparison; it compares in `f32` as well as `f64`, and pins seeds 35 and 51, which caught the
   walk.
+
+- **The determinism report lists a `textureGather` on an integer texture** (Rule 11.2, #175).
+  A gather on a `texture_2d<u32>`, a `texture_cube<i32>` or any other integer shape (2d,
+  2d-array, cube, cube-array; `u32` and `i32`) was dropped: the walk reads a call's float kind
+  from its result, a `vec4<u32>` or a `vec4<i32>` has none, and the node was gone before
+  `accuracyOf` was asked. The four packs had hit the same drop, and #164 fixed them and filed
+  this one, on the reading that reporting it meant widening `DeterminismEntry.elem`. It needs
+  no widening. A gather reads an `f32` coordinate, and the coordinate is what its `filtered`
+  row is about, the four texels a footprint selects, whatever the texels hold. So the row is
+  listed under the float the gather reads, as a pack's is: `elem: 'f32'`, the same row a float
+  texture's gather gets, and one row with a count of 2 for an `f32` gather and an integer one in
+  one module, since a row is per operation and float. A module whose only float read was an
+  integer cube's gather, the one read a cube of integers has, reported `[]`, which surface §38
+  says means every operation has one answer. The shape of `DeterminismEntry`, the words of §38
+  and every answer of `accuracyOf` are unchanged; the depth and comparison gathers answer a
+  `vec4<f32>` and were listed already.
+  `src/core/passes/determinism.test.ts` reads every shape with `u32` and `i32`, the `f32`
+  texture beside each as the control, and every depth and comparison form, in `compile()` and
+  in the language service on the same source (the `it.fails` that pinned the gap is a plain
+  `it`); `src/language-service/ambient-parity.test.ts` has a row for each integer shape.
+
+- **The editor declares the `Math` members the compiler already compiles** (Rule 12.7, #186).
+  `Math.log10`, `Math.log1p`, `Math.expm1`, `Math.cbrt` and `Math.hypot` compiled, and the editor
+  said "Property 'cbrt' does not exist on type 'MathObject'" (TS2339, and TS2551 on the three it
+  could name a neighbour for). `Math.atan(y, x)`, which lowers to WGSL's `atan2` (Rule 9.2), was
+  TS2554, "Expected 1 arguments, but got 2". `MathObject` was a list of names written out beside
+  the compiler's tables, the 27 aliases and none of the five expansions. Its members are now read
+  from those tables, `MATH_FN_ALIAS`, `MATH_EXPAND_ALIAS` and `MATH_CONST_ALIAS`, each function
+  with the count of arguments the compiler checks (`EXPAND_ARITY` in `math-expand.ts` for an
+  expansion, so `hypot` takes two and a third), and a member joins the editor's `Math` by joining
+  the compiler's table. Hover, completion and signature help show them, `Math.atan` with both its
+  forms. A wrong count is one diagnostic: TypeScript's TS2554 on `Math.hypot(x)` folds into the
+  compiler's TS8003, the code it words the count of an expanded member under (Rule 12.4). No
+  value and no emitted text changes: `Math.cbrt(-8)` is still NaN and `Math.log1p(1e-8)` still
+  cancels, which #186 records as answering otherwise than ECMAScript does. Measured over every
+  member either side names, at every count of arguments from none to four, TypeScript's half
+  read unmerged, 9 of 165 cells disagreed, over 7 members, before the fix and 2 do after it, both
+  `Math.random`'s (#181: its declaration takes no argument and the compiler takes one seed), which
+  is the one exclusion. `ambient-parity.test.ts` holds the sweep, reads its rows from the two
+  tables, and reports a name that one of them lacks. Still open, and outside what it reads, since
+  it passes `f32` arguments: the compiler takes a vector where a member lowers to a WGSL builtin
+  (`Math.sin(v)` on a `vec3`), and the editor says TS2345.
 
 - **A generic whose name nothing declares is an unknown type, with the remedy Rule 12.1 gives**
   (Rule 12.1, #218). `let tile: groupshared<array<f32, 64>>`, the only way an HLSL or GLSL address

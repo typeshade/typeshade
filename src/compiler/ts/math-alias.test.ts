@@ -108,6 +108,34 @@ describe('Phase 7 - Math aliases', () => {
     if (expr!.op === 'call') expect(expr.fn).toBe('atan2');
   });
 
+  it('lowers Math.atan(a, b) to atan2, as the free atan(a, b) does (Rule 9.2)', () => {
+    // The recorded exception to WGSL's signatures: `atan` of two arguments is `atan2`, which the
+    // editor declares as a second form of the member (#186).
+    const two = lower('Math.atan(a, b)');
+    expect(two.diagnostics).toEqual([]);
+    expect(two.expr!.op).toBe('call');
+    if (two.expr!.op === 'call') expect(two.expr.fn).toBe('atan2');
+    expect(stripSpans(two.expr)).toEqual(stripSpans(lower('atan(a, b)').expr));
+    expect(stripSpans(two.expr)).toEqual(stripSpans(lower('Math.atan2(a, b)').expr));
+    const one = lower('Math.atan(a)');
+    expect(one.diagnostics).toEqual([]);
+    if (one.expr!.op === 'call') expect(one.expr.fn).toBe('atan');
+  });
+
+  it('refuses Math.atan at any other count of arguments, in one sentence', () => {
+    for (const [written, count] of [
+      ['Math.atan()', 0],
+      ['Math.atan(a, b, a)', 3],
+    ] as const) {
+      const { expr, diagnostics } = lower(written);
+      expect(expr, written).toBeUndefined();
+      expect(
+        diagnostics.map((d) => `${d.code} ${d.message}`),
+        written,
+      ).toEqual([`TS8019 Math.atan expects 1 argument, or 2 for atan(y, x), got ${count}.`]);
+    }
+  });
+
   it('lowers Math.fround(a) to call f32', () => {
     const { expr, diagnostics } = lower('Math.fround(a)');
     expect(diagnostics).toEqual([]);

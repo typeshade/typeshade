@@ -1493,8 +1493,10 @@ const SAME_MISTAKE: readonly SameMistake[] = [
   },
   {
     typescript: 2554,
-    typeshade: new Set(['TS8019']),
-    reason: 'The wrong number of arguments.',
+    typeshade: new Set(['TS8019', 'TS8003']),
+    reason:
+      'The wrong number of arguments. For a `Math` member the compiler expands it says so as ' +
+      'TS8003 (`Math.hypot(x)`: `hypot expects 2 or 3 arguments.`).',
   },
   {
     typescript: 2322,
