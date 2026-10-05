@@ -257,9 +257,10 @@ describe('a case body does not fall through (Rule 7.3, #202)', () => {
 
   /** `errors`, after asserting the editor says exactly the same on the same source: its whole
    *  list, so a TypeScript report beside the compiler's, or a second report of the one mistake,
-   *  would show (Rule 12.4, Rule 12.7), and its output pane, which emits nothing for a program
-   *  `compile()` refuses, for any target, and lists the same mistakes. The emit has no
-   *  fall-through, so a pane that printed a shader here gave the GPU 1 where TypeScript gives 3. */
+   *  would show (Rule 12.4, Rule 12.7), and its output pane, which prints no shader for any
+   *  target of a program `compile()` refuses and lists the same mistakes. A pane that printed
+   *  one for the issue's program would hand the GPU 1 where TypeScript gives 3: the emit has no
+   *  fall-through. */
   function refused(source: string): string[] {
     const found = errors(source);
     const service = open(source);
