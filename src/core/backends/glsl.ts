@@ -292,6 +292,71 @@ function glslModuleVar(v: ModuleVarDecl, structs?: ReadonlyMap<string, StructDec
  *  ({@link localZero}). Set by `assembleGlslParts`, which emits every function body. */
 let localZeroStructs: ReadonlyMap<string, StructDecl> | undefined;
 
+/** The locals of the module being assembled that need no zero: every declaration of the name
+ *  is followed at once by an `if` with an `else` whose every arm writes the whole local before
+ *  anything reads it. The slots `select-composite.ts` (`_sel`) and `sequence.ts` (`_seq`) hoist
+ *  are of that shape, and a zero there is a store the GPU makes for nothing: in
+ *  `capsule-corp-namek-class` it sits in the ray march's inner loop. Set by
+ *  `assembleGlslParts` with {@link localZeroStructs}. */
+let localsWrittenFirst: ReadonlySet<string> = new Set();
+
+/** {@link localsWrittenFirst} for `funcs`. A name declared twice is in the set only when every
+ *  declaration is written first, since the hook that spells a declaration sees its name alone. */
+function writtenFirst(funcs: readonly FuncDecl[]): Set<string> {
+  const covered = new Set<string>();
+  const bare = new Set<string>();
+  const reads = (s: Stmt, name: string): boolean => {
+    let hit = false;
+    const seen = (e: Expr): void =>
+      eachExpr(e, (x) => {
+        if (x.op === 'varref' && x.name === name) hit = true;
+      });
+    if (s.s === 'assign' && s.target.op === 'varref' && s.target.name === name) seen(s.expr);
+    else eachStmtExpr(s, seen);
+    return hit;
+  };
+  // The arm writes `name` whole, and no statement before that write reads it.
+  const writesFirst = (body: readonly Stmt[], name: string): boolean => {
+    for (const st of body) {
+      if (reads(st, name)) return false;
+      if (st.s === 'assign' && st.target.op === 'varref' && st.target.name === name) return true;
+    }
+    return false;
+  };
+  const walk = (body: readonly Stmt[]): void => {
+    body.forEach((st, i) => {
+      if (st.s === 'var' && st.init === undefined) {
+        const next = body[i + 1];
+        const first =
+          next?.s === 'if' &&
+          next.elseBody !== undefined &&
+          next.arms.every((a) => {
+            let inCond = false;
+            eachExpr(a.cond, (x) => {
+              if (x.op === 'varref' && x.name === st.name) inCond = true;
+            });
+            return !inCond && writesFirst(a.body, st.name);
+          }) &&
+          writesFirst(next.elseBody, st.name);
+        (first ? covered : bare).add(st.name);
+      }
+      if (st.s === 'if') {
+        for (const a of st.arms) walk(a.body);
+        if (st.elseBody) walk(st.elseBody);
+      } else if (st.s === 'for') {
+        walk([st.init]);
+        walk(st.body);
+      } else if (st.s === 'switch') {
+        for (const c of st.cases) walk(c.body);
+        if (st.defaultBody) walk(st.defaultBody);
+      }
+    });
+  };
+  for (const f of funcs) walk(f.body);
+  for (const name of bare) covered.delete(name);
+  return covered;
+}
+
 /** The zero a local with no initializer starts at, or `''` where none can be spelled. */
 function localZero(t: ShaderType): string {
   try {
@@ -602,9 +667,13 @@ export const glslEs300Backend: Backend = {
   // ES 3.00 leaves it undefined. The front end refuses a read before the assignment (TS8075),
   // so the zero is never read by a program it accepts; it keeps the targets equal for a
   // hand-built module. A struct's zero lists its fields, which only the module being emitted
-  // knows; outside one, the local stays bare.
+  // knows; outside one, the local stays bare. A local the next statement writes on every path
+  // before any read stays bare too ({@link localsWrittenFirst}): its zero is never read.
   localVar: (name, type, init) =>
-    `${glslType(type)} ${name} = ${init ?? localZero(type)}`.replace(/ = $/, ''),
+    `${glslType(type)} ${name} = ${init ?? (localsWrittenFirst.has(name) ? '' : localZero(type))}`.replace(
+      / = $/,
+      '',
+    ),
   constDecl: (name, type, value) => `const ${glslType(type)} ${name} = ${value};`,
   // GLSL ES requires the case label type to MATCH the switch scrutinee: a u32 scrutinee
   // needs `${value}u` labels (an int label is a compile error), an i32/int one stays bare.
@@ -2046,6 +2115,7 @@ function assembleGlslParts(
 ): GlslAssembly {
   const structs = new Map(lowered.structs.map((s) => [s.name, s]));
   localZeroStructs = structs;
+  localsWrittenFirst = writtenFirst(lowered.funcs);
 
   // Stage filter through the shared predicate (X-GIS #763 S3) — the old attr-string
   // match silently DROPPED a structured-only entry from its own stage's emit.

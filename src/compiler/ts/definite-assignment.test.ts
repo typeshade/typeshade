@@ -124,4 +124,17 @@ ${FRAGMENT}`);
     expect(glsl).toContain('vec3 v = vec3(0.0);');
     expect(r.wgsl).toContain('var s: f32;');
   });
+
+  it('leaves a local bare on GLSL when the next statement writes it on every path first', () => {
+    // The `if`/`else` writes `s` before anything reads it, so its zero would never be read: the
+    // shape of the slots the compiler hoists (`_sel`, `_seq`), where the zero was a store in a
+    // ray march's inner loop. A local that one arm leaves unwritten keeps its zero.
+    const r = compile(`"use typeshade";
+export function run(c: bool): f32 { let s: f32; if (c) { s = 1.; } else { s = 2.; } let t: f32; if (c) { t = 1.; } return s; }
+${FRAGMENT.replace('run()', 'run(true)')}`);
+    expect(r.diagnostics).toEqual([]);
+    const glsl = r.glsl!.fragment;
+    expect(glsl).toContain('  float s;\n  if (c) {');
+    expect(glsl).toContain('float t = 0.0;');
+  });
 });
