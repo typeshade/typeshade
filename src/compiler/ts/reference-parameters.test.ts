@@ -497,6 +497,25 @@ export function run(): f32 { let x: f32 = 1.; bump(ref(x)); return x; }
     expect(hover).toContain('ptr<function, f32>');
   });
 
+  it('hovers a function with its Ref<T> parameters, where it is declared and where it is called', () => {
+    // The function's line came from the recorded parameter types, which hold `f32` for
+    // `w: Ref<f32>`, so the hover read `function lift(w: f32, k: f32): void`.
+    const source = `"use typeshade";
+function lift(w: Ref<f32>, k: f32): void { w = mix(w, 1., k); }
+export function k2(out: array<f32>, n: i32): void { for (let i = 0; i < n; i++) { out[i] = 1.; } }
+export function run(): f32 { let x: f32 = 0.; lift(ref(x), 0.5); return x; }
+`;
+    const service = createTypeshadeLanguageService();
+    service.openDocument('f.ts', source);
+    const at = (offset: number): string =>
+      service.getHover('f.ts', service.positionAt('f.ts', offset))?.contents ?? '';
+    for (const offset of [source.indexOf('lift(') + 1, source.lastIndexOf('lift(') + 1]) {
+      expect(at(offset)).toContain('function lift(w: Ref<f32>, k: f32): void');
+    }
+    // A kernel function's array is passed by reference too, and is no `Ref<T>` (Rule 8.23).
+    expect(at(source.indexOf('k2(') + 1)).toContain('function k2(out: array<f32>, n: i32): void');
+  });
+
   it('documents Ref and ref where they are written', () => {
     const source = `"use typeshade";
 function bump(v: Ref<f32>): void { v += 1.; }

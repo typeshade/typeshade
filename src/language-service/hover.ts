@@ -147,6 +147,23 @@ function isReferenceParam(analysis: CompileTsSourceResult, param: DeclaredSymbol
   });
 }
 
+/** The parameters of the function `fn`, a function the front end recorded, that it takes by
+ *  reference, `Ref<T>` (Rule 8.25): those the lowered function whose span holds the name takes
+ *  as `mode: 'inout'`, a kernel function's arrays aside (Rule 8.23). */
+function referenceParamsOf(analysis: CompileTsSourceResult, fn: DeclaredSymbol): Set<string> {
+  const lowered = analysis.funcs.find((f) => {
+    const span = sourceSpanOf(f);
+    if (f.kernel === true || span === undefined) return false;
+    return fn.start >= span.start && fn.start < span.start + span.length;
+  });
+  const declared = new Set((fn.params ?? []).map((p) => p.name));
+  return new Set(
+    (lowered?.params ?? [])
+      .filter((p) => p.mode === 'inout' && declared.has(p.name))
+      .map((p) => p.name),
+  );
+}
+
 /** What a `Ref<T>` parameter is, in one paragraph: the caller's place, and how each target
  *  spells it (Rule 8.25, surface section 70). */
 function referenceLine(param: DeclaredSymbol): string {
@@ -164,7 +181,11 @@ function referenceLine(param: DeclaredSymbol): string {
  * what TypeScript said: a data class is one, since `class Vertex` already names it and the
  * compiler's `struct:Vertex` would only be noise.
  */
-function declarationLine(symbol: DeclaredSymbol, moduleVar: boolean): string | undefined {
+function declarationLine(
+  symbol: DeclaredSymbol,
+  moduleVar: boolean,
+  references: ReadonlySet<string> = new Set(),
+): string | undefined {
   const type = spellShaderType(symbol.type);
   switch (symbol.kind) {
     case 'local':
@@ -185,7 +206,11 @@ function declarationLine(symbol: DeclaredSymbol, moduleVar: boolean): string | u
       return `${moduleVar ? 'let' : 'const'} ${symbol.name}: ${type}`;
     case 'function': {
       const params = (symbol.params ?? [])
-        .map((p) => `${p.name}: ${spellShaderType(p.type)}`)
+        .map((p) =>
+          references.has(p.name)
+            ? `${p.name}: Ref<${spellShaderType(p.type)}>`
+            : `${p.name}: ${spellShaderType(p.type)}`,
+        )
         .join(', ');
       return `function ${symbol.name}(${params}): ${type}`;
     }
@@ -276,7 +301,13 @@ export function getHover(
     (reference
       ? `(parameter) ${declared!.name}: Ref<${spellShaderType(declared!.type)}>`
       : undefined) ??
-    (declared !== undefined ? declarationLine(declared, moduleVar) : undefined) ??
+    (declared !== undefined
+      ? declarationLine(
+          declared,
+          moduleVar,
+          declared.kind === 'function' ? referenceParamsOf(analysis, declared) : undefined,
+        )
+      : undefined) ??
     ts.displayPartsToString(quickInfo.displayParts);
   const documentation = ts.displayPartsToString(quickInfo.documentation);
   const resource = resourceBindingLine(analysis, sourceFile, uri, defs, node);
