@@ -70,12 +70,14 @@ export type DeterminismKind =
 /** What {@link accuracyOf} says about one operation: `exact` when WGSL gives it one answer
  *  (a correct or correctly rounded result, with the rounding-mode assumption the module header
  *  states) and both targets agree, otherwise the kind of room left and its bound in words,
- *  with a `note` where the GLSL ES 3.00 spelling matters.
+ *  with a `note` where the GLSL ES 3.00 spelling matters. An `exact` answer carries a `note`
+ *  where the one answer holds only for some inputs: a `bitcast` of a NaN or a subnormal `f32`
+ *  (change 0045).
  *
  *  Exported from `typeshade`.
  */
 export type DeterminismAccuracy =
-  | { readonly kind: 'exact' }
+  | { readonly kind: 'exact'; readonly note?: string }
   | {
       readonly kind: Exclude<DeterminismKind, 'emulated' | 'order'>;
       readonly bound: string;
@@ -137,6 +139,19 @@ const GATHERED: DeterminismAccuracy = {
     'the four texel values are read unfiltered, but which four the level 0 footprint selects, and the edge and cube corner handling, follow texture sampling',
 };
 const EXACT: DeterminismAccuracy = { kind: 'exact' };
+
+/** Every `bitcast` id (change 0045): one answer for an `f32` that is finite and normal. WGSL lets
+ *  an implementation assume no NaN is present, which leaves a NaN's result indeterminate, and
+ *  lets a bit reinterpretation flush a subnormal (§15.7.2); GLSL ES 3.00 lets a driver flush any
+ *  denormal (§2.1.1). The CPU oracle holds an `f32` as a JavaScript number and gives a NaN as
+ *  `0x7fc00000` on the engines measured. The report lists no `exact` operation, so the note is
+ *  `accuracyOf`'s alone. */
+const BITCAST_EXACT: DeterminismAccuracy = {
+  kind: 'exact',
+  note:
+    'one answer for a finite, normal f32; a NaN or subnormal bit pattern has no fixed answer ' +
+    '(WGSL §15.7.2, GLSL ES 3.00 §2.1.1), so keep an integer word in a storage<array<u32>> binding',
+};
 
 const EMULATED_BOUND =
   'emulated double: f32 pairs whose error terms hold while the driver neither reassociates nor fuses them, which WGSL §15.7.5 allows and the _fp64 guard texture prevents';
@@ -363,6 +378,7 @@ export function accuracyOf(op: string): DeterminismAccuracy | undefined {
   if (row !== undefined) return row;
   if (op.startsWith('textureSample')) return FILTERED;
   if (isGather(op)) return GATHERED;
+  if (op.startsWith('bitcast')) return BITCAST_EXACT;
   if (EXACT_PREFIXES.some((p) => op.startsWith(p))) return EXACT;
   return EXACT_OPS.has(op) ? EXACT : undefined;
 }

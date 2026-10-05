@@ -635,6 +635,15 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   dotU: { wgsl: (a) => `dot(${join(a)})`, glsl: (a) => `_idot(${join(a)})` },
   // bitcast<u32>(f) on WGSL; floatBitsToUint(f) on GLSL. The neutral id drops the
   // WGSL generic-call syntax that used to live in the IR.
+  //
+  // A NaN or subnormal f32 has no portable answer (change 0045, Rule 11.2). Measured 2026-10-05
+  // on the words 0x7fc00001, 0x7fffffff, 0xffc00005, 0x7f800001 (NaN) and 0x00000001, 0x007fffff,
+  // 0x80000001 (subnormal), loaded from a storage<array<vec4>> and read with bitcast<u32>:
+  // WebGPU (Tint, SwiftShader) and WebGL2 (ANGLE, SwiftShader, R32F + floatBitsToUint) gave
+  // every word back; the oracle gave each NaN as 0x7fc00000 in bun 1.3.14 and node 22.22.0
+  // and each subnormal as written. WGSL §15.7.2 allows either, GLSL ES 3.00 §2.1.1 lets a
+  // driver flush the subnormals. accuracyOf's note says so; an integer word belongs in a u32
+  // binding.
   bitcastU32: {
     wgsl: (a) => `bitcast<u32>(${join(a)})`,
     glsl: (a) => `floatBitsToUint(${join(a)})`,

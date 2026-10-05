@@ -25,6 +25,15 @@ repository was published to npm before **`0.1.0`, the first release**.
   form's answer. The editor accepts the same calls with no `TS2344`. A vector of another width is
   `TS8003`, which names the one overload; the signed forms are still refused.
 
+- **A NaN or subnormal `f32` word has no portable `bitcast`, and the docs say so** (proposal
+  0045, #479; design rules 1.3 and 11.2; surface §44). Measured: the CPU oracle gives a NaN word
+  back as `0x7fc00000` on bun and node, while SwiftShader's WebGPU and WebGL2 keep the bits; WGSL
+  §15.7.2 permits either, and GLSL ES 3.00 §2.1.1 lets a driver flush a subnormal, which every
+  small integer is as `f32` bits. Surface §44 and the `bitcast` hover say to keep an integer
+  word in a `storage<array<u32>>` or `storage<array<vec4u>>` binding. `accuracyOf` gives every
+  `bitcast` id `exact` with a `note`; the `exact` arm of `DeterminismAccuracy` gains that
+  optional `note`. No target's answer changes.
+
 - **Parameters that write back: `@inout` and `@out`** (proposal 0040; design rules 8.25, 8.8,
   8.10, 8.17, 7.9, 6.7, 6.10, 2.1, 9.6 and 12.7; surface §70, with §9, §14, §26, §49 and §52). A
   parameter declared `@inout` names the caller's place, and the call passes the variable itself:

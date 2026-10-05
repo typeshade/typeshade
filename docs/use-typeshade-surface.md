@@ -5003,6 +5003,17 @@ convert: vec3u(x) is the conversion.` A target that is not one of the eight name
 `bitcast needs the type to read the bits as: u32 or f32, or a vector of them, ...; got
 bitcast<vec4i>.` The signed forms are not here yet.
 
+An `f32` whose bits are a NaN or a subnormal has no portable `bitcast<u32>` (change 0045). WGSL
+lets an implementation assume no NaN is present, which leaves the result indeterminate, and
+lets a bit reinterpretation flush a subnormal (§15.7.2); GLSL ES 3.00 lets a driver flush any
+denormal (§2.1.1). The CPU oracle holds an `f32` as a JavaScript number and gives a NaN back as
+`0x7fc00000` on bun and node; SwiftShader's WebGPU and WebGL2 gave the bits back, measured
+2026-10-05. A small integer is a subnormal `f32` pattern (`1u` is 1.4e-45), so an integer word
+stored as the bits of an `f32` is not portable on any target. Declare the binding that carries
+integer words as `storage<array<u32>>` or `storage<array<vec4u>>`: each is exact everywhere, and
+GLSL reads it from an R32UI data texture. `accuracyOf('bitcastU32')` is `exact` with a `note`
+that says so.
+
 `quantizeToF16(x)` rounds to what an IEEE-754 binary16 holds and comes back as an `f32`, so a
 shader can see the precision an f16 pipeline would give it without the `shader-f16` extension.
 It takes an `f32` or a float vector, and on GLSL it is spelled ONE COMPONENT AT A TIME: pairing
