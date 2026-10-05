@@ -317,8 +317,9 @@ repository was published to npm before **`0.1.0`, the first release**.
   not supported yet". `Map<K, V>`, `Promise<T>` and `Partial<T>`, which a shader has none of, are
   unknown types now, as their bare names were. No program that compiled is refused, and none that
   was refused is accepted. `src/compiler/ts/foreign-names.test.ts` holds both address spaces in
-  a module `let`, an entry's body and a parameter, in `compile()` and in the editor, with the
-  span on the name and the `workgroup<T>` the sentence names compiling clean;
+  a module `let`, an entry's body, a parameter, a return type, a field of a class and an argument
+  of `array`, in `compile()` and in the editor, with the span on the name and the `workgroup<T>`
+  the sentence names compiling clean;
   `src/compiler/ts/unknown-names.test.ts` holds the typo, the two remedies a name nothing is
   spelled like takes, and the generics that keep their sentence.
 
@@ -353,7 +354,9 @@ repository was published to npm before **`0.1.0`, the first release**.
   names in every construct it can be written in, eleven for an expression and four for a
   statement, and in the arguments of a generic the compiler refused, against `compile()`'s
   sentence for it, and `src/language-service/check.test.ts` the command's list for the list
-  above.
+  above. `src/compiler/ts/foreign-names.test.ts` reads the editor, which it had read for `fmod`
+  alone, on every row it pins through `compile()` and on the controls (`myHelper`, `colr`, a
+  declared `lerp`): the same code, text and span, and no TypeScript report beside them.
 
 ## [0.1.0] - 2026-09-29
 
