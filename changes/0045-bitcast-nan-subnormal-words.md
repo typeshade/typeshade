@@ -1,7 +1,7 @@
 ---
 id: '0045'
 title: 'The docs and the determinism report say that an f32 holding a NaN or subnormal bit pattern has no portable `bitcast`, and that an integer word belongs in a `storage<array<u32>>` binding'
-status: draft
+status: accepted
 rules: []
 surface:
   - 38
@@ -17,13 +17,13 @@ downstream:
     what: The skill's language reference (plugins/typeshade/skills/typeshade/references/language.md, the bitcast line) says to keep an integer word in a storage<array<u32>> binding; compiler-changes.md records 0045 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — a draft proposal names tests that do not exist yet, and files in downstream repositories -->
+<!-- doc-refs: skip-file — an accepted but unimplemented proposal names tests that do not exist yet, and files in downstream repositories -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                     |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0045`, `status: draft`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                      |
+| Identity and status           | Change proposal `0045`, `status: accepted`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                   |
 | Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction, from issue [#479](https://github.com/typeshade/typeshade/issues/479), which typeshade/radiance raised from its design record 0001, step 2.                          |
 | Applicability / Effectivity   | Surface §38 and §44; the determinism report's `bitcast` rows (`src/core/passes/determinism.ts`); the registry's comment on `bitcastU32` (`src/core/intrinsics.ts`); the hover text (`src/language-service/docs.ts`); the oracle parity test; the site and the editor. No emitted text changes. Release version unassigned. |
 | Review baseline               | `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`.                                                                                                                                                                                                                                                               |
@@ -135,12 +135,12 @@ defect, outside this proposal, and it needs an issue of its own.
 - **Document only (proposed).** It matches what WGSL and GLSL ES 3.00 say, and it names the
   binding type that is exact everywhere.
 
-### Unresolved decisions
+### Decisions at acceptance
 
-- Whether the `note` goes on the report's `bitcastU32` and `bitcastF32` rows (proposed), or the
-  two move to a class of their own. A new class changes the report's vocabulary, so this draft
-  does not propose one.
-- Whether surface §38's prose also gains the sentence, or the row's `note` is enough there.
+- The `note` goes on the report's `bitcastU32` and `bitcastF32` rows, which stay in the `exact`
+  class. No class is added.
+- Surface §38's prose gains no sentence. The row's `note` is what §38 carries; the paragraph is
+  §44's.
 
 ## What it touches
 
@@ -157,9 +157,9 @@ Required functional evidence, from the tests #479 lists:
   pattern. On `compileModule` and `compileModuleJs`, at both precisions. The same words in a
   `storage<array<u32>>` binding read back as written.
 - `src/core/passes/determinism.test.ts`: the `bitcast` rows carry the `note`.
-- The GPU measurement above is retained in this file. Whether a WebGPU test enters
-  `scripts/gpu-differential.ts` is decided at acceptance; the gate today leaves NaN and
-  subnormal values out of its comparison on purpose.
+- The GPU measurement above is retained in this file. No WebGPU test enters
+  `scripts/gpu-differential.ts`: the gate leaves NaN and subnormal values out of its
+  comparison on purpose.
 
 ### Draft impact estimate
 
@@ -169,10 +169,10 @@ text, dependency or tool changes.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires: the owner's decision on the two unresolved
-decisions above, recorded in this file; the actual decision and its pull request reference; and
-the approved revision of this file. No responsibility, milestone, duration or cost is assigned
-by this draft.
+The approval is the owner's go-ahead in conversation on 2026-10-05, Asia/Seoul, which accepted
+the proposal with the smaller of the two options for each decision above. The merge of
+[PR #483](https://github.com/typeshade/typeshade/pull/483) records it; Git holds the merge
+commit. The approved revision is this file at that merge. Responsibilities, milestones, duration and cost were not assigned.
 
 ### Configuration and validation record
 
