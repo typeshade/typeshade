@@ -4,8 +4,8 @@
 // (`scripts/entry-calls-page.ts`), which dispatches every compute entry of the examples and draws
 // its render case (`scripts/render-case.ts`: indexed draws, a depth state, a load op and vertex
 // pulling, each frame held to a picture), which this recording device sees only as command names.
-// Step 3's tests hold the call layer and the runtime to one device and one `Resident` (Rule 11.8).
-// Change
+// Step 3's tests hold the call layer and the runtime to one device and one `Resident`
+// (Rule 11.8). Change
 // 0028's override values are held here to what each stage is created with, each refusal and the
 // pipeline cache's key, and on a real device by `journeys/overrides`; its texture sample types to
 // the layout each texture is given, and on a real device by `journeys/textures`; its console
