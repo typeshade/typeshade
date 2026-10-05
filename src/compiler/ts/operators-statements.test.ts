@@ -23,6 +23,7 @@ import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import type { TypeshadeDiagnostic } from '../../language-service/types.js';
 
 function compiled(source: string) {
   const c = compile(`"use typeshade"\n${source}`);
@@ -240,11 +241,57 @@ describe('a case body does not fall through (Rule 7.3, #202)', () => {
       .map((d) => `${String(d.line)}:${String(d.character)} ${d.code ?? ''} ${d.message}`);
   }
 
+  /** The editor holding `source` as its one document, under the directive `compiled` and
+   *  `errors` prepend. */
+  function open(source: string) {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', `"use typeshade"\n${source}`);
+    return service;
+  }
+
+  /** A diagnostic of the editor in the words `errors` uses, so a list from either half compares
+   *  as strings. */
+  const worded = (d: TypeshadeDiagnostic): string =>
+    `${String(d.range.start.line + 1)}:${String(d.range.start.character + 1)} ` +
+    `${String(d.code)} ${d.message}`;
+
+  /** `errors`, after asserting the editor says exactly the same on the same source: its whole
+   *  list, so a TypeScript report beside the compiler's, or a second report of the one mistake,
+   *  would show (Rule 12.4, Rule 12.7), and its output pane, which prints no shader for any
+   *  target of a program `compile()` refuses and lists the same mistakes. A pane that printed
+   *  one for the issue's program would hand the GPU 1 where TypeScript gives 3: the emit has no
+   *  fall-through. */
+  function refused(source: string): string[] {
+    const found = errors(source);
+    const service = open(source);
+    expect(service.getDiagnostics('a.ts').map(worded), 'the editor').toEqual(found);
+    for (const target of ['wgsl', 'glsl-vertex', 'glsl-fragment'] as const) {
+      const pane = service.getCompiledOutput('a.ts', target)!;
+      expect(pane.text, `the pane's ${target}`).toBe('');
+      expect(pane.diagnostics.map(worded), `the pane's ${target}`).toEqual(found);
+    }
+    return found;
+  }
+
+  /** `compiled`, after asserting the editor lists nothing and its output pane prints the WGSL
+   *  `compile()` emits, with nothing to report. */
+  function accepted(source: string): ReturnType<typeof compiled> {
+    const c = compiled(source);
+    const service = open(source);
+    expect(service.getDiagnostics('a.ts'), 'the editor').toEqual([]);
+    expect(service.getCompiledOutput('a.ts', 'wgsl'), 'the pane').toEqual({
+      target: 'wgsl',
+      text: c.wgsl,
+      diagnostics: [],
+    });
+    return c;
+  }
+
   it('refuses a case that runs on into the next body, at its label', () => {
     // The issue's program: TypeScript gives k = 0 the value 3, and the emit, which has no
     // fall-through, gave 1 with no diagnostic.
     expect(
-      errors(`export function f(k: i32): f32 {
+      refused(`export function f(k: i32): f32 {
   let x: f32 = 0.;
   switch (k) {
     case 0: x = 1.
@@ -257,7 +304,7 @@ describe('a case body does not fall through (Rule 7.3, #202)', () => {
 
   it('refuses a default above a case, and names the label as written', () => {
     expect(
-      errors(`const MODE: i32 = 2
+      refused(`const MODE: i32 = 2
 export function f(k: i32): f32 {
   let x: f32 = 0.;
   switch (k) {
@@ -280,7 +327,7 @@ export function f(k: i32): f32 {
     // leaves the loop, not the switch: TypeScript's own reachability, which `tsc` applies with
     // `noFallthroughCasesInSwitch`.
     expect(
-      errors(`export function f(k: i32, c: bool): f32 {
+      refused(`export function f(k: i32, c: bool): f32 {
   let x: f32 = 0.;
   switch (k) {
     case 0:
@@ -296,7 +343,7 @@ export function f(k: i32): f32 {
   });
 
   it('takes every way a case can end, and a last case with no break', () => {
-    const c = compiled(`export function f(k: i32, flag: i32): f32 {
+    const source = `export function f(k: i32, flag: i32): f32 {
   let x: f32 = 0.;
   for (let i: i32 = 0; i < 2; i++) {
     switch (k) {
@@ -312,7 +359,8 @@ export function f(k: i32): f32 {
     }
   }
   return x
-}`);
+}`;
+    const c = accepted(source);
     for (const [k, flag, want] of [
       [0, 1, 1],
       [1, 1, 2],
@@ -328,20 +376,21 @@ export function f(k: i32): f32 {
   });
 
   it('takes a case that runs on only into empty clauses at the end, where TypeScript runs nothing more', () => {
-    compiled(`export function f(k: i32): f32 {
+    const source = `export function f(k: i32): f32 {
   let x: f32 = 0.;
   switch (k) {
     case 0: x = 1.
     default:
   }
   return x
-}`);
+}`;
+    accepted(source);
   });
 
   it('says one thing about a case above a trailing empty one (Rule 12.4)', () => {
     // The trailing `case 1:` is refused for having no body, and deleting it is the fix; the
-    // case above it runs on into nothing, so it is not reported as well.
-    const found = errors(`export function f(k: i32): f32 {
+    // case above it runs on into nothing, so it is not reported as well, by either half.
+    const found = refused(`export function f(k: i32): f32 {
   let x: f32 = 0.;
   switch (k) {
     case 0: x = 1.
@@ -351,6 +400,36 @@ export function f(k: i32): f32 {
 }`);
     expect(found).toHaveLength(1);
     expect(found[0]).toContain(`${TS_CODES.SWITCH_CASE} switch case 1 has no body`);
+  });
+
+  it('accepts both remedies the message names, and repeating the shared statements gives what TypeScript ran', () => {
+    // The issue's program with "break" added: case 0 stops at 1. With the shared statements
+    // repeated in case 0 it does what TypeScript's fall-through did, `x = 1.` and then `x += 2.`,
+    // which is 3.
+    const withBreak = `export function f(k: i32): f32 {
+  let x: f32 = 0.;
+  switch (k) {
+    case 0: x = 1.; break
+    case 1: x += 2.; break
+  }
+  return x
+}`;
+    const repeated = `export function f(k: i32): f32 {
+  let x: f32 = 0.;
+  switch (k) {
+    case 0: x = 1.; x += 2.; break
+    case 1: x += 2.; break
+  }
+  return x
+}`;
+    for (const [source, atZero] of [
+      [withBreak, 1],
+      [repeated, 3],
+    ] as const) {
+      const c = accepted(source);
+      expect(cpu(c, 'f', [0])).toEqual([atZero, atZero]);
+      expect(cpu(c, 'f', [1])).toEqual([2, 2]);
+    }
   });
 });
 

@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createTypeshadeLanguageService } from './service.js';
+import {
+  analyzeSourceFile,
+  createTypeshadeLanguageService,
+  createTypeshadeLanguageServiceWith,
+} from './service.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -408,6 +412,82 @@ describe('getCompiledOutput', () => {
     expect(glsl).toBeDefined();
     expect(glsl!.diagnostics).toEqual([]);
     expect(glsl!.text).toContain('void main');
+  });
+
+  // A mistake in a shader file a document imports holds its output back (`link.test.ts`, on the
+  // same two files as `compile()`). The report is placed in the file it is in, which needs the
+  // program to hold that file. When it does not, the output is held back all the same, since
+  // `compile()` emits nothing for an error wherever it is; what the pane lists then is not
+  // asserted, as no program the front end links puts an error in a file the service cannot read.
+  it('emits nothing for an error the front end places in a file the program does not hold', () => {
+    const service = createTypeshadeLanguageServiceWith({}, (sourceFile, imports) => {
+      const analysis = analyzeSourceFile(sourceFile, imports);
+      const elsewhere = {
+        message: 'A mistake in a file the program does not hold.',
+        fileName: '/not-in-the-program.ts',
+        line: 1,
+        character: 1,
+        endLine: 1,
+        endCharacter: 2,
+        category: 'error' as const,
+        code: 'TS8099',
+        start: 0,
+        length: 1,
+      };
+      return { ...analysis, diagnostics: [...analysis.diagnostics, elsewhere] };
+    });
+    service.openDocument('hello.ts', HELLO);
+    expect(service.getDiagnostics('hello.ts')).toEqual([]);
+    for (const target of ['wgsl', 'glsl-vertex', 'glsl-fragment'] as const) {
+      expect(service.getCompiledOutput('hello.ts', target)!.text, target).toBe('');
+    }
+  });
+
+  // The warnings the front end raises are on an entry point and on a kernel function's loop, and
+  // an imported file's own entry, or a kernel function nothing calls, is left out of the module
+  // with no report, so a small program draws no warning in an imported file and the analysis is
+  // given one. `compile()` reports a warning and emits, and so does the pane, with the warning in
+  // the file it is in.
+  it('reports a warning in an imported file, in that file, and emits all the same', () => {
+    const lib = '"use typeshade";\nexport function pick(k: i32): f32 {\n  return f32(k);\n}\n';
+    const main =
+      '"use typeshade";\nimport { pick } from "./lib.js";\n@fragment\n' +
+      'export function fs(@builtin("position") p: vec4): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n';
+    const start = lib.indexOf('pick');
+    const service = createTypeshadeLanguageServiceWith(
+      { readDocument: (uri) => (uri === '/lib.ts' ? lib : undefined) },
+      (sourceFile, imports) => {
+        const analysis = analyzeSourceFile(sourceFile, imports);
+        const warning = {
+          message: 'A warning in the imported file.',
+          fileName: '/lib.ts',
+          line: 2,
+          character: 17,
+          endLine: 2,
+          endCharacter: 21,
+          category: 'warning' as const,
+          code: 'TS8070',
+          start,
+          length: 4,
+        };
+        return { ...analysis, diagnostics: [...analysis.diagnostics, warning] };
+      },
+    );
+    service.openDocument('/main.ts', main);
+    expect(service.getDiagnostics('/main.ts')).toEqual([]);
+    const out = service.getCompiledOutput('/main.ts', 'wgsl')!;
+    expect(out.text).toContain('fn pick');
+    expect(out.diagnostics).toEqual([
+      {
+        uri: '/lib.ts',
+        span: { start, length: 4 },
+        range: { start: { line: 1, character: 16 }, end: { line: 1, character: 20 } },
+        severity: 'warning',
+        message: 'A warning in the imported file.',
+        code: 'TS8070',
+        source: 'typeshade',
+      },
+    ]);
   });
 });
 
