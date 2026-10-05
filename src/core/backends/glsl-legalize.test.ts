@@ -298,9 +298,7 @@ describe('glsl-legalize — leaves the shapes that do not trip ANGLE alone', () 
       dslModule({ uses: [OutS, GuardedS], funcs: [helperS, pickS, fsS] }),
       'fragment',
     );
-    expect(g).toContain(
-      '  GuardedS _sel0;\n  if ((v > 0.0)) {\n    vec4 _dh0 = helper_s(v);',
-    );
+    expect(g).toContain('  GuardedS _sel0;\n  if ((v > 0.0)) {\n    vec4 _dh0 = helper_s(v);');
     // The discarding call is inside the branch its condition guards, which is the whole point.
     expect(g).not.toContain('? GuardedS(');
   });
