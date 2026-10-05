@@ -217,6 +217,26 @@ repository was published to npm before **`0.1.0`, the first release**.
     stage, the vertex stage or the fragment stage is created with no values.
   - `typeshade/runtime` is now 11,099 bytes minified and gzipped, 501 under its budget.
 
+- **CI runs the type check and the unit suite on TypeScript 5.9 and 6.0, beside the pinned 5.6.3**
+  (#259; Rule 13.4). `typecheck + unit` installs the 5.6.3 that `package.json` pins, and the
+  editors that load the language service ship newer ones. A newer TypeScript had already changed
+  what the compiler reads once, with the pinned one silent: TS2454 on workgroup memory, reported
+  from 5.7 (#247). The `typescript-versions` job installs 5.9.3 and 6.0.3 over the pin with
+  `bun add --no-save`, fails a leg that does not run the version it names, and runs
+  `bun run build` and `bun run test`. Each leg is a check of its own, named for its version:
+  `typecheck + unit (TypeScript 5.9.3)` and `typecheck + unit (TypeScript 6.0.3)`. The release
+  workflow waits on both. With #247's rule disabled, `src/language-service/ambient.test.ts`
+  passes 228 of 228 on 5.6.3 and fails four Playground examples on each new version: the editor
+  half, which the pinned version could not read.
+  - `src/api-surface.test.ts` was red on both new versions with the surface unchanged. TypeScript
+    5.7 prints a typed array with its default type argument, `Uint8Array<ArrayBufferLike>`, in 4
+    shapes, and 6.0 turns `strict` on by default, which put `| undefined` on the optional members
+    and moved 166 lines. The reader now sets `strict: false` and drops that type argument, so
+    `src/__api__/surface.md` is byte for byte the same baked on 5.6.3, 5.9.3 and 6.0.3, and two arms
+    hold the reader to each.
+  - The peer range stays `>=5.0.0 <6`. 6.0.3 passing is what admitting it would rest on, and
+    that decision is not part of this change.
+
 ### Changed
 
 - **The CPU tier's code is written by type, and a host call of a small function is several
