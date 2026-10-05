@@ -1113,6 +1113,24 @@ describe('a mistake in an imported file holds back the shader text in both halve
     expect(paneErrors(out.diagnostics)).toEqual(reference);
   });
 
+  it("lists the document's own mistake first and the imported file's after it, each once", () => {
+    // `compile()` links a file after the files it imports, so it lists the import's mistake
+    // first; the editor's list for the document is what is located in it (Rule 3.9), so the
+    // pane gives that list as it stands and then what the front end reports in the imports.
+    const program: Files = {
+      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nfunction own(k: i32): f32 {\n  return false;\n}\n@fragment\nexport function fs(@builtin("position") p: vec4): vec4 {\n  return vec4(pick(i32(p.x)) + own(1));\n}\n`,
+      [LIB_URI]: lib('  return true;'),
+    };
+    const reference = errorsOf(program);
+    expect(reference.map((e) => e.split(' ')[0])).toEqual([`${LIB_URI}:3:3`, `${MAIN_URI}:4:3`]);
+    const service = serviceOf(program);
+    const own = service.getDiagnostics(MAIN_URI);
+    expect(paneErrors(own)).toEqual([reference[1]]);
+    const out = service.getCompiledOutput(MAIN_URI, 'wgsl')!;
+    expect(out.text).toBe('');
+    expect(paneErrors(out.diagnostics)).toEqual([reference[1], reference[0]]);
+  });
+
   it('places the mistake where the editor shows it on that file, past what the projection wrote in', () => {
     // `const v = vec2(1., 2.) * 2.` is `number` to TypeScript, so the program the service builds
     // writes `: vec2` in before the mistake on the same line (`projection.ts`, #162); the range
