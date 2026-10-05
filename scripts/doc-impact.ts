@@ -303,6 +303,14 @@ function shadeDts(): string {
   return ambient;
 }
 
+/** A change proposal (`changes/NNNN-*.md`). Its record names the spelling it replaces and the
+ *  alternatives it weighed, and an implementation that removes such a name leaves the record
+ *  true: a removed name it mentions is no must-fix, as in `CHANGELOG.md`. A removed file it
+ *  names is still one, and `doc-refs.ts` still reads every reference it makes. */
+export function isProposal(file: string): boolean {
+  return /^changes\/\d{4}-[^/]+\.md$/.test(file);
+}
+
 export function impactOf(diff: Diff): Impact[] {
   const impacts: Impact[] = [];
   const untouched = (m: Mention): boolean => !diff.touched.get(m.file)?.has(m.line);
@@ -337,7 +345,7 @@ export function impactOf(diff: Diff): Impact[] {
       // declared all the same: the library the editor reads is the one to ask.
       if (new RegExp(`^declare function ${escape(name)}\\b`, 'm').test(shadeDts())) continue;
       if (name.length < 3) continue;
-      const mentions = nameMentions(name).filter(untouched);
+      const mentions = nameMentions(name).filter((m) => untouched(m) && !isProposal(m.file));
       if (mentions.length) impacts.push({ subject, severity: 'must-fix', mentions });
     }
   }

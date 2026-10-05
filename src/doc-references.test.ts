@@ -21,7 +21,13 @@ import {
   scannedFiles,
   slug,
 } from '../scripts/doc-refs.js';
-import { changedRules, declaredNames, reshapedExports, surface } from '../scripts/doc-impact.js';
+import {
+  changedRules,
+  declaredNames,
+  isProposal,
+  reshapedExports,
+  surface,
+} from '../scripts/doc-impact.js';
 
 const FLOORS = { path: 400, rule: 250, code: 200, section: 40, script: 25, anchor: 15 } as const;
 
@@ -129,6 +135,15 @@ describe('the impact reader', () => {
         ]),
       ].sort(),
     ).toEqual(['Bar', 'Foo', 'PI', 'constExpr', 'f64FromParts']);
+  });
+
+  it('takes a proposal for a record: a removed name it mentions is no must-fix', () => {
+    // A proposal names the spelling it replaces; 0040's third amendment removed `ref`, and
+    // its own record, which says what `ref` was, was the must-fix list.
+    expect(isProposal('changes/0040-explicit-references-and-pointers.md')).toBe(true);
+    expect(isProposal('changes/README.md')).toBe(false);
+    expect(isProposal('changes/TEMPLATE.md')).toBe(false);
+    expect(isProposal('docs/language-design.md')).toBe(false);
   });
 
   it('reads the surface bake: names from the fences, shapes by definition key', () => {

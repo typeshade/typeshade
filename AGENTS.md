@@ -137,6 +137,8 @@ true is a set of steps with tools, each an industry practice, not a memory:
   the change modifies, a public export whose shape changed in `src/__api__/surface.md`, or a
   rule of `docs/language-design.md` whose text changed. Read each one and fix what is no longer
   true, in the same commit. `CHANGELOG.md` and `docs/HISTORY.md` record the past and are exempt.
+  A proposal in `changes/` names the spelling it replaces, so a removed name it mentions is
+  no _must fix_ either.
 - **Every reference resolves.** `src/doc-references.test.ts` (in `bun run test`; the same list
   is `bun run docs:refs`) fails on a path, a heading anchor, a numbered section, a `Rule N.M`,
   a diagnostic code or a `bun run` script that the prose or a code comment names and the tree
