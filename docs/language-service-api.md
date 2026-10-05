@@ -939,7 +939,7 @@ Document versions, for either adapter:
   derived from this same `exports` map by `scripts/publish-manifest.ts` — points the subpath
   there. In the repository and for a submodule consumer the subpath still resolves to source.
 - `typescript` is a `peerDependencies` entry, and as of the packaging work it is `>=5.0.0 <6`
-  and NO LONGER optional. The `peerDependenciesMeta` optional flag was written on the premise
+  (`<7` since CI runs TypeScript 6.0.3 too, #259) and NO LONGER optional. The `peerDependenciesMeta` optional flag was written on the premise
   that "a consumer that never touches `./language-service` installs nothing extra", and that
   premise is false: `src/compiler/ts/source-file.ts` imports `typescript` at module scope and
   `src/index.ts` re-exports `compile` from it, so a bare `import { emitModule } from 'typeshade'`
