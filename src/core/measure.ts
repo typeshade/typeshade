@@ -241,9 +241,9 @@ export function optimizerReport(m: ModuleDecl): OptimizerReport {
 // Every recorded compile cost in this repo is a TOTAL: 58-184 ms per retained family
 // (map/src/render/material/wgsl-for.ts:85), 80 ms for the polygon vertex emit against a 2 ms
 // module build (:115-116), a 2211 -> 492 ms hillshade fixpoint (baked/seed-hillshade.ts:7).
-// `lowerForBackend` runs nine stages and one of them is a per-function fixpoint of ten
-// passes over up to eight iterations, so a total says nothing about which of the nineteen
-// things to attack. This measures them.
+// `lowerForBackend` runs validation, lowering and optimization stages; the optimizer itself
+// iterates passes over each function, so a total says nothing about which stage or pass costs
+// the time. This measures them.
 
 /** One pre-emit stage's wall-clock. The `stage` names are `lowerForBackend`'s own steps. */
 export interface StageTiming {

@@ -351,9 +351,8 @@ const vecInterfaces = (elem: VecElem): string =>
  * lowers, which is why the `f64` vectors are here too (`core/passes/fp64-lower.ts` refuses every
  * other vec64 form itself, with "mix() on vec64 needs a scalar f32 interpolant"). The `i32` and
  * `u32` vectors get none, since WGSL's and GLSL's `mix` are float only, and neither do
- * `clamp(vecN, s, s)`, `min`/`max(vecN, s)`, `pow(vecN, s)` or `step(vecN, s)`: the front end
- * lowers all of those to a call Tint rejects with "no matching call", so declaring them here
- * would make the editor green on a program that does not reach the GPU.
+ * `clamp(vecN, s, s)`, `pow(vecN, s)` or `step(vecN, s)`. `min`/`max(vecN, s)` are declared
+ * separately and lowered to an explicit vector splat before emission.
  *
  * WHAT THE DECLARATION ADMITS is wider than the shape it is named for, knowingly. `t: number`
  * takes any scalar, and narrowing it to `f32` closes nothing, measured: the scalar brands are
@@ -412,6 +411,28 @@ function vec64Reduction(name: string, arity: 1 | 2): string {
   );
 }
 
+/** Native vector/scalar forms TypeShade lowers by splatting the scalar. The generated core.def
+ * overloads still provide the scalar/scalar and vector/vector forms; these extra declarations
+ * cover the authoring surface's portable broadcast form. */
+function componentwiseBroadcastSignature(name: string): string {
+  const vectors = [
+    ...F32_VEC_TYPE_NAMES,
+    ...['i32', 'u32'].flatMap((elem) => VEC_ARITIES.map((n) => vecTypeName(elem as VecElem, n))),
+  ];
+  return vectors.map((v) => `declare function ${name}(a: ${v}, b: number): ${v}`).join('\n');
+}
+
+function componentwiseBroadcastMethod(name: string): string {
+  const vectors = [
+    ...F32_VEC_TYPE_NAMES,
+    ...['i32', 'u32'].flatMap((elem) => VEC_ARITIES.map((n) => vecTypeName(elem as VecElem, n))),
+  ];
+  const doc = renderJSDoc(MATH_MEMBER_DOCS[name] ?? `${name} componentwise`)
+    .split('\n')
+    .join('\n  ');
+  return vectors.map((v) => `  ${doc}\n  ${name}(a: ${v}, b: number): ${v}`).join('\n');
+}
+
 function mixSignature(): string {
   const vectorWithScalar = (v: string): string =>
     `declare function mix(a: ${v}, b: ${v}, t: number): ${v}`;
@@ -453,6 +474,8 @@ const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
   normalize: 'declare function normalize<T extends Numeric | Vec64Any>(a: T): T',
   cross: 'declare function cross(a: vec3, b: vec3): vec3',
   mix: mixSignature(),
+  min: componentwiseBroadcastSignature('min'),
+  max: componentwiseBroadcastSignature('max'),
   // Roadmap 0.2 item 8: the shapes the generated "same type in, same type out" pair misses.
   // transpose(matCxR) -> matRxC on every shape (wgsl.txt:23397); determinant is square-only
   // (wgsl.txt:21842), so the non-square shapes get no overload and `tsc` says so first.
@@ -655,6 +678,10 @@ const mathMethods = [
     const [fewest, most] = EXPAND_ARITY[MATH_EXPAND_ALIAS[name]!];
     return mathMethod(name, name, mathParameters(name, fewest, most));
   }),
+  // A vector with a scalar, which the compiler splats (proposal 0033): `Math.max(v, 0)` on a
+  // `vec3` is a `vec3`. The scalar and the vector-with-vector forms are the alias's.
+  componentwiseBroadcastMethod('max'),
+  componentwiseBroadcastMethod('min'),
   // The one member that is not the compiler's, and the one exclusion of the parity assertion
   // (#181): ECMAScript's `Math.random()` takes no argument, and the compiler takes one seed and
   // refuses none, so no spelling of it compiles and is clean in the editor.

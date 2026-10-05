@@ -17,6 +17,7 @@ import { validate } from './passes/validate.js';
 import { assertCaps, assertBuiltins } from './passes/required-caps.js';
 import { lowerModule } from './passes/match-lower.js';
 import { selectComposite } from './passes/select-composite.js';
+import { lowerEmptyStructs } from './passes/empty-struct.js';
 import { settleConstExprs } from './passes/const-expr.js';
 import { fp64Lower, hoistGuardFetch, type Fp64Flavor } from './passes/fp64-lower.js';
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js';
@@ -422,8 +423,10 @@ export function lowerForBackend(
   // A conditional on a struct or a fixed-length array has no operator on EITHER target, so the
   // rewrite into a helper function is neutral and runs here rather than in a backend (#113).
   const pre = spellExterns(
-    selectComposite(
-      fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined),
+    lowerEmptyStructs(
+      selectComposite(
+        fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined),
+      ),
     ),
     be,
   );
@@ -478,12 +481,18 @@ function lowerTimed(
   const f64 = step('fp64Lower', () =>
     fp64Lower(lm, fp64Flavor ? { flavor: fp64Flavor } : undefined),
   );
-  const pre = step('spellExterns', () => spellExterns(f64, be));
+  const composite = step('selectComposite', () => selectComposite(f64));
+  const empty = step('lowerEmptyStructs', () => lowerEmptyStructs(composite));
+  const pre = step('spellExterns', () => spellExterns(empty, be));
+  const lowered = step('preOptimize', () =>
+    be.preOptimize === undefined ? pre : be.preOptimize(pre),
+  );
   const optimized = step('optimize', () =>
-    level === undefined ? be.optimize(pre) : optimizeAt(pre, level),
+    level === undefined ? be.optimize(lowered) : optimizeAt(lowered, level),
   );
   const settled = step('settleConstExprs', () => settleConstExprs(optimized));
-  return step('hoistGuardFetch', () => hoistGuardFetch(settled));
+  const guarded = step('hoistGuardFetch', () => hoistGuardFetch(settled));
+  return step('postLower', () => (be.postLower === undefined ? guarded : be.postLower(guarded)));
 }
 
 /** Resolve each `externref` to the spelling THIS target's host uses (X-GIS #1713).

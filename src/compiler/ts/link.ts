@@ -1117,6 +1117,57 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
    *  read through a module namespace. */
   const editsOf = (f: ProgramFile): Edit[] => {
     const edits: Edit[] = [];
+    // Linking must not make a local collide with a declaration from another file (#430).
+    // Rename by declaration identity so captures, shadowing and property keys stay distinct.
+    const localNames = new Map<ts.Symbol, string>();
+    const ownNames = new Set(
+      units.filter((u) => u.file === f).flatMap((u) => u.names.map((n) => n.text)),
+    );
+    for (const stmt of f.sf.statements) {
+      if (!carries(f, stmt)) continue;
+      for (const id of identifiersIn(stmt)) {
+        const parent = id.parent;
+        if (!(
+          (ts.isVariableDeclaration(parent) ||
+            ts.isParameter(parent) ||
+            ts.isBindingElement(parent) ||
+            ts.isFunctionDeclaration(parent)) &&
+          parent.name === id
+        ))
+          continue;
+        const symbol = checker.getSymbolAtLocation(id);
+        if (symbol === undefined || topNameOf(symbol) !== undefined || localNames.has(symbol))
+          continue;
+        if (ownNames.has(id.text) || owner.get(id.text) === undefined || owner.get(id.text) === f)
+          continue;
+        const name = fresh(stemOf(f), id.text);
+        taken.add(name);
+        localNames.set(symbol, name);
+      }
+    }
+    for (const stmt of f.sf.statements) {
+      if (!carries(f, stmt)) continue;
+      for (const id of identifiersIn(stmt)) {
+        const parent = id.parent;
+        const symbol = ts.isShorthandPropertyAssignment(parent)
+          ? checker.getShorthandAssignmentValueSymbol(parent)
+          : checker.getSymbolAtLocation(id);
+        const name = symbol === undefined ? undefined : localNames.get(symbol);
+        if (name === undefined) continue;
+        edits.push({
+          start: id.getStart(f.sf),
+          end: id.getEnd(),
+          text:
+            ts.isShorthandPropertyAssignment(parent) ||
+            (ts.isBindingElement(parent) &&
+              parent.name === id &&
+              parent.propertyName === undefined &&
+              ts.isObjectBindingPattern(parent.parent))
+              ? `${id.text}: ${name}`
+              : name,
+        });
+      }
+    }
     for (const stmt of f.sf.statements) {
       if (!carries(f, stmt)) continue;
       const unit = unitOfStatement.get(stmt);

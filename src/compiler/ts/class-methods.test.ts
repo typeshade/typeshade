@@ -335,15 +335,11 @@ function g(a: P<f32>, b: P<vec2>): f32 { return a.g + b.g }${TAIL}`),
         `"use typeshade"\nnamespace N { export class C { x: f32; m(): f32 { return 1. } m(): f32 { return 2. } } }${TAIL}`,
       ),
     ).toEqual([twice('C', 'm')]);
-    // The second body says nothing of why a class has no field, so a class with none is told
-    // that too, and one of statics alone stays the namespace it is.
+    // A fieldless class retains its type; the duplicate body is the only error.
     expect(
       bothHalves(`"use typeshade"
 class S { m(): f32 { return 1. } m(): f32 { return 2. } }${TAIL}`),
-    ).toEqual([
-      twice('S', 'm'),
-      `${TS_CODES.STRUCT_FIELD} Struct "S" has no fields. WGSL requires a struct to declare at least one member, so an empty one cannot be emitted. A class holding only functions is not a struct; write them as functions.`,
-    ]);
+    ).toEqual([twice('S', 'm')]);
     expect(
       bothHalves(`"use typeshade"
 class U { static f(): f32 { return 1. } static f(): f32 { return 2. } }

@@ -49,9 +49,7 @@ describe('math arguments: two shapes that had to agree', () => {
     expect(errorsOf(fn('v: vec3', 'vec3', 'clamp(v, 0., 1.)'))).toEqual([
       `${M} clamp takes arguments of one type; the first is vec3, this one f32. Splat the scalar to the vector's size: vec3(x).`,
     ]);
-    expect(errorsOf(fn('v: vec3', 'vec3', 'min(v, 0.5)'))).toEqual([
-      `${M} min takes arguments of one type; the first is vec3, this one f32. Splat the scalar to the vector's size: vec3(x).`,
-    ]);
+    expect(errorsOf(fn('v: vec3', 'vec3', 'min(v, 0.5)'))).toEqual([]);
     expect(errorsOf(fn('v: vec3', 'vec3', 'pow(v, 2.)'))).toHaveLength(1);
     expect(errorsOf(fn('v: vec3', 'vec3', 'step(v, 0.5)'))).toHaveLength(1);
     // The reverse shapes were refused before, as a return-type mismatch; now the argument.
@@ -61,9 +59,8 @@ describe('math arguments: two shapes that had to agree', () => {
     expect(errorsOf(fn('v: vec3', 'vec3', 'smoothstep(0., 1., v)'))).toEqual([
       `${M} smoothstep takes arguments of one type; the first is f32, this one vec3. Splat the scalar to the vector's size: vec3(x).`,
     ]);
-    expect(errorsOf(fn('v: vec3i, s: i32', 'vec3i', 'min(v, s)'))).toEqual([
-      `${M} min takes arguments of one type; the first is vec3i, this one i32. Splat the scalar to the vector's size: vec3i(x).`,
-    ]);
+    expect(errorsOf(fn('v: vec3i, s: i32', 'vec3i', 'min(v, s)'))).toEqual([]);
+    expect(compile(fn('v: vec3', 'vec3', 'min(v, 0.5)')).wgsl).toContain('min(v, vec3<f32>(0.5))');
     // Splatted, they compile.
     expect(errorsOf(fn('v: vec3', 'vec3', 'clamp(v, vec3(0.), vec3(1.))'))).toEqual([]);
   });
@@ -78,9 +75,7 @@ describe('math arguments: two shapes that had to agree', () => {
   });
 
   it('names the call as written: Math.min, and atan for the two-argument arctangent', () => {
-    expect(errorsOf(fn('v: vec3', 'vec3', 'Math.min(v, 0.5)'))).toEqual([
-      `${M} Math.min takes arguments of one type; the first is vec3, this one f32. Splat the scalar to the vector's size: vec3(x).`,
-    ]);
+    expect(errorsOf(fn('v: vec3', 'vec3', 'Math.min(v, 0.5)'))).toEqual([]);
     expect(errorsOf(fn('v: vec2, s: f32', 'vec2', 'atan(v, s)'))).toEqual([
       `${M} atan takes arguments of one type; the first is vec2, this one f32. Splat the scalar to the vector's size: vec2(x).`,
     ]);
@@ -341,6 +336,6 @@ export function probe(${params.join(', ')}): f32 {
     // `extractBits(x, offset, count)` takes a u32 offset, `ldexp(x, e)` an integer exponent
     // of x's shape, `mod(x, y)` a scalar divisor. `mix` and `insertBits` are NOT here: their
     // own roles sit at index 2, so their second argument is still the first one's type.
-    expect(ownRole).toEqual(['extractBits', 'ldexp', 'mod']);
+    expect(ownRole).toEqual(['extractBits', 'ldexp', 'max', 'min', 'mod']);
   });
 });

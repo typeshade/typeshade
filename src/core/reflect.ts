@@ -286,6 +286,12 @@ function structLayout(
   layout: LayoutKind,
   structs: ReadonlyMap<string, StructDecl>,
 ): StructLayout {
+  // Fieldless source classes have an internal u32 carrier on GPU (change 0035). The
+  // host object still has no fields, but nested values and arrays must advance its bytes.
+  if (struct.fields.length === 0) {
+    const size = layout === 'std140' ? 16 : 4;
+    return { name: struct.name, size, align: size, fields: [] };
+  }
   let cursor = 0;
   let maxAlign = 1;
   const fields: FieldLayout[] = [];

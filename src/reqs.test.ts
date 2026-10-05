@@ -107,6 +107,19 @@ describe('sanity: the tree reads the whole document', () => {
     // `.gitignore` has `coverage/`, which Doorstop reads as `*coverage*`.
     expect(doorstopSees('src/core/intrinsic-coverage.test.ts')).toBe(false);
   });
+
+  it('classifies native Windows paths the same as repository paths', () => {
+    // Known visible and invisible probes prove separator conversion does not hide everything.
+    for (const [path, visible] of [
+      ['src/core/emit.ts', true],
+      ['.github/workflows/ci.yml', false],
+      ['src/.hidden/test.ts', false],
+      ['src/core/intrinsic-coverage.test.ts', false],
+    ] as const) {
+      expect(doorstopSees(path), path).toBe(visible);
+      expect(doorstopSees(path.replace(/\//g, '\\')), path).toBe(visible);
+    }
+  });
 });
 
 describe('reqs/ follows the Markdown', () => {
